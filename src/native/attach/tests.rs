@@ -759,3 +759,58 @@ fn attach_by_id_presents_live_tab_and_repaints() {
     assert!(!set.close(token), "two tabs: closing one is not last");
     handle.join().expect("host thread");
 }
+
+/// Regression: audit P1 — a mid-frame read timeout must not desync the snapshot
+/// poll loop. `read_initial_snapshot` polls with `SNAPSHOT_POLL` (50ms) and
+/// retries on `WouldBlock`; with a stateless `read_exact`-based reader, a frame
+/// whose payload arrives split with an inter-arrival gap longer than the poll
+/// timeout loses the bytes consumed before the timeout, and the retry parses
+/// leftover payload as a fresh frame header (permanent desync). The writer here
+/// stalls 150ms mid-payload on an Output frame and again mid-payload on the
+/// Snapshot frame; the reader must resume both frames and return the intact
+/// snapshot bytes.
+#[test]
+fn initial_snapshot_survives_mid_frame_stall() {
+    fn encode_frame(kind: u8, payload: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(5 + payload.len());
+        bytes.push(kind);
+        bytes.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+        bytes.extend_from_slice(payload);
+        bytes
+    }
+
+    let (mut writer_end, mut reader_end) = UnixStream::pair().expect("socketpair");
+    let snapshot_payload: Vec<u8> = (0..64u8).cycle().take(4096).collect();
+    let expected = snapshot_payload.clone();
+
+    let writer = std::thread::spawn(move || {
+        use std::io::Write;
+        // Output frame (tolerated + ignored before the snapshot), split
+        // mid-payload with a stall longer than SNAPSHOT_POLL.
+        let output = encode_frame(2, b"FIRSThALF!");
+        writer_end.write_all(&output[..10]).expect("output half 1");
+        writer_end.flush().expect("flush");
+        std::thread::sleep(Duration::from_millis(150));
+        writer_end.write_all(&output[10..]).expect("output half 2");
+        // Snapshot frame, also split mid-payload with a stall.
+        let snapshot = encode_frame(1, &snapshot_payload);
+        let split = 5 + snapshot_payload.len() / 2;
+        writer_end
+            .write_all(&snapshot[..split])
+            .expect("snapshot half 1");
+        writer_end.flush().expect("flush");
+        std::thread::sleep(Duration::from_millis(150));
+        writer_end
+            .write_all(&snapshot[split..])
+            .expect("snapshot half 2");
+        writer_end.flush().expect("flush");
+        // Keep the write end open until the reader is done; dropping early
+        // could race an EOF into the poll loop.
+        std::thread::sleep(Duration::from_millis(500));
+    });
+
+    let result = read_initial_snapshot(&mut reader_end, Duration::from_secs(5));
+    writer.join().expect("writer thread");
+    let bytes = result.expect("snapshot must survive mid-frame stalls without desync");
+    assert_eq!(bytes, expected, "snapshot payload must arrive intact");
+}

@@ -44,8 +44,8 @@ use winit::event_loop::EventLoopProxy;
 
 use crate::core::{SnapshotEnvelope, SnapshotEnvelopeCaps, Terminal};
 use crate::session_host::protocol::{
-    ClientFrame, ClientHello, HostFrame, ProtocolError, read_host_frame, read_host_hello,
-    write_client_frame, write_client_hello,
+    ClientFrame, ClientHello, HostFrame, HostFrameReader, ProtocolError, read_host_frame,
+    read_host_hello, write_client_frame, write_client_hello,
 };
 use crate::session_host::{existing_runtime_dir, session_socket_path, validate_socket_parent};
 
@@ -277,9 +277,14 @@ fn read_initial_snapshot(stream: &mut UnixStream, deadline: Duration) -> Result<
     // normal case) this succeeds on both platforms and the poll timeout drives the
     // deadline exactly as before → byte-identical on Linux.
     let _ = stream.set_read_timeout(Some(SNAPSHOT_POLL));
+    // Resumable reader: a `SNAPSHOT_POLL` timeout firing mid-frame (a multi-MB
+    // snapshot arriving split under backpressure) keeps the partial frame, and
+    // the retry below resumes it instead of desyncing on leftover payload bytes
+    // (audit P1).
+    let mut frame_reader = HostFrameReader::default();
     let start = Instant::now();
     while start.elapsed() < deadline {
-        match read_host_frame(stream) {
+        match frame_reader.read(stream) {
             Ok(HostFrame::Snapshot(bytes)) => return Ok(bytes),
             Ok(HostFrame::Output(_)) | Ok(HostFrame::Invalidate { .. }) => {}
             Ok(HostFrame::SessionExit { .. }) => bail!("session exited before snapshot"),

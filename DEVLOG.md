@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Session host: resumable frame reader for poll-with-timeout clients (audit P1)
+
+Phase 6 confirmed defect (P1). The wire protocol's `read_frame` framed with
+sequential `read_exact` calls, and `std::io::Read::read_exact` discards the
+bytes it already consumed when it errors partway through a buffer. On a socket
+with a read timeout (`SO_RCVTIMEO`), a timeout firing MID-FRAME — a multi-MB
+attach snapshot arriving split under backpressure, with an inter-arrival gap
+longer than the 50/200ms poll — therefore lost the partial frame, and the
+poll-retry callers then parsed leftover payload bytes as a fresh frame header:
+a silent, permanent stream desync (typically surfacing as a bogus multi-GB
+frame length). Vulnerable sites: the attach handshake's snapshot poll
+(`read_initial_snapshot`, highest risk), and the CLI/registry probes through
+`SessionHostClient::read_frame`. The steady-state GUI pump (`run_attach_pump`)
+reads blocking with no timeout and was immune by construction; it is untouched.
+Fix: a stateful `HostFrameReader` in `protocol.rs` that preserves partial
+header/payload progress across `WouldBlock`/`TimedOut` and resumes exactly
+where it left off, wired into `read_initial_snapshot` and `SessionHostClient`
+(covering the CLI and registry probes transitively). Deterministic regression
+tests: a scripted in-memory reader proving resume across mid-header and
+mid-payload timeouts (plus a companion test documenting the stateless
+function's desync so nobody "simplifies" a poll site back to it), an
+oversized-frame reset test, and a socket-level test driving
+`read_initial_snapshot` through 150ms mid-payload stalls on both a preceding
+Output frame and the Snapshot itself — which failed with a desync error before
+the fix. Full suite, clippy `-D warnings`, and `cargo fmt --check` green.
+
 ## 2026-07-02 -- Reflow: map a cursor on a wide-glyph continuation cell to its lead (audit C18)
 
 Tier 3 audit fix (C18). The reflow rewrap loop advances two cells at a time

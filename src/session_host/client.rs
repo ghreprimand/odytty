@@ -9,7 +9,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 
 use super::protocol::{
-    ClientFrame, ClientHello, HostFrame, ProtocolError, read_host_frame, read_host_hello,
+    ClientFrame, ClientHello, HostFrame, HostFrameReader, ProtocolError, read_host_hello,
     write_client_frame, write_client_hello,
 };
 use super::socket::validate_socket_parent;
@@ -17,6 +17,11 @@ use super::socket::validate_socket_parent;
 #[derive(Debug)]
 pub struct SessionHostClient {
     stream: UnixStream,
+    /// Resumable frame reader: [`Self::read_frame`] polls with a read timeout,
+    /// and a timeout firing mid-frame must preserve the partial frame so the
+    /// caller's retry resumes it instead of desyncing on leftover payload bytes
+    /// (audit P1).
+    frame_reader: HostFrameReader,
 }
 
 impl SessionHostClient {
@@ -30,7 +35,10 @@ impl SessionHostClient {
             .context("read session-host hello")?
             .into_result()
             .context("session-host attach rejected")?;
-        Ok(Self { stream })
+        Ok(Self {
+            stream,
+            frame_reader: HostFrameReader::default(),
+        })
     }
 
     pub fn read_frame(&mut self, timeout: Duration) -> Result<Option<HostFrame>> {
@@ -44,7 +52,7 @@ impl SessionHostClient {
         // peer never trips the EINVAL and the timeout still bounds the poll exactly
         // as before → byte-identical on Linux.
         let _ = self.stream.set_read_timeout(Some(timeout));
-        match read_host_frame(&mut self.stream) {
+        match self.frame_reader.read(&mut self.stream) {
             Ok(frame) => Ok(Some(frame)),
             Err(ProtocolError::Io(error))
                 if matches!(

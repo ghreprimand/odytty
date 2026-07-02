@@ -265,6 +265,10 @@ pub fn write_host_frame(writer: &mut impl Write, frame: &HostFrame) -> Result<()
 
 pub fn read_host_frame(reader: &mut impl Read) -> Result<HostFrame, ProtocolError> {
     let (kind, payload) = read_frame(reader)?;
+    decode_host_frame(kind, payload)
+}
+
+fn decode_host_frame(kind: u8, payload: Vec<u8>) -> Result<HostFrame, ProtocolError> {
     match kind {
         1 => Ok(HostFrame::Snapshot(payload)),
         2 => Ok(HostFrame::Output(payload)),
@@ -366,6 +370,100 @@ fn read_frame(reader: &mut impl Read) -> Result<(u8, Vec<u8>), ProtocolError> {
     Ok((kind[0], payload))
 }
 
+/// Wire size of a frame header: 1-byte kind + 4-byte big-endian payload length.
+const FRAME_HEADER_LEN: usize = 5;
+
+/// Stateful, resumable host-frame reader for **poll-with-timeout** callers.
+///
+/// The stateless [`read_host_frame`] frames with sequential `read_exact` calls,
+/// and `std::io::Read::read_exact` DISCARDS the bytes it already consumed when it
+/// errors partway through a buffer — e.g. when `SO_RCVTIMEO` fires mid-frame. A
+/// caller that treats the timeout as "no frame yet" and retries on the same
+/// stream then parses leftover payload bytes as a fresh frame header, silently
+/// and permanently desyncing the stream (audit P1). That is safe only for
+/// blocking readers with no read timeout (`run_attach_pump`), where `read_exact`
+/// waits for the whole payload.
+///
+/// This reader keeps partial progress across calls: a `WouldBlock`/`TimedOut`
+/// error preserves every byte read so far, and the next call resumes exactly
+/// where the previous one left off, so the poll-retry pattern is correct. After
+/// any error **other** than `WouldBlock`/`TimedOut` the stream is undefined
+/// mid-frame (exactly as with the stateless path) and the reader must be
+/// discarded together with the stream.
+#[derive(Debug, Default)]
+pub struct HostFrameReader {
+    header: [u8; FRAME_HEADER_LEN],
+    header_filled: usize,
+    payload: Vec<u8>,
+    payload_filled: usize,
+}
+
+impl HostFrameReader {
+    /// Read (or resume reading) one host frame. On `WouldBlock`/`TimedOut` the
+    /// partial frame is retained and a later call resumes it.
+    pub fn read(&mut self, reader: &mut impl Read) -> Result<HostFrame, ProtocolError> {
+        let (kind, payload) = self.read_raw(reader)?;
+        decode_host_frame(kind, payload)
+    }
+
+    fn read_raw(&mut self, reader: &mut impl Read) -> Result<(u8, Vec<u8>), ProtocolError> {
+        while self.header_filled < FRAME_HEADER_LEN {
+            let count = read_nonzero(reader, &mut self.header[self.header_filled..])?;
+            self.header_filled += count;
+            if self.header_filled == FRAME_HEADER_LEN {
+                let len =
+                    u32::from_be_bytes(self.header[1..5].try_into().expect("header is 5 bytes"))
+                        as usize;
+                if len > MAX_FRAME_LEN {
+                    // Fatal for the stream; reset so the reader is not left with
+                    // a header that has no matching payload buffer.
+                    self.reset();
+                    return Err(ProtocolError::FrameTooLarge {
+                        len,
+                        max: MAX_FRAME_LEN,
+                    });
+                }
+                // Allocated in the same call that completes the header, so the
+                // cross-call invariant holds: header complete ⇒ payload sized.
+                self.payload = vec![0u8; len];
+                self.payload_filled = 0;
+            }
+        }
+        while self.payload_filled < self.payload.len() {
+            let count = read_nonzero(reader, &mut self.payload[self.payload_filled..])?;
+            self.payload_filled += count;
+        }
+        let kind = self.header[0];
+        let payload = std::mem::take(&mut self.payload);
+        self.reset();
+        Ok((kind, payload))
+    }
+
+    fn reset(&mut self) {
+        self.header_filled = 0;
+        self.payload = Vec::new();
+        self.payload_filled = 0;
+    }
+}
+
+/// One `read` into `buf`, retrying `Interrupted` (as `read_exact` does) and
+/// mapping a zero-byte read to `UnexpectedEof`. `buf` is never empty here.
+fn read_nonzero(reader: &mut impl Read, buf: &mut [u8]) -> Result<usize, ProtocolError> {
+    loop {
+        match reader.read(buf) {
+            Ok(0) => {
+                return Err(ProtocolError::Io(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "failed to fill whole buffer",
+                )));
+            }
+            Ok(count) => return Ok(count),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(ProtocolError::Io(error)),
+        }
+    }
+}
+
 fn write_string(writer: &mut impl Write, value: &str, max: usize) -> Result<(), ProtocolError> {
     let bytes = value.as_bytes();
     if bytes.len() > max {
@@ -453,5 +551,145 @@ mod tests {
         write_frame(&mut buffer, 200, &[]).expect("write frame");
         let err = read_client_frame(&mut buffer.as_slice()).expect_err("unknown kind must error");
         assert!(matches!(err, ProtocolError::InvalidFrameKind(200)));
+    }
+
+    /// A scripted `Read`: replays a fixed sequence of byte chunks and
+    /// `WouldBlock` timeouts, modeling a socket with `SO_RCVTIMEO` whose peer
+    /// stalls mid-frame. Deterministic — no sockets, no sleeps.
+    enum Step {
+        Bytes(Vec<u8>),
+        Timeout,
+    }
+
+    struct ScriptedReader {
+        steps: std::collections::VecDeque<Step>,
+    }
+
+    impl Read for ScriptedReader {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            match self.steps.front_mut() {
+                None => Ok(0), // EOF
+                Some(Step::Timeout) => {
+                    self.steps.pop_front();
+                    Err(io::Error::from(io::ErrorKind::WouldBlock))
+                }
+                Some(Step::Bytes(bytes)) => {
+                    let count = bytes.len().min(buf.len());
+                    buf[..count].copy_from_slice(&bytes[..count]);
+                    bytes.drain(..count);
+                    if bytes.is_empty() {
+                        self.steps.pop_front();
+                    }
+                    Ok(count)
+                }
+            }
+        }
+    }
+
+    fn encoded_host_frame(frame: &HostFrame) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        write_host_frame(&mut bytes, frame).expect("encode host frame");
+        bytes
+    }
+
+    fn is_would_block(err: &ProtocolError) -> bool {
+        matches!(err, ProtocolError::Io(error) if error.kind() == io::ErrorKind::WouldBlock)
+    }
+
+    /// Regression: audit P1 — a read timeout firing mid-frame must not desync
+    /// the stream. The stateless reader loses the bytes `read_exact` already
+    /// consumed and the retry decodes leftover payload as a frame header; the
+    /// resumable reader keeps partial progress, so the poll-retry pattern
+    /// yields both frames intact.
+    #[test]
+    fn host_frame_reader_resumes_after_mid_frame_timeout() {
+        let first = HostFrame::Output(b"FIRSThALF!".to_vec());
+        let second = HostFrame::Invalidate { render_revision: 7 };
+        let first_bytes = encoded_host_frame(&first);
+        // Stall points: mid-header (after 3 of 5 header bytes) and mid-payload
+        // (after 5 of 10 payload bytes) — both read_exact loss sites.
+        let mut reader = ScriptedReader {
+            steps: [
+                Step::Bytes(first_bytes[..3].to_vec()),
+                Step::Timeout,
+                Step::Bytes(first_bytes[3..10].to_vec()),
+                Step::Timeout,
+                Step::Bytes(first_bytes[10..].to_vec()),
+                Step::Bytes(encoded_host_frame(&second)),
+            ]
+            .into(),
+        };
+        let mut frames = Vec::new();
+        let mut timeouts = 0;
+        let mut frame_reader = HostFrameReader::default();
+        while frames.len() < 2 {
+            match frame_reader.read(&mut reader) {
+                Ok(frame) => frames.push(frame),
+                Err(err) if is_would_block(&err) => timeouts += 1,
+                Err(err) => panic!("desync: {err}"),
+            }
+        }
+        assert_eq!(timeouts, 2, "both scripted mid-frame timeouts must fire");
+        assert_eq!(frames, vec![first, second]);
+    }
+
+    /// The same script against the stateless `read_host_frame` poll pattern
+    /// documents WHY the resumable reader exists: the retry after a mid-frame
+    /// timeout mis-parses leftover bytes. Guards against someone "simplifying"
+    /// a poll site back to the free function.
+    #[test]
+    fn stateless_read_host_frame_desyncs_on_mid_frame_timeout() {
+        let first_bytes = encoded_host_frame(&HostFrame::Output(b"FIRSThALF!".to_vec()));
+        let mut reader = ScriptedReader {
+            steps: [
+                Step::Bytes(first_bytes[..10].to_vec()),
+                Step::Timeout,
+                Step::Bytes(first_bytes[10..].to_vec()),
+            ]
+            .into(),
+        };
+        let mut outcome = Vec::new();
+        for _ in 0..4 {
+            match read_host_frame(&mut reader) {
+                Ok(frame) => outcome.push(Ok(frame)),
+                Err(err) if is_would_block(&err) => continue,
+                Err(err) => {
+                    outcome.push(Err(err));
+                    break;
+                }
+            }
+        }
+        // The retry parsed payload bytes "hALF!" as a frame header: kind 0x68
+        // ('h') with a bogus multi-GB length — never the real Output frame.
+        assert!(
+            matches!(
+                outcome.as_slice(),
+                [Err(ProtocolError::FrameTooLarge { .. })]
+                    | [Err(ProtocolError::InvalidFrameKind(_))]
+                    | [Err(ProtocolError::Io(_))]
+            ),
+            "stateless poll must desync (got {outcome:?})"
+        );
+    }
+
+    /// An oversized frame length is fatal but must leave the reader reset, not
+    /// holding a header with no payload buffer.
+    #[test]
+    fn host_frame_reader_rejects_oversized_frame_and_resets() {
+        let mut bytes = vec![2u8];
+        bytes.extend_from_slice(&((MAX_FRAME_LEN as u32) + 1).to_be_bytes());
+        let follow_on = encoded_host_frame(&HostFrame::Output(b"ok".to_vec()));
+        let mut reader = ScriptedReader {
+            steps: [Step::Bytes(bytes), Step::Bytes(follow_on)].into(),
+        };
+        let mut frame_reader = HostFrameReader::default();
+        let err = frame_reader
+            .read(&mut reader)
+            .expect_err("oversized frame must be rejected");
+        assert!(matches!(err, ProtocolError::FrameTooLarge { .. }));
+        // After the fatal error the reader starts a fresh frame (the stream is
+        // undefined per the docs, but the reader's own state must be clean).
+        let frame = frame_reader.read(&mut reader).expect("fresh frame decodes");
+        assert_eq!(frame, HostFrame::Output(b"ok".to_vec()));
     }
 }
