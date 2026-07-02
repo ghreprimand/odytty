@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Windows symbol-glyph fallback tail — ✔ U+2714 / ⎿ U+23BF (NF16)
+
+Fixed operator-reported blank glyphs on Windows: Claude Code's ✔ heavy check
+mark (`U+2714`, Dingbats) and ⎿ result-branch connector (`U+23BF`,
+Miscellaneous Technical) rendered as tofu. Both codepoints pass the atlas
+symbol-fallback gate (`SYMBOL_BLOCKS` covers `0x2300–23FF` and `0x2700–27BF`),
+but the bundled Symbols Nerd Font is icon-only (PUA) and the symbol-fallback
+chain composition (`resolve_symbol_fonts_with_source`, `src/text.rs`) had system
+tails only for macOS and Linux — **no Windows arm** — so on Windows the chain was
+the bundled icon face alone and neither codepoint resolved.
+
+Added a `#[cfg(windows)]` symbol-fallback tail mirroring the Linux hint pattern:
+`WINDOWS_SYMBOL_FALLBACK_HINTS = ["seguisym", "segmdl2", "cambria"]` matched (by
+normalized filename stem, like the Linux arm) against `font_search_dirs`' Windows
+roots (`WINDIR\Fonts` + per-user LOCALAPPDATA fonts) via the new
+`windows_symbol_fallback_faces` helper, appended after the bundled faces. Segoe
+UI Symbol (`seguisym.ttf`, shipped since Win7) is broadest-first and covers both
+reported codepoints; MDL2 Assets and Cambria backstop. Static floor only —
+Windows has no cheap `fc-match` runtime-resolver analog, mirroring the macOS
+approach.
+
+**Windows:** this packet IS Windows-surface. Two `#[cfg(windows)]` tests run on
+the authoritative windows-latest CI leg — a hermetic hint-matching test
+(fixture dir, no real host font asserted) and an authoritative test asserting
+the composed chain resolves monochrome outlines for `U+2714` and `U+23BF` from a
+real system face (`seguisym.ttf` is present on the runner). Linux/macOS behavior
+is byte-identical (the Windows arm is `cfg`'d out). Full Linux suite green,
+clippy `-D warnings` clean, fmt clean, MSRV untouched.
+
+---
+
 ## 2026-07-02 -- Click-to-place cursor defaults ON (F2 default flip + docs)
 
 **Behavior change for integrated-shell users:** `sh_click` ("Click to position

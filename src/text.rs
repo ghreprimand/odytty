@@ -1158,6 +1158,52 @@ fn linux_symbol_fallback_faces(dirs: &[PathBuf]) -> Vec<(SymbolFontSource, FontV
     out
 }
 
+/// Windows symbol-fallback tail: normalized **filename-stem** hints for the
+/// always-present system faces that cover the standard Unicode
+/// dingbats/symbols/Miscellaneous-Technical glyphs the bundled icon-only Nerd
+/// faces lack (e.g. the result-branch `U+23BF` and the check `U+2714` that
+/// Claude Code and other TUIs emit). Windows has no cheap per-codepoint runtime
+/// resolver analogous to Linux's `fc-match`, so — like the macOS arm — this
+/// static tail is the deterministic *floor*.
+///
+/// These are matched (like the Linux arm) against [`normalize_family`]-style
+/// stems of files under [`font_search_dirs`]' Windows roots (`WINDIR\Fonts` +
+/// per-user LOCALAPPDATA fonts), so the hints are the on-disk *filenames*, not
+/// the OpenType family names. `seguisym` (`seguisym.ttf`, Segoe UI Symbol,
+/// shipped since Windows 7) is broadest-first: it covers Arrows, Miscellaneous
+/// Technical, Geometric Shapes, Miscellaneous Symbols and Dingbats — including
+/// both reported codepoints. `segmdl2` (`segmdl2.ttf`, the MDL2 assets icon
+/// face) and `cambria` (`cambria.ttc`, Cambria / Cambria Math) backstop any
+/// Segoe UI Symbol gaps with monochrome outlines. Each is skipped silently if
+/// absent, and none shadows the body font because glyph fallback is only
+/// consulted after the primary face misses a printable spacing codepoint.
+#[cfg(windows)]
+const WINDOWS_SYMBOL_FALLBACK_HINTS: &[&str] = &["seguisym", "segmdl2", "cambria"];
+
+/// Resolve the Windows system symbol-fallback tail (see
+/// [`WINDOWS_SYMBOL_FALLBACK_HINTS`]): for each hint, in priority order, the
+/// first file under `dirs` whose normalized stem contains it, loaded and
+/// de-duplicated by path. Returns `(source, font)` pairs index-aligned with how
+/// the chain is built. Absent faces are skipped silently. Mirrors
+/// [`linux_symbol_fallback_faces`].
+#[cfg(windows)]
+fn windows_symbol_fallback_faces(dirs: &[PathBuf]) -> Vec<(SymbolFontSource, FontVec)> {
+    let files = collect_font_files(dirs);
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for hint in WINDOWS_SYMBOL_FALLBACK_HINTS {
+        if let Some(path) = files
+            .iter()
+            .find(|f| normalize_family(&file_stem(f)).contains(hint))
+            && seen.insert(path.clone())
+            && let Ok(font) = load_font_at(path)
+        {
+            out.push((SymbolFontSource::Host(path.clone()), font));
+        }
+    }
+    out
+}
+
 /// Resolve a symbol / Nerd-font face for the RV6 PUA-icon fallback, or `None`
 /// when neither the bundled asset nor the host can provide one.
 ///
@@ -1322,6 +1368,18 @@ pub fn resolve_symbol_fonts_with_source(
     // [`runtime_resolve_symbol_font`] query the atlas calls on a static miss.
     #[cfg(all(unix, not(target_os = "macos")))]
     for (source, font) in linux_symbol_fallback_faces(dirs) {
+        sources.push(source);
+        fonts.push(font);
+    }
+
+    // Windows: the bundled Nerd faces are icon-only (PUA) and lack standard
+    // Unicode dingbats/symbols/Miscellaneous-Technical glyphs TUIs emit. Append
+    // the always-present Segoe UI Symbol tail (see
+    // [`WINDOWS_SYMBOL_FALLBACK_HINTS`]) so glyphs like the check `U+2714` and
+    // the result-branch `U+23BF` render instead of tofu. Static floor only —
+    // Windows has no cheap `fc-match` runtime-resolver analog.
+    #[cfg(windows)]
+    for (source, font) in windows_symbol_fallback_faces(dirs) {
         sources.push(source);
         fonts.push(font);
     }
@@ -3188,5 +3246,57 @@ mod tests {
         );
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(&empty);
+    }
+
+    /// Hermetic (no real host font asserted): a file under the search dirs whose
+    /// normalized stem matches a Windows hint (e.g. "seguisym") is loaded into
+    /// the tail, and a non-matching name resolves to nothing. Mirrors
+    /// `linux_symbol_fallback_faces_picks_up_a_hint_named_file`. Runs on the
+    /// windows-latest CI leg (the helper is `#[cfg(windows)]`).
+    #[cfg(windows)]
+    #[test]
+    fn windows_symbol_fallback_faces_picks_up_a_hint_named_file() {
+        let dir = unique_tmp_dir("winsymtail");
+        // `seguisym.ttf`'s normalized stem is "seguisym", the primary hint.
+        let fixture = dir.join("seguisym.ttf");
+        std::fs::write(&fixture, BUNDLED_SYMBOL_FONT_BYTES).expect("write fixture");
+        let faces = windows_symbol_fallback_faces(std::slice::from_ref(&dir));
+        assert!(
+            faces
+                .iter()
+                .any(|(src, _)| matches!(src, SymbolFontSource::Host(p) if p == &fixture)),
+            "a hint-named file must be resolved into the Windows symbol tail"
+        );
+        // A dir with no hint-matching file resolves to nothing.
+        let empty = unique_tmp_dir("winsymtail_empty");
+        std::fs::write(empty.join("Random-Regular.ttf"), BUNDLED_SYMBOL_FONT_BYTES)
+            .expect("write non-matching fixture");
+        assert!(
+            windows_symbol_fallback_faces(std::slice::from_ref(&empty)).is_empty(),
+            "a dir with no hint-named file resolves to an empty tail"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&empty);
+    }
+
+    /// Authoritative on the windows-latest runner (`seguisym.ttf` is present):
+    /// the composed symbol-fallback chain must resolve a monochrome outline for
+    /// the codepoints the operator reported blank — the check `U+2714` and the
+    /// result-branch `U+23BF` — from *some* face in the chain (the bundled Nerd
+    /// faces are icon-only and lack them, so this exercises the new Windows
+    /// tail). Fails-before this packet: with no Windows arm the chain was the
+    /// icon-only bundled faces only, and neither codepoint resolved.
+    #[cfg(windows)]
+    #[test]
+    fn windows_symbol_chain_resolves_reported_blank_glyphs() {
+        let (_sources, fonts) = resolve_symbol_fonts_with_source(None, &font_search_dirs());
+        for ch in ['\u{2714}', '\u{23BF}'] {
+            assert!(
+                fonts.iter().any(|f| font_provides_outline_glyph(f, ch)),
+                "the Windows symbol-fallback chain must resolve an outline for {ch:?} \
+                 (U+{:04X}); the Segoe UI Symbol tail is missing",
+                ch as u32
+            );
+        }
     }
 }
