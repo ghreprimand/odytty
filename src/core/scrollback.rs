@@ -296,6 +296,23 @@ impl Scrollback {
         self.invalidate();
     }
 
+    /// NF6 (C16 seam, scrollback side): hard-terminate the trailing open
+    /// logical line. An open tail promises that visible row 0 is its physical
+    /// continuation — the projection marks the tail's last physical row
+    /// `wrapped`, and reflow (`Screen::resize`) fuses it with row 0. An
+    /// operation that replaces the visible screen wholesale (ED2) breaks that
+    /// promise; the tail must close or the next resize fuses scrolled-off
+    /// history with UNRELATED fresh content. No-op when the store is empty or
+    /// the tail is already hard-terminated.
+    pub(in crate::core) fn sever_trailing_wrap(&mut self) {
+        if let Some(last) = self.lines.last_mut()
+            && last.open
+        {
+            last.open = false;
+            self.invalidate();
+        }
+    }
+
     /// Whether any stored logical line carries an OSC 133 prompt mark (SH1).
     /// Cheap O(lines) scan over the logical store (no projection), used to keep
     /// the prompt-marks change flag honest on clear/resize.

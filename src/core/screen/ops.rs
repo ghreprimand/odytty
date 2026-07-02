@@ -297,12 +297,20 @@ impl Screen {
         let count = count.max(1).min(columns - column);
         let blank = self.current_blank();
 
-        let row = &mut self.rows[self.cursor.row];
+        let row_index = self.cursor.row;
+        let row = &mut self.rows[row_index];
         for cell in &mut row[column..column + count] {
             *cell = blank;
         }
 
         sanitize_wide_row(row, blank);
+        // NF7 (C16 seam): `count` is clamped to the row tail, so equality means
+        // the erase reached the right edge, destroying the content flow into
+        // the continuation row — this row no longer soft-wraps, and reflow must
+        // not fuse its remnant with the row below (mirrors EL0).
+        if column + count == columns {
+            self.sever_soft_wrap(row_index);
+        }
         self.pending_wrap = false;
         self.mark_dirty();
     }
@@ -421,6 +429,15 @@ impl Screen {
                     || (mode == 3 && self.scrollback.any_prompt_mark());
                 for row in &mut self.rows {
                     *row = blank_row_with_bg(self.dimensions.columns, background);
+                }
+                // NF6 (C16 seam): the visible screen is replaced wholesale, so
+                // a trailing open scrollback line must not keep claiming row 0
+                // as its continuation — reflow would fuse scrolled-off history
+                // with whatever is printed next. Primary screen only: on the
+                // alt screen the scrollback tail still (validly) continues into
+                // the SAVED primary row 0, not into the alt grid.
+                if self.primary_screen.is_none() {
+                    self.scrollback.sever_trailing_wrap();
                 }
                 if mode == 3 {
                     self.scrollback.clear();

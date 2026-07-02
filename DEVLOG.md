@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-02 -- Residual C16 wrapped-flag seams: ED2 scrollback tail + ECH through the right edge (NF6+NF7)
+
+Two edges left over from the C16 soft-wrap severing sweep, both found during
+that packet and triaged as their own fold-in. NF6: ED2 (CSI 2J) replaces the
+visible screen wholesale, but a trailing OPEN scrollback logical line still
+claimed visible row 0 as its continuation — the projection marks the tail row
+`wrapped`, so the next width-changing resize fused scrolled-off history with
+whatever was printed after the clear. New `Scrollback::sever_trailing_wrap`
+hard-terminates the tail; `erase_display` mode 2/3 calls it on the primary
+screen only (on the alt screen the tail still validly continues into the
+SAVED primary row 0 — an alt-screen control test pins that the join survives
+a `1049h` / `2J` / `1049l` round trip). NF7: ECH (CSI Ps X) whose clamped
+count reaches the right edge destroys the content flow into the continuation
+row exactly like EL0, but never cleared the row's wrapped flag; it now severs
+on the `column + count == columns` boundary, with a control test pinning that
+an interior ECH keeps the join. Four regression tests (two fails-before, two
+controls) in the C16 suite. Gates green.
+
 ## 2026-07-02 -- Graphics placements clipped at the viewport top show the right pixels (C21)
 
 A placement partially scrolled above the viewport top was clamped to row 0

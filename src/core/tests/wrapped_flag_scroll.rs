@@ -153,3 +153,66 @@ fn erase_line_from_cursor_severs_the_rows_own_soft_wrap() {
     // Pre-fix: "aaaa" + blanks + "bbbbb" fused into one padded line.
     assert_eq!(visible_text(&terminal), "aaaa\nbbbbb");
 }
+
+/// NF7: ECH (CSI Ps X) whose clamped count reaches the right edge destroys
+/// the content flow into the continuation row, exactly like EL0 — the row's
+/// own wrapped flag must clear.
+#[test]
+fn erase_chars_through_right_edge_severs_the_rows_own_soft_wrap() {
+    let mut terminal = wrapped_pair();
+    terminal.advance(b"\x1b[1;5H\x1b[6X"); // row 0, col 4: erase 6 cells → cols 4..10
+
+    terminal.resize(20, 4);
+    // Pre-fix: "aaaa" + blanks + "bbbbb" fused into one padded line.
+    assert_eq!(visible_text(&terminal), "aaaa\nbbbbb");
+}
+
+/// NF7 control: an ECH that stops short of the right edge is a purely
+/// interior blank — the soft-wrap join must survive so reflow still fuses
+/// the pair (with the interior blanks preserved).
+#[test]
+fn erase_chars_short_of_right_edge_keeps_soft_wrap() {
+    let mut terminal = wrapped_pair();
+    terminal.advance(b"\x1b[1;5H\x1b[3X"); // row 0, cols 4..7 blanked, edge intact
+
+    terminal.resize(20, 4);
+    assert_eq!(visible_text(&terminal), "aaaa   aaabbbbb");
+}
+
+/// NF6: ED2 (CSI 2J) replaces the visible screen wholesale, but a trailing
+/// OPEN scrollback logical line still claimed row 0 as its continuation.
+/// Reflow then fused scrolled-off history with whatever was printed after
+/// the clear.
+#[test]
+fn erase_display_full_severs_trailing_scrollback_wrap() {
+    let mut terminal = Terminal::new(10, 4);
+    // One 50-char logical line: 5 physical rows on a 4-row grid, so the first
+    // wrapped row scrolls off as an open scrollback line continuing into
+    // visible row 0.
+    terminal.advance("a".repeat(50).as_bytes());
+    terminal.advance(b"\x1b[2J\x1b[1;1HXXX");
+
+    terminal.resize(30, 4);
+    // Pre-fix: the scrollback tail fused with the fresh content into
+    // "aaaaaaaaaaXXX". Post-fix the history stays its own hard-terminated
+    // line (visible here because the 2-row reflow result is bottom-anchored
+    // into the 4-row window).
+    assert_eq!(visible_text(&terminal), "aaaaaaaaaa\nXXX");
+}
+
+/// NF6 control: ED2 issued on the ALT screen must NOT sever the primary
+/// scrollback tail — it still validly continues into the saved primary
+/// row 0, and reflow after returning must rejoin the logical line.
+#[test]
+fn erase_display_on_alt_screen_keeps_scrollback_wrap() {
+    let mut terminal = Terminal::new(10, 4);
+    terminal.advance("a".repeat(50).as_bytes());
+    terminal.advance(b"\x1b[?1049h\x1b[2J\x1b[?1049l");
+
+    terminal.resize(30, 4);
+    // The 50-char logical line rejoins across the scrollback/visible seam.
+    assert_eq!(
+        visible_text(&terminal),
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\naaaaaaaaaaaaaaaaaaaa"
+    );
+}
