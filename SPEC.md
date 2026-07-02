@@ -490,8 +490,8 @@ downstream work.
 **Prompt-aware editing UX is gated and fail-safe.** Two features consume the
 input boundary (`B` mark): selecting prompt text and pressing Delete/Backspace
 deletes only the selected editable input through shell-edit bytes, and (with the
-`sh_click` setting, off by default) clicking on the prompt repositions the shell
-cursor. Both require shell integration, because OdyTTY must know the prompt
+`sh_click` setting, on by default) clicking in the typed command line repositions
+the shell cursor — including across soft-wrapped lines. Both require shell integration, because OdyTTY must know the prompt
 boundary before it can safely edit or position within shell input — it never
 guesses with a no-OSC heuristic that could corrupt the command line. When the
 boundary is unknown (integration off, or no prompt mark yet), a selection-delete
@@ -499,8 +499,8 @@ does **not** send blind edit bytes: it clears the stale visual selection and
 raises a hint pointing at shell integration, so the UX is honest about why the
 action did not run. Click-to-position additionally requires the shell snippet to
 advertise `click_events=1` on its `A` mark — the bundled bash/zsh/fish and
-PowerShell snippets all do, so the capability can turn on once `sh_click` is
-enabled. These are deliberately fail-safe: no boundary means no prompt-aware
+PowerShell snippets all do, so the capability is live out of the box with shell
+integration on. These are deliberately fail-safe: no boundary means no prompt-aware
 deletion, no advertised click support means no click-to-position, and stale local
 state is cleared rather than acted on speculatively.
 

@@ -817,12 +817,14 @@ feature validates against.
         signature guarantees the bar repaints on a pure status transition.
   - [x] Core: absolute cell range for a command's output, so the native
         select/copy path can highlight an exact command's output span.
-  - [x] Click-to-position cursor via OSC 133 click events (`sh_click`, off by
-        default): the click slice only, not a shell-input takeover, and inert
-        unless a cooperating shell advertises click support. The bundled
-        bash/zsh/fish and PowerShell snippets now advertise `click_events=1` on
-        the prompt-start mark, so the producer signal exists (the action stays
-        gated on `sh_click`, default off).
+  - [x] Click-to-position cursor via OSC 133 click events (`sh_click`, on by
+        default since the F2 rework): the click slice only, not a shell-input
+        takeover, and inert unless a cooperating shell advertises click support.
+        The bundled bash/zsh/fish and PowerShell snippets all advertise
+        `click_events=1` on the prompt-start mark. The F2 rework routes the
+        click through the core `InputRegion` (rune-precise on the exact tier,
+        grapheme-cell heuristic otherwise), supports soft-wrapped multi-row
+        input, and no-ops on hard-newline buffers and unknown geometry.
   - [x] Windows PowerShell integration: `ShellKind::PowerShell` snippet emits
         OSC 133 A/B/C/D (PSReadLine drives the command-start mark, `D` carries
         `$LASTEXITCODE`), injected on a `powershell`/`pwsh` spawn via
