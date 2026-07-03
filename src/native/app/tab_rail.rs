@@ -67,6 +67,11 @@ const NEW_TAB_ROWS: usize = SLOT_ROWS;
 /// Left/right in-slot padding (columns) before/after the label text.
 const RAIL_LABEL_PAD: usize = 1;
 
+/// Fixed rail band width in cells for R1 (the `[8,32]` clamp + the
+/// `TAB_RAIL_WIDTH` setting arrive with R2). Wide enough for an Option-B slot's
+/// wrapped label plus the `×` cell.
+pub(super) const DEFAULT_RAIL_COLS: usize = 16;
+
 // ---------------------------------------------------------------------------
 // Visual constants (mirrors of the horizontal bar's, kept in lockstep)
 // ---------------------------------------------------------------------------

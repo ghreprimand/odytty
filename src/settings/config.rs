@@ -19,8 +19,8 @@ use super::{
     SCROLL_WHEEL_LINES_ENV, SCROLLBACK_LINES_ENV, SCROLLBAR_DRAG_ENV, SELECTION_DRAG_EXTEND_ENV,
     SH_CLICK_ENV, SHELL_INTEGRATION_ENV, SMART_CTRL_C_ENV, SMOOTH_SCROLL_ENV, STEM_DARKEN_ENV,
     SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV, SYMBOL_MAP_ENV, SYNTHETIC_STYLES_ENV,
-    TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV,
-    WINDOW_DECORATIONS_ENV, WINDOW_PADDING_ENV, normalize_name,
+    TAB_BAR_PLACEMENT_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV,
+    WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV, WINDOW_DECORATIONS_ENV, WINDOW_PADDING_ENV, normalize_name,
 };
 use super::{
     BOX_THICKNESS_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV, INTERACTIVE_PATHS_CLICK_HINT_ENV,
@@ -168,6 +168,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "alwaysshowtabbar" | "showtabbar" | "tabbaralwaysvisible" | "persistenttabbar" => {
             Some(ALWAYS_SHOW_TAB_BAR_ENV)
         }
+        "tabbarplacement" | "tabbarside" | "tabbarposition" | "tabplacement" => {
+            Some(TAB_BAR_PLACEMENT_ENV)
+        }
         "shclick" | "clicktoposition" | "clicktomovecursor" | "promptclick" => Some(SH_CLICK_ENV),
         "shellintegration" | "promptmarks" | "osc133" | "osc133integration" => {
             Some(SHELL_INTEGRATION_ENV)
@@ -266,6 +269,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         WHEEL_ZOOM_ENV => Some("wheel_zoom"),
         COMMAND_STATUS_GUTTER_ENV => Some("command_status_gutter"),
         ALWAYS_SHOW_TAB_BAR_ENV => Some("always_show_tab_bar"),
+        TAB_BAR_PLACEMENT_ENV => Some("tab_bar_placement"),
         SH_CLICK_ENV => Some("sh_click"),
         SHELL_INTEGRATION_ENV => Some("shell_integration"),
         NEW_OUTPUT_FADE_ENV => Some("new_output_fade"),

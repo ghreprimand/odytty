@@ -7,6 +7,76 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Vertical tab rail, wired to both render paths (F4-V2 R1, slice 2 of 2)
+
+The render-path integration for the vertical tab rail. Slice 1 landed the
+greenfield widget (`src/native/app/tab_rail.rs`, layout + render + hit-test + 34
+unit tests); this slice wires it into both render paths behind a new
+`tab_bar_placement` setting, so a `left` rail is now a live, demoable option.
+**Default placement stays `top`** — every existing path is byte-identical until
+the setting flips, so there is zero regression on the horizontal bar.
+
+**New setting `ODYTTY_TAB_BAR_PLACEMENT` (`top` | `left` | `right`).** Full C14
+plumbing: const + `SETTING_ENV_KEYS`, the `TabBarPlacement` enum + `Settings`
+field/default/parse/summary, `config.rs` aliases + `env_to_config_key`,
+`settings/info.rs` enum row (Rendering group, "Applies live"),
+`docs/runtime-knobs.md`, `docs/odytty.conf.example`, and six round-trip tests.
+`right` **parses but degrades to `top`** via `TabBarPlacement::effective()` (R1
+ships the left rail only; the info.rs description says "right arrives in a later
+update"), so a forward-looking config is never an error and never renders a
+half-supported right rail. Only the width knob (`TAB_RAIL_WIDTH`, fixed 16 cols
+in R1) is deferred to R2.
+
+**One reservation model feeds every site (ODP-8 correctness knot).** A single
+`App::tab_reserve()` returns rows-off-top (bar) or cols-off-side (rail); the
+resize path (`resize_grid_with_padding`), the single-pane snapshot-grow
+(`decorate_snapshot_with_tab_rail`), `pane_content_rect`, the pointer transform,
+and the image-layer offset all read it, so the grid, cursor, and pointer can
+never desync. `pane_content_rect` took a `bool show_tab_bar` → now a
+`TabReserve { top_rows, left_cols, right_cols }`; `TabReserve::NONE` /
+`TabReserve::top()` reproduce the pre-rail geometry byte-for-byte.
+
+**Both render paths gain a rail sibling.** Single-pane:
+`decorate_snapshot_with_tab_rail` grows the snapshot by `rail_cols` columns,
+shifts the content + cursor into the content band, and paints the rail band of
+every row. Multi-pane: `tab_rail_strip` builds a `rail_cols × grid_rows` region
+pushed beside the content panes. The pointer map subtracts a placement-aware
+chrome offset (`tab_chrome_offset_px` — `+X` for a left rail, `+Y` for the top
+bar, `(0,0)` on the plain path); `current_tab_bar_hit` and the hover path
+dispatch to the rail's row-major X-band hit-test, returning the **same** `TabHit`
+enum so click dispatch (Switch/Close/NewTab) is reused verbatim.
+`shift_overlays_for_tab_bar` generalized to `shift_overlays_for_tab_chrome(dx,
+dy)`; the image layer gained a `col_offset` beside its `row_offset`
+(F4V2-NF3 sibling test); a live top↔left flip recomputes the grid (the reserved
+axis changed).
+
+**Edge wash (§4) is correct by construction.** Single-pane: the rail is embedded
+in the wider decorated snapshot, so the existing `wallpaper_edge_wash_quads`
+(computed from `content_origin`, not a hardcoded pad — F4V2-NF4) spans it and its
+bottom-remainder quad covers the sub-cell strip. Multi-pane: the rail strip is a
+pane rect in `grid_rects`, so `multi_pane_wallpaper_edge_wash_quads` treats it as
+covered and washes everything else. No new wash site needed; the NF11 invariants
+hold.
+
+Tests: four headless integration tests (`tab_reserve` axis flip; left-rail
+decorated snapshot grows columns not rows; rail hit-test resolves
+Switch/Close/NewTab; a content-area click is not a tab hit), the six settings
+round-trips, the `pane_content_rect` left-rail geometry test, and the image-layer
+`col_offset` test — all fails-before where applicable. The `#[allow(dead_code)]`
+on `mod tab_rail;` is removed. Gate: `cargo test` 2871 lib + all suites 0 failed;
+`cargo clippy --all-targets --locked -- -D warnings` clean; `cargo fmt --check`
+clean; MSRV lockstep untouched.
+
+**Windows:** platform-neutral — pure winit/wgpu render + pointer mapping +
+settings; no PTY, spawn, path, env, or shell-integration surface, no
+`cfg(windows)` code. The `windows-latest` CI leg exercises the identical code.
+
+Deferred to later slices: `right` placement render arm + `TAB_RAIL_WIDTH` knob
+(R2), drag-resize of the rail↔content divider (R3), and the connected-active
+open-seam ring variant (held until the operator judges v1.4 on the horizontal
+bar). The shared pure color helpers still live in both `tab_bar.rs` and
+`tab_rail.rs` pending a `tab_chrome.rs` consolidation (F4V2-NF2).
+
 ## 2026-07-03 -- Vertical tab rail: greenfield widget (F4-V2 R1, slice 1 of 2)
 
 First slice of the vertical tab rail — the largest UI packet of the cycle. This

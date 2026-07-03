@@ -97,12 +97,54 @@ fn placement_geometry_is_offset_by_reserved_top_rows() {
         cell,
         WindowPadding::ZERO,
         reserved_rows,
+        0,
     )
     .expect("quad");
 
     let cell_grid_y = (placement.row + reserved_rows) as f32 * cell.height as f32
         + placement.pixel_offset_y as f32;
     assert_eq!(quad.rect, [25.0, cell_grid_y, 45.0, cell_grid_y + 12.0]);
+}
+
+#[test]
+fn placement_geometry_is_offset_by_reserved_left_cols() {
+    // F4-V2 (F4V2-NF3): the vertical rail reserves COLUMNS off the left, so a
+    // left rail shifts every image placement RIGHT by `reserved_cols` cells —
+    // the column-axis sibling of the top-bar row offset above. `reserved_rows`
+    // stays 0 for a rail (it reserves columns, not rows), so Y is unshifted.
+    let mut placement = placement(2, 3, StoredImageId(7));
+    placement.pixel_offset_x = 1;
+    placement.pixel_offset_y = -2;
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    };
+    let reserved_cols = 16usize;
+
+    let quad = placement_quad_with_padding_and_row_offset(
+        &placement,
+        20,
+        12,
+        cell,
+        WindowPadding::ZERO,
+        0,
+        reserved_cols,
+    )
+    .expect("quad");
+
+    let cell_grid_x = (placement.column + reserved_cols) as f32 * cell.width as f32
+        + placement.pixel_offset_x as f32;
+    let cell_grid_y = placement.row as f32 * cell.height as f32 + placement.pixel_offset_y as f32;
+    assert_eq!(
+        quad.rect,
+        [
+            cell_grid_x,
+            cell_grid_y,
+            cell_grid_x + 20.0,
+            cell_grid_y + 12.0
+        ]
+    );
 }
 
 #[test]

@@ -23,7 +23,8 @@ use crate::selection::{
 };
 use crate::settings::{
     BindableAction, SettingEdit, Settings, SettingsReloadOutcome, SettingsReloader, THEME_ENV,
-    apply_reloadable_values, ensure_config_file_exists_at, write_settings_changes_to_path,
+    TabBarPlacement, apply_reloadable_values, ensure_config_file_exists_at,
+    write_settings_changes_to_path,
 };
 use crate::text::{self, CellSize};
 use crate::theme::{Theme, VisualEffect};
@@ -109,12 +110,8 @@ mod scroll_anim;
 mod session_attach_ui;
 mod ssh_connect;
 mod tab_bar;
-// F4-V2 R1: greenfield vertical tab rail widget. `allow(dead_code)` is
-// temporary — the render-path integration slice (panes.rs / mod.rs reservation
-// / pointer.rs / gpu.rs edge wash) wires it and removes this allow. Kept
-// separate so the widget lands and is unit-tested without touching the
-// horizontal bar mid-iteration (shared-worktree discipline).
-#[allow(dead_code)]
+// F4-V2 R1: vertical tab rail widget — the sibling of `tab_bar`, active when
+// `tab_bar_placement` is a rail.
 mod tab_rail;
 #[cfg(test)]
 mod test_seams;
@@ -126,6 +123,7 @@ pub(in crate::native) use self::hints_ui::HintsUi;
 pub(in crate::native) use self::scroll_anim::ScrollAnimState as SessionScrollAnimState;
 pub(in crate::native) use self::tab_bar::{TAB_BAR_ROWS, TabBarSource};
 use self::tab_bar::{TabBar, TabHit};
+use self::tab_rail::{RailSide, TabRail};
 pub(in crate::native) use overlay_registry::ActiveModal;
 
 /// Linux desktop identity used for Wayland app_id/WM_CLASS matching.
@@ -364,6 +362,9 @@ pub(super) struct App {
     /// Visible multi-session tab strip state. Presentation-only; the session
     /// model stays in `TabSet`.
     tab_bar: TabBar,
+    /// Vertical tab rail state (F4-V2 R1) — the sibling of `tab_bar`, active
+    /// only when `tab_bar_placement` is a rail. Presentation-only.
+    tab_rail: TabRail,
     rename_state: Option<RenameState>,
     /// SLIDER-GUARD: whether the left mouse button is currently held while the
     /// overlay is open. Set on `MouseInput { Pressed, Left }` and cleared on
@@ -489,6 +490,7 @@ impl App {
             wheel_accum: WheelAccumulator::default(),
             overlay_wheel: OverlayWheelDamper::default(),
             tab_bar: TabBar::default(),
+            tab_rail: TabRail::default(),
             rename_state: None,
             overlay_left_held: false,
             home_dir: std::env::var_os("HOME").and_then(|h| h.into_string().ok()),
@@ -533,8 +535,19 @@ impl App {
         height_px: u32,
     ) -> bool {
         let mut new_grid = grid_dimensions_for_with_padding(width_px, height_px, cell, padding);
-        if self.should_show_tab_bar() {
-            new_grid.rows = new_grid.rows.saturating_sub(TAB_BAR_ROWS as usize).max(1);
+        // Reserve the tab chrome off the grid: rows off the top for the
+        // horizontal bar, or columns off the side for the vertical rail (F4-V2).
+        // `reserve` is `NONE` when the bar is hidden, so the plain path is
+        // byte-identical; the resize path and the snapshot-grow path
+        // (`decorate_snapshot_with_tab_bar` / `..._rail`) read the SAME reserve so
+        // the grid, cursor, and pointer can never desync (ODP-8).
+        let reserve = self.tab_reserve();
+        if reserve.top_rows > 0 {
+            new_grid.rows = new_grid.rows.saturating_sub(reserve.top_rows).max(1);
+        }
+        let reserved_cols = reserve.left_cols + reserve.right_cols;
+        if reserved_cols > 0 {
+            new_grid.columns = new_grid.columns.saturating_sub(reserved_cols).max(1);
         }
         if new_grid == self.grid {
             return false;
@@ -545,13 +558,7 @@ impl App {
         // single-pane world each tab's lone leaf spans the whole content rect,
         // so this resizes each session to exactly `new_grid` — byte-identical to
         // the old per-session loop. Multi-pane tabs get per-pane sizing (#1).
-        let content = pane_content_rect(
-            width_px,
-            height_px,
-            cell,
-            padding,
-            self.should_show_tab_bar(),
-        );
+        let content = pane_content_rect(width_px, height_px, cell, padding, reserve);
         self.sessions
             .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
         true
@@ -993,13 +1000,7 @@ impl App {
             // survivor session. We still call it afterward to keep `self.grid`
             // current (wrapping + selection read it); it no-ops when unchanged,
             // so a genuinely single-pane tab is byte-identical here.
-            let content = pane_content_rect(
-                width_px,
-                height_px,
-                cell,
-                padding,
-                self.should_show_tab_bar(),
-            );
+            let content = pane_content_rect(width_px, height_px, cell, padding, self.tab_reserve());
             self.sessions
                 .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
             let _ = self.resize_grid_with_padding(cell, padding, width_px, height_px);
@@ -1875,11 +1876,70 @@ impl App {
     }
 
     fn tab_bar_height_px(&self, cell: CellSize) -> f32 {
-        if self.should_show_tab_bar() {
-            cell.height as f32 * TAB_BAR_ROWS as f32
-        } else {
-            0.0
+        cell.height as f32 * self.tab_reserve().top_rows as f32
+    }
+
+    /// The placement actually honored by the render path this frame (R1 collapses
+    /// `Right`→`Top` via [`TabBarPlacement::effective`]).
+    fn effective_placement(&self) -> TabBarPlacement {
+        self.settings.tab_bar_placement.effective()
+    }
+
+    /// The tab-chrome reservation for the current frame: rows off the top (the
+    /// horizontal bar) or columns off a side (the vertical rail). `NONE` when the
+    /// bar is hidden — the byte-identical no-chrome case.
+    fn tab_reserve(&self) -> panes::TabReserve {
+        if !self.should_show_tab_bar() {
+            return panes::TabReserve::NONE;
         }
+        match self.effective_placement() {
+            TabBarPlacement::Top => panes::TabReserve::top(),
+            TabBarPlacement::Left => panes::TabReserve {
+                top_rows: 0,
+                left_cols: tab_rail::DEFAULT_RAIL_COLS,
+                right_cols: 0,
+            },
+            // `effective()` collapses Right→Top in R1, so this arm is not reached
+            // until R2 lands the right render path; kept correct for that flip.
+            TabBarPlacement::Right => panes::TabReserve {
+                top_rows: 0,
+                left_cols: 0,
+                right_cols: tab_rail::DEFAULT_RAIL_COLS,
+            },
+        }
+    }
+
+    /// The rail band width in cells when a vertical rail is active this frame,
+    /// else 0.
+    fn rail_cols(&self) -> usize {
+        let r = self.tab_reserve();
+        r.left_cols + r.right_cols
+    }
+
+    /// Which side the rail occupies this frame, or `None` when no rail is active
+    /// (top bar or hidden).
+    fn rail_side(&self) -> Option<RailSide> {
+        let r = self.tab_reserve();
+        if r.left_cols > 0 {
+            Some(RailSide::Left)
+        } else if r.right_cols > 0 {
+            Some(RailSide::Right)
+        } else {
+            None
+        }
+    }
+
+    /// Pixels to subtract from a raw pointer `(x, y)` before mapping it to a grid
+    /// cell, accounting for tab chrome. Top bar → `(0, tab_h)`; left rail →
+    /// `(rail_w, 0)`; right rail / none → `(0, 0)` (content origin unmoved). This
+    /// is the single placement-aware pointer transform every single-pane hit path
+    /// applies; on the top path `left_cols == 0` so it is byte-identical.
+    fn tab_chrome_offset_px(&self, cell: CellSize) -> (f64, f64) {
+        let r = self.tab_reserve();
+        (
+            cell.width as f64 * r.left_cols as f64,
+            cell.height as f64 * r.top_rows as f64,
+        )
     }
 
     fn recompute_grid_for_tab_bar(&mut self) {
@@ -1897,13 +1957,19 @@ impl App {
         );
     }
 
-    fn shift_overlays_for_tab_bar(&self, overlays: &mut [SolidQuad], offset_px: f32) {
-        if offset_px <= 0.0 {
+    /// Shift window-content overlay quads by the tab-chrome offset so they stay
+    /// registered with the content grid after chrome is reserved: `+Y` for the
+    /// top bar, `+X` for the left rail (F4-V2). `(0, 0)` on the plain path leaves
+    /// every quad untouched (byte-identical).
+    fn shift_overlays_for_tab_chrome(&self, overlays: &mut [SolidQuad], dx: f32, dy: f32) {
+        if dx <= 0.0 && dy <= 0.0 {
             return;
         }
         for overlay in overlays {
-            overlay.rect[1] += offset_px;
-            overlay.rect[3] += offset_px;
+            overlay.rect[0] += dx;
+            overlay.rect[2] += dx;
+            overlay.rect[1] += dy;
+            overlay.rect[3] += dy;
         }
     }
 
@@ -1915,6 +1981,11 @@ impl App {
     ) -> (Snapshot, Vec<SolidQuad>) {
         if !self.should_show_tab_bar() {
             return (snapshot.clone(), Vec::new());
+        }
+        // Dispatch on placement: the vertical rail grows the snapshot by columns
+        // off a side; the classic top bar grows it by rows off the top.
+        if let Some(side) = self.rail_side() {
+            return self.decorate_snapshot_with_tab_rail(snapshot, cursor_visible, cell, side);
         }
         let columns = snapshot.dimensions.columns;
         let rows = snapshot.dimensions.rows + TAB_BAR_ROWS as usize;
@@ -1952,12 +2023,84 @@ impl App {
         (decorated, output.quads)
     }
 
-    fn tab_bar_row_offset(&self) -> usize {
-        if self.should_show_tab_bar() {
-            TAB_BAR_ROWS as usize
-        } else {
-            0
+    /// Single-pane vertical-rail decoration (F4-V2): grow the snapshot by
+    /// `rail_cols` columns on the rail side, shift the original content (and the
+    /// cursor) into the content band, and paint the rail glyphs into the rail
+    /// band of every row. The `reserved_cols()` used here MUST match the resize
+    /// path's reservation (ODP-8) or the cursor/pointer desync.
+    fn decorate_snapshot_with_tab_rail(
+        &self,
+        snapshot: &Snapshot,
+        cursor_visible: bool,
+        cell: CellSize,
+        side: RailSide,
+    ) -> (Snapshot, Vec<SolidQuad>) {
+        let rail_cols = self.rail_cols();
+        let old_cols = snapshot.dimensions.columns;
+        let rows = snapshot.dimensions.rows;
+        let new_cols = old_cols + rail_cols;
+        // Left rail: content shifts right by `rail_cols`. Right rail: content
+        // stays at column 0 and the rail occupies the right band (R2; not reached
+        // in R1 because `rail_side()` only yields Left).
+        let content_col_offset = match side {
+            RailSide::Left => rail_cols,
+            RailSide::Right => 0,
+        };
+        let rail_col_start = match side {
+            RailSide::Left => 0,
+            RailSide::Right => old_cols,
+        };
+        let mut decorated = Snapshot {
+            dimensions: Dimensions::new(new_cols, rows),
+            cursor: Position {
+                row: snapshot.cursor.row,
+                column: snapshot.cursor.column + content_col_offset,
+            },
+            cursor_visible,
+            colors: snapshot.colors.clone(),
+            cells: vec![crate::core::Cell::default(); new_cols * rows],
+        };
+        // Copy each original row into the content band of the wider row.
+        for r in 0..rows {
+            let src = &snapshot.cells[r * old_cols..(r + 1) * old_cols];
+            let dst_start = r * new_cols + content_col_offset;
+            decorated.cells[dst_start..dst_start + old_cols].clone_from_slice(src);
         }
+
+        let padding = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO);
+        let output = self.tab_rail.render(
+            &self.sessions,
+            rail_cols,
+            rows,
+            [padding.as_f32(), padding.as_f32()],
+            cell,
+            side,
+            self.tab_bar_colors(),
+        );
+        for glyph in output.glyphs {
+            let col = rail_col_start + glyph.col;
+            if glyph.row < rows && col < new_cols {
+                decorated.cells[glyph.row * new_cols + col] =
+                    crate::core::Cell::new(glyph.ch, glyph.attrs);
+            }
+        }
+        (decorated, output.quads)
+    }
+
+    /// Rows the single-pane graphics layer shifts down for the top tab bar
+    /// (0 for a rail — a rail reserves columns, not rows).
+    fn tab_bar_row_offset(&self) -> usize {
+        self.tab_reserve().top_rows
+    }
+
+    /// Columns the single-pane graphics layer shifts right for a left rail
+    /// (0 for the top bar or a right rail — content origin unmoved).
+    fn tab_bar_col_offset(&self) -> usize {
+        self.tab_reserve().left_cols
     }
 
     fn apply_user_event(&mut self, event: UserEvent) -> bool {
@@ -2163,6 +2306,10 @@ impl App {
         // the usable height). Nothing else in this reload path touches the tab
         // bar's visibility, so this is the only trigger for that recompute.
         let tab_bar_was_shown = self.should_show_tab_bar();
+        // F4-V2: capture the effective placement too — a live top↔left flip
+        // changes the reserved AXIS (rows vs columns) without changing the bar's
+        // visibility, so it needs the same grid recompute.
+        let tab_placement_was = self.effective_placement();
 
         let next_options = self.options_for_settings(&next_settings);
         let (text_rebuilt, padding_changed) = match self.gpu.as_mut() {
@@ -2323,11 +2470,12 @@ impl App {
             }
         }
 
-        // F4 ODP-7: if a live `always_show_tab_bar` toggle flipped the bar's
-        // visibility (and a text/padding resize did not already recompute the
-        // grid above), reserve/reclaim the tab-bar row now so the content grid
-        // matches. No-op when the visibility is unchanged.
-        if self.should_show_tab_bar() != tab_bar_was_shown {
+        // F4 ODP-7 / F4-V2: if a live toggle flipped the bar's visibility OR its
+        // placement (top↔left changes the reserved axis), reserve/reclaim the tab
+        // chrome now so the content grid matches. No-op when both are unchanged.
+        if self.should_show_tab_bar() != tab_bar_was_shown
+            || self.effective_placement() != tab_placement_was
+        {
             self.recompute_grid_for_tab_bar();
         }
 
@@ -2798,9 +2946,13 @@ impl ApplicationHandler<UserEvent> for App {
                         // BELL visual flash — a full-viewport decaying tint over
                         // everything; empty on the off / urgent-only path.
                         self.paint_bell_flash_quad(&ctx, &mut overlays);
-                        let tab_bar_offset = self.tab_bar_height_px(cell);
-                        if tab_bar_offset > 0.0 {
-                            self.shift_overlays_for_tab_bar(&mut overlays, tab_bar_offset);
+                        let (chrome_dx, chrome_dy) = self.tab_chrome_offset_px(cell);
+                        if chrome_dx > 0.0 || chrome_dy > 0.0 {
+                            self.shift_overlays_for_tab_chrome(
+                                &mut overlays,
+                                chrome_dx as f32,
+                                chrome_dy as f32,
+                            );
                         }
                         let (snapshot, tab_bar_quads) = self.decorate_snapshot_with_tab_bar(
                             &snapshot,
@@ -2893,6 +3045,7 @@ impl ApplicationHandler<UserEvent> for App {
                         // reuses the same value so the cached cursor matches.
                         let scroll_frac_offset = self.scroll_frac_offset;
                         let tab_bar_row_offset = self.tab_bar_row_offset();
+                        let tab_bar_col_offset = self.tab_bar_col_offset();
                         if let Some(gpu) = self.gpu.as_mut() {
                             // RV4: push the current smooth-scroll offset so the
                             // vertex builders shift `content_origin` this frame.
@@ -2905,6 +3058,7 @@ impl ApplicationHandler<UserEvent> for App {
                                         &visible_graphics,
                                         &image_uploads,
                                         tab_bar_row_offset,
+                                        tab_bar_col_offset,
                                     );
                                     if overlays.is_empty() {
                                         gpu.update_from_snapshot(

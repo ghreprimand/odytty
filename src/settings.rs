@@ -668,6 +668,57 @@ impl CvdMode {
     }
 }
 
+/// Where the tab bar/rail sits relative to the terminal content (F4-V2).
+/// `Top` (default) is the shipped horizontal strip; `Left` is the vertical rail
+/// (F4-V2 R1). `Right` is reserved for a later update — its value parses so a
+/// config that sets it is not an error, but R1 treats it as `Top` (see
+/// [`TabBarPlacement::effective`]) until the render path lands the right arm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TabBarPlacement {
+    /// Horizontal strip across the top (the shipped default).
+    #[default]
+    Top,
+    /// Vertical rail down the left side (F4-V2 R1).
+    Left,
+    /// Vertical rail down the right side — reserved; not yet rendered (R2).
+    Right,
+}
+
+impl TabBarPlacement {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Top => "top",
+            Self::Left => "left",
+            Self::Right => "right",
+        }
+    }
+
+    /// Whether this placement is a vertical rail (Left/Right) rather than the
+    /// horizontal top strip.
+    pub fn is_rail(self) -> bool {
+        matches!(self, Self::Left | Self::Right)
+    }
+
+    /// The placement actually honored by the current render path. R1 ships the
+    /// `Left` rail only; `Right` degrades to `Top` until R2 lands its arm, so a
+    /// forward-looking config never renders a half-supported right rail.
+    pub fn effective(self) -> Self {
+        match self {
+            Self::Right => Self::Top,
+            other => other,
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match normalize_name(value).as_str() {
+            "top" | "horizontal" | "bar" => Some(Self::Top),
+            "left" => Some(Self::Left),
+            "right" => Some(Self::Right),
+            _ => None,
+        }
+    }
+}
+
 /// How the terminal responds when the host writes BEL (`0x07`). Presentation-
 /// only — the core merely latches that a bell was requested (see
 /// [`crate::core::Terminal::take_bell`]); this setting decides what the native
@@ -935,6 +986,11 @@ pub struct Settings {
     /// byte-identical to today. A lone tab with a custom name shows the bar
     /// regardless of this setting (F4-NF1).
     pub always_show_tab_bar: bool,
+    /// Where the tab bar sits: `Top` (default, horizontal strip) or `Left`
+    /// (vertical rail, F4-V2 R1). `Right` parses but degrades to `Top` until its
+    /// render arm lands (R2). Default `Top` keeps the render path byte-identical
+    /// to the shipped horizontal bar.
+    pub tab_bar_placement: TabBarPlacement,
     /// Click-to-position-cursor on the live prompt (SH-CLICK). When on, a plain
     /// left click on the shell prompt line moves the shell's input cursor to the
     /// clicked column by emitting Left/Right cursor keys — the click slice of
@@ -1120,6 +1176,7 @@ impl Default for Settings {
             wheel_zoom: DEFAULT_WHEEL_ZOOM,
             command_status_gutter: DEFAULT_COMMAND_STATUS_GUTTER,
             always_show_tab_bar: DEFAULT_ALWAYS_SHOW_TAB_BAR,
+            tab_bar_placement: TabBarPlacement::default(),
             sh_click: DEFAULT_SH_CLICK,
             shell_integration: DEFAULT_SHELL_INTEGRATION,
             new_output_fade: DEFAULT_NEW_OUTPUT_FADE,
@@ -1665,6 +1722,8 @@ impl Settings {
             DEFAULT_ALWAYS_SHOW_TAB_BAR,
             &mut warn,
         );
+        let tab_bar_placement =
+            parse_tab_bar_placement(get(TAB_BAR_PLACEMENT_ENV).as_deref(), &mut warn);
         let sh_click = parse_bool_setting(
             get(SH_CLICK_ENV).as_deref(),
             SH_CLICK_ENV,
@@ -1834,6 +1893,7 @@ impl Settings {
             wheel_zoom,
             command_status_gutter,
             always_show_tab_bar,
+            tab_bar_placement,
             sh_click,
             shell_integration,
             new_output_fade,
@@ -2008,6 +2068,10 @@ impl Settings {
         values.insert(
             ALWAYS_SHOW_TAB_BAR_ENV,
             bool_display(self.always_show_tab_bar).to_owned(),
+        );
+        values.insert(
+            TAB_BAR_PLACEMENT_ENV,
+            self.tab_bar_placement.as_str().to_owned(),
         );
         values.insert(SH_CLICK_ENV, bool_display(self.sh_click).to_owned());
         values.insert(

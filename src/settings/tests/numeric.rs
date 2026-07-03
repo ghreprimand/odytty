@@ -459,3 +459,97 @@ fn scroll_wheel_lines_round_trips_through_config_key() {
         Some("copy_on_select")
     );
 }
+
+// --- F4-V2: tab_bar_placement (enum: top | left | right→top) ---
+
+#[test]
+fn tab_bar_placement_defaults_to_top() {
+    let (settings, warnings) = settings_from([]);
+    assert_eq!(settings.tab_bar_placement, TabBarPlacement::Top);
+    assert!(warnings.is_empty());
+    // Top is not a rail, and it renders as itself.
+    assert!(!settings.tab_bar_placement.is_rail());
+    assert_eq!(settings.tab_bar_placement.effective(), TabBarPlacement::Top);
+}
+
+#[test]
+fn tab_bar_placement_parses_top_left_right() {
+    let (top, _) = settings_from([(TAB_BAR_PLACEMENT_ENV, "top")]);
+    assert_eq!(top.tab_bar_placement, TabBarPlacement::Top);
+
+    let (left, _) = settings_from([(TAB_BAR_PLACEMENT_ENV, "left")]);
+    assert_eq!(left.tab_bar_placement, TabBarPlacement::Left);
+    assert!(left.tab_bar_placement.is_rail());
+    assert_eq!(left.tab_bar_placement.effective(), TabBarPlacement::Left);
+
+    // `right` parses (so a forward-looking config is not an error) but degrades
+    // to `top` under `effective()` until R2 lands the right arm.
+    let (right, warnings) = settings_from([(TAB_BAR_PLACEMENT_ENV, "right")]);
+    assert_eq!(right.tab_bar_placement, TabBarPlacement::Right);
+    assert!(warnings.is_empty(), "a known value emits no warning");
+    assert_eq!(
+        right.tab_bar_placement.effective(),
+        TabBarPlacement::Top,
+        "right degrades to top until its render arm lands"
+    );
+}
+
+#[test]
+fn tab_bar_placement_unknown_value_warns_and_defaults() {
+    let (settings, warnings) = settings_from([(TAB_BAR_PLACEMENT_ENV, "sideways")]);
+    assert_eq!(settings.tab_bar_placement, TabBarPlacement::Top);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains("top|left|right"));
+}
+
+#[test]
+fn tab_bar_placement_round_trips_through_config_key_mapping() {
+    assert_eq!(
+        config_key_to_env("tab_bar_placement"),
+        Some(TAB_BAR_PLACEMENT_ENV)
+    );
+    assert_eq!(config_key_to_env("tabbarside"), Some(TAB_BAR_PLACEMENT_ENV));
+    assert_eq!(
+        env_to_config_key(TAB_BAR_PLACEMENT_ENV),
+        Some("tab_bar_placement")
+    );
+}
+
+#[test]
+fn tab_bar_placement_round_trips_through_edit_values() {
+    let settings = Settings {
+        tab_bar_placement: TabBarPlacement::Left,
+        ..Settings::default()
+    };
+    assert_eq!(
+        settings.to_edit_values().get(TAB_BAR_PLACEMENT_ENV),
+        Some(&"left".to_owned())
+    );
+    assert_eq!(
+        Settings::default()
+            .to_edit_values()
+            .get(TAB_BAR_PLACEMENT_ENV),
+        Some(&"top".to_owned())
+    );
+}
+
+#[test]
+fn tab_bar_placement_has_an_enum_row_in_the_rendering_group() {
+    let rows = Settings::default().setting_info();
+    let row = rows
+        .iter()
+        .find(|row| row.key == "tab_bar_placement")
+        .expect("tab_bar_placement row present");
+    assert_eq!(row.group, "Rendering");
+    assert_eq!(row.kind, SettingKind::Enum);
+    assert_eq!(row.options, ["top", "left", "right"]);
+    assert_eq!(row.value, "top");
+    assert!(row.reloadable);
+    assert!(!row.description.trim().is_empty());
+    // The description must set the operator's expectation that right is not yet
+    // rendered (Director directive).
+    assert!(
+        row.description.contains("later update") || row.description.contains("falls back"),
+        "description must flag that right arrives later"
+    );
+}

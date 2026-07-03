@@ -305,11 +305,11 @@ impl App {
             .as_ref()
             .map(GpuState::window_padding)
             .unwrap_or(WindowPadding::ZERO);
-        let y_px = if self.should_show_tab_bar() {
-            y_px - f64::from(self.tab_bar_height_px(cell))
-        } else {
-            y_px
-        };
+        // Map into content-relative space: subtract the tab chrome (top bar → Y,
+        // left rail → X). Byte-identical on the plain path (both offsets 0).
+        let (chrome_dx, chrome_dy) = self.tab_chrome_offset_px(cell);
+        let x_px = x_px - chrome_dx;
+        let y_px = y_px - chrome_dy;
         let scrollback_len = self.scrollback_len();
         scroll_indicator_hit_with_padding(
             x_px as f32,
@@ -333,15 +333,31 @@ impl App {
             .as_ref()
             .map(GpuState::window_padding)
             .unwrap_or(WindowPadding::ZERO);
-        match self.tab_bar.hit_test(
-            x_px,
-            y_px,
-            &self.sessions,
-            self.tab_bar_grid_cols(),
-            padding.as_f32(),
-            cell,
-            padding,
-        ) {
+        // A vertical rail resolves the same TabHit enum (Switch/Close/NewTab) via
+        // its own row-major X-band hit-test, so the press-dispatch below is
+        // reused verbatim (F4-V2). The top bar keeps the column-major test.
+        let hit = if self.rail_side().is_some() {
+            self.tab_rail.hit_test(
+                x_px,
+                y_px,
+                &self.sessions,
+                self.rail_cols(),
+                self.tab_rail_grid_rows(),
+                [padding.as_f32(), padding.as_f32()],
+                cell,
+            )
+        } else {
+            self.tab_bar.hit_test(
+                x_px,
+                y_px,
+                &self.sessions,
+                self.tab_bar_grid_cols(),
+                padding.as_f32(),
+                cell,
+                padding,
+            )
+        };
+        match hit {
             TabHit::None => None,
             hit => Some(hit),
         }

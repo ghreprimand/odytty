@@ -576,6 +576,29 @@ pub(super) fn parse_bell(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> Be
     }
 }
 
+pub(super) fn parse_tab_bar_placement(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> TabBarPlacement {
+    let Some(raw) = raw else {
+        return TabBarPlacement::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return TabBarPlacement::default();
+    }
+    match TabBarPlacement::parse(trimmed) {
+        Some(placement) => placement,
+        None => {
+            warn(&format!(
+                "{TAB_BAR_PLACEMENT_ENV}={trimmed:?} is not top|left|right; using top"
+            ));
+            TabBarPlacement::default()
+        }
+    }
+}
+
 pub(super) fn parse_cvd_strength(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     let Some(raw) = raw else {
         return DEFAULT_CVD_STRENGTH;

@@ -46,6 +46,10 @@ window_decorations = on
 # hides the bar). A single tab you have renamed always shows the bar regardless.
 always_show_tab_bar = off
 
+# Where the tab bar sits: top (default, horizontal strip) or left (vertical
+# rail). right is reserved for a later update and currently falls back to top.
+tab_bar_placement = top
+
 # Background treatments. OdyTTY ships with the bundled "Dark Waves" background
 # on by default. To turn it OFF, use `background_treatment = color` (theme
 # background only) or `background_image = none`.

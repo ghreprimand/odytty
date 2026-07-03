@@ -102,6 +102,7 @@ pub(super) fn placement_quad(
         cell,
         WindowPadding::ZERO,
         0,
+        0,
     )
 }
 
@@ -120,6 +121,7 @@ pub(super) fn placement_quad_with_padding(
         cell,
         padding,
         0,
+        0,
     )
 }
 
@@ -130,6 +132,7 @@ pub(super) fn placement_quad_with_padding_and_row_offset(
     cell: CellSize,
     padding: WindowPadding,
     row_offset: usize,
+    col_offset: usize,
 ) -> Option<ImageQuad> {
     if image_width == 0 || image_height == 0 || placement.display_columns == 0 {
         return None;
@@ -166,7 +169,9 @@ pub(super) fn placement_quad_with_padding_and_row_offset(
     }
 
     let pad = padding.as_f32();
-    let x0 = pad + placement.column as f32 * cell.width as f32 + placement.pixel_offset_x as f32;
+    let x0 = pad
+        + (placement.column + col_offset) as f32 * cell.width as f32
+        + placement.pixel_offset_x as f32;
     let y0 = pad
         + (placement.row + row_offset) as f32 * cell.height as f32
         + placement.pixel_offset_y as f32;
@@ -494,6 +499,7 @@ impl ImageLayer {
         cell: CellSize,
         padding: WindowPadding,
         row_offset: usize,
+        col_offset: usize,
     ) {
         let cached = self.cached_ids();
         let plan = cache_sync_plan(&cached, placements, uploads);
@@ -519,9 +525,12 @@ impl ImageLayer {
             }
         }
 
-        self.rebuild_vertices_with_padding(device, queue, placements, cell, padding, row_offset);
+        self.rebuild_vertices_with_padding(
+            device, queue, placements, cell, padding, row_offset, col_offset,
+        );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn rebuild_vertices_with_padding(
         &mut self,
         device: &wgpu::Device,
@@ -530,6 +539,7 @@ impl ImageLayer {
         cell: CellSize,
         padding: WindowPadding,
         row_offset: usize,
+        col_offset: usize,
     ) {
         self.vertices.clear();
         self.draws.clear();
@@ -545,6 +555,7 @@ impl ImageLayer {
                 cell,
                 padding,
                 row_offset,
+                col_offset,
             ) else {
                 continue;
             };

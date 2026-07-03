@@ -43,26 +43,60 @@ pub(super) fn pane_focus_dim(is_focused: bool, inactive_dim: f32) -> f32 {
     if is_focused { 0.0 } else { inactive_dim }
 }
 
+/// The tab-chrome reservation: how many cell-rows are taken off the top (the
+/// horizontal bar) and how many cell-columns off the left/right (the vertical
+/// rail, F4-V2). Exactly one axis is ever non-zero for a given placement, and
+/// `NONE` (all zero) is the byte-identical no-chrome case. Callers build it from
+/// [`App::tab_reserve`]; the free `pane_content_rect` stays pure/GPU-free.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(super) struct TabReserve {
+    /// Rows reserved off the top (horizontal bar).
+    pub(super) top_rows: usize,
+    /// Columns reserved off the left (left rail).
+    pub(super) left_cols: usize,
+    /// Columns reserved off the right (right rail — R2; always 0 in R1).
+    pub(super) right_cols: usize,
+}
+
+impl TabReserve {
+    pub(super) const NONE: Self = Self {
+        top_rows: 0,
+        left_cols: 0,
+        right_cols: 0,
+    };
+
+    /// The classic top horizontal strip reservation (`TAB_BAR_ROWS` rows).
+    pub(super) fn top() -> Self {
+        Self {
+            top_rows: TAB_BAR_ROWS as usize,
+            left_cols: 0,
+            right_cols: 0,
+        }
+    }
+}
+
 /// The pixel rectangle available to panes: the surface minus window padding on
-/// all sides, and minus the tab-bar strip along the top when it is shown. For a
+/// all sides, and minus the tab chrome — the top strip (`reserve.top_rows`) or
+/// the side rail (`reserve.left_cols`/`right_cols`) when shown. For a
 /// single-pane tab this rect's cell dimensions equal `self.grid`, so the
 /// single-pane resize/render geometry is unchanged (it never calls this).
+///
+/// `TabReserve::NONE` and `TabReserve::top()` reproduce the pre-rail behaviour
+/// byte-for-byte (top strip off the top, nothing off the sides).
 pub(super) fn pane_content_rect(
     width_px: u32,
     height_px: u32,
     cell: CellSize,
     padding: WindowPadding,
-    show_tab_bar: bool,
+    reserve: TabReserve,
 ) -> PaneRect {
     let pad = padding.as_f32();
-    let tab_h = if show_tab_bar {
-        cell.height as f32 * TAB_BAR_ROWS as f32
-    } else {
-        0.0
-    };
-    let w = (width_px as f32 - 2.0 * pad).max(0.0);
+    let tab_h = cell.height as f32 * reserve.top_rows as f32;
+    let left_w = cell.width as f32 * reserve.left_cols as f32;
+    let right_w = cell.width as f32 * reserve.right_cols as f32;
+    let w = (width_px as f32 - 2.0 * pad - left_w - right_w).max(0.0);
     let h = (height_px as f32 - 2.0 * pad - tab_h).max(0.0);
-    PaneRect::new(pad, pad + tab_h, w, h)
+    PaneRect::new(pad + left_w, pad + tab_h, w, h)
 }
 
 /// Map a physical pointer position to a cell in **window-overlay space** — the
@@ -151,7 +185,7 @@ impl App {
         }
         let cell = self.resolved_cell()?;
         let (w, h, padding) = self.resolved_surface()?;
-        let content = pane_content_rect(w, h, cell, padding, self.should_show_tab_bar());
+        let content = pane_content_rect(w, h, cell, padding, self.tab_reserve());
         Some((content, cell))
     }
 
@@ -200,6 +234,16 @@ impl App {
     /// is exactly `self.grid.columns` and the tab-bar hit-test is byte-identical.
     pub(super) fn tab_bar_grid_cols(&self) -> usize {
         self.overlay_grid_dims().0
+    }
+
+    /// The row count the vertical tab rail is laid out across (F4-V2): the
+    /// **window** content rows, the exact analog of [`Self::tab_bar_grid_cols`]
+    /// on the column axis. The rail render (`tab_rail_strip` / the single-pane
+    /// `decorate_snapshot_with_tab_rail`) spans these rows, so its hit-test must
+    /// share the basis or the row→slot mapping drifts. Single-pane returns
+    /// `self.grid.rows` (a left rail reserves columns, not rows).
+    pub(super) fn tab_rail_grid_rows(&self) -> usize {
+        self.overlay_grid_dims().1
     }
 
     /// The pointer position in **window-overlay cell space** (the content grid),
@@ -349,7 +393,8 @@ impl App {
         };
         let (surface_w, surface_h) = surface;
         let show_tab_bar = self.should_show_tab_bar();
-        let content = pane_content_rect(surface_w, surface_h, cell, padding, show_tab_bar);
+        let reserve = self.tab_reserve();
+        let content = pane_content_rect(surface_w, surface_h, cell, padding, reserve);
         let treatment = self.background_treatment_params();
         let focused = self.sessions.active_id();
 
@@ -412,10 +457,16 @@ impl App {
             );
         }
 
-        // The tab strip (only when ≥2 tabs) is drawn as a one-row pane along the
-        // very top, above the content rect.
+        // The tab chrome (only when the bar is shown) is drawn as its own region
+        // at the window's top-left, beside/above the content rect: a one-row
+        // strip along the top, or the vertical rail down a side (F4-V2). Both
+        // sit at `[pad, pad]` and never overlap the content rect (reserved out of
+        // it above), so push order relative to the content panes is irrelevant.
         let tab_strip = if show_tab_bar {
-            self.tab_bar_strip(cell, padding, surface_w)
+            match self.rail_side() {
+                Some(side) => self.tab_rail_strip(cell, padding, surface_h, side),
+                None => self.tab_bar_strip(cell, padding, surface_w),
+            }
         } else {
             None
         };
@@ -547,6 +598,51 @@ impl App {
         }
         Some((snapshot, output.quads))
     }
+
+    /// Build the vertical tab rail as a `rail_cols × grid_rows` snapshot for the
+    /// multi-pane path to draw as its own region (F4-V2). Mirrors
+    /// [`Self::tab_bar_strip`] but on the column axis: the rail spans the window
+    /// content rows and is drawn at the window's top-left (`[pad, pad]`), beside
+    /// the content rect. Returns the snapshot plus the rail's chrome quads
+    /// (per-slot rings + the rail↔content divider).
+    fn tab_rail_strip(
+        &self,
+        cell: CellSize,
+        padding: WindowPadding,
+        surface_h: u32,
+        side: RailSide,
+    ) -> Option<(Snapshot, Vec<SolidQuad>)> {
+        let pad = padding.physical_px();
+        let rail_cols = self.rail_cols();
+        let grid_rows =
+            (surface_h.saturating_sub(pad.saturating_mul(2)) / cell.height.max(1)) as usize;
+        if rail_cols == 0 || grid_rows == 0 {
+            return None;
+        }
+        let mut snapshot = Snapshot {
+            dimensions: Dimensions::new(rail_cols, grid_rows),
+            cursor: Position { row: 0, column: 0 },
+            cursor_visible: false,
+            colors: crate::core::DynamicColors::default(),
+            cells: vec![crate::core::Cell::default(); rail_cols * grid_rows],
+        };
+        let output = self.tab_rail.render(
+            &self.sessions,
+            rail_cols,
+            grid_rows,
+            [padding.as_f32(), padding.as_f32()],
+            cell,
+            side,
+            self.tab_bar_colors(),
+        );
+        for glyph in output.glyphs {
+            if glyph.row < grid_rows && glyph.col < rail_cols {
+                let idx = glyph.row * rail_cols + glyph.col;
+                snapshot.cells[idx] = crate::core::Cell::new(glyph.ch, glyph.attrs);
+            }
+        }
+        Some((snapshot, output.quads))
+    }
 }
 
 #[cfg(test)]
@@ -572,7 +668,7 @@ mod tests {
         let cell = cell();
         let padding = WindowPadding::from_logical(8.0, 1.0);
         let (w, h) = (1280u32, 800u32);
-        let rect = pane_content_rect(w, h, cell, padding, false);
+        let rect = pane_content_rect(w, h, cell, padding, TabReserve::NONE);
         let (cols, rows) = crate::native::layout::grid_dims_for_rect(rect, cell.width, cell.height);
         let legacy = grid_dimensions_for_with_padding(w, h, cell, padding);
         assert_eq!((cols, rows), (legacy.columns, legacy.rows));
@@ -583,8 +679,8 @@ mod tests {
         let cell = cell();
         let padding = WindowPadding::from_logical(8.0, 1.0);
         let (w, h) = (1280u32, 800u32);
-        let without = pane_content_rect(w, h, cell, padding, false);
-        let with = pane_content_rect(w, h, cell, padding, true);
+        let without = pane_content_rect(w, h, cell, padding, TabReserve::NONE);
+        let with = pane_content_rect(w, h, cell, padding, TabReserve::top());
         // Same width and x; the strip eats `TAB_BAR_ROWS` cell-heights off the
         // top, shifting y down and reducing height by the same amount.
         assert!((without.w - with.w).abs() < f32::EPSILON);
@@ -592,6 +688,37 @@ mod tests {
         let strip = cell.height as f32 * TAB_BAR_ROWS as f32;
         assert!((with.y - (without.y + strip)).abs() < f32::EPSILON);
         assert!((with.h - (without.h - strip)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn left_rail_shrinks_the_content_rect_by_exactly_the_rail_width() {
+        // F4-V2: a left rail reserves `left_cols` off the LEFT — content width
+        // shrinks and its x-origin shifts right by the rail width; height and y
+        // are unchanged (the rail reserves columns, not rows).
+        let cell = cell();
+        let padding = WindowPadding::from_logical(8.0, 1.0);
+        let (w, h) = (1280u32, 800u32);
+        let without = pane_content_rect(w, h, cell, padding, TabReserve::NONE);
+        let reserve = TabReserve {
+            top_rows: 0,
+            left_cols: 16,
+            right_cols: 0,
+        };
+        let with = pane_content_rect(w, h, cell, padding, reserve);
+        let rail = cell.width as f32 * 16.0;
+        assert!((with.y - without.y).abs() < f32::EPSILON, "y unchanged");
+        assert!(
+            (with.h - without.h).abs() < f32::EPSILON,
+            "height unchanged"
+        );
+        assert!(
+            (with.x - (without.x + rail)).abs() < f32::EPSILON,
+            "x shifts right by the rail width"
+        );
+        assert!(
+            (with.w - (without.w - rail)).abs() < f32::EPSILON,
+            "width shrinks by the rail width"
+        );
     }
 
     #[test]
@@ -714,7 +841,7 @@ mod tests {
                 // The hit-test-side content column count (what tab_bar_grid_cols
                 // returns in multi-pane: grid_dims_for_rect over the content
                 // rect). Tab bar shown, so the height arg is irrelevant to cols.
-                let content = pane_content_rect(surface_w, 800, cell, padding, true);
+                let content = pane_content_rect(surface_w, 800, cell, padding, TabReserve::top());
                 let (content_cols, _) =
                     crate::native::layout::grid_dims_for_rect(content, cell.width, cell.height);
                 // `grid_dims_for_rect` floors at 1, so compare against the strip

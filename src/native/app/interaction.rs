@@ -1374,46 +1374,87 @@ impl App {
             self.apply_cursor_icon(icon);
             return;
         }
+        // Tab-chrome hover: a vertical rail hit-tests with its own row-major
+        // X-band and tracks hover on `tab_rail`; the top bar keeps the
+        // column-major test on `tab_bar` (F4-V2). Whichever is inactive has its
+        // hover cleared so a stale highlight can't linger after a placement flip.
+        let rail_side = self.rail_side();
         let tab_bar_hit = if self.should_show_tab_bar() {
-            let hit = self.tab_bar.hit_test(
-                x_px,
-                y_px,
-                &self.sessions,
-                self.tab_bar_grid_cols(),
-                padding.as_f32(),
-                cell,
-                padding,
-            );
-            let hover = (hit != TabHit::None).then_some(hit);
-            if self.tab_bar.hover != hover {
-                self.tab_bar.set_hover(hover);
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
+            if rail_side.is_some() {
+                let hit = self.tab_rail.hit_test(
+                    x_px,
+                    y_px,
+                    &self.sessions,
+                    self.rail_cols(),
+                    self.tab_rail_grid_rows(),
+                    [padding.as_f32(), padding.as_f32()],
+                    cell,
+                );
+                let hover = (hit != TabHit::None).then_some(hit);
+                if self.tab_rail.hover != hover {
+                    self.tab_rail.set_hover(hover);
+                    if let Some(window) = self.window.as_ref() {
+                        window.request_redraw();
+                    }
                 }
+                self.tab_bar.set_hover(None);
+                hover
+            } else {
+                let hit = self.tab_bar.hit_test(
+                    x_px,
+                    y_px,
+                    &self.sessions,
+                    self.tab_bar_grid_cols(),
+                    padding.as_f32(),
+                    cell,
+                    padding,
+                );
+                let hover = (hit != TabHit::None).then_some(hit);
+                if self.tab_bar.hover != hover {
+                    self.tab_bar.set_hover(hover);
+                    if let Some(window) = self.window.as_ref() {
+                        window.request_redraw();
+                    }
+                }
+                self.tab_rail.set_hover(None);
+                hover
             }
-            hover
         } else {
             self.tab_bar.set_hover(None);
+            self.tab_rail.set_hover(None);
             None
         };
         if tab_bar_hit.is_some() {
-            let x = (x_px as f32 - padding.as_f32()).max(0.0);
-            let col = (x / cell.width as f32) as usize;
-            // Clamp to the *window* content columns the strip is laid out across
-            // (byte-identical to `self.grid.columns` single-pane), not the
-            // focused pane's narrower sub-grid in a multi-pane tab.
-            self.pointer_cell = Some(CellPoint {
-                row: 0,
-                column: col.min(self.tab_bar_grid_cols().saturating_sub(1)),
-            });
+            // Record a benign pointer cell in the chrome region so grid selection
+            // / link hover below are skipped; the press path resolves the actual
+            // action via `current_tab_bar_hit` (rail or bar), not this cell.
+            let point = if rail_side.is_some() {
+                let y = (y_px as f32 - padding.as_f32()).max(0.0);
+                let row = (y / cell.height as f32) as usize;
+                CellPoint {
+                    row: row.min(self.tab_rail_grid_rows().saturating_sub(1)),
+                    column: 0,
+                }
+            } else {
+                let x = (x_px as f32 - padding.as_f32()).max(0.0);
+                let col = (x / cell.width as f32) as usize;
+                CellPoint {
+                    row: 0,
+                    column: col.min(self.tab_bar_grid_cols().saturating_sub(1)),
+                }
+            };
+            self.pointer_cell = Some(point);
             self.apply_cursor_icon(CursorIcon::Default);
             return;
         }
-        let y_px = if self.should_show_tab_bar() {
-            y_px - f64::from(self.tab_bar_height_px(cell))
-        } else {
-            y_px
-        };
+        // Map into content-relative space by subtracting the tab chrome: the top
+        // bar shifts Y, the left rail shifts X (F4-V2). Byte-identical on the
+        // plain path (both offsets 0). Multi-pane maps via the pane content rect
+        // (already reserve-offset) inside `active_pane_pointer_cell`, so only the
+        // single-pane fallback below consumes these adjusted coordinates.
+        let (chrome_dx, chrome_dy) = self.tab_chrome_offset_px(cell);
+        let x_px = x_px - chrome_dx;
+        let y_px = y_px - chrome_dy;
         // In a multi-pane tab the focused pane's grid is offset from the window
         // origin, so the pointer must map relative to that pane's sub-rect — the
         // basis `self.grid` / `self.selection` use. On a single-pane tab

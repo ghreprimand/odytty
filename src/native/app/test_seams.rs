@@ -655,6 +655,42 @@ impl App {
         )
     }
 
+    /// Test seam (F4-V2): set the tab-bar placement (`"top"`/`"left"`/`"right"`)
+    /// and recompute the content grid, mirroring the live-toggle path.
+    #[cfg(test)]
+    pub(in crate::native) fn set_tab_bar_placement_for_test(&mut self, placement: &str) {
+        self.settings.tab_bar_placement = match placement {
+            "left" => crate::settings::TabBarPlacement::Left,
+            "right" => crate::settings::TabBarPlacement::Right,
+            _ => crate::settings::TabBarPlacement::Top,
+        };
+        self.recompute_grid_for_tab_bar();
+    }
+
+    /// Test seam (F4-V2): the decorated single-pane snapshot's `(columns, rows)`
+    /// after tab-chrome decoration. A left rail grows columns by `rail_cols`; the
+    /// top bar grows rows by `TAB_BAR_ROWS`.
+    #[cfg(test)]
+    pub(in crate::native) fn decorated_snapshot_dims_for_test(&self) -> Option<(usize, usize)> {
+        let cell = self.resolved_cell()?;
+        let snapshot = self
+            .terminal
+            .lock()
+            .ok()?
+            .snapshot_with_scrollback(self.viewport.offset());
+        let (decorated, _) =
+            self.decorate_snapshot_with_tab_bar(&snapshot, snapshot.cursor_visible, cell);
+        Some((decorated.dimensions.columns, decorated.dimensions.rows))
+    }
+
+    /// Test seam (F4-V2): the reserved `(rows_off_top, cols_off_side)` for the
+    /// current placement.
+    #[cfg(test)]
+    pub(in crate::native) fn tab_reserve_for_test(&self) -> (usize, usize) {
+        let r = self.tab_reserve();
+        (r.top_rows, r.left_cols + r.right_cols)
+    }
+
     /// Test seam (MOUSE-SCROLLBAR): scroll the viewport up into history so the
     /// scroll thumb becomes visible (offset clamps to the scrollback length).
     #[cfg(test)]

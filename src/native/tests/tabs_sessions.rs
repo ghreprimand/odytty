@@ -374,6 +374,125 @@ fn tab_bar_hit_test_reports_switch_close_and_new_actions() {
     assert_eq!(app.tab_bar_hit_for_test(), Some("new"));
 }
 
+// --- F4-V2 R1: vertical tab rail integration ---
+
+#[test]
+fn tab_reserve_switches_axis_with_placement() {
+    // The reservation flips from rows-off-top (bar) to cols-off-side (rail) when
+    // the placement changes; hidden bar reserves nothing (F4-V2 ODP-8 helper).
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+
+    // Two tabs → bar shown. Default top placement reserves one row.
+    app.set_tab_bar_placement_for_test("top");
+    assert_eq!(app.tab_reserve_for_test(), (1, 0), "top reserves one row");
+
+    // Left rail reserves the rail-width columns, zero rows.
+    app.set_tab_bar_placement_for_test("left");
+    assert_eq!(app.tab_reserve_for_test(), (0, 16), "left reserves 16 cols");
+
+    // Right degrades to top in R1 (effective()), so it reserves a row, not cols.
+    app.set_tab_bar_placement_for_test("right");
+    assert_eq!(
+        app.tab_reserve_for_test(),
+        (1, 0),
+        "right degrades to top in R1"
+    );
+}
+
+#[test]
+fn left_rail_grows_decorated_snapshot_by_columns_not_rows() {
+    // The single-pane rail decoration grows the snapshot by `rail_cols` columns
+    // (content shifts right); the top bar grows it by one row. The reserved axis
+    // used here must match `tab_reserve` (ODP-8 correctness knot).
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+
+    app.set_tab_bar_placement_for_test("top");
+    let (top_cols, top_rows) = app
+        .decorated_snapshot_dims_for_test()
+        .expect("top decorated dims");
+
+    app.set_tab_bar_placement_for_test("left");
+    let (left_cols, left_rows) = app
+        .decorated_snapshot_dims_for_test()
+        .expect("left decorated dims");
+
+    // The base terminal grid is identical here (headless: no live resize), so
+    // the two decorations differ only in the axis they grow: the top bar adds
+    // one ROW (leaving columns unchanged), the left rail adds `rail_cols` COLUMNS
+    // (leaving rows unchanged). Hence the left snapshot has one fewer row than
+    // the top-bar snapshot and 16 more columns.
+    assert_eq!(
+        left_rows,
+        top_rows - 1,
+        "left grows columns, not rows (top bar's extra row is absent)"
+    );
+    assert_eq!(
+        left_cols,
+        top_cols + 16,
+        "left adds 16 cols vs the top bar's same-width row"
+    );
+}
+
+#[test]
+fn left_rail_hit_test_resolves_switch_close_and_new() {
+    // Row-major rail hit-test round-trip: the same TabHit dispatch the bar uses,
+    // resolved through the rail's X-band + row-stacked slots (F4-V2).
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+
+    // Slot 0 body: row 0, label col 1 → centre (12, 8).
+    app.set_pointer_px_for_test(12.0, 8.0);
+    assert_eq!(
+        app.tab_bar_hit_for_test(),
+        Some("switch"),
+        "slot 0 body → switch"
+    );
+
+    // Slot 0 close ×: top-right cell (col 15) → centre (124, 8).
+    app.set_pointer_px_for_test(124.0, 8.0);
+    assert_eq!(
+        app.tab_bar_hit_for_test(),
+        Some("close"),
+        "slot 0 × → close"
+    );
+
+    // The new-tab + slot follows the two tab slots: tabs at rows [0,2) and
+    // [3,5), the + slot at rows [6,8). Row 6 centre → y = 104.
+    app.set_pointer_px_for_test(64.0, 104.0);
+    assert_eq!(app.tab_bar_hit_for_test(), Some("new"), "+ slot → new");
+}
+
+#[test]
+fn click_right_of_the_rail_is_not_a_tab_hit() {
+    // A click in the content area (past the rail's right edge, x ≥ rail_w=128)
+    // is never a tab hit — the X-band gate excludes it.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+
+    app.set_pointer_px_for_test(200.0, 8.0);
+    assert_eq!(
+        app.tab_bar_hit_for_test(),
+        None,
+        "content-area click → no tab hit"
+    );
+}
+
 #[test]
 fn visible_tab_bar_row_has_no_default_background_cells() {
     let Some(mut app) = tab_bar_app() else {

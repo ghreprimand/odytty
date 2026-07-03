@@ -128,6 +128,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "window_border",
             "window_decorations",
             "always_show_tab_bar",
+            "tab_bar_placement",
             "subpixel",
             "synthetic_styles",
             "geometric_boxdraw",
