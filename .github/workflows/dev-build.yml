@@ -1,0 +1,64 @@
+# Dev build: manually triggered (workflow_dispatch) Windows zip from any ref.
+#
+# Purpose: produce a testable Windows binary WITHOUT cutting a release — e.g.
+# the NF18 diagnostic trace build, or operator smoke-testing of unreleased UI
+# work (F4 tab visuals). The zip is uploaded as a short-lived Actions artifact
+# (NOT a release asset, NOT signed, NOT for distribution). Mirrors the
+# packaging shape of release.yml's `windows` job, minus tag-derived versioning.
+#
+# Usage: Actions tab -> "Dev build (Windows zip)" -> Run workflow -> pick the
+# branch -> download the `odytty-dev-windows-x86_64` artifact from the run page.
+name: Dev build (Windows zip)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows dev zip (x86_64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUSTFLAGS: "--remap-path-prefix=${{ github.workspace }}=."
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Smoke test the Windows binary
+        # --version exits before any GPU/window init, so it runs headlessly in CI.
+        run: ./target/release/odytty.exe --version
+
+      - name: Package Windows dev zip
+        shell: pwsh
+        run: |
+          $sha = "${{ github.sha }}".Substring(0, 9)
+          New-Item -ItemType Directory -Force dist/windows/package | Out-Null
+          New-Item -ItemType Directory -Force dist/build | Out-Null
+          Copy-Item target/release/odytty.exe dist/windows/package/
+          Copy-Item README.md, LICENSE, NOTICE dist/windows/package/
+          Set-Content -Path dist/windows/package/DEV-BUILD.txt -Value @"
+          Unreleased development build of OdyTTY.
+          Commit: ${{ github.sha }}
+          Ref:    ${{ github.ref_name }}
+          Not a release artifact; do not redistribute.
+          "@
+          Compress-Archive `
+            -Path dist/windows/package/* `
+            -DestinationPath "dist/build/odytty-dev-$sha-windows-x86_64.zip" `
+            -Force
+
+      - name: Upload Windows dev artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: odytty-dev-windows-x86_64
+          path: dist/build/*.zip
+          retention-days: 7
