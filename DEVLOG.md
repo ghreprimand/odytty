@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- About build-info no longer goes stale on same-branch commits (NF19)
+
+The About panel showed stale provenance: a fresh `cargo build --release` at a new
+commit still reported yesterday's SHA / date / dirty flag. Root cause in
+`build.rs`: it emitted only `cargo:rerun-if-changed=.git/HEAD`, but `.git/HEAD`
+changes only on a *branch switch*. A commit on the current branch updates the
+loose ref file HEAD points at (`.git/refs/heads/<branch>`) or `.git/packed-refs`,
+never HEAD — so cargo reused the cached build-script output indefinitely. This
+misled the operator into thinking a rebuild had failed.
+
+Fix: `emit_git_rerun_triggers()` now resolves HEAD's symbolic ref and also watches
+the loose ref file, plus `.git/packed-refs` (packed-ref commits) and `.git/index`
+(the `-dirty` flag). Each extra path is emitted only when it exists, so a missing
+file can't force an unconditional rerun; `.git/HEAD` stays unconditional (it also
+carries the commit hash directly for a detached HEAD). Missing `.git` (the
+`git archive` release tarball) is unchanged — no ref/index to watch, and
+`git_short_sha` still falls back to "unknown". Paths use forward slashes, which
+cargo accepts on every platform.
+
+**Tests.** Pure `head_ref_path` helper parses `.git/HEAD` (symbolic ref →
+ref path; detached-hash / empty / malformed → None) with a `#[cfg(test)]` module;
+since `cargo test` does not run build-script tests, verified by compiling the
+build script standalone (`rustc --edition 2024 --test build.rs`, 3/3 ok). Behavior
+verified end-to-end at the build-system seam: after settling, touching
+`.git/refs/heads/master` reruns the build script (fails-before: reverted to the
+HEAD-only watch → the ref touch produced 0 reruns; restored → 1 rerun). Gate:
+full suite 2821, 0 failed; `clippy -D warnings` clean; fmt clean; MSRV untouched.
+**Windows: platform-neutral — build-script path handling only (`PathBuf` joins,
+forward-slash emits cargo normalizes); windows-latest CI is the verify.**
+
+---
+
 ## 2026-07-03 -- Tab bar outline visibility fix (F4-IMPL v1.2)
 
 Operator ran the real v1.1 binary (CRT effect on, a theme whose `border` role is

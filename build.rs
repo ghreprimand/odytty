@@ -16,10 +16,9 @@
 use std::process::Command;
 
 fn main() {
-    // Re-run when HEAD moves so the embedded SHA tracks commits. Guarded: if
-    // .git is absent (release tarball), the rerun-if-changed simply points at a
-    // path that never changes, which is harmless.
-    println!("cargo:rerun-if-changed=.git/HEAD");
+    // Re-run when the commit or working-tree state moves so the embedded SHA /
+    // date / dirty flag track reality (see `emit_git_rerun_triggers`).
+    emit_git_rerun_triggers();
     println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
 
     let git_sha = git_short_sha().unwrap_or_else(|| "unknown".to_string());
@@ -39,6 +38,69 @@ fn main() {
     println!("cargo:rustc-env=ODYTTY_RUSTC_VERSION={rustc_version}");
 
     embed_windows_icon();
+}
+
+/// Emit the `cargo:rerun-if-changed` triggers that keep the embedded provenance
+/// (SHA / build date / dirty flag) fresh.
+///
+/// The naive `rerun-if-changed=.git/HEAD` is NOT enough: `.git/HEAD` only
+/// changes on a *branch switch*. A commit on the current branch updates the
+/// loose ref file it points at (`.git/refs/heads/<branch>`) or `.git/packed-refs`
+/// (when refs are packed) — never `.git/HEAD`. So HEAD alone lets cargo reuse a
+/// stale build-script output indefinitely (the operator saw yesterday's SHA on a
+/// fresh build). We therefore also watch:
+///   - the resolved loose ref file, so a same-branch commit retriggers;
+///   - `.git/packed-refs`, so a commit against a packed ref retriggers;
+///   - `.git/index`, so staging/unstaging flips the `-dirty` suffix.
+///
+/// Each extra path is emitted only when it exists, so a missing file can't force
+/// an unconditional rerun. `.git/HEAD` stays unconditional (it also carries the
+/// commit hash directly in the detached-HEAD case, where there is no ref file to
+/// resolve). Missing `.git` entirely (the `git archive` release tarball) simply
+/// yields no ref file / index to watch — the graceful "unknown" fallback in
+/// `git_short_sha` is unchanged. Paths use forward slashes, which cargo accepts
+/// on every platform.
+fn emit_git_rerun_triggers() {
+    let git_dir = std::path::Path::new(".git");
+
+    // Always watch HEAD: it moves on a branch switch and, for a detached HEAD,
+    // holds the commit hash itself.
+    println!("cargo:rerun-if-changed=.git/HEAD");
+
+    // Watch the ref HEAD points at (loose ref), so a same-branch commit — which
+    // updates that file, not HEAD — retriggers the build script.
+    if let Ok(head) = std::fs::read_to_string(git_dir.join("HEAD"))
+        && let Some(ref_path) = head_ref_path(&head)
+    {
+        let loose_ref = git_dir.join(&ref_path);
+        if loose_ref.exists() {
+            // `ref_path` is git's on-disk form (forward slashes); emit it as a
+            // relative `.git/` path so cargo hashes the right file.
+            println!("cargo:rerun-if-changed=.git/{ref_path}");
+        }
+    }
+
+    // packed-refs (commit against a packed ref) and index (dirty flag) — watch
+    // only when present so a missing file can't force an unconditional rerun.
+    for rel in ["packed-refs", "index"] {
+        if git_dir.join(rel).exists() {
+            println!("cargo:rerun-if-changed=.git/{rel}");
+        }
+    }
+}
+
+/// Parse the contents of `.git/HEAD` and return the ref path it points at,
+/// relative to the `.git` directory (e.g. `refs/heads/master`).
+///
+/// Returns `None` for a detached HEAD (the file holds a raw commit hash, so
+/// there is no ref to resolve — watching HEAD itself suffices) or for content
+/// that doesn't begin with the `ref:` marker.
+fn head_ref_path(head_contents: &str) -> Option<String> {
+    let ref_path = head_contents.trim().strip_prefix("ref:")?.trim();
+    if ref_path.is_empty() {
+        return None;
+    }
+    Some(ref_path.to_string())
 }
 
 /// Embed the application icon into `odytty.exe` as a PE resource (Windows
@@ -162,4 +224,44 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let d = (doy - (153 * mp + 2) / 5 + 1) as u32; // [1, 31]
     let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32; // [1, 12]
     (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::head_ref_path;
+
+    #[test]
+    fn symbolic_head_resolves_to_its_ref_path() {
+        // The normal on-branch case: HEAD is a symbolic ref with a trailing
+        // newline. This is the ref file a same-branch commit updates.
+        assert_eq!(
+            head_ref_path("ref: refs/heads/master\n").as_deref(),
+            Some("refs/heads/master")
+        );
+        // A slashed branch name is preserved verbatim.
+        assert_eq!(
+            head_ref_path("ref: refs/heads/feature/tab-bar\n").as_deref(),
+            Some("refs/heads/feature/tab-bar")
+        );
+        // No trailing newline is fine too.
+        assert_eq!(
+            head_ref_path("ref: refs/heads/main").as_deref(),
+            Some("refs/heads/main")
+        );
+    }
+
+    #[test]
+    fn detached_head_hash_has_no_ref_path() {
+        // A detached HEAD holds a raw commit hash — no ref to resolve (watching
+        // HEAD itself covers it).
+        assert_eq!(head_ref_path("9c9fdc0a1b2c3d4e5f\n"), None);
+    }
+
+    #[test]
+    fn empty_or_malformed_head_is_none() {
+        assert_eq!(head_ref_path(""), None);
+        assert_eq!(head_ref_path("\n"), None);
+        // `ref:` with no path is not a usable ref.
+        assert_eq!(head_ref_path("ref:  \n"), None);
+    }
 }
