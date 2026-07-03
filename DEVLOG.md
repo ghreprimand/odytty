@@ -7,6 +7,47 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Tab bar active-treatment rework: framed tabs + selection fill (F4-IMPL v1.1)
+
+Operator looked at the v1 dev build and revised the active-tab treatment: he
+wants tabs to look like tabs (bounded objects) *and* an unmistakable active
+state. Distilled to two orthogonal visual languages, all still theme-role-derived
+and opaque (image-proof):
+
+- **Shape — every tab is outlined.** The retained four-quad `border` ring
+  (`active_tab_outline`) is promoted back to the default path and drawn around
+  *every* slot, so each tab reads as a bounded object. The active slot uses the
+  full `border` role; inactive slots use a subordinate outline blended from
+  `border` toward the band (`INACTIVE_OUTLINE_BLEND = 0.55`) — visible but clearly
+  secondary. Inactive rings are emitted first and the active ring last, so the
+  active frame composites on top of any shared edge and stays crisp.
+- **State — the active tab is filled.** The active slot carries the `selection`-
+  role background fill (as in the 0.7.5 build) plus its bold `foreground` label;
+  inactive tabs have no fill (they sit on the band) with dimmed `inactive` labels.
+  A hovered inactive tab gets a *subordinate* fill blended from the band toward
+  `selection` (`HOVER_FILL_BLEND = 0.45`) — present as feedback but never as
+  strong as the active fill, so the two can't be confused.
+
+**The accent underline is gone** — removed the `active_tab_underline` helper and
+the `accent`/`cursor` field from `TabBarColors` (and its `tab_bar_colors()`
+source). v1's band + full-width `border` separator + dim-inactive labels are
+unchanged. Net: "0.7.5's active treatment restored + new inactive outlines" on
+top of v1's band.
+
+**Tests.** Reworked the treatment assertions in `tab_bar.rs`: every slot
+(incl. inactive) is framed by a 4-quad ring; the active ring uses the full
+`border` role while inactive rings use the subordinate blend; the active slot is
+`selection`-filled while inactive slots sit on the band; no quad is emitted at the
+old underline position; hover fill is subordinate to (and distinct from) the
+active fill. Fails-before captured for the inactive-ring emission and the
+subordinate-hover-fill invariants (temporary reverts, confirmed red, restored).
+Gate: full suite **2820** + integration binaries, 0 failed; `clippy -D warnings`
+clean; fmt clean; MSRV lockstep untouched. **Windows: platform-neutral tab-bar
+UI, no Windows surface** — the `windows-latest` CI leg runs the same tests as the
+authoritative verify.
+
+---
+
 ## 2026-07-03 -- Tab bar visual polish + lone-tab visibility + rename discoverability (F4-IMPL v1)
 
 First slice of the tab-system upgrade (design `f4-tab-system.md`, operator ODPs

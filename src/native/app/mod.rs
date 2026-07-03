@@ -1863,7 +1863,6 @@ impl App {
             background: self.effective_theme.background,
             inactive: self.effective_theme.inactive,
             active_bg: self.effective_theme.selection,
-            accent: self.effective_theme.cursor,
             border: self.effective_theme.border,
         }
     }
