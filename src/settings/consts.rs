@@ -62,6 +62,7 @@ pub const SELECTION_DRAG_EXTEND_ENV: &str = "ODYTTY_SELECTION_DRAG_EXTEND";
 pub const SCROLLBAR_DRAG_ENV: &str = "ODYTTY_SCROLLBAR_DRAG";
 pub const WHEEL_ZOOM_ENV: &str = "ODYTTY_WHEEL_ZOOM";
 pub const COMMAND_STATUS_GUTTER_ENV: &str = "ODYTTY_COMMAND_STATUS_GUTTER";
+pub const ALWAYS_SHOW_TAB_BAR_ENV: &str = "ODYTTY_ALWAYS_SHOW_TAB_BAR";
 pub const SH_CLICK_ENV: &str = "ODYTTY_SH_CLICK";
 pub const SHELL_INTEGRATION_ENV: &str = "ODYTTY_SHELL_INTEGRATION";
 pub const CVD_MODE_ENV: &str = "ODYTTY_CVD_MODE";
@@ -146,6 +147,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SCROLLBAR_DRAG_ENV,
     WHEEL_ZOOM_ENV,
     COMMAND_STATUS_GUTTER_ENV,
+    ALWAYS_SHOW_TAB_BAR_ENV,
     SH_CLICK_ENV,
     SHELL_INTEGRATION_ENV,
     CVD_MODE_ENV,
@@ -559,6 +561,14 @@ pub const DEFAULT_WHEEL_ZOOM: bool = true;
 /// pixel-identical to today. With shell integration absent no command marks
 /// exist, so the gutter is empty regardless of the setting.
 pub const DEFAULT_COMMAND_STATUS_GUTTER: bool = false;
+
+/// Always show the tab bar (`ODYTTY_ALWAYS_SHOW_TAB_BAR`, F4 ODP-7): when on,
+/// the tab strip renders even with a single tab. Off by default — with one
+/// unnamed tab the bar stays hidden and the render path is byte-identical to
+/// today. Independent of this setting, a lone tab that carries a custom name
+/// (`title_override`) shows the bar regardless, so a named single "workflow"
+/// tab is never invisible (F4-NF1).
+pub const DEFAULT_ALWAYS_SHOW_TAB_BAR: bool = false;
 
 /// Click-to-position-cursor (`ODYTTY_SH_CLICK`, SH-CLICK/F2): when on, a plain
 /// left click on the live shell input moves the shell's cursor to the clicked

@@ -1,31 +1,31 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Tab bar widget — presentation-only, decoupled from the session model.
 //!
-//! Renders a one-row tab strip across the top of the window.  The widget is
+//! Renders a one-row tab strip across the top of the window. The widget is
 //! purely geometrical: it reads layout from a [`TabBarSource`] trait object
-//! (GPT will implement this on `TabSet`) and produces solid quads + glyph
-//! outputs that integration code composites into the frame.  It never touches
-//! terminal state, PTY, or settings.
+//! (implemented on `TabSet`) and produces solid quads + glyph outputs that the
+//! integration layer composites into the frame. It never touches terminal
+//! state, PTY, or settings.
 //!
-//! ## Integration contract
-//! 1. Reserve `TAB_BAR_ROWS` extra rows of height at the top of the window
-//!    (shift terminal content down by one cell row).
-//! 2. Call [`TabBar::render`] each frame to get [`TabBarOutput`]; push the
-//!    quads into the overlay quad list and paint each glyph into the reserved
-//!    snapshot row: `snapshot.cells[glyph.col] = Cell::new(glyph.ch, glyph.attrs)`.
-//! 3. Call [`TabBar::hit_test`] on every pointer move; store the result with
-//!    [`TabBar::set_hover`] so the hover highlight refreshes next frame.
-//! 4. On pointer press, call `hit_test` again to determine the action.
+//! ## Integration (live)
+//! Both render paths in `app/` drive this widget:
+//! `App::decorate_snapshot_with_tab_bar` (single-pane) and
+//! `TabSet`-backed `tab_bar_strip` (multi-pane) call [`TabBar::render`] each
+//! frame, push the returned quads into the overlay quad list, and paint each
+//! glyph into the reserved tab-bar snapshot row
+//! (`snapshot.cells[glyph.col] = Cell::new(glyph.ch, glyph.attrs)`);
+//! `App` pointer handling calls [`TabBar::hit_test`] on move (stored via
+//! [`TabBar::set_hover`]) and again on press to resolve the action.
 //!
-//! ## Off-path contract
-//! Adding `mod tab_bar;` to `app/mod.rs` is the only change to existing files.
-//! Until integration code explicitly calls `render` or `hit_test`, the widget is
-//! entirely inert and no existing behaviour or test output changes.
-
-// This module is an unintegrated widget scaffold — all public items will be
-// wired up by the integration packet. Suppress dead_code lints so the
-// warning count stays at or below the project baseline.
-#![allow(dead_code)]
+//! ## Visual treatment (F4 v1)
+//! Monochrome + one accent, all from theme roles (no hardcoded colors, so every
+//! theme and the CVD modes stay correct): the bar row is a distinct band derived
+//! from `background`, inactive tab labels are dimmed (`inactive` role) while the
+//! active label stays `foreground` + bold, a full-width `border`-role separator
+//! divides the band from the terminal body, and the active tab carries an opaque
+//! `cursor`-role accent underline. The older four-quad `border` ring
+//! ([`active_tab_outline`]) is retained as a fallback style but is not on the
+//! default path.
 
 // `use super::*` brings in everything imported at the `app/mod.rs` level:
 // `Color`, `SolidQuad`, `CellSize`, `text` (module), `WindowPadding`, etc.
@@ -55,6 +55,14 @@ const NEW_TAB_COLS: usize = 3;
 const TAB_PADDING: usize = 1;
 /// Columns at the right of each slot reserved for the close button (`space + ×`).
 const CLOSE_COLS: usize = 2;
+
+/// How far the bar-band fill is blended from `background` toward `inactive`
+/// (F4 T1). Small, so the band reads as a distinct strip without fighting the
+/// terminal body or leaving the monochrome + one-accent palette.
+const BAND_BLEND: f32 = 0.16;
+
+/// Thickness (physical px) of the band↔body separator line (F4 T1).
+const SEPARATOR_PX: f32 = 1.0;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -118,6 +126,27 @@ pub(super) struct TabBarOutput {
     pub(super) glyphs: Vec<TabBarGlyph>,
 }
 
+/// Theme-role colors the tab bar paints with (F4). Grouped into a struct so the
+/// render signature stays readable as visual treatments are added, and so every
+/// color demonstrably originates from a theme role (nothing hardcoded — CVD
+/// modes stay correct).
+#[derive(Debug, Clone, Copy)]
+pub(super) struct TabBarColors {
+    /// Active-tab label text — theme `foreground`.
+    pub(super) foreground: Srgb,
+    /// Terminal body background — theme `background`. The bar band is derived
+    /// from this (blended toward `inactive` by [`BAND_BLEND`]).
+    pub(super) background: Srgb,
+    /// Dimmed color for inactive tab labels — theme `inactive`.
+    pub(super) inactive: Srgb,
+    /// Active / hover slot fill — theme `selection`.
+    pub(super) active_bg: Srgb,
+    /// Active-tab accent underline — theme `cursor` (the natural accent role).
+    pub(super) accent: Srgb,
+    /// Band↔body separator line and the retained fallback ring — theme `border`.
+    pub(super) border: Srgb,
+}
+
 // ---------------------------------------------------------------------------
 // Private layout types
 // ---------------------------------------------------------------------------
@@ -165,13 +194,11 @@ impl TabBar {
     /// - `y_offset_px` — physical-pixel Y of the top of the tab bar row.
     /// - `cell` — cell metrics (width / height in physical pixels).
     /// - `padding` — window edge padding (shifts the left/right extents).
-    /// - `foreground` — sRGB text colour (theme `foreground` role).
-    /// - `background` — sRGB bar fill (theme `background` role).
-    /// - `active_bg` — sRGB highlight colour for active/hover slots (e.g.
-    ///   theme `cursor` or `selection` role).
+    /// - `colors` — the theme-role colors (see [`TabBarColors`]).
     ///
-    /// Returns [`TabBarOutput`] with one explicit-background glyph per column.
-    #[allow(clippy::too_many_arguments)]
+    /// Returns [`TabBarOutput`] with one explicit-background glyph per column,
+    /// plus pixel-space quads: a full-width band↔body separator and, when a tab
+    /// is active, an accent underline on the active slot (F4 T1+T2).
     pub(super) fn render(
         &self,
         source: &dyn TabBarSource,
@@ -179,26 +206,32 @@ impl TabBar {
         y_offset_px: f32,
         cell: CellSize,
         padding: WindowPadding,
-        foreground: Srgb,
-        background: Srgb,
-        active_bg: Srgb,
-        active_border: Srgb,
+        colors: TabBarColors,
     ) -> TabBarOutput {
         if grid_cols == 0 || cell.height == 0 || cell.width == 0 {
             return TabBarOutput::default();
         }
         let layout = compute_layout(source, grid_cols);
         let mut out = TabBarOutput::default();
-        let base_fg = Color::Rgb(foreground.0, foreground.1, foreground.2);
-        let base_bg = Color::Rgb(background.0, background.1, background.2);
-        let active_bg_color = Color::Rgb(active_bg.0, active_bg.1, active_bg.2);
-        let mut row = vec![blank_glyph(0, base_fg, base_bg); grid_cols];
+        let base_fg = Color::Rgb(
+            colors.foreground.0,
+            colors.foreground.1,
+            colors.foreground.2,
+        );
+        let dim_fg = Color::Rgb(colors.inactive.0, colors.inactive.1, colors.inactive.2);
+        // The bar-band fill: `background` nudged toward `inactive` so the strip
+        // reads as its own band, distinct from the terminal body below.
+        let band_srgb = blend_srgb(colors.background, colors.inactive, BAND_BLEND);
+        let band_bg = Color::Rgb(band_srgb.0, band_srgb.1, band_srgb.2);
+        let active_bg_color =
+            Color::Rgb(colors.active_bg.0, colors.active_bg.1, colors.active_bg.2);
+        let mut row = vec![blank_glyph(0, base_fg, band_bg); grid_cols];
         for (col, glyph) in row.iter_mut().enumerate() {
             glyph.col = col;
         }
 
         // Column span of the active slot, captured during the loop so the
-        // active-tab outline can be drawn in pixel space afterward.
+        // accent underline can be drawn in pixel space afterward.
         let mut active_span: Option<(usize, usize)> = None;
         for slot in &layout.slots {
             let is_active = slot.idx == source.active_tab();
@@ -206,10 +239,12 @@ impl TabBar {
             if is_active {
                 active_span = Some((slot.start_col, slot.end_col));
             }
+            // Active/hover slots get the selection fill; inactive slots sit
+            // flush on the band so the bar reads as one strip (F4 T1).
             let slot_bg = if is_active || is_hovered {
                 active_bg_color
             } else {
-                base_bg
+                band_bg
             };
 
             for col in slot.start_col..slot.end_col.min(row.len()) {
@@ -217,7 +252,10 @@ impl TabBar {
             }
 
             let mut la = Attrs::default();
-            la.foreground = base_fg;
+            // Active label: full-strength foreground + bold. Inactive label:
+            // dimmed `inactive` role (F4 T1). A hovered inactive tab keeps the
+            // dim label but gains the selection fill for feedback.
+            la.foreground = if is_active { base_fg } else { dim_fg };
             la.background = slot_bg;
             if is_active {
                 la.set_bold(true);
@@ -242,7 +280,7 @@ impl TabBar {
         // New-tab `+` affordance.
         if let Some(nt_col) = layout.new_tab_col {
             let is_hovered = matches!(self.hover, Some(TabHit::NewTab));
-            let new_tab_bg = if is_hovered { active_bg_color } else { base_bg };
+            let new_tab_bg = if is_hovered { active_bg_color } else { band_bg };
             for col in nt_col..(nt_col + NEW_TAB_COLS).min(row.len()) {
                 row[col].attrs.background = new_tab_bg;
             }
@@ -256,20 +294,32 @@ impl TabBar {
             }
         }
 
-        // Active-tab outline: a thin themed ring around the active slot, drawn
-        // in pixel space over the cell backgrounds. Cell backgrounds alone read
-        // as "too transparent" over background images/treatments (operator), so
-        // the opaque outline gives the active tab a clear, image-proof edge.
+        // Band↔body separator: a full-width opaque `border`-role line along the
+        // bottom edge of the bar row, so the strip reads as a distinct band
+        // rather than floating labels (F4 T1). Emitted whenever the bar renders.
+        out.quads.extend(band_separator(
+            grid_cols,
+            y_offset_px,
+            cell,
+            padding,
+            colors.border,
+        ));
+
+        // Active-tab accent underline: a 1–2px opaque `cursor`-role bar along the
+        // bottom of the active slot, sitting just above the separator so both
+        // stay visible regardless of composite order (F4 T2). Opaque, so it
+        // reads over background images/treatments (the house image-proof rule).
         // Single-pane windows never render the tab bar, so this is inert on the
-        // plain/fast path (no slots ⇒ no quads).
+        // plain/fast path (no active slot ⇒ no accent quad). The older four-quad
+        // ring ([`active_tab_outline`]) is retained as a fallback style.
         if let Some((start_col, end_col)) = active_span {
-            out.quads.extend(active_tab_outline(
+            out.quads.extend(active_tab_underline(
                 start_col,
                 end_col,
                 y_offset_px,
                 cell,
                 padding,
-                active_border,
+                colors.accent,
             ));
         }
         out.glyphs = row;
@@ -453,8 +503,89 @@ fn truncate_label(s: &str, max_cols: usize) -> String {
     out
 }
 
+/// Full-width band↔body separator: a single opaque `border`-role [`SolidQuad`]
+/// line ~1px tall along the bottom edge of the bar row, dividing the tab band
+/// from the terminal body (F4 T1). `grid_cols` is the full column count;
+/// `y_offset_px` is the top of the bar row; `cell`/`padding` map to physical
+/// pixels. Returns an empty vec for a degenerate row.
+fn band_separator(
+    grid_cols: usize,
+    y_offset_px: f32,
+    cell: CellSize,
+    padding: WindowPadding,
+    border: Srgb,
+) -> Vec<SolidQuad> {
+    if grid_cols == 0 || cell.width == 0 || cell.height == 0 {
+        return Vec::new();
+    }
+    let pad = padding.as_f32();
+    let cw = cell.width as f32;
+    let ch = cell.height as f32;
+    let x0 = pad;
+    let x1 = pad + grid_cols as f32 * cw;
+    let y1 = y_offset_px + ch;
+    vec![SolidQuad {
+        rect: [x0, y1 - SEPARATOR_PX, x1, y1],
+        color: srgb_alpha(border, 1.0),
+    }]
+}
+
+/// Active-tab accent underline: a single opaque `cursor`-role [`SolidQuad`]
+/// 1–2px tall along the bottom of the active slot, sitting just above the
+/// [`band_separator`] so both remain visible independent of composite order
+/// (F4 T2). `start_col..end_col` are the active slot's columns. Opaque so it
+/// reads over background images (the house image-proof rule). Returns an empty
+/// vec for a degenerate slot or when the row is too short to fit both the
+/// separator and the accent.
+fn active_tab_underline(
+    start_col: usize,
+    end_col: usize,
+    y_offset_px: f32,
+    cell: CellSize,
+    padding: WindowPadding,
+    accent: Srgb,
+) -> Vec<SolidQuad> {
+    if end_col <= start_col || cell.width == 0 || cell.height == 0 {
+        return Vec::new();
+    }
+    let pad = padding.as_f32();
+    let cw = cell.width as f32;
+    let ch = cell.height as f32;
+    let thickness = (ch / 10.0).clamp(1.0, 2.0);
+    let x0 = pad + start_col as f32 * cw;
+    let x1 = pad + end_col as f32 * cw;
+    let y1 = y_offset_px + ch;
+    let accent_bottom = y1 - SEPARATOR_PX;
+    let accent_top = accent_bottom - thickness;
+    // Bail if the row is too short to seat the accent above the separator
+    // without colliding with the bar's top edge.
+    if accent_top <= y_offset_px {
+        return Vec::new();
+    }
+    vec![SolidQuad {
+        rect: [x0, accent_top, x1, accent_bottom],
+        color: srgb_alpha(accent, 1.0),
+    }]
+}
+
+/// Blend two sRGB colors: `a * (1 - t) + b * t` per channel, `t` clamped to
+/// `[0, 1]`. Used to derive the bar band from `background` toward `inactive`
+/// (F4 T1). A crude gamma-naive blend in sRGB space, which is fine for a subtle
+/// chrome tint (not a color-managed image operation).
+fn blend_srgb(a: Srgb, b: Srgb, t: f32) -> Srgb {
+    let t = t.clamp(0.0, 1.0);
+    let mix = |x: u8, y: u8| -> u8 {
+        (f32::from(x) * (1.0 - t) + f32::from(y) * t)
+            .round()
+            .clamp(0.0, 255.0) as u8
+    };
+    (mix(a.0, b.0), mix(a.1, b.1), mix(a.2, b.2))
+}
+
 /// Pixel-space outline (a hollow ring of four [`SolidQuad`]s) framing the active
-/// tab slot over the single tab-bar row. `start_col..end_col` are the active
+/// tab slot over the single tab-bar row — the **retained fallback style** (F4
+/// keeps the underline on the default path; this ring is available if a future
+/// style option wants the framed look). `start_col..end_col` are the active
 /// slot's columns; `y_offset_px` is the top of the bar row; `cell`/`padding` map
 /// columns to physical pixels. The ring uses the themed `border` role and is
 /// fully opaque so it reads clearly over background images/treatments — the
@@ -462,6 +593,7 @@ fn truncate_label(s: &str, max_cols: usize) -> String {
 /// an empty vec for a degenerate (zero-width / zero-height) slot. The four edges
 /// tile the ring without overlapping at the corners: top and bottom span the
 /// full width; left and right fill the vertical gap between them.
+#[allow(dead_code)] // retained fallback style (F4 T2); default path uses the accent underline
 fn active_tab_outline(
     start_col: usize,
     end_col: usize,
@@ -568,18 +700,17 @@ mod tests {
         TabBar::default()
     }
 
+    const COLORS: TabBarColors = TabBarColors {
+        foreground: (0xCC, 0xCC, 0xCC),
+        background: (0x10, 0x10, 0x10),
+        inactive: (0x66, 0x66, 0x66),
+        active_bg: (0x40, 0x60, 0x90),
+        accent: (0x80, 0xC0, 0xFF),
+        border: (0xE0, 0xE0, 0xE0),
+    };
+
     fn render_default(src: &dyn TabBarSource) -> TabBarOutput {
-        bar().render(
-            src,
-            GRID_COLS,
-            0.0,
-            CELL,
-            WindowPadding::ZERO,
-            (0xCC, 0xCC, 0xCC),
-            (0x10, 0x10, 0x10),
-            (0x40, 0x60, 0x90),
-            (0xE0, 0xE0, 0xE0),
-        )
+        bar().render(src, GRID_COLS, 0.0, CELL, WindowPadding::ZERO, COLORS)
     }
 
     // Compute a pointer X (px) that lands in the centre of `col`.
@@ -607,9 +738,12 @@ mod tests {
     fn zero_tabs_produces_explicit_row_cells_and_new_tab_affordance() {
         let src = MockSource::empty();
         let out = render_default(&src);
-        assert!(
-            out.quads.is_empty(),
-            "cell backgrounds replace tab-bar quads"
+        // With no tabs there is no active slot, so the only quad is the
+        // band↔body separator (F4 T1) — no accent underline.
+        assert_eq!(
+            out.quads.len(),
+            1,
+            "zero tabs emits only the band separator"
         );
         assert_eq!(out.glyphs.len(), GRID_COLS, "one glyph per column");
         assert!(
@@ -903,17 +1037,7 @@ mod tests {
     #[test]
     fn narrow_grid_renders_without_panic() {
         let src = MockSource::new(&["a", "b", "c", "d", "e"], 0);
-        let out = bar().render(
-            &src,
-            20,
-            0.0,
-            CELL,
-            WindowPadding::ZERO,
-            (0xCC, 0xCC, 0xCC),
-            (0x10, 0x10, 0x10),
-            (0x40, 0x60, 0x90),
-            (0xE0, 0xE0, 0xE0),
-        );
+        let out = bar().render(&src, 20, 0.0, CELL, WindowPadding::ZERO, COLORS);
         assert_eq!(out.glyphs.len(), 20, "one glyph per column");
     }
 
@@ -942,46 +1066,174 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Active-tab outline (the operator's "thin line surrounding a tab")
+    // F4 T1 — banded bar: dim inactive labels + separator line
     // -----------------------------------------------------------------------
 
     #[test]
-    fn active_tab_emits_a_themed_outline_ring() {
-        // Two tabs, second active: the active slot must carry a four-quad ring
-        // (top/bottom/left/right) that frames exactly its column span.
-        let src = MockSource::new(&["a", "b"], 1);
+    fn active_label_is_foreground_inactive_labels_are_dimmed() {
+        // Three tabs, middle active: the active label glyphs carry the
+        // foreground role + bold; the inactive labels carry the dim `inactive`
+        // role and are not bold (F4 T1).
+        let src = MockSource::new(&["aaa", "bbb", "ccc"], 1);
         let out = render_default(&src);
-        assert_eq!(
-            out.quads.len(),
-            4,
-            "active slot frames a hollow ring of four edges"
-        );
         let layout = compute_layout(&src, GRID_COLS);
-        let active = &layout.slots[1];
-        let x0 = active.start_col as f32 * CELL.width as f32;
-        let x1 = active.end_col as f32 * CELL.width as f32;
-        // Every quad lies within the active slot's pixel span and the single
-        // tab-bar row, i.e. it frames the active tab and nothing else.
-        for q in &out.quads {
-            assert!(
-                q.rect[0] >= x0 - 0.01 && q.rect[2] <= x1 + 0.01,
-                "x in slot"
-            );
-            assert!(
-                q.rect[1] >= 0.0 && q.rect[3] <= CELL.height as f32 + 0.01,
-                "y in row"
-            );
-            assert!((q.color[3] - 1.0).abs() < f32::EPSILON, "opaque outline");
+        let base_fg = Color::Rgb(
+            COLORS.foreground.0,
+            COLORS.foreground.1,
+            COLORS.foreground.2,
+        );
+        let dim_fg = Color::Rgb(COLORS.inactive.0, COLORS.inactive.1, COLORS.inactive.2);
+        for (i, slot) in layout.slots.iter().enumerate() {
+            // Inspect the first label glyph of each slot.
+            let g = &out.glyphs[slot.label_col];
+            if i == 1 {
+                assert_eq!(g.attrs.foreground, base_fg, "active label uses foreground");
+                assert!(g.attrs.bold(), "active label is bold");
+            } else {
+                assert_eq!(g.attrs.foreground, dim_fg, "inactive label is dimmed");
+                assert!(!g.attrs.bold(), "inactive label is not bold");
+            }
         }
     }
 
     #[test]
-    fn single_tab_outline_frames_the_sole_active_tab() {
-        // Even one tab is "active" — the outline still renders, but the plain
-        // single-pane window never shows the tab bar, so this is inert there.
+    fn bar_band_fill_is_distinct_from_the_terminal_background() {
+        // The non-slot band cells are painted on the derived band fill, which
+        // must differ from the raw terminal `background` so the strip reads as
+        // its own band (F4 T1). Sample a column inside the new-tab affordance
+        // gap (band fill, not a slot).
+        let src = MockSource::new(&["a"], 0);
+        let out = render_default(&src);
+        let raw_bg = Color::Rgb(
+            COLORS.background.0,
+            COLORS.background.1,
+            COLORS.background.2,
+        );
+        let expected = blend_srgb(COLORS.background, COLORS.inactive, BAND_BLEND);
+        let expected_bg = Color::Rgb(expected.0, expected.1, expected.2);
+        // Column 0 of a one-tab render is inside slot 0's left padding, still on
+        // the inactive band fill only if the tab is inactive; the sole tab is
+        // active, so sample the far-right band gap before the new-tab block.
+        let layout = compute_layout(&src, GRID_COLS);
+        let nt = layout.new_tab_col.expect("new-tab column");
+        let gap_col = nt.saturating_sub(1);
+        assert_eq!(out.glyphs[gap_col].attrs.background, expected_bg);
+        assert_ne!(
+            out.glyphs[gap_col].attrs.background, raw_bg,
+            "the band fill must differ from the terminal background"
+        );
+    }
+
+    #[test]
+    fn render_emits_a_full_width_band_separator() {
+        // The band↔body separator spans the whole bar width along the bottom
+        // edge of the row, in the opaque `border` role (F4 T1).
+        let src = MockSource::new(&["a", "b"], 0);
+        let out = render_default(&src);
+        let sep = out
+            .quads
+            .iter()
+            .find(|q| (q.rect[3] - CELL.height as f32).abs() < f32::EPSILON)
+            .expect("a separator quad sits on the row's bottom edge");
+        assert!(
+            (sep.rect[0] - 0.0).abs() < f32::EPSILON,
+            "separator starts at x=0"
+        );
+        assert!(
+            (sep.rect[2] - GRID_COLS as f32 * CELL.width as f32).abs() < f32::EPSILON,
+            "separator spans the full grid width"
+        );
+        assert!(
+            (sep.color[3] - 1.0).abs() < f32::EPSILON,
+            "opaque separator"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // F4 T2 — active-tab accent underline
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn active_tab_emits_an_accent_underline_over_its_span() {
+        // Two tabs, second active: besides the full-width separator there is a
+        // single accent underline confined to the active slot's column span,
+        // seated just above the separator (F4 T2).
+        let src = MockSource::new(&["a", "b"], 1);
+        let out = render_default(&src);
+        let layout = compute_layout(&src, GRID_COLS);
+        let active = &layout.slots[1];
+        let x0 = active.start_col as f32 * CELL.width as f32;
+        let x1 = active.end_col as f32 * CELL.width as f32;
+        let accent = Color::Rgb(COLORS.accent.0, COLORS.accent.1, COLORS.accent.2);
+        let accent_linear = {
+            let mut l = text::foreground_linear(accent);
+            l[3] = 1.0;
+            l
+        };
+        // The accent quad: within the active span, above the bottom separator.
+        let underline = out
+            .quads
+            .iter()
+            .find(|q| {
+                (q.rect[3] - (CELL.height as f32 - SEPARATOR_PX)).abs() < 0.01
+                    && q.rect[0] >= x0 - 0.01
+                    && q.rect[2] <= x1 + 0.01
+            })
+            .expect("an accent underline over the active slot");
+        assert!(
+            (underline.rect[0] - x0).abs() < 0.01 && (underline.rect[2] - x1).abs() < 0.01,
+            "accent spans exactly the active slot"
+        );
+        assert_eq!(
+            underline.color, accent_linear,
+            "accent uses the cursor role"
+        );
+        assert!(
+            underline.rect[1] >= 0.0,
+            "accent stays within the bar row (top ≥ row top)"
+        );
+    }
+
+    #[test]
+    fn single_active_tab_emits_separator_and_accent() {
+        // Even one tab is active — separator + accent both render, though the
+        // plain single-pane window never shows the tab bar (inert there).
         let src = MockSource::new(&["only"], 0);
         let out = render_default(&src);
-        assert_eq!(out.quads.len(), 4, "the sole tab is active and outlined");
+        assert_eq!(
+            out.quads.len(),
+            2,
+            "the sole tab yields a band separator plus its accent underline"
+        );
+    }
+
+    #[test]
+    fn accent_underline_helper_bails_on_a_too_short_row() {
+        // A row too short to seat the accent above the separator without hitting
+        // the top edge yields no accent quad (defensive geometry guard).
+        let tiny = CellSize {
+            width: 8,
+            height: 2,
+            baseline: 1,
+        };
+        let quads = active_tab_underline(0, 4, 0.0, tiny, WindowPadding::ZERO, (0x80, 0xC0, 0xFF));
+        assert!(quads.is_empty(), "no accent when the row cannot seat it");
+    }
+
+    #[test]
+    fn blend_srgb_is_endpoint_exact_and_monotonic() {
+        let a = (0x10, 0x20, 0x30);
+        let b = (0xF0, 0xE0, 0xD0);
+        assert_eq!(blend_srgb(a, b, 0.0), a, "t=0 returns a");
+        assert_eq!(blend_srgb(a, b, 1.0), b, "t=1 returns b");
+        // Out-of-range t clamps.
+        assert_eq!(blend_srgb(a, b, -1.0), a);
+        assert_eq!(blend_srgb(a, b, 2.0), b);
+        let mid = blend_srgb(a, b, 0.5);
+        assert!(
+            mid.0 > a.0 && mid.0 < b.0,
+            "midpoint lies between endpoints"
+        );
     }
 
     // -----------------------------------------------------------------------

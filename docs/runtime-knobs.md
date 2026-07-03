@@ -214,6 +214,7 @@ environment variable was not set at startup.
 | `window_padding` | `ODYTTY_WINDOW_PADDING` | Float, `0.0..=64.0` px | `4.0` |
 | `window_border` | `ODYTTY_WINDOW_BORDER` | `on`, `off` | `off` |
 | `window_decorations` | `ODYTTY_WINDOW_DECORATIONS` | `on`, `off` | `on` |
+| `always_show_tab_bar` | `ODYTTY_ALWAYS_SHOW_TAB_BAR` | `on`, `off` | `off` |
 | `background_treatment` | `ODYTTY_BACKGROUND_TREATMENT` | `off`/`color`, `gradient`, `vignette`, `image` | `image` |
 | `background_image` | `ODYTTY_BACKGROUND_IMAGE` | PNG/JPEG/WebP path, `default` (bundled), or `none` | `default` (bundled) |
 | `cell_bg_opacity` | `ODYTTY_CELL_BG_OPACITY` | Float, `0.0..=1.0` | `0.8` |

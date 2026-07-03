@@ -127,6 +127,7 @@ fn build_lines(settings: &Settings) -> Vec<String> {
         hint(BindableAction::Paste, "Paste"),
         String::new(),
         "In Settings, press  /  to search settings by name.".to_owned(),
+        "Right-click a tab and choose Rename Tab to name a workflow.".to_owned(),
         "OdyTTY writes your config when you save changes — no hand-editing.".to_owned(),
         String::new(),
         "Press Enter or Esc to dismiss.".to_owned(),
@@ -162,6 +163,8 @@ mod tests {
         assert!(text.contains("Welcome to OdyTTY"));
         assert!(text.contains("Open settings"));
         assert!(text.contains("Browse themes"));
+        // F4 ODP-5: the rename-tab discoverability tip is surfaced on the card.
+        assert!(text.contains("Rename Tab"));
         // The default settings-panel chord is Ctrl+Shift+, — the hint must show
         // the live chord, never a hardcoded placeholder (D-OB-3).
         let settings_chord = KeyBindings::default()

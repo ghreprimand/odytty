@@ -236,6 +236,87 @@ fn tab_bar_show_rule_is_hidden_for_one_session_and_visible_for_two() {
 }
 
 #[test]
+fn tab_bar_shows_for_a_lone_renamed_tab() {
+    // F4 ODP-7 / F4-NF1: a single tab normally hides the bar, but once it
+    // carries a custom name the bar must show so the named "workflow" tab is
+    // visible. (Fails before the show-rule change: a lone tab stayed hidden
+    // regardless of its title override.)
+    let options = NativeOptions::default();
+    let dims = options.initial_grid;
+    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        options,
+        terminal,
+        writer,
+        pty,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    assert!(
+        !app.tab_bar_visible_for_test(),
+        "a lone unnamed tab hides the bar"
+    );
+
+    app.set_session_title_override_for_test(0, Some("deploy"));
+    assert!(
+        app.tab_bar_visible_for_test(),
+        "a lone renamed tab shows the bar"
+    );
+
+    // Clearing the override reverts to hidden.
+    app.set_session_title_override_for_test(0, None);
+    assert!(
+        !app.tab_bar_visible_for_test(),
+        "clearing the name hides the bar again"
+    );
+}
+
+#[test]
+fn always_show_tab_bar_setting_reveals_the_bar_for_a_single_tab() {
+    // F4 ODP-7: the opt-in `always_show_tab_bar` setting shows the strip even
+    // for one unnamed tab, applied live. (Fails before the show-rule change:
+    // the setting did not exist / was not consulted.)
+    let options = NativeOptions::default();
+    let dims = options.initial_grid;
+    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        options,
+        terminal,
+        writer,
+        pty,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    assert!(!app.tab_bar_visible_for_test(), "default hides the bar");
+
+    let next = Settings {
+        always_show_tab_bar: true,
+        ..Settings::default()
+    };
+    app.apply_saved_settings_live_for_test(next);
+    assert!(
+        app.tab_bar_visible_for_test(),
+        "always_show_tab_bar reveals the bar for a single tab"
+    );
+
+    let off = Settings {
+        always_show_tab_bar: false,
+        ..Settings::default()
+    };
+    app.apply_saved_settings_live_for_test(off);
+    assert!(
+        !app.tab_bar_visible_for_test(),
+        "turning the setting off hides the bar again"
+    );
+}
+
+#[test]
 fn tab_bar_reservation_reduces_shell_rows_by_one_when_visible() {
     let options = NativeOptions::default();
     let dims = options.initial_grid;

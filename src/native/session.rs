@@ -1514,6 +1514,18 @@ impl TabSet {
             .map(|tab| tab.layout.is_single_pane())
             .unwrap_or(true)
     }
+
+    /// True when there is exactly one tab and it carries a custom
+    /// `title_override` (F4 ODP-7 / F4-NF1). The tab bar's show rule uses this
+    /// so a single renamed "workflow" tab is visible even below the usual
+    /// two-tab threshold.
+    pub(super) fn lone_tab_has_title_override(&self) -> bool {
+        self.tabs.len() == 1
+            && self
+                .tabs
+                .first()
+                .is_some_and(|tab| tab.title_override.is_some())
+    }
 }
 
 impl TabBarSource for TabSet {

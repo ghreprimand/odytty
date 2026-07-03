@@ -1845,7 +1845,27 @@ impl App {
     }
 
     fn should_show_tab_bar(&self) -> bool {
+        // ≥2 tabs always shows the bar; otherwise honor the opt-in
+        // `always_show_tab_bar` setting, and show a lone tab when it carries a
+        // custom name so a named single "workflow" tab is visible (F4 ODP-7 /
+        // F4-NF1).
         self.sessions.tab_count() >= 2
+            || self.settings.always_show_tab_bar
+            || self.sessions.lone_tab_has_title_override()
+    }
+
+    /// The theme-role colors the tab bar paints with (F4). Reads
+    /// `effective_theme` so every color is CVD-adapted like the rest of the
+    /// chrome; nothing is hardcoded.
+    fn tab_bar_colors(&self) -> tab_bar::TabBarColors {
+        tab_bar::TabBarColors {
+            foreground: self.effective_theme.foreground,
+            background: self.effective_theme.background,
+            inactive: self.effective_theme.inactive,
+            active_bg: self.effective_theme.selection,
+            accent: self.effective_theme.cursor,
+            border: self.effective_theme.border,
+        }
     }
 
     fn tab_bar_height_px(&self, cell: CellSize) -> f32 {
@@ -1916,10 +1936,7 @@ impl App {
             padding.as_f32(),
             cell,
             padding,
-            self.effective_theme.foreground,
-            self.effective_theme.background,
-            self.effective_theme.selection,
-            self.effective_theme.border,
+            self.tab_bar_colors(),
         );
         for glyph in output.glyphs {
             if glyph.col < columns {
@@ -2134,6 +2151,12 @@ impl App {
         // an unchanged reload (the new-shells notice fires only on the
         // transition, never on every reload).
         let shell_integration_was_enabled = self.settings.shell_integration;
+        // F4 ODP-7: capture whether the tab bar is currently shown before the
+        // settings swap, so a live `always_show_tab_bar` toggle can recompute the
+        // content grid (the bar reserves a row; appearing/disappearing changes
+        // the usable height). Nothing else in this reload path touches the tab
+        // bar's visibility, so this is the only trigger for that recompute.
+        let tab_bar_was_shown = self.should_show_tab_bar();
 
         let next_options = self.options_for_settings(&next_settings);
         let (text_rebuilt, padding_changed) = match self.gpu.as_mut() {
@@ -2292,6 +2315,14 @@ impl App {
             if let Some(resize) = resize {
                 self.apply_grid_resize(resize);
             }
+        }
+
+        // F4 ODP-7: if a live `always_show_tab_bar` toggle flipped the bar's
+        // visibility (and a text/padding resize did not already recompute the
+        // grid above), reserve/reclaim the tab-bar row now so the content grid
+        // matches. No-op when the visibility is unchanged.
+        if self.should_show_tab_bar() != tab_bar_was_shown {
+            self.recompute_grid_for_tab_bar();
         }
 
         self.last_render_signature = None;

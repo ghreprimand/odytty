@@ -127,6 +127,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "window_padding",
             "window_border",
             "window_decorations",
+            "always_show_tab_bar",
             "subpixel",
             "synthetic_styles",
             "geometric_boxdraw",

@@ -467,11 +467,21 @@ The native app runs multiple sessions. `Ctrl+Shift+T` opens a new tab,
 it holds — which is distinct from closing a single pane (see "Close Pane"
 below); closing the last remaining tab quits the app. The tab bar appears when
 two or more sessions exist; a single shell keeps the original full-grid view.
-The active tab is framed with a thin themed outline so it stays legible over
-background images and treatments. Inline graphics are offset by the same
-reserved tab-bar row as text, so Kitty/Sixel placements stay aligned with the
-visible grid while the bar is shown. Right-click a tab to rename it for the
-session; the custom name overrides shell title updates until cleared.
+To keep the bar visible with a single tab, turn on **Always show tab bar**
+(`always_show_tab_bar`, off by default); either way, a single tab you have
+renamed always shows the bar so a named "workflow" tab is never hidden. The bar
+renders as a distinct band separated from the terminal body by a thin themed
+line: inactive tabs are dimmed, and the active tab keeps a full-strength bold
+label plus an accent underline in the theme's cursor color, all opaque so they
+stay legible over background images and treatments. Inline graphics are offset
+by the same reserved tab-bar row as text, so Kitty/Sixel placements stay aligned
+with the visible grid while the bar is shown.
+
+**Rename a tab** to organize your work: right-click the tab (or any pane) and
+choose **Rename Tab**, or run **Rename Tab** from the command palette. The
+custom name overrides shell title updates until you clear it (commit an empty
+name to revert to the live shell title). Names are per-session and are not saved
+across restarts.
 
 Any tab can be split into panes. The direct chords `Ctrl+Shift+E` (split into
 columns, new pane on the right) and `Ctrl+Shift+O` (split into rows, new pane

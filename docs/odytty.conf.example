@@ -42,6 +42,10 @@ window_padding = 4
 window_border = off
 window_decorations = on
 
+# Show the tab bar even with a single tab. Off by default (a lone unnamed tab
+# hides the bar). A single tab you have renamed always shows the bar regardless.
+always_show_tab_bar = off
+
 # Background treatments. OdyTTY ships with the bundled "Dark Waves" background
 # on by default. To turn it OFF, use `background_treatment = color` (theme
 # background only) or `background_image = none`.

@@ -7,6 +7,61 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Tab bar visual polish + lone-tab visibility + rename discoverability (F4-IMPL v1)
+
+First slice of the tab-system upgrade (design `f4-tab-system.md`, operator ODPs
+approved as recommended). Monochrome + one accent, all from theme roles so every
+theme and the CVD modes stay correct — nothing hardcoded.
+
+**Visual (F4 T1+T2), all in `tab_bar.rs::render`.** The bar row is now painted on
+a distinct band derived from `background` (blended a touch toward `inactive`), so
+it reads as a strip instead of floating labels; a full-width 1px `border`-role
+separator divides the band from the terminal body. Inactive tab labels are dimmed
+(`inactive` role); the active tab keeps a full-strength bold `foreground` label
+plus a new 1–2px opaque `cursor`-role **accent underline** seated just above the
+separator (both stay visible independent of composite order). The older four-quad
+`border` ring (`active_tab_outline`) is retained as a documented fallback style
+(targeted `#[allow(dead_code)]`) but is off the default path. The colors are
+grouped into a new `TabBarColors` struct threaded from `effective_theme` at both
+render call sites (single-pane `decorate_snapshot_with_tab_bar`, multi-pane
+`tab_bar_strip`). All quads are opaque per the house image-proof rule.
+
+**Lone-tab visibility (F4 ODP-7 / F4-NF1).** New opt-in `always_show_tab_bar`
+bool (env `ODYTTY_ALWAYS_SHOW_TAB_BAR`, off by default) with full C14 plumbing
+(const + `SETTING_ENV_KEYS` + `Settings` field/parse/default + `settings/info.rs`
+entry + `config.rs` aliases + `env_to_config_key` + round-trip). `should_show_tab_bar`
+becomes `tab_count>=2 || always_show_tab_bar || lone_tab_has_title_override()`, so
+a single **renamed** tab shows the bar even with the setting off — a named
+"workflow" tab is never invisible. A live toggle recomputes the content grid
+(the bar reserves a row) when it flips visibility.
+
+**Discoverability (F4 ODP-5, docs only).** Strengthened the README tab section
+(rename via right-click or palette, per-session scope, always-show setting, the
+new visual treatment) and added an onboarding-card tip pointing at Rename Tab.
+No new default chord. Documented the setting in `runtime-knobs.md` and
+`odytty.conf.example`.
+
+**Cleanup (F4-NF3).** Corrected the stale "unintegrated widget scaffold" module
+doc (the widget has been fully integrated for many packets) and removed the
+blanket `#![allow(dead_code)]`, replacing it with one targeted allow on the
+retained fallback ring.
+
+Tests: extended the `tab_bar` widget tests (dim-inactive labels, band-fill
+distinct from body, full-width separator, accent underline over the active span,
+short-row accent guard, `blend_srgb` endpoints) and added App-level show-rule
+tests (lone renamed tab reveals/hides the bar; live `always_show_tab_bar` toggle)
+with fails-before evidence, plus a settings round-trip and the onboarding tip
+assertion. Gate: full suite green (2816 lib + integration binaries, 0 failed),
+clippy `--all-targets --locked -D warnings` clean, fmt clean, MSRV lockstep
+untouched.
+
+Windows: platform-neutral UI, no Windows surface — the tab system lives entirely
+in the native winit/GPU layer (no PTY, spawn, filesystem, env, or logging code);
+the `windows-latest` CI leg runs the same widget/settings/show-rule tests.
+
+Out of scope (F4 v2, its own packet): vertical rail, resizable bar, per-tab
+colors, rename modal/persistence changes.
+
 ## 2026-07-02 -- Release v0.7.5 — audit hardening, prompt-aware editing rework, Windows platform work
 
 OdyTTY v0.7.5 is the largest single release since the project started: a full

@@ -6,10 +6,10 @@ use std::io;
 use std::path::Path;
 
 use super::{
-    BACKGROUND_BLUR_RADIUS_ENV, BACKGROUND_IMAGE_ENV, BACKGROUND_IMAGE_SCRIM_ENV,
-    BACKGROUND_TREATMENT_ENV, BELL_ENV, BLOOM_ENV, BLOOM_INTENSITY_ENV, BLOOM_RADIUS_ENV,
-    BLOOM_THRESHOLD_ENV, CELL_BG_OPACITY_ENV, COMMAND_STATUS_GUTTER_ENV, CONFIRM_CLOSE_ENV,
-    COPY_ON_SELECT_ENV, CRT_CURVATURE_ENV, CRT_ENV, CRT_SCANLINE_INTENSITY_ENV,
+    ALWAYS_SHOW_TAB_BAR_ENV, BACKGROUND_BLUR_RADIUS_ENV, BACKGROUND_IMAGE_ENV,
+    BACKGROUND_IMAGE_SCRIM_ENV, BACKGROUND_TREATMENT_ENV, BELL_ENV, BLOOM_ENV, BLOOM_INTENSITY_ENV,
+    BLOOM_RADIUS_ENV, BLOOM_THRESHOLD_ENV, CELL_BG_OPACITY_ENV, COMMAND_STATUS_GUTTER_ENV,
+    CONFIRM_CLOSE_ENV, COPY_ON_SELECT_ENV, CRT_CURVATURE_ENV, CRT_ENV, CRT_SCANLINE_INTENSITY_ENV,
     CRT_SCANLINE_PERIOD_ENV, CRT_VIGNETTE_STRENGTH_ENV, CURSOR_BLINK_ENV, CURSOR_EASING_ENV,
     CURSOR_GLOW_ENV, CURSOR_MOTION_ENV, CURSOR_STYLE_ENV, CURSOR_TRAIL_ENV, CVD_MODE_ENV,
     CVD_STRENGTH_ENV, FOCUS_DIM_ENV, FOLLOW_OS_THEME_ENV, FONT_ENV, FONT_FAMILY_ENV, FONT_SIZE_ENV,
@@ -165,6 +165,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "scrollbardrag" | "draggablescrollbar" | "scrollthumbdrag" => Some(SCROLLBAR_DRAG_ENV),
         "wheelzoom" | "ctrlwheelzoom" | "fontzoom" => Some(WHEEL_ZOOM_ENV),
         "commandstatusgutter" | "statusgutter" | "commandgutter" => Some(COMMAND_STATUS_GUTTER_ENV),
+        "alwaysshowtabbar" | "showtabbar" | "tabbaralwaysvisible" | "persistenttabbar" => {
+            Some(ALWAYS_SHOW_TAB_BAR_ENV)
+        }
         "shclick" | "clicktoposition" | "clicktomovecursor" | "promptclick" => Some(SH_CLICK_ENV),
         "shellintegration" | "promptmarks" | "osc133" | "osc133integration" => {
             Some(SHELL_INTEGRATION_ENV)
@@ -262,6 +265,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         SCROLLBAR_DRAG_ENV => Some("scrollbar_drag"),
         WHEEL_ZOOM_ENV => Some("wheel_zoom"),
         COMMAND_STATUS_GUTTER_ENV => Some("command_status_gutter"),
+        ALWAYS_SHOW_TAB_BAR_ENV => Some("always_show_tab_bar"),
         SH_CLICK_ENV => Some("sh_click"),
         SHELL_INTEGRATION_ENV => Some("shell_integration"),
         NEW_OUTPUT_FADE_ENV => Some("new_output_fade"),

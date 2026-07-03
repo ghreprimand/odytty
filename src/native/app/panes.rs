@@ -538,10 +538,7 @@ impl App {
             padding.as_f32(),
             cell,
             padding,
-            self.effective_theme.foreground,
-            self.effective_theme.background,
-            self.effective_theme.selection,
-            self.effective_theme.border,
+            self.tab_bar_colors(),
         );
         for glyph in output.glyphs {
             if glyph.col < columns {

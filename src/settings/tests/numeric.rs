@@ -338,6 +338,46 @@ fn sh_click_defaults_on_and_round_trips_through_config_key() {
 }
 
 #[test]
+fn always_show_tab_bar_defaults_off_and_round_trips_through_config_key() {
+    // Absent → off (F4 ODP-7: the tab bar stays hidden for a single unnamed
+    // tab; the render path is byte-identical to today).
+    let (settings, warnings) = settings_from([]);
+    assert!(!settings.always_show_tab_bar);
+    assert!(warnings.is_empty());
+
+    let (settings, _) = settings_from([(ALWAYS_SHOW_TAB_BAR_ENV, "on")]);
+    assert!(settings.always_show_tab_bar);
+
+    let (settings, _) = settings_from([(ALWAYS_SHOW_TAB_BAR_ENV, "off")]);
+    assert!(!settings.always_show_tab_bar);
+
+    // The config-file key (and an alias) maps to the env key and back, and the
+    // value survives a to_edit_values round-trip.
+    assert_eq!(
+        config_key_to_env("always_show_tab_bar"),
+        Some(ALWAYS_SHOW_TAB_BAR_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("show_tab_bar"),
+        Some(ALWAYS_SHOW_TAB_BAR_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(ALWAYS_SHOW_TAB_BAR_ENV),
+        Some("always_show_tab_bar")
+    );
+    assert_eq!(
+        Settings {
+            always_show_tab_bar: true,
+            ..Settings::default()
+        }
+        .to_edit_values()
+        .get(ALWAYS_SHOW_TAB_BAR_ENV)
+        .map(String::as_str),
+        Some("on")
+    );
+}
+
+#[test]
 fn shell_integration_defaults_off_and_round_trips_through_config_key() {
     let (settings, warnings) = settings_from([]);
     assert!(!settings.shell_integration);

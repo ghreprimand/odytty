@@ -930,6 +930,11 @@ pub struct Settings {
     /// daltonises with U4 for free). Off by default — the off path draws nothing
     /// and is pixel-identical to today.
     pub command_status_gutter: bool,
+    /// Always show the tab bar, even for a single tab (F4 ODP-7). Off by
+    /// default; with one unnamed tab the bar stays hidden and the render path is
+    /// byte-identical to today. A lone tab with a custom name shows the bar
+    /// regardless of this setting (F4-NF1).
+    pub always_show_tab_bar: bool,
     /// Click-to-position-cursor on the live prompt (SH-CLICK). When on, a plain
     /// left click on the shell prompt line moves the shell's input cursor to the
     /// clicked column by emitting Left/Right cursor keys — the click slice of
@@ -1114,6 +1119,7 @@ impl Default for Settings {
             scrollbar_drag: DEFAULT_SCROLLBAR_DRAG,
             wheel_zoom: DEFAULT_WHEEL_ZOOM,
             command_status_gutter: DEFAULT_COMMAND_STATUS_GUTTER,
+            always_show_tab_bar: DEFAULT_ALWAYS_SHOW_TAB_BAR,
             sh_click: DEFAULT_SH_CLICK,
             shell_integration: DEFAULT_SHELL_INTEGRATION,
             new_output_fade: DEFAULT_NEW_OUTPUT_FADE,
@@ -1653,6 +1659,12 @@ impl Settings {
             DEFAULT_COMMAND_STATUS_GUTTER,
             &mut warn,
         );
+        let always_show_tab_bar = parse_bool_setting(
+            get(ALWAYS_SHOW_TAB_BAR_ENV).as_deref(),
+            ALWAYS_SHOW_TAB_BAR_ENV,
+            DEFAULT_ALWAYS_SHOW_TAB_BAR,
+            &mut warn,
+        );
         let sh_click = parse_bool_setting(
             get(SH_CLICK_ENV).as_deref(),
             SH_CLICK_ENV,
@@ -1821,6 +1833,7 @@ impl Settings {
             scrollbar_drag,
             wheel_zoom,
             command_status_gutter,
+            always_show_tab_bar,
             sh_click,
             shell_integration,
             new_output_fade,
@@ -1991,6 +2004,10 @@ impl Settings {
         values.insert(
             COMMAND_STATUS_GUTTER_ENV,
             bool_display(self.command_status_gutter).to_owned(),
+        );
+        values.insert(
+            ALWAYS_SHOW_TAB_BAR_ENV,
+            bool_display(self.always_show_tab_bar).to_owned(),
         );
         values.insert(SH_CLICK_ENV, bool_display(self.sh_click).to_owned());
         values.insert(
