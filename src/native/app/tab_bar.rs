@@ -17,15 +17,16 @@
 //! `App` pointer handling calls [`TabBar::hit_test`] on move (stored via
 //! [`TabBar::set_hover`]) and again on press to resolve the action.
 //!
-//! ## Visual treatment (F4 v1.1)
+//! ## Visual treatment (F4 v1.1–v1.3)
 //! Monochrome, all from theme roles (no hardcoded colors, so every theme and the
 //! CVD modes stay correct). Two orthogonal visual languages:
 //!
 //! - **Shape** — *every* tab (active and inactive alike) is framed by an opaque
-//!   outline ring so each slot reads as a bounded object. The active tab uses the
-//!   full-strength `border` role; inactive tabs use a subordinate outline blended
-//!   from `border` toward the band ([`INACTIVE_OUTLINE_BLEND`]) so they are
-//!   visible but clearly secondary.
+//!   outline ring so each slot reads as a bounded object. The ring colors come
+//!   from TEXT-side roles so they contrast with the (dark) band in every theme
+//!   (see [`ring_colors`]): the active ring is near-full `foreground`, inactive
+//!   rings use the dimmed `inactive` role. (v1.3 — the frame-side `border` role
+//!   is near-black in the built-in themes and was invisible on the band.)
 //! - **State** — the active tab is filled with the `selection` role (as in the
 //!   0.7.5 build) and carries a bold `foreground` label. Inactive tabs have no
 //!   fill (they sit on the band) with a dimmed `inactive` label. A hovered
@@ -75,13 +76,15 @@ const BAND_BLEND: f32 = 0.16;
 /// Thickness (physical px) of the band↔body separator line (F4 T1).
 const SEPARATOR_PX: f32 = 1.0;
 
-/// How far the inactive-tab outline is blended from `border` toward the band
-/// fill (F4 v1.1, strengthened v1.2). Keeps every tab framed as a bounded
-/// object while making the inactive rings subordinate to the full-strength
-/// active ring. Raised toward the full `border` role (0.55 → 0.35) after the
-/// operator reported the inactive rings were invisible under the CRT shader with
-/// a low-contrast border theme.
-const INACTIVE_OUTLINE_BLEND: f32 = 0.35;
+/// How far the ACTIVE-tab outline ring is blended from `foreground` toward the
+/// band (F4 v1.3). Small, so the ring reads at near-full text brightness — but
+/// derived from the TEXT-side `foreground` role, not the frame-side `border`
+/// role. The built-in themes define `border` as near-black window-frame colors
+/// (they frame the window against wallpaper), which are invisible against the
+/// equally-dark tab band; text-side roles contrast with the band by construction
+/// in every theme. Inactive rings use the `inactive` role directly (the
+/// dimmed-label text color), so no separate blend constant is needed for them.
+const ACTIVE_OUTLINE_BLEND: f32 = 0.15;
 
 /// How far a hovered inactive tab's fill is blended from the band toward the
 /// `selection` role (F4 v1.1). Deliberately partial so hover feedback never
@@ -143,8 +146,10 @@ pub(super) struct TabBarGlyph {
 /// `snapshot.cells[glyph.col] = Cell::new(glyph.ch, glyph.attrs)`.
 #[derive(Debug, Default)]
 pub(super) struct TabBarOutput {
-    /// Solid pixel-space quads. The current integration leaves this empty and
-    /// relies on explicit cell backgrounds for correct text contrast.
+    /// Solid pixel-space quads the integration layer composites over the row:
+    /// the full-width band↔body separator plus the per-tab outline rings (F4
+    /// v1.1+). Cell backgrounds still carry the band / active fill; these quads
+    /// add the chrome lines that can't be expressed as cell backgrounds.
     pub(super) quads: Vec<SolidQuad>,
     /// One glyph per column to composite into the reserved tab bar row.
     pub(super) glyphs: Vec<TabBarGlyph>,
@@ -257,10 +262,10 @@ impl TabBar {
         // (F4 v1.1).
         let hover_srgb = blend_srgb(band_srgb, colors.active_bg, HOVER_FILL_BLEND);
         let hover_bg_color = Color::Rgb(hover_srgb.0, hover_srgb.1, hover_srgb.2);
-        // Inactive outline: `border` blended toward the band so every tab is
-        // framed as a bounded object while staying subordinate to the active
-        // ring (F4 v1.1).
-        let inactive_outline_srgb = blend_srgb(colors.border, band_srgb, INACTIVE_OUTLINE_BLEND);
+        // Outline ring colors, derived from TEXT-side roles so they contrast
+        // with the (dark) band by construction in every theme (F4 v1.3 — the
+        // frame-side `border` role is near-black and was invisible on the band).
+        let (active_ring_srgb, inactive_ring_srgb) = ring_colors(colors, band_srgb);
         let mut row = vec![blank_glyph(0, base_fg, band_bg); grid_cols];
         for (col, glyph) in row.iter_mut().enumerate() {
             glyph.col = col;
@@ -286,8 +291,8 @@ impl TabBar {
             };
 
             // Every tab is framed by an outline ring — the shape language. The
-            // active ring uses the full `border` role; inactive rings use the
-            // subordinate blended color.
+            // active ring is near-full text brightness; inactive rings use the
+            // dimmed `inactive` role. Both contrast with the band (F4 v1.3).
             let ring = active_tab_outline(
                 slot.start_col,
                 slot.end_col,
@@ -295,9 +300,9 @@ impl TabBar {
                 cell,
                 padding,
                 if is_active {
-                    colors.border
+                    active_ring_srgb
                 } else {
-                    inactive_outline_srgb
+                    inactive_ring_srgb
                 },
             );
             if is_active {
@@ -593,10 +598,33 @@ fn blend_srgb(a: Srgb, b: Srgb, t: f32) -> Srgb {
     (mix(a.0, b.0), mix(a.1, b.1), mix(a.2, b.2))
 }
 
+/// The `(active, inactive)` outline ring colors for the tab bar, derived from
+/// text-side theme roles so each contrasts with the (dark) band by construction
+/// (F4 v1.3).
+///
+/// The frame-side `border` role is a near-black window-frame color in every
+/// built-in theme (it frames the window against wallpaper); painted on the
+/// equally-dark tab band it is invisible dark-on-dark. So:
+/// - the ACTIVE ring is `foreground` (the label text color) nudged a touch
+///   toward the band by [`ACTIVE_OUTLINE_BLEND`] — near-full text brightness;
+/// - the INACTIVE ring is the `inactive` role directly (the dimmed-label text
+///   color), which contrasts with the band by construction and pairs with the
+///   inactive labels.
+///
+/// A `#[cfg(test)]` contrast regression asserts both clear a luminance-delta
+/// floor against the band across every built-in theme, so a future theme or
+/// role edit can't silently make the rings invisible again.
+fn ring_colors(colors: TabBarColors, band: Srgb) -> (Srgb, Srgb) {
+    let active = blend_srgb(colors.foreground, band, ACTIVE_OUTLINE_BLEND);
+    let inactive = colors.inactive;
+    (active, inactive)
+}
+
 /// Pixel-space outline (a hollow ring of four [`SolidQuad`]s) framing a tab
 /// slot over the single tab-bar row. Every tab is framed with this ring — the
-/// shape language of the bar (F4 v1.1): the active slot passes the full
-/// `border` role, inactive slots pass a subordinate blended color.
+/// shape language of the bar (F4 v1.1). The ring `color` is a text-side role
+/// (see [`ring_colors`]): near-full `foreground` for the active slot, the
+/// `inactive` role for inactive slots.
 /// `start_col..end_col` are the slot's columns; `y_offset_px` is the top of the
 /// bar row; `cell`/`padding` map columns to physical pixels. The ring `color`
 /// is fully opaque so it reads clearly over background images/treatments — a
@@ -1226,32 +1254,89 @@ mod tests {
     }
 
     #[test]
-    fn active_ring_uses_full_border_role_inactive_rings_are_subordinate() {
-        // The active slot's ring uses the full `border` role; inactive rings use
-        // the subordinate blended color (border → band). The two must differ so
-        // the active tab's frame is clearly stronger (F4 v1.1).
+    fn active_ring_is_near_foreground_inactive_ring_is_the_inactive_role() {
+        // The active ring is `foreground` nudged toward the band; the inactive
+        // ring is the `inactive` role directly — both TEXT-side so they contrast
+        // with the dark band (F4 v1.3). The two must differ so the active frame
+        // reads stronger.
         let src = MockSource::new(&["a", "b"], 1);
         let out = render_default(&src);
         let layout = compute_layout(&src, GRID_COLS);
         let band = blend_srgb(COLORS.background, COLORS.inactive, BAND_BLEND);
-        let active_color = srgb_alpha(COLORS.border, 1.0);
-        let inactive_color =
-            srgb_alpha(blend_srgb(COLORS.border, band, INACTIVE_OUTLINE_BLEND), 1.0);
+        let (active_srgb, inactive_srgb) = ring_colors(COLORS, band);
+        // Active ring is derived from foreground, not the frame-side border role.
+        assert_eq!(
+            active_srgb,
+            blend_srgb(COLORS.foreground, band, ACTIVE_OUTLINE_BLEND),
+            "active ring is foreground blended toward the band"
+        );
+        assert_eq!(
+            inactive_srgb, COLORS.inactive,
+            "inactive ring is the inactive role"
+        );
+        let active_color = srgb_alpha(active_srgb, 1.0);
+        let inactive_color = srgb_alpha(inactive_srgb, 1.0);
         assert_ne!(
             active_color, inactive_color,
             "active and inactive outline colors must differ"
         );
-        // Active slot (idx 1) ring is the full border role.
+        // Active slot (idx 1) ring.
         let active = &layout.slots[1];
         for q in ring_quads_for_span(&out, active.start_col, active.end_col) {
-            assert_eq!(q.color, active_color, "active ring uses full border role");
+            assert_eq!(q.color, active_color, "active ring is near-foreground");
         }
-        // Inactive slot (idx 0) ring is the subordinate blended color.
+        // Inactive slot (idx 0) ring.
         let inactive = &layout.slots[0];
         for q in ring_quads_for_span(&out, inactive.start_col, inactive.end_col) {
             assert_eq!(
                 q.color, inactive_color,
-                "inactive ring uses the subordinate blended color"
+                "inactive ring uses the inactive role"
+            );
+        }
+    }
+
+    /// The luminance-delta floor every built-in theme's outline rings must clear
+    /// against the tab band (F4 v1.3). Well below the smallest real delta (see
+    /// the contrast test) but far above the ~0 the frame-side `border` role gave
+    /// on the dark band — so a future theme/role edit that reintroduced an
+    /// invisible dark-on-dark ring trips this guard.
+    #[cfg(test)]
+    const MIN_RING_BAND_LUMA_DELTA: f64 = 0.03;
+
+    #[test]
+    fn every_builtin_theme_keeps_rings_visible_against_the_band() {
+        // For every built-in theme, build the tab-bar colors exactly as
+        // `App::tab_bar_colors` does (foreground/background/inactive/selection),
+        // derive the band and both ring colors, and assert each ring's relative
+        // luminance differs from the band's by at least the floor. This is the
+        // regression that pins the v1.3 root-cause fix: the frame-side `border`
+        // role produced ~0 delta (invisible), so it fails-before on the old
+        // code; text-side roles clear the floor in every theme.
+        use crate::theme::relative_luminance;
+        for theme in crate::theme::all() {
+            let colors = TabBarColors {
+                foreground: theme.foreground,
+                background: theme.background,
+                inactive: theme.inactive,
+                active_bg: theme.selection,
+                border: theme.border,
+            };
+            let band = blend_srgb(colors.background, colors.inactive, BAND_BLEND);
+            let (active_ring, inactive_ring) = ring_colors(colors, band);
+            let band_luma = relative_luminance(band);
+            let active_delta = (relative_luminance(active_ring) - band_luma).abs();
+            let inactive_delta = (relative_luminance(inactive_ring) - band_luma).abs();
+            assert!(
+                active_delta >= MIN_RING_BAND_LUMA_DELTA,
+                "{}: active ring luma delta {active_delta:.4} < {MIN_RING_BAND_LUMA_DELTA} \
+                 (band {band:?}, ring {active_ring:?}) — ring invisible on the band",
+                theme.name
+            );
+            assert!(
+                inactive_delta >= MIN_RING_BAND_LUMA_DELTA,
+                "{}: inactive ring luma delta {inactive_delta:.4} < {MIN_RING_BAND_LUMA_DELTA} \
+                 (band {band:?}, ring {inactive_ring:?}) — ring invisible on the band",
+                theme.name
             );
         }
     }

@@ -7,6 +7,47 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Tab outlines made visible: rings from text-side roles, not the border role (F4-IMPL v1.3)
+
+Diagnosed the real reason the operator couldn't see the tab outlines (invisible
+even with the CRT effect off, so v1.2's thickness/CRT theory was a red herring —
+the 2px floor stays, it's correct under the scanline shader). Root cause: the
+ring color came from the `border` role, and every built-in theme defines `border`
+as a near-black *window-frame* color (e.g. plain `0x2A2C33`, odyssey `0x1B243E`,
+noir `0x1A1E1C`) meant to frame the window against wallpaper. The tab band is
+also dark (background→inactive 0.16), so the rings rendered dark-on-dark at full
+opacity — invisible in **every** theme. v1's underline was visible only because
+it used a bright accent role.
+
+Fix: ring colors now derive from **text-side** roles, which contrast with the
+dark band by construction. New `ring_colors()` helper — the ACTIVE ring is
+`foreground` nudged 15% toward the band (`ACTIVE_OUTLINE_BLEND`, near-full text
+brightness); the INACTIVE ring is the `inactive` role directly (the dimmed-label
+text color, already paired with the inactive labels). The frame-side `border`
+role is dropped from the rings entirely (it still draws the band↔body separator,
+which sits over the terminal body, not the band). No theme special-casing — pure
+role derivation, so CVD modes and custom themes stay correct.
+
+**Contrast regression (the durable guard).** `every_builtin_theme_keeps_rings_visible_against_the_band`
+iterates all 100 built-in themes, builds the tab-bar colors as `App::tab_bar_colors`
+does, derives the band + both ring colors, and asserts each ring's relative
+luminance differs from the band's by ≥ `MIN_RING_BAND_LUMA_DELTA = 0.03`. Measured
+minimums with the fix: active **0.19** (solarized-dark), inactive **0.087**
+(dos-cga) — both clear the floor comfortably; the old border-role code gave
+**0.0002** (odyssey-terracotta), i.e. invisible. Fails-before captured (reverted
+`ring_colors` to the border-role derivation → `plain` fails at delta 0.0148 <
+0.03 → restored). So a future theme/role edit can't silently reintroduce an
+invisible dark-on-dark ring.
+
+Also fixed the stale `TabBarOutput::quads` doc ("current integration leaves this
+empty" — untrue since v1.1; quads carry the separator + rings). Kept: v1.2's 2px
+thickness floor, opacity 1.0, band / active `selection` fill / subordinate hover
+blend / dim-inactive labels / no underline. Gate: full suite 2822, 0 failed;
+`clippy -D warnings` clean; fmt clean; MSRV untouched. **Windows: platform-neutral
+tab-bar UI, no Windows surface** — windows-latest CI runs the same tests.
+
+---
+
 ## 2026-07-03 -- About build-info no longer goes stale on same-branch commits (NF19)
 
 The About panel showed stale provenance: a fresh `cargo build --release` at a new
