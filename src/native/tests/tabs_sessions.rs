@@ -451,10 +451,15 @@ fn left_rail_hit_test_resolves_switch_close_and_new() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
+    // Pin short single-line labels so the F4-P1 floating-`+` anchor (one gap
+    // below the last slot's LAST LABEL row) is deterministic regardless of the
+    // live shell title's length.
+    app.set_session_title_override_for_test(0, Some("a"));
+    app.set_session_title_override_for_test(1, Some("b"));
 
     // R1.1 geometry: a 1-row top margin, then tab 0 at rows [1,3), tab 1 at
-    // [4,6), and the 1-cell + slot at [7,8). The close × sits inside the ring
-    // inset at col 14 (rail_cols 16 − inset 1 − 1).
+    // [4,6). The close × sits inside the ring inset at col 14 (rail_cols 16 −
+    // inset 1 − 1).
     //
     // Slot 0 body: row 1, label col → centre (12, 24).
     app.set_pointer_px_for_test(12.0, 24.0);
@@ -472,8 +477,10 @@ fn left_rail_hit_test_resolves_switch_close_and_new() {
         "slot 0 × → close"
     );
 
-    // The lightweight + slot follows the two tab slots at row 7 → centre y = 120.
-    app.set_pointer_px_for_test(64.0, 120.0);
+    // F4-P1 floating-`+` fix: the `+` anchors one gap below tab 1's single label
+    // row (4 + 1 + gap 1 = row 6), NOT a full stride below (old row 7). Centre
+    // y = 6*16 + 8 = 104.
+    app.set_pointer_px_for_test(64.0, 104.0);
     assert_eq!(app.tab_bar_hit_for_test(), Some("new"), "+ slot → new");
 }
 

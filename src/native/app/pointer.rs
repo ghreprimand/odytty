@@ -345,6 +345,7 @@ impl App {
                 self.tab_rail_grid_rows(),
                 [padding.as_f32(), padding.as_f32()],
                 cell,
+                self.rail_geom(),
             )
         } else {
             self.tab_bar.hit_test(

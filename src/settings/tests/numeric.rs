@@ -554,3 +554,116 @@ fn tab_bar_placement_has_an_enum_row_in_the_tabs_group() {
         "description must flag that right arrives later"
     );
 }
+
+// --- F4-P1 rail/panel knobs (TAB_RAIL_WIDTH/GAP/SLOT_ROWS/PANEL_STRENGTH/SEAM/
+//     AUTOHIDE/REVEAL_PX) ---
+
+#[test]
+fn tab_rail_numeric_knobs_default_parse_and_clamp() {
+    // Defaults.
+    let (d, warnings) = settings_from([]);
+    assert_eq!(d.tab_rail_width, DEFAULT_TAB_RAIL_WIDTH);
+    assert_eq!(d.tab_rail_gap, DEFAULT_TAB_RAIL_GAP);
+    assert_eq!(d.tab_rail_slot_rows, DEFAULT_TAB_RAIL_SLOT_ROWS);
+    assert_eq!(d.tab_panel_strength, DEFAULT_TAB_PANEL_STRENGTH);
+    assert_eq!(d.tab_rail_reveal_px, DEFAULT_TAB_RAIL_REVEAL_PX);
+    assert!(warnings.is_empty());
+    // The rounding accessors return the shipped defaults.
+    assert_eq!(d.rail_width_cols(), 16);
+    assert_eq!(d.rail_slot_gap_rows(), 1);
+    assert_eq!(d.rail_slot_rows(), 2);
+
+    // Valid parses.
+    let (s, _) = settings_from([
+        (TAB_RAIL_WIDTH_ENV, "20"),
+        (TAB_RAIL_GAP_ENV, "2"),
+        (TAB_RAIL_SLOT_ROWS_ENV, "1"),
+        (TAB_PANEL_STRENGTH_ENV, "0.3"),
+        (TAB_RAIL_REVEAL_PX_ENV, "8"),
+    ]);
+    assert_eq!(s.rail_width_cols(), 20);
+    assert_eq!(s.rail_slot_gap_rows(), 2);
+    assert_eq!(s.rail_slot_rows(), 1);
+    assert!((s.tab_panel_strength - 0.3).abs() < 1e-6);
+    assert_eq!(s.tab_rail_reveal_px, 8.0);
+
+    // Clamps at both ends.
+    let (hi, _) = settings_from([
+        (TAB_RAIL_WIDTH_ENV, "999"),
+        (TAB_RAIL_GAP_ENV, "99"),
+        (TAB_RAIL_SLOT_ROWS_ENV, "9"),
+        (TAB_PANEL_STRENGTH_ENV, "9"),
+        (TAB_RAIL_REVEAL_PX_ENV, "999"),
+    ]);
+    assert_eq!(hi.tab_rail_width, MAX_TAB_RAIL_WIDTH);
+    assert_eq!(hi.tab_rail_gap, MAX_TAB_RAIL_GAP);
+    assert_eq!(hi.tab_rail_slot_rows, MAX_TAB_RAIL_SLOT_ROWS);
+    assert_eq!(hi.tab_panel_strength, MAX_TAB_PANEL_STRENGTH);
+    assert_eq!(hi.tab_rail_reveal_px, MAX_TAB_RAIL_REVEAL_PX);
+    let (lo, _) = settings_from([
+        (TAB_RAIL_WIDTH_ENV, "0"),
+        (TAB_PANEL_STRENGTH_ENV, "-1"),
+        (TAB_RAIL_REVEAL_PX_ENV, "0"),
+    ]);
+    assert_eq!(lo.tab_rail_width, MIN_TAB_RAIL_WIDTH);
+    assert_eq!(lo.tab_panel_strength, MIN_TAB_PANEL_STRENGTH);
+    assert_eq!(lo.tab_rail_reveal_px, MIN_TAB_RAIL_REVEAL_PX);
+}
+
+#[test]
+fn tab_rail_numeric_knob_garbage_warns_and_falls_back() {
+    let (s, warnings) = settings_from([(TAB_RAIL_WIDTH_ENV, "wide")]);
+    assert_eq!(s.tab_rail_width, DEFAULT_TAB_RAIL_WIDTH);
+    assert!(warnings.iter().any(|w| w.contains("rail width")));
+}
+
+#[test]
+fn tab_seam_and_autohide_bools_default_and_parse() {
+    let (d, _) = settings_from([]);
+    assert!(d.tab_seam, "seam on by default");
+    assert!(!d.tab_rail_autohide, "autohide off by default");
+    let (s, _) = settings_from([(TAB_SEAM_ENV, "off"), (TAB_RAIL_AUTOHIDE_ENV, "on")]);
+    assert!(!s.tab_seam);
+    assert!(s.tab_rail_autohide);
+}
+
+#[test]
+fn tab_rail_knobs_round_trip_through_config_keys() {
+    for (key, env) in [
+        ("tab_rail_width", TAB_RAIL_WIDTH_ENV),
+        ("tab_rail_gap", TAB_RAIL_GAP_ENV),
+        ("tab_rail_slot_rows", TAB_RAIL_SLOT_ROWS_ENV),
+        ("tab_panel_strength", TAB_PANEL_STRENGTH_ENV),
+        ("tab_seam", TAB_SEAM_ENV),
+        ("tab_rail_autohide", TAB_RAIL_AUTOHIDE_ENV),
+        ("tab_rail_reveal_px", TAB_RAIL_REVEAL_PX_ENV),
+    ] {
+        assert_eq!(config_key_to_env(key), Some(env), "{key} → env");
+        assert_eq!(env_to_config_key(env), Some(key), "{env} → key");
+    }
+}
+
+#[test]
+fn tab_rail_knobs_live_in_the_tabs_group() {
+    let rows = Settings::default().setting_info();
+    for key in [
+        "tab_rail_width",
+        "tab_rail_gap",
+        "tab_rail_slot_rows",
+        "tab_panel_strength",
+        "tab_seam",
+        "tab_rail_autohide",
+        "tab_rail_reveal_px",
+    ] {
+        let row = rows
+            .iter()
+            .find(|r| r.key == key)
+            .unwrap_or_else(|| panic!("row {key}"));
+        assert_eq!(row.group, "Tabs", "{key} in Tabs group");
+        assert!(row.reloadable, "{key} is hot-reloadable");
+        assert!(
+            !row.description.trim().is_empty(),
+            "{key} has a description"
+        );
+    }
+}

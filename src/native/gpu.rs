@@ -1658,7 +1658,14 @@ impl GpuState {
         focus_dim: f32,
         treatment: grid::BackgroundTreatmentParams,
     ) {
-        self.update_from_snapshot_with_overlays(snapshot, cursor_style, &[], focus_dim, treatment);
+        self.update_from_snapshot_with_overlays(
+            snapshot,
+            cursor_style,
+            &[],
+            focus_dim,
+            treatment,
+            &[],
+        );
     }
 
     /// Rebuild the vertex buffers from **several panes** drawn into one window,
@@ -1694,6 +1701,7 @@ impl GpuState {
         panes: &[PaneRender],
         dividers: &[SolidQuad],
         overlay_top: Option<OverlayTop>,
+        bg_quads: &[SolidQuad],
     ) {
         // Pass A: ensure all panes' glyphs in both atlases, capturing each
         // pane's color-glyph runs for the build pass.
@@ -1811,6 +1819,17 @@ impl GpuState {
             self.vertices
                 .reserve(edge_quads.len() * grid::VERTS_PER_QUAD);
             for quad in edge_quads {
+                grid::push_solid_quad(&mut self.vertices, quad);
+            }
+        }
+
+        // F4-P1: tab-panel wash + seam quads close out the background segment,
+        // after the NF11 edge wash — same layer as the single-pane splice in
+        // `update_from_snapshot_with_overlays`. Empty when no chrome / panel off
+        // / seam off, so the multi-pane frame stays byte-identical.
+        if !bg_quads.is_empty() {
+            self.vertices.reserve(bg_quads.len() * grid::VERTS_PER_QUAD);
+            for &quad in bg_quads {
                 grid::push_solid_quad(&mut self.vertices, quad);
             }
         }
@@ -1939,6 +1958,7 @@ impl GpuState {
         overlays: &[SolidQuad],
         focus_dim: f32,
         treatment: grid::BackgroundTreatmentParams,
+        bg_quads: &[SolidQuad],
     ) {
         let color_glyph_runs = self
             .emoji_rasterizer
@@ -1987,6 +2007,21 @@ impl GpuState {
             }
         } else {
             self.background_vertex_count = background_vertices;
+        }
+        // F4-P1: tab-panel wash + seam quads land at the END of the background
+        // segment (after the NF11 edge wash), so the panel re-tints the padding
+        // strips + veils the fills and the seam draws over the panel — both
+        // still under every glyph. Empty when no chrome / panel off / seam off,
+        // leaving the frame byte-identical.
+        if !bg_quads.is_empty() {
+            let insert_at = self.background_vertex_count as usize;
+            let mut panel_vertices = Vec::with_capacity(bg_quads.len() * grid::VERTS_PER_QUAD);
+            for &quad in bg_quads {
+                grid::push_solid_quad(&mut panel_vertices, quad);
+            }
+            let added = panel_vertices.len() as u32;
+            self.vertices.splice(insert_at..insert_at, panel_vertices);
+            self.background_vertex_count = self.background_vertex_count.saturating_add(added);
         }
         self.cell_vertex_count = self.vertices.len() as u32;
         // D-GLOW-3 draw order: cursor-layer overlays (glow/trail) are appended

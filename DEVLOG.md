@@ -7,6 +7,73 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- "Phosphor Flat v2": unified tab panel + seam + 7 hot-reload knobs (F4-P1)
+
+After the F4-RESKIN reskin the operator's verdict was "closer, but the inactive
+tabs read as a bunch of floating lines" — deleting the container left the labels
+with nothing to belong to. Following a heavy-research round (survey of WezTerm /
+VS Code / Zed / Arc-Zen / Warp sidebars: every acknowledged-good one is **one
+continuous translucent surface** with at most a single container-boundary
+hairline, items structured *by the surface*, not by per-item geometry) the
+operator approved the panel spec (`f4-panel-spec.md`) as recommended. This is
+packet 1 of 3 (P-RIGHT and P-AUTOHIDE ride this plumbing).
+
+**Unified translucent panel (ODP-1), two coupled layers.** `tab_chrome.rs` gains
+`panel_tint(colors, strength) = blend(background, foreground, 0.05×strength/0.5)`
+(capped 0.10) — a *foreground-ward* blend, direction-correct on every theme and
+never crushable to zero on a near-black one. Layer 1 is the resting-cell tint
+both widgets now paint (so the panel reads even at `cell_bg_opacity = 1`, the
+VS Code case). Layer 2 is one background-segment wash quad at
+`p = strength × (1 − cell_bg_opacity)`, so at the default 0.8 opacity the panel
+sits ~10% over the body and mutes the wallpaper behind the tabs. `strength = 0`
+collapses both layers back to the bare-labels look.
+
+**Seam (ODP-2).** One hairline (`max(1, round(scale))` px) flush inside the
+panel's content-facing edge, both axes, derived from the **inactive TEXT role**
+(never the `border` role — the v1.3 dark-on-dark lesson), α0.45, luma-capped at
+0.60 so it can never bloom, and lifted toward the foreground until the composited
+seam-vs-panel delta clears 0.02 on every theme.
+
+**Rendering path.** New `tab_panel.rs` (pure geometry + sRGB→linear) turns a
+resolved spec into the wash + seam quads; a new `bg_quads` parameter on both GPU
+update paths (`update_from_snapshot_with_overlays`, `update_from_panes`) splices
+them at the **end of the background segment**, right after the NF11 wallpaper
+edge wash — so the panel re-tints the padding strips and veils the fills, the
+seam draws over the panel, and both stay under every glyph. Empty when the bar is
+hidden / panel off / seam off ⇒ byte-identical frames. Handles all three axes so
+P-RIGHT rides it unchanged.
+
+**Floating-`+` fix.** The rail's `+` now left-aligns at the label column (an
+Arc-style "+ new tab" row) and anchors one gap below the last slot's *last label
+row* instead of a full stride below its start — killing the two-blank-row drift.
+
+**7 hot-reload knobs (ODP-3), full C14 plumbing** (const + `SETTING_ENV_KEYS` +
+`Settings` field/default/parse + `to_edit_values` + `info.rs` row in the "Tabs"
+group + `config.rs` both-way aliases + docs): `tab_rail_width` [8,32]=16,
+`tab_rail_gap` [0,3]=1, `tab_rail_slot_rows` {1,2}=2, `tab_panel_strength`
+[0,1]=0.5, `tab_seam`=on, plus `tab_rail_autohide`=off / `tab_rail_reveal_px`=4
+parsed-and-stored now (behavior lands in P-AUTOHIDE). The rail band width, slot
+height and gap are threaded through the widget as a `RailGeom`, so the operator
+tunes them live; `slot_rows=1` is a compact truncating list, `2` the padded
+wrapping default.
+
+**Theme guard retargeted (ODP-6).** The 100-theme identity guard now asserts
+seven panel-era invariants over two opacity regimes: panel-vs-background,
+seam-vs-panel + bloom cap, veiled active fill, active label, inactive label, and
+prominence-ladder monotonicity (expressed as distance-from-panel so it holds on
+both dark and light themes). Two floors are accepted deviations from the spec's
+figures — the panel-vs-bg floor is 0.002 (a pure-black CRT theme's 5% tint is
+genuinely a whisper) and the active-fill floor is 0.003 (retargeting from the
+background to the panel reference shifts the smallest measured delta to 0.0034).
+
+**Windows:** platform-neutral throughout — pure render/color/quad/settings work,
+no PTY/spawn/path/env-location/logging/shell-integration surface; all new tests
+are cfg-neutral and run on all three CI legs.
+
+Gate: `cargo test` 2892 lib + all integration bins green (0 failed), `cargo
+clippy --all-targets --locked -D warnings` clean, `cargo fmt --check` clean, MSRV
+lockstep untouched.
+
 ## 2026-07-03 -- "Phosphor Flat" tab chrome reskin: no outlines, glowing active tab (F4-RESKIN)
 
 After six horizontal and three vertical iterations of outlined-box tab chrome,

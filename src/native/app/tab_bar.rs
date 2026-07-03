@@ -37,11 +37,14 @@
 //! - `×` shows on the active/hovered tab only; `+` is a dim glyph that brightens
 //!   on hover.
 //!
-//! There are **no chrome quads** — the treatment is entirely cell backgrounds +
-//! label attributes, so [`TabBarOutput::quads`] is emitted empty (the channel is
-//! retained for a possible future bar↔body divider). The wallpaper-through
-//! cells use an explicit `background`-role `Color::Rgb` so they composite through
-//! `cell_bg_opacity` exactly like the terminal body and both render paths agree.
+//! There are **no chrome quads in this widget** — the label/fill treatment is
+//! entirely cell backgrounds + label attributes, so [`TabBarOutput::quads`] is
+//! emitted empty. The F4-P1 unified panel + seam are separate background-segment
+//! quads built by [`super::tab_panel`] and spliced in by the integration layer;
+//! the widget only paints the resting-cell **panel tint** (Layer 1) so the
+//! surface reads even at `cell_bg_opacity = 1`. Cells use an explicit
+//! `Color::Rgb` so they composite through `cell_bg_opacity` exactly like the
+//! terminal body and both render paths agree.
 
 // `use super::*` brings in everything imported at the `app/mod.rs` level:
 // `Color`, `SolidQuad`, `CellSize`, `text` (module), `WindowPadding`, etc.
@@ -223,6 +226,7 @@ impl TabBar {
         cell: CellSize,
         padding: WindowPadding,
         colors: TabBarColors,
+        panel_strength: f32,
     ) -> TabBarOutput {
         let _ = (y_offset_px, cell, padding);
         if grid_cols == 0 {
@@ -231,17 +235,21 @@ impl TabBar {
         let layout = compute_layout(source, grid_cols);
         let active_idx = source.active_tab();
 
-        // Phosphor Flat palette (shared treatment; theme roles only).
-        let wallpaper_bg = rgb(tab_chrome::wallpaper_background(colors));
+        // Phosphor Flat palette (shared treatment; theme roles only). F4-P1: the
+        // resting-cell surface is the panel tint (Layer 1 of ODP-1) rather than
+        // the raw background, so the bar reads as one quiet surface even at
+        // `cell_bg_opacity = 1`; `panel_strength = 0` collapses it to the theme
+        // background (the pre-panel bare-labels look).
+        let panel_surface = rgb(tab_chrome::panel_tint(colors, panel_strength));
         let active_fill = rgb(tab_chrome::active_fill(colors));
         let active_lbl = rgb(tab_chrome::active_label(colors));
         let hover_fill = rgb(tab_chrome::hover_fill(colors));
         let hover_lbl = rgb(tab_chrome::hover_label(colors));
         let dim_plus = rgb(colors.inactive);
 
-        // The whole row starts as the wallpaper-through background — inactive
-        // tabs and inter-slot gaps recede into it (no band, no separator).
-        let mut row = vec![blank_glyph(0, wallpaper_bg, wallpaper_bg); grid_cols];
+        // The whole row starts as the panel surface — inactive tabs and
+        // inter-slot gaps recede into it (no per-tab geometry).
+        let mut row = vec![blank_glyph(0, panel_surface, panel_surface); grid_cols];
         for (col, glyph) in row.iter_mut().enumerate() {
             glyph.col = col;
         }
@@ -259,7 +267,7 @@ impl TabBar {
             } else {
                 let distance = slot.idx.abs_diff(active_idx);
                 (
-                    wallpaper_bg,
+                    panel_surface,
                     rgb(tab_chrome::inactive_label(colors, distance)),
                     false,
                 )
@@ -299,7 +307,7 @@ impl TabBar {
             let (nt_bg, nt_fg) = if is_hovered {
                 (hover_fill, active_lbl)
             } else {
-                (wallpaper_bg, dim_plus)
+                (panel_surface, dim_plus)
             };
             for col in nt_col..(nt_col + NEW_TAB_COLS).min(row.len()) {
                 row[col].attrs.background = nt_bg;
@@ -575,8 +583,23 @@ mod tests {
         active_bg: (0x40, 0x60, 0x90),
     };
 
+    /// Panel strength used by the shared render helpers. `0.0` collapses the
+    /// panel tint to the theme background so the layout/treatment assertions
+    /// stay expressed against `wallpaper_background`; the panel surface itself is
+    /// covered by `resting_cells_paint_the_panel_tint_at_strength` + the
+    /// tab_chrome 100-theme guard.
+    const PANEL_STRENGTH: f32 = 0.0;
+
     fn render_with(b: &TabBar, src: &dyn TabBarSource) -> TabBarOutput {
-        b.render(src, GRID_COLS, 0.0, CELL, WindowPadding::ZERO, COLORS)
+        b.render(
+            src,
+            GRID_COLS,
+            0.0,
+            CELL,
+            WindowPadding::ZERO,
+            COLORS,
+            PANEL_STRENGTH,
+        )
     }
 
     fn render_default(src: &dyn TabBarSource) -> TabBarOutput {
@@ -630,6 +653,34 @@ mod tests {
                 out.quads.len()
             );
         }
+    }
+
+    #[test]
+    fn resting_cells_paint_the_panel_tint_at_strength() {
+        // F4-P1: at a live strength the resting bar cells paint the panel tint
+        // (Layer 1), not the raw background — and that tint differs from the
+        // background on the dark palette. At strength 0 they collapse back to
+        // the background (the pre-panel look).
+        let src = MockSource::new(&["a", "b"], 0);
+        let out = bar().render(&src, GRID_COLS, 0.0, CELL, WindowPadding::ZERO, COLORS, 0.5);
+        let layout = compute_layout(&src, GRID_COLS);
+        let inactive_bg = out.glyphs[layout.slots[1].label_col].attrs.background;
+        assert_eq!(
+            inactive_bg,
+            rgb(tab_chrome::panel_tint(COLORS, 0.5)),
+            "resting cells paint the panel tint at strength 0.5"
+        );
+        assert_ne!(
+            inactive_bg,
+            rgb(tab_chrome::wallpaper_background(COLORS)),
+            "the panel tint is distinct from the raw background"
+        );
+        let out0 = bar().render(&src, GRID_COLS, 0.0, CELL, WindowPadding::ZERO, COLORS, 0.0);
+        assert_eq!(
+            out0.glyphs[layout.slots[1].label_col].attrs.background,
+            rgb(tab_chrome::wallpaper_background(COLORS)),
+            "strength 0 collapses the panel to the background"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -916,7 +967,15 @@ mod tests {
     #[test]
     fn narrow_grid_renders_without_panic() {
         let src = MockSource::new(&["a", "b", "c", "d", "e"], 0);
-        let out = bar().render(&src, 20, 0.0, CELL, WindowPadding::ZERO, COLORS);
+        let out = bar().render(
+            &src,
+            20,
+            0.0,
+            CELL,
+            WindowPadding::ZERO,
+            COLORS,
+            PANEL_STRENGTH,
+        );
         assert_eq!(out.glyphs.len(), 20, "one glyph per column");
     }
 

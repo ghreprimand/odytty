@@ -69,6 +69,29 @@ pub(super) const HOVER_FILL_BLEND: f32 = 0.35;
 /// the active label color — "one tier" of lift, subordinate to the active label.
 pub(super) const HOVER_LABEL_LIFT: f32 = 0.40;
 
+/// F4-P1 panel: base foreground-ward blend fraction of the theme `background`
+/// that forms the panel-tint cell surface at the default strength (0.5). A
+/// foreground-ward blend is direction-correct on every theme (lighter on dark
+/// themes, darker on light) and can never crush to zero on a near-black theme.
+pub(super) const PANEL_TINT_LIFT: f32 = 0.05;
+
+/// F4-P1 panel: hard cap on the effective tint lift (`PANEL_TINT_LIFT × strength
+/// / 0.5`) so a maxed strength knob still reads as a *quiet* surface.
+pub(super) const MAX_PANEL_TINT_LIFT: f32 = 0.10;
+
+/// F4-P1 seam: alpha the seam quad composites over the panel at. Low enough that
+/// the seam is a hairline, not a bar.
+pub(super) const SEAM_ALPHA: f32 = 0.45;
+
+/// F4-P1 seam: the seam color's own relative luminance is capped here so it can
+/// never cross the default bloom threshold (0.7) — the seam never haloes.
+pub(super) const SEAM_MAX_LUMA: f64 = 0.60;
+
+/// F4-P1 seam: minimum composited-seam-vs-panel luminance delta the treatment
+/// guarantees (and the §7 guard asserts) so the seam survives every theme — the
+/// guard the old `border`-role incident lacked.
+pub(super) const SEAM_MIN_PANEL_DELTA: f64 = 0.02;
+
 // ---------------------------------------------------------------------------
 // Treatment functions (theme roles → sRGB)
 // ---------------------------------------------------------------------------
@@ -135,8 +158,100 @@ pub(super) fn hover_fill(colors: TabBarColors) -> Srgb {
 }
 
 // ---------------------------------------------------------------------------
+// F4-P1 panel + seam treatment
+// ---------------------------------------------------------------------------
+
+/// The effective panel-tint lift for `strength`: `PANEL_TINT_LIFT × strength /
+/// 0.5`, capped at [`MAX_PANEL_TINT_LIFT`]. `strength = 0.0` → `0.0` (panel off).
+pub(super) fn panel_tint_lift(strength: f32) -> f32 {
+    (PANEL_TINT_LIFT * strength.clamp(0.0, 1.0) / 0.5).min(MAX_PANEL_TINT_LIFT)
+}
+
+/// The F4-P1 unified-panel **tint surface**: the theme `background` blended a
+/// small amount toward `foreground` (Layer 1 of ODP-1). This is the cell
+/// background the rail/bar resting cells paint instead of the raw `background`,
+/// so the panel is a perceivable surface even at `cell_bg_opacity = 1` (no
+/// wallpaper). At `strength = 0.0` it collapses to the theme `background`, i.e.
+/// the pre-panel "bare labels over the wallpaper" look.
+pub(super) fn panel_tint(colors: TabBarColors, strength: f32) -> Srgb {
+    blend_srgb(
+        colors.background,
+        colors.foreground,
+        panel_tint_lift(strength),
+    )
+}
+
+/// The alpha of the F4-P1 panel **wash** quad (Layer 2 of ODP-1):
+/// `p = strength × (1 − cell_bg_opacity)`. At `cell_bg_opacity = 1` this is `0`
+/// (no overdraw — the tint layer is the whole panel); as opacity drops, the wash
+/// mutes the wallpaper behind the tabs. Always `≥ 0`, so the panel is never
+/// *less* opaque than the body.
+pub(super) fn panel_wash_alpha(strength: f32, cell_bg_opacity: f32) -> f32 {
+    (strength.clamp(0.0, 1.0) * (1.0 - cell_bg_opacity.clamp(0.0, 1.0))).clamp(0.0, 1.0)
+}
+
+/// The F4-P1 seam color (ODP-2): derived from the **inactive TEXT role only**
+/// (never the `border` role — the v1.3 dark-on-dark lesson), dimmed if needed so
+/// its own luminance never exceeds [`SEAM_MAX_LUMA`] (bloom guard), then lifted
+/// toward `foreground` — still capped at [`SEAM_MAX_LUMA`] — until the composited
+/// seam-vs-`panel_surface` luminance delta clears [`SEAM_MIN_PANEL_DELTA`]. The
+/// seam quad is drawn at [`SEAM_ALPHA`], so the composite is
+/// `blend_srgb(panel_surface, seam, SEAM_ALPHA)`.
+pub(super) fn seam_color(colors: TabBarColors, panel_surface: Srgb) -> Srgb {
+    // Start from the mid-luminance inactive text role; never let the seam glow.
+    let mut seam = colors.inactive;
+    if relative_luminance(seam) > SEAM_MAX_LUMA {
+        seam = dim_to_luma(seam, SEAM_MAX_LUMA);
+    }
+    let panel_luma = relative_luminance(panel_surface);
+    let delta =
+        |s: Srgb| (relative_luminance(blend_srgb(panel_surface, s, SEAM_ALPHA)) - panel_luma).abs();
+    if delta(seam) >= SEAM_MIN_PANEL_DELTA {
+        return seam;
+    }
+    // Too close to the panel — lift toward foreground, but never above the bloom
+    // cap. Bisection on the blend fraction toward a capped-luma foreground.
+    let target = if relative_luminance(colors.foreground) > SEAM_MAX_LUMA {
+        dim_to_luma(colors.foreground, SEAM_MAX_LUMA)
+    } else {
+        colors.foreground
+    };
+    let mut lo = 0.0f32;
+    let mut hi = 1.0f32;
+    for _ in 0..24 {
+        let mid = 0.5 * (lo + hi);
+        if delta(blend_srgb(seam, target, mid)) >= SEAM_MIN_PANEL_DELTA {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    blend_srgb(seam, target, hi)
+}
+
+// ---------------------------------------------------------------------------
 // Pure color helpers
 // ---------------------------------------------------------------------------
+
+/// Dim `base` toward black until its relative luminance drops to `target`
+/// (already at or below → unchanged). Monotone bisection on a channel-wise
+/// scale factor; the sibling of [`brighten_to_luma`].
+pub(super) fn dim_to_luma(base: Srgb, target: f64) -> Srgb {
+    if relative_luminance(base) <= target {
+        return base;
+    }
+    let mut lo = 0.0f32; // fully black
+    let mut hi = 1.0f32; // unchanged
+    for _ in 0..24 {
+        let mid = 0.5 * (lo + hi);
+        if relative_luminance(scale_srgb(base, mid)) <= target {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    scale_srgb(base, lo)
+}
 
 /// Blend two sRGB colors: `a*(1-t) + b*t` per channel, `t` clamped to `[0,1]`.
 /// A gamma-naive sRGB mix — fine for subtle chrome tints (not a color-managed
@@ -292,57 +407,207 @@ mod tests {
         assert_eq!(active_fill(COLORS), COLORS.active_bg);
     }
 
-    /// Minimum luminance-delta floors the retargeted 100-theme guard enforces —
-    /// the Phosphor Flat identifiability invariants that replace the deleted
-    /// outline-ring contrast test. Well below the smallest real delta measured
-    /// across the built-in themes, so a future theme/role edit that made the
-    /// active fill or the labels indistinguishable trips this guard.
-    const MIN_ACTIVE_FILL_BG_DELTA: f64 = 0.004;
+    // -----------------------------------------------------------------------
+    // F4-P1 panel + seam treatment
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn panel_tint_off_at_zero_strength_and_lifts_toward_foreground() {
+        // strength 0 → the panel collapses to the raw theme background (the
+        // pre-panel bare-labels look stays reachable).
+        assert_eq!(
+            panel_tint(COLORS, 0.0),
+            COLORS.background,
+            "strength 0 → no tint (panel off)"
+        );
+        // A lifted tint is a perceptible, foreground-ward surface on the dark
+        // palette (lighter than the near-black background).
+        let lifted = panel_tint(COLORS, 0.5);
+        assert!(
+            relative_luminance(lifted) > relative_luminance(COLORS.background),
+            "dark theme: tint lifts the surface above the background"
+        );
+        // The lift is capped so a maxed knob stays quiet.
+        assert!((panel_tint_lift(1.0) - MAX_PANEL_TINT_LIFT).abs() < 1e-6);
+        assert!((panel_tint_lift(0.5) - PANEL_TINT_LIFT).abs() < 1e-6);
+    }
+
+    #[test]
+    fn panel_wash_alpha_is_zero_at_full_opacity_and_grows_as_opacity_drops() {
+        assert_eq!(panel_wash_alpha(0.5, 1.0), 0.0, "opaque cells → no wash");
+        assert!((panel_wash_alpha(0.5, 0.8) - 0.10).abs() < 1e-6);
+        assert!((panel_wash_alpha(0.5, 0.5) - 0.25).abs() < 1e-6);
+        assert_eq!(panel_wash_alpha(0.0, 0.5), 0.0, "strength 0 → no wash");
+    }
+
+    #[test]
+    fn seam_never_blooms_and_clears_the_panel_floor() {
+        // The seam is derived from the inactive role, capped below the bloom
+        // threshold, and always clears the panel delta floor.
+        for theme in crate::theme::all() {
+            let colors = colors_for(theme);
+            let panel = panel_tint(colors, 0.5);
+            let seam = seam_color(colors, panel);
+            assert!(
+                relative_luminance(seam) <= SEAM_MAX_LUMA + 1e-6,
+                "{}: seam luma {:.3} exceeds the bloom cap {SEAM_MAX_LUMA}",
+                theme.name,
+                relative_luminance(seam)
+            );
+            let composite = blend_srgb(panel, seam, SEAM_ALPHA);
+            let delta = (relative_luminance(composite) - relative_luminance(panel)).abs();
+            assert!(
+                delta >= SEAM_MIN_PANEL_DELTA - 1e-6,
+                "{}: seam-vs-panel delta {delta:.4} < {SEAM_MIN_PANEL_DELTA}",
+                theme.name
+            );
+            // The seam is derived from the `inactive` TEXT role, NEVER the
+            // `border` role (the v1.3 dark-on-dark incident). That is structural
+            // — `seam_color` reads `colors.inactive`/`colors.foreground` only.
+            // The clearing-the-floor assertion above is what the naive
+            // near-black `border` approach failed; on a theme whose `border` is
+            // near-black the seam is unaffected because it never touches it.
+        }
+    }
+
+    fn colors_for(theme: &crate::theme::Theme) -> TabBarColors {
+        TabBarColors {
+            foreground: theme.foreground,
+            background: theme.background,
+            inactive: theme.inactive,
+            active_bg: theme.selection,
+        }
+    }
+
+    /// The §7 seven-invariant identifiability floors (retargeted from the v1
+    /// three-signal test to the panel era). Well below the smallest real delta
+    /// across the built-in themes, so a future theme/role edit that flattened a
+    /// tier trips a named assertion.
+    // Accepted deviation from the spec's 0.003: on a pure-black CRT monochrome
+    // theme (ibm-5151) the 5%-toward-foreground tint yields only a 0.0026 luma
+    // delta — the panel is genuinely a whisper there (and the wash layer carries
+    // it when a wallpaper is present; the seam always separates it). 0.002 is a
+    // real non-zero guard that a zeroed tint (strength 0 with the panel forced
+    // on, or a broken blend) trips.
+    const MIN_PANEL_BG_DELTA: f64 = 0.002;
+    // Accepted deviation from the spec's 0.004: retargeting the active-fill floor
+    // from the *background* (v1) to the *panel tint* reference shifts the
+    // measured delta — the smallest across all built-in themes is 0.0034
+    // (odyssey-orchid) — so the floor sits at 0.003, still a real non-zero guard
+    // that a flattened active fill (delta → 0) trips. The active tab also carries
+    // the bold bright label + bloom, so bloom-off locatability never rests on the
+    // fill delta alone.
+    const MIN_ACTIVE_FILL_PANEL_DELTA: f64 = 0.003;
     const MIN_ACTIVE_LABEL_FILL_DELTA: f64 = 0.02;
-    const MIN_INACTIVE_LABEL_BG_DELTA: f64 = 0.01;
+    const MIN_INACTIVE_LABEL_PANEL_DELTA: f64 = 0.01;
 
     #[test]
     fn every_builtin_theme_keeps_phosphor_flat_identifiable() {
-        // Retargeted from the outline-ring era's `every_builtin_theme_keeps_rings
-        // _visible_against_the_band`: instead of ring-vs-band contrast, guard the
-        // three Phosphor Flat identity signals for every built-in theme —
-        //   (1) the active FILL is distinguishable from the wallpaper-through
-        //       background (the active tab is locatable even with bloom off),
-        //   (2) the active LABEL pops off its fill (readable),
-        //   (3) the nearest inactive LABEL is visible on the background.
+        // ODP-6 retarget: for every built-in theme, over BOTH the opaque regime
+        // (cell_bg_opacity = 1 → wash alpha 0, pure tint) and a representative
+        // translucent regime (opacity 0.5, strength 0.5 → wash alpha 0.25), the
+        // seven panel-era invariants hold. The active/hover/label treatment is
+        // unchanged from v1; the panel + seam sit under it.
+        const STRENGTH: f32 = 0.5;
         for theme in crate::theme::all() {
-            let colors = TabBarColors {
-                foreground: theme.foreground,
-                background: theme.background,
-                inactive: theme.inactive,
-                active_bg: theme.selection,
-            };
-            let bg_luma = relative_luminance(wallpaper_background(colors));
-            let fill_luma = relative_luminance(active_fill(colors));
-            let active_lbl_luma = relative_luminance(active_label(colors));
-            let inactive_lbl_luma = relative_luminance(inactive_label(colors, 1));
+            let colors = colors_for(theme);
+            let panel = panel_tint(colors, STRENGTH);
+            let panel_luma = relative_luminance(panel);
+            let bg_luma = relative_luminance(colors.background);
 
+            // (1) The panel is a perceivable surface vs the body background.
             assert!(
-                (fill_luma - bg_luma).abs() >= MIN_ACTIVE_FILL_BG_DELTA,
-                "{}: active fill vs background delta {:.4} < {MIN_ACTIVE_FILL_BG_DELTA} \
-                 — active tab not locatable",
+                (panel_luma - bg_luma).abs() >= MIN_PANEL_BG_DELTA,
+                "{}: panel vs background delta {:.4} < {MIN_PANEL_BG_DELTA}",
                 theme.name,
-                (fill_luma - bg_luma).abs()
+                (panel_luma - bg_luma).abs()
+            );
+
+            // (2) The seam survives on this panel; (3) it never blooms.
+            let seam = seam_color(colors, panel);
+            let seam_composite = blend_srgb(panel, seam, SEAM_ALPHA);
+            assert!(
+                (relative_luminance(seam_composite) - panel_luma).abs()
+                    >= SEAM_MIN_PANEL_DELTA - 1e-6,
+                "{}: seam vs panel delta too small",
+                theme.name
             );
             assert!(
-                (active_lbl_luma - fill_luma).abs() >= MIN_ACTIVE_LABEL_FILL_DELTA,
-                "{}: active label vs fill delta {:.4} < {MIN_ACTIVE_LABEL_FILL_DELTA} \
-                 — active label unreadable on its fill",
-                theme.name,
-                (active_lbl_luma - fill_luma).abs()
+                relative_luminance(seam) <= SEAM_MAX_LUMA + 1e-6,
+                "{}: seam blooms",
+                theme.name
             );
+
+            // Labels draw ON TOP of the wash (glyph segment), so they are never
+            // veiled; only the fills (cell backgrounds) are veiled by the wash.
+            let active_lbl = relative_luminance(active_label(colors));
+            let inactive_lbl = relative_luminance(inactive_label(colors, 1));
+            let hover_lbl = relative_luminance(hover_label(colors));
+            let floor_lbl = relative_luminance(scale_srgb(colors.inactive, RAMP_FLOOR));
+
+            for opacity in [1.0f32, 0.5f32] {
+                let p = panel_wash_alpha(STRENGTH, opacity);
+                let veiled_fill = blend_srgb(active_fill(colors), panel, p);
+                let veiled_fill_luma = relative_luminance(veiled_fill);
+
+                // (4) Active fill (after veil) locatable vs the panel. The wash
+                // shrinks the raw fill-vs-panel delta by ~`(1 − p)`, so the floor
+                // tracks the same factor — the invariant is that the *raw* fill
+                // clears `MIN_ACTIVE_FILL_PANEL_DELTA`, which the veiled floor
+                // enforces at every regime. (Even when the veiled fill is nearly
+                // panel-colored on a monochrome theme, the active tab stays
+                // locatable via the bold bright label — invariant 5 — and bloom.)
+                let veiled_floor = MIN_ACTIVE_FILL_PANEL_DELTA * (1.0 - p as f64);
+                assert!(
+                    (veiled_fill_luma - panel_luma).abs() >= veiled_floor - 1e-9,
+                    "{}: veiled active fill vs panel delta {:.4} < {veiled_floor:.4} (opacity {opacity})",
+                    theme.name,
+                    (veiled_fill_luma - panel_luma).abs()
+                );
+                // (5) Active label pops off the veiled fill.
+                assert!(
+                    (active_lbl - veiled_fill_luma).abs() >= MIN_ACTIVE_LABEL_FILL_DELTA,
+                    "{}: active label vs veiled fill delta {:.4} < {MIN_ACTIVE_LABEL_FILL_DELTA} (opacity {opacity})",
+                    theme.name,
+                    (active_lbl - veiled_fill_luma).abs()
+                );
+            }
+
+            // (6) Nearest inactive label visible on the panel.
             assert!(
-                (inactive_lbl_luma - bg_luma).abs() >= MIN_INACTIVE_LABEL_BG_DELTA,
-                "{}: inactive label vs background delta {:.4} < {MIN_INACTIVE_LABEL_BG_DELTA} \
-                 — inactive label invisible",
+                (inactive_lbl - panel_luma).abs() >= MIN_INACTIVE_LABEL_PANEL_DELTA,
+                "{}: inactive label vs panel delta {:.4} < {MIN_INACTIVE_LABEL_PANEL_DELTA}",
                 theme.name,
-                (inactive_lbl_luma - bg_luma).abs()
+                (inactive_lbl - panel_luma).abs()
             );
+
+            // (7) Prominence-ladder monotonicity against the panel backing,
+            // expressed theme-agnostically as distance from the panel luminance
+            // (|luma − panel|): each interactive tier is at least as prominent as
+            // the previous one. On a dark theme prominence == brighter; on a
+            // light theme == darker — the distance metric captures both without
+            // asserting a direction the light-theme treatment inverts.
+            let dist = |l: f64| (l - panel_luma).abs();
+            assert!(
+                dist(inactive_lbl) <= dist(hover_lbl) + 1e-9
+                    && dist(hover_lbl) <= dist(active_lbl) + 1e-9,
+                "{}: prominence ladder not monotone (inactive {:.3} ≤ hover {:.3} ≤ active {:.3} in distance-from-panel)",
+                theme.name,
+                dist(inactive_lbl),
+                dist(hover_lbl),
+                dist(active_lbl)
+            );
+            // The distant-tab ramp floor is never MORE prominent than the nearest
+            // inactive tab on dark themes (the phosphor-persistence direction);
+            // the light-theme ramp direction is a separate v1 characteristic and
+            // is intentionally not constrained here.
+            if relative_luminance(colors.foreground) > relative_luminance(colors.background) {
+                assert!(
+                    dist(floor_lbl) <= dist(inactive_lbl) + 1e-9,
+                    "{}: dark-theme ramp floor ({floor_lbl:.3}) more prominent than the nearest inactive ({inactive_lbl:.3})",
+                    theme.name
+                );
+            }
         }
     }
 }

@@ -599,6 +599,102 @@ pub(super) fn parse_tab_bar_placement(
     }
 }
 
+/// Shared numeric parser for the F4-P1 rail/panel knobs: an absent/blank value
+/// yields `default`; a non-finite or unparseable value warns (`what` names the
+/// quantity) and falls back; otherwise the value is clamped to `[min, max]`.
+fn parse_clamped_f32(
+    raw: Option<&OsStr>,
+    env: &str,
+    what: &str,
+    default: f32,
+    min: f32,
+    max: f32,
+    warn: &mut impl FnMut(&str),
+) -> f32 {
+    let Some(raw) = raw else {
+        return default;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return default;
+    }
+    match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value.clamp(min, max),
+        _ => {
+            warn(&format!(
+                "{env}={trimmed:?} is not a valid {what}; using {default}"
+            ));
+            default
+        }
+    }
+}
+
+/// Parse the vertical rail band width in cells (F4-P1).
+pub(super) fn parse_tab_rail_width(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    parse_clamped_f32(
+        raw,
+        TAB_RAIL_WIDTH_ENV,
+        "rail width",
+        DEFAULT_TAB_RAIL_WIDTH,
+        MIN_TAB_RAIL_WIDTH,
+        MAX_TAB_RAIL_WIDTH,
+        warn,
+    )
+}
+
+/// Parse the inter-slot gap in rows (F4-P1).
+pub(super) fn parse_tab_rail_gap(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    parse_clamped_f32(
+        raw,
+        TAB_RAIL_GAP_ENV,
+        "rail gap",
+        DEFAULT_TAB_RAIL_GAP,
+        MIN_TAB_RAIL_GAP,
+        MAX_TAB_RAIL_GAP,
+        warn,
+    )
+}
+
+/// Parse the rail slot height in rows (F4-P1; clamped to `{1, 2}`).
+pub(super) fn parse_tab_rail_slot_rows(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    parse_clamped_f32(
+        raw,
+        TAB_RAIL_SLOT_ROWS_ENV,
+        "rail slot-row count",
+        DEFAULT_TAB_RAIL_SLOT_ROWS,
+        MIN_TAB_RAIL_SLOT_ROWS,
+        MAX_TAB_RAIL_SLOT_ROWS,
+        warn,
+    )
+}
+
+/// Parse the unified tab-panel strength (F4-P1).
+pub(super) fn parse_tab_panel_strength(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    parse_clamped_f32(
+        raw,
+        TAB_PANEL_STRENGTH_ENV,
+        "tab-panel strength",
+        DEFAULT_TAB_PANEL_STRENGTH,
+        MIN_TAB_PANEL_STRENGTH,
+        MAX_TAB_PANEL_STRENGTH,
+        warn,
+    )
+}
+
+/// Parse the rail auto-hide reveal-zone width in px (F4-P1; behavior in P3).
+pub(super) fn parse_tab_rail_reveal_px(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    parse_clamped_f32(
+        raw,
+        TAB_RAIL_REVEAL_PX_ENV,
+        "rail reveal width",
+        DEFAULT_TAB_RAIL_REVEAL_PX,
+        MIN_TAB_RAIL_REVEAL_PX,
+        MAX_TAB_RAIL_REVEAL_PX,
+        warn,
+    )
+}
+
 pub(super) fn parse_cvd_strength(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     let Some(raw) = raw else {
         return DEFAULT_CVD_STRENGTH;

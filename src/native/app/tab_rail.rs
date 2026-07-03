@@ -28,17 +28,20 @@
 //! - **HOVER** — the label warms one tier toward the active label and gains a
 //!   whisper of the selection fill.
 //!
-//! The whole `rail_cols × grid_rows` region paints the wallpaper-through
-//! `background` on every non-active cell — inactive slots and the inter-slot
-//! gaps recede into the wallpaper (the rail floats over it, like the bar). There
-//! are **no chrome quads** (no rings, no divider); [`TabRailOutput::quads`] is
-//! emitted empty. The layout engine — reservation, hit-test, `SLOT_INSET_COLS`,
-//! the top margin, the lightweight 1-cell `+`, wrapping — is untouched.
+//! The whole `rail_cols × grid_rows` region paints the F4-P1 **panel tint**
+//! (Layer 1 of ODP-1) on every non-active cell — inactive slots and the
+//! inter-slot gaps recede into the panel surface. There are **no chrome quads in
+//! this widget** ([`TabRailOutput::quads`] is emitted empty); the unified panel
+//! wash + seam are separate background-segment quads built by
+//! [`super::tab_panel`] and spliced in by the integration layer.
 //!
-//! ## R1 scope
-//! `left` placement, fixed width, Option B geometry. Settings plumbing
-//! (`TAB_BAR_PLACEMENT` / `TAB_RAIL_WIDTH`), the `right` arm, and drag-resize are
-//! later slices (R2/R3).
+//! ## Scope
+//! `left` placement is live; `right` is wired but gated behind
+//! [`crate::settings::TabBarPlacement::effective`] until the P-RIGHT packet. The
+//! band width, slot height, and inter-slot gap are the live
+//! `ODYTTY_TAB_RAIL_WIDTH` / `ODYTTY_TAB_RAIL_SLOT_ROWS` / `ODYTTY_TAB_RAIL_GAP`
+//! knobs (resolved by the integration layer into [`RailGeom`] + `rail_cols`);
+//! auto-hide and drag-resize are later packets.
 
 use super::tab_bar::{TabBarColors, TabBarSource, TabHit};
 use super::tab_chrome;
@@ -50,25 +53,51 @@ use crate::theme::Srgb;
 // Geometry constants (Option B — padded slots)
 // ---------------------------------------------------------------------------
 
-/// Rows each tab slot occupies (Option B: 2-cell-tall padded slots — label row
-/// plus a breathing row).
-const SLOT_ROWS: usize = 2;
-/// Band-fill gap (in rows) between adjacent slots — reinforces the
-/// bounded-object reading (Option B). R1.1 note: the operator asked for a
-/// spacing-between-tabs knob; the decision is that `tab_rail_gap` joins
-/// `TAB_RAIL_WIDTH` in the R2 settings packet (group "Tabs", Tabs & Panes
-/// section). This named const is the value R2 lifts into that setting — do not
-/// build the knob here.
-const SLOT_GAP: usize = 1;
-/// Row stride from one slot's top to the next slot's top.
-const SLOT_STRIDE: usize = SLOT_ROWS + SLOT_GAP;
+/// Default rows each tab slot occupies (Option B: 2-cell-tall padded slots —
+/// label row plus a breathing row). F4-P1 lifts this to the
+/// `ODYTTY_TAB_RAIL_SLOT_ROWS` knob via [`RailGeom::slot_rows`]; this const is
+/// the default and the fixed value the unit tests express positions against.
+const DEFAULT_SLOT_ROWS: usize = 2;
+/// Default band-fill gap (in rows) between adjacent slots. F4-P1 lifts this to
+/// the `ODYTTY_TAB_RAIL_GAP` knob via [`RailGeom::slot_gap`]; the top margin
+/// before the first slot follows it.
+const DEFAULT_SLOT_GAP: usize = 1;
 /// Rows the bottom `+` new-tab slot occupies (R1.1: a lightweight 1-cell
 /// affordance — no ring at rest, so it never competes with a real tab slot).
 const NEW_TAB_ROWS: usize = 1;
-/// Top margin (in rows) before the first slot so it doesn't kiss the window edge
-/// (R1.1). Matches `SLOT_GAP` so the space above the first slot reads like the
-/// gaps between slots.
-const RAIL_TOP_MARGIN_ROWS: usize = SLOT_GAP;
+
+/// Runtime rail slot geometry (F4-P1 knobs): how many rows each slot occupies
+/// and the inter-slot gap. Threaded through [`TabRail::render`] /
+/// [`TabRail::hit_test`] so the operator can tune them live; the widget owns no
+/// settings, the integration layer resolves these from `Settings`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct RailGeom {
+    /// Rows per slot (`1` = compact list, `2` = padded/wrapping).
+    pub(super) slot_rows: usize,
+    /// Rows of empty band between adjacent slots (and the top margin).
+    pub(super) slot_gap: usize,
+}
+
+impl Default for RailGeom {
+    fn default() -> Self {
+        Self {
+            slot_rows: DEFAULT_SLOT_ROWS,
+            slot_gap: DEFAULT_SLOT_GAP,
+        }
+    }
+}
+
+impl RailGeom {
+    /// Row stride from one slot's top to the next slot's top.
+    fn stride(self) -> usize {
+        self.slot_rows + self.slot_gap
+    }
+    /// Top margin (rows) before the first slot — follows the inter-slot gap so
+    /// the space above the first slot reads like the gaps between slots.
+    fn top_margin(self) -> usize {
+        self.slot_gap
+    }
+}
 /// Horizontal inset (in columns) of each slot's ring/fill from the rail band's
 /// left and right edges (R1.1), so slots read as bounded boxes with a margin
 /// rather than blocky edge-to-edge bands. The active slot's content-facing edge
@@ -83,10 +112,10 @@ const RAIL_LABEL_PAD: usize = 1;
 /// padding).
 const SLOT_LABEL_START_COL: usize = SLOT_INSET_COLS + RAIL_LABEL_PAD;
 
-/// Fixed rail band width in cells for R1 (the `[8,32]` clamp + the
-/// `TAB_RAIL_WIDTH` setting arrive with R2). Wide enough for an Option-B slot's
-/// wrapped label plus the `×` cell.
-pub(super) const DEFAULT_RAIL_COLS: usize = 16;
+// The rail band width is now the live `ODYTTY_TAB_RAIL_WIDTH` knob
+// (`Settings::rail_width_cols`, default 16, clamp `[8, 32]`) resolved by the
+// integration layer and passed in as `rail_cols` — the widget owns no fixed
+// width.
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -203,25 +232,32 @@ impl TabRail {
         cell: CellSize,
         placement: RailSide,
         colors: TabBarColors,
+        geom: RailGeom,
+        panel_strength: f32,
     ) -> TabRailOutput {
         let _ = origin_px;
         if rail_cols == 0 || grid_rows == 0 || cell.width == 0 || cell.height == 0 {
             return TabRailOutput::default();
         }
-        let layout = compute_rail_layout(source, rail_cols, grid_rows);
+        let layout = compute_rail_layout(source, rail_cols, grid_rows, geom);
         let active_idx = source.active_tab();
 
-        // Phosphor Flat palette (shared treatment; theme roles only).
-        let wallpaper_bg = rgb(tab_chrome::wallpaper_background(colors));
+        // Phosphor Flat palette (shared treatment; theme roles only). F4-P1: the
+        // resting-region surface is the panel tint (Layer 1 of ODP-1); the wash
+        // + seam quads are added separately in the background segment by the
+        // integration layer. `panel_strength = 0` collapses the tint to the raw
+        // background (the pre-panel bare-labels look).
+        let panel_surface = rgb(tab_chrome::panel_tint(colors, panel_strength));
         let active_fill = rgb(tab_chrome::active_fill(colors));
         let active_lbl = rgb(tab_chrome::active_label(colors));
         let hover_fill = rgb(tab_chrome::hover_fill(colors));
         let hover_lbl = rgb(tab_chrome::hover_label(colors));
         let dim_plus = rgb(colors.inactive);
 
-        // The whole region starts wallpaper-through; inactive slots and the
-        // inter-slot gaps recede into the wallpaper (no band, no divider).
-        let mut cells = vec![blank_glyph(0, 0, wallpaper_bg, wallpaper_bg); rail_cols * grid_rows];
+        // The whole region starts as the panel surface; inactive slots and the
+        // inter-slot gaps recede into it (no per-slot geometry, no divider).
+        let mut cells =
+            vec![blank_glyph(0, 0, panel_surface, panel_surface); rail_cols * grid_rows];
         for (i, glyph) in cells.iter_mut().enumerate() {
             glyph.row = i / rail_cols;
             glyph.col = i % rail_cols;
@@ -237,7 +273,7 @@ impl TabRail {
             } else {
                 let distance = slot.idx.abs_diff(active_idx);
                 (
-                    wallpaper_bg,
+                    panel_surface,
                     rgb(tab_chrome::inactive_label(colors, distance)),
                     false,
                 )
@@ -295,7 +331,7 @@ impl TabRail {
             let (nt_bg, nt_fg) = if is_hovered {
                 (hover_fill, active_lbl)
             } else {
-                (wallpaper_bg, dim_plus)
+                (panel_surface, dim_plus)
             };
             if is_hovered {
                 let (fill_c0, fill_c1) = slot_fill_cols(rail_cols, None);
@@ -308,9 +344,12 @@ impl TabRail {
             let mut a = Attrs::default();
             a.foreground = nt_fg;
             a.background = nt_bg;
-            // Centre the `+` in the (1-cell-tall) slot.
+            // F4-P1 floating-`+` fix: left-align the `+` at the label column (an
+            // Arc-style "+ new tab" row) rather than centering it, and anchor it
+            // one gap below the last slot's LABEL row (compute_rail_layout), so
+            // it reads as the next list item instead of drifting far below.
             let prow = nt_start + (nt_end - nt_start) / 2;
-            let pcol = rail_cols / 2;
+            let pcol = SLOT_LABEL_START_COL.min(rail_cols.saturating_sub(1));
             if prow < grid_rows && pcol < rail_cols {
                 let g = &mut cells[prow * rail_cols + pcol];
                 g.ch = '+';
@@ -358,6 +397,7 @@ impl TabRail {
         grid_rows: usize,
         origin_px: [f32; 2],
         cell: CellSize,
+        geom: RailGeom,
     ) -> TabHit {
         let cw = cell.width as f64;
         let ch = cell.height as f64;
@@ -381,7 +421,7 @@ impl TabRail {
         }
         let col = (x / cw) as usize;
 
-        let layout = compute_rail_layout(source, rail_cols, grid_rows);
+        let layout = compute_rail_layout(source, rail_cols, grid_rows, geom);
 
         // Overflow-indicator rows are informational-only.
         if layout.overflow_above.is_some() && row == 0 {
@@ -429,31 +469,46 @@ fn compute_rail_layout(
     source: &dyn TabBarSource,
     rail_cols: usize,
     grid_rows: usize,
+    geom: RailGeom,
 ) -> RailLayout {
     let mut layout = RailLayout::default();
     if rail_cols == 0 || grid_rows == 0 {
         return layout;
     }
+    let top_margin = geom.top_margin();
+    let stride = geom.stride();
     let tab_count = source.tab_count();
     if tab_count == 0 {
-        if grid_rows >= RAIL_TOP_MARGIN_ROWS + NEW_TAB_ROWS {
-            layout.new_tab_rows = Some((RAIL_TOP_MARGIN_ROWS, RAIL_TOP_MARGIN_ROWS + NEW_TAB_ROWS));
+        if grid_rows >= top_margin + NEW_TAB_ROWS {
+            layout.new_tab_rows = Some((top_margin, top_margin + NEW_TAB_ROWS));
         }
         return layout;
     }
 
     // Rows needed to show the top margin, every tab plus the `+` slot with no
-    // scroll. Each tab consumes SLOT_STRIDE (slot + trailing gap); the last
+    // scroll. Each tab consumes `stride` (slot + trailing gap); the last
     // trailing gap becomes the gap before the `+` slot, so the total is
     // margin + tabs*stride + NEW_TAB_ROWS (R1.1 adds the leading top margin).
-    let total_needed = RAIL_TOP_MARGIN_ROWS + tab_count * SLOT_STRIDE + NEW_TAB_ROWS;
+    let total_needed = top_margin + tab_count * stride + NEW_TAB_ROWS;
 
     if total_needed <= grid_rows {
         for i in 0..tab_count {
-            let start = RAIL_TOP_MARGIN_ROWS + i * SLOT_STRIDE;
-            layout.slots.push(build_slot(source, i, start, rail_cols));
+            let start = top_margin + i * stride;
+            layout
+                .slots
+                .push(build_slot(source, i, start, rail_cols, geom));
         }
-        let nt_start = RAIL_TOP_MARGIN_ROWS + tab_count * SLOT_STRIDE;
+        // F4-P1 floating-`+` fix: anchor the `+` `slot_gap` rows below the last
+        // slot's LAST LABEL row rather than a full stride below its start, so a
+        // single-line label doesn't leave a trailing blank slot row + gap
+        // stranding the `+` far below. Clamps to the stride position when the
+        // last label wraps to the full slot height (arithmetically identical at
+        // slot_rows = 1).
+        let nt_start = layout
+            .slots
+            .last()
+            .map(|last| last.start_row + last.label_lines.len().max(1) + geom.slot_gap)
+            .unwrap_or(top_margin);
         layout.new_tab_rows = Some((nt_start, nt_start + NEW_TAB_ROWS));
         return layout;
     }
@@ -463,27 +518,27 @@ fn compute_rail_layout(
     // placement below can never overrun the region.
     let active = source.active_tab().min(tab_count - 1);
     let band = grid_rows.saturating_sub(2);
-    // n slots need n*SLOT_ROWS + (n-1)*SLOT_GAP = n*STRIDE - SLOT_GAP rows.
-    let capacity = ((band + SLOT_GAP) / SLOT_STRIDE).max(1).min(tab_count);
+    // n slots need n*slot_rows + (n-1)*slot_gap = n*stride - slot_gap rows.
+    let capacity = ((band + geom.slot_gap) / stride).max(1).min(tab_count);
     let max_first = tab_count - capacity;
     let first = active.saturating_sub(capacity / 2).min(max_first);
 
     // When scrolled below the top, row 0 carries the `▲` indicator; when at the
     // top, apply the same top margin as the no-scroll case (R1.1).
-    let top = if first > 0 { 1 } else { RAIL_TOP_MARGIN_ROWS };
+    let top = if first > 0 { 1 } else { top_margin };
     let mut placed = 0usize;
     let mut row = top;
     for j in 0..(tab_count - first) {
-        let end = row + SLOT_ROWS;
+        let end = row + geom.slot_rows;
         // Always keep the last region row free for a potential `▼`.
         if end > grid_rows.saturating_sub(1) {
             break;
         }
         layout
             .slots
-            .push(build_slot(source, first + j, row, rail_cols));
+            .push(build_slot(source, first + j, row, rail_cols, geom));
         placed += 1;
-        row += SLOT_STRIDE;
+        row += stride;
     }
 
     layout.overflow_above = (first > 0).then_some(first);
@@ -498,8 +553,9 @@ fn build_slot(
     idx: usize,
     start_row: usize,
     rail_cols: usize,
+    geom: RailGeom,
 ) -> RailSlot {
-    let end_row = start_row + SLOT_ROWS;
+    let end_row = start_row + geom.slot_rows;
     // The `×` gets its own cell at the slot's top-right, INSIDE the ring inset
     // (R1.1) so it sits within the bounded box, not against the rail edge. It
     // occupies the last inset column, never colliding with the label inner area.
@@ -511,7 +567,7 @@ fn build_slot(
     let label_lines = if inner == 0 {
         Vec::new()
     } else {
-        wrap_label(source.tab_title(idx), inner, SLOT_ROWS)
+        wrap_label(source.tab_title(idx), inner, geom.slot_rows)
     };
     RailSlot {
         idx,
@@ -666,6 +722,23 @@ mod tests {
     const GRID_ROWS: usize = 40;
     const ORIGIN: [f32; 2] = [0.0, 0.0];
 
+    // The default geometry the positional assertions are expressed against
+    // (F4-P1 lifted the raw geometry consts into `RailGeom`). Mirrors
+    // `RailGeom::default()` = the `DEFAULT_SLOT_*` values.
+    const GEOM: RailGeom = RailGeom {
+        slot_rows: DEFAULT_SLOT_ROWS,
+        slot_gap: DEFAULT_SLOT_GAP,
+    };
+    const SLOT_ROWS: usize = DEFAULT_SLOT_ROWS;
+    const SLOT_GAP: usize = DEFAULT_SLOT_GAP;
+    const SLOT_STRIDE: usize = SLOT_ROWS + SLOT_GAP;
+    const RAIL_TOP_MARGIN_ROWS: usize = SLOT_GAP;
+    // Panel strength for the shared render helpers. `0.0` collapses the panel
+    // tint to the theme background so the wallpaper-through assertions stay
+    // expressed against `wallpaper_background`; the panel surface at a live
+    // strength has its own test.
+    const PANEL_STRENGTH: f32 = 0.0;
+
     const COLORS: TabBarColors = TabBarColors {
         foreground: (0xCC, 0xCC, 0xCC),
         background: (0x10, 0x10, 0x10),
@@ -692,6 +765,8 @@ mod tests {
             CELL,
             RailSide::Left,
             COLORS,
+            GEOM,
+            PANEL_STRENGTH,
         )
     }
 
@@ -717,7 +792,7 @@ mod tests {
 
     fn hit_at(row: usize, col: usize, src: &dyn TabBarSource) -> TabHit {
         let (x, y) = cell_centre_px(row, col);
-        rail().hit_test(x, y, src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL)
+        rail().hit_test(x, y, src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM)
     }
 
     /// Background of a region cell.
@@ -761,9 +836,29 @@ mod tests {
     #[test]
     fn empty_region_for_zero_width_or_height() {
         let src = MockSource::new(&["a"], 0);
-        let out = rail().render(&src, 0, GRID_ROWS, ORIGIN, CELL, RailSide::Left, COLORS);
+        let out = rail().render(
+            &src,
+            0,
+            GRID_ROWS,
+            ORIGIN,
+            CELL,
+            RailSide::Left,
+            COLORS,
+            GEOM,
+            PANEL_STRENGTH,
+        );
         assert!(out.glyphs.is_empty(), "zero rail_cols → empty");
-        let out = rail().render(&src, RAIL_COLS, 0, ORIGIN, CELL, RailSide::Left, COLORS);
+        let out = rail().render(
+            &src,
+            RAIL_COLS,
+            0,
+            ORIGIN,
+            CELL,
+            RailSide::Left,
+            COLORS,
+            GEOM,
+            PANEL_STRENGTH,
+        );
         assert!(out.glyphs.is_empty(), "zero grid_rows → empty");
     }
 
@@ -798,7 +893,7 @@ mod tests {
     #[test]
     fn zero_tabs_shows_only_the_new_tab_slot() {
         let src = MockSource::empty();
-        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         assert!(layout.slots.is_empty(), "no tab slots");
         assert_eq!(
             layout.new_tab_rows,
@@ -810,26 +905,122 @@ mod tests {
     #[test]
     fn three_tabs_stack_with_stride_and_a_new_tab_slot() {
         let src = MockSource::new(&["a", "b", "c"], 0);
-        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         assert_eq!(layout.slots.len(), 3, "three tab slots");
         for (i, slot) in layout.slots.iter().enumerate() {
             let start = RAIL_TOP_MARGIN_ROWS + i * SLOT_STRIDE;
             assert_eq!(slot.start_row, start, "slot {i} start row");
             assert_eq!(slot.end_row, start + SLOT_ROWS, "slot {i} end row");
         }
-        let nt_start = RAIL_TOP_MARGIN_ROWS + 3 * SLOT_STRIDE;
+        // F4-P1 floating-`+` fix: the `+` anchors one gap below the last slot's
+        // LAST LABEL row (single-line "c" → one row), NOT a full stride below the
+        // slot start (which left a trailing blank slot row stranding it).
+        let last = layout.slots.last().unwrap();
+        let nt_start = last.start_row + last.label_lines.len().max(1) + SLOT_GAP;
         assert_eq!(
             layout.new_tab_rows,
             Some((nt_start, nt_start + NEW_TAB_ROWS)),
-            "the + slot follows the last tab"
+            "the + slot follows the last tab's label row"
+        );
+        // Concretely, with single-line labels the `+` sits ABOVE the old
+        // stride-based position (removing the stranding blank row).
+        assert!(
+            nt_start < RAIL_TOP_MARGIN_ROWS + 3 * SLOT_STRIDE,
+            "the + is pulled up to the label row"
         );
         assert!(layout.overflow_above.is_none() && layout.overflow_below.is_none());
     }
 
     #[test]
+    fn floating_plus_is_left_aligned_at_the_label_column() {
+        // F4-P1 floating-`+` fix: the `+` glyph left-aligns at the label column
+        // (an Arc-style "+ new tab" row), not centered at rail_cols/2.
+        let src = MockSource::new(&["a", "b"], 0);
+        let out = render_default(&src);
+        let plus = out.glyphs.iter().find(|g| g.ch == '+').expect("+ glyph");
+        assert_eq!(
+            plus.col, SLOT_LABEL_START_COL,
+            "the + is left-aligned at the label column, not centered"
+        );
+        // And it sits immediately below the last label row + gap (no stranding).
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
+        let last = layout.slots.last().unwrap();
+        assert_eq!(
+            plus.row,
+            last.start_row + last.label_lines.len().max(1) + SLOT_GAP,
+            "the + row anchors one gap below the last label row"
+        );
+    }
+
+    #[test]
+    fn compact_single_row_slots_hold_more_tabs_and_the_plus_follows() {
+        // F4-P1 TAB_RAIL_SLOT_ROWS = 1: compact list, no wrap, more tabs fit.
+        let geom = RailGeom {
+            slot_rows: 1,
+            slot_gap: 1,
+        };
+        let src = MockSource::new(&["a", "b", "c"], 0);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, geom);
+        assert_eq!(layout.slots.len(), 3);
+        for (i, slot) in layout.slots.iter().enumerate() {
+            assert_eq!(slot.end_row - slot.start_row, 1, "slot {i} is one row tall");
+        }
+        // stride = 2 (1 row + 1 gap); `+` one gap below the single label row.
+        let last = layout.slots.last().unwrap();
+        let (nt_start, _) = layout.new_tab_rows.expect("+ slot present");
+        assert_eq!(nt_start, last.start_row + 1 + geom.slot_gap);
+    }
+
+    #[test]
+    fn zero_gap_removes_the_top_margin_and_inter_slot_space() {
+        // F4-P1 TAB_RAIL_GAP = 0: first slot kisses the top, slots are flush.
+        let geom = RailGeom {
+            slot_rows: 2,
+            slot_gap: 0,
+        };
+        let src = MockSource::new(&["a", "b"], 0);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, geom);
+        assert_eq!(layout.slots[0].start_row, 0, "no top margin at gap 0");
+        assert_eq!(
+            layout.slots[1].start_row, layout.slots[0].end_row,
+            "slots are flush at gap 0"
+        );
+    }
+
+    #[test]
+    fn resting_region_paints_the_panel_tint_at_strength() {
+        // F4-P1: at a live strength the resting rail cells paint the panel tint
+        // (Layer 1), distinct from the raw background; strength 0 collapses back.
+        let src = MockSource::new(&["a", "b"], 0);
+        let out = rail().render(
+            &src,
+            RAIL_COLS,
+            GRID_ROWS,
+            ORIGIN,
+            CELL,
+            RailSide::Left,
+            COLORS,
+            GEOM,
+            0.5,
+        );
+        // An inter-slot gap cell is the panel surface.
+        let gap_row = RAIL_TOP_MARGIN_ROWS + SLOT_ROWS;
+        assert_eq!(
+            bg_at(&out, gap_row, 0),
+            rgb(tab_chrome::panel_tint(COLORS, 0.5)),
+            "resting cells paint the panel tint at strength 0.5"
+        );
+        assert_ne!(
+            bg_at(&out, gap_row, 0),
+            rgb(tab_chrome::wallpaper_background(COLORS)),
+            "the panel tint differs from the raw background"
+        );
+    }
+
+    #[test]
     fn slots_never_overlap() {
         let src = MockSource::new(&["a", "b", "c", "d"], 0);
-        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         for w in layout.slots.windows(2) {
             assert!(w[0].end_row <= w[1].start_row, "slots must not overlap");
         }
@@ -838,7 +1029,7 @@ mod tests {
     #[test]
     fn first_slot_has_a_top_margin_and_bare_wallpaper_above_it() {
         let src = MockSource::new(&["a", "b"], 0);
-        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         assert_eq!(
             layout.slots[0].start_row, RAIL_TOP_MARGIN_ROWS,
             "first slot begins below the top margin"
@@ -896,7 +1087,7 @@ mod tests {
         // non-increasing luminance.
         let src = MockSource::new(&["a", "b", "c", "d"], 0);
         let out = render_default(&src);
-        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         let mut prev = f64::INFINITY;
         for slot in layout.slots.iter().skip(1) {
             let l = luma(bg_label_fg(&out, slot.start_row));
@@ -960,7 +1151,7 @@ mod tests {
         // no fill.
         let src = MockSource::new(&["aaa", "bbb"], 0);
         let out = render_default(&src);
-        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         let active_fill = rgb(tab_chrome::active_fill(COLORS));
         let active = &layout.slots[0];
         // Label cell + the content-seam cell (last col) both carry the fill.
@@ -985,7 +1176,7 @@ mod tests {
     #[test]
     fn hovered_inactive_slot_gets_a_whisper_fill_and_lifted_label() {
         let src = MockSource::new(&["a", "b", "c"], 0);
-        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         let hovered = &layout.slots[2];
         let out = render_with(&hovered_rail(TabHit::Switch(hovered.idx)), &src);
         assert_eq!(
@@ -1048,7 +1239,7 @@ mod tests {
     #[test]
     fn new_tab_plus_is_one_row_dim_at_rest_and_bright_on_hover() {
         let src = MockSource::new(&["a", "b"], 0);
-        let (nt_start, nt_end) = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS)
+        let (nt_start, nt_end) = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM)
             .new_tab_rows
             .expect("new-tab slot present");
         assert_eq!(nt_end - nt_start, NEW_TAB_ROWS, "the + slot is 1 cell tall");
@@ -1087,7 +1278,7 @@ mod tests {
     fn bloom_off_fallback_active_slot_is_identifiable_without_glow() {
         let src = MockSource::new(&["one", "two", "three"], 1);
         let out = render_default(&src);
-        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         let active = &layout.slots[1];
         let inactive = &layout.slots[0];
         assert_ne!(
@@ -1110,7 +1301,7 @@ mod tests {
     #[test]
     fn hit_body_of_each_tab_switches() {
         let src = MockSource::new(&["a", "b", "c"], 0);
-        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         for slot in &layout.slots {
             let hit = hit_at(slot.start_row, RAIL_LABEL_PAD, &src);
             assert_eq!(hit, TabHit::Switch(slot.idx), "body → Switch({})", slot.idx);
@@ -1120,7 +1311,7 @@ mod tests {
     #[test]
     fn hit_close_cell_returns_close() {
         let src = MockSource::new(&["a", "b"], 0);
-        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         for slot in &layout.slots {
             let (crow, ccol) = slot.close_cell.expect("close cell present");
             let hit = hit_at(crow, ccol, &src);
@@ -1131,7 +1322,7 @@ mod tests {
     #[test]
     fn hit_new_tab_slot_returns_new_tab() {
         let src = MockSource::new(&["a"], 0);
-        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         let (s, _e) = layout.new_tab_rows.expect("new-tab slot present");
         let hit = hit_at(s, RAIL_COLS / 2, &src);
         assert_eq!(hit, TabHit::NewTab, "+ slot → NewTab");
@@ -1140,7 +1331,7 @@ mod tests {
     #[test]
     fn hit_left_of_rail_is_none() {
         let src = MockSource::new(&["a"], 0);
-        let hit = rail().hit_test(-1.0, 8.0, &src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL);
+        let hit = rail().hit_test(-1.0, 8.0, &src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM);
         assert_eq!(hit, TabHit::None, "left of the rail → None");
     }
 
@@ -1148,7 +1339,7 @@ mod tests {
     fn hit_right_of_rail_band_is_none() {
         let src = MockSource::new(&["a"], 0);
         let x = RAIL_COLS as f64 * CELL.width as f64 + 1.0;
-        let hit = rail().hit_test(x, 8.0, &src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL);
+        let hit = rail().hit_test(x, 8.0, &src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM);
         assert_eq!(hit, TabHit::None, "right of the rail band → None");
     }
 
@@ -1175,7 +1366,7 @@ mod tests {
     fn many_tabs_overflow_scrolls_to_keep_active_visible() {
         let titles: Vec<&'static str> = vec!["t"; 100];
         let src = MockSource::new(&titles, 80);
-        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         assert!(!layout.slots.is_empty(), "some slots are visible");
         let visible: Vec<usize> = layout.slots.iter().map(|s| s.idx).collect();
         assert!(visible.contains(&80), "active tab 80 is kept visible");
@@ -1190,7 +1381,7 @@ mod tests {
     fn overflow_indicator_rows_are_informational_only() {
         let titles: Vec<&'static str> = vec!["t"; 100];
         let src = MockSource::new(&titles, 80);
-        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         if layout.overflow_above.is_some() {
             let hit = hit_at(0, RAIL_LABEL_PAD, &src);
             assert_eq!(hit, TabHit::None, "▲ indicator row → None");

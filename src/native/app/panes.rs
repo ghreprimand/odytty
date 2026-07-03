@@ -595,6 +595,10 @@ impl App {
         if let Some((_, strip_quads)) = tab_strip.as_ref() {
             frame_quads.extend_from_slice(strip_quads);
         }
+        // F4-P1 unified tab panel + seam: background-segment quads behind the tab
+        // chrome (same layer as the NF11 edge wash). Empty when the bar is hidden
+        // / panel off / seam off, so the multi-pane frame stays byte-identical.
+        let tab_bg_quads = self.tab_panel_bg_quads(cell);
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.set_scroll_frac_offset(0.0);
             let overlay = overlay_top.as_ref().map(|(snapshot, origin)| OverlayTop {
@@ -602,7 +606,7 @@ impl App {
                 origin: *origin,
                 treatment: treatment_for_overlay,
             });
-            gpu.update_from_panes(&panes, &frame_quads, overlay);
+            gpu.update_from_panes(&panes, &frame_quads, overlay, &tab_bg_quads);
         }
         // Multi-pane v1 does not participate in the single-pane render-signature
         // cache; it rebuilds whenever a visible pane requests a redraw. Reset
@@ -641,6 +645,7 @@ impl App {
             cell,
             padding,
             self.tab_bar_colors(),
+            self.tab_panel_strength(),
         );
         for glyph in output.glyphs {
             if glyph.col < columns {
@@ -654,8 +659,9 @@ impl App {
     /// multi-pane path to draw as its own region (F4-V2). Mirrors
     /// [`Self::tab_bar_strip`] but on the column axis: the rail spans the window
     /// content rows and is drawn at the window's top-left (`[pad, pad]`), beside
-    /// the content rect. Returns the snapshot plus the rail's chrome quads
-    /// (per-slot rings + the rail↔content divider).
+    /// the content rect. Returns the snapshot plus the rail widget's overlay
+    /// quads (empty under Phosphor Flat — the F4-P1 panel wash + seam are
+    /// separate background-segment quads built by `tab_panel_bg_quads`).
     fn tab_rail_strip(
         &self,
         cell: CellSize,
@@ -685,6 +691,8 @@ impl App {
             cell,
             side,
             self.tab_bar_colors(),
+            self.rail_geom(),
+            self.tab_panel_strength(),
         );
         for glyph in output.glyphs {
             if glyph.row < grid_rows && glyph.col < rail_cols {

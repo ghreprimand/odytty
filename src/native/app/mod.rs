@@ -112,6 +112,9 @@ mod ssh_connect;
 mod tab_bar;
 // F4-RESKIN: shared "Phosphor Flat" treatment (color) for both tab-chrome axes.
 mod tab_chrome;
+// F4-P1: unified tab-panel + seam background-quad geometry (color from
+// `tab_chrome`), spliced into the GPU background segment behind the chrome.
+mod tab_panel;
 // F4-V2 R1: vertical tab rail widget — the sibling of `tab_bar`, active when
 // `tab_bar_placement` is a rail.
 mod tab_rail;
@@ -1897,11 +1900,13 @@ impl App {
             return panes::TabReserve::NONE;
         }
         let gap_cols = self.rail_gap_cols();
+        // F4-P1: the rail band width is the live `tab_rail_width` knob (clamped).
+        let rail_cols = self.settings.rail_width_cols();
         match self.effective_placement() {
             TabBarPlacement::Top => panes::TabReserve::top(),
             TabBarPlacement::Left => panes::TabReserve {
                 top_rows: 0,
-                left_cols: tab_rail::DEFAULT_RAIL_COLS,
+                left_cols: rail_cols,
                 right_cols: 0,
                 gap_cols,
             },
@@ -1910,10 +1915,70 @@ impl App {
             TabBarPlacement::Right => panes::TabReserve {
                 top_rows: 0,
                 left_cols: 0,
-                right_cols: tab_rail::DEFAULT_RAIL_COLS,
+                right_cols: rail_cols,
                 gap_cols,
             },
         }
+    }
+
+    /// The live rail slot geometry (F4-P1 knobs: `tab_rail_slot_rows`,
+    /// `tab_rail_gap`), passed to the rail widget's render/hit-test.
+    fn rail_geom(&self) -> tab_rail::RailGeom {
+        tab_rail::RailGeom {
+            slot_rows: self.settings.rail_slot_rows(),
+            slot_gap: self.settings.rail_slot_gap_rows(),
+        }
+    }
+
+    /// The live unified-panel strength (F4-P1 `tab_panel_strength`), passed to
+    /// both tab-chrome widgets for the resting-cell tint and used to build the
+    /// panel wash/seam background quads.
+    fn tab_panel_strength(&self) -> f32 {
+        self.settings.tab_panel_strength
+    }
+
+    /// Build the F4-P1 unified-panel background quads (ODP-1 wash + ODP-2 seam)
+    /// for the current frame, in surface pixels. Empty when the bar is hidden,
+    /// the GPU is not up yet, or the band is degenerate; the caller splices these
+    /// into the GPU background segment (after the NF11 edge wash). The panel wash
+    /// is emitted only when `p = strength × (1 − cell_bg_opacity) > 0`; the seam
+    /// only when the seam knob is on AND the panel is live (`strength > 0`).
+    fn tab_panel_bg_quads(&self, cell: CellSize) -> Vec<SolidQuad> {
+        if !self.should_show_tab_bar() {
+            return Vec::new();
+        }
+        let Some(gpu) = self.gpu.as_ref() else {
+            return Vec::new();
+        };
+        let (axis, band_cells) = match self.effective_placement() {
+            TabBarPlacement::Top => (tab_panel::PanelAxis::Top, TAB_BAR_ROWS as usize),
+            TabBarPlacement::Left => (tab_panel::PanelAxis::Left, self.rail_cols()),
+            TabBarPlacement::Right => (tab_panel::PanelAxis::Right, self.rail_cols()),
+        };
+        if band_cells == 0 {
+            return Vec::new();
+        }
+        let (surface_w, surface_h) = gpu.surface_size();
+        let padding = gpu.window_padding();
+        let strength = self.tab_panel_strength();
+        let colors = self.tab_bar_colors();
+        let panel_color = tab_chrome::panel_tint(colors, strength);
+        let wash_alpha = tab_chrome::panel_wash_alpha(strength, self.settings.cell_bg_opacity);
+        let seam = (self.settings.tab_seam && strength > 0.0)
+            .then(|| tab_chrome::seam_color(colors, panel_color));
+        let spec = tab_panel::PanelQuadSpec {
+            axis,
+            surface: [surface_w as f32, surface_h as f32],
+            pad: [padding.as_f32(), padding.as_f32()],
+            cell: [cell.width as f32, cell.height as f32],
+            band_cells,
+            scale_factor: gpu.scale(),
+            panel_color,
+            wash_alpha,
+            seam,
+            seam_alpha: tab_chrome::SEAM_ALPHA,
+        };
+        tab_panel::panel_quads(&spec)
     }
 
     /// The cell-quantized wallpaper gap (in columns) between a side rail and the
@@ -2034,6 +2099,7 @@ impl App {
             cell,
             padding,
             self.tab_bar_colors(),
+            self.tab_panel_strength(),
         );
         for glyph in output.glyphs {
             if glyph.col < columns {
@@ -2105,6 +2171,8 @@ impl App {
             cell,
             side,
             self.tab_bar_colors(),
+            self.rail_geom(),
+            self.tab_panel_strength(),
         );
         for glyph in output.glyphs {
             let col = rail_col_start + glyph.col;
@@ -3073,6 +3141,10 @@ impl ApplicationHandler<UserEvent> for App {
                         let scroll_frac_offset = self.scroll_frac_offset;
                         let tab_bar_row_offset = self.tab_bar_row_offset();
                         let tab_bar_col_offset = self.tab_bar_col_offset();
+                        // F4-P1 unified tab panel + seam: background-segment quads
+                        // behind the tab chrome. Empty when the bar is hidden /
+                        // panel off / seam off, so the plain path is unchanged.
+                        let tab_bg_quads = self.tab_panel_bg_quads(cell);
                         if let Some(gpu) = self.gpu.as_mut() {
                             // RV4: push the current smooth-scroll offset so the
                             // vertex builders shift `content_origin` this frame.
@@ -3087,7 +3159,7 @@ impl ApplicationHandler<UserEvent> for App {
                                         tab_bar_row_offset,
                                         tab_bar_col_offset,
                                     );
-                                    if overlays.is_empty() {
+                                    if overlays.is_empty() && tab_bg_quads.is_empty() {
                                         gpu.update_from_snapshot(
                                             &snapshot,
                                             cursor_style,
@@ -3101,6 +3173,7 @@ impl ApplicationHandler<UserEvent> for App {
                                             &overlays,
                                             focus_dim,
                                             background_treatment,
+                                            &tab_bg_quads,
                                         );
                                     }
                                 }

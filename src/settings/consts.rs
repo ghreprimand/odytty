@@ -64,6 +64,13 @@ pub const WHEEL_ZOOM_ENV: &str = "ODYTTY_WHEEL_ZOOM";
 pub const COMMAND_STATUS_GUTTER_ENV: &str = "ODYTTY_COMMAND_STATUS_GUTTER";
 pub const ALWAYS_SHOW_TAB_BAR_ENV: &str = "ODYTTY_ALWAYS_SHOW_TAB_BAR";
 pub const TAB_BAR_PLACEMENT_ENV: &str = "ODYTTY_TAB_BAR_PLACEMENT";
+pub const TAB_RAIL_WIDTH_ENV: &str = "ODYTTY_TAB_RAIL_WIDTH";
+pub const TAB_RAIL_GAP_ENV: &str = "ODYTTY_TAB_RAIL_GAP";
+pub const TAB_RAIL_SLOT_ROWS_ENV: &str = "ODYTTY_TAB_RAIL_SLOT_ROWS";
+pub const TAB_PANEL_STRENGTH_ENV: &str = "ODYTTY_TAB_PANEL_STRENGTH";
+pub const TAB_SEAM_ENV: &str = "ODYTTY_TAB_SEAM";
+pub const TAB_RAIL_AUTOHIDE_ENV: &str = "ODYTTY_TAB_RAIL_AUTOHIDE";
+pub const TAB_RAIL_REVEAL_PX_ENV: &str = "ODYTTY_TAB_RAIL_REVEAL_PX";
 pub const SH_CLICK_ENV: &str = "ODYTTY_SH_CLICK";
 pub const SHELL_INTEGRATION_ENV: &str = "ODYTTY_SHELL_INTEGRATION";
 pub const CVD_MODE_ENV: &str = "ODYTTY_CVD_MODE";
@@ -150,6 +157,13 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     COMMAND_STATUS_GUTTER_ENV,
     ALWAYS_SHOW_TAB_BAR_ENV,
     TAB_BAR_PLACEMENT_ENV,
+    TAB_RAIL_WIDTH_ENV,
+    TAB_RAIL_GAP_ENV,
+    TAB_RAIL_SLOT_ROWS_ENV,
+    TAB_PANEL_STRENGTH_ENV,
+    TAB_SEAM_ENV,
+    TAB_RAIL_AUTOHIDE_ENV,
+    TAB_RAIL_REVEAL_PX_ENV,
     SH_CLICK_ENV,
     SHELL_INTEGRATION_ENV,
     CVD_MODE_ENV,
@@ -571,6 +585,59 @@ pub const DEFAULT_COMMAND_STATUS_GUTTER: bool = false;
 /// (`title_override`) shows the bar regardless, so a named single "workflow"
 /// tab is never invisible (F4-NF1).
 pub const DEFAULT_ALWAYS_SHOW_TAB_BAR: bool = false;
+
+/// Vertical tab-rail band width in cells (`ODYTTY_TAB_RAIL_WIDTH`, F4-P1). The
+/// rail widget's VISUAL width (the rail↔content wallpaper gap is reserved
+/// separately). Hot-reloadable so the operator can tune it live. Only affects
+/// the `left`/`right` rail placements; the top bar ignores it. Stored as `f32`
+/// to ride the shared numeric-setting model; the render path rounds it to a
+/// `usize` clamped to `[MIN, MAX]`.
+pub const DEFAULT_TAB_RAIL_WIDTH: f32 = 16.0;
+pub const MIN_TAB_RAIL_WIDTH: f32 = 8.0;
+pub const MAX_TAB_RAIL_WIDTH: f32 = 32.0;
+
+/// Rows of band-fill gap between adjacent rail slots (`ODYTTY_TAB_RAIL_GAP`,
+/// F4-P1). The top margin before the first slot follows it. Rail-only,
+/// hot-reloadable. Stored as `f32`; rounded to a `usize` in `[MIN, MAX]`.
+pub const DEFAULT_TAB_RAIL_GAP: f32 = 1.0;
+pub const MIN_TAB_RAIL_GAP: f32 = 0.0;
+pub const MAX_TAB_RAIL_GAP: f32 = 3.0;
+
+/// Rows each rail slot occupies (`ODYTTY_TAB_RAIL_SLOT_ROWS`, F4-P1): `1` = a
+/// compact single-row list (labels truncate, never wrap), `2` = the padded /
+/// wrapping default. Rail-only, hot-reloadable. Stored as `f32`; rounded and
+/// clamped to `{1, 2}`.
+pub const DEFAULT_TAB_RAIL_SLOT_ROWS: f32 = 2.0;
+pub const MIN_TAB_RAIL_SLOT_ROWS: f32 = 1.0;
+pub const MAX_TAB_RAIL_SLOT_ROWS: f32 = 2.0;
+
+/// Tab-panel strength (`ODYTTY_TAB_PANEL_STRENGTH`, F4-P1): scales the unified
+/// translucent panel behind the rail/bar. `0.0` = panel fully off (the pre-panel
+/// bare-labels look); `0.5` (default) = a quiet WezTerm-style surface; `1.0` =
+/// the strongest muting. Drives both the panel-tint lift (cell backgrounds) and
+/// the panel-wash quad alpha `p = strength × (1 − cell_bg_opacity)`. Both axes,
+/// hot-reloadable.
+pub const DEFAULT_TAB_PANEL_STRENGTH: f32 = 0.5;
+pub const MIN_TAB_PANEL_STRENGTH: f32 = 0.0;
+pub const MAX_TAB_PANEL_STRENGTH: f32 = 1.0;
+
+/// Tab-panel seam line (`ODYTTY_TAB_SEAM`, F4-P1): when on, one hairline
+/// separates the panel from the content on both axes, derived from the inactive
+/// TEXT role at α0.45 and luma-capped so it can never bloom. On by default; off
+/// removes the line only (the panel stays). Both axes, hot-reloadable.
+pub const DEFAULT_TAB_SEAM: bool = true;
+
+/// Rail auto-hide (`ODYTTY_TAB_RAIL_AUTOHIDE`, F4-P1/P3): parsed and stored now;
+/// the reveal/hide behavior lands in the P-AUTOHIDE packet. Off by default,
+/// rail-only.
+pub const DEFAULT_TAB_RAIL_AUTOHIDE: bool = false;
+
+/// Rail auto-hide reveal-zone width in physical px (`ODYTTY_TAB_RAIL_REVEAL_PX`,
+/// F4-P1/P3): parsed and stored now; the reveal behavior lands in P-AUTOHIDE.
+/// Stored as `f32`; rounded to a `usize` in `[MIN, MAX]` where used.
+pub const DEFAULT_TAB_RAIL_REVEAL_PX: f32 = 4.0;
+pub const MIN_TAB_RAIL_REVEAL_PX: f32 = 1.0;
+pub const MAX_TAB_RAIL_REVEAL_PX: f32 = 32.0;
 
 /// Click-to-position-cursor (`ODYTTY_SH_CLICK`, SH-CLICK/F2): when on, a plain
 /// left click on the live shell input moves the shell's cursor to the clicked

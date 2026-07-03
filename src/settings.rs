@@ -991,6 +991,31 @@ pub struct Settings {
     /// render arm lands (R2). Default `Top` keeps the render path byte-identical
     /// to the shipped horizontal bar.
     pub tab_bar_placement: TabBarPlacement,
+    /// Vertical rail band width in cells (F4-P1). Stored as `f32` for the shared
+    /// numeric-setting model; [`Settings::rail_width_cols`] rounds it to a
+    /// `usize` in `[8, 32]`. Rail-only; the top bar ignores it.
+    pub tab_rail_width: f32,
+    /// Inter-slot gap in rows for the vertical rail (F4-P1); the top margin
+    /// follows it. Stored as `f32`; [`Settings::rail_slot_gap_rows`] rounds it to
+    /// a `usize` in `[0, 3]`.
+    pub tab_rail_gap: f32,
+    /// Rail slot height in rows (F4-P1): `1` = compact list, `2` = padded/wrapping
+    /// default. Stored as `f32`; [`Settings::rail_slot_rows`] rounds and clamps
+    /// it to `{1, 2}`.
+    pub tab_rail_slot_rows: f32,
+    /// Unified tab-panel strength (F4-P1): `0.0` = panel off, `0.5` default,
+    /// `1.0` strongest. Drives both the panel tint lift and the panel-wash quad
+    /// alpha. Both axes.
+    pub tab_panel_strength: f32,
+    /// Tab-panel seam line (F4-P1): one content-boundary hairline on both axes.
+    /// On by default; off removes only the line (the panel stays).
+    pub tab_seam: bool,
+    /// Rail auto-hide (F4-P1/P3): parsed and stored now; the reveal/hide behavior
+    /// lands in the P-AUTOHIDE packet. Off by default, rail-only.
+    pub tab_rail_autohide: bool,
+    /// Rail auto-hide reveal-zone width in physical px (F4-P1/P3): parsed and
+    /// stored now; the behavior lands in P-AUTOHIDE. Stored as `f32` in `[1, 32]`.
+    pub tab_rail_reveal_px: f32,
     /// Click-to-position-cursor on the live prompt (SH-CLICK). When on, a plain
     /// left click on the shell prompt line moves the shell's input cursor to the
     /// clicked column by emitting Left/Right cursor keys — the click slice of
@@ -1177,6 +1202,13 @@ impl Default for Settings {
             command_status_gutter: DEFAULT_COMMAND_STATUS_GUTTER,
             always_show_tab_bar: DEFAULT_ALWAYS_SHOW_TAB_BAR,
             tab_bar_placement: TabBarPlacement::default(),
+            tab_rail_width: DEFAULT_TAB_RAIL_WIDTH,
+            tab_rail_gap: DEFAULT_TAB_RAIL_GAP,
+            tab_rail_slot_rows: DEFAULT_TAB_RAIL_SLOT_ROWS,
+            tab_panel_strength: DEFAULT_TAB_PANEL_STRENGTH,
+            tab_seam: DEFAULT_TAB_SEAM,
+            tab_rail_autohide: DEFAULT_TAB_RAIL_AUTOHIDE,
+            tab_rail_reveal_px: DEFAULT_TAB_RAIL_REVEAL_PX,
             sh_click: DEFAULT_SH_CLICK,
             shell_integration: DEFAULT_SHELL_INTEGRATION,
             new_output_fade: DEFAULT_NEW_OUTPUT_FADE,
@@ -1317,6 +1349,29 @@ impl Settings {
     /// `3.0` returns `3`, byte-identical to the historical fixed step.
     pub fn scroll_wheel_step(&self) -> usize {
         (self.scroll_wheel_lines.round() as i64).max(1) as usize
+    }
+
+    /// Vertical rail band width in cells (F4-P1), rounded from the stored `f32`
+    /// and clamped to `[MIN_TAB_RAIL_WIDTH, MAX_TAB_RAIL_WIDTH]`.
+    pub fn rail_width_cols(&self) -> usize {
+        self.tab_rail_width
+            .round()
+            .clamp(MIN_TAB_RAIL_WIDTH, MAX_TAB_RAIL_WIDTH) as usize
+    }
+
+    /// Inter-slot gap in rows for the vertical rail (F4-P1), rounded and clamped
+    /// to `[MIN_TAB_RAIL_GAP, MAX_TAB_RAIL_GAP]`.
+    pub fn rail_slot_gap_rows(&self) -> usize {
+        self.tab_rail_gap
+            .round()
+            .clamp(MIN_TAB_RAIL_GAP, MAX_TAB_RAIL_GAP) as usize
+    }
+
+    /// Rail slot height in rows (F4-P1), rounded and clamped to `{1, 2}`.
+    pub fn rail_slot_rows(&self) -> usize {
+        self.tab_rail_slot_rows
+            .round()
+            .clamp(MIN_TAB_RAIL_SLOT_ROWS, MAX_TAB_RAIL_SLOT_ROWS) as usize
     }
 
     /// Scrollback retention cap in logical lines for the core (`0` = unbounded).
@@ -1724,6 +1779,26 @@ impl Settings {
         );
         let tab_bar_placement =
             parse_tab_bar_placement(get(TAB_BAR_PLACEMENT_ENV).as_deref(), &mut warn);
+        let tab_rail_width = parse_tab_rail_width(get(TAB_RAIL_WIDTH_ENV).as_deref(), &mut warn);
+        let tab_rail_gap = parse_tab_rail_gap(get(TAB_RAIL_GAP_ENV).as_deref(), &mut warn);
+        let tab_rail_slot_rows =
+            parse_tab_rail_slot_rows(get(TAB_RAIL_SLOT_ROWS_ENV).as_deref(), &mut warn);
+        let tab_panel_strength =
+            parse_tab_panel_strength(get(TAB_PANEL_STRENGTH_ENV).as_deref(), &mut warn);
+        let tab_seam = parse_bool_setting(
+            get(TAB_SEAM_ENV).as_deref(),
+            TAB_SEAM_ENV,
+            DEFAULT_TAB_SEAM,
+            &mut warn,
+        );
+        let tab_rail_autohide = parse_bool_setting(
+            get(TAB_RAIL_AUTOHIDE_ENV).as_deref(),
+            TAB_RAIL_AUTOHIDE_ENV,
+            DEFAULT_TAB_RAIL_AUTOHIDE,
+            &mut warn,
+        );
+        let tab_rail_reveal_px =
+            parse_tab_rail_reveal_px(get(TAB_RAIL_REVEAL_PX_ENV).as_deref(), &mut warn);
         let sh_click = parse_bool_setting(
             get(SH_CLICK_ENV).as_deref(),
             SH_CLICK_ENV,
@@ -1894,6 +1969,13 @@ impl Settings {
             command_status_gutter,
             always_show_tab_bar,
             tab_bar_placement,
+            tab_rail_width,
+            tab_rail_gap,
+            tab_rail_slot_rows,
+            tab_panel_strength,
+            tab_seam,
+            tab_rail_autohide,
+            tab_rail_reveal_px,
             sh_click,
             shell_integration,
             new_output_fade,
@@ -2072,6 +2154,25 @@ impl Settings {
         values.insert(
             TAB_BAR_PLACEMENT_ENV,
             self.tab_bar_placement.as_str().to_owned(),
+        );
+        values.insert(TAB_RAIL_WIDTH_ENV, format_float(self.tab_rail_width));
+        values.insert(TAB_RAIL_GAP_ENV, format_float(self.tab_rail_gap));
+        values.insert(
+            TAB_RAIL_SLOT_ROWS_ENV,
+            format_float(self.tab_rail_slot_rows),
+        );
+        values.insert(
+            TAB_PANEL_STRENGTH_ENV,
+            format_float(self.tab_panel_strength),
+        );
+        values.insert(TAB_SEAM_ENV, bool_display(self.tab_seam).to_owned());
+        values.insert(
+            TAB_RAIL_AUTOHIDE_ENV,
+            bool_display(self.tab_rail_autohide).to_owned(),
+        );
+        values.insert(
+            TAB_RAIL_REVEAL_PX_ENV,
+            format_float(self.tab_rail_reveal_px),
         );
         values.insert(SH_CLICK_ENV, bool_display(self.sh_click).to_owned());
         values.insert(

@@ -50,6 +50,26 @@ always_show_tab_bar = off
 # rail). right is reserved for a later update and currently falls back to top.
 tab_bar_placement = top
 
+# Vertical-rail geometry (only affects left/right placements). Width in cells
+# (8-32), inter-slot gap in rows (0-3), and slot height (1 = compact list that
+# truncates long titles, 2 = padded rows that can wrap). All hot-reloadable.
+tab_rail_width = 16
+tab_rail_gap = 1
+tab_rail_slot_rows = 2
+
+# Tab panel: a quiet translucent surface behind the tab bar/rail so labels read
+# against it. Strength 0 turns the panel off (bare labels over the wallpaper);
+# higher values mute the wallpaper more. The seam is the thin hairline between
+# the panel and the terminal content.
+tab_panel_strength = 0.5
+tab_seam = on
+
+# Rail auto-hide: hide the vertical rail until the pointer reaches the window
+# edge (reveal-zone width in px). Off by default; the reveal behavior arrives in
+# a later update, but the settings are accepted now.
+tab_rail_autohide = off
+tab_rail_reveal_px = 4
+
 # Background treatments. OdyTTY ships with the bundled "Dark Waves" background
 # on by default. To turn it OFF, use `background_treatment = color` (theme
 # background only) or `background_image = none`.

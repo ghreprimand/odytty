@@ -1,0 +1,273 @@
+// SPDX-License-Identifier: GPL-3.0-only
+//! F4-P1 unified tab **panel** + **seam** geometry — the background-segment
+//! quads that back the "Phosphor Flat v2" tab chrome (ODP-1 / ODP-2).
+//!
+//! [`super::tab_chrome`] owns the *colors* (panel tint, wash alpha, seam color);
+//! this module owns the *geometry*: it turns a resolved [`PanelQuadSpec`] into
+//! the pixel-space [`SolidQuad`]s the integration layer splices into the
+//! background segment of the two GPU update paths (immediately after the NF11
+//! wallpaper edge-wash block, so the panel re-tints the padding strips and veils
+//! the fills, and the seam sits over the panel — both still under every glyph).
+//!
+//! Two coupled quads, in this order:
+//! 1. **panel wash** — one translucent quad over the whole panel rect, alpha
+//!    `p = strength × (1 − cell_bg_opacity)`. Emitted only when `p > 0`; at
+//!    `cell_bg_opacity = 1` the [`super::tab_chrome::panel_tint`] cell layer is
+//!    the whole panel and no wash is needed.
+//! 2. **seam** — one hairline flush inside the panel's content-facing edge,
+//!    `max(1, round(scale))` px, at [`super::tab_chrome::SEAM_ALPHA`]. Emitted
+//!    only when a seam color is supplied (caller gates on the seam knob AND a
+//!    live panel).
+//!
+//! Pure and GPU-device-free: unit-tested without a window. Handles all three
+//! axes (`Top`, `Left`, `Right`) so the P-RIGHT packet rides this unchanged.
+
+use super::*;
+use crate::theme::Srgb;
+
+/// Which edge of the window the panel occupies. `Top` is the horizontal bar;
+/// `Left`/`Right` are the vertical rails. The seam always sits on the panel's
+/// content-facing edge (bottom for `Top`, right for `Left`, left for `Right`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PanelAxis {
+    Top,
+    Left,
+    Right,
+}
+
+/// Fully-resolved inputs for one panel's background quads. The caller resolves
+/// all colors through [`super::tab_chrome`] and all geometry through the live
+/// window metrics, so this module stays pure geometry + sRGB→linear conversion.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct PanelQuadSpec {
+    pub(super) axis: PanelAxis,
+    /// Surface size in physical px `[w, h]`.
+    pub(super) surface: [f32; 2],
+    /// Window padding in physical px `[x, y]`.
+    pub(super) pad: [f32; 2],
+    /// Cell size in physical px `[w, h]`.
+    pub(super) cell: [f32; 2],
+    /// Rail band width in cells (`Left`/`Right`) or bar height in rows (`Top`).
+    pub(super) band_cells: usize,
+    /// Surface scale factor (for the seam thickness: `max(1, round(scale))` px).
+    pub(super) scale_factor: f32,
+    /// The panel-tint color the wash quad paints (same color as the cell tint,
+    /// so the surface reads as one continuous color regardless of opacity).
+    pub(super) panel_color: Srgb,
+    /// Wash alpha `p`. `≤ 0` → no wash quad (the tint cell layer is the panel).
+    pub(super) wash_alpha: f32,
+    /// Seam color, or `None` to omit the seam (knob off, or panel inactive).
+    pub(super) seam: Option<Srgb>,
+    /// Seam quad alpha.
+    pub(super) seam_alpha: f32,
+}
+
+fn linear_rgba(c: Srgb, alpha: f32) -> [f32; 4] {
+    [
+        text::srgb_to_linear(c.0),
+        text::srgb_to_linear(c.1),
+        text::srgb_to_linear(c.2),
+        alpha.clamp(0.0, 1.0),
+    ]
+}
+
+/// The panel's content-facing seam coordinate along the panel's growth axis:
+/// for a rail this is the x of the rail↔content boundary; for the top bar the y
+/// of the bar↔content boundary.
+fn seam_coord(spec: &PanelQuadSpec) -> f32 {
+    let band_px = |cell_dim: f32| spec.pad_axis() + spec.band_cells as f32 * cell_dim;
+    match spec.axis {
+        PanelAxis::Top => band_px(spec.cell[1]),
+        PanelAxis::Left => band_px(spec.cell[0]),
+        PanelAxis::Right => spec.surface[0] - spec.pad[0] - spec.band_cells as f32 * spec.cell[0],
+    }
+}
+
+impl PanelQuadSpec {
+    /// The window-padding component on the panel's growth axis (x for rails, y
+    /// for the top bar).
+    fn pad_axis(&self) -> f32 {
+        match self.axis {
+            PanelAxis::Top => self.pad[1],
+            PanelAxis::Left | PanelAxis::Right => self.pad[0],
+        }
+    }
+}
+
+/// Build the background-segment quads (panel wash, then seam) for one panel.
+/// Returns an empty vec when nothing is drawn (no wash and no seam), keeping the
+/// no-panel / opaque-cells / seam-off frames byte-identical.
+pub(super) fn panel_quads(spec: &PanelQuadSpec) -> Vec<SolidQuad> {
+    let surface_w = spec.surface[0];
+    let surface_h = spec.surface[1];
+    if surface_w <= 0.0 || surface_h <= 0.0 || spec.band_cells == 0 {
+        return Vec::new();
+    }
+    let seam_x_or_y = seam_coord(spec);
+    let seam_w = spec.scale_factor.round().max(1.0);
+
+    // Panel rect + seam rect per axis.
+    let (panel_rect, seam_rect): ([f32; 4], [f32; 4]) = match spec.axis {
+        PanelAxis::Top => {
+            let bottom = seam_x_or_y.clamp(0.0, surface_h);
+            (
+                [0.0, 0.0, surface_w, bottom],
+                [0.0, (bottom - seam_w).max(0.0), surface_w, bottom],
+            )
+        }
+        PanelAxis::Left => {
+            let seam_x = seam_x_or_y.clamp(0.0, surface_w);
+            (
+                [0.0, 0.0, seam_x, surface_h],
+                [(seam_x - seam_w).max(0.0), 0.0, seam_x, surface_h],
+            )
+        }
+        PanelAxis::Right => {
+            let seam_x = seam_x_or_y.clamp(0.0, surface_w);
+            (
+                [seam_x, 0.0, surface_w, surface_h],
+                [seam_x, 0.0, (seam_x + seam_w).min(surface_w), surface_h],
+            )
+        }
+    };
+
+    let mut quads = Vec::with_capacity(2);
+    let push = |quads: &mut Vec<SolidQuad>, rect: [f32; 4], color: [f32; 4]| {
+        if rect[2] > rect[0] && rect[3] > rect[1] && color[3] > 0.0 {
+            quads.push(SolidQuad { rect, color });
+        }
+    };
+
+    if spec.wash_alpha > 0.0 {
+        push(
+            &mut quads,
+            panel_rect,
+            linear_rgba(spec.panel_color, spec.wash_alpha),
+        );
+    }
+    if let Some(seam) = spec.seam {
+        push(&mut quads, seam_rect, linear_rgba(seam, spec.seam_alpha));
+    }
+    quads
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PANEL: Srgb = (0x20, 0x20, 0x24);
+    const SEAM: Srgb = (0x66, 0x66, 0x66);
+
+    fn base(axis: PanelAxis) -> PanelQuadSpec {
+        PanelQuadSpec {
+            axis,
+            surface: [800.0, 600.0],
+            pad: [4.0, 4.0],
+            cell: [8.0, 16.0],
+            band_cells: if matches!(axis, PanelAxis::Top) {
+                1
+            } else {
+                16
+            },
+            scale_factor: 1.0,
+            panel_color: PANEL,
+            wash_alpha: 0.10,
+            seam: Some(SEAM),
+            seam_alpha: 0.45,
+        }
+    }
+
+    #[test]
+    fn left_rail_panel_spans_to_the_seam_and_seam_is_flush_inside() {
+        let spec = base(PanelAxis::Left);
+        let quads = panel_quads(&spec);
+        assert_eq!(quads.len(), 2, "wash + seam");
+        let seam_x = 4.0 + 16.0 * 8.0; // pad_x + rail_cols*cell_w = 132
+        // Panel rect: [0,0, seam_x, surface_h].
+        assert_eq!(quads[0].rect, [0.0, 0.0, seam_x, 600.0]);
+        // Seam rect: 1px flush inside the panel's right (content-facing) edge.
+        assert_eq!(quads[1].rect, [seam_x - 1.0, 0.0, seam_x, 600.0]);
+    }
+
+    #[test]
+    fn right_rail_panel_and_seam_mirror_to_the_far_side() {
+        let spec = base(PanelAxis::Right);
+        let quads = panel_quads(&spec);
+        assert_eq!(quads.len(), 2);
+        let seam_x = 800.0 - 4.0 - 16.0 * 8.0; // surface_w - pad_x - rail*cell = 668
+        assert_eq!(
+            quads[0].rect,
+            [seam_x, 0.0, 800.0, 600.0],
+            "panel on the right"
+        );
+        // Seam on the panel's LEFT (content-facing) edge.
+        assert_eq!(quads[1].rect, [seam_x, 0.0, seam_x + 1.0, 600.0]);
+    }
+
+    #[test]
+    fn top_bar_panel_spans_full_width_and_seam_is_at_the_bottom() {
+        let spec = base(PanelAxis::Top);
+        let quads = panel_quads(&spec);
+        assert_eq!(quads.len(), 2);
+        let bottom = 4.0 + 1.0 * 16.0; // pad_y + bar_rows*cell_h = 20
+        assert_eq!(quads[0].rect, [0.0, 0.0, 800.0, bottom]);
+        assert_eq!(quads[1].rect, [0.0, bottom - 1.0, 800.0, bottom]);
+    }
+
+    #[test]
+    fn wash_omitted_when_alpha_zero_but_seam_still_drawn() {
+        // Opaque cells (p = 0): the tint cell layer is the panel, so no wash
+        // quad — but the seam still separates the panel from content.
+        let mut spec = base(PanelAxis::Left);
+        spec.wash_alpha = 0.0;
+        let quads = panel_quads(&spec);
+        assert_eq!(quads.len(), 1, "only the seam");
+        let seam_x = 4.0 + 16.0 * 8.0;
+        assert_eq!(quads[0].rect, [seam_x - 1.0, 0.0, seam_x, 600.0]);
+    }
+
+    #[test]
+    fn seam_omitted_when_none() {
+        let mut spec = base(PanelAxis::Left);
+        spec.seam = None;
+        let quads = panel_quads(&spec);
+        assert_eq!(quads.len(), 1, "only the wash");
+        assert!(quads[0].color[3] > 0.0);
+    }
+
+    #[test]
+    fn nothing_emitted_when_panel_off_and_no_seam() {
+        // strength 0 → wash_alpha 0 AND caller passes seam None → byte-identical.
+        let mut spec = base(PanelAxis::Left);
+        spec.wash_alpha = 0.0;
+        spec.seam = None;
+        assert!(panel_quads(&spec).is_empty());
+    }
+
+    #[test]
+    fn seam_thickens_at_hidpi() {
+        let mut spec = base(PanelAxis::Left);
+        spec.scale_factor = 2.0;
+        let quads = panel_quads(&spec);
+        let seam_x = 4.0 + 16.0 * 8.0;
+        assert_eq!(
+            quads[1].rect,
+            [seam_x - 2.0, 0.0, seam_x, 600.0],
+            "2px seam at 2x"
+        );
+    }
+
+    #[test]
+    fn zero_band_or_surface_emits_nothing() {
+        let mut spec = base(PanelAxis::Left);
+        spec.band_cells = 0;
+        assert!(panel_quads(&spec).is_empty());
+        let mut spec = base(PanelAxis::Left);
+        spec.surface = [0.0, 600.0];
+        assert!(panel_quads(&spec).is_empty());
+    }
+}
