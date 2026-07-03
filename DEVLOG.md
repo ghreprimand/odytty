@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Drag-to-resize the tab rail (F4-P4, part 2)
+
+The rail's inner (content-facing) edge is now a resize handle, completing the
+Finder-column model.
+
+- **Drag the seam** to set a manual width. The gesture mirrors the pane
+  dividers: a press within the grab band arms it, pointer motion sets the width
+  the pointer maps to (snapped to whole cells, clamped to `[8, 32]`), and
+  release persists it to `odytty.conf`. Manual mode disables auto-sizing. The
+  width is measured from the window edge the rail hugs (left rail → the left
+  padding, right rail → the far edge), which sidesteps the circularity of the
+  right rail's seam position depending on the very width being set.
+- **Double-click the seam** to return to `auto`. That is the whole mode model —
+  no separate mode setting; a drag writes `Manual`, a double-click writes
+  `Auto`.
+- **A column-resize cursor** appears over the grab band so the affordance is
+  discoverable, matching the pane-divider hover. The seam wins its thin band
+  over a tab-slot click and yields the shared edge to a live scroll thumb (the
+  right-rail scrollbar sits just inside the seam).
+- The drag geometry is a pure function (`rail_width_cols_from_pointer`) unit-
+  tested without a GPU; the state machine (arm → motion → persist, and the
+  double-click reset) is covered end-to-end against a live PTY with a hermetic
+  temp config, asserting both the live width and the persisted file.
+
+Windows: platform-neutral — pointer/cursor/config-writeback only, no
+PTY/spawn/path surface; tests are cfg-neutral across all three CI legs.
+`cargo test` 2918 lib + all integration bins green, `clippy --all-targets -D
+warnings` clean, `fmt --check` clean, MSRV 1.96 intact.
+
 ## 2026-07-03 -- Auto-sizing tab rail width (F4-P4, part 1)
 
 The vertical tab rail now sizes itself to its tabs like a Finder column

@@ -23,9 +23,9 @@ use crate::selection::{
     SelectionStyle,
 };
 use crate::settings::{
-    BindableAction, SettingEdit, Settings, SettingsReloadOutcome, SettingsReloader, THEME_ENV,
-    TabBarPlacement, apply_reloadable_values, ensure_config_file_exists_at,
-    write_settings_changes_to_path,
+    BindableAction, MAX_TAB_RAIL_WIDTH, MIN_TAB_RAIL_WIDTH, SettingEdit, Settings,
+    SettingsReloadOutcome, SettingsReloader, TAB_RAIL_WIDTH_ENV, THEME_ENV, TabBarPlacement,
+    apply_reloadable_values, ensure_config_file_exists_at, write_settings_changes_to_path,
 };
 use crate::text::{self, CellSize};
 use crate::theme::{Theme, VisualEffect};
@@ -325,6 +325,16 @@ pub(super) struct App {
     /// change / tab add-remove / max-width edit re-sizes the content exactly
     /// once. 0 on the top-bar / hidden path.
     rail_reserved_cols: usize,
+    /// F4-P4 seam drag: `true` while the left button is held after grabbing the
+    /// rail's inner (content-facing) edge to resize it. Pointer motion then sets
+    /// a manual width; release persists it. Only ever `true` while a rail is
+    /// shown, so the top-bar / single-pane paths are unaffected.
+    rail_seam_drag: bool,
+    /// F4-P4 double-click detection for the rail seam (reset-to-auto). Keyed on
+    /// a fixed synthetic point so two quick seam presses register as a double-
+    /// click; reset on an actual drag move so a drag-then-grab is not misread as
+    /// one. Separate from the grid/rename trackers.
+    rail_seam_clicks: ClickTracker,
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
@@ -505,6 +515,8 @@ impl App {
             window_minimized: false,
             divider_drag: None,
             rail_reserved_cols: 0,
+            rail_seam_drag: false,
+            rail_seam_clicks: ClickTracker::default(),
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
             bell_flash_start: None,
@@ -2114,6 +2126,124 @@ impl App {
         [x, pad]
     }
 
+    /// The physical-pixel X of the rail's inner (content-facing) seam this frame,
+    /// or `None` when no rail is active (F4-P4). A left rail's seam is the RIGHT
+    /// edge of its band (`origin_x + rail_cols·cell_w`); a right rail's seam is
+    /// the LEFT edge of its band (`origin_x`). This is the edge the drag-resize
+    /// grabs and the resize cursor tracks.
+    fn rail_seam_x_px(&self, cell: CellSize) -> Option<f32> {
+        let origin_x = self.rail_origin_px(cell)[0];
+        match self.rail_side()? {
+            RailSide::Left => Some(origin_x + self.rail_cols() as f32 * cell.width as f32),
+            RailSide::Right => Some(origin_x),
+        }
+    }
+
+    /// The manual rail width (cells) a seam-drag pointer at `px_x` maps to
+    /// (F4-P4). Gathers the pixel geometry (padding, surface width) from the GPU
+    /// where present — 0 defaults keep the left rail (which needs neither) usable
+    /// headlessly for tests — and defers the pure snap/clamp math to
+    /// [`rail_width_cols_from_pointer`].
+    fn rail_width_from_pointer(&self, px_x: f64, cell: CellSize) -> Option<u16> {
+        let side = self.rail_side()?;
+        let pad = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO)
+            .as_f32();
+        let surface_w = self
+            .gpu
+            .as_ref()
+            .map(|gpu| gpu.surface_size().0 as f32)
+            .unwrap_or(0.0);
+        Some(rail_width_cols_from_pointer(
+            side,
+            px_x as f32,
+            pad,
+            cell.width as f32,
+            surface_w,
+            MIN_TAB_RAIL_WIDTH as u16,
+            MAX_TAB_RAIL_WIDTH as u16,
+        ))
+    }
+
+    /// Whether the pointer at raw `px_x` is within the seam grab band this frame
+    /// and should start / show a rail resize rather than a tab hit (F4-P4).
+    /// Yields to a live scroll thumb (ODP-5 right-rail rule) so a scrollbar drag
+    /// wins the shared edge. `false` off a rail, so the plain path never grabs.
+    fn pointer_over_rail_seam(&self, px_x: f64, cell: CellSize) -> bool {
+        if self.rail_side().is_none() || !self.should_show_tab_bar() {
+            return false;
+        }
+        let Some(seam_x) = self.rail_seam_x_px(cell) else {
+            return false;
+        };
+        if (px_x as f32 - seam_x).abs() > DIVIDER_GRAB_PX {
+            return false;
+        }
+        // Yield the shared edge to a grabbable scroll thumb (right rail: the
+        // content scrollbar sits just inside the seam).
+        !(self.settings.scrollbar_drag && self.scrollbar_hit_test().is_some())
+    }
+
+    /// F4-P4: drive an in-progress rail seam drag to the pointer — set the manual
+    /// width the pointer maps to and reflow the content grid. Resets the seam
+    /// click tracker on an actual move so a drag-then-grab is never misread as a
+    /// double-click (reset-to-auto).
+    fn drag_rail_seam_to_pointer(&mut self, px_x: f64) {
+        let Some(cell) = self.resolved_cell() else {
+            return;
+        };
+        let Some(cols) = self.rail_width_from_pointer(px_x, cell) else {
+            return;
+        };
+        let next = crate::settings::TabRailWidth::Manual(cols);
+        if self.settings.tab_rail_width != next {
+            self.settings.tab_rail_width = next;
+            self.rail_seam_clicks = ClickTracker::default();
+            self.recompute_grid_for_tab_bar();
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+    }
+
+    /// F4-P4: set the rail width mode and persist it to `odytty.conf` (drag
+    /// release → the dragged `Manual` width; double-click → `Auto`). The live
+    /// setting is already applied, so this only writes it through so it survives
+    /// a restart; a missing config path or write error is logged, not fatal.
+    fn persist_rail_width(&mut self) {
+        let value = self.settings.tab_rail_width.as_config_string();
+        let Some(path) = self.settings_reloader.config_path() else {
+            return;
+        };
+        let changes = [SettingEdit {
+            key: "tab_rail_width",
+            env: TAB_RAIL_WIDTH_ENV,
+            value,
+        }];
+        if let Err(error) = write_settings_changes_to_path(path, &changes) {
+            tracing::warn!(error = %error, "could not persist tab rail width");
+        }
+    }
+
+    /// F4-P4: reset the rail to `Auto` width (double-click the seam), reflow, and
+    /// persist. A no-op when already `Auto`.
+    fn reset_rail_width_to_auto(&mut self) {
+        if self.settings.tab_rail_width == crate::settings::TabRailWidth::Auto {
+            return;
+        }
+        self.settings.tab_rail_width = crate::settings::TabRailWidth::Auto;
+        self.recompute_grid_for_tab_bar();
+        self.persist_rail_width();
+        self.needs_rebuild = true;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+
     /// Pixels to subtract from a raw pointer `(x, y)` before mapping it to a grid
     /// cell, accounting for tab chrome. Top bar → `(0, tab_h)`; left rail →
     /// `(rail_w + gap_w, 0)`; right rail / none → `(0, 0)` (content origin
@@ -3514,6 +3644,32 @@ fn crt_options(settings: &Settings) -> CrtOptions {
         vignette_strength: settings.effective_crt_vignette_strength(),
         curvature: settings.effective_crt_curvature(),
     }
+}
+
+/// F4-P4: the manual rail width (cells) a seam-drag pointer at `px_x` maps to.
+/// The rail's OUTER edge is pinned to the window edge it hugs (left rail → the
+/// left padding; right rail → `surface_w − pad`), so the width is the cell-
+/// snapped distance from that edge to the pointer, clamped to `[min, max]`.
+/// Measuring from the pinned window edge avoids the circularity of the right
+/// rail's inner seam depending on the very width being set. Pure so the drag
+/// geometry is unit-tested without a GPU/window. Module-private (its `RailSide`
+/// parameter is `crate::native::app`-scoped); the tab_rail unit tests reach it
+/// as a descendant module.
+fn rail_width_cols_from_pointer(
+    side: RailSide,
+    px_x: f32,
+    pad: f32,
+    cell_w: f32,
+    surface_w: f32,
+    min: u16,
+    max: u16,
+) -> u16 {
+    let cw = cell_w.max(1.0);
+    let raw = match side {
+        RailSide::Left => (px_x - pad) / cw,
+        RailSide::Right => (surface_w - pad - px_x) / cw,
+    };
+    raw.round().clamp(min as f32, max as f32) as u16
 }
 
 /// Whether the first-run onboarding card should open at startup (ONBOARD).

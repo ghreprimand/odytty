@@ -2,6 +2,7 @@
 //! Headless multi-session foundation tests for the tabs packet.
 
 use crate::core::Color;
+use crate::settings::TabRailWidth;
 
 use super::super::pty::UserEvent;
 use super::*;
@@ -508,6 +509,135 @@ fn click_right_of_the_rail_is_not_a_tab_hit() {
         app.tab_bar_hit_for_test(),
         None,
         "content-area click → no tab hit"
+    );
+}
+
+// --- F4-P4: rail seam drag → manual width, double-click → auto ---
+
+/// A hermetic temp `odytty.conf` for a persistence test (unique per process +
+/// test thread, seeded with a comment to prove non-destructive rewrite).
+fn temp_rail_conf(tag: &str) -> std::path::PathBuf {
+    let thread = std::thread::current()
+        .name()
+        .unwrap_or("test")
+        .replace(|c: char| !c.is_ascii_alphanumeric(), "_");
+    let base = std::env::temp_dir().join(format!("odytty-{tag}-{}-{}", std::process::id(), thread));
+    let _ = std::fs::remove_dir_all(&base);
+    std::fs::create_dir_all(&base).unwrap();
+    let path = base.join("odytty.conf");
+    std::fs::write(&path, "# kept\n").unwrap();
+    path
+}
+
+#[test]
+fn rail_seam_drag_sets_and_persists_a_manual_width() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    // Pin a manual width so the seam is deterministic: left rail band [0, 128),
+    // so the inner seam sits at x = 16*8 = 128 (headless origin at 0).
+    app.set_tab_rail_width_manual_for_test(16);
+    let conf = temp_rail_conf("seam-drag");
+    app.set_config_path_for_test(conf.clone());
+
+    // A press ON the seam arms the drag; no width change yet (fails-before: the
+    // pre-P4 rail had no draggable seam).
+    app.set_pointer_px_for_test(128.0, 100.0);
+    app.mouse_left_press_for_test();
+    assert!(
+        app.rail_seam_dragging_for_test(),
+        "a press on the seam arms a drag"
+    );
+    assert_eq!(app.tab_rail_width_for_test(), TabRailWidth::Manual(16));
+
+    // Motion sets the manual width the pointer maps to: 80px / 8 = 10 cells.
+    app.pointer_move_for_test(80.0, 100.0);
+    assert_eq!(app.tab_rail_width_for_test(), TabRailWidth::Manual(10));
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::ColResize,
+        "a column-resize cursor is shown during the drag"
+    );
+
+    // Release disarms and persists the dragged width to the temp config, non-
+    // destructively.
+    app.mouse_left_release_for_test();
+    assert!(
+        !app.rail_seam_dragging_for_test(),
+        "release disarms the drag"
+    );
+    assert_eq!(app.tab_rail_width_for_test(), TabRailWidth::Manual(10));
+    let written = std::fs::read_to_string(&conf).unwrap();
+    assert!(written.contains("# kept"), "existing config preserved");
+    assert!(
+        written.contains("tab_rail_width = 10"),
+        "the dragged manual width persisted; got: {written:?}"
+    );
+    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
+}
+
+#[test]
+fn double_click_rail_seam_resets_to_auto_and_persists() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    // Start from a manual width (seam at x = 20*8 = 160).
+    app.set_tab_rail_width_manual_for_test(20);
+    let conf = temp_rail_conf("seam-dblclick");
+    app.set_config_path_for_test(conf.clone());
+    assert_eq!(app.tab_rail_width_for_test(), TabRailWidth::Manual(20));
+
+    // Two quick presses on the seam (a double-click) reset the rail to auto.
+    app.set_pointer_px_for_test(160.0, 100.0);
+    app.mouse_left_press_for_test();
+    app.mouse_left_release_for_test();
+    app.mouse_left_press_for_test();
+    assert_eq!(
+        app.tab_rail_width_for_test(),
+        TabRailWidth::Auto,
+        "double-click the seam resets to auto width"
+    );
+    assert!(
+        !app.rail_seam_dragging_for_test(),
+        "the reset does not leave a drag armed"
+    );
+    let written = std::fs::read_to_string(&conf).unwrap();
+    assert!(
+        written.contains("tab_rail_width = auto"),
+        "the auto reset persisted; got: {written:?}"
+    );
+    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
+}
+
+#[test]
+fn rail_seam_hover_shows_a_resize_cursor_off_the_tab_slots() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16); // seam at x = 128
+
+    // Hovering the seam grab band shows a column-resize cursor.
+    app.pointer_move_for_test(128.0, 100.0);
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::ColResize,
+        "the seam grab band shows a resize cursor"
+    );
+    // Hovering a tab slot (well inside the band) does not.
+    app.pointer_move_for_test(20.0, 24.0);
+    assert_ne!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::ColResize,
+        "a tab slot is not a resize target"
     );
 }
 

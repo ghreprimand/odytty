@@ -677,6 +677,40 @@ impl App {
         self.recompute_grid_for_tab_bar();
     }
 
+    /// Test seam (F4-P4): the live rail width mode.
+    #[cfg(test)]
+    pub(in crate::native) fn tab_rail_width_for_test(&self) -> crate::settings::TabRailWidth {
+        self.settings.tab_rail_width
+    }
+
+    /// Test seam (F4-P4): point the settings reloader at a hermetic temp config
+    /// file so the seam-drag persistence path writes there, not the real config.
+    #[cfg(test)]
+    pub(in crate::native) fn set_config_path_for_test(&mut self, path: std::path::PathBuf) {
+        self.settings_reloader.set_config_path_for_test(Some(path));
+    }
+
+    /// Test seam (F4-P4): whether a rail seam drag is currently in progress.
+    #[cfg(test)]
+    pub(in crate::native) fn rail_seam_dragging_for_test(&self) -> bool {
+        self.rail_seam_drag
+    }
+
+    /// Test seam (F4-P4): a left press routed through the real
+    /// `handle_mouse_input` dispatch (covers the seam grab / double-click wiring,
+    /// not just the handler in isolation). Set `pointer_px` first.
+    #[cfg(test)]
+    pub(in crate::native) fn mouse_left_press_for_test(&mut self) {
+        self.handle_mouse_input(ElementState::Pressed, WinitMouseButton::Left);
+    }
+
+    /// Test seam (F4-P4): the left release that ends a seam drag, routed through
+    /// the real `handle_mouse_input` dispatch.
+    #[cfg(test)]
+    pub(in crate::native) fn mouse_left_release_for_test(&mut self) {
+        self.handle_mouse_input(ElementState::Released, WinitMouseButton::Left);
+    }
+
     /// Test seam (F4-V2): the decorated single-pane snapshot's `(columns, rows)`
     /// after tab-chrome decoration. A left rail grows columns by `rail_cols`; the
     /// top bar grows rows by `TAB_BAR_ROWS`.

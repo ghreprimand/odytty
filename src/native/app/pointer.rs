@@ -58,6 +58,15 @@ impl App {
             }
             return;
         }
+        // F4-P4: the rail seam drag owns the left button — a release ends it
+        // (persisting the dragged width); a press on the seam grab band starts a
+        // drag, or resets to auto on a double-click. Placed before the multi-pane
+        // pane/divider branch so a seam press on a split tab isn't swallowed by
+        // pane focus, and before the tab-hit block so the seam wins its thin band
+        // over a tab-slot click. Inert off a rail / on the plain path.
+        if self.handle_rail_seam_button(state, button) {
+            return;
+        }
         // A left-release always ends an in-progress divider drag (design doc
         // §4.2), before any other press routing. `divider_drag` is only ever
         // `Some` inside a multi-pane tab, so the single-pane path is unaffected.
@@ -294,6 +303,56 @@ impl App {
         }
     }
 
+    /// F4-P4 rail seam button routing. Returns `true` when the event was
+    /// consumed (so the caller returns without running any tab/selection/PTY
+    /// routing):
+    /// - while a drag is in progress, a left release ends it and persists the
+    ///   dragged width, and any other left event is swallowed;
+    /// - a left press on the seam grab band arms a drag (motion sets the manual
+    ///   width) — unless it is the second press of a double-click, which resets
+    ///   the rail to auto width instead.
+    ///
+    /// Off a rail (`pointer_over_rail_seam` is false) it consumes nothing, so
+    /// the historical press path is byte-identical.
+    fn handle_rail_seam_button(&mut self, state: ElementState, button: WinitMouseButton) -> bool {
+        if button != WinitMouseButton::Left {
+            return false;
+        }
+        if self.rail_seam_drag {
+            if state == ElementState::Released {
+                self.rail_seam_drag = false;
+                self.persist_rail_width();
+            }
+            return true;
+        }
+        if state != ElementState::Pressed {
+            return false;
+        }
+        let Some(cell) = self.resolved_cell() else {
+            return false;
+        };
+        let Some((px_x, _)) = self.pointer_px else {
+            return false;
+        };
+        if !self.pointer_over_rail_seam(px_x, cell) {
+            return false;
+        }
+        // Double-click on the seam → reset to auto. Keyed on a fixed synthetic
+        // point so two quick seam presses (anywhere on the band) count as a
+        // double-click; `drag_rail_seam_to_pointer` resets this tracker on an
+        // actual move so a drag-then-grab is never misread as a reset.
+        let count = self
+            .rail_seam_clicks
+            .register_click(CellPoint { row: 0, column: 0 }, std::time::Instant::now());
+        if count >= 2 {
+            self.reset_rail_width_to_auto();
+            return true;
+        }
+        // First press: arm the drag; pointer motion sets the manual width.
+        self.rail_seam_drag = true;
+        true
+    }
+
     /// Hit-test the last cached pointer position against the draggable scroll
     /// thumb (MOUSE-SCROLLBAR), returning the grab offset within the thumb when
     /// the press lands on the visible thumb's grab band, else `None`. The thumb
@@ -301,7 +360,7 @@ impl App {
     /// at the live tail (the default) never grabs — keeping the plain press path
     /// byte-identical. Uses `pointer_px`, the same cached coordinates the
     /// SGR-pixel report path relies on (button events carry no coordinates).
-    fn scrollbar_hit_test(&self) -> Option<f32> {
+    pub(super) fn scrollbar_hit_test(&self) -> Option<f32> {
         let (x_px, y_px) = self.pointer_px?;
         let cell = self.resolved_cell()?;
         let padding = self

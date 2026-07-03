@@ -1354,6 +1354,15 @@ impl App {
             .map(GpuState::window_padding)
             .unwrap_or(WindowPadding::ZERO);
         self.pointer_px = Some((x_px, y_px));
+        // F4-P4: while the rail seam is grabbed, pointer motion resizes the rail
+        // (sets the manual width + reflows) and nothing else. Held only while a
+        // rail is shown, so the top-bar / single-pane motion path is unaffected.
+        // The seam is a vertical edge → a column-resize cursor for the gesture.
+        if self.rail_seam_drag {
+            self.drag_rail_seam_to_pointer(x_px);
+            self.apply_cursor_icon(CursorIcon::ColResize);
+            return;
+        }
         // While a divider is grabbed, pointer motion reflows the split and
         // nothing else — no selection or hover work. `divider_drag` is only ever
         // `Some` in a multi-pane tab, so the single-pane motion path below is
@@ -1372,6 +1381,22 @@ impl App {
                 .map(Self::divider_resize_icon)
                 .unwrap_or(CursorIcon::Default);
             self.apply_cursor_icon(icon);
+            return;
+        }
+        // F4-P4: rail seam hover — a column-resize cursor over the seam grab
+        // band so drag-to-resize is discoverable (the press path grabs the same
+        // band). Wins over tab-slot hover in its thin band and yields to the
+        // scroll thumb (inside `pointer_over_rail_seam`); skipped while a
+        // selection is in progress. Clears any stale slot highlight beneath the
+        // resize cursor. Inert off a rail, so the plain hover path is unchanged.
+        if !self.pointer_drag.is_selecting() && self.pointer_over_rail_seam(x_px, cell) {
+            if self.tab_rail.hover.is_some() {
+                self.tab_rail.set_hover(None);
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+            }
+            self.apply_cursor_icon(CursorIcon::ColResize);
             return;
         }
         // Tab-chrome hover: a vertical rail hit-tests with its own row-major

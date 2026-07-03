@@ -1491,4 +1491,57 @@ mod tests {
             (0, RAIL_COLS - SLOT_INSET_COLS)
         );
     }
+
+    // -----------------------------------------------------------------------
+    // F4-P4 seam-drag width geometry (pure)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn rail_width_from_pointer_maps_left_rail_from_the_left_edge() {
+        use super::super::rail_width_cols_from_pointer;
+        let (pad, cw, surface_w) = (0.0, 8.0, 800.0);
+        // Left rail hugs the left edge: width = pointer distance from `pad`,
+        // cell-snapped. 128px / 8 = 16 cells.
+        assert_eq!(
+            rail_width_cols_from_pointer(RailSide::Left, 128.0, pad, cw, surface_w, 8, 32),
+            16
+        );
+        // Sub-cell rounds to the nearest cell (140/8 = 17.5 → 18).
+        assert_eq!(
+            rail_width_cols_from_pointer(RailSide::Left, 140.0, pad, cw, surface_w, 8, 32),
+            18
+        );
+        // Clamps to [min, max]: far left → min, far right → max.
+        assert_eq!(
+            rail_width_cols_from_pointer(RailSide::Left, 4.0, pad, cw, surface_w, 8, 32),
+            8
+        );
+        assert_eq!(
+            rail_width_cols_from_pointer(RailSide::Left, 100000.0, pad, cw, surface_w, 8, 32),
+            32
+        );
+    }
+
+    #[test]
+    fn rail_width_from_pointer_maps_right_rail_from_the_right_edge() {
+        use super::super::rail_width_cols_from_pointer;
+        let (pad, cw, surface_w) = (0.0, 8.0, 800.0);
+        // Right rail hugs the right edge: width = (surface_w - pad - pointer),
+        // cell-snapped. Pointer at 800-128 = 672 → 128/8 = 16 cells.
+        assert_eq!(
+            rail_width_cols_from_pointer(RailSide::Right, 672.0, pad, cw, surface_w, 8, 32),
+            16
+        );
+        // Dragging the seam left (smaller pointer x) widens the right rail.
+        assert!(
+            rail_width_cols_from_pointer(RailSide::Right, 600.0, pad, cw, surface_w, 8, 32)
+                > rail_width_cols_from_pointer(RailSide::Right, 672.0, pad, cw, surface_w, 8, 32),
+            "moving the right seam left widens the rail"
+        );
+        // Padding shifts the pinned edge inward.
+        assert_eq!(
+            rail_width_cols_from_pointer(RailSide::Right, 664.0, 8.0, cw, surface_w, 8, 32),
+            16
+        );
+    }
 }
