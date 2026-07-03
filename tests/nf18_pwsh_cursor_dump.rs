@@ -44,6 +44,21 @@ const ROWS: usize = 24;
 const WAIT: Duration = Duration::from_secs(8);
 const POLL: Duration = Duration::from_millis(20);
 
+// ROUND-4: detach the test process from its inherited console before spawning.
+// Round-3 proved the child (even non-interactive `cmd /c echo`) is not attached
+// to our pseudoconsole under cargo test — its output leaks to the parent (test)
+// process's real console while our pcon reader sees only conhost's own
+// init/teardown. Production is a GUI-subsystem binary with NO console, so its
+// pcon children attach cleanly; the console-subsystem test binary is the whole
+// difference. `FreeConsole` (kernel32, always linked on Windows) drops that
+// inherited console so a subsequently-spawned pcon child has no parent console
+// to fall back to. Declared as a raw extern to avoid adding a `windows`
+// dev-dependency for a throwaway diagnostic. Non-zero return = success. This
+// changes ONLY the test process; production code is untouched.
+unsafe extern "system" {
+    fn FreeConsole() -> i32;
+}
+
 struct Harness {
     session: PtySession,
     writer: Box<dyn Write + Send>,
@@ -454,14 +469,22 @@ fn nf18_powershell_grid_cursor_vs_caret_dump() {
     let mut report = String::from(
         "\n================ NF18 DIAGNOSTIC DUMP (throwaway; intentional red) ================\n",
     );
-    // ROUND-3: pin the plumbing before geometry. Round-2 proved only conhost
-    // init (131 bytes) reached our pcon reader and the child exited 0 with its
-    // real output on the parent console — the child was not attached to our
-    // pseudoconsole. These two controls localize that:
+    // ROUND-4: drop the inherited console (see the FreeConsole note above) so
+    // the pcon child cannot fall back to the test process's console. Reported
+    // prominently; the probes below run AFTER detach. The panic exfil rides
+    // stderr (a pipe under CI, unaffected by console detachment), so the report
+    // still surfaces.
+    let free_rc = unsafe { FreeConsole() };
+    let _ = writeln!(
+        report,
+        "ROUND-4 FreeConsole() rc = {free_rc} (non-zero = detached OK). \
+         If the cmd control marker now reaches the reader, parent-console fallback \
+         was the cause and attach is fixed.\n"
+    );
+    // Round-3 controls, now re-run with no parent console:
     //   1. cmd /c echo: does ANY child's stdout reach our pcon reader? (shell-
     //      agnostic, no stdin interaction).
-    //   2. production spawn helper: does the SHIPPING spawn path attach under
-    //      cargo test? (removes every hand-built-command difference).
+    //   2. production spawn helper: does the SHIPPING spawn path attach?
     report.push_str(&control_cmd_echo());
     report.push_str("\n--------------------------------------------------------------\n");
     report.push_str(&dump_default_shell_production());
@@ -480,5 +503,10 @@ fn nf18_powershell_grid_cursor_vs_caret_dump() {
          PSReadLine caret — the confirmed NF18 mechanism.\n\
          ==============================================================================",
     );
+    // Redundant exfil: libtest captures macro output into its per-test buffer
+    // (independent of console state, so unaffected by the FreeConsole above) and
+    // surfaces it for a FAILING test — a second copy alongside the panic message
+    // in case console detachment perturbs the panic-to-stderr path.
+    eprintln!("{report}");
     panic!("{report}");
 }
