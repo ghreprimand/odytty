@@ -7,6 +7,45 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Connected active tab: broken separator + open-bottom active ring (F4-IMPL v1.4)
+
+Aesthetic iteration on the v1.3 screenshot: the operator saw boxes-on-a-strip and
+wanted tabs that read as tabs — the active one connected to the content area,
+inactive ones as closed boxes behind it (the classic browser-tab metaphor with
+our square-cornered retro geometry). Two coupled geometry moves, no color change
+(the v1.3 luma-contrast guard is untouched):
+
+- **Broken separator.** The band↔body separator is no longer one full-width line.
+  `band_separator` now takes the active slot's pixel x-span and emits up to two
+  segments — `[band_start, gap_x0]` and `[gap_x1, band_end]` — leaving a gap that
+  exactly spans the active tab's outline. Inactive-tab spans keep the separator
+  beneath them. A segment that collapses to zero width (active tab flush against a
+  strip edge) emits nothing (existing zero-width bail); an empty bar with no
+  visible active tab keeps one full-width line.
+- **Open-bottom active ring.** `active_tab_outline` gained an `open_bottom` flag.
+  The active ring drops its bottom edge (top/left/right only) and its side edges
+  extend to the row bottom, so the active `selection` fill flows through the
+  broken separator into the content area and the sides meet the separator ends
+  cleanly. Inactive rings stay fully-closed four-edge boxes.
+
+Net effect: the active tab is the front-of-stack sheet fused to the content;
+inactive tabs sit behind as closed boxes. The multi-pane strip path
+(`panes.rs` `tab_bar_strip`) inherits this for free — the public `render`
+signature is unchanged and the changed helpers are private to `tab_bar.rs`. The
+module doc notes that the vertical rail (F4-V2) should transpose the treatment:
+the active slot opens toward the content seam rather than the row bottom.
+
+Tests: five new/updated behavioral tests with fails-before evidence — separator
+broken with a gap matching the active span, edge-flush active tab drops the
+collapsed segment, empty bar keeps one full-width line, active ring has no bottom
+edge and its sides reach the row bottom, inactive rings stay closed. The
+ring-quad extraction helper now excludes the 1px separator segments (which since
+v1.4 can share an x-boundary with a slot span). `cargo test` 2825/0; clippy
+`-D warnings` clean; fmt clean; MSRV untouched. Platform-neutral UI — no Windows
+surface.
+
+---
+
 ## 2026-07-03 -- Tab outlines made visible: rings from text-side roles, not the border role (F4-IMPL v1.3)
 
 Diagnosed the real reason the operator couldn't see the tab outlines (invisible

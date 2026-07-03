@@ -17,7 +17,7 @@
 //! `App` pointer handling calls [`TabBar::hit_test`] on move (stored via
 //! [`TabBar::set_hover`]) and again on press to resolve the action.
 //!
-//! ## Visual treatment (F4 v1.1–v1.3)
+//! ## Visual treatment (F4 v1.1–v1.4)
 //! Monochrome, all from theme roles (no hardcoded colors, so every theme and the
 //! CVD modes stay correct). Two orthogonal visual languages:
 //!
@@ -34,7 +34,24 @@
 //!   `selection` ([`HOVER_FILL_BLEND`]) — never strong enough to be confused with
 //!   the active fill.
 //!
-//! The bar row is a distinct band derived from `background`, and a full-width
+//! ## Connected active tab (F4 v1.4)
+//! The active tab reads as the front-of-stack sheet connected to the content
+//! area, inactive tabs as closed boxes behind it. Two coupled geometry moves:
+//!
+//! - The band↔body separator is **broken** under the active tab: instead of one
+//!   full-width `border` line, [`band_separator`] emits up to two segments —
+//!   left of and right of the active slot's outline span — leaving a gap exactly
+//!   spanning that slot. Inactive-tab spans keep the separator beneath them.
+//! - The active ring's **bottom edge is dropped** (top/left/right only) and its
+//!   left/right edges extend all the way down to the row bottom, so the active
+//!   `selection` fill flows through where the separator used to run and meets the
+//!   content area cleanly. Inactive rings stay fully closed four-edge boxes.
+//!
+//! The vertical rail (F4-V2) should transpose this treatment: the active slot
+//! opens toward the content seam (its content-facing edge dropped, the fill
+//! flowing into the body) rather than toward the row bottom.
+//!
+//! The bar row is a distinct band derived from `background`, and the (now broken)
 //! `border`-role separator divides the band from the terminal body. There is no
 //! underline. All chrome quads are fully opaque so the bar reads over background
 //! images/effects (the house image-proof rule).
@@ -276,6 +293,12 @@ impl TabBar {
         // on top of any shared edge and stays crisp (F4 v1.1).
         let mut inactive_outlines: Vec<SolidQuad> = Vec::new();
         let mut active_outline: Vec<SolidQuad> = Vec::new();
+        // Pixel x-span of the active slot's outline, if it is visible — used to
+        // break the band separator beneath it so the active fill connects to the
+        // content area (F4 v1.4).
+        let mut active_gap: Option<(f32, f32)> = None;
+        let pad = padding.as_f32();
+        let cw = cell.width as f32;
         for slot in &layout.slots {
             let is_active = slot.idx == source.active_tab();
             let is_hovered = is_slot_hovered(self.hover, slot.idx);
@@ -292,7 +315,9 @@ impl TabBar {
 
             // Every tab is framed by an outline ring — the shape language. The
             // active ring is near-full text brightness; inactive rings use the
-            // dimmed `inactive` role. Both contrast with the band (F4 v1.3).
+            // dimmed `inactive` role. Both contrast with the band (F4 v1.3). The
+            // active ring is drawn "open" (no bottom edge, sides reaching the row
+            // bottom) so its fill connects to the content area (F4 v1.4).
             let ring = active_tab_outline(
                 slot.start_col,
                 slot.end_col,
@@ -304,9 +329,14 @@ impl TabBar {
                 } else {
                     inactive_ring_srgb
                 },
+                is_active,
             );
             if is_active {
                 active_outline = ring;
+                active_gap = Some((
+                    pad + slot.start_col as f32 * cw,
+                    pad + slot.end_col as f32 * cw,
+                ));
             } else {
                 inactive_outlines.extend(ring);
             }
@@ -359,12 +389,13 @@ impl TabBar {
         }
 
         // Composite order (bottom → top):
-        //  1. Band↔body separator: a full-width opaque `border`-role line along
-        //     the bottom edge of the bar row, so the strip reads as a distinct
-        //     band rather than floating labels (F4 T1).
+        //  1. Band↔body separator: an opaque `border`-role line along the bottom
+        //     edge of the bar row, so the strip reads as a distinct band rather
+        //     than floating labels (F4 T1) — broken under the active tab so the
+        //     active fill connects to the content area (F4 v1.4).
         //  2. Inactive outline rings — subordinate, framing each inactive slot.
-        //  3. The active outline ring — full `border` role, drawn last so it
-        //     stays crisp where it shares an edge with a neighbor (F4 v1.1).
+        //  3. The active outline ring — text-side role, drawn last so it stays
+        //     crisp where it shares an edge with a neighbor (F4 v1.1).
         // All opaque, so the chrome reads over background images (the house
         // image-proof rule).
         out.quads.extend(band_separator(
@@ -373,6 +404,7 @@ impl TabBar {
             cell,
             padding,
             colors.border,
+            active_gap,
         ));
         out.quads.extend(inactive_outlines);
         out.quads.extend(active_outline);
@@ -557,17 +589,26 @@ fn truncate_label(s: &str, max_cols: usize) -> String {
     out
 }
 
-/// Full-width band↔body separator: a single opaque `border`-role [`SolidQuad`]
-/// line ~1px tall along the bottom edge of the bar row, dividing the tab band
-/// from the terminal body (F4 T1). `grid_cols` is the full column count;
-/// `y_offset_px` is the top of the bar row; `cell`/`padding` map to physical
-/// pixels. Returns an empty vec for a degenerate row.
+/// Band↔body separator: opaque `border`-role [`SolidQuad`] line(s) ~1px tall
+/// along the bottom edge of the bar row, dividing the tab band from the terminal
+/// body (F4 T1). `grid_cols` is the full column count; `y_offset_px` is the top
+/// of the bar row; `cell`/`padding` map to physical pixels.
+///
+/// `active_gap` is the pixel x-span `(x0, x1)` of the active tab's outline, when
+/// one is visible. The separator is **broken** across that gap (F4 v1.4): the
+/// line is emitted as up to two segments — `[band_start, gap_x0]` and
+/// `[gap_x1, band_end]` — so the active tab's fill flows uninterrupted toward
+/// the content area. `None` (no visible active tab, e.g. an empty bar) emits one
+/// full-width line. A segment that collapses to zero/negative width — which
+/// happens when the active tab is flush against a strip edge — emits nothing
+/// rather than a degenerate quad. Returns an empty vec for a degenerate row.
 fn band_separator(
     grid_cols: usize,
     y_offset_px: f32,
     cell: CellSize,
     padding: WindowPadding,
     border: Srgb,
+    active_gap: Option<(f32, f32)>,
 ) -> Vec<SolidQuad> {
     if grid_cols == 0 || cell.width == 0 || cell.height == 0 {
         return Vec::new();
@@ -575,13 +616,32 @@ fn band_separator(
     let pad = padding.as_f32();
     let cw = cell.width as f32;
     let ch = cell.height as f32;
-    let x0 = pad;
-    let x1 = pad + grid_cols as f32 * cw;
+    let band_start = pad;
+    let band_end = pad + grid_cols as f32 * cw;
     let y1 = y_offset_px + ch;
-    vec![SolidQuad {
-        rect: [x0, y1 - SEPARATOR_PX, x1, y1],
-        color: srgb_alpha(border, 1.0),
-    }]
+    let y0 = y1 - SEPARATOR_PX;
+    let color = srgb_alpha(border, 1.0);
+    let mut quads = Vec::new();
+    let mut push_segment = |a: f32, b: f32| {
+        if b - a > f32::EPSILON {
+            quads.push(SolidQuad {
+                rect: [a, y0, b, y1],
+                color,
+            });
+        }
+    };
+    match active_gap {
+        Some((gap_x0, gap_x1)) => {
+            // Clamp the gap into the band so an off-strip active span can't push
+            // a segment past the band extent.
+            let gap_x0 = gap_x0.clamp(band_start, band_end);
+            let gap_x1 = gap_x1.clamp(band_start, band_end);
+            push_segment(band_start, gap_x0);
+            push_segment(gap_x1, band_end);
+        }
+        None => push_segment(band_start, band_end),
+    }
+    quads
 }
 
 /// Blend two sRGB colors: `a * (1 - t) + b * t` per channel, `t` clamped to
@@ -620,18 +680,23 @@ fn ring_colors(colors: TabBarColors, band: Srgb) -> (Srgb, Srgb) {
     (active, inactive)
 }
 
-/// Pixel-space outline (a hollow ring of four [`SolidQuad`]s) framing a tab
-/// slot over the single tab-bar row. Every tab is framed with this ring — the
-/// shape language of the bar (F4 v1.1). The ring `color` is a text-side role
-/// (see [`ring_colors`]): near-full `foreground` for the active slot, the
-/// `inactive` role for inactive slots.
+/// Pixel-space outline framing a tab slot over the single tab-bar row. Every
+/// tab is framed with this ring — the shape language of the bar (F4 v1.1). The
+/// ring `color` is a text-side role (see [`ring_colors`]): near-full
+/// `foreground` for the active slot, the `inactive` role for inactive slots.
 /// `start_col..end_col` are the slot's columns; `y_offset_px` is the top of the
 /// bar row; `cell`/`padding` map columns to physical pixels. The ring `color`
 /// is fully opaque so it reads clearly over background images/treatments — a
 /// cell-background highlight alone looked "too transparent" (operator). Returns
-/// an empty vec for a degenerate (zero-width / zero-height) slot. The four edges
-/// tile the ring without overlapping at the corners: top and bottom span the
-/// full width; left and right fill the vertical gap between them.
+/// an empty vec for a degenerate (zero-width / zero-height) slot.
+///
+/// When `open_bottom` is `false` (inactive tabs) the ring is a closed box of
+/// four edges: top and bottom span the full width; left and right fill the
+/// vertical gap between them. When `open_bottom` is `true` (the active tab,
+/// F4 v1.4) the **bottom edge is dropped** and the left/right edges extend all
+/// the way to the row bottom, so the active fill flows down through the broken
+/// separator into the content area and the side edges meet the separator ends
+/// cleanly (no dangling corners).
 fn active_tab_outline(
     start_col: usize,
     end_col: usize,
@@ -639,6 +704,7 @@ fn active_tab_outline(
     cell: CellSize,
     padding: WindowPadding,
     outline: Srgb,
+    open_bottom: bool,
 ) -> Vec<SolidQuad> {
     if end_col <= start_col || cell.width == 0 || cell.height == 0 {
         return Vec::new();
@@ -655,24 +721,28 @@ fn active_tab_outline(
     let y0 = y_offset_px;
     let y1 = y_offset_px + ch;
     let color = srgb_alpha(outline, 1.0);
-    vec![
-        SolidQuad {
-            rect: [x0, y0, x1, y0 + thickness],
-            color,
-        }, // top
-        SolidQuad {
+    // Active (open) ring: sides run to the row bottom; no bottom edge. Inactive
+    // (closed) ring: sides stop above a bottom edge.
+    let side_bottom = if open_bottom { y1 } else { y1 - thickness };
+    let mut quads = vec![SolidQuad {
+        rect: [x0, y0, x1, y0 + thickness],
+        color,
+    }]; // top
+    if !open_bottom {
+        quads.push(SolidQuad {
             rect: [x0, y1 - thickness, x1, y1],
             color,
-        }, // bottom
-        SolidQuad {
-            rect: [x0, y0 + thickness, x0 + thickness, y1 - thickness],
-            color,
-        }, // left
-        SolidQuad {
-            rect: [x1 - thickness, y0 + thickness, x1, y1 - thickness],
-            color,
-        }, // right
-    ]
+        }); // bottom
+    }
+    quads.push(SolidQuad {
+        rect: [x0, y0 + thickness, x0 + thickness, side_bottom],
+        color,
+    }); // left
+    quads.push(SolidQuad {
+        rect: [x1 - thickness, y0 + thickness, x1, side_bottom],
+        color,
+    }); // right
+    quads
 }
 
 /// Convert an sRGB colour tuple + alpha to a linear-RGBA `[f32; 4]` array
@@ -1162,35 +1232,108 @@ mod tests {
         );
     }
 
-    #[test]
-    fn render_emits_a_full_width_band_separator() {
-        // The band↔body separator spans the whole bar width along the bottom
-        // edge of the row, in the opaque `border` role (F4 T1).
-        let src = MockSource::new(&["a", "b"], 0);
-        let out = render_default(&src);
-        // Match the full-width bottom-edge quad specifically: per-tab outline
-        // rings also place a quad on the bottom edge but never span x=0..full.
-        let full_w = GRID_COLS as f32 * CELL.width as f32;
-        let sep = out
-            .quads
+    /// All band-separator segments in a render output: opaque bottom-edge quads
+    /// exactly `SEPARATOR_PX` tall (distinct from the ≥2px outline-ring edges).
+    fn separator_segments(out: &TabBarOutput) -> Vec<&SolidQuad> {
+        let y1 = CELL.height as f32;
+        out.quads
             .iter()
-            .find(|q| {
-                (q.rect[3] - CELL.height as f32).abs() < f32::EPSILON
-                    && q.rect[0].abs() < f32::EPSILON
-                    && (q.rect[2] - full_w).abs() < f32::EPSILON
+            .filter(|q| {
+                let height = q.rect[3] - q.rect[1];
+                (q.rect[3] - y1).abs() < f32::EPSILON && (height - SEPARATOR_PX).abs() < 0.01
             })
-            .expect("a full-width separator quad sits on the row's bottom edge");
+            .collect()
+    }
+
+    #[test]
+    fn separator_is_broken_under_the_active_tab_with_a_gap_matching_its_span() {
+        // F4 v1.4: with the active tab in the middle, the separator is emitted as
+        // two segments — left of and right of the active slot — leaving a gap
+        // that exactly spans the active slot's outline. No segment overlaps that
+        // gap, so the active fill flows to the content area.
+        let src = MockSource::new(&["a", "b", "c"], 1);
+        let out = render_default(&src);
+        let layout = compute_layout(&src, GRID_COLS);
+        let active = &layout.slots[1];
+        let gap_x0 = active.start_col as f32 * CELL.width as f32;
+        let gap_x1 = active.end_col as f32 * CELL.width as f32;
+        let band_end = GRID_COLS as f32 * CELL.width as f32;
+
+        let segs = separator_segments(&out);
+        assert_eq!(
+            segs.len(),
+            2,
+            "middle active tab breaks the separator into two segments"
+        );
+        // Left segment: [0, gap_x0]. Right segment: [gap_x1, band_end].
+        let left = segs
+            .iter()
+            .find(|q| q.rect[0].abs() < f32::EPSILON)
+            .expect("a left separator segment starting at x=0");
+        let right = segs
+            .iter()
+            .find(|q| (q.rect[2] - band_end).abs() < f32::EPSILON)
+            .expect("a right separator segment ending at the band end");
         assert!(
-            (sep.rect[0] - 0.0).abs() < f32::EPSILON,
-            "separator starts at x=0"
+            (left.rect[2] - gap_x0).abs() < f32::EPSILON,
+            "left segment ends at the active slot's left edge"
         );
         assert!(
-            (sep.rect[2] - GRID_COLS as f32 * CELL.width as f32).abs() < f32::EPSILON,
-            "separator spans the full grid width"
+            (right.rect[0] - gap_x1).abs() < f32::EPSILON,
+            "right segment starts at the active slot's right edge"
+        );
+        // No separator segment intrudes into the gap.
+        for seg in &segs {
+            let intrudes =
+                seg.rect[2] > gap_x0 + f32::EPSILON && seg.rect[0] < gap_x1 - f32::EPSILON;
+            assert!(!intrudes, "no separator segment may cross the active gap");
+            assert!(
+                (seg.color[3] - 1.0).abs() < f32::EPSILON,
+                "opaque separator"
+            );
+        }
+    }
+
+    #[test]
+    fn separator_edge_active_tab_drops_the_flush_segment() {
+        // Active tab flush against the strip's left edge (idx 0, start_col 0):
+        // the left separator segment collapses to zero width and is not emitted
+        // (existing zero-width bail); only the right segment survives.
+        let src = MockSource::new(&["a", "b", "c"], 0);
+        let out = render_default(&src);
+        let layout = compute_layout(&src, GRID_COLS);
+        let active = &layout.slots[0];
+        let gap_x1 = active.end_col as f32 * CELL.width as f32;
+        let band_end = GRID_COLS as f32 * CELL.width as f32;
+        let segs = separator_segments(&out);
+        assert_eq!(
+            segs.len(),
+            1,
+            "left-flush active tab yields a single (right) separator segment"
         );
         assert!(
-            (sep.color[3] - 1.0).abs() < f32::EPSILON,
-            "opaque separator"
+            (segs[0].rect[0] - gap_x1).abs() < f32::EPSILON,
+            "the surviving segment starts at the active slot's right edge"
+        );
+        assert!(
+            (segs[0].rect[2] - band_end).abs() < f32::EPSILON,
+            "the surviving segment runs to the band end"
+        );
+    }
+
+    #[test]
+    fn zero_tabs_emits_one_full_width_separator() {
+        // With no visible active tab (empty bar) there is no gap, so the
+        // separator is one full-width segment (F4 v1.4 None-gap path).
+        let src = MockSource::empty();
+        let out = render_default(&src);
+        let band_end = GRID_COLS as f32 * CELL.width as f32;
+        let segs = separator_segments(&out);
+        assert_eq!(segs.len(), 1, "empty bar emits one full-width separator");
+        assert!(segs[0].rect[0].abs() < f32::EPSILON, "starts at x=0");
+        assert!(
+            (segs[0].rect[2] - band_end).abs() < f32::EPSILON,
+            "spans the full grid width"
         );
     }
 
@@ -1198,9 +1341,11 @@ mod tests {
     // F4 v1.1 — every tab is outlined; active is distinguished by fill
     // -----------------------------------------------------------------------
 
-    /// The four ring quads of an outline over `[start_col, end_col)`, extracted
-    /// from a render output by geometry (edges within the slot span, none full
-    /// width). Returns every quad whose horizontal extent falls inside the slot.
+    /// The ring quads of an outline over `[start_col, end_col)`, extracted from a
+    /// render output by geometry: edges whose horizontal extent falls inside the
+    /// slot span, excluding the thin (`SEPARATOR_PX`-tall) band-separator
+    /// segments, which since v1.4 can share an x-boundary with a slot span. A
+    /// closed (inactive) ring yields 4; an open (active) ring yields 3.
     fn ring_quads_for_span(
         out: &TabBarOutput,
         start_col: usize,
@@ -1210,26 +1355,93 @@ mod tests {
         let x1 = end_col as f32 * CELL.width as f32;
         out.quads
             .iter()
-            .filter(|q| q.rect[0] >= x0 - 0.01 && q.rect[2] <= x1 + 0.01)
+            .filter(|q| {
+                let within = q.rect[0] >= x0 - 0.01 && q.rect[2] <= x1 + 0.01;
+                let height = q.rect[3] - q.rect[1];
+                let is_separator = (height - SEPARATOR_PX).abs() < 0.01;
+                within && !is_separator
+            })
             .collect()
     }
 
     #[test]
     fn every_tab_including_inactive_is_framed_by_an_outline_ring() {
-        // Three tabs, middle active: each of the three slots must carry a
-        // four-quad outline ring — the shape language of the bar (F4 v1.1).
+        // Three tabs, middle active: each slot must carry an outline ring — the
+        // shape language of the bar (F4 v1.1). Inactive slots are closed boxes
+        // (4 edges); the active slot's ring is opened at the bottom (3 edges,
+        // F4 v1.4).
         let src = MockSource::new(&["a", "b", "c"], 1);
         let out = render_default(&src);
         let layout = compute_layout(&src, GRID_COLS);
         for slot in &layout.slots {
+            let is_active = slot.idx == 1;
             let ring = ring_quads_for_span(&out, slot.start_col, slot.end_col);
+            let expected = if is_active { 3 } else { 4 };
             assert_eq!(
                 ring.len(),
-                4,
-                "slot {} must be framed by a 4-quad outline ring",
-                slot.idx
+                expected,
+                "slot {} must be framed by a {}-edge outline ring",
+                slot.idx,
+                expected
             );
         }
+    }
+
+    #[test]
+    fn active_ring_has_no_bottom_edge_and_sides_reach_the_row_bottom() {
+        // F4 v1.4: the active ring drops its bottom edge and its left/right
+        // edges run to the row bottom (y1), so the active fill flows through the
+        // broken separator into the content area. Inactive rings keep all four
+        // closed edges stopping above the bottom.
+        let src = MockSource::new(&["a", "b"], 1);
+        let out = render_default(&src);
+        let layout = compute_layout(&src, GRID_COLS);
+        let y1 = CELL.height as f32;
+        let thickness = (CELL.height as f32 / 8.0).clamp(2.0, 3.0);
+
+        // Active slot (idx 1): 3 edges, none is a bottom edge (a full-span quad
+        // seated at the bottom); both vertical side edges reach y1.
+        let active = &layout.slots[1];
+        let ax0 = active.start_col as f32 * CELL.width as f32;
+        let ax1 = active.end_col as f32 * CELL.width as f32;
+        let active_ring = ring_quads_for_span(&out, active.start_col, active.end_col);
+        assert_eq!(active_ring.len(), 3, "active ring is open (3 edges)");
+        let is_full_span_bottom = |q: &&SolidQuad| {
+            (q.rect[3] - y1).abs() < f32::EPSILON
+                && (q.rect[0] - ax0).abs() < 0.01
+                && (q.rect[2] - ax1).abs() < 0.01
+        };
+        assert!(
+            !active_ring.iter().any(is_full_span_bottom),
+            "active ring must not have a full-span bottom edge"
+        );
+        let sides: Vec<_> = active_ring
+            .iter()
+            .filter(|q| (q.rect[2] - q.rect[0] - thickness).abs() < 0.01)
+            .collect();
+        assert_eq!(sides.len(), 2, "active ring has two vertical side edges");
+        for s in &sides {
+            assert!(
+                (s.rect[3] - y1).abs() < f32::EPSILON,
+                "active side edge must reach the row bottom (y1)"
+            );
+        }
+
+        // Inactive slot (idx 0): a closed 4-edge box with a bottom edge that
+        // stops at the row bottom and side edges that stop above it.
+        let inactive = &layout.slots[0];
+        let ix0 = inactive.start_col as f32 * CELL.width as f32;
+        let ix1 = inactive.end_col as f32 * CELL.width as f32;
+        let inactive_ring = ring_quads_for_span(&out, inactive.start_col, inactive.end_col);
+        assert_eq!(inactive_ring.len(), 4, "inactive ring is closed (4 edges)");
+        assert!(
+            inactive_ring.iter().any(|q| {
+                (q.rect[3] - y1).abs() < f32::EPSILON
+                    && (q.rect[0] - ix0).abs() < 0.01
+                    && (q.rect[2] - ix1).abs() < 0.01
+            }),
+            "inactive ring must have a full-span bottom edge"
+        );
     }
 
     #[test]
@@ -1410,23 +1622,33 @@ mod tests {
     }
 
     #[test]
-    fn single_active_tab_emits_separator_and_one_ring() {
-        // One active tab: band separator (1) + the active slot's outline ring
-        // (4) = 5 quads. The plain single-pane window never shows the tab bar,
-        // so this is inert there.
+    fn single_active_tab_emits_separator_and_one_open_ring() {
+        // One active tab flush at the strip's left edge: the left separator
+        // segment collapses (zero width) leaving one right segment (1), plus the
+        // active slot's open outline ring (3 edges) = 4 quads (F4 v1.4). The
+        // plain single-pane window never shows the tab bar, so this is inert
+        // there.
         let src = MockSource::new(&["only"], 0);
         let out = render_default(&src);
         assert_eq!(
             out.quads.len(),
-            5,
-            "sole tab yields a band separator plus its 4-quad outline ring"
+            4,
+            "sole (left-flush) tab yields one separator segment plus its 3-edge open ring"
         );
     }
 
     #[test]
     fn outline_helper_bails_on_a_zero_width_slot() {
         // A degenerate (zero-width) slot yields no ring quads (geometry guard).
-        let quads = active_tab_outline(4, 4, 0.0, CELL, WindowPadding::ZERO, (0xE0, 0xE0, 0xE0));
+        let quads = active_tab_outline(
+            4,
+            4,
+            0.0,
+            CELL,
+            WindowPadding::ZERO,
+            (0xE0, 0xE0, 0xE0),
+            true,
+        );
         assert!(quads.is_empty(), "no ring for a zero-width slot");
     }
 
