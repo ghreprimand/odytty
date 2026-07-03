@@ -7,6 +7,12 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Devlog editorial pass: impersonal engineering voice
+
+Existing entries were reworded to read as a project changelog — work done and
+decisions made — rather than as process narration. No technical content
+changed; headings, dates, and release badges are untouched.
+
 ## 2026-07-03 -- Mouse support in the tab-rename field (F4-RENAME-MOUSE)
 
 The inline tab-rename field (right-click a tab → Rename) was keyboard-only.
@@ -56,7 +62,7 @@ via `TabBarPlacement::effective()`; F4-P2 deletes that collapse (last, after the
 render arms were proven) and lands the right rail as a true mirror of the left.
 Most of the widget was pre-wired from R1/P-PANEL — `RailSide::Right`,
 `tab_panel.rs`'s `Right` axis, `TabReserve::right_cols`, and
-`tab_chrome_offset_px = (0, 0)` — so the packet is mostly the integration
+`tab_chrome_offset_px = (0, 0)` — so the change is mostly the integration
 asymmetries the mirror needs:
 
 - **Grid-aligned right edge (one-choke-point).** New `App::rail_origin_px(cell)`
@@ -98,14 +104,14 @@ Gate: `cargo test` 2898 lib + all integration bins green · `cargo clippy
 
 ## 2026-07-03 -- "Phosphor Flat v2": unified tab panel + seam + 7 hot-reload knobs (F4-P1)
 
-After the F4-RESKIN reskin the operator's verdict was "closer, but the inactive
+After the F4-RESKIN reskin review feedback was "closer, but the inactive
 tabs read as a bunch of floating lines" — deleting the container left the labels
 with nothing to belong to. Following a heavy-research round (survey of WezTerm /
 VS Code / Zed / Arc-Zen / Warp sidebars: every acknowledged-good one is **one
 continuous translucent surface** with at most a single container-boundary
 hairline, items structured *by the surface*, not by per-item geometry) the
-operator approved the panel spec (`f4-panel-spec.md`) as recommended. This is
-packet 1 of 3 (P-RIGHT and P-AUTOHIDE ride this plumbing).
+panel spec (`f4-panel-spec.md`) was adopted as recommended. This is
+part 1 of 3 (P-RIGHT and P-AUTOHIDE ride this plumbing).
 
 **Unified translucent panel (ODP-1), two coupled layers.** `tab_chrome.rs` gains
 `panel_tint(colors, strength) = blend(background, foreground, 0.05×strength/0.5)`
@@ -142,7 +148,7 @@ group + `config.rs` both-way aliases + docs): `tab_rail_width` [8,32]=16,
 `tab_rail_gap` [0,3]=1, `tab_rail_slot_rows` {1,2}=2, `tab_panel_strength`
 [0,1]=0.5, `tab_seam`=on, plus `tab_rail_autohide`=off / `tab_rail_reveal_px`=4
 parsed-and-stored now (behavior lands in P-AUTOHIDE). The rail band width, slot
-height and gap are threaded through the widget as a `RailGeom`, so the operator
+height and gap are threaded through the widget as a `RailGeom`, so the user
 tunes them live; `slot_rows=1` is a compact truncating list, `2` the padded
 wrapping default.
 
@@ -166,12 +172,12 @@ lockstep untouched.
 ## 2026-07-03 -- "Phosphor Flat" tab chrome reskin: no outlines, glowing active tab (F4-RESKIN)
 
 After six horizontal and three vertical iterations of outlined-box tab chrome,
-the operator rejected the whole language ("looks hacked together… tacked on and
+review rejected the whole language ("looks hacked together… tacked on and
 cheap… the borders just don't work"). Following the aesthetic-research survey
 (no acknowledged-beautiful UI outlines its tabs; the container is invisible,
-only the active item is a drawn object) the operator ruled an **A+C hybrid,
+only the active item is a drawn object) the chosen direction is an **A+C hybrid,
 "Phosphor Flat"**: a flat/modern recede for inactive tabs + a retro CRT-phosphor
-glow for the active one. This packet reskins **both** axes together.
+glow for the active one. This change reskins **both** axes together.
 
 **Shared treatment module (`tab_chrome.rs`, F4V2-NF2).** All tab-chrome color now
 lives in one pure module over theme roles; both `tab_bar.rs` (horizontal) and
@@ -197,7 +203,7 @@ module owns color only.
 both widgets: `active_tab_outline`/per-slot rings, the `band_separator`
 (horizontal) and rail↔content `rail_divider` (vertical), `ring_colors`, and the
 now-unused `TabBarColors.border` field, `srgb_alpha`, and the outline/divider
-blend constants. Per the Director's amendment on R5, the bar↔body / rail↔content
+blend constants. Per an R5 review amendment, the bar↔body / rail↔content
 divider was removed entirely first (invisible-container law) — to be re-added
 only if the bar visually bleeds into content. Neither widget emits any chrome
 quads now; the whole treatment is cell backgrounds + label attributes, so the
@@ -228,8 +234,8 @@ SDF/slanted-quad work stays on hold (F4R-NF4).
 
 ## 2026-07-03 -- Vertical tab rail polish: content gap, lightweight +, inset slots (F4-V2 R1.1)
 
-Operator judged the live rail "kind of poorly designed" with three visual items
-plus one bug; this packet addresses all four (rail widget + reservation geometry
+Live review judged the rail "kind of poorly designed" with three visual items
+plus one bug; this change addresses all four (rail widget + reservation geometry
 only — no overlap with the parallel Tabs & Panes settings work).
 
 **BUG — rail↔content gap.** Terminal text abutted the rail seam because the
@@ -258,8 +264,8 @@ the rail edge so it doesn't kiss the window edge. The connected-active open seam
 still reaches the divider: the inset applies to the CLOSED edges only, while the
 content-facing open edge and the top/bottom edges on that side run to the seam.
 
-**Deferred (item 4, per operator):** the spacing-between-tabs knob `tab_rail_gap`
-joins `TAB_RAIL_WIDTH` in the R2 settings packet; the inter-tab gap stays a named
+**Deferred (item 4, by decision):** the spacing-between-tabs knob `tab_rail_gap`
+joins `TAB_RAIL_WIDTH` in the R2 settings pass; the inter-tab gap stays a named
 const (`SLOT_GAP`) for R2 to lift, not built here.
 
 Tests: +11 (panes.rs gap geometry/quantization + top-bar-carries-no-gap;
@@ -276,7 +282,7 @@ Windows surface (presentation-only chrome geometry).
 Transposes the horizontal bar's F4 v1.4 "connected active tab" metaphor onto the
 vertical rail: the active slot now reads as the front-of-stack sheet fused to the
 content area, inactive slots as closed boxes behind it. R1 shipped the rail with
-closed-box rings while the operator judged the horizontal treatment; with that
+closed-box rings while the horizontal treatment was under review; with that
 approved, this lands the open-seam variant as its own small commit
 (`src/native/app/tab_rail.rs` only — no overlap with the parallel F4-SETTINGS
 work).
@@ -296,7 +302,7 @@ Two coupled geometry moves, rotated 90° from the horizontal bar:
   slot → one full-height line" fallback as the strip's broken `band_separator`.
 
 The whole treatment is gated on `RAIL_CONNECTED_ACTIVE` (a genuine one-line
-revert to closed boxes + a full divider if the operator prefers that on the rail
+revert to closed boxes + a full divider if that reads better on the rail
 specifically) — the render-level tests read the const so flipping it keeps the
 suite green, while the geometry is pinned unconditionally at the `rail_slot_ring`
 / `rail_divider` function seams.
@@ -313,11 +319,11 @@ Windows surface (presentation-only chrome geometry).
 
 ## 2026-07-03 -- "Tabs & Panes" settings section gathers the scattered tab/pane knobs (F4-SETTINGS)
 
-The operator's recurring pain is discoverability — tab/pane settings were
+The recurring pain is discoverability — tab/pane settings were
 scattered across the "Rendering" and "Input" sections, so hunting for e.g. the
 tab-bar placement meant scanning unrelated groups. The F4-V2 rail work seeded a
 "Tabs & Panes" Level-1 section (4th slot, after Rendering) with the "Tabs" group;
-this packet extends it into the single discoverable home for all four knobs.
+this change extends it into the single discoverable home for all four knobs.
 
 Regroup (keys/env/values/behavior all unchanged — only the `group` string moves,
 so config compatibility is untouched):
@@ -358,7 +364,7 @@ plumbing: const + `SETTING_ENV_KEYS`, the `TabBarPlacement` enum + `Settings`
 field/default/parse/summary, `config.rs` aliases + `env_to_config_key`,
 `settings/info.rs` enum row in a new **"Tabs & Panes"** settings section (raw
 group `Tabs`, "Applies live"; the section is added to `settings_panel/sections.rs`
-so the group is visible, and the Tabs & Panes settings packet extends it with a
+so the group is visible, and the Tabs & Panes settings pass extends it with a
 `Panes` group), `docs/runtime-knobs.md`, `docs/odytty.conf.example`, and six
 round-trip tests. `right` **parses but degrades to `top`** via
 `TabBarPlacement::effective()` (R1
@@ -413,13 +419,13 @@ settings; no PTY, spawn, path, env, or shell-integration surface, no
 
 Deferred to later slices: `right` placement render arm + `TAB_RAIL_WIDTH` knob
 (R2), drag-resize of the rail↔content divider (R3), and the connected-active
-open-seam ring variant (held until the operator judges v1.4 on the horizontal
+open-seam ring variant (held until v1.4 is judged on the horizontal
 bar). The shared pure color helpers still live in both `tab_bar.rs` and
 `tab_rail.rs` pending a `tab_chrome.rs` consolidation (F4V2-NF2).
 
 ## 2026-07-03 -- Vertical tab rail: greenfield widget (F4-V2 R1, slice 1 of 2)
 
-First slice of the vertical tab rail — the largest UI packet of the cycle. This
+First slice of the vertical tab rail — the largest UI change of the cycle. This
 lands the **presentation-only widget** `src/native/app/tab_rail.rs` complete
 (layout + render + hit-test + 34 unit tests at the pure seam); the render-path
 integration (reservation axis flip, single-pane siblings, edge wash) is the
@@ -429,7 +435,7 @@ horizontal bar. (`#[allow(dead_code)]` on the `mod tab_rail;` declaration is
 temporary; the integration slice removes it.)
 
 Design: `f4v2-vertical-rail.md` (ODP-1 sibling widget, not an orientation enum).
-Operator rulings baked in:
+Decisions baked in:
 
 - **Option B "padded slots"** — 2-cell-tall slots (`SLOT_ROWS`), 1-cell band gaps
   (`SLOT_GAP`), the title wraps to a 2nd line then truncates with `…`, the `×`
@@ -441,7 +447,7 @@ Operator rulings baked in:
 - **Left placement** in R1 (the `RailSide::Right` divider seam is wired and
   tested so R2 only adds reservation/settings, not render code).
 - **Closed-box rings** — the v1.4 connected-active/open-bottom transposition is
-  deliberately HELD for the rail until the operator judges it on the horizontal
+  deliberately HELD for the rail until it is judged on the horizontal
   bar (per the task directive: build closed-box first, open-edge is a follow-up).
 
 Carried-over horizontal-bar mandates:
@@ -476,7 +482,7 @@ MSRV lockstep untouched.
 
 ## 2026-07-03 -- Connected active tab: broken separator + open-bottom active ring (F4-IMPL v1.4)
 
-Aesthetic iteration on the v1.3 screenshot: the operator saw boxes-on-a-strip and
+Aesthetic iteration on the v1.3 screenshot: review feedback: boxes-on-a-strip —
 wanted tabs that read as tabs — the active one connected to the content area,
 inactive ones as closed boxes behind it (the classic browser-tab metaphor with
 our square-cornered retro geometry). Two coupled geometry moves, no color change
@@ -515,7 +521,7 @@ surface.
 
 ## 2026-07-03 -- Tab outlines made visible: rings from text-side roles, not the border role (F4-IMPL v1.3)
 
-Diagnosed the real reason the operator couldn't see the tab outlines (invisible
+Diagnosed the real reason the tab outlines were invisible in live use (invisible
 even with the CRT effect off, so v1.2's thickness/CRT theory was a red herring —
 the 2px floor stays, it's correct under the scanline shader). Root cause: the
 ring color came from the `border` role, and every built-in theme defines `border`
@@ -562,7 +568,7 @@ commit still reported yesterday's SHA / date / dirty flag. Root cause in
 changes only on a *branch switch*. A commit on the current branch updates the
 loose ref file HEAD points at (`.git/refs/heads/<branch>`) or `.git/packed-refs`,
 never HEAD — so cargo reused the cached build-script output indefinitely. This
-misled the operator into thinking a rebuild had failed.
+made it look as if a rebuild had failed.
 
 Fix: `emit_git_rerun_triggers()` now resolves HEAD's symbolic ref and also watches
 the loose ref file, plus `.git/packed-refs` (packed-ref commits) and `.git/index`
@@ -588,7 +594,7 @@ forward-slash emits cargo normalizes); windows-latest CI is the verify.**
 
 ## 2026-07-03 -- Tab bar outline visibility fix (F4-IMPL v1.2)
 
-Operator ran the real v1.1 binary (CRT effect on, a theme whose `border` role is
+Live testing ran the real v1.1 binary (CRT effect on, a theme whose `border` role is
 low-contrast against the band) and couldn't see the tab outlines at all — the
 1–2px rings were too thin and the inactive rings blended too far toward the band.
 Two behavioral knob changes, nothing structural:
@@ -619,9 +625,8 @@ verify.
 
 ## 2026-07-03 -- Tab bar active-treatment rework: framed tabs + selection fill (F4-IMPL v1.1)
 
-Operator looked at the v1 dev build and revised the active-tab treatment: he
-wants tabs to look like tabs (bounded objects) *and* an unmistakable active
-state. Distilled to two orthogonal visual languages, all still theme-role-derived
+Review of the v1 dev build revised the active-tab treatment: tabs should look
+like tabs (bounded objects) *and* carry an unmistakable active state. Distilled to two orthogonal visual languages, all still theme-role-derived
 and opaque (image-proof):
 
 - **Shape — every tab is outlined.** The retained four-quad `border` ring
@@ -660,7 +665,7 @@ authoritative verify.
 
 ## 2026-07-03 -- Tab bar visual polish + lone-tab visibility + rename discoverability (F4-IMPL v1)
 
-First slice of the tab-system upgrade (design `f4-tab-system.md`, operator ODPs
+First slice of the tab-system upgrade (design `f4-tab-system.md`, design decisions
 approved as recommended). Monochrome + one accent, all from theme roles so every
 theme and the CVD modes stay correct — nothing hardcoded.
 
@@ -693,7 +698,7 @@ No new default chord. Documented the setting in `runtime-knobs.md` and
 `odytty.conf.example`.
 
 **Cleanup (F4-NF3).** Corrected the stale "unintegrated widget scaffold" module
-doc (the widget has been fully integrated for many packets) and removed the
+doc (the widget has been fully integrated for many cycles) and removed the
 blanket `#![allow(dead_code)]`, replacing it with one targeted allow on the
 retained fallback ring.
 
@@ -710,7 +715,7 @@ Windows: platform-neutral UI, no Windows surface — the tab system lives entire
 in the native winit/GPU layer (no PTY, spawn, filesystem, env, or logging code);
 the `windows-latest` CI leg runs the same widget/settings/show-rule tests.
 
-Out of scope (F4 v2, its own packet): vertical rail, resizable bar, per-tab
+Out of scope (F4 v2, its own change): vertical rail, resizable bar, per-tab
 colors, rename modal/persistence changes.
 
 ## 2026-07-02 -- Release v0.7.5 — audit hardening, prompt-aware editing rework, Windows platform work
@@ -779,13 +784,13 @@ wallpaper edge wash to the tile edge.
 Session host hardening (per-connection write failures no longer tear down the
 host, orphaned metadata is cleaned up, mid-frame protocol reads are resumable)
 and a batch of smaller fixes round out the release. See the entries below for
-the full per-packet record.
+the full per-change record.
 
 ---
 
 ## 2026-07-02 -- Honest hint for geometry-unavailable select+Delete no-op (NF17)
 
-Operator-found during the v0.7.5 C1 manual verify: selecting wrapped multi-row
+Found in live testing: during the v0.7.5 C1 manual verify: selecting wrapped multi-row
 prompt input in fish (shell integration ON) and pressing Delete correctly
 no-ops (Option R keeps multi-row `RightEdgeUnknown` a no-op) but the bottom-left
 hint chip read "Enable shell integration in Settings" — telling the user to
@@ -815,7 +820,7 @@ Windows: platform-neutral UI text/logic; PowerShell hits the same
 
 ## 2026-07-02 -- Windows symbol-glyph fallback tail — ✔ U+2714 / ⎿ U+23BF (NF16)
 
-Fixed operator-reported blank glyphs on Windows: Claude Code's ✔ heavy check
+Fixed live-use-reported blank glyphs on Windows: Claude Code's ✔ heavy check
 mark (`U+2714`, Dingbats) and ⎿ result-branch connector (`U+23BF`,
 Miscellaneous Technical) rendered as tofu. Both codepoints pass the atlas
 symbol-fallback gate (`SYMBOL_BLOCKS` covers `0x2300–23FF` and `0x2700–27BF`),
@@ -834,7 +839,7 @@ reported codepoints; MDL2 Assets and Cambria backstop. Static floor only —
 Windows has no cheap `fc-match` runtime-resolver analog, mirroring the macOS
 approach.
 
-**Windows:** this packet IS Windows-surface. Two `#[cfg(windows)]` tests run on
+**Windows:** this change IS Windows-surface. Two `#[cfg(windows)]` tests run on
 the authoritative windows-latest CI leg — a hermetic hint-matching test
 (fixture dir, no real host font asserted) and an authoritative test asserting
 the composed chain resolves monochrome outlines for `U+2714` and `U+23BF` from a
@@ -847,14 +852,14 @@ clippy `-D warnings` clean, fmt clean, MSRV untouched.
 ## 2026-07-02 -- Click-to-place cursor defaults ON (F2 default flip + docs)
 
 **Behavior change for integrated-shell users:** `sh_click` ("Click to position
-cursor", Settings → Input) now defaults **on** (operator-approved F2-ODP-1).
-The flip is the discoverability fix for a feature neither the operator nor the
+cursor", Settings → Input) now defaults **on** (approved F2-ODP-1).
+The flip is the discoverability fix for a feature neither the maintainer nor the
 Windows tester knew existed — it was doubly hidden behind a default-off setting
 AND the shell-integration gate. The blast radius is exactly the shells whose
 integration advertises `click_events=1` (all four bundled snippets: bash, zsh,
 fish, PowerShell); a non-integrated shell still sees zero behavior change, and
 turning the setting off restores the previous default byte-for-byte. The
-Settings label stays "Click to position cursor" (operator kept the name); its
+Settings label stays "Click to position cursor" (name kept by decision); its
 description now reflects the multi-row F2 behavior. Docs updated: README
 feature line, `docs/runtime-knobs.md` default column, `docs/odytty.conf.example`.
 **Windows:** the default flip is what turns the feature on for the PowerShell
@@ -867,7 +872,7 @@ MSRV untouched.
 ## 2026-07-02 -- Click-to-place cursor: InputRegion gating, rune accuracy, multi-row soft-wrap travel (F2)
 
 Reworked SH-CLICK (`sh_click`, "Click to position cursor") from a raw same-row
-cell delta into a proper InputRegion consumer (operator-approved F2 design,
+cell delta into a proper InputRegion consumer (approved F2 design,
 `f2-click-to-place-cursor.md`). `try_click_to_position` now derives the
 core-owned `InputRegion` (the B0–B2 select+Delete machinery) and resolves the
 click through a certainty ladder in the new pure `click_travel_delta`:
@@ -879,7 +884,7 @@ click through a certainty ladder in the new pure `click_travel_delta`:
   decoration clamps to the true input end instead of overshooting.
 - **RightEdgeUnknown** (bash / PowerShell / fish mid-edit): grapheme-cell
   heuristic over the region bounds, also multi-row across soft wraps
-  (operator-accepted — motion is non-destructive; editors clamp at buffer ends,
+  (accepted — motion is non-destructive; editors clamp at buffer ends,
   so a mis-land is a click-again, never a wrong edit).
 - **Unknown** (stale mark, or hard-newline buffers per the signal's `nl=`
   offsets — `begin…end`, PS2 continuations, PSReadLine Shift+Enter): clean
@@ -963,7 +968,7 @@ no code change.
 
 The B2 strict gate (`certainty != Exact` → hinted no-op) made select+Delete a
 complete no-op on every shell without the private `odytty-edit` OSC report:
-PowerShell (Windows's default shell), bash, and fish mid-edit. Operator ruled
+PowerShell (Windows's default shell), bash, and fish mid-edit. Decision:
 Option R: a SINGLE-ROW `RightEdgeUnknown` region now falls back to the
 pre-B2 heuristic delete, using the core-computed last-non-blank right edge
 that `derive_input_region` already carries — byte-equivalent to the shipped
@@ -977,7 +982,7 @@ for no-signal shells; a new test documents that boundary explicitly, and the
 old ODP-3 pins are rewritten as Option-R expectations (real delete bytes for
 bash- and PowerShell-shaped prompts, fails-before verified). Full suite
 (2957 tests), clippy `-D warnings`, and `cargo fmt --check` green. Platform
-note: platform-neutral native logic, but this is the packet that turns
+note: platform-neutral native logic, but this is the change that turns
 select+Delete back on for Windows users.
 
 ## 2026-07-02 -- Remove the wedging ConPTY resize pressure test (P2-FIX fix-forward)
@@ -1371,7 +1376,7 @@ function, and a flush-coverage control emitting nothing. Gates green.
 ## 2026-07-02 -- Residual C16 wrapped-flag seams: ED2 scrollback tail + ECH through the right edge (NF6+NF7)
 
 Two edges left over from the C16 soft-wrap severing sweep, both found during
-that packet and triaged as their own fold-in. NF6: ED2 (CSI 2J) replaces the
+that change and triaged as their own fold-in. NF6: ED2 (CSI 2J) replaces the
 visible screen wholesale, but a trailing OPEN scrollback logical line still
 claimed visible row 0 as its continuation — the projection marks the tail row
 `wrapped`, so the next width-changing resize fused scrolled-off history with
@@ -1470,7 +1475,7 @@ scrolling entirely. Fixed by routing `ESC D` through the existing `line_feed`
 (identical motion: down one row, scroll at the bottom margin honoring DECSTBM,
 full-screen-region scrollback equivalence intact) and `ESC E` through
 `line_feed` + `carriage_return`. Routing through the shared scroll paths
-inherits the C16 wrapped-flag seam handling reviewed in the earlier packet —
+inherits the C16 wrapped-flag seam handling reviewed in the earlier change —
 no new seam logic. Five regression tests (all fail-before): mid-screen motion
 with column preservation, scroll-at-DECSTBM-bottom-margin for both controls,
 scrollback feed at the true screen bottom, and NEL's carriage return.
@@ -1479,7 +1484,7 @@ scrollback feed at the true screen bottom, and NEL's carriage return.
 
 ## 2026-07-02 -- Freeze hardening (3/3): freeze watchdog logs the state machine on a stalled loop
 
-Final postmortem packet. The v0.7.0 freeze's signature was a live event loop
+Final postmortem follow-up. The v0.7.0 freeze's signature was a live event loop
 servicing compositor events mechanically while the render/input path was
 dead: pending input and redraws, no frame presented, 0% CPU. The app now runs
 under a freeze watchdog built to catch exactly that: a thin
@@ -1504,7 +1509,7 @@ wrapper delegates every `ApplicationHandler` method unchanged.
 
 ## 2026-07-02 -- Freeze hardening (2/3): abort-on-panic hook with durable evidence
 
-Second postmortem packet. The freeze's most likely mechanism was a swallowed
+Second postmortem follow-up. The freeze's most likely mechanism was a swallowed
 panic on a render/update/worker thread: the winit loop keeps mechanically
 servicing compositor events while the thread that did the real work is gone —
 a zombie window at 0% CPU, with the panic evidence discarded down a
@@ -1525,7 +1530,7 @@ strings and must never interpolate terminal content.
 
 ## 2026-07-02 -- Freeze hardening (1/3): default rotated logging at $XDG_STATE_HOME/odytty/odytty.log
 
-First of three packets from the v0.7.0 freeze postmortem. The frozen process
+First of three changes from the v0.7.0 freeze postmortem. The frozen process
 had been launched with stderr redirected to `/dev/null`, so whatever the app
 said before the stall was discarded — the postmortem's blocking gap. OdyTTY
 now installs a default `tracing` subscriber that tees every record to stderr
@@ -1783,7 +1788,7 @@ pending, and quiet-mode tests unchanged and green.
 
 ## 2026-07-01 -- Test-suite wedge on early pipe-close: opener zombie reap + piped-close CI guard
 
-TEST-HANG packet (operator-filed P2). Symptom: `cargo test 2>&1 | grep … |
+TEST-HANG change (filed P2). Symptom: `cargo test 2>&1 | grep … |
 head -N` could wedge forever at 0% CPU after the tests completed, while a
 log-file-redirected run of the same suite finished green. Root-cause chain,
 reproduced deterministically: when the early-exiting consumer closes the pipe,
@@ -1820,7 +1825,7 @@ Standing hygiene rule (documented in the guard script): never pipe `cargo
 test` through an early-exiting consumer; redirect full runs to a log file and
 grep the file, wrapping the run in `timeout`.
 
-Verified: full `cargo test` green on this packet's files (the single
+Verified: full `cargo test` green on this change's files (the single
 in-tree failure at the time of the run was a peer's in-flight, uncommitted
 Phase 2 IME work sharing the worktree — not part of this commit),
 `cargo clippy --all-targets --locked -- -D warnings` clean, `cargo fmt
@@ -1932,7 +1937,7 @@ after each release publishes.
 
 Release-process fix. `scoop update odytty` served a stale version until a
 maintainer hand-edited `bucket/odytty.json` after each release — v0.7.1 lagged
-its tag by hours, and an operator who ran `scoop update` in that window got the
+its tag by hours, and a user who ran `scoop update` in that window got the
 previous version. Root cause was a doc-level misconception: the manifest's
 `autoupdate` block is maintainer tooling (checkver/Excavator) and is NOT read by
 the Scoop client, which resolves only the pinned `version`/`url`/`hash`. So a
@@ -2328,7 +2333,7 @@ Verified on Linux: the new split-pane test was red before the fix (pane B under
 the cursor did not scroll while focused pane A did), then green after the routing
 change; the single-pane guard stayed green. Neutralize-revert restored the
 active-pane wheel call and made the split-pane test red again while the
-single-pane guard stayed green. Full gate status is recorded with the packet.
+single-pane guard stayed green. Full gate status is recorded with the change.
 
 ---
 
@@ -2714,7 +2719,7 @@ on-device check there — gap noted for a later consolidated on-device pass.
 
 ## 2026-06-29 -- Windows CI follow-up: cfg-gate the Unix-only shell-integration seams
 
-The shell-integration packet's spawn-time helpers are consumed only by
+The shell-integration change's spawn-time helpers are consumed only by
 `#[cfg(unix)]` code, but a few accessors were left un-gated, so the Windows
 `-D warnings` clippy leg failed on `dead_code` for `CommandBuilder::program`,
 `ShellKind::from_program`, and the `args_for_test`/`env_for_test` seams (the
@@ -2784,7 +2789,7 @@ the user's concern), and Windows shell integration is deferred.
 ## 2026-06-29 -- Fix the black-screen-on-restore residual (bounded retry for a skipped frame)
 
 Closes the remaining black-on-restore path that the earlier reconfigure fix did
-not cover. The prior packet handled a *lost/outdated* surface
+not cover. The prior change handled a *lost/outdated* surface
 (`FrameOutcome::NeedsReconfigure` → reconfigure + request a redraw). But a
 restore frame can instead come back **skipped**: `get_current_texture()` returns
 Timeout/Occluded while a Windows DX12/DWM surface is still recovering, so
@@ -2823,7 +2828,7 @@ all green; lib suite 2593 passed / 0 failed / 7 ignored.
 
 ## 2026-06-29 -- Resize-cursor diagnostics: per-resize capability in the trace + an end-to-end guard
 
-Investigation packet for the Windows on-device cursor-on-resize symptom (the
+Investigation pass for the Windows on-device cursor-on-resize symptom (the
 cursor lands in the wrong place after a window drag). No behavior change ships
 here — this is the instrument that makes the next on-device capture conclusive,
 plus a regression guard that exercises the real path.
@@ -2847,7 +2852,7 @@ Two parts:
   *clamps* it to the incoming position, that the capability survives the resize,
   and that the two outcomes differ (so the guard can't pass vacuously). This
   closes the gap between "the capability is set on the session terminal at
-  creation" and "it is honored in the resize the operator actually sees."
+  creation" and "it is honored in the resize the user actually sees."
   Neutralizing the reflow defer-branch was confirmed to fail this guard at the
   clamp assertion; restoring passes.
 
@@ -2855,7 +2860,7 @@ Honest status: the static resize path is now proven sound end-to-end on Linux,
 so the on-device translation means the capability was *false* at resize time on
 that build. The augmented trace resolves whether that is a Windows-only wiring
 failure or a different cursor source — deterministically, on the next capture —
-before any targeted fix lands. No speculative patch this packet.
+before any targeted fix lands. No speculative patch this change.
 
 Verified (Linux): `cargo fmt --check` / `cargo build --release --locked` /
 `cargo clippy --all-targets --locked -- -D warnings` / `cargo test --locked`
@@ -3085,10 +3090,10 @@ prints a prompt once then resizes through `[40,80,10,80,6,80,2,80]` with no
 output between, asserting the cursor returns to end-of-content (col 16) rather
 than ratcheting toward 0. Both fail before the gate (the Terminal-level test
 lands at col 1, the reported symptom) and pass after. Also retained from the
-prior packet: the `row_offset < produced_rows` collapse guard and an exact-fill
+prior change: the `row_offset < produced_rows` collapse guard and an exact-fill
 end-of-content pending-wrap round-trip in the content map.
 
-Known residual (tracked, not in this packet): if the *first* split after typing
+Known residual (tracked, not in this change): if the *first* split after typing
 is narrow enough to wrap the prompt, the one override that legitimately fires
 (output did precede it) displaces the cursor a single step; that value then
 stabilizes — it does **not** compound like the ratchet did. In practice the
@@ -3764,7 +3769,7 @@ What landed:
 
 Scope notes: `dimensions_for_test` (and its dimension assertions) stay Unix-only
 per the ConPTY reference — `GetConsoleScreenBufferInfo` does not fit the
-pipe-handle model. This packet's success bar is **compiles on Windows CI**; it is
+pipe-handle model. This change's success bar is **compiles on Windows CI**; it is
 explicitly NOT a claim that interactive `cmd`/PowerShell spawn/render/resize
 works — that is a manual on-device pass for later. The broader test-tree
 portability sweep (`cmd.exe` has no `sleep`/`printf`; the effect-test inline
@@ -3853,7 +3858,7 @@ all green. The moved `pty::unix::tests::*` and `kitty_transport_tests::*` run an
 pass at their new paths; full suite has zero failures.
 
 Known gap: other POSIX subsystems still carry ungated `libc`/`rustix` by design
-this packet — `app.rs` (whole-module gate) and `session_host` (transport gate) —
+this change — `app.rs` (whole-module gate) and `session_host` (transport gate) —
 and remain follow-up work before a Windows build can compile. They build cleanly
 on Linux/macOS (both are `unix`).
 
@@ -4266,7 +4271,7 @@ to one cell — wider-than-cell icons overflowed and each glyph's distinct beari
 landed at a slightly different x, so icon columns (e.g. a `fastfetch` panel)
 rendered ragged and partly cropped. They are now measured, scaled
 aspect-preserving so the ink height fills a tuned fraction of the cell
-(`SYMBOL_CELL_FILL = 0.82`, operator-matched against ghostty), width-capped to
+(`SYMBOL_CELL_FILL = 0.82`, visually matched against ghostty), width-capped to
 the slot's drawable region so a wide glyph can never clip, and centered on the
 cell box. Icons form an even column. The constraint fires **only** for
 symbol-fallback / SYMMAP-override (icon) faces; every primary-font and ASCII
@@ -4364,7 +4369,7 @@ under mouse reporting, and the platform-aware hint text). Verified isolated on t
 runtime-dir HEAD: fmt/clippy clean, `--lib` 2533 / 0, `gpu_composite_smoke` 6/6
 incl. passthrough byte-identity, `license_headers` 1/1, staged diff scanned —
 clean. The Cmd-reaches-the-open-branch assumption (vs. the Ctrl→right translation)
-is the one thing only operator hardware can confirm.
+is the one thing only real hardware can confirm.
 
 ## 2026-06-26 -- macOS session discovery: read path now matches the write path's runtime base
 
@@ -4530,7 +4535,7 @@ is well-formed XML.
 `## … Release v0.5.0 — …` DEVLOG heading are deferred to the actual v0.5.0 cut
 (gated on the macOS CI fix). The `docs/*-design.md` records intentionally keep
 their historical phase/codename framing, and `TODO.md` keeps its historical
-packet records (current state lives in the user-facing docs). An optional
+work records (current state lives in the user-facing docs). An optional
 THIRD-PARTY-LICENSES manifest for the statically-linked crates is noted in the
 NOTICE audit but not yet added.
 
@@ -4568,7 +4573,7 @@ local Linux gates as the whole signal.
 
 ## 2026-06-26 -- Detach & switch — convert the focused pane to a fresh managed session (UX-E, part 2)
 
-Driven by the dev-build exercise: the operator wanted a way to take the terminal
+Driven by the dev-build exercise: a need surfaced for a way to take the terminal
 they are already working in and turn it into a managed (survivable, manager-listed)
 session, then switch into it — without going through `odytty new` and re-navigating.
 
@@ -4596,12 +4601,12 @@ The failure guard is strict and the reason the ordering is fixed: always spawn �
 attach → (Swap only) close-original. A spawn or attach failure surfaces a transient
 notice (the same `OpenNotice` channel the platform-opener failures use) and leaves
 the original pane live — the original is never closed before the new session is
-confirmed. The cwd is operator-controlled OSC 7 text, so it is control-stripped and
+confirmed. The cwd is user-controlled OSC 7 text, so it is control-stripped and
 width-truncated for display and only ever re-enters as a `HostConfig.working_directory`
 (the same spawn input as `odytty new --working-directory`), never a raw shell arg; it
 rides on the overlay and stays out of the render signature.
 
-Verified (isolated worktree at clean HEAD 4fd1473, this packet's 6 modified files +
+Verified (isolated worktree at clean HEAD 4fd1473, this change's 6 modified files +
 one new `src/native/app/detach_switch.rs`, bin built first, GPU serialized): `cargo
 fmt --check` clean; `cargo clippy --all-targets --locked -D warnings` clean; `cargo
 test --locked --lib -- --test-threads=1` 2521 passed / 0 failed / 7 ignored (+13: the
@@ -4615,14 +4620,14 @@ byte-identity holds — the new mode renders nothing unless opened); `license_he
 paths or real hostname).
 
 This completes the Manage Sessions arc (kill-from-manager + detach-&-switch).
-Remaining gaps: operator hands-on re-test on the dev build (Detach & switch → Swap
+Remaining gaps: hands-on re-test on the dev build (Detach & switch → Swap
 swaps the pane; Keep both adds a managed tab and keeps the original; Cancel is inert),
 plus the still-pending Linux non-image Ctrl+click spot-check and the full macOS 26.5
 exercise before any v0.5.0 bump or tag.
 
 ## 2026-06-26 -- Manage Sessions — rename + kill a session from the manager (UX-E, part 1)
 
-Driven by the dev-build exercise: with the session manager open, the operator
+Driven by the dev-build exercise: with the session manager open, hands-on testing
 wanted to terminate a detached session directly from the list rather than having to
 attach to it and exit the shell. Since the overlay is becoming a management surface
 rather than a pure attach picker, its user-facing name changes too.
@@ -4659,7 +4664,7 @@ action-line const and an inert leading-prompt region, wired into every exhaustiv
 `OverlayMode` arm. If the killed session was also open in a tab, that tab's host
 connection EOFs through the existing detach/exit path without panicking.
 
-Verified (isolated worktree at clean HEAD 40a4de9, this packet's 12 files only, bin
+Verified (isolated worktree at clean HEAD 40a4de9, this change's 12 files only, bin
 built first, GPU serialized): `cargo fmt --check` clean; `cargo clippy --all-targets
 --locked -D warnings` clean; `cargo test --locked --lib -- --test-threads=1` 2508
 passed / 0 failed / 7 ignored (+15: protocol roundtrip + payload/unknown-kind
@@ -4672,7 +4677,7 @@ assertions — synthetic ids only); `gpu_composite_smoke` 6/6 (UNMODIFIED
 client→host, not envelope state, so the snapshot wire bytes are unchanged. Staged
 diff scanned — clean (no personal paths or real hostname).
 
-Remaining gaps: operator hands-on re-test on the dev build (right-click a session →
+Remaining gaps: hands-on re-test on the dev build (right-click a session →
 Kill → row disappears; left-click still attaches; cancel leaves it running). The
 companion "Detach & switch" action (convert the focused pane to a fresh managed
 session) lands next. Still pending the Linux non-image Ctrl+click spot-check and the
@@ -4680,12 +4685,12 @@ full macOS 26.5 exercise before any v0.5.0 bump or tag.
 
 ## 2026-06-26 -- Session-attach — dedup duplicate tabs + New tab / Replace prompt (UX-D)
 
-Driven by the dev-build exercise: the operator opened the Attach manager and
+Driven by the dev-build exercise: hands-on testing opened the Attach manager and
 selected the same detached session three times, getting three identical tabs all
 mirroring one host. The accept path (`attach_session_in_new_tab`) unconditionally
 appended a fresh attached tab on every selection — the host happily serves several
 clients (that is how detach/reattach works), but stacking duplicates inside one
-window is a pure UX bug. The operator also asked for a way to fully swap the
+window is a pure UX bug. Also needed: a way to fully swap the
 current tab into a detached session, not only open it alongside.
 
 Selecting a session now routes through `App::route_attach_session`. First it
@@ -4711,7 +4716,7 @@ two cannot drift, a leading "Open where?" prompt gives an inert col-0 region, an
 clicks off the buttons are inert. `AttachChoice` was wired into every exhaustive
 `OverlayMode` match arm as a static, non-scrolling card alongside `ConfirmClose`.
 
-Verified (isolated worktree at clean HEAD e928de0, this packet's 5 files only, bin
+Verified (isolated worktree at clean HEAD e928de0, this change's 5 files only, bin
 built first, GPU serialized): `cargo fmt --check` clean; `cargo clippy
 --all-targets --locked -D warnings` clean; `cargo test --locked --lib
 --test-threads=1` 2493 passed / 0 failed / 7 ignored (+10: seven overlay dialog
@@ -4725,14 +4730,14 @@ mode renders nothing unless opened); `license_headers` 1/1 (no new files). Stage
 diff scanned — clean (no personal paths or real hostname; synthetic session ids
 only).
 
-Remaining gaps: operator hands-on re-test on the dev build (select a session ≥3×
+Remaining gaps: hands-on re-test on the dev build (select a session ≥3×
 → switches, no duplicates; pick a fresh one → New tab / Replace prompt; Replace
 swaps the current tab); still pending the Linux non-image Ctrl+click spot-check and
 the full macOS 26.5 exercise before any v0.5.0 bump or tag.
 
 ## 2026-06-25 -- Image viewer — click outside the lightbox to dismiss (UX-C, part 4d)
 
-Driven by the dev-build exercise: the operator found that with the lightbox open,
+Driven by the dev-build exercise: hands-on testing found that with the lightbox open,
 clicking above or below the photo closed it, but clicking to the left or right did
 not. That asymmetry was an accident of the old overlay geometry — the `ImageView`
 `OverlayRect` is full-width but only ~80% tall and vertically centered, so the
@@ -4755,7 +4760,7 @@ existing path, so there is no regression off the viewer.
 
 No new knob; the code runs only while the image viewer is open, so a closed viewer
 and the feature-off render stay byte-identical. Verified (isolated worktree at
-clean HEAD, this packet's 5 files only, GPU serialized): `cargo fmt --check` clean;
+clean HEAD, this change's 5 files only, GPU serialized): `cargo fmt --check` clean;
 `cargo clippy --all-targets --locked -D warnings` clean; `cargo test --locked --lib
 --test-threads=1` 2483 passed / 0 failed / 7 ignored, including 3 headless
 predicate cases (inside not-outside, past each of the 4 edges, border inclusive)
@@ -4781,7 +4786,7 @@ data) feeding the OdyTTY block-art wordmark, a truecolor gradient bar, a curated
 `git log --graph`, a `tree -L 2`, style swatches, and a ligature teaser — and
 renders it inside a real OdyTTY window, so the shot goes through OdyTTY's own glyph
 atlas and CRT/bloom/vignette post stack rather than a synthetic mock. The capture
-step stays manual (grim+slurp), operator-driven.
+step stays manual (grim+slurp), manual.
 
 Docs/asset-only change: no code, no version bump, no tag. The image is a sanitized
 synthetic demo (no real home path or hostname); the staged diff was scanned before
@@ -4813,7 +4818,7 @@ behavior). The knob is plumbed through config keys/aliases, the settings info ro
 edit-values serialization, and `--show-config` (the show-config test asserts it).
 
 Verified (isolated worktree at clean HEAD — the lightbox + hint-cap commits both
-already landed, so this doubled as the combined-integration check, this packet's 8
+already landed, so this doubled as the combined-integration check, this change's 8
 files only, GPU serialized): `cargo fmt --check` clean; `cargo clippy
 --all-targets --locked -D warnings` clean; `cargo test --locked --lib` 2479
 passed / 0 failed / 7 ignored (incl. the 3 decision-helper cases — image+on→inline,
@@ -4824,7 +4829,7 @@ bin-crate `--show-config` test asserts `interactive_paths_image_inline`;
 
 ## 2026-06-25 -- Image viewer — lightbox framing (dim the terminal, show only the photo) (UX-C, part 3)
 
-Driven by the dev-build exercise: the operator confirmed the photo now renders
+Driven by the dev-build exercise: hands-on testing confirmed the photo now renders
 crisp (composite-above-post + linear sampler held up), but the viewer still drew
 the image inside a bordered popup panel — chrome it had borrowed from the generic
 overlay system (theme/font/settings modals). Wrong furniture for a photo.
@@ -4845,7 +4850,7 @@ a noted follow-up if hands-on finds it too dim).
 
 The scrim + image live in the post-post overlay pass already gated on a live
 viewer image, so a closed viewer encodes no pass and the frame stays
-byte-identical. Verified (isolated worktree at clean HEAD, this packet's 4 files
+byte-identical. Verified (isolated worktree at clean HEAD, this change's 4 files
 only, GPU serialized): `cargo fmt --check` clean; `cargo clippy --all-targets
 --locked -D warnings` clean; `cargo test --locked --lib` 2473 passed / 0 failed
 / 7 ignored; `gpu_composite_smoke` 6/6, including a new
@@ -4884,7 +4889,7 @@ overlay's bind-group creation references the new sampler, and the placement
 upload path still uses the nearest one. A scaled-down photo in the viewer is now
 smoothly interpolated.
 
-Verified (isolated worktree at clean HEAD, this packet's 2 files only, GPU suites
+Verified (isolated worktree at clean HEAD, this change's 2 files only, GPU suites
 serialized — note: `--lib` now needs `--test-threads=1` because there are two
 real-device GPU tests in the lib target that contend for the adapter under
 parallelism): `cargo fmt --check` clean; `cargo clippy --all-targets --locked
@@ -4929,7 +4934,7 @@ image default to the inline viewer, with an `interactive_paths_image_inline`
 knob, is a separate follow-up gated on hands-on confirmation that the new render
 looks clean.
 
-Verified (isolated worktree at clean HEAD, this packet's 5 files only, GPU suites
+Verified (isolated worktree at clean HEAD, this change's 5 files only, GPU suites
 serialized): `cargo fmt --check` clean; `cargo clippy --all-targets --locked
 -D warnings` clean; `cargo test --locked --lib` 2471 passed / 0 failed / 7
 ignored (incl. a real-code overlay render test — opaque texel red, transparent
@@ -4976,7 +4981,7 @@ config write on click, so there is no new failure surface. The new knob is
 emitted by `--show-config`.
 
 Verified (isolated worktree at clean HEAD including the UX-B commit — so this
-doubled as the combined-integration check, this packet's 19 files only, gates
+doubled as the combined-integration check, this change's 19 files only, gates
 serialized): `cargo fmt --check` clean; `cargo clippy --all-targets --locked
 -D warnings` clean; `cargo test --locked --lib` 2469 passed / 0 failed / 7
 ignored; the click-hint suite 18/18 (8 pure-state unit — two-in-window raise,
@@ -5008,7 +5013,7 @@ BOTH menus: "Copy" → "Copy Text" (copies the terminal selection) and "Paste" �
 and enable-gating are unchanged — only the labels and the path-scoped item set
 move. The off-path menu is byte-identical to before.
 
-Verified (isolated worktree at clean HEAD, this packet only, gates serialized):
+Verified (isolated worktree at clean HEAD, this change only, gates serialized):
 `cargo fmt --check` clean; `cargo clippy --all-targets --locked -D warnings`
 clean; `cargo test --locked --lib` 2451 passed / 0 failed / 7 ignored, including
 the full `context_menu_ui` suite (scoped non-image / image / directory / no-path,
@@ -5068,7 +5073,7 @@ hardcoded; no secrets or personal paths.
 
 v0.4.1 bug-fix sprint, Phase 7. Defense-in-depth only — the macOS 26.5 SIGABRT
 was already root-caused (the path scanner casting a UTF-8 continuation byte
-`as char`) and fixed in c240220 with a regression test. This packet does not
+`as char`) and fixed in c240220 with a regression test. This change does not
 chase that crash or touch winit; it hardens two hot paths that could turn an
 unrelated panic into a second abort unwinding across the AppKit→Rust FFI.
 
@@ -5233,7 +5238,7 @@ them; it now raises a save / discard / keep-editing prompt mirroring the setting
 panel's dirty-close flow. "Save" persists via the existing shared `keybinds=`
 serializer and returns to the settings panel; in-modal Ctrl+S still saves and
 stays open. A UI-authored chord round-trips to `odytty.conf` byte-identically to
-a hand-typed one. Per the minimal ruling, keybind edits stay in the editor's own
+a hand-typed one. By decision, keybind edits stay in the editor's own
 overrides — not refactored into the panel's edit set.
 
 Pure input-routing plus a dirty-prompt state; no render path changed for the
@@ -5323,7 +5328,7 @@ contention): `cargo fmt --check` clean; `cargo clippy --all-targets --locked
 `gpu_composite_smoke` 3/3; `license_headers` 1/1 (SPDX on both new files). Staged
 diff scanned — no secrets or personal paths. Manual cross-platform exercise
 (Linux click-to-open + Reveal + Open-With + the failure banner; macOS `open` /
-`open -R`) is the operator's release gate.
+`open -R`) is the manual release gate.
 
 ## 2026-06-24 -- Diagnostics — native panic hook writes a crash record before AppKit aborts
 
@@ -5394,7 +5399,7 @@ installed 0.4.0 build (the persistent panic-hook log is still upcoming work).
 The capstone of the post-v0.3.0 roadmap: three initiatives land together, all
 behind the project's standing invariants (default-off or closed-overlay
 byte-identical, argv-only spawns, no new network surface, `gpu_composite_smoke`
-3/3 on every packet).
+3/3 on every change).
 
 **A — Settings & keybinding completeness.** Two settings that existed only in
 config/env — `session_replay` (Sessions) and `ssh_config_hosts` (Connections) —
@@ -5504,7 +5509,7 @@ PATH-existence filtering is skipped (a dead row is acceptable). The whole featur
 sits behind `interactive_paths` (default off). Gates green: `cargo fmt --check`
 clean, `cargo clippy --all-targets -D warnings` clean, `cargo test --locked`
 2382 lib pass / 0 fail (+48), `gpu_composite_smoke` 3/3, `license_headers` 1/1
-(SPDX line 1 on all 5 new files). This was the last substantive build packet of
+(SPDX line 1 on all 5 new files). This was the last substantive build change of
 the post-v0.3.0 roadmap — **Open With… closes initiative C**; B3 (launch
 greeting) and C5 (file mutations) remain deferred/declined pending an opt-in.
 
@@ -5545,7 +5550,7 @@ no-viewer frame (`gpu_composite_smoke` 3/3 holds). The whole feature sits behind
 `CONTEXT_MENU_ITEMS` goes 20→21; the item is visible only on a resolved image
 span (non-image/closed menu byte-identical, asserted at 24 vs 25 rows).
 
-Trigger is **menu-only** this packet — Ctrl+click stays mapped to the C3
+Trigger is **menu-only** this change — Ctrl+click stays mapped to the C3
 `xdg-open` dispatch, unchanged. Tests are synthetic only (in-memory encoded
 PNG/JPEG buffers, forged headers, the dimension bomb; no real files, no
 `/home`). Gates green: `cargo fmt --check` clean, `cargo clippy --all-targets
@@ -5566,7 +5571,7 @@ and directories via the file manager. The click gate reuses the existing
 feature off, or without Ctrl, or over a non-path, selection behaviour is
 byte-identical to before.
 
-Every process launch in this packet routes through a single argv-only spawn point
+Every process launch in this change routes through a single argv-only spawn point
 (`spawn_detached`): null stdio, `Command::new(program).args(rest)`, never
 `sh -c`. The pre-existing inline OSC 8 hyperlink open was migrated onto the same
 helper, so there is now exactly one auditable spawn site for path/link opens.
@@ -5577,7 +5582,7 @@ File Manager. The section is re-detected at the clicked cell (gated on the
 setting) and filtered out of `visible_items()` whenever there is no path target,
 so a closed menu — and a right-click that lands on no path — stays byte-identical
 (the Close-Pane conditional-item precedent). **Open With…** is deferred to a
-later packet (C3b); no mutating actions (chmod/rename/delete) are present —
+later change (C3b); no mutating actions (chmod/rename/delete) are present —
 those remain declined.
 
 A new `interactive_paths_editor` string setting (env
@@ -5626,7 +5631,7 @@ State: `cargo fmt --check` clean, `cargo clippy --all-targets -- -D warnings` 0,
 `cargo test --locked` **2424 passed / 0 failed** (+3 hover tests),
 `gpu_composite_smoke` **3/3**, `license_headers` 1/1 (SPDX on the new file).
 Synthetic fixtures only; no real paths/usernames/session-ids; no spawns this
-packet; `src/core/` untouched. Next: Ctrl+click open dispatch + file context
+change; `src/core/` untouched. Next: Ctrl+click open dispatch + file context
 menu (C3).
 
 ---
@@ -5676,7 +5681,7 @@ First slice of the interactive-paths capability (clickable files / semantic
 detection engine. No UI is wired yet — this module is unreferenced by any
 render/input/settings path, so runtime behavior is unchanged
 (`gpu_composite_smoke` 3/3 trivially). The hover/cursor/click/menu/viewer
-packets build on top of it.
+work builds on top of it.
 
 `docs/interactive-paths-design.md` records the whole design: the detection model
 (absolute, `./`/`../`, `~/`, and bare `dir/file` requiring an interior
@@ -5712,7 +5717,7 @@ Reattaching a detached session required reading a long opaque id from `odytty
 list` and pasting it into `odytty attach <id>`. `odytty attach` with no id now
 resolves: zero live sessions → a clear "no live sessions" message; exactly one →
 attach it; several → print the session list and require an explicit
-`odytty attach <id>` (no surprise auto-attach — the operator picks). `odytty
+`odytty attach <id>` (no surprise auto-attach — the user picks). `odytty
 attach <id>` and `attach --diagnostic <id>` are unchanged.
 
 The window-vs-CLI fork stays clean: `live_attach_id()` remains a pure,
@@ -5774,7 +5779,7 @@ overlay family especially) could not be discovered or rebound in-app.
 
 The editor was already fully generic over a `const ACTIONS` array (navigation,
 clamping, scroll, render, capture, conflict-detection, and save all derive from
-it); it was simply seeded with a hand-listed 12. This packet introduces
+it); it was simply seeded with a hand-listed 12. This change introduces
 `BindableAction::ALL` — a single 30-entry source of truth in canonical UI order
 (core → overlay → tab → pane) — and points `ACTIONS` at it, so the editor now
 lists every bindable action. A UI-bound chord writes through to the same
@@ -5795,7 +5800,7 @@ Verified: `cargo fmt --check` clean, `cargo clippy --all-targets -- -D warnings`
 clean, `cargo test --locked` green (2228 lib tests incl. the new guards),
 `gpu_composite_smoke` 3/3. Modal-content change only; closed panel and plain
 render stay byte-identical. `docs/runtime-knobs.md` updated to describe the full
-editor coverage (env-vs-config framing deferred to the docs packet).
+editor coverage (env-vs-config framing deferred to the docs change).
 
 ---
 
@@ -5852,7 +5857,7 @@ input, so no PTY input path is perturbed.
 for the palette dropped BOTH prompt-jump *letter fallbacks* (`Ctrl+Shift+P` and
 `Ctrl+Shift+N`). Prompt navigation's primary bindings — the `Ctrl+Shift+Up` /
 `Ctrl+Shift+Down` arrow chords — are unchanged and still fully work. This is the
-one default-input-path change in the packet; users who relied on the letter
+one default-input-path change in the change; users who relied on the letter
 fallbacks can re-add them via `keybinds`.
 
 Right-click menu: a new launcher section below Settings adds "Connection Manager",
@@ -5990,7 +5995,7 @@ test serialization to mitigate a parallel-PTY child-reap hang.
 **State.** master green on Ubuntu + macOS; full gate
 (`cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`,
 `cargo test --locked`) green; the single-pane / plain render path remains
-byte-identical (`gpu_composite_smoke` 3/3). Tag + checksums are operator-gated.
+byte-identical (`gpu_composite_smoke` 3/3). Tag + checksums are gated on manual verification.
 
 ---
 
@@ -6258,10 +6263,10 @@ the runtime resolver.
 
 ## 2026-06-23 -- macOS session-host: robustness + bounded test waits (defang the intermittent hang)
 
-The `12727d4` fix made the macOS session-host tests pass, but the operator saw
+The `12727d4` fix made the macOS session-host tests pass, but hands-on testing still saw
 the suite hang ~19 min on a later commit that changed only `rust-toolchain.toml`
 + DEVLOG (zero test/socket code) — i.e. the underlying non-exit race is rare and
-load-dependent, not eliminated. This packet does NOT claim to have caught that
+load-dependent, not eliminated. This change does NOT claim to have caught that
 exact race (see "what we could not reproduce" below); it makes the system robust
 to it and converts any future recurrence from a silent infinite hang into a
 fast, attributable failure. Done on real macOS hardware (Apple Silicon, macOS
@@ -6466,7 +6471,7 @@ e2e 1/0; integration bins `gpu_composite_smoke` 3/3 byte-identity, `license_head
 
 ## 2026-06-22 -- macOS clippy: needless_return in the cfg(macos) runtime-dir arm
 
-The macOS session-host packet (`b83b08c`) turned Ubuntu CI fully green but failed
+The macOS session-host change (`b83b08c`) turned Ubuntu CI fully green but failed
 to *compile* on `macos-latest` at the clippy `-D warnings` step: a
 `clippy::needless_return` in the `cfg(target_os = "macos")` branch of
 `runtime_base_from_env`. With the `not(macos)` arm cfg'd out, the macOS block
@@ -6475,7 +6480,7 @@ the lint. It was invisible to local (Linux) clippy because that arm is only
 compiled — and only linted — on macOS, and this box has no rustup/Darwin target to
 cross-check. Fix: both cfg arms are now block tail-expressions (no `return`; the
 `bail!` arm wrapped in a block for symmetry, fine since it diverges). A full diff
-scan (Director-confirmed) found this is the only macOS-cfg lint — the
+scan (confirmed in review) found this is the only macOS-cfg lint — the
 `MAX_SOCKET_PATH_LEN` const pair is lint-safe and the test-file changes carried no
 cfg. Linux: `cargo clippy --all-targets --locked -- -D warnings` clean, session-host
 lib tests 8/0. macOS effect confirmed on the runner.
@@ -6487,8 +6492,8 @@ lib tests 8/0. macOS effect confirmed on the runner.
 GitHub CI had **never** been green on `macos-latest` in this repo's history: the
 session-host / attach integration tests have failed since they were introduced in
 Phase 2 — a latent never-passed state, not a regression. Ubuntu is now fully
-green; this packet makes the session-host feature (and its tests) actually work on
-macOS, per the operator's "make them work on macOS, do not gate to Linux"
+green; this change makes the session-host feature (and its tests) actually work on
+macOS, per the chosen "make them work on macOS, do not gate to Linux"
 decision.
 
 **Root cause (two real problems):**
@@ -6576,7 +6581,7 @@ and `session.rs` unmodified). Single file: `src/native/attach/tests.rs`.
 (Local note, not a CI concern: this loaded multi-agent box also shows
 `atlas::tests::fallback::*` and `text::tests::font_provides_outline_glyph_*`
 failing due to local fontconfig/bundled-face availability; they fail identically
-on the unmodified tree and pass on CI's font environment — out of this packet's
+on the unmodified tree and pass on CI's font environment — out of this change's
 scope.)
 
 ---
@@ -6634,7 +6639,7 @@ deterministic.
 
 ## 2026-06-22 -- Tab-strip × button closes the whole tab (third close path)
 
-Operator hardware validation found a third "Close Tab" entry point the previous
+Hardware validation found a third "Close Tab" entry point the previous
 fix (`8d5a967`) missed: the tab-strip `×` button still did a **pane-level
 collapse**. Clicking `×` on a multi-pane tab closed one pane and left the tab
 active, same class of bug as the menu "Close Tab", different handler
@@ -6695,8 +6700,7 @@ circle-marker guards.
 
 ## 2026-06-22 -- Close Tab vs Close Pane semantics + active-tab outline
 
-Operator validation surfaced a definitive close-semantics defect (root-caused by
-the Director): in a multi-pane tab, **"Close Tab" only closed a pane**, behaving
+Hands-on validation surfaced a definitive close-semantics defect (root-caused in review): in a multi-pane tab, **"Close Tab" only closed a pane**, behaving
 identically to "Close Pane". Both `App::close_active_tab`'s exit guard
 (`iter().count()`, which counts total *panes*) and its body
 (`sessions.close(active_id())`, which collapses one *leaf*) were pane-level, not
@@ -6722,7 +6726,7 @@ tab-level.
   while `active_is_single_pane()` reported single-pane, so the tab-bar/`+`
   hit-tests mis-routed. With Close Tab now removing the whole tab, that stale
   state can no longer arise; Close Pane already reflows unconditionally via
-  `reflow_active_panes_and_redraw`. Flagged for operator hardware re-test.
+  `reflow_active_panes_and_redraw`. Flagged for hardware re-test.
 
 - **UX — active-tab outline.** The active tab's cell-background highlight read as
   "too transparent" over background images. `TabBar::render` now emits a thin,
@@ -6761,13 +6765,13 @@ family, `U+25CF`/`U+25CB` circle markers, the `U+23F5` vs.
 `U+23F8..U+23FA` boundary, and the missing-color-glyph fallback predicate.
 
 Verified targeted: `cargo test emoji --lib` green (18 passed, 1 ignored).
-Full packet verification is tracked with the commit.
+Full change verification is tracked with the commit.
 
 ---
 
 ## 2026-06-22 -- Multi-pane × tab-bar pointer fixes + Close Pane menu item (release unblock)
 
-Operator validation on the previous binary surfaced three multi-pane × tab-bar
+Hands-on validation on the previous binary surfaced three multi-pane × tab-bar
 regressions/gaps, all in the pointer + context-menu layer. Two were structural
 pointer bugs that traced to `self.grid` Dereffing to the *focused pane's*
 sub-grid in a multi-pane tab; the third was a missing affordance.
@@ -6825,7 +6829,7 @@ validation still confirms the click-through.
 
 ## 2026-06-22 -- Multi-pane window-level overlays render + hit-test (release unblock)
 
-Operator validation found that after a split the right-click menu "doesn't work
+Hands-on validation found that after a split the right-click menu "doesn't work
 anymore." Root cause was architectural and broader than the context menu: the
 multi-pane render path (`rebuild_multipane`) composited only the panes,
 dividers, tab strip, and the focused pane's selection/search — it never
@@ -6859,7 +6863,7 @@ Pure geometry extracted for deterministic unit tests (no GPU needed):
 (opaque-box crop), plus a single-pane identity guard
 (`single_pane_overlay_geometry_equals_the_window_grid_and_pointer_cell`). The
 full multi-pane GPU composite/hit-test is GPU-coupled (no headless `GpuState`
-path exists), so it relies on the operator's manual rebuild for the visual
+path exists), so it relies on a manual rebuild for the visual
 pass; the byte-identity smokes prove the single-pane path is unchanged.
 
 Verified: full `cargo test --lib` 2144/0; `gpu_composite_smoke` 3/3
@@ -6870,13 +6874,13 @@ Verified: full `cargo test --lib` 2144/0; `gpu_composite_smoke` 3/3
 
 ## 2026-06-22 -- Direct split chords + context-menu split section + accelerators (release unblock)
 
-Operator validation surfaced a release-blocker: the panes>1 prefix gate made the
+Hands-on validation surfaced a release-blocker: the panes>1 prefix gate made the
 **first** split unreachable. Split was bound only via the multiplexer prefix
 table (`%`/`"`), and that prefix is gated off at single-pane — so on a lone shell
-there was no way to create the first split (chicken-and-egg). Operator decision
+there was no way to create the first split (chicken-and-egg). Decision
 (validated against Ghostty, which uses direct chords by default): add direct GUI
 split chords; keep the single-pane `Ctrl+b` passthrough byte-identity fix. One
-coherent native packet, three parts:
+coherent native change, three parts:
 
 - **Part A — direct split chords.** `default_key_bindings()` now binds
   `Ctrl+Shift+E` → `SplitColumns` (new pane right) and `Ctrl+Shift+O` →
@@ -6929,7 +6933,7 @@ Reconciled public markdown with the shipped panes>1 multiplexer-prefix gate.
 
 The Phase 5 byte-identity sweep flagged the one default-path deviation: the
 multiplexer prefix defaulted to `Ctrl-b` and was captured even on a single-pane
-tab, swallowing readline `backward-char` (`0x02`). Operator adjudication:
+tab, swallowing readline `backward-char` (`0x02`). Decision:
 **option (c)** — gate prefix capture on the active tab having more than one pane.
 
 - `app/mod.rs`: the prefix-engine block in the key path now leads with
@@ -6988,7 +6992,7 @@ behavior.
 Wired the public `odytty attach <id>` CLI verb to the live native attach path.
 The native capability already existed (`NativeOptions.attach_session` →
 `attach_session_in_new_tab`, proven by the real-process session-host e2e); this
-packet exposes it through the public verb instead of the diagnostic dump.
+change exposes it through the public verb instead of the diagnostic dump.
 
 - `cli.rs`: `odytty attach <id>` now parses to a live attach
   (`SessionAttachOptions { diagnostic: false }`); `odytty attach --diagnostic
@@ -7109,8 +7113,8 @@ a name-only target to spawn.
 ## 2026-06-21 -- SSH connect action
 
 Added the Phase 4 connect action on top of the connection-hosts data layer.
-The overlay UI is still owned by the parallel connection-manager packet; this
-packet supplies the side effect it will call.
+The overlay UI is still owned by the parallel connection-manager work; this
+change supplies the side effect it will call.
 
 - Added `src/ssh_connect.rs`, a pure argv builder for the system `ssh` binary.
   It builds `ssh [-p PORT] -- [USER@]HOST` from the resolved entry's alias /
@@ -7184,7 +7188,7 @@ not add native overlay UI or spawn `ssh` yet.
 - Added `ssh_config_hosts` / `ODYTTY_SSH_CONFIG_HOSTS`, default `off`. While
   off, the connection data layer never invokes the OpenSSH config loader. When
   on, callers can merge a supplied OpenSSH config path through the bounded,
-  name-only parser from the prior packet.
+  name-only parser from the prior change.
 - Merge order is deterministic: OdyTTY-owned hosts first, then opt-in OpenSSH
   config names. Duplicate aliases keep the OdyTTY-owned row so per-host profile
   fields win over imported names.
@@ -7227,7 +7231,7 @@ passed / 7 ignored; clippy `--lib --tests` clean; `rustfmt --check` clean;
 ## 2026-06-21 -- SSH config parser substrate
 
 Added a pure, bounded OpenSSH config parser for the future SSH / connection
-manager. This packet does not wire runtime UI or settings.
+manager. This change does not wire runtime UI or settings.
 
 - `src/ssh_config.rs` reads only a caller-supplied path or caller-supplied
   bytes. It never discovers `~/.ssh/config` itself and never follows `Include`.
@@ -7309,7 +7313,7 @@ action catalog, and bounded history/directory sources.
 ## 2026-06-21 -- Palette history source provider
 
 Completed the headless history/directory source layer for the future fuzzy
-command palette. This is a pure data-source packet; it does not add a native
+command palette. This is a pure data-source change; it does not add a native
 overlay and does not touch `src/native/`.
 
 - `src/palette_sources.rs` now resolves conventional shell history files from a
@@ -7371,14 +7375,14 @@ read/write across threads.
   mirror cell equality), live-output-incremental-repaint, session-exit-handled,
   window-close-detaches-host-survives, resize-forwarded, input-forwarded,
   empty-input-no-frame, rejected-attach-errors, resize-zero-rejected.
-- Verified: `cargo test --lib` 2049 passed / 0 failed (+15 this packet);
+- Verified: `cargo test --lib` 2049 passed / 0 failed (+15 this change);
   `cargo fmt --check` clean; `cargo clippy --lib --tests -- -D warnings` clean;
   `gpu_composite_smoke` (byte-identity) + `license_headers` green.
 
 ## 2026-06-21 -- Linux symbol-glyph fallback backfill (pre-existing bug fix)
 
 Fixed tofu (missing-glyph boxes) on Linux for standard symbol codepoints the
-bundled Nerd faces do not cover -- the operator was hitting it for Claude
+bundled Nerd faces do not cover -- it was being hit in real use for Claude
 Code's own UI glyphs (`U+23F5 ⏵` "bypass permissions", record bullet, check/
 ballot marks). Root cause: the non-PUA symbol fallback chain had a macOS-only
 system tail and **no Linux branch and no runtime fontconfig query**, so symbols
@@ -7490,10 +7494,10 @@ Added the public CLI surface for the session-host substrate without touching
   completes a clean attach/detach handshake, and prints metadata-only rows:
   `id`, `name`, `state`, `age_ms`, `panes`. It never prints scrollback or
   command output.
-- `odytty attach <id>` is deliberately diagnostic in this packet: it validates
+- `odytty attach <id>` is deliberately diagnostic in this change: it validates
   the id, connects to the host, receives and decodes the initial
   `SnapshotEnvelope`, prints dimensions, and exits. Native window-as-client
-  rendering remains the next native-side packet.
+  rendering remains the next native-side change.
 - Added `src/session_host/registry.rs` for local metadata and live-session
   enumeration; existing introspection flags and native launch flags remain
   additive/unchanged.
@@ -7524,17 +7528,17 @@ sessions without touching `src/native/`.
   timeout or child exit.
 - Added a minimal attach client stub and hidden internal process mode
   (`odytty session-host ...`) for later CLI/native wiring. Public
-  `odytty attach/list/new --detached` commands remain a follow-up packet.
+  `odytty attach/list/new --detached` commands remain a follow-up change.
 - Tests cover handshake accept/reject, runtime-dir permissions, stale-socket
   handling, detach-and-reattach snapshot restore, and exit-after-child-finish.
 
 Verified so far: `cargo test session_host --lib` green. Full tree checks follow
-before the packet is committed.
+before the change is committed.
 
 ## 2026-06-21 -- panes/keybindings docs lockstep (Phase 1, Stage 8)
 
 Public-facing record of everything panes/keybindings that landed (1a→1c-3c +
-§7 K1/K2/K3 + zoom). Docs-only packet; no code change.
+§7 K1/K2/K3 + zoom). Docs-only change; no code change.
 
 - `README.md`: intro line now says the app splits each tab into panes (and that
   profiles + session persistence are the remaining gaps, not panes); a new
@@ -7630,7 +7634,7 @@ binaries green (incl. `license_headers` SPDX + `cli`); `cargo clippy
 --all-targets -- -D warnings` clean; `cargo fmt --check` clean.
 
 §7 K1+K2+K3 complete: the tmux prefix model is fully live, configurable, and
-documented. Remaining Phase-1 pane items: the K2-zoom sub-packet (per-tab zoom
+documented. Remaining Phase-1 pane items: the K2-zoom sub-change (per-tab zoom
 state + render branch) and the optional inactive-pane focus dim.
 
 ## 2026-06-21 -- prefix engine wired + pane-op dispatch (Phase 1, §7 K2)
@@ -7671,12 +7675,12 @@ clippy --all-targets -- -D warnings` clean, `cargo fmt --check` clean. The
 single-pane / no-prefix-pending path stays byte-identical.
 
 Still open: K3 (doubled-prefix PTY passthrough wiring + docs lockstep:
-`docs/runtime-knobs.md`, `docs/odytty.conf.example`) and the K2-zoom sub-packet.
+`docs/runtime-knobs.md`, `docs/odytty.conf.example`) and the K2-zoom sub-change.
 
 ## 2026-06-21 -- multiplexer prefix engine (Phase 1, §7 K1)
 
 Built the additive tmux-style prefix-sequence engine — the multiplexer trigger
-layer (§7, operator-chosen true-prefix mode). Engine + state machine land here;
+layer (§7, chosen true-prefix mode). Engine + state machine land here;
 App wiring (K2) and PTY passthrough (K3) follow as separate sub-commits.
 
 - `PrefixEngine` (`src/native/bindings.rs`): a configurable prefix chord (default
@@ -7715,7 +7719,7 @@ allow comes off then.
 
 Note: `ZoomPane` is defined (binding + config name + docs slot) but has no
 backing op yet — zoom/toggle-fullscreen-pane needs per-tab zoom state + a render
-branch, flagged to the director as its own sub-packet (K2-zoom). K2 wires the
+branch, split out as its own sub-change (K2-zoom). K2 wires the
 other five ops (split/focus/close/equalize) onto the existing `TabSet` methods.
 
 ## 2026-06-21 -- snapshot restore path (Phase 2)
@@ -7764,9 +7768,9 @@ capture without touching `src/native/`.
 
 ## 2026-06-21 -- snapshot envelope foundation (Phase 2)
 
-Folded the operator-ratified resumable-session decision into
+Folded the ratified resumable-session decision into
 `docs/panes-and-sessions-design.md` and added the pure core snapshot-envelope
-foundation for detached session reattach. This packet deliberately avoids
+foundation for detached session reattach. This change deliberately avoids
 `src/native/`: no daemon, socket, process lifecycle, or CLI code yet.
 
 - Decision summary: Phase 2 uses an OdyTTY-owned detached session-host process,
@@ -7857,8 +7861,8 @@ a multi-pane tab does not yet paint its own selection / search highlights.
 cell-paints (`paint_selection_cells` / `paint_search_cells`) run off the
 App-level `overlay_ctx` (whole-window `self.grid`), which does not match a
 pane's smaller grid. Wiring a focused-pane-specific `OverlayCtx` (pane grid +
-scrollback) is its own packet. Per-pane Kitty/Sixel images remain a deferred
-fast-follow (unsplit tabs only for now), per the operator decision.
+scrollback) is its own change. Per-pane Kitty/Sixel images remain a deferred
+fast-follow (unsplit tabs only for now), by decision.
 
 ## 2026-06-21 -- multi-pane render dispatch + per-leaf resize (Phase 1c-3a)
 
@@ -7931,7 +7935,7 @@ the byte-identical fast path is untouched.
   *before* building any pane's vertices — so a later pane growing the atlas can
   never invalidate an earlier pane's UVs (the single path gets this free with
   one snapshot; multi-pane must order it explicitly). Only the focused pane
-  draws a live cursor this packet (unfocused hollow/dim is a later §3.3 refinement).
+  draws a live cursor this change (unfocused hollow/dim is a later §3.3 refinement).
 - Scaffold parity with `layout.rs` / the `TabSet` pane-ops: `#[allow(dead_code)]`
   until the Phase 1c-3 App render dispatch constructs `PaneRender`s and calls
   this. A true GPU-level test needs a full `GpuState` (surface-bound), so it is
@@ -7955,7 +7959,7 @@ divider drag + redraw suppression (#4) + pointer hit-test (#6).
 Added the geometry-free half of splits/panes: the pane-management operations on
 the active tab (design doc §4–§5), as the first Phase-1c sub-commit. These are
 callable independent of any input binding (the keybinding engine is a later
-packet) — driven here by headless tests and, in the next sub-commit, by the
+change) — driven here by headless tests and, in the next sub-commit, by the
 multi-pane render dispatch.
 
 - New `TabSet` ops (in a dedicated `#[allow(dead_code)]` impl block, scaffold
@@ -8055,7 +8059,7 @@ byte-identical and the whole suite stays green.
 - `TabBarSource` now reports `tab_count = tabs.len()` (tabs, not panes) and the
   focused pane's title per tab. Pane splitting, multi-pane render, and the
   remaining §2.5 audit-site rewrites (redraw suppression, per-pane resize/render)
-  land in later packets; nothing multi-pane is wired yet, so this commit changes
+  land in later changes; nothing multi-pane is wired yet, so this commit changes
   no behaviour.
 
 Verified: `cargo test --lib` 1937 passed / 0 failed / 7 ignored; `cargo fmt
@@ -8083,7 +8087,7 @@ never executes history rows.
 
 ## 2026-06-21 -- §7 keybinding framing: "two standards, by domain"
 
-Refined the design doc's §7 (and §10 summary) to the operator-ratified framing:
+Refined the design doc's §7 (and §10 summary) to the ratified framing:
 **there is no single keybinding standard — there are two worlds, by domain.**
 Existing OdyTTY GUI direct-chords (`Ctrl+Shift+T`, search, copy/paste, …) stay
 **exactly as today — not one changes**; the tmux **prefix standard** applies to
@@ -8140,7 +8144,7 @@ routing/focus model, divider-drag resize through the existing debounced
 detach/reattach forward-note. Reconciled against the Research peer's
 `panes-sessions-architecture-map.md`.
 
-The §7 keybinding decision record is **operator-ratified**: build a true tmux
+The §7 keybinding decision record is **ratified**: build a true tmux
 prefix-key input mode (default prefix `Ctrl-b`, configurable; doubled-prefix
 `Ctrl-b Ctrl-b` literal passthrough for nested multiplexers; tmux-matching pane
 defaults), broken into K1 (additive prefix-sequence engine), K2 (tmux pane
@@ -8352,7 +8356,7 @@ edge, never wrapping); reset by RIS/DECSTR; DECRQM reports the live set/reset
 state (2/1) instead of the old "permanently reset" (4). +7 core tests; updated
 the existing DECRQM reporting test.
 
-**4. Default `min_contrast` 13.0 → 16.0** per operator request (a stronger
+**4. Default `min_contrast` 13.0 → 16.0** by request (a stronger
 fresh-install readability floor). Updated `DEFAULT_MIN_CONTRAST`, docs
 (`runtime-knobs.md`, `odytty.conf.example`), and the default-assertion test.
 
@@ -8369,7 +8373,7 @@ change pushed to 8 args; cleaned the two warnings adjacent to my edits
 preservation; a pre-existing identical-if-blocks in `enter_alternate`
 simplified). My touched files are clippy-clean. ~90 pre-existing
 manual-judgment lints elsewhere in the tree (large enum variants, collapsible
-ifs, derivable impls) are left for a dedicated cleanup packet rather than a
+ifs, derivable impls) are left for a dedicated cleanup change rather than a
 large risky diff right before publicity. Rebuilt the release binary (now
 correctly reports `0.2.0`).
 
@@ -8403,7 +8407,7 @@ and rebuilt the local Linux package to **0.2.0-1** via `odyssey-build` (its
 `check()` ran the lib suite + desktop/metainfo validation). This machine now runs
 odytty 0.2.0; the manifest reflects `0.2.0-1`, no drift.
 
-GitHub housekeeping: per operator decision, deleted **all** old release objects
+GitHub housekeeping: by decision, deleted **all** old release objects
 (v0.1.0–v0.1.9), leaving v0.2.0 as the only release. All 11 version **tags** are
 retained for git-history provenance (release objects removed, tags kept).
 
@@ -8635,7 +8639,7 @@ chrome / mouse-reporting TUIs.
 
 Gates: `cargo fmt --check` clean, full `cargo test` green (1998), metainfo
 validates. Old published `.dmg` assets on v0.1.8/v0.1.9 to be removed and their
-`SHA256SUMS` regenerated as part of this release. Tag `v0.2.0` pending operator
+`SHA256SUMS` regenerated as part of this release. Tag `v0.2.0` pending manual
 confirmation.
 
 **`ci.yml`'s first run immediately earned it:** the macOS job failed to compile
@@ -8954,7 +8958,7 @@ both are now fixed. Full writeup in the workflow artifact `audit-pre-release.md`
   `--show-config`.
 - **Tests:** +9 (3 core bell-latch, 3 native bell-flash, 3 IME). Total **1983
   passing**, fmt clean, zero warnings.
-- **Deliberate non-gaps:** splits (operator-excluded), programming ligatures
+- **Deliberate non-gaps:** splits (excluded by decision), programming ligatures
   (already deferred), macOS/Windows (Linux-first by design).
 - Docs updated: `SPEC.md` (new Bell + IME subsections), `README.md`, `TODO.md`,
   version bumped to `0.1.7`.
@@ -9017,7 +9021,7 @@ narrow-resize correctness fix:
   `--show-config` now reports `symbol_fallback` and `symbol_font_source`.
 - Geometric Symbols for Legacy Computing expanded: sextants, octants, triangles,
   eighth strips/ladders, L-combo eighth blocks, and segmented digits.
-  Deferred to a post-v0.1.6 packet: diagonal-edged blocks `U+1FB3C..1FB67` and
+  Deferred to a post-v0.1.6 change: diagonal-edged blocks `U+1FB3C..1FB67` and
   negative diagonals `U+1FBBD..1FBBF` (need an antialiased polygon filler).
 - OSC 133 narrow-resize prompt repaint fix: the live prompt region collapses to
   its anchor row on a width change instead of rewrapping, so a shell's
@@ -9035,12 +9039,12 @@ and on re-run — tracked for a serial/reset fix.
 
 ## 2026-06-19 -- Close Legacy Computing holes: L-combo eighths + segmented digits (Phase 3)
 
-Packet A of the deferred geometric-hole closure. Closes 16 codepoints across 2 of
+Change A of the deferred geometric-hole closure. Closes 16 codepoints across 2 of
 the 4 deferred Symbols for Legacy Computing ranges using only rectangle fills
 (Canvas::fill),
 no new rasterizer. The remaining two ranges (diagonal-edged blocks
 U+1FB3C..1FB67 and negative diagonals U+1FBBD..1FBBF, 47 cps) need a general
-antialiased polygon filler and are deferred to Packet B (post-v0.1.6).
+antialiased polygon filler and are deferred to Change B (post-v0.1.6).
 
 Closed (now rendered geometrically):
 - U+1FB7C..1FB80 L-combo one-eighth edge blocks: each is one or two 1/8 edge
@@ -9075,8 +9079,8 @@ digit 8 (all three horizontal bars), and digit-mask distinctness.
 Verified: cargo fmt --check clean; cargo test all 15 suites green (boxdraw 52
 passed); cargo build --release clean. DEVLOG before commit, no AI attribution.
 
-Gaps: Packet B (AA polygon filler + diagonal-edged blocks + negative diagonals,
-47 cps) deferred past v0.1.6 by director decision — rarely emitted by real
+Gaps: Change B (AA polygon filler + diagonal-edged blocks + negative diagonals,
+47 cps) deferred past v0.1.6 by decision — rarely emitted by real
 tools, real engineering. After this we're at Phase 5 (v0.1.6 ship).
 
 ---
@@ -9115,7 +9119,7 @@ Verified: `cargo fmt --check` clean, `cargo test --lib` 1830 passed / 0 failed
 
 Gaps: geometric-hole closure (Legacy Computing diagonal-edged blocks, L-combo
 eighth blocks, negative diagonals, segmented digits) is a separate scoped
-packet — assessment delivered to the director; not started pending confirmation.
+change — assessment recorded; not started pending confirmation.
 
 ---
 
@@ -9176,7 +9180,7 @@ Pre-existing flaky tests unrelated to this change: the global-floor-atomic
 tests (`floor_disabled_needs_no_scrim`, `enforce_contrast_rgba_seam_gates_on_
 the_global_floor`) are order/state-dependent — they fail in isolation on the
 clean tree too and pass in the full suite. Logged for a later serial-test /
-per-test-reset packet.
+per-test-reset change.
 
 Gaps: none for Phase 1 symbol fallback. Remaining v0.1.6 items (resize bug
 research, Phase 4 regression coverage rounding-out, ship/tag) are tracked in the
@@ -9238,7 +9242,7 @@ to this change; passes in isolation and on re-run.)
 
 Gaps: the bundled-symbols resolution code path (use the bundled face when no
 env/system override is set) and the symbol-fallback default-on flip are tracked
-separately in the cluster plan (Phase 1). This packet only fixes the classifier.
+separately in the cluster plan (Phase 1). This change only fixes the classifier.
 
 ---
 
@@ -9405,8 +9409,8 @@ Verification: `cargo fmt --check` clean; `cargo test` clean (1808 lib tests
 passed, 7 ignored; integration/doc suites clean); `cargo build --release`
 clean.
 
-Gaps: live visual verification against the operator's fish + starship narrow
-drag screenshots is still pending in the operator environment.
+Gaps: live visual verification against the fish + starship narrow
+drag screenshots is still pending in the live environment.
 
 ---
 
@@ -9426,7 +9430,7 @@ out-of-the-box face. JetBrains Mono remains bundled and selectable via
 - **Faces bundled unmodified.** 14 Victor Mono faces (7 weights × roman + the
   **Oblique** roman-slant pair) ship byte-for-byte identical to the upstream
   v1.560 OTFs via `include_bytes!`. SGR italic maps to the **Oblique** face
-  (readable roman slant), not Victor's cursive Italic face, per the operator's
+  (readable roman slant), not Victor's cursive Italic face, per the chosen
   decision. The Regular-weight oblique file is `VictorMono-Oblique.otf`.
 - **Two-family bundled table.** `BundledFace` gained a `family` field;
   `BUNDLED_FACES` now carries both families. `is_bundled_font_family` accepts
@@ -9516,7 +9520,7 @@ The native app now runs on a multi-session model instead of a single hardcoded s
 
 Keybindings follow conventional terminal muscle memory: `new-tab` is `Ctrl+Shift+T`, `close-tab` is `Ctrl+Shift+W`, and `next-tab`/`prev-tab` are `Ctrl+PageDown`/`Ctrl+PageUp`. To free the conventional new-tab chord, the theme picker moved from `Ctrl+Shift+T` to `Ctrl+Shift+H`. Closing the last tab or the last shell exiting closes the app, matching the common terminal-emulator convention, and the right-click context menu also offers New Tab and Close Tab. Shell-exit teardown now runs on a background thread, so the last shell exiting no longer stalls the UI event loop.
 
-A self-contained tab-bar widget (`src/native/app/tab_bar.rs`) renders tab labels, an active highlight, per-tab close, and a trailing new-tab affordance, behind a read-only `TabBarSource` trait that `SessionSet` implements. The bar is not yet composited into the active redraw or given reserved top padding; that integration is a follow-up packet, so this commit is visually byte-identical to a single-session launch.
+A self-contained tab-bar widget (`src/native/app/tab_bar.rs`) renders tab labels, an active highlight, per-tab close, and a trailing new-tab affordance, behind a read-only `TabBarSource` trait that `SessionSet` implements. The bar is not yet composited into the active redraw or given reserved top padding; that integration is a follow-up change, so this commit is visually byte-identical to a single-session launch.
 
 Eight headless multi-session tests cover input routing after switch, independent scrollback, resize across sessions, close-activates-neighbor, last-close-sets-exit, non-last shell-exit does not exit, single-session shell exit requests app exit, and per-session title/viewport/selection/search restoration on switch. `cargo test --lib` is 1775 passed; `cargo clippy --lib` holds at the 38-warning baseline.
 
@@ -9547,7 +9551,7 @@ picker also supports mouse-wheel scrolling, matching the font picker behavior.
 The fresh-install text baseline now uses bundled JetBrains Mono regular at
 22px with line height `1.0`. JetBrains Mono and regular weight were already the
 default face/weight path; this raises the default logical font size from 14px to
-22px. The current DPI/Wayland audit is closed on the operator's confirmation
+22px. The current DPI/Wayland audit is closed on hands-on confirmation
 that sizing is uniform between monitors; no further DPI work remains unless a
 point-vs-pixel mismatch reappears.
 
@@ -9785,7 +9789,7 @@ refused to resolve ("did not resolve to a monospace font"), washed-out text afte
 a pick, junk entries, and the advanced "Font file" row appearing to change on its
 own. Root cause was architectural: the whole font system derived family identity
 from **filename stems**, which is hopeless against real-world filenames. This
-packet replaces the guessing with real font metadata read from the font files.
+change replaces the guessing with real font metadata read from the font files.
 
 - **Family identity from real metadata.** A new `read_face_meta` reads the
   typographic family name (`name` ID 16, falling back to ID 1), OS/2 weight and
@@ -10172,13 +10176,13 @@ font-resolution block into a `gpu/` submodule first.
 - Verified: `cargo fmt --check` clean; `cargo test` clean;
   `cargo build --release` clean.
 - Remaining gap: visual screenshot verification still belongs to integration
-  with fish/starship/eza in the operator environment.
+  with fish/starship/eza in the live environment.
 
 ---
 
 ## 2026-06-17 -- SYMMAP per-range font override + cursor_blink=auto honesty (HELP1 close)
 
-Two native packets: a new glyph-routing feature and the final HELP1 clarity fix.
+Two native changes: a new glyph-routing feature and the final HELP1 clarity fix.
 
 - **SYMMAP — per-codepoint-range font-family override** (`symbol_map`, empty by
   default; aliases `symbolmap` / `codepointmap`). Routes specific Unicode ranges
@@ -10186,7 +10190,7 @@ Two native packets: a new glyph-routing feature and the final HELP1 clarity fix.
   to bundled "Nerd Font" variants. Config grammar is semicolon-separated
   `U+XXXX[-U+YYYY]=Family` rules (single codepoint or inclusive range), e.g.
   `U+E000-U+F8FF=Symbols Nerd Font; U+2500-U+257F=Fira Code`. First-match-wins.
-  The core data model (`text::SymbolMap`) already shipped; this packet wires it
+  The core data model (`text::SymbolMap`) already shipped; this change wires it
   through settings (parse / round-trip / panel row), publishes it process-wide,
   and resolves family names to faces at atlas build/rebuild in `gpu.rs`. The
   atlas grew a `symbol_map_fonts` range table and a `symbol_map_font_for`
@@ -10447,7 +10451,7 @@ plain/fast path.
   visibility signature, and the quads are repainted from the live cursor each
   frame, so no per-position signature field is needed.
 - Themed selection/search role colors (ID1 Part A) were already live behind the
-  default-on `themed_ui_roles` knob — this packet completes ID1 with Part B.
+  default-on `themed_ui_roles` knob — this change completes ID1 with Part B.
 - Verified: fmt clean, lib 1543/0/7 (+7: 4 glow painter/signature unit tests, 3
   cursor-setting round-trip tests), native pixel-smoke 47/0 (+2 draw-order /
   off-path tests), clippy 38 baseline (zero new). No parser/core change ⇒ no
@@ -10646,7 +10650,7 @@ plain/fast path.
     adjacent cells (55ms ease-out-cubic) instead of jumping. Snaps (no glide) on
     first frame, large jumps (>6 cells), resize/reflow, scrollback, unfocus, and
     hide — the logical cursor is always the destination.
-- **Cache observability (the foundation gap this packet closed):** Wave-15b
+- **Cache observability (the foundation gap this change closed):** Wave-15b
   plumbed cursor params through the vertex builder but the render cache could
   neither observe an alpha/offset change nor wake to repaint one, so a filled
   animation would have frozen. Fixed structurally:
@@ -10668,7 +10672,7 @@ plain/fast path.
   stay green unchanged. lib 1462/0 (+6), pixel-smoke 42/0, clippy zero-new.
 - Knob timing (fade/slide ms, max-jump) is internal for v1; promotable to
   settings later. Note: `src/native/app/mod.rs` is now 1960/2000 — a split is
-  scheduled before the next mod.rs-growing packet.
+  scheduled before the next mod.rs-growing change.
 
 ## 2026-06-16 -- Theme library 84 -> 88 + HINTS surfaced in public docs
 
@@ -10724,13 +10728,13 @@ plain/fast path.
   Each now leads with what the setting does, then the effect of changing it:
   `text_gamma`, `visual` (ambient scanline), `cursor_style`, `cursor_blink`
   (`info.rs`), and `BLOOM_THRESHOLD_DESC` (`descriptions.rs`).
-- The three operator-named cryptic targets (`symbol_font`, `render_quality`,
+- The three user-named cryptic targets (`symbol_font`, `render_quality`,
   `crt_scanline_period`) already had actionable descriptions in
   `descriptions.rs` satisfying the existing
   `help1_cryptic_settings_have_actionable_descriptions` gate — no change needed.
 - Text-only; no logic, no key/kind/range/options/reloadable changes. lib 1443/0,
   fmt clean. HELP1 is NOT complete: the inert `cursor_blink=auto` logic branch
-  fix is a separate pending packet.
+  fix is a separate pending change.
 
 ## 2026-06-16 -- Native foundation: cursor render-params aggregator (Wave-15b)
 
@@ -10781,7 +10785,7 @@ plain/fast path.
 - Pure-infra refactor that dissolves the `src/native/app/mod.rs` throughput
   limiter: the frame composition (cell-paints + quad collection) and the
   keyboard-input ladder were the single seam every upcoming native feature had
-  to edit, serializing the build. This packet generalizes both into registries
+  to edit, serializing the build. This change generalizes both into registries
   so future features each contribute from their own disjoint submodule.
   - **Frame-overlay registry** (`src/native/app/overlay_registry.rs`, new): the
     four existing cell-paints (selection → search → overlay → hyperlink) and the
@@ -10830,7 +10834,7 @@ plain/fast path.
 
 ## 2026-06-16 -- Config knobs: IN1 clear-input + line_height + box_thickness
 
-- Three operator-configurable knobs in one bundle, every one default-identity
+- Three user-configurable knobs in one bundle, every one default-identity
   (the plain/fast path stays byte-for-byte unchanged when the knob is at its
   default):
   - **IN1** — bindable clear-input action (Ctrl+Shift+K by default), input-only:
@@ -10850,7 +10854,7 @@ plain/fast path.
 - Cap split (mechanical, Tier A): `src/settings/tests/legacy.rs` crossed 2000
   (2022) — the 6 key-binding tests were extracted verbatim into the new
   `src/settings/tests/keybinds.rs` (legacy.rs back to 1871). NOTE: `settings.rs`
-  is now 1993 lines — a submodule extraction is scheduled as its own packet.
+  is now 1993 lines — a submodule extraction is scheduled as its own change.
 - Gates: lib 1433/0 (+5 behavioral tests), all-targets clean, pixel-smoke 42/0,
   fmt clean, zero new clippy in-lane, SPDX on the new file.
 
@@ -11218,7 +11222,7 @@ plain/fast path.
   alphabet so a usable label set always exists.
 - No regex or new dependency — all matching is hand-rolled. This is the scanner
   core only; keyboard activation and the on-screen label overlay are a later
-  native packet. Verified: 22 tests; aggregate green; `cargo fmt --all --check`
+  native change. Verified: 22 tests; aggregate green; `cargo fmt --all --check`
   clean.
 
 ## 2026-06-15 -- U2: perceptual-safe theme builder, step 1 (keyboard + readout)
@@ -11318,7 +11322,7 @@ plain/fast path.
 - New `src/native/copy_mode.rs`: the pure state machine for a future keyboard
   scrollback-selection mode (vim-style), built and unit-tested but deliberately
   wired to nothing yet — the activation chord, key routing, and clipboard
-  hand-off are a later native packet.
+  hand-off are a later native change.
 - `CopyModeState { cursor, anchor, mode, pending }` tracks position in absolute
   coordinates so a selection survives scrollback growth while the mode is open;
   `apply(key, ctx)` advances the state and signals continue / yank / exit, and
@@ -11369,7 +11373,7 @@ plain/fast path.
 
 - New `src/theme_author.rs`: the pure, deterministic core the perceptual-safe
   theme builder wires onto later (the interactive sliders are a separate, later
-  native packet). Only calls the existing color primitives — no I/O, no globals.
+  native change). Only calls the existing color primitives — no I/O, no globals.
 - `nudge(color, dl, dc, dh)` applies additive OKLCH lightness/chroma/hue deltas
   with a hue-preserving gamut map back into sRGB, so dragging a slider moves the
   intended axis and nothing else. `snap_to_floor(candidate, partner, floor)`
@@ -11574,7 +11578,7 @@ plain/fast path.
   cross-module-called methods; exact reach is preserved.
 - No config key, no render change, no behavior change. `app/mod.rs` drops to
   1742 lines (~280 lines of headroom); both files are well under the cap. This
-  is the runway for the upcoming mouse packets — `handle_mouse_input` is where
+  is the runway for the upcoming mouse work — `handle_mouse_input` is where
   the scrollbar-grab hit-test and rectangular-select branches will land.
 - Verified: `cargo fmt --all --check` clean; full aggregate
   1274 passed / 0 failed / 19 ignored; `mouse_protocol`, `pixel_smoke`,
@@ -11634,7 +11638,7 @@ plain/fast path.
   `PointerDrag { None | Select { granularity, block } | Scrollbar }` plus a
   `SelectGranularity`; the `block` and `Scrollbar` arms are reserved (and
   warning-free as public API) for the autoscroll-velocity, scrollbar-grab, and
-  rectangular-select packets that build on this scaffold. `should_report_mouse_to_pty`
+  rectangular-select changes that build on this scaffold. `should_report_mouse_to_pty`
   is untouched and Shift stays the selection-vs-passthrough seam, so TUI mouse
   reporting is undisturbed; `mouse_protocol` stays green.
 - Lane: `src/selection.rs` (union/extend), `src/native/app/{mod,interaction}.rs`
@@ -11669,7 +11673,7 @@ plain/fast path.
 - Exports added to `core/mod.rs`: `CommandBlock`, `CommandOutput`,
   `command_blocks`. No render change, no `Snapshot`/`TerminalModel` API change,
   no mutation path.
-- Design caveat recorded for the future gutter packet: the SH1 row-anchored
+- Design caveat recorded for the future gutter change: the SH1 row-anchored
   model collapses a command's exit marker and the next prompt onto one row when
   the shell emits both there, so exit status is frequently unrecoverable in
   practice (derivation yields `exit: None` gracefully). A per-command
@@ -11798,7 +11802,7 @@ plain/fast path.
   polarity, and best-effort cap are unchanged. `min_contrast` stays `1.0` by
   default, which is exact passthrough — default pixels are byte-identical
   everywhere, including the new underline call. The legibility benefit appears
-  only when an operator raises the floor; U1 makes that knob complete rather than
+  only when the user raises the floor; U1 makes that knob complete rather than
   changing the out-of-box look.
 - Proof battery: a pixel-smoke frame (`u1_default_floor_passthrough_mixed_fg_and_
   underline_color`) with 256-color fg, truecolor fg, and an explicit-underline-
@@ -11851,10 +11855,10 @@ plain/fast path.
   UX5 will reuse.
 - Verified: `cargo fmt --all -- --check` clean; `cargo test --lib`
   1111 passed / 0 failed / 7 ignored; full aggregate 1216 passed / 0 failed /
-  19 ignored (+19 packet tests); release binary builds; pixel/composite smokes
+  19 ignored (+19 change tests); release binary builds; pixel/composite smokes
   green at baseline and with subpixel+CRT+bloom enabled (plain/fast render path
   byte-identical — the overlay-closed render is unchanged). No parser/protocol
-  surface was touched, so no fuzz obligation for this packet.
+  surface was touched, so no fuzz obligation for this change.
 
 ---
 
@@ -11925,7 +11929,7 @@ plain/fast path.
   `ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored` 11
   passed / 0 failed, no panic; native smokes (baseline + effects) exit 0;
   `git diff --check` + leak-grep clean. `src/core/screen/mod.rs` is at 1907
-  lines — under the 2000 cap but the next core packet that touches it must split
+  lines — under the 2000 cap but the next core change that touches it must split
   it first.
 
 ---
@@ -12059,7 +12063,7 @@ plain/fast path.
 
 - Added an adjustable **window padding** inset between the window edge and the
   terminal grid (`window_padding` / `ODYTTY_WINDOW_PADDING`), the first friction
-  bug fix from the operator session. Default is **8 logical px** (text no longer
+  bug fix from the hands-on session. Default is **8 logical px** (text no longer
   touches the window edge); **0.0 restores the historical edge-to-edge layout
   exactly**, and the accepted range is `0.0..=64.0`.
 - The fix offsets the **full pixel-cell seam in both directions** so mouse and
@@ -12089,7 +12093,7 @@ plain/fast path.
   authorship/first-publication year) in the README License section. The verbatim
   GPL-3.0 `LICENSE` text is unaffected (its template appendix is part of the
   fixed FSF document and carries no project year).
-- First hands-on operator friction session completed. Findings were root-caused
+- First hands-on friction session completed. Findings were root-caused
   against the live code and triaged into a backlog: confirmed bugs (zero window
   padding; font-family changes failing silently; CRT vignette banding from a hard
   brightness floor plus no 8-bit dithering; subpixel-RGB color fringing from a
@@ -12097,7 +12101,7 @@ plain/fast path.
   subtle stem-darken/scanlines), architecture cruft (the legacy `visual=ambient`
   scanline path overlaps the newer post-process `crt`), and feature requests
   (mouse-driven settings panel, right-click context menu, font-weight control,
-  a cohesive opt-in retro/CRT look). Reassuring: every effect the operator could
+  a cohesive opt-in retro/CRT look). Reassuring: every effect a user could
   see is genuinely wired to the live render path — the issues are tuning, a few
   real bugs, and settings UX, not dead wiring.
 
@@ -12420,7 +12424,7 @@ plain/fast path.
 ## 2026-06-13 -- RV6-SETTINGS: symbol fallback promoted to first-class settings
 
 - RV6 landed the symbol/Nerd-font fallback behind an interim `ODYTTY_SYMBOL_FALLBACK`
-  env gate. This packet promotes it to first-class runtime settings so it ships
+  env gate. This change promotes it to first-class runtime settings so it ships
   behind a real knob with overlay help text, not just an env var.
 - New `symbol_fallback` (bool, default off) and `symbol_font` (optional path;
   empty / `auto` = automatic discovery) settings: parsed, round-tripped through
@@ -12496,17 +12500,17 @@ plain/fast path.
   pixel-smoke unchanged at default (the proof the plain path is pixel-identical),
   `cargo fmt --check` clean, no machine paths, all files < 2000 lines.
 - Known gaps: the enable gate is the interim env var (first-class setting is the
-  next packet now that `settings.rs` is free); fallback glyphs use the primary
+  next change now that `settings.rs` is free); fallback glyphs use the primary
   cell metrics (per-font scale normalization is a possible refinement).
 
 ---
 
 ## 2026-06-13 -- ID1 default-on: themed cursor/selection/search roles ship on by default
 
-- Operator decision: a theme's authored `cursor` / `selection` / `search`
+- Decision: a theme's authored `cursor` / `selection` / `search`
   colors should drive the UI out of the box, not the legacy invert trick. ID1-a
   wired the colors behind an interim env gate (default off, to keep the plain
-  path pixel-identical); this packet promotes that gate to a first-class
+  path pixel-identical); this change promotes that gate to a first-class
   `themed_ui_roles` setting, defaulting **on**.
 - The setting is live-reloadable, editable in the settings panel (with help
   text), persisted through `odytty.conf` (with `themedroles` / `uiroles`
@@ -12705,7 +12709,7 @@ plain/fast path.
   default render is byte-identical. `text::enforce_contrast_rgba` is the gated
   render seam over a lock-free global, mirroring the palette seams.
 - Biggest Tier-1 reading win: no app can force illegibly low-contrast text once
-  a floor is set. Default-off this packet; activating it in the renderer is a
+  a floor is set. Default-off this change; activating it in the renderer is a
   flagged follow-up plus a non-default pixel fixture.
 - State: 948 lib tests; integration unchanged incl. pixel-smoke 25.
   fmt/diff/leak clean.
@@ -12768,7 +12772,7 @@ plain/fast path.
   is an exact identity, so the default path is byte-identical until a caller
   opts in. Foundational for RV1 (min-contrast) and later visual effects.
 - All pure functions, unit-tested against reference values and round-trip
-  accuracy. No application site changed this packet: default/plain output is
+  accuracy. No application site changed this change: default/plain output is
   byte-identical and pixel-smoke 25 stays green. Activating perceptual SGR dim
   is a follow-up one-liner in the renderer plus a dim fixture.
 - State: 925 lib tests; integration unchanged. fmt/diff/leak clean.
@@ -12829,7 +12833,7 @@ plain/fast path.
 - Added a `SettingsEditOverlay` model that tracks panel edits as a diff over
   the loaded settings. Reverting a value clears it from the diff, and clearing
   optional fields is preserved as an explicit empty-value diff for the UX2-c
-  writeback packet.
+  writeback change.
 - Committed panel edits through the same native reload seam used by file live
   reload, so theme, visual effect, font size/path/family, gamma, stem darkening,
   subpixel mode, cursor defaults, key bindings, OSC 52 read, and synthetic
@@ -12921,7 +12925,7 @@ renderer or any native code.
 - `src/theme.rs`: `Theme` now carries the 16-color ANSI palette (indices 0–7
   normal, 8–15 bright) plus semantic-role colors — `cursor`, `selection`,
   `search`, and reserved `border` / `inactive` (authored now, consumed by later
-  cursor/selection/chrome packets). The three built-ins (`plain`, `odyssey`,
+  cursor/selection/chrome work). The three built-ins (`plain`, `odyssey`,
   `odyssey-noir`) are authored with full palettes; `plain`'s palette is the
   historical xterm table byte-for-byte, so selecting `plain` (or no theme) is
   pixel-identical to before.
@@ -12941,7 +12945,7 @@ renderer or any native code.
   every built-in carries a full 16-entry palette + semantic roles. Verified in
   isolation at HEAD: lib 840 (834 + 6), integration battery green (pixel-smoke
   25 unchanged), `cargo fmt --check` clean, `git diff --check` clean.
-- Follow-up flagged to the director: wiring non-plain palettes into a live
+- Follow-up filed: wiring non-plain palettes into a live
   window needs one native call-site (`text::set_ansi_palette(&theme.palette)`
   next to the existing `set_default_colors` calls in `src/native/mod.rs` and
   `src/native/app/mod.rs`) — left to the native owner per the fence; the seam
@@ -12987,7 +12991,7 @@ mechanism was added.
   clear after the failed insert.
 - **Policy decision.** Because the current behavior is bounded and degrades by
   omitting a color run rather than blanking the cell, deterministic eviction is
-  not needed for this packet.
+  not needed for this change.
 - **Tests.** Added a unit test that fills all 4096 cluster slots, verifies final
   texture dimensions and slot count, then proves overflow fails without
   corrupting the first or last resident slot.
@@ -13099,7 +13103,7 @@ Activated the color-glyph path with real Noto Color Emoji CBDT/CBLC bitmaps.
 
 Closed the mode 1016 parity gap MP1 documented, on the core side. SGR-pixel is
 the same wire shape as SGR (1006) but reports 1-based *pixel* coordinates
-instead of cells; the native pixel seam is a deliberate follow-up packet.
+instead of cells; the native pixel seam is a deliberate follow-up change.
 
 - **Encoding axis.** Added `MouseEncoding::SgrPixel`. DECSET/DECRST 1016 selects
   it on the existing single-active encoding axis (a later DECSET wins; any
@@ -13184,7 +13188,7 @@ Acted on the PERF1 finding that B3's -23% `seq` regression was driven by
 
 ## 2026-06-12 -- Mouse protocol completeness evidence (MP1)
 
-Added a hermetic integration-test packet for OdyTTY's current mouse reporting
+Added a hermetic integration-test change for OdyTTY's current mouse reporting
 surface, with no `src/` edits.
 
 - **Inventory pinned.** DECRQM coverage now records the implemented modes:
@@ -13207,7 +13211,7 @@ surface, with no `src/` edits.
 Starts the accepted color-emoji ladder without touching the live renderer.
 
 - **Dependency choice.** Adds `swash 0.2.9` with default features. That is the
-  current crates.io release, MIT/Apache-2.0, and keeps the next EM packets on
+  current crates.io release, MIT/Apache-2.0, and keeps the next EM changes on
   the same crate surface for shaping plus color bitmap/outline rasterization.
 - **New renderer-free boundary.** `src/emoji/` owns the EM2 probe surface:
   discover Noto Color Emoji through `fc-match` when available, fall back to a
@@ -13222,7 +13226,7 @@ Starts the accepted color-emoji ladder without touching the live renderer.
   host-dependent Noto Color Emoji probe is `#[ignore]` and exits cleanly when the
   font is absent, so default `cargo test` stays deterministic.
 - **Fence preserved.** No `src/core/**`, `benches/perf.rs`, atlas, grid, GPU, or
-  shader changes. EM3 remains the first renderer/atlas packet.
+  shader changes. EM3 remains the first renderer/atlas change.
 
 ## 2026-06-12 — Bench refresh: post-RC1/RC2 baseline + rect rows (B3)
 
@@ -13241,7 +13245,7 @@ size diagnostic. Benches only (`benches/perf.rs`); no `src/` changes.
   B2's 13.1 to ~10.1 MB/s (stable across 3 runs); `heavy sgr` −9% is consistent.
   Leading hypothesis: the larger `Cell` (44 B) inflates per-char print writes
   and per-scroll row memmoves. Findings-only — a fix touches fenced `src/` and
-  exceeds the in-packet budget; recommended follow-up is a cell-shrink spike
+  exceeds the in-change budget; recommended follow-up is a cell-shrink spike
   (bitflags for the bool attrs, a niche for `Option<Color>`, or cold-field side
   storage).
 - **Cleared suspect.** The colon-subparam parse path is healthy — 348 MB/s,
@@ -13378,7 +13382,7 @@ reporting for the live protection state.
   policy for normal printing and erase.
 - **Reporting and follow-up.** DECRQSS now answers the DECSCA selector (`"q`).
   DECSACE/DECCARA/DECRARA remain the natural follow-up rectangle-attribute
-  packet rather than being folded into this surface.
+  change rather than being folded into this surface.
 - **Coverage.** Added core fixtures for protected/unprotected selective erase,
   regular erase overriding protection, fill attrs/protection, DECERA/DECSERA
   matrices, copy overlap in all four directions, origin-mode clamping,
@@ -13451,7 +13455,7 @@ unstyled-face cells.
   stderr warning, matching the other boolean knobs.
 - **Live reload.** The kill switch is reloadable. Because `NativeOptions` cannot
   carry it (its construction literals live in files owned by a concurrent
-  packet), the resolved value is published to a process-wide flag — the same
+  change), the resolved value is published to a process-wide flag — the same
   pattern already used for default cell colors — at startup and on every config
   reload. The renderer reads the flag when (re)building the glyph atlas.
 - **Wiring.** When the switch is off, the two atlas-build sites force the
@@ -13550,7 +13554,7 @@ path.
   subparams, underline color set/reset, and renderer geometry tests for each
   underline style. Production library/binary checks pass; unit-test execution
   is currently blocked by a concurrent atlas test signature mismatch outside
-  this packet.
+  this change.
 
 ---
 
@@ -13727,8 +13731,8 @@ uses it in the native key path.
 
 ## 2026-06-11 — Modularity split: `core/screen.rs` + `core/tests.rs` (M4)
 
-Preemptive modularity split ahead of the next core packet, per the standing
-operator directive (source files under ~2000 lines). Both files were within
+Preemptive modularity split ahead of the next core change, per the standing
+project directive (source files under ~2000 lines). Both files were within
 ~70 lines of the cap. Pure mechanical reorganization: **zero behavior change,
 zero public-API change, zero test-count change** — moves not rewrites, with a
 handful of private→`pub(super)` visibility widenings noted below.
@@ -13755,9 +13759,9 @@ tests.
 `cargo test` 707 lib (122 core tests preserved exactly) + 19 pixel + 9 PTY + 10
 transcript green; `cargo fmt --check` clean; native autoclose smokes exit 0 at
 default and `ODYTTY_SUBPIXEL=rgb ODYTTY_FONT_SIZE=18`. Largest resulting file is
-`screen/mod.rs` at 1179 lines (was 1929). Scoped to `src/core/**` per the packet
+`screen/mod.rs` at 1179 lines (was 1929). Scoped to `src/core/**` per the change
 fence. Follow-up: `src/native/tests.rs` (1807) is approaching the cap and is the
-next split candidate, deferred here because native is outside this packet's
+next split candidate, deferred here because native is outside this change's
 fence and carries concurrent work.
 
 ---
@@ -13836,7 +13840,7 @@ fuzzers = 120k generated-stream iterations, plus the self-created-shm probe):
 all green, ~3 s, no panics and no cap violations.
 
 Two **bounded performance observations** on `decode_sixel` surfaced while
-sizing the fuzzer and were routed to the director rather than fixed in-packet
+sizing the fuzzer and were filed for triage rather than fixed in-change
 (read-only fence; both are cap-bounded, not correctness or never-panic
 defects): a raster-attribute header eagerly allocates and zeroes the full
 declared canvas (a ~16-byte header up to the 40 M-pixel budget ≈ 144 MB), and
@@ -14071,7 +14075,7 @@ startup.
 
 Docs now include the full key reference, examples, and
 `docs/odytty.conf.example`. At landing time, live reload was left for the
-follow-up CF2 packet.
+follow-up CF2 change.
 
 Verification: 657 lib tests, 11 pixel-smoke, 9 PTY smoke, 10 transcript smoke,
 and doctests pass. Native autoclose smokes exit 0 at default, with a valid
@@ -14086,7 +14090,7 @@ Kitty graphics protocol gains file-based transports: `t=f` (regular file),
 `t=t` (temp file, deleted after read), and `t=s` (POSIX shared memory).
 All three support raw RGBA/RGB (`f=24`/`f=32`) and PNG (`f=100`) payloads.
 
-This is a **security packet** — every transport path is validated before I/O:
+This is a **security change** — every transport path is validated before I/O:
 
 - **Path restriction**: `t=f` and `t=t` paths must resolve inside canonical
   temp directories (`/tmp`, `/dev/shm`, resolved `$TMPDIR`). Paths outside
@@ -14147,7 +14151,7 @@ without creating placements.
 Supported PNG inputs are grayscale, grayscale+alpha, RGB, RGBA, and indexed
 images after the decoder's normalize-to-8-bit transformations; 16-bit samples
 are stripped to 8-bit. File and shared-memory Kitty transports remain deferred
-to a security-reviewed packet.
+to a security-reviewed change.
 
 ## 2026-06-11 — Kitty graphics protocol MVP: APC direct still images (G2.2)
 
@@ -14163,7 +14167,7 @@ protocol replies (`_G…;OK` / explicit errors) return through the existing
 host-output seam. PNG (`f=100`) and file/shared-memory transports are
 explicitly rejected for now: PNG is deferred to a follow-up with a constrained
 decoder dependency, and non-direct transports wait for a security-reviewed
-packet.
+change.
 
 Verification: 606 lib tests (17 Kitty-focused), 11 pixel-smoke, 9 PTY, 10
 transcript, fmt clean, native autoclose smoke exit 0 at default and
@@ -14213,7 +14217,7 @@ are dropped when they leave the visible placement set.
   planning.
 - Clean-worktree verification: full `cargo test`, `cargo fmt --check`, native
   autoclose smoke, and native autoclose smoke with `ODYTTY_SUBPIXEL=rgb`.
-- SX2 terminal integration was still in progress during this packet, so the
+- SX2 terminal integration was still in progress during this change, so the
   graphics render path was verified through hand-built visible placements rather
   than a live Sixel printf in the native window.
 
@@ -14295,8 +14299,8 @@ graphics scene.
 ## 2026-06-11 — Shared graphics scene and parser routing seam (G2.1)
 
 Builds the renderer-independent graphics foundation on top of the owned
-APC/DCS parser plumbing. This packet does not decode Kitty or Sixel payloads
-and does not touch the GPU; it gives later protocol and render packets a
+APC/DCS parser plumbing. This change does not decode Kitty or Sixel payloads
+and does not touch the GPU; it gives later protocol and render work a
 bounded store, a cell-anchored placement scene, and raw protocol handoff events.
 
 ### What landed
@@ -14310,7 +14314,7 @@ bounded store, a cell-anchored placement scene, and raw protocol handoff events.
   scroll with terminal content and project into scrollback viewports.
 - **Terminal lifecycle hooks.** `Screen` now carries an `ImageScene` and updates
   it for full/region scrolls, IL/DL, ED, RIS, resize, and alternate-screen
-  entry/exit. Existing text `Snapshot` users are unchanged; render packets can
+  entry/exit. Existing text `Snapshot` users are unchanged; render changes can
   call `visible_graphics(offset_rows)`.
 - **Raw protocol routing.** Kitty APC payloads beginning with `G` and Sixel
   DCS `q` streams are recognized through `VtDispatch` and recorded as raw
@@ -14321,7 +14325,7 @@ bounded store, a cell-anchored placement scene, and raw protocol handoff events.
 
 - Focused graphics tests: store caps/eviction, raw APC/DCS routing, scrollback
   projection, ED2 clear, alternate-screen isolation, and RIS cleanup.
-- Full-suite and smoke verification recorded in the packet completion report.
+- Full-suite and smoke verification recorded in the change completion report.
 
 ---
 
@@ -14373,7 +14377,7 @@ the manual matrix covers visual validation at non-1× scales.
 
 ## 2026-06-11 — OdyParser production cutover + vte removal (PA3)
 
-Completes the Stage 4.5 parser ownership packet. The production `Terminal`
+Completes the Stage 4.5 parser ownership change. The production `Terminal`
 now feeds PTY bytes through OdyTTY's `OdyParser` via `VtDispatch`; the
 `vte::Perform` path and `vte` dependency are removed from production and Cargo.
 The owned byte path now covers PTY -> parser -> screen model -> renderer
@@ -14424,14 +14428,14 @@ near parity.
 ### Follow-ups
 
 - Graphics-protocol implementation can now build on owned APC/DCS plumbing
-  once a director assigns the next packet.
+  when the next change is scheduled.
 - `print_str` remains a possible parser/screen hot-path improvement.
 
 ---
 
 ## 2026-06-11 — Clean-room VT parser state-core rebuild (PA2-r)
 
-Replaces the PA1 state core, which was operator-ruled too vte-derived
+Replaces the PA1 state core, which was judged too vte-derived
 (per-state-method decomposition, Ground-state bulk UTF-8 strategy re-typed
 from `vte` 0.15), with an OdyTTY-original two-layer pipeline written from
 primary specs only (vt100.net DEC ANSI diagram, ECMA-48, xterm `ctlseqs`).
@@ -14463,7 +14467,7 @@ oracle continues as a black-box behavioral pin.
   keeps state-transition cleanup to a single APC-cancel check per byte (every
   OSC exit dispatches+clears via `apply`).
 
-### Operator-approved divergence ledger
+### Approved divergence ledger
 
 - **C1-via-UTF-8 uniform execute.** A validly-decoded C1 scalar
   (`U+0080..=U+009F` via `0xC2 0x8x`) **executes** regardless of how its
@@ -14481,7 +14485,7 @@ oracle continues as a black-box behavioral pin.
 - `Params::iter` / `from_vte` public surface.
 - Live production path: still `vte`; OdyParser stays dark behind the oracle
   through PA2-r. PA3 retires `vte`.
-- `src/core/screen.rs` (the dispatch consumer): zero touch from this packet.
+- `src/core/screen.rs` (the dispatch consumer): zero touch from this change.
 
 ### Validation
 
@@ -14529,7 +14533,7 @@ oracle continues as a black-box behavioral pin.
 
 ### Follow-ups
 
-- **`print_str` bulk-print on `VtDispatch`** — deferred per director ruling.
+- **`print_str` bulk-print on `VtDispatch`** — deferred by decision.
   The segmenter already emits text in `chars()` order; adding an additive
   `print_str(&str)` method would let the bulk path call once per run instead
   of once per scalar.
@@ -14555,7 +14559,7 @@ oracle continues as a black-box behavioral pin.
 
 ## 2026-06-11 — Alt-screen findings follow-up (A2)
 
-Fixes the three core findings routed from the A1 hardening packet:
+Fixes the three core findings routed from the A1 hardening change:
 distinct per-mode semantics for modes 47/1047/1049, and save/restore of
 `cursor_visible` and `current_attrs` through alt-screen transitions.
 
@@ -14700,7 +14704,7 @@ of terminal-requested cursor/keypad modes and xterm-style named-key modifiers.
 
 ## 2026-06-10 — Parser edge-case hardening + differential fuzzers (PA2)
 
-Second Foundation-Ownership parser packet. Hardens the OdyTTY-owned VT parser's
+Second Foundation-Ownership parser change. Hardens the OdyTTY-owned VT parser's
 edge cases, pins the two open design decisions, and locks the behaviour against
 `vte` with permanent fixtures and committed differential fuzzers. `vte` stays the
 live production parser; `OdyParser` remains dark behind the oracle (it goes live
@@ -14763,9 +14767,9 @@ machine is already a faithful replica; PA2 locks that down rather than fixing it
 
 ## 2026-06-10 — OdyTTY-owned VT parser skeleton + vte differential oracle (PA1)
 
-First Foundation-Ownership packet on the parser side. OdyTTY now has its own DEC
+First Foundation-Ownership change on the parser side. OdyTTY now has its own DEC
 ANSI escape-sequence parser, `src/parser/`, shipping **dark** behind a
-differential oracle. `vte` remains the live production parser this packet; the
+differential oracle. `vte` remains the live production parser this change; the
 owned parser is proven byte-for-byte equivalent before it ever goes live.
 
 ### What landed
@@ -14775,7 +14779,7 @@ owned parser is proven byte-for-byte equivalent before it ever goes live.
     for `vte` (`print`/`execute`/`csi`/`esc`/`osc` + DCS `hook`/`put`/`unhook`),
     plus a first-class `apc_dispatch`. APC (`ESC _ … ST`) is the capability
     `vte` never surfaces and the whole reason OdyTTY owns its byte path — the
-    Kitty graphics protocol consumes it on owned plumbing in a later packet.
+    Kitty graphics protocol consumes it on owned plumbing in a later change.
   - `OdyParser` — the 14-state DEC ANSI state machine (ground, escape,
     escape-intermediate, CSI entry/param/intermediate/ignore, DCS
     entry/param/intermediate/passthrough/ignore, OSC, SOS/PM/APC), with
@@ -14872,7 +14876,7 @@ process-group signal, which rustix does not expose as focused helpers.
 
 ## 2026-06-10 — Wide-glyph raster quality: 2-cell atlas slots (W1)
 
-First packet of the Visual Capability Parity plan section. W1 audits and fixes
+First change of the Visual Capability Parity plan section. W1 audits and fixes
 how East Asian width-2 glyphs (CJK, kana, fullwidth forms) rasterize into the
 glyph atlas.
 
@@ -15108,7 +15112,7 @@ feeds the existing grid/PTY resize path.
 - Headless tests cover scale-burst debounce, grid recompute from changed cell
   metrics, and repeated-scale no-ops.
 - Live multi-monitor and fractional-scale behavior cannot be verified in the
-  headless runner; H3 remains queued for an operator manual matrix across window
+  headless runner; H3 remains queued for a manual validation matrix across window
   sizes and monitor scale factors.
 
 ---
@@ -15156,7 +15160,7 @@ the atlas being baked once at startup.
 - **H2 (GPT)** wires `set_scale` into a `ScaleFactorChanged` handler in the
   native event loop and republishes the cell metrics into the grid layout; it
   removes the `allow(dead_code)` markers on the seam when it does.
-- **H3** is the manual cross-scale validation matrix (operator session).
+- **H3** is the manual cross-scale validation matrix (hands-on session).
 
 ---
 
@@ -15405,7 +15409,7 @@ pipeline without new shader work.
 F1 from the Stage 3 text/rendering track, now that the settings path is stable.
 Adds a way to choose the terminal font by family name or path, with a fallback
 chain that can never break startup, plus the atlas groundwork a future
-attribute-rendering packet needs.
+attribute-rendering change needs.
 
 ### What landed
 
@@ -15423,14 +15427,14 @@ attribute-rendering packet needs.
   `Italic`/`BoldItalic`) and a `(style, char)`-keyed dynamic region. The live
   render path (`uv_rect`/`ensure`) still resolves `Regular` only and keeps its
   exact signatures, so native is untouched; new `uv_rect_styled`/`ensure_styled`
-  entry points exist for a later grid/gpu packet that threads cell attributes.
+  entry points exist for a later grid/gpu change that threads cell attributes.
   Bold/italic faces are discovered by filename convention but not yet loaded or
   rendered.
 
 ### Design notes
 
 - **No native edits.** Family resolution is funneled through the existing
-  `settings.font_path` the native layer already consumes, so this packet stays
+  `settings.font_path` the native layer already consumes, so this change stays
   entirely in `text.rs`/`atlas.rs`/`settings.rs` and avoids the concurrent
   native scroll-indicator work. `CellSize`/`uv_rect` contract unchanged.
 - **Dependency-free** rather than pulling `fontconfig`/`fontdb`: a bounded
@@ -15451,7 +15455,7 @@ attribute-rendering packet needs.
 ### Known gaps
 
 - Bold/italic glyphs are groundwork only — discovered, not rendered, until a
-  future packet wires cell attributes through grid/gpu.
+  future change wires cell attributes through grid/gpu.
 - Ambiguous matching is filename-based; a fontconfig-backed lookup would handle
   family aliases and language coverage more robustly.
 
@@ -15459,7 +15463,7 @@ attribute-rendering packet needs.
 
 ## 2026-06-10 — Native viewport scroll indicator
 
-Stage 4 daily-driver interaction packet. Scrolling into history now gives a
+Stage 4 daily-driver interaction change. Scrolling into history now gives a
 small visual position cue without changing terminal semantics or adding shader
 work.
 
@@ -15481,7 +15485,7 @@ work.
 - Added headless native tests for indicator visibility and geometry, plus a
   solid-overlay vertex append test.
 - A visibility knob is intentionally deferred; if it becomes necessary it should
-  go through the settings path in a later packet.
+  go through the settings path in a later change.
 
 ---
 
@@ -15523,13 +15527,13 @@ physical rows, the new fast path skips the per-cell reflow entirely.
 - P1-b (bounded width-*change* reflow): every lossless bounded option requires a
   behavior change (history drop / stale wrap of scrolled-back lines / lazy-rewrap
   architecture) that interacts with scrollback search and selection, so it is a
-  separate design decision rather than part of this fast-path packet.
+  separate design decision rather than part of this fast-path change.
 
 ---
 
 ## 2026-06-10 — Native render-loop perf: vertex reuse and resize debounce
 
-This packet applies the native-side mitigations from the P1 findings: reduce
+This change applies the native-side mitigations from the P1 findings: reduce
 per-frame allocation around geometry rebuilds, and avoid paying core resize /
 PTY winsize cost on every compositor resize event during window drags.
 
@@ -15572,9 +15576,9 @@ PTY winsize cost on every compositor resize event during window drags.
 
 ## 2026-06-10 — Performance profiling harness (evidence)
 
-Stage 3 evidence packet: a headless benchmark harness through the owned terminal
+Stage 3 evidence change: a headless benchmark harness through the owned terminal
 model, plus a findings doc with ranked optimization proposals. Measure first —
-no optimization landed in this packet.
+no optimization landed in this change.
 
 ### What landed
 
@@ -15601,7 +15605,7 @@ no optimization landed in this packet.
 - 266 lib + 2 integration + 10 smoke tests pass; the bench is absent from
   `cargo test`. `cargo fmt` clean; clippy clean (incl. the bench) except the
   pre-existing core derive lint. Ranked proposals (resize fast path, bounded
-  reflow, vertex-buffer reuse, region dirty) captured for future packets.
+  reflow, vertex-buffer reuse, region dirty) captured for future work.
 
 ---
 
@@ -15644,12 +15648,12 @@ background quads.
 - Full-screen Wayland screenshots were captured for default gamma and
   `ODYTTY_TEXT_GAMMA=1.0`. On the dark OdyTTY prompt, the `1.4` default appears
   slightly fuller/brighter than the legacy path without changing cell layout.
-  This was a short visual check, not a long operator comfort pass.
+  This was a short visual check, not a long comfort pass.
 
 ### Known gaps
 
 - This does not add subpixel AA. R2 recommends keeping that as a later optional
-  packet because it needs RGB coverage, dual-source blending, and per-monitor
+  change because it needs RGB coverage, dual-source blending, and per-monitor
   gating.
 - True beyond-cell glyph overflow still needs future bearing-aware geometry.
 
@@ -15685,7 +15689,7 @@ cell→quad contract are unchanged, so the renderer is untouched.
   pass. `cargo fmt` clean; clippy clean except the pre-existing core derive lint;
   native autoclose smoke exit 0 at default and `ODYTTY_FONT_SIZE=18`.
 
-### Deferred (findings for a future native packet)
+### Deferred (findings for a future native change)
 
 - Shader **gamma/contrast** blending (biggest remaining visible win), optional
   **subpixel** AA, and true **beyond-cell** glyph overflow (needs a grid/native
@@ -15813,7 +15817,7 @@ absolute cell ranges a front end can later highlight and jump to.
 - Per-`char` case fold (no `ß`→`ss`); no Unicode normalization (precomposed vs
   decomposed are distinct); non-overlapping greedy matching; wide pairs never
   straddle a wrap boundary. Native search UI (overlay, highlight, jump) is a
-  later packet.
+  later change.
 
 ---
 
@@ -15918,10 +15922,10 @@ extracted from `text.rs` into its own `src/atlas.rs` module.
 - The live render path uses the immutable `uv_rect()` (ASCII plus fallback
   boxes from the startup texture). Wiring `ensure()` per non-ASCII cell and
   re-uploading the texture on `take_dirty()` — the path that makes real
-  non-ASCII glyphs appear on screen — is a later native packet.
+  non-ASCII glyphs appear on screen — is a later native change.
 - Rasterization quality (gamma-correct coverage blending, tall-glyph cell-clip,
   `ascent.round()` baseline, no sub-pixel) is unchanged here and is the basis
-  for a later Stage 3 rasterization packet.
+  for a later Stage 3 rasterization change.
 
 ---
 
@@ -16044,7 +16048,7 @@ editing terminal-core semantics.
 ### Remaining
 
 - `man` is not included yet; host manpage availability and pager configuration
-  add more nondeterminism than this default smoke packet should carry.
+  add more nondeterminism than this default smoke change should carry.
 
 ### Verified
 
@@ -16058,7 +16062,7 @@ editing terminal-core semantics.
 Stage 2 Unicode hardening, second half. Zero-width combining marks now attach to
 the base cell the cursor last advanced past instead of being discarded, so the
 model carries the full grapheme cluster for a future renderer and for copy/text
-queries. Completes the C2 Unicode-width packet (wide-cell coherence landed in the
+queries. Completes the C2 Unicode-width change (wide-cell coherence landed in the
 previous commit).
 
 ### What landed
@@ -16126,7 +16130,7 @@ under overwrites, end-of-line wrapping, and erases. A wide glyph (East Asian
 Wide/Fullwidth, many emoji) occupies a printable lead cell plus a
 `wide_continuation` spacer; the model now guarantees no half-wide orphan ever
 survives an edit. Combining-mark attachment is the second half and lands in a
-follow-up packet (it needs a new `Cell` field, deferred to avoid colliding with
+follow-up change (it needs a new `Cell` field, deferred to avoid colliding with
 concurrent native-layer work in the shared tree).
 
 ### What landed
@@ -16154,7 +16158,7 @@ concurrent native-layer work in the shared tree).
 ### Remaining
 
 - Combining marks (zero-width, attach to the preceding cell's grapheme) land in
-  the follow-up C2b packet, sequenced after the native title/mouse wiring so the
+  the follow-up C2b change, sequenced after the native title/mouse wiring so the
   `Cell` representation change does not break concurrent native edits.
 
 ---
@@ -16163,7 +16167,7 @@ concurrent native-layer work in the shared tree).
 
 Stage 2 correctness work added the terminal-core side of window-title reporting
 and mouse tracking. This is the model and encoder layer only; wiring the native
-front end to emit mouse reports and apply the title is a later packet.
+front end to emit mouse reports and apply the title is a later change.
 
 ### What landed
 
@@ -16194,7 +16198,7 @@ front end to emit mouse reports and apply the title is a later packet.
 ### Remaining
 
 - Native front end does not yet emit mouse reports or apply the OSC title to the
-  window; that wiring is the next native packet.
+  window; that wiring is the next native change.
 
 ---
 
@@ -16259,7 +16263,7 @@ terminal compatibility for the validated daily loop.
 - `cargo clippy --all-targets` clean except the pre-existing
   `core/mod.rs:32` derivable-impl warning.
 - Wayland-native autoclose exits `0`, with no lingering `odytty` process.
-- Operator manual validation on Hyprland covered prompt display, color output,
+- Manual validation on Hyprland covered prompt display, color output,
   `clear`, resize, copy/paste, scrollback, fish completion, pager/editor basics,
   and the ambient visual layer.
 
@@ -16308,10 +16312,10 @@ evaluate. Both now have scoped fixes awaiting final real-compositor retest.
 
 ### Known gaps
 
-- The operator should re-run the exact fish completion case:
+- Re-run to verify: the exact fish completion case:
   `less b<Tab>`, continue typing a prefix, and confirm the candidate list and
   command line refresh normally.
-- The operator should compare `ODYTTY_VISUAL=off` and
+- Compare `ODYTTY_VISUAL=off` and
   `ODYTTY_VISUAL=ambient` and confirm the effect is visible without hurting
   readability.
 
@@ -16344,7 +16348,7 @@ persistent clipboard owner added earlier.
 
 ### Known gaps
 
-- This still needs the operator's real-compositor retest: select text in
+- This still needs a real-compositor retest: select text in
   OdyTTY, press `Ctrl+Shift+C`, and paste into an external Wayland app.
 
 ---
@@ -16353,7 +16357,7 @@ persistent clipboard owner added earlier.
 
 Manual native validation exposed two first-prototype blockers: Linux clipboard
 ownership was unreliable after copy, and narrowing then widening the window
-could permanently lose text. Both are now fixed in scoped packets.
+could permanently lose text. Both are now fixed in scoped changes.
 
 ### What landed
 
@@ -16379,7 +16383,7 @@ could permanently lose text. Both are now fixed in scoped packets.
 
 ### Known gaps
 
-- The clipboard fix still needs the operator's real-compositor retest:
+- The clipboard fix still needs a real-compositor retest:
   select text, `Ctrl+Shift+C`, paste into another app, then paste external text
   back into OdyTTY with `Ctrl+Shift+V`.
 - Resize reflow is intentionally bounded for the first prototype. It preserves
@@ -16564,7 +16568,7 @@ separate.
 
 ### Known gaps
 
-- Native scrollback navigation is not wired yet; this packet only adds the core
+- Native scrollback navigation is not wired yet; this change only adds the core
   snapshot API needed to implement it cleanly.
 
 ---
@@ -16607,7 +16611,7 @@ bracketed paste behavior stays consistent across front ends.
 
 ## 2026-06-09 — SU/SD scrolling and DECOM origin mode
 
-The owned terminal core now covers the next bounded compatibility packet needed
+The owned terminal core now covers the next bounded compatibility change needed
 for common shell and TUI behavior: scroll-up/down region commands and origin
 mode addressing. This keeps compatibility work evidence-driven while leaving the
 renderer and native event loop untouched.
@@ -16726,7 +16730,7 @@ The native window is now **interactive**: `cargo run -- --native` opens a real
 shell you can type into. `ls`, `echo hi`, line editing with Backspace and
 arrows, `Ctrl-C` to interrupt, and `Ctrl-D` at an empty prompt (which exits the
 shell and closes the window) all work. This completes the read+write loop on top
-of the PTY writer plumbed last packet.
+of the PTY writer plumbed last change.
 
 ### What landed
 
@@ -16751,7 +16755,7 @@ of the PTY writer plumbed last packet.
     and writes+flushes to the shared PTY writer.
   - `map_named_key` resolves Shift-Tab → BackTab and maps Space to `Char(' ')`
     so Ctrl-Space encodes to NUL through the shared encoder.
-  - The writer (previously held unused for "next packet") is now the live input
+  - The writer (previously held unused for "next change") is now the live input
     sink; docs updated to drop the stale "keyboard input absent" notes.
 
 ### Verified
@@ -16767,7 +16771,7 @@ of the PTY writer plumbed last packet.
   (`WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS` …) exits `0`,
   no validation errors, no zombies/lingering processes.
 
-### Known gaps (unchanged this packet)
+### Known gaps (unchanged this change)
 
 - Window-resize reflow of the PTY/model is still deferred (viewport-only).
 - No paste/bracketed-paste, mouse selection, or scrollback navigation yet —
@@ -16781,7 +16785,7 @@ The native window now renders a **real shell**. The seeded demo snapshot is
 gone; `cargo run -- --native` spawns `$SHELL` on a PTY and renders its live
 startup output (prompt + any banner) as it arrives. This proves the
 shell → core → pixels path end to end. Keyboard input is still deliberately out
-of scope (next packet), so you can't type yet.
+of scope (next change), so you can't type yet.
 
 ### What landed
 
@@ -16802,12 +16806,12 @@ of scope (next packet), so you can't type yet.
     update).
   - **Single shared writer**: `portable-pty`'s `take_writer` yields once, so the
     writer is wrapped in `Arc<Mutex<…>>` — the pump thread uses it for host
-    responses now; the App keeps a clone for next packet's input path.
+    responses now; the App keeps a clone for next change's input path.
   - **Clean teardown**: on loop exit the child is `kill()`ed + `wait()`ed, the
     master is dropped (unblocking the pump `read`), and the pump thread is
     `join()`ed — verified no zombies and no lingering `odytty` processes.
 
-### Deferred this packet (noted, not done)
+### Deferred this change (noted, not done)
 
 - **Window resize → PTY/model resize**: window resize updates only the GPU
   viewport uniform; the PTY rows/cols and terminal model stay at `initial_grid`.
@@ -16821,7 +16825,7 @@ of scope (next packet), so you can't type yet.
   test (`pty_output_pumps_into_terminal_snapshot`) that spawns a one-shot
   command on a real PTY, pumps it into a `Terminal`, and asserts the snapshot
   contains the output. Verified passing via `cargo test -- --ignored`.
-- `cargo fmt --check`: clean. `cargo clippy`: clean for this packet (only the
+- `cargo fmt --check`: clean. `cargo clippy`: clean for this change (only the
   pre-existing `core` derive suggestion remains, untouched).
 - Wayland-native smoke:
   `WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native`
@@ -16835,7 +16839,7 @@ The window now shows readable monospaced text. This is the GPU half of the
 text-rendering milestone: the `src/text` atlas is uploaded to a texture and the
 owned-core `Snapshot` is drawn as textured quads with the `cell.wgsl` pipeline.
 Content shown is a static seeded snapshot — PTY output, keyboard input, and the
-theme layer are deliberately later packets.
+theme layer are deliberately deferred.
 
 ### What landed
 
@@ -16853,7 +16857,7 @@ theme layer are deliberately later packets.
 - **Seeded demo content**: `GpuState::new` drives a real `core::Terminal`
   (title line + an ANSI-colored sample row + a bold/inverse row) and renders its
   snapshot, so SGR/colors exercise the genuine parsing path. Marked in-code as
-  placeholder for the next (PTY) packet.
+  placeholder for the next (PTY) change.
 - **Resize choice**: geometry is stable across resize; only the viewport uniform
   is rewritten with the new physical size.
 - **wgpu 29 API notes**: `ImageCopyTexture`/`ImageDataLayout` are now
@@ -16868,7 +16872,7 @@ theme layer are deliberately later packets.
 - `cargo test`: 72 lib + 8 smoke (1 ignored) green — adds 5 `build_vertices`
   unit tests (vertex count, blank→bg-only, inverse swap, non-ASCII→no glyph,
   ANSI palette color).
-- `cargo fmt --check`: clean. `cargo clippy`: clean for this packet (one
+- `cargo fmt --check`: clean. `cargo clippy`: clean for this change (one
   pre-existing `core` derive suggestion is untouched).
 - Wayland-native smoke:
   `WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run -- --native`
@@ -16876,7 +16880,7 @@ theme layer are deliberately later packets.
 
 ### Gaps toward the prototype
 
-- Text is a static seeded snapshot; live PTY output is the next packet.
+- Text is a static seeded snapshot; live PTY output is the next change.
 - No keyboard input, selection/copy, scrollback, or theme layer yet.
 - Atlas covers printable ASCII only; wide/CJK glyphs render background-only.
 - Seeded grid uses the coarse default window size, so the drawn grid may not
@@ -16891,13 +16895,13 @@ the cell shader it will feed. This is the rasterization/color half of the
 text-rendering milestone, committed separately from the GPU wiring so it can be
 unit-tested without a window and reviewed on its own. The atlas is not yet
 uploaded to a texture or drawn — wiring it into `src/native.rs` is the next
-packet.
+change.
 
 ### What landed
 
 - **`ab_glyph 0.2` + `bytemuck 1` (derive)** dependencies. `ab_glyph` rasterizes
   outlines to coverage bitmaps; `bytemuck` will back the GPU vertex/instance
-  buffers in the wiring packet.
+  buffers in the wiring change.
 - **`src/text.rs`** (GPU-agnostic, unit-tested):
   - Font sourcing: `ODYTTY_FONT` env override, else a probe list of common Linux
     monospace paths. No font is bundled into the public repo yet (deliberate —
@@ -16964,7 +16968,7 @@ or theme layer yet — the clear color is a placeholder, not the theme system.
 - `cargo test`: 62 lib unit tests + 8 smoke tests pass, 1 live-PTY test ignored.
 - `cargo fmt --check`: clean.
 
-### Remaining for the next native packet
+### Remaining for the next native change
 
 - Build the CPU-rasterized monospace glyph atlas and draw the owned core's
   `Snapshot` as readable text into this surface, then wire PTY output + keyboard
@@ -16977,12 +16981,12 @@ or theme layer yet — the clear color is a placeholder, not the theme system.
 First real native window. The `--native` path now brings up an OS window via
 `winit` and runs the event loop until the window is closed, replacing the
 not-implemented scaffold. Kept deliberately narrow: no `wgpu`, no text renderer,
-no PTY wiring, no input — those are separate later packets.
+no PTY wiring, no input — those are separate later changes.
 
 ### What landed
 
 - **`winit` dependency** (`winit 0.30`): the first piece of the GPU stack. `wgpu`
-  is still not added; it arrives with the rendering packet.
+  is still not added; it arrives with the rendering change.
 - **`run_native` lifecycle** (`src/native.rs`): an `ApplicationHandler` that
   creates the window lazily on `resumed` (per `winit`'s portability contract),
   exits on `CloseRequested`, and surfaces window-creation failures as
@@ -17001,7 +17005,7 @@ no PTY wiring, no input — those are separate later packets.
 - `cargo test`: 61 lib unit tests + 8 smoke tests pass, 1 live-PTY test ignored.
 - `cargo fmt --check`: clean.
 
-### Remaining for the next native packet
+### Remaining for the next native change
 
 - Add `wgpu`, then render the owned grid as readable monospaced text and wire
   PTY output + keyboard input into the window.
@@ -17031,7 +17035,7 @@ buildable seams rather than a partial subsystem.
   the event loop, `wgpu` for surface/rendering, a CPU-rasterized monospace glyph
   atlas for text, and grid presentation driven by the core's snapshot.
 - `winit`/`wgpu` are intentionally **not** added as dependencies yet. They arrive
-  with the packet that implements the actual window, so the dependency tree only
+  with the change that implements the actual window, so the dependency tree only
   carries exercised code. This keeps the spike buildable and fast.
 - First-prototype text is a single monospace font with no complex shaping (no
   ligatures or BiDi); cell width comes from `unicode-width`, as in the core.
@@ -17041,7 +17045,7 @@ buildable seams rather than a partial subsystem.
 - The existing headless and `crossterm` host-terminal interactive paths are
   untouched and still pass.
 
-### Remaining for the next native packet
+### Remaining for the next native change
 
 - Add `winit`/`wgpu`, open and close a real window cleanly, then render the grid
   with readable monospaced text and wire PTY output + keyboard input into it.
