@@ -7,6 +7,48 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Mouse support in the tab-rename field (F4-RENAME-MOUSE)
+
+The inline tab-rename field (right-click a tab → Rename) was keyboard-only.
+It now takes the mouse: click to place the caret, drag to select, double-click
+to select a word, and typing / Backspace / Delete replace the selection.
+
+- **Hit-testing shares the painter's geometry.** The rename modal paints into
+  the single-pane content-grid snapshot, so a click maps pixel → cell → caret
+  through the exact box math the painter uses. That math is now one function,
+  `rename_layout(columns, rows)`, consumed by both `paint_rename_tab_cells` and
+  the new `rename_input_hit`, plus a shared `rename_visible_start` for the
+  horizontal-scroll window — so render and hit-test can never drift (a unit
+  test pins the layout to the painter formulas). Clicks map 1 cell = 1
+  character (the field renders one char per cell), clamp to the text length,
+  and account for the scroll offset when the name is longer than the field.
+- **Selection model.** `RenameState` gains an `anchor` character index; the live
+  selection is `[min(anchor, cursor), max(anchor, cursor))`. A plain press arms
+  a drag from the caret; motion extends it (`rename_drag_extend`), clamped onto
+  the input row so a vertical stray still tracks horizontally. Double-click uses
+  a dedicated `ClickTracker` (`rename_clicks`, kept separate from the terminal
+  grid streak) and selects the whitespace-delimited word under the pointer.
+- **Selection-aware editing.** Backspace / Delete / typing replace a live
+  selection first (char→byte mapped, so multibyte names are safe); arrows
+  collapse the selection to its edge; a new `Delete` key path forward-deletes.
+  Selected cells render in a blue-highlight palette pair — the faithful analog
+  in this indexed cell-modal path, where the theme `selection` role isn't
+  addressable (the cursor and border already use indexed colors here).
+- **Placement-agnostic.** The rename modal is a centered box, independent of
+  `tab_bar_placement`, so mouse support works identically for the top bar and
+  the vertical rail. It renders on the single-pane path (unchanged); the modal
+  owns the pointer, so nothing leaks to the grid beneath.
+
+Tests: 10 pure hit-test / caret-mapping / word-bounds / selection-edit seam
+tests (no PTY) plus 2 App-level integration tests driving the real
+`handle_mouse_input` dispatch (click-places-caret + drag-selects, and
+double-click-word + Backspace-replaces). Fails-before captured for the scroll
+math, the selection delete, and the pointer-capture routing. Gate: full suite
+green, `clippy --all-targets --locked -D warnings` clean, `fmt --check` clean,
+MSRV lockstep untouched. Platform-neutral — pure UI, no Windows surface.
+
+---
+
 ## 2026-07-03 -- Right-side tab rail: `tab_bar_placement = right` (F4-P2)
 
 The third tab placement is real now. `right` used to parse but collapse to `top`

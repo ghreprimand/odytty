@@ -19,7 +19,8 @@ use crate::input::{self, Key, KeyEventType, KeyModes, Modifiers};
 #[cfg(test)]
 use crate::pty::PtySession;
 use crate::selection::{
-    self, AbsoluteSelectionRange, CellPoint, PointerDrag, SelectGranularity, SelectionStyle,
+    self, AbsoluteSelectionRange, CellPoint, ClickTracker, PointerDrag, SelectGranularity,
+    SelectionStyle,
 };
 use crate::settings::{
     BindableAction, SettingEdit, Settings, SettingsReloadOutcome, SettingsReloader, THEME_ENV,
@@ -186,7 +187,14 @@ impl SynchronizedOutputHold {
 pub(super) struct RenameState {
     target: SessionToken,
     text: String,
+    /// Caret position as a *character* index into `text` (not a byte offset).
     cursor: usize,
+    /// F4-RENAME-MOUSE: the selection anchor as a character index. `Some` while
+    /// a range is being (or has been) selected; the live selection spans
+    /// `[min(anchor, cursor), max(anchor, cursor))`. Any caret motion or edit
+    /// that is not a selection-extend clears it back to `None`. When
+    /// `anchor == cursor` the selection is empty (an armed but collapsed drag).
+    anchor: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -371,6 +379,15 @@ pub(super) struct App {
     /// only when `tab_bar_placement` is a rail. Presentation-only.
     tab_rail: TabRail,
     rename_state: Option<RenameState>,
+    /// F4-RENAME-MOUSE: double-click detection for the tab-rename field, kept
+    /// separate from the terminal-grid `clicks` tracker so a rename word-select
+    /// never interacts with a grid selection streak. Reset when a rename opens.
+    rename_clicks: ClickTracker,
+    /// F4-RENAME-MOUSE: a left-button drag is in progress inside the rename
+    /// field. Set on a press that lands on the input line, cleared on release
+    /// (or when the rename closes). While set, pointer motion extends the
+    /// field selection instead of doing any grid hover/selection work.
+    rename_dragging: bool,
     /// SLIDER-GUARD: whether the left mouse button is currently held while the
     /// overlay is open. Set on `MouseInput { Pressed, Left }` and cleared on
     /// `MouseInput { Released, Left }` through the overlay pointer path. Used to
@@ -497,6 +514,8 @@ impl App {
             tab_bar: TabBar::default(),
             tab_rail: TabRail::default(),
             rename_state: None,
+            rename_clicks: ClickTracker::default(),
+            rename_dragging: false,
             overlay_left_held: false,
             home_dir: std::env::var_os("HOME").and_then(|h| h.into_string().ok()),
             image_overlay: None,

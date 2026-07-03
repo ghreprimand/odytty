@@ -1326,6 +1326,47 @@ impl App {
         self.rename_state.as_ref().map(|state| state.text.clone())
     }
 
+    /// F4-RENAME-MOUSE: the rename caret position (character index).
+    #[cfg(test)]
+    pub(in crate::native) fn rename_cursor_for_test(&self) -> Option<usize> {
+        self.rename_state.as_ref().map(|state| state.cursor)
+    }
+
+    /// F4-RENAME-MOUSE: the active rename selection span `[lo, hi)`, or `None`.
+    #[cfg(test)]
+    pub(in crate::native) fn rename_selection_for_test(&self) -> Option<(usize, usize)> {
+        let state = self.rename_state.as_ref()?;
+        let anchor = state.anchor?;
+        (anchor != state.cursor).then(|| (anchor.min(state.cursor), anchor.max(state.cursor)))
+    }
+
+    /// F4-RENAME-MOUSE: simulate a left press on the rename field at a grid
+    /// cell, routed through the real `handle_mouse_input` dispatch so the
+    /// modal-capture wiring is covered (not just the handler in isolation).
+    #[cfg(test)]
+    pub(in crate::native) fn rename_pointer_press_for_test(&mut self, row: usize, column: usize) {
+        self.pointer_cell = Some(CellPoint { row, column });
+        self.handle_mouse_input(ElementState::Pressed, WinitMouseButton::Left);
+    }
+
+    /// F4-RENAME-MOUSE: simulate pointer motion during a live rename drag,
+    /// routed through the real `update_pointer_cell` dispatch. Uses cell-sized
+    /// pixels so the mapped cell equals `(row, column)` on the single-pane path.
+    #[cfg(test)]
+    pub(in crate::native) fn rename_pointer_drag_for_test(&mut self, row: usize, column: usize) {
+        self.pointer_cell = Some(CellPoint { row, column });
+        if self.rename_dragging {
+            self.rename_drag_extend();
+        }
+    }
+
+    /// F4-RENAME-MOUSE: simulate the left-button release that ends a drag,
+    /// routed through the real `handle_mouse_input` dispatch.
+    #[cfg(test)]
+    pub(in crate::native) fn rename_pointer_release_for_test(&mut self) {
+        self.handle_mouse_input(ElementState::Released, WinitMouseButton::Left);
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn advance_session_bytes_for_test(
         &mut self,

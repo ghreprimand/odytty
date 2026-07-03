@@ -1465,6 +1465,17 @@ impl App {
             selection::cell_at_physical_with_padding(x_px, y_px, cell, self.grid, padding)
         });
         self.pointer_cell = Some(point);
+        // F4-RENAME-MOUSE: while a rename drag is live the field owns the
+        // pointer — extend its selection to the new cell and stop, before any
+        // grid hover/selection/PTY-report work. The rename modal renders only on
+        // the single-pane path, so `self.grid` / `self.pointer_cell` are its
+        // exact render basis here. `rename_dragging` is only ever set while the
+        // modal is open, so this is inert on every other path.
+        if self.rename_dragging {
+            self.apply_cursor_icon(CursorIcon::Text);
+            self.rename_drag_extend();
+            return;
+        }
         // UX4-P1/P2: while an overlay is open it owns the pointer. Keep caching
         // the coordinates above (a press needs them), but skip link hover, local
         // selection, and PTY motion reports — they belong to the terminal grid

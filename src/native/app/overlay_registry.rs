@@ -395,7 +395,12 @@ impl App {
             target,
             text: title,
             cursor,
+            anchor: None,
         });
+        // F4-RENAME-MOUSE: start each rename with a clean pointer state so a
+        // stale drag/double-click streak from a previous field can't leak in.
+        self.rename_dragging = false;
+        self.rename_clicks = ClickTracker::default();
         self.request_selection_redraw();
     }
 
@@ -406,6 +411,7 @@ impl App {
         match key {
             WinitKey::Named(NamedKey::Escape) => {
                 self.rename_state = None;
+                self.rename_dragging = false;
             }
             WinitKey::Named(NamedKey::Enter) => {
                 let target = state.target;
@@ -413,27 +419,56 @@ impl App {
                 let override_name = (!text.is_empty()).then_some(text);
                 self.sessions.set_title_override(target, override_name);
                 self.rename_state = None;
+                self.rename_dragging = false;
             }
             WinitKey::Named(NamedKey::Backspace) => {
-                if state.cursor > 0 {
+                // F4-RENAME-MOUSE: a live selection is replaced (deleted) by
+                // Backspace; only with no selection does it delete the char
+                // before the caret.
+                if !rename_delete_selection(state) && state.cursor > 0 {
                     let remove_at = rename_byte_index(&state.text, state.cursor - 1);
                     state.text.remove(remove_at);
                     state.cursor -= 1;
                 }
             }
+            WinitKey::Named(NamedKey::Delete) => {
+                // F4-RENAME-MOUSE: Delete replaces a live selection, else it
+                // deletes the char at (forward of) the caret.
+                if !rename_delete_selection(state) {
+                    let count = state.text.chars().count();
+                    if state.cursor < count {
+                        let remove_at = rename_byte_index(&state.text, state.cursor);
+                        state.text.remove(remove_at);
+                    }
+                }
+            }
             WinitKey::Named(NamedKey::ArrowLeft) => {
-                state.cursor = state.cursor.saturating_sub(1);
+                // Collapse a selection to its left edge; otherwise step left.
+                state.cursor = match rename_selection_range(state) {
+                    Some((lo, _)) => lo,
+                    None => state.cursor.saturating_sub(1),
+                };
+                state.anchor = None;
             }
             WinitKey::Named(NamedKey::ArrowRight) => {
-                state.cursor = (state.cursor + 1).min(state.text.chars().count());
+                // Collapse a selection to its right edge; otherwise step right.
+                state.cursor = match rename_selection_range(state) {
+                    Some((_, hi)) => hi,
+                    None => (state.cursor + 1).min(state.text.chars().count()),
+                };
+                state.anchor = None;
             }
             WinitKey::Named(NamedKey::Home) => {
                 state.cursor = 0;
+                state.anchor = None;
             }
             WinitKey::Named(NamedKey::End) => {
                 state.cursor = state.text.chars().count();
+                state.anchor = None;
             }
             WinitKey::Character(text) if !self.modifiers.ctrl && !self.modifiers.alt => {
+                // Typing over a selection replaces it first.
+                rename_delete_selection(state);
                 for ch in text.chars().filter(|ch| !ch.is_control()) {
                     let insert_at = rename_byte_index(&state.text, state.cursor);
                     state.text.insert(insert_at, ch);
@@ -443,6 +478,102 @@ impl App {
             _ => {}
         }
         self.request_selection_redraw();
+    }
+
+    /// F4-RENAME-MOUSE: handle a left mouse button on the tab-rename field.
+    ///
+    /// The rename modal is painted into the single-pane content snapshot
+    /// (`paint_rename_tab_cells`), so the render basis is exactly
+    /// `self.grid` + `self.pointer_cell`. A press that lands on the input line
+    /// places the caret at the clicked character (a second click within the
+    /// double-click window selects the word under it); the drag that a plain
+    /// press arms is extended by `rename_drag_extend` on pointer motion. A
+    /// release ends the drag and collapses an empty selection.
+    ///
+    /// Non-left buttons and presses off the input line are ignored (the caret
+    /// stays put); the modal already owns the pointer, so nothing leaks to the
+    /// grid beneath.
+    pub(super) fn handle_rename_pointer_button(
+        &mut self,
+        state: ElementState,
+        button: WinitMouseButton,
+    ) {
+        if button != WinitMouseButton::Left {
+            return;
+        }
+        if state == ElementState::Released {
+            self.rename_dragging = false;
+            if let Some(rename) = self.rename_state.as_mut()
+                && rename.anchor == Some(rename.cursor)
+            {
+                // An armed drag that never moved leaves an empty selection.
+                rename.anchor = None;
+            }
+            self.request_selection_redraw();
+            return;
+        }
+        let Some(point) = self.pointer_cell else {
+            return;
+        };
+        let (columns, rows) = (self.grid.columns, self.grid.rows);
+        let Some(rename) = self.rename_state.as_ref() else {
+            return;
+        };
+        let char_count = rename.text.chars().count();
+        let Some(idx) = rename_input_hit(
+            columns,
+            rows,
+            char_count,
+            rename.cursor,
+            point.row,
+            point.column,
+        ) else {
+            return;
+        };
+        let clicks = self.rename_clicks.register_click(point, Instant::now());
+        let Some(rename) = self.rename_state.as_mut() else {
+            return;
+        };
+        if clicks >= 2 {
+            // Double- (or triple-) click selects the whole word under the caret.
+            let (lo, hi) = rename_word_bounds(&rename.text, idx);
+            rename.anchor = Some(lo);
+            rename.cursor = hi;
+            self.rename_dragging = false;
+        } else {
+            // A single click places the caret and arms a drag from there.
+            rename.cursor = idx;
+            rename.anchor = Some(idx);
+            self.rename_dragging = true;
+        }
+        self.request_selection_redraw();
+    }
+
+    /// F4-RENAME-MOUSE: extend the field selection to the current pointer cell
+    /// while a rename drag is live. The drag anchor (set on press) is kept; the
+    /// caret follows the pointer, clamped onto the input line so dragging off
+    /// the row still tracks horizontally.
+    pub(super) fn rename_drag_extend(&mut self) {
+        let Some(point) = self.pointer_cell else {
+            return;
+        };
+        let (columns, rows) = (self.grid.columns, self.grid.rows);
+        let Some(rename) = self.rename_state.as_ref() else {
+            return;
+        };
+        let char_count = rename.text.chars().count();
+        // Clamp the drag onto the input row so vertical straying still tracks
+        // the horizontal position (a text drag conventionally follows X).
+        let Some(row) = rename_input_row(columns, rows) else {
+            return;
+        };
+        if let Some(idx) =
+            rename_input_hit(columns, rows, char_count, rename.cursor, row, point.column)
+            && let Some(rename) = self.rename_state.as_mut()
+        {
+            rename.cursor = idx;
+            self.request_selection_redraw();
+        }
     }
 
     pub(in crate::native) fn paint_rename_tab_cells(&self, snapshot: &mut Snapshot) {
@@ -468,13 +599,27 @@ impl App {
         if body_width == 0 {
             return;
         }
-        let prompt = "Tab name: ";
-        let prompt_width = prompt.chars().count().min(body_width);
-        rename_write_text(snapshot, top + 1, body_left, prompt_width, prompt, panel);
-        let input_left = body_left + prompt_width;
-        let input_width = body_width.saturating_sub(prompt_width);
-        if input_width > 0 {
-            rename_write_input(snapshot, top + 1, input_left, input_width, state, panel);
+        let prompt_width = RENAME_PROMPT.chars().count().min(body_width);
+        rename_write_text(
+            snapshot,
+            top + 1,
+            body_left,
+            prompt_width,
+            RENAME_PROMPT,
+            panel,
+        );
+        // Derive the input trio from the shared layout so render and the mouse
+        // hit-test can never drift (F4-RENAME-MOUSE). `rename_layout` replicates
+        // the box math above exactly; a unit test pins that agreement.
+        if let Some(layout) = rename_layout(columns, rows) {
+            rename_write_input(
+                snapshot,
+                layout.input_row,
+                layout.input_left,
+                layout.input_width,
+                state,
+                panel,
+            );
         }
     }
 
@@ -526,6 +671,143 @@ impl App {
     }
 }
 
+/// The prompt label printed before the editable input in the rename modal.
+/// Shared between the painter and [`rename_layout`] so the input's start column
+/// is computed identically on both the render and hit-test paths.
+const RENAME_PROMPT: &str = "Tab name: ";
+
+/// Geometry of the tab-rename modal's editable input, derived purely from the
+/// content-grid dimensions. Render (`paint_rename_tab_cells` /
+/// `rename_write_input`) and the mouse hit-test both go through this so a click
+/// maps to exactly the character the painter drew under the pointer.
+struct RenameLayout {
+    /// Leftmost box column (inclusive).
+    box_left: usize,
+    /// Rightmost box column (inclusive).
+    box_right: usize,
+    /// Grid row the editable input sits on.
+    input_row: usize,
+    /// First grid column of the editable input (just after the prompt).
+    input_left: usize,
+    /// Width, in cells, of the editable input (1 cell renders 1 character).
+    input_width: usize,
+}
+
+/// Replicate the box math in [`App::paint_rename_tab_cells`] exactly, returning
+/// the editable-input geometry — or `None` when the grid is too small for the
+/// modal (the painter bails on the same conditions). A unit test pins that this
+/// stays byte-aligned with the painter.
+fn rename_layout(columns: usize, rows: usize) -> Option<RenameLayout> {
+    if columns < 8 || rows < 3 {
+        return None;
+    }
+    let width = columns.clamp(8, 48);
+    let height = 3usize;
+    let left = (columns - width) / 2;
+    let top = (rows - height) / 2;
+    let body_left = left + 2;
+    let body_width = width.saturating_sub(4);
+    if body_width == 0 {
+        return None;
+    }
+    let prompt_width = RENAME_PROMPT.chars().count().min(body_width);
+    let input_left = body_left + prompt_width;
+    let input_width = body_width.saturating_sub(prompt_width);
+    if input_width == 0 {
+        return None;
+    }
+    Some(RenameLayout {
+        box_left: left,
+        box_right: left + width - 1,
+        input_row: top + 1,
+        input_left,
+        input_width,
+    })
+}
+
+/// The grid row the rename input occupies, or `None` if the modal cannot fit.
+fn rename_input_row(columns: usize, rows: usize) -> Option<usize> {
+    rename_layout(columns, rows).map(|layout| layout.input_row)
+}
+
+/// The first visible character index given the current caret and field width —
+/// the horizontal scroll offset shared by the painter and the hit-test so both
+/// agree on which characters are on screen.
+fn rename_visible_start(char_count: usize, cursor: usize, width: usize) -> usize {
+    if char_count > width {
+        cursor.saturating_sub(width.saturating_sub(1))
+    } else {
+        0
+    }
+}
+
+/// Map a clicked content-grid cell to a caret character index in the rename
+/// input, or `None` when the click is not on the input line / outside the box.
+/// `cursor` is the pre-click caret (it decides the visible scroll window).
+fn rename_input_hit(
+    columns: usize,
+    rows: usize,
+    char_count: usize,
+    cursor: usize,
+    row: usize,
+    col: usize,
+) -> Option<usize> {
+    let layout = rename_layout(columns, rows)?;
+    if row != layout.input_row || col < layout.box_left || col > layout.box_right {
+        return None;
+    }
+    let start = rename_visible_start(char_count, cursor.min(char_count), layout.input_width);
+    let rel = col.saturating_sub(layout.input_left);
+    Some((start + rel).min(char_count))
+}
+
+/// Whitespace-delimited word bounds `[lo, hi)` (character indices) around the
+/// character at `idx`. A click on whitespace selects the whitespace run; an
+/// out-of-range `idx` clamps to the last character. Empty text yields `(0, 0)`.
+fn rename_word_bounds(text: &str, idx: usize) -> (usize, usize) {
+    let chars: Vec<char> = text.chars().collect();
+    if chars.is_empty() {
+        return (0, 0);
+    }
+    let i = idx.min(chars.len() - 1);
+    let ws = chars[i].is_whitespace();
+    let mut lo = i;
+    while lo > 0 && chars[lo - 1].is_whitespace() == ws {
+        lo -= 1;
+    }
+    let mut hi = i + 1;
+    while hi < chars.len() && chars[hi].is_whitespace() == ws {
+        hi += 1;
+    }
+    (lo, hi)
+}
+
+/// The active selection span `[lo, hi)` (character indices) in the rename field,
+/// or `None` when nothing is selected (no anchor, or anchor collapsed onto the
+/// caret).
+fn rename_selection_range(state: &RenameState) -> Option<(usize, usize)> {
+    let anchor = state.anchor?;
+    let cursor = state.cursor;
+    (anchor != cursor).then(|| (anchor.min(cursor), anchor.max(cursor)))
+}
+
+/// If the rename field has a live selection, delete it (setting the caret to the
+/// span start) and return `true`; otherwise return `false`. Either way the
+/// anchor is cleared, so a subsequent edit starts from a collapsed caret.
+fn rename_delete_selection(state: &mut RenameState) -> bool {
+    let removed = if let Some((lo, hi)) = rename_selection_range(state) {
+        let lo_b = rename_byte_index(&state.text, lo);
+        let hi_b = rename_byte_index(&state.text, hi);
+        state.text.replace_range(lo_b..hi_b, "");
+        state.cursor = lo;
+        true
+    } else {
+        false
+    };
+    state.anchor = None;
+    removed
+}
+
 fn rename_byte_index(text: &str, char_index: usize) -> usize {
     text.char_indices()
         .nth(char_index)
@@ -551,6 +833,18 @@ fn rename_cursor_attrs() -> Attrs {
     let mut attrs = Attrs::default();
     attrs.foreground = Color::Indexed(0);
     attrs.background = Color::Indexed(11);
+    attrs
+}
+
+/// F4-RENAME-MOUSE: styling for selected characters in the rename field. The
+/// modal paints into the indexed-palette cell snapshot (like the cursor and
+/// border above), where the theme's `selection` role isn't addressable, so this
+/// uses the conventional blue-highlight palette pair — bright text on a blue
+/// field — the closest faithful analog in this cell-modal path.
+fn rename_selection_attrs() -> Attrs {
+    let mut attrs = Attrs::default();
+    attrs.foreground = Color::Indexed(15);
+    attrs.background = Color::Indexed(4);
     attrs
 }
 
@@ -634,21 +928,27 @@ fn rename_write_input(
     state: &RenameState,
     attrs: Attrs,
 ) {
-    let cursor = state.cursor.min(state.text.chars().count());
+    let char_count = state.text.chars().count();
+    let cursor = state.cursor.min(char_count);
     let chars: Vec<char> = state.text.chars().collect();
-    let start = if chars.len() > width {
-        cursor.saturating_sub(width.saturating_sub(1))
-    } else {
-        0
-    };
+    let start = rename_visible_start(char_count, cursor, width);
     let visible_cursor = cursor.saturating_sub(start).min(width.saturating_sub(1));
+    // F4-RENAME-MOUSE: highlight the selected span [lo, hi) in selection colors.
+    let selection = rename_selection_range(state);
+    let sel_attrs = rename_selection_attrs();
     for col in 0..width {
+        let char_index = start + col;
+        let selected = selection.is_some_and(|(lo, hi)| char_index >= lo && char_index < hi);
+        // The caret cell wins over selection styling so the focus edge stays
+        // visible; then selected cells; then the plain panel fill.
         let cell_attrs = if col == visible_cursor {
             rename_cursor_attrs()
+        } else if selected {
+            sel_attrs
         } else {
             attrs
         };
-        let ch = chars.get(start + col).copied().unwrap_or(' ');
+        let ch = chars.get(char_index).copied().unwrap_or(' ');
         rename_write_cell(snapshot, row, column + col, ch, cell_attrs);
     }
 }
@@ -658,4 +958,201 @@ fn rename_write_cell(snapshot: &mut Snapshot, row: usize, column: usize, ch: cha
         return;
     }
     snapshot.cells[row * snapshot.dimensions.columns + column] = Cell::new(ch, attrs);
+}
+
+#[cfg(test)]
+mod rename_mouse_tests {
+    //! F4-RENAME-MOUSE: pure hit-test / caret-mapping / selection-edit seam
+    //! tests. These need no `App` or PTY — they exercise the free functions the
+    //! render and pointer paths both go through, so a click maps to exactly the
+    //! character the painter drew.
+    use super::*;
+
+    /// A `RenameState` with no live session — fine for the edit/selection
+    /// helpers, which never touch the target token.
+    fn state(text: &str, cursor: usize) -> RenameState {
+        RenameState {
+            target: SessionToken(1),
+            text: text.to_owned(),
+            cursor,
+            anchor: None,
+        }
+    }
+
+    #[test]
+    fn layout_matches_the_painter_box_math() {
+        // The painter centers an 8..=48-wide, 3-tall box and reserves a 2-cell
+        // border + the "Tab name: " prompt. Reproduce that here so a drift in
+        // `rename_layout` (used by the hit-test) is caught.
+        let columns = 80;
+        let rows = 24;
+        let width = columns.clamp(8, 48); // 48
+        let left = (columns - width) / 2; // 16
+        let top = (rows - 3) / 2; // 10
+        let body_left = left + 2; // 18
+        let prompt_width = "Tab name: ".chars().count(); // 10
+        let layout = rename_layout(columns, rows).expect("layout fits");
+        assert_eq!(layout.box_left, left);
+        assert_eq!(layout.box_right, left + width - 1);
+        assert_eq!(layout.input_row, top + 1);
+        assert_eq!(layout.input_left, body_left + prompt_width);
+        assert_eq!(layout.input_width, width - 4 - prompt_width);
+    }
+
+    #[test]
+    fn layout_is_none_when_the_grid_is_too_small() {
+        assert!(rename_layout(7, 24).is_none(), "too few columns");
+        assert!(rename_layout(80, 2).is_none(), "too few rows");
+    }
+
+    #[test]
+    fn hit_maps_a_click_to_the_character_under_it() {
+        let columns = 80;
+        let rows = 24;
+        let layout = rename_layout(columns, rows).unwrap();
+        // Short text (no scroll): char index == click column - input_left.
+        let char_count = 5; // "hello"
+        let cursor = 5;
+        for col_off in 0..layout.input_width.min(char_count + 1) {
+            let hit = rename_input_hit(
+                columns,
+                rows,
+                char_count,
+                cursor,
+                layout.input_row,
+                layout.input_left + col_off,
+            );
+            assert_eq!(hit, Some(col_off), "click {col_off} maps to char {col_off}");
+        }
+    }
+
+    #[test]
+    fn hit_clamps_past_end_and_before_start() {
+        let columns = 80;
+        let rows = 24;
+        let layout = rename_layout(columns, rows).unwrap();
+        let char_count = 3;
+        // Far to the right of the 3-char text but still inside the box → end.
+        let far = rename_input_hit(
+            columns,
+            rows,
+            char_count,
+            char_count,
+            layout.input_row,
+            layout.box_right,
+        );
+        assert_eq!(far, Some(char_count), "clamps to text length");
+        // On the prompt (left of the input field) → start of the visible window.
+        let onprompt = rename_input_hit(
+            columns,
+            rows,
+            char_count,
+            char_count,
+            layout.input_row,
+            layout.box_left + 1,
+        );
+        assert_eq!(onprompt, Some(0), "left of input clamps to visible start");
+    }
+
+    #[test]
+    fn hit_is_none_off_the_input_row_or_box() {
+        let columns = 80;
+        let rows = 24;
+        let layout = rename_layout(columns, rows).unwrap();
+        assert!(
+            rename_input_hit(columns, rows, 3, 3, layout.input_row + 1, layout.input_left)
+                .is_none(),
+            "different row misses"
+        );
+        assert!(
+            rename_input_hit(columns, rows, 3, 3, layout.input_row, layout.box_right + 1).is_none(),
+            "past the right border misses"
+        );
+    }
+
+    #[test]
+    fn hit_accounts_for_horizontal_scroll() {
+        // A field narrower than the text scrolls so the caret stays visible; the
+        // hit-test must use the same `start` window or clicks land on the wrong
+        // character. Force a narrow input via a small grid.
+        let columns = 20;
+        let rows = 5;
+        let layout = rename_layout(columns, rows).expect("narrow layout fits");
+        let width = layout.input_width;
+        let char_count = width + 10; // longer than the field → scrolled
+        let cursor = char_count; // caret at end → window shows the tail
+        let start = rename_visible_start(char_count, cursor, width);
+        assert!(start > 0, "text is scrolled");
+        // Clicking the first visible cell selects the first visible character.
+        let hit = rename_input_hit(
+            columns,
+            rows,
+            char_count,
+            cursor,
+            layout.input_row,
+            layout.input_left,
+        );
+        assert_eq!(hit, Some(start));
+    }
+
+    #[test]
+    fn word_bounds_select_whitespace_delimited_words() {
+        let text = "hello world foo";
+        assert_eq!(rename_word_bounds(text, 0), (0, 5), "first word");
+        assert_eq!(rename_word_bounds(text, 3), (0, 5), "mid first word");
+        assert_eq!(rename_word_bounds(text, 6), (6, 11), "second word");
+        // Index on the space between words selects the whitespace run.
+        assert_eq!(rename_word_bounds(text, 5), (5, 6), "single space run");
+        // Out-of-range clamps to the last character's word.
+        assert_eq!(
+            rename_word_bounds(text, 99),
+            (12, 15),
+            "clamped to last word"
+        );
+        assert_eq!(rename_word_bounds("", 0), (0, 0), "empty text");
+    }
+
+    #[test]
+    fn selection_range_reports_ordered_span() {
+        let mut s = state("hello", 4);
+        assert_eq!(rename_selection_range(&s), None, "no anchor → no selection");
+        s.anchor = Some(4);
+        assert_eq!(rename_selection_range(&s), None, "collapsed anchor → none");
+        s.anchor = Some(1);
+        assert_eq!(rename_selection_range(&s), Some((1, 4)), "ordered lo..hi");
+        s.cursor = 0;
+        assert_eq!(
+            rename_selection_range(&s),
+            Some((0, 1)),
+            "anchor behind caret"
+        );
+    }
+
+    #[test]
+    fn delete_selection_removes_the_span_and_clears_anchor() {
+        let mut s = state("hello world", 5);
+        s.anchor = Some(0); // select "hello"
+        assert!(rename_delete_selection(&mut s), "removed a span");
+        assert_eq!(s.text, " world");
+        assert_eq!(s.cursor, 0, "caret to span start");
+        assert_eq!(s.anchor, None, "anchor cleared");
+        // No selection → returns false, still clears any stale anchor.
+        let mut s2 = state("abc", 1);
+        s2.anchor = Some(1); // collapsed
+        assert!(!rename_delete_selection(&mut s2));
+        assert_eq!(s2.text, "abc");
+        assert_eq!(s2.anchor, None);
+    }
+
+    #[test]
+    fn delete_selection_handles_multibyte_text() {
+        // "café» " — non-ASCII so byte and char indices diverge; the delete must
+        // map through char→byte or it would slice mid-codepoint / mispositioned.
+        let mut s = state("café☺x", 4); // chars: c a f é ☺ x
+        s.anchor = Some(3); // select "é☺" (chars 3..4? actually 3..cursor)
+        s.cursor = 5; // select chars 3..5 = "é☺"
+        assert!(rename_delete_selection(&mut s));
+        assert_eq!(s.text, "cafx");
+        assert_eq!(s.cursor, 3);
+    }
 }

@@ -48,10 +48,14 @@ impl App {
             return;
         }
         // Modal pointer capture (Wave-15 foundation): a mouse-owning modal
-        // (copy-mode) swallows the press beneath the overlay guard, suppressing
-        // both local selection and PTY reporting. `modal_captures_pointer()` is
-        // `false` today, so this is dead code and the press path is unchanged.
+        // swallows the press beneath the overlay guard, suppressing both local
+        // selection and PTY reporting. The tab-rename modal additionally routes
+        // the button to its caret/selection handler (F4-RENAME-MOUSE); copy-mode
+        // still swallows silently.
         if self.modal_captures_pointer() {
+            if self.rename_state.is_some() {
+                self.handle_rename_pointer_button(state, button);
+            }
             return;
         }
         // A left-release always ends an in-progress divider drag (design doc

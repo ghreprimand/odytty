@@ -757,6 +757,97 @@ fn rename_modal_commits_edits_cancels_and_empty_commit_clears_override() {
     );
 }
 
+/// Replicate the rename modal's editable-input origin from the grid dims — the
+/// same math `rename_layout` uses, so a click column maps to a known character.
+fn rename_input_origin(cols: usize, rows: usize) -> (usize, usize) {
+    let width = cols.clamp(8, 48);
+    let left = (cols - width) / 2;
+    let top = (rows - 3) / 2;
+    let input_row = top + 1;
+    let input_left = left + 2 + "Tab name: ".chars().count();
+    (input_row, input_left)
+}
+
+#[test]
+fn rename_field_click_places_caret_and_drag_selects() {
+    // F4-RENAME-MOUSE: a click positions the caret, a drag extends a selection,
+    // and typing replaces the selected span.
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let (cols, rows) = app.grid_dims_for_test();
+    let (input_row, input_left) = rename_input_origin(cols, rows);
+
+    app.set_session_title_override_for_test(0, Some("hello world"));
+    assert!(app.begin_rename_tab_for_test(0));
+    assert_eq!(
+        app.rename_cursor_for_test(),
+        Some(11),
+        "caret starts at end"
+    );
+
+    // Click on character index 2 ('l' of "hello").
+    app.rename_pointer_press_for_test(input_row, input_left + 2);
+    assert_eq!(
+        app.rename_cursor_for_test(),
+        Some(2),
+        "click places the caret"
+    );
+    assert_eq!(
+        app.rename_selection_for_test(),
+        None,
+        "a plain click makes no selection"
+    );
+
+    // Drag to character index 5 → selection [2, 5) = "llo".
+    app.rename_pointer_drag_for_test(input_row, input_left + 5);
+    assert_eq!(app.rename_selection_for_test(), Some((2, 5)));
+    app.rename_pointer_release_for_test();
+    assert_eq!(
+        app.rename_selection_for_test(),
+        Some((2, 5)),
+        "release keeps the finalized selection"
+    );
+
+    // Typing replaces the selected span.
+    app.drive_text_key_for_test("X");
+    assert_eq!(app.rename_text_for_test().as_deref(), Some("heX world"));
+    assert_eq!(app.rename_selection_for_test(), None, "insertion clears it");
+}
+
+#[test]
+fn rename_field_double_click_selects_word_and_backspace_replaces_it() {
+    // F4-RENAME-MOUSE: a double-click selects the word under the pointer, and a
+    // subsequent Backspace deletes the whole selection.
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let (cols, rows) = app.grid_dims_for_test();
+    let (input_row, input_left) = rename_input_origin(cols, rows);
+
+    app.set_session_title_override_for_test(0, Some("hello world"));
+    assert!(app.begin_rename_tab_for_test(0));
+
+    // Two quick presses on the same cell (char 7, inside "world") → word select.
+    app.rename_pointer_press_for_test(input_row, input_left + 7);
+    app.rename_pointer_press_for_test(input_row, input_left + 7);
+    assert_eq!(
+        app.rename_selection_for_test(),
+        Some((6, 11)),
+        "double-click selects the whole word"
+    );
+
+    app.drive_named_key_for_test(NamedKey::Backspace);
+    assert_eq!(
+        app.rename_text_for_test().as_deref(),
+        Some("hello "),
+        "Backspace replaces the selected word"
+    );
+    assert_eq!(app.rename_selection_for_test(), None);
+}
+
 #[test]
 fn shell_exit_for_last_session_requests_app_exit() {
     let options = NativeOptions::default();
