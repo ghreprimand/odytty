@@ -7,6 +7,63 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Vertical tab rail: greenfield widget (F4-V2 R1, slice 1 of 2)
+
+First slice of the vertical tab rail — the largest UI packet of the cycle. This
+lands the **presentation-only widget** `src/native/app/tab_rail.rs` complete
+(layout + render + hit-test + 34 unit tests at the pure seam); the render-path
+integration (reservation axis flip, single-pane siblings, edge wash) is the
+second slice. The rail is **not yet wired to any render path**, so master is
+byte-identical on every existing path — zero regression on the just-iterated
+horizontal bar. (`#[allow(dead_code)]` on the `mod tab_rail;` declaration is
+temporary; the integration slice removes it.)
+
+Design: `f4v2-vertical-rail.md` (ODP-1 sibling widget, not an orientation enum).
+Operator rulings baked in:
+
+- **Option B "padded slots"** — 2-cell-tall slots (`SLOT_ROWS`), 1-cell band gaps
+  (`SLOT_GAP`), the title wraps to a 2nd line then truncates with `…`, the `×`
+  gets its own top-right cell. Fixed 16-col width (the `[8,32]` clamp arrives
+  with the R2 settings plumbing).
+- **Sibling `TabRail`** reusing the shared `TabBarSource` trait, `TabHit` enum,
+  and `TabBarColors` verbatim (so pointer/action dispatch is reused unchanged);
+  the horizontal `TabBar` is untouched.
+- **Left placement** in R1 (the `RailSide::Right` divider seam is wired and
+  tested so R2 only adds reservation/settings, not render code).
+- **Closed-box rings** — the v1.4 connected-active/open-bottom transposition is
+  deliberately HELD for the rail until the operator judges it on the horizontal
+  bar (per the task directive: build closed-box first, open-edge is a follow-up).
+
+Carried-over horizontal-bar mandates:
+
+- Ring colors from **TEXT-side roles only** (active = `foreground` blended toward
+  the band, inactive = the `inactive` role), never the near-black frame-side
+  `border` role (the v1.3 dark-on-dark lesson). The whole `rail_cols × grid_rows`
+  region is opaque band fill so wallpaper never leaks through the rail; a 1px
+  `border` divider marks the rail↔content seam.
+- **≥2px ring floor** (the CRT scanline shader eats a 1px ring).
+- The **per-built-in-theme luma-contrast regression** is extended to the rail's
+  ring derivations — every theme's active/inactive rail rings must clear the
+  0.03 luminance-delta floor against the band.
+
+Overflow: when tabs exceed the rail's slot capacity the view scrolls to keep the
+active tab visible and paints informational `▲N`/`▼N` count indicators (their
+rows hit-test to `None` in R1; wheel-scroll is R2.1). The `+` new-tab slot flows
+after the last tab and is dropped only when the rail is full.
+
+The tiny pure color helpers (`blend_srgb`/`srgb_alpha`) are re-derived locally
+rather than imported from `tab_bar.rs`, so the widget landed fully greenfield
+without editing the horizontal bar mid-iteration; consolidating both widgets'
+shared pure helpers into a `tab_chrome.rs` is deferred follow-up (F4V2-NF2).
+
+**Windows:** platform-neutral — pure winit/wgpu render + pointer mapping, no PTY,
+spawn, path, env, or shell-integration surface; no `cfg(windows)` code. The
+`windows-latest` CI leg exercises the identical code.
+
+Gate: `cargo test` 2859 lib + all suites 0 failed (34 new rail tests); `cargo
+clippy --all-targets --locked -- -D warnings` clean; `cargo fmt --check` clean;
+MSRV lockstep untouched.
+
 ## 2026-07-03 -- Connected active tab: broken separator + open-bottom active ring (F4-IMPL v1.4)
 
 Aesthetic iteration on the v1.3 screenshot: the operator saw boxes-on-a-strip and

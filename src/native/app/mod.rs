@@ -109,6 +109,13 @@ mod scroll_anim;
 mod session_attach_ui;
 mod ssh_connect;
 mod tab_bar;
+// F4-V2 R1: greenfield vertical tab rail widget. `allow(dead_code)` is
+// temporary — the render-path integration slice (panes.rs / mod.rs reservation
+// / pointer.rs / gpu.rs edge wash) wires it and removes this allow. Kept
+// separate so the widget lands and is unit-tested without touching the
+// horizontal bar mid-iteration (shared-worktree discipline).
+#[allow(dead_code)]
+mod tab_rail;
 #[cfg(test)]
 mod test_seams;
 mod theme_roles;
