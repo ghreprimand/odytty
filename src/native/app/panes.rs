@@ -513,7 +513,14 @@ impl App {
         // strip along the top, or the vertical rail down a side (F4-V2). Both
         // sit at `[pad, pad]` and never overlap the content rect (reserved out of
         // it above), so push order relative to the content panes is irrelevant.
-        let tab_strip = if show_tab_bar {
+        //
+        // F4-P3: under rail auto-hide the pinned strip is suppressed — the rail
+        // draws only as the floating overlay (`build_rail_overlay`, below). This
+        // guard mirrors the single-pane `decorate_snapshot_with_tab_bar` fix: the
+        // `rail_side()` dispatch reads the (zeroed) auto-hide reservation and
+        // reports `None`, which would otherwise fall through to `tab_bar_strip`
+        // and leak a phantom TOP bar on a side-placed window.
+        let tab_strip = if show_tab_bar && !self.rail_autohide_active() {
             match self.rail_side() {
                 Some(side) => self.tab_rail_strip(cell, padding, surface_h, side),
                 None => self.tab_bar_strip(cell, padding, surface_w),

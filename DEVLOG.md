@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Auto-hide: side rail no longer leaks a phantom top bar
+
+Enabling rail auto-hide on a **left or right** placement drew a one-row tab bar
+across the **top** of the window in addition to the (correct) floating side
+rail. The content also appeared shifted one row below where clicks landed, so
+right-clicks and Settings targeting felt off along the top of the window.
+
+Root cause: the tab-chrome decoration chooses rail-vs-top by reading the
+content-grid reservation. Under auto-hide the rail deliberately reserves *no*
+columns (content is full-bleed; the rail draws only as a floating overlay), so
+that reservation is zero — and a zero side reservation was interpreted as
+"placement = top", falling through to the top-bar branch. The same predicate
+backs both render paths, so the leak appeared in the single-pane decoration and
+the multi-pane strip alike.
+
+Fix: both decoration paths now short-circuit under auto-hide and decorate no
+pinned chrome at all — the rail is exclusively the floating reveal overlay, and
+the content snapshot is returned unchanged. The top-bar placement is unaffected
+(auto-hide never applies there). Regression coverage pins the decorated
+single-pane snapshot equal to the raw snapshot — no rows grown off the top, no
+columns off the side — in both the hidden and revealed phases, for left and
+right placements, and confirms a top placement still decorates its one row.
+
+Also verified: an idle auto-hidden rail schedules no event-loop wake in either
+steady phase (hidden, or revealed with the pointer parked), so an idle window
+parks at zero-wake and cannot spin a core. A regression test asserts the state
+machine contributes no wake across a series of settled maintenance polls in both
+phases. Measured process CPU under a refreshing full-screen load is
+indistinguishable with auto-hide on versus off.
+
+---
+
 ## 2026-07-03 -- Auto-hide the tab rail: reveal-zone, occlusion, and sensitivity fixes
 
 Live testing of the F4-P3 rail auto-hide surfaced three problems with the reveal

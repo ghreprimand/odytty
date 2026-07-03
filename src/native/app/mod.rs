@@ -2721,6 +2721,17 @@ impl App {
         if !self.should_show_tab_bar() {
             return (snapshot.clone(), Vec::new());
         }
+        // F4-P3: under rail auto-hide the pinned chrome is NOT decorated into the
+        // content snapshot — the rail draws only as a floating overlay
+        // (`build_rail_overlay`) over full-bleed content. This early return is the
+        // fix for the phantom TOP bar: the dispatch below keys off `rail_side()`,
+        // which reads the (deliberately zeroed) auto-hide reservation and so
+        // reports `None`; without this guard an auto-hidden LEFT/RIGHT rail fell
+        // through to the top-bar branch and grew a one-row bar across the top of
+        // a side-placed window.
+        if self.rail_autohide_active() {
+            return (snapshot.clone(), Vec::new());
+        }
         // Dispatch on placement: the vertical rail grows the snapshot by columns
         // off a side; the classic top bar grows it by rows off the top.
         if let Some(side) = self.rail_side() {

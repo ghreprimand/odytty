@@ -805,6 +805,34 @@ impl App {
         Some((decorated.dimensions.columns, decorated.dimensions.rows))
     }
 
+    /// Test seam (F4-P3): the UNDECORATED content snapshot's `(columns, rows)`.
+    /// Paired with `decorated_snapshot_dims_for_test` so the phantom-top-bar
+    /// regression (auto-hide leaking a top bar into a side-placed decoration) is
+    /// pinned as `decorated == raw` — no rows grown off the top, no columns off
+    /// the side.
+    #[cfg(test)]
+    pub(in crate::native) fn raw_snapshot_dims_for_test(&self) -> Option<(usize, usize)> {
+        let snapshot = self
+            .terminal
+            .lock()
+            .ok()?
+            .snapshot_with_scrollback(self.viewport.offset());
+        Some((snapshot.dimensions.columns, snapshot.dimensions.rows))
+    }
+
+    /// Test seam (F4-P3 / NF20): whether the rail auto-hide machine schedules a
+    /// wake at `now` — the state machine's contribution to `next_wake_deadline`.
+    /// `false` means the machine is idle (steady Hidden, or Revealed with the
+    /// pointer parked) and adds no self-wake, so an idle auto-hidden window
+    /// cannot spin the event loop. Clock-injected for determinism.
+    #[cfg(test)]
+    pub(in crate::native) fn rail_autohide_wants_wake_for_test(
+        &self,
+        now: std::time::Instant,
+    ) -> bool {
+        self.rail_autohide.wake_deadline(now).is_some()
+    }
+
     /// Test seam (F4-V2): the reserved `(rows_off_top, cols_off_side)` for the
     /// current placement.
     #[cfg(test)]

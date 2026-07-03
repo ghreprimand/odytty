@@ -973,6 +973,149 @@ fn repro_open_menu_suppresses_the_rail_overlay_no_occlusion() {
     );
 }
 
+// --- F4-P3 REGRESSION: phantom top-bar leak + idle self-wake (NF20) ---
+
+#[test]
+fn autohide_left_decoration_grows_no_phantom_top_bar() {
+    // REGRESSION (top-bar leak): with auto-hide on and placement=left, the
+    // single-pane decoration must NOT grow a top bar. The dispatch keys off
+    // `rail_side()`, which reads the (deliberately zeroed) auto-hide reservation
+    // and reports `None`; without the auto-hide guard an auto-hidden LEFT rail
+    // fell through to the top-bar branch and grew a one-row bar across the top
+    // (decorated rows = raw rows + 1). The rail draws only as a floating overlay,
+    // so the decorated snapshot must equal the raw snapshot — no rows off the
+    // top, no columns off the side — in BOTH the hidden and revealed phases.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    app.set_tab_rail_autohide_for_test(true);
+
+    let raw = app.raw_snapshot_dims_for_test().expect("raw dims");
+
+    // Hidden: no chrome decorated at all.
+    assert!(!app.rail_overlay_visible_for_test());
+    assert_eq!(
+        app.decorated_snapshot_dims_for_test(),
+        Some(raw),
+        "auto-hidden left rail must not grow a phantom top bar (hidden)"
+    );
+
+    // Revealed: still no pinned decoration — the reveal is a separate floating
+    // overlay, not a snapshot grow.
+    app.force_rail_reveal_for_test();
+    assert!(app.rail_overlay_visible_for_test());
+    assert_eq!(
+        app.decorated_snapshot_dims_for_test(),
+        Some(raw),
+        "a revealed auto-hide rail must not grow a phantom top bar (revealed)"
+    );
+}
+
+#[test]
+fn autohide_right_decoration_grows_no_phantom_top_bar() {
+    // Mirror of the left case for placement=right — the same `rail_side()`
+    // predicate leaked a top bar on a right-placed auto-hidden rail too.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.set_tab_bar_placement_for_test("right");
+    app.set_tab_rail_width_manual_for_test(16);
+    app.set_tab_rail_autohide_for_test(true);
+
+    let raw = app.raw_snapshot_dims_for_test().expect("raw dims");
+    assert_eq!(
+        app.decorated_snapshot_dims_for_test(),
+        Some(raw),
+        "auto-hidden right rail must not grow a phantom top bar"
+    );
+}
+
+#[test]
+fn autohide_top_placement_still_decorates_its_bar() {
+    // Guard the fix's blast radius: the auto-hide early-return must NOT fire on
+    // the top bar (auto-hide never applies there), so a top placement still
+    // grows its one-row bar exactly as before.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.set_tab_bar_placement_for_test("top");
+    app.set_tab_rail_autohide_for_test(true); // inert on top
+    assert!(!app.rail_autohide_active_for_test());
+
+    let raw = app.raw_snapshot_dims_for_test().expect("raw dims");
+    let decorated = app
+        .decorated_snapshot_dims_for_test()
+        .expect("decorated dims");
+    assert_eq!(decorated.0, raw.0, "top bar grows rows, not columns");
+    assert_eq!(
+        decorated.1,
+        raw.1 + 1,
+        "the top bar still reserves + decorates its one row"
+    );
+}
+
+#[test]
+fn autohide_idle_states_schedule_no_self_wake() {
+    // REGRESSION (NF20 CPU spin): an idle auto-hidden rail must not schedule a
+    // wake — neither steady Hidden nor Revealed-with-the-pointer-parked. A past
+    // or immediate wake here would spin the event loop (`WaitUntil(now)` → wake →
+    // poll → no change → repeat) at frame rate, pegging a core. Both idle phases
+    // must add nothing to `next_wake_deadline`.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    app.set_tab_rail_autohide_for_test(true);
+
+    let t0 = std::time::Instant::now();
+
+    // Idle Hidden (pointer parked deep in content): no wake.
+    app.pointer_move_for_test(400.0, 200.0);
+    app.run_about_to_wait_maintenance_for_test(t0 + std::time::Duration::from_millis(50));
+    assert!(!app.rail_overlay_visible_for_test(), "hidden at rest");
+    assert!(
+        !app.rail_autohide_wants_wake_for_test(t0 + std::time::Duration::from_millis(60)),
+        "an idle hidden rail schedules no self-wake"
+    );
+
+    // Reveal by parking the pointer at the edge, poll past the debounce, then
+    // confirm the settled Revealed state also schedules no wake.
+    app.pointer_move_for_test(2.0, 200.0);
+    app.run_about_to_wait_maintenance_for_test(t0 + std::time::Duration::from_millis(200));
+    assert!(
+        app.rail_overlay_visible_for_test(),
+        "revealed after debounce"
+    );
+    // Several settled polls with the pointer parked at the edge: still no wake.
+    for ms in [400u64, 800, 1600, 3200] {
+        let now = t0 + std::time::Duration::from_millis(ms);
+        app.run_about_to_wait_maintenance_for_test(now);
+        assert!(
+            app.rail_overlay_visible_for_test(),
+            "still revealed at +{ms}ms (parked at edge)"
+        );
+        assert!(
+            !app.rail_autohide_wants_wake_for_test(now),
+            "an idle revealed rail schedules no self-wake at +{ms}ms"
+        );
+    }
+}
+
 // --- F4-P2: right rail (mirror of the left rail) ---
 
 #[test]
