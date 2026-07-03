@@ -48,14 +48,27 @@ pub(super) fn pane_focus_dim(is_focused: bool, inactive_dim: f32) -> f32 {
 /// rail, F4-V2). Exactly one axis is ever non-zero for a given placement, and
 /// `NONE` (all zero) is the byte-identical no-chrome case. Callers build it from
 /// [`App::tab_reserve`]; the free `pane_content_rect` stays pure/GPU-free.
+///
+/// `gap_cols` is the cell-quantized wallpaper gap between a side rail and the
+/// content (R1.1): the rail's visual band is `left_cols`/`right_cols` wide, then
+/// `gap_cols` blank columns replicate the window-padding band between the rail
+/// and the terminal so text never abuts the rail seam. It only ever applies on
+/// the side the rail occupies (0 for the top bar / no chrome). The rail widget's
+/// visual width (`App::rail_cols`) excludes it; the content reservation
+/// (`pane_content_rect`, the pointer/graphics offsets, the resize column count)
+/// includes it — so grid, cursor, and pointer stay in lockstep (ODP-8).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct TabReserve {
     /// Rows reserved off the top (horizontal bar).
     pub(super) top_rows: usize,
-    /// Columns reserved off the left (left rail).
+    /// Columns reserved off the left (left rail) — the rail's visual band width.
     pub(super) left_cols: usize,
-    /// Columns reserved off the right (right rail — R2; always 0 in R1).
+    /// Columns reserved off the right (right rail — R2; always 0 in R1) — the
+    /// rail's visual band width.
     pub(super) right_cols: usize,
+    /// Blank wallpaper-gap columns between the side rail and the content (R1.1).
+    /// Zero for the top bar / no chrome.
+    pub(super) gap_cols: usize,
 }
 
 impl TabReserve {
@@ -63,6 +76,7 @@ impl TabReserve {
         top_rows: 0,
         left_cols: 0,
         right_cols: 0,
+        gap_cols: 0,
     };
 
     /// The classic top horizontal strip reservation (`TAB_BAR_ROWS` rows).
@@ -71,8 +85,43 @@ impl TabReserve {
             top_rows: TAB_BAR_ROWS as usize,
             left_cols: 0,
             right_cols: 0,
+            gap_cols: 0,
         }
     }
+
+    /// Total columns reserved off the left of the content: the left rail's band
+    /// plus its wallpaper gap. Zero unless a left rail is active.
+    pub(super) fn left_reserved_cols(&self) -> usize {
+        if self.left_cols > 0 {
+            self.left_cols + self.gap_cols
+        } else {
+            0
+        }
+    }
+
+    /// Total columns reserved off the right of the content: the right rail's
+    /// band plus its wallpaper gap. Zero unless a right rail is active.
+    pub(super) fn right_reserved_cols(&self) -> usize {
+        if self.right_cols > 0 {
+            self.right_cols + self.gap_cols
+        } else {
+            0
+        }
+    }
+}
+
+/// Cell-quantized wallpaper gap between a side rail and the content, replicating
+/// the window-padding band: `ceil(pad_px / cell_w)` columns. Zero when there is
+/// no window padding (a faithful "replicate the padding" — no padding, no gap)
+/// or a degenerate cell. Pure so both render paths and the reservation share one
+/// definition.
+pub(super) fn rail_content_gap_cols(padding: WindowPadding, cell: CellSize) -> usize {
+    let cw = cell.width as usize;
+    if cw == 0 {
+        return 0;
+    }
+    let pad = padding.physical_px() as usize;
+    pad.div_ceil(cw)
 }
 
 /// The pixel rectangle available to panes: the surface minus window padding on
@@ -92,8 +141,10 @@ pub(super) fn pane_content_rect(
 ) -> PaneRect {
     let pad = padding.as_f32();
     let tab_h = cell.height as f32 * reserve.top_rows as f32;
-    let left_w = cell.width as f32 * reserve.left_cols as f32;
-    let right_w = cell.width as f32 * reserve.right_cols as f32;
+    // Include the rail↔content wallpaper gap (R1.1) so the content origin sits a
+    // padding-band's width off the rail, not flush against its seam.
+    let left_w = cell.width as f32 * reserve.left_reserved_cols() as f32;
+    let right_w = cell.width as f32 * reserve.right_reserved_cols() as f32;
     let w = (width_px as f32 - 2.0 * pad - left_w - right_w).max(0.0);
     let h = (height_px as f32 - 2.0 * pad - tab_h).max(0.0);
     PaneRect::new(pad + left_w, pad + tab_h, w, h)
@@ -703,6 +754,7 @@ mod tests {
             top_rows: 0,
             left_cols: 16,
             right_cols: 0,
+            gap_cols: 0,
         };
         let with = pane_content_rect(w, h, cell, padding, reserve);
         let rail = cell.width as f32 * 16.0;
@@ -719,6 +771,58 @@ mod tests {
             (with.w - (without.w - rail)).abs() < f32::EPSILON,
             "width shrinks by the rail width"
         );
+    }
+
+    #[test]
+    fn left_rail_gap_shifts_content_by_the_band_plus_the_gap() {
+        // R1.1: the rail↔content wallpaper gap widens the reservation beyond the
+        // rail band, so content shifts right (and shrinks) by band + gap.
+        let cell = cell();
+        let padding = WindowPadding::from_logical(8.0, 1.0);
+        let (w, h) = (1280u32, 800u32);
+        let without = pane_content_rect(w, h, cell, padding, TabReserve::NONE);
+        let reserve = TabReserve {
+            top_rows: 0,
+            left_cols: 16,
+            right_cols: 0,
+            gap_cols: 2,
+        };
+        let with = pane_content_rect(w, h, cell, padding, reserve);
+        let reserved = cell.width as f32 * (16.0 + 2.0);
+        assert!(
+            (with.x - (without.x + reserved)).abs() < f32::EPSILON,
+            "x shifts by band + gap"
+        );
+        assert!(
+            (with.w - (without.w - reserved)).abs() < f32::EPSILON,
+            "width shrinks by band + gap"
+        );
+        // The gap only counts on the rail side: no right reservation here.
+        assert_eq!(reserve.right_reserved_cols(), 0);
+        assert_eq!(reserve.left_reserved_cols(), 18);
+    }
+
+    #[test]
+    fn rail_content_gap_replicates_the_padding_band_cell_quantized() {
+        let cell = cell(); // width 10
+        // pad 8px @1x → ceil(8/10) = 1 column.
+        let one = WindowPadding::from_logical(8.0, 1.0);
+        assert_eq!(rail_content_gap_cols(one, cell), 1);
+        // pad 24px → ceil(24/10) = 3 columns.
+        let three = WindowPadding::from_logical(24.0, 1.0);
+        assert_eq!(rail_content_gap_cols(three, cell), 3);
+        // No padding → no gap (faithful "replicate the padding band").
+        let zero = WindowPadding::from_logical(0.0, 1.0);
+        assert_eq!(rail_content_gap_cols(zero, cell), 0);
+    }
+
+    #[test]
+    fn gap_cols_off_the_top_bar_reserves_nothing_extra() {
+        // The top-bar reservation carries no side gap, so the content columns are
+        // unchanged (byte-identical top-bar path).
+        let r = TabReserve::top();
+        assert_eq!(r.left_reserved_cols(), 0);
+        assert_eq!(r.right_reserved_cols(), 0);
     }
 
     #[test]

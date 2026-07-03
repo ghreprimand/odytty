@@ -7,6 +7,51 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Vertical tab rail polish: content gap, lightweight +, inset slots (F4-V2 R1.1)
+
+Operator judged the live rail "kind of poorly designed" with three visual items
+plus one bug; this packet addresses all four (rail widget + reservation geometry
+only — no overlap with the parallel Tabs & Panes settings work).
+
+**BUG — rail↔content gap.** Terminal text abutted the rail seam because the
+content origin sat flush at `pad + rail_width`. A new `gap_cols` field on
+`TabReserve` reserves a cell-quantized wallpaper band — `ceil(window_pad /
+cell_w)` columns, replicating the window-padding band — between the rail and the
+content. Both render paths agree by construction: the single-pane embed path
+widens the decorated snapshot by the gap and leaves those columns blank (default
+cells composite the background at `cell_bg_opacity`, identical to the padding
+band); the multi-pane path shifts the content rect so the existing NF11 edge
+wash fills the gap. The rail widget's visual width excludes the gap; the content
+reservation (`pane_content_rect`, the pointer/graphics offsets, the resize
+column count) includes it via `left_reserved_cols()`/`right_reserved_cols()`, so
+grid, cursor, and pointer stay in lockstep (ODP-8). The top bar carries no gap —
+byte-identical.
+
+**+ slot is now a lightweight affordance**, not a tab: 1 cell tall (was 2), a
+centered dim `+` on the bare band at rest with no ring/fill, gaining the
+subordinate hover fill + ring only under hover (the strip's hover precedent). It
+no longer competes with real slots.
+
+**Slots inset from the rail edges + a first-slot top margin.** Slot rings and
+fills inset one column from each rail edge (they read as bounded boxes, not
+blocky edge-to-edge bands), and the first slot starts a one-row top margin below
+the rail edge so it doesn't kiss the window edge. The connected-active open seam
+still reaches the divider: the inset applies to the CLOSED edges only, while the
+content-facing open edge and the top/bottom edges on that side run to the seam.
+
+**Deferred (item 4, per operator):** the spacing-between-tabs knob `tab_rail_gap`
+joins `TAB_RAIL_WIDTH` in the R2 settings packet; the inter-tab gap stays a named
+const (`SLOT_GAP`) for R2 to lift, not built here.
+
+Tests: +11 (panes.rs gap geometry/quantization + top-bar-carries-no-gap;
+tab_rail.rs lightweight-+ rest/hover, first-slot top margin, inset closed/open
+ring edges reaching the seam, fill-bleed-vs-inset) and the affected layout / fill
+/ hit-test / integration pins updated for the new geometry. `cargo test` 2886/0;
+clippy `-D warnings` clean; fmt clean; MSRV untouched. Platform-neutral — no
+Windows surface (presentation-only chrome geometry).
+
+---
+
 ## 2026-07-03 -- Vertical tab rail: connected active slot (F4-V2 R1 follow-up)
 
 Transposes the horizontal bar's F4 v1.4 "connected active tab" metaphor onto the

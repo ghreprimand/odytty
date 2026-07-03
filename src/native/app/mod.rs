@@ -545,7 +545,10 @@ impl App {
         if reserve.top_rows > 0 {
             new_grid.rows = new_grid.rows.saturating_sub(reserve.top_rows).max(1);
         }
-        let reserved_cols = reserve.left_cols + reserve.right_cols;
+        // Reserve the rail band AND its wallpaper gap (R1.1) off the content
+        // columns, so the grid the terminal reflows into matches the shrunken
+        // content rect `pane_content_rect` returns.
+        let reserved_cols = reserve.left_reserved_cols() + reserve.right_reserved_cols();
         if reserved_cols > 0 {
             new_grid.columns = new_grid.columns.saturating_sub(reserved_cols).max(1);
         }
@@ -1892,12 +1895,14 @@ impl App {
         if !self.should_show_tab_bar() {
             return panes::TabReserve::NONE;
         }
+        let gap_cols = self.rail_gap_cols();
         match self.effective_placement() {
             TabBarPlacement::Top => panes::TabReserve::top(),
             TabBarPlacement::Left => panes::TabReserve {
                 top_rows: 0,
                 left_cols: tab_rail::DEFAULT_RAIL_COLS,
                 right_cols: 0,
+                gap_cols,
             },
             // `effective()` collapses Right→Top in R1, so this arm is not reached
             // until R2 lands the right render path; kept correct for that flip.
@@ -1905,12 +1910,24 @@ impl App {
                 top_rows: 0,
                 left_cols: 0,
                 right_cols: tab_rail::DEFAULT_RAIL_COLS,
+                gap_cols,
             },
         }
     }
 
+    /// The cell-quantized wallpaper gap (in columns) between a side rail and the
+    /// content this frame — `ceil(window_pad / cell_w)`, replicating the padding
+    /// band (R1.1). 0 before the GPU exists (no cell metrics yet).
+    fn rail_gap_cols(&self) -> usize {
+        let Some(gpu) = self.gpu.as_ref() else {
+            return 0;
+        };
+        panes::rail_content_gap_cols(gpu.window_padding(), gpu.cell())
+    }
+
     /// The rail band width in cells when a vertical rail is active this frame,
-    /// else 0.
+    /// else 0. This is the rail widget's VISUAL width — it excludes the
+    /// rail↔content wallpaper gap, which is reserved separately (R1.1).
     fn rail_cols(&self) -> usize {
         let r = self.tab_reserve();
         r.left_cols + r.right_cols
@@ -1931,13 +1948,15 @@ impl App {
 
     /// Pixels to subtract from a raw pointer `(x, y)` before mapping it to a grid
     /// cell, accounting for tab chrome. Top bar → `(0, tab_h)`; left rail →
-    /// `(rail_w, 0)`; right rail / none → `(0, 0)` (content origin unmoved). This
-    /// is the single placement-aware pointer transform every single-pane hit path
-    /// applies; on the top path `left_cols == 0` so it is byte-identical.
+    /// `(rail_w + gap_w, 0)`; right rail / none → `(0, 0)` (content origin
+    /// unmoved). This is the single placement-aware pointer transform every
+    /// single-pane hit path applies; on the top path `left_reserved_cols() == 0`
+    /// so it is byte-identical. Includes the rail↔content wallpaper gap (R1.1) so
+    /// the content pointer stays registered with the shifted content origin.
     fn tab_chrome_offset_px(&self, cell: CellSize) -> (f64, f64) {
         let r = self.tab_reserve();
         (
-            cell.width as f64 * r.left_cols as f64,
+            cell.width as f64 * r.left_reserved_cols() as f64,
             cell.height as f64 * r.top_rows as f64,
         )
     }
@@ -2023,11 +2042,14 @@ impl App {
         (decorated, output.quads)
     }
 
-    /// Single-pane vertical-rail decoration (F4-V2): grow the snapshot by
-    /// `rail_cols` columns on the rail side, shift the original content (and the
-    /// cursor) into the content band, and paint the rail glyphs into the rail
-    /// band of every row. The `reserved_cols()` used here MUST match the resize
-    /// path's reservation (ODP-8) or the cursor/pointer desync.
+    /// Single-pane vertical-rail decoration (F4-V2): grow the snapshot by the
+    /// rail band plus its wallpaper gap (R1.1) on the rail side, shift the
+    /// original content (and the cursor) into the content band, paint the rail
+    /// glyphs into the rail band of every row, and leave the gap columns blank so
+    /// they render as the wallpaper-washed padding band (default cells composite
+    /// the background at `cell_bg_opacity`, identical to the window padding). The
+    /// reservation used here MUST match the resize path (ODP-8) or the
+    /// cursor/pointer desync — both read `TabReserve` gap-inclusive column math.
     fn decorate_snapshot_with_tab_rail(
         &self,
         snapshot: &Snapshot,
@@ -2036,19 +2058,21 @@ impl App {
         side: RailSide,
     ) -> (Snapshot, Vec<SolidQuad>) {
         let rail_cols = self.rail_cols();
+        let gap_cols = self.rail_gap_cols();
         let old_cols = snapshot.dimensions.columns;
         let rows = snapshot.dimensions.rows;
-        let new_cols = old_cols + rail_cols;
-        // Left rail: content shifts right by `rail_cols`. Right rail: content
-        // stays at column 0 and the rail occupies the right band (R2; not reached
-        // in R1 because `rail_side()` only yields Left).
+        let new_cols = old_cols + rail_cols + gap_cols;
+        // Left rail: content shifts right by the rail band + gap; the rail paints
+        // at column 0 and the gap columns [rail_cols, rail_cols+gap_cols) stay
+        // blank. Right rail (R2; not reached in R1): content stays at column 0,
+        // then the gap, then the rail band at the far right.
         let content_col_offset = match side {
-            RailSide::Left => rail_cols,
+            RailSide::Left => rail_cols + gap_cols,
             RailSide::Right => 0,
         };
         let rail_col_start = match side {
             RailSide::Left => 0,
-            RailSide::Right => old_cols,
+            RailSide::Right => old_cols + gap_cols,
         };
         let mut decorated = Snapshot {
             dimensions: Dimensions::new(new_cols, rows),
@@ -2098,9 +2122,11 @@ impl App {
     }
 
     /// Columns the single-pane graphics layer shifts right for a left rail
-    /// (0 for the top bar or a right rail — content origin unmoved).
+    /// (0 for the top bar or a right rail — content origin unmoved). Includes the
+    /// rail↔content wallpaper gap (R1.1) so images/sixels align with the content
+    /// band rather than the rail seam.
     fn tab_bar_col_offset(&self) -> usize {
-        self.tab_reserve().left_cols
+        self.tab_reserve().left_reserved_cols()
     }
 
     fn apply_user_event(&mut self, event: UserEvent) -> bool {

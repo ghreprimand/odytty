@@ -452,25 +452,28 @@ fn left_rail_hit_test_resolves_switch_close_and_new() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
 
-    // Slot 0 body: row 0, label col 1 → centre (12, 8).
-    app.set_pointer_px_for_test(12.0, 8.0);
+    // R1.1 geometry: a 1-row top margin, then tab 0 at rows [1,3), tab 1 at
+    // [4,6), and the 1-cell + slot at [7,8). The close × sits inside the ring
+    // inset at col 14 (rail_cols 16 − inset 1 − 1).
+    //
+    // Slot 0 body: row 1, label col → centre (12, 24).
+    app.set_pointer_px_for_test(12.0, 24.0);
     assert_eq!(
         app.tab_bar_hit_for_test(),
         Some("switch"),
         "slot 0 body → switch"
     );
 
-    // Slot 0 close ×: top-right cell (col 15) → centre (124, 8).
-    app.set_pointer_px_for_test(124.0, 8.0);
+    // Slot 0 close ×: inset top-right cell (row 1, col 14) → centre (116, 24).
+    app.set_pointer_px_for_test(116.0, 24.0);
     assert_eq!(
         app.tab_bar_hit_for_test(),
         Some("close"),
         "slot 0 × → close"
     );
 
-    // The new-tab + slot follows the two tab slots: tabs at rows [0,2) and
-    // [3,5), the + slot at rows [6,8). Row 6 centre → y = 104.
-    app.set_pointer_px_for_test(64.0, 104.0);
+    // The lightweight + slot follows the two tab slots at row 7 → centre y = 120.
+    app.set_pointer_px_for_test(64.0, 120.0);
     assert_eq!(app.tab_bar_hit_for_test(), Some("new"), "+ slot → new");
 }
 

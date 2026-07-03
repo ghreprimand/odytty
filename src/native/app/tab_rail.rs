@@ -74,15 +74,34 @@ use crate::theme::Srgb;
 /// plus a breathing row).
 const SLOT_ROWS: usize = 2;
 /// Band-fill gap (in rows) between adjacent slots — reinforces the
-/// bounded-object reading (Option B).
+/// bounded-object reading (Option B). R1.1 note: the operator asked for a
+/// spacing-between-tabs knob; the decision is that `tab_rail_gap` joins
+/// `TAB_RAIL_WIDTH` in the R2 settings packet (group "Tabs", Tabs & Panes
+/// section). This named const is the value R2 lifts into that setting — do not
+/// build the knob here.
 const SLOT_GAP: usize = 1;
 /// Row stride from one slot's top to the next slot's top.
 const SLOT_STRIDE: usize = SLOT_ROWS + SLOT_GAP;
-/// Rows the bottom `+` new-tab slot occupies (matches a tab slot so it reads as
-/// the same bounded object).
-const NEW_TAB_ROWS: usize = SLOT_ROWS;
-/// Left/right in-slot padding (columns) before/after the label text.
+/// Rows the bottom `+` new-tab slot occupies (R1.1: a lightweight 1-cell
+/// affordance — no ring at rest, so it never competes with a real tab slot).
+const NEW_TAB_ROWS: usize = 1;
+/// Top margin (in rows) before the first slot so it doesn't kiss the window edge
+/// (R1.1). Matches `SLOT_GAP` so the space above the first slot reads like the
+/// gaps between slots.
+const RAIL_TOP_MARGIN_ROWS: usize = SLOT_GAP;
+/// Horizontal inset (in columns) of each slot's ring/fill from the rail band's
+/// left and right edges (R1.1), so slots read as bounded boxes with a margin
+/// rather than blocky edge-to-edge bands. The active slot's content-facing edge
+/// is exempt — it reaches the divider seam (connected-active). R2 lifts this as
+/// part of the `tab_rail_gap` knob work.
+const SLOT_INSET_COLS: usize = 1;
+/// Left/right in-slot padding (columns) between a slot's ring and the label
+/// text, applied INSIDE the inset box.
 const RAIL_LABEL_PAD: usize = 1;
+
+/// First content column of a slot's label (inside the inset box + the label
+/// padding).
+const SLOT_LABEL_START_COL: usize = SLOT_INSET_COLS + RAIL_LABEL_PAD;
 
 /// Fixed rail band width in cells for R1 (the `[8,32]` clamp + the
 /// `TAB_RAIL_WIDTH` setting arrive with R2). Wide enough for an Option-B slot's
@@ -275,15 +294,21 @@ impl TabRail {
             } else {
                 band_bg
             };
-            // Fill the slot's cells.
+            let slot_seam = if is_active { active_open_seam } else { None };
+            // Fill the slot's cells INSIDE the inset (R1.1), leaving the rail-edge
+            // margin columns as band. The active slot bleeds to the divider seam
+            // on its content-facing side (connected-active); the closed side and
+            // inactive/hover fills inset on both sides.
+            let (fill_c0, fill_c1) = slot_fill_cols(rail_cols, slot_seam);
             for row in slot.start_row..slot.end_row.min(grid_rows) {
-                for col in 0..rail_cols {
+                for col in fill_c0..fill_c1.min(rail_cols) {
                     cells[row * rail_cols + col].attrs.background = slot_bg;
                 }
             }
-            // Outline ring — the shape language. Inactive slots are closed
-            // boxes; the active slot opens toward the content seam (F4-V2
-            // connected-active) so its fill flows through the broken divider.
+            // Outline ring — the shape language. Inactive slots are closed boxes
+            // inset from both rail edges; the active slot opens toward the content
+            // seam (F4-V2 connected-active) so its fill flows through the broken
+            // divider, its content-facing edge reaching the seam past the inset.
             let ring = rail_slot_ring(
                 slot.start_row,
                 slot.end_row,
@@ -295,7 +320,8 @@ impl TabRail {
                 } else {
                     inactive_ring_srgb
                 },
-                if is_active { active_open_seam } else { None },
+                slot_seam,
+                SLOT_INSET_COLS,
             );
             if is_active {
                 active_ring = ring;
@@ -322,7 +348,7 @@ impl TabRail {
                     break;
                 }
                 for (i, ch) in line.chars().enumerate() {
-                    let col = RAIL_LABEL_PAD + i;
+                    let col = SLOT_LABEL_START_COL + i;
                     if row < grid_rows && col < rail_cols {
                         let g = &mut cells[row * rail_cols + col];
                         g.ch = ch;
@@ -341,28 +367,35 @@ impl TabRail {
             }
         }
 
-        // New-tab `+` slot.
+        // New-tab `+` slot — a lightweight affordance, not a tab (R1.1): a
+        // centered dim `+` on the bare band at rest, gaining a hover fill + ring
+        // only when hovered (the strip's hover precedent), so it never competes
+        // with a real slot's bounded box.
         if let Some((nt_start, nt_end)) = layout.new_tab_rows {
             let is_hovered = matches!(self.hover, Some(TabHit::NewTab));
-            let nt_bg = if is_hovered { active_bg_color } else { band_bg };
-            for row in nt_start..nt_end.min(grid_rows) {
-                for col in 0..rail_cols {
-                    cells[row * rail_cols + col].attrs.background = nt_bg;
+            if is_hovered {
+                let (fill_c0, fill_c1) = slot_fill_cols(rail_cols, None);
+                for row in nt_start..nt_end.min(grid_rows) {
+                    for col in fill_c0..fill_c1.min(rail_cols) {
+                        cells[row * rail_cols + col].attrs.background = hover_bg_color;
+                    }
                 }
+                inactive_rings.extend(rail_slot_ring(
+                    nt_start,
+                    nt_end,
+                    rail_cols,
+                    origin_px,
+                    cell,
+                    inactive_ring_srgb,
+                    None,
+                    SLOT_INSET_COLS,
+                ));
             }
-            inactive_rings.extend(rail_slot_ring(
-                nt_start,
-                nt_end,
-                rail_cols,
-                origin_px,
-                cell,
-                inactive_ring_srgb,
-                None,
-            ));
             let mut a = Attrs::default();
-            a.foreground = base_fg;
-            a.background = nt_bg;
-            // Centre the `+` in the slot.
+            // Dim `+` at rest (an affordance), brighter under hover.
+            a.foreground = if is_hovered { base_fg } else { dim_fg };
+            a.background = if is_hovered { hover_bg_color } else { band_bg };
+            // Centre the `+` in the (1-cell-tall) slot.
             let prow = nt_start + (nt_end - nt_start) / 2;
             let pcol = rail_cols / 2;
             if prow < grid_rows && pcol < rail_cols {
@@ -503,23 +536,24 @@ fn compute_rail_layout(
     }
     let tab_count = source.tab_count();
     if tab_count == 0 {
-        if grid_rows >= NEW_TAB_ROWS {
-            layout.new_tab_rows = Some((0, NEW_TAB_ROWS));
+        if grid_rows >= RAIL_TOP_MARGIN_ROWS + NEW_TAB_ROWS {
+            layout.new_tab_rows = Some((RAIL_TOP_MARGIN_ROWS, RAIL_TOP_MARGIN_ROWS + NEW_TAB_ROWS));
         }
         return layout;
     }
 
-    // Rows needed to show every tab plus the `+` slot with no scroll. Each tab
-    // consumes SLOT_STRIDE (slot + trailing gap); the last trailing gap becomes
-    // the gap before the `+` slot, so total = tabs*stride + NEW_TAB_ROWS.
-    let total_needed = tab_count * SLOT_STRIDE + NEW_TAB_ROWS;
+    // Rows needed to show the top margin, every tab plus the `+` slot with no
+    // scroll. Each tab consumes SLOT_STRIDE (slot + trailing gap); the last
+    // trailing gap becomes the gap before the `+` slot, so the total is
+    // margin + tabs*stride + NEW_TAB_ROWS (R1.1 adds the leading top margin).
+    let total_needed = RAIL_TOP_MARGIN_ROWS + tab_count * SLOT_STRIDE + NEW_TAB_ROWS;
 
     if total_needed <= grid_rows {
         for i in 0..tab_count {
-            let start = i * SLOT_STRIDE;
+            let start = RAIL_TOP_MARGIN_ROWS + i * SLOT_STRIDE;
             layout.slots.push(build_slot(source, i, start, rail_cols));
         }
-        let nt_start = tab_count * SLOT_STRIDE;
+        let nt_start = RAIL_TOP_MARGIN_ROWS + tab_count * SLOT_STRIDE;
         layout.new_tab_rows = Some((nt_start, nt_start + NEW_TAB_ROWS));
         return layout;
     }
@@ -534,8 +568,9 @@ fn compute_rail_layout(
     let max_first = tab_count - capacity;
     let first = active.saturating_sub(capacity / 2).min(max_first);
 
-    // Reserve row 0 for `▲` only when actually scrolled below the top.
-    let top = if first > 0 { 1 } else { 0 };
+    // When scrolled below the top, row 0 carries the `▲` indicator; when at the
+    // top, apply the same top margin as the no-scroll case (R1.1).
+    let top = if first > 0 { 1 } else { RAIL_TOP_MARGIN_ROWS };
     let mut placed = 0usize;
     let mut row = top;
     for j in 0..(tab_count - first) {
@@ -565,10 +600,14 @@ fn build_slot(
     rail_cols: usize,
 ) -> RailSlot {
     let end_row = start_row + SLOT_ROWS;
-    // The `×` gets its own cell at the slot's top-right (Option B). It sits in
-    // the right padding column, so it never collides with the label inner area.
-    let close_cell = (rail_cols >= 2).then_some((start_row, rail_cols - 1));
-    let inner = rail_cols.saturating_sub(2 * RAIL_LABEL_PAD);
+    // The `×` gets its own cell at the slot's top-right, INSIDE the ring inset
+    // (R1.1) so it sits within the bounded box, not against the rail edge. It
+    // occupies the last inset column, never colliding with the label inner area.
+    let close_col = rail_cols.saturating_sub(SLOT_INSET_COLS + 1);
+    let close_cell = (close_col > SLOT_LABEL_START_COL).then_some((start_row, close_col));
+    // Label inner budget: from `SLOT_LABEL_START_COL` up to (but excluding) the
+    // close cell, i.e. the inset box minus the left label pad and the close cell.
+    let inner = close_col.saturating_sub(SLOT_LABEL_START_COL);
     let label_lines = if inner == 0 {
         Vec::new()
     } else {
@@ -684,6 +723,13 @@ fn ring_colors(colors: TabBarColors, band: Srgb) -> (Srgb, Srgb) {
 /// broken divider into the content area. The perpendicular top/bottom edges
 /// already span the full rail width to the seam, so the open ring has three
 /// edges (the vertical transposition of the horizontal bar's open-bottom ring).
+///
+/// `inset_cols` insets the ring from BOTH rail edges (R1.1) so slots read as
+/// bounded boxes with a margin rather than blocky edge-to-edge bands. The inset
+/// applies to the CLOSED edges only: a content-facing OPEN edge (and the
+/// top/bottom edges on the open side) still reach the divider seam, since the
+/// connection to content is the point of the connected-active treatment.
+#[allow(clippy::too_many_arguments)]
 fn rail_slot_ring(
     start_row: usize,
     end_row: usize,
@@ -692,6 +738,7 @@ fn rail_slot_ring(
     cell: CellSize,
     outline: Srgb,
     open_seam: Option<RailSide>,
+    inset_cols: usize,
 ) -> Vec<SolidQuad> {
     if end_row <= start_row || rail_cols == 0 || cell.width == 0 || cell.height == 0 {
         return Vec::new();
@@ -699,37 +746,67 @@ fn rail_slot_ring(
     let cw = cell.width as f32;
     let ch = cell.height as f32;
     let thickness = (ch / 8.0).clamp(2.0, 3.0);
-    let x0 = origin_px[0];
-    let x1 = origin_px[0] + rail_cols as f32 * cw;
+    // Clamp the inset so a narrow rail can never invert the ring.
+    let inset = (inset_cols.min(rail_cols / 2) as f32) * cw;
+    let rail_x0 = origin_px[0];
+    let rail_x1 = origin_px[0] + rail_cols as f32 * cw;
+    // Closed-edge x positions (inset from the rail edges).
+    let left_x = rail_x0 + inset;
+    let right_x = rail_x1 - inset;
     let y0 = origin_px[1] + start_row as f32 * ch;
     let y1 = origin_px[1] + end_row as f32 * ch;
     let color = srgb_alpha(outline, 1.0);
-    // Top and bottom edges always span the full rail width (reaching the seam).
+    // The top/bottom edges span between the ring's live vertical extents: from
+    // the inset on a closed side, or all the way to the rail seam on an open
+    // (content-facing) side so the mouth meets the divider.
+    let span_x0 = if open_seam == Some(RailSide::Right) {
+        rail_x0
+    } else {
+        left_x
+    };
+    let span_x1 = if open_seam == Some(RailSide::Left) {
+        rail_x1
+    } else {
+        right_x
+    };
     let mut quads = vec![
         SolidQuad {
-            rect: [x0, y0, x1, y0 + thickness],
+            rect: [span_x0, y0, span_x1, y0 + thickness],
             color,
         }, // top
         SolidQuad {
-            rect: [x0, y1 - thickness, x1, y1],
+            rect: [span_x0, y1 - thickness, span_x1, y1],
             color,
         }, // bottom
     ];
     // Vertical side edges — the content-facing one is dropped when the ring is
-    // open toward the content seam.
+    // open toward the content seam; the closed one sits at the inset.
     if open_seam != Some(RailSide::Left) {
         quads.push(SolidQuad {
-            rect: [x1 - thickness, y0 + thickness, x1, y1 - thickness],
+            rect: [right_x - thickness, y0 + thickness, right_x, y1 - thickness],
             color,
         }); // right (content-facing for Left placement)
     }
     if open_seam != Some(RailSide::Right) {
         quads.push(SolidQuad {
-            rect: [x0, y0 + thickness, x0 + thickness, y1 - thickness],
+            rect: [left_x, y0 + thickness, left_x + thickness, y1 - thickness],
             color,
         }); // left (content-facing for Right placement)
     }
     quads
+}
+
+/// The `[c0, c1)` column range a slot's fill covers (R1.1). Inactive/closed
+/// slots inset on both sides; an active slot bleeds to the divider seam on its
+/// content-facing side (right for `Left` placement, left for `Right`) so the
+/// selection fill connects to the content, and insets on the closed side.
+fn slot_fill_cols(rail_cols: usize, open_seam: Option<RailSide>) -> (usize, usize) {
+    let inset = SLOT_INSET_COLS.min(rail_cols / 2);
+    match open_seam {
+        Some(RailSide::Left) => (inset, rail_cols),
+        Some(RailSide::Right) => (0, rail_cols.saturating_sub(inset)),
+        None => (inset, rail_cols.saturating_sub(inset)),
+    }
 }
 
 /// The 1px `border`-role divider along the rail↔content seam: the right edge of
@@ -928,8 +1005,11 @@ mod tests {
         let band = blend_srgb(COLORS.background, COLORS.inactive, BAND_BLEND);
         let band_bg = Color::Rgb(band.0, band.1, band.2);
         assert_ne!(band_bg, raw_bg, "band fill differs from raw background");
-        // A gap row between slot 0 and slot 1 (row SLOT_ROWS) is band fill.
-        let gap_idx = SLOT_ROWS * RAIL_COLS; // row=SLOT_ROWS, col=0
+        // A gap row between slot 0 and slot 1 (the row after slot 0's rows) is
+        // band fill. With the R1.1 top margin, slot 0 spans rows
+        // [RAIL_TOP_MARGIN_ROWS, +SLOT_ROWS), so the gap row is below it.
+        let gap_row = RAIL_TOP_MARGIN_ROWS + SLOT_ROWS;
+        let gap_idx = gap_row * RAIL_COLS; // col=0
         assert_eq!(
             out.glyphs[gap_idx].attrs.background, band_bg,
             "inter-slot gap row is band fill"
@@ -947,8 +1027,8 @@ mod tests {
         assert!(layout.slots.is_empty(), "no tab slots");
         assert_eq!(
             layout.new_tab_rows,
-            Some((0, NEW_TAB_ROWS)),
-            "the + slot sits at the top with zero tabs"
+            Some((RAIL_TOP_MARGIN_ROWS, RAIL_TOP_MARGIN_ROWS + NEW_TAB_ROWS)),
+            "the + slot sits below the top margin with zero tabs"
         );
     }
 
@@ -957,17 +1037,16 @@ mod tests {
         let src = MockSource::new(&["a", "b", "c"], 0);
         let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
         assert_eq!(layout.slots.len(), 3, "three tab slots");
+        // R1.1: the first slot starts a top margin below the rail edge.
         for (i, slot) in layout.slots.iter().enumerate() {
-            assert_eq!(slot.start_row, i * SLOT_STRIDE, "slot {i} start row");
-            assert_eq!(
-                slot.end_row,
-                i * SLOT_STRIDE + SLOT_ROWS,
-                "slot {i} end row"
-            );
+            let start = RAIL_TOP_MARGIN_ROWS + i * SLOT_STRIDE;
+            assert_eq!(slot.start_row, start, "slot {i} start row");
+            assert_eq!(slot.end_row, start + SLOT_ROWS, "slot {i} end row");
         }
+        let nt_start = RAIL_TOP_MARGIN_ROWS + 3 * SLOT_STRIDE;
         assert_eq!(
             layout.new_tab_rows,
-            Some((3 * SLOT_STRIDE, 3 * SLOT_STRIDE + NEW_TAB_ROWS)),
+            Some((nt_start, nt_start + NEW_TAB_ROWS)),
             "the + slot follows the last tab"
         );
         assert!(layout.overflow_above.is_none() && layout.overflow_below.is_none());
@@ -1054,9 +1133,15 @@ mod tests {
     fn active_slot_renders_close_glyph_in_top_right_cell() {
         let src = MockSource::new(&["zsh", "bash"], 0);
         let out = render_default(&src);
-        // Active slot 0 top-right cell = (row 0, col RAIL_COLS-1).
-        let idx = RAIL_COLS - 1;
-        assert_eq!(out.glyphs[idx].ch, '×', "active slot shows × at top-right");
+        // R1.1: active slot 0 top-right cell is inside the inset box — row
+        // RAIL_TOP_MARGIN_ROWS, col RAIL_COLS - SLOT_INSET_COLS - 1.
+        let row = RAIL_TOP_MARGIN_ROWS;
+        let col = RAIL_COLS - SLOT_INSET_COLS - 1;
+        let idx = row * RAIL_COLS + col;
+        assert_eq!(
+            out.glyphs[idx].ch, '×',
+            "active slot shows × at the inset top-right"
+        );
     }
 
     #[test]
@@ -1074,6 +1159,96 @@ mod tests {
         let src = MockSource::new(&["a"], 0);
         let out = render_default(&src);
         assert!(out.glyphs.iter().any(|g| g.ch == '+'), "+ glyph present");
+    }
+
+    // Ring quads (wider than the 1px divider) whose vertical extent falls inside
+    // `[start_row, end_row)` — used to detect a slot's outline ring vs. the
+    // thin rail divider that also runs through those rows.
+    fn ring_quads_in_rows(out: &TabRailOutput, start_row: usize, end_row: usize) -> usize {
+        let y0 = start_row as f32 * CELL.height as f32;
+        let y1 = end_row as f32 * CELL.height as f32;
+        out.quads
+            .iter()
+            .filter(|q| {
+                q.rect[1] >= y0 - 0.5
+                    && q.rect[3] <= y1 + 0.5
+                    && (q.rect[2] - q.rect[0]) > DIVIDER_PX + 0.5
+            })
+            .count()
+    }
+
+    #[test]
+    fn new_tab_slot_is_one_row_and_ringless_at_rest() {
+        // R1.1: the `+` affordance is a lightweight 1-cell glyph on the bare band
+        // — no ring, no fill — so it never competes with a real tab slot.
+        let src = MockSource::new(&["a", "b"], 0);
+        let (nt_start, nt_end) = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS)
+            .new_tab_rows
+            .expect("new-tab slot present");
+        assert_eq!(nt_end - nt_start, NEW_TAB_ROWS, "the + slot is 1 cell tall");
+        let out = render_default(&src);
+        assert_eq!(
+            ring_quads_in_rows(&out, nt_start, nt_end),
+            0,
+            "the + slot has no ring at rest"
+        );
+        // The `+` glyph sits dim on the bare band (no fill).
+        let band = blend_srgb(COLORS.background, COLORS.inactive, BAND_BLEND);
+        let band_bg = Color::Rgb(band.0, band.1, band.2);
+        let dim = Color::Rgb(COLORS.inactive.0, COLORS.inactive.1, COLORS.inactive.2);
+        let plus = out.glyphs.iter().find(|g| g.ch == '+').expect("+ glyph");
+        assert_eq!(plus.attrs.background, band_bg, "+ sits on the bare band");
+        assert_eq!(plus.attrs.foreground, dim, "+ is dim at rest");
+    }
+
+    #[test]
+    fn new_tab_slot_gains_a_ring_and_fill_on_hover() {
+        // The hover treatment (ring + fill) appears only under hover.
+        let src = MockSource::new(&["a", "b"], 0);
+        let (nt_start, nt_end) = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS)
+            .new_tab_rows
+            .expect("new-tab slot present");
+        let mut r = rail();
+        r.set_hover(Some(TabHit::NewTab));
+        let out = r.render(
+            &src,
+            RAIL_COLS,
+            GRID_ROWS,
+            ORIGIN,
+            CELL,
+            RailSide::Left,
+            COLORS,
+        );
+        assert_eq!(
+            ring_quads_in_rows(&out, nt_start, nt_end),
+            4,
+            "the + slot gains a closed ring on hover"
+        );
+        // The `+` cell now carries the subordinate hover fill.
+        let band = blend_srgb(COLORS.background, COLORS.inactive, BAND_BLEND);
+        let hover = blend_srgb(band, COLORS.active_bg, HOVER_FILL_BLEND);
+        let hover_bg = Color::Rgb(hover.0, hover.1, hover.2);
+        let plus = out.glyphs.iter().find(|g| g.ch == '+').expect("+ glyph");
+        assert_eq!(plus.attrs.background, hover_bg, "+ gains the hover fill");
+    }
+
+    #[test]
+    fn first_slot_has_a_top_margin_off_the_window_edge() {
+        // R1.1: the first slot starts a top margin below the rail edge so it does
+        // not kiss the window edge.
+        let src = MockSource::new(&["a", "b"], 0);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        assert_eq!(
+            layout.slots[0].start_row, RAIL_TOP_MARGIN_ROWS,
+            "first slot begins below the top margin"
+        );
+        // Row 0 (above the first slot) is bare band — no slot ring there.
+        let out = render_default(&src);
+        assert_eq!(
+            ring_quads_in_rows(&out, 0, RAIL_TOP_MARGIN_ROWS),
+            0,
+            "no ring in the top-margin band"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -1130,8 +1305,10 @@ mod tests {
     #[test]
     fn hit_gap_between_slots_is_none() {
         let src = MockSource::new(&["a", "b"], 0);
-        // Gap row between slot 0 (rows 0..2) and slot 1 (rows 3..5) is row 2.
-        let hit = hit_at(SLOT_ROWS, RAIL_LABEL_PAD, &src);
+        // R1.1: with the top margin, slot 0 spans [RAIL_TOP_MARGIN_ROWS, +ROWS);
+        // the gap row that follows it is the inter-slot band.
+        let gap_row = RAIL_TOP_MARGIN_ROWS + SLOT_ROWS;
+        let hit = hit_at(gap_row, RAIL_LABEL_PAD, &src);
         assert_eq!(hit, TabHit::None, "inter-slot gap → None");
     }
 
@@ -1226,12 +1403,15 @@ mod tests {
     fn ring_edges_are_at_least_two_pixels_thick() {
         let src = MockSource::new(&["a"], 0);
         let out = render_default(&src);
-        // Active slot 0 top edge sits at y=0.
+        // R1.1: active slot 0 top edge sits at the top-margin row, and its left
+        // extent starts at the horizontal inset.
+        let y_top = RAIL_TOP_MARGIN_ROWS as f32 * CELL.height as f32;
+        let inset = SLOT_INSET_COLS as f32 * CELL.width as f32;
         let top = out
             .quads
             .iter()
-            .find(|q| q.rect[1].abs() < f32::EPSILON && q.rect[0].abs() < f32::EPSILON)
-            .expect("active ring top edge at y=0");
+            .find(|q| (q.rect[1] - y_top).abs() < 0.5 && (q.rect[0] - inset).abs() < 0.5)
+            .expect("active ring top edge at the top-margin row");
         let thickness = top.rect[3] - top.rect[1];
         assert!(thickness >= 2.0, "ring edge ≥ 2px (was {thickness})");
     }
@@ -1273,11 +1453,12 @@ mod tests {
                     && (q.rect[2] - q.rect[0] - DIVIDER_PX).abs() < 0.01
             })
             .expect("divider on the right seam");
-        // Active slot 0 is flush against the top: under connected-active the
-        // divider's upper segment collapses and the surviving segment starts at
-        // the active slot's bottom edge; otherwise it starts at the row top.
+        // Under connected-active the divider is broken across the active slot's
+        // row span; the segment that reaches the band bottom starts at the active
+        // slot's bottom edge (top margin + SLOT_ROWS). Otherwise it is one full
+        // line starting at the row top.
         let expected_top = if RAIL_CONNECTED_ACTIVE {
-            SLOT_ROWS as f32 * CELL.height as f32
+            (RAIL_TOP_MARGIN_ROWS + SLOT_ROWS) as f32 * CELL.height as f32
         } else {
             0.0
         };
@@ -1327,33 +1508,52 @@ mod tests {
     fn ring_thickness() -> f32 {
         (CELL.height as f32 / 8.0).clamp(2.0, 3.0)
     }
+    // The horizontal inset (px) the ring uses for CELL (R1.1).
+    fn slot_inset_px() -> f32 {
+        SLOT_INSET_COLS as f32 * CELL.width as f32
+    }
     // A vertical side edge at the given x-left (rect[0]≈x, width == thickness).
     fn is_side_edge_at(q: &SolidQuad, x_left: f32) -> bool {
         let th = ring_thickness();
         (q.rect[0] - x_left).abs() < 0.5 && (q.rect[2] - q.rect[0] - th).abs() < 0.5
     }
+    // A full-span top edge (seated at the row top, width > thickness).
+    fn is_top_edge(q: &SolidQuad, y_top: f32) -> bool {
+        let th = ring_thickness();
+        (q.rect[1] - y_top).abs() < 0.5
+            && (q.rect[3] - q.rect[1] - th).abs() < 0.5
+            && (q.rect[2] - q.rect[0]) > th
+    }
 
     #[test]
-    fn closed_ring_has_both_vertical_side_edges() {
-        let ring = rail_slot_ring(0, 2, RAIL_COLS, ORIGIN, CELL, COLORS.inactive, None);
+    fn closed_ring_insets_both_vertical_side_edges_from_the_rail_edges() {
+        let ring = rail_slot_ring(0, 2, RAIL_COLS, ORIGIN, CELL, COLORS.inactive, None, 1);
         let x0 = ORIGIN[0];
         let x1 = ORIGIN[0] + RAIL_COLS as f32 * CELL.width as f32;
+        let inset = slot_inset_px();
         assert_eq!(ring.len(), 4, "closed ring is four edges");
+        // R1.1: both side edges are inset from the rail band edges.
         assert!(
-            ring.iter().any(|q| is_side_edge_at(q, x0)),
-            "closed ring keeps its left edge"
+            ring.iter().any(|q| is_side_edge_at(q, x0 + inset)),
+            "closed ring's left edge is inset from the rail left edge"
         );
         assert!(
             ring.iter()
-                .any(|q| is_side_edge_at(q, x1 - ring_thickness())),
-            "closed ring keeps its right edge"
+                .any(|q| is_side_edge_at(q, x1 - inset - ring_thickness())),
+            "closed ring's right edge is inset from the rail right edge"
+        );
+        // Neither side edge sits flush at the rail edge any more.
+        assert!(
+            !ring.iter().any(|q| is_side_edge_at(q, x0)),
+            "no flush left edge"
         );
     }
 
     #[test]
-    fn open_left_ring_drops_the_right_content_facing_edge() {
-        // Left placement: content is to the RIGHT, so the active ring drops its
-        // right edge and keeps top+bottom+left (three edges).
+    fn open_left_ring_drops_the_right_edge_and_reaches_the_seam() {
+        // Left placement: content is to the RIGHT. The active ring drops its
+        // right edge; its left edge stays inset, and its top/bottom edges reach
+        // the rail seam (x1) so the mouth meets the divider (R1.1).
         let ring = rail_slot_ring(
             0,
             2,
@@ -1362,26 +1562,35 @@ mod tests {
             CELL,
             COLORS.foreground,
             Some(RailSide::Left),
+            1,
         );
         let x0 = ORIGIN[0];
         let x1 = ORIGIN[0] + RAIL_COLS as f32 * CELL.width as f32;
+        let inset = slot_inset_px();
         assert_eq!(ring.len(), 3, "open ring is three edges");
         assert!(
             !ring
                 .iter()
-                .any(|q| is_side_edge_at(q, x1 - ring_thickness())),
+                .any(|q| is_side_edge_at(q, x1 - inset - ring_thickness())),
             "open-left ring must not have a right edge"
         );
         assert!(
-            ring.iter().any(|q| is_side_edge_at(q, x0)),
-            "open-left ring keeps its left edge"
+            ring.iter().any(|q| is_side_edge_at(q, x0 + inset)),
+            "open-left ring keeps its inset left edge"
+        );
+        // Top edge reaches the seam on the open (right) side despite the inset.
+        assert!(
+            ring.iter()
+                .any(|q| is_top_edge(q, 0.0) && (q.rect[2] - x1).abs() < 0.5),
+            "open-left top edge reaches the rail seam"
         );
     }
 
     #[test]
-    fn open_right_ring_drops_the_left_content_facing_edge() {
-        // Right placement: content is to the LEFT, so the active ring drops its
-        // left edge and keeps top+bottom+right.
+    fn open_right_ring_drops_the_left_edge_and_reaches_the_seam() {
+        // Right placement: content is to the LEFT. The active ring drops its left
+        // edge; its right edge stays inset, and its top/bottom edges reach the
+        // rail seam (x0) so the mouth meets the divider (R1.1).
         let ring = rail_slot_ring(
             0,
             2,
@@ -1390,19 +1599,42 @@ mod tests {
             CELL,
             COLORS.foreground,
             Some(RailSide::Right),
+            1,
         );
         let x0 = ORIGIN[0];
         let x1 = ORIGIN[0] + RAIL_COLS as f32 * CELL.width as f32;
+        let inset = slot_inset_px();
         assert_eq!(ring.len(), 3, "open ring is three edges");
         assert!(
-            !ring.iter().any(|q| is_side_edge_at(q, x0)),
+            !ring.iter().any(|q| is_side_edge_at(q, x0 + inset)),
             "open-right ring must not have a left edge"
         );
         assert!(
             ring.iter()
-                .any(|q| is_side_edge_at(q, x1 - ring_thickness())),
-            "open-right ring keeps its right edge"
+                .any(|q| is_side_edge_at(q, x1 - inset - ring_thickness())),
+            "open-right ring keeps its inset right edge"
         );
+        // Top edge reaches the seam on the open (left) side despite the inset.
+        assert!(
+            ring.iter()
+                .any(|q| is_top_edge(q, 0.0) && q.rect[0].abs() < 0.5),
+            "open-right top edge reaches the rail seam"
+        );
+    }
+
+    #[test]
+    fn slot_fill_bleeds_to_the_seam_on_the_open_side_and_insets_the_closed_side() {
+        // R1.1: the active fill bleeds to the divider seam on the content-facing
+        // side and insets on the closed side; a closed slot insets on both.
+        assert_eq!(
+            slot_fill_cols(RAIL_COLS, Some(RailSide::Left)),
+            (1, RAIL_COLS)
+        );
+        assert_eq!(
+            slot_fill_cols(RAIL_COLS, Some(RailSide::Right)),
+            (0, RAIL_COLS - 1)
+        );
+        assert_eq!(slot_fill_cols(RAIL_COLS, None), (1, RAIL_COLS - 1));
     }
 
     #[test]
@@ -1510,11 +1742,13 @@ mod tests {
             "neither divider segment crosses the active-slot span"
         );
         // The active ring is open: no right (content-facing) side edge over the
-        // active slot's rows.
+        // active slot's rows — checked at the inset position an inactive ring's
+        // right edge would occupy (R1.1).
         let x1 = RAIL_COLS as f32 * CELL.width as f32;
+        let inset = slot_inset_px();
         assert!(
             !out.quads.iter().any(|q| {
-                is_side_edge_at(q, x1 - ring_thickness())
+                is_side_edge_at(q, x1 - inset - ring_thickness())
                     && q.rect[1] >= gap0 - 0.01
                     && q.rect[3] <= gap1 + 0.01
             }),
@@ -1531,8 +1765,9 @@ mod tests {
         let src = MockSource::new(&["a", "b"], 0);
         let out = render_default(&src);
         let active_fill = Color::Rgb(COLORS.active_bg.0, COLORS.active_bg.1, COLORS.active_bg.2);
-        // Active slot 0, a body cell (row 0, col RAIL_LABEL_PAD).
-        let idx = RAIL_LABEL_PAD;
+        // Active slot 0, a body cell inside the inset fill (R1.1 top margin +
+        // horizontal inset): row RAIL_TOP_MARGIN_ROWS, col SLOT_LABEL_START_COL.
+        let idx = RAIL_TOP_MARGIN_ROWS * RAIL_COLS + SLOT_LABEL_START_COL;
         assert_eq!(
             out.glyphs[idx].attrs.background, active_fill,
             "active slot filled with selection role"
@@ -1540,7 +1775,7 @@ mod tests {
         // Inactive slot 1 body cell sits on the band, not the active fill.
         let band = blend_srgb(COLORS.background, COLORS.inactive, BAND_BLEND);
         let band_bg = Color::Rgb(band.0, band.1, band.2);
-        let iidx = SLOT_STRIDE * RAIL_COLS + RAIL_LABEL_PAD;
+        let iidx = (RAIL_TOP_MARGIN_ROWS + SLOT_STRIDE) * RAIL_COLS + SLOT_LABEL_START_COL;
         assert_eq!(
             out.glyphs[iidx].attrs.background, band_bg,
             "inactive slot sits on the band (no fill)"
@@ -1565,7 +1800,7 @@ mod tests {
         let hover = blend_srgb(band, COLORS.active_bg, HOVER_FILL_BLEND);
         let hover_bg = Color::Rgb(hover.0, hover.1, hover.2);
         let active_fill = Color::Rgb(COLORS.active_bg.0, COLORS.active_bg.1, COLORS.active_bg.2);
-        let iidx = SLOT_STRIDE * RAIL_COLS + RAIL_LABEL_PAD;
+        let iidx = (RAIL_TOP_MARGIN_ROWS + SLOT_STRIDE) * RAIL_COLS + SLOT_LABEL_START_COL;
         let bg = out.glyphs[iidx].attrs.background;
         assert_eq!(
             bg, hover_bg,
@@ -1635,5 +1870,10 @@ mod tests {
         assert_eq!(SLOT_ROWS, 2, "Option B: 2-cell-tall slots");
         assert_eq!(SLOT_GAP, 1, "Option B: 1-cell gap");
         assert_eq!(SLOT_STRIDE, 3);
+        // R1.1 polish constants.
+        assert_eq!(NEW_TAB_ROWS, 1, "R1.1: lightweight 1-cell + affordance");
+        assert_eq!(RAIL_TOP_MARGIN_ROWS, 1, "R1.1: first-slot top margin");
+        assert_eq!(SLOT_INSET_COLS, 1, "R1.1: slot ring/fill inset");
+        assert_eq!(SLOT_LABEL_START_COL, SLOT_INSET_COLS + RAIL_LABEL_PAD);
     }
 }
