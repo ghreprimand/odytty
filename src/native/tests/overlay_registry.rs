@@ -180,6 +180,7 @@ fn render_sig(overlays: OverlayCompositeSignature) -> RenderSignature {
             presentation_epoch: 0,
             prompt_marks_epoch: 0,
             overlays,
+            rail_overlay: crate::native::render_helpers::RailOverlaySignature::default(),
         },
         cursor: CursorRenderSignature {
             visible: true,

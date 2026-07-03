@@ -1354,6 +1354,21 @@ impl App {
             .map(GpuState::window_padding)
             .unwrap_or(WindowPadding::ZERO);
         self.pointer_px = Some((x_px, y_px));
+        // F4-P3 rail auto-hide: feed the live pointer to the reveal machine
+        // (arms/holds/hides the floating overlay). While the rail is revealed and
+        // the pointer is over its band, the overlay owns the pointer — do rail
+        // hover and nothing else, so a click there hits the rail, not the
+        // terminal beneath it. Inert unless autohide is active.
+        if self.rail_autohide_active() {
+            self.update_rail_autohide_pointer(x_px, cell);
+            if let Some(side) = self.rail_autohide_side()
+                && self.rail_overlay_visible()
+                && self.pointer_in_reveal_band(x_px, cell, side)
+            {
+                self.update_rail_overlay_hover(x_px, y_px, cell, side);
+                return;
+            }
+        }
         // F4-P4: while the rail seam is grabbed, pointer motion resizes the rail
         // (sets the manual width + reflows) and nothing else. Held only while a
         // rail is shown, so the top-bar / single-pane motion path is unaffected.
@@ -1403,8 +1418,12 @@ impl App {
         // X-band and tracks hover on `tab_rail`; the top bar keeps the
         // column-major test on `tab_bar` (F4-V2). Whichever is inactive has its
         // hover cleared so a stale highlight can't linger after a placement flip.
+        // F4-P3: under rail auto-hide the pinned chrome hover is skipped entirely
+        // — the revealed-band hover returned early above, and a hidden rail has
+        // no chrome to hover, so this must NOT fall through to the top-bar
+        // hit-test (which would falsely register hits along the content's top).
         let rail_side = self.rail_side();
-        let tab_bar_hit = if self.should_show_tab_bar() {
+        let tab_bar_hit = if self.should_show_tab_bar() && !self.rail_autohide_active() {
             if rail_side.is_some() {
                 let hit = self.tab_rail.hit_test(
                     x_px,

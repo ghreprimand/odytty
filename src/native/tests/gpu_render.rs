@@ -349,6 +349,7 @@ fn render_sig() -> RenderSignature {
                 click_hint: OverlayFragment::Inert,
                 armed_path: OverlayFragment::Inert,
             },
+            rail_overlay: crate::native::render_helpers::RailOverlaySignature::default(),
         },
         cursor: CursorRenderSignature {
             visible: true,

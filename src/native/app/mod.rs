@@ -49,7 +49,7 @@ use super::clipboard::{
     write_paste_text,
 };
 use super::cvd_theme::CvdThemeCache;
-use super::gpu::{BloomOptions, CrtOptions, FrameOutcome, GpuState};
+use super::gpu::{BloomOptions, CrtOptions, FrameOutcome, GpuState, RailOverlay};
 use super::options::{NativeError, NativeOptions};
 use super::overlay::{
     OverlayInput, OverlayOutcome, OverlayPointer, OverlayUi, PointerButton, apply_overlay,
@@ -60,8 +60,8 @@ use super::pty::PtyWriter;
 use super::pty::UserEvent;
 use super::render_helpers::{
     CursorAnimKey, CursorRenderSignature, GeometryUpdate, OverlayCompositeSignature,
-    OverlayFragment, RenderContentSignature, RenderSignature, SelectionSignature,
-    hyperlink_action_allowed, image_uploads_for_visible, key_modes_from_core,
+    OverlayFragment, RailOverlaySignature, RenderContentSignature, RenderSignature,
+    SelectionSignature, hyperlink_action_allowed, image_uploads_for_visible, key_modes_from_core,
     openable_hyperlink_uri, visible_graphics_signature,
 };
 use super::theme_builder::{save_theme_to_dir, user_theme_dir_for_config};
@@ -106,6 +106,7 @@ mod panes;
 pub(in crate::native) mod platform_opener;
 mod pointer;
 mod prompt_jump;
+mod rail_autohide;
 mod replay_ui;
 mod scroll_anim;
 mod session_attach_ui;
@@ -212,6 +213,17 @@ thread_local! {
     /// only its own recordings; tests clear it before driving the dispatch.
     static NEW_WINDOW_SPAWN_ARGV: std::cell::RefCell<Vec<Vec<String>>> =
         const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Owned inputs for the F4-P3 revealed rail overlay, built once per frame by
+/// [`App::build_rail_overlay`]. Holds the strip snapshot by value (the GPU call
+/// borrows it) plus the pre-resolved origin and wash/seam quads; the render path
+/// lends a [`gpu::RailOverlay`] from it at the update call.
+struct RailOverlayData {
+    snapshot: Snapshot,
+    origin: [f32; 2],
+    wash: Option<SolidQuad>,
+    seam: Option<SolidQuad>,
 }
 
 /// Application state driving the `winit` event loop.
@@ -335,6 +347,13 @@ pub(super) struct App {
     /// click; reset on an actual drag move so a drag-then-grab is not misread as
     /// one. Separate from the grid/rename trackers.
     rail_seam_clicks: ClickTracker,
+    /// F4-P3 rail auto-hide timing state machine (ODP-4). Inert unless
+    /// `tab_rail_autohide` is on and the chrome is a side rail; when active it
+    /// drives the reveal/hide of the floating rail overlay from the pointer edge
+    /// zone, keyboard flashes, and the debounce/grace timers. The reservation is
+    /// removed (`tab_reserve` → NONE) the moment autohide is active, so reveal is
+    /// a pure overlay and never reflows content.
+    rail_autohide: rail_autohide::RailAutohide,
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
@@ -517,6 +536,7 @@ impl App {
             rail_reserved_cols: 0,
             rail_seam_drag: false,
             rail_seam_clicks: ClickTracker::default(),
+            rail_autohide: rail_autohide::RailAutohide::default(),
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
             bell_flash_start: None,
@@ -723,6 +743,9 @@ impl App {
                 );
             }
             let _ = self.sessions.switch(session_id);
+            // F4-P3: a new-tab chord flashes the auto-hidden rail so the new tab
+            // is confirmed even with the pointer away from the edge.
+            self.flash_rail_autohide();
             self.on_active_session_changed();
         }
     }
@@ -876,12 +899,14 @@ impl App {
 
     fn switch_to_next_tab(&mut self) {
         if self.sessions.next() {
+            self.flash_rail_autohide();
             self.on_active_session_changed();
         }
     }
 
     fn switch_to_prev_tab(&mut self) {
         if self.sessions.prev() {
+            self.flash_rail_autohide();
             self.on_active_session_changed();
         }
     }
@@ -904,6 +929,9 @@ impl App {
         }
         // 2+ tabs: reap the whole active tab (every pane) and remove it.
         let _ = self.sessions.close_active_tab();
+        // F4-P3: a close chord flashes the auto-hidden rail so the dropped tab is
+        // visible even with the pointer away from the edge.
+        self.flash_rail_autohide();
         // Switching to a surviving tab may return the input path to the plain
         // single-pane fast path; clear any pending multiplexer prefix so a
         // stale state can't swallow the next key.
@@ -1116,6 +1144,11 @@ impl App {
                     next
                 })
                 .min(),
+            // F4-P3: wake at the next rail auto-hide boundary (show debounce /
+            // hide grace / flash expiry). `None` at rest — steady Hidden, or
+            // Revealed with the pointer parked — so the idle wake set is
+            // unchanged when nothing is animating.
+            self.rail_autohide.wake_deadline(Instant::now()),
         ]
         .into_iter()
         .flatten()
@@ -1939,6 +1972,15 @@ impl App {
         if !self.should_show_tab_bar() {
             return panes::TabReserve::NONE;
         }
+        // F4-P3: under rail auto-hide the rail reserves NOTHING — it draws as a
+        // floating overlay when revealed (never reflows content). The single
+        // reflow the operator sees is exactly this reservation dropping to zero
+        // when autohide is toggled on; reveal/hide after that never touches the
+        // reserve. Gated on a side rail (the top bar keeps `always_show_tab_bar`
+        // semantics), so the top-bar path is unchanged.
+        if self.rail_autohide_active() {
+            return panes::TabReserve::NONE;
+        }
         let gap_cols = self.rail_gap_cols();
         // F4-P1/P4: the rail band width resolves the `tab_rail_width` mode —
         // `Manual(cols)` clamps the fixed width, `Auto` sizes to the longest tab
@@ -2241,6 +2283,352 @@ impl App {
         self.needs_rebuild = true;
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // F4-P3 rail auto-hide (ODP-4)
+    // -----------------------------------------------------------------------
+
+    /// Whether rail auto-hide is active this frame: the knob is on, the tab
+    /// chrome is shown, AND the placement is a side rail (the top bar keeps
+    /// `always_show_tab_bar` semantics — a hidden top bar is already expressible
+    /// by turning that off). When active, `tab_reserve` returns `NONE` and the
+    /// rail is a floating overlay.
+    fn rail_autohide_active(&self) -> bool {
+        self.should_show_tab_bar()
+            && self.settings.tab_rail_autohide
+            && matches!(
+                self.effective_placement(),
+                TabBarPlacement::Left | TabBarPlacement::Right
+            )
+    }
+
+    /// The side an auto-hidden rail occupies (independent of `tab_reserve`, which
+    /// is `NONE` under autohide). `None` when autohide is inactive.
+    fn rail_autohide_side(&self) -> Option<RailSide> {
+        if !self.rail_autohide_active() {
+            return None;
+        }
+        match self.effective_placement() {
+            TabBarPlacement::Left => Some(RailSide::Left),
+            TabBarPlacement::Right => Some(RailSide::Right),
+            TabBarPlacement::Top => None,
+        }
+    }
+
+    /// The width (cells) of the auto-hidden rail overlay band — the same width
+    /// the rail would resolve to if pinned (`Manual` clamp or `Auto` from the
+    /// longest title), computed independently of the (now zero) reservation.
+    fn rail_overlay_cols(&self) -> usize {
+        self.settings.rail_width_cols(self.rail_auto_want_cols())
+    }
+
+    /// Physical-pixel top-left of the revealed rail overlay band. A left rail
+    /// hugs the left padding (`[pad, pad]`); a right rail hugs the right window
+    /// edge (`surface_w − pad − band_w`). Unlike the pinned right rail (which is
+    /// grid-embedded after the full-width content), the overlay floats at the
+    /// window edge — content underneath is already full-width.
+    fn rail_overlay_origin_px(&self, cell: CellSize, side: RailSide) -> [f32; 2] {
+        let pad = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO)
+            .as_f32();
+        let band_w = self.rail_overlay_cols() as f32 * cell.width as f32;
+        let surface_w = self
+            .gpu
+            .as_ref()
+            .map(|gpu| gpu.surface_size().0 as f32)
+            .unwrap_or(0.0);
+        let x = match side {
+            RailSide::Left => pad,
+            RailSide::Right => (surface_w - pad - band_w).max(pad),
+        };
+        [x, pad]
+    }
+
+    /// The revealed overlay band's content-facing seam x (physical px): the
+    /// right edge of a left band, the left edge of a right band.
+    fn rail_overlay_seam_x(&self, cell: CellSize, side: RailSide) -> f32 {
+        let origin_x = self.rail_overlay_origin_px(cell, side)[0];
+        let band_w = self.rail_overlay_cols() as f32 * cell.width as f32;
+        match side {
+            RailSide::Left => origin_x + band_w,
+            RailSide::Right => origin_x,
+        }
+    }
+
+    /// Whether a raw pointer x is inside the reveal **trigger** zone (within
+    /// `tab_rail_reveal_px` of the rail's window edge). Left: `x ≤ N`; right:
+    /// `x ≥ width − N`.
+    fn pointer_in_reveal_edge(&self, px_x: f64, side: RailSide) -> bool {
+        let reveal_px = self.settings.tab_rail_reveal_px as f64;
+        match side {
+            RailSide::Left => px_x <= reveal_px,
+            RailSide::Right => {
+                let surface_w = self
+                    .gpu
+                    .as_ref()
+                    .map(|gpu| gpu.surface_size().0 as f64)
+                    .unwrap_or(0.0);
+                px_x >= surface_w - reveal_px
+            }
+        }
+    }
+
+    /// Whether a raw pointer x is inside the reveal **keep-alive** band — from
+    /// the window edge through the overlay band to the seam (⊇ the trigger
+    /// zone). Left: `x < seam_x`; right: `x > seam_x`. Used to hold the rail up
+    /// while the pointer is anywhere over it.
+    fn pointer_in_reveal_band(&self, px_x: f64, cell: CellSize, side: RailSide) -> bool {
+        let seam_x = self.rail_overlay_seam_x(cell, side) as f64;
+        match side {
+            RailSide::Left => px_x < seam_x,
+            RailSide::Right => px_x > seam_x,
+        }
+    }
+
+    /// Reveal the auto-hidden rail for a flash after a keyboard tab action
+    /// (ODP-4 SHOULD). Inert (and cheap) unless autohide is active; requests a
+    /// redraw and schedules the flash-expiry wake when it takes effect.
+    fn flash_rail_autohide(&mut self) {
+        if !self.rail_autohide_active() {
+            return;
+        }
+        self.rail_autohide.flash(Instant::now());
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+
+    /// Feed the live pointer to the auto-hide machine and repaint on a
+    /// visibility change. Called from the pointer-move path while autohide is
+    /// active; also called with `in_edge = in_band = false` when the pointer
+    /// leaves the window so a rail revealed at the edge can hide.
+    fn update_rail_autohide_pointer(&mut self, px_x: f64, cell: CellSize) {
+        let Some(side) = self.rail_autohide_side() else {
+            return;
+        };
+        // Popup-tracking rule (ODP-4): hold the rail up while an overlay (its
+        // right-click context menu) is open — the hide timer is suspended until
+        // the menu closes.
+        self.rail_autohide.set_suspend(self.overlay.is_open());
+        let (in_edge, in_band) = self.reveal_pointer_contact(px_x, cell, side);
+        if self
+            .rail_autohide
+            .on_pointer(in_edge, in_band, Instant::now())
+            && let Some(window) = self.window.as_ref()
+        {
+            window.request_redraw();
+        }
+    }
+
+    /// The `(in_edge, in_band)` reveal contact the machine is fed for a raw
+    /// pointer x. Yields to an active scrollbar-thumb drag (ODP-5): a drag near
+    /// the edge — the right rail's scrollbar sits just inside the seam — must not
+    /// trigger or hold a reveal, so a drag-in-progress reports no contact.
+    fn reveal_pointer_contact(&self, px_x: f64, cell: CellSize, side: RailSide) -> (bool, bool) {
+        if self.pointer_drag.scrollbar_grab().is_some() {
+            return (false, false);
+        }
+        (
+            self.pointer_in_reveal_edge(px_x, side),
+            self.pointer_in_reveal_band(px_x, cell, side),
+        )
+    }
+
+    /// Whether the auto-hidden rail overlay is drawn (and hit-tested) this
+    /// frame: autohide active AND the state machine currently visible.
+    fn rail_overlay_visible(&self) -> bool {
+        self.rail_autohide_active() && self.rail_autohide.is_visible(Instant::now())
+    }
+
+    /// Hover the revealed rail overlay from the live pointer, using the overlay
+    /// band geometry (window-edge origin, overlay width) rather than the pinned
+    /// reservation (which is `NONE` under autohide). Clears any stale top-bar
+    /// hover and keeps the default cursor over the band.
+    fn update_rail_overlay_hover(&mut self, x_px: f64, y_px: f64, cell: CellSize, side: RailSide) {
+        let hit = self.tab_rail.hit_test(
+            x_px,
+            y_px,
+            &self.sessions,
+            self.rail_overlay_cols(),
+            self.tab_rail_grid_rows(),
+            self.rail_overlay_origin_px(cell, side),
+            cell,
+            self.rail_geom(),
+        );
+        let hover = (hit != TabHit::None).then_some(hit);
+        let mut redraw = false;
+        if self.tab_rail.hover != hover {
+            self.tab_rail.set_hover(hover);
+            redraw = true;
+        }
+        if self.tab_bar.hover.is_some() {
+            self.tab_bar.set_hover(None);
+            redraw = true;
+        }
+        self.apply_cursor_icon(CursorIcon::Default);
+        if redraw && let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+
+    /// Build the F4-P3 revealed rail overlay for this frame: the `rail_cols ×
+    /// rows` strip snapshot (rail glyphs + baked panel tint), its window-edge
+    /// origin, and the occluding wash + content-facing seam quads. `None` unless
+    /// the overlay is currently revealed. The owned snapshot must outlive the GPU
+    /// call, so the caller holds this and lends a [`gpu::RailOverlay`] from it.
+    fn build_rail_overlay(&self, cell: CellSize) -> Option<RailOverlayData> {
+        let side = self.rail_autohide_side()?;
+        if !self.rail_overlay_visible() {
+            return None;
+        }
+        let cols = self.rail_overlay_cols();
+        let rows = self.tab_rail_grid_rows();
+        if cols == 0 || rows == 0 {
+            return None;
+        }
+        let origin = self.rail_overlay_origin_px(cell, side);
+        let padding = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO);
+        let output = self.tab_rail.render(
+            &self.sessions,
+            cols,
+            rows,
+            [padding.as_f32(), padding.as_f32()],
+            cell,
+            side,
+            self.tab_bar_colors(),
+            self.rail_geom(),
+            self.tab_panel_strength(),
+        );
+        let mut snapshot = Snapshot {
+            dimensions: Dimensions::new(cols, rows),
+            cursor: Position { row: 0, column: 0 },
+            cursor_visible: false,
+            colors: crate::core::DynamicColors::default(),
+            cells: vec![crate::core::Cell::default(); cols * rows],
+        };
+        for glyph in output.glyphs {
+            if glyph.row < rows && glyph.col < cols {
+                snapshot.cells[glyph.row * cols + glyph.col] =
+                    crate::core::Cell::new(glyph.ch, glyph.attrs);
+            }
+        }
+        let (wash, seam) = self.build_rail_overlay_quads(cell, side);
+        Some(RailOverlayData {
+            snapshot,
+            origin,
+            wash,
+            seam,
+        })
+    }
+
+    /// The revealed rail overlay's occluding wash (`p_reveal = max(p, 0.85)`,
+    /// near-opaque so live content never bleeds through the floating band) and
+    /// its content-facing seam, in surface pixels. Reuses the panel colors +
+    /// seam gate; the geometry hugs the window edge (not grid-embedded), so it
+    /// goes through [`tab_panel::overlay_band_quads`] with the resolved seam x.
+    fn build_rail_overlay_quads(
+        &self,
+        cell: CellSize,
+        side: RailSide,
+    ) -> (Option<SolidQuad>, Option<SolidQuad>) {
+        let Some(gpu) = self.gpu.as_ref() else {
+            return (None, None);
+        };
+        let (surface_w, surface_h) = gpu.surface_size();
+        let strength = self.tab_panel_strength();
+        let colors = self.tab_bar_colors();
+        let panel_color = tab_chrome::panel_tint(colors, strength);
+        let p = tab_chrome::panel_wash_alpha(strength, self.settings.cell_bg_opacity);
+        let wash_alpha = p.max(rail_autohide::REVEAL_WASH_ALPHA);
+        let seam = (self.settings.tab_seam && strength > 0.0)
+            .then(|| tab_chrome::seam_color(colors, panel_color));
+        let seam_x = self.rail_overlay_seam_x(cell, side);
+        let axis = match side {
+            RailSide::Left => tab_panel::PanelAxis::Left,
+            RailSide::Right => tab_panel::PanelAxis::Right,
+        };
+        tab_panel::overlay_band_quads(
+            axis,
+            seam_x,
+            surface_w as f32,
+            surface_h as f32,
+            gpu.scale().round().max(1.0),
+            panel_color,
+            wash_alpha,
+            seam,
+            tab_chrome::SEAM_ALPHA,
+        )
+    }
+
+    /// The single-pane render-cache key for the revealed rail overlay (F4-P3).
+    /// `default()` (not revealed) is a frame-to-frame constant, so the pinned /
+    /// no-autohide path keeps its byte-identical cache behavior; when revealed,
+    /// the visibility + geometry + a hash of the rail's visual state (active
+    /// index, tab count, hover, titles) make a reveal / hide / switch / rename /
+    /// hover / auto-width change reclassify to a Full rebuild.
+    fn rail_overlay_render_signature(&self, cell: CellSize) -> RailOverlaySignature {
+        use std::hash::{Hash, Hasher};
+        let Some(side) = self.rail_autohide_side() else {
+            return RailOverlaySignature::default();
+        };
+        if !self.rail_overlay_visible() {
+            return RailOverlaySignature::default();
+        }
+        let cols = self.rail_overlay_cols();
+        let origin = self.rail_overlay_origin_px(cell, side);
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        use tab_bar::TabBarSource;
+        self.sessions.active_tab().hash(&mut hasher);
+        self.sessions.tab_count().hash(&mut hasher);
+        for idx in 0..self.sessions.tab_count() {
+            self.sessions.tab_title(idx).hash(&mut hasher);
+        }
+        // Hover state changes the highlighted slot, so a hover move while
+        // revealed must repaint.
+        format!("{:?}", self.tab_rail.hover).hash(&mut hasher);
+        RailOverlaySignature {
+            visible: true,
+            cols,
+            origin_bits: [origin[0].to_bits(), origin[1].to_bits()],
+            content_hash: hasher.finish(),
+        }
+    }
+
+    /// The rail hit under the pointer via the **revealed overlay** geometry, or
+    /// `None` when the overlay is not currently revealed / the pointer is off the
+    /// band. Lets the press dispatch route clicks on the floating rail to
+    /// switch/close/new-tab without any reservation (F4-P3).
+    fn rail_overlay_hit(&self) -> Option<TabHit> {
+        let side = self.rail_autohide_side()?;
+        if !self.rail_overlay_visible() {
+            return None;
+        }
+        let (x_px, y_px) = self.pointer_px?;
+        let cell = self.resolved_cell()?;
+        if !self.pointer_in_reveal_band(x_px, cell, side) {
+            return None;
+        }
+        match self.tab_rail.hit_test(
+            x_px,
+            y_px,
+            &self.sessions,
+            self.rail_overlay_cols(),
+            self.tab_rail_grid_rows(),
+            self.rail_overlay_origin_px(cell, side),
+            cell,
+            self.rail_geom(),
+        ) {
+            TabHit::None => None,
+            hit => Some(hit),
         }
     }
 
@@ -2858,6 +3246,19 @@ impl App {
             }
         }
 
+        // F4-P3: advance the rail auto-hide timers (show debounce / hide grace /
+        // flash expiry). A due boundary flips the overlay's visibility; repaint
+        // so the reveal appears or the hide takes effect. Returns `false` at rest
+        // (no autohide, or steady visible/hidden), so this is inert on the plain
+        // path and while the rail is parked open under the pointer. Keep the
+        // suspend latch current so a menu closing lets the grace run again.
+        self.rail_autohide.set_suspend(self.overlay.is_open());
+        if self.rail_autohide.poll(now)
+            && let Some(window) = self.window.as_ref()
+        {
+            window.request_redraw();
+        }
+
         // BLACK-SCREEN-ON-RESTORE: a due skipped-frame retry. Clear the pending
         // deadline and request a redraw so the next `RedrawRequested` re-attempts
         // the frame; if it skips again (and the guards still allow it) the
@@ -3349,6 +3750,11 @@ impl ApplicationHandler<UserEvent> for App {
                                     click_hint: self.click_hint_overlay_signature(),
                                     armed_path: self.armed_path_overlay_signature(),
                                 },
+                                // F4-P3: fold the revealed rail overlay's
+                                // visibility + geometry + visual state so a pure
+                                // reveal / hide / hover / switch rebuilds the
+                                // frame. `default()` (not revealed) is constant.
+                                rail_overlay: self.rail_overlay_render_signature(cell),
                             },
                             cursor: CursorRenderSignature {
                                 visible: snapshot.cursor_visible,
@@ -3386,7 +3792,19 @@ impl ApplicationHandler<UserEvent> for App {
                         // behind the tab chrome. Empty when the bar is hidden /
                         // panel off / seam off, so the plain path is unchanged.
                         let tab_bg_quads = self.tab_panel_bg_quads(cell);
+                        // F4-P3: the revealed rail auto-hide overlay strip. Built
+                        // before the GPU borrow (it reads `&self`); `None` unless
+                        // the floating rail is currently revealed, so the pinned /
+                        // no-autohide path is byte-identical.
+                        let rail_overlay_data = self.build_rail_overlay(cell);
                         if let Some(gpu) = self.gpu.as_mut() {
+                            let rail_overlay = rail_overlay_data.as_ref().map(|data| RailOverlay {
+                                snapshot: &data.snapshot,
+                                origin: data.origin,
+                                treatment: background_treatment,
+                                wash: data.wash,
+                                seam: data.seam,
+                            });
                             // RV4: push the current smooth-scroll offset so the
                             // vertex builders shift `content_origin` this frame.
                             // `0.0` at rest / on the off path leaves the origin
@@ -3400,7 +3818,10 @@ impl ApplicationHandler<UserEvent> for App {
                                         tab_bar_row_offset,
                                         tab_bar_col_offset,
                                     );
-                                    if overlays.is_empty() && tab_bg_quads.is_empty() {
+                                    if overlays.is_empty()
+                                        && tab_bg_quads.is_empty()
+                                        && rail_overlay.is_none()
+                                    {
                                         gpu.update_from_snapshot(
                                             &snapshot,
                                             cursor_style,
@@ -3415,6 +3836,7 @@ impl ApplicationHandler<UserEvent> for App {
                                             focus_dim,
                                             background_treatment,
                                             &tab_bg_quads,
+                                            rail_overlay,
                                         );
                                     }
                                 }
@@ -3540,6 +3962,18 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.update_pointer_cell(position.x, position.y);
+            }
+            WindowEvent::CursorLeft { .. } => {
+                // F4-P3: the pointer left the window — feed the auto-hide machine
+                // an empty sample so a rail revealed at the edge starts its hide
+                // grace (no `CursorMoved` fires once the pointer is gone). Inert
+                // unless autohide is active.
+                if self.rail_autohide_active()
+                    && self.rail_autohide.on_pointer(false, false, Instant::now())
+                    && let Some(window) = self.window.as_ref()
+                {
+                    window.request_redraw();
+                }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 self.handle_mouse_input(state, button);

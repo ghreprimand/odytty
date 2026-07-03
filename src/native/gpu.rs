@@ -83,6 +83,30 @@ pub(super) struct OverlayTop<'a> {
     pub(super) treatment: grid::BackgroundTreatmentParams,
 }
 
+/// The F4-P3 rail **auto-hide overlay**: the revealed rail band drawn as a
+/// floating strip at its window edge, over live content, without any content
+/// reflow. Composited topmost like an [`OverlayTop`], but with a three-layer
+/// stack around the strip snapshot so the near-opaque band reads over the
+/// terminal beneath it:
+/// 1. `wash` — one near-opaque quad UNDER the strip that occludes the live
+///    content the band floats over (`wash_alpha ≥ 0.85`).
+/// 2. the strip `snapshot` cells + glyphs (the rail's own tint + labels).
+/// 3. `seam` — the content-facing edge line, OVER the strip.
+///
+/// Emitted only while the rail is revealed; `None` leaves every frame unchanged.
+pub(super) struct RailOverlay<'a> {
+    /// The `rail_cols × rows` strip snapshot (rail glyphs + baked panel tint).
+    pub(super) snapshot: &'a Snapshot,
+    /// Strip top-left in physical px (window space).
+    pub(super) origin: [f32; 2],
+    /// Background treatment params (matches the frame).
+    pub(super) treatment: grid::BackgroundTreatmentParams,
+    /// Occluding wash quad drawn under the strip, or `None`.
+    pub(super) wash: Option<SolidQuad>,
+    /// Content-facing seam quad drawn over the strip, or `None`.
+    pub(super) seam: Option<SolidQuad>,
+}
+
 pub(super) fn theme_clear_color(theme: &Theme) -> wgpu::Color {
     let (r, g, b) = theme.clear;
     wgpu::Color {
@@ -1665,6 +1689,7 @@ impl GpuState {
             focus_dim,
             treatment,
             &[],
+            None,
         );
     }
 
@@ -1702,6 +1727,7 @@ impl GpuState {
         dividers: &[SolidQuad],
         overlay_top: Option<OverlayTop>,
         bg_quads: &[SolidQuad],
+        rail_overlay: Option<RailOverlay>,
     ) {
         // Pass A: ensure all panes' glyphs in both atlases, capturing each
         // pane's color-glyph runs for the build pass.
@@ -1729,6 +1755,11 @@ impl GpuState {
                 overlay.snapshot,
                 &[],
             );
+        }
+        // F4-P3: the revealed rail overlay strip's mono glyphs join the atlas in
+        // the same ensure pass.
+        if let Some(rail) = rail_overlay.as_ref() {
+            self.ensure_rail_overlay_glyphs(rail);
         }
         if self.atlas.take_dirty() {
             self.refresh_atlas_texture();
@@ -1865,6 +1896,12 @@ impl GpuState {
             );
             self.vertices.extend_from_slice(&overlay_buf);
         }
+        // F4-P3: the revealed rail overlay strip is the very last thing drawn —
+        // over the panes, dividers, per-pane overlays, and any window overlay —
+        // so the floating rail sits atop the live multi-pane content.
+        if let Some(rail) = rail_overlay.as_ref() {
+            self.push_rail_overlay(rail);
+        }
         self.vertex_count = self.vertices.len() as u32;
         self.background_vertex_count = self.background_vertex_count.min(self.vertex_count);
         self.color_glyph_vertex_count = self.color_glyph_vertices.len() as u32;
@@ -1951,6 +1988,7 @@ impl GpuState {
 
     /// Rebuild the cell vertex buffer from a fresh terminal snapshot plus
     /// presentation-only solid overlays, drawing the cursor in `cursor_style`.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn update_from_snapshot_with_overlays(
         &mut self,
         snapshot: &Snapshot,
@@ -1959,6 +1997,7 @@ impl GpuState {
         focus_dim: f32,
         treatment: grid::BackgroundTreatmentParams,
         bg_quads: &[SolidQuad],
+        rail_overlay: Option<RailOverlay>,
     ) {
         let color_glyph_runs = self
             .emoji_rasterizer
@@ -1969,6 +2008,11 @@ impl GpuState {
             snapshot,
             &color_glyph_runs,
         );
+        // F4-P3: the revealed rail overlay strip's mono glyphs must join the
+        // atlas before any texture refresh, alongside the terminal snapshot's.
+        if let Some(rail) = rail_overlay.as_ref() {
+            self.ensure_rail_overlay_glyphs(rail);
+        }
         if self.atlas.take_dirty() {
             self.refresh_atlas_texture();
         }
@@ -2041,6 +2085,12 @@ impl GpuState {
             origin,
             CursorRenderParams::default(),
         );
+        // F4-P3: the revealed rail overlay strip draws topmost — after the
+        // cursor and every overlay — so the floating band sits over the live
+        // content it reveals atop. `None` leaves the frame byte-identical.
+        if let Some(rail) = rail_overlay.as_ref() {
+            self.push_rail_overlay(rail);
+        }
         self.vertex_count = self.vertices.len() as u32;
         self.background_vertex_count = self.background_vertex_count.min(self.vertex_count);
         let needed = vertex_bytes_len(&self.vertices);
@@ -2052,6 +2102,45 @@ impl GpuState {
         if self.vertex_count > 0 {
             self.queue
                 .write_buffer(&self.vertex_buf, 0, bytemuck::cast_slice(&self.vertices));
+        }
+    }
+
+    /// Ensure the F4-P3 rail auto-hide overlay strip's mono glyphs are in the
+    /// atlas. Called in the glyph-ensure pass (before any atlas texture refresh)
+    /// so the strip's UVs are valid when its vertices are built. The strip is
+    /// mono-only (rail labels never render emoji), so it excludes color runs.
+    fn ensure_rail_overlay_glyphs(&mut self, rail: &RailOverlay) {
+        ensure_snapshot_glyphs_excluding_color_runs(
+            &mut self.atlas,
+            &self.fonts,
+            rail.snapshot,
+            &[],
+        );
+    }
+
+    /// Composite the F4-P3 rail auto-hide overlay strip **topmost**: the
+    /// occluding wash under it, then the strip cells + glyphs, then the seam over
+    /// it. Appended to `self.vertices` after every other segment so the floating
+    /// rail draws over the live content it reveals atop. The caller must have
+    /// ensured its glyphs (see [`Self::ensure_rail_overlay_glyphs`]).
+    fn push_rail_overlay(&mut self, rail: &RailOverlay) {
+        if let Some(wash) = rail.wash {
+            grid::push_solid_quad(&mut self.vertices, wash);
+        }
+        let mut strip: Vec<Vertex> = Vec::new();
+        grid::build_cell_vertices_with_focus_dim_and_origin_into(
+            &mut strip,
+            rail.snapshot,
+            &self.atlas,
+            &[],
+            0.0,
+            rail.origin,
+            rail.treatment,
+            self.cell_bg_opacity,
+        );
+        self.vertices.extend_from_slice(&strip);
+        if let Some(seam) = rail.seam {
+            grid::push_solid_quad(&mut self.vertices, seam);
         }
     }
 

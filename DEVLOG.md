@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Auto-hide the tab rail (F4-P3)
+
+The vertical tab rail can now hide itself and reveal on demand as a floating
+overlay, opt-in via `tab_rail_autohide` (rail placements only; the top bar keeps
+its `always_show_tab_bar` behavior).
+
+- **Hidden steady state removes the reservation.** Enabling auto-hide drops the
+  rail's content-column reservation to zero, so the content reflows exactly once
+  — at the toggle — and is full-width thereafter. Reveal and hide never touch the
+  reservation again: the rail is drawn as a floating overlay, never a reflow.
+  This was the load-bearing rule from the convention survey (Zen compact mode,
+  the macOS Dock, the Windows taskbar all reveal as overlays, never reflow).
+- **Reveal is pointer-driven with a small state machine.** Moving the pointer
+  within `tab_rail_reveal_px` (default 4) of the rail's window edge arms a 60ms
+  show debounce, then reveals; leaving the revealed band starts a 600ms hide
+  grace, then hides. A tab-switch / new-tab / close chord flashes the rail for
+  1000ms so a keyboard action is confirmed even with the pointer away from the
+  edge. Timings are internal constants; the machine is a pure, clock-injected
+  struct so the whole reveal/hide/flash/grace behavior is unit-tested without a
+  window. No animation — instant show/hide, matching the CRT aesthetic and
+  avoiding a new UI-animation framework.
+- **The revealed rail is a near-opaque overlay.** It draws topmost — over the
+  live terminal content it floats atop — as a three-layer stack: an occluding
+  wash at `max(p, 0.85)` (so content never bleeds through), the rail's own tinted
+  strip with its labels, then the content-facing seam. Both the single-pane and
+  multi-pane render paths gained a topmost rail-overlay channel; the single-pane
+  render cache folds the overlay's visibility + geometry + visual state into its
+  signature so a pure reveal (no terminal change) still repaints.
+- **Coexistence rules.** The reveal zone yields to an in-progress scroll-thumb
+  drag (a drag near the edge never triggers reveal). Under auto-hide the F4-P4
+  seam drag-resize is inert — a floating overlay is not seam-resized — so the
+  reveal trigger is the only edge gesture and the two never conflict (the chosen
+  precedence, pinned by a test). A rail-anchored context menu suspends the hide
+  timer so the rail stays up while the menu is open. The 100-theme readability
+  guard gained an extra case at the 0.85 reveal alpha over worst-case mid-gray
+  content, asserting the active fill, active label, and nearest inactive label
+  stay identifiable on the revealed panel.
+
+Windows: platform-neutral — pointer/overlay geometry and timers only, no
+PTY/spawn/path/env surface; the new tests are cfg-neutral across all three CI
+legs. `cargo test` 3093 lib + all integration bins green, `clippy --all-targets
+-D warnings` clean, `fmt --check` clean, MSRV 1.96 intact.
+
 ## 2026-07-03 -- Drag-to-resize the tab rail (F4-P4, part 2)
 
 The rail's inner (content-facing) edge is now a resize handle, completing the

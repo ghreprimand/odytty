@@ -222,8 +222,8 @@ environment variable was not set at startup.
 | `tab_rail_slot_rows` | `ODYTTY_TAB_RAIL_SLOT_ROWS` | `1` (compact) or `2` (padded — single centered label + a breathing row) (rail only) | `2` |
 | `tab_panel_strength` | `ODYTTY_TAB_PANEL_STRENGTH` | Float, `0.0..=1.0` (`0` = panel off) | `0.5` |
 | `tab_seam` | `ODYTTY_TAB_SEAM` | `on`, `off` | `on` |
-| `tab_rail_autohide` | `ODYTTY_TAB_RAIL_AUTOHIDE` | `on`, `off` (rail only; reveal lands in a later update) | `off` |
-| `tab_rail_reveal_px` | `ODYTTY_TAB_RAIL_REVEAL_PX` | Integer px, `1..=32` (rail only; takes effect with auto-hide reveal) | `4` |
+| `tab_rail_autohide` | `ODYTTY_TAB_RAIL_AUTOHIDE` | `on`, `off` (rail only) — hide the rail until the pointer reaches its window edge, then reveal it as a floating overlay (no content reflow); a tab-switch/new/close chord flashes it briefly | `off` |
+| `tab_rail_reveal_px` | `ODYTTY_TAB_RAIL_REVEAL_PX` | Integer px, `1..=32` (rail only) — width of the edge zone that triggers the auto-hide reveal | `4` |
 | `background_treatment` | `ODYTTY_BACKGROUND_TREATMENT` | `off`/`color`, `gradient`, `vignette`, `image` | `image` |
 | `background_image` | `ODYTTY_BACKGROUND_IMAGE` | PNG/JPEG/WebP path, `default` (bundled), or `none` | `default` (bundled) |
 | `cell_bg_opacity` | `ODYTTY_CELL_BG_OPACITY` | Float, `0.0..=1.0` | `0.8` |

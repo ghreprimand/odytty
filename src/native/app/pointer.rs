@@ -389,6 +389,13 @@ impl App {
         if !self.should_show_tab_bar() {
             return None;
         }
+        // F4-P3: under rail auto-hide the pinned reservation is `NONE`, so the
+        // rail is hit-tested against its floating-overlay geometry (window-edge
+        // origin, overlay width) and only while it is actually revealed — a click
+        // on the hidden edge falls through to the terminal beneath.
+        if self.rail_autohide_active() {
+            return self.rail_overlay_hit();
+        }
         let (x_px, y_px) = self.pointer_px?;
         let cell = self.resolved_cell()?;
         let padding = self

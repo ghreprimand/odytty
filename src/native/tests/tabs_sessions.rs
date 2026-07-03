@@ -641,6 +641,181 @@ fn rail_seam_hover_shows_a_resize_cursor_off_the_tab_slots() {
     );
 }
 
+// --- F4-P3: rail auto-hide (ODP-4) ---
+
+#[test]
+fn autohide_removes_the_rail_reservation() {
+    // The load-bearing rule: enabling auto-hide drops the rail's content
+    // reservation to zero (one reflow at toggle time) — reveal is a pure
+    // overlay, never a reflow. Pinned left reserves the band + gap; auto-hidden
+    // reserves nothing.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    assert_eq!(
+        app.tab_reserve_for_test(),
+        (0, 16),
+        "pinned left rail reserves its band"
+    );
+
+    app.set_tab_rail_autohide_for_test(true);
+    assert!(app.rail_autohide_active_for_test());
+    assert_eq!(
+        app.tab_reserve_for_test(),
+        (0, 0),
+        "auto-hide removes the reservation entirely (content is full-width)"
+    );
+    // The overlay band still resolves its width (for the floating strip),
+    // independent of the now-zero reservation.
+    assert_eq!(app.rail_overlay_cols_for_test(), 16);
+
+    // Toggling back off restores the reservation (the reverse reflow).
+    app.set_tab_rail_autohide_for_test(false);
+    assert_eq!(app.tab_reserve_for_test(), (0, 16));
+}
+
+#[test]
+fn autohide_only_applies_to_side_rails_not_the_top_bar() {
+    // Auto-hide is a rail feature; the top bar keeps `always_show_tab_bar`
+    // semantics, so the knob is inert (and the reservation unchanged) on top.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("top");
+    app.set_tab_rail_autohide_for_test(true);
+    assert!(
+        !app.rail_autohide_active_for_test(),
+        "auto-hide never applies to the top bar"
+    );
+    assert_eq!(
+        app.tab_reserve_for_test(),
+        (1, 0),
+        "the top bar still reserves its row under the (ignored) autohide knob"
+    );
+}
+
+#[test]
+fn reveal_edge_zone_is_the_window_edge_and_band_extends_to_the_seam() {
+    // The trigger zone is within `tab_rail_reveal_px` of the window edge; the
+    // keep-alive band runs from the edge to the seam (⊇ the trigger zone).
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16); // band [0..128] (pad 0 headless)
+    app.set_tab_rail_autohide_for_test(true);
+
+    // Default reveal_px = 4: x=2 is in the edge zone; x=40 (deep in the band) is
+    // not the trigger but IS the keep-alive band; x=200 (past the seam) is
+    // neither.
+    assert_eq!(app.reveal_contact_for_test(2.0), Some((true, true)));
+    assert_eq!(
+        app.reveal_contact_for_test(40.0),
+        Some((false, true)),
+        "mid-band holds the reveal but does not re-trigger"
+    );
+    assert_eq!(
+        app.reveal_contact_for_test(200.0),
+        Some((false, false)),
+        "past the seam is off the rail entirely"
+    );
+}
+
+#[test]
+fn reveal_yields_to_an_active_scrollbar_drag() {
+    // Coexistence (ODP-5): while a scroll-thumb drag is in progress, a pointer
+    // even at the very edge reports no reveal contact — the drag wins the edge.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    app.set_tab_rail_autohide_for_test(true);
+
+    // Without a drag, the edge triggers reveal.
+    assert_eq!(app.reveal_contact_for_test(2.0), Some((true, true)));
+    // With a scroll-thumb drag in progress, the same edge yields (no contact).
+    app.begin_scrollbar_drag_for_test();
+    assert_eq!(
+        app.reveal_contact_for_test(2.0),
+        Some((false, false)),
+        "a scrollbar drag suppresses reveal at the edge"
+    );
+}
+
+#[test]
+fn autohide_disables_the_seam_resize_leaving_reveal_the_only_edge_gesture() {
+    // Seam-drag vs reveal-zone PRECEDENCE (documented): under auto-hide the rail
+    // is a floating overlay that is not seam-resized, so the F4-P4 seam grab band
+    // is inert — the reveal trigger is the only edge interaction, and the two
+    // never conflict. A press at the (pinned) seam x therefore starts no drag.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16); // pinned seam would be at x=128
+    app.set_tab_rail_autohide_for_test(true);
+
+    assert_eq!(
+        app.pointer_over_rail_seam_for_test(128.0),
+        Some(false),
+        "the seam grab band is inert under auto-hide"
+    );
+    app.set_pointer_px_for_test(128.0, 100.0);
+    app.mouse_left_press_for_test();
+    assert!(
+        !app.rail_seam_dragging_for_test(),
+        "no seam drag arms under auto-hide"
+    );
+}
+
+#[test]
+fn revealed_band_click_hits_the_rail_hidden_does_not() {
+    // While revealed, a press on the overlay band resolves to a rail TabHit (the
+    // floating rail owns the pointer); while hidden, the same press falls through
+    // (no chrome), so content clicks are never eaten by an invisible rail.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    app.set_session_title_override_for_test(0, Some("a"));
+    app.set_session_title_override_for_test(1, Some("b"));
+    app.set_tab_rail_autohide_for_test(true);
+
+    // Slot 0 body (top-margin row 1, label col 2 → centre (2·8+4, 24)).
+    app.set_pointer_px_for_test(2.0 * 8.0 + 4.0, 24.0);
+    // Hidden: no tab hit (falls through to content).
+    assert!(!app.rail_overlay_visible_for_test());
+    assert_eq!(
+        app.tab_bar_hit_for_test(),
+        None,
+        "a hidden auto-hide rail eats no clicks"
+    );
+    // Revealed: the same press is a rail switch hit.
+    app.force_rail_reveal_for_test();
+    assert!(app.rail_overlay_visible_for_test());
+    assert_eq!(
+        app.tab_bar_hit_for_test(),
+        Some("switch"),
+        "a revealed overlay band press hits the rail"
+    );
+}
+
 // --- F4-P2: right rail (mirror of the left rail) ---
 
 #[test]

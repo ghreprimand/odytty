@@ -517,6 +517,13 @@ impl App {
         self.settings.scrollbar_drag = on;
     }
 
+    /// Test seam (F4-P3 coexistence): force an in-progress scroll-thumb drag so
+    /// the reveal-yields-to-scrollbar-drag rule can be asserted.
+    #[cfg(test)]
+    pub(in crate::native) fn begin_scrollbar_drag_for_test(&mut self) {
+        self.pointer_drag = crate::selection::PointerDrag::Scrollbar { grab_dy: 0.0 };
+    }
+
     /// Test seam (INTERACTIVE-PATHS): toggle the `interactive_paths` setting so
     /// the gated hover-scan path (and its byte-identical off path) can be pinned.
     #[cfg(test)]
@@ -694,6 +701,60 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn rail_seam_dragging_for_test(&self) -> bool {
         self.rail_seam_drag
+    }
+
+    // --- F4-P3 rail auto-hide seams ---
+
+    /// Test seam (F4-P3): toggle rail auto-hide and reflow the grid (the single
+    /// reflow at toggle time), mirroring the live setting-change path.
+    #[cfg(test)]
+    pub(in crate::native) fn set_tab_rail_autohide_for_test(&mut self, on: bool) {
+        self.settings.tab_rail_autohide = on;
+        self.recompute_grid_for_tab_bar();
+    }
+
+    /// Test seam (F4-P3): whether rail auto-hide is active this frame.
+    #[cfg(test)]
+    pub(in crate::native) fn rail_autohide_active_for_test(&self) -> bool {
+        self.rail_autohide_active()
+    }
+
+    /// Test seam (F4-P3): force the revealed phase so overlay geometry / hit
+    /// routing can be asserted without simulating the debounce clock.
+    #[cfg(test)]
+    pub(in crate::native) fn force_rail_reveal_for_test(&mut self) {
+        self.rail_autohide.force_revealed();
+    }
+
+    /// Test seam (F4-P3): whether the floating rail overlay is drawn this frame.
+    #[cfg(test)]
+    pub(in crate::native) fn rail_overlay_visible_for_test(&self) -> bool {
+        self.rail_overlay_visible()
+    }
+
+    /// Test seam (F4-P3): the overlay band width (cells) under auto-hide.
+    #[cfg(test)]
+    pub(in crate::native) fn rail_overlay_cols_for_test(&self) -> usize {
+        self.rail_overlay_cols()
+    }
+
+    /// Test seam (F4-P3): the reveal `(in_edge, in_band)` contact for a raw
+    /// pointer x — including the scrollbar-drag yield — or `None` off a
+    /// rail / autohide. Set `pointer_px` / a scrollbar grab first as needed.
+    #[cfg(test)]
+    pub(in crate::native) fn reveal_contact_for_test(&self, x: f64) -> Option<(bool, bool)> {
+        let side = self.rail_autohide_side()?;
+        let cell = self.resolved_cell()?;
+        Some(self.reveal_pointer_contact(x, cell, side))
+    }
+
+    /// Test seam (F4-P3): whether the pointer x is over the seam grab band (the
+    /// F4-P4 resize handle). Under auto-hide this is inert (the floating overlay
+    /// is not seam-resized), so it documents the seam-vs-reveal precedence.
+    #[cfg(test)]
+    pub(in crate::native) fn pointer_over_rail_seam_for_test(&self, x: f64) -> Option<bool> {
+        let cell = self.resolved_cell()?;
+        Some(self.pointer_over_rail_seam(x, cell))
     }
 
     /// Test seam (F4-P4): a left press routed through the real

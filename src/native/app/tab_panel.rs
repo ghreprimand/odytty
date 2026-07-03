@@ -164,6 +164,57 @@ pub(super) fn panel_quads(spec: &PanelQuadSpec) -> Vec<SolidQuad> {
     quads
 }
 
+/// Build the F4-P3 rail **auto-hide overlay** wash + seam, returned as two
+/// separate quads so the integration layer can layer them around the floating
+/// strip: the **wash draws UNDER** the strip cells (occluding the live content
+/// the revealed rail floats over — near-opaque, `wash_alpha ≥ 0.85`), and the
+/// **seam draws OVER** the strip (the content-facing edge line).
+///
+/// Unlike [`panel_quads`], the overlay band is NOT grid-embedded — the caller
+/// supplies the resolved content-facing `seam_x` directly (a left band hugs the
+/// left padding; a right band hugs the right window edge), so this takes no
+/// `lead_cells` / `band_cells`. `axis` selects which side the band occupies
+/// (`Top` is not an auto-hide axis and yields nothing). Returns
+/// `(wash, seam)` — either may be `None` (zero alpha / no seam color / degenerate
+/// surface).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn overlay_band_quads(
+    axis: PanelAxis,
+    seam_x: f32,
+    surface_w: f32,
+    surface_h: f32,
+    seam_w: f32,
+    panel_color: Srgb,
+    wash_alpha: f32,
+    seam: Option<Srgb>,
+    seam_alpha: f32,
+) -> (Option<SolidQuad>, Option<SolidQuad>) {
+    if surface_w <= 0.0 || surface_h <= 0.0 {
+        return (None, None);
+    }
+    let seam_w = seam_w.max(1.0);
+    let seam_x = seam_x.clamp(0.0, surface_w);
+    let (wash_rect, seam_rect): ([f32; 4], [f32; 4]) = match axis {
+        PanelAxis::Left => (
+            [0.0, 0.0, seam_x, surface_h],
+            [(seam_x - seam_w).max(0.0), 0.0, seam_x, surface_h],
+        ),
+        PanelAxis::Right => (
+            [seam_x, 0.0, surface_w, surface_h],
+            [seam_x, 0.0, (seam_x + seam_w).min(surface_w), surface_h],
+        ),
+        // The top bar has no auto-hide overlay (it keeps `always_show_tab_bar`).
+        PanelAxis::Top => return (None, None),
+    };
+    let make = |rect: [f32; 4], color: [f32; 4]| {
+        (rect[2] > rect[0] && rect[3] > rect[1] && color[3] > 0.0)
+            .then_some(SolidQuad { rect, color })
+    };
+    let wash = make(wash_rect, linear_rgba(panel_color, wash_alpha));
+    let seam = seam.and_then(|s| make(seam_rect, linear_rgba(s, seam_alpha)));
+    (wash, seam)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -310,5 +361,122 @@ mod tests {
         let mut spec = base(PanelAxis::Left);
         spec.surface = [0.0, 600.0];
         assert!(panel_quads(&spec).is_empty());
+    }
+
+    // ---- F4-P3 auto-hide overlay band quads -------------------------------
+
+    #[test]
+    fn overlay_left_band_washes_to_the_seam_and_seams_inside() {
+        let seam_x = 132.0; // pad + cols·cell for the caller-resolved band
+        let (wash, seam) = overlay_band_quads(
+            PanelAxis::Left,
+            seam_x,
+            800.0,
+            600.0,
+            1.0,
+            PANEL,
+            0.85,
+            Some(SEAM),
+            0.45,
+        );
+        // Wash spans the window edge → seam (occludes content the band floats
+        // over, including the outer padding), at the reveal alpha.
+        let wash = wash.expect("wash present");
+        assert_eq!(wash.rect, [0.0, 0.0, seam_x, 600.0]);
+        assert!((wash.color[3] - 0.85).abs() < 1e-6, "reveal wash alpha");
+        // Seam is 1px flush inside the content-facing (right) edge.
+        assert_eq!(
+            seam.expect("seam present").rect,
+            [seam_x - 1.0, 0.0, seam_x, 600.0]
+        );
+    }
+
+    #[test]
+    fn overlay_right_band_hugs_the_window_edge() {
+        // A right overlay hugs the right window edge; seam_x is the band's LEFT
+        // (content-facing) edge, resolved by the caller (not grid-embedded).
+        let seam_x = 668.0;
+        let (wash, seam) = overlay_band_quads(
+            PanelAxis::Right,
+            seam_x,
+            800.0,
+            600.0,
+            1.0,
+            PANEL,
+            0.9,
+            Some(SEAM),
+            0.45,
+        );
+        assert_eq!(wash.expect("wash").rect, [seam_x, 0.0, 800.0, 600.0]);
+        assert_eq!(seam.expect("seam").rect, [seam_x, 0.0, seam_x + 1.0, 600.0]);
+    }
+
+    #[test]
+    fn overlay_seam_thickens_at_hidpi_and_omits_without_color() {
+        let (_, seam) = overlay_band_quads(
+            PanelAxis::Left,
+            132.0,
+            800.0,
+            600.0,
+            2.0,
+            PANEL,
+            0.85,
+            Some(SEAM),
+            0.45,
+        );
+        assert_eq!(
+            seam.expect("seam").rect,
+            [132.0 - 2.0, 0.0, 132.0, 600.0],
+            "2px at 2x"
+        );
+        let (wash, seam) = overlay_band_quads(
+            PanelAxis::Left,
+            132.0,
+            800.0,
+            600.0,
+            1.0,
+            PANEL,
+            0.85,
+            None,
+            0.45,
+        );
+        assert!(
+            wash.is_some() && seam.is_none(),
+            "seam omitted when no color"
+        );
+    }
+
+    #[test]
+    fn overlay_top_axis_and_degenerate_surface_emit_nothing() {
+        let (w, s) = overlay_band_quads(
+            PanelAxis::Top,
+            20.0,
+            800.0,
+            600.0,
+            1.0,
+            PANEL,
+            0.85,
+            Some(SEAM),
+            0.45,
+        );
+        assert!(
+            w.is_none() && s.is_none(),
+            "top bar has no auto-hide overlay"
+        );
+        let (w, s) = overlay_band_quads(
+            PanelAxis::Left,
+            132.0,
+            0.0,
+            600.0,
+            1.0,
+            PANEL,
+            0.85,
+            Some(SEAM),
+            0.45,
+        );
+        assert!(
+            w.is_none() && s.is_none(),
+            "degenerate surface emits nothing"
+        );
     }
 }

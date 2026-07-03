@@ -236,6 +236,30 @@ pub(super) struct RenderContentSignature {
     /// default path and the geometry-update decision is unchanged from before
     /// the overlay registry landed.
     pub(super) overlays: OverlayCompositeSignature,
+    /// F4-P3 rail auto-hide overlay cache key. The revealed rail floats over the
+    /// terminal without changing its content, so a pure reveal/hide (or a hover
+    /// / tab-switch / auto-width change while revealed) would not perturb any of
+    /// the fields above and the frame would be wrongly `Retained`. Folding the
+    /// overlay's visibility + geometry + visual state in here makes those
+    /// transitions reclassify to a Full rebuild. `default()` (not revealed) is a
+    /// frame-to-frame constant, so the pinned / no-autohide path is unchanged.
+    pub(super) rail_overlay: RailOverlaySignature,
+}
+
+/// Cache key for the F4-P3 revealed rail overlay. `default()` — not revealed —
+/// is a constant, so the geometry-update gate is unchanged when autohide is off
+/// or the rail is hidden.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct RailOverlaySignature {
+    /// Whether the floating rail is drawn this frame.
+    pub(super) visible: bool,
+    /// Overlay band width in cells (auto-width / manual resize changes it).
+    pub(super) cols: usize,
+    /// Band origin in physical px, as `f32::to_bits()` (surface/side changes).
+    pub(super) origin_bits: [u32; 2],
+    /// Hash of the rail's visual state (active index, tab count, hover, titles)
+    /// so a switch / rename / hover while revealed rebuilds.
+    pub(super) content_hash: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

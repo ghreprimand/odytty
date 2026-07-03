@@ -21,7 +21,7 @@
 //! plan.
 
 use super::*;
-use crate::native::gpu::{OverlayTop, PaneRender};
+use crate::native::gpu::{OverlayTop, PaneRender, RailOverlay};
 use crate::native::layout::{PaneRect, divider_rects, grid_dims_for_rect};
 use crate::native::overlay::{apply_overlay, overlay_rect};
 
@@ -602,6 +602,10 @@ impl App {
         // chrome (same layer as the NF11 edge wash). Empty when the bar is hidden
         // / panel off / seam off, so the multi-pane frame stays byte-identical.
         let tab_bg_quads = self.tab_panel_bg_quads(cell);
+        // F4-P3: the revealed rail auto-hide overlay strip (floating over the
+        // multi-pane content). Owned here so its snapshot outlives the GPU call;
+        // `None` unless the floating rail is currently revealed.
+        let rail_overlay_data = self.build_rail_overlay(cell);
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.set_scroll_frac_offset(0.0);
             let overlay = overlay_top.as_ref().map(|(snapshot, origin)| OverlayTop {
@@ -609,7 +613,14 @@ impl App {
                 origin: *origin,
                 treatment: treatment_for_overlay,
             });
-            gpu.update_from_panes(&panes, &frame_quads, overlay, &tab_bg_quads);
+            let rail_overlay = rail_overlay_data.as_ref().map(|data| RailOverlay {
+                snapshot: &data.snapshot,
+                origin: data.origin,
+                treatment: treatment_for_overlay,
+                wash: data.wash,
+                seam: data.seam,
+            });
+            gpu.update_from_panes(&panes, &frame_quads, overlay, &tab_bg_quads, rail_overlay);
         }
         // Multi-pane v1 does not participate in the single-pane render-signature
         // cache; it rebuilds whenever a visible pane requests a redraw. Reset

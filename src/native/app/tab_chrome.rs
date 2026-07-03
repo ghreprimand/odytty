@@ -610,4 +610,58 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn revealed_autohide_panel_keeps_fills_and_labels_identifiable() {
+        // ODP-6 extra case (F4-P3): the auto-hide reveal draws the panel wash at
+        // `p_reveal = max(p, 0.85)` — near-opaque — over live content. The
+        // worst-case backing for readability is mid-gray content (neither dark
+        // nor light). At that alpha over mid-gray, assertions (4)–(6) still hold:
+        // the active fill, active label, and nearest inactive label stay
+        // distinguishable from the revealed panel surface.
+        const STRENGTH: f32 = 0.5;
+        const MID_GRAY: Srgb = (0x80, 0x80, 0x80);
+        let p_reveal = super::super::rail_autohide::REVEAL_WASH_ALPHA;
+        assert!(
+            (p_reveal - 0.85).abs() < 1e-6,
+            "the guard is written for the 0.85 reveal floor"
+        );
+        for theme in crate::theme::all() {
+            let colors = colors_for(theme);
+            let panel = panel_tint(colors, STRENGTH);
+            // The panel surface as it reads through the near-opaque reveal wash
+            // over worst-case mid-gray content.
+            let reveal_panel = blend_srgb(MID_GRAY, panel, p_reveal);
+            let reveal_panel_luma = relative_luminance(reveal_panel);
+            // The active fill cell veiled by the near-opaque panel wash.
+            let veiled_fill = blend_srgb(active_fill(colors), panel, p_reveal);
+            let veiled_fill_luma = relative_luminance(veiled_fill);
+            let active_lbl = relative_luminance(active_label(colors));
+            let inactive_lbl = relative_luminance(inactive_label(colors, 1));
+
+            // (4) Active fill locatable vs the revealed panel (raw fill clears the
+            // floor; the near-opaque veil shrinks the observed delta by ~(1−p)).
+            let veiled_floor = MIN_ACTIVE_FILL_PANEL_DELTA * (1.0 - p_reveal as f64);
+            assert!(
+                (veiled_fill_luma - reveal_panel_luma).abs() >= veiled_floor - 1e-9,
+                "{}: reveal veiled fill vs panel delta {:.4} < {veiled_floor:.4}",
+                theme.name,
+                (veiled_fill_luma - reveal_panel_luma).abs()
+            );
+            // (5) Active label pops off the veiled fill.
+            assert!(
+                (active_lbl - veiled_fill_luma).abs() >= MIN_ACTIVE_LABEL_FILL_DELTA,
+                "{}: reveal active label vs veiled fill delta {:.4} < {MIN_ACTIVE_LABEL_FILL_DELTA}",
+                theme.name,
+                (active_lbl - veiled_fill_luma).abs()
+            );
+            // (6) Nearest inactive label visible on the revealed panel.
+            assert!(
+                (inactive_lbl - reveal_panel_luma).abs() >= MIN_INACTIVE_LABEL_PANEL_DELTA,
+                "{}: reveal inactive label vs panel delta {:.4} < {MIN_INACTIVE_LABEL_PANEL_DELTA}",
+                theme.name,
+                (inactive_lbl - reveal_panel_luma).abs()
+            );
+        }
+    }
 }

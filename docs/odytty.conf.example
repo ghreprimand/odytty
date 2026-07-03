@@ -64,9 +64,10 @@ tab_rail_slot_rows = 2
 tab_panel_strength = 0.5
 tab_seam = on
 
-# Rail auto-hide: hide the vertical rail until the pointer reaches the window
-# edge (reveal-zone width in px). Off by default; the reveal behavior arrives in
-# a later update, but the settings are accepted now.
+# Rail auto-hide: hide the vertical rail until the pointer reaches its window
+# edge, then reveal it as a floating overlay (content never reflows on reveal).
+# A tab-switch / new-tab / close chord flashes it briefly. `tab_rail_reveal_px`
+# is the width of the edge zone that triggers the reveal. Off by default.
 tab_rail_autohide = off
 tab_rail_reveal_px = 4
 
