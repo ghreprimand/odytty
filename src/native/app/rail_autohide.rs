@@ -29,9 +29,11 @@
 use std::time::{Duration, Instant};
 
 /// Show debounce: the pointer must dwell in the edge zone this long before the
-/// rail reveals — near-instant (macOS Dock / Windows taskbar convention) but one
-/// frame-ish of debounce so flinging the pointer past the edge doesn't flash it.
-pub(super) const SHOW_DEBOUNCE: Duration = Duration::from_millis(60);
+/// rail reveals. Long enough that incidental edge contact — resting the pointer
+/// near a window pinned to a screen edge (tiling WMs), or skimming past on the
+/// way elsewhere — does not summon the rail ("too sensitive" / flicker report),
+/// but short enough that a deliberate push-to-edge still feels immediate.
+pub(super) const SHOW_DEBOUNCE: Duration = Duration::from_millis(120);
 /// Hide grace: after the pointer leaves the revealed band, the rail stays up
 /// this long before hiding (middle of the 300–1000ms convention range, errs
 /// toward snappy).

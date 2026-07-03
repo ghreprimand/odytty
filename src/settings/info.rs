@@ -554,7 +554,7 @@ impl Settings {
                 env: TAB_RAIL_REVEAL_PX_ENV,
                 name: "Rail reveal zone",
                 value: format_float(self.tab_rail_reveal_px),
-                description: "Width in pixels of the window-edge zone that reveals an auto-hidden rail on hover. Rail placements only. (Takes effect once auto-hide reveal lands.)",
+                description: "Width in logical pixels of the window-edge zone that reveals an auto-hidden rail on hover (scaled for HiDPI displays). Rail placements only.",
                 kind: SettingKind::Number,
                 range: None,
                 options: &[],

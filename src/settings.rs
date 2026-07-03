@@ -1058,8 +1058,10 @@ pub struct Settings {
     /// Rail auto-hide (F4-P1/P3): parsed and stored now; the reveal/hide behavior
     /// lands in the P-AUTOHIDE packet. Off by default, rail-only.
     pub tab_rail_autohide: bool,
-    /// Rail auto-hide reveal-zone width in physical px (F4-P1/P3): parsed and
-    /// stored now; the behavior lands in P-AUTOHIDE. Stored as `f32` in `[1, 32]`.
+    /// Rail auto-hide reveal-zone width in **logical** px (F4-P3): how close to
+    /// the rail's window edge the pointer summons an auto-hidden rail. Scaled by
+    /// the display scale factor at the comparison site so the zone is a
+    /// consistent physical size across displays. Stored as `f32` in `[1, 32]`.
     pub tab_rail_reveal_px: f32,
     /// Click-to-position-cursor on the live prompt (SH-CLICK). When on, a plain
     /// left click on the shell prompt line moves the shell's input cursor to the

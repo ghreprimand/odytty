@@ -127,6 +127,12 @@ pub(super) struct Session {
     /// only exists under `cfg(test)` — so the live path is unchanged.
     #[cfg(test)]
     pub(super) test_surface: Option<((u32, u32), WindowPadding)>,
+    /// Headless scale-factor seam: a display scale override so DPI-aware pointer
+    /// geometry (the F4-P3 rail reveal zone) can be exercised without a
+    /// GPU/window. `None` in production (the field only exists under
+    /// `cfg(test)`); the live path reads `GpuState::scale`.
+    #[cfg(test)]
+    pub(super) test_scale: Option<f32>,
     pub(super) hovered_hyperlink: Option<LinkId>,
     /// INTERACTIVE-PATHS (Phase 7): the path span currently under the pointer
     /// that resolved to a real filesystem entry, or `None`. Drives the pointer
@@ -315,6 +321,8 @@ impl Session {
             test_cell: None,
             #[cfg(test)]
             test_surface: None,
+            #[cfg(test)]
+            test_scale: None,
             hovered_hyperlink: None,
             hovered_path: None,
             hovered_path_cells: None,

@@ -653,10 +653,14 @@ pub const DEFAULT_TAB_SEAM: bool = true;
 /// rail-only.
 pub const DEFAULT_TAB_RAIL_AUTOHIDE: bool = false;
 
-/// Rail auto-hide reveal-zone width in physical px (`ODYTTY_TAB_RAIL_REVEAL_PX`,
-/// F4-P1/P3): parsed and stored now; the reveal behavior lands in P-AUTOHIDE.
-/// Stored as `f32`; rounded to a `usize` in `[MIN, MAX]` where used.
-pub const DEFAULT_TAB_RAIL_REVEAL_PX: f32 = 4.0;
+/// Rail auto-hide reveal-zone width in **logical** px (`ODYTTY_TAB_RAIL_REVEAL_PX`,
+/// F4-P3): how close to the rail's window edge the pointer must come to summon
+/// an auto-hidden rail. Logical (scaled by the display scale factor at the
+/// comparison site) so the zone is a consistent physical size across displays —
+/// a physical-px zone shrinks under fractional/HiDPI scaling and the rail
+/// became unreachably thin. Default raised to 8 so the zone is comfortably
+/// reachable by pointing at the edge.
+pub const DEFAULT_TAB_RAIL_REVEAL_PX: f32 = 8.0;
 pub const MIN_TAB_RAIL_REVEAL_PX: f32 = 1.0;
 pub const MAX_TAB_RAIL_REVEAL_PX: f32 = 32.0;
 

@@ -67,9 +67,10 @@ tab_seam = on
 # Rail auto-hide: hide the vertical rail until the pointer reaches its window
 # edge, then reveal it as a floating overlay (content never reflows on reveal).
 # A tab-switch / new-tab / close chord flashes it briefly. `tab_rail_reveal_px`
-# is the width of the edge zone that triggers the reveal. Off by default.
+# is the width (logical px, scaled for HiDPI) of the window-edge zone that
+# triggers the reveal. Off by default.
 tab_rail_autohide = off
-tab_rail_reveal_px = 4
+tab_rail_reveal_px = 8
 
 # Background treatments. OdyTTY ships with the bundled "Dark Waves" background
 # on by default. To turn it OFF, use `background_treatment = color` (theme

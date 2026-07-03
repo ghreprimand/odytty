@@ -713,9 +713,9 @@ fn reveal_edge_zone_is_the_window_edge_and_band_extends_to_the_seam() {
     app.set_tab_rail_width_manual_for_test(16); // band [0..128] (pad 0 headless)
     app.set_tab_rail_autohide_for_test(true);
 
-    // Default reveal_px = 4: x=2 is in the edge zone; x=40 (deep in the band) is
-    // not the trigger but IS the keep-alive band; x=200 (past the seam) is
-    // neither.
+    // Default reveal_px = 8 (logical) at scale 1.0: x=2 is in the edge zone;
+    // x=40 (deep in the band) is not the trigger but IS the keep-alive band;
+    // x=200 (past the seam) is neither.
     assert_eq!(app.reveal_contact_for_test(2.0), Some((true, true)));
     assert_eq!(
         app.reveal_contact_for_test(40.0),
@@ -726,6 +726,37 @@ fn reveal_edge_zone_is_the_window_edge_and_band_extends_to_the_seam() {
         app.reveal_contact_for_test(200.0),
         Some((false, false)),
         "past the seam is off the rail entirely"
+    );
+}
+
+#[test]
+fn reveal_zone_is_logical_px_scaled_for_hidpi() {
+    // REGRESSION (trigger zone too thin on fractional/HiDPI): the reveal zone is
+    // a LOGICAL-px width, scaled to the physical-px space winit reports pointer
+    // coordinates in. At scale 2.0 the default 8 logical px must trigger out to
+    // physical x=16 — with the old physical-px zone it would have stopped at x=4
+    // and the rail would be unreachable on a scaled display.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    app.set_tab_rail_autohide_for_test(true);
+    app.set_test_scale_for_test(2.0);
+
+    // Physical x=15 is within 8 logical px (16 physical) of the edge → triggers.
+    assert_eq!(
+        app.reveal_contact_for_test(15.0).map(|(edge, _)| edge),
+        Some(true),
+        "8 logical px at 2x scale reaches physical x=15"
+    );
+    // Physical x=20 is beyond the scaled zone → no trigger (still in the band).
+    assert_eq!(
+        app.reveal_contact_for_test(20.0).map(|(edge, _)| edge),
+        Some(false),
+        "past 16 physical px the edge no longer triggers"
     );
 }
 
@@ -813,6 +844,132 @@ fn revealed_band_click_hits_the_rail_hidden_does_not() {
         app.tab_bar_hit_for_test(),
         Some("switch"),
         "a revealed overlay band press hits the rail"
+    );
+}
+
+// --- F4-P3 REGRESSION repros (auto-hide breaks mouse routing) ---
+
+#[test]
+fn repro_right_click_in_content_opens_menu_under_autohide() {
+    // REGRESSION: with auto-hide on and the rail hidden, a right-click in the
+    // content area must open the context menu exactly as with auto-hide off.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    app.set_tab_rail_autohide_for_test(true);
+
+    // Pointer deep in content, far from the reveal edge; rail hidden.
+    app.pointer_move_for_test(400.0, 200.0);
+    assert!(
+        !app.rail_overlay_visible_for_test(),
+        "rail hidden in content"
+    );
+    app.mouse_right_press_for_test();
+    assert!(
+        app.context_menu_open_for_test(),
+        "right-click in content must open the context menu under auto-hide"
+    );
+}
+
+#[test]
+fn repro_reveal_holds_across_maintenance_polls_no_flicker() {
+    // REGRESSION (flicker): once revealed with the pointer parked over the band,
+    // the maintenance poll must keep it revealed — it must not oscillate.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    app.set_tab_rail_autohide_for_test(true);
+
+    let t0 = std::time::Instant::now();
+    // Pointer at the edge → arm the reveal, then poll comfortably past the show
+    // debounce (SHOW_DEBOUNCE is 120ms).
+    app.pointer_move_for_test(2.0, 100.0);
+    app.run_about_to_wait_maintenance_for_test(t0 + std::time::Duration::from_millis(150));
+    assert!(
+        app.rail_overlay_visible_for_test(),
+        "revealed after debounce"
+    );
+
+    // Pointer now sits mid-band (x=40, past the edge zone, inside the band).
+    app.pointer_move_for_test(40.0, 100.0);
+    // Several maintenance polls with the pointer parked must all stay revealed.
+    for ms in [200u64, 400, 800, 1600, 3200] {
+        app.run_about_to_wait_maintenance_for_test(t0 + std::time::Duration::from_millis(ms));
+        assert!(
+            app.rail_overlay_visible_for_test(),
+            "still revealed at +{ms}ms mid-band (no flicker)"
+        );
+    }
+}
+
+#[test]
+fn repro_revealed_content_right_click_opens_menu_not_swallowed() {
+    // REGRESSION: while the rail is REVEALED (the flicker state), a right-click
+    // in CONTENT (past the band seam) must still open the content context menu —
+    // the floating overlay must not swallow content-area clicks.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16); // band [0..128], seam at x=128
+    app.set_tab_rail_autohide_for_test(true);
+    app.force_rail_reveal_for_test();
+    assert!(app.rail_overlay_visible_for_test());
+
+    // Pointer far into content, well past the seam.
+    app.pointer_move_for_test(400.0, 200.0);
+    app.mouse_right_press_for_test();
+    assert!(
+        app.context_menu_open_for_test(),
+        "content right-click must open the menu even while the rail is revealed"
+    );
+}
+
+#[test]
+fn repro_open_menu_suppresses_the_rail_overlay_no_occlusion() {
+    // REGRESSION ("can't right-click Settings"): the revealed rail strip is
+    // composited topmost — OVER any open window overlay. So while a context menu
+    // (or Settings / palette) is open, the rail must NOT be drawn, or it paints
+    // over the menu and hides the items the pointer is clicking. An open overlay
+    // owns the screen; the floating rail steps aside until it closes.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    app.set_tab_rail_autohide_for_test(true);
+
+    // Rail revealed with no overlay → drawn.
+    app.force_rail_reveal_for_test();
+    assert!(
+        app.rail_overlay_visible_for_test(),
+        "revealed rail is drawn when nothing overlays it"
+    );
+
+    // Open a context menu (right-click in content) → the rail must step aside so
+    // it does not paint over the menu.
+    app.pointer_move_for_test(400.0, 200.0);
+    app.mouse_right_press_for_test();
+    assert!(app.context_menu_open_for_test(), "menu is open");
+    assert!(
+        !app.rail_overlay_visible_for_test(),
+        "an open overlay suppresses the rail so it can't occlude the menu"
     );
 }
 

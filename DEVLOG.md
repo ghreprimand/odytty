@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Auto-hide the tab rail: reveal-zone, occlusion, and sensitivity fixes
+
+Live testing of the F4-P3 rail auto-hide surfaced three problems with the reveal
+interaction; all three are addressed here.
+
+- **The reveal zone is now a logical-pixel width, scaled for HiDPI.**
+  `tab_rail_reveal_px` was compared against raw physical pointer coordinates, so
+  on fractional/HiDPI displays the trigger zone shrank (a 4px zone is ~2.7px at
+  1.5× scale) and the rail became unreachably hard to summon. The threshold is
+  now multiplied by the display scale factor at the comparison site, so the zone
+  is a consistent physical size on every display. The default is raised from 4 to
+  8 logical px so pointing at the window edge reliably reveals the rail.
+- **An open menu is no longer painted over by the rail.** The revealed rail strip
+  composites topmost — over the panes *and* over any open window overlay (context
+  menu, Settings, command palette). When the rail was revealed and a menu
+  overlapped its band, the rail drew on top of the menu, hiding the items under
+  the pointer — right-clicking to reach Settings appeared broken while auto-hide
+  was on. The floating rail now steps aside whenever a window overlay is open
+  (the overlay owns the screen); the reveal-machine phase is held, so the rail
+  reappears once the menu closes. Pointer routing already short-circuits to the
+  open overlay, so suppressing the draw keeps render and hit-test consistent.
+- **Reveal requires a longer dwell to avoid incidental triggers.** The show
+  debounce is raised from 60ms to 120ms so resting the pointer near a window
+  pinned to a screen edge (tiling window managers) or skimming past on the way
+  elsewhere no longer flickers the rail in and out, while a deliberate
+  push-to-edge still feels immediate.
+
+Regression coverage: the reveal zone triggers out to physical x=16 at 2× scale
+(logical-px proof); an open context menu suppresses the rail overlay
+(occlusion proof); a revealed rail holds steady across maintenance polls with the
+pointer parked mid-band (no flicker); and content-area right-clicks open the menu
+with auto-hide on whether the rail is hidden or revealed. `cargo test` green,
+`clippy -D warnings` clean, `fmt --check` clean, MSRV 1.96. Platform-neutral
+(pointer/overlay geometry + timers only).
+
 ## 2026-07-03 -- Auto-hide the tab rail (F4-P3)
 
 The vertical tab rail can now hide itself and reveal on demand as a floating

@@ -436,6 +436,14 @@ impl App {
         self.test_surface = Some(((width_px, height_px), padding));
     }
 
+    /// Test seam (F4-P3): inject the display scale factor so the DPI-aware rail
+    /// reveal zone (logical→physical px) can be asserted headlessly. `None`
+    /// leaves the default 1.0.
+    #[cfg(test)]
+    pub(in crate::native) fn set_test_scale_for_test(&mut self, scale: f32) {
+        self.test_scale = Some(scale);
+    }
+
     /// Test seam (CURSOR-ICON): drive the production `CursorMoved` handler
     /// headlessly so the cursor-shape selection (I-beam / hand / arrow) can be
     /// asserted without a window or GPU.
@@ -770,6 +778,15 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn mouse_left_release_for_test(&mut self) {
         self.handle_mouse_input(ElementState::Released, WinitMouseButton::Left);
+    }
+
+    /// Test seam (F4-P3 regression): a right press routed through the real
+    /// `handle_mouse_input` dispatch, so the context-menu open path (and any
+    /// autohide interference with it) can be asserted end-to-end. Set
+    /// `pointer_px` first.
+    #[cfg(test)]
+    pub(in crate::native) fn mouse_right_press_for_test(&mut self) {
+        self.handle_mouse_input(ElementState::Pressed, WinitMouseButton::Right);
     }
 
     /// Test seam (F4-V2): the decorated single-pane snapshot's `(columns, rows)`

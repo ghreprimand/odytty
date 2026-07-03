@@ -2360,11 +2360,27 @@ impl App {
         }
     }
 
+    /// The live display scale factor (physical px per logical px), or a headless
+    /// test override, defaulting to 1.0 before the GPU/window exists. Used to
+    /// convert logical-px pointer thresholds into the physical-px space winit's
+    /// `CursorMoved` reports in.
+    fn effective_scale(&self) -> f32 {
+        #[cfg(test)]
+        if let Some(scale) = self.test_scale {
+            return scale;
+        }
+        self.gpu.as_ref().map(GpuState::scale).unwrap_or(1.0)
+    }
+
     /// Whether a raw pointer x is inside the reveal **trigger** zone (within
     /// `tab_rail_reveal_px` of the rail's window edge). Left: `x ≤ N`; right:
-    /// `x ≥ width − N`.
+    /// `x ≥ width − N`. `tab_rail_reveal_px` is a **logical**-pixel width, scaled
+    /// to physical px here so the zone is a consistent physical size across
+    /// displays — a physical-px zone shrinks under fractional/HiDPI scaling
+    /// (e.g. a 4px zone becomes ~2.7px at 1.5× scale), which made the rail
+    /// unreachably hard to summon on scaled compositors.
     fn pointer_in_reveal_edge(&self, px_x: f64, side: RailSide) -> bool {
-        let reveal_px = self.settings.tab_rail_reveal_px as f64;
+        let reveal_px = self.settings.tab_rail_reveal_px as f64 * self.effective_scale() as f64;
         match side {
             RailSide::Left => px_x <= reveal_px,
             RailSide::Right => {
@@ -2440,9 +2456,23 @@ impl App {
     }
 
     /// Whether the auto-hidden rail overlay is drawn (and hit-tested) this
-    /// frame: autohide active AND the state machine currently visible.
+    /// frame: autohide active AND the state machine currently visible AND no
+    /// window overlay is open.
+    ///
+    /// The last clause is the fix for the "can't right-click Settings" report:
+    /// the revealed rail strip is composited *topmost* — over the panes AND over
+    /// the `overlay_top` window overlay (context menu / Settings / palette). If
+    /// the rail were drawn while a menu is open it would paint over the menu,
+    /// hiding items the pointer is trying to click. An open window overlay owns
+    /// the screen, so the floating rail steps aside until it closes (the
+    /// reveal-machine phase is held via `set_suspend`, so the rail reappears
+    /// afterward if the pointer is still near the edge). Hit-testing already
+    /// short-circuits to the overlay while it is open, so suppressing the draw
+    /// keeps render and hit-test consistent.
     fn rail_overlay_visible(&self) -> bool {
-        self.rail_autohide_active() && self.rail_autohide.is_visible(Instant::now())
+        self.rail_autohide_active()
+            && !self.overlay.is_open()
+            && self.rail_autohide.is_visible(Instant::now())
     }
 
     /// Hover the revealed rail overlay from the live pointer, using the overlay
