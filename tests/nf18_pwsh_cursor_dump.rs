@@ -29,7 +29,9 @@
 use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use odytty::core::{Dimensions, KeyboardModes as CoreKeyboardModes, Terminal};
@@ -48,6 +50,18 @@ struct Harness {
     rx: Receiver<std::io::Result<Vec<u8>>>,
     terminal: Terminal,
     captured: Vec<u8>,
+    // --- reader-thread instrumentation (round-2 plumbing diagnosis) ---
+    // Total bytes the reader physically read off `output_read`, independent of
+    // the channel/feed path. This is THE decisive datum: >0 means the ConPTY
+    // pipe delivered the child's VT and any empty Screen is a parse/feed bug;
+    // ==0 means the pipe was empty and the bytes went elsewhere (spawn/pcon or
+    // console-attach problem).
+    reader_bytes: Arc<AtomicUsize>,
+    // First raw chunk the reader saw (cap 256), hex-dumped in the report so we
+    // can see whether the OSC 133 bytes reached OUR pipe at all.
+    reader_first: Arc<Mutex<Vec<u8>>>,
+    // How the reader loop ended: "eof after N", "error: <e>", or still running.
+    reader_end: Arc<Mutex<Option<String>>>,
 }
 
 impl Harness {
@@ -57,31 +71,80 @@ impl Harness {
         let reader = session.try_clone_reader().ok()?;
         let writer = session.take_writer().ok()?;
         let (tx, rx) = mpsc::channel();
-        std::thread::spawn(move || {
-            let mut reader = reader;
-            let mut buf = [0u8; 4096];
-            loop {
-                match reader.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        if tx.send(Ok(buf[..n].to_vec())).is_err() {
+        let reader_bytes = Arc::new(AtomicUsize::new(0));
+        let reader_first = Arc::new(Mutex::new(Vec::new()));
+        let reader_end = Arc::new(Mutex::new(None));
+        {
+            let reader_bytes = Arc::clone(&reader_bytes);
+            let reader_first = Arc::clone(&reader_first);
+            let reader_end = Arc::clone(&reader_end);
+            std::thread::spawn(move || {
+                let mut reader = reader;
+                let mut buf = [0u8; 4096];
+                loop {
+                    match reader.read(&mut buf) {
+                        Ok(0) => {
+                            let total = reader_bytes.load(Ordering::Relaxed);
+                            *reader_end.lock().unwrap() = Some(format!("eof after {total} bytes"));
+                            break;
+                        }
+                        Ok(n) => {
+                            reader_bytes.fetch_add(n, Ordering::Relaxed);
+                            {
+                                let mut first = reader_first.lock().unwrap();
+                                if first.len() < 256 {
+                                    let take = n.min(256 - first.len());
+                                    first.extend_from_slice(&buf[..take]);
+                                }
+                            }
+                            if tx.send(Ok(buf[..n].to_vec())).is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            *reader_end.lock().unwrap() = Some(format!("error: {e}"));
+                            let _ = tx.send(Err(e));
                             break;
                         }
                     }
-                    Err(e) => {
-                        let _ = tx.send(Err(e));
-                        break;
-                    }
                 }
-            }
-        });
+            });
+        }
         Some(Harness {
             session,
             writer,
             rx,
             terminal: Terminal::new(COLS, ROWS),
             captured: Vec::new(),
+            reader_bytes,
+            reader_first,
+            reader_end,
         })
+    }
+
+    /// Snapshot of what the reader thread physically observed off the pipe.
+    fn reader_report(&self) -> String {
+        let bytes = self.reader_bytes.load(Ordering::Relaxed);
+        let end = self
+            .reader_end
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| "still reading (no EOF/error)".to_owned());
+        let first = self.reader_first.lock().unwrap().clone();
+        format!(
+            "reader saw {bytes} bytes off output_read; end-state: {end}\n{}",
+            render_vt(&first)
+        )
+    }
+
+    /// Child liveness/exit, for the "did the shell die?" branch.
+    fn child_status(&mut self) -> String {
+        match self.session.try_wait() {
+            Ok(None) => "child ALIVE".to_owned(),
+            Ok(Some(status)) => format!("child EXITED: {status:?}"),
+            Err(e) => format!("child status error: {e}"),
+        }
     }
 
     fn feed(&mut self, chunk: &[u8]) {
@@ -206,8 +269,13 @@ fn dump_flavor(program: &str) -> String {
     // Wait for integration to load: the wrapped prompt emits the OSC 133 B
     // input-start mark at end of prompt.
     if !h.poll_until(|t| t.active_prompt_input_start().is_some()) {
+        // ROUND-2 PLUMBING DIAGNOSIS: distinguish "our pipe was empty" (spawn /
+        // pcon / console-attach) from "our pipe had bytes but the parser saw
+        // nothing" (feed/parse). `reader_report` is the decisive datum.
+        let reader = h.reader_report();
+        let child = h.child_status();
         return format!(
-            "[{program}] no OSC 133 B mark within {}s — integration did not load.\n  screen:\n{}",
+            "[{program}] no OSC 133 B mark within {}s.\n  {child}\n  {reader}\n  screen (parsed): {:?}",
             WAIT.as_secs(),
             h.terminal.screen().plain_text()
         );
@@ -282,8 +350,12 @@ fn dump_flavor(program: &str) -> String {
         }
     }
 
+    let reader = h.reader_report();
+    let child = h.child_status();
     format!(
         "[{program}] Windows PowerShell click-cursor dump\n\
+         - {child}\n\
+         - pipe: {reader}\n\
          - B mark (abs_row,col)     : {b_mark:?}\n\
          - typed                    : {:?} (len {typed_len} runes/cells, ASCII)\n\
          - grid cursor (row,col)    : ({},{})\n\
