@@ -16771,7 +16771,7 @@ of the PTY writer plumbed last change.
   (`WAYLAND_DISPLAY=wayland-1 DISPLAY= ODYTTY_NATIVE_AUTOCLOSE_MS` …) exits `0`,
   no validation errors, no zombies/lingering processes.
 
-### Known gaps (unchanged this change)
+### Known gaps (unchanged here)
 
 - Window-resize reflow of the PTY/model is still deferred (viewport-only).
 - No paste/bracketed-paste, mouse selection, or scrollback navigation yet —
