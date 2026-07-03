@@ -68,6 +68,12 @@ impl Harness {
     fn spawn(cmd: CommandBuilder) -> Option<Self> {
         let dims = Dimensions::new(COLS, ROWS);
         let session = PtySession::spawn_command(dims, cmd).ok()?;
+        Self::from_session(session)
+    }
+
+    /// Wrap an already-spawned session (so the production helper
+    /// `spawn_default_shell_in_with_settings` can be used verbatim).
+    fn from_session(session: PtySession) -> Option<Self> {
         let reader = session.try_clone_reader().ok()?;
         let writer = session.take_writer().ok()?;
         let (tx, rx) = mpsc::channel();
@@ -248,6 +254,76 @@ fn render_vt(bytes: &[u8]) -> String {
     format!("  escaped: {esc}\n  hex: {hex}")
 }
 
+/// DECISIVE, shell-agnostic control: spawn `cmd.exe /c echo <MARKER>` through
+/// the SAME ConPTY spawn path and check whether the MARKER text reaches OUR
+/// pcon output reader. cmd is non-interactive (no stdin-EOF interaction), so
+/// this isolates one question: does pcon stdout delivery work at all from a
+/// console-subsystem `cargo test` process?
+/// - MARKER reaches our reader  => pcon child-attach + stdout delivery WORK;
+///   the PowerShell failure is interactive/stdin-specific, not attach.
+/// - MARKER does NOT reach it    => systematic pcon attach failure in-test
+///   (the child's stdio is not our pseudoconsole).
+fn control_cmd_echo() -> String {
+    const MARKER: &str = "ODYTTY_PCON_MARK_7Q";
+    let mut cmd = CommandBuilder::new("cmd.exe");
+    cmd.arg("/c").arg(format!("echo {MARKER}"));
+    let Some(mut h) = Harness::spawn(cmd) else {
+        return "[control cmd /c echo] spawn failed".to_owned();
+    };
+    // cmd echoes then exits; wait until either the marker lands or the reader
+    // hits EOF (child gone).
+    let saw = h.poll_until(|t| t.screen().plain_text().contains(MARKER));
+    h.settle(300);
+    let reader = h.reader_report();
+    let child = h.child_status();
+    let parsed_has = h.terminal.screen().plain_text().contains(MARKER);
+    let reader_has = h
+        .captured
+        .windows(MARKER.len())
+        .any(|w| w == MARKER.as_bytes());
+    format!(
+        "[control cmd /c echo {MARKER}]\n  \
+         marker in PARSED screen: {parsed_has} (poll_until saw it: {saw})\n  \
+         marker in RAW reader bytes: {reader_has}   <-- TRUE => pcon stdout delivery works\n  \
+         {child}\n  {reader}"
+    )
+}
+
+/// Production-faithful path: spawn EXACTLY as OdyTTY ships
+/// (`spawn_default_shell_in_with_settings` — absolute shell path via
+/// `default_shell()`, `apply_terminal_env`, `apply_spawn_integration`), removing
+/// every spawn-construction difference between the harness and production. The
+/// resolved shell is whatever `default_shell()` picks on the runner (pwsh 7 when
+/// present), so this answers "does the SHIPPING spawn attach + deliver prompt
+/// marks under cargo test?" independent of my hand-built command.
+fn dump_default_shell_production() -> String {
+    // All `Settings` fields are pub and the struct is not `#[non_exhaustive]`,
+    // so the struct-literal + FRU form is valid from this integration test and
+    // avoids clippy's `field_reassign_with_default`.
+    let settings = odytty::settings::Settings {
+        shell_integration: true,
+        ..Default::default()
+    };
+    let dims = Dimensions::new(COLS, ROWS);
+    let session = match PtySession::spawn_default_shell_in_with_settings(dims, None, &settings) {
+        Ok(s) => s,
+        Err(e) => return format!("[production default shell] spawn failed: {e}"),
+    };
+    let Some(mut h) = Harness::from_session(session) else {
+        return "[production default shell] harness wrap failed".to_owned();
+    };
+    let attached = h.poll_until(|t| t.active_prompt_input_start().is_some());
+    h.settle(300);
+    let reader = h.reader_report();
+    let child = h.child_status();
+    format!(
+        "[production default shell (spawn_default_shell_in_with_settings, integration ON)]\n  \
+         OSC 133 B mark seen: {attached}\n  {child}\n  {reader}\n  \
+         screen (parsed): {:?}",
+        h.terminal.screen().plain_text()
+    )
+}
+
 /// Dump one PowerShell flavor. Returns a formatted section, or an
 /// explanation string when the flavor was unavailable / preconditions failed.
 fn dump_flavor(program: &str) -> String {
@@ -378,6 +454,18 @@ fn nf18_powershell_grid_cursor_vs_caret_dump() {
     let mut report = String::from(
         "\n================ NF18 DIAGNOSTIC DUMP (throwaway; intentional red) ================\n",
     );
+    // ROUND-3: pin the plumbing before geometry. Round-2 proved only conhost
+    // init (131 bytes) reached our pcon reader and the child exited 0 with its
+    // real output on the parent console — the child was not attached to our
+    // pseudoconsole. These two controls localize that:
+    //   1. cmd /c echo: does ANY child's stdout reach our pcon reader? (shell-
+    //      agnostic, no stdin interaction).
+    //   2. production spawn helper: does the SHIPPING spawn path attach under
+    //      cargo test? (removes every hand-built-command difference).
+    report.push_str(&control_cmd_echo());
+    report.push_str("\n--------------------------------------------------------------\n");
+    report.push_str(&dump_default_shell_production());
+    report.push_str("\n--------------------------------------------------------------\n");
     // powershell.exe (Windows PowerShell 5.1) is the operator's repro shell;
     // pwsh.exe (PS7) is dumped too when present since the render path differs
     // across PSReadLine 2.0 vs 2.3+.
