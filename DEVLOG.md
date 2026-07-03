@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Vertical tab rail: connected active slot (F4-V2 R1 follow-up)
+
+Transposes the horizontal bar's F4 v1.4 "connected active tab" metaphor onto the
+vertical rail: the active slot now reads as the front-of-stack sheet fused to the
+content area, inactive slots as closed boxes behind it. R1 shipped the rail with
+closed-box rings while the operator judged the horizontal treatment; with that
+approved, this lands the open-seam variant as its own small commit
+(`src/native/app/tab_rail.rs` only — no overlap with the parallel F4-SETTINGS
+work).
+
+Two coupled geometry moves, rotated 90° from the horizontal bar:
+
+- The active ring's **content-facing edge is dropped** — the *right* edge for
+  `Left` placement, the *left* edge for `Right`. The perpendicular top/bottom
+  edges already span the full rail width to the seam, so the open ring is three
+  edges (the vertical analog of the bar's open-bottom ring). Inactive rings stay
+  closed four-edge boxes.
+- The rail↔content **divider is broken** across the active slot's *row* span:
+  `rail_divider` now emits up to two segments (above and below the slot), so the
+  active `selection` fill flows into the body where the divider used to run. Same
+  edge-flush collapse (a segment that shrinks to zero when the active slot is
+  flush against the rail top/bottom emits nothing) and same "no visible active
+  slot → one full-height line" fallback as the strip's broken `band_separator`.
+
+The whole treatment is gated on `RAIL_CONNECTED_ACTIVE` (a genuine one-line
+revert to closed boxes + a full divider if the operator prefers that on the rail
+specifically) — the render-level tests read the const so flipping it keeps the
+suite green, while the geometry is pinned unconditionally at the `rail_slot_ring`
+/ `rail_divider` function seams.
+
+Tests: +7 (41 rail tests total). Function-seam pins — open-left drops the right
+edge, open-right drops the left edge, closed keeps both, divider breaks into two
+segments across a mid-rail gap, drops a collapsed edge-flush segment, and is one
+full line with no gap — plus a render-level integration test (mid-list active →
+open ring + two divider segments straddling its span). `cargo test` 2879/0;
+clippy `-D warnings` clean; fmt clean; MSRV untouched. Platform-neutral — no
+Windows surface (presentation-only chrome geometry).
+
+---
+
 ## 2026-07-03 -- "Tabs & Panes" settings section gathers the scattered tab/pane knobs (F4-SETTINGS)
 
 The operator's recurring pain is discoverability — tab/pane settings were

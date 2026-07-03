@@ -30,11 +30,28 @@
 //! to "fill the whole column band". A 1px `border`-role divider marks the
 //! rail↔content seam.
 //!
+//! ## Connected active tab (F4-V2 follow-up — vertical transposition of v1.4)
+//! The active slot reads as the front-of-stack sheet fused to the content area,
+//! inactive slots as closed boxes behind it — the horizontal bar's v1.4 metaphor
+//! rotated 90°:
+//! - The active ring's **content-facing edge is dropped** (the *right* edge for
+//!   `Left` placement, the *left* edge for `Right`); the perpendicular top/bottom
+//!   edges already span the full rail width to the seam, so the open ring is
+//!   three edges. Inactive rings stay fully closed four-edge boxes.
+//! - The rail↔content **divider is broken** across the active slot's *row* span:
+//!   [`rail_divider`] emits up to two segments — above and below the active slot
+//!   — leaving a gap exactly spanning it, so the active `selection` fill flows
+//!   into the body where the divider used to run. This is the vertical analog of
+//!   the strip's broken `band_separator`; the same edge-flush collapse and
+//!   "no visible active slot → one full-height line" fallbacks apply.
+//!
+//! The whole treatment is gated on [`RAIL_CONNECTED_ACTIVE`] (a one-line revert
+//! to closed boxes + a full divider if the operator prefers that on the rail).
+//!
 //! ## R1 scope
-//! `left` placement, fixed width, Option B geometry, closed-box rings (the
-//! "connected-active" open-edge variant is held until the operator judges the
-//! horizontal bar — design ODP note). Settings plumbing (`TAB_BAR_PLACEMENT` /
-//! `TAB_RAIL_WIDTH`), the `right` arm, and drag-resize are later slices (R2/R3).
+//! `left` placement, fixed width, Option B geometry, connected-active rings.
+//! Settings plumbing (`TAB_BAR_PLACEMENT` / `TAB_RAIL_WIDTH`), the `right` arm,
+//! and drag-resize are later slices (R2/R3).
 //!
 //! ## De-duplication note
 //! The tiny pure color helpers ([`blend_srgb`], [`srgb_alpha`]) are re-derived
@@ -87,6 +104,14 @@ const ACTIVE_OUTLINE_BLEND: f32 = 0.15;
 const HOVER_FILL_BLEND: f32 = 0.45;
 /// Thickness (physical px) of the rail↔content divider line.
 const DIVIDER_PX: f32 = 1.0;
+/// Whether the active slot reads as *connected* to the content area — the
+/// vertical transposition of the horizontal bar's F4 v1.4 treatment: the active
+/// slot's content-facing edge is dropped and the rail↔content divider is broken
+/// across its row span, so the active `selection` fill flows into the body.
+/// `false` reverts to closed-box rings + a full-height divider (the R1 v1
+/// look) — a genuine one-line revert if the operator prefers closed boxes on
+/// the rail specifically.
+const RAIL_CONNECTED_ACTIVE: bool = true;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -229,6 +254,15 @@ impl TabRail {
 
         let mut inactive_rings: Vec<SolidQuad> = Vec::new();
         let mut active_ring: Vec<SolidQuad> = Vec::new();
+        // Pixel y-span of the active slot's ring, when one is visible — feeds the
+        // broken divider (F4-V2 connected-active). `None` leaves a full divider.
+        let mut active_gap: Option<(f32, f32)> = None;
+        // Whether the active slot opens toward the content seam this frame.
+        let active_open_seam = if RAIL_CONNECTED_ACTIVE {
+            Some(placement)
+        } else {
+            None
+        };
         let active_idx = source.active_tab();
 
         for slot in &layout.slots {
@@ -247,7 +281,9 @@ impl TabRail {
                     cells[row * rail_cols + col].attrs.background = slot_bg;
                 }
             }
-            // Outline ring (closed box) — the shape language.
+            // Outline ring — the shape language. Inactive slots are closed
+            // boxes; the active slot opens toward the content seam (F4-V2
+            // connected-active) so its fill flows through the broken divider.
             let ring = rail_slot_ring(
                 slot.start_row,
                 slot.end_row,
@@ -259,9 +295,17 @@ impl TabRail {
                 } else {
                     inactive_ring_srgb
                 },
+                if is_active { active_open_seam } else { None },
             );
             if is_active {
                 active_ring = ring;
+                if active_open_seam.is_some() {
+                    let ch = cell.height as f32;
+                    active_gap = Some((
+                        origin_px[1] + slot.start_row as f32 * ch,
+                        origin_px[1] + slot.end_row as f32 * ch,
+                    ));
+                }
             } else {
                 inactive_rings.extend(ring);
             }
@@ -313,6 +357,7 @@ impl TabRail {
                 origin_px,
                 cell,
                 inactive_ring_srgb,
+                None,
             ));
             let mut a = Attrs::default();
             a.foreground = base_fg;
@@ -345,20 +390,22 @@ impl TabRail {
         }
 
         // Chrome quads: rings (inactive first, active last so it stays crisp),
-        // then the rail↔content divider on the seam.
+        // then the rail↔content divider on the seam — broken across the active
+        // slot's row span so its fill connects to the content (F4-V2).
         let mut out = TabRailOutput {
             glyphs: cells,
             ..Default::default()
         };
         out.quads.extend(inactive_rings);
         out.quads.extend(active_ring);
-        out.quads.push(rail_divider(
+        out.quads.extend(rail_divider(
             rail_cols,
             grid_rows,
             origin_px,
             cell,
             placement,
             colors.border,
+            active_gap,
         ));
         out
     }
@@ -625,10 +672,18 @@ fn ring_colors(colors: TabBarColors, band: Srgb) -> (Srgb, Srgb) {
     (active, colors.inactive)
 }
 
-/// A hollow ring of four [`SolidQuad`]s framing a rail slot spanning rows
+/// A hollow ring of [`SolidQuad`]s framing a rail slot spanning rows
 /// `[start_row, end_row)` across the full `rail_cols` width. Thickness is ≥2px
 /// (the CRT scanline shader eats a 1px ring). Fully opaque so it reads over
 /// background images. Returns empty for a degenerate slot.
+///
+/// When `open_seam` is `None` (inactive slots) the ring is a closed box of four
+/// edges. When it is `Some(side)` (the active slot, F4-V2 connected-active) the
+/// **content-facing vertical edge is dropped** — the right edge for `Left`
+/// placement, the left edge for `Right` — so the active fill flows through the
+/// broken divider into the content area. The perpendicular top/bottom edges
+/// already span the full rail width to the seam, so the open ring has three
+/// edges (the vertical transposition of the horizontal bar's open-bottom ring).
 fn rail_slot_ring(
     start_row: usize,
     end_row: usize,
@@ -636,6 +691,7 @@ fn rail_slot_ring(
     origin_px: [f32; 2],
     cell: CellSize,
     outline: Srgb,
+    open_seam: Option<RailSide>,
 ) -> Vec<SolidQuad> {
     if end_row <= start_row || rail_cols == 0 || cell.width == 0 || cell.height == 0 {
         return Vec::new();
@@ -648,7 +704,8 @@ fn rail_slot_ring(
     let y0 = origin_px[1] + start_row as f32 * ch;
     let y1 = origin_px[1] + end_row as f32 * ch;
     let color = srgb_alpha(outline, 1.0);
-    vec![
+    // Top and bottom edges always span the full rail width (reaching the seam).
+    let mut quads = vec![
         SolidQuad {
             rect: [x0, y0, x1, y0 + thickness],
             color,
@@ -657,20 +714,37 @@ fn rail_slot_ring(
             rect: [x0, y1 - thickness, x1, y1],
             color,
         }, // bottom
-        SolidQuad {
-            rect: [x0, y0 + thickness, x0 + thickness, y1 - thickness],
-            color,
-        }, // left
-        SolidQuad {
+    ];
+    // Vertical side edges — the content-facing one is dropped when the ring is
+    // open toward the content seam.
+    if open_seam != Some(RailSide::Left) {
+        quads.push(SolidQuad {
             rect: [x1 - thickness, y0 + thickness, x1, y1 - thickness],
             color,
-        }, // right
-    ]
+        }); // right (content-facing for Left placement)
+    }
+    if open_seam != Some(RailSide::Right) {
+        quads.push(SolidQuad {
+            rect: [x0, y0 + thickness, x0 + thickness, y1 - thickness],
+            color,
+        }); // left (content-facing for Right placement)
+    }
+    quads
 }
 
 /// The 1px `border`-role divider along the rail↔content seam: the right edge of
 /// the rail for `Left` placement, the left edge for `Right`. Opaque so it reads
 /// over wallpaper (the vertical analog of the strip's band separator).
+///
+/// `active_gap` is the pixel y-span `(y0, y1)` of the active slot's outline,
+/// when one is visible. The divider is **broken** across that gap (F4-V2
+/// connected-active): the line is emitted as up to two segments — above the gap
+/// and below it — so the active slot's fill flows uninterrupted into the content
+/// area. `None` (no visible active slot, e.g. the active tab scrolled off, or an
+/// empty rail) emits one full-height line. A segment that collapses to
+/// zero/negative height — which happens when the active slot is flush against
+/// the top or bottom of the rail — emits nothing rather than a degenerate quad.
+/// Mirrors the horizontal bar's [`super::tab_bar`] broken separator.
 fn rail_divider(
     rail_cols: usize,
     grid_rows: usize,
@@ -678,19 +752,41 @@ fn rail_divider(
     cell: CellSize,
     placement: RailSide,
     border: Srgb,
-) -> SolidQuad {
+    active_gap: Option<(f32, f32)>,
+) -> Vec<SolidQuad> {
+    if grid_rows == 0 || cell.width == 0 || cell.height == 0 {
+        return Vec::new();
+    }
     let cw = cell.width as f32;
     let ch = cell.height as f32;
-    let y0 = origin_px[1];
-    let y1 = origin_px[1] + grid_rows as f32 * ch;
+    let band_start = origin_px[1];
+    let band_end = origin_px[1] + grid_rows as f32 * ch;
     let seam_x = match placement {
         RailSide::Left => origin_px[0] + rail_cols as f32 * cw,
         RailSide::Right => origin_px[0],
     };
-    SolidQuad {
-        rect: [seam_x - DIVIDER_PX, y0, seam_x, y1],
-        color: srgb_alpha(border, 1.0),
+    let color = srgb_alpha(border, 1.0);
+    let mut quads = Vec::new();
+    let mut push_segment = |a: f32, b: f32| {
+        if b - a > f32::EPSILON {
+            quads.push(SolidQuad {
+                rect: [seam_x - DIVIDER_PX, a, seam_x, b],
+                color,
+            });
+        }
+    };
+    match active_gap {
+        Some((gap_y0, gap_y1)) => {
+            // Clamp the gap into the band so an off-rail active span can't push a
+            // segment past the band extent.
+            let gap_y0 = gap_y0.clamp(band_start, band_end);
+            let gap_y1 = gap_y1.clamp(band_start, band_end);
+            push_segment(band_start, gap_y0);
+            push_segment(gap_y1, band_end);
+        }
+        None => push_segment(band_start, band_end),
     }
+    quads
 }
 
 /// Blend two sRGB colors: `a*(1-t) + b*t` per channel, `t` clamped to `[0,1]`.
@@ -1101,12 +1197,14 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn every_slot_is_framed_by_a_four_quad_ring() {
+    fn every_slot_is_framed_by_a_ring_active_open_inactive_closed() {
         let src = MockSource::new(&["a", "b", "c"], 1);
         let out = render_default(&src);
         let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
-        // Each slot ring is 4 quads; the + slot adds 4; plus 1 divider.
-        // Count ring quads whose vertical extent falls within each slot.
+        // Inactive slots are closed 4-quad rings; the active slot is an open
+        // 3-quad ring (content-facing edge dropped) under connected-active. The
+        // broken divider's segments span across slot boundaries, so a per-slot
+        // vertical-extent filter never catches them.
         for slot in &layout.slots {
             let y0 = slot.start_row as f32 * CELL.height as f32;
             let y1 = slot.end_row as f32 * CELL.height as f32;
@@ -1115,7 +1213,12 @@ mod tests {
                 .iter()
                 .filter(|q| q.rect[1] >= y0 - 0.01 && q.rect[3] <= y1 + 0.01)
                 .count();
-            assert_eq!(n, 4, "slot {} framed by a 4-quad ring", slot.idx);
+            let expected = if slot.idx == src.active && RAIL_CONNECTED_ACTIVE {
+                3
+            } else {
+                4
+            };
+            assert_eq!(n, expected, "slot {} ring quad count", slot.idx);
         }
     }
 
@@ -1170,9 +1273,18 @@ mod tests {
                     && (q.rect[2] - q.rect[0] - DIVIDER_PX).abs() < 0.01
             })
             .expect("divider on the right seam");
+        // Active slot 0 is flush against the top: under connected-active the
+        // divider's upper segment collapses and the surviving segment starts at
+        // the active slot's bottom edge; otherwise it starts at the row top.
+        let expected_top = if RAIL_CONNECTED_ACTIVE {
+            SLOT_ROWS as f32 * CELL.height as f32
+        } else {
+            0.0
+        };
         assert!(
-            divider.rect[1].abs() < f32::EPSILON,
-            "divider starts at the top"
+            (divider.rect[1] - expected_top).abs() < 0.5,
+            "divider top at {expected_top} (was {})",
+            divider.rect[1]
         );
         assert!(
             (divider.color[3] - 1.0).abs() < f32::EPSILON,
@@ -1204,6 +1316,209 @@ mod tests {
         assert!(
             (divider.color[3] - 1.0).abs() < f32::EPSILON,
             "opaque divider"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Connected active tab (F4-V2 — vertical transposition of v1.4)
+    // -----------------------------------------------------------------------
+
+    // Thickness the ring uses for CELL (mirrors `rail_slot_ring`).
+    fn ring_thickness() -> f32 {
+        (CELL.height as f32 / 8.0).clamp(2.0, 3.0)
+    }
+    // A vertical side edge at the given x-left (rect[0]≈x, width == thickness).
+    fn is_side_edge_at(q: &SolidQuad, x_left: f32) -> bool {
+        let th = ring_thickness();
+        (q.rect[0] - x_left).abs() < 0.5 && (q.rect[2] - q.rect[0] - th).abs() < 0.5
+    }
+
+    #[test]
+    fn closed_ring_has_both_vertical_side_edges() {
+        let ring = rail_slot_ring(0, 2, RAIL_COLS, ORIGIN, CELL, COLORS.inactive, None);
+        let x0 = ORIGIN[0];
+        let x1 = ORIGIN[0] + RAIL_COLS as f32 * CELL.width as f32;
+        assert_eq!(ring.len(), 4, "closed ring is four edges");
+        assert!(
+            ring.iter().any(|q| is_side_edge_at(q, x0)),
+            "closed ring keeps its left edge"
+        );
+        assert!(
+            ring.iter()
+                .any(|q| is_side_edge_at(q, x1 - ring_thickness())),
+            "closed ring keeps its right edge"
+        );
+    }
+
+    #[test]
+    fn open_left_ring_drops_the_right_content_facing_edge() {
+        // Left placement: content is to the RIGHT, so the active ring drops its
+        // right edge and keeps top+bottom+left (three edges).
+        let ring = rail_slot_ring(
+            0,
+            2,
+            RAIL_COLS,
+            ORIGIN,
+            CELL,
+            COLORS.foreground,
+            Some(RailSide::Left),
+        );
+        let x0 = ORIGIN[0];
+        let x1 = ORIGIN[0] + RAIL_COLS as f32 * CELL.width as f32;
+        assert_eq!(ring.len(), 3, "open ring is three edges");
+        assert!(
+            !ring
+                .iter()
+                .any(|q| is_side_edge_at(q, x1 - ring_thickness())),
+            "open-left ring must not have a right edge"
+        );
+        assert!(
+            ring.iter().any(|q| is_side_edge_at(q, x0)),
+            "open-left ring keeps its left edge"
+        );
+    }
+
+    #[test]
+    fn open_right_ring_drops_the_left_content_facing_edge() {
+        // Right placement: content is to the LEFT, so the active ring drops its
+        // left edge and keeps top+bottom+right.
+        let ring = rail_slot_ring(
+            0,
+            2,
+            RAIL_COLS,
+            ORIGIN,
+            CELL,
+            COLORS.foreground,
+            Some(RailSide::Right),
+        );
+        let x0 = ORIGIN[0];
+        let x1 = ORIGIN[0] + RAIL_COLS as f32 * CELL.width as f32;
+        assert_eq!(ring.len(), 3, "open ring is three edges");
+        assert!(
+            !ring.iter().any(|q| is_side_edge_at(q, x0)),
+            "open-right ring must not have a left edge"
+        );
+        assert!(
+            ring.iter()
+                .any(|q| is_side_edge_at(q, x1 - ring_thickness())),
+            "open-right ring keeps its right edge"
+        );
+    }
+
+    #[test]
+    fn divider_breaks_into_two_segments_across_a_mid_rail_active_span() {
+        // A gap in the middle of the band yields exactly two divider segments —
+        // above and below — with a hole spanning the gap.
+        let ch = CELL.height as f32;
+        let gap = (5.0 * ch, 7.0 * ch);
+        let segs = rail_divider(
+            RAIL_COLS,
+            GRID_ROWS,
+            ORIGIN,
+            CELL,
+            RailSide::Left,
+            COLORS.border,
+            Some(gap),
+        );
+        assert_eq!(segs.len(), 2, "two divider segments around the gap");
+        let band_end = GRID_ROWS as f32 * ch;
+        // Upper segment ends at the gap top; lower starts at the gap bottom.
+        assert!(
+            segs.iter()
+                .any(|q| q.rect[1].abs() < 0.01 && (q.rect[3] - gap.0).abs() < 0.01)
+        );
+        assert!(
+            segs.iter()
+                .any(|q| (q.rect[1] - gap.1).abs() < 0.01 && (q.rect[3] - band_end).abs() < 0.01)
+        );
+        // No segment intrudes into the gap.
+        assert!(
+            !segs
+                .iter()
+                .any(|q| q.rect[1] > gap.0 + 0.01 && q.rect[3] < gap.1 - 0.01),
+            "no divider inside the active-slot gap"
+        );
+    }
+
+    #[test]
+    fn divider_drops_the_collapsed_segment_when_active_is_edge_flush() {
+        // Active slot flush against the top: the upper segment collapses to zero
+        // height and is dropped, leaving a single segment below the gap.
+        let ch = CELL.height as f32;
+        let gap = (0.0, 2.0 * ch);
+        let segs = rail_divider(
+            RAIL_COLS,
+            GRID_ROWS,
+            ORIGIN,
+            CELL,
+            RailSide::Left,
+            COLORS.border,
+            Some(gap),
+        );
+        assert_eq!(segs.len(), 1, "collapsed top segment dropped");
+        assert!(
+            (segs[0].rect[1] - gap.1).abs() < 0.01,
+            "surviving segment starts at the gap bottom"
+        );
+    }
+
+    #[test]
+    fn divider_with_no_active_gap_is_one_full_height_line() {
+        let segs = rail_divider(
+            RAIL_COLS,
+            GRID_ROWS,
+            ORIGIN,
+            CELL,
+            RailSide::Left,
+            COLORS.border,
+            None,
+        );
+        assert_eq!(segs.len(), 1, "no gap → one full line");
+        let band_end = GRID_ROWS as f32 * CELL.height as f32;
+        assert!(segs[0].rect[1].abs() < 0.01 && (segs[0].rect[3] - band_end).abs() < 0.01);
+    }
+
+    #[test]
+    fn render_opens_the_active_ring_and_breaks_the_divider_across_its_span() {
+        // Integration: a mid-list active tab produces an open (3-edge) active
+        // ring and a divider broken into two segments straddling that slot.
+        let src = MockSource::new(&["a", "b", "c"], 1);
+        let out = render_default(&src);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS);
+        let active = layout
+            .slots
+            .iter()
+            .find(|s| s.idx == 1)
+            .expect("active slot visible");
+        let ch = CELL.height as f32;
+        let gap0 = active.start_row as f32 * ch;
+        let gap1 = active.end_row as f32 * ch;
+        let seam = RAIL_COLS as f32 * CELL.width as f32;
+        // Two thin divider segments on the right seam, straddling the gap.
+        let divider_segs: Vec<_> = out
+            .quads
+            .iter()
+            .filter(|q| {
+                (q.rect[2] - seam).abs() < 0.01 && (q.rect[2] - q.rect[0] - DIVIDER_PX).abs() < 0.01
+            })
+            .collect();
+        assert_eq!(divider_segs.len(), 2, "divider broken into two segments");
+        assert!(
+            divider_segs
+                .iter()
+                .all(|q| q.rect[3] <= gap0 + 0.01 || q.rect[1] >= gap1 - 0.01),
+            "neither divider segment crosses the active-slot span"
+        );
+        // The active ring is open: no right (content-facing) side edge over the
+        // active slot's rows.
+        let x1 = RAIL_COLS as f32 * CELL.width as f32;
+        assert!(
+            !out.quads.iter().any(|q| {
+                is_side_edge_at(q, x1 - ring_thickness())
+                    && q.rect[1] >= gap0 - 0.01
+                    && q.rect[3] <= gap1 + 0.01
+            }),
+            "active ring has no content-facing right edge"
         );
     }
 
