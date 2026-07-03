@@ -19,9 +19,12 @@ the setting flips, so there is zero regression on the horizontal bar.
 **New setting `ODYTTY_TAB_BAR_PLACEMENT` (`top` | `left` | `right`).** Full C14
 plumbing: const + `SETTING_ENV_KEYS`, the `TabBarPlacement` enum + `Settings`
 field/default/parse/summary, `config.rs` aliases + `env_to_config_key`,
-`settings/info.rs` enum row (Rendering group, "Applies live"),
-`docs/runtime-knobs.md`, `docs/odytty.conf.example`, and six round-trip tests.
-`right` **parses but degrades to `top`** via `TabBarPlacement::effective()` (R1
+`settings/info.rs` enum row in a new **"Tabs & Panes"** settings section (raw
+group `Tabs`, "Applies live"; the section is added to `settings_panel/sections.rs`
+so the group is visible, and the Tabs & Panes settings packet extends it with a
+`Panes` group), `docs/runtime-knobs.md`, `docs/odytty.conf.example`, and six
+round-trip tests. `right` **parses but degrades to `top`** via
+`TabBarPlacement::effective()` (R1
 ships the left rail only; the info.rs description says "right arrives in a later
 update"), so a forward-looking config is never an error and never renders a
 half-supported right rail. Only the width knob (`TAB_RAIL_WIDTH`, fixed 16 cols

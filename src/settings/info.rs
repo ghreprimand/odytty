@@ -422,7 +422,7 @@ impl Settings {
                 numeric: None,
             },
             SettingInfo {
-                group: "Rendering",
+                group: "Tabs",
                 key: "tab_bar_placement",
                 env: TAB_BAR_PLACEMENT_ENV,
                 name: "Tab bar placement",
@@ -1504,14 +1504,18 @@ fn setting_group_rank(group: &str) -> usize {
         "Theme" => 0,
         "Font" => 1,
         "Rendering" => 2,
-        "Post-process" => 3,
-        "Cursor" => 4,
-        "Input" => 5,
-        "Connections" => 6,
-        "Sessions" => 7,
-        "Clipboard" => 8,
-        "Accessibility" => 9,
-        "Development" => 10,
+        // F4-V2: `Tabs` sorts right after `Rendering`, matching its Level-1
+        // section position ("Tabs & Panes", 4th in `SECTIONS`). The Tabs & Panes
+        // settings packet (Standard Builder) extends this group with "Panes".
+        "Tabs" => 3,
+        "Post-process" => 4,
+        "Cursor" => 5,
+        "Input" => 6,
+        "Connections" => 7,
+        "Sessions" => 8,
+        "Clipboard" => 9,
+        "Accessibility" => 10,
+        "Development" => 11,
         _ => 99,
     }
 }

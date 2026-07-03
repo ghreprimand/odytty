@@ -534,13 +534,14 @@ fn tab_bar_placement_round_trips_through_edit_values() {
 }
 
 #[test]
-fn tab_bar_placement_has_an_enum_row_in_the_rendering_group() {
+fn tab_bar_placement_has_an_enum_row_in_the_tabs_group() {
     let rows = Settings::default().setting_info();
     let row = rows
         .iter()
         .find(|row| row.key == "tab_bar_placement")
         .expect("tab_bar_placement row present");
-    assert_eq!(row.group, "Rendering");
+    // F4-V2: lives in the "Tabs" group → "Tabs & Panes" Level-1 section.
+    assert_eq!(row.group, "Tabs");
     assert_eq!(row.kind, SettingKind::Enum);
     assert_eq!(row.options, ["top", "left", "right"]);
     assert_eq!(row.value, "top");
