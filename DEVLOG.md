@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- "Tabs & Panes" settings section gathers the scattered tab/pane knobs (F4-SETTINGS)
+
+The operator's recurring pain is discoverability — tab/pane settings were
+scattered across the "Rendering" and "Input" sections, so hunting for e.g. the
+tab-bar placement meant scanning unrelated groups. The F4-V2 rail work seeded a
+"Tabs & Panes" Level-1 section (4th slot, after Rendering) with the "Tabs" group;
+this packet extends it into the single discoverable home for all four knobs.
+
+Regroup (keys/env/values/behavior all unchanged — only the `group` string moves,
+so config compatibility is untouched):
+
+- `always_show_tab_bar` → "Tabs" (was "Rendering")
+- `tab_bar_placement` → "Tabs" (already there from the rail slice)
+- `inactive_pane_dim` → "Panes" (was "Rendering")
+- `pane_prefix` → "Panes" (was "Input")
+
+A sweep of every `key:` entry confirmed these are the only tab_/pane_ settings.
+`sections.rs` extends the existing section to `groups: &["Tabs", "Panes"]`;
+`setting_group_rank` gains `"Panes" => 4` right after `"Tabs" => 3` (tail
+renumbered) so pane knobs sort immediately after tab knobs, and the section's
+Level-2 list reads tabs-then-panes. Section-table doc count is now 13 raw groups
+→ 10 display sections.
+
+No config/docs migration: runtime-knobs.md has no group column and no keys were
+renamed. Tests: a new positive test asserts all four keys resolve into the
+"Tabs & Panes" section (fails-before verified by reverting one group move); the
+existing group-order and full-key-order invariants (info.rs / legacy.rs tests)
+updated for the new "Panes" cluster; the group→section exactly-one invariant
+passes unchanged. `cargo test` 2872/0; clippy `-D warnings` clean; fmt clean;
+MSRV untouched. Platform-neutral — no Windows surface.
+
+---
+
 ## 2026-07-03 -- Vertical tab rail, wired to both render paths (F4-V2 R1, slice 2 of 2)
 
 The render-path integration for the vertical tab rail. Slice 1 landed the

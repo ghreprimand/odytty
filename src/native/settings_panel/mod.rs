@@ -1461,6 +1461,41 @@ mod tests {
     }
 
     #[test]
+    fn tab_and_pane_settings_gather_under_the_tabs_and_panes_section() {
+        // F4-SETTINGS: the four scattered tab/pane knobs now resolve into the
+        // single "Tabs & Panes" Level-1 section (tab_bar_placement +
+        // always_show_tab_bar via group "Tabs"; inactive_pane_dim + pane_prefix
+        // via group "Panes"), so a user hunting tab/pane settings finds them in
+        // one discoverable place instead of scattered across Rendering/Input.
+        let settings = Settings::default();
+        let entries = settings.setting_info();
+        let section_index = SECTIONS
+            .iter()
+            .position(|s| s.name == "Tabs & Panes")
+            .expect("Tabs & Panes section present");
+        for key in [
+            "tab_bar_placement",
+            "always_show_tab_bar",
+            "inactive_pane_dim",
+            "pane_prefix",
+        ] {
+            let group = entries
+                .iter()
+                .find(|e| e.key == key)
+                .unwrap_or_else(|| panic!("known key {key}"))
+                .group;
+            let resolved = SECTIONS
+                .iter()
+                .position(|s| s.groups.contains(&group))
+                .unwrap_or_else(|| panic!("group {group:?} maps to a section"));
+            assert_eq!(
+                resolved, section_index,
+                "{key} (group {group:?}) must land in the Tabs & Panes section"
+            );
+        }
+    }
+
+    #[test]
     fn panel_navigation_is_bounded_and_scrolls() {
         let mut panel = SettingsPanel::new(&Settings::default());
         // At Level 1, Down moves section_selected.

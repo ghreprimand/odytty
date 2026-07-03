@@ -334,7 +334,7 @@ impl Settings {
                 }),
             },
             SettingInfo {
-                group: "Rendering",
+                group: "Panes",
                 key: "inactive_pane_dim",
                 env: INACTIVE_PANE_DIM_ENV,
                 name: "Inactive-pane dimming",
@@ -409,7 +409,7 @@ impl Settings {
                 numeric: None,
             },
             SettingInfo {
-                group: "Rendering",
+                group: "Tabs",
                 key: "always_show_tab_bar",
                 env: ALWAYS_SHOW_TAB_BAR_ENV,
                 name: "Always show tab bar",
@@ -965,7 +965,7 @@ impl Settings {
                 numeric: None,
             },
             SettingInfo {
-                group: "Input",
+                group: "Panes",
                 key: "pane_prefix",
                 env: PANE_PREFIX_ENV,
                 name: "Pane prefix",
@@ -1504,18 +1504,20 @@ fn setting_group_rank(group: &str) -> usize {
         "Theme" => 0,
         "Font" => 1,
         "Rendering" => 2,
-        // F4-V2: `Tabs` sorts right after `Rendering`, matching its Level-1
-        // section position ("Tabs & Panes", 4th in `SECTIONS`). The Tabs & Panes
-        // settings packet (Standard Builder) extends this group with "Panes".
+        // F4-V2 / F4-SETTINGS: `Tabs` then `Panes` sort right after `Rendering`,
+        // matching their shared Level-1 section position ("Tabs & Panes", 4th in
+        // `SECTIONS`). Both groups display under that one section; `Panes` sorts
+        // immediately after `Tabs` so tab knobs list before pane knobs.
         "Tabs" => 3,
-        "Post-process" => 4,
-        "Cursor" => 5,
-        "Input" => 6,
-        "Connections" => 7,
-        "Sessions" => 8,
-        "Clipboard" => 9,
-        "Accessibility" => 10,
-        "Development" => 11,
+        "Panes" => 4,
+        "Post-process" => 5,
+        "Cursor" => 6,
+        "Input" => 7,
+        "Connections" => 8,
+        "Sessions" => 9,
+        "Clipboard" => 10,
+        "Accessibility" => 11,
+        "Development" => 12,
         _ => 99,
     }
 }

@@ -24,6 +24,7 @@ fn setting_info_groups_are_contiguous_and_ordered_for_the_panel() {
             "Font",
             "Rendering",
             "Tabs",
+            "Panes",
             "Post-process",
             "Cursor",
             "Input",
