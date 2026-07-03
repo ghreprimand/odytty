@@ -343,7 +343,7 @@ impl App {
                 &self.sessions,
                 self.rail_cols(),
                 self.tab_rail_grid_rows(),
-                [padding.as_f32(), padding.as_f32()],
+                self.rail_origin_px(cell),
                 cell,
                 self.rail_geom(),
             )

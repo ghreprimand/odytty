@@ -427,7 +427,7 @@ impl Settings {
                 env: TAB_BAR_PLACEMENT_ENV,
                 name: "Tab bar placement",
                 value: self.tab_bar_placement.as_str().to_owned(),
-                description: "Where the tab bar sits: top (default, horizontal strip) or left (vertical rail). Right arrives in a later update — it currently falls back to top. Applies live.",
+                description: "Where the tab bar sits: top (default, horizontal strip), left, or right (vertical rail on that side). Applies live.",
                 kind: SettingKind::Enum,
                 range: None,
                 options: &["top", "left", "right"],

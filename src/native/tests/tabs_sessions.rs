@@ -394,12 +394,13 @@ fn tab_reserve_switches_axis_with_placement() {
     app.set_tab_bar_placement_for_test("left");
     assert_eq!(app.tab_reserve_for_test(), (0, 16), "left reserves 16 cols");
 
-    // Right degrades to top in R1 (effective()), so it reserves a row, not cols.
+    // Right rail is real now (F4-P2): it reserves the rail-width columns off the
+    // RIGHT, zero rows — the same column count as the left rail, mirrored side.
     app.set_tab_bar_placement_for_test("right");
     assert_eq!(
         app.tab_reserve_for_test(),
-        (1, 0),
-        "right degrades to top in R1"
+        (0, 16),
+        "right reserves 16 cols (mirror of left)"
     );
 }
 
@@ -500,6 +501,167 @@ fn click_right_of_the_rail_is_not_a_tab_hit() {
         app.tab_bar_hit_for_test(),
         None,
         "content-area click → no tab hit"
+    );
+}
+
+// --- F4-P2: right rail (mirror of the left rail) ---
+
+#[test]
+fn right_rail_hit_test_is_x_flipped_to_the_far_side() {
+    // The right rail is the mirror of the left: its X-band sits at the FAR side
+    // (after the content columns), so a click on the rail band there is a tab
+    // hit while a click in the LEFT content area is not (the flip of
+    // `click_right_of_the_rail_is_not_a_tab_hit`).
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("right");
+    app.set_session_title_override_for_test(0, Some("a"));
+    app.set_session_title_override_for_test(1, Some("b"));
+
+    // Headless: no live resize, so `self.grid` is the full grid and the right
+    // rail band starts at column `cols` (content stays at column 0; pad/gap 0).
+    // Slot 0 body: top-margin row 1, label col 2 → centre ((cols+2)·8+4, 24).
+    let (cols, _rows) = app.grid_dims_for_test();
+    let rail_x0 = cols as f64 * 8.0;
+    app.set_pointer_px_for_test(rail_x0 + 2.0 * 8.0 + 4.0, 24.0);
+    assert_eq!(
+        app.tab_bar_hit_for_test(),
+        Some("switch"),
+        "right rail slot 0 body → switch"
+    );
+
+    // A click in the LEFT content area (well before the rail band) is not a tab
+    // hit — the X-band gate excludes it, mirroring the left rail's exclusion of
+    // the right content.
+    app.set_pointer_px_for_test(8.0, 24.0);
+    assert_eq!(
+        app.tab_bar_hit_for_test(),
+        None,
+        "left content click → no tab hit (mirror)"
+    );
+}
+
+#[test]
+fn right_and_left_rails_grow_the_decorated_snapshot_identically() {
+    // Both rails grow the single-pane decorated snapshot by `rail_cols` columns
+    // (never rows); only the side the content sits on differs. The dims are
+    // therefore identical — the mirror is a placement, not a size, difference.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_session_title_override_for_test(0, Some("aa"));
+
+    app.set_tab_bar_placement_for_test("left");
+    let left = app
+        .decorated_snapshot_dims_for_test()
+        .expect("left decorated dims");
+    app.set_tab_bar_placement_for_test("right");
+    let right = app
+        .decorated_snapshot_dims_for_test()
+        .expect("right decorated dims");
+    assert_eq!(
+        left, right,
+        "left and right decorations differ only by side, not size"
+    );
+}
+
+#[test]
+fn right_rail_leaves_the_content_origin_unshifted_for_overlays() {
+    // A right rail reserves columns off the RIGHT, so the content origin is
+    // unmoved: IME-candidate / click-hint / overlay quads anchored in content
+    // space need no shift. This is the asymmetry vs the left rail (which shifts
+    // content right by the reserved band).
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+
+    app.set_tab_bar_placement_for_test("right");
+    assert_eq!(
+        app.tab_chrome_offset_px_for_test(),
+        Some((0.0, 0.0)),
+        "right rail: content origin unmoved"
+    );
+
+    // Guard that the (0, 0) above is a real right-rail property, not a constant:
+    // the left rail DOES shift the content origin right by the reserved band.
+    app.set_tab_bar_placement_for_test("left");
+    let (dx, dy) = app
+        .tab_chrome_offset_px_for_test()
+        .expect("left chrome offset");
+    assert!(dx > 0.0, "left rail shifts content right");
+    assert_eq!(dy, 0.0, "a rail never shifts content down");
+}
+
+#[test]
+fn right_rail_scrollbar_stays_in_the_content_not_under_the_rail() {
+    // MANDATORY collision test (ODP-5): with a right rail, the scroll thumb hugs
+    // the content grid's right edge, which sits at/left of the rail band's left
+    // edge — never under it. So a press resolves to exactly one target: the thumb
+    // grabs the scrollbar (and is not a tab hit), and the rail band is a tab
+    // action (and never grabs the scrollbar).
+    let Some((mut app, fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Scrollback on the active (first) session so the thumb is visible.
+    {
+        let mut terminal = fixtures[0].0.lock().expect("terminal");
+        terminal.advance(&scrollback_bytes(200));
+    }
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("right");
+    app.scroll_up_for_test(usize::MAX);
+    let len = app.scrollback_len_for_test();
+    if len == 0 {
+        eprintln!("skipping: no scrollback materialized");
+        return;
+    }
+    let (cols, rows) = app.grid_dims_for_test();
+    let offset = app.viewport_offset_for_test();
+    let thumb = scroll_indicator_quad(
+        offset,
+        len,
+        Dimensions::new(cols, rows),
+        cell(8, 16),
+        [1.0, 1.0, 1.0, 0.62],
+    )
+    .expect("thumb visible while scrolled back");
+
+    // Press on the thumb → scrollbar grab, and NOT a tab hit (it is left of the
+    // rail band).
+    let tx = ((thumb.rect[0] + thumb.rect[2]) / 2.0) as f64;
+    let ty = ((thumb.rect[1] + thumb.rect[3]) / 2.0) as f64;
+    app.set_pointer_px_for_test(tx, ty);
+    assert_eq!(
+        app.tab_bar_hit_for_test(),
+        None,
+        "the thumb is not under the rail"
+    );
+    assert_eq!(
+        app.left_button_outcome_for_test(true),
+        "grab",
+        "thumb press grabs the scrollbar"
+    );
+    app.left_button_outcome_for_test(false); // release the grab
+
+    // Press on the rail band → a tab action, never a scrollbar grab.
+    let rail_x = cols as f64 * 8.0 + 2.0 * 8.0 + 4.0;
+    app.set_pointer_px_for_test(rail_x, 24.0);
+    assert!(
+        app.tab_bar_hit_for_test().is_some(),
+        "the rail band is a tab hit"
+    );
+    assert_ne!(
+        app.left_button_outcome_for_test(true),
+        "grab",
+        "a rail press must not grab the scrollbar"
     );
 }
 

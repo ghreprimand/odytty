@@ -460,7 +460,7 @@ fn scroll_wheel_lines_round_trips_through_config_key() {
     );
 }
 
-// --- F4-V2: tab_bar_placement (enum: top | left | right→top) ---
+// --- F4-V2 / F4-P2: tab_bar_placement (enum: top | left | right, all real) ---
 
 #[test]
 fn tab_bar_placement_defaults_to_top() {
@@ -482,15 +482,16 @@ fn tab_bar_placement_parses_top_left_right() {
     assert!(left.tab_bar_placement.is_rail());
     assert_eq!(left.tab_bar_placement.effective(), TabBarPlacement::Left);
 
-    // `right` parses (so a forward-looking config is not an error) but degrades
-    // to `top` under `effective()` until R2 lands the right arm.
+    // `right` parses AND renders as itself (F4-P2 landed the right arm), so
+    // `effective()` is an identity — no degrade to top.
     let (right, warnings) = settings_from([(TAB_BAR_PLACEMENT_ENV, "right")]);
     assert_eq!(right.tab_bar_placement, TabBarPlacement::Right);
     assert!(warnings.is_empty(), "a known value emits no warning");
+    assert!(right.tab_bar_placement.is_rail());
     assert_eq!(
         right.tab_bar_placement.effective(),
-        TabBarPlacement::Top,
-        "right degrades to top until its render arm lands"
+        TabBarPlacement::Right,
+        "right renders as itself now"
     );
 }
 
@@ -547,11 +548,15 @@ fn tab_bar_placement_has_an_enum_row_in_the_tabs_group() {
     assert_eq!(row.value, "top");
     assert!(row.reloadable);
     assert!(!row.description.trim().is_empty());
-    // The description must set the operator's expectation that right is not yet
-    // rendered (Director directive).
+    // F4-P2: all three placements render now, so the description names right as a
+    // real option and must NOT carry the old "falls back / later update" caveat.
     assert!(
-        row.description.contains("later update") || row.description.contains("falls back"),
-        "description must flag that right arrives later"
+        row.description.contains("right"),
+        "description names right as a placement"
+    );
+    assert!(
+        !row.description.contains("later update") && !row.description.contains("falls back"),
+        "the stale 'right arrives later' caveat must be gone"
     );
 }
 

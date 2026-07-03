@@ -546,12 +546,15 @@ impl App {
         };
 
         // Assemble the borrow-bound `PaneRender` list.
-        let pad = padding.as_f32();
         let mut panes: Vec<PaneRender> = Vec::with_capacity(panes_owned.len() + 1);
         if let Some((snapshot, _)) = tab_strip.as_ref() {
+            // The top bar and the left rail render from the window padding; a
+            // right rail renders from the far side (after the content columns and
+            // the wallpaper gap). `rail_origin_px` returns `[pad, pad]` for the
+            // former two, so this stays byte-identical off the right rail (F4-P2).
             panes.push(PaneRender {
                 snapshot,
-                origin: [pad, pad],
+                origin: self.rail_origin_px(cell),
                 focused: false,
                 cursor_style: crate::core::CursorStyle::default(),
                 focus_dim: 0.0,
@@ -779,6 +782,42 @@ mod tests {
             (with.w - (without.w - rail)).abs() < f32::EPSILON,
             "width shrinks by the rail width"
         );
+    }
+
+    #[test]
+    fn right_rail_shrinks_the_content_rect_from_the_right_keeping_the_left_origin() {
+        // F4-P2 layout mirror: a right rail reserves `right_cols` (+ gap) off the
+        // RIGHT — the content width shrinks but its x-origin stays put (content on
+        // the LEFT), the mirror of the left rail (which shifts the origin right).
+        // y/height are unchanged (a rail reserves columns, not rows).
+        let cell = cell();
+        let padding = WindowPadding::from_logical(8.0, 1.0);
+        let (w, h) = (1280u32, 800u32);
+        let without = pane_content_rect(w, h, cell, padding, TabReserve::NONE);
+        let reserve = TabReserve {
+            top_rows: 0,
+            left_cols: 0,
+            right_cols: 16,
+            gap_cols: 2,
+        };
+        let with = pane_content_rect(w, h, cell, padding, reserve);
+        let reserved = cell.width as f32 * (16.0 + 2.0);
+        assert!(
+            (with.x - without.x).abs() < f32::EPSILON,
+            "x-origin stays put (content on the left)"
+        );
+        assert!((with.y - without.y).abs() < f32::EPSILON, "y unchanged");
+        assert!(
+            (with.h - without.h).abs() < f32::EPSILON,
+            "height unchanged"
+        );
+        assert!(
+            (with.w - (without.w - reserved)).abs() < f32::EPSILON,
+            "width shrinks from the right by band + gap"
+        );
+        // The gap only counts on the rail side: no left reservation here.
+        assert_eq!(reserve.left_reserved_cols(), 0);
+        assert_eq!(reserve.right_reserved_cols(), 18);
     }
 
     #[test]

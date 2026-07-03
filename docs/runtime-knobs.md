@@ -215,7 +215,7 @@ environment variable was not set at startup.
 | `window_border` | `ODYTTY_WINDOW_BORDER` | `on`, `off` | `off` |
 | `window_decorations` | `ODYTTY_WINDOW_DECORATIONS` | `on`, `off` | `on` |
 | `always_show_tab_bar` | `ODYTTY_ALWAYS_SHOW_TAB_BAR` | `on`, `off` | `off` |
-| `tab_bar_placement` | `ODYTTY_TAB_BAR_PLACEMENT` | `top`, `left` (`right` falls back to `top` for now) | `top` |
+| `tab_bar_placement` | `ODYTTY_TAB_BAR_PLACEMENT` | `top`, `left`, `right` (vertical rail on that side) | `top` |
 | `tab_rail_width` | `ODYTTY_TAB_RAIL_WIDTH` | Integer cells, `8..=32` (rail only) | `16` |
 | `tab_rail_gap` | `ODYTTY_TAB_RAIL_GAP` | Integer rows, `0..=3` (rail only) | `1` |
 | `tab_rail_slot_rows` | `ODYTTY_TAB_RAIL_SLOT_ROWS` | `1` (compact) or `2` (padded/wrapping) (rail only) | `2` |

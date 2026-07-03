@@ -49,6 +49,16 @@ pub(super) struct PanelQuadSpec {
     pub(super) cell: [f32; 2],
     /// Rail band width in cells (`Left`/`Right`) or bar height in rows (`Top`).
     pub(super) band_cells: usize,
+    /// For `Right` only: cells occupied to the LEFT of the rail band — the
+    /// content columns plus the rail↔content wallpaper gap. The seam sits at the
+    /// rail's grid-aligned content edge (`pad_x + lead_cells·cell_w`) so the
+    /// wash/seam line up exactly with where the rail glyphs render (the rail is
+    /// grid-embedded, left-aligned from the window padding, so a surface-derived
+    /// `surface_w − pad − band·cell` edge would float the sub-cell horizontal
+    /// remainder off the true band edge). Ignored for `Top`/`Left`, where the
+    /// band is flush to the padding and the surface- and grid-derived edges
+    /// coincide.
+    pub(super) lead_cells: usize,
     /// Surface scale factor (for the seam thickness: `max(1, round(scale))` px).
     pub(super) scale_factor: f32,
     /// The panel-tint color the wash quad paints (same color as the cell tint,
@@ -79,7 +89,10 @@ fn seam_coord(spec: &PanelQuadSpec) -> f32 {
     match spec.axis {
         PanelAxis::Top => band_px(spec.cell[1]),
         PanelAxis::Left => band_px(spec.cell[0]),
-        PanelAxis::Right => spec.surface[0] - spec.pad[0] - spec.band_cells as f32 * spec.cell[0],
+        // Grid-aligned to the rail's actual (left-aligned, grid-embedded) band
+        // edge rather than surface-derived, so the seam sits exactly on the
+        // rail↔content boundary regardless of the sub-cell horizontal remainder.
+        PanelAxis::Right => spec.pad[0] + spec.lead_cells as f32 * spec.cell[0],
     }
 }
 
@@ -173,6 +186,11 @@ mod tests {
             } else {
                 16
             },
+            // Right-rail lead: content + gap columns to the left of the band. In
+            // this fixture the surface is exactly `pad + (lead + band)·cell + pad`
+            // (800 = 4 + (83 + 16)·8 + 4), so the grid-aligned right seam lands at
+            // the same 668 px a surface-derived edge would — no remainder.
+            lead_cells: 83,
             scale_factor: 1.0,
             panel_color: PANEL,
             wash_alpha: 0.10,
@@ -198,14 +216,37 @@ mod tests {
         let spec = base(PanelAxis::Right);
         let quads = panel_quads(&spec);
         assert_eq!(quads.len(), 2);
-        let seam_x = 800.0 - 4.0 - 16.0 * 8.0; // surface_w - pad_x - rail*cell = 668
+        // Grid-aligned content edge = pad_x + lead_cells·cell_w = 4 + 83·8 = 668
+        // (equals surface_w − pad_x − rail·cell here because the fixture has no
+        // sub-cell remainder).
+        let seam_x = 4.0 + 83.0 * 8.0;
         assert_eq!(
             quads[0].rect,
             [seam_x, 0.0, 800.0, 600.0],
-            "panel on the right"
+            "panel spans from the rail's content edge to the right window edge"
         );
         // Seam on the panel's LEFT (content-facing) edge.
         assert_eq!(quads[1].rect, [seam_x, 0.0, seam_x + 1.0, 600.0]);
+    }
+
+    #[test]
+    fn right_rail_seam_is_grid_aligned_not_surface_derived() {
+        // Fails-before-guard for the P-RIGHT grid-alignment fix: when the surface
+        // carries a sub-cell horizontal remainder (the rail is grid-embedded and
+        // left-aligned from the padding, so it does NOT sit flush to
+        // `surface_w − pad`), the seam must follow the true grid band edge, not
+        // the surface-derived `surface_w − pad − band·cell`.
+        let mut spec = base(PanelAxis::Right);
+        // 5px remainder: surface 805 = pad 4 + (83 + 16)·8 + pad 4 + 5.
+        spec.surface = [805.0, 600.0];
+        let quads = panel_quads(&spec);
+        let grid_seam = 4.0 + 83.0 * 8.0; // 668 — the rail's real content edge
+        let surface_seam = 805.0 - 4.0 - 16.0 * 8.0; // 673 — the wrong, drifted edge
+        assert_ne!(grid_seam, surface_seam, "the two derivations differ here");
+        // Panel spans from the grid seam to the far window edge (covering the
+        // rail glyphs plus the sub-cell remainder + right padding).
+        assert_eq!(quads[0].rect, [grid_seam, 0.0, 805.0, 600.0]);
+        assert_eq!(quads[1].rect, [grid_seam, 0.0, grid_seam + 1.0, 600.0]);
     }
 
     #[test]

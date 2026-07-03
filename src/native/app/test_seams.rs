@@ -691,6 +691,17 @@ impl App {
         (r.top_rows, r.left_cols + r.right_cols)
     }
 
+    /// Test seam (F4-P2): the pixel offset subtracted from a raw pointer / added
+    /// to content-space overlays for the current tab chrome. `(0, 0)` for the top
+    /// bar and a RIGHT rail (content origin unmoved); positive `x` for a LEFT
+    /// rail. Proves right-edge overlays (IME candidate, click hint) are not
+    /// shifted under a right rail.
+    #[cfg(test)]
+    pub(in crate::native) fn tab_chrome_offset_px_for_test(&self) -> Option<(f64, f64)> {
+        let cell = self.resolved_cell()?;
+        Some(self.tab_chrome_offset_px(cell))
+    }
+
     /// Test seam (MOUSE-SCROLLBAR): scroll the viewport up into history so the
     /// scroll thumb becomes visible (offset clamps to the scrollback length).
     #[cfg(test)]

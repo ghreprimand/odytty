@@ -1886,8 +1886,10 @@ impl App {
         cell.height as f32 * self.tab_reserve().top_rows as f32
     }
 
-    /// The placement actually honored by the render path this frame (R1 collapses
-    /// `Right`→`Top` via [`TabBarPlacement::effective`]).
+    /// The placement actually honored by the render path this frame. All three
+    /// placements now render (F4-P2 landed the right rail), so
+    /// [`TabBarPlacement::effective`] is an identity; the indirection is kept as
+    /// the single seam the render/reserve paths read.
     fn effective_placement(&self) -> TabBarPlacement {
         self.settings.tab_bar_placement.effective()
     }
@@ -1910,8 +1912,8 @@ impl App {
                 right_cols: 0,
                 gap_cols,
             },
-            // `effective()` collapses Right→Top in R1, so this arm is not reached
-            // until R2 lands the right render path; kept correct for that flip.
+            // F4-P2: the right rail reserves its band + gap off the RIGHT; the
+            // content stays at column 0 (mirror of the left arm).
             TabBarPlacement::Right => panes::TabReserve {
                 top_rows: 0,
                 left_cols: 0,
@@ -1958,6 +1960,15 @@ impl App {
         if band_cells == 0 {
             return Vec::new();
         }
+        // For a right rail the seam must sit at the rail's grid-aligned content
+        // edge (content columns + the wallpaper gap, both left of the band); it
+        // is ignored for the top bar / left rail. Same basis as `rail_origin_px`
+        // and the reserve/decorate paths, so wash, seam, glyphs, and hit-test all
+        // agree to the pixel.
+        let lead_cells = match axis {
+            tab_panel::PanelAxis::Right => self.grid.columns + self.rail_gap_cols(),
+            _ => 0,
+        };
         let (surface_w, surface_h) = gpu.surface_size();
         let padding = gpu.window_padding();
         let strength = self.tab_panel_strength();
@@ -1972,6 +1983,7 @@ impl App {
             pad: [padding.as_f32(), padding.as_f32()],
             cell: [cell.width as f32, cell.height as f32],
             band_cells,
+            lead_cells,
             scale_factor: gpu.scale(),
             panel_color,
             wash_alpha,
@@ -2010,6 +2022,29 @@ impl App {
         } else {
             None
         }
+    }
+
+    /// The physical-pixel top-left of the rail band this frame — the origin the
+    /// rail widget's hit-test maps against and the multi-pane strip renders from.
+    /// A left rail (and the byte-identical no-rail case) sits at the window
+    /// padding `[pad, pad]`; a right rail sits at the far side, after the content
+    /// columns and the wallpaper gap: `pad + (content_cols + gap)·cell_w`. This
+    /// is the same grid basis the reserve/decorate/panel-seam paths use, so the
+    /// rail's glyphs, seam, and click targets stay pixel-aligned (F4-P2).
+    fn rail_origin_px(&self, cell: CellSize) -> [f32; 2] {
+        let pad = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO)
+            .as_f32();
+        let x = match self.rail_side() {
+            Some(RailSide::Right) => {
+                pad + (self.grid.columns + self.rail_gap_cols()) as f32 * cell.width as f32
+            }
+            _ => pad,
+        };
+        [x, pad]
     }
 
     /// Pixels to subtract from a raw pointer `(x, y)` before mapping it to a grid
@@ -2131,8 +2166,8 @@ impl App {
         let new_cols = old_cols + rail_cols + gap_cols;
         // Left rail: content shifts right by the rail band + gap; the rail paints
         // at column 0 and the gap columns [rail_cols, rail_cols+gap_cols) stay
-        // blank. Right rail (R2; not reached in R1): content stays at column 0,
-        // then the gap, then the rail band at the far right.
+        // blank. Right rail (F4-P2): content stays at column 0, then the gap,
+        // then the rail band at the far right.
         let content_col_offset = match side {
             RailSide::Left => rail_cols + gap_cols,
             RailSide::Right => 0,

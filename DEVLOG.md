@@ -7,6 +7,53 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Right-side tab rail: `tab_bar_placement = right` (F4-P2)
+
+The third tab placement is real now. `right` used to parse but collapse to `top`
+via `TabBarPlacement::effective()`; F4-P2 deletes that collapse (last, after the
+render arms were proven) and lands the right rail as a true mirror of the left.
+Most of the widget was pre-wired from R1/P-PANEL — `RailSide::Right`,
+`tab_panel.rs`'s `Right` axis, `TabReserve::right_cols`, and
+`tab_chrome_offset_px = (0, 0)` — so the packet is mostly the integration
+asymmetries the mirror needs:
+
+- **Grid-aligned right edge (one-choke-point).** New `App::rail_origin_px(cell)`
+  returns the rail band's pixel top-left: `[pad, pad]` for the top bar and the
+  left rail; `pad + (content_cols + gap)·cell_w` for the right rail. The rail
+  glyphs (grid-embedded, left-aligned from the padding), the hit-test X-band, the
+  multi-pane strip origin, AND the panel wash/seam all now derive the right
+  rail's content edge from that same grid basis, so they stay pixel-aligned. The
+  panel module gained a `lead_cells` field for this: `tab_panel.rs`'s `Right`
+  seam is `pad + lead_cells·cell_w` rather than the surface-derived
+  `surface_w − pad − band·cell` the spec sketched — an accepted refinement,
+  because the rail can't sit flush to the right window edge (the sub-cell
+  horizontal remainder lives past the last grid column), so a surface-derived
+  edge would float the seam off the true band edge.
+- **Encoded asymmetries.** Seam flips to the panel's LEFT (content-facing) edge;
+  `×` stays on the slot's outer (window-edge) side on both rails — deliberately
+  NOT mirrored, so the pointer crossing the seam from content never lands on a
+  close target first; overflow `▲N`/`▼N` stay left-aligned. Content stays at
+  column 0; the rail reserves its band + wallpaper gap off the RIGHT.
+- **Scrollbar collision.** The scroll thumb hugs the content grid's right edge,
+  which sits at/left of the rail band — never under it. A mandatory test proves a
+  press resolves to exactly one target (thumb → scrollbar grab, not a tab hit;
+  rail band → tab action, never a scrollbar grab).
+
+Tests (fails-before where meaningful): right reserve mirrors left; hit-test
+X-flip (rail band on the far side is a hit, left content is not); decorated
+snapshot grows columns identically to the left; content origin unshifted for
+overlays; scrollbar/rail disjointness; right-rail seam grid-aligned (with a
+sub-cell-remainder case that separates the grid- and surface-derived edges);
+`right` now parses AND `effective()` is an identity. Docs updated
+(`runtime-knobs.md`, the placement setting description) to list `right` as a
+real placement. **Windows: platform-neutral** — pure render/geometry/settings
+work; no PTY, spawn, path, env, logging, or shell-integration surface; the new
+tests are cfg-neutral and run on all three CI legs.
+
+Gate: `cargo test` 2898 lib + all integration bins green · `cargo clippy
+--all-targets --locked -D warnings` clean · `cargo fmt --check` clean · MSRV
+1.96 lockstep intact. Next: P-AUTOHIDE (ODP-4) rides this same plumbing.
+
 ## 2026-07-03 -- "Phosphor Flat v2": unified tab panel + seam + 7 hot-reload knobs (F4-P1)
 
 After the F4-RESKIN reskin the operator's verdict was "closer, but the inactive

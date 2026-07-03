@@ -669,10 +669,9 @@ impl CvdMode {
 }
 
 /// Where the tab bar/rail sits relative to the terminal content (F4-V2).
-/// `Top` (default) is the shipped horizontal strip; `Left` is the vertical rail
-/// (F4-V2 R1). `Right` is reserved for a later update — its value parses so a
-/// config that sets it is not an error, but R1 treats it as `Top` (see
-/// [`TabBarPlacement::effective`]) until the render path lands the right arm.
+/// `Top` (default) is the shipped horizontal strip; `Left`/`Right` are the
+/// vertical rails on either side. All three placements render (F4-P2 landed the
+/// `Right` arm), so [`TabBarPlacement::effective`] is now an identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TabBarPlacement {
     /// Horizontal strip across the top (the shipped default).
@@ -680,7 +679,9 @@ pub enum TabBarPlacement {
     Top,
     /// Vertical rail down the left side (F4-V2 R1).
     Left,
-    /// Vertical rail down the right side — reserved; not yet rendered (R2).
+    /// Vertical rail down the right side (F4-P2). Mirror of the left rail: the
+    /// content stays at column 0 and the rail band sits at the far right; the
+    /// panel seam flips to the band's left (content-facing) edge.
     Right,
 }
 
@@ -699,14 +700,14 @@ impl TabBarPlacement {
         matches!(self, Self::Left | Self::Right)
     }
 
-    /// The placement actually honored by the current render path. R1 ships the
-    /// `Left` rail only; `Right` degrades to `Top` until R2 lands its arm, so a
-    /// forward-looking config never renders a half-supported right rail.
+    /// The placement actually honored by the current render path. All three
+    /// placements now render (F4-P2 landed the `Right` rail), so this is an
+    /// identity. It is retained as the single choke point the render/reserve
+    /// paths read, so a future placement that needs a fallback has one seam to
+    /// add it — callers keep going through `effective()` rather than the raw
+    /// setting.
     pub fn effective(self) -> Self {
-        match self {
-            Self::Right => Self::Top,
-            other => other,
-        }
+        self
     }
 
     fn parse(value: &str) -> Option<Self> {
