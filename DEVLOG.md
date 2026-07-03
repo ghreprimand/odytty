@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Tab bar outline visibility fix (F4-IMPL v1.2)
+
+Operator ran the real v1.1 binary (CRT effect on, a theme whose `border` role is
+low-contrast against the band) and couldn't see the tab outlines at all — the
+1–2px rings were too thin and the inactive rings blended too far toward the band.
+Two behavioral knob changes, nothing structural:
+
+- **Ring thickness floor.** `active_tab_outline` thickness `(ch/10).clamp(1,2)`
+  → `(ch/8).clamp(2,3)`. The 2px floor is deliberate: the CRT scanline shader
+  visibly ate a 1px ring, so the ring can never render thinner than 2px now.
+- **Brighter inactive rings.** `INACTIVE_OUTLINE_BLEND` 0.55 → 0.35 (closer to
+  the full `border` role) so inactive tabs are clearly framed, still subordinate
+  to the active ring.
+
+The active ring keeps the `border` role: the pane dividers (`panes.rs`, the
+strongest existing strong-line precedent) use `border` too, so this matches the
+existing precedent rather than inventing a new role — and the active tab is
+already further distinguished by its `selection` fill. Band / active fill / hover
+blend / dim-inactive labels / separator are all unchanged; no underline
+resurrection; everything stays opaque and theme-derived.
+
+**Tests.** The color assertion tracks `INACTIVE_OUTLINE_BLEND` by construction.
+Added a thickness-floor test asserting every ring edge is ≥ 2px, with fails-before
+captured (reverted to the old `(ch/10).clamp(1,2)` formula → red at 1.6px →
+restored). Gate: full suite via log file + timeout, 0 failed; `clippy -D warnings`
+clean; fmt clean; MSRV untouched. **Windows: platform-neutral tab-bar UI, no
+Windows surface** — windows-latest CI runs the same tests as the authoritative
+verify.
+
+---
+
 ## 2026-07-03 -- Tab bar active-treatment rework: framed tabs + selection fill (F4-IMPL v1.1)
 
 Operator looked at the v1 dev build and revised the active-tab treatment: he

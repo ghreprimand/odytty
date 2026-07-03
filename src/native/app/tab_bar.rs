@@ -76,9 +76,12 @@ const BAND_BLEND: f32 = 0.16;
 const SEPARATOR_PX: f32 = 1.0;
 
 /// How far the inactive-tab outline is blended from `border` toward the band
-/// fill (F4 v1.1). Keeps every tab framed as a bounded object while making the
-/// inactive rings clearly subordinate to the full-strength active ring.
-const INACTIVE_OUTLINE_BLEND: f32 = 0.55;
+/// fill (F4 v1.1, strengthened v1.2). Keeps every tab framed as a bounded
+/// object while making the inactive rings subordinate to the full-strength
+/// active ring. Raised toward the full `border` role (0.55 → 0.35) after the
+/// operator reported the inactive rings were invisible under the CRT shader with
+/// a low-contrast border theme.
+const INACTIVE_OUTLINE_BLEND: f32 = 0.35;
 
 /// How far a hovered inactive tab's fill is blended from the band toward the
 /// `selection` role (F4 v1.1). Deliberately partial so hover feedback never
@@ -615,9 +618,10 @@ fn active_tab_outline(
     let pad = padding.as_f32();
     let cw = cell.width as f32;
     let ch = cell.height as f32;
-    // Outline thickness ~1–2px, scaled gently with cell height, clamped so it
-    // never swallows a short row.
-    let thickness = (ch / 10.0).clamp(1.0, 2.0);
+    // Outline thickness ~2–3px, scaled gently with cell height (F4 v1.2). The
+    // 2px floor is deliberate: the CRT scanline shader visibly ate a 1px ring at
+    // common cell sizes, so the ring must never render thinner than 2px.
+    let thickness = (ch / 8.0).clamp(2.0, 3.0);
     let x0 = pad + start_col as f32 * cw;
     let x1 = pad + end_col as f32 * cw;
     let y0 = y_offset_px;
@@ -1198,6 +1202,27 @@ mod tests {
                 slot.idx
             );
         }
+    }
+
+    #[test]
+    fn outline_ring_edges_are_at_least_two_pixels_thick() {
+        // F4 v1.2: the ring must never render thinner than 2px so the CRT
+        // scanline shader can't eat it. Measure the active slot's top edge
+        // (the quad seated at the row top, y=0) — its height is the ring
+        // thickness.
+        let src = MockSource::new(&["a", "b"], 0);
+        let out = render_default(&src);
+        let layout = compute_layout(&src, GRID_COLS);
+        let active = &layout.slots[0];
+        let top_edge = ring_quads_for_span(&out, active.start_col, active.end_col)
+            .into_iter()
+            .find(|q| q.rect[1].abs() < f32::EPSILON)
+            .expect("active ring has a top edge seated at the row top");
+        let thickness = top_edge.rect[3] - top_edge.rect[1];
+        assert!(
+            thickness >= 2.0,
+            "outline ring edge must be ≥ 2px (was {thickness})"
+        );
     }
 
     #[test]
