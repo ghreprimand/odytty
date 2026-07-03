@@ -7,6 +7,69 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- "Phosphor Flat" tab chrome reskin: no outlines, glowing active tab (F4-RESKIN)
+
+After six horizontal and three vertical iterations of outlined-box tab chrome,
+the operator rejected the whole language ("looks hacked together… tacked on and
+cheap… the borders just don't work"). Following the aesthetic-research survey
+(no acknowledged-beautiful UI outlines its tabs; the container is invisible,
+only the active item is a drawn object) the operator ruled an **A+C hybrid,
+"Phosphor Flat"**: a flat/modern recede for inactive tabs + a retro CRT-phosphor
+glow for the active one. This packet reskins **both** axes together.
+
+**Shared treatment module (`tab_chrome.rs`, F4V2-NF2).** All tab-chrome color now
+lives in one pure module over theme roles; both `tab_bar.rs` (horizontal) and
+`tab_rail.rs` (vertical) consume it, so the two axes share one language and it
+unit-tests with no GPU. The widgets keep their layout engines untouched; this
+module owns color only.
+
+- **Active** — a warm `selection` fill (the bloom-off fallback) + a bright, bold
+  `foreground` label brightened *above the bloom threshold* (target luma 0.85 on
+  dark fills) so the existing `bloom.wgsl` post-process auto-halos it with **zero
+  new geometry**. On light themes the plain dark foreground is kept for contrast
+  and bloom correctly no-ops.
+- **Inactive** — bare `inactive`-role labels on the wallpaper-through background
+  (no fill; painted as an explicit `background`-role `Color::Rgb` so both render
+  paths composite it through `cell_bg_opacity` like the terminal body), dimmed
+  along a phosphor-persistence luminance ramp keyed on distance from the active
+  tab (nearer = brighter, floored so distant tabs fade but never vanish).
+- **Hover** — the label warms one tier toward the active label + a whisper of the
+  selection fill; `×` shows on the active/hovered tab only; `+` is a dim glyph
+  that brightens on hover.
+
+**Deleted, not bypassed (F4R-NF1).** The entire outline language is gone from
+both widgets: `active_tab_outline`/per-slot rings, the `band_separator`
+(horizontal) and rail↔content `rail_divider` (vertical), `ring_colors`, and the
+now-unused `TabBarColors.border` field, `srgb_alpha`, and the outline/divider
+blend constants. Per the Director's amendment on R5, the bar↔body / rail↔content
+divider was removed entirely first (invisible-container law) — to be re-added
+only if the bar visually bleeds into content. Neither widget emits any chrome
+quads now; the whole treatment is cell backgrounds + label attributes, so the
+`quads` output channel is retained but always empty (kept so a divider could be
+re-added without touching the two integration call sites).
+
+**Bloom-off fallback (F4R-NF3), tested first-class.** The `selection` fill + the
+bright bold label are emitted unconditionally, so a user with CRT/bloom disabled
+still identifies the active tab from fill + label alone (no reliance on the glow).
+
+**100-theme guard retargeted (not deleted).** The outline era's
+`every_builtin_theme_keeps_rings_visible_against_the_band` luma-contrast test is
+replaced by `every_builtin_theme_keeps_phosphor_flat_identifiable`, which guards
+the three Phosphor Flat identity signals across every built-in theme: active fill
+distinguishable from the background, active label readable on its fill, and the
+nearest inactive label visible on the background.
+
+**Tests.** Both widgets' test tails rewritten: no-chrome-quad assertions
+(fails-before against the outline era), active-label-clears-bloom-threshold,
+phosphor-ramp monotonicity, wallpaper-through inactive/gap cells, hover tier,
+`+`/`×` behavior, and the bloom-off fallback branch — plus the preserved
+layout/hit-test/truncation/overflow suites (the layout engine is byte-untouched).
+Gate: `cargo test` 2871/0, `cargo clippy --all-targets --locked -- -D warnings`
+clean, `cargo fmt --check` clean, MSRV lockstep intact. Windows: platform-neutral
+(pure render/color, no PTY/spawn/path/env surface); no `cfg` surface. Per the
+feasibility scan, the recommended direction needs **no** new GPU primitive — the
+SDF/slanted-quad work stays on hold (F4R-NF4).
+
 ## 2026-07-03 -- Vertical tab rail polish: content gap, lightweight +, inset slots (F4-V2 R1.1)
 
 Operator judged the live rail "kind of poorly designed" with three visual items

@@ -110,6 +110,8 @@ mod scroll_anim;
 mod session_attach_ui;
 mod ssh_connect;
 mod tab_bar;
+// F4-RESKIN: shared "Phosphor Flat" treatment (color) for both tab-chrome axes.
+mod tab_chrome;
 // F4-V2 R1: vertical tab rail widget — the sibling of `tab_bar`, active when
 // `tab_bar_placement` is a rail.
 mod tab_rail;
@@ -1874,7 +1876,6 @@ impl App {
             background: self.effective_theme.background,
             inactive: self.effective_theme.inactive,
             active_bg: self.effective_theme.selection,
-            border: self.effective_theme.border,
         }
     }
 
