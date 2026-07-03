@@ -319,6 +319,12 @@ pub(super) struct App {
     /// ever `Some` inside a multi-pane tab; `None` otherwise, so the single-pane
     /// pointer path is unaffected.
     divider_drag: Option<usize>,
+    /// F4-P4 auto-width cache: the rail band width (cells) currently baked into
+    /// the content-grid reservation. `reconcile_rail_auto_width` reflows the
+    /// grid only when the live resolved width diverges from this, so a title
+    /// change / tab add-remove / max-width edit re-sizes the content exactly
+    /// once. 0 on the top-bar / hidden path.
+    rail_reserved_cols: usize,
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
@@ -498,6 +504,7 @@ impl App {
             consecutive_skipped_frames: 0,
             window_minimized: false,
             divider_drag: None,
+            rail_reserved_cols: 0,
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
             bell_flash_start: None,
@@ -1921,8 +1928,10 @@ impl App {
             return panes::TabReserve::NONE;
         }
         let gap_cols = self.rail_gap_cols();
-        // F4-P1: the rail band width is the live `tab_rail_width` knob (clamped).
-        let rail_cols = self.settings.rail_width_cols();
+        // F4-P1/P4: the rail band width resolves the `tab_rail_width` mode —
+        // `Manual(cols)` clamps the fixed width, `Auto` sizes to the longest tab
+        // title (`rail_auto_want_cols`) clamped to the auto max.
+        let rail_cols = self.settings.rail_width_cols(self.rail_auto_want_cols());
         match self.effective_placement() {
             TabBarPlacement::Top => panes::TabReserve::top(),
             TabBarPlacement::Left => panes::TabReserve {
@@ -1948,6 +1957,45 @@ impl App {
         tab_rail::RailGeom {
             slot_rows: self.settings.rail_slot_rows(),
             slot_gap: self.settings.rail_slot_gap_rows(),
+        }
+    }
+
+    /// The longest tab title in cells (F4-P4 auto-width): each Unicode scalar
+    /// counts as one column, matching the rail widget's `truncate_label` (the
+    /// wide-glyph display-width caveat is F4P-NF1, out of scope). Trimmed like
+    /// the widget so trailing spaces never pad the auto width.
+    fn rail_longest_title_cols(&self) -> usize {
+        use tab_bar::TabBarSource;
+        (0..self.sessions.tab_count())
+            .map(|idx| self.sessions.tab_title(idx).trim().chars().count())
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// The rail width (cells) `Auto` mode wants: the longest title plus the
+    /// widget's label chrome (F4-P4). `Settings::rail_width_cols` clamps it to
+    /// the auto max; in `Manual` mode this is ignored.
+    fn rail_auto_want_cols(&self) -> usize {
+        self.rail_longest_title_cols() + tab_rail::RAIL_LABEL_CHROME_COLS
+    }
+
+    /// F4-P4 auto-width reconcile: when the resolved rail band width diverges
+    /// from what the content grid was last reserved against — a tab added or
+    /// closed, a title renamed, or a shell-set (OSC 0/2) title changing the
+    /// longest title — reflow the grid once so the content matches the new rail
+    /// width. Gated on the width actually changing, so a stable frame is a
+    /// single `usize` comparison; a no-rail / manual-width frame never diverges.
+    /// Run once per redraw before the frame is built, so the rail and content
+    /// stay pixel-aligned within the frame.
+    fn reconcile_rail_auto_width(&mut self) {
+        if self.gpu.is_none() || self.window.is_none() {
+            return;
+        }
+        if self.rail_cols() != self.rail_reserved_cols {
+            // `recompute_grid_for_tab_bar` refreshes `rail_reserved_cols`, so a
+            // no-change follow-up frame won't reflow again.
+            self.recompute_grid_for_tab_bar();
+            self.needs_rebuild = true;
         }
     }
 
@@ -2094,6 +2142,10 @@ impl App {
             window.inner_size().width,
             window.inner_size().height,
         );
+        // F4-P4: record the rail width now baked into the content reservation so
+        // `reconcile_rail_auto_width` reflows exactly once when auto-sizing (or a
+        // manual/max-width change) moves the band. 0 on the top-bar/hidden path.
+        self.rail_reserved_cols = self.rail_cols();
     }
 
     /// Shift window-content overlay quads by the tab-chrome offset so they stay
@@ -2903,6 +2955,11 @@ impl ApplicationHandler<UserEvent> for App {
                 self.flush_pending_overlay_settings();
                 self.handle_terminal_clipboard_requests();
                 self.update_window_title();
+                // F4-P4: reflow the content grid if auto-sizing (or a max-width
+                // edit) moved the rail band since the last frame — a shell-set
+                // title changing the longest tab title has no other trigger. A
+                // no-change frame is a single width comparison.
+                self.reconcile_rail_auto_width();
                 // C4: clear the GPU image-viewer texture the frame after the
                 // viewer overlay closes, so the closed-viewer frame is
                 // byte-identical to the no-viewer path.

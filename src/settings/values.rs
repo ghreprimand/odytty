@@ -630,15 +630,52 @@ fn parse_clamped_f32(
     }
 }
 
-/// Parse the vertical rail band width in cells (F4-P1).
-pub(super) fn parse_tab_rail_width(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+/// Parse the vertical rail width mode (F4-P4): `auto | <cols>`.
+///
+/// - absent / blank → the default (`Auto`);
+/// - `"auto"` (any case) → `Auto`;
+/// - a finite number → `Manual`, rounded and clamped to the absolute widget
+///   bounds `[MIN_TAB_RAIL_WIDTH, MAX_TAB_RAIL_WIDTH]` — this is the migration
+///   path for old numeric configs, which keep their exact width;
+/// - anything else → warn and fall back to `Auto`.
+pub(super) fn parse_tab_rail_width(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> TabRailWidth {
+    let Some(raw) = raw else {
+        return TabRailWidth::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return TabRailWidth::default();
+    }
+    if trimmed.eq_ignore_ascii_case("auto") {
+        return TabRailWidth::Auto;
+    }
+    match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => {
+            let cols = value.round().clamp(MIN_TAB_RAIL_WIDTH, MAX_TAB_RAIL_WIDTH) as u16;
+            TabRailWidth::Manual(cols)
+        }
+        _ => {
+            warn(&format!(
+                "{TAB_RAIL_WIDTH_ENV}={trimmed:?} is not auto or a cell count; using auto"
+            ));
+            TabRailWidth::default()
+        }
+    }
+}
+
+/// Parse the `auto`-mode upper clamp in cells (F4-P4).
+pub(super) fn parse_tab_rail_max_width(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     parse_clamped_f32(
         raw,
-        TAB_RAIL_WIDTH_ENV,
-        "rail width",
-        DEFAULT_TAB_RAIL_WIDTH,
-        MIN_TAB_RAIL_WIDTH,
-        MAX_TAB_RAIL_WIDTH,
+        TAB_RAIL_MAX_WIDTH_ENV,
+        "rail max width",
+        DEFAULT_TAB_RAIL_MAX_WIDTH,
+        MIN_TAB_RAIL_MAX_WIDTH,
+        MAX_TAB_RAIL_MAX_WIDTH,
         warn,
     )
 }

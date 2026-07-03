@@ -65,6 +65,7 @@ pub const COMMAND_STATUS_GUTTER_ENV: &str = "ODYTTY_COMMAND_STATUS_GUTTER";
 pub const ALWAYS_SHOW_TAB_BAR_ENV: &str = "ODYTTY_ALWAYS_SHOW_TAB_BAR";
 pub const TAB_BAR_PLACEMENT_ENV: &str = "ODYTTY_TAB_BAR_PLACEMENT";
 pub const TAB_RAIL_WIDTH_ENV: &str = "ODYTTY_TAB_RAIL_WIDTH";
+pub const TAB_RAIL_MAX_WIDTH_ENV: &str = "ODYTTY_TAB_RAIL_MAX_WIDTH";
 pub const TAB_RAIL_GAP_ENV: &str = "ODYTTY_TAB_RAIL_GAP";
 pub const TAB_RAIL_SLOT_ROWS_ENV: &str = "ODYTTY_TAB_RAIL_SLOT_ROWS";
 pub const TAB_PANEL_STRENGTH_ENV: &str = "ODYTTY_TAB_PANEL_STRENGTH";
@@ -158,6 +159,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     ALWAYS_SHOW_TAB_BAR_ENV,
     TAB_BAR_PLACEMENT_ENV,
     TAB_RAIL_WIDTH_ENV,
+    TAB_RAIL_MAX_WIDTH_ENV,
     TAB_RAIL_GAP_ENV,
     TAB_RAIL_SLOT_ROWS_ENV,
     TAB_PANEL_STRENGTH_ENV,
@@ -586,15 +588,34 @@ pub const DEFAULT_COMMAND_STATUS_GUTTER: bool = false;
 /// tab is never invisible (F4-NF1).
 pub const DEFAULT_ALWAYS_SHOW_TAB_BAR: bool = false;
 
-/// Vertical tab-rail band width in cells (`ODYTTY_TAB_RAIL_WIDTH`, F4-P1). The
-/// rail widget's VISUAL width (the rail↔content wallpaper gap is reserved
+/// Vertical tab-rail band width in cells (`ODYTTY_TAB_RAIL_WIDTH`, F4-P1/P4).
+/// The rail widget's VISUAL width (the rail↔content wallpaper gap is reserved
 /// separately). Hot-reloadable so the operator can tune it live. Only affects
-/// the `left`/`right` rail placements; the top bar ignores it. Stored as `f32`
-/// to ride the shared numeric-setting model; the render path rounds it to a
-/// `usize` clamped to `[MIN, MAX]`.
+/// the `left`/`right` rail placements; the top bar ignores it.
+///
+/// F4-P4 turned this into an `auto | <cols>` mode ([`super::TabRailWidth`]):
+/// `auto` (the new default) sizes the rail to the longest tab title (clamped to
+/// `[MIN_TAB_RAIL_WIDTH, tab_rail_max_width]`); a plain integer pins a manual
+/// width (clamped to `[MIN_TAB_RAIL_WIDTH, MAX_TAB_RAIL_WIDTH]`), which the seam
+/// drag / double-click-reset also write. Old numeric configs parse as `Manual`,
+/// so an existing `tab_rail_width = 20` keeps its exact behavior. `MIN`/`MAX`
+/// remain the absolute widget bounds the manual value (and the seam drag) clamp
+/// to.
 pub const DEFAULT_TAB_RAIL_WIDTH: f32 = 16.0;
 pub const MIN_TAB_RAIL_WIDTH: f32 = 8.0;
 pub const MAX_TAB_RAIL_WIDTH: f32 = 32.0;
+
+/// Upper clamp for the `auto` rail width (`ODYTTY_TAB_RAIL_MAX_WIDTH`, F4-P4):
+/// the widest the rail will auto-grow to fit long tab titles before switching
+/// to single-line ellipsis truncation. Only consulted in `auto` mode; a manual
+/// width can still be dragged up to `MAX_TAB_RAIL_WIDTH`. Bounded by the same
+/// absolute widget floor/ceiling so the auto cap can never fall below the min
+/// usable width or exceed the widget maximum. Hot-reloadable, rail-only. Stored
+/// as `f32` for the shared numeric-setting model; rounded to a `usize` where
+/// used.
+pub const DEFAULT_TAB_RAIL_MAX_WIDTH: f32 = 24.0;
+pub const MIN_TAB_RAIL_MAX_WIDTH: f32 = MIN_TAB_RAIL_WIDTH;
+pub const MAX_TAB_RAIL_MAX_WIDTH: f32 = MAX_TAB_RAIL_WIDTH;
 
 /// Rows of band-fill gap between adjacent rail slots (`ODYTTY_TAB_RAIL_GAP`,
 /// F4-P1). The top margin before the first slot follows it. Rail-only,

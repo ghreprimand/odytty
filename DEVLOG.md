@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-03 -- Auto-sizing tab rail width (F4-P4, part 1)
+
+The vertical tab rail now sizes itself to its tabs like a Finder column
+instead of using a fixed 16-cell band. `tab_rail_width` changed from a plain
+integer to an `auto | <cells>` mode, defaulting to `auto`.
+
+- **`auto` width** = the longest tab title plus the slot's label chrome,
+  clamped to `[8, tab_rail_max_width]` (new knob, default `24`). It recomputes
+  whenever the longest title changes — a tab added or closed, a rename, or a
+  shell-set (OSC 0/2) title — via a once-per-frame reconcile that reflows the
+  content grid exactly when the resolved band width moves, so the rail and
+  content stay pixel-aligned.
+- **Manual width** is any integer value; an existing numeric config
+  (`tab_rail_width = 20`) migrates to `Manual(20)` and keeps its exact
+  behavior. A manual width clamps to the absolute widget bounds `[8, 32]`; the
+  `auto` cap only applies in auto mode. (The seam-drag / double-click-reset
+  gestures that write this mode land in part 2.)
+- **Labels are now a single centered line.** The 2-row padded slot keeps its
+  breathing row, but titles no longer wrap to a second line — an overflowing
+  title truncates with `…`. Each Unicode scalar counts as one column, matching
+  the auto-width measurement (the wide-glyph display-width caveat, F4P-NF1,
+  stays out of scope).
+- The width resolution is pure (`Settings::rail_width_cols(auto_want_cols)`) so
+  it is unit-tested at the settings seam; the label chrome padding lives next
+  to the widget geometry it derives from (`RAIL_LABEL_CHROME_COLS`) as the
+  single source of truth.
+
+Windows: platform-neutral — no PTY / spawn / path / env / logging / shell
+surface; the new settings + widget tests are cfg-neutral across all three CI
+legs. `cargo test` 2913 lib + all integration bins green, `clippy
+--all-targets -D warnings` clean, `fmt --check` clean, MSRV 1.96 intact.
+
 ## 2026-07-03 -- Devlog editorial pass: impersonal engineering voice
 
 Existing entries were reworded to read as a project changelog — work done and

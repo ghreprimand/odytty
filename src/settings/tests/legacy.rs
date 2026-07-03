@@ -133,6 +133,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "always_show_tab_bar",
             "tab_bar_placement",
             "tab_rail_width",
+            "tab_rail_max_width",
             "tab_rail_gap",
             "tab_rail_slot_rows",
             "tab_panel_strength",

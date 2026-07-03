@@ -720,6 +720,45 @@ impl TabBarPlacement {
     }
 }
 
+/// Vertical tab-rail width mode (F4-P4): `Auto` sizes the rail to the longest
+/// tab title (clamped to `[MIN_TAB_RAIL_WIDTH, tab_rail_max_width]`); `Manual`
+/// pins an operator-chosen width in cells (clamped to `[MIN_TAB_RAIL_WIDTH,
+/// MAX_TAB_RAIL_WIDTH]`). `Auto` is the new default — the rail behaves like a
+/// Finder column, growing to fit titles and truncating with an ellipsis past
+/// the cap. A `Manual` width is what the seam drag and a numeric config value
+/// produce; the double-click-seam gesture resets back to `Auto`.
+///
+/// Persisted as `auto` or a plain integer, so an existing numeric config
+/// (`tab_rail_width = 20`) round-trips as `Manual(20)` — old configs keep their
+/// exact behavior (F4-P4 migration rule).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TabRailWidth {
+    /// Auto-size to the longest tab title, clamped to the auto max (default).
+    #[default]
+    Auto,
+    /// A fixed rail width in cells (already clamped to the widget bounds).
+    Manual(u16),
+}
+
+impl TabRailWidth {
+    /// The config/`to_edit_values` string form: `"auto"` or the column count.
+    pub fn as_config_string(self) -> String {
+        match self {
+            Self::Auto => "auto".to_owned(),
+            Self::Manual(cols) => cols.to_string(),
+        }
+    }
+
+    /// `Some(cols)` for a manual width, `None` for auto — the payload the width
+    /// resolver clamps in manual mode.
+    pub fn manual_cols(self) -> Option<u16> {
+        match self {
+            Self::Auto => None,
+            Self::Manual(cols) => Some(cols),
+        }
+    }
+}
+
 /// How the terminal responds when the host writes BEL (`0x07`). Presentation-
 /// only — the core merely latches that a bell was requested (see
 /// [`crate::core::Terminal::take_bell`]); this setting decides what the native
@@ -992,10 +1031,15 @@ pub struct Settings {
     /// render arm lands (R2). Default `Top` keeps the render path byte-identical
     /// to the shipped horizontal bar.
     pub tab_bar_placement: TabBarPlacement,
-    /// Vertical rail band width in cells (F4-P1). Stored as `f32` for the shared
-    /// numeric-setting model; [`Settings::rail_width_cols`] rounds it to a
-    /// `usize` in `[8, 32]`. Rail-only; the top bar ignores it.
-    pub tab_rail_width: f32,
+    /// Vertical rail width mode (F4-P1/P4): `Auto` (default) sizes to the longest
+    /// tab title; `Manual(cols)` pins a fixed width. Resolved to a `usize` by
+    /// [`Settings::rail_width_cols`]. Rail-only; the top bar ignores it.
+    pub tab_rail_width: TabRailWidth,
+    /// Upper clamp (cells) for the `auto` rail width (F4-P4). Only consulted in
+    /// `Auto` mode; a manual width clamps to the absolute widget max instead.
+    /// Stored as `f32` for the shared numeric-setting model;
+    /// [`Settings::rail_max_width_cols`] rounds it to a `usize`.
+    pub tab_rail_max_width: f32,
     /// Inter-slot gap in rows for the vertical rail (F4-P1); the top margin
     /// follows it. Stored as `f32`; [`Settings::rail_slot_gap_rows`] rounds it to
     /// a `usize` in `[0, 3]`.
@@ -1203,7 +1247,8 @@ impl Default for Settings {
             command_status_gutter: DEFAULT_COMMAND_STATUS_GUTTER,
             always_show_tab_bar: DEFAULT_ALWAYS_SHOW_TAB_BAR,
             tab_bar_placement: TabBarPlacement::default(),
-            tab_rail_width: DEFAULT_TAB_RAIL_WIDTH,
+            tab_rail_width: TabRailWidth::default(),
+            tab_rail_max_width: DEFAULT_TAB_RAIL_MAX_WIDTH,
             tab_rail_gap: DEFAULT_TAB_RAIL_GAP,
             tab_rail_slot_rows: DEFAULT_TAB_RAIL_SLOT_ROWS,
             tab_panel_strength: DEFAULT_TAB_PANEL_STRENGTH,
@@ -1352,12 +1397,30 @@ impl Settings {
         (self.scroll_wheel_lines.round() as i64).max(1) as usize
     }
 
-    /// Vertical rail band width in cells (F4-P1), rounded from the stored `f32`
-    /// and clamped to `[MIN_TAB_RAIL_WIDTH, MAX_TAB_RAIL_WIDTH]`.
-    pub fn rail_width_cols(&self) -> usize {
-        self.tab_rail_width
+    /// Resolve the vertical rail band width in cells (F4-P4).
+    ///
+    /// `auto_want_cols` is the width the `Auto` mode wants — the longest tab
+    /// title plus the widget's label chrome, measured by the integration layer
+    /// (which owns the widget geometry). In `Auto` mode the result is that value
+    /// clamped to `[MIN_TAB_RAIL_WIDTH, tab_rail_max_width]`; in `Manual` mode
+    /// the stored width is clamped to the absolute widget bounds
+    /// `[MIN_TAB_RAIL_WIDTH, MAX_TAB_RAIL_WIDTH]` and `auto_want_cols` is
+    /// ignored. Kept pure (no session/widget deref) so the resolution is unit-
+    /// tested at the settings seam.
+    pub fn rail_width_cols(&self, auto_want_cols: usize) -> usize {
+        let min = MIN_TAB_RAIL_WIDTH as usize;
+        match self.tab_rail_width {
+            TabRailWidth::Manual(cols) => (cols as usize).clamp(min, MAX_TAB_RAIL_WIDTH as usize),
+            TabRailWidth::Auto => auto_want_cols.clamp(min, self.rail_max_width_cols()),
+        }
+    }
+
+    /// The `auto`-mode upper clamp in cells (F4-P4), rounded from the stored
+    /// `f32` and clamped to `[MIN_TAB_RAIL_MAX_WIDTH, MAX_TAB_RAIL_MAX_WIDTH]`.
+    pub fn rail_max_width_cols(&self) -> usize {
+        self.tab_rail_max_width
             .round()
-            .clamp(MIN_TAB_RAIL_WIDTH, MAX_TAB_RAIL_WIDTH) as usize
+            .clamp(MIN_TAB_RAIL_MAX_WIDTH, MAX_TAB_RAIL_MAX_WIDTH) as usize
     }
 
     /// Inter-slot gap in rows for the vertical rail (F4-P1), rounded and clamped
@@ -1781,6 +1844,8 @@ impl Settings {
         let tab_bar_placement =
             parse_tab_bar_placement(get(TAB_BAR_PLACEMENT_ENV).as_deref(), &mut warn);
         let tab_rail_width = parse_tab_rail_width(get(TAB_RAIL_WIDTH_ENV).as_deref(), &mut warn);
+        let tab_rail_max_width =
+            parse_tab_rail_max_width(get(TAB_RAIL_MAX_WIDTH_ENV).as_deref(), &mut warn);
         let tab_rail_gap = parse_tab_rail_gap(get(TAB_RAIL_GAP_ENV).as_deref(), &mut warn);
         let tab_rail_slot_rows =
             parse_tab_rail_slot_rows(get(TAB_RAIL_SLOT_ROWS_ENV).as_deref(), &mut warn);
@@ -1971,6 +2036,7 @@ impl Settings {
             always_show_tab_bar,
             tab_bar_placement,
             tab_rail_width,
+            tab_rail_max_width,
             tab_rail_gap,
             tab_rail_slot_rows,
             tab_panel_strength,
@@ -2156,7 +2222,11 @@ impl Settings {
             TAB_BAR_PLACEMENT_ENV,
             self.tab_bar_placement.as_str().to_owned(),
         );
-        values.insert(TAB_RAIL_WIDTH_ENV, format_float(self.tab_rail_width));
+        values.insert(TAB_RAIL_WIDTH_ENV, self.tab_rail_width.as_config_string());
+        values.insert(
+            TAB_RAIL_MAX_WIDTH_ENV,
+            format_float(self.tab_rail_max_width),
+        );
         values.insert(TAB_RAIL_GAP_ENV, format_float(self.tab_rail_gap));
         values.insert(
             TAB_RAIL_SLOT_ROWS_ENV,

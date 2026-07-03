@@ -667,6 +667,16 @@ impl App {
         self.recompute_grid_for_tab_bar();
     }
 
+    /// Test seam (F4-P4): pin a fixed manual rail width (cells) so the
+    /// reserve/decoration/hit-test geometry tests stay deterministic regardless
+    /// of tab titles, then recompute the grid. Auto-width behavior is exercised
+    /// separately at the `Settings::rail_width_cols` seam and the widget.
+    #[cfg(test)]
+    pub(in crate::native) fn set_tab_rail_width_manual_for_test(&mut self, cols: u16) {
+        self.settings.tab_rail_width = crate::settings::TabRailWidth::Manual(cols);
+        self.recompute_grid_for_tab_bar();
+    }
+
     /// Test seam (F4-V2): the decorated single-pane snapshot's `(columns, rows)`
     /// after tab-chrome decoration. A left rail grows columns by `rail_cols`; the
     /// top bar grows rows by `TAB_BAR_ROWS`.

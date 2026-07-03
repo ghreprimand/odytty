@@ -72,7 +72,8 @@ const NEW_TAB_ROWS: usize = 1;
 /// settings, the integration layer resolves these from `Settings`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RailGeom {
-    /// Rows per slot (`1` = compact list, `2` = padded/wrapping).
+    /// Rows per slot (`1` = compact list, `2` = padded with a breathing row;
+    /// the label is always a single centered line, F4-P4).
     pub(super) slot_rows: usize,
     /// Rows of empty band between adjacent slots (and the top margin).
     pub(super) slot_gap: usize,
@@ -111,6 +112,15 @@ const RAIL_LABEL_PAD: usize = 1;
 /// First content column of a slot's label (inside the inset box + the label
 /// padding).
 const SLOT_LABEL_START_COL: usize = SLOT_INSET_COLS + RAIL_LABEL_PAD;
+
+/// Non-label columns a slot reserves around its title (F4-P4): the left label
+/// start (`SLOT_LABEL_START_COL`) plus the right inset column and the close-`×`
+/// cell. The label's usable inner budget is therefore
+/// `rail_cols - RAIL_LABEL_CHROME_COLS`. The auto-width resolver adds this to
+/// the longest title so a title fits on one line without truncation; keeping it
+/// here (next to the geometry it derives from) is the single source of truth so
+/// the integration layer never re-derives the chrome padding.
+pub(super) const RAIL_LABEL_CHROME_COLS: usize = SLOT_LABEL_START_COL + SLOT_INSET_COLS + 1;
 
 // The rail band width is now the live `ODYTTY_TAB_RAIL_WIDTH` knob
 // (`Settings::rail_width_cols`, default 16, clamp `[8, 32]`) resolved by the
@@ -173,11 +183,16 @@ struct RailSlot {
     start_row: usize,
     /// One-past-last row of the slot (exclusive).
     end_row: usize,
-    /// Wrapped label lines (≤ `SLOT_ROWS` entries), each already truncated to
-    /// the inner column budget.
-    label_lines: Vec<String>,
-    /// `(row, col)` of the `×` close glyph (top-right cell of the slot), or
-    /// `None` when the rail is too narrow.
+    /// The row the single-line label (and its `×`) sits on — the slot's
+    /// vertically-centered row (F4-P4). For the default 2-row slot the centre
+    /// rounds to the slot's first row, leaving the trailing row as breathing
+    /// space; taller slots centre exactly.
+    label_row: usize,
+    /// The single-line label, already truncated with `…` to the inner column
+    /// budget (F4-P4 — the rail never wraps to a second line).
+    label: String,
+    /// `(row, col)` of the `×` close glyph (on the label row, at the slot's
+    /// inset top-right), or `None` when the rail is too narrow.
     close_cell: Option<(usize, usize)>,
 }
 
@@ -291,21 +306,19 @@ impl TabRail {
                     }
                 }
             }
-            // Label glyphs (wrapped across the slot's rows).
+            // Label glyphs — a single line on the slot's vertically-centered row
+            // (F4-P4; no wrapping).
             let mut la = Attrs::default();
             la.foreground = label_fg;
             la.background = slot_bg;
             if bold {
                 la.set_bold(true);
             }
-            for (line_idx, line) in slot.label_lines.iter().enumerate() {
-                let row = slot.start_row + line_idx;
-                if row >= slot.end_row {
-                    break;
-                }
-                for (i, ch) in line.chars().enumerate() {
+            let row = slot.label_row;
+            if row < slot.end_row && row < grid_rows {
+                for (i, ch) in slot.label.chars().enumerate() {
                     let col = SLOT_LABEL_START_COL + i;
-                    if row < grid_rows && col < rail_cols {
+                    if col < rail_cols {
                         let g = &mut cells[row * rail_cols + col];
                         g.ch = ch;
                         g.attrs = la;
@@ -499,15 +512,15 @@ fn compute_rail_layout(
                 .push(build_slot(source, i, start, rail_cols, geom));
         }
         // F4-P1 floating-`+` fix: anchor the `+` `slot_gap` rows below the last
-        // slot's LAST LABEL row rather than a full stride below its start, so a
+        // slot's LABEL row rather than a full stride below its start, so a
         // single-line label doesn't leave a trailing blank slot row + gap
-        // stranding the `+` far below. Clamps to the stride position when the
-        // last label wraps to the full slot height (arithmetically identical at
-        // slot_rows = 1).
+        // stranding the `+` far below. The label is one row (F4-P4), so this is
+        // `label_row + 1 + gap` (arithmetically identical to the old single-line
+        // case at slot_rows = 1).
         let nt_start = layout
             .slots
             .last()
-            .map(|last| last.start_row + last.label_lines.len().max(1) + geom.slot_gap)
+            .map(|last| last.label_row + 1 + geom.slot_gap)
             .unwrap_or(top_margin);
         layout.new_tab_rows = Some((nt_start, nt_start + NEW_TAB_ROWS));
         return layout;
@@ -547,7 +560,8 @@ fn compute_rail_layout(
     layout
 }
 
-/// Build one slot at `start_row`, wrapping the tab title across its rows.
+/// Build one slot at `start_row` with a single-line, ellipsis-truncated label
+/// on the slot's vertically-centered row (F4-P4).
 fn build_slot(
     source: &dyn TabBarSource,
     idx: usize,
@@ -556,24 +570,29 @@ fn build_slot(
     geom: RailGeom,
 ) -> RailSlot {
     let end_row = start_row + geom.slot_rows;
-    // The `×` gets its own cell at the slot's top-right, INSIDE the ring inset
+    // Vertically centre the single label line within the slot. `(rows - 1) / 2`
+    // rounds a 2-row slot's centre to its first row (breathing row below) and
+    // centres taller slots exactly; a 1-row slot maps to its only row.
+    let label_row = start_row + geom.slot_rows.saturating_sub(1) / 2;
+    // The `×` shares the label row at the slot's top-right, INSIDE the inset
     // (R1.1) so it sits within the bounded box, not against the rail edge. It
     // occupies the last inset column, never colliding with the label inner area.
     let close_col = rail_cols.saturating_sub(SLOT_INSET_COLS + 1);
-    let close_cell = (close_col > SLOT_LABEL_START_COL).then_some((start_row, close_col));
+    let close_cell = (close_col > SLOT_LABEL_START_COL).then_some((label_row, close_col));
     // Label inner budget: from `SLOT_LABEL_START_COL` up to (but excluding) the
     // close cell, i.e. the inset box minus the left label pad and the close cell.
     let inner = close_col.saturating_sub(SLOT_LABEL_START_COL);
-    let label_lines = if inner == 0 {
-        Vec::new()
+    let label = if inner == 0 {
+        String::new()
     } else {
-        wrap_label(source.tab_title(idx), inner, geom.slot_rows)
+        truncate_label(source.tab_title(idx), inner)
     };
     RailSlot {
         idx,
         start_row,
         end_row,
-        label_lines,
+        label_row,
+        label,
         close_cell,
     }
 }
@@ -604,34 +623,24 @@ fn is_slot_hovered(hover: Option<TabHit>, idx: usize) -> bool {
     matches!(hover, Some(TabHit::Switch(i) | TabHit::Close(i)) if i == idx)
 }
 
-/// Wrap `s` across at most `rows` lines of `inner` columns each, truncating the
-/// last line with `…` when the title still overflows. Leading/trailing
-/// whitespace is stripped. Each Unicode scalar counts as one column (correct for
-/// the ASCII-heavy titles typical of terminal tabs).
-fn wrap_label(s: &str, inner: usize, rows: usize) -> Vec<String> {
-    if inner == 0 || rows == 0 {
-        return Vec::new();
+/// Truncate `s` to a single line of at most `inner` columns, ending an
+/// overflowing title with `…` (F4-P4 — the rail never wraps to a second line;
+/// the auto-width mode grows the rail to fit, and past the cap the title
+/// ellipsizes). Leading/trailing whitespace is stripped. Each Unicode scalar
+/// counts as one column — correct for the ASCII-heavy titles typical of
+/// terminal tabs (the wide-glyph display-width caveat is F4P-NF1, out of scope).
+fn truncate_label(s: &str, inner: usize) -> String {
+    if inner == 0 {
+        return String::new();
     }
     let chars: Vec<char> = s.trim().chars().collect();
-    let mut lines = Vec::new();
-    let mut i = 0usize;
-    for r in 0..rows {
-        if i >= chars.len() {
-            break;
-        }
-        let remaining = chars.len() - i;
-        if r == rows - 1 && remaining > inner {
-            // Last available line and more remains → truncate with `…`.
-            let mut line: String = chars[i..i + inner.saturating_sub(1)].iter().collect();
-            line.push('…');
-            lines.push(line);
-            break;
-        }
-        let take = remaining.min(inner);
-        lines.push(chars[i..i + take].iter().collect());
-        i += take;
+    if chars.len() <= inner {
+        return chars.into_iter().collect();
     }
-    lines
+    // Overflow: keep `inner - 1` scalars and append the ellipsis.
+    let mut line: String = chars[..inner.saturating_sub(1)].iter().collect();
+    line.push('…');
+    line
 }
 
 /// Paint an overflow indicator (`▲N` / `▼N`) into `row`, left-aligned after one
@@ -913,10 +922,10 @@ mod tests {
             assert_eq!(slot.end_row, start + SLOT_ROWS, "slot {i} end row");
         }
         // F4-P1 floating-`+` fix: the `+` anchors one gap below the last slot's
-        // LAST LABEL row (single-line "c" → one row), NOT a full stride below the
-        // slot start (which left a trailing blank slot row stranding it).
+        // LABEL row (single-line, F4-P4), NOT a full stride below the slot start
+        // (which left a trailing blank slot row stranding it).
         let last = layout.slots.last().unwrap();
-        let nt_start = last.start_row + last.label_lines.len().max(1) + SLOT_GAP;
+        let nt_start = last.label_row + 1 + SLOT_GAP;
         assert_eq!(
             layout.new_tab_rows,
             Some((nt_start, nt_start + NEW_TAB_ROWS)),
@@ -947,7 +956,7 @@ mod tests {
         let last = layout.slots.last().unwrap();
         assert_eq!(
             plus.row,
-            last.start_row + last.label_lines.len().max(1) + SLOT_GAP,
+            last.label_row + 1 + SLOT_GAP,
             "the + row anchors one gap below the last label row"
         );
     }
@@ -1121,22 +1130,79 @@ mod tests {
     }
 
     #[test]
-    fn long_title_wraps_then_truncates_with_ellipsis() {
-        let long = "a-very-long-terminal-title-that-will-not-fit-in-two-rows";
-        let lines = wrap_label(long, 14, SLOT_ROWS);
-        assert_eq!(lines.len(), 2, "wraps across both slot rows");
-        assert!(lines[0].chars().count() <= 14, "first line within inner");
-        assert!(lines[1].chars().count() <= 14, "second line within inner");
-        assert!(lines[1].ends_with('…'), "overflowing last line ends with …");
+    fn long_title_truncates_on_one_line_with_ellipsis() {
+        // F4-P4: no wrapping — an overflowing title stays a single line and ends
+        // with `…` (fails-before: the pre-P4 rail wrapped to a 2nd line).
+        let long = "a-very-long-terminal-title-that-will-not-fit";
+        let line = truncate_label(long, 14);
+        assert_eq!(line.chars().count(), 14, "single line within inner budget");
+        assert!(line.ends_with('…'), "overflow ends with …");
+        assert!(!line.contains('\n'), "one line, never wraps");
     }
 
     #[test]
     fn short_title_is_single_line_untruncated() {
-        let lines = wrap_label("vim", 14, SLOT_ROWS);
         assert_eq!(
-            lines,
-            vec!["vim".to_string()],
+            truncate_label("vim", 14),
+            "vim".to_string(),
             "short title, one line, no …"
+        );
+        // Exactly-fitting title is not ellipsized.
+        assert_eq!(truncate_label("0123456789abcd", 14), "0123456789abcd");
+    }
+
+    #[test]
+    fn label_is_single_row_and_vertically_centered_in_the_slot() {
+        // F4-P4: the 2-row padded slot keeps its breathing room but the label is
+        // one centered line (fails-before: labels used to fill both rows).
+        let src = MockSource::new(&["vim", "bash"], 0);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
+        for slot in &layout.slots {
+            // Centre of a 2-row slot rounds to its first row (breathing row below).
+            assert_eq!(
+                slot.label_row,
+                slot.start_row + (SLOT_ROWS - 1) / 2,
+                "label sits on the vertically-centered row"
+            );
+        }
+        // Only one row of a slot carries label glyphs.
+        let out = render_default(&src);
+        let active = &layout.slots[0];
+        let label_row_glyphs = (0..RAIL_COLS)
+            .filter(|&c| {
+                let g = out.glyphs[active.label_row * RAIL_COLS + c];
+                g.ch != ' ' && g.ch != '×'
+            })
+            .count();
+        assert!(label_row_glyphs >= 3, "label row carries the title 'vim'");
+        // The other slot row has no title glyphs.
+        let other_row = active.start_row + SLOT_ROWS - 1;
+        if other_row != active.label_row {
+            let other_glyphs = (0..RAIL_COLS)
+                .filter(|&c| out.glyphs[other_row * RAIL_COLS + c].ch != ' ')
+                .count();
+            assert_eq!(other_glyphs, 0, "the breathing row carries no glyphs");
+        }
+    }
+
+    #[test]
+    fn auto_width_chrome_matches_the_label_budget() {
+        // F4-P4: the integration layer's auto-width padding must equal exactly
+        // the columns a slot reserves around its title, so a title of length L
+        // fits without truncation when rail_cols = L + RAIL_LABEL_CHROME_COLS.
+        let title_len = 6usize;
+        let rail_cols = title_len + RAIL_LABEL_CHROME_COLS;
+        let src = MockSource::new(&["abcdef"], 0);
+        let layout = compute_rail_layout(&src, rail_cols, GRID_ROWS, GEOM);
+        assert_eq!(
+            layout.slots[0].label, "abcdef",
+            "title of length {title_len} fits without … at rail_cols = L + chrome"
+        );
+        // One cell narrower forces truncation, proving the padding is not slack.
+        let tight = compute_rail_layout(&src, rail_cols - 1, GRID_ROWS, GEOM);
+        assert!(
+            tight.slots[0].label.ends_with('…'),
+            "one column narrower truncates"
         );
     }
 

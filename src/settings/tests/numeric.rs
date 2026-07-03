@@ -560,33 +560,36 @@ fn tab_bar_placement_has_an_enum_row_in_the_tabs_group() {
     );
 }
 
-// --- F4-P1 rail/panel knobs (TAB_RAIL_WIDTH/GAP/SLOT_ROWS/PANEL_STRENGTH/SEAM/
-//     AUTOHIDE/REVEAL_PX) ---
+// --- F4-P1/P4 rail/panel knobs (TAB_RAIL_WIDTH/MAX_WIDTH/GAP/SLOT_ROWS/
+//     PANEL_STRENGTH/SEAM/AUTOHIDE/REVEAL_PX) ---
 
 #[test]
 fn tab_rail_numeric_knobs_default_parse_and_clamp() {
     // Defaults.
     let (d, warnings) = settings_from([]);
-    assert_eq!(d.tab_rail_width, DEFAULT_TAB_RAIL_WIDTH);
+    assert_eq!(
+        d.tab_rail_width,
+        TabRailWidth::Auto,
+        "width is auto by default"
+    );
+    assert_eq!(d.tab_rail_max_width, DEFAULT_TAB_RAIL_MAX_WIDTH);
     assert_eq!(d.tab_rail_gap, DEFAULT_TAB_RAIL_GAP);
     assert_eq!(d.tab_rail_slot_rows, DEFAULT_TAB_RAIL_SLOT_ROWS);
     assert_eq!(d.tab_panel_strength, DEFAULT_TAB_PANEL_STRENGTH);
     assert_eq!(d.tab_rail_reveal_px, DEFAULT_TAB_RAIL_REVEAL_PX);
     assert!(warnings.is_empty());
     // The rounding accessors return the shipped defaults.
-    assert_eq!(d.rail_width_cols(), 16);
+    assert_eq!(d.rail_max_width_cols(), 24);
     assert_eq!(d.rail_slot_gap_rows(), 1);
     assert_eq!(d.rail_slot_rows(), 2);
 
-    // Valid parses.
+    // Valid parses (gap/slot-rows/panel/reveal unchanged; width now auto|N).
     let (s, _) = settings_from([
-        (TAB_RAIL_WIDTH_ENV, "20"),
         (TAB_RAIL_GAP_ENV, "2"),
         (TAB_RAIL_SLOT_ROWS_ENV, "1"),
         (TAB_PANEL_STRENGTH_ENV, "0.3"),
         (TAB_RAIL_REVEAL_PX_ENV, "8"),
     ]);
-    assert_eq!(s.rail_width_cols(), 20);
     assert_eq!(s.rail_slot_gap_rows(), 2);
     assert_eq!(s.rail_slot_rows(), 1);
     assert!((s.tab_panel_strength - 0.3).abs() < 1e-6);
@@ -594,32 +597,76 @@ fn tab_rail_numeric_knobs_default_parse_and_clamp() {
 
     // Clamps at both ends.
     let (hi, _) = settings_from([
-        (TAB_RAIL_WIDTH_ENV, "999"),
+        (TAB_RAIL_MAX_WIDTH_ENV, "999"),
         (TAB_RAIL_GAP_ENV, "99"),
         (TAB_RAIL_SLOT_ROWS_ENV, "9"),
         (TAB_PANEL_STRENGTH_ENV, "9"),
         (TAB_RAIL_REVEAL_PX_ENV, "999"),
     ]);
-    assert_eq!(hi.tab_rail_width, MAX_TAB_RAIL_WIDTH);
+    assert_eq!(hi.tab_rail_max_width, MAX_TAB_RAIL_MAX_WIDTH);
     assert_eq!(hi.tab_rail_gap, MAX_TAB_RAIL_GAP);
     assert_eq!(hi.tab_rail_slot_rows, MAX_TAB_RAIL_SLOT_ROWS);
     assert_eq!(hi.tab_panel_strength, MAX_TAB_PANEL_STRENGTH);
     assert_eq!(hi.tab_rail_reveal_px, MAX_TAB_RAIL_REVEAL_PX);
     let (lo, _) = settings_from([
-        (TAB_RAIL_WIDTH_ENV, "0"),
+        (TAB_RAIL_MAX_WIDTH_ENV, "0"),
         (TAB_PANEL_STRENGTH_ENV, "-1"),
         (TAB_RAIL_REVEAL_PX_ENV, "0"),
     ]);
-    assert_eq!(lo.tab_rail_width, MIN_TAB_RAIL_WIDTH);
+    assert_eq!(lo.tab_rail_max_width, MIN_TAB_RAIL_MAX_WIDTH);
     assert_eq!(lo.tab_panel_strength, MIN_TAB_PANEL_STRENGTH);
     assert_eq!(lo.tab_rail_reveal_px, MIN_TAB_RAIL_REVEAL_PX);
 }
 
 #[test]
-fn tab_rail_numeric_knob_garbage_warns_and_falls_back() {
-    let (s, warnings) = settings_from([(TAB_RAIL_WIDTH_ENV, "wide")]);
-    assert_eq!(s.tab_rail_width, DEFAULT_TAB_RAIL_WIDTH);
-    assert!(warnings.iter().any(|w| w.contains("rail width")));
+fn tab_rail_width_auto_and_manual_modes_parse_and_migrate() {
+    // Explicit "auto" (any case) → Auto.
+    for raw in ["auto", "AUTO", "Auto"] {
+        let (s, w) = settings_from([(TAB_RAIL_WIDTH_ENV, raw)]);
+        assert_eq!(s.tab_rail_width, TabRailWidth::Auto, "{raw:?} → Auto");
+        assert!(w.is_empty());
+    }
+    // MIGRATION: an old numeric config parses as Manual with its exact width.
+    let (s, w) = settings_from([(TAB_RAIL_WIDTH_ENV, "20")]);
+    assert_eq!(s.tab_rail_width, TabRailWidth::Manual(20));
+    assert!(w.is_empty());
+    // Manual clamps to the absolute widget bounds [8, 32], not the auto max.
+    let (hi, _) = settings_from([(TAB_RAIL_WIDTH_ENV, "999")]);
+    assert_eq!(
+        hi.tab_rail_width,
+        TabRailWidth::Manual(MAX_TAB_RAIL_WIDTH as u16)
+    );
+    let (lo, _) = settings_from([(TAB_RAIL_WIDTH_ENV, "1")]);
+    assert_eq!(
+        lo.tab_rail_width,
+        TabRailWidth::Manual(MIN_TAB_RAIL_WIDTH as u16)
+    );
+    // Garbage warns and falls back to auto.
+    let (g, warnings) = settings_from([(TAB_RAIL_WIDTH_ENV, "wide")]);
+    assert_eq!(g.tab_rail_width, TabRailWidth::Auto);
+    assert!(warnings.iter().any(|w| w.contains("auto or a cell count")));
+}
+
+#[test]
+fn rail_width_cols_resolves_auto_and_manual() {
+    // AUTO: sizes to the caller's wanted width, clamped to [MIN, auto max].
+    let auto = Settings::default();
+    assert_eq!(auto.tab_rail_width, TabRailWidth::Auto);
+    // Short want clamps up to the min; a mid want passes through; a big want
+    // clamps to the auto max (default 24), NOT the absolute widget max.
+    assert_eq!(auto.rail_width_cols(3), MIN_TAB_RAIL_WIDTH as usize);
+    assert_eq!(auto.rail_width_cols(18), 18);
+    assert_eq!(auto.rail_width_cols(100), auto.rail_max_width_cols());
+    assert_eq!(auto.rail_max_width_cols(), 24);
+
+    // A higher auto max lets auto grow further (still <= absolute widget max).
+    let (wide_auto, _) = settings_from([(TAB_RAIL_MAX_WIDTH_ENV, "30")]);
+    assert_eq!(wide_auto.rail_width_cols(100), 30);
+
+    // MANUAL: ignores the wanted width, clamps to the absolute widget bounds.
+    let (manual, _) = settings_from([(TAB_RAIL_WIDTH_ENV, "28")]);
+    assert_eq!(manual.rail_width_cols(3), 28, "manual ignores auto want");
+    assert_eq!(manual.rail_width_cols(100), 28);
 }
 
 #[test]
@@ -636,6 +683,7 @@ fn tab_seam_and_autohide_bools_default_and_parse() {
 fn tab_rail_knobs_round_trip_through_config_keys() {
     for (key, env) in [
         ("tab_rail_width", TAB_RAIL_WIDTH_ENV),
+        ("tab_rail_max_width", TAB_RAIL_MAX_WIDTH_ENV),
         ("tab_rail_gap", TAB_RAIL_GAP_ENV),
         ("tab_rail_slot_rows", TAB_RAIL_SLOT_ROWS_ENV),
         ("tab_panel_strength", TAB_PANEL_STRENGTH_ENV),
@@ -653,6 +701,7 @@ fn tab_rail_knobs_live_in_the_tabs_group() {
     let rows = Settings::default().setting_info();
     for key in [
         "tab_rail_width",
+        "tab_rail_max_width",
         "tab_rail_gap",
         "tab_rail_slot_rows",
         "tab_panel_strength",

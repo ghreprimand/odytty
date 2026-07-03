@@ -385,6 +385,8 @@ fn tab_reserve_switches_axis_with_placement() {
         return;
     };
     app.set_test_cell_for_test(cell(8, 16));
+    // F4-P4: pin a manual rail width so the reservation is title-independent.
+    app.set_tab_rail_width_manual_for_test(16);
 
     // Two tabs → bar shown. Default top placement reserves one row.
     app.set_tab_bar_placement_for_test("top");
@@ -414,6 +416,8 @@ fn left_rail_grows_decorated_snapshot_by_columns_not_rows() {
         return;
     };
     app.set_test_cell_for_test(cell(8, 16));
+    // F4-P4: pin a manual rail width so the grown-columns delta is a fixed 16.
+    app.set_tab_rail_width_manual_for_test(16);
 
     app.set_tab_bar_placement_for_test("top");
     let (top_cols, top_rows) = app
@@ -452,9 +456,12 @@ fn left_rail_hit_test_resolves_switch_close_and_new() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
+    // F4-P4: pin a manual rail width (16) so the close-× column (rail_cols − 2)
+    // is a fixed 14 regardless of the auto-sized width.
+    app.set_tab_rail_width_manual_for_test(16);
     // Pin short single-line labels so the F4-P1 floating-`+` anchor (one gap
-    // below the last slot's LAST LABEL row) is deterministic regardless of the
-    // live shell title's length.
+    // below the last slot's LABEL row) is deterministic regardless of the live
+    // shell title's length.
     app.set_session_title_override_for_test(0, Some("a"));
     app.set_session_title_override_for_test(1, Some("b"));
 
