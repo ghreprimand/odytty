@@ -88,6 +88,23 @@ impl App {
         self.clear_scroll_anim_of(self.sessions.active_id());
     }
 
+    /// Test seam: seed an in-flight glide on the active session directly, so a
+    /// headless test (no GPU cell metrics) can exercise the wake-scheduling /
+    /// maintenance-step wiring that `begin_scroll_anim_of` would set up on a real
+    /// scroll. Constructs the module-private `ScrollAnimState` from within its
+    /// own module.
+    #[cfg(test)]
+    pub(in crate::native) fn seed_scroll_glide_for_test(&mut self, from_px: f32) {
+        let token = self.sessions.active_id();
+        if let Some(session) = self.sessions.get_mut(token) {
+            session.scroll_anim = Some(ScrollAnimState {
+                start: Instant::now(),
+                from_px,
+            });
+            session.scroll_frac_offset = from_px;
+        }
+    }
+
     pub(super) fn clear_scroll_anim_of(&mut self, token: SessionToken) {
         if let Some(session) = self.sessions.get_mut(token) {
             session.scroll_anim = None;

@@ -641,16 +641,25 @@ impl App {
         }
     }
 
-    /// Fold every cursor-animation wake source into the soonest deadline, or
-    /// `None` when nothing is animating. Mirrors the render-params aggregator:
-    /// `cursor_blink_fade_deadline()` (ID1-easing) and `cursor_motion_deadline()`
-    /// (VE4-slide) each return `None` today, so the min is `None` and the
-    /// control-flow collector schedules exactly as before — zero extra wakes on
-    /// an at-rest terminal.
+    /// Fold every overlay/cursor animation wake source into the soonest
+    /// deadline, or `None` when nothing is animating — cursor blink-fade + slide,
+    /// smooth-scroll glide, bell flash, new-row fade, and the open-notice /
+    /// click-hint auto-expiry. Each contributor returns `None` at rest, so the
+    /// min is `None` and an at-rest terminal schedules zero extra wakes.
     ///
-    /// This aggregator dissolves the `update_control_flow_deadline` collision:
-    /// the collector folds in one stable `self.animation_deadline()` entry, and
-    /// each feature adds its wake source behind its own stub in its own file.
+    /// Consumed on BOTH sides of the event loop: `next_wake_deadline` sources it
+    /// (single-pane gated — that render path is the only consumer that advances
+    /// these timers; NF21-1/7 owns the multipane path) so a wake is scheduled,
+    /// and the about-to-wait maintenance pass treats "woken while this is `Some`"
+    /// as "request a frame". The two must move together: three of the frame-paced
+    /// getters return `Instant::now() + FRAME` while in flight, so a `now >=
+    /// deadline` consumer would never fire mid-animation — the maintenance
+    /// predicate is `is_some()`, not the equality, precisely so the frame-paced
+    /// contributors drive a repaint every frame instead of a silent spin.
+    ///
+    /// (History: this entry was in the collector until the multi-session refactor
+    /// replaced it with a cursor-only fan-out; the five non-cursor contributors
+    /// were stranded with a consumer but no wake source until NF21-2 restored it.)
     pub(in crate::native) fn animation_deadline(&self) -> Option<Instant> {
         [
             self.cursor_blink_fade_deadline(),

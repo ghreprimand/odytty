@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Overlay/scroll/bell animations no longer freeze when the cursor is steady
+
+**A group of frame-paced animations — smooth-scroll glide, bell flash, new-row
+fade, and the open-notice / click-hint auto-expiry — could stall mid-flight.**
+They share one aggregator (`animation_deadline()`), which folds every wake
+source into the soonest deadline. A multi-session refactor had replaced that
+aggregator's slot in the wake collector with a cursor-only fan-out, leaving the
+five non-cursor animations with a maintenance *consumer* but no scheduled
+*wake*: they advanced only when some unrelated event (a cursor blink toggle)
+happened to fire a frame. With the cursor steady — unfocused, or blink disabled — those animations froze until the next incidental redraw.
+
+The aggregator is restored as a wake source, gated to the single-pane active
+render path (the only consumer that advances these timers; the multi-pane path
+owns its own advancement). The maintenance predicate is now "an animation is in
+flight" (`is_some()`) rather than "now ≥ deadline": three of the frame-paced
+contributors report their deadline as `now + FRAME` while running, so an
+equality check was essentially never satisfied mid-animation — the root of the
+stall. Treating "woken while animating" as "request a frame" schedules the wake
+at the next frame boundary, advances the timer in that repaint, and ends the
+loop the instant the animation settles (`animation_deadline()` → `None`), so an
+at-rest terminal still parks at zero wakes and issues no redraw. Covered by
+tests asserting a bell flash and a smooth-scroll glide each schedule a wake and
+request a rebuild while unfocused, plus a strict idle-invariant test confirming
+a resting single-pane app schedules no animation wake at all.
+
 ## 2026-07-04 -- Rail auto-hide reveal: wider trigger, snappier debounce, opt-in trace
 
 **The auto-hidden rail's reveal felt like it needed the pointer shoved hard into

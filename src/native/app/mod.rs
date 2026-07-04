@@ -1142,6 +1142,26 @@ impl App {
             // Revealed with the pointer parked — so the idle wake set is
             // unchanged when nothing is animating.
             self.rail_autohide.wake_deadline(Instant::now()),
+            // NF21-2: the overlay/scroll/bell/fade animation aggregator
+            // (`animation_deadline()` — smooth-scroll glide, bell flash, new-row
+            // fade, open-notice + click-hint auto-expiry, and the cursor
+            // ease/slide it already folds). This entry was dropped when the
+            // multi-session refactor replaced it with the cursor-only fan-out
+            // above, stranding those five with a maintenance CONSUMER but no
+            // wake SOURCE — they only advanced when an unrelated wake (a blink
+            // toggle) happened to fire, so they froze outright when the cursor
+            // was steady/unfocused/blink-off. Restored here, gated to the
+            // single-pane active render path: that path (the `update_*` calls in
+            // the single-pane rebuild) is the ONLY consumer that advances these
+            // timers, so — per the NF20-B "a source must not fan wider than its
+            // consumer" rule — sourcing a wake while multipane would be a wake
+            // with no consumer (a spin). NF21-1/7 restores the multipane
+            // advancement and widens this gate. `None` at rest (every
+            // contributor `None`), so the idle wake set is unchanged.
+            self.sessions
+                .active_is_single_pane()
+                .then(|| self.animation_deadline())
+                .flatten(),
         ]
         .into_iter()
         .flatten()
@@ -3300,15 +3320,27 @@ impl App {
             }
         }
 
-        // A due cursor-animation tick (ID1 easing fade / VE4 slide) rebuilds once
-        // so the eased alpha / slide offset advance. `animation_deadline()` is
-        // `None` whenever nothing is animating (both knobs off, or the animation
-        // settled), so this fires only while an animation is in flight and the
-        // terminal returns to zero-wake idle once it completes (bounded wake).
-        if self
-            .animation_deadline()
-            .is_some_and(|deadline| now >= deadline)
-        {
+        // An animation tick (cursor ease/slide, smooth-scroll glide, bell flash,
+        // new-row fade, open-notice / click-hint expiry) rebuilds once so the
+        // frame advances. NF21-2: the predicate is "an animation is in flight",
+        // NOT "now >= deadline". Three of the frame-paced contributors
+        // (new_row_fade / scroll_anim / bell embed `Instant::now() + FRAME`), as
+        // does the cursor ease/slide, so `now >= deadline` is essentially never
+        // satisfied mid-flight — the old equality check silently never fired for
+        // them and the animation only stepped when an unrelated wake (a blink
+        // toggle) happened to rebuild. Treating "woken while animating" as
+        // "request a frame" closes that: the collector schedules the wake at the
+        // next frame boundary (`animation_deadline()` = now+FRAME), this repaint
+        // advances the timer in the rebuild, and when it settles
+        // `animation_deadline()` -> `None` ends the loop — bounded, so the
+        // terminal returns to zero-wake idle with no wake and no redraw at rest.
+        // Gated to the single-pane render path for the same reason the collector
+        // source is (that path is the only consumer that advances these timers;
+        // multipane advancement is NF21-1/7). The real-instant contributors
+        // (open-notice / click-hint) still fire exactly once — the collector
+        // wakes only at their expiry, so `is_some()` sees them due on that one
+        // pass and the rebuild clears them.
+        if self.sessions.active_is_single_pane() && self.animation_deadline().is_some() {
             self.needs_rebuild = true;
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();
@@ -4676,6 +4708,85 @@ mod tests {
                  (a deadline <= now re-arms WaitUntil(past) and busy-spins)"
             ),
         }
+    }
+
+    /// NF21-2 acceptance (ii): a single-pane terminal with nothing animating
+    /// schedules NO animation wake — the restored `animation_deadline()`
+    /// collector source contributes nothing at rest, so the strict zero-wake
+    /// idle invariant is preserved.
+    #[test]
+    fn idle_single_pane_schedules_no_animation_wake() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        app.focused = false;
+        assert_eq!(
+            app.animation_deadline(),
+            None,
+            "no contributor is animating at rest"
+        );
+        assert_eq!(
+            app.next_wake_deadline(),
+            None,
+            "idle single-pane parks at zero wake — the NF21-2 source adds nothing at rest"
+        );
+    }
+
+    /// NF21-2 acceptance (i, bell contributor): a bell flash schedules a repaint
+    /// wake and a due wake requests a rebuild — even while the window is
+    /// unfocused and the cursor is not blinking. Fails before both halves of the
+    /// fix (no wake scheduled; no rebuild on the due wake).
+    #[test]
+    fn bell_flash_while_unfocused_schedules_a_wake_and_advances() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        app.focused = false;
+        assert_eq!(
+            app.next_wake_deadline(),
+            None,
+            "precondition: the idle app parks at zero wake"
+        );
+        app.bell_flash_start = Some(Instant::now());
+        let wake = app.next_wake_deadline();
+        assert!(
+            wake.is_some(),
+            "an in-flight bell flash must schedule a repaint wake (NF21-2)"
+        );
+        app.needs_rebuild = false;
+        app.run_about_to_wait_maintenance_for_test(wake.unwrap());
+        assert!(
+            app.needs_rebuild,
+            "a due animation wake requests a rebuild (no wake-without-redraw)"
+        );
+    }
+
+    /// NF21-2 acceptance (i, scroll contributor): a smooth-scroll glide settles
+    /// even with the cursor blink not armed — it schedules its own repaint wake
+    /// rather than depending on an unrelated blink toggle.
+    #[test]
+    fn scroll_glide_schedules_a_wake_without_a_blink_toggle() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        app.focused = false;
+        assert_eq!(
+            app.next_wake_deadline(),
+            None,
+            "precondition: no blink wake to piggyback on"
+        );
+        app.seed_scroll_glide_for_test(16.0);
+        let wake = app.next_wake_deadline();
+        assert!(
+            wake.is_some(),
+            "an in-flight smooth-scroll glide must schedule a repaint wake (NF21-2)"
+        );
+        app.needs_rebuild = false;
+        app.run_about_to_wait_maintenance_for_test(wake.unwrap());
+        assert!(
+            app.needs_rebuild,
+            "a due glide wake requests a rebuild so the offset advances toward rest"
+        );
     }
 
     /// Reveal-zone regression (#1, padding-aware trigger): the trigger band is
