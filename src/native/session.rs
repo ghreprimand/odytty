@@ -441,6 +441,23 @@ impl Session {
             .unwrap_or_else(|| "odytty".to_owned());
     }
 
+    /// Anchor this pane's scrollback viewport across output growth and refresh
+    /// its growth baseline, returning the live offset to snapshot at. This is
+    /// the single "stay scrolled" bookkeeping shared by the single-pane render
+    /// path and the multipane rebuild loop so the two can never diverge: a
+    /// scrolled-back pane (foreground, background split, or the focused pane of
+    /// a split tab) stays pinned to the same absolute rows as fresh PTY output
+    /// arrives, and the baseline stays current so collapsing a split back to a
+    /// single pane applies no accumulated jump. A no-op at the live tail
+    /// (offset 0) and when nothing grew.
+    pub(super) fn anchor_viewport_for_render(&mut self, scrollback_len: usize) -> usize {
+        let added = scrollback_len.saturating_sub(self.last_scrollback_len);
+        self.viewport.anchor_after_growth(added, scrollback_len);
+        self.last_scrollback_len = scrollback_len;
+        self.viewport.clamp(scrollback_len);
+        self.viewport.offset()
+    }
+
     /// Settle the cursor-animation timers — blink phase, ID1 easing fade, VE4
     /// slide — to their at-rest identity with no scheduled wake. These are the
     /// timers whose ONLY consumer is the render path's per-frame poll

@@ -2397,6 +2397,13 @@ impl App {
         // `needs_rebuild` set below); a composition begun on the previous surface
         // must not paint at, or commit into, the new one.
         self.ime_preedit.clear();
+        // NF21-12: an activation is a viewport discontinuity for the new-output
+        // fade, exactly like a resize. Scrollback the incoming session grew
+        // while it was backgrounded is not "fresh output" and must not fade in
+        // on switch-back. Clear the incoming session's fade tracker so its next
+        // rebuild re-baselines (snaps) instead of fading up to a full viewport.
+        // No-op when `new_output_fade` is off (the tracker is already empty).
+        self.row_fade_starts.clear();
         self.recompute_grid_for_tab_bar();
         self.tab_bar.set_hover(None);
         self.last_render_signature = None;
@@ -4512,11 +4519,11 @@ impl ApplicationHandler<UserEvent> for App {
                             // UX-A (Phase 11): expire the click hint + drop a
                             // stale unpaired mis-click. No-op on the idle path.
                             self.update_click_hint(now);
-                            let added = scrollback_len.saturating_sub(self.last_scrollback_len);
-                            self.viewport.anchor_after_growth(added, scrollback_len);
-                            self.last_scrollback_len = scrollback_len;
-                            self.viewport.clamp(scrollback_len);
-                            let offset = self.viewport.offset();
+                            // NF21-10: anchor + baseline via the shared pane
+                            // helper (identical to the historical inline
+                            // sequence) so the single-pane and multipane paths
+                            // stay in lockstep.
+                            let offset = self.anchor_viewport_for_render(scrollback_len);
                             let mut search = std::mem::take(&mut self.search);
                             // P0-3: same-frame search refresh + graphics read.
                             let terminal = crate::native::lock_recover(&self.terminal);

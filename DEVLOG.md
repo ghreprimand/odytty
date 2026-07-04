@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Keep split and background panes anchored across output growth
+
+Two viewport-bookkeeping gaps that only surfaced with splits or tab switches
+are closed, so scrolled-back panes stay put and switching back to a busy tab no
+longer animates a burst of stale output.
+
+The "stay scrolled" anchoring — advancing a scrolled-back viewport by the rows
+that entered scrollback so fresh output does not slide the view out from under
+the reader — previously ran only on the single-pane render path. A split tab's
+panes were snapshotted at their raw offset with no anchoring, so a scrolled-back
+pane receiving output drifted, and collapsing the split back to one pane applied
+the whole accumulated delta in a single jump. The anchoring plus its growth
+baseline are now a single shared pane helper used by both the single-pane path
+and the multipane rebuild loop, so every visible pane — foreground, background
+split, or the focused pane of a split — stays pinned to its absolute rows and no
+jump accrues on collapse-back. Unifying the two paths on one helper also removes
+the divergence that let them fall out of step in the first place.
+
+Separately, the new-output fade-in treated a tab switch as a stream of fresh
+rows: switching to a tab that had grown while backgrounded faded in up to a full
+viewport of already-settled output. An activation is now handled as a viewport
+discontinuity, exactly like a resize — the incoming pane's fade tracker snaps
+(re-baselines to the live length) so only genuinely new output at the live tail
+fades. This path is inert unless the opt-in new-output fade is enabled.
+
+Platform-neutral event-loop and render-model logic; no Windows surface.
+
+---
+
 ## 2026-07-04 -- Automate AUR publishing
 
 The `odytty` AUR source package is now refreshed and pushed automatically on

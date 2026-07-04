@@ -468,22 +468,28 @@ impl App {
         // highlights with a pane-scoped ctx (1c-3c).
         let mut focused_overlay: Option<(usize, usize, usize)> = None;
         for (token, rect) in &rects {
-            let Some(session) = self.sessions.get(*token) else {
+            let Some(session) = self.sessions.get_mut(*token) else {
                 continue;
             };
-            let offset = session.viewport.offset();
-            let Ok(terminal) = session.terminal.lock() else {
+            // Clone the terminal handle so the pane's viewport bookkeeping can
+            // be mutated (`anchor_viewport_for_render` takes `&mut session`)
+            // while the terminal snapshot is read under the same lock.
+            let terminal_arc = std::sync::Arc::clone(&session.terminal);
+            let Ok(terminal) = terminal_arc.lock() else {
                 continue;
             };
+            let scrollback_len = terminal.screen().scrollback_len();
+            // NF21-10: anchor this pane across output growth (mirrors the
+            // single-pane render path via the shared helper) so a scrolled-back
+            // split or background pane stays pinned to its absolute rows instead
+            // of sliding under fresh output, and its baseline stays current so
+            // collapsing the split back to a single pane applies no jump.
+            let offset = session.anchor_viewport_for_render(scrollback_len);
             let snapshot = terminal.snapshot_with_scrollback(offset);
             let cursor_style = terminal.cursor_style();
             let is_focused = *token == focused;
             if is_focused {
-                focused_overlay = Some((
-                    panes_owned.len(),
-                    offset,
-                    terminal.screen().scrollback_len(),
-                ));
+                focused_overlay = Some((panes_owned.len(), offset, scrollback_len));
             }
             drop(terminal);
             // Absorb each pane's sub-cell remainder onto its window-margin side

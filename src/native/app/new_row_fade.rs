@@ -477,4 +477,57 @@ mod tests {
         );
         assert!((0.0..=1.0).contains(&quads_mid[0].color[3]));
     }
+
+    // --- NF21-P4: switch-back / multipane viewport bookkeeping --------------
+
+    // NF21-10: the shared per-pane render helper anchors a scrolled-back pane
+    // across output growth and keeps its growth baseline current, so a split /
+    // background pane stays pinned to its rows (the single-pane and multipane
+    // paths now share this exact bookkeeping). Fails before the helper wired the
+    // multipane loop into the same anchoring the single-pane path always had.
+    #[test]
+    fn anchor_viewport_for_render_stays_scrolled_and_tracks_baseline() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        // Scroll the active pane back into history and record its baseline.
+        app.viewport.scroll_up(5, 100);
+        app.last_scrollback_len = 100;
+        assert_eq!(app.viewport.offset(), 5);
+        // 10 rows of new output arrive while scrolled back: the pane stays pinned
+        // to the same absolute rows (offset += delta) and the baseline advances.
+        let offset = app.anchor_viewport_for_render(110);
+        assert_eq!(offset, 15, "stayed scrolled: 5 + 10 new rows");
+        assert_eq!(app.last_scrollback_len, 110, "baseline advanced");
+        // No further growth on the next rebuild: no movement, no accrued jump.
+        let offset2 = app.anchor_viewport_for_render(110);
+        assert_eq!(offset2, 15);
+        assert_eq!(app.last_scrollback_len, 110);
+        // Back at the live tail, fresh output is NOT anchored (appears at the
+        // bottom immediately), but the baseline still tracks.
+        app.viewport.reset_to_live();
+        let live = app.anchor_viewport_for_render(130);
+        assert_eq!(live, 0, "live tail: new output is not anchored");
+        assert_eq!(app.last_scrollback_len, 130);
+    }
+
+    // NF21-12: switching to a session that grew while backgrounded must not fade
+    // in a whole viewport — an activation snaps the new-output fade tracker like
+    // a resize does. Fails before `on_active_session_changed` cleared the fade.
+    #[test]
+    fn activation_snaps_new_output_fade() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.settings.new_output_fade = true;
+        // Simulate an in-flight fade left on the session being (re)activated.
+        let rows = app.grid.rows.max(1);
+        app.row_fade_starts = vec![Some(Instant::now()); rows];
+        assert!(app.row_fade_starts.iter().any(Option::is_some));
+        app.on_active_session_changed();
+        assert!(
+            app.row_fade_starts.is_empty(),
+            "activation snaps (clears) the fade tracker"
+        );
+    }
 }
