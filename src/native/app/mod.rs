@@ -182,6 +182,16 @@ impl SynchronizedOutputHold {
     pub(super) fn is_due(&self, now: Instant) -> bool {
         self.deadline().is_some_and(|deadline| now >= deadline)
     }
+
+    /// Release the hold with no scheduled wake (the `enabled = false` rest
+    /// state). Used to settle a deactivated session's hold: a background tab is
+    /// never rendered, so its hold deadline must not linger as a wake source that
+    /// nothing consumes (NF20-B). A later synchronized batch on that session,
+    /// once active again, re-arms the hold via [`Self::should_hold`].
+    pub(super) fn clear(&mut self) {
+        self.active_since = None;
+        self.timed_out = false;
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1110,10 +1120,15 @@ impl App {
             // pending state clears promptly even with no further input. `None`
             // (the at-rest case) leaves the min unchanged.
             self.prefix_engine.pending_deadline(),
-            self.sessions
-                .iter()
-                .filter_map(|session| session.cursor_blink.deadline())
-                .min(),
+            // NF20-B: the cursor blink of the ACTIVE pane only. `self.cursor_blink`
+            // Derefs to the active session — the SAME pane the maintenance
+            // consumer (`self.cursor_blink.is_due`) and the frame poll advance.
+            // A background pane is never rendered, so its blink is never polled;
+            // sourcing its stale deadline here (as the old `sessions.iter()` did)
+            // left a wake with no consumer → `WaitUntil(<past>)` busy-spin after a
+            // tab switch. Background panes are parked in maintenance, so this
+            // active-only source is the whole live set.
+            self.cursor_blink.deadline(),
             // Config-file live-reload poll. Only schedule its timer wake while
             // the window is focused: a backgrounded terminal that nobody is
             // editing config *and watching* has no reason to stat the file once
@@ -1127,23 +1142,24 @@ impl App {
             self.focused
                 .then(|| self.settings_reloader.deadline())
                 .flatten(),
-            self.sessions
-                .iter()
-                .filter_map(|session| session.synchronized_output_hold.deadline())
-                .min(),
-            // Wave-15b: aggregated cursor-animation wake source. `None` at rest
-            // (both contributor stubs return `None`), so the at-rest min is
-            // unchanged and no spurious wakeup is scheduled.
-            self.sessions
-                .iter()
-                .filter_map(|session| {
-                    let mut next = session.cursor_ease_deadline;
-                    if let Some(deadline) = session.cursor_slide_deadline {
-                        next = Some(next.map_or(deadline, |current| current.min(deadline)));
-                    }
-                    next
-                })
-                .min(),
+            // NF20-B: the synchronized-output hold of the ACTIVE pane only, for
+            // the same fan-out reason as the blink above. The maintenance
+            // consumer (`self.synchronized_output_hold.is_due`) advances the
+            // active pane; background panes are parked, so an active-only source
+            // matches the consumer and cannot strand a stale hold in the wake set.
+            self.synchronized_output_hold.deadline(),
+            // Wave-15b cursor-animation wake source, ACTIVE pane only (NF20-B).
+            // `None` at rest (both fields `None`). Sourcing all panes stranded a
+            // backgrounded mid-animation deadline with no consumer; the active
+            // pane's ease/slide are advanced by the frame path, background panes
+            // are parked in maintenance.
+            {
+                let mut next = self.cursor_ease_deadline;
+                if let Some(deadline) = self.cursor_slide_deadline {
+                    next = Some(next.map_or(deadline, |current| current.min(deadline)));
+                }
+                next
+            },
             // F4-P3: wake at the next rail auto-hide boundary (show debounce /
             // hide grace / flash expiry). `None` at rest — steady Hidden, or
             // Revealed with the pointer parked — so the idle wake set is
@@ -2328,20 +2344,13 @@ impl App {
     /// hugs the left padding (`[pad, pad]`); a right rail hugs the right window
     /// edge (`surface_w − pad − band_w`). Unlike the pinned right rail (which is
     /// grid-embedded after the full-width content), the overlay floats at the
-    /// window edge — content underneath is already full-width.
+    /// window edge — content underneath is already full-width. Surface + padding
+    /// come from [`Self::resolved_surface`] so the drawn band, its seam, and the
+    /// reveal-zone geometry all read the SAME basis (and are test-injectable).
     fn rail_overlay_origin_px(&self, cell: CellSize, side: RailSide) -> [f32; 2] {
-        let pad = self
-            .gpu
-            .as_ref()
-            .map(GpuState::window_padding)
-            .unwrap_or(WindowPadding::ZERO)
-            .as_f32();
+        let (surface_w, pad) = self.reveal_surface_metrics();
+        let (surface_w, pad) = (surface_w as f32, pad as f32);
         let band_w = self.rail_overlay_cols() as f32 * cell.width as f32;
-        let surface_w = self
-            .gpu
-            .as_ref()
-            .map(|gpu| gpu.surface_size().0 as f32)
-            .unwrap_or(0.0);
         let x = match side {
             RailSide::Left => pad,
             RailSide::Right => (surface_w - pad - band_w).max(pad),
@@ -2372,37 +2381,35 @@ impl App {
         self.gpu.as_ref().map(GpuState::scale).unwrap_or(1.0)
     }
 
-    /// The physical-pixel window padding (uniform), 0 before the GPU exists.
-    /// The reveal-zone geometry is padding-aware so the trigger band reaches
-    /// past the empty padding margin into visible content.
-    fn window_pad_px(&self) -> f64 {
-        self.gpu
-            .as_ref()
-            .map(GpuState::window_padding)
-            .unwrap_or(WindowPadding::ZERO)
-            .as_f32() as f64
-    }
-
-    /// The physical surface width in px, 0 before the GPU exists.
-    fn surface_w_px(&self) -> f64 {
-        self.gpu
-            .as_ref()
-            .map(|gpu| gpu.surface_size().0 as f64)
-            .unwrap_or(0.0)
+    /// `(surface_w, window_pad)` in **physical** px for the reveal-zone geometry,
+    /// via [`Self::resolved_surface`] — the same basis the drawn rail band uses,
+    /// and test-injectable through `set_test_surface_for_test` so the reveal
+    /// wiring can be exercised at a real scale + padding headlessly. `(0, 0)`
+    /// before the GPU / a test surface exists.
+    fn reveal_surface_metrics(&self) -> (f64, f64) {
+        match self.resolved_surface() {
+            Some((w, _h, padding)) => (w as f64, padding.as_f32() as f64),
+            None => (0.0, 0.0),
+        }
     }
 
     /// The reveal trigger-zone reach (physical px) inward from the rail's window
-    /// edge: the window padding plus the scaled `tab_rail_reveal_px`.
+    /// edge: the window padding plus the scaled `tab_rail_reveal_px`. Both terms
+    /// are physical: the padding is stored physical, and `tab_rail_reveal_px` is
+    /// logical so it is scaled by [`Self::effective_scale`] — winit reports the
+    /// pointer in physical px, so the whole comparison stays in one space.
     fn reveal_reach_px(&self) -> f64 {
         let reveal_px = self.settings.tab_rail_reveal_px as f64 * self.effective_scale() as f64;
-        self.window_pad_px() + reveal_px
+        let (_surface_w, pad) = self.reveal_surface_metrics();
+        pad + reveal_px
     }
 
     /// Whether a raw pointer x is inside the reveal **trigger** zone — an
     /// **interior** band measured from the rail's window edge inward by the
     /// window padding PLUS `tab_rail_reveal_px` (see [`reveal_edge_contains`]).
     fn pointer_in_reveal_edge(&self, px_x: f64, side: RailSide) -> bool {
-        reveal_edge_contains(side, px_x, self.reveal_reach_px(), self.surface_w_px())
+        let (surface_w, _pad) = self.reveal_surface_metrics();
+        reveal_edge_contains(side, px_x, self.reveal_reach_px(), surface_w)
     }
 
     /// Whether a raw pointer x is inside the reveal **keep-alive** region — the
@@ -2410,13 +2417,8 @@ impl App {
     /// while the pointer is anywhere over either (see [`reveal_band_contains`]).
     fn pointer_in_reveal_band(&self, px_x: f64, cell: CellSize, side: RailSide) -> bool {
         let seam_x = self.rail_overlay_seam_x(cell, side) as f64;
-        reveal_band_contains(
-            side,
-            px_x,
-            seam_x,
-            self.reveal_reach_px(),
-            self.surface_w_px(),
-        )
+        let (surface_w, _pad) = self.reveal_surface_metrics();
+        reveal_band_contains(side, px_x, seam_x, self.reveal_reach_px(), surface_w)
     }
 
     /// Reveal the auto-hidden rail for a flash after a keyboard tab action
@@ -2435,8 +2437,11 @@ impl App {
     /// Feed the live pointer to the auto-hide machine and repaint on a
     /// visibility change. Called from the pointer-move path while autohide is
     /// active; also called with `in_edge = in_band = false` when the pointer
-    /// leaves the window so a rail revealed at the edge can hide.
-    fn update_rail_autohide_pointer(&mut self, px_x: f64, cell: CellSize) {
+    /// leaves the window so a rail revealed at the edge can hide. `now` is the
+    /// event time (`Instant::now()` in production; injected in tests so the
+    /// reveal → hold → hide sequence is deterministic through the real contact
+    /// geometry).
+    fn update_rail_autohide_pointer(&mut self, px_x: f64, cell: CellSize, now: Instant) {
         let Some(side) = self.rail_autohide_side() else {
             return;
         };
@@ -2445,9 +2450,7 @@ impl App {
         // the menu closes.
         self.rail_autohide.set_suspend(self.overlay.is_open());
         let (in_edge, in_band) = self.reveal_pointer_contact(px_x, cell, side);
-        if self
-            .rail_autohide
-            .on_pointer(in_edge, in_band, Instant::now())
+        if self.rail_autohide.on_pointer(in_edge, in_band, now)
             && let Some(window) = self.window.as_ref()
         {
             window.request_redraw();
@@ -3262,6 +3265,15 @@ impl App {
     }
 
     fn run_about_to_wait_maintenance(&mut self, now: Instant) {
+        // NF20-B: settle the cursor-animation / render-hold timers of every
+        // non-active pane. Background panes are never rendered, so their timers
+        // have no consumer; parking them here — the one place that runs before
+        // every `next_wake_deadline` recompute in the loop — keeps them out of
+        // the wake set and guarantees a pane switched back to starts from a clean
+        // (non-stale) timer state. Idempotent and cheap. Paired with the
+        // active-only deadline sources in `next_wake_deadline`.
+        self.sessions.park_background_timers();
+
         if let Some(resize) = self.resize_debounce.take_due(now) {
             self.apply_grid_resize(resize);
             if let Some(window) = self.window.as_ref() {

@@ -57,6 +57,17 @@ impl CursorBlinkState {
         self.next_toggle
     }
 
+    /// Park the blink to solid-on with no scheduled wake — the same rest state as
+    /// focus loss, but reached without a `now`/`blinking`/`focused` sample.
+    /// Used to settle a session's blink when it is deactivated (a background tab
+    /// is never rendered, so its cursor must not keep a live toggle deadline that
+    /// nothing consumes — see NF20-B fan-out fix). Re-arms naturally on the next
+    /// [`Self::poll`] once the session is active and focused again.
+    pub(super) fn park(&mut self) {
+        self.on = true;
+        self.next_toggle = None;
+    }
+
     /// Whether a scheduled toggle is due at `now` (the loop should rebuild and
     /// redraw so the phase flips).
     pub(super) fn is_due(&self, now: Instant) -> bool {

@@ -114,6 +114,70 @@ fn single_pane_overlay_geometry_equals_the_window_grid_and_pointer_cell() {
 }
 
 #[test]
+fn backgrounded_session_blink_does_not_spin_the_event_loop() {
+    // NF20-B regression: `next_wake_deadline` sourced the cursor-blink toggle of
+    // EVERY session, but the blink is only consumed for the ACTIVE session (the
+    // `Deref` target). So a blinking cursor in tab A, once tab B is activated,
+    // left A's toggle deadline in the wake set with nothing to advance it —
+    // `WaitUntil(<past>)` returned immediately every iteration and busy-spun a
+    // core. The fix narrows the source to the active pane and parks background
+    // panes' timers in maintenance. This drives the real switch + maintenance
+    // and asserts the STRICT invariant: after maintenance the next wake is None
+    // or STRICTLY in the future — never a stale past instant.
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    // Arm the ACTIVE pane's (session 0) blink: its toggle deadline (t0+530ms)
+    // now sits in the wake set. Also arm the other two per-session deadline
+    // sources — cursor ease/slide and the synchronized-output hold — so this one
+    // flow covers every fan-out source `next_wake_deadline` mins over sessions.
+    let t0 = Instant::now();
+    app.arm_active_cursor_blink_for_test(t0);
+    app.arm_active_cursor_anim_for_test(t0); // ease t0+200ms, slide t0+150ms
+    app.arm_active_sync_hold_for_test(t0);
+    assert!(
+        app.next_wake_deadline_for_test()
+            .is_some_and(|d| d <= t0 + Duration::from_millis(530)),
+        "an armed active pane schedules a near-future wake"
+    );
+
+    // Switch to session 1 — session 0 is now BACKGROUND and never rendered, so
+    // its blink toggle is never polled again.
+    assert!(app.switch_to_session_for_test(1));
+
+    // Well past session 0's toggle boundary, drive the maintenance pass the loop
+    // runs before every wait recompute. It must NOT leave session 0's stale
+    // deadline in the wake set.
+    let later = t0 + Duration::from_secs(5);
+    app.run_about_to_wait_maintenance_for_test(later);
+    match app.next_wake_deadline_for_test() {
+        None => {}
+        Some(next) => assert!(
+            next > later,
+            "a backgrounded pane's stale blink must not survive as a past wake \
+             (was {:?} past now)",
+            later.saturating_duration_since(next)
+        ),
+    }
+
+    // SWITCH-BACK: activate session 0 again. Because it was parked while
+    // backgrounded, it starts from a clean (non-stale) blink — so even the frame
+    // the pane is switched back on parks cleanly (no past-instant wake).
+    assert!(app.switch_to_session_for_test(0));
+    let later2 = later + Duration::from_secs(1);
+    app.run_about_to_wait_maintenance_for_test(later2);
+    match app.next_wake_deadline_for_test() {
+        None => {}
+        Some(next) => assert!(
+            next > later2,
+            "a pane switched back to must not carry a stale past wake"
+        ),
+    }
+}
+
+#[test]
 fn input_routes_to_the_active_session_writer_after_switch() {
     let Some((mut app, fixtures)) = app_with_two_sessions() else {
         eprintln!("skipping: no PTY available");
@@ -757,6 +821,80 @@ fn reveal_zone_is_logical_px_scaled_for_hidpi() {
         app.reveal_contact_for_test(20.0).map(|(edge, _)| edge),
         Some(false),
         "past 16 physical px the edge no longer triggers"
+    );
+}
+
+#[test]
+fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
+    // NF20-B live-wiring regression: the operator reported (scale ~1.5, real
+    // window padding) that the reveal only triggered at the very window edge and
+    // would not stay up with the pointer over the band. This exercises the FULL
+    // live path — `update_rail_autohide_pointer` (real contact geometry) + the
+    // machine — with an injected clock at scale 1.5 with real padding, so the
+    // interior-reach + keep-alive behavior is pinned at true device values, not
+    // just the pad-0 / scale-1 headless case the earlier tests covered.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(12, 24)); // ~8x16 logical at 1.5x
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16); // band_w = 16*12 = 192; seam at pad+192
+    app.set_tab_rail_autohide_for_test(true);
+    app.set_test_scale_for_test(1.5);
+    let pad = WindowPadding::from_logical(8.0, 1.5); // 12 physical px
+    app.set_test_surface_for_test(1000, 800, pad);
+    // reach = pad(12) + reveal_px(8)*scale(1.5)=12 → 24. seam_x = 12 + 192 = 204.
+
+    let t0 = std::time::Instant::now();
+
+    // (1) INTERIOR REACH: a pointer 8px INTO the visible content (x=20, past the
+    // 12px padding margin) must arm the reveal — not require the bare edge.
+    app.feed_rail_pointer_for_test(20.0, t0);
+    // Not visible yet (show debounce), but a poll past the debounce reveals it.
+    assert!(
+        !app.rail_autohide_is_visible_for_test(t0),
+        "interior contact arms the debounce, not an instant reveal"
+    );
+    let revealed_at = t0 + std::time::Duration::from_millis(130); // > 120ms debounce
+    app.feed_rail_pointer_for_test(20.0, revealed_at);
+    assert!(
+        app.rail_autohide_is_visible_for_test(revealed_at),
+        "reveal triggers from an INTERIOR position (x=20, well inside the window)"
+    );
+
+    // (2) KEEP-ALIVE OVER THE BAND: moving deeper onto the drawn band (x=100,
+    // mid-band) must HOLD the reveal — not drop it.
+    let hold_at = revealed_at + std::time::Duration::from_millis(50);
+    app.feed_rail_pointer_for_test(100.0, hold_at);
+    assert!(
+        app.rail_autohide_is_visible_for_test(hold_at),
+        "pointer over the drawn band holds the reveal (keep-alive union)"
+    );
+    // A stationary pointer over the band across a maintenance poll stays up.
+    let dwell = hold_at + std::time::Duration::from_millis(700); // past a hide grace
+    assert!(
+        !app.poll_rail_autohide_for_test(dwell),
+        "no visibility change"
+    );
+    assert!(
+        app.rail_autohide_is_visible_for_test(dwell),
+        "a pointer parked over the band never times out"
+    );
+
+    // (3) HIDE ON LEAVE: past the seam (x=250) starts the grace; it hides only
+    // after the grace elapses (not instantly).
+    let leave_at = dwell + std::time::Duration::from_millis(10);
+    app.feed_rail_pointer_for_test(250.0, leave_at);
+    assert!(
+        app.rail_autohide_is_visible_for_test(leave_at),
+        "leaving the band starts the hide grace — still visible through it"
+    );
+    let hidden_at = leave_at + std::time::Duration::from_millis(700); // > 600ms grace
+    app.poll_rail_autohide_for_test(hidden_at);
+    assert!(
+        !app.rail_autohide_is_visible_for_test(hidden_at),
+        "after the grace, the rail hides"
     );
 }
 

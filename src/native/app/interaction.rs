@@ -1360,7 +1360,7 @@ impl App {
         // hover and nothing else, so a click there hits the rail, not the
         // terminal beneath it. Inert unless autohide is active.
         if self.rail_autohide_active() {
-            self.update_rail_autohide_pointer(x_px, cell);
+            self.update_rail_autohide_pointer(x_px, cell, Instant::now());
             if let Some(side) = self.rail_autohide_side()
                 && self.rail_overlay_visible()
                 && self.pointer_in_reveal_band(x_px, cell, side)

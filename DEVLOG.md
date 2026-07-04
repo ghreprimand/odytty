@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Fix a second event-loop busy-spin: background-session timers
+
+**Per-session timer deadlines stranded a background tab's wake.** Switching to
+another tab while the previous tab's cursor was blinking pinned a CPU core. The
+event loop's wake scheduler mins several per-session timer deadlines — the
+cursor blink, the synchronized-output hold, and the cursor ease/slide
+animations — across **every** session, but each of those timers is only
+advanced for the **active** session (the one being rendered). A blinking cursor
+in a backgrounded tab therefore left a toggle deadline in the wake set with
+nothing to advance it: the loop woke on a boundary already in the past,
+re-scheduled the same past boundary, and span a tight loop (no blocking wait,
+pure user-time churn) until the tab was reactivated.
+
+Two coordinated fixes close the class:
+
+- The three per-session deadline sources are narrowed to the **active** session
+  — the same session their consumers advance — so a source can never fan out
+  wider than its consumer. Background sessions render nothing, so their
+  animation timers are never a legitimate wake source.
+- Background sessions' animation/hold timers are **parked** (settled to their
+  at-rest identity, no scheduled wake) in the about-to-wait maintenance pass, so
+  a tab switched back to starts from a clean, non-stale timer state and re-arms
+  naturally on its next frame.
+
+A regression drives a real two-tab switch (arming all three timer types on the
+outgoing tab) through the maintenance pass and asserts the strict invariant:
+after maintenance the next scheduled wake is either absent or strictly in the
+future — never a stale past instant. It fails before either fix.
+
+**Rail reveal zone — geometry confirmed correct.** A live trace of the auto-hide
+reveal at a fractional display scale with real window padding confirmed the
+trigger/keep-alive geometry computes correctly end to end (the trigger reaches
+into the visible content past the padding; the keep-alive holds across the whole
+drawn band). The reveal-zone surface/padding basis was routed through the shared
+resolved-surface accessor so it matches the drawn band exactly and is
+exercisable at a real scale + padding headlessly; a new test pins the full
+reveal → hold → hide sequence through the live pointer path at 1.5× scale.
+
+---
+
 ## 2026-07-04 -- Fix an event-loop busy-spin on a timed-out prefix; reveal-zone reach
 
 **Busy-spin on a stale multiplexer prefix.** Pressing the pane multiplexer

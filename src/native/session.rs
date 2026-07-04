@@ -369,6 +369,27 @@ impl Session {
             .unwrap_or_else(|| "odytty".to_owned());
     }
 
+    /// Settle every cursor-animation / render-hold timer to its at-rest identity,
+    /// with no scheduled wake. Called on a session that is not the active pane
+    /// (NF20-B): a background pane is never rendered, so any live blink /
+    /// ease / slide / synchronized-output-hold deadline it holds would be a wake
+    /// source with **no** consumer — the loop would schedule `WaitUntil` on a
+    /// boundary that never advances and busy-spin. Idempotent (parking an
+    /// already-parked session is a no-op); every animation re-arms naturally from
+    /// the current frame time when the pane is activated and rendered again.
+    pub(super) fn park_animation_timers(&mut self) {
+        self.cursor_blink.park();
+        self.synchronized_output_hold.clear();
+        self.cursor_anim_alpha = 1.0;
+        self.cursor_ease_deadline = None;
+        self.cursor_ease_phase_on = true;
+        self.cursor_ease_toggle_at = None;
+        self.cursor_anim_offset = [0.0, 0.0];
+        self.cursor_slide_deadline = None;
+        self.cursor_slide_start = None;
+        self.cursor_slide_from_px = [0.0, 0.0];
+    }
+
     /// The local PTY backing this session, or `None` for an attached session.
     /// Test-only seam (the production foreground-job query uses
     /// [`Self::foreground_job_running`]); tests read the concrete PTY through
@@ -615,6 +636,22 @@ impl TabSet {
 
     pub(super) fn active_id(&self) -> SessionToken {
         self.active_focused_token()
+    }
+
+    /// Park the cursor-animation / render-hold timers of every pane that is not
+    /// the active (rendered) one (NF20-B). The active pane keeps its live timers;
+    /// its consumer (the frame path + about-to-wait maintenance, both operating
+    /// on the `Deref` active session) advances them. Background panes get no such
+    /// consumer, so their timers are settled here to keep them out of the wake
+    /// set — the fan-out of the deadline sources in `next_wake_deadline` is thus
+    /// matched by a consumer of equal reach. Idempotent; cheap (few panes).
+    pub(super) fn park_background_timers(&mut self) {
+        let active = self.active_focused_token();
+        for (token, session) in self.sessions.iter_mut() {
+            if *token != active {
+                session.park_animation_timers();
+            }
+        }
     }
 
     #[cfg(test)]

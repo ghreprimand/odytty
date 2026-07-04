@@ -756,6 +756,43 @@ impl App {
         Some(self.reveal_pointer_contact(x, cell, side))
     }
 
+    /// Test seam (F4-P3 / NF20-B): drive the reveal machine through the REAL
+    /// live feed (`update_rail_autohide_pointer`) with an injected clock, so the
+    /// full reveal → hold → hide sequence is exercised through the production
+    /// contact geometry deterministically. Mirrors a `CursorMoved` at `x_px`.
+    #[cfg(test)]
+    pub(in crate::native) fn feed_rail_pointer_for_test(
+        &mut self,
+        x_px: f64,
+        now: std::time::Instant,
+    ) {
+        let Some(cell) = self.resolved_cell() else {
+            return;
+        };
+        self.update_rail_autohide_pointer(x_px, cell, now);
+    }
+
+    /// Test seam (F4-P3 / NF20-B): advance the reveal machine's timers with an
+    /// injected clock (the about-to-wait `poll`), returning whether visibility
+    /// changed. Lets a test cross the show-debounce / hide-grace boundaries.
+    #[cfg(test)]
+    pub(in crate::native) fn poll_rail_autohide_for_test(
+        &mut self,
+        now: std::time::Instant,
+    ) -> bool {
+        self.rail_autohide.poll(now)
+    }
+
+    /// Test seam (F4-P3 / NF20-B): whether the reveal machine currently reports
+    /// visible at `now` (drives the overlay draw + hit-test gate).
+    #[cfg(test)]
+    pub(in crate::native) fn rail_autohide_is_visible_for_test(
+        &self,
+        now: std::time::Instant,
+    ) -> bool {
+        self.rail_autohide.is_visible(now)
+    }
+
     /// Test seam (F4-P3): whether the pointer x is over the seam grab band (the
     /// F4-P4 resize handle). Under auto-hide this is inert (the floating overlay
     /// is not seam-resized), so it documents the seam-vs-reveal precedence.
@@ -831,6 +868,40 @@ impl App {
         now: std::time::Instant,
     ) -> bool {
         self.rail_autohide.wake_deadline(now).is_some()
+    }
+
+    /// Test seam (NF20-B): arm the ACTIVE pane's cursor blink (blinking +
+    /// focused) at `now`, so its toggle deadline enters the wake set — the setup
+    /// for the per-session deadline fan-out regression (a pane whose blink is
+    /// armed and then backgrounded must not strand a stale wake).
+    #[cfg(test)]
+    pub(in crate::native) fn arm_active_cursor_blink_for_test(&mut self, now: std::time::Instant) {
+        self.cursor_blink.poll(now, true, true);
+    }
+
+    /// Test seam (NF20-B): the aggregate next event-loop wake deadline. Exposes
+    /// the private `next_wake_deadline` so the multi-pane deadline fan-out
+    /// regression can assert the loop parks (no stale past instant) after a tab /
+    /// pane switch + maintenance.
+    #[cfg(test)]
+    pub(in crate::native) fn next_wake_deadline_for_test(&self) -> Option<std::time::Instant> {
+        self.next_wake_deadline()
+    }
+
+    /// Test seam (NF20-B): arm the ACTIVE pane's cursor-animation (ease + slide)
+    /// deadlines at `now`, so both enter the wake set — the setup for asserting
+    /// they do not strand a stale wake once the pane is backgrounded.
+    #[cfg(test)]
+    pub(in crate::native) fn arm_active_cursor_anim_for_test(&mut self, now: std::time::Instant) {
+        self.cursor_ease_deadline = Some(now + std::time::Duration::from_millis(200));
+        self.cursor_slide_deadline = Some(now + std::time::Duration::from_millis(150));
+    }
+
+    /// Test seam (NF20-B): arm the ACTIVE pane's synchronized-output hold at
+    /// `now`, so its timeout deadline enters the wake set.
+    #[cfg(test)]
+    pub(in crate::native) fn arm_active_sync_hold_for_test(&mut self, now: std::time::Instant) {
+        self.synchronized_output_hold.should_hold(true, now);
     }
 
     /// Test seam (F4-V2): the reserved `(rows_off_top, cols_off_side)` for the
