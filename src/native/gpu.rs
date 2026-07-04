@@ -725,6 +725,34 @@ impl AdapterDiagnostics {
             driver_info: info.driver_info.clone(),
         }
     }
+
+    /// A one-line identity for the startup log: `<name> (<backend>, <device>)`.
+    pub(in crate::native) fn summary(&self) -> String {
+        format!("{} ({}, {})", self.name, self.backend, self.device_type)
+    }
+
+    /// Whether the selected adapter is a software (CPU) rasterizer rather than a
+    /// hardware GPU. A silent fall back to software rendering is the usual cause
+    /// of a "very slow even with effects off" report: wgpu reports `Cpu` for a
+    /// pure software device, and the common software Vulkan/GL implementations
+    /// (Mesa llvmpipe/lavapipe, Google SwiftShader) and the Windows WARP fallback
+    /// ("Microsoft Basic Render Driver") announce themselves by name even when
+    /// they masquerade as another device class. Pure string/enum matching, so it
+    /// is cheap and unit-testable off the render path.
+    pub(in crate::native) fn is_software(&self) -> bool {
+        if self.device_type == "Cpu" {
+            return true;
+        }
+        let name = self.name.to_ascii_lowercase();
+        const SOFTWARE_MARKERS: [&str; 4] = [
+            "llvmpipe",
+            "lavapipe",
+            "swiftshader",
+            // Windows WARP software rasterizer.
+            "microsoft basic render driver",
+        ];
+        SOFTWARE_MARKERS.iter().any(|marker| name.contains(marker))
+    }
 }
 
 pub(super) struct GpuState {
@@ -915,6 +943,19 @@ impl GpuState {
         // Capture adapter identity for the About panel before any device work.
         // Read-only diagnostics; does not influence rendering.
         let adapter_diagnostics = AdapterDiagnostics::from_wgpu(&adapter.get_info());
+        // Name the selected adapter once at startup so a performance report can
+        // be diagnosed from the log alone (the About panel shows the same data
+        // live). A software rasterizer — a silent llvmpipe/lavapipe/SwiftShader
+        // or Windows WARP fallback — is the usual cause of a "very slow even with
+        // effects off" report, so it earns a loud warning pointing at the docs.
+        eprintln!("odytty: GPU adapter: {}", adapter_diagnostics.summary());
+        if adapter_diagnostics.is_software() {
+            eprintln!(
+                "odytty: WARNING: rendering in software ({}); expect low performance. \
+                 See the \"Slow rendering / software adapter\" section of docs/install.md",
+                adapter_diagnostics.name
+            );
+        }
 
         let adapter_features = adapter.features();
         let enabled_features = adapter_features & wgpu::Features::DUAL_SOURCE_BLENDING;

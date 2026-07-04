@@ -22,9 +22,9 @@ use super::connection_overlay::ConnectionOverlaySignature;
 use super::context_menu_ui::ContextMenuSignature;
 use super::font_picker::FontPickerSignature;
 use super::gpu::{
-    StyleFonts, ViewportUniform, blend_state_for_color_glyphs, blend_state_for_subpixel,
-    effect_params, effective_subpixel_mode, ensure_snapshot_glyphs, grow_vertex_buffer_capacity,
-    text_params, theme_clear_color,
+    AdapterDiagnostics, StyleFonts, ViewportUniform, blend_state_for_color_glyphs,
+    blend_state_for_subpixel, effect_params, effective_subpixel_mode, ensure_snapshot_glyphs,
+    grow_vertex_buffer_capacity, text_params, theme_clear_color,
 };
 use super::key_remap_ui::KeyRemapSignature;
 use super::onboarding::OnboardingSignature;

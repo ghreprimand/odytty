@@ -453,6 +453,47 @@ sudo update-alternatives --config x-terminal-emulator
 On systems without `update-alternatives`, this mechanism does not exist unless
 the distribution or local system owner installs it.
 
+## Troubleshooting
+
+### Slow rendering / software adapter
+
+OdyTTY renders on the GPU through `wgpu` (Vulkan on Linux, Metal on macOS,
+Direct3D 12 on Windows, GL as a fallback). If the terminal feels very slow even
+with all visual effects turned off, the most common cause is that no hardware
+GPU adapter was available and the graphics stack silently fell back to a
+**software rasterizer**, which does all rendering on the CPU.
+
+**How to check which adapter is in use.** Two ways report the same information:
+
+- The **About panel** (open the command palette with `Ctrl+Shift+P` and select
+  *About*, or the settings panel's About tab) shows the active renderer's
+  adapter name, backend, and device class.
+- On startup OdyTTY prints one line to stderr naming the adapter, e.g.
+  `odytty: GPU adapter: llvmpipe (LLVM 17.0.6, 256 bits) (Vulkan, Cpu)`. When a
+  software adapter is selected it also prints a warning:
+  `odytty: WARNING: rendering in software (...); expect low performance`.
+
+**What a software adapter means.** Names such as **llvmpipe** or **lavapipe**
+(Mesa's software renderers), **SwiftShader** (Google's software renderer), or a
+device class of **Cpu** indicate CPU-only rendering. On Windows, **Microsoft
+Basic Render Driver** (WARP) is the equivalent software fallback. Software
+rendering works correctly but is far slower than a real GPU — especially on
+older hardware.
+
+**Common fixes.**
+
+- **Linux:** install the Vulkan driver for your GPU. On Debian/Ubuntu that is
+  `mesa-vulkan-drivers` (plus `vulkan-tools` for `vulkaninfo`); on Arch it is
+  `vulkan-icd-loader` together with the vendor package (`vulkan-radeon`,
+  `vulkan-intel`, or `nvidia-utils`). Verify with `vulkaninfo | head` — if it
+  reports only llvmpipe, the hardware ICD is still missing. Over remote/SSH or
+  in a VM without GPU passthrough, software rendering may be the only option.
+- **Windows:** install the latest GPU vendor driver (NVIDIA/AMD/Intel). WARP is
+  usually selected only when no hardware driver is present, e.g. in a bare VM or
+  a fresh install before drivers are added.
+- **macOS:** Metal is always hardware-backed on supported machines; a software
+  adapter here is unusual and typically indicates a virtualized environment.
+
 ## Public Release Direction
 
 For an upstream release that avoids maintaining many distro-specific packages:

@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Startup adapter diagnostics and a software-render warning
+
+A recurring "very slow even with effects off" report on older hardware traces to
+a silent fall back to a software rasterizer — no hardware GPU adapter was
+available, so all rendering runs on the CPU. The adapter was already captured for
+the About panel; startup now surfaces it too.
+
+- One line is printed at startup naming the selected adapter, its backend and
+  device class, e.g. `odytty: GPU adapter: llvmpipe (LLVM 17) (Vulkan, Cpu)`.
+- When the adapter is a software rasterizer — the wgpu `Cpu` device class, a
+  Mesa llvmpipe/lavapipe or Google SwiftShader name, or the Windows WARP
+  fallback ("Microsoft Basic Render Driver") — a loud warning follows, pointing
+  at the docs. The detection is a pure, unit-tested string/enum predicate that
+  must not trip on real hardware GPUs.
+- A troubleshooting section in `docs/install.md` explains how to read the
+  adapter from the About panel or the startup log, what a software adapter
+  means, and the common fix (install the platform Vulkan/GPU drivers —
+  `mesa-vulkan-drivers` / `vulkan-icd-loader` + vendor ICD on Linux, the vendor
+  driver on Windows).
+
+Diagnostics only — adapter selection itself is unchanged.
+
+Windows: the WARP software fallback is included in the predicate and the docs;
+the startup log/warning path is cross-platform, no `cfg(windows)` branch.
+
+---
+
 ## 2026-07-04 -- Workspace shape can be captured to a serializable snapshot
 
 Groundwork for saving and restoring workspace layouts across restarts. The
@@ -45,7 +72,6 @@ fresh-shell restore path is the only path there, so it works identically.
 
 This is the capture-and-serialize layer; wiring it to launch restore, the
 debounced autosave, and the single-writer instance lock comes next.
-
 ---
 
 ## 2026-07-04 -- Background sessions track theme changes and OSC 52 policy
