@@ -173,8 +173,13 @@ fn write_if_needed(path: &Path, contents: &str) -> std::io::Result<()> {
     fs::write(path, contents)
 }
 
-#[cfg(unix)]
-fn bash_rcfile() -> String {
+/// The bash shell-integration rcfile body: source the user's `~/.bashrc`, then
+/// append the OSC 133 snippet. This is the single source of truth for the rc
+/// content so the local file-based injector and the remote SSH bootstrap
+/// (`crate::ssh_connect`) can never drift. It is `cfg`-agnostic on purpose: the
+/// remote-injection argv builder is cross-platform and must produce the exact
+/// same integration payload whether the client runs on Unix or Windows.
+pub fn bash_integration_rc() -> String {
     format!(
         r#"if [ -r "$HOME/.bashrc" ]; then
   . "$HOME/.bashrc"
@@ -184,6 +189,11 @@ fi
 "#,
         snippet = BASH_SNIPPET
     )
+}
+
+#[cfg(unix)]
+fn bash_rcfile() -> String {
+    bash_integration_rc()
 }
 
 #[cfg(unix)]

@@ -186,6 +186,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "interactive_paths_image_inline",
             "interactive_paths_editor",
             "ssh_config_hosts",
+            "remote_integration",
             "session_replay",
             "osc52_read",
             "copy_on_select",
@@ -1904,6 +1905,32 @@ fn ssh_config_hosts_round_trips_through_config_key_mapping() {
     assert_eq!(
         settings.to_edit_values().get(SSH_CONFIG_HOSTS_ENV),
         Some(&"on".to_owned())
+    );
+}
+
+#[test]
+fn remote_integration_round_trips_through_config_key_mapping() {
+    assert_eq!(
+        config_key_to_env("remote_integration"),
+        Some(REMOTE_INTEGRATION_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("sshintegration"),
+        Some(REMOTE_INTEGRATION_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(REMOTE_INTEGRATION_ENV),
+        Some("remote_integration")
+    );
+    // On by default: the safe plain-ssh fallback makes default-on safe.
+    assert!(Settings::default().remote_integration);
+
+    let (settings, warnings) = settings_from([(REMOTE_INTEGRATION_ENV, "off")]);
+    assert!(!settings.remote_integration);
+    assert!(warnings.is_empty());
+    assert_eq!(
+        settings.to_edit_values().get(REMOTE_INTEGRATION_ENV),
+        Some(&"off".to_owned())
     );
 }
 

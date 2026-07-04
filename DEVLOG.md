@@ -7,6 +7,51 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Seamless remote: bash shell integration over SSH (F6-i1)
+
+An SSH tab runs the system `ssh` as its local child, so the remote shell never
+saw OdyTTY's OSC 133 hooks and a remote session lost prompt marks, cwd titles,
+and the input boundaries those features need. Remote shell integration now
+closes that gap for bash: a connection injects OdyTTY's bash integration on the
+remote so a remote bash session behaves like a local one.
+
+Delivery is stateless. The client emits a fixed, inspectable POSIX-sh bootstrap
+as the remote command after `ssh -t -- [user@]host`. The bootstrap materializes
+the bash rcfile from an inline base64 blob into a temporary file and `exec`s an
+interactive bash pointed at it; the rcfile self-deletes on first read, so
+nothing is persisted on the remote. The rcfile body is the shared local
+integration payload verbatim (only a leading self-delete line differs), so the
+local and remote integrations cannot drift. A temp-file rcfile is used rather
+than process substitution, which would require the remote login shell to already
+be bash and errors out under sh/dash.
+
+Safety is the no-harm principle throughout. Every step is guarded and the
+bootstrap always terminates in an unconditional `exec`, so a shell always
+lands — a missing bash, missing `base64`, or non-bash remote shell degrades
+silently to a plain login shell. The remote command carries no local paths,
+usernames, or hostnames (the destination rides only in the `ssh` operands), and
+authentication stays entirely with the system `ssh`; OdyTTY never handles keys.
+
+The behavior is gated by a new `remote_integration` setting, on by default
+because the plain-ssh fallback makes default-on safe. A per-host `Integration
+off` line in `hosts.conf` opts a single host out. With integration off — globally
+or per-host — the SSH argv is byte-identical to a plain `ssh` launch. A remote
+tab now titles itself `user@host` when no explicit per-host `Title` is set,
+which is unambiguous across identical aliases.
+
+This first increment is bash-only: the client always emits the bash bootstrap
+and the remote self-selects bash-or-fallback at runtime. Extending detection to
+zsh and fish, ControlMaster connection reuse, and reconnect-on-drop are later
+increments. Verified with unit tests over argv shape (on/off/per-host), the
+base64 encoder against the RFC 4648 vectors, bootstrap host-independence and
+no-identifier-leak, fallback well-formedness, and the byte-identical off path;
+the remote shell's actual runtime behavior is verified manually against a live
+host, as it is not reachable from a unit test. Windows behavior: the argv
+builder is cross-platform (`ssh.exe` ships on Windows 10+), so a Windows client
+connecting to a POSIX host runs the same bootstrap; a `cfg(windows)` test pins
+that the emitted argv still names `ssh` and carries no ControlMaster options
+(that reuse path is a later increment and is a Windows no-op).
+
 ## 2026-07-04 -- Bells drain from every tab, pane, and workspace
 
 The terminal bell is now serviced everywhere, not only on the visible pane. The

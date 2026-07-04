@@ -1252,6 +1252,13 @@ pub struct Settings {
     /// `~/.ssh/config`. When on, the data layer reads a caller-supplied
     /// OpenSSH config path read-only and name-only through bounded parsing.
     pub ssh_config_hosts: bool,
+    /// Remote OSC 133 shell integration for SSH tabs. On by default: an SSH tab
+    /// injects OdyTTY's bash prompt-mark bootstrap on the remote (nothing is
+    /// persisted there) so a remote bash session behaves like a local one. Any
+    /// failure or a non-bash remote shell degrades to a plain ssh session, and a
+    /// per-host `Integration off` opts a single host out. Off globally makes
+    /// every SSH tab's argv byte-identical to a plain ssh launch.
+    pub remote_integration: bool,
     /// Opt-in per-session output recording for the scrubbable replay overlay
     /// (Phase 2). Off by default; while off the PTY pump records nothing and the
     /// plain path is byte-identical. When on, each session keeps a bounded
@@ -1376,6 +1383,7 @@ impl Default for Settings {
             os_theme_light: None,
             confirm_close: DEFAULT_CONFIRM_CLOSE,
             ssh_config_hosts: DEFAULT_SSH_CONFIG_HOSTS,
+            remote_integration: DEFAULT_REMOTE_INTEGRATION,
             session_replay: DEFAULT_SESSION_REPLAY,
             interactive_urls: DEFAULT_INTERACTIVE_URLS,
             interactive_paths: DEFAULT_INTERACTIVE_PATHS,
@@ -2038,6 +2046,12 @@ impl Settings {
             DEFAULT_SSH_CONFIG_HOSTS,
             &mut warn,
         );
+        let remote_integration = parse_bool_setting(
+            get(REMOTE_INTEGRATION_ENV).as_deref(),
+            REMOTE_INTEGRATION_ENV,
+            DEFAULT_REMOTE_INTEGRATION,
+            &mut warn,
+        );
         let session_replay = parse_bool_setting(
             get(SESSION_REPLAY_ENV).as_deref(),
             SESSION_REPLAY_ENV,
@@ -2166,6 +2180,7 @@ impl Settings {
             os_theme_light,
             confirm_close,
             ssh_config_hosts,
+            remote_integration,
             session_replay,
             interactive_urls,
             interactive_paths,
@@ -2395,6 +2410,10 @@ impl Settings {
         values.insert(
             SSH_CONFIG_HOSTS_ENV,
             bool_display(self.ssh_config_hosts).to_owned(),
+        );
+        values.insert(
+            REMOTE_INTEGRATION_ENV,
+            bool_display(self.remote_integration).to_owned(),
         );
         values.insert(
             SESSION_REPLAY_ENV,

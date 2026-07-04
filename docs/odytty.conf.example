@@ -187,6 +187,17 @@ keybinds =
 # hosts only and never references ~/.ssh.
 ssh_config_hosts = off
 
+# Remote shell integration for SSH tabs. Default on. When on, a connection
+# injects OdyTTY's bash OSC 133 integration on the remote so a remote bash
+# session gains the same prompt marks, cwd titles, and input boundaries as a
+# local one. Nothing is persisted on the remote (the injected rcfile
+# self-deletes on first read), and any failure or a non-bash remote shell
+# degrades silently to a plain ssh session. Off globally makes every SSH tab's
+# launch byte-identical to a plain ssh; a per-host "Integration off" line in
+# hosts.conf opts a single host out. A remote tab titles itself user@host when
+# no per-host Title is set. Authentication always stays with the system ssh.
+remote_integration = on
+
 # Per-session output recording for the scrubbable replay overlay. Default off:
 # while off the PTY pump records nothing and the path is byte-identical. When on,
 # each session keeps a bounded in-memory ring of recent screen frames (capped by

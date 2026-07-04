@@ -16,7 +16,13 @@ impl App {
         &mut self,
         host: &ConnectionHost,
     ) -> std::io::Result<SessionToken> {
-        let token = self.sessions.connect_ssh_in_new_tab(host, self.grid)?;
+        let integration_enabled = crate::ssh_connect::remote_integration_enabled(
+            host.integration,
+            self.settings.remote_integration,
+        );
+        let token = self
+            .sessions
+            .connect_ssh_in_new_tab(host, self.grid, integration_enabled)?;
         let effective_theme = self.effective_theme;
         let themed_ui_roles = self.themed_ui_roles;
         let osc52_read = self.settings.osc52_read;

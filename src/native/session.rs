@@ -15,7 +15,7 @@ use crate::pty::{ForegroundJob, PtySession};
 use crate::selection::{
     AbsoluteSelectionRange, AbsoluteSelectionState, CellPoint, ClickTracker, PointerDrag,
 };
-use crate::ssh_connect::{SshCommand, ssh_command_for_host};
+use crate::ssh_connect::{SshCommand, ssh_command_for_host_with_integration, ssh_tab_title};
 #[cfg(test)]
 use crate::text::CellSize;
 
@@ -1396,9 +1396,11 @@ impl WorkspaceSet {
         &mut self,
         host: &ConnectionHost,
         grid: crate::core::Dimensions,
+        integration_enabled: bool,
     ) -> Result<SessionToken, std::io::Error> {
-        let command = ssh_command_for_host(host).map_err(std::io::Error::other)?;
-        let title = host.title.clone().unwrap_or_else(|| host.alias.clone());
+        let command = ssh_command_for_host_with_integration(host, integration_enabled)
+            .map_err(std::io::Error::other)?;
+        let title = host.title.clone().unwrap_or_else(|| ssh_tab_title(host));
         self.spawn_ssh_command_in_new_tab(grid, command, Some(title))
     }
 

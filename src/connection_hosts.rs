@@ -50,6 +50,10 @@ pub struct ConnectionHost {
     pub theme: Option<String>,
     pub font: Option<String>,
     pub title: Option<String>,
+    /// Per-host opt-out for remote OSC 133 shell integration. `None` inherits
+    /// the global `remote_integration` setting; `Some(false)` forces a plain
+    /// ssh session for this host even when the global default is on.
+    pub integration: Option<bool>,
     pub source: ConnectionHostSource,
 }
 
@@ -87,6 +91,7 @@ struct HostBlock {
     theme: Option<String>,
     font: Option<String>,
     title: Option<String>,
+    integration: Option<bool>,
 }
 
 impl HostBlock {
@@ -99,6 +104,7 @@ impl HostBlock {
             theme: None,
             font: None,
             title: None,
+            integration: None,
         }
     }
 }
@@ -177,6 +183,13 @@ pub fn format_odytty_hosts(hosts: &[ConnectionHost]) -> String {
         push_optional_field(&mut out, "Theme", host.theme.as_deref());
         push_optional_field(&mut out, "Font", host.font.as_deref());
         push_optional_field(&mut out, "Title", host.title.as_deref());
+        if let Some(integration) = host.integration {
+            push_optional_field(
+                &mut out,
+                "Integration",
+                Some(if integration { "on" } else { "off" }),
+            );
+        }
         out.push('\n');
     }
     out
@@ -246,6 +259,7 @@ pub fn merge_connection_hosts(
             theme: None,
             font: None,
             title: None,
+            integration: None,
             source: ConnectionHostSource::SshConfig,
         });
     }
@@ -298,6 +312,11 @@ fn parse_odytty_hosts_text(text: &str, limits: ConnectionHostsLimits) -> Vec<Con
             "title" => {
                 if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
                     block.title = Some(trim_chars(value, limits.max_field_chars));
+                }
+            }
+            "integration" => {
+                if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
+                    block.integration = parse_host_bool(value);
                 }
             }
             _ => {}
@@ -416,8 +435,20 @@ fn flush_block(
             theme: block.theme.clone(),
             font: block.font.clone(),
             title: block.title.clone(),
+            integration: block.integration,
             source: ConnectionHostSource::Odytty,
         });
+    }
+}
+
+/// Parse a hosts.conf boolean field value (`on`/`off`/`yes`/`no`/`true`/`false`,
+/// case-insensitive). Unrecognized values return `None` so the global default
+/// stands rather than silently forcing a state.
+fn parse_host_bool(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "on" | "yes" | "true" | "1" => Some(true),
+        "off" | "no" | "false" | "0" => Some(false),
+        _ => None,
     }
 }
 
@@ -469,6 +500,7 @@ mod tests {
             theme: None,
             font: None,
             title: None,
+            integration: None,
             source,
         }
     }
@@ -510,7 +542,36 @@ mod tests {
         assert_eq!(entries[0].theme.as_deref(), Some("odyssey"));
         assert_eq!(entries[0].font.as_deref(), Some("Victor Mono"));
         assert_eq!(entries[0].title.as_deref(), Some("Synthetic Web"));
+        assert_eq!(entries[0].integration, None);
         assert_eq!(entries[0].source, ConnectionHostSource::Odytty);
+    }
+
+    #[test]
+    fn parses_and_round_trips_per_host_integration_optout() {
+        let entries = parse_odytty_hosts_bytes_with_limits(
+            b"Host secure\n    HostName secure.example.invalid\n    Integration off\n",
+            limits(),
+        );
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].integration, Some(false));
+
+        // The field survives a save/reload round-trip.
+        let formatted = format_odytty_hosts(&entries);
+        assert!(formatted.contains("Integration off"));
+        let reparsed = parse_odytty_hosts_bytes_with_limits(formatted.as_bytes(), limits());
+        assert_eq!(reparsed[0].integration, Some(false));
+    }
+
+    #[test]
+    fn per_host_integration_ignores_unrecognized_values() {
+        let entries = parse_odytty_hosts_bytes_with_limits(
+            b"Host a\nHost b\n    Integration maybe\n    Integration on\n",
+            limits(),
+        );
+        // Absent field inherits the global default (None); a later valid value
+        // wins over an earlier unrecognized one.
+        assert_eq!(entries[0].integration, None);
+        assert_eq!(entries[1].integration, Some(true));
     }
 
     #[test]

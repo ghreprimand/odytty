@@ -467,6 +467,7 @@ mod tests {
             theme: None,
             font: None,
             title: None,
+            integration: None,
             source,
         }
     }

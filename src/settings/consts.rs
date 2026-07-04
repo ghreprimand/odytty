@@ -84,6 +84,7 @@ pub const OS_THEME_DARK_ENV: &str = "ODYTTY_OS_THEME_DARK";
 pub const OS_THEME_LIGHT_ENV: &str = "ODYTTY_OS_THEME_LIGHT";
 pub const CONFIRM_CLOSE_ENV: &str = "ODYTTY_CONFIRM_CLOSE";
 pub const SSH_CONFIG_HOSTS_ENV: &str = "ODYTTY_SSH_CONFIG_HOSTS";
+pub const REMOTE_INTEGRATION_ENV: &str = "ODYTTY_REMOTE_INTEGRATION";
 pub const SESSION_REPLAY_ENV: &str = "ODYTTY_SESSION_REPLAY";
 pub const INTERACTIVE_URLS_ENV: &str = "ODYTTY_INTERACTIVE_URLS";
 pub const INTERACTIVE_PATHS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS";
@@ -178,6 +179,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     OS_THEME_LIGHT_ENV,
     CONFIRM_CLOSE_ENV,
     SSH_CONFIG_HOSTS_ENV,
+    REMOTE_INTEGRATION_ENV,
     SESSION_REPLAY_ENV,
     INTERACTIVE_URLS_ENV,
     INTERACTIVE_PATHS_ENV,
@@ -686,6 +688,16 @@ pub const DEFAULT_SH_CLICK: bool = true;
 /// click-to-position support from cooperating shells) can work without editing
 /// the user's rc files. Off by default; existing shells are never modified.
 pub const DEFAULT_SHELL_INTEGRATION: bool = false;
+
+/// Remote OSC 133 shell integration for SSH tabs (`ODYTTY_REMOTE_INTEGRATION`):
+/// when on, an SSH tab injects OdyTTY's bash prompt-mark bootstrap on the remote
+/// so a remote bash session gains the same prompt/input boundaries as a local
+/// one (nothing is persisted on the remote; the rcfile self-deletes). On by
+/// default because the injection degrades to a plain ssh session on any failure
+/// or for non-bash remote shells, so the safe fallback makes default-on safe. A
+/// per-host `Integration off` in `hosts.conf` opts a single host out; turning
+/// this off globally makes every SSH tab byte-identical to a plain ssh launch.
+pub const DEFAULT_REMOTE_INTEGRATION: bool = true;
 
 pub const DEFAULT_BLOOM: bool = true;
 pub const DEFAULT_BLOOM_THRESHOLD: f32 = 0.7;

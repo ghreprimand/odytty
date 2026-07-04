@@ -89,6 +89,7 @@ impl App {
                 theme: None,
                 font: None,
                 title: None,
+                integration: None,
                 source: ConnectionHostSource::Odytty,
             })
             .collect();

@@ -135,7 +135,27 @@ Host web1
 drive the connect action. OdyTTY builds argv as `ssh [-p PORT] -- [USER@]HOST`
 and opens it in a new tab/session; `--` keeps a saved host name from being
 interpreted as another ssh option. `Theme`, `Font`, and `Title` are optional
-per-host profile fields reserved for the overlay UI.
+per-host profile fields reserved for the overlay UI. `Integration on|off` is an
+optional per-host override for remote shell integration (see below).
+
+### Remote shell integration (`remote_integration`)
+
+An SSH tab runs the system `ssh` as its local child, so by default the remote
+shell never sees OdyTTY's OSC 133 hooks and a remote session loses prompt marks,
+cwd titles, and the input boundaries those features need. With
+`remote_integration = on` (the default; `ODYTTY_REMOTE_INTEGRATION=on`), a
+connection injects OdyTTY's bash integration on the remote so a remote bash
+session behaves like a local one. The integration is delivered inline as a
+base64 blob decoded into a temporary rcfile that **self-deletes on first read** —
+nothing is persisted on the remote. Every failure path (no bash, no `base64`,
+undetectable shell) and any non-bash remote shell **degrades silently to a plain
+`ssh` session**, so the connection is never broken. Turning it off globally, or
+setting `Integration off` for a single host in `hosts.conf`, makes that SSH
+launch byte-identical to a plain `ssh` invocation. The remote command is a
+fixed, inspectable POSIX-sh bootstrap plus OdyTTY's own public integration
+snippet; no local paths, usernames, or hostnames are embedded in it, and
+authentication stays entirely with the system `ssh`. A remote SSH tab titles
+itself `user@host` when no explicit per-host `Title` is set.
 
 OpenSSH config import is separate and default-off. `ssh_config_hosts = on` (or
 `ODYTTY_SSH_CONFIG_HOSTS=on`) lets the connection manager merge host names from
@@ -275,6 +295,7 @@ environment variable was not set at startup.
 | `interactive_paths_editor` | `ODYTTY_INTERACTIVE_PATHS_EDITOR` | editor name or argv template | *(empty — use `$EDITOR`)* |
 | `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` |
 | `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |
+| `remote_integration` | `ODYTTY_REMOTE_INTEGRATION` | `on`, `off` | `on` |
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` |
 | `copy_on_select` | `ODYTTY_COPY_ON_SELECT` | `on`, `off` | `off` |
