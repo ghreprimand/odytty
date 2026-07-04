@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Tabs can move between workspaces from the tab menu
+
+A tab right-click now offers "Move to Next Workspace" when more than one
+workspace exists. It moves the clicked tab — the whole tab, every pane — to the
+next workspace in rail order, wrapping. The operation is a value splice between
+the two workspaces' tab lists; the sessions never leave the global arena, so
+nothing about pump-thread lookup or running processes changes. Moving the last
+tab out of a workspace closes that workspace (no empty workspaces). The active
+workspace does not follow the tab — the rail flashes so the departure is
+visible — unless moving the last tab out closes the source workspace, which
+necessarily lands focus on a neighbor. The item is hidden entirely with a single
+workspace (nowhere to move a tab) and never appears on the content menu.
+
+This is the first cut of the "move to workspace" surface. A destination-picker
+submenu listing every workspace by name is a follow-up: the context menu is a
+flat, static-label list today with no dynamic-label or flyout surface, so the
+next-workspace step ships first — exact for the common two-workspace case and
+cycling for more — with the full picker and pointer drag-and-drop deferred.
+
+Windows: platform-neutral — no `cfg(windows)` surface.
+
 ## 2026-07-04 -- Workspaces gain keyboard and command-palette control
 
 Workspaces — a layer that groups tabs above the tab strip — now have a full

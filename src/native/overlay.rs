@@ -354,6 +354,7 @@ impl OverlayUi {
             rename_target,
             multi_pane,
             false,
+            false,
             crate::native::context_menu_ui::ContextMenuSurface::Content,
             path_target,
             accelerators,
@@ -372,6 +373,7 @@ impl OverlayUi {
         rename_target: Option<SessionToken>,
         multi_pane: bool,
         multi_tab: bool,
+        multi_workspace: bool,
         surface: crate::native::context_menu_ui::ContextMenuSurface,
         path_target: Option<crate::paths::Resolved>,
         accelerators: [Option<String>; CONTEXT_MENU_ITEMS],
@@ -387,6 +389,7 @@ impl OverlayUi {
             rename_target,
             multi_pane,
             multi_tab,
+            multi_workspace,
             surface,
             path_target,
         );
@@ -748,6 +751,14 @@ impl OverlayUi {
                     ContextMenuItem::CloseOtherTabs => match self.context_menu.surface() {
                         crate::native::context_menu_ui::ContextMenuSurface::TabSlot(token) => {
                             OverlayOutcome::ContextMenuCloseOtherTabs(token)
+                        }
+                        _ => OverlayOutcome::Consumed,
+                    },
+                    // ODP-7: move the right-clicked tab to the next workspace.
+                    // Only ever visible on a TabSlot with >1 workspace.
+                    ContextMenuItem::MoveToNextWorkspace => match self.context_menu.surface() {
+                        crate::native::context_menu_ui::ContextMenuSurface::TabSlot(token) => {
+                            OverlayOutcome::ContextMenuMoveTabToNextWorkspace(token)
                         }
                         _ => OverlayOutcome::Consumed,
                     },
@@ -1691,6 +1702,11 @@ pub(super) enum OverlayOutcome {
     ContextMenuCloseTabToken(SessionToken),
     /// Close every tab except the one holding `token` (F7 "Close Other Tabs").
     ContextMenuCloseOtherTabs(SessionToken),
+    /// Move the tab holding `token` to the next workspace in rail order (ODP-7,
+    /// "Move to workspace" v1). The overlay has already closed itself; the App
+    /// splices the tab between workspaces without switching (unless the source
+    /// workspace empties).
+    ContextMenuMoveTabToNextWorkspace(SessionToken),
     /// Split the focused pane from the context menu (Part B). The overlay has
     /// already closed itself; the App dispatches these to the same
     /// `split_active_pane` the keyboard split chords fire.
@@ -3412,6 +3428,7 @@ mod tests {
             Some(SessionToken(7)),
             false,
             true,
+            false,
             crate::native::context_menu_ui::ContextMenuSurface::TabSlot(SessionToken(7)),
             None,
             Default::default(),
@@ -3440,6 +3457,7 @@ mod tests {
             Some(SessionToken(2)),
             false,
             true,
+            false,
             crate::native::context_menu_ui::ContextMenuSurface::TabSlot(SessionToken(2)),
             None,
             Default::default(),
@@ -3452,6 +3470,37 @@ mod tests {
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
             OverlayOutcome::ContextMenuCloseOtherTabs(SessionToken(2))
+        );
+    }
+
+    #[test]
+    fn tab_slot_move_to_next_workspace_emits_token_outcome() {
+        // ODP-7: with multiple workspaces, the move row targets the clicked
+        // tab's token.
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu_with_prompt_editing_hint(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            false,
+            Some(SessionToken(5)),
+            false,
+            true,
+            true,
+            crate::native::context_menu_ui::ContextMenuSurface::TabSlot(SessionToken(5)),
+            None,
+            Default::default(),
+        );
+        // Items: New Tab(0) Rename Tab(1) Close Tab(2) Close Other Tabs(3)
+        // Move to Next Workspace(4) New Window(5).
+        for _ in 0..4 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuMoveTabToNextWorkspace(SessionToken(5))
         );
     }
 

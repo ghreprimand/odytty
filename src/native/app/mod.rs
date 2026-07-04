@@ -1002,6 +1002,30 @@ impl App {
         self.on_active_session_changed();
     }
 
+    /// Move the right-clicked tab to the next workspace in rail order (ODP-7,
+    /// "Move to Next Workspace"). A `Tab` value splice — the sessions stay in the
+    /// arena. v1 moves WITHOUT following: the active workspace is unchanged and
+    /// the rail flashes so the departure is visible, unless moving the last tab
+    /// out closes the source workspace, which necessarily shifts focus to a
+    /// neighbor. Reconciles focus only when the move actually changed the active
+    /// workspace, so a same-workspace no-op stays byte-identical.
+    fn move_tab_to_next_workspace(&mut self, token: SessionToken) {
+        let active_before = self.sessions.active_workspace_index();
+        let (moved, _source_closed) = self.sessions.move_tab_to_next_workspace(token);
+        if !moved {
+            return;
+        }
+        self.flash_rail_autohide();
+        // Removing an emptied source workspace can shift the active workspace
+        // onto a neighbor; only then does focus/geometry need reconciling.
+        if self.sessions.active_workspace_index() != active_before {
+            if self.sessions.active_is_single_pane() {
+                self.prefix_engine.cancel();
+            }
+            self.on_active_session_changed();
+        }
+    }
+
     /// Create a fresh workspace (one single-pane tab) and switch to it — the
     /// "New Workspace" action / palette entry / rail `+` slot (ODP-3/-5). Mirrors
     /// [`Self::handle_new_tab`] one level up: spawn the new workspace's shell,
@@ -1995,6 +2019,7 @@ impl App {
         // the generic `bindable_action` → `chord_for_action` path above.
         let multi_pane = !self.sessions.active_is_single_pane();
         let multi_tab = self.sessions.tab_count() > 1;
+        let multi_workspace = self.sessions.workspace_count() > 1;
         if multi_pane
             && let Some(label) = self.close_pane_accelerator()
             && let Some(slot) = super::context_menu_ui::ContextMenuItem::ALL
@@ -2022,6 +2047,7 @@ impl App {
             rename_target,
             multi_pane,
             multi_tab,
+            multi_workspace,
             surface,
             path_target,
             accelerators,

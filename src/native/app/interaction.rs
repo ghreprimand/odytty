@@ -163,6 +163,11 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.close_other_tabs(token);
             }
+            // ODP-7: move the right-clicked tab to the next workspace.
+            OverlayOutcome::ContextMenuMoveTabToNextWorkspace(token) => {
+                self.flush_pending_overlay_settings();
+                self.move_tab_to_next_workspace(token);
+            }
             // Part B: the context menu closed itself; split the focused pane
             // through the exact same action the keyboard split chords fire
             // (`apply_pane_action` → `split_active_pane`).

@@ -1981,6 +1981,67 @@ impl WorkspaceSet {
         }
         self.remove_workspace(ws_idx)
     }
+
+    /// Move the tab that owns `token` out of its workspace and append it to the
+    /// workspace at `dest_idx` (ODP-7, "Move to workspace"). This is a `Tab`
+    /// VALUE splice between two `Workspace.tabs` vecs — the sessions never leave
+    /// the global arena, so pump-thread lookup by token is untouched. The
+    /// destination's active tab is left as-is (v1: move without following), and
+    /// the active workspace is unchanged unless the SOURCE workspace empties, in
+    /// which case it is removed (no empty workspaces, ODP-3) and `active_ws` is
+    /// clamped onto a survivor. Returns `true` when a tab actually moved, and
+    /// separately whether the source workspace was closed by the move. No-op
+    /// (`(false, false)`) when the token is unknown, `dest_idx` is out of range,
+    /// or source == destination.
+    pub(super) fn move_tab_to_workspace(
+        &mut self,
+        token: SessionToken,
+        dest_idx: usize,
+    ) -> (bool, bool) {
+        let Some((src_idx, tab_idx)) = self.locate_token(token) else {
+            return (false, false);
+        };
+        if src_idx == dest_idx || dest_idx >= self.workspaces.len() {
+            return (false, false);
+        }
+        // Splice the tab value out of the source and append it to the
+        // destination. Both indices are still valid here — no workspace is
+        // removed until after the move.
+        let tab = self.workspaces[src_idx].tabs.remove(tab_idx);
+        self.workspaces[dest_idx].tabs.push(tab);
+        // Source bookkeeping: an empty source workspace closes (ODP-3);
+        // otherwise clamp its active-tab index exactly like a tab close.
+        if self.workspaces[src_idx].tabs.is_empty() {
+            let closed = self.remove_workspace(src_idx);
+            // `remove_workspace` returns whether NO workspaces remain; here at
+            // least the destination survives, so it is always `false`. The
+            // source workspace was nonetheless closed.
+            debug_assert!(!closed);
+            return (true, true);
+        }
+        let src = &mut self.workspaces[src_idx];
+        if src.active_tab == tab_idx {
+            src.active_tab = tab_idx.min(src.tabs.len() - 1);
+        } else if src.active_tab > tab_idx {
+            src.active_tab -= 1;
+        }
+        (true, false)
+    }
+
+    /// Move the tab that owns `token` to the NEXT workspace in rail order
+    /// (wrapping) — the v1 "Move to Next Workspace" context-menu action. A no-op
+    /// with a single workspace. Returns `(moved, source_closed)` from
+    /// [`Self::move_tab_to_workspace`].
+    pub(super) fn move_tab_to_next_workspace(&mut self, token: SessionToken) -> (bool, bool) {
+        if self.workspaces.len() <= 1 {
+            return (false, false);
+        }
+        let Some((src_idx, _)) = self.locate_token(token) else {
+            return (false, false);
+        };
+        let dest_idx = (src_idx + 1) % self.workspaces.len();
+        self.move_tab_to_workspace(token, dest_idx)
+    }
 }
 
 impl TabBarSource for WorkspaceSet {
@@ -3121,5 +3182,100 @@ mod tests {
         assert!(set.active_is_single_pane());
         assert_eq!(set.active_id(), token);
         assert_eq!(set.workspace_name(1), Some("Workspace 2"));
+    }
+
+    #[test]
+    fn move_tab_to_workspace_splices_the_tab_without_touching_the_active() {
+        // ws0 holds tokens [0, 1]; ws1 holds [2]. Active stays ws0.
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push(build_session_with_id(SessionToken(1)));
+        set.push_workspace(build_session_with_id(SessionToken(2)));
+        assert_eq!(set.active_workspace_index(), 0);
+        assert_eq!(set.tab_count(), 2);
+
+        // Move the background tab (token 1) into ws1.
+        let (moved, source_closed) = set.move_tab_to_workspace(SessionToken(1), 1);
+        assert!(moved);
+        assert!(!source_closed, "ws0 still has token 0");
+        // Active workspace unchanged (v1: move without following) and now holds
+        // only token 0.
+        assert_eq!(set.active_workspace_index(), 0);
+        assert_eq!(set.tab_count(), 1);
+        assert_eq!(set.active_id(), SessionToken(0));
+        // The moved tab landed at the END of ws1.
+        assert!(set.switch_workspace(1));
+        assert_eq!(set.tab_count(), 2);
+        assert_eq!(set.token_at_position(1), Some(SessionToken(1)));
+        // No session left the arena.
+        assert_eq!(set.len(), 3);
+    }
+
+    #[test]
+    fn moving_the_last_tab_out_closes_the_source_workspace() {
+        // ws0 holds [0]; ws1 holds [1]. Moving token 0 out empties and closes ws0.
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push_workspace(build_session_with_id(SessionToken(1)));
+        assert_eq!(set.workspace_count(), 2);
+        assert_eq!(set.active_workspace_index(), 0);
+
+        let (moved, source_closed) = set.move_tab_to_next_workspace(SessionToken(0));
+        assert!(moved);
+        assert!(source_closed, "the emptied source workspace closes (ODP-3)");
+        assert_eq!(set.workspace_count(), 1);
+        // The surviving workspace (old ws1, now index 0) holds both tabs: its
+        // own token 1 then the moved token 0.
+        assert_eq!(set.active_workspace_index(), 0);
+        assert_eq!(set.tab_count(), 2);
+        assert_eq!(set.token_at_position(0), Some(SessionToken(1)));
+        assert_eq!(set.token_at_position(1), Some(SessionToken(0)));
+        assert_eq!(set.len(), 2);
+    }
+
+    #[test]
+    fn move_tab_to_next_workspace_wraps_and_is_a_noop_with_one_workspace() {
+        // Single workspace: nowhere to move.
+        let mut set = WorkspaceSet::new(build_session(), None);
+        assert_eq!(
+            set.move_tab_to_next_workspace(SessionToken(0)),
+            (false, false)
+        );
+
+        // Three workspaces: from ws2 the next wraps to ws0.
+        set.push_workspace(build_session_with_id(SessionToken(1)));
+        set.push_workspace(build_session_with_id(SessionToken(2)));
+        assert!(set.switch_workspace(2));
+        // Give ws2 a second tab so moving one out does not close it.
+        set.push(build_session_with_id(SessionToken(3)));
+        let (moved, source_closed) = set.move_tab_to_next_workspace(SessionToken(3));
+        assert!(moved);
+        assert!(!source_closed);
+        // token 3 wrapped into ws0, which now holds [0, 3].
+        assert!(set.switch_workspace(0));
+        assert_eq!(set.token_at_position(1), Some(SessionToken(3)));
+    }
+
+    #[test]
+    fn move_tab_rejects_unknown_token_out_of_range_and_same_workspace() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push(build_session_with_id(SessionToken(1)));
+        set.push_workspace(build_session_with_id(SessionToken(2)));
+        // Unknown token.
+        assert_eq!(
+            set.move_tab_to_workspace(SessionToken(99), 1),
+            (false, false)
+        );
+        // Out-of-range destination.
+        assert_eq!(
+            set.move_tab_to_workspace(SessionToken(0), 9),
+            (false, false)
+        );
+        // Same workspace (token 0 already in ws0 → dest 0).
+        assert_eq!(
+            set.move_tab_to_workspace(SessionToken(0), 0),
+            (false, false)
+        );
+        // Nothing changed.
+        assert_eq!(set.workspace_count(), 2);
+        assert_eq!(set.tab_count(), 2);
     }
 }

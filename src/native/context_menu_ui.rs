@@ -63,7 +63,7 @@ use crate::settings::BindableAction;
 /// resolved path is an image file (C4); and "Open With…" is shown only when the
 /// resolved path is a regular file (C3b). With no path and single-pane the
 /// visible count is 18; with no path and multi-pane it is 19.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 26;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 27;
 
 /// Body row index of the first visual separator in the single-pane content
 /// reference, between Select All and New Tab. The reference is the
@@ -124,6 +124,14 @@ pub(super) enum ContextMenuItem {
     /// on the `TabSlot` surface, targeting the clicked tab's token. Disabled
     /// when only one tab exists (nothing else to close).
     CloseOtherTabs,
+    /// Move the right-clicked tab to the next workspace in rail order, wrapping
+    /// (ODP-7, "Move to workspace" v1). Tab-scoped: shown only on the `TabSlot`
+    /// surface and only when more than one workspace exists — a `Tab` value
+    /// splice, the sessions never leave the arena. A destination-picker submenu
+    /// listing every workspace is a v2 follow-up (the menu has no dynamic-label
+    /// / flyout surface yet); this next-workspace step is exact for the common
+    /// two-workspace case and cycles for more.
+    MoveToNextWorkspace,
     /// Split the focused pane into side-by-side columns (new pane right). Same
     /// action as the keyboard `Ctrl+Shift+E` / tmux `Ctrl-b %` path.
     SplitColumns,
@@ -216,6 +224,7 @@ impl ContextMenuItem {
         Self::RevealPath,
         Self::DetachSwitch,
         Self::CloseOtherTabs,
+        Self::MoveToNextWorkspace,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -230,7 +239,8 @@ impl ContextMenuItem {
             | Self::NewWindow
             | Self::RenameTab
             | Self::CloseTab
-            | Self::CloseOtherTabs => 1,
+            | Self::CloseOtherTabs
+            | Self::MoveToNextWorkspace => 1,
             Self::SplitColumns | Self::SplitRows | Self::ClosePane => 2,
             Self::Settings => 3,
             Self::KeyboardShortcuts
@@ -261,6 +271,7 @@ impl ContextMenuItem {
             Self::RenameTab => "Rename Tab",
             Self::CloseTab => "Close Tab",
             Self::CloseOtherTabs => "Close Other Tabs",
+            Self::MoveToNextWorkspace => "Move to Next Workspace",
             Self::SplitColumns => "Split Right",
             Self::SplitRows => "Split Down",
             Self::ClosePane => "Close Pane",
@@ -310,6 +321,7 @@ impl ContextMenuItem {
             | Self::SelectAll
             | Self::RenameTab
             | Self::CloseOtherTabs
+            | Self::MoveToNextWorkspace
             | Self::ClosePane
             | Self::OpenPath
             | Self::OpenInOdytty
@@ -484,6 +496,10 @@ pub(super) struct ContextMenuSignature {
     /// Whether more than one tab is open (drives the `Close Other Tabs` item's
     /// enablement on the tab surface, so a tab-count change repaints).
     pub(super) multi_tab: bool,
+    /// Whether more than one workspace exists (drives the `Move to Next
+    /// Workspace` item's visibility on the tab surface, so a workspace-count
+    /// change repaints).
+    pub(super) multi_workspace: bool,
     /// The surface discriminant (F7): a surface change swaps the whole
     /// composition, so it must repaint.
     pub(super) surface: u8,
@@ -523,6 +539,11 @@ pub(super) struct ContextMenuUi {
     /// Whether more than one tab is open, snapshotted at open time. Gates the
     /// enablement of the `Close Other Tabs` item (disabled when a lone tab).
     multi_tab: bool,
+    /// Whether more than one workspace exists, snapshotted at open time. Gates
+    /// the visibility of `Move to Next Workspace` on the tab surface — with a
+    /// single workspace there is nowhere to move a tab, so the item is hidden
+    /// (ODP-7: hide the move submenu when only one workspace exists).
+    multi_workspace: bool,
     /// Which surface the right-click landed on (F7). Selects the menu
     /// composition; defaults to [`ContextMenuSurface::Content`] (the historical
     /// single menu) so a bare `open` keeps today's behavior.
@@ -552,6 +573,7 @@ impl Default for ContextMenuUi {
             rename_target: None,
             multi_pane: false,
             multi_tab: false,
+            multi_workspace: false,
             surface: ContextMenuSurface::Content,
             path_target: None,
             accelerators: Default::default(),
@@ -594,6 +616,7 @@ impl ContextMenuUi {
             rename_target,
             multi_pane,
             false,
+            false,
             ContextMenuSurface::Content,
             path_target,
         );
@@ -611,6 +634,7 @@ impl ContextMenuUi {
         rename_target: Option<SessionToken>,
         multi_pane: bool,
         multi_tab: bool,
+        multi_workspace: bool,
         surface: ContextMenuSurface,
         path_target: Option<Resolved>,
     ) {
@@ -623,6 +647,7 @@ impl ContextMenuUi {
         self.rename_target = rename_target;
         self.multi_pane = multi_pane;
         self.multi_tab = multi_tab;
+        self.multi_workspace = multi_workspace;
         self.surface = surface;
         self.path_target = path_target;
         self.focused = 0;
@@ -664,6 +689,8 @@ impl ContextMenuUi {
             ContextMenuItem::CloseTab => true,
             // Nothing else to close when a lone tab is open.
             ContextMenuItem::CloseOtherTabs => self.multi_tab,
+            // Only visible when >1 workspace exists; always enabled once shown.
+            ContextMenuItem::MoveToNextWorkspace => self.multi_workspace,
             ContextMenuItem::SplitColumns => true,
             ContextMenuItem::SplitRows => true,
             ContextMenuItem::ClosePane => true,
@@ -720,10 +747,11 @@ impl ContextMenuUi {
             ContextMenuSurface::TabSlot(_) => match item {
                 ContextMenuItem::NewTab | ContextMenuItem::RenameTab => 0,
                 ContextMenuItem::CloseTab | ContextMenuItem::CloseOtherTabs => 1,
-                ContextMenuItem::NewWindow => 2,
+                ContextMenuItem::MoveToNextWorkspace => 2,
+                ContextMenuItem::NewWindow => 3,
                 // Not part of the tab composition; grouped with New Window so a
                 // stray item never forces a spurious separator.
-                _ => 2,
+                _ => 3,
             },
             ContextMenuSurface::TabStripEmpty => match item {
                 ContextMenuItem::NewTab => 0,
@@ -750,13 +778,19 @@ impl ContextMenuUi {
         // snapshots entirely (a tab has no grid path under it).
         match self.surface {
             ContextMenuSurface::TabSlot(_) => {
-                return vec![
+                let mut items = vec![
                     ContextMenuItem::NewTab,
                     ContextMenuItem::RenameTab,
                     ContextMenuItem::CloseTab,
                     ContextMenuItem::CloseOtherTabs,
-                    ContextMenuItem::NewWindow,
                 ];
+                // ODP-7: the move item only appears when there is a destination
+                // workspace. Single-workspace tab menus are unchanged.
+                if self.multi_workspace {
+                    items.push(ContextMenuItem::MoveToNextWorkspace);
+                }
+                items.push(ContextMenuItem::NewWindow);
+                return items;
             }
             ContextMenuSurface::TabStripEmpty => {
                 return vec![
@@ -802,8 +836,14 @@ impl ContextMenuUi {
         ContextMenuItem::ALL
             .into_iter()
             .filter(|item| !matches!(item, ContextMenuItem::ClosePane) || self.multi_pane)
-            // `Close Other Tabs` is tab-scoped: never on the content menu.
-            .filter(|item| !matches!(item, ContextMenuItem::CloseOtherTabs))
+            // `Close Other Tabs` and `Move to Next Workspace` are tab-scoped:
+            // never on the content menu.
+            .filter(|item| {
+                !matches!(
+                    item,
+                    ContextMenuItem::CloseOtherTabs | ContextMenuItem::MoveToNextWorkspace
+                )
+            })
             // Drop the always-disabled `Rename Tab` row on the content surface —
             // it only has a target on a tab right-click (kept on `TabSlot`).
             .filter(|item| !matches!(item, ContextMenuItem::RenameTab))
@@ -1101,6 +1141,7 @@ impl ContextMenuUi {
             rename_enabled: self.rename_target.is_some(),
             multi_pane: self.multi_pane,
             multi_tab: self.multi_tab,
+            multi_workspace: self.multi_workspace,
             surface: self.surface.discriminant(),
             has_path_target: self.path_target.is_some(),
             is_image_target: self.is_image_target(),
@@ -1906,6 +1947,7 @@ mod tests {
             None,
             false,
             false,
+            false,
             ContextMenuSurface::Content,
             None,
         );
@@ -2061,7 +2103,19 @@ mod tests {
     }
 
     /// Open a menu on a specific surface (F7) with the given tab-count state.
+    /// Single-workspace (no `Move to Next Workspace` row); use
+    /// [`open_surface_ws`] to exercise the multi-workspace composition.
     fn open_surface(surface: ContextMenuSurface, multi_tab: bool) -> ContextMenuUi {
+        open_surface_ws(surface, multi_tab, false)
+    }
+
+    /// Open a menu on a specific surface with explicit tab- and workspace-count
+    /// state (W4). `multi_workspace` drives the `Move to Next Workspace` row.
+    fn open_surface_ws(
+        surface: ContextMenuSurface,
+        multi_tab: bool,
+        multi_workspace: bool,
+    ) -> ContextMenuUi {
         let mut m = ContextMenuUi::new();
         m.open_with_prompt_editing_hint(
             CellPoint { row: 4, column: 7 },
@@ -2076,6 +2130,7 @@ mod tests {
             },
             false,
             multi_tab,
+            multi_workspace,
             surface,
             None,
         );
@@ -2125,6 +2180,62 @@ mod tests {
         let m = open_surface(ContextMenuSurface::TabSlot(SessionToken(9)), true);
         assert_eq!(m.surface(), ContextMenuSurface::TabSlot(SessionToken(9)));
         assert_eq!(m.rename_target(), Some(SessionToken(9)));
+    }
+
+    #[test]
+    fn move_to_workspace_row_hidden_with_one_workspace() {
+        // ODP-7: no destination workspace ⇒ no move row (single-workspace tab
+        // menu is byte-identical to before W4).
+        let m = open_surface_ws(ContextMenuSurface::TabSlot(SessionToken(3)), true, false);
+        assert!(
+            !m.rows().iter().any(|r| matches!(
+                r,
+                ContextMenuRow::Item {
+                    label: "Move to Next Workspace",
+                    ..
+                }
+            )),
+            "single-workspace tab menu must not offer the move row"
+        );
+    }
+
+    #[test]
+    fn move_to_workspace_row_shown_and_bracketed_with_multiple_workspaces() {
+        // ODP-7: with >1 workspace the move row appears between the close group
+        // and New Window, each in its own section (separators bracket it).
+        let m = open_surface_ws(ContextMenuSurface::TabSlot(SessionToken(3)), true, true);
+        let rows = m.rows();
+        assert_eq!(
+            rows,
+            vec![
+                item("New Tab", true, true),
+                item("Rename Tab", false, true),
+                ContextMenuRow::Separator,
+                item("Close Tab", false, true),
+                item("Close Other Tabs", false, true),
+                ContextMenuRow::Separator,
+                item("Move to Next Workspace", false, true),
+                ContextMenuRow::Separator,
+                item("New Window", false, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn move_to_workspace_row_never_on_the_content_menu() {
+        // The move item is tab-scoped: even with multiple workspaces, the grid
+        // menu never shows it.
+        let m = open_surface_ws(ContextMenuSurface::Content, true, true);
+        assert!(
+            !m.rows().iter().any(|r| matches!(
+                r,
+                ContextMenuRow::Item {
+                    label: "Move to Next Workspace",
+                    ..
+                }
+            )),
+            "content menu must not offer the move row"
+        );
     }
 
     #[test]

@@ -254,3 +254,77 @@ fn palette_rename_workspace_row_opens_the_overlay() {
     app.commit_rename_for_test("app");
     assert_eq!(app.workspace_names_for_test(), vec!["app".to_owned()]);
 }
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn move_tab_to_next_workspace_splices_without_switching() {
+    let (mut app, _event_loop) = app_or_skip!();
+    // ws0 gets a second tab; ws1 is created (and becomes active), then we go
+    // back to ws0 so the move is from the active workspace.
+    app.new_tab_for_test();
+    assert_eq!(app.active_workspace_tab_count_for_test(), 2);
+    app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
+    assert_eq!(app.active_workspace_index_for_test(), 1);
+    app.handle_palette_action_for_test("workspace-switch-0");
+    assert_eq!(app.active_workspace_index_for_test(), 0);
+    assert_eq!(app.active_workspace_tab_count_for_test(), 2);
+
+    // Move the active tab of ws0 to the next workspace (ws1).
+    let token = app.active_session_token_for_test();
+    app.move_tab_to_next_workspace_for_test(token);
+
+    // v1: the active workspace does not follow the tab.
+    assert_eq!(app.active_workspace_index_for_test(), 0);
+    assert_eq!(
+        app.active_workspace_tab_count_for_test(),
+        1,
+        "ws0 lost a tab"
+    );
+    // ws1 gained it (it had one tab, now two).
+    app.handle_palette_action_for_test("workspace-switch-1");
+    assert_eq!(
+        app.active_workspace_tab_count_for_test(),
+        2,
+        "ws1 gained a tab"
+    );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn moving_the_last_tab_out_closes_the_source_workspace_app() {
+    let (mut app, _event_loop) = app_or_skip!();
+    // Two single-tab workspaces; active is ws1 after creation.
+    app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
+    assert_eq!(app.workspace_count_for_test(), 2);
+    assert_eq!(app.active_workspace_index_for_test(), 1);
+
+    // Moving ws1's only tab out empties and closes ws1 (ODP-3).
+    let token = app.active_session_token_for_test();
+    app.move_tab_to_next_workspace_for_test(token);
+    assert_eq!(app.workspace_count_for_test(), 1, "emptied source closed");
+    assert!(
+        !app.pending_exit_for_test(),
+        "a surviving workspace remains"
+    );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn move_tab_is_a_noop_with_a_single_workspace() {
+    let (mut app, _event_loop) = app_or_skip!();
+    assert_eq!(app.workspace_count_for_test(), 1);
+    let token = app.active_session_token_for_test();
+    app.move_tab_to_next_workspace_for_test(token);
+    // Nothing moved: still one workspace, one tab.
+    assert_eq!(app.workspace_count_for_test(), 1);
+    assert_eq!(app.active_workspace_tab_count_for_test(), 1);
+}

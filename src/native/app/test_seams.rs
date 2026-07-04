@@ -1380,6 +1380,28 @@ impl App {
         self.sessions.workspace_names()
     }
 
+    /// The tab count of the ACTIVE workspace (the tab strip's length).
+    #[cfg(test)]
+    pub(in crate::native) fn active_workspace_tab_count_for_test(&self) -> usize {
+        self.sessions.tab_count()
+    }
+
+    /// Open a fresh tab in the active workspace (the production `New Tab` path).
+    #[cfg(test)]
+    pub(in crate::native) fn new_tab_for_test(&mut self) {
+        self.handle_new_tab();
+    }
+
+    /// Move the tab holding `token` to the next workspace (ODP-7), driving the
+    /// same App handler the "Move to Next Workspace" menu item dispatches.
+    #[cfg(test)]
+    pub(in crate::native) fn move_tab_to_next_workspace_for_test(
+        &mut self,
+        token: crate::native::session::SessionToken,
+    ) {
+        self.move_tab_to_next_workspace(token);
+    }
+
     /// Drive the workspace `BindableAction`s exactly as the key-dispatch match
     /// arms do, so a test exercises the real handler wiring (W3).
     #[cfg(test)]
