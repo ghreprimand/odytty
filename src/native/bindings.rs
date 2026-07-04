@@ -118,6 +118,30 @@ impl PrefixEngine {
         self.pending_since = None;
     }
 
+    /// Drop a pending prefix whose timeout has elapsed by `now`, returning `true`
+    /// when one was cleared. Called from the event loop's about-to-wait
+    /// maintenance so a prefix that times out with no follow-up key is forgotten
+    /// on the timer instead of lingering until the next keypress.
+    ///
+    /// Without this, `pending_deadline()` keeps reporting a boundary that has
+    /// already passed: the loop schedules `WaitUntil(that boundary)`, wakes to
+    /// find it in the past, re-reads the same still-pending deadline, and
+    /// re-arms `WaitUntil(past)` — a 0-timeout poll that returns immediately
+    /// every iteration, busy-spinning a core (frozen `voluntary_ctxt_switches`)
+    /// until the next key or focus loss clears the prefix. Mirrors the timeout
+    /// check in [`Self::on_chord`] so the timer and the next-key paths agree on
+    /// when a prefix is stale (using `>=` here so the boundary the loop was woken
+    /// at is treated as expired in that same pass, never re-armed).
+    pub(super) fn expire_pending(&mut self, now: Instant) -> bool {
+        if let Some(since) = self.pending_since
+            && now.duration_since(since) >= self.timeout
+        {
+            self.pending_since = None;
+            return true;
+        }
+        false
+    }
+
     /// The literal bytes to forward to the PTY for the doubled-prefix passthrough
     /// (K3). For a `Ctrl+<letter>` prefix this is the corresponding C0 control
     /// byte (`Ctrl-b` → `0x02`); empty for prefixes with no single-byte literal.
@@ -1111,6 +1135,34 @@ mod tests {
         let later = start + PREFIX_TIMEOUT + Duration::from_millis(1);
         assert_eq!(engine.on_chord(ctrl_b(), later), PrefixOutcome::Entered);
         assert!(engine.is_pending());
+    }
+
+    #[test]
+    fn expire_pending_clears_a_timed_out_prefix_on_the_timer() {
+        let mut engine = engine_ctrl_b();
+        let start = Instant::now();
+        assert_eq!(engine.on_chord(ctrl_b(), start), PrefixOutcome::Entered);
+        assert!(engine.is_pending());
+        // Before the timeout: nothing to expire, still pending.
+        let mid = start + PREFIX_TIMEOUT / 2;
+        assert!(!engine.expire_pending(mid), "not yet timed out");
+        assert!(engine.is_pending());
+        // At the timeout boundary — the instant the loop is woken at — it clears,
+        // so the recomputed wait deadline is never a stale past instant.
+        let at = start + PREFIX_TIMEOUT;
+        assert!(engine.expire_pending(at), "cleared at the boundary");
+        assert!(!engine.is_pending());
+        assert_eq!(engine.pending_deadline(), None);
+        // Idempotent: a second pass with nothing pending is a no-op.
+        assert!(!engine.expire_pending(at + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn expire_pending_is_a_noop_when_not_pending() {
+        let mut engine = engine_ctrl_b();
+        let now = Instant::now();
+        assert!(!engine.expire_pending(now));
+        assert!(!engine.is_pending());
     }
 
     #[test]

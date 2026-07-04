@@ -2372,38 +2372,51 @@ impl App {
         self.gpu.as_ref().map(GpuState::scale).unwrap_or(1.0)
     }
 
-    /// Whether a raw pointer x is inside the reveal **trigger** zone (within
-    /// `tab_rail_reveal_px` of the rail's window edge). Left: `x ≤ N`; right:
-    /// `x ≥ width − N`. `tab_rail_reveal_px` is a **logical**-pixel width, scaled
-    /// to physical px here so the zone is a consistent physical size across
-    /// displays — a physical-px zone shrinks under fractional/HiDPI scaling
-    /// (e.g. a 4px zone becomes ~2.7px at 1.5× scale), which made the rail
-    /// unreachably hard to summon on scaled compositors.
-    fn pointer_in_reveal_edge(&self, px_x: f64, side: RailSide) -> bool {
-        let reveal_px = self.settings.tab_rail_reveal_px as f64 * self.effective_scale() as f64;
-        match side {
-            RailSide::Left => px_x <= reveal_px,
-            RailSide::Right => {
-                let surface_w = self
-                    .gpu
-                    .as_ref()
-                    .map(|gpu| gpu.surface_size().0 as f64)
-                    .unwrap_or(0.0);
-                px_x >= surface_w - reveal_px
-            }
-        }
+    /// The physical-pixel window padding (uniform), 0 before the GPU exists.
+    /// The reveal-zone geometry is padding-aware so the trigger band reaches
+    /// past the empty padding margin into visible content.
+    fn window_pad_px(&self) -> f64 {
+        self.gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO)
+            .as_f32() as f64
     }
 
-    /// Whether a raw pointer x is inside the reveal **keep-alive** band — from
-    /// the window edge through the overlay band to the seam (⊇ the trigger
-    /// zone). Left: `x < seam_x`; right: `x > seam_x`. Used to hold the rail up
-    /// while the pointer is anywhere over it.
+    /// The physical surface width in px, 0 before the GPU exists.
+    fn surface_w_px(&self) -> f64 {
+        self.gpu
+            .as_ref()
+            .map(|gpu| gpu.surface_size().0 as f64)
+            .unwrap_or(0.0)
+    }
+
+    /// The reveal trigger-zone reach (physical px) inward from the rail's window
+    /// edge: the window padding plus the scaled `tab_rail_reveal_px`.
+    fn reveal_reach_px(&self) -> f64 {
+        let reveal_px = self.settings.tab_rail_reveal_px as f64 * self.effective_scale() as f64;
+        self.window_pad_px() + reveal_px
+    }
+
+    /// Whether a raw pointer x is inside the reveal **trigger** zone — an
+    /// **interior** band measured from the rail's window edge inward by the
+    /// window padding PLUS `tab_rail_reveal_px` (see [`reveal_edge_contains`]).
+    fn pointer_in_reveal_edge(&self, px_x: f64, side: RailSide) -> bool {
+        reveal_edge_contains(side, px_x, self.reveal_reach_px(), self.surface_w_px())
+    }
+
+    /// Whether a raw pointer x is inside the reveal **keep-alive** region — the
+    /// UNION of the trigger zone and the drawn overlay band, so the rail holds
+    /// while the pointer is anywhere over either (see [`reveal_band_contains`]).
     fn pointer_in_reveal_band(&self, px_x: f64, cell: CellSize, side: RailSide) -> bool {
         let seam_x = self.rail_overlay_seam_x(cell, side) as f64;
-        match side {
-            RailSide::Left => px_x < seam_x,
-            RailSide::Right => px_x > seam_x,
-        }
+        reveal_band_contains(
+            side,
+            px_x,
+            seam_x,
+            self.reveal_reach_px(),
+            self.surface_w_px(),
+        )
     }
 
     /// Reveal the auto-hidden rail for a flash after a keyboard tab action
@@ -3300,6 +3313,16 @@ impl App {
             window.request_redraw();
         }
 
+        // §7 multiplexer prefix: forget a pending prefix that has timed out.
+        // `pending_deadline()` is a `next_wake_deadline` source, so a prefix left
+        // pending after its timeout would keep the loop scheduling
+        // `WaitUntil(<past instant>)` — a 0-timeout poll that returns immediately
+        // every iteration and busy-spins a core — until the next key or focus
+        // loss cleared it. Expiring it here on the timer (the same instant the
+        // loop is woken at) breaks that spin. No repaint: the pending state has
+        // no frame-path affordance yet; if one ships, request a redraw here.
+        self.prefix_engine.expire_pending(now);
+
         // BLACK-SCREEN-ON-RESTORE: a due skipped-frame retry. Clear the pending
         // deadline and request a redraw so the next `RedrawRequested` re-attempts
         // the frame; if it skips again (and the guards still allow it) the
@@ -4147,6 +4170,48 @@ fn rail_width_cols_from_pointer(
     raw.round().clamp(min as f32, max as f32) as u16
 }
 
+/// F4-P3 reveal-zone regression: whether a raw physical pointer x is inside the
+/// auto-hide reveal **trigger** zone — an interior band from the rail's window
+/// edge inward by `reach` (= window padding + the scaled `tab_rail_reveal_px`).
+/// Left: `x ≤ reach`; right: `x ≥ surface_w − reach`.
+///
+/// Padding-aware by construction: a zone that stopped at the bare surface edge
+/// (`[0, reveal_px]`) sat *behind* the window's empty padding margin, so it was
+/// only reachable by shoving the pointer into the extreme corner — the reported
+/// "only reveals when the pointer leaves the window". Including the padding in
+/// `reach` extends the zone through the margin and `reveal_px` into visible
+/// content, reachable well before the pointer leaves. Pure so the geometry is
+/// unit-tested with real padding without a GPU/window.
+fn reveal_edge_contains(side: RailSide, px_x: f64, reach: f64, surface_w: f64) -> bool {
+    match side {
+        RailSide::Left => px_x <= reach,
+        RailSide::Right => px_x >= surface_w - reach,
+    }
+}
+
+/// F4-P3: whether a raw physical pointer x is inside the reveal **keep-alive**
+/// region — the UNION of the trigger zone ([`reveal_edge_contains`]) and the
+/// drawn overlay band (window edge → content-facing `seam_x`). Hide grace
+/// begins only on leaving this union. Unioning the two explicitly (rather than
+/// assuming the band always contains the trigger zone) keeps the keep-alive
+/// correct even if a future width makes the band narrower than the padding-aware
+/// trigger. Left band: `x < seam_x`; right band: `x > seam_x`.
+fn reveal_band_contains(
+    side: RailSide,
+    px_x: f64,
+    seam_x: f64,
+    reach: f64,
+    surface_w: f64,
+) -> bool {
+    if reveal_edge_contains(side, px_x, reach, surface_w) {
+        return true;
+    }
+    match side {
+        RailSide::Left => px_x < seam_x,
+        RailSide::Right => px_x > seam_x,
+    }
+}
+
 /// Whether the first-run onboarding card should open at startup (ONBOARD).
 /// `env_override` forces it on (the `ODYTTY_ONBOARDING` escape hatch / CI).
 /// Otherwise it is a first launch iff the resolved `config_path` does not yet
@@ -4508,6 +4573,192 @@ mod tests {
             None,
             "a backgrounded window schedules no timer wake (zero-wake idle)"
         );
+    }
+
+    /// NF20 regression: a multiplexer prefix (default Ctrl+B) that is pressed and
+    /// then times out with no follow-up key must not busy-spin the event loop.
+    ///
+    /// `pending_deadline()` is a `next_wake_deadline` source, so a prefix left
+    /// pending past its timeout kept the loop scheduling `WaitUntil(<past>)` — a
+    /// 0-timeout poll that returns immediately every iteration and pins a core —
+    /// until the next key or focus loss cleared it. The about-to-wait maintenance
+    /// pass now expires the stale prefix on the timer, so the recomputed wait
+    /// deadline is never a past instant. Drives the real deadline arithmetic
+    /// (enter → wake at the boundary → maintenance → recompute); fails before the
+    /// maintenance-side expiry existed (the final assert saw a past deadline).
+    #[test]
+    fn timed_out_prefix_does_not_spin_the_event_loop() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        // Isolate the prefix as the only possible wake source: unfocused
+        // suppresses the config-reload poll, autohide is off (no rail wake), and
+        // nothing else is armed on a fresh idle app.
+        app.focused = false;
+        assert_eq!(
+            app.next_wake_deadline(),
+            None,
+            "idle app parks at zero wake"
+        );
+
+        // Press the multiplexer prefix at t0; it becomes pending and arms a
+        // timeout deadline the loop will wait on.
+        let t0 = Instant::now();
+        let prefix = app
+            .prefix_engine
+            .prefix()
+            .expect("the default pane prefix (Ctrl+B) is enabled");
+        app.prefix_engine.on_chord(prefix, t0);
+        assert!(app.prefix_engine.is_pending(), "prefix pending after entry");
+        let deadline = app
+            .prefix_engine
+            .pending_deadline()
+            .expect("a pending prefix arms a timeout boundary");
+        assert_eq!(
+            app.next_wake_deadline(),
+            Some(deadline),
+            "the pending prefix is the scheduled wake (a future boundary)"
+        );
+
+        // The loop wakes at/after the boundary and runs its maintenance pass.
+        // That pass MUST forget the timed-out prefix; otherwise the recomputed
+        // deadline is `deadline` again — now in the past — and the loop spins.
+        let woken = deadline + Duration::from_millis(1);
+        app.run_about_to_wait_maintenance_for_test(woken);
+        assert!(
+            !app.prefix_engine.is_pending(),
+            "the timed-out prefix is expired on the timer, not left pending"
+        );
+        match app.next_wake_deadline() {
+            None => {}
+            Some(next) => assert!(
+                next > woken,
+                "no past-instant wake survives the maintenance pass \
+                 (a deadline <= now re-arms WaitUntil(past) and busy-spins)"
+            ),
+        }
+    }
+
+    /// Reveal-zone regression (#1, padding-aware trigger): the trigger band is
+    /// measured from the window edge inward by `pad + reveal_px`, so a pointer
+    /// resting `reveal_px` into the *visible content* (just past the padding
+    /// margin) reveals — it is not stranded behind the padding.
+    #[test]
+    fn reveal_trigger_zone_is_padding_aware_interior_band() {
+        let pad = 12.0;
+        let reveal_px = 8.0;
+        let reach = pad + reveal_px; // 20
+        let surface_w = 1000.0;
+
+        // LEFT: content starts at x=pad(12). A pointer at x=15 (3px into visible
+        // content) must trigger; the old edge-only zone [0, 8] would have
+        // stranded it behind the padding.
+        assert!(reveal_edge_contains(RailSide::Left, 15.0, reach, surface_w));
+        assert!(reveal_edge_contains(RailSide::Left, 0.0, reach, surface_w));
+        assert!(reveal_edge_contains(RailSide::Left, 20.0, reach, surface_w));
+        assert!(!reveal_edge_contains(
+            RailSide::Left,
+            21.0,
+            reach,
+            surface_w
+        ));
+
+        // RIGHT: content ends at surface_w-pad(988). A pointer at x=985 (3px into
+        // visible content from the right) must trigger.
+        assert!(reveal_edge_contains(
+            RailSide::Right,
+            985.0,
+            reach,
+            surface_w
+        ));
+        assert!(reveal_edge_contains(
+            RailSide::Right,
+            surface_w,
+            reach,
+            surface_w
+        ));
+        assert!(reveal_edge_contains(
+            RailSide::Right,
+            surface_w - reach,
+            reach,
+            surface_w
+        ));
+        assert!(!reveal_edge_contains(
+            RailSide::Right,
+            surface_w - reach - 1.0,
+            reach,
+            surface_w
+        ));
+    }
+
+    /// Reveal-zone regression (#2, keep-alive = union): the keep-alive region is
+    /// the trigger zone UNIONED with the drawn band, so a pointer parked anywhere
+    /// over the revealed band (or in the padding-aware trigger zone) holds the
+    /// rail — hide grace begins only on leaving that union. This also pins the
+    /// union so a future band narrower than the trigger cannot leave a gap.
+    #[test]
+    fn reveal_keep_alive_is_the_union_of_trigger_and_band() {
+        let reach = 20.0;
+        let surface_w = 1000.0;
+
+        // LEFT band drawn out to seam_x=128. Mid-band (x=64) holds; the trigger
+        // zone (x=5) holds; past the seam (x=200) does not.
+        let seam_l = 128.0;
+        assert!(reveal_band_contains(
+            RailSide::Left,
+            64.0,
+            seam_l,
+            reach,
+            surface_w
+        ));
+        assert!(reveal_band_contains(
+            RailSide::Left,
+            5.0,
+            seam_l,
+            reach,
+            surface_w
+        ));
+        assert!(!reveal_band_contains(
+            RailSide::Left,
+            200.0,
+            seam_l,
+            reach,
+            surface_w
+        ));
+
+        // UNION guard: an artificially narrow band (seam at x=10, narrower than
+        // reach=20) still keeps alive across the whole trigger zone — the trigger
+        // fills the gap the thin band would otherwise leave.
+        let thin_seam = 10.0;
+        assert!(
+            reveal_band_contains(RailSide::Left, 15.0, thin_seam, reach, surface_w),
+            "trigger zone covers the gap a band narrower than the reach leaves"
+        );
+
+        // RIGHT band drawn from seam_x=872 rightward. Mid-band (x=936) holds; the
+        // right trigger zone (x=995) holds; left of the seam (x=800) does not.
+        let seam_r = 872.0;
+        assert!(reveal_band_contains(
+            RailSide::Right,
+            936.0,
+            seam_r,
+            reach,
+            surface_w
+        ));
+        assert!(reveal_band_contains(
+            RailSide::Right,
+            995.0,
+            seam_r,
+            reach,
+            surface_w
+        ));
+        assert!(!reveal_band_contains(
+            RailSide::Right,
+            800.0,
+            seam_r,
+            reach,
+            surface_w
+        ));
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]

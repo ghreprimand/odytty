@@ -7,6 +7,47 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Fix an event-loop busy-spin on a timed-out prefix; reveal-zone reach
+
+**Busy-spin on a stale multiplexer prefix.** Pressing the pane multiplexer
+prefix (default Ctrl+B) and then not pressing a follow-up key pinned a CPU core
+until the next keystroke or focus loss. The prefix arms a 2-second timeout whose
+deadline feeds the event loop's wait scheduler, but the pending prefix was only
+ever cleared on the *next* keypress — never on the timer. Once the timeout
+elapsed with no further key, the scheduler kept waking on a boundary already in
+the past, immediately re-arming a zero-timeout wait every iteration: a tight
+loop that never blocks (voluntary context switches freeze while the process
+churns user time). The about-to-wait maintenance pass now expires a timed-out
+prefix on the timer, at the same instant the loop is woken, so the recomputed
+wait deadline is never a stale past instant. An integration test drives the real
+enter → wake → maintenance → recompute path and asserts no past-instant wake
+survives; it fails without the timer-side expiry.
+
+This was independent of the tab rail — the earlier auto-hide CPU investigation
+correctly found the rail state machine schedules no self-wake at rest; the spin
+was a separate, pre-existing prefix-timeout gap surfaced under the same session.
+
+**Reveal zone reaches into visible content.** The auto-hide rail's reveal
+trigger sat within a few pixels of the bare window edge, *behind* the window's
+padding margin, so it was reachable only by shoving the pointer into the extreme
+corner — it felt like the rail revealed only when the pointer left the window,
+and would not always stay up while the pointer hovered near it. The trigger zone
+is now an interior band measured from the window edge inward by the window
+padding **plus** the reveal width, so it extends through the empty margin and
+into visible content, reachable well before the pointer leaves. The keep-alive
+region is now the explicit union of that trigger zone and the drawn overlay band,
+so the rail holds while the pointer is anywhere over either and begins its hide
+grace only on leaving the union — pinned so a future narrower band cannot leave
+a gap. The geometry is factored into pure, padding-injectable functions and
+unit-tested with real padding for both left and right rails.
+
+**Top placement + auto-hide.** Auto-hide applies to side-rail placements only;
+with tabs on top it has no effect (the top bar is governed by "Always show tab
+bar"). The setting's in-app description now states this explicitly and drops a
+stale note that claimed reveal was not yet implemented.
+
+---
+
 ## 2026-07-03 -- Auto-hide: side rail no longer leaks a phantom top bar
 
 Enabling rail auto-hide on a **left or right** placement drew a one-row tab bar

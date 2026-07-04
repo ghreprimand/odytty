@@ -541,7 +541,7 @@ impl Settings {
                 env: TAB_RAIL_AUTOHIDE_ENV,
                 name: "Rail auto-hide",
                 value: bool_display(self.tab_rail_autohide).to_owned(),
-                description: "When on, the vertical rail hides and reveals on a hover at the window edge. Off by default. Rail placements only. (Reveal behavior arrives in a later update.)",
+                description: "When on, the vertical rail stays hidden until the pointer reaches the window edge, then reveals as a floating overlay (no content reflow). Rail placements only — no effect when tabs are placed on top; use \"Always show tab bar\" for the top bar. Off by default.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],
