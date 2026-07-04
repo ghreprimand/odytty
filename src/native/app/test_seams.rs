@@ -904,6 +904,57 @@ impl App {
         self.synchronized_output_hold.should_hold(true, now);
     }
 
+    /// Test seam (NF21-1): mirror the render handler's synchronized-output
+    /// resolution — the hold is re-evaluated against the terminal's live DECSET
+    /// 2026 state on every requested rebuild, self-releasing a stale hold whose
+    /// batch has ended. A maintenance-only test harness never drives the render
+    /// path, so the strict-invariant split regression calls this to model that
+    /// one render pass (the cursor timers park in maintenance; the hold releases
+    /// here, exactly as production splits the two).
+    #[cfg(test)]
+    pub(in crate::native) fn resolve_synchronized_output_hold_for_test(
+        &mut self,
+        now: std::time::Instant,
+    ) {
+        let enabled = self
+            .terminal
+            .lock()
+            .map(|terminal| terminal.synchronized_output_enabled())
+            .unwrap_or(false);
+        let _ = self.synchronized_output_hold.should_hold(enabled, now);
+    }
+
+    /// Test seam (NF21-7): the render gate's rebuild decision — `self.needs_rebuild`
+    /// (the focused pane) ORed, when multi-pane, with any visible pane of the
+    /// active tab. Lets the split-pane regression assert output into a
+    /// non-focused pane drives a rebuild without a GPU.
+    #[cfg(test)]
+    pub(in crate::native) fn should_rebuild_frame_for_test(&self) -> bool {
+        self.should_rebuild_frame()
+    }
+
+    /// Test seam (NF21-7): clear `needs_rebuild` on every visible pane of the
+    /// active tab (the production multipane-rebuild sweep), so a split-pane test
+    /// can establish an idle (gate-closed) baseline.
+    #[cfg(test)]
+    pub(in crate::native) fn clear_visible_pane_rebuild_flags_for_test(&mut self) {
+        self.sessions.clear_visible_pane_rebuild_flags();
+    }
+
+    /// Test seam (NF21-7): a specific pane's `needs_rebuild` flag by token
+    /// (pane-level, unlike the tab-indexed `session_needs_rebuild_for_test`),
+    /// so a split-pane test can assert output marked the producing background
+    /// pane dirty.
+    #[cfg(test)]
+    pub(in crate::native) fn pane_needs_rebuild_for_test(
+        &self,
+        token: crate::native::session::SessionToken,
+    ) -> Option<bool> {
+        self.sessions
+            .get(token)
+            .map(|session| session.needs_rebuild)
+    }
+
     /// Test seam (F4-V2): the reserved `(rows_off_top, cols_off_side)` for the
     /// current placement.
     #[cfg(test)]

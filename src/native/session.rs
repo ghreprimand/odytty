@@ -369,17 +369,18 @@ impl Session {
             .unwrap_or_else(|| "odytty".to_owned());
     }
 
-    /// Settle every cursor-animation / render-hold timer to its at-rest identity,
-    /// with no scheduled wake. Called on a session that is not the active pane
-    /// (NF20-B): a background pane is never rendered, so any live blink /
-    /// ease / slide / synchronized-output-hold deadline it holds would be a wake
-    /// source with **no** consumer — the loop would schedule `WaitUntil` on a
-    /// boundary that never advances and busy-spin. Idempotent (parking an
-    /// already-parked session is a no-op); every animation re-arms naturally from
-    /// the current frame time when the pane is activated and rendered again.
-    pub(super) fn park_animation_timers(&mut self) {
+    /// Settle the cursor-animation timers — blink phase, ID1 easing fade, VE4
+    /// slide — to their at-rest identity with no scheduled wake. These are the
+    /// timers whose ONLY consumer is the render path's per-frame poll
+    /// (`cursor_blink.poll` / `update_cursor_easing` / `update_cursor_motion`),
+    /// so a pane with no render consumer strands their past toggle deadline in
+    /// the wake set and busy-spins. Two panes lack that consumer: a background
+    /// pane (never rendered, NF20-B) and the focused pane of a MULTI-pane tab
+    /// (`rebuild_multipane` advances no cursor timer, NF21-1). Idempotent;
+    /// every animation re-arms from the current frame time when the pane is
+    /// next rendered on the single-pane path.
+    pub(super) fn park_cursor_timers(&mut self) {
         self.cursor_blink.park();
-        self.synchronized_output_hold.clear();
         self.cursor_anim_alpha = 1.0;
         self.cursor_ease_deadline = None;
         self.cursor_ease_phase_on = true;
@@ -388,6 +389,20 @@ impl Session {
         self.cursor_slide_deadline = None;
         self.cursor_slide_start = None;
         self.cursor_slide_from_px = [0.0, 0.0];
+    }
+
+    /// Settle every timer of a never-rendered (background) pane: the cursor
+    /// timers above PLUS the synchronized-output hold. A background pane is
+    /// never rendered, so none of these has a consumer (NF20-B). The
+    /// synchronized-output hold is parked ONLY here: unlike the cursor timers it
+    /// is consumed by `should_hold` in the render branch (which runs before the
+    /// single/multi split) and its 150 ms deadline is the crash-protection
+    /// watchdog that auto-releases a frozen display — so the focused pane of a
+    /// multi-pane tab keeps its hold live (parking it would defeat the watchdog)
+    /// and parks only its cursor timers.
+    pub(super) fn park_animation_timers(&mut self) {
+        self.park_cursor_timers();
+        self.synchronized_output_hold.clear();
     }
 
     /// Clear every piece of UI state whose coordinates are tied to the row /
@@ -685,19 +700,67 @@ impl TabSet {
         self.active_focused_token()
     }
 
-    /// Park the cursor-animation / render-hold timers of every pane that is not
-    /// the active (rendered) one (NF20-B). The active pane keeps its live timers;
-    /// its consumer (the frame path + about-to-wait maintenance, both operating
-    /// on the `Deref` active session) advances them. Background panes get no such
-    /// consumer, so their timers are settled here to keep them out of the wake
-    /// set — the fan-out of the deadline sources in `next_wake_deadline` is thus
-    /// matched by a consumer of equal reach. Idempotent; cheap (few panes).
+    /// Park the animation / render-hold timers of every pane that has no render
+    /// consumer this frame, matching the fan-out of the `next_wake_deadline`
+    /// sources with a consumer of equal reach (NF20-B / NF21-1).
+    ///
+    /// - Every pane of an inactive tab, and every non-focused pane of the active
+    ///   tab, is never rendered → fully parked (`park_animation_timers`).
+    /// - The focused pane of a **single-pane** active tab keeps ALL its timers:
+    ///   the single-pane frame path polls its blink/ease/slide each rebuild and
+    ///   `should_hold` consumes its render hold.
+    /// - The focused pane of a **multi-pane** active tab renders through
+    ///   `rebuild_multipane`, which advances no cursor timer, so its blink /
+    ///   ease / slide would strand a past deadline and spin (NF21-1). Park just
+    ///   those (`park_cursor_timers`); its synchronized-output hold stays live
+    ///   (still consumed by `should_hold`; its deadline is the crash watchdog).
+    ///
+    /// Idempotent; cheap (few panes).
     pub(super) fn park_background_timers(&mut self) {
         let active = self.active_focused_token();
+        let active_multipane = !self.active_is_single_pane();
         for (token, session) in self.sessions.iter_mut() {
             if *token != active {
                 session.park_animation_timers();
+            } else if active_multipane {
+                session.park_cursor_timers();
             }
+        }
+    }
+
+    /// True when any currently visible pane of the active tab has its
+    /// `needs_rebuild` flag set. The render gate ORs this across the whole tab so
+    /// output streaming into a non-focused split pane repaints even while the
+    /// focused pane is idle (NF21-7) — `self.needs_rebuild` alone is the focused
+    /// pane's flag (the `Deref` target). For a single-pane tab this is exactly
+    /// the focused pane's flag, so the single-pane gate decision is unchanged.
+    pub(super) fn any_visible_pane_needs_rebuild(&self) -> bool {
+        self.active_visible_tokens()
+            .into_iter()
+            .any(|token| self.sessions.get(&token).is_some_and(|s| s.needs_rebuild))
+    }
+
+    /// Clear `needs_rebuild` on every visible pane of the active tab. Paired with
+    /// [`Self::any_visible_pane_needs_rebuild`]: `rebuild_multipane` snapshots
+    /// every visible pane, so it must clear every visible pane's flag — clearing
+    /// only the focused pane's would leave a dirtied background pane's flag set
+    /// and re-open the (now tab-wide) gate every frame, a rebuild storm (NF21-7).
+    pub(super) fn clear_visible_pane_rebuild_flags(&mut self) {
+        for token in self.active_visible_tokens() {
+            if let Some(session) = self.sessions.get_mut(&token) {
+                session.needs_rebuild = false;
+            }
+        }
+    }
+
+    /// The tokens of the panes currently on screen for the active tab: just the
+    /// focused pane while zoomed (only it is rendered), otherwise every leaf of
+    /// the active tab's layout. Mirrors [`Self::is_visible_pane`]'s membership.
+    fn active_visible_tokens(&self) -> Vec<SessionToken> {
+        match self.tabs.get(self.active_tab) {
+            Some(tab) if tab.is_effectively_zoomed() => vec![tab.focused],
+            Some(tab) => tab.layout.leaves(),
+            None => Vec::new(),
         }
     }
 
@@ -2443,6 +2506,56 @@ mod tests {
         set.push(build_session_with_id(other_tab));
         assert!(!set.is_visible_pane(other_tab));
         assert!(set.is_visible_pane(SessionToken(0)));
+    }
+
+    #[test]
+    fn visible_pane_rebuild_flag_helpers_span_the_whole_active_tab() {
+        // NF21-7: the render gate ORs `needs_rebuild` across every visible pane
+        // of the active tab (not just the focused one), and the multi-pane
+        // rebuild clears every visible pane's flag. A dirtied NON-focused split
+        // pane must therefore be both SEEN by the OR and CLEARED by the sweep —
+        // otherwise its output freezes (gate never opens) or storms (flag never
+        // clears).
+        let mut set = TabSet::new(build_session(), None);
+        let sibling =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        // A second, non-visible tab whose flag must be ignored by both helpers.
+        let other_tab = SessionToken(2);
+        set.push(build_session_with_id(other_tab));
+
+        set.get_mut(SessionToken(0)).expect("pane 0").needs_rebuild = false;
+        set.get_mut(sibling).expect("sibling").needs_rebuild = false;
+        set.get_mut(other_tab).expect("other tab").needs_rebuild = false;
+        assert!(
+            !set.any_visible_pane_needs_rebuild(),
+            "no visible pane dirty → gate stays closed"
+        );
+
+        // Output into the NON-focused visible pane (focus is on `sibling`).
+        set.get_mut(SessionToken(0)).expect("pane 0").needs_rebuild = true;
+        assert!(
+            set.any_visible_pane_needs_rebuild(),
+            "a dirtied non-focused visible pane opens the tab-wide gate"
+        );
+
+        // A dirty pane on an INACTIVE tab must not open the active tab's gate.
+        set.get_mut(SessionToken(0)).expect("pane 0").needs_rebuild = false;
+        set.get_mut(other_tab).expect("other tab").needs_rebuild = true;
+        assert!(
+            !set.any_visible_pane_needs_rebuild(),
+            "an off-tab pane's flag is not a visible-pane rebuild"
+        );
+
+        // The sweep clears every visible pane, leaving the off-tab flag alone.
+        set.get_mut(SessionToken(0)).expect("pane 0").needs_rebuild = true;
+        set.get_mut(sibling).expect("sibling").needs_rebuild = true;
+        set.clear_visible_pane_rebuild_flags();
+        assert!(!set.get(SessionToken(0)).expect("pane 0").needs_rebuild);
+        assert!(!set.get(sibling).expect("sibling").needs_rebuild);
+        assert!(
+            set.get(other_tab).expect("other tab").needs_rebuild,
+            "the sweep clears only the active tab's visible panes"
+        );
     }
 
     #[test]

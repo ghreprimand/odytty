@@ -3241,6 +3241,20 @@ impl App {
         }
     }
 
+    /// Whether this frame must rebuild geometry. `self.needs_rebuild` Derefs to
+    /// the FOCUSED pane's flag; single-pane that is the only visible pane, so the
+    /// decision is byte-identical to before. Multi-pane: OR the flag across every
+    /// visible pane of the active tab, so output streaming into a non-focused
+    /// split pane repaints even while the focused pane is idle — otherwise a
+    /// build in the other half of a split freezes until the user types into the
+    /// focused pane (NF21-7). Paired with `clear_visible_pane_rebuild_flags` in
+    /// the multi-pane rebuild branch, which must clear the same set.
+    fn should_rebuild_frame(&self) -> bool {
+        self.needs_rebuild
+            || (!self.sessions.active_is_single_pane()
+                && self.sessions.any_visible_pane_needs_rebuild())
+    }
+
     fn run_about_to_wait_maintenance(&mut self, now: Instant) {
         // NF20-B: settle the cursor-animation / render-hold timers of every
         // non-active pane. Background panes are never rendered, so their timers
@@ -3551,7 +3565,7 @@ impl ApplicationHandler<UserEvent> for App {
                 // Rebuild geometry at most once per redraw, no matter how many
                 // pump wakes coalesced into this frame. Snapshot under the lock,
                 // then drop it before touching the GPU.
-                if self.needs_rebuild {
+                if self.should_rebuild_frame() {
                     let now = Instant::now();
                     let synchronized_output = self
                         .terminal
@@ -3569,7 +3583,12 @@ impl ApplicationHandler<UserEvent> for App {
                         // The single-pane fast path below is never reached here,
                         // so it stays byte-identical.
                         self.rebuild_multipane();
-                        self.needs_rebuild = false;
+                        // Clear EVERY visible pane's flag, not just the focused
+                        // one (`self.needs_rebuild`): the widened gate above ORs
+                        // the flag across the tab, so leaving a dirtied background
+                        // pane's flag set would re-open the gate every frame — a
+                        // rebuild storm (NF21-7).
+                        self.sessions.clear_visible_pane_rebuild_flags();
                     } else {
                         let Some(cell) = self.gpu.as_ref().map(GpuState::cell) else {
                             return;

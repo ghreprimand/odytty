@@ -7,6 +7,48 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Fix a split-pane busy-spin and a paired background-pane freeze
+
+**Splitting a pane pinned a CPU core, and fixing that exposed a latent freeze.**
+The event-loop wake scheduler and the background-timer parking added for the
+earlier tab-switch spin both assume the render path advances the active pane's
+cursor timers each frame. That holds only for a single-pane tab: a multi-pane
+tab renders through a separate per-pane path that polls no cursor timer, and the
+parking pass exempted the focused pane. So the instant any tab was split, a
+blinking cursor's past toggle deadline stranded in the wake set with nothing to
+advance it — the loop re-armed a zero-timeout wait every iteration and spun,
+rebuilding the whole multi-pane frame each pass. A cursor caught mid-ease or
+mid-slide when the split happened had the same shape. This reproduces with the
+default configuration.
+
+The parking pass now settles the focused pane's cursor timers too whenever the
+active tab is multi-pane — its blink, ease, and slide have no consumer there.
+The synchronized-output hold is deliberately left live: unlike the cursor timers
+it is consumed before the render branch splits, and its 150 ms deadline is the
+crash-protection watchdog that auto-releases a frozen display, so parking it
+would defeat that.
+
+**Paired freeze, previously masked by the spin:** the frame-rebuild gate reads
+the focused pane's dirty flag, but PTY output for a non-focused yet visible split
+pane marks *that* pane's flag. While the spin rebuilt every frame the gap was
+invisible; with the spin gone, output streaming into the other half of a split
+would freeze until the user typed into the focused pane. The gate now ORs the
+rebuild flag across every visible pane of the active tab, and the multi-pane
+rebuild clears every visible pane's flag it snapshots — clearing only the
+focused one would re-open the now-tab-wide gate every frame, a rebuild storm. A
+single-pane tab has exactly one visible pane, so its gate decision is byte
+identical.
+
+Regression coverage drives a real split arming all three per-session timer types
+and asserts the strict invariant — after maintenance the next scheduled wake is
+absent or strictly in the future, never a stale past instant — plus a paired
+test routing output into a background split pane that asserts the gate requests a
+rebuild while the focused pane stays clean, and a unit test of the tab-wide
+dirty-flag helpers. Full suite green; clippy (`-D warnings`) and rustfmt clean;
+MSRV unchanged. Platform-neutral — no Windows-specific surface.
+
+---
+
 ## 2026-07-04 -- Clear layout-dependent UI state on every tab after a resize
 
 **A window resize left background tabs with stale selection/copy coordinates.**

@@ -178,6 +178,124 @@ fn backgrounded_session_blink_does_not_spin_the_event_loop() {
 }
 
 #[test]
+fn splitting_a_pane_does_not_spin_from_the_focused_panes_timers() {
+    // NF21-1 regression (default-config busy-spin the instant any tab is split).
+    // NF20-B narrowed the wake SOURCES to the active pane and parked BACKGROUND
+    // panes, both assuming the render path advances the active pane's blink /
+    // ease / slide. That holds only single-pane: a multi-pane active tab renders
+    // through `rebuild_multipane`, which polls no cursor timer, and
+    // `park_background_timers` exempted the FOCUSED pane — so a blinking cursor's
+    // past `next_toggle` stranded in the wake set and `WaitUntil(<past>)` spun a
+    // core (plus a full multipane rebuild per iteration). The fix parks the
+    // focused pane's CURSOR timers too while the active tab is multi-pane (its
+    // synchronized-output hold stays live — that deadline is the crash
+    // watchdog, released via the render path, modeled here by
+    // `resolve_synchronized_output_hold_for_test`). Extends the NF20-B strict
+    // invariant to a SPLIT tab arming all three timer types.
+    let Some((mut app, _bytes)) = single_session_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal, writer, pty, _b)) = recorded_session(NativeOptions::default().initial_grid)
+    else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    // Split the single pane; focus lands on the NEW pane, so the active tab is
+    // now multi-pane and the focused pane is exactly the strand NF20-B misses.
+    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    assert_eq!(app.active_pane_count_for_test(), 2);
+
+    // Arm all three per-session timer sources on the (multi-pane) FOCUSED pane.
+    let t0 = Instant::now();
+    app.arm_active_cursor_blink_for_test(t0); // toggle t0+530ms
+    app.arm_active_cursor_anim_for_test(t0); // ease t0+200ms, slide t0+150ms
+    app.arm_active_sync_hold_for_test(t0); // hold t0+150ms
+    assert!(
+        app.next_wake_deadline_for_test()
+            .is_some_and(|d| d <= t0 + Duration::from_millis(530)),
+        "an armed focused pane schedules a near-future wake"
+    );
+
+    // Well past every boundary, drive the maintenance pass + the render-path
+    // sync-hold resolution the loop runs each iteration. The focused pane's
+    // cursor timers must be parked (no consumer in multipane) and its hold
+    // released — the next wake must be None or STRICTLY in the future.
+    let later = t0 + Duration::from_secs(5);
+    app.run_about_to_wait_maintenance_for_test(later);
+    app.resolve_synchronized_output_hold_for_test(later);
+    match app.next_wake_deadline_for_test() {
+        None => {}
+        Some(next) => assert!(
+            next > later,
+            "the focused pane of a split tab must not strand a past wake \
+             (was {:?} past now)",
+            later.saturating_duration_since(next)
+        ),
+    }
+}
+
+#[test]
+fn output_into_a_background_split_pane_drives_a_rebuild() {
+    // NF21-7 regression (paired with NF21-1; its spin masked this until fixed).
+    // `App` has no own `needs_rebuild` — `self.needs_rebuild` Derefs to the
+    // FOCUSED pane. PTY output for a non-focused but visible split pane sets THAT
+    // pane's flag and requests a redraw, but the frame gate read only the focused
+    // pane's flag, so a build streaming into the other half of a split never
+    // repainted until the user typed into the focused pane. The gate now ORs the
+    // rebuild flag across every visible pane of the active tab.
+    let Some((mut app, _bytes)) = single_session_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal, writer, pty, _b)) = recorded_session(NativeOptions::default().initial_grid)
+    else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // The sole pane's token, captured before the split makes it the background.
+    let background = app.active_session_token_for_test();
+    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    assert_eq!(app.active_pane_count_for_test(), 2);
+    // Focus moved to the new pane, so `background` is now a visible-but-NOT-
+    // focused pane of the split tab.
+    assert_ne!(
+        background,
+        app.active_session_token_for_test(),
+        "focus lands on the new pane, leaving the original as the background pane"
+    );
+
+    // Settle every visible pane (both start dirty at construction): gate closed.
+    app.clear_visible_pane_rebuild_flags_for_test();
+    assert!(
+        !app.should_rebuild_frame_for_test(),
+        "an idle split tab does not request a rebuild"
+    );
+
+    // Route real PTY output to the background pane through the production redraw
+    // event. It marks THAT pane dirty (not the focused one) and requests a wake.
+    let should_exit = app.dispatch_user_event_for_test(UserEvent::Redraw {
+        session: background,
+    });
+    assert!(!should_exit);
+    assert_eq!(
+        app.pane_needs_rebuild_for_test(background),
+        Some(true),
+        "output marks the producing (background) pane dirty"
+    );
+    assert_eq!(
+        app.pane_needs_rebuild_for_test(app.active_session_token_for_test()),
+        Some(false),
+        "the focused pane stays clean — its flag alone would keep the gate shut"
+    );
+    assert!(
+        app.should_rebuild_frame_for_test(),
+        "output into a background visible pane must drive a frame rebuild"
+    );
+}
+
+#[test]
 fn input_routes_to_the_active_session_writer_after_switch() {
     let Some((mut app, fixtures)) = app_with_two_sessions() else {
         eprintln!("skipping: no PTY available");
