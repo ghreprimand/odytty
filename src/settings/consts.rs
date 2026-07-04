@@ -658,9 +658,12 @@ pub const DEFAULT_TAB_RAIL_AUTOHIDE: bool = false;
 /// an auto-hidden rail. Logical (scaled by the display scale factor at the
 /// comparison site) so the zone is a consistent physical size across displays —
 /// a physical-px zone shrinks under fractional/HiDPI scaling and the rail
-/// became unreachably thin. Default raised to 8 so the zone is comfortably
-/// reachable by pointing at the edge.
-pub const DEFAULT_TAB_RAIL_REVEAL_PX: f32 = 8.0;
+/// became unreachably thin. Default raised to 16: at 8 the trigger band was too
+/// thin to catch a normal-speed approach (a fast pointer's samples skip over it
+/// unless it clamps at a screen edge), so the rail felt like it needed the
+/// pointer shoved hard into the corner. 16 logical px is a comfortable target
+/// while still well short of incidental content-area contact.
+pub const DEFAULT_TAB_RAIL_REVEAL_PX: f32 = 16.0;
 pub const MIN_TAB_RAIL_REVEAL_PX: f32 = 1.0;
 pub const MAX_TAB_RAIL_REVEAL_PX: f32 = 32.0;
 

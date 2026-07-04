@@ -70,7 +70,7 @@ tab_seam = on
 # is the width (logical px, scaled for HiDPI) of the window-edge zone that
 # triggers the reveal. Off by default.
 tab_rail_autohide = off
-tab_rail_reveal_px = 8
+tab_rail_reveal_px = 16
 
 # Background treatments. OdyTTY ships with the bundled "Dark Waves" background
 # on by default. To turn it OFF, use `background_treatment = color` (theme

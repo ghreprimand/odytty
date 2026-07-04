@@ -33,7 +33,10 @@ use std::time::{Duration, Instant};
 /// near a window pinned to a screen edge (tiling WMs), or skimming past on the
 /// way elsewhere — does not summon the rail ("too sensitive" / flicker report),
 /// but short enough that a deliberate push-to-edge still feels immediate.
-pub(super) const SHOW_DEBOUNCE: Duration = Duration::from_millis(120);
+/// Lowered from 120 ms after the reveal read as sluggish ("must push to the
+/// edge and wait"); the widened trigger zone + segment-crossing detection carry
+/// the sensitivity, so a shorter dwell no longer means incidental reveals.
+pub(super) const SHOW_DEBOUNCE: Duration = Duration::from_millis(80);
 /// Hide grace: after the pointer leaves the revealed band, the rail stays up
 /// this long before hiding (middle of the 300–1000ms convention range, errs
 /// toward snappy).
@@ -100,10 +103,25 @@ impl Default for RailAutohide {
 
 impl RailAutohide {
     /// Whether the rail overlay should be drawn (and hit-tested) at `now`:
-    /// pointer-revealed (including the hide-grace tail) OR flashing.
+    /// pointer-revealed (including the hide-grace tail) OR flashing. `Revealing`
+    /// is deliberately NOT visible: an armed-but-not-yet-elapsed debounce that
+    /// aborts must never have painted a frame (no half-flash on a skim past the
+    /// edge).
     pub(super) fn is_visible(&self, now: Instant) -> bool {
         let flashing = self.flash_until.is_some_and(|until| now < until);
         flashing || matches!(self.phase, Phase::Revealed | Phase::HideGrace(_))
+    }
+
+    /// The current phase as a short static label, for the `ODYTTY_RAIL_TRACE`
+    /// operator-runnable reveal trace (coordinates + phases only, never
+    /// content). Not part of the state machine's logic.
+    pub(super) fn phase_name(&self) -> &'static str {
+        match self.phase {
+            Phase::Hidden => "hidden",
+            Phase::Revealing(_) => "revealing",
+            Phase::Revealed => "revealed",
+            Phase::HideGrace(_) => "hidegrace",
+        }
     }
 
     /// Feed a fresh pointer sample. `in_edge` = pointer within the reveal

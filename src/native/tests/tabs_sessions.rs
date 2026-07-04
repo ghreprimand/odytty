@@ -895,7 +895,7 @@ fn reveal_edge_zone_is_the_window_edge_and_band_extends_to_the_seam() {
     app.set_tab_rail_width_manual_for_test(16); // band [0..128] (pad 0 headless)
     app.set_tab_rail_autohide_for_test(true);
 
-    // Default reveal_px = 8 (logical) at scale 1.0: x=2 is in the edge zone;
+    // Default reveal_px = 16 (logical) at scale 1.0: x=2 is in the edge zone;
     // x=40 (deep in the band) is not the trigger but IS the keep-alive band;
     // x=200 (past the seam) is neither.
     assert_eq!(app.reveal_contact_for_test(2.0), Some((true, true)));
@@ -915,8 +915,8 @@ fn reveal_edge_zone_is_the_window_edge_and_band_extends_to_the_seam() {
 fn reveal_zone_is_logical_px_scaled_for_hidpi() {
     // REGRESSION (trigger zone too thin on fractional/HiDPI): the reveal zone is
     // a LOGICAL-px width, scaled to the physical-px space winit reports pointer
-    // coordinates in. At scale 2.0 the default 8 logical px must trigger out to
-    // physical x=16 — with the old physical-px zone it would have stopped at x=4
+    // coordinates in. At scale 2.0 the default 16 logical px must trigger out to
+    // physical x=32 — with the old physical-px zone it would have stopped at x=8
     // and the rail would be unreachable on a scaled display.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
@@ -928,17 +928,17 @@ fn reveal_zone_is_logical_px_scaled_for_hidpi() {
     app.set_tab_rail_autohide_for_test(true);
     app.set_test_scale_for_test(2.0);
 
-    // Physical x=15 is within 8 logical px (16 physical) of the edge → triggers.
+    // Physical x=30 is within 16 logical px (32 physical) of the edge → triggers.
     assert_eq!(
-        app.reveal_contact_for_test(15.0).map(|(edge, _)| edge),
+        app.reveal_contact_for_test(30.0).map(|(edge, _)| edge),
         Some(true),
-        "8 logical px at 2x scale reaches physical x=15"
+        "16 logical px at 2x scale reaches physical x=30"
     );
-    // Physical x=20 is beyond the scaled zone → no trigger (still in the band).
+    // Physical x=40 is beyond the scaled zone → no trigger (still in the band).
     assert_eq!(
-        app.reveal_contact_for_test(20.0).map(|(edge, _)| edge),
+        app.reveal_contact_for_test(40.0).map(|(edge, _)| edge),
         Some(false),
-        "past 16 physical px the edge no longer triggers"
+        "past 32 physical px the edge no longer triggers"
     );
 }
 
@@ -962,7 +962,7 @@ fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
     app.set_test_scale_for_test(1.5);
     let pad = WindowPadding::from_logical(8.0, 1.5); // 12 physical px
     app.set_test_surface_for_test(1000, 800, pad);
-    // reach = pad(12) + reveal_px(8)*scale(1.5)=12 → 24. seam_x = 12 + 192 = 204.
+    // reach = pad(12) + reveal_px(16)*scale(1.5)=24 → 36. seam_x = 12 + 192 = 204.
 
     let t0 = std::time::Instant::now();
 
@@ -974,7 +974,7 @@ fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
         !app.rail_autohide_is_visible_for_test(t0),
         "interior contact arms the debounce, not an instant reveal"
     );
-    let revealed_at = t0 + std::time::Duration::from_millis(130); // > 120ms debounce
+    let revealed_at = t0 + std::time::Duration::from_millis(130); // > 80ms debounce
     app.feed_rail_pointer_for_test(20.0, revealed_at);
     assert!(
         app.rail_autohide_is_visible_for_test(revealed_at),
@@ -1013,6 +1013,42 @@ fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
     assert!(
         !app.rail_autohide_is_visible_for_test(hidden_at),
         "after the grace, the rail hides"
+    );
+}
+
+#[test]
+fn reveal_arms_at_the_edge_and_the_band_carries_the_debounce() {
+    // A brief edge touch during a fast approach must still reveal: the edge
+    // contact ARMS the debounce, and the keep-alive band then CARRIES it to
+    // completion even as the pointer moves off the thin trigger zone into the
+    // band (the pointer does not have to sit pinned in the ≤reveal_px strip for
+    // the whole debounce). Drives the real feed path with an injected clock.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16); // band [0..128], seam at x=128
+    app.set_tab_rail_autohide_for_test(true);
+    // pad 0, scale 1 → reach = 16 (default reveal_px). Zone is [0, 16].
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+
+    let t0 = std::time::Instant::now();
+    // Touch the edge once (x=8) → arms Revealing (not visible yet).
+    app.feed_rail_pointer_for_test(8.0, t0);
+    assert!(
+        !app.rail_autohide_is_visible_for_test(t0),
+        "edge contact arms the debounce, not an instant reveal"
+    );
+    // Move off the trigger zone but stay over the band (x=50 < seam 128). The
+    // band keep-alive holds the arm; past the 80ms debounce it reveals.
+    let t1 = t0 + std::time::Duration::from_millis(90);
+    app.feed_rail_pointer_for_test(50.0, t1);
+    assert!(
+        app.rail_autohide_is_visible_for_test(t1),
+        "the band carries the armed reveal through the debounce — no need to \
+         sit pinned in the thin edge strip"
     );
 }
 
@@ -1148,7 +1184,7 @@ fn repro_reveal_holds_across_maintenance_polls_no_flicker() {
 
     let t0 = std::time::Instant::now();
     // Pointer at the edge → arm the reveal, then poll comfortably past the show
-    // debounce (SHOW_DEBOUNCE is 120ms).
+    // debounce (SHOW_DEBOUNCE is 80ms; +150ms clears it with margin).
     app.pointer_move_for_test(2.0, 100.0);
     app.run_about_to_wait_maintenance_for_test(t0 + std::time::Duration::from_millis(150));
     assert!(

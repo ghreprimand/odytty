@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Rail auto-hide reveal: wider trigger, snappier debounce, opt-in trace
+
+**The auto-hidden rail's reveal felt like it needed the pointer shoved hard into
+the window edge and held there.** Two tuning changes address the sluggishness:
+the trigger zone widens from 8 to 16 logical px — at 8 the band was too thin for
+a normal-speed approach to reliably land a pointer sample inside it — and the
+show debounce drops from 120 ms to 80 ms so a deliberate push-to-edge reveals
+promptly. The keep-alive band already carries an armed reveal through the
+debounce, so the pointer never has to sit pinned in the thin trigger strip; it
+only has to touch it once.
+
+**Operator-runnable reveal trace.** The remaining reports describe a *dynamic*
+failure — a reveal that arms then aborts on a fast approach — that static
+geometry checks cannot reproduce. `ODYTTY_RAIL_TRACE=1` now emits one line per
+pointer sample to the standard log: the pointer x coordinate, the derived
+in-edge / in-band contact, and the reveal phase before and after the sample.
+Privacy-clean by construction — coordinates and phase labels only, never
+terminal content, window titles, or PTY bytes.
+
+The existing headless reveal-wiring tests (interior reach, band keep-alive,
+hide-on-leave) are updated to the new defaults, alongside a test asserting a
+brief edge touch arms a reveal the band then carries through the debounce. Full
+suite green; clippy (`-D warnings`) and rustfmt clean; MSRV unchanged.
+Platform-neutral — the reveal path is pointer geometry shared across platforms.
+
+---
+
 ## 2026-07-04 -- Fix a split-pane busy-spin and a paired background-pane freeze
 
 **Splitting a pane pinned a CPU core, and fixing that exposed a latent freeze.**
