@@ -1445,6 +1445,16 @@ impl App {
         self.sessions.active_workspace_index()
     }
 
+    /// Test seam (WP1): capture the current window shape as a serializable
+    /// snapshot, exercising the persistence capture path end-to-end against a
+    /// headless multi-workspace / multi-pane `App`.
+    #[cfg(test)]
+    pub(in crate::native) fn capture_shape_for_test(
+        &self,
+    ) -> crate::native::persistence::ShapeSnapshot {
+        self.sessions.capture_shape()
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn workspace_names_for_test(&self) -> Vec<String> {
         self.sessions.workspace_names()

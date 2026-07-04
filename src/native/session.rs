@@ -2081,6 +2081,84 @@ impl WorkspaceSet {
     }
 }
 
+/// Workspace SHAPE capture (persistence WP1, design §10). Walks the workspace /
+/// tab / pane hierarchy into a serializable [`ShapeSnapshot`] that records
+/// structure only — names, tab titles/order, the pane split tree + ratios, and
+/// per-pane cwd — and NEVER grid content, scrollback, env, or command lines
+/// (the FREEZE-HARDEN privacy invariant; command re-execution is an explicit
+/// non-goal, sub-ODP 8i). `allow(dead_code)` mirrors the `layout.rs` /
+/// pane-ops scaffold: WP2 wires the autosave/restore call sites that consume
+/// this.
+#[allow(dead_code)]
+impl WorkspaceSet {
+    /// Capture the current window shape as a serializable snapshot.
+    pub(super) fn capture_shape(&self) -> crate::native::persistence::ShapeSnapshot {
+        use crate::native::persistence::{
+            SNAPSHOT_VERSION, ShapeSnapshot, TabShape, WorkspaceShape,
+        };
+        let workspaces = self
+            .workspaces
+            .iter()
+            .map(|workspace| WorkspaceShape {
+                name: workspace.name.clone(),
+                active_tab: workspace.active_tab,
+                tabs: workspace
+                    .tabs
+                    .iter()
+                    .map(|tab| {
+                        let leaves = tab.layout.leaves();
+                        let focused_leaf = leaves
+                            .iter()
+                            .position(|token| *token == tab.focused)
+                            .unwrap_or(0);
+                        TabShape {
+                            title: tab.title_override.clone(),
+                            focused_leaf,
+                            layout: self.capture_pane(&tab.layout),
+                        }
+                    })
+                    .collect(),
+            })
+            .collect();
+        ShapeSnapshot {
+            version: SNAPSHOT_VERSION,
+            active_workspace: self.active_ws,
+            workspaces,
+        }
+    }
+
+    /// Recursively mirror a live pane tree into a [`PaneShape`], capturing each
+    /// leaf's cwd in place of its (ephemeral) session token.
+    fn capture_pane(&self, node: &PaneNode) -> crate::native::persistence::PaneShape {
+        use crate::native::persistence::PaneShape;
+        match node {
+            PaneNode::Leaf(token) => PaneShape::Leaf {
+                cwd: self.pane_cwd(*token),
+            },
+            PaneNode::Split {
+                axis,
+                ratio,
+                first,
+                second,
+            } => PaneShape::Split {
+                axis: (*axis).into(),
+                ratio: *ratio,
+                first: Box::new(self.capture_pane(first)),
+                second: Box::new(self.capture_pane(second)),
+            },
+        }
+    }
+
+    /// The advisory cwd of the pane backed by `token` (OSC 7, or the spawn
+    /// seed), or `None` when unknown — restore lands that pane at the home
+    /// directory (design §10.5 degrade path). Never touches the filesystem.
+    fn pane_cwd(&self, token: SessionToken) -> Option<String> {
+        let session = self.sessions.get(&token)?;
+        let terminal = session.terminal.lock().ok()?;
+        terminal.current_working_directory().map(str::to_owned)
+    }
+}
+
 impl TabBarSource for WorkspaceSet {
     fn tab_count(&self) -> usize {
         self.active_workspace().tabs.len()

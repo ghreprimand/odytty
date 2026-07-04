@@ -101,6 +101,85 @@ fn add_workspace(app: &mut App) -> bool {
     true
 }
 
+/// WP1 capture: a headless multi-workspace, multi-pane `App` captures into a
+/// `ShapeSnapshot` that mirrors names, tab count/order, the split tree, and
+/// per-pane cwd — and the captured shape round-trips through the JSON layer.
+#[test]
+fn capture_shape_records_workspaces_tabs_panes_and_cwd() {
+    use crate::native::persistence::{PaneShape, ShapeSnapshot};
+
+    let Some((mut app, fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    // Seed a known cwd on the first session's terminal (tab 0's sole pane).
+    fixtures[0]
+        .0
+        .lock()
+        .expect("terminal")
+        .seed_working_directory("/home/tester/project".to_owned());
+
+    // Split the ACTIVE tab (tab 0) so it becomes a two-pane split; tab 1 stays
+    // a lone leaf. `push` appends tabs without switching, so tab 0 is active.
+    let dims = NativeOptions::default().initial_grid;
+    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    assert_eq!(app.active_pane_count_for_test(), 2);
+
+    // Add a second workspace (this seam switches to it).
+    assert!(add_workspace(&mut app));
+
+    let snapshot = app.capture_shape_for_test();
+    assert_eq!(snapshot.version, 1);
+    assert_eq!(snapshot.workspaces.len(), 2);
+    assert_eq!(
+        snapshot.active_workspace, 1,
+        "adding a workspace switches to it"
+    );
+
+    let ws0 = &snapshot.workspaces[0];
+    assert_eq!(ws0.name, "Workspace 1");
+    assert_eq!(ws0.tabs.len(), 2);
+
+    // Tab 0 was split: a Columns split whose first (pre-existing) leaf carries
+    // the seeded cwd; the freshly spawned pane is the second leaf.
+    match &ws0.tabs[0].layout {
+        PaneShape::Split {
+            axis,
+            first,
+            second,
+            ..
+        } => {
+            assert_eq!(*axis, crate::native::persistence::SplitAxisShape::Columns);
+            assert_eq!(
+                **first,
+                PaneShape::Leaf {
+                    cwd: Some("/home/tester/project".to_owned())
+                }
+            );
+            assert!(matches!(**second, PaneShape::Leaf { .. }));
+        }
+        other => panic!("tab 0 should be a split, got {other:?}"),
+    }
+    // Tab 1 stays single-pane.
+    assert!(matches!(ws0.tabs[1].layout, PaneShape::Leaf { .. }));
+
+    // Second workspace: one single-pane tab.
+    let ws1 = &snapshot.workspaces[1];
+    assert_eq!(ws1.name, "Workspace 2");
+    assert_eq!(ws1.tabs.len(), 1);
+    assert!(matches!(ws1.tabs[0].layout, PaneShape::Leaf { .. }));
+
+    // The captured shape survives a JSON round-trip byte-for-byte.
+    let text = snapshot.to_json_pretty();
+    let restored = ShapeSnapshot::from_json_str(&text).expect("captured shape round-trips");
+    assert_eq!(restored, snapshot);
+}
+
 fn scrollback_bytes(lines: usize) -> Vec<u8> {
     let mut text = String::new();
     for i in 0..lines {

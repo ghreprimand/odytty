@@ -76,6 +76,7 @@ mod output_recorder;
 mod overlay;
 mod palette_overlay;
 mod panic_log;
+mod persistence;
 mod pty;
 mod render_helpers;
 mod replay_overlay;

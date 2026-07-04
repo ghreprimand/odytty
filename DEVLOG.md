@@ -7,6 +7,47 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Workspace shape can be captured to a serializable snapshot
+
+Groundwork for saving and restoring workspace layouts across restarts. The
+window's *shape* — its workspaces and their names/order, each workspace's tabs
+(titles, count, order), every tab's pane split tree with its divider ratios,
+and the per-pane working directory — can now be captured into a plain,
+serializable snapshot and written to disk.
+
+The snapshot records structure only. It never captures terminal grid content,
+scrollback, environment, or command lines. That exclusion is a hard privacy
+invariant, and it is also a deliberate security posture: a restored pane always
+lands a fresh interactive shell at its recorded working directory and never
+re-executes a captured command. Re-running saved command lines is the
+tmux-resurrect footgun — a captured `curl … | sh` or any destructive command
+re-running silently on restore — and it is an explicit non-goal here. A
+far-future "reopen my running command" would be strictly opt-in with a
+per-command confirmation, never default and never silent.
+
+Working directories come from the same OSC 7 tracking the tab titles already
+use, so capture is reliable for the shells with OdyTTY's integration (bash,
+zsh, fish, PowerShell). A pane whose directory is unknown records none; restore
+will land it at the home directory rather than blocking the snapshot.
+
+The file is JSON, pretty-printed and hand-editable, written to the state dir as
+`workspaces.json` (a `layouts/` subdirectory is reserved for named layouts).
+`serde_json` is not a dependency, so a small self-contained reader/writer
+handles the fixed, shallow schema. Writes are atomic — a sibling temp file is
+written then renamed over the target — so a crash mid-write can never corrupt
+the snapshot. A top-level `"version"` field makes the format forward-compatible:
+a build that meets a newer version ignores the file and starts fresh rather
+than erroring, and unknown fields are tolerated on read.
+
+Shape persistence is first-class on Windows: the state dir has a
+`%LOCALAPPDATA%` home, OSC 7 covers PowerShell and drive-letter paths, and the
+fresh-shell restore path is the only path there, so it works identically.
+
+This is the capture-and-serialize layer; wiring it to launch restore, the
+debounced autosave, and the single-writer instance lock comes next.
+
+---
+
 ## 2026-07-04 -- Background sessions track theme changes and OSC 52 policy
 
 Terminal-model state that was previously applied only to the focused session is
