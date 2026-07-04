@@ -390,6 +390,53 @@ impl Session {
         self.cursor_slide_from_px = [0.0, 0.0];
     }
 
+    /// Clear every piece of UI state whose coordinates are tied to the row /
+    /// scrollback layout, so a reflow never leaves a selection, hover span,
+    /// search match, hint label, or copy-mode caret pointing at cells the text
+    /// no longer occupies.
+    ///
+    /// Run for EVERY session a resize reflows, not just the active one (NF21-3):
+    /// [`TabSet::resize_all_panes`] reflows every tab's panes, but the clear that
+    /// followed it in `App::apply_grid_resize` went through `Deref` = the ACTIVE
+    /// session only. A background tab that crossed the reflow keeping stale
+    /// absolute-row coordinates would, on switch-back, highlight the wrong text
+    /// and copy the wrong bytes. The field set and order match that former
+    /// active-only block exactly, so the active-tab path stays byte-identical.
+    pub(super) fn invalidate_layout_dependent_state(&mut self) {
+        self.selection.clear();
+        self.selection_block = false;
+        self.pointer_drag = PointerDrag::None;
+        self.drag_anchor_unit = None;
+        self.last_selection_autoscroll = None;
+        self.report_button = None;
+        self.pointer_cell = None;
+        self.pointer_px = None;
+        self.hovered_hyperlink = None;
+        self.hovered_path = None;
+        // UX-A (Phase 11): drop the armed-underline span alongside the hovered
+        // path it mirrors; a reflow makes its old row coords stale.
+        self.hovered_path_cells = None;
+        // INTERACTIVE-URLS: drop the hovered-URL span too; its row coords are
+        // equally stale after a reflow.
+        self.hovered_url = None;
+        self.hovered_url_cells = None;
+        // Reflow changes the row/scrollback layout; return to the live bottom so
+        // the offset is never stale against the new geometry.
+        self.viewport.reset_to_live();
+        // Search closes because its absolute row matches were computed against
+        // the old layout.
+        self.search.reset_for_reflow();
+        self.search_restore_viewport = None;
+        // HINTS label spans are absolute rows against the old layout; a reflow
+        // makes them stale, so close the modal.
+        self.hints = None;
+        // COPY-MODE (C13): the caret + selection anchor are absolute-buffer
+        // coords computed against the old scrollback/row layout; a reflow
+        // re-wraps those rows and leaves them stale. Close the modal alongside
+        // the other absolute-row overlays.
+        self.copy_mode = None;
+    }
+
     /// The local PTY backing this session, or `None` for an attached session.
     /// Test-only seam (the production foreground-job query uses
     /// [`Self::foreground_job_running`]); tests read the concrete PTY through
@@ -651,6 +698,21 @@ impl TabSet {
             if *token != active {
                 session.park_animation_timers();
             }
+        }
+    }
+
+    /// Invalidate the layout-dependent UI state of EVERY session after a resize
+    /// reflow (NF21-3). [`Self::resize_all_panes`] reflows all tabs' panes, so
+    /// all their stale row/scrollback-coordinate state must be cleared too — the
+    /// active-only clear in `App::apply_grid_resize` left background tabs with a
+    /// selection / search / hints / copy-mode caret mapped to the pre-reflow
+    /// layout, whose worst case is a silent wrong-bytes copy on switch-back.
+    /// Mirrors [`Self::park_background_timers`]' all-session fan-out; unlike it,
+    /// the active pane is included (its clear was the byte-identical old
+    /// behavior, now sourced from the shared per-session helper).
+    pub(super) fn invalidate_all_layout_dependent_state(&mut self) {
+        for session in self.sessions.values_mut() {
+            session.invalidate_layout_dependent_state();
         }
     }
 

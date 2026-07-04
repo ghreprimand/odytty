@@ -750,6 +750,97 @@ mod tests {
         );
     }
 
+    /// NF21-3: a window resize reflows EVERY tab's panes, so the stale
+    /// layout-dependent UI state (selection / copy-mode caret / hover spans)
+    /// must clear on BACKGROUND tabs too — not only the active one. Before the
+    /// fix the clear went through `Deref` = the active session only, so a
+    /// background tab crossed the reflow keeping absolute-row coordinates mapped
+    /// to the pre-reflow layout: on switch-back the selection covered the wrong
+    /// text and a copy yielded the wrong bytes.
+    #[test]
+    fn grid_resize_clears_layout_state_on_background_tab() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        // Build a second local session and push it as a second tab.
+        let d = Dimensions::new(40, 6);
+        let Ok(session) = crate::native::test_support::spawn_test_pause_shell(d) else {
+            return;
+        };
+        let Ok(raw_writer) = session.take_writer() else {
+            return;
+        };
+        let writer: crate::native::pty::PtyWriter = Arc::new(Mutex::new(raw_writer));
+        let terminal = Arc::new(Mutex::new(Terminal::new(d.columns, d.rows)));
+        let pty = Arc::new(Mutex::new(session));
+        // Position 0 is the original tab; the pushed one takes a later position.
+        let second = app.push_session_for_test(terminal, writer, pty);
+        // Seed the stale layout state on the first tab, then background it by
+        // switching to the second.
+        app.seed_layout_dependent_state_for_test(0);
+        assert_eq!(
+            app.session_layout_state_is_clear_for_test(0),
+            Some(false),
+            "precondition: tab 0 has live selection / copy-mode / hover state"
+        );
+        assert!(
+            app.switch_to_session_for_test(second),
+            "the second tab must activate so tab 0 is backgrounded"
+        );
+
+        let cell = crate::atlas::CellSize {
+            width: 8,
+            height: 16,
+            baseline: 0,
+        };
+        app.apply_grid_resize(PendingResize {
+            cell,
+            padding: WindowPadding::ZERO,
+            width_px: 1000,
+            height_px: 1600,
+        });
+
+        assert_eq!(
+            app.session_layout_state_is_clear_for_test(0),
+            Some(true),
+            "a reflow must clear the BACKGROUND tab's stale absolute-row state (NF21-3)"
+        );
+    }
+
+    /// NF21-3 control: the active tab still clears its layout-dependent state on
+    /// a resize exactly as before — the fan-out helper reproduces the former
+    /// active-only block byte-for-byte, so this path is unchanged.
+    #[test]
+    fn grid_resize_clears_layout_state_on_active_tab_unchanged() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.seed_layout_dependent_state_for_test(0);
+        assert_eq!(
+            app.session_layout_state_is_clear_for_test(0),
+            Some(false),
+            "precondition: the active tab has live layout-dependent state"
+        );
+
+        let cell = crate::atlas::CellSize {
+            width: 8,
+            height: 16,
+            baseline: 0,
+        };
+        app.apply_grid_resize(PendingResize {
+            cell,
+            padding: WindowPadding::ZERO,
+            width_px: 1000,
+            height_px: 1600,
+        });
+
+        assert_eq!(
+            app.session_layout_state_is_clear_for_test(0),
+            Some(true),
+            "the active tab clears its layout state after a resize (byte-identical)"
+        );
+    }
+
     #[test]
     fn yank_exits_copy_mode() {
         let Some(mut app) = build_app() else {

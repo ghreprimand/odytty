@@ -654,40 +654,17 @@ impl App {
             resize.width_px,
             resize.height_px,
         ) {
-            self.selection.clear();
-            self.selection_block = false;
-            self.pointer_drag = PointerDrag::None;
-            self.drag_anchor_unit = None;
-            self.last_selection_autoscroll = None;
-            self.report_button = None;
-            self.pointer_cell = None;
-            self.pointer_px = None;
-            self.hovered_hyperlink = None;
-            self.hovered_path = None;
-            // UX-A (Phase 11): drop the armed-underline span alongside the
-            // hovered path it mirrors; a reflow makes its old row coords stale.
-            self.hovered_path_cells = None;
-            // INTERACTIVE-URLS: drop the hovered-URL span too; its row coords are
-            // equally stale after a reflow.
-            self.hovered_url = None;
-            self.hovered_url_cells = None;
-            // Reflow changes the row/scrollback layout; return to the live
-            // bottom so the offset is never stale against the new geometry.
-            // Search closes because its absolute row matches were computed
-            // against the old layout. clamp() in the rebuild guards bounds
-            // regardless.
-            self.viewport.reset_to_live();
-            self.search.reset_for_reflow();
-            self.search_restore_viewport = None;
-            // HINTS label spans are absolute rows against the old layout; a
-            // reflow makes them stale, so close the modal (trap #4).
-            self.hints = None;
-            // COPY-MODE (C13): the caret + selection anchor are absolute-buffer
-            // coords computed against the old scrollback/row layout; a reflow
-            // re-wraps those rows and leaves them stale (a selection that no
-            // longer maps to the text under it, a caret off its intended cell).
-            // Close the modal alongside the other absolute-row overlays.
-            self.copy_mode = None;
+            // NF21-3: `resize_grid_with_padding` -> `resize_all_panes` reflows
+            // EVERY session of every tab, so the stale-layout invalidation must
+            // reach every session too — not only the active one via `Deref`. A
+            // background tab that crossed the reflow keeping its old absolute-row
+            // selection / search / hints / copy-mode coordinates would, on
+            // switch-back, highlight the wrong text and copy the wrong bytes.
+            // The per-session helper clears the exact same field set in the same
+            // order as the old active-only block, so the active tab stays
+            // byte-identical; `clamp()` in the rebuild still guards viewport
+            // bounds regardless.
+            self.sessions.invalidate_all_layout_dependent_state();
             self.needs_rebuild = true;
         }
     }

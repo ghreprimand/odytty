@@ -1326,6 +1326,40 @@ impl App {
         }
     }
 
+    /// NF21-3: seed the layout-dependent UI state (a live selection, an active
+    /// copy-mode caret, and a hovered-URL span) onto the session at `session`,
+    /// so a test can drive `apply_grid_resize` and assert that a BACKGROUND tab
+    /// gets these coordinates cleared — not only the active one.
+    #[cfg(test)]
+    pub(in crate::native) fn seed_layout_dependent_state_for_test(&mut self, session: usize) {
+        let Some(token) = self.sessions.token_at_position(session) else {
+            return;
+        };
+        if let Some(s) = self.sessions.get_mut(token) {
+            s.selection
+                .begin(crate::selection::AbsoluteCellPoint { row: 0, column: 0 });
+            s.selection
+                .update(crate::selection::AbsoluteCellPoint { row: 0, column: 3 });
+            s.copy_mode = Some(crate::native::copy_mode::CopyModeState::new(
+                crate::selection::AbsoluteCellPoint { row: 0, column: 0 },
+            ));
+            s.hovered_url = Some("https://example.com".to_owned());
+        }
+    }
+
+    /// NF21-3 companion: `true` when every layout-dependent field seeded by
+    /// [`Self::seed_layout_dependent_state_for_test`] has been cleared on the
+    /// session at `session`, `None` when no such session exists.
+    #[cfg(test)]
+    pub(in crate::native) fn session_layout_state_is_clear_for_test(
+        &self,
+        session: usize,
+    ) -> Option<bool> {
+        let token = self.sessions.token_at_position(session)?;
+        let s = self.sessions.get(token)?;
+        Some(s.selection.range().is_none() && s.copy_mode.is_none() && s.hovered_url.is_none())
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn drive_text_key_for_test(&mut self, text: &str) {
         let logical = WinitKey::Character(text.to_owned().into());

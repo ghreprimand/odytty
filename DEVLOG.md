@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Clear layout-dependent UI state on every tab after a resize
+
+**A window resize left background tabs with stale selection/copy coordinates.**
+A resize reflows the terminal grid of every pane in every tab, but the follow-up
+that dropped the now-stale UI state — the active selection, the block-select
+flag, an in-progress pointer drag, hovered hyperlink/path/URL spans, the search
+matches, the hints overlay, copy-mode caret/anchor, and the viewport offset —
+only ran against the **active** tab's focused pane. A background tab therefore
+crossed the reflow keeping absolute-row coordinates that pointed at the
+pre-reflow layout. On switching back to it the selection highlighted different
+text than it covered, search highlights and hint labels sat on the wrong cells,
+and a copy of that selection yielded the wrong bytes — a silent, user-invisible
+mismatch.
+
+The clear is now a per-session operation
+(`Session::invalidate_layout_dependent_state`) run for every session the resize
+reflows, via a set fan-out helper on the tab set that mirrors the existing
+background-timer parking. The field set and clear order reproduce the former
+active-only block exactly, so the active tab's behavior is byte-identical; the
+fix only extends the same invalidation to the tabs that were previously skipped.
+
+Regression coverage drives the real resize entry point with a live selection and
+copy-mode caret seeded on a backgrounded tab, asserting they clear on
+switch-back, plus a control asserting the active-tab path is unchanged. Full
+suite green; clippy (`-D warnings`) and rustfmt clean. Platform-neutral — no
+Windows-specific surface.
+
+---
+
 ## 2026-07-04 -- Fix a second event-loop busy-spin: background-session timers
 
 **Per-session timer deadlines stranded a background tab's wake.** Switching to
