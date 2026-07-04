@@ -297,6 +297,7 @@ environment variable was not set at startup.
 | `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |
 | `remote_integration` | `ODYTTY_REMOTE_INTEGRATION` | `on`, `off` | `on` |
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
+| `restore_workspaces` | `ODYTTY_RESTORE_WORKSPACES` | `on`, `off` | `off` |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` |
 | `copy_on_select` | `ODYTTY_COPY_ON_SELECT` | `on`, `off` | `off` |
 | `smart_ctrl_c` | `ODYTTY_SMART_CTRL_C` | `off`, `copy-or-interrupt` | `copy-or-interrupt` |
@@ -524,6 +525,34 @@ closes it. Replay is **presentation-only**: the overlay scrubs a frozen, fully
 decoupled clone of the ring and never mutates the live terminal — the session
 keeps running underneath while you scrub. The scrub view is a monochrome text
 preview of the recorded screen at each point.
+
+### Restore workspaces at launch (`restore_workspaces`)
+
+`restore_workspaces = on` (or `ODYTTY_RESTORE_WORKSPACES=on`) reopens the
+previous window layout when odytty is launched with **no arguments**. It is
+**off by default**; the same toggle lives in the Settings panel's Sessions
+section.
+
+What is restored is **shape only**: workspace names, tab titles and order, and
+each tab's pane split tree (axes + ratios), with every pane reopened at its
+captured working directory running a **fresh interactive shell**. What is
+**never** restored: terminal output, scrollback, environment, or the commands
+that were running — restore never re-runs a captured command. If a pane's saved
+directory no longer exists it opens at your home directory instead, with a
+single brief notice.
+
+Rules:
+
+- **Only a bare `odytty` restores.** Any command-line argument — a flag, a
+  path, `--working-directory`, `-e COMMAND`, an attach id — starts that launch
+  fresh and suppresses restore.
+- **The layout autosave runs regardless of this setting.** A shape snapshot is
+  written (debounced) as the layout changes and on a clean exit, so a snapshot
+  is ready the moment you turn restore on. The snapshot is shape-only and lives
+  in the state directory (`workspaces.json`).
+- **One window owns the autosave.** When several odytty windows are open only
+  the first (primary) instance writes the snapshot and restores it, so a second
+  window never clobbers the first window's saved layout.
 
 ### Clickable URLs (`interactive_urls`)
 

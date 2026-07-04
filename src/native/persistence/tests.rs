@@ -257,3 +257,49 @@ fn json_escapes_round_trip_through_the_parser() {
         Some("a\"b\\c\n\t/A😀")
     );
 }
+
+// ---- WP2: cwd resolution for restore (design §10.5, sub-ODP 8f) ----
+
+#[test]
+fn resolve_cwd_keeps_an_existing_directory() {
+    let existing = std::env::temp_dir();
+    let home = PathBuf::from("/some/home");
+    let resolved = resolve_cwd(existing.to_str(), Some(&home));
+    assert_eq!(resolved.path.as_deref(), Some(existing.as_path()));
+    assert!(!resolved.stale);
+}
+
+#[test]
+fn resolve_cwd_falls_back_to_home_when_directory_is_gone() {
+    let missing = "/definitely/not/a/real/directory/odytty-wp2-marker";
+    let home = std::env::temp_dir();
+    let resolved = resolve_cwd(Some(missing), Some(&home));
+    assert_eq!(
+        resolved.path.as_deref(),
+        Some(home.as_path()),
+        "a stale dir lands at home"
+    );
+    assert!(
+        resolved.stale,
+        "a captured-but-missing dir is flagged stale"
+    );
+}
+
+#[test]
+fn resolve_cwd_unknown_is_a_quiet_home_fallback() {
+    let home = std::env::temp_dir();
+    let resolved = resolve_cwd(None, Some(&home));
+    assert_eq!(resolved.path.as_deref(), Some(home.as_path()));
+    assert!(
+        !resolved.stale,
+        "an unknown (never-captured) cwd is a quiet home fallback, not stale"
+    );
+}
+
+#[test]
+fn resolve_cwd_without_a_home_spawns_in_place() {
+    let missing = "/definitely/not/a/real/directory/odytty-wp2-marker";
+    let resolved = resolve_cwd(Some(missing), None);
+    assert_eq!(resolved.path, None, "no home => let the shell inherit cwd");
+    assert!(resolved.stale);
+}

@@ -496,6 +496,10 @@ pub fn native_options_for_args(
     settings: &Settings,
 ) -> Result<Option<NativeOptions>, String> {
     let mut options = NativeOptions::from_settings(settings);
+    // WP2 sub-ODP 8b: only a bare `odytty` (no arguments at all) is eligible to
+    // restore the previous workspace shape. Any argument — a flag, `-e`, a
+    // path, `--working-directory` — leaves this `false` and suppresses restore.
+    options.bare_launch = args.is_empty();
     let mut launch_native = args.is_empty();
     let mut index = 0;
 
@@ -946,6 +950,40 @@ mod tests {
         let command = options.command.expect("command");
         assert_eq!(command.program, OsString::from("btop"));
         assert_eq!(command.args, vec![OsString::from("--utf-force")]);
+    }
+
+    #[test]
+    fn bare_launch_is_restore_eligible_only_with_no_arguments() {
+        // WP2 sub-ODP 8b: only a bare `odytty` (empty argv) restores.
+        let bare = native_options_for_args(&strings(&[]), &Settings::default())
+            .expect("parse")
+            .expect("bare launch opens the native window");
+        assert!(bare.bare_launch, "no arguments => restore-eligible");
+
+        // ANY argument suppresses restore: flags, a working dir, a title, an
+        // explicit --native, and an exec command all leave bare_launch false.
+        for args in [
+            vec!["--native"],
+            vec!["--title", "X"],
+            vec!["--title=X"],
+            vec!["--working-directory", "/tmp"],
+            vec!["--working-directory=/tmp"],
+            vec!["--working-dir", "/tmp"],
+        ] {
+            let options = native_options_for_args(&strings(&args), &Settings::default())
+                .expect("parse")
+                .expect("native options");
+            assert!(
+                !options.bare_launch,
+                "argument set {args:?} must suppress restore"
+            );
+        }
+
+        // `-e COMMAND` also suppresses restore.
+        let exec = native_options_for_args(&strings(&["-e", "btop"]), &Settings::default())
+            .expect("parse")
+            .expect("native options");
+        assert!(!exec.bare_launch, "-e command suppresses restore");
     }
 
     #[test]

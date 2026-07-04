@@ -1295,12 +1295,36 @@ impl WorkspaceSet {
         grid: crate::core::Dimensions,
     ) -> Result<SessionToken, std::io::Error> {
         let shell_integration = self.shell_integration_enabled;
-        self.insert_local_session_with(grid, |grid| {
+        self.insert_local_session_with(grid, None, |grid| {
             let settings = crate::settings::Settings {
                 shell_integration,
                 ..crate::settings::Settings::default()
             };
             PtySession::spawn_default_shell_in_with_settings(grid, None, &settings)
+        })
+    }
+
+    /// Spawn a restored local shell at `cwd` and insert it into the arena
+    /// without attaching it to a tab (WP2 restore path). Mirrors
+    /// [`Self::insert_spawned_session`] but (1) hands the captured cwd to the
+    /// shell spawn so the child starts there, and (2) SEEDS the terminal model's
+    /// advisory cwd to the same value so the restored pane reports the right
+    /// directory (and tab title) from the first frame, before any OSC 7 arrives.
+    /// `cwd` is `None` when the pane had no restorable directory, which spawns
+    /// the shell wherever the process already is.
+    fn insert_restored_session(
+        &mut self,
+        grid: crate::core::Dimensions,
+        cwd: Option<std::path::PathBuf>,
+    ) -> Result<SessionToken, std::io::Error> {
+        let shell_integration = self.shell_integration_enabled;
+        let spawn_cwd = cwd.clone();
+        self.insert_local_session_with(grid, cwd, move |grid| {
+            let settings = crate::settings::Settings {
+                shell_integration,
+                ..crate::settings::Settings::default()
+            };
+            PtySession::spawn_default_shell_in_with_settings(grid, spawn_cwd, &settings)
         })
     }
 
@@ -1313,7 +1337,7 @@ impl WorkspaceSet {
         program: OsString,
         args: Vec<OsString>,
     ) -> Result<SessionToken, std::io::Error> {
-        self.insert_local_session_with(grid, |grid| {
+        self.insert_local_session_with(grid, None, |grid| {
             PtySession::spawn_exec(grid, program, args, None)
         })
     }
@@ -1321,6 +1345,7 @@ impl WorkspaceSet {
     fn insert_local_session_with(
         &mut self,
         grid: crate::core::Dimensions,
+        seed_cwd: Option<std::path::PathBuf>,
         spawn: impl FnOnce(crate::core::Dimensions) -> anyhow::Result<PtySession>,
     ) -> Result<SessionToken, std::io::Error> {
         let Some(proxy) = self.proxy.clone() else {
@@ -1337,7 +1362,7 @@ impl WorkspaceSet {
         ));
         let mut model = Terminal::new(grid.columns, grid.rows);
         model.set_local_hostname(self.local_hostname.clone());
-        seed_initial_working_directory(&mut model, None);
+        seed_initial_working_directory(&mut model, seed_cwd.as_deref());
         // Defer resize cursor placement to the shell when the backend repaints
         // absolutely (ConPTY on Windows). The POSIX PTY backend returns false,
         // so Linux/macOS keep translating the cursor on resize as today. Funneled
@@ -2198,8 +2223,46 @@ impl WorkspaceSet {
 /// (the FREEZE-HARDEN privacy invariant; command re-execution is an explicit
 /// non-goal, sub-ODP 8i). `allow(dead_code)` mirrors the `layout.rs` /
 /// pane-ops scaffold: WP2 wires the autosave/restore call sites that consume
-/// this.
-#[allow(dead_code)]
+/// The outcome of a launch-time workspace restore (WP2). Advisory only: the
+/// caller turns a stale-cwd count into a single compact notice (sub-ODP 8f) and
+/// otherwise proceeds silently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RestoreReport {
+    /// The saved shape was rebuilt. `stale_cwd` is how many panes fell back to
+    /// home because their captured directory no longer exists.
+    Restored {
+        workspaces: usize,
+        panes: usize,
+        stale_cwd: usize,
+    },
+    /// Nothing restorable (empty snapshot) or a spawn failed mid-rebuild; the
+    /// launch layout was left untouched.
+    Skipped,
+}
+
+/// Hash the STRUCTURE of a pane subtree (split axis + ratio bits + shape), with
+/// no session/cwd identity, for [`WorkspaceSet::structural_fingerprint`].
+fn hash_pane_shape(node: &PaneNode, hasher: &mut impl std::hash::Hasher) {
+    use std::hash::Hash;
+    match node {
+        PaneNode::Leaf(_) => 0u8.hash(hasher),
+        PaneNode::Split {
+            axis,
+            ratio,
+            first,
+            second,
+        } => {
+            1u8.hash(hasher);
+            (matches!(axis, SplitAxis::Rows) as u8).hash(hasher);
+            ratio.to_bits().hash(hasher);
+            hash_pane_shape(first, hasher);
+            hash_pane_shape(second, hasher);
+        }
+    }
+}
+
+/// this. WP2 has since wired the autosave / restore call sites, so these are
+/// live.
 impl WorkspaceSet {
     /// Capture the current window shape as a serializable snapshot.
     pub(super) fn capture_shape(&self) -> crate::native::persistence::ShapeSnapshot {
@@ -2266,6 +2329,194 @@ impl WorkspaceSet {
         let session = self.sessions.get(&token)?;
         let terminal = session.terminal.lock().ok()?;
         terminal.current_working_directory().map(str::to_owned)
+    }
+
+    /// Rebuild the ENTIRE workspace list from a saved shape, spawning a fresh
+    /// interactive shell for every pane at its captured cwd (design §10.6, WP2).
+    /// The pre-existing launch session(s) are reaped once the restored tree is
+    /// in place, so the window shows exactly the saved shape and nothing else.
+    /// Restore is all-or-nothing: if any pane fails to spawn, everything spawned
+    /// so far is reaped and [`RestoreReport::Skipped`] is returned with the
+    /// launch layout left untouched (sub-ODP 8f: never a broken/empty window).
+    pub(super) fn restore_from_snapshot(
+        &mut self,
+        snapshot: &crate::native::persistence::ShapeSnapshot,
+        grid: crate::core::Dimensions,
+        home: Option<&Path>,
+    ) -> RestoreReport {
+        self.restore_from_snapshot_with(snapshot, home, |set, cwd| {
+            set.insert_restored_session(grid, cwd).ok()
+        })
+    }
+
+    /// Shape-rebuild core, generic over how a leaf is spawned so tests can drive
+    /// the full capture -> serialize -> load -> restore round trip headlessly
+    /// (the production spawner needs a live event-loop proxy). `spawn_leaf`
+    /// spawns a session at the resolved cwd and returns its token, or `None` on
+    /// failure (which aborts the whole restore).
+    pub(super) fn restore_from_snapshot_with(
+        &mut self,
+        snapshot: &crate::native::persistence::ShapeSnapshot,
+        home: Option<&Path>,
+        mut spawn_leaf: impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
+    ) -> RestoreReport {
+        let mut new_workspaces: Vec<Workspace> = Vec::new();
+        let mut spawned: Vec<SessionToken> = Vec::new();
+        let mut stale_cwd = 0usize;
+        let mut aborted = false;
+
+        'workspaces: for ws in &snapshot.workspaces {
+            if ws.tabs.is_empty() {
+                continue;
+            }
+            let mut tabs: Vec<Tab> = Vec::new();
+            for tab_shape in &ws.tabs {
+                let mut leaves: Vec<SessionToken> = Vec::new();
+                let Some(layout) = self.rebuild_pane(
+                    &tab_shape.layout,
+                    home,
+                    &mut spawn_leaf,
+                    &mut spawned,
+                    &mut stale_cwd,
+                    &mut leaves,
+                ) else {
+                    aborted = true;
+                    break 'workspaces;
+                };
+                let focused = leaves
+                    .get(tab_shape.focused_leaf)
+                    .copied()
+                    .or_else(|| leaves.first().copied())
+                    .expect("a rebuilt pane tree always has at least one leaf");
+                tabs.push(Tab {
+                    layout,
+                    focused,
+                    title_override: tab_shape.title.clone(),
+                    zoomed: false,
+                    activity: false,
+                });
+            }
+            if tabs.is_empty() {
+                continue;
+            }
+            let active_tab = ws.active_tab.min(tabs.len() - 1);
+            new_workspaces.push(Workspace {
+                name: ws.name.clone(),
+                tabs,
+                active_tab,
+            });
+        }
+
+        if aborted || new_workspaces.is_empty() {
+            for token in spawned {
+                self.discard_session(token);
+            }
+            return RestoreReport::Skipped;
+        }
+
+        // Everything spawned; swap the restored tree in and reap the launch
+        // session(s) that are not part of it (typically just the initial pane).
+        let discard: Vec<SessionToken> = self
+            .sessions
+            .keys()
+            .copied()
+            .filter(|token| !spawned.contains(token))
+            .collect();
+        let active_ws = snapshot.active_workspace.min(new_workspaces.len() - 1);
+        let panes = spawned.len();
+        let workspaces = new_workspaces.len();
+        self.workspaces = new_workspaces;
+        self.active_ws = active_ws;
+        for token in discard {
+            self.discard_session(token);
+        }
+
+        RestoreReport::Restored {
+            workspaces,
+            panes,
+            stale_cwd,
+        }
+    }
+
+    /// Rebuild one pane subtree, spawning a leaf session per [`PaneShape::Leaf`]
+    /// at its resolved cwd and recording each token in `leaves` (tree order, so
+    /// the caller can map `focused_leaf`). Returns `None` if a leaf spawn fails.
+    fn rebuild_pane(
+        &mut self,
+        shape: &crate::native::persistence::PaneShape,
+        home: Option<&Path>,
+        spawn_leaf: &mut impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
+        spawned: &mut Vec<SessionToken>,
+        stale_cwd: &mut usize,
+        leaves: &mut Vec<SessionToken>,
+    ) -> Option<PaneNode> {
+        use crate::native::persistence::{PaneShape, resolve_cwd};
+        match shape {
+            PaneShape::Leaf { cwd } => {
+                let resolved = resolve_cwd(cwd.as_deref(), home);
+                if resolved.stale {
+                    *stale_cwd += 1;
+                }
+                let token = spawn_leaf(self, resolved.path)?;
+                spawned.push(token);
+                leaves.push(token);
+                Some(PaneNode::leaf(token))
+            }
+            PaneShape::Split {
+                axis,
+                ratio,
+                first,
+                second,
+            } => {
+                let first =
+                    self.rebuild_pane(first, home, spawn_leaf, spawned, stale_cwd, leaves)?;
+                let second =
+                    self.rebuild_pane(second, home, spawn_leaf, spawned, stale_cwd, leaves)?;
+                Some(PaneNode::Split {
+                    axis: axis.to_split_axis(),
+                    ratio: *ratio,
+                    first: Box::new(first),
+                    second: Box::new(second),
+                })
+            }
+        }
+    }
+
+    /// Remove a session from the arena and reap its shell + pump thread. Used by
+    /// restore to drop the launch session(s) once the saved shape is in place.
+    fn discard_session(&mut self, token: SessionToken) {
+        if let Some(session) = self.sessions.remove(&token) {
+            session.close();
+        }
+    }
+
+    /// A cheap, lock-free hash of the workspace/tab/pane STRUCTURE — names, tab
+    /// titles/order/count, split axes + ratios, focused-pane position, and the
+    /// active workspace/tab indices. Deliberately excludes per-pane cwd so it
+    /// never locks a terminal and never churns on an OSC 7 cwd update; the
+    /// debounced autosave uses it to detect shape mutations without capturing
+    /// the full snapshot every maintenance pass (WP2 sub-ODP 8c).
+    pub(super) fn structural_fingerprint(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.active_ws.hash(&mut hasher);
+        self.workspaces.len().hash(&mut hasher);
+        for ws in &self.workspaces {
+            ws.name.hash(&mut hasher);
+            ws.active_tab.hash(&mut hasher);
+            ws.tabs.len().hash(&mut hasher);
+            for tab in &ws.tabs {
+                tab.title_override.hash(&mut hasher);
+                let leaves = tab.layout.leaves();
+                leaves
+                    .iter()
+                    .position(|token| *token == tab.focused)
+                    .unwrap_or(0)
+                    .hash(&mut hasher);
+                hash_pane_shape(&tab.layout, &mut hasher);
+            }
+        }
+        hasher.finish()
     }
 }
 
@@ -3531,5 +3782,182 @@ mod tests {
         // Nothing changed.
         assert_eq!(set.workspace_count(), 2);
         assert_eq!(set.tab_count(), 2);
+    }
+
+    // ---- WP2 restore-on-launch (design §10.6) ----
+
+    /// A fake leaf spawner for restore tests: records the resolved cwd it is
+    /// handed and inserts a headless session under a freshly minted token, so
+    /// the rebuild runs without an event-loop proxy.
+    #[cfg(test)]
+    fn fake_spawner(
+        handed: &mut Vec<Option<std::path::PathBuf>>,
+    ) -> impl FnMut(&mut WorkspaceSet, Option<std::path::PathBuf>) -> Option<SessionToken> + '_
+    {
+        move |set: &mut WorkspaceSet, cwd: Option<std::path::PathBuf>| {
+            handed.push(cwd.clone());
+            let token = SessionToken(set.next_token);
+            set.next_token = set.next_token.saturating_add(1);
+            set.sessions.insert(token, build_session_with_id(token));
+            Some(token)
+        }
+    }
+
+    /// Capture a rich shape, restore it into a fresh set, and assert the rebuilt
+    /// shape equals the captured one (structural equality; the fake sessions
+    /// carry no cwd, so every captured cwd here is `None` too). Exercises the
+    /// end-to-end capture -> restore round trip headlessly.
+    #[test]
+    fn restore_rebuilds_the_captured_shape() {
+        // ws0: tab0 split (Rows) into two panes; tab1 a titled single pane.
+        // ws1: one single-pane tab, renamed. Active stays ws0 / tab0.
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push(build_session_with_id(SessionToken(1)));
+        set.set_title_override(SessionToken(1), Some("build".to_owned()));
+        set.split_active_for_test(SplitAxis::Rows, build_session_with_id(SessionToken(2)));
+        set.push_workspace(build_session_with_id(SessionToken(3)));
+        set.rename_workspace(1, "logs".to_owned());
+
+        let snapshot = set.capture_shape();
+        assert_eq!(snapshot.workspaces.len(), 2);
+
+        let mut restored = WorkspaceSet::new(build_session(), None);
+        let mut handed = Vec::new();
+        let report =
+            restored.restore_from_snapshot_with(&snapshot, None, fake_spawner(&mut handed));
+
+        assert!(
+            matches!(
+                report,
+                RestoreReport::Restored {
+                    workspaces: 2,
+                    panes: 4,
+                    stale_cwd: 0
+                }
+            ),
+            "report was {report:?}"
+        );
+        // The launch session was reaped; only the 4 restored leaves remain.
+        assert_eq!(restored.len(), 4);
+        // The rebuilt shape mirrors the captured one exactly.
+        assert_eq!(restored.capture_shape(), snapshot);
+    }
+
+    /// A captured directory that no longer exists lands the pane at home and is
+    /// counted stale; an unknown (`None`) cwd also lands at home but is NOT
+    /// counted (a quiet fallback). Both drive the resolved cwd handed to spawn.
+    #[test]
+    fn restore_lands_stale_and_unknown_cwds_at_home() {
+        use crate::native::persistence::{
+            PaneShape, ShapeSnapshot, SplitAxisShape, TabShape, WorkspaceShape,
+        };
+        let snapshot = ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            active_workspace: 0,
+            workspaces: vec![WorkspaceShape {
+                name: "W".to_owned(),
+                active_tab: 0,
+                tabs: vec![TabShape {
+                    title: None,
+                    focused_leaf: 0,
+                    layout: PaneShape::Split {
+                        axis: SplitAxisShape::Columns,
+                        ratio: 0.5,
+                        first: Box::new(PaneShape::Leaf {
+                            cwd: Some("/definitely/not/a/real/dir/odytty-wp2".to_owned()),
+                        }),
+                        second: Box::new(PaneShape::Leaf { cwd: None }),
+                    },
+                }],
+            }],
+        };
+        let home = std::env::temp_dir();
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let mut handed = Vec::new();
+        let report =
+            set.restore_from_snapshot_with(&snapshot, Some(&home), fake_spawner(&mut handed));
+
+        assert!(
+            matches!(
+                report,
+                RestoreReport::Restored {
+                    panes: 2,
+                    stale_cwd: 1,
+                    ..
+                }
+            ),
+            "report was {report:?}"
+        );
+        // Both leaves (stale and unknown) were handed the home directory.
+        assert_eq!(handed, vec![Some(home.clone()), Some(home)]);
+    }
+
+    /// A spawn failure mid-rebuild aborts the whole restore, reaping anything
+    /// already spawned and leaving the launch layout untouched (sub-ODP 8f:
+    /// never a broken/empty window).
+    #[test]
+    fn restore_aborts_cleanly_when_a_leaf_fails_to_spawn() {
+        use crate::native::persistence::{PaneShape, ShapeSnapshot, TabShape, WorkspaceShape};
+        let leaf = |cwd: Option<&str>| PaneShape::Leaf {
+            cwd: cwd.map(str::to_owned),
+        };
+        let snapshot = ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            active_workspace: 0,
+            workspaces: vec![WorkspaceShape {
+                name: "W".to_owned(),
+                active_tab: 0,
+                tabs: vec![
+                    TabShape {
+                        title: None,
+                        focused_leaf: 0,
+                        layout: leaf(None),
+                    },
+                    TabShape {
+                        title: None,
+                        focused_leaf: 0,
+                        layout: leaf(None),
+                    },
+                ],
+            }],
+        };
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let mut spawned = 0u32;
+        let report = set.restore_from_snapshot_with(&snapshot, None, |inner, _cwd| {
+            spawned += 1;
+            if spawned >= 2 {
+                return None; // second leaf fails
+            }
+            let token = SessionToken(inner.next_token);
+            inner.next_token = inner.next_token.saturating_add(1);
+            inner.sessions.insert(token, build_session_with_id(token));
+            Some(token)
+        });
+
+        assert_eq!(report, RestoreReport::Skipped);
+        // Launch layout intact: one workspace, one (launch) session; the partial
+        // spawn was reaped.
+        assert_eq!(set.workspace_count(), 1);
+        assert_eq!(set.len(), 1);
+    }
+
+    /// The structural fingerprint changes when the shape changes and is stable
+    /// otherwise (the debounce trigger, sub-ODP 8c).
+    #[test]
+    fn structural_fingerprint_tracks_shape_changes() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let base = set.structural_fingerprint();
+        assert_eq!(base, set.structural_fingerprint(), "stable when unchanged");
+
+        set.push(build_session_with_id(SessionToken(1)));
+        let after_tab = set.structural_fingerprint();
+        assert_ne!(after_tab, base, "adding a tab changes the fingerprint");
+
+        set.rename_workspace(0, "renamed".to_owned());
+        assert_ne!(
+            set.structural_fingerprint(),
+            after_tab,
+            "renaming a workspace changes the fingerprint"
+        );
     }
 }

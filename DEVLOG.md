@@ -7,6 +7,52 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Restore the previous workspace layout at launch
+
+A bare `odytty` launch can now reopen the previous window layout. The new
+`restore_workspaces` setting (off by default; Sessions section of the Settings
+panel, `ODYTTY_RESTORE_WORKSPACES`) rebuilds the saved workspaces, tabs, and
+pane splits when the terminal starts with no command-line arguments. Any
+argument — a flag, a path, `--working-directory`, `-e COMMAND`, an attach id —
+suppresses restore and starts that launch fresh.
+
+Restore is shape only, and deliberately so. It reopens workspace names, tab
+titles and order, and each tab's pane split tree (axes and ratios), landing a
+fresh interactive shell in every pane at its captured working directory. It
+never restores terminal output, scrollback, environment, or the commands that
+were running — a restored pane is a new shell, never a replayed session, so
+launch can never re-run a command that was on screen when the window last
+closed. A pane whose saved directory no longer exists opens at the home
+directory instead, and the whole restore surfaces at most one brief notice
+rather than a message per pane; an unreadable or newer-format snapshot starts
+fresh silently. Restore never produces a broken or empty window.
+
+Feeding restore is a debounced shape autosave. As the layout changes — creating,
+closing, reordering, or renaming a workspace, tab, or pane, or dragging a split
+divider — a snapshot of the structure is written to the state directory
+(`workspaces.json`), coalescing a burst of changes (such as a drag) into a
+single write once it settles, plus one write on a clean exit. The autosave runs
+whether or not restore is enabled, so a snapshot is ready the moment the setting
+is turned on. The snapshot is captured with an atomic temp-and-rename write and
+holds no terminal content, scrollback, environment, or commands — the same
+privacy boundary as the capture layer.
+
+When several windows are open, one is elected the primary instance through an
+advisory lock on a state-directory file; only the primary autosaves and
+restores, so a second window never overwrites the first window's saved layout.
+The lock is released automatically when the process exits or crashes, so there
+is no stale state to clean up between runs.
+
+Named layouts and reattaching to still-running remote sessions are separate,
+later additions; this change covers the local shape autosave and launch restore.
+
+Windows: first-class. The state directory already has a `%LOCALAPPDATA%` home
+and `%USERPROFILE%` is used for the stale-directory fallback; the advisory lock
+and the atomic write go through cross-platform standard-library APIs, and the
+fresh-shell restore path is the only path on every platform.
+
+---
+
 ## 2026-07-04 -- Seamless remote: bash shell integration over SSH (F6-i1)
 
 An SSH tab runs the system `ssh` as its local child, so the remote shell never
@@ -51,6 +97,8 @@ builder is cross-platform (`ssh.exe` ships on Windows 10+), so a Windows client
 connecting to a POSIX host runs the same bootstrap; a `cfg(windows)` test pins
 that the emitted argv still names `ssh` and carries no ControlMaster options
 (that reuse path is a later increment and is a Windows no-op).
+
+---
 
 ## 2026-07-04 -- Bells drain from every tab, pane, and workspace
 

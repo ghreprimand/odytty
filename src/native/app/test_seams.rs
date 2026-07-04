@@ -1456,6 +1456,27 @@ impl App {
         self.sessions.capture_shape()
     }
 
+    /// Test seam (WP2): mark this headless `App` as the primary instance so the
+    /// debounced shape autosave runs (it is inert on non-primary instances).
+    #[cfg(test)]
+    pub(in crate::native) fn set_primary_instance_for_test(&mut self, primary: bool) {
+        self.set_primary_instance(primary);
+    }
+
+    /// Test seam (WP2): number of shape writes the autosave has emitted. Under
+    /// `cfg(test)` `write_shape_snapshot` bumps a counter instead of touching
+    /// disk, so the debounce-coalescing tests assert exactly-once without I/O.
+    #[cfg(test)]
+    pub(in crate::native) fn autosave_saves_for_test(&self) -> u32 {
+        self.autosave_saves
+    }
+
+    /// Test seam (WP2): whether a debounced autosave write is currently pending.
+    #[cfg(test)]
+    pub(in crate::native) fn autosave_pending_for_test(&self) -> bool {
+        self.autosave_deadline.is_some()
+    }
+
     /// Test seam (NF21-6): run one arena-wide bell + prompt-marks drain and
     /// return `(focused_bell, background_bell, focused_prompt_changed)` — so a
     /// test can assert routing without a real window (urgency is a no-op

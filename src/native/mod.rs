@@ -65,6 +65,7 @@ mod font_picker;
 mod gpu;
 mod image_decode;
 mod image_layer;
+mod instance_lock;
 mod key_remap_ui;
 mod layout;
 #[cfg(target_os = "macos")]
@@ -126,6 +127,14 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         .build()
         .map_err(|err| NativeError::EventLoop(err.to_string()))?;
     event_loop.set_control_flow(ControlFlow::Wait);
+
+    // WP2 sub-ODP 8d: elect a single primary instance. The lock is held for the
+    // whole process lifetime (this binding is never dropped until `run_native`
+    // returns). Only the primary autosaves and restores the workspace shape; a
+    // second concurrent window runs with `is_primary == false` and stays inert
+    // on both, so two windows never race on `workspaces.json`.
+    let instance_lock = instance_lock::PrimaryInstanceLock::acquire();
+    let is_primary = instance_lock.is_some();
 
     // Select the presentation theme once via Settings and apply its default cell
     // colors process-wide before any rendering. This only
@@ -269,6 +278,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // attaches the requested detached session as a live tab and focuses it. The
     // initial local session is untouched, so the default path is unchanged.
     let attach_session = options.attach_session.clone();
+    let bare_launch = options.bare_launch;
     let mut app = App::new_with_sessions(
         options,
         session_set,
@@ -279,6 +289,14 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         && let Err(err) = app.attach_session_in_new_tab(None, &session_id)
     {
         tracing::error!("attach session {session_id} failed: {err}");
+    }
+    // WP2: gate autosave/restore on primary-instance status, then restore the
+    // saved workspace shape only for a bare `odytty` launch with the setting on
+    // (sub-ODPs 8a/8b). Any CLI argument leaves `bare_launch` false and starts
+    // fresh; a secondary instance never restores.
+    app.set_primary_instance(is_primary);
+    if is_primary && bare_launch && settings.restore_workspaces {
+        app.restore_workspaces_on_launch();
     }
     // FREEZE-HARDEN (b): run the app under the freeze watchdog — a thin
     // ApplicationHandler wrapper noting input/redraw activity and mirroring a
@@ -293,11 +311,20 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         .map_err(|err| NativeError::EventLoop(err.to_string()));
     let mut app = watched.into_inner();
 
+    // WP2 sub-ODP 8c: unconditional shape save on a clean exit (primary only,
+    // self-guarded). Runs while the sessions are still live so per-pane cwds are
+    // captured, and only when the loop exited cleanly so a startup failure never
+    // clobbers a good snapshot.
+    if run_result.is_ok() && app.startup_error.is_none() {
+        app.save_shape_on_exit();
+    }
+
     // Tear down deterministically: kill + reap the shell, which closes the PTY
     // master and unblocks the pump thread's `read`, then join the thread. The
     // App's session clone is dropped with `app` after this; reaping the child
     // is what EOFs the pump's reader, independent of master drop order.
     app.close_all_sessions();
+    drop(instance_lock);
 
     run_result?;
     if let Some(err) = app.startup_error {

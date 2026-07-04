@@ -1410,6 +1410,19 @@ impl Settings {
                 numeric: None,
             },
             SettingInfo {
+                group: "Sessions",
+                key: "restore_workspaces",
+                env: RESTORE_WORKSPACES_ENV,
+                name: "Restore workspaces at launch",
+                value: bool_display(self.restore_workspaces).to_owned(),
+                description: "When on, launching odytty with no arguments reopens the previous workspace/tab/pane layout \u{2014} workspace names, tab titles and order, and each pane's split tree at its captured directory, each with a fresh shell. Never restores terminal output, scrollback, or commands (shape only). Off by default; any command-line argument starts fresh for that launch. The layout autosave runs regardless, so a snapshot is ready the moment this is turned on.",
+                kind: SettingKind::Bool,
+                range: None,
+                options: &["on", "off"],
+                reloadable: true,
+                numeric: None,
+            },
+            SettingInfo {
                 group: "Clipboard",
                 key: "osc52_read",
                 env: OSC52_READ_ENV,
@@ -1633,6 +1646,7 @@ impl Settings {
             "ssh_config_hosts" => bool_display(self.ssh_config_hosts).to_owned(),
             "remote_integration" => bool_display(self.remote_integration).to_owned(),
             "session_replay" => bool_display(self.session_replay).to_owned(),
+            "restore_workspaces" => bool_display(self.restore_workspaces).to_owned(),
             "interactive_urls" => bool_display(self.interactive_urls).to_owned(),
             "interactive_paths" => bool_display(self.interactive_paths).to_owned(),
             "interactive_paths_barewords" => {

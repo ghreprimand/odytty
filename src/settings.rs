@@ -1177,6 +1177,12 @@ pub struct Settings {
     /// receive OdyTTY's prompt-mark hooks without editing user rc files. Off by
     /// default; affects newly spawned shells only.
     pub shell_integration: bool,
+    /// Restore the previous workspace/tab/pane shape at launch (WP2, sub-ODP
+    /// 8a). Off by default; only a bare `odytty` launch restores, and any CLI
+    /// argument suppresses it. Shape-only (names/titles/order/split-tree/cwd),
+    /// never grid content or commands. The autosave that feeds restore runs on
+    /// the primary instance regardless of this flag.
+    pub restore_workspaces: bool,
     /// Whether freshly arrived output rows fade in at the live tail (VE4). Off
     /// by default; the off path emits no fade quads, schedules no extra wakes,
     /// and is byte-identical to before. The fade is a background-color overlay
@@ -1370,6 +1376,7 @@ impl Default for Settings {
             tab_rail_reveal_px: DEFAULT_TAB_RAIL_REVEAL_PX,
             sh_click: DEFAULT_SH_CLICK,
             shell_integration: DEFAULT_SHELL_INTEGRATION,
+            restore_workspaces: DEFAULT_RESTORE_WORKSPACES,
             new_output_fade: DEFAULT_NEW_OUTPUT_FADE,
             window_border: DEFAULT_WINDOW_BORDER,
             window_decorations: DEFAULT_WINDOW_DECORATIONS,
@@ -1992,6 +1999,12 @@ impl Settings {
             DEFAULT_SHELL_INTEGRATION,
             &mut warn,
         );
+        let restore_workspaces = parse_bool_setting(
+            get(RESTORE_WORKSPACES_ENV).as_deref(),
+            RESTORE_WORKSPACES_ENV,
+            DEFAULT_RESTORE_WORKSPACES,
+            &mut warn,
+        );
         let new_output_fade = parse_bool_setting(
             get(NEW_OUTPUT_FADE_ENV).as_deref(),
             NEW_OUTPUT_FADE_ENV,
@@ -2167,6 +2180,7 @@ impl Settings {
             tab_rail_reveal_px,
             sh_click,
             shell_integration,
+            restore_workspaces,
             new_output_fade,
             window_border,
             window_decorations,
@@ -2373,6 +2387,10 @@ impl Settings {
         values.insert(
             SHELL_INTEGRATION_ENV,
             bool_display(self.shell_integration).to_owned(),
+        );
+        values.insert(
+            RESTORE_WORKSPACES_ENV,
+            bool_display(self.restore_workspaces).to_owned(),
         );
         values.insert(
             NEW_OUTPUT_FADE_ENV,

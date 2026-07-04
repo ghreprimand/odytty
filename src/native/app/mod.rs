@@ -143,6 +143,13 @@ pub(in crate::native) use overlay_registry::ActiveModal;
 const APP_ID: &str = "io.unfinished_works.odytty";
 pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(150);
 
+/// Quiet window after the last workspace-shape mutation before the debounced
+/// autosave writes the snapshot (WP2 sub-ODP 8c). Long enough that a split-
+/// ratio drag stream (which re-arms the deadline every frame it moves) collapses
+/// to a single write when the drag settles, short enough that a crash loses at
+/// most a couple of seconds of shape change.
+const SHAPE_AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(1500);
+
 /// Native presenter policy for DECSET 2026 synchronized output.
 ///
 /// The terminal core owns the mode bit. The native layer owns the safety policy:
@@ -483,6 +490,24 @@ pub(super) struct App {
     /// closed; the per-frame [`Self::sync_image_overlay`] clears it (and the GPU
     /// overlay texture) once the overlay is no longer open.
     image_overlay: Option<interactive_paths::ImageOverlayState>,
+    /// WP2 autosave (sub-ODP 8c/8d): whether THIS instance may persist the
+    /// workspace shape. Only the primary instance (the one holding the state-dir
+    /// lock) autosaves or restores; a second concurrent window sets this `false`
+    /// and never writes `workspaces.json`. Set once at startup.
+    autosave_is_primary: bool,
+    /// Debounced-autosave deadline: `Some(t)` once a shape mutation is pending a
+    /// write at `t`; re-armed on each further mutation so a burst coalesces into
+    /// one write, cleared when the write fires. `None` at rest.
+    autosave_deadline: Option<Instant>,
+    /// Last structural fingerprint the autosave observed. `None` until the first
+    /// maintenance pass establishes the post-launch baseline (so restore's own
+    /// shape does not trigger an immediate redundant write). A change from this
+    /// value arms [`Self::autosave_deadline`].
+    autosave_fingerprint: Option<u64>,
+    /// Test-only count of shape writes emitted, so the debounce-coalescing tests
+    /// can assert exactly-once without touching the filesystem.
+    #[cfg(test)]
+    autosave_saves: u32,
     pub(super) startup_error: Option<NativeError>,
 }
 
@@ -601,6 +626,11 @@ impl App {
             grid_left_held: false,
             home_dir: std::env::var_os("HOME").and_then(|h| h.into_string().ok()),
             image_overlay: None,
+            autosave_is_primary: false,
+            autosave_deadline: None,
+            autosave_fingerprint: None,
+            #[cfg(test)]
+            autosave_saves: 0,
             startup_error: None,
         };
         // ONBOARD (D-OB-1/D-OB-2): open the first-run welcome card iff the
@@ -1417,6 +1447,10 @@ impl App {
                 .active_is_single_pane()
                 .then(|| self.animation_deadline())
                 .flatten(),
+            // WP2: wake to flush the debounced workspace-shape autosave. `None`
+            // at rest (nothing pending), so the idle wake set is unchanged; when
+            // a shape mutation is pending this fires the one write ~1.5s later.
+            self.autosave_deadline,
         ]
         .into_iter()
         .flatten()
@@ -3478,6 +3512,7 @@ impl App {
             line_height: parsed.line_height,
             box_thickness: parsed.box_thickness,
             attach_session: self.options.attach_session.clone(),
+            bare_launch: self.options.bare_launch,
         }
     }
 
@@ -3828,6 +3863,106 @@ impl App {
                 && self.sessions.any_visible_pane_needs_rebuild())
     }
 
+    /// WP2 sub-ODP 8d: record whether this instance holds the primary-instance
+    /// lock. Only the primary autosaves and restores the workspace shape; a
+    /// second concurrent window stays inert on both.
+    pub(super) fn set_primary_instance(&mut self, primary: bool) {
+        self.autosave_is_primary = primary;
+    }
+
+    /// WP2 restore-on-launch (sub-ODPs 8a/8b/8f). Called once at startup, and
+    /// only when this is the primary instance, the launch was a bare `odytty`,
+    /// and `restore_workspaces` is on. Rebuilds the saved shape; on a stale
+    /// directory it lands that pane at home with ONE compact notice, and on an
+    /// unreadable / version-skewed snapshot it starts fresh with a notice.
+    /// Never produces a broken or empty window — worst case is the launch
+    /// layout that was already on screen.
+    pub(super) fn restore_workspaces_on_launch(&mut self) {
+        use crate::native::persistence::{self, LoadOutcome};
+        use crate::native::session::RestoreReport;
+        match persistence::load_snapshot() {
+            LoadOutcome::Loaded(snapshot) => {
+                let home = persistence::restore_home_dir();
+                let report =
+                    self.sessions
+                        .restore_from_snapshot(&snapshot, self.grid, home.as_deref());
+                if let RestoreReport::Restored { stale_cwd, .. } = report
+                    && stale_cwd > 0
+                {
+                    self.raise_open_notice(
+                        "Restored your layout \u{2014} some panes opened at home because                          their folders are gone."
+                            .to_owned(),
+                    );
+                }
+            }
+            // First launch or nothing ever saved: start fresh, no notice.
+            LoadOutcome::Absent => {}
+            // Unreadable or from a newer build: start fresh, one quiet notice.
+            LoadOutcome::Skew { .. } | LoadOutcome::Corrupt(_) => {
+                self.raise_open_notice(
+                    "Couldn't read the saved layout \u{2014} starting fresh.".to_owned(),
+                );
+            }
+        }
+        // Establish the post-restore fingerprint baseline so the restored shape
+        // does not itself trigger an immediate redundant autosave.
+        self.autosave_fingerprint = Some(self.sessions.structural_fingerprint());
+    }
+
+    /// WP2 sub-ODP 8c: arm / flush the debounced shape autosave. Runs every
+    /// maintenance pass; inert on non-primary instances and when the structure
+    /// is unchanged. A structural mutation re-arms the debounce so a burst (e.g.
+    /// a split-ratio drag) coalesces into one write when it settles.
+    fn run_shape_autosave(&mut self, now: Instant) {
+        if !self.autosave_is_primary {
+            return;
+        }
+        let fingerprint = self.sessions.structural_fingerprint();
+        match self.autosave_fingerprint {
+            // Establish the baseline on the first pass without scheduling a write.
+            None => self.autosave_fingerprint = Some(fingerprint),
+            Some(previous) if previous != fingerprint => {
+                self.autosave_fingerprint = Some(fingerprint);
+                self.autosave_deadline = Some(now + SHAPE_AUTOSAVE_DEBOUNCE);
+            }
+            Some(_) => {}
+        }
+        if let Some(deadline) = self.autosave_deadline
+            && now >= deadline
+        {
+            self.autosave_deadline = None;
+            self.write_shape_snapshot();
+        }
+    }
+
+    /// WP2 sub-ODP 8c: unconditional shape save on a clean exit (primary only).
+    /// Skips an empty window so quitting after closing every tab cannot clobber a
+    /// good snapshot with nothing.
+    pub(super) fn save_shape_on_exit(&mut self) {
+        if !self.autosave_is_primary || self.sessions.is_empty() {
+            return;
+        }
+        self.write_shape_snapshot();
+    }
+
+    /// Capture the live workspace shape and persist it atomically (sub-ODP 8c).
+    /// Best-effort: a write error is logged, never fatal. Under `cfg(test)` the
+    /// disk write is replaced by a counter bump so the debounce-coalescing tests
+    /// can assert exactly-once behavior without touching the filesystem.
+    fn write_shape_snapshot(&mut self) {
+        #[cfg(test)]
+        {
+            self.autosave_saves += 1;
+        }
+        #[cfg(not(test))]
+        {
+            let snapshot = self.sessions.capture_shape();
+            if let Err(err) = crate::native::persistence::save_snapshot(&snapshot) {
+                tracing::warn!("workspace shape autosave failed: {err}");
+            }
+        }
+    }
+
     fn run_about_to_wait_maintenance(&mut self, now: Instant) {
         // NF20-B: settle the cursor-animation / render-hold timers of every
         // non-active pane. Background panes are never rendered, so their timers
@@ -3868,6 +4003,10 @@ impl App {
                 window.request_redraw();
             }
         }
+
+        // WP2 sub-ODP 8c: debounced workspace-shape autosave. Cheap and fully
+        // idle on non-primary instances / when nothing changed.
+        self.run_shape_autosave(now);
 
         if let Some(resize) = self.resize_debounce.take_due(now) {
             self.apply_grid_resize(resize);

@@ -208,6 +208,16 @@ remote_integration = on
 # keybinds = ctrl+alt+r=session-replay.
 session_replay = off
 
+# Restore the previous workspace/tab/pane layout when odytty is launched with
+# no arguments. Default off. Shape only — workspace names, tab titles and order,
+# and each pane's split tree at its captured directory, each reopened with a
+# fresh shell; terminal output, scrollback, and commands are never restored.
+# Only a bare `odytty` restores; any argument (a flag, a path, -e, an attach id)
+# starts fresh. The shape autosave (state-dir workspaces.json) runs regardless,
+# so a snapshot is ready the moment this is turned on; with several windows open
+# only the first (primary) one autosaves and restores.
+restore_workspaces = off
+
 # Multiplexer prefix for pane/split management (tmux-style). The prefix is
 # captured only when the active tab has more than one pane; single-pane tabs pass
 # Ctrl+b through to the shell unchanged. In a multi-pane tab, press the prefix,

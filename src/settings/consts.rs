@@ -75,6 +75,7 @@ pub const TAB_RAIL_AUTOHIDE_ENV: &str = "ODYTTY_TAB_RAIL_AUTOHIDE";
 pub const TAB_RAIL_REVEAL_PX_ENV: &str = "ODYTTY_TAB_RAIL_REVEAL_PX";
 pub const SH_CLICK_ENV: &str = "ODYTTY_SH_CLICK";
 pub const SHELL_INTEGRATION_ENV: &str = "ODYTTY_SHELL_INTEGRATION";
+pub const RESTORE_WORKSPACES_ENV: &str = "ODYTTY_RESTORE_WORKSPACES";
 pub const CVD_MODE_ENV: &str = "ODYTTY_CVD_MODE";
 pub const CVD_STRENGTH_ENV: &str = "ODYTTY_CVD_STRENGTH";
 pub const BELL_ENV: &str = "ODYTTY_BELL";
@@ -171,6 +172,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     TAB_RAIL_REVEAL_PX_ENV,
     SH_CLICK_ENV,
     SHELL_INTEGRATION_ENV,
+    RESTORE_WORKSPACES_ENV,
     CVD_MODE_ENV,
     CVD_STRENGTH_ENV,
     BELL_ENV,
@@ -698,6 +700,16 @@ pub const DEFAULT_SHELL_INTEGRATION: bool = false;
 /// per-host `Integration off` in `hosts.conf` opts a single host out; turning
 /// this off globally makes every SSH tab byte-identical to a plain ssh launch.
 pub const DEFAULT_REMOTE_INTEGRATION: bool = true;
+
+/// Restore the previous workspace/tab/pane SHAPE at launch
+/// (`ODYTTY_RESTORE_WORKSPACES`): when on, a bare `odytty` launch reopens the
+/// last saved layout — workspace names, tab titles/order, and each pane's
+/// split tree at its captured cwd — landing a fresh interactive shell in each
+/// pane. Never restores grid content, scrollback, or commands. Off by default;
+/// any CLI argument suppresses restore for that launch. The shape autosave that
+/// feeds this runs regardless of the setting, so a snapshot is ready the moment
+/// it is turned on.
+pub const DEFAULT_RESTORE_WORKSPACES: bool = false;
 
 pub const DEFAULT_BLOOM: bool = true;
 pub const DEFAULT_BLOOM_THRESHOLD: f32 = 0.7;

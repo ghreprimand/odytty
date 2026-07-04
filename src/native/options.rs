@@ -93,6 +93,13 @@ pub struct NativeOptions {
     /// local session, then attaches the hosted session as a live tab and focuses
     /// it — the `odytty attach <id>` entry the CLI sets.
     pub attach_session: Option<String>,
+    /// Whether this process was launched as a bare `odytty` with no CLI
+    /// arguments (WP2 restore-on-launch, sub-ODP 8b). Only a bare launch is
+    /// eligible to restore the previous workspace shape; any argument (a flag,
+    /// `-e`, a working-directory, an attach id) sets this `false` and suppresses
+    /// restore for that launch. `false` by default so every non-bare
+    /// construction path (attach, tests, config reload) is restore-inert.
+    pub bare_launch: bool,
 }
 
 impl Default for NativeOptions {
@@ -112,6 +119,7 @@ impl Default for NativeOptions {
             line_height: DEFAULT_LINE_HEIGHT,
             box_thickness: DEFAULT_BOX_THICKNESS,
             attach_session: None,
+            bare_launch: false,
         }
     }
 }

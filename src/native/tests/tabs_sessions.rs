@@ -3674,3 +3674,70 @@ fn the_shared_rename_field_retargets_the_workspace_name() {
         "Enter closes the rename field"
     );
 }
+
+// ---- WP2: debounced workspace-shape autosave (sub-ODP 8c/8d) ----
+
+/// A burst of shape mutations coalesces into exactly one autosave write once the
+/// debounce quiet window elapses — a drag/rapid-edit stream is one write, not N.
+#[test]
+fn shape_autosave_debounces_a_mutation_burst_into_one_write() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_primary_instance_for_test(true);
+
+    let t0 = Instant::now();
+    // First pass establishes the fingerprint baseline: no write, nothing pending.
+    app.run_about_to_wait_maintenance_for_test(t0);
+    assert_eq!(app.autosave_saves_for_test(), 0);
+    assert!(!app.autosave_pending_for_test());
+
+    // A shape mutation arms the debounce but does not write within the window.
+    assert!(add_workspace(&mut app));
+    app.run_about_to_wait_maintenance_for_test(t0 + std::time::Duration::from_millis(10));
+    assert!(
+        app.autosave_pending_for_test(),
+        "a mutation arms the debounce"
+    );
+    assert_eq!(
+        app.autosave_saves_for_test(),
+        0,
+        "not written within the window"
+    );
+
+    // A further mutation re-arms (coalesces) rather than writing twice.
+    assert!(add_workspace(&mut app));
+    app.run_about_to_wait_maintenance_for_test(t0 + std::time::Duration::from_millis(500));
+    assert_eq!(app.autosave_saves_for_test(), 0);
+
+    // Once the quiet window elapses, exactly one write fires and clears pending.
+    app.run_about_to_wait_maintenance_for_test(t0 + std::time::Duration::from_secs(3));
+    assert_eq!(
+        app.autosave_saves_for_test(),
+        1,
+        "the burst coalesced into a single write"
+    );
+    assert!(!app.autosave_pending_for_test());
+
+    // No further writes without a further mutation.
+    app.run_about_to_wait_maintenance_for_test(t0 + std::time::Duration::from_secs(6));
+    assert_eq!(app.autosave_saves_for_test(), 1);
+}
+
+/// A non-primary instance never writes the shape snapshot, even across a
+/// mutation and a full debounce window (sub-ODP 8d: only the lock holder saves).
+#[test]
+fn shape_autosave_is_inert_on_a_non_primary_instance() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Default construction is non-primary (set_primary_instance never called).
+    let t0 = Instant::now();
+    app.run_about_to_wait_maintenance_for_test(t0);
+    assert!(add_workspace(&mut app));
+    app.run_about_to_wait_maintenance_for_test(t0 + std::time::Duration::from_secs(3));
+    assert_eq!(app.autosave_saves_for_test(), 0);
+    assert!(!app.autosave_pending_for_test());
+}

@@ -414,6 +414,63 @@ pub(crate) fn load_snapshot() -> LoadOutcome {
     }
 }
 
+/// Where a restored pane should open, plus whether its captured directory was
+/// found to be stale. Resolves the design §10.5 degrade path in one place so
+/// launch-time first-pane seeding and the workspace rebuild agree exactly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResolvedCwd {
+    /// The directory to spawn the pane's shell in. `None` means "spawn wherever
+    /// the process already is" (only when no home is resolvable at all).
+    pub(crate) path: Option<PathBuf>,
+    /// True when a specific directory WAS captured but no longer resolves to an
+    /// existing directory, so the pane falls back to home. Drives the single
+    /// compact restore notice (sub-ODP 8f); an unknown (never-captured) cwd is
+    /// a quiet home fallback and is NOT counted here.
+    pub(crate) stale: bool,
+}
+
+/// Resolve a captured pane cwd against the live filesystem (design §10.5,
+/// sub-ODP 8f). A captured directory that still exists is used as-is; a captured
+/// directory that has since disappeared falls back to `home` and is flagged
+/// stale (for the notice); an unknown (`None`) cwd falls back to `home` quietly.
+/// Never aborts and never touches anything but a single `metadata` probe.
+pub(crate) fn resolve_cwd(captured: Option<&str>, home: Option<&Path>) -> ResolvedCwd {
+    match captured {
+        Some(dir) if is_existing_dir(Path::new(dir)) => ResolvedCwd {
+            path: Some(PathBuf::from(dir)),
+            stale: false,
+        },
+        Some(_) => ResolvedCwd {
+            path: home.map(Path::to_path_buf),
+            stale: true,
+        },
+        None => ResolvedCwd {
+            path: home.map(Path::to_path_buf),
+            stale: false,
+        },
+    }
+}
+
+fn is_existing_dir(path: &Path) -> bool {
+    std::fs::metadata(path)
+        .map(|meta| meta.is_dir())
+        .unwrap_or(false)
+}
+
+/// The user's home directory for restore fallbacks: `$HOME` on Unix,
+/// `%USERPROFILE%` on Windows (sub-ODP 8f). `None` when unset/empty, in which
+/// case a stale pane simply spawns wherever the process already is rather than
+/// aborting.
+pub(crate) fn restore_home_dir() -> Option<PathBuf> {
+    #[cfg(windows)]
+    let key = "USERPROFILE";
+    #[cfg(not(windows))]
+    let key = "HOME";
+    std::env::var_os(key)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
 fn opt_str(value: &Option<String>) -> Json {
     match value {
         Some(text) => Json::Str(text.clone()),
