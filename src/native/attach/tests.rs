@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use super::*;
 use crate::core::{Dimensions, SnapshotCaptureLimits, Terminal};
 use crate::native::layout::PaneRect;
-use crate::native::session::{Session, TabSet};
+use crate::native::session::{Session, WorkspaceSet};
 use crate::pty::PtySession;
 use crate::session_host::protocol::{
     ClientFrame, HostFrame, HostHello, read_client_frame, read_client_hello, write_host_frame,
@@ -392,7 +392,7 @@ fn resize_rejects_zero_dimensions() {
 }
 
 // ---------------------------------------------------------------------------
-// Live-wiring tests: an attached session is a real `Session`/`TabSet` source.
+// Live-wiring tests: an attached session is a real `Session`/`WorkspaceSet` source.
 // These prove the source generalization routes resize/input/close to the
 // socket while the local-PTY path stays byte-identical (the latter is guarded
 // by `local_session_resize_routes_to_pty_unchanged` in `session.rs`).
@@ -412,7 +412,7 @@ fn attached_session_over(socket: &std::path::Path, id: &str) -> Session {
 }
 
 /// Like [`attached_session_over`] but with an explicit token, so several
-/// attached sessions can coexist in one [`TabSet`] without a token collision
+/// attached sessions can coexist in one [`WorkspaceSet`] without a token collision
 /// (the test-only `push` does not mint fresh tokens). Used by the Phase 14
 /// dedup / replace tests.
 fn attached_session_token(socket: &std::path::Path, id: &str, token: u64) -> Session {
@@ -425,7 +425,7 @@ fn attached_session_token(socket: &std::path::Path, id: &str, token: u64) -> Ses
     Session::new_attached(SessionToken(token), terminal, writer, client, id, None)
 }
 
-/// A real local-PTY [`Session`] to seed a [`TabSet`] for the present-live-tab
+/// A real local-PTY [`Session`] to seed a [`WorkspaceSet`] for the present-live-tab
 /// test (the attached tab is grafted on top of it). Mirrors the session-arena
 /// test builder.
 fn build_local_session() -> Session {
@@ -444,7 +444,7 @@ fn attached_tab_resize_forwards_to_socket() {
             read_client_frame(&mut stream).expect("read client frame")
         });
     let session = attached_session_over(&socket_path, "resize-tab");
-    let mut set = TabSet::new(session, None);
+    let mut set = WorkspaceSet::new(session, None);
     // 800x400 content, 10x20 cell → 80 cols, 20 rows: routed to a `Resize` frame.
     set.resize_all_panes(PaneRect::new(0.0, 0.0, 800.0, 400.0), 10, 20, 1.0);
     let frame = handle.join().expect("host thread");
@@ -483,7 +483,7 @@ fn window_close_detaches_attached_tab_host_survives() {
             read_client_frame(&mut stream).expect("read client frame")
         });
     let session = attached_session_over(&socket_path, "close-tab");
-    let mut set = TabSet::new(session, None);
+    let mut set = WorkspaceSet::new(session, None);
     // Closing the (only) attached session sends a clean Detach, not a kill — the
     // host keeps the session alive for later reattach.
     let was_last = set.close(SessionToken(0));
@@ -492,7 +492,7 @@ fn window_close_detaches_attached_tab_host_survives() {
     assert_eq!(frame, ClientFrame::Detach);
 }
 
-// --- Phase 14: attach dedup + new-tab/replace orchestration (TabSet level) ---
+// --- Phase 14: attach dedup + new-tab/replace orchestration (WorkspaceSet level) ---
 
 /// Dedup (the reported triple-open fix): an attached session records its host
 /// id, `find_attached_tab` locates the open tab, and re-selecting it switches
@@ -503,7 +503,7 @@ fn attach_dedup_finds_open_tab_and_switch_adds_no_tab() {
         snapshot_bytes(&sample_host_terminal()),
         drain_until_disconnect,
     );
-    let mut set = TabSet::new(build_local_session(), None); // local tab, token 0
+    let mut set = WorkspaceSet::new(build_local_session(), None); // local tab, token 0
     let tok = set.push(attached_session_token(&sock, "s-0001-aaaa", 1)); // + attached
     assert_eq!(set.len(), 2);
 
@@ -532,6 +532,40 @@ fn attach_dedup_finds_open_tab_and_switch_adds_no_tab() {
     join_within(host, "dedup fake host");
 }
 
+/// Cross-workspace dedup (ODP-10): an attached session living in a BACKGROUND
+/// workspace is still located by `find_attached_tab` (the arena scan spans every
+/// workspace), and re-selecting it deep-switches the active workspace + tab +
+/// pane focus rather than appending a duplicate.
+#[test]
+fn attach_dedup_deep_switches_across_workspaces() {
+    let (sock, host) = spawn_fake_host(
+        snapshot_bytes(&sample_host_terminal()),
+        drain_until_disconnect,
+    );
+    // ws0: the local current tab (token 0). ws1: an attached session (token 1).
+    let mut set = WorkspaceSet::new(build_local_session(), None);
+    let attached = set.push_workspace(attached_session_token(&sock, "s-0002-bbbb", 1));
+    assert_eq!(set.workspace_count(), 2);
+    // ws0 stays active (push_workspace never switches).
+    assert_eq!(set.active_workspace_index(), 0);
+    assert_eq!(set.len(), 2);
+
+    // The arena scan finds the attached session even though it lives in a
+    // background workspace.
+    assert_eq!(set.find_attached_tab("s-0002-bbbb"), Some(attached));
+
+    // Re-selecting it deep-switches to ws1 and adds no duplicate tab.
+    let before = set.len();
+    let found = set.find_attached_tab("s-0002-bbbb").expect("already open");
+    assert!(set.switch(found));
+    assert_eq!(set.len(), before, "no duplicate tab");
+    assert_eq!(set.active_workspace_index(), 1, "deep-switched to ws1");
+    assert_eq!(set.active_id(), attached, "and focuses the attached pane");
+
+    set.close(attached); // clean Detach so the fake host EOFs
+    join_within(host, "cross-workspace dedup fake host");
+}
+
 /// "Replace current" over a LOCAL current tab: attach appends exactly one tab,
 /// then the previously-active local tab is closed directly (its PTY reaped),
 /// netting one tab with the attached session focused.
@@ -541,7 +575,7 @@ fn attach_replace_closes_local_current_and_focuses_attached() {
         snapshot_bytes(&sample_host_terminal()),
         drain_until_disconnect,
     );
-    let mut set = TabSet::new(build_local_session(), None); // local current, token 0
+    let mut set = WorkspaceSet::new(build_local_session(), None); // local current, token 0
     let old_active = set.active_id();
     assert_eq!(old_active, SessionToken(0));
 
@@ -576,7 +610,7 @@ fn attach_replace_detaches_hosted_current_host_survives() {
 
     // The CURRENT tab is itself a hosted/attached session (token 0).
     let current = attached_session_token(&sock_cur, "s-cur-0001", 0);
-    let mut set = TabSet::new(current, None);
+    let mut set = WorkspaceSet::new(current, None);
     let old_active = set.active_id();
 
     let new_tok = set.push(attached_session_token(&sock_new, "s-new-0002", 1));
@@ -598,7 +632,7 @@ fn attach_replace_detaches_hosted_current_host_survives() {
     join_within(host_new, "replace-hosted new host");
 }
 
-// --- Packet 2: Detach & switch orchestration (TabSet level) ---
+// --- Packet 2: Detach & switch orchestration (WorkspaceSet level) ---
 //
 // The App reads the focused pane's cwd, spawns a FRESH managed session in it,
 // attaches + focuses it, then (Swap only) closes the ORIGINAL focused pane via
@@ -618,7 +652,7 @@ fn detach_switch_swap_closes_single_pane_original_and_focuses_managed() {
         snapshot_bytes(&sample_host_terminal()),
         drain_until_disconnect,
     );
-    let mut set = TabSet::new(build_local_session(), None); // original, token 0
+    let mut set = WorkspaceSet::new(build_local_session(), None); // original, token 0
     let original = set.active_id();
     assert_eq!(original, SessionToken(0));
 
@@ -648,7 +682,7 @@ fn detach_switch_keep_both_leaves_original_and_adds_one() {
         snapshot_bytes(&sample_host_terminal()),
         drain_until_disconnect,
     );
-    let mut set = TabSet::new(build_local_session(), None); // original, token 0
+    let mut set = WorkspaceSet::new(build_local_session(), None); // original, token 0
     let original = set.active_id();
 
     let managed = set.push(attached_session_token(&sock, "s-0002-bbbb", 1));
@@ -693,7 +727,7 @@ fn attach_by_id_presents_live_tab_and_repaints() {
         drain_until_disconnect(stream);
     });
 
-    let mut set = TabSet::new(build_local_session(), None);
+    let mut set = WorkspaceSet::new(build_local_session(), None);
     let (tx, rx) = mpsc::channel();
     let token = set
         .attach_in_new_tab_for_test(Some(&base), id, ChannelSink(tx))

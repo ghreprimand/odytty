@@ -74,7 +74,7 @@ pub(super) use super::resize::{
     scale_factor_changed,
 };
 use super::search_ui::{SearchStyle, apply_search_ui};
-use super::session::{Session, SessionToken, TabSet};
+use super::session::{Session, SessionToken, WorkspaceSet};
 use super::viewport::{
     OverlayWheelDamper, SELECTION_AUTOSCROLL_INTERVAL, WheelAccumulator, WindowPadding,
     grid_dimensions_for_with_padding, scroll_indicator_hit_with_padding,
@@ -267,7 +267,7 @@ pub(super) struct App {
     /// change (winit issues a platform request each call). Starts at the winit
     /// default (`Default` arrow) which matches a freshly created window.
     cursor_icon: CursorIcon,
-    sessions: TabSet,
+    sessions: WorkspaceSet,
     /// Native presentation epoch for pixel-affecting state outside the terminal
     /// core revision: theme/default-color changes, atlas/font changes, and
     /// other settings that make identical snapshots build different vertices.
@@ -425,7 +425,7 @@ pub(super) struct App {
     /// overlay open.
     overlay_wheel: OverlayWheelDamper,
     /// Visible multi-session tab strip state. Presentation-only; the session
-    /// model stays in `TabSet`.
+    /// model stays in `WorkspaceSet`.
     tab_bar: TabBar,
     /// Vertical tab rail state (F4-V2 R1) — the sibling of `tab_bar`, active
     /// only when `tab_bar_placement` is a rail. Presentation-only.
@@ -495,7 +495,7 @@ impl App {
         );
         Self::new_with_sessions(
             options,
-            TabSet::new(session, None),
+            WorkspaceSet::new(session, None),
             settings,
             settings_reloader,
         )
@@ -503,7 +503,7 @@ impl App {
 
     pub(super) fn new_with_sessions(
         options: NativeOptions,
-        sessions: TabSet,
+        sessions: WorkspaceSet,
         settings: Settings,
         settings_reloader: SettingsReloader,
     ) -> Self {
@@ -790,7 +790,7 @@ impl App {
     /// Attach to a detached, session-host-backed session by id and present it as
     /// a new live tab in this window — the production "reopen by id, full
     /// scrollback intact" path. The mirror terminal is restored from the host
-    /// snapshot inside [`TabSet::attach_in_new_tab`]; here we apply the window's
+    /// snapshot inside [`WorkspaceSet::attach_in_new_tab`]; here we apply the window's
     /// presentation policy (theme/cursor/scrollback cap) so the attached tab
     /// renders consistently, then switch focus to it. The grid content from the
     /// host snapshot is untouched. The next resize reconciles the mirror to this
@@ -912,17 +912,24 @@ impl App {
         // distinct from "Close Pane" (`close_focused_pane`), which collapses a
         // single leaf and keeps a multi-pane tab alive (Director, explicit).
         //
-        // Exit keys on the last *tab*, never on the last *pane*: closing the
-        // sole tab — even a multi-pane one — signals app exit. We guard on
-        // `tab_count() <= 1` first and return without reaping, preserving the
-        // existing shutdown path exactly (the app tears down sessions on exit;
-        // reaping here would empty the `TabSet` and make any `active()` Deref
-        // before exit panic). Byte-identical to the old last-close path.
-        if self.sessions.tab_count() <= 1 {
+        // Exit keys on the last tab of the LAST workspace, never on the last
+        // pane: closing the sole tab of the sole workspace — even a multi-pane
+        // one — signals app exit. We guard on that case first and return without
+        // reaping, preserving the existing shutdown path exactly (the app tears
+        // down sessions on exit; reaping here would empty the `WorkspaceSet` and
+        // make any `active()` Deref before exit panic). With a single workspace
+        // this is byte-identical to the old last-close path.
+        //
+        // Closing the last tab of a NON-last workspace instead closes that
+        // workspace and switches to a neighbor (`WorkspaceSet::close_active_tab`);
+        // that is not app exit, so it falls through to the reap branch below.
+        if self.sessions.tab_count() <= 1 && self.sessions.workspace_count() <= 1 {
             self.pending_exit = true;
             return true;
         }
-        // 2+ tabs: reap the whole active tab (every pane) and remove it.
+        // Another tab in this workspace, or another workspace, survives: reap the
+        // whole active tab (every pane), removing the workspace too if it was its
+        // last tab.
         let _ = self.sessions.close_active_tab();
         // F4-P3: a close chord flashes the auto-hidden rail so the dropped tab is
         // visible even with the pointer away from the edge.
@@ -939,7 +946,7 @@ impl App {
 
     /// Dispatch a multiplexer pane action resolved on the prefix (§7, K2). The
     /// prefix engine only ever returns pane actions here; the catch-all is for
-    /// exhaustiveness. Each op routes onto the `TabSet` pane methods built in
+    /// exhaustiveness. Each op routes onto the `WorkspaceSet` pane methods built in
     /// Phase 1c, then reflows pane geometry and repaints as needed.
     pub(super) fn apply_pane_action(&mut self, action: BindableAction) {
         match action {

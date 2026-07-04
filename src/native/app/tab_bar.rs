@@ -3,14 +3,14 @@
 //!
 //! Renders a one-row tab strip across the top of the window. The widget is
 //! purely geometrical: it reads layout from a [`TabBarSource`] trait object
-//! (implemented on `TabSet`) and produces solid quads + glyph outputs that the
+//! (implemented on `WorkspaceSet`) and produces solid quads + glyph outputs that the
 //! integration layer composites into the frame. It never touches terminal
 //! state, PTY, or settings.
 //!
 //! ## Integration (live)
 //! Both render paths in `app/` drive this widget:
 //! `App::decorate_snapshot_with_tab_bar` (single-pane) and
-//! `TabSet`-backed `tab_bar_strip` (multi-pane) call [`TabBar::render`] each
+//! `WorkspaceSet`-backed `tab_bar_strip` (multi-pane) call [`TabBar::render`] each
 //! frame, push the returned quads into the overlay quad list, and paint each
 //! glyph into the reserved tab-bar snapshot row
 //! (`snapshot.cells[glyph.col] = Cell::new(glyph.ch, glyph.attrs)`);
@@ -81,7 +81,7 @@ const CLOSE_COLS: usize = 2;
 // ---------------------------------------------------------------------------
 
 /// Read-only interface to the session model.  GPT will `impl TabBarSource for
-/// TabSet`; unit tests use an inline mock.
+/// WorkspaceSet`; unit tests use an inline mock.
 pub(in crate::native) trait TabBarSource {
     /// Number of open tabs (0 means the bar renders empty).
     fn tab_count(&self) -> usize;
@@ -203,7 +203,7 @@ impl TabBar {
 
     /// Render the tab bar for the current frame.
     ///
-    /// - `source` — session model accessor (mock or real `TabSet`).
+    /// - `source` — session model accessor (mock or real `WorkspaceSet`).
     /// - `grid_cols` — number of terminal columns in the window.
     /// - `y_offset_px` / `cell` / `padding` — pixel geometry for chrome quads;
     ///   Phosphor Flat emits none, so they are currently unused (retained in the

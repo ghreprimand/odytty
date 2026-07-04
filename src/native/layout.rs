@@ -10,11 +10,11 @@
 //!
 //! Per `docs/panes-and-sessions-design.md` §3.1/§4.3/§8: nothing here touches
 //! `Session`, the GPU, winit, or settings, so it is fully unit-testable without
-//! a window. The native layer (Phase 1b) builds `TabSet`/`Tab` around these
+//! a window. The native layer (Phase 1b) builds `WorkspaceSet`/`Tab` around these
 //! types and calls these functions; until then this module has no call sites
 //! and changes no behaviour.
 
-// Phase-1a scaffold: these items are consumed by the Phase-1b arena/TabSet
+// Phase-1a scaffold: these items are consumed by the Phase-1b arena/WorkspaceSet
 // refactor. Suppress dead_code so the warning baseline is unchanged while the
 // pure core lands first as an independently testable packet.
 #![allow(dead_code)]

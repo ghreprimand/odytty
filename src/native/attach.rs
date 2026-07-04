@@ -28,7 +28,7 @@
 //! byte-identical.
 //!
 //! Wiring: the live App consumption (making an attached source a tab) lands in
-//! [`super::session::TabSet::attach_in_new_tab`], which builds the input
+//! [`super::session::WorkspaceSet::attach_in_new_tab`], which builds the input
 //! [`PtyWriter`] from [`attach_input_writer`] so an attached session reuses the
 //! exact same app-side input path as a local PTY (see design doc §6.2).
 

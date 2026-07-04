@@ -390,7 +390,7 @@ impl App {
 
     /// Apply an in-progress divider drag to the current pointer position,
     /// re-deriving the grabbed split's ratio and reflowing the affected panes'
-    /// terminal **models + cell metrics** (via [`TabSet::reflow_all_panes_for_drag`])
+    /// terminal **models + cell metrics** (via [`WorkspaceSet::reflow_all_panes_for_drag`])
     /// before requesting a repaint. No-op unless a divider is grabbed and the
     /// active tab is multi-pane. The full-window grid is unchanged by a divider
     /// drag, so this reflows pane sub-rects directly rather than through the

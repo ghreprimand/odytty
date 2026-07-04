@@ -411,7 +411,7 @@ impl Session {
     /// no longer occupies.
     ///
     /// Run for EVERY session a resize reflows, not just the active one (NF21-3):
-    /// [`TabSet::resize_all_panes`] reflows every tab's panes, but the clear that
+    /// [`WorkspaceSet::resize_all_panes`] reflows every tab's panes, but the clear that
     /// followed it in `App::apply_grid_resize` went through `Deref` = the ACTIVE
     /// session only. A background tab that crossed the reflow keeping stale
     /// absolute-row coordinates would, on switch-back, highlight the wrong text
@@ -587,19 +587,49 @@ impl Tab {
     }
 }
 
-/// The tab strip and the session arena that backs it (design doc §2.1/§2.2).
+/// One workspace: a named, ordered list of tabs with a focused (active) tab
+/// (design doc §3.1). The workspace layer sits ABOVE tabs — a [`WorkspaceSet`]
+/// owns an ordered list of these plus the single, flat session arena that every
+/// tab's panes reference by token. Per the §3.3 naming hazard this layer is
+/// never called a "session".
+pub(super) struct Workspace {
+    /// User-visible, renameable label; defaults to "Workspace N". Read by the
+    /// workspace-rail chrome (a later packet); unused by the core model itself.
+    #[allow(dead_code)]
+    pub(super) name: String,
+    /// The tabs of this workspace, in strip order. `Tab` is unchanged.
+    pub(super) tabs: Vec<Tab>,
+    /// Index into `tabs` of the focused tab.
+    pub(super) active_tab: usize,
+}
+
+impl Workspace {
+    /// A fresh workspace wrapping a single single-pane tab for `token`.
+    fn single(name: String, token: SessionToken) -> Self {
+        Self {
+            name,
+            tabs: vec![Tab::single(token)],
+            active_tab: 0,
+        }
+    }
+}
+
+/// The workspace list and the session arena that backs it (design doc §3.1).
 ///
-/// Sessions live in an arena keyed by [`SessionToken`] so pump-thread lookup by
-/// token stays O(1) and ordering lives entirely in `tabs`. Each tab owns a
-/// [`PaneNode`] layout tree whose leaves reference sessions by token. While
-/// every tab is still a single leaf this is behaviourally identical to the old
-/// `Vec<Session>` model; the two-level structure is what later packets build
-/// pane splitting on. `Deref`/`DerefMut` resolve to the focused pane of the
-/// active tab — the correct target for all keyboard/cursor/selection sites.
-pub(super) struct TabSet {
+/// The hierarchy is `WorkspaceSet` -> [`Workspace`] -> [`Tab`] -> pane. Sessions
+/// live in ONE arena keyed by [`SessionToken`] so pump-thread lookup by token
+/// stays O(1) and never has to walk the hierarchy (§5 rule 1); the workspace /
+/// tab / pane tree carries only presentation and focus. Splitting `tabs` /
+/// `active_tab` out of the set and into [`Workspace`] is a one-level push-down:
+/// the arena, token counter, and every global toggle stay on the set, so the
+/// ~35 `Deref` sites and all keyboard/cursor/selection paths are untouched by
+/// construction. `Deref`/`DerefMut` resolve to the focused pane of the active
+/// tab of the ACTIVE workspace. With a single workspace this is behaviourally
+/// identical to the previous single-`Vec<Tab>` model.
+pub(super) struct WorkspaceSet {
     sessions: HashMap<SessionToken, Session>,
-    tabs: Vec<Tab>,
-    active_tab: usize,
+    workspaces: Vec<Workspace>,
+    active_ws: usize,
     next_token: u64,
     proxy: Option<EventLoopProxy<UserEvent>>,
     /// Whether output recording is currently enabled (`session_replay`). Newly
@@ -616,7 +646,7 @@ pub(super) struct TabSet {
     shell_integration_enabled: bool,
 }
 
-impl TabSet {
+impl WorkspaceSet {
     pub(super) fn new(initial: Session, proxy: Option<EventLoopProxy<UserEvent>>) -> Self {
         let token = initial.id;
         let next_token = token.0.saturating_add(1);
@@ -624,8 +654,8 @@ impl TabSet {
         sessions.insert(token, initial);
         Self {
             sessions,
-            tabs: vec![Tab::single(token)],
-            active_tab: 0,
+            workspaces: vec![Workspace::single("Workspace 1".to_owned(), token)],
+            active_ws: 0,
             next_token,
             proxy,
             recording_enabled: false,
@@ -665,11 +695,85 @@ impl TabSet {
         self.active().recorder.frames_clone()
     }
 
-    /// The token of the focused pane of the active tab — the `Deref` target.
+    /// The active workspace. A set never holds zero workspaces (the last one
+    /// closing exits the app), and `active_ws` is kept in range by every
+    /// workspace-removing path; the fallback to the first workspace mirrors
+    /// `active_focused_token`'s defensive lookup so a stray index can never
+    /// panic.
+    fn active_workspace(&self) -> &Workspace {
+        self.workspaces
+            .get(self.active_ws)
+            .or_else(|| self.workspaces.first())
+            .expect("WorkspaceSet always holds at least one workspace")
+    }
+
+    fn active_workspace_mut(&mut self) -> &mut Workspace {
+        let idx = if self.active_ws < self.workspaces.len() {
+            self.active_ws
+        } else {
+            0
+        };
+        self.workspaces
+            .get_mut(idx)
+            .expect("WorkspaceSet always holds at least one workspace")
+    }
+
+    /// The active tab of the active workspace, if the workspace has one.
+    fn active_tab_ref(&self) -> Option<&Tab> {
+        let ws = self.active_workspace();
+        ws.tabs.get(ws.active_tab)
+    }
+
+    fn active_tab_mut(&mut self) -> Option<&mut Tab> {
+        let ws = self.active_workspace_mut();
+        ws.tabs.get_mut(ws.active_tab)
+    }
+
+    /// Locate the `(workspace index, tab index)` of the tab whose layout tree
+    /// contains `token`, scanning ALL workspaces. Pane close / shell-exit reap a
+    /// token that may live in a background workspace, and attach dedup (ODP-10)
+    /// deep-switches to whichever workspace owns a token - both need the full
+    /// scan, not the active workspace alone.
+    fn locate_token(&self, token: SessionToken) -> Option<(usize, usize)> {
+        self.workspaces.iter().enumerate().find_map(|(ws_idx, ws)| {
+            ws.tabs
+                .iter()
+                .position(|tab| tab.layout.contains(token))
+                .map(|tab_idx| (ws_idx, tab_idx))
+        })
+    }
+
+    /// Remove the workspace at `ws_idx` (its last tab just closed - no empty
+    /// workspaces, ODP-3) and clamp `active_ws` onto a surviving workspace,
+    /// mirroring the tab-removal clamp. Returns `true` iff no workspaces remain,
+    /// i.e. the last workspace closed and the caller should signal app exit.
+    fn remove_workspace(&mut self, ws_idx: usize) -> bool {
+        self.workspaces.remove(ws_idx);
+        if self.workspaces.is_empty() {
+            self.active_ws = 0;
+            return true;
+        }
+        if self.active_ws == ws_idx {
+            self.active_ws = ws_idx.min(self.workspaces.len() - 1);
+        } else if self.active_ws > ws_idx {
+            self.active_ws -= 1;
+        }
+        false
+    }
+
+    /// Number of workspaces. The app's close-tab exit guard keys on this: the
+    /// last tab of the last workspace exits, but the last tab of a non-last
+    /// workspace merely closes that workspace.
+    pub(super) fn workspace_count(&self) -> usize {
+        self.workspaces.len()
+    }
+
+    /// The token of the focused pane of the active tab - the `Deref` target.
     fn active_focused_token(&self) -> SessionToken {
-        self.tabs
-            .get(self.active_tab)
-            .or_else(|| self.tabs.first())
+        let ws = self.active_workspace();
+        ws.tabs
+            .get(ws.active_tab)
+            .or_else(|| ws.tabs.first())
             .map(|tab| tab.focused)
             .unwrap_or(SessionToken(0))
     }
@@ -679,7 +783,7 @@ impl TabSet {
         self.sessions
             .get(&token)
             .or_else(|| self.sessions.values().next())
-            .expect("TabSet always holds at least one session while active() is called")
+            .expect("WorkspaceSet always holds at least one session while active() is called")
     }
 
     pub(super) fn active_mut(&mut self) -> &mut Session {
@@ -693,7 +797,7 @@ impl TabSet {
         self.sessions
             .values_mut()
             .next()
-            .expect("TabSet always holds at least one session while active_mut() is called")
+            .expect("WorkspaceSet always holds at least one session while active_mut() is called")
     }
 
     pub(super) fn active_id(&self) -> SessionToken {
@@ -704,8 +808,16 @@ impl TabSet {
     /// consumer this frame, matching the fan-out of the `next_wake_deadline`
     /// sources with a consumer of equal reach (NF20-B / NF21-1).
     ///
-    /// - Every pane of an inactive tab, and every non-focused pane of the active
-    ///   tab, is never rendered → fully parked (`park_animation_timers`).
+    /// Consumer scope (§5 rule 2): the only pane with live animation timers is
+    /// the focused pane of the active tab of the ACTIVE WORKSPACE — everything
+    /// else (all background workspaces, all background tabs, all non-focused
+    /// panes) is parked. Collectors iterate the flat arena (§5 rule 1), never
+    /// the hierarchy; "active" is resolved once through `active_focused_token`
+    /// so this and the redraw gate can never disagree about which pane is live.
+    ///
+    /// - Every pane of an inactive tab (in any workspace) and every non-focused
+    ///   pane of the active tab is never rendered → fully parked
+    ///   (`park_animation_timers`).
     /// - The focused pane of a **single-pane** active tab keeps ALL its timers:
     ///   the single-pane frame path polls its blink/ease/slide each rebuild and
     ///   `should_hold` consumes its render hold.
@@ -757,7 +869,7 @@ impl TabSet {
     /// focused pane while zoomed (only it is rendered), otherwise every leaf of
     /// the active tab's layout. Mirrors [`Self::is_visible_pane`]'s membership.
     fn active_visible_tokens(&self) -> Vec<SessionToken> {
-        match self.tabs.get(self.active_tab) {
+        match self.active_tab_ref() {
             Some(tab) if tab.is_effectively_zoomed() => vec![tab.focused],
             Some(tab) => tab.layout.leaves(),
             None => Vec::new(),
@@ -781,7 +893,7 @@ impl TabSet {
 
     #[cfg(test)]
     pub(super) fn active_position(&self) -> usize {
-        self.active_tab
+        self.active_workspace().active_tab
     }
 
     pub(super) fn get_mut(&mut self, token: SessionToken) -> Option<&mut Session> {
@@ -801,7 +913,7 @@ impl TabSet {
     /// single-pane tab this is exactly `active_id() == token`, so the
     /// single-pane redraw decision is unchanged.
     pub(super) fn is_visible_pane(&self, token: SessionToken) -> bool {
-        match self.tabs.get(self.active_tab) {
+        match self.active_tab_ref() {
             // While zoomed only the focused pane is on screen, so background
             // panes' output must not drive a redraw (it would not be visible).
             Some(tab) if tab.is_effectively_zoomed() => tab.focused == token,
@@ -819,7 +931,7 @@ impl TabSet {
         content: PaneRect,
         divider_px: f32,
     ) -> Vec<(SessionToken, PaneRect)> {
-        match self.tabs.get(self.active_tab) {
+        match self.active_tab_ref() {
             // Zoomed tab: only the focused pane is rendered, spanning the whole
             // content rect (the layout tree underneath is untouched, so un-zoom
             // restores the prior geometry exactly).
@@ -872,8 +984,7 @@ impl TabSet {
         y: f32,
         grab_px: f32,
     ) -> Option<usize> {
-        self.tabs
-            .get(self.active_tab)
+        self.active_tab_ref()
             // No dividers are drawn while zoomed, so none can be grabbed.
             .filter(|tab| !tab.is_effectively_zoomed())
             .and_then(|tab| divider_at_point(&tab.layout, content, divider_px, x, y, grab_px))
@@ -894,8 +1005,7 @@ impl TabSet {
         y: f32,
         grab_px: f32,
     ) -> Option<SplitAxis> {
-        self.tabs
-            .get(self.active_tab)
+        self.active_tab_ref()
             .filter(|tab| !tab.is_effectively_zoomed())
             .and_then(|tab| divider_axis_at_point(&tab.layout, content, divider_px, x, y, grab_px))
     }
@@ -911,8 +1021,7 @@ impl TabSet {
         divider_px: f32,
         idx: usize,
     ) -> Option<SplitAxis> {
-        self.tabs
-            .get(self.active_tab)
+        self.active_tab_ref()
             .and_then(|tab| {
                 divider_rects_with_axis(&tab.layout, content, divider_px)
                     .into_iter()
@@ -932,8 +1041,7 @@ impl TabSet {
         x: f32,
         y: f32,
     ) -> Option<f32> {
-        self.tabs
-            .get_mut(self.active_tab)
+        self.active_tab_mut()
             .and_then(|tab| drag_divider_to(&mut tab.layout, content, divider_px, target, x, y))
     }
 
@@ -949,7 +1057,7 @@ impl TabSet {
         cell_w: u32,
         cell_h: u32,
     ) -> Option<f32> {
-        self.tabs.get_mut(self.active_tab).and_then(|tab| {
+        self.active_tab_mut().and_then(|tab| {
             snap_divider_to_cells(&mut tab.layout, content, divider_px, target, cell_w, cell_h)
         })
     }
@@ -1006,7 +1114,7 @@ impl TabSet {
         divider_px: f32,
         resize_pty: bool,
     ) {
-        for tab in &self.tabs {
+        for tab in self.workspaces.iter().flat_map(|ws| ws.tabs.iter()) {
             // A zoomed tab sizes its focused pane to the whole content rect
             // (it is rendered full-bleed); background panes keep their layout
             // sub-rect so un-zoom is instantly correct without a second reflow.
@@ -1077,7 +1185,12 @@ impl TabSet {
     /// (design doc §2.4). Returns an owned string for the rename UI / test
     /// seams; the tab bar reads the borrowed form via `TabBarSource`.
     pub(super) fn effective_tab_title(&self, token: SessionToken) -> String {
-        let Some(tab) = self.tabs.iter().find(|tab| tab.layout.contains(token)) else {
+        let Some(tab) = self
+            .workspaces
+            .iter()
+            .flat_map(|ws| ws.tabs.iter())
+            .find(|tab| tab.layout.contains(token))
+        else {
             return "odytty".to_owned();
         };
         if let Some(name) = &tab.title_override {
@@ -1092,7 +1205,12 @@ impl TabSet {
     /// Set or clear the user title override for the tab that contains `token`,
     /// marking the focused pane for rebuild so the tab strip repaints.
     pub(super) fn set_title_override(&mut self, token: SessionToken, name: Option<String>) {
-        let Some(tab) = self.tabs.iter_mut().find(|tab| tab.layout.contains(token)) else {
+        let Some(tab) = self
+            .workspaces
+            .iter_mut()
+            .flat_map(|ws| ws.tabs.iter_mut())
+            .find(|tab| tab.layout.contains(token))
+        else {
             return;
         };
         tab.title_override = name;
@@ -1107,12 +1225,15 @@ impl TabSet {
     /// position-indexed callers (resize, scrollback cap, test seams) are
     /// unchanged; it still visits every pane once.
     pub(super) fn iter(&self) -> impl Iterator<Item = &Session> {
-        self.tabs.iter().flat_map(move |tab| {
-            tab.layout
-                .leaves()
-                .into_iter()
-                .filter_map(move |token| self.sessions.get(&token))
-        })
+        self.workspaces
+            .iter()
+            .flat_map(|ws| ws.tabs.iter())
+            .flat_map(move |tab| {
+                tab.layout
+                    .leaves()
+                    .into_iter()
+                    .filter_map(move |token| self.sessions.get(&token))
+            })
     }
 
     #[cfg(test)]
@@ -1221,7 +1342,9 @@ impl TabSet {
         grid: crate::core::Dimensions,
     ) -> Result<SessionToken, std::io::Error> {
         let session_id = self.insert_spawned_session(grid)?;
-        self.tabs.push(Tab::single(session_id));
+        self.active_workspace_mut()
+            .tabs
+            .push(Tab::single(session_id));
         Ok(session_id)
     }
 
@@ -1247,7 +1370,9 @@ impl TabSet {
     ) -> Result<SessionToken, std::io::Error> {
         let (program, args) = command.into_program_args();
         let session_id = self.insert_exec_session(grid, program, args)?;
-        self.tabs.push(Tab::single(session_id));
+        self.active_workspace_mut()
+            .tabs
+            .push(Tab::single(session_id));
         if let Some(title) = title_override {
             self.set_title_override(session_id, Some(title));
         }
@@ -1313,7 +1438,7 @@ impl TabSet {
                 Some(pump_thread),
             ),
         );
-        self.tabs.push(Tab::single(token));
+        self.active_workspace_mut().tabs.push(Tab::single(token));
         Ok(token)
     }
 
@@ -1335,12 +1460,18 @@ impl TabSet {
 
     /// The focused-pane token of the tab at `position` in the strip.
     pub(super) fn token_at_position(&self, position: usize) -> Option<SessionToken> {
-        self.tabs.get(position).map(|tab| tab.focused)
+        self.active_workspace()
+            .tabs
+            .get(position)
+            .map(|tab| tab.focused)
     }
 
     /// The strip index of the tab that contains `token` as one of its panes.
     pub(super) fn position_of_token(&self, token: SessionToken) -> Option<usize> {
-        self.tabs.iter().position(|tab| tab.layout.contains(token))
+        self.active_workspace()
+            .tabs
+            .iter()
+            .position(|tab| tab.layout.contains(token))
     }
 
     /// The token of an already-open session attached by host id `session_id`, if
@@ -1355,34 +1486,45 @@ impl TabSet {
             .map(|(token, _)| *token)
     }
 
+    /// Focus the tab (and pane) that owns `token`, scanning ALL workspaces so a
+    /// selection can deep-switch the active workspace + tab + focused pane in
+    /// one step (attach dedup / summon deep-focus, ODP-10). With a single
+    /// workspace this is byte-identical to the previous same-workspace switch.
+    /// Returns true when the focus target actually moved.
     pub(super) fn switch(&mut self, token: SessionToken) -> bool {
-        let Some(tab_idx) = self.position_of_token(token) else {
+        let Some((ws_idx, tab_idx)) = self.locate_token(token) else {
             return false;
         };
-        if tab_idx == self.active_tab && self.tabs[tab_idx].focused == token {
+        let already = self.active_ws == ws_idx
+            && self.workspaces[ws_idx].active_tab == tab_idx
+            && self.workspaces[ws_idx].tabs[tab_idx].focused == token;
+        if already {
             return false;
         }
-        self.active_tab = tab_idx;
-        self.tabs[tab_idx].focused = token;
+        self.active_ws = ws_idx;
+        self.workspaces[ws_idx].active_tab = tab_idx;
+        self.workspaces[ws_idx].tabs[tab_idx].focused = token;
         true
     }
 
     pub(super) fn next(&mut self) -> bool {
-        if self.tabs.len() <= 1 {
+        let ws = self.active_workspace_mut();
+        if ws.tabs.len() <= 1 {
             return false;
         }
-        self.active_tab = (self.active_tab + 1) % self.tabs.len();
+        ws.active_tab = (ws.active_tab + 1) % ws.tabs.len();
         true
     }
 
     pub(super) fn prev(&mut self) -> bool {
-        if self.tabs.len() <= 1 {
+        let ws = self.active_workspace_mut();
+        if ws.tabs.len() <= 1 {
             return false;
         }
-        self.active_tab = if self.active_tab == 0 {
-            self.tabs.len() - 1
+        ws.active_tab = if ws.active_tab == 0 {
+            ws.tabs.len() - 1
         } else {
-            self.active_tab - 1
+            ws.active_tab - 1
         };
         true
     }
@@ -1407,11 +1549,13 @@ impl TabSet {
     /// byte-identical to the old `close(active_id())` path (the `None` branch of
     /// [`Self::close_with`]).
     ///
-    /// Returns `true` iff no tabs remain afterward, i.e. the last tab was
-    /// closed and the caller should signal app exit. Exit keys on the **last
-    /// tab**, never on the last pane.
+    /// Returns `true` iff no workspaces remain afterward, i.e. the last tab of
+    /// the last workspace was closed and the caller should signal app exit. A
+    /// workspace's last tab closing closes that workspace (ODP-3); only the last
+    /// workspace closing exits. Exit keys on the last tab of the last
+    /// **workspace**, never on the last pane.
     pub(super) fn close_active_tab(&mut self) -> bool {
-        self.close_tab_at(self.active_tab)
+        self.close_tab_at(self.active_workspace().active_tab)
     }
 
     /// Close the tab at strip index `tab_idx` — reap every leaf session in its
@@ -1424,35 +1568,50 @@ impl TabSet {
     /// Fixes `active_tab` exactly like `close_with`'s `None` branch: when the
     /// closed tab was the active one (or to its left) the active index shifts so
     /// it still points at a live tab; closing a tab to the right of the active
-    /// one leaves the active index unchanged. Returns `true` iff no tabs remain.
+    /// one leaves the active index unchanged. When the closed tab was the
+    /// workspace's last, the workspace is removed too (ODP-3); returns `true`
+    /// iff no workspaces remain (signal app exit).
     ///
     /// For a single-pane tab this reaps the one session and removes the tab —
     /// byte-identical to the old `close(token)` path the `×` button used.
     pub(super) fn close_tab_at(&mut self, tab_idx: usize) -> bool {
-        // Collect every owned leaf token first (owned `Vec`, so the immutable
-        // borrow of `self.tabs` ends before the reap loop mutates `self`).
-        let tokens = match self.tabs.get(tab_idx) {
+        // The tab strip shows the active workspace, so a strip index resolves
+        // there. Collect every owned leaf token first (owned `Vec`, so the
+        // immutable borrow of the workspace's tabs ends before the reap loop
+        // mutates `self`).
+        let ws_idx = if self.active_ws < self.workspaces.len() {
+            self.active_ws
+        } else {
+            0
+        };
+        let tokens = match self
+            .workspaces
+            .get(ws_idx)
+            .and_then(|ws| ws.tabs.get(tab_idx))
+        {
             Some(tab) => tab.layout.leaves(),
-            None => return self.tabs.is_empty(),
+            None => return self.workspaces.is_empty(),
         };
         for token in tokens {
             if let Some(session) = self.sessions.remove(&token) {
                 let _ = session.close();
             }
         }
-        let was_active = self.active_tab == tab_idx;
-        self.tabs.remove(tab_idx);
-        if self.tabs.is_empty() {
-            self.active_tab = 0;
-            return true;
+        let ws = &mut self.workspaces[ws_idx];
+        let was_active = ws.active_tab == tab_idx;
+        ws.tabs.remove(tab_idx);
+        if ws.tabs.is_empty() {
+            // Last tab of the workspace closed -> close the workspace; the last
+            // workspace closing signals app exit (ODP-3).
+            return self.remove_workspace(ws_idx);
         }
-        // Mirror `close_with`'s `None` branch: clamp the active index when the
-        // active (or an earlier) tab was removed, leave it untouched when a
+        // Mirror `close_with`'s `None` branch: clamp the active tab index when
+        // the active (or an earlier) tab was removed, leave it untouched when a
         // later tab was closed.
         if was_active {
-            self.active_tab = tab_idx.min(self.tabs.len() - 1);
-        } else if self.active_tab > tab_idx {
-            self.active_tab -= 1;
+            ws.active_tab = tab_idx.min(ws.tabs.len() - 1);
+        } else if ws.active_tab > tab_idx {
+            ws.active_tab -= 1;
         }
         false
     }
@@ -1462,7 +1621,10 @@ impl TabSet {
         token: SessionToken,
         close_session: impl FnOnce(Session) -> bool,
     ) -> bool {
-        let Some(tab_idx) = self.position_of_token(token) else {
+        // A closing pane's session may live in a background workspace (a
+        // background shell exiting), so locate it across ALL workspaces, not the
+        // active one alone.
+        let Some((ws_idx, tab_idx)) = self.locate_token(token) else {
             return self.sessions.is_empty();
         };
         // Reap the session itself.
@@ -1472,35 +1634,37 @@ impl TabSet {
         // Remove the pane leaf, collapsing its split parent into the sibling.
         // For a single-pane tab this yields `None`, i.e. the tab closes — the
         // byte-identical analogue of removing a session from the old Vec.
-        match self.tabs[tab_idx].layout.clone().close_leaf(token) {
+        let ws = &mut self.workspaces[ws_idx];
+        match ws.tabs[tab_idx].layout.clone().close_leaf(token) {
             None => {
-                let was_active = self.active_tab == tab_idx;
-                self.tabs.remove(tab_idx);
-                if self.tabs.is_empty() {
-                    self.active_tab = 0;
-                    return true;
+                let was_active = ws.active_tab == tab_idx;
+                ws.tabs.remove(tab_idx);
+                if ws.tabs.is_empty() {
+                    // Last tab of the workspace closed -> close the workspace;
+                    // the last workspace closing signals app exit (ODP-3).
+                    return self.remove_workspace(ws_idx);
                 }
                 if was_active {
-                    self.active_tab = tab_idx.min(self.tabs.len() - 1);
-                } else if self.active_tab > tab_idx {
-                    self.active_tab -= 1;
+                    ws.active_tab = tab_idx.min(ws.tabs.len() - 1);
+                } else if ws.active_tab > tab_idx {
+                    ws.active_tab -= 1;
                 }
                 false
             }
             Some(layout) => {
                 // The tab survives (a multi-pane tab lost one pane). Refocus a
                 // surviving leaf if the closed pane held focus.
-                if self.tabs[tab_idx].focused == token
+                if ws.tabs[tab_idx].focused == token
                     && let Some(first) = layout.leaves().first().copied()
                 {
-                    self.tabs[tab_idx].focused = first;
+                    ws.tabs[tab_idx].focused = first;
                 }
-                self.tabs[tab_idx].layout = layout;
+                ws.tabs[tab_idx].layout = layout;
                 // Closing a pane changes the tree; un-zoom so the survivor(s)
                 // render at their layout geometry. Closing the zoomed pane must
-                // un-zoom (Director's explicit case), and closing a background
-                // pane while zoomed also re-tiles, so clear unconditionally.
-                self.tabs[tab_idx].zoomed = false;
+                // un-zoom, and closing a background pane while zoomed also
+                // re-tiles, so clear unconditionally.
+                ws.tabs[tab_idx].zoomed = false;
                 false
             }
         }
@@ -1511,7 +1675,22 @@ impl TabSet {
         let id = session.id;
         self.next_token = self.next_token.max(id.0.saturating_add(1));
         self.sessions.insert(id, session);
-        self.tabs.push(Tab::single(id));
+        self.active_workspace_mut().tabs.push(Tab::single(id));
+        id
+    }
+
+    /// Insert `session` into the arena and append it as a brand-new
+    /// single-pane workspace (test-only), WITHOUT switching to it — the
+    /// workspace-level analogue of [`Self::push`], so headless tests can build
+    /// multi-workspace sets without an event-loop proxy for `new_workspace`'s
+    /// PTY spawn.
+    #[cfg(test)]
+    pub(in crate::native) fn push_workspace(&mut self, session: Session) -> SessionToken {
+        let id = session.id;
+        self.next_token = self.next_token.max(id.0.saturating_add(1));
+        self.sessions.insert(id, session);
+        let name = format!("Workspace {}", self.workspaces.len() + 1);
+        self.workspaces.push(Workspace::single(name, id));
         id
     }
 
@@ -1561,7 +1740,7 @@ impl TabSet {
 /// and the keybinding ops wire these in. Single-pane tabs never reach the
 /// mutating ops, so the byte-identical path is untouched.
 #[allow(dead_code)]
-impl TabSet {
+impl WorkspaceSet {
     /// Split the **focused pane of the active tab** along `axis`, spawning a new
     /// session at `grid` for the new pane and giving it focus (tmux semantics:
     /// the new pane becomes `second` and is focused). Returns the new session's
@@ -1572,7 +1751,7 @@ impl TabSet {
         axis: SplitAxis,
         grid: crate::core::Dimensions,
     ) -> Result<SessionToken, std::io::Error> {
-        if self.tabs.get(self.active_tab).is_none() {
+        if self.active_tab_ref().is_none() {
             return Err(std::io::Error::other("no active tab to split"));
         }
         let new_token = self.insert_spawned_session(grid)?;
@@ -1586,7 +1765,7 @@ impl TabSet {
     /// the arena. Factored out so headless tests can exercise the layout-tree
     /// behaviour without spawning a real PTY.
     fn split_active_with(&mut self, axis: SplitAxis, new_token: SessionToken) {
-        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+        let Some(tab) = self.active_tab_mut() else {
             return;
         };
         let focused = tab.focused;
@@ -1600,7 +1779,7 @@ impl TabSet {
 
     /// Reset every split ratio in the active tab to even (tmux `Ctrl-b =`).
     pub(super) fn equalize_active(&mut self) {
-        if let Some(tab) = self.tabs.get_mut(self.active_tab) {
+        if let Some(tab) = self.active_tab_mut() {
             let layout = std::mem::replace(&mut tab.layout, PaneNode::leaf(tab.focused));
             tab.layout = layout.equalized();
             // Equalize re-tiles every pane, so a zoom (which hides all but one)
@@ -1615,7 +1794,7 @@ impl TabSet {
     /// tree is never mutated — only the `zoomed` flag — so un-zoom restores the
     /// prior geometry exactly.
     pub(super) fn toggle_active_zoom(&mut self) -> bool {
-        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+        let Some(tab) = self.active_tab_mut() else {
             return false;
         };
         if tab.layout.is_single_pane() {
@@ -1628,8 +1807,7 @@ impl TabSet {
     /// True when the active tab is rendering one pane full-bleed (zoom mode).
     /// Drives the render path's divider suppression and the redraw decision.
     pub(super) fn active_is_zoomed(&self) -> bool {
-        self.tabs
-            .get(self.active_tab)
+        self.active_tab_ref()
             .map(Tab::is_effectively_zoomed)
             .unwrap_or(false)
     }
@@ -1637,7 +1815,7 @@ impl TabSet {
     /// Cycle focus to the next pane of the active tab in tree order (tmux
     /// `Ctrl-b o`). No geometry needed. Returns true if focus moved.
     pub(super) fn focus_next_pane(&mut self) -> bool {
-        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+        let Some(tab) = self.active_tab_mut() else {
             return false;
         };
         match tab.layout.next_leaf_after(tab.focused) {
@@ -1653,7 +1831,7 @@ impl TabSet {
     /// that tab (directional focus / focus-follows-click land the resolved
     /// token here). Returns true if focus changed.
     pub(super) fn set_active_focus(&mut self, token: SessionToken) -> bool {
-        let Some(tab) = self.tabs.get_mut(self.active_tab) else {
+        let Some(tab) = self.active_tab_mut() else {
             return false;
         };
         if tab.focused == token || !tab.layout.contains(token) {
@@ -1665,13 +1843,12 @@ impl TabSet {
 
     /// The active tab's pane layout tree (for the render/geometry layer).
     pub(super) fn active_layout(&self) -> Option<&PaneNode> {
-        self.tabs.get(self.active_tab).map(|tab| &tab.layout)
+        self.active_tab_ref().map(|tab| &tab.layout)
     }
 
     /// Number of panes in the active tab (1 ⇒ the byte-identical single path).
     pub(super) fn active_pane_count(&self) -> usize {
-        self.tabs
-            .get(self.active_tab)
+        self.active_tab_ref()
             .map(|tab| tab.layout.pane_count())
             .unwrap_or(1)
     }
@@ -1679,8 +1856,7 @@ impl TabSet {
     /// True when the active tab holds exactly one pane — the byte-identical
     /// render/resize fast path (design doc §2.3).
     pub(super) fn active_is_single_pane(&self) -> bool {
-        self.tabs
-            .get(self.active_tab)
+        self.active_tab_ref()
             .map(|tab| tab.layout.is_single_pane())
             .unwrap_or(true)
     }
@@ -1690,21 +1866,123 @@ impl TabSet {
     /// so a single renamed "workflow" tab is visible even below the usual
     /// two-tab threshold.
     pub(super) fn lone_tab_has_title_override(&self) -> bool {
-        self.tabs.len() == 1
-            && self
+        let ws = self.active_workspace();
+        ws.tabs.len() == 1
+            && ws
                 .tabs
                 .first()
                 .is_some_and(|tab| tab.title_override.is_some())
     }
 }
 
-impl TabBarSource for TabSet {
+/// Workspace-level operations (design doc §3.1, ODP-3/-10). These are the model
+/// half of the workspace layer: create / switch / rename / close a workspace and
+/// query the workspace list. The rail chrome and the workspace `BindableAction`s
+/// that call them land in later packets, so this block carries `allow(dead_code)`
+/// as scaffolding parity with the pane-ops block above — it comes off as the rail
+/// (W2) and keyboard/palette (W3) wire these in. None of them run until a second
+/// workspace exists, so single-workspace behavior is untouched.
+#[allow(dead_code)]
+impl WorkspaceSet {
+    /// The active workspace index (rail highlight / palette current-marker).
+    pub(super) fn active_workspace_index(&self) -> usize {
+        self.active_ws
+    }
+
+    /// The display name of the workspace at rail index `idx`, or `None` when out
+    /// of range.
+    pub(super) fn workspace_name(&self, idx: usize) -> Option<&str> {
+        self.workspaces.get(idx).map(|ws| ws.name.as_str())
+    }
+
+    /// Spawn a fresh shell in a brand-new workspace appended after the current
+    /// list and switch focus to it. The new workspace owns exactly one
+    /// single-pane tab (no empty workspaces, ODP-3). Mirrors [`Self::spawn`] one
+    /// level up. Returns the new session's token.
+    pub(super) fn new_workspace(
+        &mut self,
+        grid: crate::core::Dimensions,
+    ) -> Result<SessionToken, std::io::Error> {
+        let token = self.insert_spawned_session(grid)?;
+        let name = format!("Workspace {}", self.workspaces.len() + 1);
+        self.workspaces.push(Workspace::single(name, token));
+        self.active_ws = self.workspaces.len() - 1;
+        Ok(token)
+    }
+
+    /// Switch the active workspace to rail index `idx` (its active tab's focused
+    /// pane becomes the `Deref` target). Returns true when the active workspace
+    /// actually changed; out-of-range or same-index requests are no-ops.
+    pub(super) fn switch_workspace(&mut self, idx: usize) -> bool {
+        if idx == self.active_ws || idx >= self.workspaces.len() {
+            return false;
+        }
+        self.active_ws = idx;
+        true
+    }
+
+    /// Cycle the active workspace forward (rail order, wrapping). No-op with a
+    /// single workspace. Returns true when the active workspace changed.
+    pub(super) fn next_workspace(&mut self) -> bool {
+        if self.workspaces.len() <= 1 {
+            return false;
+        }
+        self.active_ws = (self.active_ws + 1) % self.workspaces.len();
+        true
+    }
+
+    /// Cycle the active workspace backward (rail order, wrapping). No-op with a
+    /// single workspace. Returns true when the active workspace changed.
+    pub(super) fn prev_workspace(&mut self) -> bool {
+        if self.workspaces.len() <= 1 {
+            return false;
+        }
+        self.active_ws = if self.active_ws == 0 {
+            self.workspaces.len() - 1
+        } else {
+            self.active_ws - 1
+        };
+        true
+    }
+
+    /// Rename the active workspace.
+    pub(super) fn rename_active_workspace(&mut self, name: String) {
+        self.active_workspace_mut().name = name;
+    }
+
+    /// Close the ENTIRE active workspace — reap every session of every tab and
+    /// remove the workspace from the rail — regardless of tab/pane count. The
+    /// "Close Workspace" action (ODP-3). Returns `true` iff no workspaces remain,
+    /// i.e. the last workspace was closed and the caller should signal app exit
+    /// (the App-level guard that avoids emptying the arena before teardown, as in
+    /// `close_active_tab`, is wired when the keybinding/menu lands).
+    pub(super) fn close_active_workspace(&mut self) -> bool {
+        let ws_idx = if self.active_ws < self.workspaces.len() {
+            self.active_ws
+        } else {
+            0
+        };
+        let tokens: Vec<SessionToken> = self
+            .workspaces
+            .get(ws_idx)
+            .map(|ws| ws.tabs.iter().flat_map(|tab| tab.layout.leaves()).collect())
+            .unwrap_or_default();
+        for token in tokens {
+            if let Some(session) = self.sessions.remove(&token) {
+                let _ = session.close();
+            }
+        }
+        self.remove_workspace(ws_idx)
+    }
+}
+
+impl TabBarSource for WorkspaceSet {
     fn tab_count(&self) -> usize {
-        self.tabs.len()
+        self.active_workspace().tabs.len()
     }
 
     fn tab_title(&self, idx: usize) -> &str {
-        let Some(tab) = self.tabs.get(idx) else {
+        let Some(tab) = self.active_workspace().tabs.get(idx) else {
             return "odytty";
         };
         if let Some(name) = &tab.title_override {
@@ -1717,11 +1995,11 @@ impl TabBarSource for TabSet {
     }
 
     fn active_tab(&self) -> usize {
-        self.active_tab
+        self.active_workspace().active_tab
     }
 }
 
-impl Deref for TabSet {
+impl Deref for WorkspaceSet {
     type Target = Session;
 
     fn deref(&self) -> &Self::Target {
@@ -1729,7 +2007,7 @@ impl Deref for TabSet {
     }
 }
 
-impl DerefMut for TabSet {
+impl DerefMut for WorkspaceSet {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.active_mut()
     }
@@ -1761,7 +2039,7 @@ mod tests {
         build_session_with_id(SessionToken(0))
     }
 
-    fn tabset_with_proxy_for_test() -> Option<(TabSet, EventLoop<UserEvent>)> {
+    fn tabset_with_proxy_for_test() -> Option<(WorkspaceSet, EventLoop<UserEvent>)> {
         let mut builder = EventLoop::<UserEvent>::with_user_event();
         #[cfg(target_os = "linux")]
         {
@@ -1774,7 +2052,7 @@ mod tests {
         }
         let event_loop = builder.build().ok()?;
         let proxy = event_loop.create_proxy();
-        Some((TabSet::new(build_session(), Some(proxy)), event_loop))
+        Some((WorkspaceSet::new(build_session(), Some(proxy)), event_loop))
     }
 
     #[test]
@@ -1785,7 +2063,7 @@ mod tests {
 
     #[test]
     fn session_set_switches_wraps_and_closes() {
-        let mut sessions = TabSet::new(build_session(), None);
+        let mut sessions = WorkspaceSet::new(build_session(), None);
         let second = SessionToken(1);
         let third = SessionToken(2);
         sessions.push(build_session_with_id(second));
@@ -1930,10 +2208,10 @@ mod tests {
         let content = PaneRect::new(0.0, 0.0, 200.0, 60.0);
         let (cell_w, cell_h, divider_px) = (10u32, 20u32, 1.0f32);
 
-        // Shared setup: build a single-pane TabSet, force the pane's terminal to
+        // Shared setup: build a single-pane WorkspaceSet, force the pane's terminal to
         // the wrapped 4x3 state, and return the incoming (pre-resize) cursor.
-        let setup = |shell_owns: bool| -> (TabSet, Position) {
-            let sessions = TabSet::new(build_session(), None);
+        let setup = |shell_owns: bool| -> (WorkspaceSet, Position) {
+            let sessions = WorkspaceSet::new(build_session(), None);
             let incoming = {
                 let session = sessions.active();
                 let mut terminal = session.terminal.lock().expect("terminal lock");
@@ -2045,7 +2323,7 @@ mod tests {
 
     #[test]
     fn split_active_grows_a_pane_within_the_same_tab() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         // Single pane → byte-identical fast path.
         assert!(set.active_is_single_pane());
         assert_eq!(set.active_pane_count(), 1);
@@ -2065,7 +2343,7 @@ mod tests {
 
     #[test]
     fn focus_next_pane_cycles_in_tree_order() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         let p1 =
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         let p2 = set.split_active_for_test(SplitAxis::Rows, build_session_with_id(SessionToken(2)));
@@ -2076,13 +2354,13 @@ mod tests {
         assert!(set.focus_next_pane());
         assert_eq!(set.active_id(), p1);
         // Single-pane tab: no-op.
-        let mut single = TabSet::new(build_session(), None);
+        let mut single = WorkspaceSet::new(build_session(), None);
         assert!(!single.focus_next_pane());
     }
 
     #[test]
     fn set_active_focus_accepts_panes_and_rejects_strangers() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         let p1 =
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         assert_eq!(set.active_id(), p1);
@@ -2097,7 +2375,7 @@ mod tests {
 
     #[test]
     fn closing_a_pane_keeps_the_multi_pane_tab() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         let p1 =
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         assert_eq!(set.active_pane_count(), 2);
@@ -2112,7 +2390,7 @@ mod tests {
     #[test]
     fn close_active_tab_reaps_the_whole_multi_pane_tab() {
         // tab0 = two panes (sessions 0 + 1); tab1 = single pane (session 2).
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         set.push(build_session_with_id(SessionToken(2)));
         assert_eq!(set.tab_count(), 2);
@@ -2137,7 +2415,7 @@ mod tests {
         // other Close Pane. Prove the outcomes differ (the operator's core bug:
         // Close Tab must not behave like Close Pane).
         let build = || {
-            let mut set = TabSet::new(build_session(), None);
+            let mut set = WorkspaceSet::new(build_session(), None);
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
             set.push(build_session_with_id(SessionToken(2)));
             set
@@ -2165,7 +2443,7 @@ mod tests {
         // A single tab holding multiple panes: Close Tab on it is the last tab,
         // so it empties the set (the App maps this to app exit). Exit keys on
         // the last TAB, never on the last pane.
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         assert_eq!(set.tab_count(), 1);
         assert!(!set.active_is_single_pane());
@@ -2180,9 +2458,9 @@ mod tests {
         // Single-pane byte-identical proof: Close Tab on a single-pane tab does
         // exactly what the old `close(active_id())` path did — same surviving
         // session, same active token, same tab count.
-        let mut via_close_tab = TabSet::new(build_session(), None);
+        let mut via_close_tab = WorkspaceSet::new(build_session(), None);
         via_close_tab.push(build_session_with_id(SessionToken(1)));
-        let mut via_close_id = TabSet::new(build_session(), None);
+        let mut via_close_id = WorkspaceSet::new(build_session(), None);
         via_close_id.push(build_session_with_id(SessionToken(1)));
 
         let last_a = via_close_tab.close_active_tab();
@@ -2199,7 +2477,7 @@ mod tests {
         // + 1), NON-active. The tab-strip `×` can target tab1 while tab0 is
         // active — it must reap the WHOLE tab1 and leave tab0 (and the active
         // index) untouched.
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         set.push(build_session_with_id(SessionToken(2))); // tab1, single
         assert!(set.switch(SessionToken(2))); // activate tab1
         set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
@@ -2223,7 +2501,7 @@ mod tests {
     fn close_tab_at_a_later_index_keeps_the_active_index_stable() {
         // active = tab0; closing tab2 (to the right) must not shift the active
         // index, and closing tab0 (the active one) clamps the active index.
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         set.push(build_session_with_id(SessionToken(1))); // tab1
         set.push(build_session_with_id(SessionToken(2))); // tab2
         assert_eq!(set.active_id(), SessionToken(0)); // tab0 active
@@ -2239,7 +2517,7 @@ mod tests {
 
     #[test]
     fn equalize_active_is_a_noop_on_single_pane() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         set.equalize_active();
         assert!(set.active_is_single_pane());
         // With a split present, layout tree stays valid (ratios reset).
@@ -2250,7 +2528,7 @@ mod tests {
 
     #[test]
     fn toggle_zoom_flips_and_is_a_noop_on_single_pane() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         // Single pane: zoom is meaningless, toggle is a no-op.
         assert!(!set.toggle_active_zoom());
         assert!(!set.active_is_zoomed());
@@ -2265,7 +2543,7 @@ mod tests {
 
     #[test]
     fn zoomed_tab_renders_only_the_focused_leaf_full_content() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         let right =
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         let content = PaneRect::new(5.0, 7.0, 401.0, 200.0);
@@ -2286,7 +2564,7 @@ mod tests {
 
     #[test]
     fn unzoom_restores_the_prior_pane_rects_exactly() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         let content = PaneRect::new(5.0, 7.0, 401.0, 200.0);
         let before = set.active_pane_rects(content, 1.0);
@@ -2307,7 +2585,7 @@ mod tests {
 
     #[test]
     fn closing_a_pane_unzooms_the_tab() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         let right =
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         assert!(set.toggle_active_zoom());
@@ -2321,7 +2599,7 @@ mod tests {
 
     #[test]
     fn splitting_a_zoomed_tab_unzooms_it() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         assert!(set.toggle_active_zoom());
         assert!(set.active_is_zoomed());
@@ -2331,7 +2609,7 @@ mod tests {
 
     #[test]
     fn resize_sizes_the_zoomed_focused_pane_to_full_content() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         let right =
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         let content = PaneRect::new(0.0, 0.0, 801.0, 400.0);
@@ -2346,7 +2624,7 @@ mod tests {
 
     #[test]
     fn zoom_hides_background_panes_from_visibility() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         let right =
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         assert!(set.toggle_active_zoom());
@@ -2361,13 +2639,13 @@ mod tests {
 
     #[test]
     fn active_layout_exposes_the_tree() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         assert!(set.active_layout().is_some_and(PaneNode::is_single_pane));
         set.split_active_for_test(SplitAxis::Rows, build_session_with_id(SessionToken(1)));
         assert_eq!(set.active_layout().map(PaneNode::pane_count), Some(2));
     }
 
-    fn pane_dims(set: &TabSet, token: SessionToken) -> (usize, usize) {
+    fn pane_dims(set: &WorkspaceSet, token: SessionToken) -> (usize, usize) {
         let dims = set
             .get(token)
             .expect("pane present")
@@ -2381,7 +2659,7 @@ mod tests {
 
     #[test]
     fn resize_all_panes_sizes_a_single_pane_to_the_full_content() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         // 800x400 content, 10x20 cell → 80 cols, 20 rows; one pane fills it.
         let content = PaneRect::new(0.0, 0.0, 800.0, 400.0);
         set.resize_all_panes(content, 10, 20, 1.0);
@@ -2392,7 +2670,7 @@ mod tests {
     fn default_session_source_is_local() {
         // BYTE-IDENTITY GUARD: a normally-spawned session is `Local`, so the
         // source generalization is a no-op for the default path.
-        let set = TabSet::new(build_session(), None);
+        let set = WorkspaceSet::new(build_session(), None);
         assert!(matches!(set.active().source, SessionSource::Local { .. }));
     }
 
@@ -2402,7 +2680,7 @@ mod tests {
         // BYTE-IDENTITY GUARD: resizing a local session must push the exact same
         // TIOCSWINSZ to the concrete PTY as before Phase 2 — the `Local` match
         // arm is the identical `pty.lock().resize(...)` call.
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         let content = PaneRect::new(0.0, 0.0, 800.0, 400.0);
         set.resize_all_panes(content, 10, 20, 1.0);
         let pty_dims = set
@@ -2418,7 +2696,7 @@ mod tests {
 
     #[test]
     fn resize_all_panes_gives_each_split_pane_its_sub_rect() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         let right =
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         // 801px wide, 1px divider → 800 usable, even split → 400/400 → 40 cols
@@ -2438,7 +2716,7 @@ mod tests {
         // reflow would trim the trailing blank the shell printed after its
         // prompt and drag the cursor one column left, and because the PTY size
         // is unchanged no SIGWINCH reaches the shell to repaint and self-correct.
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         let _right =
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         // Settle both panes at 40x20 (801px wide, 1px divider, 10x20 cell).
@@ -2492,7 +2770,7 @@ mod tests {
 
     #[test]
     fn is_visible_pane_covers_every_pane_of_the_active_tab_only() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         let sibling =
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         // Both panes of the active tab are visible (focused + background).
@@ -2516,7 +2794,7 @@ mod tests {
         // pane must therefore be both SEEN by the OR and CLEARED by the sweep —
         // otherwise its output freezes (gate never opens) or storms (flag never
         // clears).
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         let sibling =
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         // A second, non-visible tab whose flag must be ignored by both helpers.
@@ -2560,7 +2838,7 @@ mod tests {
 
     #[test]
     fn active_pane_rects_tiles_the_content_without_overlap() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         let content = PaneRect::new(5.0, 7.0, 401.0, 200.0);
         let rects = set.active_pane_rects(content, 1.0);
@@ -2575,7 +2853,7 @@ mod tests {
 
     #[test]
     fn active_pane_at_point_resolves_focus_follows_click() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         let right =
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         // 801px wide, 1px divider at x=400 → left pane [0,400), right [401,801).
@@ -2594,7 +2872,7 @@ mod tests {
 
     #[test]
     fn active_divider_at_point_grabs_only_near_the_divider() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         let content = PaneRect::new(0.0, 0.0, 801.0, 200.0);
         // Within the 6px grab band of the x=400 divider → index 0.
@@ -2608,7 +2886,7 @@ mod tests {
             None
         );
         // A single-pane active tab has no dividers to grab.
-        let single = TabSet::new(build_session(), None);
+        let single = WorkspaceSet::new(build_session(), None);
         assert_eq!(
             single.active_divider_at_point(content, 1.0, 402.0, 50.0, 6.0),
             None
@@ -2617,7 +2895,7 @@ mod tests {
 
     #[test]
     fn drag_active_divider_reflows_the_active_split_ratio() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         let content = PaneRect::new(0.0, 0.0, 801.0, 200.0);
         // Drag the column divider to x=200 → ratio ≈ 200/800.
@@ -2635,7 +2913,7 @@ mod tests {
 
     #[test]
     fn focus_move_active_lands_on_the_spatial_neighbor() {
-        let mut set = TabSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_session(), None);
         let right =
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         // After the split focus is on the right pane.
@@ -2650,5 +2928,191 @@ mod tests {
         // Move right → back to the right pane.
         assert!(set.focus_move_active(content, 1.0, FocusDir::Right));
         assert_eq!(set.active_id(), right);
+    }
+
+    // --- Workspace hierarchy (W1; design doc §3.1, ODP-3/-10) ---
+
+    #[test]
+    fn a_fresh_set_holds_one_named_workspace() {
+        let set = WorkspaceSet::new(build_session(), None);
+        assert_eq!(set.workspace_count(), 1);
+        assert_eq!(set.active_workspace_index(), 0);
+        assert_eq!(set.workspace_name(0), Some("Workspace 1"));
+        assert_eq!(set.workspace_name(1), None);
+    }
+
+    #[test]
+    fn switching_workspaces_isolates_each_workspaces_tab_list() {
+        // ws0: two tabs (sessions 0, 1). ws1: one tab (session 2).
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push(build_session_with_id(SessionToken(1)));
+        assert_eq!(set.tab_count(), 2, "ws0 has two tabs");
+        set.push_workspace(build_session_with_id(SessionToken(2)));
+        assert_eq!(set.workspace_count(), 2);
+        // push_workspace never switches: ws0 stays active with its two tabs.
+        assert_eq!(set.active_workspace_index(), 0);
+        assert_eq!(set.tab_count(), 2);
+        assert_eq!(set.active_id(), SessionToken(0));
+
+        // Switch to ws1: its own single-tab list, its own active session.
+        assert!(set.switch_workspace(1));
+        assert_eq!(set.active_workspace_index(), 1);
+        assert_eq!(set.tab_count(), 1);
+        assert_eq!(set.active_id(), SessionToken(2));
+
+        // A same-index / out-of-range switch is a no-op.
+        assert!(!set.switch_workspace(1));
+        assert!(!set.switch_workspace(9));
+
+        // Switch back: ws0's two-tab list and prior active session are intact.
+        assert!(set.switch_workspace(0));
+        assert_eq!(set.tab_count(), 2);
+        assert_eq!(set.active_id(), SessionToken(0));
+    }
+
+    #[test]
+    fn closing_a_workspaces_last_tab_closes_the_workspace_and_switches_out() {
+        // ws0 (token 0), ws1 (token 1); ws1 active.
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push_workspace(build_session_with_id(SessionToken(1)));
+        assert!(set.switch_workspace(1));
+        assert_eq!(set.workspace_count(), 2);
+
+        // Closing ws1's only tab removes ws1 entirely — not app exit, because
+        // ws0 survives — and clamps the active workspace back onto ws0.
+        let exit = set.close_active_tab();
+        assert!(!exit, "another workspace survives, so not app exit");
+        assert_eq!(set.workspace_count(), 1);
+        assert_eq!(set.active_workspace_index(), 0);
+        assert_eq!(set.active_id(), SessionToken(0));
+        assert_eq!(set.len(), 1, "ws1's session was reaped");
+    }
+
+    #[test]
+    fn closing_the_last_workspaces_last_tab_signals_app_exit() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        assert_eq!(set.workspace_count(), 1);
+        let exit = set.close_active_tab();
+        assert!(exit, "the last tab of the last workspace exits the app");
+        assert!(set.is_empty());
+        assert_eq!(set.workspace_count(), 0);
+    }
+
+    #[test]
+    fn a_background_workspaces_shell_exit_reaps_it_without_disturbing_the_active_one() {
+        // ws0 active (token 0); ws1 background (token 1, its sole tab).
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push_workspace(build_session_with_id(SessionToken(1)));
+        assert_eq!(set.active_workspace_index(), 0);
+        assert_eq!(set.workspace_count(), 2);
+
+        // The background workspace's shell exits: its tab (and thus the now-empty
+        // workspace) is reaped without app exit, and the active workspace is
+        // untouched. This is the NF21 §5 background-workspace polarity: a
+        // producer in a non-active workspace still serviced correctly.
+        let exit = set.close_shell_exited(SessionToken(1));
+        assert!(!exit);
+        assert_eq!(set.workspace_count(), 1);
+        assert_eq!(set.active_workspace_index(), 0);
+        assert_eq!(set.active_id(), SessionToken(0));
+        assert_eq!(set.len(), 1);
+    }
+
+    #[test]
+    fn switch_deep_focuses_across_workspaces_for_attach_dedup() {
+        // ws0: tabs for tokens 0 and 1. ws1: token 2, active.
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push(build_session_with_id(SessionToken(1)));
+        set.push_workspace(build_session_with_id(SessionToken(2)));
+        assert!(set.switch_workspace(1));
+        assert_eq!(set.active_workspace_index(), 1);
+
+        // Selecting a token that lives in ws0 (the attach-dedup deep-switch,
+        // ODP-10) moves the active workspace + tab + focused pane in one step.
+        assert!(set.switch(SessionToken(1)));
+        assert_eq!(set.active_workspace_index(), 0);
+        assert_eq!(set.active_id(), SessionToken(1));
+
+        // Re-selecting the already-focused token is a no-op; an unknown token
+        // never switches.
+        assert!(!set.switch(SessionToken(1)));
+        assert!(!set.switch(SessionToken(99)));
+    }
+
+    #[test]
+    fn close_active_workspace_reaps_every_tab_and_pane() {
+        // ws0: two tabs, one multi-pane (tokens 0+3 split, token 1). ws1: token 2.
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(3)));
+        set.push(build_session_with_id(SessionToken(1)));
+        set.push_workspace(build_session_with_id(SessionToken(2)));
+        assert_eq!(set.active_workspace_index(), 0);
+        assert_eq!(set.len(), 4);
+
+        let exit = set.close_active_workspace();
+        assert!(!exit, "ws1 survives");
+        assert_eq!(set.workspace_count(), 1);
+        assert_eq!(set.active_id(), SessionToken(2), "ws1 is now active");
+        assert_eq!(set.len(), 1, "all of ws0's sessions were reaped");
+    }
+
+    #[test]
+    fn close_active_workspace_on_the_last_workspace_signals_exit() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let exit = set.close_active_workspace();
+        assert!(exit);
+        assert!(set.is_empty());
+        assert_eq!(set.workspace_count(), 0);
+    }
+
+    #[test]
+    fn renaming_the_active_workspace_updates_only_that_rail_name() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.rename_active_workspace("infra".to_owned());
+        assert_eq!(set.workspace_name(0), Some("infra"));
+        set.push_workspace(build_session_with_id(SessionToken(1)));
+        assert!(set.switch_workspace(1));
+        set.rename_active_workspace("app".to_owned());
+        assert_eq!(set.workspace_name(0), Some("infra"));
+        assert_eq!(set.workspace_name(1), Some("app"));
+    }
+
+    #[test]
+    fn next_and_prev_workspace_wrap_in_rail_order() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push_workspace(build_session_with_id(SessionToken(1)));
+        set.push_workspace(build_session_with_id(SessionToken(2)));
+        assert_eq!(set.active_workspace_index(), 0);
+        assert!(set.next_workspace());
+        assert_eq!(set.active_workspace_index(), 1);
+        assert!(set.prev_workspace());
+        assert_eq!(set.active_workspace_index(), 0);
+        // Wrap backward from the first to the last, then forward wraps to the first.
+        assert!(set.prev_workspace());
+        assert_eq!(set.active_workspace_index(), 2);
+        assert!(set.next_workspace());
+        assert_eq!(set.active_workspace_index(), 0);
+    }
+
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "winit EventLoop cannot be built off the main thread on macOS"
+    )]
+    #[test]
+    fn a_new_workspace_appends_switches_and_holds_one_tab() {
+        // new_workspace needs a real event-loop proxy for the PTY spawn.
+        let Some((mut set, _event_loop)) = tabset_with_proxy_for_test() else {
+            return;
+        };
+        assert_eq!(set.workspace_count(), 1);
+        let grid = Dimensions::new(20, 8);
+        let token = set.new_workspace(grid).expect("spawn new workspace");
+        assert_eq!(set.workspace_count(), 2);
+        // The new workspace is active and holds exactly one single-pane tab.
+        assert_eq!(set.active_workspace_index(), 1);
+        assert_eq!(set.tab_count(), 1);
+        assert!(set.active_is_single_pane());
+        assert_eq!(set.active_id(), token);
+        assert_eq!(set.workspace_name(1), Some("Workspace 2"));
     }
 }

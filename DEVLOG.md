@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Workspaces core model: a named workspace layer above tabs
+
+The tab layer grew a level above it: a **workspace** is a named, ordered list of
+tabs with its own focused tab, and the app now holds an ordered list of
+workspaces rather than a single tab list. The session container becomes
+`WorkspaceSet` -> `Workspace` -> tab -> pane; the tab and pane structures are
+unchanged. This is the substrate the workspace sidebar, keyboard actions, and
+layout persistence build on — with a single workspace, behavior is byte-identical
+to before (the full existing tab/pane test suite passes with only the constructor
+rename), so nothing changes for anyone who never creates a second workspace.
+
+The cut is a deliberate one-level push-down. The session arena stays **flat and
+global** — one map keyed by token — so pump-thread lookup stays O(1) and never
+has to walk the workspace/tab/pane tree; only presentation and focus live in the
+hierarchy. `Deref`/`DerefMut` resolve to the focused pane of the active tab of
+the active workspace, so the keyboard, cursor, and selection paths route through
+the new active pane without touching any of their call sites.
+
+Lifecycle invariants are enforced at the model: no empty workspaces (each owns at
+least one tab); closing a workspace's last tab closes the workspace; closing the
+last workspace exits the app — the exit signal now keys on the last tab of the
+last workspace, not merely the last tab. A background workspace whose shell exits
+is reaped without disturbing the active one, because pane-close and shell-exit
+locate their session across all workspaces, not just the active list.
+
+Cross-workspace selection deep-switches: choosing an already-open session (the
+attach-dedup path) moves the active workspace, tab, and focused pane in one step,
+and the dedup scan spans every workspace since it reads the flat arena. The
+fan-out discipline that keeps background panes from spinning or stalling is
+instituted at the new third level from the start: wake and dirty-flag collectors
+iterate the arena, never the hierarchy; the timer parker and the redraw gate both
+resolve "what is live" through the single active-workspace accessor so they can
+never disagree about which pane may animate.
+
+The workspace-level operations — create, switch, next/prev, rename, close — land
+as the model API the sidebar and keyboard layers wire up next; until then they
+carry no UI surface. Platform: the workspace layer is platform-neutral app/UI
+state with no OS-specific surface; session-host reattach inside a workspace stays
+Unix-only exactly as before, so on Windows a workspace simply never holds an
+attached tab.
+
+---
+
 ## 2026-07-04 -- Rail auto-hide reveal: the cursor blink no longer eats the revealed rail
 
 **The revealed rail flickered out a moment after appearing and would not stay

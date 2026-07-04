@@ -5,7 +5,7 @@
 //! Where [`TabBar`](super::tab_bar::TabBar) packs variable-width slots along a
 //! single top row, the rail **stacks fixed-width slots down a fixed-width column
 //! band** on the left (R1) side of the window. It reads layout from the shared
-//! [`TabBarSource`] trait (same one `TabSet` already implements), returns the
+//! [`TabBarSource`] trait (same one `WorkspaceSet` already implements), returns the
 //! shared [`TabHit`] enum (so pointer/action dispatch is reused verbatim), and
 //! paints with the shared [`TabBarColors`] theme roles. It never touches
 //! terminal state, PTY, or settings — the integration layer composites the
@@ -224,7 +224,7 @@ impl TabRail {
 
     /// Render the rail for the current frame.
     ///
-    /// - `source` — session model accessor (mock or real `TabSet`).
+    /// - `source` — session model accessor (mock or real `WorkspaceSet`).
     /// - `rail_cols` — rail band width in cells (the setting; R1 fixed).
     /// - `grid_rows` — window content rows the rail spans.
     /// - `origin_px` / `cell` — pixel geometry for chrome quads; Phosphor Flat

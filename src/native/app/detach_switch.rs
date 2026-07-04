@@ -139,7 +139,7 @@ impl App {
 
         if swap {
             // Close the ORIGINAL focused pane through the existing close path.
-            // The just-attached managed tab guarantees the TabSet is non-empty,
+            // The just-attached managed tab guarantees the WorkspaceSet is non-empty,
             // so this can never be the last session (the `true` exit branch is
             // defensive and unreachable here).
             if self.sessions.close(original) {
