@@ -1455,6 +1455,47 @@ impl App {
         self.sessions.capture_shape()
     }
 
+    /// Test seam (NF21-6): run one arena-wide bell + prompt-marks drain and
+    /// return `(focused_bell, background_bell, focused_prompt_changed)` — so a
+    /// test can assert routing without a real window (urgency is a no-op
+    /// headlessly). The per-tab activity latch is applied as a side effect.
+    #[cfg(test)]
+    pub(in crate::native) fn drain_bells_for_test(&mut self) -> (bool, bool, bool) {
+        let sweep = self
+            .sessions
+            .drain_bells(self.settings.command_status_gutter);
+        (
+            sweep.focused_bell,
+            sweep.background_bell,
+            sweep.focused_prompt_changed,
+        )
+    }
+
+    /// Test seam (NF21-6): the unseen-activity latch of a tab.
+    #[cfg(test)]
+    pub(in crate::native) fn tab_activity_for_test(&self, ws_idx: usize, tab_idx: usize) -> bool {
+        self.sessions.tab_activity(ws_idx, tab_idx)
+    }
+
+    /// Test seam (NF21-6): the DERIVED workspace-level activity rollup.
+    #[cfg(test)]
+    pub(in crate::native) fn workspace_activity_for_test(&self, ws_idx: usize) -> bool {
+        self.sessions.workspace_has_activity(ws_idx)
+    }
+
+    /// Test seam (NF21-6): whether a bell visual flash is in flight.
+    #[cfg(test)]
+    pub(in crate::native) fn bell_flash_active_for_test(&self) -> bool {
+        self.bell_flash_start.is_some()
+    }
+
+    /// Test seam (NF21-6): put the bell in Visual mode so a focused-pane bell
+    /// starts a flash headlessly (default Urgent flashes nothing).
+    #[cfg(test)]
+    pub(in crate::native) fn set_bell_visual_for_test(&mut self) {
+        self.settings.bell = crate::settings::BellMode::Visual;
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn workspace_names_for_test(&self) -> Vec<String> {
         self.sessions.workspace_names()

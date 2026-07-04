@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Bells drain from every tab, pane, and workspace
+
+The terminal bell is now serviced everywhere, not only on the visible pane. The
+bell and prompt-mark latches are drained once per event-loop cycle in a
+maintenance sweep over the whole session set, so a bell from a background tab, a
+background pane, a background workspace, or any pane of a split (multi-pane) tab
+is handled the moment it rings. Previously the drain lived on the single visible
+pane's render path alone: a background bell was never drained until that surface
+became active — and single-pane — at which point it fired late at switch time,
+while split tabs never rang at all.
+
+Routing follows what the user is looking at. The active, visible, focused pane
+keeps exactly its prior behavior: its bell drives the viewport flash (in Visual
+mode) and its prompt-mark change advances the command-status gutter, so the
+common single-pane path is unchanged. A bell from any other surface pings the
+window's attention request — the cross-platform urgency hint — without tinting
+the pane in view, since a background bell must not look like the foreground rang.
+
+Each bell from a non-visible surface also latches a per-tab activity flag,
+cleared when that tab is next viewed. Workspace-level activity is derived from
+its tabs rather than stored separately. This is the signal a future rollup
+indicator will read to mark which tabs and workspaces have unseen activity; the
+indicator itself is not drawn yet — this change lands and maintains the signal.
+
+Windows: platform-neutral. The urgency request is already cross-platform (a
+taskbar flash on Windows), and nothing here touches platform-specific code.
+
+---
+
 ## 2026-07-04 -- Startup adapter diagnostics and a software-render warning
 
 A recurring "very slow even with effects off" report on older hardware traces to

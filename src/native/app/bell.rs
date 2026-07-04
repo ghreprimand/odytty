@@ -38,18 +38,28 @@ fn ease_out_cubic(p: f32) -> f32 {
 }
 
 impl App {
-    /// React to a drained bell. Routes urgency and/or starts the visual flash
-    /// per the active [`BellMode`]. No-op on the off path.
+    /// React to a bell drained from the **active-visible focused pane**: route
+    /// urgency (unfocused) and start the visual flash per the active
+    /// [`BellMode`]. No-op on the off path.
     pub(in crate::native) fn note_bell(&mut self, now: Instant, window: Option<&Window>) {
-        let mode = self.settings.bell;
-        if mode.wants_urgent()
+        self.request_bell_attention(window);
+        if self.settings.bell.wants_visual() {
+            self.bell_flash_start = Some(now);
+        }
+    }
+
+    /// Window urgency for a bell that rang ANYWHERE (any pane, tab, or
+    /// workspace), with NO viewport flash — a background bell must never tint
+    /// the pane the user is currently looking at (NF21-6). No-op while focused,
+    /// on the off / visual-only path, or without a window. The urgency call is
+    /// cross-platform (taskbar flash on Windows, dock bounce on macOS, WM
+    /// attention hint on Linux).
+    pub(in crate::native) fn request_bell_attention(&self, window: Option<&Window>) {
+        if self.settings.bell.wants_urgent()
             && !self.focused
             && let Some(window) = window
         {
             window.request_user_attention(Some(UserAttentionType::Informational));
-        }
-        if mode.wants_visual() {
-            self.bell_flash_start = Some(now);
         }
     }
 

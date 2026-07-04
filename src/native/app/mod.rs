@@ -3838,6 +3838,37 @@ impl App {
         // active-only deadline sources in `next_wake_deadline`.
         self.sessions.park_background_timers();
 
+        // NF21-6: drain the bell + prompt-marks-changed latches of EVERY
+        // session over the flat arena, so a bell in a background tab / pane /
+        // workspace — or in any multipane tab — is serviced here instead of
+        // stranding until that surface becomes the active single-pane one
+        // (where it fired spuriously at switch-time). The active-visible focused
+        // pane keeps today's viewport flash + prompt-marks epoch (the single-
+        // pane render fast path no longer drains, so it stays byte-identical);
+        // any other session that rang pings cross-platform window urgency and
+        // latches its tab's activity flag (the rollup input, ODP-6 v2 — the flag
+        // is landed and maintained here, but no rollup UI reads it yet). Kept in
+        // maintenance, NOT in `rebuild_multipane`, to avoid colliding with the
+        // multipane viewport-bookkeeping packet.
+        let bell_sweep = self
+            .sessions
+            .drain_bells(self.settings.command_status_gutter);
+        if bell_sweep.focused_bell {
+            let window = self.window.clone();
+            self.note_bell(now, window.as_deref());
+        }
+        if bell_sweep.background_bell {
+            let window = self.window.clone();
+            self.request_bell_attention(window.as_deref());
+        }
+        if bell_sweep.focused_prompt_changed {
+            self.prompt_marks_epoch = self.prompt_marks_epoch.wrapping_add(1);
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+
         if let Some(resize) = self.resize_debounce.take_due(now) {
             self.apply_grid_resize(resize);
             if let Some(window) = self.window.as_ref() {
@@ -4199,20 +4230,17 @@ impl ApplicationHandler<UserEvent> for App {
                             visible_graphics,
                             image_uploads,
                         ) = {
-                            let (scrollback_len, prompt_marks_changed, bell_rang) = {
+                            // NF21-6: bell + prompt-marks latches are drained
+                            // in the about-to-wait maintenance sweep (over the
+                            // whole arena) now, not here — so a background /
+                            // multipane bell is serviced instead of stranding.
+                            // This paint only reads scrollback for viewport
+                            // anchoring; the fast path is otherwise unchanged.
+                            let scrollback_len = {
                                 // P0-3: per-frame paint read — poison-recover.
-                                let mut terminal = crate::native::lock_recover(&self.terminal);
-                                (
-                                    terminal.screen().scrollback_len(),
-                                    self.settings.command_status_gutter
-                                        && terminal.take_prompt_marks_changed(),
-                                    terminal.take_bell(),
-                                )
+                                let terminal = crate::native::lock_recover(&self.terminal);
+                                terminal.screen().scrollback_len()
                             };
-                            if bell_rang {
-                                let window = self.window.clone();
-                                self.note_bell(now, window.as_deref());
-                            }
                             self.update_bell_flash(now);
                             // OPEN-NOTICE (P0-2): expire a transient open-failure
                             // banner once it has outlived its lifetime; no-op when
@@ -4225,9 +4253,6 @@ impl ApplicationHandler<UserEvent> for App {
                             self.viewport.anchor_after_growth(added, scrollback_len);
                             self.last_scrollback_len = scrollback_len;
                             self.viewport.clamp(scrollback_len);
-                            if prompt_marks_changed {
-                                self.prompt_marks_epoch = self.prompt_marks_epoch.wrapping_add(1);
-                            }
                             let offset = self.viewport.offset();
                             let mut search = std::mem::take(&mut self.search);
                             // P0-3: same-frame search refresh + graphics read.

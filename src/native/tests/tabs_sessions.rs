@@ -180,6 +180,143 @@ fn capture_shape_records_workspaces_tabs_panes_and_cwd() {
     assert_eq!(restored, snapshot);
 }
 
+/// Build a fresh workspace backed by a recorded PTY, switch to it, and return
+/// its session's terminal handle so a test can drive its bell.
+fn add_workspace_with_terminal(app: &mut App) -> Option<Arc<Mutex<Terminal>>> {
+    let dims = NativeOptions::default().initial_grid;
+    let (terminal, writer, pty, _bytes) = recorded_session(dims)?;
+    app.push_workspace_for_test(terminal.clone(), writer, pty);
+    Some(terminal)
+}
+
+/// NF21-6: a bell rung in a BACKGROUND tab is drained by the arena-wide
+/// maintenance sweep and latches that tab's activity flag — without switching
+/// to it and without touching the active tab's flag.
+#[test]
+fn background_tab_bell_latches_activity_without_switching() {
+    let Some((mut app, fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Ring a bell in the background tab (tab 1); tab 0 is active/focused.
+    fixtures[1].0.lock().expect("terminal").advance(b"\x07");
+
+    let (focused, background, _prompt) = app.drain_bells_for_test();
+    assert!(!focused, "the focused pane did not ring");
+    assert!(background, "a background session rang -> urgency path");
+    // The background tab latched; the active tab did not. (A latched flag on a
+    // non-active tab also proves no switch happened — a switch would clear it.)
+    assert!(app.tab_activity_for_test(0, 1));
+    assert!(!app.tab_activity_for_test(0, 0));
+}
+
+/// NF21-6 / §5 rule 3: a bell rung in a BACKGROUND WORKSPACE latches its tab's
+/// activity (and the derived workspace rollup) without waiting for a switch —
+/// the surface a bell is most for after workspaces landed.
+#[test]
+fn background_workspace_bell_latches_activity_without_switching() {
+    let Some((mut app, fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Add and switch to a second workspace, so workspace 0 is now background.
+    let Some(_ws1_terminal) = add_workspace_with_terminal(&mut app) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    assert_eq!(app.active_workspace_index_for_test(), 1);
+
+    // Ring a bell in workspace 0, tab 0 (now a background workspace).
+    fixtures[0].0.lock().expect("terminal").advance(b"\x07");
+
+    let (focused, background, _prompt) = app.drain_bells_for_test();
+    assert!(!focused, "the focused pane is in the active workspace");
+    assert!(
+        background,
+        "a background-workspace bell reaches the urgency path"
+    );
+    assert!(
+        app.tab_activity_for_test(0, 0),
+        "background workspace's tab latched"
+    );
+    assert!(
+        app.workspace_activity_for_test(0),
+        "derived workspace rollup latched"
+    );
+    assert!(
+        !app.workspace_activity_for_test(1),
+        "the active workspace stays clean"
+    );
+}
+
+/// NF21-6: the active-visible focused pane keeps today's behavior — its bell
+/// starts the viewport flash and never latches an activity flag (you saw it).
+#[test]
+fn focused_pane_bell_flashes_and_does_not_latch_activity() {
+    let Some((mut app, fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_bell_visual_for_test();
+    // Ring a bell in the active/focused tab (tab 0).
+    fixtures[0].0.lock().expect("terminal").advance(b"\x07");
+
+    app.run_about_to_wait_maintenance_for_test(Instant::now());
+    assert!(
+        app.bell_flash_active_for_test(),
+        "focused bell starts the flash"
+    );
+    assert!(
+        !app.tab_activity_for_test(0, 0),
+        "the active-visible tab never latches its own activity"
+    );
+}
+
+/// NF21-6: a bell on the focused pane of a MULTIPANE active tab now drains
+/// (previously it stranded — the multipane render path never drained bells).
+#[test]
+fn multipane_focused_bell_drains_and_does_not_strand() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let dims = NativeOptions::default().initial_grid;
+    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Split the active tab; focus lands on the new pane (`terminal`).
+    app.seed_split_pane_for_test(true, terminal.clone(), writer, pty);
+    assert_eq!(app.active_pane_count_for_test(), 2);
+
+    terminal.lock().expect("terminal").advance(b"\x07");
+    let (focused_first, _bg1, _p1) = app.drain_bells_for_test();
+    assert!(focused_first, "a multipane focused-pane bell drains");
+    let (focused_again, _bg2, _p2) = app.drain_bells_for_test();
+    assert!(!focused_again, "the bell drained once and did not strand");
+}
+
+/// NF21-6: switching to a flagged tab clears its activity latch — viewing is
+/// what clears the rollup signal.
+#[test]
+fn switching_to_a_flagged_tab_clears_its_activity() {
+    let Some((mut app, fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    fixtures[1].0.lock().expect("terminal").advance(b"\x07");
+    app.drain_bells_for_test();
+    assert!(app.tab_activity_for_test(0, 1), "background tab latched");
+
+    // View tab 1, then run a maintenance drain: the active tab's flag clears.
+    assert!(app.switch_to_session_for_test(1));
+    app.drain_bells_for_test();
+    assert!(
+        !app.tab_activity_for_test(0, 1),
+        "the now-viewed tab's activity is cleared"
+    );
+}
+
 fn scrollback_bytes(lines: usize) -> Vec<u8> {
     let mut text = String::new();
     for i in 0..lines {

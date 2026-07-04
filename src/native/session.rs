@@ -581,6 +581,16 @@ pub(super) struct Tab {
     /// set (the toggle is a no-op there), but every zoom-aware path also guards
     /// on pane count so a stray flag can never perturb the single-pane render.
     pub(super) zoomed: bool,
+    /// Unseen-activity latch for the rollup indicator (NF21-6 / ODP-6 v2). Set
+    /// when a bell rings in one of this tab's panes while the tab is NOT the
+    /// active-visible tab; cleared once the tab is viewed (it is the active tab
+    /// of the active workspace). Tab granularity is the finest useful rollup
+    /// unit; workspace-level activity is DERIVED from its tabs
+    /// ([`WorkspaceSet::workspace_has_activity`]) rather than stored twice. The
+    /// rollup UI that renders this flag is deferred to a later cycle; this
+    /// packet only lands and maintains the signal, so it has no reader yet.
+    #[allow(dead_code)]
+    pub(super) activity: bool,
 }
 
 impl Tab {
@@ -591,6 +601,7 @@ impl Tab {
             focused: token,
             title_override: None,
             zoomed: false,
+            activity: false,
         }
     }
 
@@ -2078,6 +2089,103 @@ impl WorkspaceSet {
         };
         let dest_idx = (src_idx + 1) % self.workspaces.len();
         self.move_tab_to_workspace(token, dest_idx)
+    }
+}
+
+/// The result of one arena-wide bell / prompt-marks drain
+/// ([`WorkspaceSet::drain_bells`]). The App turns this into a viewport flash,
+/// window urgency, and a prompt-marks epoch bump; the per-tab activity latch is
+/// applied inside the drain (it needs the token->tab mapping).
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) struct BellSweep {
+    /// The active-visible focused pane rang this pass — drives today's viewport
+    /// flash (byte-identical single-pane behavior).
+    pub(super) focused_bell: bool,
+    /// The active-visible focused pane's prompt marks changed AND the
+    /// command-status gutter is on — drives the prompt-marks epoch bump.
+    pub(super) focused_prompt_changed: bool,
+    /// At least one NON-focused session rang — drives window urgency
+    /// (`request_user_attention`); the specific tabs are latched in the drain.
+    pub(super) background_bell: bool,
+}
+
+impl WorkspaceSet {
+    /// Drain the bell and prompt-marks-changed latches of EVERY session over the
+    /// flat arena (design §5 rule 1 — never a hierarchy walk), routing each per
+    /// NF21-6:
+    ///
+    /// - The active-visible focused pane keeps today's behavior: its bell drives
+    ///   the viewport flash and its prompt-marks change (when the gutter is on)
+    ///   bumps the epoch. The single-pane render fast path no longer drains —
+    ///   this does — so that path stays byte-identical.
+    /// - Any OTHER session that rang pings window urgency and latches its owning
+    ///   tab's activity flag, UNLESS that tab is the active-visible one (a bell
+    ///   in a background pane of the tab you are already viewing is "seen").
+    ///   Background prompt-marks are drained and discarded so a stale change can
+    ///   never bump the epoch spuriously on switch-back.
+    ///
+    /// The active-visible tab's activity flag is also cleared here every pass:
+    /// viewing a tab is what clears its rollup signal.
+    pub(super) fn drain_bells(&mut self, gutter_on: bool) -> BellSweep {
+        let focused = self.active_focused_token();
+        let active_ws = self.active_ws;
+        let active_tab = self.active_workspace().active_tab;
+        let mut sweep = BellSweep::default();
+        let mut background_rang: Vec<SessionToken> = Vec::new();
+        for session in self.sessions.values() {
+            let Ok(mut terminal) = session.terminal.lock() else {
+                continue;
+            };
+            let bell = terminal.take_bell();
+            let prompt_changed = terminal.take_prompt_marks_changed();
+            drop(terminal);
+            if session.id == focused {
+                sweep.focused_bell = bell;
+                sweep.focused_prompt_changed = gutter_on && prompt_changed;
+            } else if bell {
+                background_rang.push(session.id);
+            }
+        }
+        for token in background_rang {
+            sweep.background_bell = true;
+            if let Some((ws_idx, tab_idx)) = self.locate_token(token)
+                && (ws_idx, tab_idx) != (active_ws, active_tab)
+                && let Some(tab) = self
+                    .workspaces
+                    .get_mut(ws_idx)
+                    .and_then(|workspace| workspace.tabs.get_mut(tab_idx))
+            {
+                tab.activity = true;
+            }
+        }
+        // Viewing the active-visible tab clears its rollup signal.
+        if let Some(tab) = self
+            .workspaces
+            .get_mut(active_ws)
+            .and_then(|workspace| workspace.tabs.get_mut(active_tab))
+        {
+            tab.activity = false;
+        }
+        sweep
+    }
+
+    /// Whether any tab of the workspace at `ws_idx` carries an unseen-activity
+    /// latch (the DERIVED workspace-level rollup signal; the rail rollup UI will
+    /// read this). No reader outside tests yet — the rollup UI is deferred.
+    #[allow(dead_code)]
+    pub(super) fn workspace_has_activity(&self, ws_idx: usize) -> bool {
+        self.workspaces
+            .get(ws_idx)
+            .is_some_and(|workspace| workspace.tabs.iter().any(|tab| tab.activity))
+    }
+
+    /// The unseen-activity latch of the tab at `(ws_idx, tab_idx)` (test seam).
+    #[cfg(test)]
+    pub(super) fn tab_activity(&self, ws_idx: usize, tab_idx: usize) -> bool {
+        self.workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.tabs.get(tab_idx))
+            .is_some_and(|tab| tab.activity)
     }
 }
 
