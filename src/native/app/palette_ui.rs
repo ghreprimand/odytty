@@ -7,8 +7,9 @@
 
 use super::*;
 use crate::native::palette_overlay::{
-    WORKSPACE_NEW_ID, WORKSPACE_NEW_LOCAL_TAB_ID, WORKSPACE_RENAME_ID, WORKSPACE_UNBIND_ID,
-    WorkspacePaletteContext, parse_workspace_bind_id, parse_workspace_switch_id,
+    LAYOUT_SAVE_ID, WORKSPACE_NEW_ID, WORKSPACE_NEW_LOCAL_TAB_ID, WORKSPACE_RENAME_ID,
+    WORKSPACE_UNBIND_ID, WorkspacePaletteContext, parse_layout_delete_id, parse_layout_open_id,
+    parse_workspace_bind_id, parse_workspace_switch_id,
 };
 use crate::palette_catalog::PaletteAction;
 use crate::settings::BindableAction;
@@ -36,10 +37,12 @@ impl App {
             .sessions
             .active_workspace_default_profile()
             .map(str::to_owned);
+        let layout_names = crate::native::persistence::list_layout_names();
         let context = WorkspacePaletteContext {
             names: &workspaces,
             host_aliases: &host_aliases,
             bound_profile: bound_profile.as_deref(),
+            layout_names: &layout_names,
         };
         self.overlay.open_command_palette(cwd.as_deref(), &context);
         self.request_selection_redraw();
@@ -80,6 +83,28 @@ impl App {
         }
         if id == WORKSPACE_NEW_LOCAL_TAB_ID {
             self.handle_new_local_tab();
+            return;
+        }
+        if id == LAYOUT_SAVE_ID {
+            self.save_active_workspace_as_layout();
+            return;
+        }
+        if let Some(idx) = parse_layout_open_id(&id) {
+            if let Some(name) = crate::native::persistence::list_layout_names()
+                .into_iter()
+                .nth(idx)
+            {
+                self.open_layout(&name);
+            }
+            return;
+        }
+        if let Some(idx) = parse_layout_delete_id(&id) {
+            if let Some(name) = crate::native::persistence::list_layout_names()
+                .into_iter()
+                .nth(idx)
+            {
+                self.delete_layout(&name);
+            }
             return;
         }
         let Some(action) = PaletteAction::from_id(&id) else {

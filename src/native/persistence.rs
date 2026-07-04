@@ -102,6 +102,12 @@ impl From<SplitAxis> for SplitAxisShape {
 pub(crate) enum PaneShape {
     Leaf {
         cwd: Option<String>,
+        /// The detached session-host id this pane was attached to (WP3 / 8h), or
+        /// `None` for a locally-spawned pane. On restore (Unix only), an id whose
+        /// session-host is still alive is reattached; a dead id spawns a fresh
+        /// shell silently. Never captured on Windows (no detached-session
+        /// transport there), and tolerated-absent on pre-WP3 snapshots.
+        session_host_id: Option<String>,
     },
     Split {
         axis: SplitAxisShape,
@@ -122,7 +128,16 @@ impl PaneShape {
 
     fn to_json(&self) -> Json {
         match self {
-            PaneShape::Leaf { cwd } => Json::obj([("leaf", Json::obj([("cwd", opt_str(cwd))]))]),
+            PaneShape::Leaf {
+                cwd,
+                session_host_id,
+            } => Json::obj([(
+                "leaf",
+                Json::obj([
+                    ("cwd", opt_str(cwd)),
+                    ("session_host_id", opt_str(session_host_id)),
+                ]),
+            )]),
             PaneShape::Split {
                 axis,
                 ratio,
@@ -144,6 +159,7 @@ impl PaneShape {
         if let Some(leaf) = value.get("leaf") {
             Ok(PaneShape::Leaf {
                 cwd: leaf.get("cwd").and_then(Json::as_owned_str),
+                session_host_id: leaf.get("session_host_id").and_then(Json::as_owned_str),
             })
         } else if let Some(split) = value.get("split") {
             let axis = split
@@ -406,6 +422,131 @@ fn temp_sibling(path: &Path) -> PathBuf {
 /// Serialize and atomically write the whole-app snapshot to its state-dir path.
 pub(crate) fn save_snapshot(snapshot: &ShapeSnapshot) -> io::Result<()> {
     write_atomic(&snapshot_path(), &snapshot.to_json_pretty())
+}
+
+/// Sanitize a layout name into a safe single-segment filename stem (WP3 / 8e).
+/// Keeps ASCII letters, digits, spaces, `-` and `_`; every other character
+/// (path separators, dots, control characters, non-ASCII) becomes `_`. This
+/// blocks path traversal (`..`, `/`, `\\`) and hidden-file names by
+/// construction, and caps the length. Returns `None` when nothing usable
+/// remains, so an empty or all-illegal name never yields a stray file.
+pub(crate) fn sanitize_layout_name(name: &str) -> Option<String> {
+    let mut out = String::new();
+    for ch in name.trim().chars() {
+        if ch.is_ascii_alphanumeric() || ch == ' ' || ch == '-' || ch == '_' {
+            out.push(ch);
+        } else {
+            out.push('_');
+        }
+        if out.len() >= 96 {
+            break;
+        }
+    }
+    let trimmed = out.trim().to_owned();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+/// Absolute path of the layout file for `name` under `dir`, or `None` when the
+/// name sanitizes to nothing. The sanitized stem guarantees a single path
+/// segment (no traversal).
+fn layout_path_in(dir: &Path, name: &str) -> Option<PathBuf> {
+    let stem = sanitize_layout_name(name)?;
+    Some(dir.join(format!("{stem}.json")))
+}
+
+/// Absolute path of the layout file for `name`, or `None` when the name
+/// sanitizes to nothing. The file lives directly under [`layouts_dir`].
+pub(crate) fn layout_path(name: &str) -> Option<PathBuf> {
+    layout_path_in(&layouts_dir(), name)
+}
+
+/// Serialize and atomically write a named layout into `dir` (WP3 / 8g core).
+fn save_layout_in(dir: &Path, name: &str, snapshot: &ShapeSnapshot) -> io::Result<String> {
+    let stem = sanitize_layout_name(name)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "empty layout name"))?;
+    let path = dir.join(format!("{stem}.json"));
+    write_atomic(&path, &snapshot.to_json_pretty())?;
+    Ok(stem)
+}
+
+/// Serialize and atomically write a named layout (WP3 / 8g). The layout is a
+/// [`ShapeSnapshot`] holding the workspace(s) to instantiate later; reusing the
+/// snapshot schema keeps the layout and autosave formats identical (including
+/// the W5 `default_profile` binding and per-pane cwd). Returns the sanitized
+/// name actually written, or an error when the name is unusable or the write
+/// fails.
+pub(crate) fn save_layout(name: &str, snapshot: &ShapeSnapshot) -> io::Result<String> {
+    save_layout_in(&layouts_dir(), name, snapshot)
+}
+
+/// The sorted `*.json` file stems under `dir` (WP3 core). A missing directory is
+/// an empty list, never an error; non-`*.json` files are ignored.
+fn list_layout_names_in(dir: &Path) -> Vec<String> {
+    let mut names = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return names;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+            names.push(stem.to_owned());
+        }
+    }
+    names.sort();
+    names
+}
+
+/// The names of all saved layouts, sorted (WP3). Empty when nothing is saved.
+pub(crate) fn list_layout_names() -> Vec<String> {
+    list_layout_names_in(&layouts_dir())
+}
+
+/// Read and classify a named layout from `dir` (WP3 core).
+fn load_layout_in(dir: &Path, name: &str) -> LoadOutcome {
+    let Some(path) = layout_path_in(dir, name) else {
+        return LoadOutcome::Absent;
+    };
+    match std::fs::read_to_string(&path) {
+        Err(err) if err.kind() == io::ErrorKind::NotFound => LoadOutcome::Absent,
+        Err(err) => LoadOutcome::Corrupt(err.to_string()),
+        Ok(text) => match ShapeSnapshot::from_json_str(&text) {
+            Ok(snapshot) => LoadOutcome::Loaded(snapshot),
+            Err(LoadError::VersionSkew { found }) => LoadOutcome::Skew { found },
+            Err(LoadError::Malformed(message)) => LoadOutcome::Corrupt(message),
+        },
+    }
+}
+
+/// Read and classify a named layout (WP3). Mirrors [`load_snapshot`]'s
+/// four-way outcome so the caller degrades a corrupt/skewed layout to a notice
+/// instead of instantiating a broken workspace.
+pub(crate) fn load_layout(name: &str) -> LoadOutcome {
+    load_layout_in(&layouts_dir(), name)
+}
+
+/// Delete a named layout from `dir` (WP3 core). A missing file is success.
+fn delete_layout_in(dir: &Path, name: &str) -> io::Result<()> {
+    let Some(path) = layout_path_in(dir, name) else {
+        return Ok(());
+    };
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err),
+    }
+}
+
+/// Delete a named layout (WP3). A missing file is treated as success (the end
+/// state — no such layout — is what the caller wanted).
+pub(crate) fn delete_layout(name: &str) -> io::Result<()> {
+    delete_layout_in(&layouts_dir(), name)
 }
 
 /// Read and classify the whole-app snapshot from its state-dir path.

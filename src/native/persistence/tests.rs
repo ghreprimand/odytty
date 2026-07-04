@@ -9,6 +9,7 @@ use super::*;
 fn leaf(cwd: Option<&str>) -> PaneShape {
     PaneShape::Leaf {
         cwd: cwd.map(str::to_owned),
+        session_host_id: None,
     }
 }
 
@@ -359,4 +360,118 @@ fn snapshot_without_default_profile_parses_to_unbound() {
         parsed.workspaces[0].default_profile, None,
         "a missing default_profile is an unbound workspace"
     );
+}
+
+/// WP3 / 8h: a pane's detached session-host id round-trips through the snapshot
+/// under the stable `session_host_id` key, and a pre-WP3 snapshot (no such key)
+/// parses to a plain local pane.
+#[test]
+fn pane_session_host_id_round_trips_and_is_forward_compatible() {
+    let snapshot = ShapeSnapshot {
+        version: SNAPSHOT_VERSION,
+        active_workspace: 0,
+        workspaces: vec![WorkspaceShape {
+            name: "w".to_owned(),
+            default_profile: None,
+            active_tab: 0,
+            tabs: vec![TabShape {
+                title: None,
+                focused_leaf: 0,
+                layout: PaneShape::Leaf {
+                    cwd: Some("/srv".to_owned()),
+                    session_host_id: Some("odytty-4f2a".to_owned()),
+                },
+            }],
+        }],
+    };
+    let text = snapshot.to_json_pretty();
+    assert!(
+        text.contains("\"session_host_id\": \"odytty-4f2a\""),
+        "{text}"
+    );
+    assert_eq!(
+        ShapeSnapshot::from_json_str(&text).expect("round-trips"),
+        snapshot
+    );
+
+    let legacy = r#"{ "version": 1, "active_workspace": 0, "workspaces": [
+        { "name": "w", "active_tab": 0, "tabs": [
+            { "title": null, "focused_leaf": 0, "layout": { "leaf": { "cwd": null } } }
+        ] } ] }"#;
+    let parsed = ShapeSnapshot::from_json_str(legacy).expect("legacy parses");
+    match &parsed.workspaces[0].tabs[0].layout {
+        PaneShape::Leaf {
+            session_host_id, ..
+        } => assert_eq!(*session_host_id, None),
+        other => panic!("expected a leaf, got {other:?}"),
+    }
+}
+
+/// WP3: layout name sanitization blocks path traversal and empty names while
+/// keeping ordinary names intact.
+#[test]
+fn sanitize_layout_name_blocks_traversal_and_empties() {
+    assert_eq!(
+        sanitize_layout_name("My Work-1"),
+        Some("My Work-1".to_owned())
+    );
+    assert_eq!(
+        sanitize_layout_name("  spaced  "),
+        Some("spaced".to_owned())
+    );
+    // Path separators, dots, and null bytes are neutralized to underscores, so
+    // no traversal segment survives.
+    assert_eq!(
+        sanitize_layout_name("../etc/passwd"),
+        Some("___etc_passwd".to_owned())
+    );
+    assert_eq!(sanitize_layout_name(".."), Some("__".to_owned()));
+    assert_eq!(sanitize_layout_name("a/b\\c"), Some("a_b_c".to_owned()));
+    assert_eq!(sanitize_layout_name("   "), None);
+    assert_eq!(sanitize_layout_name(""), None);
+}
+
+/// WP3: a layout saves, lists, loads (equal to what was saved), and deletes —
+/// exercised against an explicit temp directory so the real state dir is never
+/// touched.
+#[test]
+fn layout_save_list_load_delete_round_trip() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir =
+        std::env::temp_dir().join(format!("odytty-wp3-layouts-{}-{nanos}", std::process::id()));
+
+    let layout = ShapeSnapshot {
+        version: SNAPSHOT_VERSION,
+        active_workspace: 0,
+        workspaces: vec![WorkspaceShape {
+            name: "dev".to_owned(),
+            default_profile: Some("edge".to_owned()),
+            active_tab: 0,
+            tabs: vec![TabShape {
+                title: Some("build".to_owned()),
+                focused_leaf: 0,
+                layout: leaf(Some("/home/joel")),
+            }],
+        }],
+    };
+
+    let stem = save_layout_in(&dir, "dev", &layout).expect("save");
+    assert_eq!(stem, "dev");
+    assert_eq!(list_layout_names_in(&dir), vec!["dev".to_owned()]);
+
+    match load_layout_in(&dir, "dev") {
+        LoadOutcome::Loaded(loaded) => assert_eq!(loaded, layout),
+        other => panic!("expected Loaded, got {other:?}"),
+    }
+
+    delete_layout_in(&dir, "dev").expect("delete");
+    assert!(list_layout_names_in(&dir).is_empty(), "layout removed");
+    assert!(matches!(load_layout_in(&dir, "dev"), LoadOutcome::Absent));
+    // Deleting a missing layout is a success no-op.
+    delete_layout_in(&dir, "dev").expect("idempotent delete");
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

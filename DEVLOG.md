@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Named layouts and session reattach (WP3)
+
+Workspaces can now be saved as reusable named layouts and reopened on demand,
+and a restored remote pane can rejoin its still-running session.
+
+**Named layouts.** "Save Current Workspace as Layout" (command palette) writes
+the active workspace's shape — its tabs, pane split tree, per-pane directory, and
+host binding — to a layout file, reusing the same on-disk schema as the launch
+autosave. Saved layouts appear back in the palette as "Open Layout: <name>" and
+"Delete Layout: <name>" rows. Opening a layout APPENDS it as a new workspace and
+switches to it; it never clobbers the workspaces already open. Layout names are
+sanitized to a safe single filename segment, so a name can never escape the
+layouts directory. A corrupt, unreadable, or version-skewed layout degrades to a
+one-line notice and leaves the current window untouched.
+
+**Session reattach.** A pane's shape now records the detached session-host it was
+attached to. On restore (and when opening a layout), a recorded session whose
+host is still alive is reattached with its scrollback intact instead of starting
+over; a session that is gone, or one already reattached in the same pass, falls
+back to a fresh shell silently. A single compact "N of M sessions reattached"
+line summarizes the outcome — no per-pane spam. The launch never breaks: a dead
+host, a missing directory, or a spawn failure always degrades to a working pane.
+
+The detached-session transport is Unix-only, so session ids are only ever
+captured and reattached there. On Windows no session ids are stored and every
+restored or instantiated pane opens a fresh shell — a snapshot copied from a
+Unix machine degrades cleanly to all-fresh rather than erroring.
+
+---
+
 ## 2026-07-04 -- Bind a workspace to a remote host (F6-W5)
 
 A workspace can now carry a default host. When one is set, "New Tab" in that

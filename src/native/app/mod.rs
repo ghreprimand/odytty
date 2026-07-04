@@ -96,6 +96,7 @@ mod hints_ui;
 mod ime;
 mod interaction;
 pub(in crate::native) mod interactive_paths;
+mod layouts;
 mod new_row_fade;
 mod open_notice;
 mod open_with_ui;
@@ -3993,13 +3994,29 @@ impl App {
                 let report =
                     self.sessions
                         .restore_from_snapshot(&snapshot, self.grid, home.as_deref());
-                if let RestoreReport::Restored { stale_cwd, .. } = report
-                    && stale_cwd > 0
+                if let RestoreReport::Restored {
+                    stale_cwd,
+                    reattached,
+                    reattach_attempted,
+                    ..
+                } = report
                 {
-                    self.raise_open_notice(
-                        "Restored your layout \u{2014} some panes opened at home because                          their folders are gone."
-                            .to_owned(),
-                    );
+                    let mut extras: Vec<String> = Vec::new();
+                    if reattach_attempted > 0 {
+                        // 8h: one compact "N of M sessions reattached" line.
+                        extras.push(format!(
+                            "{reattached} of {reattach_attempted} sessions reattached"
+                        ));
+                    }
+                    if stale_cwd > 0 {
+                        extras.push("some panes opened at home".to_owned());
+                    }
+                    if !extras.is_empty() {
+                        self.raise_open_notice(format!(
+                            "Restored your layout \u{2014} {}.",
+                            extras.join("; ")
+                        ));
+                    }
                 }
             }
             // First launch or nothing ever saved: start fresh, no notice.

@@ -346,6 +346,13 @@ pub(super) const WORKSPACE_UNBIND_ID: &str = "workspace-unbind";
 /// shell even when the active workspace is bound to a host. Only shown when the
 /// active workspace is bound (an unbound workspace's New Tab is already local).
 pub(super) const WORKSPACE_NEW_LOCAL_TAB_ID: &str = "workspace-new-local-tab";
+/// Stable id for the "Save Current Workspace as Layout" row (WP3 / 8g).
+pub(super) const LAYOUT_SAVE_ID: &str = "layout-save";
+/// Stable id prefix for the "Open Layout …" rows; the layout's index in the
+/// saved-layout list is appended. [`parse_layout_open_id`] recovers it.
+pub(super) const LAYOUT_OPEN_ID_PREFIX: &str = "layout-open-";
+/// Stable id prefix for the "Delete Layout …" rows (WP3 / 8e).
+pub(super) const LAYOUT_DELETE_ID_PREFIX: &str = "layout-delete-";
 
 /// The workspace-facing context the command palette needs to build its rows:
 /// the workspace names (switch rows, ODP-5), the known-host aliases (F6-W5 bind
@@ -355,17 +362,21 @@ pub(super) struct WorkspacePaletteContext<'a> {
     pub(super) names: &'a [String],
     pub(super) host_aliases: &'a [String],
     pub(super) bound_profile: Option<&'a str>,
+    /// The names of saved layouts (WP3), for the open/delete rows. Empty until a
+    /// layout has been saved.
+    pub(super) layout_names: &'a [String],
 }
 
 impl<'a> WorkspacePaletteContext<'a> {
-    /// A context with only workspace names — no host binding surface. Used by
-    /// the test seams that predate F6-W5.
+    /// A context with only workspace names — no host binding or layout surface.
+    /// Used by the test seams that predate F6-W5 / WP3.
     #[cfg(test)]
     pub(super) fn names_only(names: &'a [String]) -> Self {
         Self {
             names,
             host_aliases: &[],
             bound_profile: None,
+            layout_names: &[],
         }
     }
 }
@@ -410,7 +421,36 @@ fn workspace_palette_entries(ctx: &WorkspacePaletteContext<'_>) -> Vec<PaletteEn
             "New Local Tab",
         ));
     }
+    // WP3 named layouts: a save row, then open/delete rows per saved layout.
+    entries.push(PaletteEntry::action(
+        LAYOUT_SAVE_ID,
+        "Save Current Workspace as Layout",
+    ));
+    for (idx, name) in ctx.layout_names.iter().enumerate() {
+        entries.push(PaletteEntry::action(
+            format!("{LAYOUT_OPEN_ID_PREFIX}{idx}"),
+            format!("Open Layout: {name}"),
+        ));
+    }
+    for (idx, name) in ctx.layout_names.iter().enumerate() {
+        entries.push(PaletteEntry::action(
+            format!("{LAYOUT_DELETE_ID_PREFIX}{idx}"),
+            format!("Delete Layout: {name}"),
+        ));
+    }
     entries
+}
+
+/// Recover the layout index from an `layout-open-<idx>` action id.
+pub(super) fn parse_layout_open_id(id: &str) -> Option<usize> {
+    id.strip_prefix(LAYOUT_OPEN_ID_PREFIX)
+        .and_then(|suffix| suffix.parse().ok())
+}
+
+/// Recover the layout index from a `layout-delete-<idx>` action id.
+pub(super) fn parse_layout_delete_id(id: &str) -> Option<usize> {
+    id.strip_prefix(LAYOUT_DELETE_ID_PREFIX)
+        .and_then(|suffix| suffix.parse().ok())
 }
 
 /// Recover the rail index from a `workspace-switch-<idx>` action id, or `None`
@@ -524,6 +564,7 @@ mod tests {
             names: &["Workspace 1".to_owned()],
             host_aliases: &hosts,
             bound_profile: None,
+            layout_names: &[],
         };
         let ids: Vec<String> = workspace_palette_entries(&unbound)
             .into_iter()
@@ -547,6 +588,7 @@ mod tests {
             names: &["Workspace 1".to_owned()],
             host_aliases: &hosts,
             bound_profile: Some("web"),
+            layout_names: &[],
         };
         let labels: Vec<String> = workspace_palette_entries(&bound)
             .into_iter()

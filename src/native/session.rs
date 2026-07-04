@@ -1568,6 +1568,24 @@ impl WorkspaceSet {
         session_id: &str,
         sink: impl super::attach::AttachEventSink,
     ) -> Result<SessionToken, std::io::Error> {
+        let token = self.insert_attached_session_arena(socket, session_id, sink)?;
+        self.active_workspace_mut().tabs.push(Tab::single(token));
+        Ok(token)
+    }
+
+    /// Arena-only half of [`Self::insert_attached_session`]: connect to the
+    /// hosted session, restore the mirror terminal, spawn the read pump, and
+    /// insert the attached [`Session`] into the arena — WITHOUT grafting a tab.
+    /// The new-tab attach pushes a tab on top of this; the WP3 restore/append
+    /// reattach path grafts the returned token into the pane tree it is building
+    /// instead.
+    #[cfg(unix)]
+    fn insert_attached_session_arena(
+        &mut self,
+        socket: &Path,
+        session_id: &str,
+        sink: impl super::attach::AttachEventSink,
+    ) -> Result<SessionToken, std::io::Error> {
         let (client, reader, terminal) =
             AttachClient::connect(socket, session_id).map_err(std::io::Error::other)?;
 
@@ -1591,8 +1609,31 @@ impl WorkspaceSet {
                 Some(pump_thread),
             ),
         );
-        self.active_workspace_mut().tabs.push(Tab::single(token));
         Ok(token)
+    }
+
+    /// WP3 / 8h reattach: if the detached session-host `session_id` is still
+    /// alive, connect to it and insert the attached session into the arena,
+    /// returning its token (no tab — the restore/append path grafts it into the
+    /// tree). Returns `None` when the host is gone, unreachable, already
+    /// reattached in this build (attach dedup, ODP-10), or the event loop proxy
+    /// is unavailable — the caller then spawns a fresh shell instead. Unix-only;
+    /// on any other platform this always returns `None`, so a snapshot copied
+    /// from a Unix box degrades cleanly to all-fresh.
+    #[cfg(unix)]
+    fn reattach_restored_session(&mut self, session_id: &str) -> Option<SessionToken> {
+        if self.find_attached_tab(session_id).is_some() {
+            return None;
+        }
+        let proxy = self.proxy.clone()?;
+        let socket = resolve_session_socket(None, session_id).ok()?;
+        self.insert_attached_session_arena(&socket, session_id, proxy)
+            .ok()
+    }
+
+    #[cfg(not(unix))]
+    fn reattach_restored_session(&mut self, _session_id: &str) -> Option<SessionToken> {
+        None
     }
 
     /// Headless test driver for the live attach-by-id path: resolves the id to a
@@ -2446,10 +2487,30 @@ pub(super) enum RestoreReport {
         workspaces: usize,
         panes: usize,
         stale_cwd: usize,
+        /// How many panes reattached to a still-alive detached session-host
+        /// (WP3 / 8h). Drives the "N of M sessions reattached" notice.
+        reattached: usize,
+        /// How many panes CARRIED a session-host id to try (the "M"); a dead id
+        /// spawned a fresh shell and is counted here but not in `reattached`.
+        reattach_attempted: usize,
     },
     /// Nothing restorable (empty snapshot) or a spawn failed mid-rebuild; the
     /// launch layout was left untouched.
     Skipped,
+}
+
+/// Scratch accumulator for a snapshot rebuild (WP3): the assembled workspaces,
+/// the sessions spawned/reattached (so a failed build can reap them), and the
+/// running counts the caller reports. Shared by replace-mode restore and
+/// append-mode layout instantiation.
+#[derive(Default)]
+struct SnapshotBuild {
+    workspaces: Vec<Workspace>,
+    spawned: Vec<SessionToken>,
+    stale_cwd: usize,
+    reattached: usize,
+    reattach_attempted: usize,
+    aborted: bool,
 }
 
 /// Hash the STRUCTURE of a pane subtree (split axis + ratio bits + shape), with
@@ -2520,6 +2581,7 @@ impl WorkspaceSet {
         match node {
             PaneNode::Leaf(token) => PaneShape::Leaf {
                 cwd: self.pane_cwd(*token),
+                session_host_id: self.pane_session_host_id(*token),
             },
             PaneNode::Split {
                 axis,
@@ -2542,6 +2604,17 @@ impl WorkspaceSet {
         let session = self.sessions.get(&token)?;
         let terminal = session.terminal.lock().ok()?;
         terminal.current_working_directory().map(str::to_owned)
+    }
+
+    /// The detached session-host id the pane backed by `token` is attached to
+    /// (WP3 / 8h), or `None` for a locally-spawned pane. On Windows this is
+    /// always `None` — the detached-session transport is Unix-only — so no ids
+    /// are ever captured there (the design's Windows all-fresh guarantee holds
+    /// by construction).
+    fn pane_session_host_id(&self, token: SessionToken) -> Option<String> {
+        self.sessions
+            .get(&token)
+            .and_then(|session| session.attached_session_id.clone())
     }
 
     /// Rebuild the ENTIRE workspace list from a saved shape, spawning a fresh
@@ -2571,12 +2644,98 @@ impl WorkspaceSet {
         &mut self,
         snapshot: &crate::native::persistence::ShapeSnapshot,
         home: Option<&Path>,
-        mut spawn_leaf: impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
+        spawn_leaf: impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
     ) -> RestoreReport {
-        let mut new_workspaces: Vec<Workspace> = Vec::new();
-        let mut spawned: Vec<SessionToken> = Vec::new();
-        let mut stale_cwd = 0usize;
-        let mut aborted = false;
+        let build = self.build_from_snapshot(snapshot, home, spawn_leaf);
+        if build.aborted || build.workspaces.is_empty() {
+            for token in build.spawned {
+                self.discard_session(token);
+            }
+            return RestoreReport::Skipped;
+        }
+
+        // Everything spawned; swap the restored tree in and reap the launch
+        // session(s) that are not part of it (typically just the initial pane).
+        let discard: Vec<SessionToken> = self
+            .sessions
+            .keys()
+            .copied()
+            .filter(|token| !build.spawned.contains(token))
+            .collect();
+        let active_ws = snapshot.active_workspace.min(build.workspaces.len() - 1);
+        let panes = build.spawned.len();
+        let workspaces = build.workspaces.len();
+        self.workspaces = build.workspaces;
+        self.active_ws = active_ws;
+        for token in discard {
+            self.discard_session(token);
+        }
+
+        RestoreReport::Restored {
+            workspaces,
+            panes,
+            stale_cwd: build.stale_cwd,
+            reattached: build.reattached,
+            reattach_attempted: build.reattach_attempted,
+        }
+    }
+
+    /// WP3 / 8e: instantiate a saved layout by APPENDING its workspace(s) after
+    /// the current list and switching to the first one — never clobbering the
+    /// live layout. Shares the reattach + cwd rebuild with restore. On a spawn
+    /// failure mid-build everything spawned so far is reaped and the current
+    /// workspaces are untouched ([`RestoreReport::Skipped`]).
+    pub(super) fn append_from_snapshot(
+        &mut self,
+        snapshot: &crate::native::persistence::ShapeSnapshot,
+        grid: crate::core::Dimensions,
+        home: Option<&Path>,
+    ) -> RestoreReport {
+        self.append_from_snapshot_with(snapshot, home, |set, cwd| {
+            set.insert_restored_session(grid, cwd).ok()
+        })
+    }
+
+    /// Append-mode rebuild core, generic over the leaf spawner (headless tests).
+    pub(super) fn append_from_snapshot_with(
+        &mut self,
+        snapshot: &crate::native::persistence::ShapeSnapshot,
+        home: Option<&Path>,
+        spawn_leaf: impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
+    ) -> RestoreReport {
+        let build = self.build_from_snapshot(snapshot, home, spawn_leaf);
+        if build.aborted || build.workspaces.is_empty() {
+            for token in build.spawned {
+                self.discard_session(token);
+            }
+            return RestoreReport::Skipped;
+        }
+        let panes = build.spawned.len();
+        let workspaces = build.workspaces.len();
+        let first_appended = self.workspaces.len();
+        self.workspaces.extend(build.workspaces);
+        self.active_ws = first_appended;
+        RestoreReport::Restored {
+            workspaces,
+            panes,
+            stale_cwd: build.stale_cwd,
+            reattached: build.reattached,
+            reattach_attempted: build.reattach_attempted,
+        }
+    }
+
+    /// Build the workspaces from a snapshot without deciding replace-vs-append:
+    /// spawns (or 8h-reattaches) a session per leaf and assembles the tab trees,
+    /// tracking the sessions spawned so a failed build can be reaped cleanly.
+    /// The caller places `workspaces` (replace or append) and reaps `spawned` on
+    /// `aborted`.
+    fn build_from_snapshot(
+        &mut self,
+        snapshot: &crate::native::persistence::ShapeSnapshot,
+        home: Option<&Path>,
+        mut spawn_leaf: impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
+    ) -> SnapshotBuild {
+        let mut build = SnapshotBuild::default();
 
         'workspaces: for ws in &snapshot.workspaces {
             if ws.tabs.is_empty() {
@@ -2589,11 +2748,10 @@ impl WorkspaceSet {
                     &tab_shape.layout,
                     home,
                     &mut spawn_leaf,
-                    &mut spawned,
-                    &mut stale_cwd,
+                    &mut build,
                     &mut leaves,
                 ) else {
-                    aborted = true;
+                    build.aborted = true;
                     break 'workspaces;
                 };
                 let focused = leaves
@@ -2613,43 +2771,14 @@ impl WorkspaceSet {
                 continue;
             }
             let active_tab = ws.active_tab.min(tabs.len() - 1);
-            new_workspaces.push(Workspace {
+            build.workspaces.push(Workspace {
                 name: ws.name.clone(),
                 tabs,
                 active_tab,
                 default_profile: ws.default_profile.clone(),
             });
         }
-
-        if aborted || new_workspaces.is_empty() {
-            for token in spawned {
-                self.discard_session(token);
-            }
-            return RestoreReport::Skipped;
-        }
-
-        // Everything spawned; swap the restored tree in and reap the launch
-        // session(s) that are not part of it (typically just the initial pane).
-        let discard: Vec<SessionToken> = self
-            .sessions
-            .keys()
-            .copied()
-            .filter(|token| !spawned.contains(token))
-            .collect();
-        let active_ws = snapshot.active_workspace.min(new_workspaces.len() - 1);
-        let panes = spawned.len();
-        let workspaces = new_workspaces.len();
-        self.workspaces = new_workspaces;
-        self.active_ws = active_ws;
-        for token in discard {
-            self.discard_session(token);
-        }
-
-        RestoreReport::Restored {
-            workspaces,
-            panes,
-            stale_cwd,
-        }
+        build
     }
 
     /// Rebuild one pane subtree, spawning a leaf session per [`PaneShape::Leaf`]
@@ -2660,19 +2789,34 @@ impl WorkspaceSet {
         shape: &crate::native::persistence::PaneShape,
         home: Option<&Path>,
         spawn_leaf: &mut impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
-        spawned: &mut Vec<SessionToken>,
-        stale_cwd: &mut usize,
+        build: &mut SnapshotBuild,
         leaves: &mut Vec<SessionToken>,
     ) -> Option<PaneNode> {
         use crate::native::persistence::{PaneShape, resolve_cwd};
         match shape {
-            PaneShape::Leaf { cwd } => {
+            PaneShape::Leaf {
+                cwd,
+                session_host_id,
+            } => {
+                // 8h: a pane that was attached to a detached session-host tries to
+                // reattach first. A live host reattaches (full scrollback); a dead
+                // id, an already-reattached id, or any non-Unix build falls through
+                // to a fresh shell at the captured cwd — silently, per the design.
+                if let Some(id) = session_host_id.as_deref() {
+                    build.reattach_attempted += 1;
+                    if let Some(token) = self.reattach_restored_session(id) {
+                        build.reattached += 1;
+                        build.spawned.push(token);
+                        leaves.push(token);
+                        return Some(PaneNode::leaf(token));
+                    }
+                }
                 let resolved = resolve_cwd(cwd.as_deref(), home);
                 if resolved.stale {
-                    *stale_cwd += 1;
+                    build.stale_cwd += 1;
                 }
                 let token = spawn_leaf(self, resolved.path)?;
-                spawned.push(token);
+                build.spawned.push(token);
                 leaves.push(token);
                 Some(PaneNode::leaf(token))
             }
@@ -2682,10 +2826,8 @@ impl WorkspaceSet {
                 first,
                 second,
             } => {
-                let first =
-                    self.rebuild_pane(first, home, spawn_leaf, spawned, stale_cwd, leaves)?;
-                let second =
-                    self.rebuild_pane(second, home, spawn_leaf, spawned, stale_cwd, leaves)?;
+                let first = self.rebuild_pane(first, home, spawn_leaf, build, leaves)?;
+                let second = self.rebuild_pane(second, home, spawn_leaf, build, leaves)?;
                 Some(PaneNode::Split {
                     axis: axis.to_split_axis(),
                     ratio: *ratio,
@@ -4255,6 +4397,93 @@ mod tests {
         );
     }
 
+    /// WP3 / 8e: instantiating a layout APPENDS its workspace(s) after the
+    /// current list and focuses the first appended one — the live workspaces are
+    /// untouched (never clobbered).
+    #[test]
+    fn append_from_snapshot_appends_without_clobbering() {
+        // Start with two live workspaces.
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push_workspace(build_session_with_id(SessionToken(1)));
+        assert_eq!(set.workspace_count(), 2);
+        set.rename_workspace(0, "live-a".to_owned());
+        set.rename_workspace(1, "live-b".to_owned());
+
+        // A one-workspace layout snapshot.
+        let layout = crate::native::persistence::ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            active_workspace: 0,
+            workspaces: vec![crate::native::persistence::WorkspaceShape {
+                name: "from-layout".to_owned(),
+                default_profile: None,
+                active_tab: 0,
+                tabs: vec![crate::native::persistence::TabShape {
+                    title: None,
+                    focused_leaf: 0,
+                    layout: crate::native::persistence::PaneShape::Leaf {
+                        cwd: None,
+                        session_host_id: None,
+                    },
+                }],
+            }],
+        };
+
+        let mut handed = Vec::new();
+        let report = set.append_from_snapshot_with(&layout, None, fake_spawner(&mut handed));
+        assert!(matches!(
+            report,
+            RestoreReport::Restored { workspaces: 1, .. }
+        ));
+        // The two live workspaces survive; the layout is appended as a third and
+        // becomes active.
+        assert_eq!(set.workspace_count(), 3);
+        assert_eq!(set.workspace_name(0), Some("live-a"));
+        assert_eq!(set.workspace_name(1), Some("live-b"));
+        assert_eq!(set.workspace_name(2), Some("from-layout"));
+        assert_eq!(set.active_workspace_index(), 2);
+    }
+
+    /// WP3 / 8h: a pane carrying a session-host id whose host is not alive (no
+    /// runtime dir in the test) is counted as a reattach attempt but falls back
+    /// to a fresh shell — never a dead pane. Verifies the "N of M" accounting.
+    #[test]
+    fn reattach_counts_attempt_and_falls_back_to_fresh_when_host_is_dead() {
+        let snapshot = crate::native::persistence::ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            active_workspace: 0,
+            workspaces: vec![crate::native::persistence::WorkspaceShape {
+                name: "w".to_owned(),
+                default_profile: None,
+                active_tab: 0,
+                tabs: vec![crate::native::persistence::TabShape {
+                    title: None,
+                    focused_leaf: 0,
+                    layout: crate::native::persistence::PaneShape::Leaf {
+                        cwd: None,
+                        session_host_id: Some("odytty-nonexistent-host".to_owned()),
+                    },
+                }],
+            }],
+        };
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let mut handed = Vec::new();
+        let report = set.restore_from_snapshot_with(&snapshot, None, fake_spawner(&mut handed));
+        assert!(
+            matches!(
+                report,
+                RestoreReport::Restored {
+                    panes: 1,
+                    reattached: 0,
+                    reattach_attempted: 1,
+                    ..
+                }
+            ),
+            "report was {report:?}"
+        );
+        // A fresh shell was spawned for the pane despite the dead host id.
+        assert_eq!(handed.len(), 1);
+    }
+
     /// Capture a rich shape, restore it into a fresh set, and assert the rebuilt
     /// shape equals the captured one (structural equality; the fake sessions
     /// carry no cwd, so every captured cwd here is `None` too). Exercises the
@@ -4284,7 +4513,8 @@ mod tests {
                 RestoreReport::Restored {
                     workspaces: 2,
                     panes: 4,
-                    stale_cwd: 0
+                    stale_cwd: 0,
+                    ..
                 }
             ),
             "report was {report:?}"
@@ -4318,8 +4548,12 @@ mod tests {
                         ratio: 0.5,
                         first: Box::new(PaneShape::Leaf {
                             cwd: Some("/definitely/not/a/real/dir/odytty-wp2".to_owned()),
+                            session_host_id: None,
                         }),
-                        second: Box::new(PaneShape::Leaf { cwd: None }),
+                        second: Box::new(PaneShape::Leaf {
+                            cwd: None,
+                            session_host_id: None,
+                        }),
                     },
                 }],
             }],
@@ -4353,6 +4587,7 @@ mod tests {
         use crate::native::persistence::{PaneShape, ShapeSnapshot, TabShape, WorkspaceShape};
         let leaf = |cwd: Option<&str>| PaneShape::Leaf {
             cwd: cwd.map(str::to_owned),
+            session_host_id: None,
         };
         let snapshot = ShapeSnapshot {
             version: crate::native::persistence::SNAPSHOT_VERSION,

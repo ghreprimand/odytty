@@ -158,7 +158,8 @@ fn capture_shape_records_workspaces_tabs_panes_and_cwd() {
             assert_eq!(
                 **first,
                 PaneShape::Leaf {
-                    cwd: Some("/home/tester/project".to_owned())
+                    cwd: Some("/home/tester/project".to_owned()),
+                    session_host_id: None,
                 }
             );
             assert!(matches!(**second, PaneShape::Leaf { .. }));
