@@ -683,6 +683,20 @@ its first stable layer.
   invariants: a workspace is never empty — closing a workspace's last tab closes
   that workspace; the last tab of the last workspace exits the app; a new
   workspace opens with exactly one single-pane tab.
+- Workspace-shape persistence (`restore_workspaces`, default off): OdyTTY can
+  snapshot the window's **shape** — workspace names, tab titles and order, the
+  pane split tree and ratios, and each pane's working directory — to an atomic
+  temp-and-rename file in the platform state dir (`%LOCALAPPDATA%` on Windows).
+  The snapshot is a strict privacy boundary: it records structure only and
+  **never** grid content, scrollback, environment, or the commands that were
+  running, so a restore can never replay a command. Restore fires only for the
+  primary instance (elected via a state-dir lock file) on a bare `odytty`
+  launch; any CLI argument suppresses it, and a fresh shell is always spawned
+  per pane. Named layouts persist the same shape under a chosen name and are
+  instantiated as an appended workspace, never a clobber. On Unix a pane may
+  carry a detached session-host id and reattach on restore when that host is
+  still alive (falling back to a fresh shell silently); Windows stores no ids
+  and always restores fresh.
 - Readability pipeline: visual enhancements are explicit settings with
   individual opt-outs, and `render_quality=plain` preserves the pixel-identical
   plain/fast path that bypasses extras. Three delivered knobs:
@@ -860,6 +874,28 @@ its first stable layer.
   mutates live core terminal state, so the live frame is byte-identical whether
   or not it is active. With the opt-in off, the overlay shows OdyTTY-owned hosts
   only and OdyTTY never reads or references `~/.ssh`.
+- Remote shell integration (`remote_integration`, default on; `remote_reuse`,
+  default on; `remote_tmux`, default off): the connect path builds the remote
+  `ssh` argv through a single owned builder (`src/ssh_connect.rs`). With
+  integration on it injects a bash-only bootstrap — an inline base64 rcfile
+  materialized to a temp file on the remote and exec'd as an interactive shell,
+  carrying OdyTTY's OSC 133 boundaries onto the remote with nothing persisted
+  there; a non-bash shell or any failure degrades to a byte-identical plain
+  `ssh`. Reuse layers `ControlMaster=auto`/`ControlPersist` over an
+  OdyTTY-owned control socket so repeat tabs to a host skip the handshake;
+  tmux wraps the remote shell in `tmux new-session -A -s odytty` for
+  reconnect-survivable persistence. Each is globally configurable and
+  per-host-overridable in `hosts.conf` (`Integration`/`Reuse`/`Tmux`). A
+  dropped remote tab is held open with an in-pane reconnect prompt
+  (Enter re-establishes in the same tab, Esc/Ctrl+D closes). Pasting a
+  clipboard image into an integrated remote tab arms a confirm-first upload
+  (`remote_image_paste`, default `ask`): the image is streamed to a private
+  temp file on the remote and its path pasted as text, with a size cap and
+  best-effort cleanup — nothing is executed remotely. A workspace can be bound
+  to a saved host so **New Tab** connects there, with a **New Local Tab**
+  escape. ControlMaster reuse is compiled out on a Windows client (OpenSSH
+  there has no connection multiplexing); integration, tmux, reconnect, image
+  paste-through, and workspace binding are cross-platform.
 - Interactive / clickable file paths (`interactive_paths`, master gate, default
   off): when enabled, OdyTTY syntactically detects file and directory spans in
   the visible row under the pointer and stat-gates them against the filesystem

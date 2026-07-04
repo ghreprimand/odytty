@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Document the seamless-remote and persistence layers
+
+The narrative and reference docs (README, SPEC, keybindings, TODO) now cover the
+seamless-remote SSH layer and workspace-shape persistence, which had shipped in
+code without a doc surface. `runtime-knobs.md` and `odytty.conf.example` already
+carried the per-knob configuration reference; this pass closes the feature-tour
+and architecture prose.
+
+- **README:** the SSH-substrate bullet gains a seamless-layer clause; a
+  "Remote shell integration" paragraph documents the bootstrap, ControlMaster
+  reuse, tmux persistence, the reconnect prompt, and confirm-first image
+  paste-through, each with its knob and per-host override; the Workspaces
+  section gains restore-on-launch and named-layout paragraphs, including the
+  structure-only privacy boundary.
+- **SPEC:** a remote-integration architecture bullet and a workspace-shape
+  persistence bullet record the builder-driven argv, the privacy boundary
+  (structure only, never grid/scrollback/env/commands), primary-instance
+  restore election, and Unix-only session-host reattach.
+- **keybindings.md:** a "Remote reconnect prompt" subsection documents the
+  Enter/Esc/Ctrl+D prompt keys; the Workspaces section notes the palette-only
+  layout and host-binding actions.
+- **TODO.md:** shipped-marked entries for remote i1/i3/i4/i5/i7, W5, and the
+  persistence/restore/named-layout/reattach work.
+
+Windows behaviour is stated inline throughout: ControlMaster reuse is a
+Unix-client feature (Windows authenticates per-connection through `ssh.exe`);
+session-host reattach is Unix-only (a Windows restore always lands fresh
+shells); the shape snapshot and restore themselves are cross-platform, using
+`%LOCALAPPDATA%` for the state dir on Windows. Docs-only change — no source
+touched, so the compiled test surface is unchanged.
+
+---
+
 ## 2026-07-04 -- Paste clipboard images through to remote hosts (F6-i7)
 
 Pasting a clipboard image into a remote integrated SSH tab now offers to upload

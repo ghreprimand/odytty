@@ -283,6 +283,28 @@ but each is a bindable action (`new-workspace`, `close-workspace`,
 key-remap editor or the `keybinds` config. Closing the last tab of a workspace
 closes that workspace; closing the last workspace quits OdyTTY.
 
+The command palette also carries workspace and layout actions that have no
+default chord: **New Workspace**, **Rename Workspace**, **Bind Workspace to
+Host** / **Unbind Workspace From Host** and **New Local Tab** (when a workspace
+is bound to a remote host), and **Save Current Workspace as Layout** /
+**Open Layout** / **Delete Layout**. Any of the bindable workspace actions
+above can still be given a chord; the layout and host-binding actions are
+palette- and menu-only.
+
+## Remote reconnect prompt
+
+When a remote SSH tab's connection drops, OdyTTY holds the tab open with an
+in-pane reconnect prompt instead of closing it. While the prompt is up, keys
+drive the prompt rather than the dead shell:
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Reconnect in the same tab (re-runs the connection; with `remote_tmux` on, reattaches the persistent session) |
+| `Esc` / `Ctrl+D` | Dismiss the prompt and close the tab |
+
+These keys are not rebindable; they are active only while a dropped remote tab
+awaits reconnect.
+
 ## See also
 
 - [`runtime-knobs.md`](runtime-knobs.md) — every config key, env var, and default.

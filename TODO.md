@@ -953,6 +953,37 @@ feature validates against.
 - [x] Context-aware right-click menus: per-surface compositions (tab slot,
       empty tab strip, terminal content, workspace rail), each targeting the
       clicked surface.
+- [x] Seamless remote SSH terminals: the connect path builds the remote argv
+      through an owned builder (`src/ssh_connect.rs`).
+  - [x] i1 shell-integration bootstrap: inline bash-only base64 rcfile exec'd on
+        the remote, nothing persisted there, plain-ssh degrade for non-bash or
+        failure; `remote_integration` default on, per-host `Integration on|off`.
+  - [x] i3 connection reuse: `ControlMaster=auto`/`ControlPersist` over an
+        OdyTTY-owned socket; `remote_reuse` default on, per-host `Reuse on|off`;
+        compiled out on a Windows client.
+  - [x] i4 dropped-connection reconnect: a dropped remote tab is held open with
+        an in-pane prompt (Enter reconnects in place, Esc/Ctrl+D closes).
+  - [x] i5 tmux persistence: `tmux new-session -A -s odytty` inside the
+        bootstrap; `remote_tmux` default off, per-host `Tmux on|off`; degrades to
+        plain integrated bash when the remote lacks tmux.
+  - [x] i7 image paste-through: pasting a clipboard image into an integrated
+        remote tab arms a confirm-first upload (`remote_image_paste`, default
+        `ask`); the image streams to a private temp file on the remote and its
+        path is pasted as text, size-capped, cleaned up best-effort.
+  - [x] W5 workspace default host: a workspace can bind a saved host so New Tab
+        connects there, with a New Local Tab escape; unbound is byte-identical.
+- [x] Workspace-shape persistence and restore-on-launch: an atomic shape
+      snapshot (workspace names, tab order, pane split tree + ratios, per-pane
+      cwd) written to the platform state dir; never grid content, scrollback,
+      or commands.
+  - [x] `restore_workspaces` (default off) reopens the previous shape on a bare
+        `odytty` launch for the primary instance only; any CLI arg suppresses it;
+        debounced autosave on shape change plus save on clean exit.
+  - [x] Named layouts: Save Current Workspace as Layout, Open Layout (appends a
+        workspace, never clobbers), Delete Layout — from the command palette.
+  - [x] Unix session-host reattach on restore: an alive per-pane session-host id
+        reattaches; a dead one opens a fresh shell silently, with a compact
+        "N of M sessions reattached" notice. Windows stores no ids (all fresh).
 - [x] Resumable-session architecture decision: use an OdyTTY-owned detached
       session-host process, with live PTYs owned outside the window process and
       reattach over a per-user local-only socket.

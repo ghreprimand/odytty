@@ -77,7 +77,11 @@ Windows ships as an unsigned portable zip.
   manager, default-off opt-in OpenSSH config host-name import, and a connect
   action that opens `ssh` in a new tab/session. Imports are read-only,
   name-only, bounded, and never surface key material; authentication remains
-  with the system `ssh` binary and agent.
+  with the system `ssh` binary and agent. Connections can optionally carry
+  OdyTTY's shell integration onto the remote, reuse a single authenticated
+  connection across tabs, hold a dropped tab open with a reconnect prompt, and
+  persist the remote shell in `tmux` — each an opt-in knob, all degrading to a
+  plain `ssh` when unavailable.
 - **Privacy posture:** no telemetry, analytics, crash reporting, account,
   cloud sync, or update ping. Network-capable actions are explicit and
   user-initiated: Ctrl-click link and path opening through the platform opener
@@ -497,6 +501,24 @@ once a second workspace exists, `always` pins it even with one, and `left` /
 `right` pin it to that side. When more than one workspace exists, a tab's
 right-click menu adds **Move to Next Workspace** to relocate the clicked tab.
 
+**Restoring a layout.** With `restore_workspaces` on (off by default; the
+Sessions section of Settings, or `ODYTTY_RESTORE_WORKSPACES`), launching
+`odytty` with no arguments reopens the previous window shape — its workspaces,
+tabs, and pane splits, each pane at its recorded working directory. Any
+command-line argument suppresses restore, and only the primary instance
+restores. The saved snapshot records **structure only** — never terminal
+output, scrollback, environment, or the commands that were running — so a
+restored pane is always a fresh shell at its directory, never a replayed
+session. A workspace can also be saved as a **named layout** from the command
+palette (**Save Current Workspace as Layout**); opening a layout later
+(**Open Layout**) appends it as a new workspace rather than replacing the
+current one. On Unix, a restored or instantiated pane whose detached
+session-host is still alive reattaches to it; a dead one silently opens a
+fresh shell, with a compact "N of M sessions reattached" notice. Restore and
+named layouts are cross-platform (the state dir uses `%LOCALAPPDATA%` on
+Windows); session-host reattach is Unix-only, so a Windows restore always
+lands fresh shells.
+
 Any tab can be split into panes. The direct chords `Ctrl+Shift+E` (split into
 columns, new pane on the right) and `Ctrl+Shift+O` (split into rows, new pane
 below) create a split on a single-pane tab — they match Ghostty's Linux
@@ -653,6 +675,26 @@ Hosts come from the OdyTTY-owned `hosts.conf` and, only when
 opt-in off, the overlay lists OdyTTY-owned hosts only and never references
 `~/.ssh`. The overlay is presentation-only; selecting a host spawns the system
 `ssh` in a new session.
+
+**Remote shell integration.** By default (`remote_integration`, on) connecting
+to a saved host carries OdyTTY's shell integration onto the remote: an inline,
+bash-only bootstrap writes a temporary rcfile on the remote and execs an
+interactive shell against it, so a remote bash session gains the same prompt
+and input boundaries as a local one. Nothing is persisted on the remote, and a
+non-bash shell or any failure degrades to a plain `ssh`. The tab is titled
+`user@host`. `remote_reuse` (on) multiplexes further tabs to the same host over
+a shared ControlMaster connection so they connect with no new handshake;
+`remote_tmux` (off by default) wraps the remote shell in a persistent
+`tmux new-session -A -s odytty` so a dropped-and-reconnected link resumes the
+same remote session. When a remote connection drops, the tab is held open with
+a reconnect prompt — **Enter** reconnects in place, **Esc** or **Ctrl+D**
+closes the tab. Pasting a clipboard image into an integrated remote tab offers
+a confirm-first upload (`remote_image_paste`, `ask` by default): on confirm the
+image is streamed to a private temp file on the remote and its path is pasted
+as text — nothing runs remotely. Each knob has a per-host override in
+`hosts.conf` (`Integration`, `Reuse`, `Tmux`). Connection reuse is a
+Unix-client feature; on a Windows client each connection authenticates
+independently through `ssh.exe`.
 
 Detached sessions are managed from inside the window as well as from the CLI. The
 `session-attach` action (default `Ctrl+Shift+A`, also the **Manage Sessions**
