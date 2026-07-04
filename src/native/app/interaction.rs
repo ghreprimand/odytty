@@ -1211,6 +1211,10 @@ impl App {
             self.restore_from_minimized();
         } else {
             self.cancel_overlay_drag_on_focus_loss();
+            // NF21-8: an alt-tab can deliver the button release to another
+            // window, stranding the grid selection's held flag. Drop it so a
+            // `CursorMoved` on focus regain cannot resume a buttonless drag.
+            self.grid_left_held = false;
             // WHEEL-SENS (T-reset): drop any partially-accumulated wheel
             // notch so a gesture interrupted by an alt-tab does not
             // resume against the next surface on focus regain.
@@ -1622,9 +1626,17 @@ impl App {
         };
         self.apply_cursor_icon(grid_icon);
         if self.pointer_drag.is_selecting() {
-            self.autoscroll_selection_if_needed(y_px, cell, padding);
-            self.extend_drag_to(point);
-            self.request_selection_redraw();
+            // NF21-8 button-held guard (grid analogue of SLIDER-GUARD): only
+            // extend the selection while the left button is physically down. A
+            // `Selecting` latch whose release was lost — a mid-drag tab/workspace
+            // switch, or an alt-tab that delivered the release elsewhere — would
+            // otherwise resume a buttonless drag on the next bare `CursorMoved`,
+            // and its eventual unmatched release could reach PTY mouse reporting.
+            if self.grid_left_held {
+                self.autoscroll_selection_if_needed(y_px, cell, padding);
+                self.extend_drag_to(point);
+                self.request_selection_redraw();
+            }
         } else if self.should_report_mouse_to_pty() || self.report_button.is_some() {
             self.send_mouse_motion_report();
         }
@@ -1666,6 +1678,10 @@ impl App {
         let Some(point) = self.pointer_cell else {
             return;
         };
+        // NF21-8: a selection gesture starts with the left button physically
+        // down; record that so the motion path can refuse to extend once the
+        // button is up (see the guard in the grid `CursorMoved` path).
+        self.grid_left_held = true;
         // MOUSE-RECT: Alt makes the whole gesture a rectangular/column (block)
         // selection; every non-Alt gesture is wrapped. The mode is decided once
         // here at the single selection entry point, so the word/line/drag
@@ -1914,6 +1930,10 @@ impl App {
     }
 
     pub(super) fn finish_selection(&mut self) {
+        // NF21-8: the left button is up once the gesture finalizes; drop the
+        // held flag before any early return so a subsequent bare `CursorMoved`
+        // cannot extend a stale latch.
+        self.grid_left_held = false;
         if !self.pointer_drag.is_selecting() {
             return;
         }

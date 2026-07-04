@@ -452,6 +452,23 @@ impl Session {
         self.copy_mode = None;
     }
 
+    /// Drop the transient pointer-input latches so an active-session change
+    /// cannot leave them stranded on the outgoing session or phantom-hovering on
+    /// the incoming one (NF21-8 / NF21-9). Unlike
+    /// [`Self::invalidate_layout_dependent_state`] this deliberately leaves the
+    /// selection, viewport, search, hints and copy-mode state untouched — a tab
+    /// or workspace switch is not a reflow, so a made selection must survive to
+    /// be copied on switch-back. Only the in-flight drag and the last hover cell
+    /// are cleared: a mid-drag switch must not resurrect a buttonless
+    /// `Selecting` latch, and a stale `pointer_cell` must not paint a phantom
+    /// hover (or open a stale Ctrl+click target) before the first real
+    /// `CursorMoved` on the new surface.
+    pub(super) fn clear_input_latches(&mut self) {
+        self.pointer_drag = PointerDrag::None;
+        self.pointer_cell = None;
+        self.pointer_px = None;
+    }
+
     /// The local PTY backing this session, or `None` for an attached session.
     /// Test-only seam (the production foreground-job query uses
     /// [`Self::foreground_job_running`]); tests read the concrete PTY through
@@ -887,6 +904,19 @@ impl WorkspaceSet {
     pub(super) fn invalidate_all_layout_dependent_state(&mut self) {
         for session in self.sessions.values_mut() {
             session.invalidate_layout_dependent_state();
+        }
+    }
+
+    /// Clear the pointer-input latches on EVERY session in the arena (NF21-8 /
+    /// NF21-9). Called from the active-session-change seam, which fires on both
+    /// tab and workspace switches post-W1: sweeping the flat arena covers the
+    /// outgoing session (whose in-flight drag must not survive), the incoming
+    /// session (whose stale hover cell must not paint), and every background
+    /// session across all workspaces in one pass. Selection and viewport state
+    /// are intentionally preserved — see [`Session::clear_input_latches`].
+    pub(super) fn clear_all_input_latches(&mut self) {
+        for session in self.sessions.values_mut() {
+            session.clear_input_latches();
         }
     }
 

@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Input latches no longer survive a tab or workspace switch
+
+Switching the active session — a tab switch or, since workspaces landed, a
+workspace switch — now sheds the transient pointer and IME latches at the single
+seam both paths funnel through. Three stale-state leaks are closed together:
+
+- A text selection interrupted mid-drag by a keyboard switch left the outgoing
+  session latched in a selecting state. Its eventual button release could land
+  on a different session (reaching PTY mouse reporting), and switching back
+  resumed a drag with no button held. The drag is now dropped for every session
+  at the switch, and a held-button guard on the grid motion path — the grid
+  analogue of the existing overlay slider guard — refuses to extend a selection
+  on a bare pointer move unless the left button is physically down. The flag is
+  also cleared on focus loss so an alt-tab that delivers the release to another
+  window cannot resume a buttonless drag on focus regain.
+- The incoming session kept the previous session's last hover cell until the
+  first real pointer move, painting a phantom hover (and, worse, opening a stale
+  Ctrl+click target). The hover cell is now cleared at the switch.
+- An in-flight IME composition begun on one surface is dropped at the switch so
+  it cannot paint at — or commit into — the new one.
+
+Selection, viewport, search and copy-mode state are deliberately preserved: a
+switch is not a reflow, so a made selection still survives to be copied on
+switch-back. The sweep runs over the flat session arena, so it covers the
+outgoing session, the incoming one, and every background session across all
+workspaces in one pass.
+
+Windows: platform-neutral — winit input-latch clears, no `cfg(windows)` surface.
+
+---
+
 ## 2026-07-04 -- Tabs can move between workspaces from the tab menu
 
 A tab right-click now offers "Move to Next Workspace" when more than one

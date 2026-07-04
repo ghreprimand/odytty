@@ -2038,6 +2038,49 @@ impl App {
         self.overlay_left_held
     }
 
+    /// Test seam (NF21-8): the current grid selection held-button flag. Lets a
+    /// regression prove the motion-path guard refuses to extend once release (or
+    /// an active-session change) has dropped the flag.
+    #[cfg(test)]
+    pub(in crate::native) fn grid_left_held_for_test(&self) -> bool {
+        self.grid_left_held
+    }
+
+    /// Test seam (NF21-8): drive the production single-pane grid `CursorMoved`
+    /// path so a regression can assert whether a bare move extends the selection
+    /// (button held) or is refused (latch stale after a lost release / switch).
+    #[cfg(test)]
+    pub(in crate::native) fn grid_pointer_moved_for_test(&mut self, x_px: f64, y_px: f64) {
+        self.update_pointer_cell(x_px, y_px);
+    }
+
+    /// Test seam (NF21-8/9): switch to the next tab through the production path,
+    /// firing the active-session-change seam under test.
+    #[cfg(test)]
+    pub(in crate::native) fn switch_to_next_tab_for_test(&mut self) {
+        self.switch_to_next_tab();
+    }
+
+    /// Test seam (NF21-8): drive the production focus-change handler so a
+    /// regression can prove focus loss drops the grid held-button flag.
+    #[cfg(test)]
+    pub(in crate::native) fn on_window_focus_changed_for_test(&mut self, focused: bool) {
+        self.on_window_focus_changed(focused);
+    }
+
+    /// Test seam (NF21-11): the current App-level IME preedit string.
+    #[cfg(test)]
+    pub(in crate::native) fn ime_preedit_for_test(&self) -> &str {
+        &self.ime_preedit
+    }
+
+    /// Test seam (NF21-11): seed an in-flight IME preedit so a regression can
+    /// prove an active-session change drops it (no cross-surface commit/paint).
+    #[cfg(test)]
+    pub(in crate::native) fn set_ime_preedit_for_test(&mut self, text: &str) {
+        self.ime_preedit = text.to_owned();
+    }
+
     /// Test seam (F1): drain and clear the argv vectors that
     /// [`App::handle_new_window`] recorded instead of actually spawning a second
     /// OdyTTY instance. Lets a chord/menu dispatch test assert a New Window

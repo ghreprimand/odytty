@@ -86,6 +86,7 @@ mod font_save;
 mod gpu_render;
 mod grid_scale;
 mod input_keys;
+mod input_latch_lifecycle;
 mod interactive_urls;
 mod key_remap_wiring;
 mod mouse_rect;

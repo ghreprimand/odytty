@@ -462,6 +462,16 @@ pub(super) struct App {
     /// somehow stale. `CursorMoved` carries no button state, so this flag is the
     /// reliable held-button seam for the settings-slider path (D-SLIDER-GUARD).
     overlay_left_held: bool,
+    /// NF21-8 grid analogue of `overlay_left_held`: whether the left button is
+    /// currently held during a terminal-grid text selection. Set when
+    /// [`Self::begin_selection`] arms a drag, cleared on
+    /// [`Self::finish_selection`], on focus loss, and at every active-session
+    /// change. The motion path gates selection extension on it so a `Selecting`
+    /// latch whose release was lost (mid-drag tab/workspace switch, or an
+    /// alt-tab that delivers the release to another window) can NEVER extend
+    /// without the button physically down. `CursorMoved` carries no button
+    /// state, so this flag is the reliable held-button seam for the grid path.
+    grid_left_held: bool,
     /// INTERACTIVE-PATHS (Phase 7): the process `$HOME`, cached once at startup
     /// (it never changes mid-process) so `~`-prefixed path spans can be expanded
     /// at hover time without a per-move `getenv`. `None` when `$HOME` is unset or
@@ -588,6 +598,7 @@ impl App {
             rename_clicks: ClickTracker::default(),
             rename_dragging: false,
             overlay_left_held: false,
+            grid_left_held: false,
             home_dir: std::env::var_os("HOME").and_then(|h| h.into_string().ok()),
             image_overlay: None,
             startup_error: None,
@@ -2214,6 +2225,20 @@ impl App {
     }
 
     fn on_active_session_changed(&mut self) {
+        // NF21-8/9/11: an active-session change (tab OR workspace switch post-W1)
+        // must not carry window/session input latches across the boundary. Drop
+        // the pointer drag + hover cell on every session so the outgoing one
+        // sheds a mid-drag `Selecting` latch and the incoming one starts with no
+        // phantom hover, clear the grid held-button flag so a lost release can't
+        // resume the drag, and drop any in-flight IME preedit so a composition
+        // begun on the previous surface cannot paint at (or commit into) the new
+        // one. Selection/viewport state is deliberately preserved.
+        self.sessions.clear_all_input_latches();
+        self.grid_left_held = false;
+        // Drop any in-flight IME preedit directly (the field is repainted via the
+        // `needs_rebuild` set below); a composition begun on the previous surface
+        // must not paint at, or commit into, the new one.
+        self.ime_preedit.clear();
         self.recompute_grid_for_tab_bar();
         self.tab_bar.set_hover(None);
         self.last_render_signature = None;
