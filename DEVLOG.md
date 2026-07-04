@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Automate AUR publishing
+
+The `odytty` AUR source package is now refreshed and pushed automatically on
+each release, closing the gap where the Scoop (Windows) manifest auto-bumped but
+the AUR package was published by a fully manual runbook and had drifted stale.
+
+The `dist/aur/PKGBUILD` template is brought back in step with the current
+release. The checked-in template keeps `sha256sums=('SKIP')` as a placeholder —
+it cannot know a release tarball's hash until that tarball exists — and the
+regenerated `.SRCINFO` is produced with `makepkg --printsrcinfo` rather than
+hand-edited so it can never drift from the PKGBUILD.
+
+A new `aur` job in the release workflow mirrors the existing `scoop` job:
+`needs: [release]`, so the published source tarball and its `SHA256SUMS` are in
+place before it runs. Inside an `archlinux:base-devel` container it stamps the
+tag's version into the PKGBUILD, fills the real tarball checksum with
+`updpkgsums`, regenerates `.SRCINFO`, and runs `namcap` as a blocking lint gate
+(the job fails on any packaging error). It then pushes the stamped PKGBUILD and
+`.SRCINFO` to the separate AUR git repository over SSH, pinning the AUR host key
+against its published Ed25519 fingerprint rather than trusting it blindly, and
+skips the push when the AUR already carries the release version. The packaging
+work runs as an unprivileged build user because `makepkg` refuses to run as
+root. Because the job is downstream of the release, a missing deploy key or a
+failed push leaves everything already published intact and is fixed forward.
+
+The install docs gain a note that the AUR package tracks releases automatically,
+and the Arch package-name fix (`vulkan-icd-loader`, not `vulkan-loader`) is
+carried into the versioned-install walkthrough to match the real PKGBUILD
+dependency.
+
+This is Linux-only packaging: no Windows surface, and the Windows release path
+(the `windows` build job and the Scoop manifest bump) is untouched.
+
+---
+
 ## 2026-07-04 -- Named layouts and session reattach (WP3)
 
 Workspaces can now be saved as reusable named layouts and reopened on demand,

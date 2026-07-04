@@ -128,7 +128,11 @@ makepkg -si
 
 The package builds from the release source tarball and installs the binary,
 desktop entry, AppStream metadata, and icons under pacman ownership. The
-PKGBUILD source of truth and its publish runbook live in `dist/aur/`.
+first install compiles from source (pulling in `cargo`/`rust`), so it takes a
+few minutes. The package is refreshed automatically shortly after each release
+publishes, so `paru -Syu` (or `yay -Syu`) picks up new versions without any
+manual step. The PKGBUILD source of truth and its publish runbook live in
+`dist/aur/`.
 
 ## Build From Source
 
@@ -262,7 +266,7 @@ installing each release under a versioned directory and pointing
 `~/.local/bin/odytty` at the selected version:
 
 ```sh
-version=0.6.2
+version=0.7.5
 cargo build --release --locked
 install -Dm755 target/release/odytty \
   "$HOME/.local/opt/odytty/$version/bin/odytty"
@@ -285,8 +289,8 @@ To roll back, repoint the symlink to an older directory under
 ## Odyssey/LFS Versioned Install
 
 Odyssey source builds are versioned by pacman, not by leaving build products in
-the source tree. A release tag such as `v0.6.2` should be archived into
-`/sources/odytty-0.6.2.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
+the source tree. A release tag such as `v0.7.5` should be archived into
+`/sources/odytty-0.7.5.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
 with `odyssey-build`.
 
 Example PKGBUILD:
@@ -294,13 +298,13 @@ Example PKGBUILD:
 ```bash
 # Maintainer: Unfinished Works <maintainers@odytty.unfinished-works.com>
 pkgname=odytty
-pkgver=0.6.2
+pkgver=0.7.5
 pkgrel=1
 pkgdesc="GPU-rendered Rust terminal emulator with an Odyssey visual identity"
 arch=('x86_64')
 url="https://github.com/ghreprimand/odytty"
 license=('GPL-3.0-only')
-depends=('fontconfig' 'freetype2' 'vulkan-loader')
+depends=('fontconfig' 'freetype2' 'vulkan-icd-loader')
 makedepends=('cargo' 'rust')
 source=("file:///sources/${pkgname}-${pkgver}.tar.gz")
 sha256sums=('SKIP')
