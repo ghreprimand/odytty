@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Sync docs and help strings with the workspace-era chrome
+
+The public docs and two in-code strings are brought back in line with the
+workspace layer and the context-aware right-click menus. README, SPEC, and the
+keybindings guide gain a Workspaces description: a `WorkspaceSet` groups tabs
+into workspaces that swap the whole tab strip at once, the rail lists them once
+a second workspace exists, `Ctrl+Shift+PageDown`/`PageUp` cycle between them, and
+six workspace actions (new/close/rename/next/prev/picker) join the bindable-token
+list. The "closing the last tab quits" wording is corrected to "the last tab of
+the last workspace", and the right-click descriptions are reframed to the
+per-surface menus that actually ship — a tab-scoped menu on a tab slot, New
+Tab / Command Palette / Settings on the empty strip, and the selection- and
+path-aware content menu on the grid — replacing the old single-global-menu
+framing. The stale "Rename a tab … (or any pane)" line is dropped now that
+rename is tab-scoped, and the bindable-action count is corrected from 31 to 38.
+
+Two code-side strings that had drifted are updated in the same pass: the
+`tab_bar_placement` settings help and its enum rustdoc now describe selecting the
+workspace-rail side (tabs are top-only) rather than a horizontal-vs-vertical tab
+bar, and a session-model rustdoc link is repointed from the renamed `SessionSet`
+to `WorkspaceSet`. No behavior changes and no test asserts either string; the
+full suite is run as a guard. Docs and rustdoc only — no runtime, PTY, path, or
+spawn surface, so no platform-specific behavior.
+
 ## 2026-07-04 -- Restore the previous workspace layout at launch
 
 A bare `odytty` launch can now reopen the previous window layout. The new

@@ -942,6 +942,17 @@ feature validates against.
       edges, `border` role) frames the active tab so it reads clearly over
       background images/treatments. Single-pane windows show no tab bar, so the
       plain/fast path is inert.
+- [x] Workspace layer above tabs: a `WorkspaceSet` groups tabs into workspaces,
+      each with its own tab strip and focus; the session arena stays flat.
+  - [x] Workspace rail chrome: the rail lists workspaces (tabs are top-only);
+        `workspace_rail` = auto/always/left/right; rail `+` creates, in-place
+        rename.
+  - [x] Workspace keyboard + palette: six bindable actions (new/close/rename/
+        next/prev/picker); Next/Prev default to `Ctrl+Shift+PageDown/PageUp`.
+  - [x] Move a tab between workspaces from the tab context menu.
+- [x] Context-aware right-click menus: per-surface compositions (tab slot,
+      empty tab strip, terminal content, workspace rail), each targeting the
+      clicked surface.
 - [x] Resumable-session architecture decision: use an OdyTTY-owned detached
       session-host process, with live PTYs owned outside the window process and
       reattach over a per-user local-only socket.

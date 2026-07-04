@@ -99,8 +99,11 @@ disabled with an "Enable shell integration in Settings" hint, and plain
 `Delete` / `Backspace` continue to behave as normal shell keys.
 
 Closing a tab (`Ctrl+Shift+W`) closes the **whole** tab — every pane it holds.
-Closing the last tab quits OdyTTY. The right-click context menu mirrors most of
-these actions and labels each with its live chord.
+Closing the last tab of the last workspace quits OdyTTY. Right-click menus are
+context-aware: a tab slot opens a tab-scoped menu (New / Rename / Close /
+Close Others / New Window), the empty tab strip offers New Tab, Command Palette,
+and Settings, and the terminal grid opens the selection- and path-aware content
+menu; each item is labelled with its live chord.
 
 ## Panes: the tmux-style prefix
 
@@ -249,8 +252,10 @@ These tokens are accepted on the right-hand side of `chord=action`:
 `search`, `settings`, `theme-picker`, `theme-builder`, `copy`, `paste`,
 `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`,
 `hints`, `clear-input`, `command-palette`, `session-replay`,
-`connection-manager`, `session-attach`, `new-tab`, `next-tab`, `prev-tab`,
-`close-tab`, `split-columns`, `split-rows`, `focus-pane-left`,
+`connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`,
+`prev-tab`, `close-tab`, `new-workspace`, `close-workspace`, `rename-workspace`,
+`next-workspace`, `prev-workspace`, `workspace-picker`, `split-columns`,
+`split-rows`, `focus-pane-left`,
 `focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`,
 `close-pane`, `zoom-pane`, `equalize-panes`.
 
@@ -260,6 +265,23 @@ global chord — rebinding one sets the key you press **after** the prefix, e.g.
 `keybinds = ctrl+f=zoom-pane` makes the sequence `Ctrl+b` then `Ctrl+f` zoom the
 pane. The direct `Ctrl+Shift+E` / `Ctrl+Shift+O` split chords are fixed
 conveniences so the first split is always reachable.
+
+## Workspaces
+
+A **workspace** groups a set of tabs; switching workspaces swaps the entire tab
+strip. Two chords are bound by default:
+
+| Chord | Action | Token |
+| --- | --- | --- |
+| `Ctrl+Shift+PageDown` | Switch to the next workspace | `next-workspace` |
+| `Ctrl+Shift+PageUp` | Switch to the previous workspace | `prev-workspace` |
+
+Creating, renaming, and closing a workspace are unbound by default — the rail's
+`+` slot, the workspace right-click menu, and the command palette cover them —
+but each is a bindable action (`new-workspace`, `close-workspace`,
+`rename-workspace`, `workspace-picker`) you can assign a chord in the settings
+key-remap editor or the `keybinds` config. Closing the last tab of a workspace
+closes that workspace; closing the last workspace quits OdyTTY.
 
 ## See also
 

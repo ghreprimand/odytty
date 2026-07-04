@@ -594,7 +594,7 @@ its first stable layer.
 - Configurable cursor shapes and blink policy (DECSCUSR + settings)
 - Configurable terminal-local key bindings; `keybinds` / `ODYTTY_KEYBINDS`
   supports all bindable local, tab, palette, and pane actions. The in-app
-  key-remap editor in the settings panel covers every bindable action (all 31)
+  key-remap editor in the settings panel covers every bindable action (all 38)
   (select a row and press `Enter` to capture a new chord, `Backspace` resets to
   default, `R` resets all, conflict prompt on clash, writes to `odytty.conf` via
   the preservation-first writeback path). See
@@ -666,7 +666,7 @@ its first stable layer.
   originally active theme with `Esc`. The custom theme builder has landed:
   clone/tweak/author with live preview, saved to a user `.theme` file.
 - Multi-session tabs: the native app runs multiple PTY/terminal sessions in a
-  `SessionSet`, routes PTY output by session id, and shows a one-row tab bar
+  `WorkspaceSet`, routes PTY output by session id, and shows a one-row tab bar
   once two or more sessions exist. `Ctrl+Shift+T` opens a tab,
   `Ctrl+Shift+W` closes one, and `Ctrl+PageDown` / `Ctrl+PageUp` switch. The
   single-session view stays visually identical to the original full-grid view.
@@ -675,6 +675,14 @@ its first stable layer.
   The tab context menu can assign a session-lifetime custom tab name; while set,
   shell title updates refresh the underlying title but do not replace the
   displayed custom label. Submitting an empty rename clears the override.
+  Tabs live inside **workspaces**: a `WorkspaceSet` holds one or more
+  workspaces, each an independent list of tabs with its own active-tab focus,
+  while every PTY session stays in one flat arena keyed by session id (so
+  pump-thread lookup never walks the hierarchy). A single-workspace set is
+  behaviourally identical to the prior single tab-list model. Lifecycle
+  invariants: a workspace is never empty — closing a workspace's last tab closes
+  that workspace; the last tab of the last workspace exits the app; a new
+  workspace opens with exactly one single-pane tab.
 - Readability pipeline: visual enhancements are explicit settings with
   individual opt-outs, and `render_quality=plain` preserves the pixel-identical
   plain/fast path that bypasses extras. Three delivered knobs:

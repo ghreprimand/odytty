@@ -465,7 +465,7 @@ The native app runs multiple sessions. `Ctrl+Shift+T` opens a new tab,
 `Ctrl+Shift+W` closes the active tab, and `Ctrl+PageDown` /
 `Ctrl+PageUp` switch tabs. Closing a tab closes the **whole** tab — every pane
 it holds — which is distinct from closing a single pane (see "Close Pane"
-below); closing the last remaining tab quits the app. The tab bar appears when
+below); closing the last tab of the last workspace quits the app. The tab bar appears when
 two or more sessions exist; a single shell keeps the original full-grid view.
 To keep the bar visible with a single tab, turn on **Always show tab bar**
 (`always_show_tab_bar`, off by default); either way, a single tab you have
@@ -477,23 +477,41 @@ stay legible over background images and treatments. Inline graphics are offset
 by the same reserved tab-bar row as text, so Kitty/Sixel placements stay aligned
 with the visible grid while the bar is shown.
 
-**Rename a tab** to organize your work: right-click the tab (or any pane) and
+**Rename a tab** to organize your work: right-click the tab and
 choose **Rename Tab**, or run **Rename Tab** from the command palette. The
 custom name overrides shell title updates until you clear it (commit an empty
 name to revert to the live shell title). Names are per-session and are not saved
 across restarts.
 
+**Workspaces** group sets of tabs. Each workspace keeps its own tabs and
+remembers which one was active, so switching workspaces swaps the whole tab
+strip at once. A session starts with a single workspace, and a single-workspace
+session looks exactly as before — no extra chrome. Once a second workspace
+exists, a vertical **rail** lists them down one side; `Ctrl+Shift+PageDown` and
+`Ctrl+Shift+PageUp` cycle between workspaces. The rail's `+` slot creates a new
+workspace, and right-clicking a workspace (or the empty rail) offers New,
+Rename, and Close Workspace — Rename edits the label in place. Closing the last
+tab in a workspace closes that workspace; closing the last workspace quits the
+app. The rail follows the `workspace_rail` setting: `auto` (default) reveals it
+once a second workspace exists, `always` pins it even with one, and `left` /
+`right` pin it to that side. When more than one workspace exists, a tab's
+right-click menu adds **Move to Next Workspace** to relocate the clicked tab.
+
 Any tab can be split into panes. The direct chords `Ctrl+Shift+E` (split into
 columns, new pane on the right) and `Ctrl+Shift+O` (split into rows, new pane
 below) create a split on a single-pane tab — they match Ghostty's Linux
 defaults and work at both single-pane and multi-pane. You can also split from
-the right-click menu's "Split Right" / "Split Down" items. When the active tab
-is already multi-pane, the right-click menu also offers a "Close Pane" item
-(labelled with the effective `Ctrl+b x` prefix chord) to close just the focused
-pane; it is hidden in a single-pane tab, where closing the tab is the only
-close. The right-click menu also has a launcher section at the bottom —
+the terminal's right-click menu's "Split Right" / "Split Down" items. When the
+active tab is already multi-pane, that same content menu also offers a "Close
+Pane" item (labelled with the effective `Ctrl+b x` prefix chord) to close just
+the focused pane; it is hidden in a single-pane tab, where closing the tab is
+the only close. The content menu also has a launcher section at the bottom —
 "Connection Manager", "Command Palette", and "Session Replay" — each labelled
-with its effective chord and opening the matching overlay. Once the active tab
+with its effective chord and opening the matching overlay. Right-clicking a tab
+opens a separate, tab-scoped menu (New Tab, Rename Tab, Close Tab, Close Other
+Tabs, New Window — plus Move to Next Workspace when more than one workspace
+exists), and right-clicking the empty tab strip offers New Tab, Command Palette,
+and Settings. Once the active tab
 has multiple panes, a tmux-style prefix (default
 `Ctrl+b`, configurable via
 `pane_prefix`) opens a transient pane-command mode; press the prefix then a pane
