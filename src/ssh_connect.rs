@@ -109,6 +109,13 @@ const SSH_CONTROL_PERSIST_SECS: &str = "600";
 pub struct RemoteSshOptions {
     pub integration: bool,
     pub reuse: bool,
+    /// Wrap the remote shell in a persistent `tmux` session (opt-in, default
+    /// off). When set, the bootstrap `exec`s `tmux new-session -A -s odytty` so a
+    /// dropped-and-reconnected link reattaches the same remote session with its
+    /// state intact, degrading to a plain bash session when the remote has no
+    /// `tmux`. Requires `integration` (the bootstrap is the only injection
+    /// point); ignored when integration is off.
+    pub tmux: bool,
     /// Directory OdyTTY owns for `ControlMaster` sockets. `None` disables reuse
     /// (unresolvable state dir, or a Windows client where OpenSSH has no
     /// socket-multiplexing support).
@@ -130,6 +137,7 @@ pub fn ssh_command_for_host_with_integration(
         &RemoteSshOptions {
             integration: integration_enabled,
             reuse: false,
+            tmux: false,
             control_dir: None,
         },
     )
@@ -201,7 +209,7 @@ pub fn ssh_command_for_host_with_options(
     }
     args.push(OsString::from("--"));
     args.push(OsString::from(destination));
-    args.push(OsString::from(remote_bash_bootstrap()));
+    args.push(OsString::from(remote_bash_bootstrap(opts.tmux)));
     Ok(SshCommand::new("ssh", args))
 }
 
@@ -215,6 +223,12 @@ pub fn remote_integration_enabled(host_integration: Option<bool>, global_default
 /// explicit per-host setting wins, otherwise the global default applies.
 pub fn remote_reuse_enabled(host_reuse: Option<bool>, global_default: bool) -> bool {
     host_reuse.unwrap_or(global_default)
+}
+
+/// Resolve whether tmux persistence is active for a host: an explicit per-host
+/// setting wins, otherwise the global default applies.
+pub fn remote_tmux_enabled(host_tmux: Option<bool>, global_default: bool) -> bool {
+    host_tmux.unwrap_or(global_default)
 }
 
 /// The `ControlMaster` socket path for a destination under OdyTTY's owned
@@ -283,14 +297,30 @@ fn remote_bash_rc() -> String {
 /// `$SHELL` shell variables that expand on the remote. Every step is guarded and
 /// the command always terminates in an unconditional `exec`, so a shell always
 /// lands even when bash, `base64`, or `mktemp` are missing.
-fn remote_bash_bootstrap() -> String {
+fn remote_bash_bootstrap(tmux: bool) -> String {
     let blob = base64_encode(remote_bash_rc().as_bytes());
+    // The interactive launch, once the rcfile is materialized. With tmux off the
+    // bootstrap `exec`s bash directly (the i1 path). With tmux on it `exec`s a
+    // persistent `tmux new-session -A -s odytty` (create-or-attach) running the
+    // integrated bash, so a dropped-and-reconnected link reattaches the same
+    // remote session — degrading to plain bash when the remote has no `tmux`, so
+    // opting in never yields a broken session. `new -A` applies the command only
+    // on CREATE; a reattach keeps the original shell (the integration is already
+    // live), which also means the freshly written rcfile is only consumed on
+    // create — a reattach leaves that small temp file for the OS to reap.
+    let launch = if tmux {
+        "if command -v tmux >/dev/null 2>&1; then \
+         exec tmux new-session -A -s odytty bash --rcfile \"$__odytty_rc\" -i; \
+         else exec bash --rcfile \"$__odytty_rc\" -i; fi"
+    } else {
+        "exec bash --rcfile \"$__odytty_rc\" -i"
+    };
     format!(
         "ODYTTY_RC='{blob}'\n\
          if command -v bash >/dev/null 2>&1 && command -v base64 >/dev/null 2>&1; then\n  \
          __odytty_rc=\"$(mktemp 2>/dev/null || printf '%s' \"/tmp/.odytty-rc.$$\")\" && \
          printf '%s' \"$ODYTTY_RC\" | base64 -d > \"$__odytty_rc\" 2>/dev/null && \
-         exec bash --rcfile \"$__odytty_rc\" -i || exec \"${{SHELL:-/bin/sh}}\" -l\n\
+         {{ {launch} ; }} || exec \"${{SHELL:-/bin/sh}}\" -l\n\
          fi\n\
          exec \"${{SHELL:-/bin/sh}}\" -l\n"
     )
@@ -402,6 +432,7 @@ mod tests {
             title: None,
             integration: None,
             reuse: None,
+            tmux: None,
             source: ConnectionHostSource::Odytty,
         }
     }
@@ -478,6 +509,7 @@ mod tests {
             &RemoteSshOptions {
                 integration: false,
                 reuse: true,
+                tmux: false,
                 control_dir: Some(std::path::PathBuf::from("/run/user/1000/odytty/ssh")),
             },
         )
@@ -493,6 +525,74 @@ mod tests {
         assert!(remote_reuse_enabled(Some(true), false));
     }
 
+    #[test]
+    fn per_host_tmux_overrides_global_default() {
+        assert!(remote_tmux_enabled(None, true));
+        assert!(!remote_tmux_enabled(None, false));
+        assert!(!remote_tmux_enabled(Some(false), true));
+        assert!(remote_tmux_enabled(Some(true), false));
+    }
+
+    fn tmux_bootstrap(entry: &ConnectionHost, tmux: bool) -> String {
+        let command = ssh_command_for_host_with_options(
+            entry,
+            &RemoteSshOptions {
+                integration: true,
+                reuse: false,
+                tmux,
+                control_dir: None,
+            },
+        )
+        .expect("argv");
+        bootstrap_arg(&command)
+    }
+
+    #[test]
+    fn tmux_off_bootstrap_execs_bash_without_any_tmux() {
+        let entry = remote_host("web1", "deploy", "web1.example.invalid");
+        let bootstrap = tmux_bootstrap(&entry, false);
+        assert!(bootstrap.contains("exec bash --rcfile"));
+        assert!(!bootstrap.contains("tmux"));
+    }
+
+    #[test]
+    fn tmux_on_bootstrap_nests_bash_inside_a_persistent_session_and_degrades() {
+        let entry = remote_host("web1", "deploy", "web1.example.invalid");
+        let bootstrap = tmux_bootstrap(&entry, true);
+        // Create-or-attach a persistent `odytty` session running the integrated
+        // bash, so a reconnect reattaches the same remote state.
+        assert!(bootstrap.contains("exec tmux new-session -A -s odytty bash --rcfile"));
+        // Degrade path: a runtime `command -v tmux` guard falls back to plain
+        // bash when the remote has no tmux, so opting in never breaks a session.
+        assert!(bootstrap.contains("command -v tmux"));
+        assert!(bootstrap.contains("else exec bash --rcfile"));
+        // The unconditional plain-shell fallback (missing bash/base64) is intact.
+        assert!(
+            bootstrap
+                .trim_end()
+                .ends_with("exec \"${SHELL:-/bin/sh}\" -l")
+        );
+    }
+
+    #[test]
+    fn integration_off_argv_ignores_tmux_and_stays_byte_identical() {
+        let entry = remote_host("web1", "deploy", "web1.example.invalid");
+        let plain = ssh_command_for_host(&entry).expect("plain");
+        // tmux is a bootstrap-only wrap, so with integration off (no bootstrap)
+        // it can never alter the argv — it stays byte-identical to a plain ssh.
+        let off_but_tmux = ssh_command_for_host_with_options(
+            &entry,
+            &RemoteSshOptions {
+                integration: false,
+                reuse: false,
+                tmux: true,
+                control_dir: None,
+            },
+        )
+        .expect("off+tmux");
+        assert_eq!(plain, off_but_tmux);
+    }
+
     #[cfg(not(windows))]
     #[test]
     fn reuse_adds_control_options_after_pty_and_before_destination() {
@@ -502,6 +602,7 @@ mod tests {
             &RemoteSshOptions {
                 integration: true,
                 reuse: true,
+                tmux: false,
                 control_dir: Some(std::path::PathBuf::from("/run/user/1000/odytty/ssh")),
             },
         )
@@ -533,6 +634,7 @@ mod tests {
             &RemoteSshOptions {
                 integration: true,
                 reuse: true,
+                tmux: false,
                 control_dir: None,
             },
         )
@@ -551,6 +653,7 @@ mod tests {
             &RemoteSshOptions {
                 integration: true,
                 reuse: false,
+                tmux: false,
                 control_dir: Some(std::path::PathBuf::from("/run/user/1000/odytty/ssh")),
             },
         )
@@ -608,6 +711,7 @@ mod tests {
             &RemoteSshOptions {
                 integration: true,
                 reuse: true,
+                tmux: false,
                 control_dir: Some(std::path::PathBuf::from("C:/odytty/ssh")),
             },
         )

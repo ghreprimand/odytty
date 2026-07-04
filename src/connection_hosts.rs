@@ -58,6 +58,11 @@ pub struct ConnectionHost {
     /// global `remote_reuse` setting; `Some(false)` forces a fresh connection
     /// for this host even when the global default is on.
     pub reuse: Option<bool>,
+    /// Per-host override for tmux persistence. `None` inherits the global
+    /// `remote_tmux` setting; `Some(true)` wraps this host's remote shell in a
+    /// persistent tmux session even when the global default is off (and
+    /// `Some(false)` opts a host out when the default is on).
+    pub tmux: Option<bool>,
     pub source: ConnectionHostSource,
 }
 
@@ -97,6 +102,7 @@ struct HostBlock {
     title: Option<String>,
     integration: Option<bool>,
     reuse: Option<bool>,
+    tmux: Option<bool>,
 }
 
 impl HostBlock {
@@ -111,6 +117,7 @@ impl HostBlock {
             title: None,
             integration: None,
             reuse: None,
+            tmux: None,
         }
     }
 }
@@ -199,6 +206,9 @@ pub fn format_odytty_hosts(hosts: &[ConnectionHost]) -> String {
         if let Some(reuse) = host.reuse {
             push_optional_field(&mut out, "Reuse", Some(if reuse { "on" } else { "off" }));
         }
+        if let Some(tmux) = host.tmux {
+            push_optional_field(&mut out, "Tmux", Some(if tmux { "on" } else { "off" }));
+        }
         out.push('\n');
     }
     out
@@ -270,6 +280,7 @@ pub fn merge_connection_hosts(
             title: None,
             integration: None,
             reuse: None,
+            tmux: None,
             source: ConnectionHostSource::SshConfig,
         });
     }
@@ -332,6 +343,11 @@ fn parse_odytty_hosts_text(text: &str, limits: ConnectionHostsLimits) -> Vec<Con
             "reuse" => {
                 if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
                     block.reuse = parse_host_bool(value);
+                }
+            }
+            "tmux" => {
+                if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
+                    block.tmux = parse_host_bool(value);
                 }
             }
             _ => {}
@@ -452,6 +468,7 @@ fn flush_block(
             title: block.title.clone(),
             integration: block.integration,
             reuse: block.reuse,
+            tmux: block.tmux,
             source: ConnectionHostSource::Odytty,
         });
     }
@@ -518,6 +535,7 @@ mod tests {
             title: None,
             integration: None,
             reuse: None,
+            tmux: None,
             source,
         }
     }
@@ -605,6 +623,23 @@ mod tests {
         assert!(formatted.contains("Reuse off"));
         let reparsed = parse_odytty_hosts_bytes_with_limits(formatted.as_bytes(), limits());
         assert_eq!(reparsed[0].reuse, Some(false));
+    }
+
+    #[test]
+    fn parses_and_round_trips_per_host_tmux_override() {
+        let entries = parse_odytty_hosts_bytes_with_limits(
+            b"Host persistent\n    HostName persistent.example.invalid\n    Tmux on\n",
+            limits(),
+        );
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].tmux, Some(true));
+        assert_eq!(entries[0].reuse, None);
+        assert_eq!(entries[0].integration, None);
+
+        let formatted = format_odytty_hosts(&entries);
+        assert!(formatted.contains("Tmux on"));
+        let reparsed = parse_odytty_hosts_bytes_with_limits(formatted.as_bytes(), limits());
+        assert_eq!(reparsed[0].tmux, Some(true));
     }
 
     #[test]

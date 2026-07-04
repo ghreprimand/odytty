@@ -208,6 +208,15 @@ remote_integration = on
 # connection multiplexing).
 remote_reuse = on
 
+# tmux persistence for integrated SSH tabs. Default OFF (opt-in). When on, an
+# integrated SSH tab wraps the remote shell in "tmux new-session -A -s odytty",
+# so a dropped-and-reconnected link reattaches the same remote session with its
+# running programs and scrollback intact. Degrades to plain integrated bash when
+# the remote has no tmux, so enabling it never breaks a session. A per-host
+# "Tmux on"/"Tmux off" line in hosts.conf overrides for a single host. Only takes
+# effect with remote_integration on (the bootstrap is the injection point).
+remote_tmux = off
+
 # Per-session output recording for the scrubbable replay overlay. Default off:
 # while off the PTY pump records nothing and the path is byte-identical. When on,
 # each session keeps a bounded in-memory ring of recent screen frames (capped by

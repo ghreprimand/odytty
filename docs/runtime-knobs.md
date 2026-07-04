@@ -135,9 +135,9 @@ Host web1
 drive the connect action. OdyTTY builds argv as `ssh [-p PORT] -- [USER@]HOST`
 and opens it in a new tab/session; `--` keeps a saved host name from being
 interpreted as another ssh option. `Theme`, `Font`, and `Title` are optional
-per-host profile fields reserved for the overlay UI. `Integration on|off` and
-`Reuse on|off` are optional per-host overrides for remote shell integration and
-connection reuse (see below).
+per-host profile fields reserved for the overlay UI. `Integration on|off`,
+`Reuse on|off`, and `Tmux on|off` are optional per-host overrides for remote
+shell integration, connection reuse, and tmux persistence (see below).
 
 ### Remote shell integration (`remote_integration`)
 
@@ -172,6 +172,33 @@ globally. Reuse layers onto integrated sessions only, so with
 launch regardless of this setting. **Windows:** OpenSSH for Windows has no
 connection multiplexing, so a Windows client never emits control options and
 reuse is a silent no-op there.
+
+### SSH session persistence (`remote_tmux`)
+
+With `remote_tmux = on` (`ODYTTY_REMOTE_TMUX=on`; **off by default**), an
+integrated SSH tab wraps the remote shell in a persistent `tmux` session
+(`tmux new-session -A -s odytty`). A create-or-attach session means a link that
+drops and is reconnected reattaches the same remote session with its running
+programs and scrollback intact, rather than starting fresh. When the remote host
+has no `tmux`, the bootstrap degrades to a plain integrated bash session, so
+enabling this never breaks a connection. A per-host `Tmux on` line in
+`hosts.conf` opts a single host in (or `Tmux off` opts one out) regardless of the
+global default. Persistence rides inside the integration bootstrap, so it only
+takes effect with `remote_integration` on; with integration off the SSH argv is
+byte-identical to a plain `ssh` launch regardless of this setting. **Windows:**
+the wrap is remote-side, so a Windows client drives it the same as any other,
+provided the remote host has `tmux`.
+
+### Dropped-connection reconnect
+
+An integrated SSH tab whose link drops (the `ssh` client exits with its
+transport-failure status, 255) does not close silently. The tab is held open with
+an in-pane **"connection dropped"** prompt: press **Enter** to re-establish the
+connection in the same tab, or **Esc** / **Ctrl+D** to dismiss and close it.
+Reconnect re-runs the exact same argv, so with `remote_tmux` on it reattaches the
+persisted session. A clean logout (`exit`, status 0) and ordinary remote-command
+failures close the tab as before; only the transport-drop status offers
+reconnect.
 
 OpenSSH config import is separate and default-off. `ssh_config_hosts = on` (or
 `ODYTTY_SSH_CONFIG_HOSTS=on`) lets the connection manager merge host names from
@@ -313,6 +340,7 @@ environment variable was not set at startup.
 | `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |
 | `remote_integration` | `ODYTTY_REMOTE_INTEGRATION` | `on`, `off` | `on` |
 | `remote_reuse` | `ODYTTY_REMOTE_REUSE` | `on`, `off` | `on` |
+| `remote_tmux` | `ODYTTY_REMOTE_TMUX` | `on`, `off` | `off` |
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
 | `restore_workspaces` | `ODYTTY_RESTORE_WORKSPACES` | `on`, `off` | `off` |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` |

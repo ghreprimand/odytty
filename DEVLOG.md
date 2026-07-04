@@ -7,6 +7,52 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Persist SSH sessions across reconnect with tmux (F6-i5)
+
+A new opt-in `remote_tmux` setting (off by default) makes a dropped-and-
+reconnected SSH tab reattach the same remote session instead of starting fresh.
+When on, an integrated SSH tab's bootstrap wraps the remote shell in a
+persistent `tmux new-session -A -s odytty`; because reconnect re-runs the same
+argv, it lands back in that create-or-attach session with its running programs
+and scrollback intact. The wrap nests inside the integration bootstrap and
+guards on the remote having `tmux` — a host without it degrades to a plain
+integrated bash session, so enabling persistence never yields a broken
+connection. A per-host `Tmux on`/`Tmux off` line in `hosts.conf` overrides the
+global default.
+
+Persistence rides inside the integration bootstrap, so it only takes effect with
+`remote_integration` on; with integration off the SSH argv stays byte-identical
+to a plain `ssh` launch regardless of the tmux or reuse settings. The wrap is
+remote-side, so a Windows client drives it the same as any other host that has
+`tmux`.
+
+## 2026-07-04 -- Hold dropped SSH tabs open with a reconnect prompt (F6-i4)
+
+A remote SSH tab whose link drops no longer vanishes without a trace. When the
+system `ssh` client exits with its transport-failure status (255 — connection
+refused, host-key mismatch, or a link that dropped mid-session), the tab is now
+held open with an in-pane **"connection dropped"** prompt: Enter re-establishes
+the connection in the same tab slot, Esc or Ctrl+D dismisses it and closes the
+tab. Reconnect re-runs the exact argv the session launched with — resolved once
+and kept as a per-session reconnect anchor — so the shell reappears where it
+dropped, with the prior scrollback intact.
+
+Exit status is the discriminator. The child is already dead when its reader
+reaches EOF, so the exit code is captured synchronously with no blocking wait
+and no new payload on the pump event. Status 255 offers reconnect; a clean
+logout (0), ordinary remote-command failures, and signal or unknown exits all
+close the tab exactly as before. The rare case of a remote command itself
+exiting 255 is an accepted, self-correcting false positive — the prompt is
+dismissable. Only sessions launched through the SSH connect path carry a
+reconnect anchor, so a local shell is never affected and its exit path stays
+byte-identical. On Windows the same status classification holds (Win32-OpenSSH
+`ssh.exe` uses the 255 convention), and a post-EOF `STILL_ACTIVE` sentinel is
+read as "unknown", never "still running".
+
+The reconnect anchor is deliberately shaped as the single "how does this pane
+come back" concept, so a later per-pane session-host reattach id folds into it
+rather than becoming a second parallel field.
+
 ## 2026-07-04 -- Reuse SSH connections across tabs (F6-i3)
 
 Opening a second tab to a host that already has an integrated session no longer

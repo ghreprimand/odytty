@@ -87,6 +87,7 @@ pub const CONFIRM_CLOSE_ENV: &str = "ODYTTY_CONFIRM_CLOSE";
 pub const SSH_CONFIG_HOSTS_ENV: &str = "ODYTTY_SSH_CONFIG_HOSTS";
 pub const REMOTE_INTEGRATION_ENV: &str = "ODYTTY_REMOTE_INTEGRATION";
 pub const REMOTE_REUSE_ENV: &str = "ODYTTY_REMOTE_REUSE";
+pub const REMOTE_TMUX_ENV: &str = "ODYTTY_REMOTE_TMUX";
 pub const SESSION_REPLAY_ENV: &str = "ODYTTY_SESSION_REPLAY";
 pub const INTERACTIVE_URLS_ENV: &str = "ODYTTY_INTERACTIVE_URLS";
 pub const INTERACTIVE_PATHS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS";
@@ -184,6 +185,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SSH_CONFIG_HOSTS_ENV,
     REMOTE_INTEGRATION_ENV,
     REMOTE_REUSE_ENV,
+    REMOTE_TMUX_ENV,
     SESSION_REPLAY_ENV,
     INTERACTIVE_URLS_ENV,
     INTERACTIVE_PATHS_ENV,
@@ -712,6 +714,15 @@ pub const DEFAULT_REMOTE_INTEGRATION: bool = true;
 /// Windows has no socket multiplexing, so reuse is a silent no-op on a Windows
 /// client (the control options are never emitted).
 pub const DEFAULT_REMOTE_REUSE: bool = true;
+
+/// tmux persistence for integrated SSH tabs (`ODYTTY_REMOTE_TMUX`): when on, an
+/// integrated SSH tab's bootstrap `exec`s `tmux new-session -A -s odytty` so a
+/// dropped-and-reconnected link reattaches the same remote session with its
+/// state intact. Opt-in (default off); the remote shell degrades to plain bash
+/// when the remote has no `tmux`, so enabling it never yields a broken session.
+/// A per-host `Tmux on`/`Tmux off` in `hosts.conf` overrides the default for a
+/// single host. Only meaningful with remote integration enabled.
+pub const DEFAULT_REMOTE_TMUX: bool = false;
 
 /// Restore the previous workspace/tab/pane SHAPE at launch
 /// (`ODYTTY_RESTORE_WORKSPACES`): when on, a bare `odytty` launch reopens the

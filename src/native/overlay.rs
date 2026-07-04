@@ -3229,6 +3229,7 @@ mod tests {
             title: None,
             integration: None,
             reuse: None,
+            tmux: None,
             source: crate::connection_hosts::ConnectionHostSource::Odytty,
         }
     }

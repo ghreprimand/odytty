@@ -1274,6 +1274,13 @@ pub struct Settings {
     /// Windows client emits no control options (OpenSSH there has no socket
     /// multiplexing), so reuse is a silent no-op on Windows.
     pub remote_reuse: bool,
+    /// tmux persistence for integrated SSH tabs. Off by default: when on, an
+    /// integrated SSH tab's bootstrap `exec`s `tmux new-session -A -s odytty` so
+    /// a dropped-and-reconnected link reattaches the same remote session. The
+    /// remote shell degrades to plain bash when the remote has no `tmux`. A
+    /// per-host `Tmux on`/`Tmux off` overrides for a single host. Only meaningful
+    /// with `remote_integration` on (the bootstrap is the injection point).
+    pub remote_tmux: bool,
     /// Opt-in per-session output recording for the scrubbable replay overlay
     /// (Phase 2). Off by default; while off the PTY pump records nothing and the
     /// plain path is byte-identical. When on, each session keeps a bounded
@@ -1401,6 +1408,7 @@ impl Default for Settings {
             ssh_config_hosts: DEFAULT_SSH_CONFIG_HOSTS,
             remote_integration: DEFAULT_REMOTE_INTEGRATION,
             remote_reuse: DEFAULT_REMOTE_REUSE,
+            remote_tmux: DEFAULT_REMOTE_TMUX,
             session_replay: DEFAULT_SESSION_REPLAY,
             interactive_urls: DEFAULT_INTERACTIVE_URLS,
             interactive_paths: DEFAULT_INTERACTIVE_PATHS,
@@ -2081,6 +2089,12 @@ impl Settings {
             DEFAULT_REMOTE_REUSE,
             &mut warn,
         );
+        let remote_tmux = parse_bool_setting(
+            get(REMOTE_TMUX_ENV).as_deref(),
+            REMOTE_TMUX_ENV,
+            DEFAULT_REMOTE_TMUX,
+            &mut warn,
+        );
         let session_replay = parse_bool_setting(
             get(SESSION_REPLAY_ENV).as_deref(),
             SESSION_REPLAY_ENV,
@@ -2212,6 +2226,7 @@ impl Settings {
             ssh_config_hosts,
             remote_integration,
             remote_reuse,
+            remote_tmux,
             session_replay,
             interactive_urls,
             interactive_paths,
@@ -2451,6 +2466,7 @@ impl Settings {
             bool_display(self.remote_integration).to_owned(),
         );
         values.insert(REMOTE_REUSE_ENV, bool_display(self.remote_reuse).to_owned());
+        values.insert(REMOTE_TMUX_ENV, bool_display(self.remote_tmux).to_owned());
         values.insert(
             SESSION_REPLAY_ENV,
             bool_display(self.session_replay).to_owned(),

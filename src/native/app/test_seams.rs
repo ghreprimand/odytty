@@ -91,6 +91,7 @@ impl App {
                 title: None,
                 integration: None,
                 reuse: None,
+                tmux: None,
                 source: ConnectionHostSource::Odytty,
             })
             .collect();

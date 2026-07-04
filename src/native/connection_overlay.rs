@@ -469,6 +469,7 @@ mod tests {
             title: None,
             integration: None,
             reuse: None,
+            tmux: None,
             source,
         }
     }

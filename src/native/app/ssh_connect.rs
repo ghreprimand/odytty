@@ -22,9 +22,14 @@ impl App {
         );
         let reuse_enabled =
             crate::ssh_connect::remote_reuse_enabled(host.reuse, self.settings.remote_reuse);
+        // tmux persistence rides inside the integration bootstrap, so it is only
+        // meaningful when integration is on.
+        let tmux_enabled = integration_enabled
+            && crate::ssh_connect::remote_tmux_enabled(host.tmux, self.settings.remote_tmux);
         let opts = crate::ssh_connect::RemoteSshOptions {
             integration: integration_enabled,
             reuse: reuse_enabled,
+            tmux: tmux_enabled,
             control_dir: Self::ssh_control_dir(integration_enabled && reuse_enabled),
         };
         let token = self
