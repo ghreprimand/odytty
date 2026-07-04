@@ -771,7 +771,50 @@ impl App {
         }
     }
 
+    /// New Tab dispatcher (F6-W5 / ODP-9): when the active workspace is bound to
+    /// a host alias this routes New Tab through the remote SSH connect path;
+    /// otherwise it spawns a local shell — byte-identical to the pre-W5 path, so
+    /// an unbound workspace is unaffected. The "New Local Tab" escape hatch
+    /// bypasses the binding by calling [`Self::handle_new_local_tab`] directly.
     fn handle_new_tab(&mut self) {
+        if let Some(alias) = self
+            .sessions
+            .active_workspace_default_profile()
+            .map(str::to_owned)
+        {
+            self.new_tab_for_bound_host(&alias);
+        } else {
+            self.handle_new_local_tab();
+        }
+    }
+
+    /// Open a New Tab against the active workspace's bound host `alias`,
+    /// resolving it against the live host list and routing through the SSH
+    /// connect path. A stale binding (alias removed from `hosts.conf`) or a
+    /// connect failure falls back to a local tab and raises a one-line notice —
+    /// a bad binding never blocks opening a tab.
+    fn new_tab_for_bound_host(&mut self, alias: &str) {
+        let host = self
+            .load_connection_entries()
+            .into_iter()
+            .find(|entry| entry.alias == alias);
+        match host {
+            Some(host) if self.connect_ssh_host_in_new_tab(&host).is_ok() => {}
+            Some(_) => self.handle_new_local_tab(),
+            None => {
+                self.raise_open_notice(format!(
+                    "Host \"{alias}\" is no longer configured; opened a local tab"
+                ));
+                self.handle_new_local_tab();
+            }
+        }
+    }
+
+    /// Spawn a local shell in a new tab regardless of any workspace host binding
+    /// (F6-W5 escape hatch). This is the exact pre-W5 New Tab behavior; the
+    /// binding-aware [`Self::handle_new_tab`] delegates here when the active
+    /// workspace is unbound.
+    fn handle_new_local_tab(&mut self) {
         if let Ok(session_id) = self.sessions.spawn(self.grid) {
             let effective_theme = self.effective_theme;
             let themed_ui_roles = self.themed_ui_roles;
@@ -2165,6 +2208,9 @@ impl App {
         let multi_pane = !self.sessions.active_is_single_pane();
         let multi_tab = self.sessions.tab_count() > 1;
         let multi_workspace = self.sessions.workspace_count() > 1;
+        // F6-W5: the tab menu offers a "New Local Tab" escape only when the
+        // active workspace routes New Tab through a bound host.
+        let bound_workspace = self.sessions.active_workspace_default_profile().is_some();
         if multi_pane
             && let Some(label) = self.close_pane_accelerator()
             && let Some(slot) = super::context_menu_ui::ContextMenuItem::ALL
@@ -2193,6 +2239,7 @@ impl App {
             multi_pane,
             multi_tab,
             multi_workspace,
+            bound_workspace,
             surface,
             path_target,
             accelerators,

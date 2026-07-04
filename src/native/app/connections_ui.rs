@@ -38,7 +38,7 @@ impl App {
 
     /// Load the merged connection list from the OdyTTY-owned `hosts.conf` and,
     /// only when the opt-in is enabled, the name-only OpenSSH-config import.
-    fn load_connection_entries(&self) -> Vec<ConnectionHost> {
+    pub(super) fn load_connection_entries(&self) -> Vec<ConnectionHost> {
         let Some(config_dir) = self
             .settings_reloader
             .config_path()

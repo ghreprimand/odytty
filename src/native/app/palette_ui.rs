@@ -7,7 +7,8 @@
 
 use super::*;
 use crate::native::palette_overlay::{
-    WORKSPACE_NEW_ID, WORKSPACE_RENAME_ID, parse_workspace_switch_id,
+    WORKSPACE_NEW_ID, WORKSPACE_NEW_LOCAL_TAB_ID, WORKSPACE_RENAME_ID, WORKSPACE_UNBIND_ID,
+    WorkspacePaletteContext, parse_workspace_bind_id, parse_workspace_switch_id,
 };
 use crate::palette_catalog::PaletteAction;
 use crate::settings::BindableAction;
@@ -24,8 +25,23 @@ impl App {
             .and_then(|terminal| terminal.current_working_directory().map(str::to_owned));
         self.reset_pointer_state_for_overlay();
         let workspaces = self.sessions.workspace_names();
-        self.overlay
-            .open_command_palette(cwd.as_deref(), &workspaces);
+        // F6-W5: offer the known-host aliases for binding, and the current
+        // binding so the palette can show the unbind + New Local Tab escape rows.
+        let host_aliases: Vec<String> = self
+            .load_connection_entries()
+            .into_iter()
+            .map(|host| host.alias)
+            .collect();
+        let bound_profile = self
+            .sessions
+            .active_workspace_default_profile()
+            .map(str::to_owned);
+        let context = WorkspacePaletteContext {
+            names: &workspaces,
+            host_aliases: &host_aliases,
+            bound_profile: bound_profile.as_deref(),
+        };
+        self.overlay.open_command_palette(cwd.as_deref(), &context);
         self.request_selection_redraw();
     }
 
@@ -52,6 +68,18 @@ impl App {
         }
         if id == WORKSPACE_RENAME_ID {
             self.enter_rename_workspace(self.sessions.active_workspace_index());
+            return;
+        }
+        if let Some(idx) = parse_workspace_bind_id(&id) {
+            self.bind_active_workspace_to_host_index(idx);
+            return;
+        }
+        if id == WORKSPACE_UNBIND_ID {
+            self.unbind_active_workspace();
+            return;
+        }
+        if id == WORKSPACE_NEW_LOCAL_TAB_ID {
+            self.handle_new_local_tab();
             return;
         }
         let Some(action) = PaletteAction::from_id(&id) else {

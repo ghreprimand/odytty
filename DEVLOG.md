@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Bind a workspace to a remote host (F6-W5)
+
+A workspace can now carry a default host. When one is set, "New Tab" in that
+workspace opens a remote SSH tab against the bound host — routed through the same
+integrated connect path (bootstrap injection, ControlMaster reuse, `user@host`
+title) — instead of a local shell. An unbound workspace is unchanged: its
+New Tab spawns a local shell with byte-identical behavior to before, so the
+feature is invisible until a binding exists.
+
+Binding is a command-palette surface (no new chrome). The palette lists a
+"Bind Workspace to Host: <alias>" row per configured host; a bound workspace
+additionally shows "Unbind Workspace From Host" and a "New Local Tab" escape
+that always opens a local shell regardless of the binding. The tab right-click
+menu grows the same "New Local Tab" escape beside "New Tab" only while the
+workspace is bound.
+
+A stale binding never blocks work: if the bound alias is no longer configured
+(removed from `hosts.conf`), or the connect path fails, New Tab falls back to a
+local shell and raises a one-line notice naming the host — the window always
+gets its tab.
+
+The binding is part of the persisted workspace shape (`default_profile` on the
+workspace snapshot), so a restored remote workspace routes New Tab through its
+host again. The field is optional and tolerated-absent: snapshots written before
+this change parse to an unbound workspace, no version bump. On Windows the
+connect path uses `ssh.exe` and binding behaves identically; ControlMaster reuse
+stays off there as before.
+
+---
+
 ## 2026-07-04 -- Persist SSH sessions across reconnect with tmux (F6-i5)
 
 A new opt-in `remote_tmux` setting (off by default) makes a dropped-and-

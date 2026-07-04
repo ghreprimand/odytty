@@ -216,6 +216,12 @@ impl TabShape {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct WorkspaceShape {
     pub(crate) name: String,
+    /// The host alias this workspace is bound to (F6-W5), or `None` for a plain
+    /// local workspace. When set, restore re-applies the binding so a New Tab in
+    /// the restored workspace routes through the remote connect path again.
+    /// Tolerated-absent on old snapshots (WP1 forward-compat): a missing field
+    /// parses to `None`, i.e. an unbound workspace.
+    pub(crate) default_profile: Option<String>,
     pub(crate) active_tab: usize,
     pub(crate) tabs: Vec<TabShape>,
 }
@@ -224,6 +230,7 @@ impl WorkspaceShape {
     fn to_json(&self) -> Json {
         Json::obj([
             ("name", Json::Str(self.name.clone())),
+            ("default_profile", opt_str(&self.default_profile)),
             ("active_tab", Json::Num(self.active_tab as f64)),
             (
                 "tabs",
@@ -246,6 +253,7 @@ impl WorkspaceShape {
                 .and_then(Json::as_str)
                 .unwrap_or("")
                 .to_owned(),
+            default_profile: value.get("default_profile").and_then(Json::as_owned_str),
             active_tab: value
                 .get("active_tab")
                 .and_then(Json::as_usize)

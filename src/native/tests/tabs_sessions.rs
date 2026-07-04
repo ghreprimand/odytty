@@ -3546,6 +3546,58 @@ fn attach_overlay_closes_when_switching_to_already_attached_session() {
 
 // --- W2: workspace rail chrome (design doc §7, ODP-2/-6) ---
 
+/// F6-W5: a New Tab in a workspace bound to a host that is no longer configured
+/// falls back to a local tab and raises a one-line notice — a stale binding
+/// never blocks opening a tab. (The connect path itself needs a live `ssh`; the
+/// stale-alias fallback is the headless-observable decision.)
+#[test]
+fn bound_workspace_stale_host_falls_back_to_local_with_notice() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_workspace_binding_for_test(Some("ghost-host".to_owned()));
+    assert_eq!(
+        app.active_workspace_binding_for_test().as_deref(),
+        Some("ghost-host")
+    );
+    // No hosts.conf is resolvable in the headless harness, so the alias never
+    // matches: New Tab takes the local fallback and reports it.
+    app.new_tab_for_test();
+    let notice = app
+        .open_notice_message_for_test()
+        .expect("a stale binding raises a fallback notice");
+    assert!(
+        notice.contains("ghost-host") && notice.contains("local tab"),
+        "notice names the stale host and the local fallback: {notice}"
+    );
+    // The binding is left intact — only the resolution failed.
+    assert_eq!(
+        app.active_workspace_binding_for_test().as_deref(),
+        Some("ghost-host")
+    );
+}
+
+/// F6-W5: the App-side unbind clears the active workspace's host binding and
+/// reports it; New Tab then returns to the local path.
+#[test]
+fn unbind_active_workspace_clears_the_binding() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_workspace_binding_for_test(Some("edge".to_owned()));
+    app.unbind_active_workspace();
+    assert_eq!(app.active_workspace_binding_for_test(), None);
+    let notice = app
+        .open_notice_message_for_test()
+        .expect("unbind reports the host that was cleared");
+    assert!(
+        notice.contains("edge"),
+        "notice names the unbound host: {notice}"
+    );
+}
+
 #[test]
 fn single_workspace_default_shows_no_workspace_rail() {
     // ODP-2: a single-workspace launch is ZERO chrome change from a top-only tab

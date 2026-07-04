@@ -700,6 +700,12 @@ pub(super) struct Workspace {
     pub(super) tabs: Vec<Tab>,
     /// Index into `tabs` of the focused tab.
     pub(super) active_tab: usize,
+    /// The host alias this workspace is bound to (F6-W5, ODP-9). When `Some`, a
+    /// New Tab opened while this workspace is active routes through the remote
+    /// connect path for that host instead of spawning a local shell; the
+    /// "New Local Tab" escape hatch always spawns a local shell regardless.
+    /// `None` (the default) is byte-identical to the pre-W5 local-only behavior.
+    pub(super) default_profile: Option<String>,
 }
 
 impl Workspace {
@@ -709,6 +715,7 @@ impl Workspace {
             name,
             tabs: vec![Tab::single(token)],
             active_tab: 0,
+            default_profile: None,
         }
     }
 }
@@ -2154,6 +2161,23 @@ impl WorkspaceSet {
         self.workspaces.iter().map(|ws| ws.name.clone()).collect()
     }
 
+    /// The host alias the active workspace is bound to (F6-W5 / ODP-9), or
+    /// `None` when it is a plain local workspace. `handle_new_tab` routes New Tab
+    /// through the remote connect path when this is `Some`.
+    pub(super) fn active_workspace_default_profile(&self) -> Option<&str> {
+        self.active_workspace().default_profile.as_deref()
+    }
+
+    /// Bind (or, with `None`, unbind) the active workspace to a host alias
+    /// (F6-W5). Idempotent; the binding is captured in the shape snapshot so it
+    /// survives restore. Returns the previous binding.
+    pub(super) fn set_active_workspace_default_profile(
+        &mut self,
+        profile: Option<String>,
+    ) -> Option<String> {
+        std::mem::replace(&mut self.active_workspace_mut().default_profile, profile)
+    }
+
     /// The workspace list as a [`TabBarSource`] for the rail widget (§7.1): the
     /// same geometry / hit-test / panel code the tab strip uses, now listing
     /// workspaces. Borrows `self`, so it is built per render/hit-test frame.
@@ -2462,6 +2486,7 @@ impl WorkspaceSet {
             .iter()
             .map(|workspace| WorkspaceShape {
                 name: workspace.name.clone(),
+                default_profile: workspace.default_profile.clone(),
                 active_tab: workspace.active_tab,
                 tabs: workspace
                     .tabs
@@ -2592,6 +2617,7 @@ impl WorkspaceSet {
                 name: ws.name.clone(),
                 tabs,
                 active_tab,
+                default_profile: ws.default_profile.clone(),
             });
         }
 
@@ -4186,6 +4212,49 @@ mod tests {
         }
     }
 
+    /// F6-W5: binding the active workspace to a host alias is observable through
+    /// the accessor, idempotent, and unbinding returns the previous alias.
+    #[test]
+    fn workspace_host_binding_set_and_clear() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        assert_eq!(set.active_workspace_default_profile(), None);
+        assert_eq!(
+            set.set_active_workspace_default_profile(Some("prod".to_owned())),
+            None,
+            "first bind returns the previous (empty) binding"
+        );
+        assert_eq!(set.active_workspace_default_profile(), Some("prod"));
+        assert_eq!(
+            set.set_active_workspace_default_profile(None),
+            Some("prod".to_owned()),
+            "unbind returns the alias that was bound"
+        );
+        assert_eq!(set.active_workspace_default_profile(), None);
+    }
+
+    /// F6-W5: a workspace host binding survives the capture -> restore round
+    /// trip so a restored remote workspace routes New Tab through the host again.
+    #[test]
+    fn workspace_host_binding_survives_restore() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.set_active_workspace_default_profile(Some("edge-1".to_owned()));
+        let snapshot = set.capture_shape();
+        assert_eq!(
+            snapshot.workspaces[0].default_profile.as_deref(),
+            Some("edge-1"),
+            "capture carries the binding into the snapshot"
+        );
+
+        let mut restored = WorkspaceSet::new(build_session(), None);
+        let mut handed = Vec::new();
+        restored.restore_from_snapshot_with(&snapshot, None, fake_spawner(&mut handed));
+        assert_eq!(
+            restored.active_workspace_default_profile(),
+            Some("edge-1"),
+            "restore re-applies the binding"
+        );
+    }
+
     /// Capture a rich shape, restore it into a fresh set, and assert the rebuilt
     /// shape equals the captured one (structural equality; the fake sessions
     /// carry no cwd, so every captured cwd here is `None` too). Exercises the
@@ -4239,6 +4308,7 @@ mod tests {
             active_workspace: 0,
             workspaces: vec![WorkspaceShape {
                 name: "W".to_owned(),
+                default_profile: None,
                 active_tab: 0,
                 tabs: vec![TabShape {
                     title: None,
@@ -4289,6 +4359,7 @@ mod tests {
             active_workspace: 0,
             workspaces: vec![WorkspaceShape {
                 name: "W".to_owned(),
+                default_profile: None,
                 active_tab: 0,
                 tabs: vec![
                     TabShape {

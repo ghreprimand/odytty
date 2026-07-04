@@ -59,6 +59,30 @@ impl App {
         Ok(token)
     }
 
+    /// Bind the active workspace to the known host at list index `idx` (F6-W5 /
+    /// ODP-9), so New Tab in that workspace routes through the SSH connect path.
+    /// The index is into the same `load_connection_entries` order the palette
+    /// built its rows from; an out-of-range index (host list changed under the
+    /// open palette) is a no-op. A one-line notice confirms the binding.
+    pub(in crate::native) fn bind_active_workspace_to_host_index(&mut self, idx: usize) {
+        let Some(host) = self.load_connection_entries().into_iter().nth(idx) else {
+            return;
+        };
+        let alias = host.alias;
+        self.sessions
+            .set_active_workspace_default_profile(Some(alias.clone()));
+        self.raise_open_notice(format!("Workspace bound to \"{alias}\""));
+    }
+
+    /// Clear the active workspace's host binding (F6-W5), returning New Tab there
+    /// to spawning a local shell. A one-line notice names the host that was
+    /// unbound; unbinding an already-local workspace is a silent no-op.
+    pub(in crate::native) fn unbind_active_workspace(&mut self) {
+        if let Some(prev) = self.sessions.set_active_workspace_default_profile(None) {
+            self.raise_open_notice(format!("Workspace unbound from \"{prev}\""));
+        }
+    }
+
     /// Resolve the directory OdyTTY owns for `ControlMaster` sockets, creating it
     /// with owner-only `0700` permissions. Returns `None` — disabling connection
     /// reuse — when reuse is off, the state dir is unresolvable, or the directory

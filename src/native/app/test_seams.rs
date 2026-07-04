@@ -1525,6 +1525,23 @@ impl App {
         self.sessions.workspace_names()
     }
 
+    /// F6-W5: read the active workspace's host binding (the alias New Tab routes
+    /// through), or `None` when the workspace is local.
+    #[cfg(test)]
+    pub(in crate::native) fn active_workspace_binding_for_test(&self) -> Option<String> {
+        self.sessions
+            .active_workspace_default_profile()
+            .map(str::to_owned)
+    }
+
+    /// F6-W5: directly set the active workspace's host binding, bypassing the
+    /// host-list resolution — so a headless test can exercise the New Tab
+    /// routing without a configured `hosts.conf`.
+    #[cfg(test)]
+    pub(in crate::native) fn set_workspace_binding_for_test(&mut self, alias: Option<String>) {
+        self.sessions.set_active_workspace_default_profile(alias);
+    }
+
     /// The tab count of the ACTIVE workspace (the tab strip's length).
     #[cfg(test)]
     pub(in crate::native) fn active_workspace_tab_count_for_test(&self) -> usize {

@@ -21,6 +21,7 @@ fn sample_snapshot() -> ShapeSnapshot {
         workspaces: vec![
             WorkspaceShape {
                 name: "Workspace 1".to_owned(),
+                default_profile: None,
                 active_tab: 1,
                 tabs: vec![
                     TabShape {
@@ -42,6 +43,7 @@ fn sample_snapshot() -> ShapeSnapshot {
             },
             WorkspaceShape {
                 name: "logs".to_owned(),
+                default_profile: None,
                 active_tab: 0,
                 tabs: vec![TabShape {
                     title: None,
@@ -132,6 +134,7 @@ fn windows_drive_letter_cwd_round_trips_with_escaped_backslashes() {
         active_workspace: 0,
         workspaces: vec![WorkspaceShape {
             name: "w".to_owned(),
+            default_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: None,
@@ -157,6 +160,7 @@ fn unicode_and_control_characters_in_names_round_trip() {
         active_workspace: 0,
         workspaces: vec![WorkspaceShape {
             name: "研究 🚀 \"quoted\"\tname\nwith\rcontrols".to_owned(),
+            default_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: Some("emoji 😺 tab".to_owned()),
@@ -177,6 +181,7 @@ fn null_title_and_cwd_round_trip_to_none() {
         active_workspace: 0,
         workspaces: vec![WorkspaceShape {
             name: "w".to_owned(),
+            default_profile: None,
             active_tab: 0,
             tabs: vec![TabShape {
                 title: None,
@@ -302,4 +307,56 @@ fn resolve_cwd_without_a_home_spawns_in_place() {
     let resolved = resolve_cwd(Some(missing), None);
     assert_eq!(resolved.path, None, "no home => let the shell inherit cwd");
     assert!(resolved.stale);
+}
+
+/// F6-W5: a workspace's bound host alias round-trips through the snapshot and
+/// serializes under the stable `default_profile` key.
+#[test]
+fn workspace_default_profile_round_trips() {
+    let snapshot = ShapeSnapshot {
+        version: SNAPSHOT_VERSION,
+        active_workspace: 0,
+        workspaces: vec![WorkspaceShape {
+            name: "remote".to_owned(),
+            default_profile: Some("prod-web".to_owned()),
+            active_tab: 0,
+            tabs: vec![TabShape {
+                title: None,
+                focused_leaf: 0,
+                layout: leaf(None),
+            }],
+        }],
+    };
+    let text = snapshot.to_json_pretty();
+    assert!(
+        text.contains("\"default_profile\": \"prod-web\""),
+        "binding must serialize under default_profile: {text}"
+    );
+    let parsed = ShapeSnapshot::from_json_str(&text).expect("round-trips");
+    assert_eq!(parsed, snapshot);
+    assert_eq!(
+        parsed.workspaces[0].default_profile.as_deref(),
+        Some("prod-web")
+    );
+}
+
+/// Forward-compat: a snapshot written before F6-W5 (no `default_profile` field)
+/// parses to an unbound workspace, not an error — WP1's unknown-field tolerance
+/// covers the new optional key.
+#[test]
+fn snapshot_without_default_profile_parses_to_unbound() {
+    let legacy = r#"{
+        "version": 1,
+        "active_workspace": 0,
+        "workspaces": [
+            { "name": "w", "active_tab": 0, "tabs": [
+                { "title": null, "focused_leaf": 0, "layout": { "leaf": { "cwd": null } } }
+            ] }
+        ]
+    }"#;
+    let parsed = ShapeSnapshot::from_json_str(legacy).expect("legacy snapshot still parses");
+    assert_eq!(
+        parsed.workspaces[0].default_profile, None,
+        "a missing default_profile is an unbound workspace"
+    );
 }

@@ -235,7 +235,11 @@ impl OverlayUi {
         self.open = true;
     }
 
-    pub(super) fn open_command_palette(&mut self, cwd: Option<&str>, workspaces: &[String]) {
+    pub(super) fn open_command_palette(
+        &mut self,
+        cwd: Option<&str>,
+        workspaces: &crate::native::palette_overlay::WorkspacePaletteContext<'_>,
+    ) {
         self.panel.end_slider_drag();
         self.theme_builder.end_channel_drag();
         self.command_palette.open_from_process_env(cwd, workspaces);
@@ -355,6 +359,7 @@ impl OverlayUi {
             multi_pane,
             false,
             false,
+            false,
             crate::native::context_menu_ui::ContextMenuSurface::Content,
             path_target,
             accelerators,
@@ -374,6 +379,7 @@ impl OverlayUi {
         multi_pane: bool,
         multi_tab: bool,
         multi_workspace: bool,
+        bound_workspace: bool,
         surface: crate::native::context_menu_ui::ContextMenuSurface,
         path_target: Option<crate::paths::Resolved>,
         accelerators: [Option<String>; CONTEXT_MENU_ITEMS],
@@ -390,6 +396,7 @@ impl OverlayUi {
             multi_pane,
             multi_tab,
             multi_workspace,
+            bound_workspace,
             surface,
             path_target,
         );
@@ -729,6 +736,7 @@ impl OverlayUi {
                     ContextMenuItem::Delete => OverlayOutcome::ContextMenuDelete,
                     ContextMenuItem::SelectAll => OverlayOutcome::ContextMenuSelectAll,
                     ContextMenuItem::NewTab => OverlayOutcome::ContextMenuNewTab,
+                    ContextMenuItem::NewLocalTab => OverlayOutcome::ContextMenuNewLocalTab,
                     ContextMenuItem::NewWindow => OverlayOutcome::ContextMenuNewWindow,
                     ContextMenuItem::RenameTab => {
                         if let Some(target) = self.context_menu.rename_target() {
@@ -1705,6 +1713,10 @@ pub(super) enum OverlayOutcome {
     ContextMenuDelete,
     ContextMenuSelectAll,
     ContextMenuNewTab,
+    /// Open a local shell in a new tab from a bound-workspace tab menu (F6-W5
+    /// escape hatch). The overlay has closed itself; the App dispatches this to
+    /// `handle_new_local_tab`, bypassing the workspace host binding.
+    ContextMenuNewLocalTab,
     /// Launch another OdyTTY window from the context menu (F1). The overlay has
     /// already closed itself; the App dispatches this to `handle_new_window`
     /// (the same handler the `Ctrl+Shift+N` chord fires).
@@ -3456,6 +3468,7 @@ mod tests {
             false,
             true,
             false,
+            false,
             crate::native::context_menu_ui::ContextMenuSurface::TabSlot(SessionToken(7)),
             None,
             Default::default(),
@@ -3484,6 +3497,7 @@ mod tests {
             Some(SessionToken(2)),
             false,
             true,
+            false,
             false,
             crate::native::context_menu_ui::ContextMenuSurface::TabSlot(SessionToken(2)),
             None,
@@ -3516,6 +3530,7 @@ mod tests {
             false,
             true,
             true,
+            false,
             crate::native::context_menu_ui::ContextMenuSurface::TabSlot(SessionToken(5)),
             None,
             Default::default(),

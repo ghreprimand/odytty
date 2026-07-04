@@ -69,7 +69,11 @@ impl PaletteOverlay {
         }
     }
 
-    pub(super) fn open_from_process_env(&mut self, cwd: Option<&str>, workspaces: &[String]) {
+    pub(super) fn open_from_process_env(
+        &mut self,
+        cwd: Option<&str>,
+        workspaces: &WorkspacePaletteContext<'_>,
+    ) {
         let history = read_history_from_process_env();
         self.open_with_history_and_cwd(history, cwd, workspaces);
     }
@@ -80,7 +84,7 @@ impl PaletteOverlay {
         H: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        self.open_with_history_and_cwd(history, cwd, &[]);
+        self.open_with_history_and_cwd(history, cwd, &WorkspacePaletteContext::names_only(&[]));
     }
 
     #[cfg(test)]
@@ -93,14 +97,18 @@ impl PaletteOverlay {
         H: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        self.open_with_history_and_cwd(history, cwd, workspaces);
+        self.open_with_history_and_cwd(
+            history,
+            cwd,
+            &WorkspacePaletteContext::names_only(workspaces),
+        );
     }
 
     fn open_with_history_and_cwd<H, S>(
         &mut self,
         history: H,
         cwd: Option<&str>,
-        workspaces: &[String],
+        workspaces: &WorkspacePaletteContext<'_>,
     ) where
         H: IntoIterator<Item = S>,
         S: AsRef<str>,
@@ -327,14 +335,50 @@ pub(super) const WORKSPACE_NEW_ID: &str = "workspace-new";
 /// Stable id for the "Rename Workspace" palette row (targets the active
 /// workspace).
 pub(super) const WORKSPACE_RENAME_ID: &str = "workspace-rename";
+/// Stable id prefix for the F6-W5 "bind workspace to host …" rows. The host's
+/// index in the known-host list is appended; [`parse_workspace_bind_id`]
+/// recovers it and the App routes it through the binding mutator.
+pub(super) const WORKSPACE_BIND_ID_PREFIX: &str = "workspace-bind-";
+/// Stable id for the "Unbind Workspace From Host" row (only shown when the
+/// active workspace is currently bound).
+pub(super) const WORKSPACE_UNBIND_ID: &str = "workspace-unbind";
+/// Stable id for the "New Local Tab" escape-hatch row (F6-W5): opens a local
+/// shell even when the active workspace is bound to a host. Only shown when the
+/// active workspace is bound (an unbound workspace's New Tab is already local).
+pub(super) const WORKSPACE_NEW_LOCAL_TAB_ID: &str = "workspace-new-local-tab";
 
-/// The workspace rows appended to the command palette (ODP-5): one "switch to
-/// …" row per workspace in rail order, then create and rename rows. Pure —
-/// takes the current workspace names and returns action entries with stable ids
-/// the App dispatches after the overlay closes.
-fn workspace_palette_entries(names: &[String]) -> Vec<PaletteEntry> {
-    let mut entries = Vec::with_capacity(names.len() + 2);
-    for (idx, name) in names.iter().enumerate() {
+/// The workspace-facing context the command palette needs to build its rows:
+/// the workspace names (switch rows, ODP-5), the known-host aliases (F6-W5 bind
+/// rows), and which host — if any — the active workspace is currently bound to
+/// (drives the unbind + new-local-tab escape rows and the "(bound)" marker).
+pub(super) struct WorkspacePaletteContext<'a> {
+    pub(super) names: &'a [String],
+    pub(super) host_aliases: &'a [String],
+    pub(super) bound_profile: Option<&'a str>,
+}
+
+impl<'a> WorkspacePaletteContext<'a> {
+    /// A context with only workspace names — no host binding surface. Used by
+    /// the test seams that predate F6-W5.
+    #[cfg(test)]
+    pub(super) fn names_only(names: &'a [String]) -> Self {
+        Self {
+            names,
+            host_aliases: &[],
+            bound_profile: None,
+        }
+    }
+}
+
+/// The workspace rows appended to the command palette: one "switch to …" row
+/// per workspace in rail order, then create and rename rows (ODP-5), then the
+/// F6-W5 host-binding surface — one "bind to …" row per known host, plus unbind
+/// and "New Local Tab" escape rows when the active workspace is already bound.
+/// Pure — returns action entries with stable ids the App dispatches after the
+/// overlay closes.
+fn workspace_palette_entries(ctx: &WorkspacePaletteContext<'_>) -> Vec<PaletteEntry> {
+    let mut entries = Vec::with_capacity(ctx.names.len() + ctx.host_aliases.len() + 4);
+    for (idx, name) in ctx.names.iter().enumerate() {
         entries.push(PaletteEntry::action(
             format!("{WORKSPACE_SWITCH_ID_PREFIX}{idx}"),
             format!("Workspace: {name}"),
@@ -345,6 +389,27 @@ fn workspace_palette_entries(names: &[String]) -> Vec<PaletteEntry> {
         WORKSPACE_RENAME_ID,
         "Rename Workspace",
     ));
+    for (idx, alias) in ctx.host_aliases.iter().enumerate() {
+        let label = if ctx.bound_profile == Some(alias.as_str()) {
+            format!("Workspace Host: {alias} (bound)")
+        } else {
+            format!("Bind Workspace to Host: {alias}")
+        };
+        entries.push(PaletteEntry::action(
+            format!("{WORKSPACE_BIND_ID_PREFIX}{idx}"),
+            label,
+        ));
+    }
+    if ctx.bound_profile.is_some() {
+        entries.push(PaletteEntry::action(
+            WORKSPACE_UNBIND_ID,
+            "Unbind Workspace From Host",
+        ));
+        entries.push(PaletteEntry::action(
+            WORKSPACE_NEW_LOCAL_TAB_ID,
+            "New Local Tab",
+        ));
+    }
     entries
 }
 
@@ -352,6 +417,13 @@ fn workspace_palette_entries(names: &[String]) -> Vec<PaletteEntry> {
 /// when the id is not a workspace-switch row.
 pub(super) fn parse_workspace_switch_id(id: &str) -> Option<usize> {
     id.strip_prefix(WORKSPACE_SWITCH_ID_PREFIX)
+        .and_then(|suffix| suffix.parse().ok())
+}
+
+/// Recover the host index from a `workspace-bind-<idx>` action id, or `None`
+/// when the id is not a host-binding row.
+pub(super) fn parse_workspace_bind_id(id: &str) -> Option<usize> {
+    id.strip_prefix(WORKSPACE_BIND_ID_PREFIX)
         .and_then(|suffix| suffix.parse().ok())
 }
 
@@ -441,6 +513,51 @@ mod tests {
 
     fn command_history(count: usize) -> Vec<String> {
         (0..count).map(|index| format!("qqq {index:02}")).collect()
+    }
+
+    /// F6-W5: the host-binding rows appear per known host, and the unbind +
+    /// New Local Tab escape rows only show once the active workspace is bound.
+    #[test]
+    fn workspace_palette_entries_expose_host_binding() {
+        let hosts = vec!["web".to_owned(), "db".to_owned()];
+        let unbound = WorkspacePaletteContext {
+            names: &["Workspace 1".to_owned()],
+            host_aliases: &hosts,
+            bound_profile: None,
+        };
+        let ids: Vec<String> = workspace_palette_entries(&unbound)
+            .into_iter()
+            .filter_map(|entry| match entry.selection() {
+                PaletteSelection::Action { id } => Some(id),
+                _ => None,
+            })
+            .collect();
+        assert!(ids.contains(&"workspace-bind-0".to_owned()));
+        assert!(ids.contains(&"workspace-bind-1".to_owned()));
+        assert!(
+            !ids.iter().any(|id| id == WORKSPACE_UNBIND_ID),
+            "unbound workspace has no unbind row"
+        );
+        assert!(
+            !ids.iter().any(|id| id == WORKSPACE_NEW_LOCAL_TAB_ID),
+            "unbound workspace has no New Local Tab escape row"
+        );
+
+        let bound = WorkspacePaletteContext {
+            names: &["Workspace 1".to_owned()],
+            host_aliases: &hosts,
+            bound_profile: Some("web"),
+        };
+        let labels: Vec<String> = workspace_palette_entries(&bound)
+            .into_iter()
+            .map(|entry| entry.label().to_owned())
+            .collect();
+        assert!(
+            labels.iter().any(|l| l == "Workspace Host: web (bound)"),
+            "the bound host is marked: {labels:?}"
+        );
+        assert!(labels.iter().any(|l| l == "Unbind Workspace From Host"));
+        assert!(labels.iter().any(|l| l == "New Local Tab"));
     }
 
     #[test]

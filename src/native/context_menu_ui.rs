@@ -63,7 +63,7 @@ use crate::settings::BindableAction;
 /// resolved path is an image file (C4); and "Open With…" is shown only when the
 /// resolved path is a regular file (C3b). With no path and single-pane the
 /// visible count is 18; with no path and multi-pane it is 19.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 30;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 31;
 
 /// Body row index of the first visual separator in the single-pane content
 /// reference, between Select All and New Tab. The reference is the
@@ -201,6 +201,12 @@ pub(super) enum ContextMenuItem {
     /// Close the right-clicked workspace entirely — every tab, every pane.
     /// Workspace-scoped (`WorkspaceSlot`). Closing the last workspace exits.
     CloseWorkspace,
+    /// Open a local shell in a new tab regardless of the active workspace's host
+    /// binding (F6-W5 escape hatch). Shown on the `TabSlot` surface ONLY when the
+    /// active workspace is bound to a host (an unbound workspace's New Tab is
+    /// already local, so the row would be a duplicate). Placed last in
+    /// [`Self::ALL`] so the existing accelerator-array indices stay stable.
+    NewLocalTab,
 }
 
 impl ContextMenuItem {
@@ -238,6 +244,7 @@ impl ContextMenuItem {
         Self::NewWorkspace,
         Self::RenameWorkspace,
         Self::CloseWorkspace,
+        Self::NewLocalTab,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -249,6 +256,7 @@ impl ContextMenuItem {
         match self {
             Self::Copy | Self::Cut | Self::Paste | Self::Delete | Self::SelectAll => 0,
             Self::NewTab
+            | Self::NewLocalTab
             | Self::NewWindow
             | Self::RenameTab
             | Self::CloseTab
@@ -291,6 +299,7 @@ impl ContextMenuItem {
             Self::NewWorkspace => "New Workspace",
             Self::RenameWorkspace => "Rename Workspace",
             Self::CloseWorkspace => "Close Workspace",
+            Self::NewLocalTab => "New Local Tab",
             Self::SplitColumns => "Split Right",
             Self::SplitRows => "Split Down",
             Self::ClosePane => "Close Pane",
@@ -359,7 +368,9 @@ impl ContextMenuItem {
             // cover them; ODP-5).
             | Self::NewWorkspace
             | Self::RenameWorkspace
-            | Self::CloseWorkspace => None,
+            | Self::CloseWorkspace
+            // New Local Tab is the F6-W5 escape hatch; no default chord.
+            | Self::NewLocalTab => None,
         }
     }
 }
@@ -518,6 +529,10 @@ pub(super) struct ContextMenuSignature {
     /// Workspace` item's visibility on the tab surface, so a workspace-count
     /// change repaints).
     pub(super) multi_workspace: bool,
+    /// Whether the active workspace is bound to a host (F6-W5): drives the
+    /// `New Local Tab` escape row's visibility on the tab surface, so a
+    /// bind/unbind must repaint the menu.
+    pub(super) bound_workspace: bool,
     /// The surface discriminant (F7): a surface change swaps the whole
     /// composition, so it must repaint.
     pub(super) surface: u8,
@@ -562,6 +577,9 @@ pub(super) struct ContextMenuUi {
     /// single workspace there is nowhere to move a tab, so the item is hidden
     /// (ODP-7: hide the move submenu when only one workspace exists).
     multi_workspace: bool,
+    /// Whether the active workspace is bound to a host (F6-W5). Drives the
+    /// `New Local Tab` escape row on the tab surface.
+    bound_workspace: bool,
     /// Which surface the right-click landed on (F7). Selects the menu
     /// composition; defaults to [`ContextMenuSurface::Content`] (the historical
     /// single menu) so a bare `open` keeps today's behavior.
@@ -592,6 +610,7 @@ impl Default for ContextMenuUi {
             multi_pane: false,
             multi_tab: false,
             multi_workspace: false,
+            bound_workspace: false,
             surface: ContextMenuSurface::Content,
             path_target: None,
             accelerators: Default::default(),
@@ -635,6 +654,7 @@ impl ContextMenuUi {
             multi_pane,
             false,
             false,
+            false,
             ContextMenuSurface::Content,
             path_target,
         );
@@ -653,6 +673,7 @@ impl ContextMenuUi {
         multi_pane: bool,
         multi_tab: bool,
         multi_workspace: bool,
+        bound_workspace: bool,
         surface: ContextMenuSurface,
         path_target: Option<Resolved>,
     ) {
@@ -666,6 +687,7 @@ impl ContextMenuUi {
         self.multi_pane = multi_pane;
         self.multi_tab = multi_tab;
         self.multi_workspace = multi_workspace;
+        self.bound_workspace = bound_workspace;
         self.surface = surface;
         self.path_target = path_target;
         self.focused = 0;
@@ -736,6 +758,8 @@ impl ContextMenuUi {
             ContextMenuItem::NewWorkspace
             | ContextMenuItem::RenameWorkspace
             | ContextMenuItem::CloseWorkspace => true,
+            // Only shown on a bound-workspace tab menu; always enabled there.
+            ContextMenuItem::NewLocalTab => true,
         }
     }
 
@@ -767,7 +791,9 @@ impl ContextMenuUi {
     fn section_of(&self, item: ContextMenuItem) -> u8 {
         match self.surface {
             ContextMenuSurface::TabSlot(_) => match item {
-                ContextMenuItem::NewTab | ContextMenuItem::RenameTab => 0,
+                ContextMenuItem::NewTab
+                | ContextMenuItem::NewLocalTab
+                | ContextMenuItem::RenameTab => 0,
                 ContextMenuItem::CloseTab | ContextMenuItem::CloseOtherTabs => 1,
                 ContextMenuItem::MoveToNextWorkspace => 2,
                 ContextMenuItem::NewWindow => 3,
@@ -807,12 +833,17 @@ impl ContextMenuUi {
         // snapshots entirely (a tab has no grid path under it).
         match self.surface {
             ContextMenuSurface::TabSlot(_) => {
-                let mut items = vec![
-                    ContextMenuItem::NewTab,
+                let mut items = vec![ContextMenuItem::NewTab];
+                // F6-W5: when the workspace is bound to a host, New Tab opens a
+                // remote tab, so offer a local-shell escape right beside it.
+                if self.bound_workspace {
+                    items.push(ContextMenuItem::NewLocalTab);
+                }
+                items.extend([
                     ContextMenuItem::RenameTab,
                     ContextMenuItem::CloseTab,
                     ContextMenuItem::CloseOtherTabs,
-                ];
+                ]);
                 // ODP-7: the move item only appears when there is a destination
                 // workspace. Single-workspace tab menus are unchanged.
                 if self.multi_workspace {
@@ -885,6 +916,9 @@ impl ContextMenuUi {
                         | ContextMenuItem::NewWorkspace
                         | ContextMenuItem::RenameWorkspace
                         | ContextMenuItem::CloseWorkspace
+                        // F6-W5: the New Local Tab escape is a bound-workspace
+                        // tab-menu row only; never on the content surface.
+                        | ContextMenuItem::NewLocalTab
                 )
             })
             // Drop the always-disabled `Rename Tab` row on the content surface —
@@ -1185,6 +1219,7 @@ impl ContextMenuUi {
             multi_pane: self.multi_pane,
             multi_tab: self.multi_tab,
             multi_workspace: self.multi_workspace,
+            bound_workspace: self.bound_workspace,
             surface: self.surface.discriminant(),
             has_path_target: self.path_target.is_some(),
             is_image_target: self.is_image_target(),
@@ -1991,6 +2026,7 @@ mod tests {
             false,
             false,
             false,
+            false,
             ContextMenuSurface::Content,
             None,
         );
@@ -2174,6 +2210,7 @@ mod tests {
             false,
             multi_tab,
             multi_workspace,
+            false,
             surface,
             None,
         );
@@ -2216,6 +2253,46 @@ mod tests {
                 "tab menu must not contain {label}"
             );
         }
+    }
+
+    /// F6-W5: on a workspace bound to a host, the tab menu gains a "New Local
+    /// Tab" escape row beside New Tab; an unbound workspace's tab menu does not.
+    #[test]
+    fn tab_slot_new_local_tab_appears_only_when_workspace_bound() {
+        let mut bound = ContextMenuUi::new();
+        bound.open_with_prompt_editing_hint(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            false,
+            Some(SessionToken(3)),
+            false,
+            true,
+            false,
+            true,
+            ContextMenuSurface::TabSlot(SessionToken(3)),
+            None,
+        );
+        let has_local = |m: &ContextMenuUi| {
+            m.rows().iter().any(|r| {
+                matches!(
+                    r,
+                    ContextMenuRow::Item { label, .. } if *label == "New Local Tab"
+                )
+            })
+        };
+        assert!(
+            has_local(&bound),
+            "bound-workspace tab menu offers New Local Tab"
+        );
+
+        let unbound = open_surface(ContextMenuSurface::TabSlot(SessionToken(3)), true);
+        assert!(
+            !has_local(&unbound),
+            "unbound-workspace tab menu has no New Local Tab row"
+        );
     }
 
     #[test]
