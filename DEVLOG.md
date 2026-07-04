@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Rail auto-hide reveal: motion-aware trigger that no longer needs an overshoot
+
+**The auto-hidden rail still read as "won't open" unless the pointer was shoved
+past the window edge.** A captured pointer trace explained why: the trigger was
+a static point zone a few tens of pixels wide, but natural mouse motion delivers
+samples 30–200 px apart, so a fast approach hops clean over the zone. The only
+reliable way to land a sample "inside" it was to overshoot off the window edge,
+where the compositor clamps the pointer and delivers a run of in-zone samples — exactly the "I have to move past the edge" behavior. The trace also showed a
+second failure: a single fast follow-through sample past the seam, arriving
+inside the show debounce, aborted an already-armed reveal.
+
+Both are fixed by making the trigger *motion-aware* rather than tuning numbers.
+The arm now tests the pointer *segment* between consecutive samples against the
+trigger zone, not just the current point: a move whose path sweeps the zone arms
+even when neither endpoint lands in it. The current point remains the
+first-sample fallback (no previous sample yet), and the previous sample is
+dropped when the pointer leaves the window so a re-entry never fabricates a
+segment across the whole surface. The keep-alive band stays a point test — "is
+the pointer *now* over the band" — so leaving still starts the hide grace. The
+show debounce no longer aborts on any out-of-band sample: it aborts only when
+the pointer is decisively away (neither sweeping the trigger edge nor over the
+band), so a fast in-then-past-the-seam follow-through keeps the arm alive and
+the reveal completes. The confirm window is shortened to 30 ms — enough to
+filter a lone stray sample now that the segment carries the sensitivity.
+
+`ODYTTY_RAIL_TRACE=1` stays shipped (privacy-clean: pointer coordinates and
+reveal-phase labels only, never terminal content). Covered by a pure predicate
+test for the segment crossing (both rails), a state-machine test that a fast
+follow-through past the seam does not abort the arm, and a live-feed regression
+replaying the two trace sequences — a fast approach overshooting the edge, and
+the in-then-past-the-seam follow-through — asserting the rail arms and holds.
+Full suite green; clippy (`-D warnings`) and rustfmt clean; MSRV unchanged.
+Platform-neutral — the reveal path is pointer-sample geometry shared across
+platforms.
+
 ## 2026-07-04 -- Overlay/scroll/bell animations no longer freeze when the cursor is steady
 
 **A group of frame-paced animations — smooth-scroll glide, bell flash, new-row

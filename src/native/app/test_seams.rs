@@ -748,12 +748,15 @@ impl App {
 
     /// Test seam (F4-P3): the reveal `(in_edge, in_band)` contact for a raw
     /// pointer x — including the scrollbar-drag yield — or `None` off a
-    /// rail / autohide. Set `pointer_px` / a scrollbar grab first as needed.
+    /// rail / autohide. The point-only contact (no previous sample), so it
+    /// asserts the static trigger/band geometry; the motion-aware segment path is
+    /// exercised through the live feed (`feed_rail_pointer_for_test`). Set
+    /// `pointer_px` / a scrollbar grab first as needed.
     #[cfg(test)]
     pub(in crate::native) fn reveal_contact_for_test(&self, x: f64) -> Option<(bool, bool)> {
         let side = self.rail_autohide_side()?;
         let cell = self.resolved_cell()?;
-        Some(self.reveal_pointer_contact(x, cell, side))
+        Some(self.reveal_pointer_contact(x, None, cell, side))
     }
 
     /// Test seam (F4-P3 / NF20-B): drive the reveal machine through the REAL

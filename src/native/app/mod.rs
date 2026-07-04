@@ -364,6 +364,13 @@ pub(super) struct App {
     /// removed (`tab_reserve` → NONE) the moment autohide is active, so reveal is
     /// a pure overlay and never reflows content.
     rail_autohide: rail_autohide::RailAutohide,
+    /// The previous physical pointer x fed to the reveal machine, for the
+    /// motion-aware trigger: the segment from this to the current sample is
+    /// tested against the edge zone so a fast approach that jumps clean over a
+    /// static point zone still arms. `None` before the first sample and after the
+    /// pointer leaves the window (so a re-entry never fabricates a segment across
+    /// the whole surface). Only meaningful while auto-hide is active.
+    last_rail_pointer_px: Option<f64>,
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
@@ -547,6 +554,7 @@ impl App {
             rail_seam_drag: false,
             rail_seam_clicks: ClickTracker::default(),
             rail_autohide: rail_autohide::RailAutohide::default(),
+            last_rail_pointer_px: None,
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
             bell_flash_start: None,
@@ -2446,7 +2454,12 @@ impl App {
         // right-click context menu) is open — the hide timer is suspended until
         // the menu closes.
         self.rail_autohide.set_suspend(self.overlay.is_open());
-        let (in_edge, in_band) = self.reveal_pointer_contact(px_x, cell, side);
+        // Motion-aware trigger: fold in the previous sample so the segment
+        // prev→curr is tested against the edge zone (a fast approach jumps over a
+        // static point zone). Record this sample as the next prev before feeding.
+        let prev_px_x = self.last_rail_pointer_px;
+        self.last_rail_pointer_px = Some(px_x);
+        let (in_edge, in_band) = self.reveal_pointer_contact(px_x, prev_px_x, cell, side);
         // ODYTTY_RAIL_TRACE (operator-runnable): one privacy-clean line per
         // sample — pointer coordinate + reveal phase only, never terminal
         // content. Logs the phase both before and after the sample so a reveal /
@@ -2474,17 +2487,35 @@ impl App {
     }
 
     /// The `(in_edge, in_band)` reveal contact the machine is fed for a raw
-    /// pointer x. Yields to an active scrollbar-thumb drag (ODP-5): a drag near
-    /// the edge — the right rail's scrollbar sits just inside the seam — must not
-    /// trigger or hold a reveal, so a drag-in-progress reports no contact.
-    fn reveal_pointer_contact(&self, px_x: f64, cell: CellSize, side: RailSide) -> (bool, bool) {
+    /// pointer x, given the previous sample `prev_px_x` (`None` on the first
+    /// sample after entry). Yields to an active scrollbar-thumb drag (ODP-5): a
+    /// drag near the edge — the right rail's scrollbar sits just inside the seam —
+    /// must not trigger or hold a reveal, so a drag-in-progress reports no
+    /// contact.
+    ///
+    /// `in_edge` is **motion-aware**: the current point in the trigger zone OR
+    /// the segment from the previous sample crossing it (see
+    /// [`reveal_edge_segment_crosses`]) — natural mouse motion delivers samples
+    /// 30–200 px apart, so a fast approach can jump clean over a static point
+    /// zone. `in_band` stays a **point** test: the keep-alive / hide-grace logic
+    /// needs "is the pointer *now* over the band", not "did the path ever touch
+    /// it" (a motion-aware band would never let go once the pointer left).
+    fn reveal_pointer_contact(
+        &self,
+        px_x: f64,
+        prev_px_x: Option<f64>,
+        cell: CellSize,
+        side: RailSide,
+    ) -> (bool, bool) {
         if self.pointer_drag.scrollbar_grab().is_some() {
             return (false, false);
         }
-        (
-            self.pointer_in_reveal_edge(px_x, side),
-            self.pointer_in_reveal_band(px_x, cell, side),
-        )
+        let in_edge = self.pointer_in_reveal_edge(px_x, side)
+            || prev_px_x.is_some_and(|prev| {
+                let (surface_w, _pad) = self.reveal_surface_metrics();
+                reveal_edge_segment_crosses(side, prev, px_x, self.reveal_reach_px(), surface_w)
+            });
+        (in_edge, self.pointer_in_reveal_band(px_x, cell, side))
     }
 
     /// Whether the auto-hidden rail overlay is drawn (and hit-tested) this
@@ -4091,11 +4122,16 @@ impl ApplicationHandler<UserEvent> for App {
                 // an empty sample so a rail revealed at the edge starts its hide
                 // grace (no `CursorMoved` fires once the pointer is gone). Inert
                 // unless autohide is active.
-                if self.rail_autohide_active()
-                    && self.rail_autohide.on_pointer(false, false, Instant::now())
-                    && let Some(window) = self.window.as_ref()
-                {
-                    window.request_redraw();
+                if self.rail_autohide_active() {
+                    // Drop the motion-aware trigger's previous sample so the next
+                    // entry starts fresh (a stale pre-leave x would fabricate a
+                    // segment across the whole surface on re-entry).
+                    self.last_rail_pointer_px = None;
+                    if self.rail_autohide.on_pointer(false, false, Instant::now())
+                        && let Some(window) = self.window.as_ref()
+                    {
+                        window.request_redraw();
+                    }
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
@@ -4257,6 +4293,37 @@ fn reveal_edge_contains(side: RailSide, px_x: f64, reach: f64, surface_w: f64) -
     match side {
         RailSide::Left => px_x <= reach,
         RailSide::Right => px_x >= surface_w - reach,
+    }
+}
+
+/// F4-P3 motion-aware trigger: whether the pointer *segment* from `prev_px_x` to
+/// `curr_px_x` intersects the reveal trigger band on the rail side. The left band
+/// is `[0, reach]`; the right band is `[surface_w − reach, surface_w]`.
+///
+/// A live pointer trace showed the reveal armed reliably only when the pointer
+/// overshot OFF the window edge (where the compositor clamps and delivers a run
+/// of in-zone samples): at real cursor speed consecutive samples jump 30–200 px
+/// and hop clean over a static point zone, so aiming *at* the edge frequently
+/// registered nothing. Testing the whole segment arms a deliberate approach
+/// regardless of speed — a move from `px_x = 60` to `px_x = −5` has neither
+/// endpoint in `[0, reach]` yet its path crosses the band. The current point is
+/// folded in by the caller as the first-sample fallback (no `prev`). Pure so the
+/// geometry is unit-tested without a GPU/window.
+fn reveal_edge_segment_crosses(
+    side: RailSide,
+    prev_px_x: f64,
+    curr_px_x: f64,
+    reach: f64,
+    surface_w: f64,
+) -> bool {
+    let (lo, hi) = (prev_px_x.min(curr_px_x), prev_px_x.max(curr_px_x));
+    match side {
+        // Left band [0, reach]: the segment reaches into it (`lo ≤ reach`)
+        // without lying entirely off the window to the left (`hi ≥ 0`).
+        RailSide::Left => lo <= reach && hi >= 0.0,
+        // Right band [surface_w − reach, surface_w]: the segment reaches into it
+        // (`hi ≥ surface_w − reach`) without lying entirely off to the right.
+        RailSide::Right => hi >= surface_w - reach && lo <= surface_w,
     }
 }
 
@@ -4906,6 +4973,64 @@ mod tests {
             RailSide::Right,
             800.0,
             seam_r,
+            reach,
+            surface_w
+        ));
+    }
+
+    /// Reveal-zone regression (motion-aware trigger, from the live pointer
+    /// trace): a fast approach delivers samples 30–200 px apart that jump clean
+    /// over the static point zone, so the arm must test the whole *segment*
+    /// between consecutive samples — not just the current point.
+    #[test]
+    fn reveal_edge_segment_crosses_a_fast_sweep_over_the_point_zone() {
+        let reach = 29.0; // ≈ the operator trace's reach
+        let surface_w = 1000.0;
+
+        // LEFT: the trace's dominant case — a move from x=60 to x=−5 has NEITHER
+        // endpoint that a bounded [0, reach] point test would accept, yet the
+        // path sweeps through the trigger band → the motion-aware test arms it.
+        assert!(reveal_edge_segment_crosses(
+            RailSide::Left,
+            60.0,
+            -5.0,
+            reach,
+            surface_w
+        ));
+        // A move that stops short of the band (60 → 40, both past the reach)
+        // does NOT cross — the pointer never reached the edge.
+        assert!(!reveal_edge_segment_crosses(
+            RailSide::Left,
+            60.0,
+            40.0,
+            reach,
+            surface_w
+        ));
+        // A sweep from off-window INTO content past the band still crosses (the
+        // pointer entered at the edge), where the current point alone would miss.
+        assert!(reveal_edge_segment_crosses(
+            RailSide::Left,
+            -8.0,
+            50.0,
+            reach,
+            surface_w
+        ));
+
+        // RIGHT: symmetric — a fast sweep toward the right edge that overshoots
+        // past surface_w crosses the right band [surface_w − reach, surface_w].
+        assert!(reveal_edge_segment_crosses(
+            RailSide::Right,
+            940.0,
+            1010.0,
+            reach,
+            surface_w
+        ));
+        // Stopping short of the right band (940 → 960, both left of the band)
+        // does not cross.
+        assert!(!reveal_edge_segment_crosses(
+            RailSide::Right,
+            940.0,
+            960.0,
             reach,
             surface_w
         ));

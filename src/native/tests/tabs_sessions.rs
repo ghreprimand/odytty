@@ -974,7 +974,7 @@ fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
         !app.rail_autohide_is_visible_for_test(t0),
         "interior contact arms the debounce, not an instant reveal"
     );
-    let revealed_at = t0 + std::time::Duration::from_millis(130); // > 80ms debounce
+    let revealed_at = t0 + std::time::Duration::from_millis(130); // past the show debounce
     app.feed_rail_pointer_for_test(20.0, revealed_at);
     assert!(
         app.rail_autohide_is_visible_for_test(revealed_at),
@@ -1042,13 +1042,85 @@ fn reveal_arms_at_the_edge_and_the_band_carries_the_debounce() {
         "edge contact arms the debounce, not an instant reveal"
     );
     // Move off the trigger zone but stay over the band (x=50 < seam 128). The
-    // band keep-alive holds the arm; past the 80ms debounce it reveals.
+    // band keep-alive holds the arm; past the show debounce it reveals.
     let t1 = t0 + std::time::Duration::from_millis(90);
     app.feed_rail_pointer_for_test(50.0, t1);
     assert!(
         app.rail_autohide_is_visible_for_test(t1),
         "the band carries the armed reveal through the debounce — no need to \
          sit pinned in the thin edge strip"
+    );
+}
+
+#[test]
+fn reveal_arms_and_holds_across_the_live_trace_sequences() {
+    // Round-5 regression, built from the operator's live ODYTTY_RAIL_TRACE. Two
+    // sequences the trace exposed as broken, replayed through the real feed path:
+    //   (1) a fast approach that overshoots OFF the window edge (samples jump
+    //       30–200px and hop over a static point zone) must still arm+reveal;
+    //   (2) a fast in-then-past-the-seam FOLLOW-THROUGH within the confirm window
+    //       (the trace's 7.9px→214px in 74ms) must NOT abort the armed reveal —
+    //       the motion-aware trigger keeps `in_edge` set so the confirm completes.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16); // band [0..128], seam at x=128
+    app.set_tab_rail_autohide_for_test(true);
+    // pad 0, scale 1 → reach = 16 (default reveal_px). Trigger zone [0, 16].
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+
+    let t0 = std::time::Instant::now();
+
+    // (1) FAST APPROACH OVERSHOOTING OFF THE WINDOW. A sample at x=200 lands in
+    // content (no arm); the next sample jumps clean over [0,16] to x=−8 (past the
+    // left edge, where a tiling compositor clamps). The segment 200→−8 sweeps the
+    // trigger band → arm.
+    app.feed_rail_pointer_for_test(200.0, t0);
+    app.feed_rail_pointer_for_test(-8.0, t0);
+    assert!(
+        !app.rail_autohide_is_visible_for_test(t0),
+        "the overshoot arms the confirm, not an instant reveal"
+    );
+    let armed = t0 + std::time::Duration::from_millis(40); // past the 30ms confirm
+    app.feed_rail_pointer_for_test(-8.0, armed);
+    assert!(
+        app.rail_autohide_is_visible_for_test(armed),
+        "a fast approach that overshoots the edge reveals (not only a precise \
+         landing inside the thin zone)"
+    );
+
+    // Settle back to hidden so the follow-through starts from a clean Hidden.
+    let leave = armed + std::time::Duration::from_millis(10);
+    app.feed_rail_pointer_for_test(400.0, leave); // off the band → hide grace
+    let hidden = leave + std::time::Duration::from_millis(700); // > 600ms grace
+    app.poll_rail_autohide_for_test(hidden);
+    assert!(
+        !app.rail_autohide_is_visible_for_test(hidden),
+        "precondition: back to Hidden before the follow-through sequence"
+    );
+
+    // (2) FAST FOLLOW-THROUGH PAST THE SEAM. A deliberate quick approach lands at
+    // the edge (x=8, arms), then ONE fast sample overshoots past the seam
+    // (x=214) inside the confirm window. The segment 8→214 still sweeps the
+    // trigger band, so `in_edge` stays set and the confirm is NOT aborted — the
+    // reveal completes. (Pre-fix, the out-of-band sample aborted the arm and the
+    // rail "wouldn't open" on a fast approach.)
+    let t2 = hidden + std::time::Duration::from_millis(10);
+    app.feed_rail_pointer_for_test(8.0, t2);
+    assert!(
+        !app.rail_autohide_is_visible_for_test(t2),
+        "edge contact arms the confirm"
+    );
+    let follow = t2 + std::time::Duration::from_millis(10); // within the 30ms confirm
+    app.feed_rail_pointer_for_test(214.0, follow);
+    let done = t2 + std::time::Duration::from_millis(40); // past the confirm
+    app.poll_rail_autohide_for_test(done);
+    assert!(
+        app.rail_autohide_is_visible_for_test(done),
+        "a fast follow-through past the seam does not abort the armed reveal"
     );
 }
 

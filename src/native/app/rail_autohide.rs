@@ -11,10 +11,12 @@
 //! (which pixels are the reveal edge / band) and the render (building the
 //! overlay strip). The state machine is driven by three inputs:
 //! - **pointer** — [`RailAutohide::on_pointer`] with two booleans the App
-//!   derives from the live pointer: `in_edge` (within `TAB_RAIL_REVEAL_PX` of the
-//!   window edge — the *trigger* zone) and `in_band` (anywhere from the window
-//!   edge through the revealed band to the seam — the *keep-alive* region, which
-//!   by construction contains the edge zone).
+//!   derives from the live pointer: `in_edge` (the pointer is in — or its motion
+//!   *segment* crossed — the trigger zone within `TAB_RAIL_REVEAL_PX` of the
+//!   window edge; motion-aware so a fast approach that jumps over a static point
+//!   zone still arms) and `in_band` (a point test: the pointer is *now* anywhere
+//!   from the window edge through the revealed band to the seam — the
+//!   *keep-alive* region, which by construction contains the edge zone).
 //! - **keyboard flash** — [`RailAutohide::flash`] reveals the rail for
 //!   [`FLASH`] after a tab-switch / new-tab / close action (ODP-4 SHOULD), so a
 //!   chord's effect is confirmed even with the pointer away from the edge.
@@ -28,15 +30,16 @@
 
 use std::time::{Duration, Instant};
 
-/// Show debounce: the pointer must dwell in the edge zone this long before the
-/// rail reveals. Long enough that incidental edge contact — resting the pointer
-/// near a window pinned to a screen edge (tiling WMs), or skimming past on the
-/// way elsewhere — does not summon the rail ("too sensitive" / flicker report),
-/// but short enough that a deliberate push-to-edge still feels immediate.
-/// Lowered from 120 ms after the reveal read as sluggish ("must push to the
-/// edge and wait"); the widened trigger zone + segment-crossing detection carry
-/// the sensitivity, so a shorter dwell no longer means incidental reveals.
-pub(super) const SHOW_DEBOUNCE: Duration = Duration::from_millis(80);
+/// Show debounce: a short confirm window between the first trigger sample and
+/// the reveal, so a single incidental crossing (a window drag sweeping the edge)
+/// does not summon the rail. Kept small — a live pointer trace showed the reveal
+/// read as "won't open": a longer dwell, combined with the old abort-on-any-out-
+/// of-band sample, killed deliberate fast approaches mid-debounce. The reveal now
+/// arms on the motion-aware trigger (the pointer *segment* crossing the edge
+/// zone, not just a point landing in it) and holds through the confirm as long as
+/// the segment stays on the rail side, so 30 ms is enough to filter a lone stray
+/// sample without making an approach feel sluggish (was 80 ms → 120 ms before).
+pub(super) const SHOW_DEBOUNCE: Duration = Duration::from_millis(30);
 /// Hide grace: after the pointer leaves the revealed band, the rail stays up
 /// this long before hiding (middle of the 300–1000ms convention range, errs
 /// toward snappy).
@@ -73,7 +76,10 @@ enum Phase {
 #[derive(Debug, Clone)]
 pub(super) struct RailAutohide {
     phase: Phase,
-    /// Last pointer sample: within the edge trigger zone.
+    /// Last pointer sample: the pointer is in — or its motion segment crossed —
+    /// the edge trigger zone. The App derives this motion-aware so a fast
+    /// approach that jumps over a static point zone still arms (see
+    /// `reveal_edge_segment_crosses`).
     in_edge: bool,
     /// Last pointer sample: within the keep-alive band (⊇ the edge zone).
     in_band: bool,
@@ -124,10 +130,10 @@ impl RailAutohide {
         }
     }
 
-    /// Feed a fresh pointer sample. `in_edge` = pointer within the reveal
-    /// trigger zone at the window edge; `in_band` = pointer anywhere in the
-    /// keep-alive region (edge zone ∪ revealed band). Returns `true` when
-    /// visibility changed (the caller should redraw).
+    /// Feed a fresh pointer sample. `in_edge` = the pointer is in — or its motion
+    /// segment crossed — the reveal trigger zone at the window edge; `in_band` =
+    /// pointer anywhere in the keep-alive region (edge zone ∪ revealed band).
+    /// Returns `true` when visibility changed (the caller should redraw).
     pub(super) fn on_pointer(&mut self, in_edge: bool, in_band: bool, now: Instant) -> bool {
         self.in_edge = in_edge;
         self.in_band = in_band;
@@ -220,8 +226,14 @@ impl RailAutohide {
                 }
             }
             Phase::Revealing(since) => {
-                if !self.in_band {
-                    // Pointer left before the debounce elapsed — never flashed.
+                if !self.in_edge && !self.in_band {
+                    // Pointer decisively away before the debounce elapsed —
+                    // neither still sweeping the trigger edge (motion-aware
+                    // `in_edge`) nor over the keep-alive band — so the arm never
+                    // flashed. A single fast follow-through that overshoots past
+                    // the seam (the live trace's 7.9px → 214px in 74 ms) keeps
+                    // `in_edge` set via segment-crossing, so a deliberate quick
+                    // approach is no longer aborted mid-confirm.
                     Phase::Hidden
                 } else if now.saturating_duration_since(since) >= SHOW_DEBOUNCE {
                     Phase::Revealed
@@ -294,6 +306,30 @@ mod tests {
         let later = start + FLASH;
         assert!(!m.poll(later));
         assert!(!m.is_visible(later));
+    }
+
+    #[test]
+    fn fast_follow_through_past_the_seam_does_not_abort_the_arm() {
+        // Live-trace regression (the 7.9px → 214px in 74 ms abort): an arm at the
+        // edge followed within the debounce by one fast sample that overshoots
+        // past the seam — `in_edge` still set by segment-crossing, but no longer
+        // `in_band` — must NOT abort. It promotes at the debounce. The old
+        // `!in_band` abort dropped it, so a deliberate quick approach "wouldn't
+        // open".
+        let start = t0();
+        let mut m = RailAutohide::default();
+        m.on_pointer(true, true, start); // arm at the edge
+        // Fast follow-through: the motion segment still crosses the edge (in_edge
+        // stays true), but the current point is past the band (in_band false).
+        let follow = start + SHOW_DEBOUNCE / 3;
+        assert!(
+            !m.on_pointer(true, false, follow),
+            "no flip yet — still confirming, not aborted"
+        );
+        // At the debounce boundary it promotes rather than aborting.
+        let revealed = start + SHOW_DEBOUNCE;
+        assert!(m.poll(revealed), "confirm elapses → revealed");
+        assert!(m.is_visible(revealed));
     }
 
     #[test]
