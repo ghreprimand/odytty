@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Workspaces gain keyboard and command-palette control
+
+Workspaces — a layer that groups tabs above the tab strip — now have a full
+keyboard and command-palette surface. Six new bindable actions cover the
+lifecycle: New / Close / Rename / Next / Previous Workspace, plus a Workspace
+Picker that opens the command palette. Next / Previous default to
+`Ctrl+Shift+PageDown` / `Ctrl+Shift+PageUp` — one modifier above the
+`Ctrl+PageDown/Up` tab-cycling chords they sit mnemonically over, and otherwise
+free (scrollback uses `Shift+Page*`, tab cycling `Ctrl+Page*`). Creation,
+rename, and close are unbound by default: the rail, the context menu, and the
+palette cover them, and the `Ctrl+Shift+<letter>` space is nearly exhausted.
+
+The actions are global chords, never on the multiplexer prefix, so the
+no-prefix input path is untouched. Each routes onto the workspace model built
+for the core layer: creating a workspace appends one single-pane tab and
+switches to it; cycling wraps in rail order; closing reaps the whole workspace,
+and closing the last remaining workspace signals app exit exactly like closing
+the last tab of the last workspace — guarded before any reap so the session
+arena is never emptied ahead of teardown.
+
+The command palette now lists workspace rows: one "switch to …" entry per
+workspace (carrying its rail index), plus New Workspace and Rename Workspace.
+These are dynamic rows composed from the live workspace list alongside the
+existing history and directory sources; the palette itself never mutates state,
+returning the chosen action for the app to run after it closes.
+
+Renaming reuses the tab-rename overlay, generalized to edit either a tab title
+or a workspace label so the field-editing, mouse-selection, and caret machinery
+is shared. A blank workspace rename keeps the existing label (a workspace always
+carries a name), where a blank tab rename clears back to the live title.
+
+Windows: platform-neutral — no `cfg(windows)` surface. The full suite runs on
+the windows-latest CI leg.
+
 ## 2026-07-04 -- Right-click menus are now context-aware per surface
 
 **A right-click on a tab opened the full terminal menu — Copy, Cut, Paste,

@@ -211,8 +211,10 @@ fn all_bindable_actions_is_exhaustive() {
             | JumpPromptPrev | JumpPromptNext | CopyMode | Hints | ClearInput => 0,
             CommandPalette | ConnectionManager | SessionReplay | ThemeBuilder | SessionAttach => 1,
             NewTab | NewWindow | NextTab | PrevTab | CloseTab => 2,
+            NewWorkspace | CloseWorkspace | RenameWorkspace | NextWorkspace | PrevWorkspace
+            | WorkspacePicker => 3,
             SplitColumns | SplitRows | FocusPaneLeft | FocusPaneRight | FocusPaneUp
-            | FocusPaneDown | FocusPaneNext | ClosePane | ZoomPane | EqualizePanes => 3,
+            | FocusPaneDown | FocusPaneNext | ClosePane | ZoomPane | EqualizePanes => 4,
         }
     }
 
@@ -224,7 +226,7 @@ fn all_bindable_actions_is_exhaustive() {
     }
     // Every variant is reachable through `classify`, and every group is present
     // in ALL — proving ALL covers all four classes without omission.
-    let mut groups = [false; 4];
+    let mut groups = [false; 5];
     for action in BindableAction::ALL {
         groups[classify(action) as usize] = true;
     }

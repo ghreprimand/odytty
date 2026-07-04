@@ -536,6 +536,20 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             named_chord(KeyBindingNamedKey::PageUp, true, false, false, false),
             BindableAction::PrevTab,
         ),
+        // Workspace cycling. `Ctrl+Shift+PageDown/PageUp` sit mnemonically above
+        // the `Ctrl+PageDown/PageUp` tab-cycling chords and are otherwise free
+        // (scroll uses Shift+Page*, tab cycling uses Ctrl+Page*). New / Close /
+        // Rename Workspace stay unbound by default — the rail, context menu, and
+        // command palette cover them, and the `Ctrl+Shift+<letter>` space is
+        // nearly exhausted.
+        (
+            named_chord(KeyBindingNamedKey::PageDown, true, true, false, false),
+            BindableAction::NextWorkspace,
+        ),
+        (
+            named_chord(KeyBindingNamedKey::PageUp, true, true, false, false),
+            BindableAction::PrevWorkspace,
+        ),
     ]
 }
 

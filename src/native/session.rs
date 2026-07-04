@@ -594,8 +594,7 @@ impl Tab {
 /// never called a "session".
 pub(super) struct Workspace {
     /// User-visible, renameable label; defaults to "Workspace N". Read by the
-    /// workspace-rail chrome (a later packet); unused by the core model itself.
-    #[allow(dead_code)]
+    /// command palette / keyboard layer and the workspace-rail chrome.
     pub(super) name: String,
     /// The tabs of this workspace, in strip order. `Tab` is unchanged.
     pub(super) tabs: Vec<Tab>,
@@ -1877,12 +1876,9 @@ impl WorkspaceSet {
 
 /// Workspace-level operations (design doc §3.1, ODP-3/-10). These are the model
 /// half of the workspace layer: create / switch / rename / close a workspace and
-/// query the workspace list. The rail chrome and the workspace `BindableAction`s
-/// that call them land in later packets, so this block carries `allow(dead_code)`
-/// as scaffolding parity with the pane-ops block above — it comes off as the rail
-/// (W2) and keyboard/palette (W3) wire these in. None of them run until a second
-/// workspace exists, so single-workspace behavior is untouched.
-#[allow(dead_code)]
+/// query the workspace list. The keyboard/palette layer (W3) wires these in; the
+/// rail chrome (W2) reuses them. None of them run until a second workspace
+/// exists, so single-workspace behavior is untouched.
 impl WorkspaceSet {
     /// The active workspace index (rail highlight / palette current-marker).
     pub(super) fn active_workspace_index(&self) -> usize {
@@ -1893,6 +1889,13 @@ impl WorkspaceSet {
     /// of range.
     pub(super) fn workspace_name(&self, idx: usize) -> Option<&str> {
         self.workspaces.get(idx).map(|ws| ws.name.as_str())
+    }
+
+    /// The display names of every workspace, in rail order. Feeds the command
+    /// palette's per-workspace "switch to …" rows (W3); the index into this list
+    /// is the [`Self::switch_workspace`] target.
+    pub(super) fn workspace_names(&self) -> Vec<String> {
+        self.workspaces.iter().map(|ws| ws.name.clone()).collect()
     }
 
     /// Spawn a fresh shell in a brand-new workspace appended after the current
@@ -1945,9 +1948,13 @@ impl WorkspaceSet {
         true
     }
 
-    /// Rename the active workspace.
-    pub(super) fn rename_active_workspace(&mut self, name: String) {
-        self.active_workspace_mut().name = name;
+    /// Rename the workspace at rail index `idx`. Out-of-range requests are
+    /// no-ops. Used by the "Rename Workspace" action / palette entry (targeting
+    /// the active index) and, later, the rail's in-place rename.
+    pub(super) fn rename_workspace(&mut self, idx: usize, name: String) {
+        if let Some(ws) = self.workspaces.get_mut(idx) {
+            ws.name = name;
+        }
     }
 
     /// Close the ENTIRE active workspace — reap every session of every tab and
@@ -3066,13 +3073,13 @@ mod tests {
     }
 
     #[test]
-    fn renaming_the_active_workspace_updates_only_that_rail_name() {
+    fn renaming_a_workspace_updates_only_that_rail_name() {
         let mut set = WorkspaceSet::new(build_session(), None);
-        set.rename_active_workspace("infra".to_owned());
+        set.rename_workspace(0, "infra".to_owned());
         assert_eq!(set.workspace_name(0), Some("infra"));
         set.push_workspace(build_session_with_id(SessionToken(1)));
         assert!(set.switch_workspace(1));
-        set.rename_active_workspace("app".to_owned());
+        set.rename_workspace(set.active_workspace_index(), "app".to_owned());
         assert_eq!(set.workspace_name(0), Some("infra"));
         assert_eq!(set.workspace_name(1), Some("app"));
     }

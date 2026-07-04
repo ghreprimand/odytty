@@ -195,9 +195,19 @@ impl SynchronizedOutputHold {
     }
 }
 
+/// What an in-progress rename overlay is editing. Tabs commit a `title_override`
+/// on the tab that owns the token; workspaces commit the label of the workspace
+/// at the given rail index. One overlay serves both so the field-editing,
+/// mouse-selection, and signature machinery is shared.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RenameTarget {
+    Tab(SessionToken),
+    Workspace(usize),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RenameState {
-    target: SessionToken,
+    target: RenameTarget,
     text: String,
     /// Caret position as a *character* index into `text` (not a byte offset).
     cursor: usize,
@@ -992,6 +1002,104 @@ impl App {
         self.on_active_session_changed();
     }
 
+    /// Create a fresh workspace (one single-pane tab) and switch to it — the
+    /// "New Workspace" action / palette entry / rail `+` slot (ODP-3/-5). Mirrors
+    /// [`Self::handle_new_tab`] one level up: spawn the new workspace's shell,
+    /// apply this window's presentation policy to it, then flash the rail so the
+    /// new workspace is confirmed. The new session becomes the `Deref` target, so
+    /// `on_active_session_changed` reconciles focus/geometry.
+    fn handle_new_workspace(&mut self) {
+        let Ok(token) = self.sessions.new_workspace(self.grid) else {
+            return;
+        };
+        let effective_theme = self.effective_theme;
+        let themed_ui_roles = self.themed_ui_roles;
+        let osc52_read = self.settings.osc52_read;
+        let cursor_style = self.settings.cursor_style;
+        let cursor_blink = self.settings.cursor_blink;
+        let cell = self.gpu.as_ref().map(GpuState::cell);
+        let scrollback_limit = self.settings.scrollback_limit();
+        if let Some(session) = self.sessions.get_mut(token) {
+            Self::initialize_session_with(
+                session,
+                effective_theme,
+                themed_ui_roles,
+                osc52_read,
+                cursor_style,
+                cursor_blink,
+                cell,
+                scrollback_limit,
+            );
+        }
+        self.flash_rail_autohide();
+        self.on_active_session_changed();
+    }
+
+    /// Close the entire active workspace — every tab, every pane (ODP-3). Closing
+    /// the last remaining workspace exits the app, exactly like closing the last
+    /// tab of the last workspace: we guard on that case first and set
+    /// `pending_exit` without reaping, so the arena is not emptied before
+    /// teardown (a `Deref` on the emptied set would panic). Otherwise the reap
+    /// removes the workspace, switches to a neighbor, and reconciles focus.
+    fn close_active_workspace(&mut self) {
+        if self.sessions.workspace_count() <= 1 {
+            self.pending_exit = true;
+            return;
+        }
+        let _ = self.sessions.close_active_workspace();
+        self.flash_rail_autohide();
+        // The neighbor workspace's active tab may be single-pane, returning input
+        // to the plain fast path; clear any pending multiplexer prefix.
+        if self.sessions.active_is_single_pane() {
+            self.prefix_engine.cancel();
+        }
+        self.on_active_session_changed();
+    }
+
+    /// Switch to the next workspace in rail order (wrapping) — the "Next
+    /// Workspace" action / palette entry. A no-op with a single workspace. Flashes
+    /// the auto-hidden rail so the workspace change is visible even with the
+    /// pointer away from the edge (ODP-2: workspace chords flash the rail).
+    fn switch_to_next_workspace(&mut self) {
+        if self.sessions.next_workspace() {
+            self.flash_rail_autohide();
+            if self.sessions.active_is_single_pane() {
+                self.prefix_engine.cancel();
+            }
+            self.on_active_session_changed();
+        }
+    }
+
+    /// Switch to the previous workspace in rail order (wrapping). A no-op with a
+    /// single workspace.
+    fn switch_to_prev_workspace(&mut self) {
+        if self.sessions.prev_workspace() {
+            self.flash_rail_autohide();
+            if self.sessions.active_is_single_pane() {
+                self.prefix_engine.cancel();
+            }
+            self.on_active_session_changed();
+        }
+    }
+
+    /// Switch directly to the workspace at rail index `idx` — the command
+    /// palette's per-workspace "switch to …" rows (ODP-5). A no-op when `idx` is
+    /// the active workspace or out of range.
+    pub(super) fn switch_to_workspace(&mut self, idx: usize) {
+        if self.sessions.switch_workspace(idx) {
+            self.flash_rail_autohide();
+            if self.sessions.active_is_single_pane() {
+                self.prefix_engine.cancel();
+            }
+            self.on_active_session_changed();
+        }
+    }
+
+    /// Create a fresh workspace from the command palette's "New Workspace" row.
+    pub(super) fn new_workspace_from_palette(&mut self) {
+        self.handle_new_workspace();
+    }
+
     /// Dispatch a multiplexer pane action resolved on the prefix (§7, K2). The
     /// prefix engine only ever returns pane actions here; the catch-all is for
     /// exhaustiveness. Each op routes onto the `WorkspaceSet` pane methods built in
@@ -1472,6 +1580,30 @@ impl App {
                     if self.close_active_tab() {
                         return;
                     }
+                    return;
+                }
+                Some(BindableAction::NewWorkspace) => {
+                    self.handle_new_workspace();
+                    return;
+                }
+                Some(BindableAction::CloseWorkspace) => {
+                    self.close_active_workspace();
+                    return;
+                }
+                Some(BindableAction::RenameWorkspace) => {
+                    self.enter_rename_workspace(self.sessions.active_workspace_index());
+                    return;
+                }
+                Some(BindableAction::NextWorkspace) => {
+                    self.switch_to_next_workspace();
+                    return;
+                }
+                Some(BindableAction::PrevWorkspace) => {
+                    self.switch_to_prev_workspace();
+                    return;
+                }
+                Some(BindableAction::WorkspacePicker) => {
+                    self.open_command_palette_overlay();
                     return;
                 }
                 Some(BindableAction::Search)

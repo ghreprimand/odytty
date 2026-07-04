@@ -461,6 +461,15 @@ fn key_bindings_default_prompt_copymode_and_hints_chords() {
         ),
         Some(BindableAction::PrevTab)
     );
+    // Workspace cycling sits one modifier above tab cycling: Ctrl+Shift+Page*.
+    assert_eq!(
+        bindings.action_for(&WinitKey::Named(NamedKey::PageDown), ctrl_shift, false),
+        Some(BindableAction::NextWorkspace)
+    );
+    assert_eq!(
+        bindings.action_for(&WinitKey::Named(NamedKey::PageUp), ctrl_shift, false),
+        Some(BindableAction::PrevWorkspace)
+    );
 }
 
 #[test]

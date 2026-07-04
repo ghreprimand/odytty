@@ -242,6 +242,31 @@ pub enum BindableAction {
     NextTab,
     PrevTab,
     CloseTab,
+    // --- Workspace actions. A workspace groups a set of tabs; these are global
+    //     chords (never on the multiplexer prefix), so `is_pane_action` stays
+    //     false for them. Creation/rename/close are unbound by default (the rail
+    //     `+` slot, context menu, and palette cover them); cycling has default
+    //     chords a TUI cannot receive.
+    /// Create a fresh workspace (one single-pane tab) and switch to it. Unbound
+    /// by default.
+    NewWorkspace,
+    /// Close the entire active workspace — every tab and pane. Closing the last
+    /// workspace exits the app (last-tab-of-last-workspace exit semantics).
+    /// Unbound by default.
+    CloseWorkspace,
+    /// Rename the active workspace in place. Unbound by default.
+    RenameWorkspace,
+    /// Switch to the next workspace in rail order (wrapping). Bound to
+    /// `Ctrl+Shift+PageDown` by default (mnemonically above `Ctrl+PageDown` tab
+    /// cycling).
+    NextWorkspace,
+    /// Switch to the previous workspace in rail order (wrapping). Bound to
+    /// `Ctrl+Shift+PageUp` by default.
+    PrevWorkspace,
+    /// Open the command palette focused on workspace navigation (v1 has no
+    /// dedicated picker overlay; the palette lists every workspace). Unbound by
+    /// default.
+    WorkspacePicker,
     // --- Pane-management actions (§7). These resolve only on the multiplexer
     //     prefix (default `Ctrl-b`), never as bare global chords, so they never
     //     perturb the no-prefix input path. See `BindableAction::is_pane_action`.
@@ -274,7 +299,7 @@ impl BindableAction {
     /// coverage guard checks against, so a new variant cannot be silently
     /// omitted from the editor. Keep it exhaustive — the
     /// `all_bindable_actions_is_exhaustive` test pins it to the enum's size.
-    pub const ALL: [Self; 32] = [
+    pub const ALL: [Self; 38] = [
         // Core non-tab actions.
         Self::Search,
         Self::SettingsPanel,
@@ -300,6 +325,13 @@ impl BindableAction {
         Self::NextTab,
         Self::PrevTab,
         Self::CloseTab,
+        // Workspace actions.
+        Self::NewWorkspace,
+        Self::CloseWorkspace,
+        Self::RenameWorkspace,
+        Self::NextWorkspace,
+        Self::PrevWorkspace,
+        Self::WorkspacePicker,
         // Pane-management actions (§7).
         Self::SplitColumns,
         Self::SplitRows,
@@ -355,6 +387,14 @@ impl BindableAction {
             "nexttab" | "tabnext" => Some(Self::NextTab),
             "prevtab" | "previoustab" | "tabprev" => Some(Self::PrevTab),
             "closetab" | "tabclose" => Some(Self::CloseTab),
+            "newworkspace" | "workspacenew" => Some(Self::NewWorkspace),
+            "closeworkspace" | "workspaceclose" => Some(Self::CloseWorkspace),
+            "renameworkspace" | "workspacerename" => Some(Self::RenameWorkspace),
+            "nextworkspace" | "workspacenext" => Some(Self::NextWorkspace),
+            "prevworkspace" | "previousworkspace" | "workspaceprev" => Some(Self::PrevWorkspace),
+            "workspacepicker" | "workspaceswitcher" | "workspaces" | "pickworkspace" => {
+                Some(Self::WorkspacePicker)
+            }
             "splitcolumns" | "splitsidebyside" | "splitright" => Some(Self::SplitColumns),
             "splitrows" | "splitstacked" | "splitdown" => Some(Self::SplitRows),
             "focuspaneleft" | "paneleft" => Some(Self::FocusPaneLeft),

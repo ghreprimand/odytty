@@ -13,7 +13,7 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use crate::palette::{
-    PaletteModel, PaletteOptions, PaletteSelection, PaletteSourceKind, SelectionWrap,
+    PaletteEntry, PaletteModel, PaletteOptions, PaletteSelection, PaletteSourceKind, SelectionWrap,
 };
 use crate::palette_catalog::compose_default_palette_entries;
 use crate::palette_sources::{RecentDirs, read_history_for_shell};
@@ -69,9 +69,9 @@ impl PaletteOverlay {
         }
     }
 
-    pub(super) fn open_from_process_env(&mut self, cwd: Option<&str>) {
+    pub(super) fn open_from_process_env(&mut self, cwd: Option<&str>, workspaces: &[String]) {
         let history = read_history_from_process_env();
-        self.open_with_history_and_cwd(history, cwd);
+        self.open_with_history_and_cwd(history, cwd, workspaces);
     }
 
     #[cfg(test)]
@@ -80,17 +80,35 @@ impl PaletteOverlay {
         H: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        self.open_with_history_and_cwd(history, cwd);
+        self.open_with_history_and_cwd(history, cwd, &[]);
     }
 
-    fn open_with_history_and_cwd<H, S>(&mut self, history: H, cwd: Option<&str>)
-    where
+    #[cfg(test)]
+    pub(super) fn open_with_workspaces_for_test<H, S>(
+        &mut self,
+        history: H,
+        cwd: Option<&str>,
+        workspaces: &[String],
+    ) where
+        H: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.open_with_history_and_cwd(history, cwd, workspaces);
+    }
+
+    fn open_with_history_and_cwd<H, S>(
+        &mut self,
+        history: H,
+        cwd: Option<&str>,
+        workspaces: &[String],
+    ) where
         H: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
         self.recent_dirs.observe_osc7_cwd(cwd);
         let directories = self.recent_dirs.candidates();
-        let entries = compose_default_palette_entries(history, directories);
+        let mut entries = compose_default_palette_entries(history, directories);
+        entries.extend(workspace_palette_entries(workspaces));
         self.model = PaletteModel::with_options(entries, palette_options());
         self.reset_scroll();
     }
@@ -300,6 +318,43 @@ fn palette_options() -> PaletteOptions {
     }
 }
 
+/// Stable id prefix for the per-workspace "switch to …" palette rows. The rail
+/// index is appended (`workspace-switch-2`); [`parse_workspace_switch_id`]
+/// recovers it, and the App routes it through `switch_to_workspace`.
+pub(super) const WORKSPACE_SWITCH_ID_PREFIX: &str = "workspace-switch-";
+/// Stable id for the "New Workspace" palette row.
+pub(super) const WORKSPACE_NEW_ID: &str = "workspace-new";
+/// Stable id for the "Rename Workspace" palette row (targets the active
+/// workspace).
+pub(super) const WORKSPACE_RENAME_ID: &str = "workspace-rename";
+
+/// The workspace rows appended to the command palette (ODP-5): one "switch to
+/// …" row per workspace in rail order, then create and rename rows. Pure —
+/// takes the current workspace names and returns action entries with stable ids
+/// the App dispatches after the overlay closes.
+fn workspace_palette_entries(names: &[String]) -> Vec<PaletteEntry> {
+    let mut entries = Vec::with_capacity(names.len() + 2);
+    for (idx, name) in names.iter().enumerate() {
+        entries.push(PaletteEntry::action(
+            format!("{WORKSPACE_SWITCH_ID_PREFIX}{idx}"),
+            format!("Workspace: {name}"),
+        ));
+    }
+    entries.push(PaletteEntry::action(WORKSPACE_NEW_ID, "New Workspace"));
+    entries.push(PaletteEntry::action(
+        WORKSPACE_RENAME_ID,
+        "Rename Workspace",
+    ));
+    entries
+}
+
+/// Recover the rail index from a `workspace-switch-<idx>` action id, or `None`
+/// when the id is not a workspace-switch row.
+pub(super) fn parse_workspace_switch_id(id: &str) -> Option<usize> {
+    id.strip_prefix(WORKSPACE_SWITCH_ID_PREFIX)
+        .and_then(|suffix| suffix.parse().ok())
+}
+
 fn visible_result_rows(body_height: usize) -> usize {
     body_height.saturating_sub(1)
 }
@@ -422,6 +477,66 @@ mod tests {
             overlay.handle_input(OverlayInput::Activate),
             PaletteOverlayOutcome::Action("settings".to_owned())
         );
+    }
+
+    fn open_with_workspaces(workspaces: &[&str]) -> PaletteOverlay {
+        let names: Vec<String> = workspaces.iter().map(|s| (*s).to_owned()).collect();
+        let mut overlay = PaletteOverlay::new();
+        overlay.open_with_workspaces_for_test(std::iter::empty::<&str>(), None, &names);
+        overlay
+    }
+
+    #[test]
+    fn workspace_rows_include_switch_new_and_rename() {
+        let mut overlay = open_with_workspaces(&["infra", "app"]);
+        type_query(&mut overlay, "workspace");
+
+        let labels: Vec<_> = overlay
+            .model
+            .results()
+            .iter()
+            .map(|result| result.label.as_str())
+            .collect();
+        assert!(labels.contains(&"Workspace: infra"), "labels: {labels:?}");
+        assert!(labels.contains(&"Workspace: app"), "labels: {labels:?}");
+        assert!(labels.contains(&"New Workspace"), "labels: {labels:?}");
+        assert!(labels.contains(&"Rename Workspace"), "labels: {labels:?}");
+    }
+
+    #[test]
+    fn accept_workspace_switch_row_returns_indexed_action_id() {
+        let mut overlay = open_with_workspaces(&["infra", "app"]);
+        // Second workspace's switch row carries the rail index in its id.
+        type_query(&mut overlay, "app");
+
+        let PaletteOverlayOutcome::Action(id) = overlay.handle_input(OverlayInput::Activate) else {
+            panic!("workspace switch row must dispatch an action id");
+        };
+        assert_eq!(parse_workspace_switch_id(&id), Some(1));
+    }
+
+    #[test]
+    fn workspace_switch_id_round_trips_only_for_switch_ids() {
+        assert_eq!(parse_workspace_switch_id("workspace-switch-0"), Some(0));
+        assert_eq!(parse_workspace_switch_id("workspace-switch-7"), Some(7));
+        assert_eq!(parse_workspace_switch_id(WORKSPACE_NEW_ID), None);
+        assert_eq!(parse_workspace_switch_id(WORKSPACE_RENAME_ID), None);
+        assert_eq!(parse_workspace_switch_id("new-tab"), None);
+    }
+
+    #[test]
+    fn no_workspace_switch_rows_when_no_names_but_create_still_offered() {
+        let mut overlay = open_with_workspaces(&[]);
+        type_query(&mut overlay, "workspace");
+        let labels: Vec<_> = overlay
+            .model
+            .results()
+            .iter()
+            .map(|result| result.label.as_str())
+            .collect();
+        assert!(!labels.iter().any(|l| l.starts_with("Workspace:")));
+        assert!(labels.contains(&"New Workspace"));
+        assert!(labels.contains(&"Rename Workspace"));
     }
 
     #[test]

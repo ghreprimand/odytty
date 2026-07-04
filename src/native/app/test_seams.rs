@@ -1366,6 +1366,74 @@ impl App {
     }
 
     #[cfg(test)]
+    pub(in crate::native) fn workspace_count_for_test(&self) -> usize {
+        self.sessions.workspace_count()
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn active_workspace_index_for_test(&self) -> usize {
+        self.sessions.active_workspace_index()
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn workspace_names_for_test(&self) -> Vec<String> {
+        self.sessions.workspace_names()
+    }
+
+    /// Drive the workspace `BindableAction`s exactly as the key-dispatch match
+    /// arms do, so a test exercises the real handler wiring (W3).
+    #[cfg(test)]
+    pub(in crate::native) fn dispatch_workspace_action_for_test(
+        &mut self,
+        action: crate::settings::BindableAction,
+    ) {
+        use crate::settings::BindableAction as BA;
+        match action {
+            BA::NewWorkspace => self.handle_new_workspace(),
+            BA::CloseWorkspace => self.close_active_workspace(),
+            BA::RenameWorkspace => {
+                self.enter_rename_workspace(self.sessions.active_workspace_index())
+            }
+            BA::NextWorkspace => self.switch_to_next_workspace(),
+            BA::PrevWorkspace => self.switch_to_prev_workspace(),
+            BA::WorkspacePicker => self.open_command_palette_overlay(),
+            _ => {}
+        }
+    }
+
+    /// Route a command-palette action id through the production dispatch (W3
+    /// workspace rows: `workspace-switch-<idx>`, `workspace-new`,
+    /// `workspace-rename`).
+    #[cfg(test)]
+    pub(in crate::native) fn handle_palette_action_for_test(&mut self, id: &str) {
+        self.handle_palette_action(id.to_owned());
+    }
+
+    /// Commit the in-flight rename overlay with `text` (types the string then
+    /// presses Enter) so a test can assert the workspace/tab label lands.
+    #[cfg(test)]
+    pub(in crate::native) fn commit_rename_for_test(&mut self, text: &str) {
+        use winit::keyboard::{Key as WinitKey, NamedKey};
+        // Replace whatever seed the field carried.
+        while self
+            .rename_state
+            .as_ref()
+            .is_some_and(|s| !s.text.is_empty())
+        {
+            self.rename_key(&WinitKey::Named(NamedKey::Backspace));
+        }
+        for ch in text.chars() {
+            self.rename_key(&WinitKey::Character(ch.to_string().into()));
+        }
+        self.rename_key(&WinitKey::Named(NamedKey::Enter));
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn rename_overlay_open_for_test(&self) -> bool {
+        self.rename_state.is_some()
+    }
+
+    #[cfg(test)]
     pub(in crate::native) fn close_all_sessions_for_test(&mut self) {
         self.close_all_sessions();
     }
@@ -1451,6 +1519,32 @@ impl App {
             PhysicalKey::Code(KeyCode::Enter),
             KeyEventType::Press,
         );
+    }
+
+    /// Drive a named key with explicit ctrl/shift modifiers through the
+    /// production key path (e.g. `Ctrl+Shift+PageDown` for workspace cycling).
+    /// Restores the prior modifier state after.
+    #[cfg(test)]
+    pub(in crate::native) fn drive_named_key_with_mods_for_test(
+        &mut self,
+        key: NamedKey,
+        ctrl: bool,
+        shift: bool,
+    ) {
+        let prev = self.modifiers;
+        self.modifiers = crate::input::Modifiers {
+            ctrl,
+            shift,
+            ..crate::input::Modifiers::default()
+        };
+        let logical = WinitKey::Named(key);
+        self.handle_key_event(
+            logical.clone(),
+            logical,
+            PhysicalKey::Code(KeyCode::Enter),
+            KeyEventType::Press,
+        );
+        self.modifiers = prev;
     }
 
     /// Test seam (§7 K2): drive a character key with explicit ctrl/shift

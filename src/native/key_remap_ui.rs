@@ -638,7 +638,7 @@ mod tests {
         // exhaustiveness is pinned by `all_bindable_actions_is_exhaustive` in the
         // settings tests; here we confirm the editor inherits the full set with
         // no duplicates.
-        assert_eq!(ACTIONS.len(), 32);
+        assert_eq!(ACTIONS.len(), 38);
         assert_eq!(ACTIONS, BindableAction::ALL);
         for (i, a) in ACTIONS.iter().enumerate() {
             for b in &ACTIONS[i + 1..] {

@@ -390,15 +390,32 @@ impl App {
             return;
         }
         let title = self.sessions.effective_tab_title(target);
-        let cursor = title.chars().count();
+        self.begin_rename(RenameTarget::Tab(target), title);
+    }
+
+    /// Open the rename overlay on the workspace at rail index `idx`, seeded with
+    /// its current label. The "Rename Workspace" action / palette entry target
+    /// the active workspace; the rail's in-place rename (W2) reuses this. A
+    /// stale index is a no-op.
+    pub(super) fn enter_rename_workspace(&mut self, idx: usize) {
+        let Some(name) = self.sessions.workspace_name(idx) else {
+            return;
+        };
+        let seed = name.to_owned();
+        self.begin_rename(RenameTarget::Workspace(idx), seed);
+    }
+
+    /// Shared setup for the rename overlay: seed the field with `text`, park the
+    /// caret at the end, and clear any stale pointer streak from a previous
+    /// field so a leftover drag/double-click can't leak in (F4-RENAME-MOUSE).
+    fn begin_rename(&mut self, target: RenameTarget, text: String) {
+        let cursor = text.chars().count();
         self.rename_state = Some(RenameState {
             target,
-            text: title,
+            text,
             cursor,
             anchor: None,
         });
-        // F4-RENAME-MOUSE: start each rename with a clean pointer state so a
-        // stale drag/double-click streak from a previous field can't leak in.
         self.rename_dragging = false;
         self.rename_clicks = ClickTracker::default();
         self.request_selection_redraw();
@@ -416,8 +433,20 @@ impl App {
             WinitKey::Named(NamedKey::Enter) => {
                 let target = state.target;
                 let text = state.text.trim().to_owned();
-                let override_name = (!text.is_empty()).then_some(text);
-                self.sessions.set_title_override(target, override_name);
+                match target {
+                    RenameTarget::Tab(token) => {
+                        let override_name = (!text.is_empty()).then_some(text);
+                        self.sessions.set_title_override(token, override_name);
+                    }
+                    RenameTarget::Workspace(idx) => {
+                        // A workspace always keeps a name: an empty field leaves
+                        // the existing label unchanged (unlike a tab, which
+                        // clears back to its live title).
+                        if !text.is_empty() {
+                            self.sessions.rename_workspace(idx, text);
+                        }
+                    }
+                }
                 self.rename_state = None;
                 self.rename_dragging = false;
             }
@@ -981,7 +1010,7 @@ mod rename_mouse_tests {
     /// helpers, which never touch the target token.
     fn state(text: &str, cursor: usize) -> RenameState {
         RenameState {
-            target: SessionToken(1),
+            target: RenameTarget::Tab(SessionToken(1)),
             text: text.to_owned(),
             cursor,
             anchor: None,

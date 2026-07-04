@@ -235,10 +235,10 @@ impl OverlayUi {
         self.open = true;
     }
 
-    pub(super) fn open_command_palette(&mut self, cwd: Option<&str>) {
+    pub(super) fn open_command_palette(&mut self, cwd: Option<&str>, workspaces: &[String]) {
         self.panel.end_slider_drag();
         self.theme_builder.end_channel_drag();
-        self.command_palette.open_from_process_env(cwd);
+        self.command_palette.open_from_process_env(cwd, workspaces);
         self.mode = OverlayMode::CommandPalette;
         self.open = true;
     }

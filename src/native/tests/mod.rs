@@ -104,6 +104,7 @@ mod synchronized_output;
 mod tabs_sessions;
 mod viewport;
 mod wheel_zoom;
+mod workspaces;
 
 pub(super) fn snapshot(lines: &[&str], columns: usize) -> Snapshot {
     let rows = lines.len();
