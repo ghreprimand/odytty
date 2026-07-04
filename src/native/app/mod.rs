@@ -1791,6 +1791,20 @@ impl App {
             return;
         }
 
+        // F6-i4: when the active pane is a dropped remote session showing the
+        // reconnect prompt, keys drive the prompt — not the dead shell. Enter
+        // re-establishes the connection in the same tab; Esc / Ctrl+D dismiss it
+        // (close the tab). Every other key is swallowed so nothing reaches the
+        // now-defunct PTY. This sits after the global-chord dispatch above, so a
+        // tab/workspace switch or the command palette still work while a pane
+        // awaits reconnect.
+        if self.sessions.active_awaiting_reconnect() {
+            if event_type == KeyEventType::Press {
+                self.handle_reconnect_key(&logical, mods);
+            }
+            return;
+        }
+
         let mut bytes = Vec::new();
         if let Some(key) = map_keypad_physical_key(physical) {
             bytes = input::encode_key_event(key, mods, key_modes, event_type);
@@ -1827,6 +1841,43 @@ impl App {
         if let Ok(mut writer) = self.writer.lock() {
             let _ = writer.write_all(&bytes);
             let _ = writer.flush();
+        }
+    }
+
+    /// Drive the in-pane reconnect prompt (F6-i4) for the active dropped remote
+    /// session. Enter re-establishes the connection in the same tab slot;
+    /// Escape or Ctrl+D dismisses the prompt and closes the tab. Any other key
+    /// is a no-op (the prompt stays up). Called only on a key press while the
+    /// active session is awaiting reconnect.
+    fn handle_reconnect_key(&mut self, logical: &WinitKey, mods: Modifiers) {
+        let token = self.sessions.active_id();
+        match logical {
+            WinitKey::Named(NamedKey::Enter) => {
+                if self.sessions.reconnect(token) {
+                    self.on_active_session_changed();
+                }
+            }
+            WinitKey::Named(NamedKey::Escape) => {
+                self.dismiss_reconnect_and_close(token);
+            }
+            // Ctrl+D — the shell's own end-of-input chord — dismisses too.
+            WinitKey::Character(text)
+                if mods.ctrl && !self.super_key && text.eq_ignore_ascii_case("d") =>
+            {
+                self.dismiss_reconnect_and_close(token);
+            }
+            _ => {}
+        }
+    }
+
+    /// Dismiss the reconnect prompt and close the dropped tab. Closing the last
+    /// tab of the last workspace signals app exit, mirroring a normal shell exit;
+    /// the loop drains `pending_exit` after this window event returns.
+    fn dismiss_reconnect_and_close(&mut self, token: SessionToken) {
+        if self.sessions.close_shell_exited(token) {
+            self.pending_exit = true;
+        } else {
+            self.on_active_session_changed();
         }
     }
 
@@ -3477,6 +3528,15 @@ impl App {
                 false
             }
             UserEvent::ShellExited { session } => {
+                // F6-i4: a remote session whose link dropped (`ssh` exit 255)
+                // holds its tab open with an in-pane reconnect prompt instead of
+                // closing. Checked BEFORE the last-session exit test so a lone
+                // remote tab dropping offers reconnect rather than exiting the
+                // app. Local shells and clean exits fall through unchanged.
+                if self.sessions.try_arm_reconnect(session) {
+                    self.on_active_session_changed();
+                    return false;
+                }
                 if self.sessions.position_of_token(session).is_some()
                     && self.sessions.iter().count() <= 1
                 {

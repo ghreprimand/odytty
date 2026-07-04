@@ -91,6 +91,64 @@ pub(super) enum SessionSource {
     Attached { client: Arc<Mutex<AttachClient>> },
 }
 
+/// A remote session's reconnect anchor (F6-i4). Holds what is needed to
+/// re-establish the same connection into the SAME tab slot after a transport
+/// drop: the resolved `ssh` argv (so a reconnect is byte-identical to the
+/// original launch and survives the host being edited or removed from the saved
+/// hosts mid-session) plus the tab title to restore.
+///
+/// REATTACH ANCHOR — this is the per-session hook for re-establishing a remote
+/// connection. It is deliberately the same concept as a detached session-host's
+/// per-pane reattach id: both answer "how does this pane come back". Keep them
+/// unified as one reconnect notion rather than two parallel fields. The tab
+/// title is not stored here — reconnect reuses the same tab, whose title
+/// override already persists across the drop.
+pub(super) struct RemoteReconnect {
+    command: SshCommand,
+}
+
+impl RemoteReconnect {
+    pub(super) fn new(command: SshCommand) -> Self {
+        Self { command }
+    }
+}
+
+/// What to do when a session's shell reaches EOF, given its child exit code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ExitDisposition {
+    /// Close the tab normally — the byte-identical path everything used before.
+    Close,
+    /// A remote transport drop: hold the tab open and offer reconnect.
+    Reconnect,
+}
+
+/// Classify a remote session's shell exit from its child exit code.
+///
+/// OpenSSH's `ssh` client exits **255** on its own transport failures
+/// (connection refused, host-key mismatch, or a link that drops mid-session), so
+/// 255 is the reconnect trigger. A clean `0` (the user typed `exit`/`logout`),
+/// any other remote-command code, and a missing code (`None` — a Unix signal
+/// death, or a post-EOF Windows `STILL_ACTIVE` sentinel treated as "unknown")
+/// all close normally. The rare case of the remote command itself exiting 255 is
+/// an accepted false positive: the reconnect prompt is dismissable and
+/// self-correcting, which is strictly better than today's silent close on every
+/// drop. Classification only runs for sessions that carry reconnect state, so a
+/// local shell is never affected.
+pub(super) fn classify_remote_exit(code: Option<i32>) -> ExitDisposition {
+    match code {
+        Some(255) => ExitDisposition::Reconnect,
+        _ => ExitDisposition::Close,
+    }
+}
+
+/// The one-line in-pane notice painted when a remote link drops. Written into
+/// the terminal model on its own line (leading/trailing CRLF) using standard SGR
+/// so it renders in every theme's palette, and kept short enough for a narrow
+/// pane. The prompt actions (Enter / Esc) are handled by the App's key path
+/// while the session is awaiting reconnect.
+const RECONNECT_BANNER: &str =
+    "\r\n\x1b[1;33m connection dropped \x1b[0m  Enter: reconnect · Esc: close\r\n";
+
 pub(super) struct Session {
     pub(super) id: SessionToken,
     pub(super) terminal: Arc<Mutex<Terminal>>,
@@ -194,6 +252,16 @@ pub(super) struct Session {
     pub(super) row_fade_epoch: u64,
     pub(super) scroll_anim: Option<SessionScrollAnimState>,
     pub(super) scroll_frac_offset: f32,
+    /// Remote reconnect anchor (F6-i4). `Some` only for sessions launched through
+    /// the `ssh` connect path; `None` for a local shell, so exit classification
+    /// and the reconnect prompt never engage for a local session. See
+    /// [`RemoteReconnect`].
+    pub(super) reconnect: Option<RemoteReconnect>,
+    /// True while this remote session's link has dropped (`ssh` exit 255) and the
+    /// in-pane reconnect prompt is showing. Keys drive the prompt (Enter to
+    /// reconnect, Esc/Ctrl+D to dismiss) rather than the now-dead shell. Cleared
+    /// on a successful reconnect or when the tab is closed.
+    pub(super) awaiting_reconnect: bool,
 }
 
 impl Session {
@@ -358,6 +426,8 @@ impl Session {
             row_fade_epoch: 0,
             scroll_anim: None,
             scroll_frac_offset: 0.0,
+            reconnect: None,
+            awaiting_reconnect: false,
         }
     }
 
@@ -1437,6 +1507,10 @@ impl WorkspaceSet {
         command: SshCommand,
         title_override: Option<String>,
     ) -> Result<SessionToken, std::io::Error> {
+        // Keep the resolved argv as the session's reconnect anchor (F6-i4) before
+        // it is consumed into (program, args): a mid-session transport drop
+        // re-runs exactly this argv into the same tab slot.
+        let reconnect = RemoteReconnect::new(command.clone());
         let (program, args) = command.into_program_args();
         let session_id = self.insert_exec_session(grid, program, args)?;
         self.active_workspace_mut()
@@ -1444,6 +1518,9 @@ impl WorkspaceSet {
             .push(Tab::single(session_id));
         if let Some(title) = title_override {
             self.set_title_override(session_id, Some(title));
+        }
+        if let Some(session) = self.sessions.get_mut(&session_id) {
+            session.reconnect = Some(reconnect);
         }
         Ok(session_id)
     }
@@ -1604,6 +1681,115 @@ impl WorkspaceSet {
 
     pub(super) fn close_shell_exited(&mut self, token: SessionToken) -> bool {
         self.close_with(token, Session::close_after_shell_exit)
+    }
+
+    /// Capture the exit code of a session's local PTY child after its reader has
+    /// reached EOF. The child is already dead at the EOF fork, so `try_wait()`
+    /// returns synchronously — no blocking `wait()` is introduced. `None` means
+    /// no code was available: a Unix signal death (`.code() == None`) or, on
+    /// Windows, a post-EOF `STILL_ACTIVE` (259) sentinel that `try_wait` maps to
+    /// `Ok(None)`; both are treated as "unknown status", never "still running".
+    /// An attached session has no local PTY and also yields `None`.
+    fn capture_exit_code(&self, token: SessionToken) -> Option<i32> {
+        match &self.sessions.get(&token)?.source {
+            SessionSource::Local { pty } => {
+                pty.lock().ok()?.try_wait().ok()?.and_then(|s| s.code())
+            }
+            #[cfg(unix)]
+            SessionSource::Attached { .. } => None,
+        }
+    }
+
+    /// On a session's shell EOF, decide whether the tab should be held open for
+    /// reconnect. For a remote session (one that carries a [`RemoteReconnect`]
+    /// anchor) whose child exited 255, this arms the in-pane reconnect prompt —
+    /// painting a one-line banner into the pane via the write-once-into-terminal
+    /// precedent and flagging the session awaiting-reconnect — and returns
+    /// `true` so the caller leaves the tab open. Every other case (a local
+    /// shell, a clean exit, a non-transport exit code) returns `false` and the
+    /// caller closes normally, byte-identically to before.
+    pub(super) fn try_arm_reconnect(&mut self, token: SessionToken) -> bool {
+        if self
+            .sessions
+            .get(&token)
+            .is_none_or(|s| s.reconnect.is_none())
+        {
+            return false;
+        }
+        let code = self.capture_exit_code(token);
+        if classify_remote_exit(code) != ExitDisposition::Reconnect {
+            return false;
+        }
+        if let Some(session) = self.sessions.get_mut(&token) {
+            session.awaiting_reconnect = true;
+            crate::native::lock_recover(&session.terminal).advance(RECONNECT_BANNER.as_bytes());
+        }
+        true
+    }
+
+    /// Whether the active session is showing the dropped-connection reconnect
+    /// prompt. When true the App routes keys to the prompt (Enter reconnects,
+    /// Esc/Ctrl+D dismisses) instead of the dead shell.
+    pub(super) fn active_awaiting_reconnect(&self) -> bool {
+        self.active().awaiting_reconnect
+    }
+
+    /// Re-establish a dropped remote session in the SAME tab slot: respawn the
+    /// stored `ssh` argv, swap the session's I/O (PTY source, input writer, and
+    /// read pump) in place, and clear the awaiting-reconnect flag. The token,
+    /// tab, and pane layout are unchanged and the terminal model is reused, so
+    /// the reconnected shell reappears exactly where it dropped with the prior
+    /// scrollback (and the dropped banner) intact. The reconnect anchor is kept,
+    /// so a second drop can reconnect again. Returns `true` on success; on spawn
+    /// failure the session stays in the awaiting-reconnect state so the prompt
+    /// can be retried or dismissed.
+    pub(super) fn reconnect(&mut self, token: SessionToken) -> bool {
+        let Some(proxy) = self.proxy.clone() else {
+            return false;
+        };
+        let Some(session) = self.sessions.get(&token) else {
+            return false;
+        };
+        let Some(reconnect) = session.reconnect.as_ref() else {
+            return false;
+        };
+        let (program, args) = reconnect.command.clone().into_program_args();
+        let terminal = session.terminal.clone();
+        let recorder = session.recorder.clone();
+        let grid = crate::native::lock_recover(&terminal).screen().dimensions();
+        let Ok(spawned) = PtySession::spawn_exec(grid, program, args, None) else {
+            return false;
+        };
+        let Ok(reader) = spawned.try_clone_reader() else {
+            return false;
+        };
+        let Ok(raw_writer) = spawned.take_writer() else {
+            return false;
+        };
+        let writer: PtyWriter = Arc::new(Mutex::new(raw_writer));
+        let diagnostic = spawned.pending_diagnostic_slot();
+        let pump_thread = spawn_pty_pump(
+            reader,
+            writer.clone(),
+            terminal,
+            proxy,
+            token,
+            recorder,
+            diagnostic,
+        );
+        let pty = Arc::new(Mutex::new(spawned));
+        let Some(session) = self.sessions.get_mut(&token) else {
+            return false;
+        };
+        // The old read pump already ended at EOF; drop its handle. The prior PTY
+        // child is reaped by `Drop for PtySession` when the old source is
+        // replaced below.
+        session.pump_thread = Some(pump_thread);
+        session.source = SessionSource::Local { pty };
+        session.writer = writer;
+        session.awaiting_reconnect = false;
+        session.needs_rebuild = true;
+        true
     }
 
     /// Close the **entire active tab** — reap every leaf session in its layout
@@ -2893,6 +3079,201 @@ mod tests {
         assert_eq!(sessions.active_id(), token);
 
         assert!(!sessions.close(token));
+        assert!(sessions.close(SessionToken(0)));
+    }
+
+    #[test]
+    fn classify_remote_exit_maps_255_to_reconnect_and_everything_else_to_close() {
+        // The transport-drop discriminator: OpenSSH exits 255 on its own
+        // connection failures, so 255 (and only 255) offers reconnect.
+        assert_eq!(classify_remote_exit(Some(255)), ExitDisposition::Reconnect);
+        // Clean exit, ordinary remote-command failures, and a signal/unknown
+        // (`None` — Unix signal death or a Windows post-EOF STILL_ACTIVE
+        // sentinel) all close normally.
+        for code in [Some(0), Some(1), Some(126), Some(127), Some(130), None] {
+            assert_eq!(
+                classify_remote_exit(code),
+                ExitDisposition::Close,
+                "code {code:?} must close, not reconnect"
+            );
+        }
+    }
+
+    /// A short-lived local child masquerading as an ssh session, whose exit code
+    /// is `code`. Used to drive the reconnect classifier without a live ssh.
+    #[cfg(not(windows))]
+    fn exit_code_command(code: i32) -> SshCommand {
+        SshCommand::new(
+            "/bin/sh",
+            vec![OsString::from("-c"), OsString::from(format!("exit {code}"))],
+        )
+    }
+
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "winit EventLoop cannot be built off the main thread on macOS"
+    )]
+    #[cfg(not(windows))]
+    #[test]
+    fn ssh_session_stores_reconnect_anchor_but_a_local_shell_does_not() {
+        let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+            return;
+        };
+        let ssh = sessions
+            .spawn_ssh_command_in_new_tab_for_test(Dimensions::new(20, 8), exit_code_command(0))
+            .expect("ssh stub session");
+        assert!(
+            sessions.get(ssh).expect("ssh session").reconnect.is_some(),
+            "an ssh-launched session carries a reconnect anchor"
+        );
+        // A plain local shell (the startup session at token 0) never does, so
+        // classification and the reconnect prompt never engage for it.
+        assert!(
+            sessions
+                .get(SessionToken(0))
+                .expect("local session")
+                .reconnect
+                .is_none()
+        );
+        assert!(!sessions.close(ssh));
+        assert!(sessions.close(SessionToken(0)));
+    }
+
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "winit EventLoop cannot be built off the main thread on macOS"
+    )]
+    #[cfg(not(windows))]
+    #[test]
+    fn arm_reconnect_holds_the_tab_open_on_a_255_drop_and_paints_the_banner() {
+        let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+            return;
+        };
+        let ssh = sessions
+            .spawn_ssh_command_in_new_tab_for_test(Dimensions::new(40, 8), exit_code_command(255))
+            .expect("ssh stub session");
+        // Poll until the child has exited (255): while it is still running,
+        // `try_wait` returns `Ok(None)` non-destructively, so a `false` here just
+        // means "not dead yet" — retry. Once dead, the code is captured once and
+        // the tab is held open.
+        let armed = (0..200).any(|_| {
+            if sessions.try_arm_reconnect(ssh) {
+                true
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                false
+            }
+        });
+        assert!(armed, "a 255 drop must arm reconnect within the timeout");
+        assert!(sessions.get(ssh).expect("ssh session").awaiting_reconnect);
+        assert!(sessions.switch(ssh));
+        assert!(sessions.active_awaiting_reconnect());
+        // The in-pane banner was painted into the terminal model.
+        let text: String = sessions
+            .get(ssh)
+            .expect("ssh session")
+            .terminal
+            .lock()
+            .expect("terminal lock")
+            .snapshot()
+            .cells
+            .iter()
+            .map(|cell| cell.ch)
+            .collect();
+        assert!(
+            text.contains("connection dropped"),
+            "the dropped banner must be visible, got: {text:?}"
+        );
+        assert!(!sessions.close(ssh));
+        assert!(sessions.close(SessionToken(0)));
+    }
+
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "winit EventLoop cannot be built off the main thread on macOS"
+    )]
+    #[cfg(not(windows))]
+    #[test]
+    fn arm_reconnect_declines_a_clean_exit() {
+        let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+            return;
+        };
+        let ssh = sessions
+            .spawn_ssh_command_in_new_tab_for_test(Dimensions::new(20, 8), exit_code_command(0))
+            .expect("ssh stub session");
+        // Reap the child up-front so its status is consumed; the subsequent
+        // `try_arm_reconnect` sees an unknown (`None`) code — which, like the
+        // clean 0 it exited with, must NOT arm reconnect.
+        let _ = sessions
+            .get(ssh)
+            .expect("ssh session")
+            .local_pty()
+            .expect("local ssh pty")
+            .lock()
+            .expect("pty lock")
+            .wait();
+        assert!(
+            !sessions.try_arm_reconnect(ssh),
+            "a clean exit must not hold the tab open"
+        );
+        assert!(!sessions.get(ssh).expect("ssh session").awaiting_reconnect);
+        assert!(!sessions.close(ssh));
+        assert!(sessions.close(SessionToken(0)));
+    }
+
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "winit EventLoop cannot be built off the main thread on macOS"
+    )]
+    #[cfg(not(windows))]
+    #[test]
+    fn a_local_shell_never_arms_reconnect() {
+        let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+            return;
+        };
+        // The startup session at token 0 is a plain local shell with no
+        // reconnect anchor: even a 255-shaped exit can never arm reconnect.
+        assert!(!sessions.try_arm_reconnect(SessionToken(0)));
+        assert!(sessions.close(SessionToken(0)));
+    }
+
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "winit EventLoop cannot be built off the main thread on macOS"
+    )]
+    #[cfg(not(windows))]
+    #[test]
+    fn reconnect_respawns_into_the_same_token_and_clears_the_prompt() {
+        let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+            return;
+        };
+        // A slightly longer-lived stub so the first spawn is comfortably alive,
+        // then drops 255 to arm the prompt.
+        let ssh = sessions
+            .spawn_ssh_command_in_new_tab_for_test(Dimensions::new(20, 8), exit_code_command(255))
+            .expect("ssh stub session");
+        let tabs_before = sessions.tab_count();
+        let sessions_before = sessions.len();
+        let armed = (0..200).any(|_| {
+            if sessions.try_arm_reconnect(ssh) {
+                true
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                false
+            }
+        });
+        assert!(armed, "drop must arm reconnect");
+        // Reconnect re-runs the stored argv into the SAME token/tab.
+        assert!(sessions.reconnect(ssh), "reconnect respawns the session");
+        assert_eq!(sessions.tab_count(), tabs_before, "no new tab is created");
+        assert_eq!(sessions.len(), sessions_before, "same session count");
+        assert!(
+            !sessions.get(ssh).expect("ssh session").awaiting_reconnect,
+            "the prompt is cleared after a successful reconnect"
+        );
+        // The reconnect anchor is retained so a second drop can reconnect again.
+        assert!(sessions.get(ssh).expect("ssh session").reconnect.is_some());
+        assert!(!sessions.close(ssh));
         assert!(sessions.close(SessionToken(0)));
     }
 
