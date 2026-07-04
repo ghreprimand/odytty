@@ -727,6 +727,23 @@ impl App {
         self.rail_autohide_active()
     }
 
+    /// Test seam (F4-P3 reveal-paint gate): read/reset the frame-rebuild flag the
+    /// `should_rebuild_frame` gate consults. `self.needs_rebuild` Derefs to the
+    /// ACTIVE pane's flag — the same one the production rail-reveal paths must set
+    /// so a visibility flip actually rebuilds and paints the overlay (a redraw
+    /// request alone is dropped by the rebuild gate).
+    #[cfg(test)]
+    pub(in crate::native) fn needs_rebuild_for_test(&self) -> bool {
+        self.needs_rebuild
+    }
+
+    /// Test seam (F4-P3 reveal-paint gate): clear the frame-rebuild flag so a test
+    /// can prove a rail visibility flip re-sets it.
+    #[cfg(test)]
+    pub(in crate::native) fn clear_needs_rebuild_for_test(&mut self) {
+        self.needs_rebuild = false;
+    }
+
     /// Test seam (F4-P3): force the revealed phase so overlay geometry / hit
     /// routing can be asserted without simulating the debounce clock.
     #[cfg(test)]

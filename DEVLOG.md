@@ -7,6 +7,47 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Rail auto-hide reveal: the revealed rail now actually paints on-window
+
+**The rail's reveal state was already correct — the pixels just weren't drawn.**
+A captured pointer trace showed the state machine flipping to visible while the
+pointer was still well inside the window (≈27 physical px from the edge), yet the
+rail did not appear until the pointer crossed off the window edge. That ruled out
+the trigger geometry — the reveal was firing on-window — and pointed at the
+render path.
+
+Root cause: the floating rail overlay is assembled only inside the frame's
+rebuild gate (`should_rebuild_frame`), and that gate is driven by a
+`needs_rebuild` flag. The three rail auto-hide paths that react to a visibility
+change — the pointer feed, the about-to-wait maintenance poll that crosses the
+show-debounce / hide-grace boundaries, and the hover update — each requested a
+redraw but did **not** set `needs_rebuild`. Every other animation driver in the
+event loop (cursor blink, animation ticks, synchronized-output hold, resize)
+marks the frame dirty and *then* requests the redraw; the rail paths were the
+lone exception. So a reveal flip requested a redraw the rebuild gate immediately
+discarded, and the compositor re-presented the previous, rail-less frame. The
+overlay only painted when some unrelated event — most reliably the pointer
+leaving the window — happened to dirty a frame. Over a quiescent terminal, with
+nothing else setting `needs_rebuild`, that meant "the rail won't appear until I
+move off the edge", and it looked like it would not stay up.
+
+The fix marks the frame for rebuild on every rail visibility/hover flip, in
+lockstep with the redraw request, matching the pattern every other driver
+already uses. A reveal, a hide, and a hover change now each rebuild exactly one
+frame and paint (or drop) the overlay in place; at rest the paths stay inert, so
+the zero-wake idle invariant is unchanged.
+
+Covered by a live-feed regression that arms the reveal at the edge, then crosses
+the show-debounce boundary in the real maintenance poll with the pointer stopped
+(the trace's exact scenario) and asserts both that the rail became visible and
+that the frame was marked for rebuild; it also covers the hide-grace flip and the
+pointer-driven reveal flip. The test fails before the fix at the maintenance-poll
+assertion. Platform-neutral: the rebuild gate and rail overlay render path are
+shared across Linux, Windows, and macOS, so the same skipped-paint would occur on
+any of them and the same fix applies; no platform-specific code is touched.
+
+---
+
 ## 2026-07-04 -- Rail auto-hide reveal: motion-aware trigger that no longer needs an overshoot
 
 **The auto-hidden rail still read as "won't open" unless the pointer was shoved

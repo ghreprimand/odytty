@@ -1017,6 +1017,95 @@ fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
 }
 
 #[test]
+fn reveal_visibility_flip_marks_the_frame_for_rebuild() {
+    // Live-trace regression (the operator's "the state says visible at +27px but
+    // I don't see the rail until I cross off the window edge"). The reveal state
+    // machine was already correct — the trace showed `visible=true` on-window —
+    // but the paint never landed. Root cause: the rail overlay is assembled ONLY
+    // inside the `should_rebuild_frame` gate (`build_rail_overlay`), and that gate
+    // reads `needs_rebuild`. The rail-reveal paths requested a redraw WITHOUT
+    // marking the frame dirty, so `RedrawRequested` skipped the rebuild and
+    // re-presented the previous, rail-less frame. Over a quiescent terminal
+    // (nothing else setting `needs_rebuild`) the reveal only painted when an
+    // unrelated event — the pointer crossing off-window — happened to dirty a
+    // frame. Both the maintenance-poll flip and the pointer-driven flip must now
+    // set `needs_rebuild`.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16); // band [0..128], seam at x=128
+    app.set_tab_rail_autohide_for_test(true);
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    assert!(
+        app.rail_autohide_active_for_test(),
+        "precondition: a left rail with autohide on is active"
+    );
+
+    let t0 = std::time::Instant::now();
+
+    // (A) MAINTENANCE-POLL FLIP — the operator's exact scenario. Arm at the edge,
+    // then STOP moving the pointer; the show-debounce elapses while the loop is
+    // parked, so the flip to Revealed happens in the about-to-wait maintenance
+    // poll, not in a pointer event. Clear the rebuild flag right after arming so
+    // the only thing that can re-set it is the reveal flip itself.
+    app.feed_rail_pointer_for_test(8.0, t0); // edge → arms Revealing (not visible)
+    assert!(
+        !app.rail_autohide_is_visible_for_test(t0),
+        "edge contact arms the debounce, not an instant reveal"
+    );
+    app.clear_needs_rebuild_for_test();
+    let revealed_at = t0 + std::time::Duration::from_millis(130); // past show debounce
+    app.run_about_to_wait_maintenance_for_test(revealed_at);
+    assert!(
+        app.rail_autohide_is_visible_for_test(revealed_at),
+        "the maintenance poll crosses the debounce and reveals the rail"
+    );
+    assert!(
+        app.needs_rebuild_for_test(),
+        "the reveal flip in the maintenance poll must mark the frame for rebuild — \
+         a bare redraw request is dropped by the `should_rebuild_frame` gate and \
+         the overlay never paints (the live-trace bug)"
+    );
+
+    // (B) HIDE FLIP — leaving the band starts the grace; when the grace elapses in
+    // the maintenance poll the rail must be REMOVED from the frame, which likewise
+    // needs a rebuild.
+    let leave_at = revealed_at + std::time::Duration::from_millis(10);
+    app.feed_rail_pointer_for_test(400.0, leave_at); // off the band → hide grace
+    app.clear_needs_rebuild_for_test();
+    let hidden_at = leave_at + std::time::Duration::from_millis(700); // > 600ms grace
+    app.run_about_to_wait_maintenance_for_test(hidden_at);
+    assert!(
+        !app.rail_autohide_is_visible_for_test(hidden_at),
+        "after the grace the rail hides"
+    );
+    assert!(
+        app.needs_rebuild_for_test(),
+        "the hide flip must also rebuild so the overlay is dropped from the frame"
+    );
+
+    // (C) POINTER-DRIVEN FLIP — when the debounce elapses on a pointer sample
+    // (the pointer is still moving over the band as it reveals), that path must
+    // mark the frame dirty too.
+    let t1 = hidden_at + std::time::Duration::from_millis(10);
+    app.feed_rail_pointer_for_test(8.0, t1); // re-arm at the edge
+    app.clear_needs_rebuild_for_test();
+    let t2 = t1 + std::time::Duration::from_millis(130); // past the debounce, on a sample
+    app.feed_rail_pointer_for_test(50.0, t2); // still over the band → reveals here
+    assert!(
+        app.rail_autohide_is_visible_for_test(t2),
+        "the reveal completes on the pointer sample past the debounce"
+    );
+    assert!(
+        app.needs_rebuild_for_test(),
+        "the pointer-driven reveal flip must mark the frame for rebuild"
+    );
+}
+
+#[test]
 fn reveal_arms_at_the_edge_and_the_band_carries_the_debounce() {
     // A brief edge touch during a fast approach must still reveal: the edge
     // contact ARMS the debounce, and the keep-alive band then CARRIES it to

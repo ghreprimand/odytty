@@ -2481,8 +2481,19 @@ impl App {
                 "rail reveal pointer sample"
             );
         }
-        if changed && let Some(window) = self.window.as_ref() {
-            window.request_redraw();
+        if changed {
+            // A visibility flip must rebuild the frame, not merely re-present it:
+            // the rail overlay is only assembled inside the `should_rebuild_frame`
+            // gate (`build_rail_overlay`), and that gate reads `needs_rebuild`.
+            // Requesting a redraw without marking the frame dirty lets the
+            // RedrawRequested skip the rebuild and re-present the previous
+            // (rail-less) frame — the reveal then only paints when some unrelated
+            // event happens to set `needs_rebuild`, which over a quiescent
+            // terminal is "not until the pointer crosses off the window edge".
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
         }
     }
 
@@ -2564,8 +2575,14 @@ impl App {
             redraw = true;
         }
         self.apply_cursor_icon(CursorIcon::Default);
-        if redraw && let Some(window) = self.window.as_ref() {
-            window.request_redraw();
+        if redraw {
+            // Rail hover highlight lives in the overlay signature, which is only
+            // recomputed inside the `should_rebuild_frame` gate — mark the frame
+            // dirty so the hover repaints over an otherwise-idle terminal.
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
         }
     }
 
@@ -3392,10 +3409,17 @@ impl App {
         // path and while the rail is parked open under the pointer. Keep the
         // suspend latch current so a menu closing lets the grace run again.
         self.rail_autohide.set_suspend(self.overlay.is_open());
-        if self.rail_autohide.poll(now)
-            && let Some(window) = self.window.as_ref()
-        {
-            window.request_redraw();
+        if self.rail_autohide.poll(now) {
+            // A timer boundary that flips the rail's visibility (show debounce
+            // elapsing, hide grace / flash expiring) must rebuild the frame so
+            // the overlay is (re)assembled or dropped — `build_rail_overlay` runs
+            // only inside the `should_rebuild_frame` gate, which reads
+            // `needs_rebuild`. Requesting a redraw alone lets the rebuild be
+            // skipped and the reveal never paints until an unrelated dirty frame.
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
         }
 
         // §7 multiplexer prefix: forget a pending prefix that has timed out.
