@@ -3975,6 +3975,27 @@ impl ApplicationHandler<UserEvent> for App {
                         // the floating rail is currently revealed, so the pinned /
                         // no-autohide path is byte-identical.
                         let rail_overlay_data = self.build_rail_overlay(cell);
+                        // F4-P3 rail-overlay RETENTION: the rail overlay lives in
+                        // the trailing (post-`cell_vertex_count`) vertex segment,
+                        // alongside the cursor. The `CursorOnly` fast path
+                        // (`update_cursor_and_overlays`) rebuilds ONLY that segment
+                        // from the cursor vertices — it truncates to
+                        // `cell_vertex_count` and re-appends the cursor WITHOUT the
+                        // rail. So once the rail is steady-revealed, the very next
+                        // cursor blink (a `CursorOnly` update) drops the rail out
+                        // of the buffer, and it stays gone until an unrelated Full
+                        // rebuild (a hover change / terminal output / moving off
+                        // the window edge) re-runs `push_rail_overlay`. That is the
+                        // "reveals where expected, then vanishes as I inch further,
+                        // reappears past the edge, won't stay up" report: the state
+                        // machine holds `visible` rock-steady, but the blink keeps
+                        // eating the pixels. Promote `CursorOnly` to `Full` whenever
+                        // the rail overlay is present so it is re-appended every
+                        // frame it is visible; `Retained` is left alone (it never
+                        // touches the buffer, so the rail persists), and the
+                        // plain / no-autohide path (`None`) keeps its classification
+                        // exactly, so nothing off the revealed-rail path changes.
+                        let update = update.retaining_rail_overlay(rail_overlay_data.is_some());
                         if let Some(gpu) = self.gpu.as_mut() {
                             let rail_overlay = rail_overlay_data.as_ref().map(|data| RailOverlay {
                                 snapshot: &data.snapshot,

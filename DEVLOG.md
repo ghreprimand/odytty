@@ -7,6 +7,50 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Rail auto-hide reveal: the cursor blink no longer eats the revealed rail
+
+**The revealed rail flickered out a moment after appearing and would not stay
+up.** A captured pointer trace settled the state machine's innocence for good:
+once revealed, its `visible` flag held rock-steady across the whole pointer
+sweep — reveal at ~25 px inside the window, then continuously visible from 17 px
+out to 80-plus and back — with no interior hide at all. So the disappearance was
+never a state transition; it was the pixels failing to track a visibility that
+never wavered.
+
+The cause is in the frame's vertex-buffer layout. Cells, the background wash,
+and the tab panel occupy the leading segment up to a recorded boundary
+(`cell_vertex_count`); the cursor and the floating rail overlay are appended
+*after* that boundary, in the trailing segment. The full-rebuild path appends
+the rail there every frame it is visible. But the cursor-only fast path — the
+cheap update taken when nothing but the cursor changed, e.g. a **blink** — 
+rebuilds only the trailing segment: it truncates back to `cell_vertex_count` and
+re-appends the cursor *without* the rail. So the first cursor blink after a
+reveal truncated the rail straight out of the buffer, and it stayed gone until
+some unrelated full rebuild (a hover change, terminal output, or the pointer
+leaving the window) re-appended it. With the cursor blinking about twice a
+second, the rail could never stay up: reveal, blink it away, a stray full
+rebuild brings it back, blink again.
+
+The fix keeps the reveal classification honest: a cursor-only frame is promoted
+to a full rebuild whenever the rail overlay is present, so the rail is
+re-appended on every frame it is visible. Frames that already rebuild fully are
+unchanged, and "retained" frames are left alone — they never touch the buffer,
+so the rail from the previous full build simply persists across them. When no
+rail is revealed the cursor-only fast path is untouched, so the ordinary
+terminal render stays byte-identical. Paired with the preceding fix (marking the
+frame dirty on a reveal/hide/hover flip, which makes the *reveal* frame render at
+all), the rail now appears on-window where the pointer approaches and holds
+steadily through cursor blinks until the pointer leaves.
+
+Covered by a unit test on the promotion rule: a cursor-only update with the rail
+present becomes a full rebuild, while every other case (no rail, already-full,
+retained) is unchanged. The test fails before the fix. Platform-neutral: the
+vertex-buffer segmentation and the cursor-only fast path are shared across
+Linux, Windows, and macOS, so the same blink-truncation would occur on any of
+them and the same promotion fixes it; no platform-specific code is touched.
+
+---
+
 ## 2026-07-04 -- Rail auto-hide reveal: the revealed rail now actually paints on-window
 
 **The rail's reveal state was already correct — the pixels just weren't drawn.**

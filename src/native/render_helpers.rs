@@ -93,6 +93,35 @@ pub(super) enum GeometryUpdate {
     Retained,
 }
 
+impl GeometryUpdate {
+    /// Keep the F4-P3 floating rail overlay alive across a cursor-only frame.
+    ///
+    /// The rail overlay is appended to the vertex buffer's trailing segment
+    /// (after `cell_vertex_count`), alongside the cursor. The `CursorOnly` fast
+    /// path (`GpuState::update_cursor_and_overlays`) rebuilds ONLY that segment
+    /// from the cursor vertices: it truncates to `cell_vertex_count` and
+    /// re-appends the cursor WITHOUT the rail. So once the rail is steady-revealed
+    /// the next cursor blink — a `CursorOnly` update — drops the rail out of the
+    /// buffer, and it stays gone until an unrelated `Full` rebuild (a hover
+    /// change, terminal output, or the pointer leaving the window) re-appends it.
+    /// That is the "reveals where expected, then vanishes as the pointer inches
+    /// further in, reappears past the edge, won't stay up" behavior: the reveal
+    /// state machine holds `visible` rock-steady while the blink keeps eating the
+    /// pixels.
+    ///
+    /// Promote `CursorOnly` to `Full` whenever the rail overlay is present so it
+    /// is re-appended every frame it is visible. `Full` and `Retained` are left
+    /// unchanged (`Retained` never touches the buffer, so the rail persists across
+    /// it), and the no-rail path keeps its classification exactly — nothing off
+    /// the revealed-rail path changes.
+    pub(super) fn retaining_rail_overlay(self, rail_present: bool) -> Self {
+        match self {
+            GeometryUpdate::CursorOnly if rail_present => GeometryUpdate::Full,
+            other => other,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct RenderSignature {
     pub(super) content: RenderContentSignature,
@@ -396,4 +425,62 @@ pub(super) fn visible_graphics_signature(
     visible: &[VisiblePlacement],
 ) -> Vec<VisibleGraphicSignature> {
     visible.iter().map(VisibleGraphicSignature::from).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GeometryUpdate;
+
+    /// F4-P3 rail-overlay retention. The rail lives in the trailing vertex
+    /// segment with the cursor; the `CursorOnly` GPU path truncates that segment
+    /// and re-appends only the cursor, so a cursor blink while the rail is
+    /// revealed drops it. The dispatch must promote `CursorOnly` to `Full` when
+    /// the rail overlay is present so it is re-appended every frame it is visible.
+    #[test]
+    fn cursor_only_is_promoted_to_full_when_the_rail_overlay_is_present() {
+        // The load-bearing case: a cursor blink (CursorOnly) while the rail is
+        // revealed MUST become a Full rebuild, or the blink truncates the rail
+        // out of the vertex buffer and it vanishes until an unrelated rebuild.
+        assert_eq!(
+            GeometryUpdate::CursorOnly.retaining_rail_overlay(true),
+            GeometryUpdate::Full,
+            "a cursor-only frame with the rail revealed must rebuild fully so the \
+             rail is re-appended (otherwise the blink eats the floating rail)"
+        );
+    }
+
+    /// The promotion is scoped to exactly the lossy case: no rail present, or a
+    /// classification that already preserves the buffer, is left untouched — the
+    /// plain / no-autohide path stays byte-identical.
+    #[test]
+    fn retention_leaves_every_other_case_unchanged() {
+        // No rail: the CursorOnly fast path is safe and must be preserved (the
+        // whole point of the optimization) — no promotion.
+        assert_eq!(
+            GeometryUpdate::CursorOnly.retaining_rail_overlay(false),
+            GeometryUpdate::CursorOnly,
+            "with no rail overlay the CursorOnly fast path is retained"
+        );
+        // Full is already a full rebuild — unchanged regardless of the rail.
+        assert_eq!(
+            GeometryUpdate::Full.retaining_rail_overlay(true),
+            GeometryUpdate::Full
+        );
+        assert_eq!(
+            GeometryUpdate::Full.retaining_rail_overlay(false),
+            GeometryUpdate::Full
+        );
+        // Retained never touches the vertex buffer, so the rail already in it
+        // from the last Full build persists across the frame — no promotion
+        // needed even with the rail present.
+        assert_eq!(
+            GeometryUpdate::Retained.retaining_rail_overlay(true),
+            GeometryUpdate::Retained,
+            "Retained re-presents the existing buffer, which still holds the rail"
+        );
+        assert_eq!(
+            GeometryUpdate::Retained.retaining_rail_overlay(false),
+            GeometryUpdate::Retained
+        );
+    }
 }
