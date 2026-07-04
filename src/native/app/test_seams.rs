@@ -644,11 +644,23 @@ impl App {
 
     #[cfg(test)]
     pub(in crate::native) fn tab_bar_hit_for_test(&self) -> Option<&'static str> {
-        match self.current_tab_bar_hit()? {
+        // Band-agnostic: reports the hit shape (switch/close/new) whether it
+        // lands on the top tab bar or the workspace rail.
+        let (_, hit) = self.current_chrome_hit()?;
+        match hit {
             TabHit::Switch(_) => Some("switch"),
             TabHit::Close(_) => Some("close"),
             TabHit::NewTab => Some("new"),
             TabHit::None => None,
+        }
+    }
+
+    /// Test seam (W2): the chrome band the pointer hit sits on
+    /// (`"tab"`/`"workspace"`), or `None` off chrome.
+    pub(in crate::native) fn chrome_hit_band_for_test(&self) -> Option<&'static str> {
+        match self.current_chrome_hit()? {
+            (crate::native::app::ChromeBand::TopBar, _) => Some("tab"),
+            (crate::native::app::ChromeBand::WorkspaceRail, _) => Some("workspace"),
         }
     }
 
@@ -680,6 +692,64 @@ impl App {
             _ => crate::settings::TabBarPlacement::Top,
         };
         self.recompute_grid_for_tab_bar();
+    }
+
+    /// Test seam (W2): set the `workspace_rail` mode so the workspace rail's
+    /// reserve / hit-test / seam / auto-hide machinery can be exercised. `auto`
+    /// shows the rail at >=2 workspaces; `always`/`left`/`right` force it on
+    /// (side inherited from `tab_bar_placement` for `always`).
+    pub(in crate::native) fn set_workspace_rail_for_test(&mut self, mode: &str) {
+        self.settings.workspace_rail = match mode {
+            "always" => crate::settings::WorkspaceRail::Always,
+            "left" => crate::settings::WorkspaceRail::Left,
+            "right" => crate::settings::WorkspaceRail::Right,
+            _ => crate::settings::WorkspaceRail::Auto,
+        };
+        self.recompute_grid_for_tab_bar();
+    }
+
+    /// Test seam (W2): inject a recorded session as a fresh workspace (its own
+    /// single-pane tab) and SWITCH to it, so the rail has multiple slots to
+    /// hit-test and the active workspace is single-tab (no top bar competes with
+    /// the rail in geometry tests). Mirrors [`Self::push_session_for_test`] one
+    /// level up. Returns the new workspace's rail index.
+    pub(in crate::native) fn push_workspace_for_test(
+        &mut self,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        pty: Arc<Mutex<PtySession>>,
+    ) -> usize {
+        let id = self
+            .sessions
+            .iter()
+            .map(|s| s.id.0)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        self.sessions.push_workspace(Session::new(
+            crate::native::session::SessionToken(id),
+            terminal,
+            writer,
+            pty,
+            None,
+        ));
+        // `test_cell` / `test_surface` are per-session (accessed via Deref to the
+        // active session), so carry the current values onto the freshly-active
+        // workspace's session — otherwise the headless geometry (resolved_cell /
+        // resolved_surface) goes unset after the switch.
+        let cell = self.test_cell;
+        let surface = self.test_surface;
+        let idx = self.sessions.workspace_count().saturating_sub(1);
+        let _ = self.sessions.switch_workspace(idx);
+        self.test_cell = cell;
+        self.test_surface = surface;
+        self.recompute_grid_for_tab_bar();
+        idx
+    }
+
+    /// Test seam (W2): rename the workspace at rail index `idx`.
+    pub(in crate::native) fn rename_workspace_for_test(&mut self, idx: usize, name: &str) {
+        self.sessions.rename_workspace(idx, name.to_owned());
     }
 
     /// Test seam (F4-P4): pin a fixed manual rail width (cells) so the
@@ -1756,6 +1826,25 @@ impl App {
         };
         self.enter_rename_tab(token);
         self.rename_state.is_some()
+    }
+
+    /// Test seam (W2): drive the shared rename field on the workspace at rail
+    /// index `idx` — open it, replace its text with `new`, and commit (Enter).
+    /// Returns the workspace's name afterward so a test can assert the field
+    /// re-targets `Workspace.name`.
+    pub(in crate::native) fn rename_workspace_via_field_for_test(
+        &mut self,
+        idx: usize,
+        new: &str,
+    ) -> Option<String> {
+        self.enter_rename_workspace(idx);
+        let state = self.rename_state.as_mut()?;
+        state.text = new.to_owned();
+        state.cursor = new.chars().count();
+        self.rename_key(&winit::keyboard::Key::Named(
+            winit::keyboard::NamedKey::Enter,
+        ));
+        self.sessions.workspace_name(idx).map(str::to_owned)
     }
 
     #[cfg(test)]

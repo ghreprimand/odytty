@@ -80,6 +80,7 @@ impl TabReserve {
     };
 
     /// The classic top horizontal strip reservation (`TAB_BAR_ROWS` rows).
+    #[cfg(test)]
     pub(super) fn top() -> Self {
         Self {
             top_rows: TAB_BAR_ROWS as usize,
@@ -294,7 +295,13 @@ impl App {
     /// share the basis or the row→slot mapping drifts. Single-pane returns
     /// `self.grid.rows` (a left rail reserves columns, not rows).
     pub(super) fn tab_rail_grid_rows(&self) -> usize {
-        self.overlay_grid_dims().1
+        // The workspace rail is a full-height sidebar (design doc §7): it spans
+        // the content rows PLUS the top tab-bar rows it sits alongside, so its
+        // slot layout matches the rail decoration (which paints across the
+        // top-bar-decorated snapshot's full height). With no top bar reserved
+        // (`top_rows == 0`, the single-band case) this is byte-identical to the
+        // content rows.
+        self.overlay_grid_dims().1 + self.tab_reserve().top_rows
     }
 
     /// The pointer position in **window-overlay cell space** (the content grid),
@@ -520,14 +527,24 @@ impl App {
         // `rail_side()` dispatch reads the (zeroed) auto-hide reservation and
         // reports `None`, which would otherwise fall through to `tab_bar_strip`
         // and leak a phantom TOP bar on a side-placed window.
-        let tab_strip = if show_tab_bar && !self.rail_autohide_active() {
-            match self.rail_side() {
-                Some(side) => self.tab_rail_strip(cell, padding, surface_h, side),
-                None => self.tab_bar_strip(cell, padding, surface_w),
+        //
+        // Dual-band (design doc §7): the top tab bar (tabs, content width, shifted
+        // right of a left rail) and the full-height workspace rail sidebar are
+        // independent strips that can coexist. Each is its own owned snapshot +
+        // origin + quads, pushed as a chrome pane. Auto-hide floats the rail
+        // (drawn below as the overlay), so it contributes no pinned strip.
+        let show_top = show_tab_bar;
+        let show_rail = self.should_show_workspace_rail() && !self.rail_autohide_active();
+        let mut chrome_strips: Vec<(Snapshot, [f32; 2], Vec<SolidQuad>)> = Vec::new();
+        if show_top && let Some((snapshot, quads)) = self.tab_bar_strip(cell, padding) {
+            chrome_strips.push((snapshot, self.top_bar_origin_px(cell), quads));
+        }
+        if show_rail {
+            let side = self.workspace_rail_side();
+            if let Some((snapshot, quads)) = self.tab_rail_strip(cell, padding, surface_h, side) {
+                chrome_strips.push((snapshot, self.rail_origin_px(cell), quads));
             }
-        } else {
-            None
-        };
+        }
 
         // Themed 1px dividers in the gaps between panes. None while zoomed: the
         // focused pane is full-bleed and the layout tree underneath is hidden,
@@ -553,15 +570,15 @@ impl App {
         };
 
         // Assemble the borrow-bound `PaneRender` list.
-        let mut panes: Vec<PaneRender> = Vec::with_capacity(panes_owned.len() + 1);
-        if let Some((snapshot, _)) = tab_strip.as_ref() {
-            // The top bar and the left rail render from the window padding; a
-            // right rail renders from the far side (after the content columns and
-            // the wallpaper gap). `rail_origin_px` returns `[pad, pad]` for the
-            // former two, so this stays byte-identical off the right rail (F4-P2).
+        let mut panes: Vec<PaneRender> =
+            Vec::with_capacity(panes_owned.len() + chrome_strips.len());
+        // Each chrome strip renders from its own origin: the top bar past a left
+        // rail, the rail at the window edge (right rail: far side). They never
+        // overlap the content rect (reserved out of it above).
+        for (snapshot, origin, _) in &chrome_strips {
             panes.push(PaneRender {
                 snapshot,
-                origin: self.rail_origin_px(cell),
+                origin: *origin,
                 focused: false,
                 cursor_style: crate::core::CursorStyle::default(),
                 focus_dim: 0.0,
@@ -602,7 +619,7 @@ impl App {
         // overlap. Empty when the strip is hidden / no outline is emitted, so
         // the zoomed and single-tab multi-pane frames are unchanged.
         let mut frame_quads = divider_quads;
-        if let Some((_, strip_quads)) = tab_strip.as_ref() {
+        for (_, _, strip_quads) in &chrome_strips {
             frame_quads.extend_from_slice(strip_quads);
         }
         // F4-P1 unified tab panel + seam: background-segment quads behind the tab
@@ -644,11 +661,12 @@ impl App {
         &self,
         cell: CellSize,
         padding: WindowPadding,
-        surface_w: u32,
     ) -> Option<(Snapshot, Vec<SolidQuad>)> {
-        let pad = padding.physical_px();
-        let columns =
-            (surface_w.saturating_sub(pad.saturating_mul(2)) / cell.width.max(1)) as usize;
+        // The top bar spans the CONTENT columns (window width minus a side rail
+        // band); `tab_bar_grid_cols` shares the reserve basis, so the strip and
+        // its hit-test agree. With no rail this equals the full window columns
+        // (byte-identical to the pre-rail top-only strip).
+        let columns = self.tab_bar_grid_cols();
         if columns == 0 {
             return None;
         }
@@ -705,7 +723,7 @@ impl App {
             cells: vec![crate::core::Cell::default(); rail_cols * grid_rows],
         };
         let output = self.tab_rail.render(
-            &self.sessions,
+            &self.sessions.rail_source(),
             rail_cols,
             grid_rows,
             [padding.as_f32(), padding.as_f32()],

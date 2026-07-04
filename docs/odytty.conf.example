@@ -46,9 +46,17 @@ window_decorations = on
 # hides the bar). A single tab you have renamed always shows the bar regardless.
 always_show_tab_bar = off
 
-# Where the tab bar sits: top (default, horizontal strip) or left (vertical
-# rail). right is reserved for a later update and currently falls back to top.
+# Tabs always render on the top bar. `tab_bar_placement` now selects which side
+# the WORKSPACE rail sits on when it is shown: top (rail defaults to the left),
+# left, or right. Existing left/right vertical-tab configs are honored as the
+# workspace-rail side.
 tab_bar_placement = top
+
+# Workspace rail (the sidebar listing workspaces): auto (default, appears once a
+# second workspace exists — a single-workspace session shows no rail), always
+# (pinned even with one workspace), or left/right (pinned to that side). auto and
+# always inherit the side from tab_bar_placement. Hot-reloadable.
+workspace_rail = auto
 
 # Vertical-rail geometry (only affects left/right placements). Width in cells
 # (8-32), inter-slot gap in rows (0-3), and slot height (1 = compact list that

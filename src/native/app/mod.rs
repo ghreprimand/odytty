@@ -105,6 +105,7 @@ mod palette_ui;
 mod panes;
 pub(in crate::native) mod platform_opener;
 mod pointer;
+pub(super) use pointer::ChromeBand;
 mod prompt_jump;
 mod rail_autohide;
 mod replay_ui;
@@ -201,7 +202,9 @@ impl SynchronizedOutputHold {
 /// mouse-selection, and signature machinery is shared.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum RenameTarget {
+    /// A tab, keyed by its session token.
     Tab(SessionToken),
+    /// A workspace, keyed by its rail index.
     Workspace(usize),
 }
 
@@ -749,9 +752,6 @@ impl App {
                 );
             }
             let _ = self.sessions.switch(session_id);
-            // F4-P3: a new-tab chord flashes the auto-hidden rail so the new tab
-            // is confirmed even with the pointer away from the edge.
-            self.flash_rail_autohide();
             self.on_active_session_changed();
         }
     }
@@ -905,14 +905,12 @@ impl App {
 
     fn switch_to_next_tab(&mut self) {
         if self.sessions.next() {
-            self.flash_rail_autohide();
             self.on_active_session_changed();
         }
     }
 
     fn switch_to_prev_tab(&mut self) {
         if self.sessions.prev() {
-            self.flash_rail_autohide();
             self.on_active_session_changed();
         }
     }
@@ -941,10 +939,14 @@ impl App {
         // Another tab in this workspace, or another workspace, survives: reap the
         // whole active tab (every pane), removing the workspace too if it was its
         // last tab.
+        let ws_before = self.sessions.workspace_count();
         let _ = self.sessions.close_active_tab();
-        // F4-P3: a close chord flashes the auto-hidden rail so the dropped tab is
-        // visible even with the pointer away from the edge.
-        self.flash_rail_autohide();
+        // ODP-2: pure tab actions no longer flash the workspace rail — only a
+        // change to the WORKSPACE list does. Closing the last tab of a non-last
+        // workspace closes that workspace, so flash iff the list shrank.
+        if self.sessions.workspace_count() < ws_before {
+            self.flash_rail_autohide();
+        }
         // Switching to a surviving tab may return the input path to the plain
         // single-pane fast path; clear any pending multiplexer prefix so a
         // stale state can't swallow the next key.
@@ -969,8 +971,11 @@ impl App {
             self.pending_exit = true;
             return;
         }
+        let ws_before = self.sessions.workspace_count();
         let _ = self.sessions.close_tab_at(tab_idx);
-        self.flash_rail_autohide();
+        if self.sessions.workspace_count() < ws_before {
+            self.flash_rail_autohide();
+        }
         if self.sessions.active_is_single_pane() {
             self.prefix_engine.cancel();
         }
@@ -995,10 +1000,51 @@ impl App {
             };
             let _ = self.sessions.close_tab_at(victim);
         }
+        if self.sessions.active_is_single_pane() {
+            self.prefix_engine.cancel();
+        }
+        self.on_active_session_changed();
+    }
+
+    /// Create a fresh workspace — its own single-pane tab — and switch to it.
+    /// Driven by the rail `+` slot, the "New Workspace" context-menu item, and
+    /// (a later packet) the keyboard action. The new session is initialized
+    /// exactly like New Tab (theme / cursor / scrollback), and the switch may
+    /// make the rail auto-appear, so the content grid is reflowed and the
+    /// auto-hidden rail is flashed to confirm the change.
+    /// Switch the active workspace to rail index `idx` (rail click / picker /
+    /// keyboard). Reflows the content grid (chrome can change) and flashes the
+    /// auto-hidden rail. No-op when already active or out of range.
+    fn activate_workspace(&mut self, idx: usize) {
+        if self.sessions.switch_workspace(idx) {
+            self.flash_rail_autohide();
+            self.recompute_grid_for_tab_bar();
+            self.on_active_session_changed();
+        }
+    }
+
+    /// Close the ENTIRE workspace at rail index `idx` — every tab, every pane.
+    /// The rail slot `×` / "Close Workspace" menu item. Closing the last
+    /// workspace signals app exit WITHOUT emptying the arena first (mirroring the
+    /// `close_active_tab` guard, so no `active()` Deref panics during teardown).
+    fn close_workspace_at(&mut self, idx: usize) {
+        // Exit keys on the last workspace: guard before reaping so the shutdown
+        // path tears sessions down exactly as it does for the last tab.
+        if self.sessions.workspace_count() <= 1 {
+            self.pending_exit = true;
+            return;
+        }
+        // Close-active-workspace acts on the active one; switch to the target
+        // first so a background slot's `×` closes THAT workspace.
+        if idx != self.sessions.active_workspace_index() {
+            let _ = self.sessions.switch_workspace(idx);
+        }
+        let _ = self.sessions.close_active_workspace();
         self.flash_rail_autohide();
         if self.sessions.active_is_single_pane() {
             self.prefix_engine.cancel();
         }
+        self.recompute_grid_for_tab_bar();
         self.on_active_session_changed();
     }
 
@@ -1056,6 +1102,9 @@ impl App {
             );
         }
         self.flash_rail_autohide();
+        // A new workspace can make the auto rail appear (>=2 workspaces), which
+        // changes the content reservation — reflow so the grid matches.
+        self.recompute_grid_for_tab_bar();
         self.on_active_session_changed();
     }
 
@@ -2185,6 +2234,39 @@ impl App {
             || self.sessions.lone_tab_has_title_override()
     }
 
+    /// Whether the workspace rail is shown this frame (design doc ODP-2). The
+    /// rail lists workspaces, independent of the top tab bar: `Auto` (default)
+    /// shows it only once a second workspace exists, so a single-workspace
+    /// session keeps the top-only tab bar with zero chrome change; `Always` and
+    /// the explicit `Left`/`Right` sides pin it even with one workspace.
+    fn should_show_workspace_rail(&self) -> bool {
+        self.settings.workspace_rail.always_visible() || self.sessions.workspace_count() >= 2
+    }
+
+    /// Which side the workspace rail occupies. An explicit `Left`/`Right` in
+    /// `workspace_rail` wins; otherwise the side is inherited from
+    /// `tab_bar_placement` (migration: a former vertical-tab user keeps their
+    /// side), defaulting to the left for the `Top` placement.
+    fn workspace_rail_side(&self) -> RailSide {
+        let placement = self
+            .settings
+            .workspace_rail
+            .forced_side()
+            .unwrap_or_else(|| self.effective_placement());
+        match placement {
+            TabBarPlacement::Right => RailSide::Right,
+            TabBarPlacement::Left | TabBarPlacement::Top => RailSide::Left,
+        }
+    }
+
+    /// Whether ANY tab chrome is shown this frame (top tab bar or workspace
+    /// rail). The master gate the reserve / panel / hit-test / pointer paths key
+    /// on so the rail is reachable even when the active workspace has a single
+    /// unnamed tab (no top bar). `false` is the byte-identical no-chrome frame.
+    fn any_chrome_shown(&self) -> bool {
+        self.should_show_tab_bar() || self.should_show_workspace_rail()
+    }
+
     /// The theme-role colors the tab bar paints with (F4). Reads
     /// `effective_theme` so every color is CVD-adapted like the rest of the
     /// chrome; nothing is hardcoded.
@@ -2209,43 +2291,46 @@ impl App {
         self.settings.tab_bar_placement.effective()
     }
 
-    /// The tab-chrome reservation for the current frame: rows off the top (the
-    /// horizontal bar) or columns off a side (the vertical rail). `NONE` when the
-    /// bar is hidden — the byte-identical no-chrome case.
+    /// The tab-chrome reservation for the current frame. The top tab bar (tabs of
+    /// the active workspace) reserves rows off the top whenever it is shown; the
+    /// workspace rail reserves columns off its side whenever it is shown and not
+    /// auto-hidden (auto-hide floats the rail as an overlay, reserving nothing).
+    /// The two are independent — a frame can reserve BOTH (tabs on top,
+    /// workspaces down the side), just one, or `NONE` (the byte-identical
+    /// no-chrome case: a single workspace whose active tab needs no bar).
     fn tab_reserve(&self) -> panes::TabReserve {
-        if !self.should_show_tab_bar() {
-            return panes::TabReserve::NONE;
-        }
+        let top_rows = if self.should_show_tab_bar() {
+            TAB_BAR_ROWS as usize
+        } else {
+            0
+        };
         // F4-P3: under rail auto-hide the rail reserves NOTHING — it draws as a
-        // floating overlay when revealed (never reflows content). The single
-        // reflow the operator sees is exactly this reservation dropping to zero
-        // when autohide is toggled on; reveal/hide after that never touches the
-        // reserve. Gated on a side rail (the top bar keeps `always_show_tab_bar`
-        // semantics), so the top-bar path is unchanged.
-        if self.rail_autohide_active() {
+        // floating overlay when revealed (never reflows content). The top bar is
+        // never auto-hidden, so its rows stay reserved independently.
+        let (left_cols, right_cols, gap_cols) =
+            if self.should_show_workspace_rail() && !self.rail_autohide_active() {
+                // F4-P1/P4: the band width resolves the `tab_rail_width` mode —
+                // `Manual(cols)` clamps the fixed width, `Auto` sizes to the
+                // longest workspace name (`rail_auto_want_cols`).
+                let rail_cols = self.settings.rail_width_cols(self.rail_auto_want_cols());
+                let gap = self.rail_gap_cols();
+                match self.workspace_rail_side() {
+                    RailSide::Left => (rail_cols, 0, gap),
+                    // F4-P2: a right rail reserves its band + gap off the RIGHT;
+                    // the content stays at column 0 (mirror of the left arm).
+                    RailSide::Right => (0, rail_cols, gap),
+                }
+            } else {
+                (0, 0, 0)
+            };
+        if top_rows == 0 && left_cols == 0 && right_cols == 0 {
             return panes::TabReserve::NONE;
         }
-        let gap_cols = self.rail_gap_cols();
-        // F4-P1/P4: the rail band width resolves the `tab_rail_width` mode —
-        // `Manual(cols)` clamps the fixed width, `Auto` sizes to the longest tab
-        // title (`rail_auto_want_cols`) clamped to the auto max.
-        let rail_cols = self.settings.rail_width_cols(self.rail_auto_want_cols());
-        match self.effective_placement() {
-            TabBarPlacement::Top => panes::TabReserve::top(),
-            TabBarPlacement::Left => panes::TabReserve {
-                top_rows: 0,
-                left_cols: rail_cols,
-                right_cols: 0,
-                gap_cols,
-            },
-            // F4-P2: the right rail reserves its band + gap off the RIGHT; the
-            // content stays at column 0 (mirror of the left arm).
-            TabBarPlacement::Right => panes::TabReserve {
-                top_rows: 0,
-                left_cols: 0,
-                right_cols: rail_cols,
-                gap_cols,
-            },
+        panes::TabReserve {
+            top_rows,
+            left_cols,
+            right_cols,
+            gap_cols,
         }
     }
 
@@ -2264,8 +2349,11 @@ impl App {
     /// the widget so trailing spaces never pad the auto width.
     fn rail_longest_title_cols(&self) -> usize {
         use tab_bar::TabBarSource;
-        (0..self.sessions.tab_count())
-            .map(|idx| self.sessions.tab_title(idx).trim().chars().count())
+        // The rail lists WORKSPACES, so auto-width sizes to the longest workspace
+        // name, not the active workspace's tab titles (§7.1).
+        let source = self.sessions.rail_source();
+        (0..source.tab_count())
+            .map(|idx| source.tab_title(idx).trim().chars().count())
             .max()
             .unwrap_or(0)
     }
@@ -2311,29 +2399,16 @@ impl App {
     /// is emitted only when `p = strength × (1 − cell_bg_opacity) > 0`; the seam
     /// only when the seam knob is on AND the panel is live (`strength > 0`).
     fn tab_panel_bg_quads(&self, cell: CellSize) -> Vec<SolidQuad> {
-        if !self.should_show_tab_bar() {
-            return Vec::new();
-        }
         let Some(gpu) = self.gpu.as_ref() else {
             return Vec::new();
         };
-        let (axis, band_cells) = match self.effective_placement() {
-            TabBarPlacement::Top => (tab_panel::PanelAxis::Top, TAB_BAR_ROWS as usize),
-            TabBarPlacement::Left => (tab_panel::PanelAxis::Left, self.rail_cols()),
-            TabBarPlacement::Right => (tab_panel::PanelAxis::Right, self.rail_cols()),
-        };
-        if band_cells == 0 {
+        let show_top = self.should_show_tab_bar();
+        // Auto-hide floats the rail (its wash/seam ride the overlay quads), so it
+        // contributes no pinned panel band here.
+        let show_rail = self.should_show_workspace_rail() && !self.rail_autohide_active();
+        if !show_top && !show_rail {
             return Vec::new();
         }
-        // For a right rail the seam must sit at the rail's grid-aligned content
-        // edge (content columns + the wallpaper gap, both left of the band); it
-        // is ignored for the top bar / left rail. Same basis as `rail_origin_px`
-        // and the reserve/decorate paths, so wash, seam, glyphs, and hit-test all
-        // agree to the pixel.
-        let lead_cells = match axis {
-            tab_panel::PanelAxis::Right => self.grid.columns + self.rail_gap_cols(),
-            _ => 0,
-        };
         let (surface_w, surface_h) = gpu.surface_size();
         let padding = gpu.window_padding();
         let strength = self.tab_panel_strength();
@@ -2342,20 +2417,48 @@ impl App {
         let wash_alpha = tab_chrome::panel_wash_alpha(strength, self.settings.cell_bg_opacity);
         let seam = (self.settings.tab_seam && strength > 0.0)
             .then(|| tab_chrome::seam_color(colors, panel_color));
-        let spec = tab_panel::PanelQuadSpec {
-            axis,
-            surface: [surface_w as f32, surface_h as f32],
-            pad: [padding.as_f32(), padding.as_f32()],
-            cell: [cell.width as f32, cell.height as f32],
-            band_cells,
-            lead_cells,
-            scale_factor: gpu.scale(),
-            panel_color,
-            wash_alpha,
-            seam,
-            seam_alpha: tab_chrome::SEAM_ALPHA,
-        };
-        tab_panel::panel_quads(&spec)
+        // Emit a panel band per shown chrome element (design doc §7: the top bar
+        // and the workspace rail are independent bands that can coexist). Each
+        // band is grid-aligned to the SAME basis the reserve/decorate/hit-test
+        // paths use, so wash, seam, glyphs, and click targets agree to the pixel.
+        let mut bands: Vec<(tab_panel::PanelAxis, usize, usize)> = Vec::new();
+        if show_top {
+            bands.push((tab_panel::PanelAxis::Top, TAB_BAR_ROWS as usize, 0));
+        }
+        if show_rail {
+            match self.workspace_rail_side() {
+                RailSide::Left => bands.push((tab_panel::PanelAxis::Left, self.rail_cols(), 0)),
+                // For a right rail the seam sits at the rail's grid-aligned
+                // content edge (content columns + the wallpaper gap, both left of
+                // the band).
+                RailSide::Right => bands.push((
+                    tab_panel::PanelAxis::Right,
+                    self.rail_cols(),
+                    self.grid.columns + self.rail_gap_cols(),
+                )),
+            }
+        }
+        let mut quads = Vec::new();
+        for (axis, band_cells, lead_cells) in bands {
+            if band_cells == 0 {
+                continue;
+            }
+            let spec = tab_panel::PanelQuadSpec {
+                axis,
+                surface: [surface_w as f32, surface_h as f32],
+                pad: [padding.as_f32(), padding.as_f32()],
+                cell: [cell.width as f32, cell.height as f32],
+                band_cells,
+                lead_cells,
+                scale_factor: gpu.scale(),
+                panel_color,
+                wash_alpha,
+                seam,
+                seam_alpha: tab_chrome::SEAM_ALPHA,
+            };
+            quads.extend(tab_panel::panel_quads(&spec));
+        }
+        quads
     }
 
     /// The cell-quantized wallpaper gap (in columns) between a side rail and the
@@ -2383,6 +2486,16 @@ impl App {
     /// and — under rail auto-hide — only while the floating rail is actually
     /// revealed under the pointer.
     fn pointer_in_tab_chrome_band(&self) -> bool {
+        if !self.any_chrome_shown() {
+            return false;
+        }
+        // The workspace rail owns its column band (including the corner over the
+        // top bar — it is a full-height sidebar), so test it first.
+        if self.pointer_in_workspace_rail_band() {
+            return true;
+        }
+        // The top tab bar owns the rows above the content, within the content
+        // columns (to the right of a left rail / left of a right rail).
         if !self.should_show_tab_bar() {
             return false;
         }
@@ -2392,9 +2505,31 @@ impl App {
         let Some(cell) = self.resolved_cell() else {
             return false;
         };
+        let Some((w, h, padding)) = self.resolved_surface() else {
+            return false;
+        };
+        let content = pane_content_rect(w, h, cell, padding, self.tab_reserve());
+        (y_px as f32) < content.y
+            && (x_px as f32) >= content.x
+            && (x_px as f32) < content.x + content.w
+    }
+
+    /// Whether the pointer sits over the workspace-rail column band this frame
+    /// (its full height, incl. the corner over the top bar). Used to route an
+    /// empty-rail right-click to `WorkspaceRailEmpty` rather than the top-bar
+    /// empty menu, and by [`Self::pointer_in_tab_chrome_band`]. Under auto-hide
+    /// only the revealed floating band counts.
+    fn pointer_in_workspace_rail_band(&self) -> bool {
+        if !self.should_show_workspace_rail() {
+            return false;
+        }
+        let Some((x_px, _y_px)) = self.pointer_px else {
+            return false;
+        };
+        let Some(cell) = self.resolved_cell() else {
+            return false;
+        };
         if self.rail_autohide_active() {
-            // Only the revealed floating band counts; a hidden rail leaves the
-            // pointer over the content beneath.
             return match self.rail_autohide_side() {
                 Some(side) => {
                     self.rail_overlay_visible() && self.pointer_in_reveal_band(x_px, cell, side)
@@ -2406,10 +2541,11 @@ impl App {
             return false;
         };
         let content = pane_content_rect(w, h, cell, padding, self.tab_reserve());
-        match self.rail_side() {
-            Some(RailSide::Left) => (x_px as f32) < content.x,
-            Some(RailSide::Right) => (x_px as f32) >= content.x + content.w,
-            None => (y_px as f32) < content.y,
+        // The rail band (and its wallpaper gap) sits outside the content rect on
+        // the rail side.
+        match self.workspace_rail_side() {
+            RailSide::Left => (x_px as f32) < content.x,
+            RailSide::Right => (x_px as f32) >= content.x + content.w,
         }
     }
 
@@ -2424,6 +2560,21 @@ impl App {
         } else {
             None
         }
+    }
+
+    /// Physical-pixel top-left of the top tab-bar strip: the window padding,
+    /// shifted right past a left workspace rail (its reserved band + gap). A
+    /// right rail / no rail leaves it at `[pad, pad]`, byte-identical to the
+    /// top-only strip.
+    fn top_bar_origin_px(&self, cell: CellSize) -> [f32; 2] {
+        let pad = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO)
+            .as_f32();
+        let left_off = self.tab_reserve().left_reserved_cols() as f32 * cell.width as f32;
+        [pad + left_off, pad]
     }
 
     /// The physical-pixel top-left of the rail band this frame — the origin the
@@ -2577,25 +2728,17 @@ impl App {
     /// by turning that off). When active, `tab_reserve` returns `NONE` and the
     /// rail is a floating overlay.
     fn rail_autohide_active(&self) -> bool {
-        self.should_show_tab_bar()
-            && self.settings.tab_rail_autohide
-            && matches!(
-                self.effective_placement(),
-                TabBarPlacement::Left | TabBarPlacement::Right
-            )
+        // The workspace rail is always on a side, so auto-hide applies whenever
+        // the rail is shown and the knob is on. The top tab bar is never
+        // auto-hidden (it keeps `always_show_tab_bar` semantics).
+        self.should_show_workspace_rail() && self.settings.tab_rail_autohide
     }
 
     /// The side an auto-hidden rail occupies (independent of `tab_reserve`, which
     /// is `NONE` under autohide). `None` when autohide is inactive.
     fn rail_autohide_side(&self) -> Option<RailSide> {
-        if !self.rail_autohide_active() {
-            return None;
-        }
-        match self.effective_placement() {
-            TabBarPlacement::Left => Some(RailSide::Left),
-            TabBarPlacement::Right => Some(RailSide::Right),
-            TabBarPlacement::Top => None,
-        }
+        self.rail_autohide_active()
+            .then(|| self.workspace_rail_side())
     }
 
     /// The width (cells) of the auto-hidden rail overlay band — the same width
@@ -2817,7 +2960,7 @@ impl App {
         let hit = self.tab_rail.hit_test(
             x_px,
             y_px,
-            &self.sessions,
+            &self.sessions.rail_source(),
             self.rail_overlay_cols(),
             self.tab_rail_grid_rows(),
             self.rail_overlay_origin_px(cell, side),
@@ -2868,7 +3011,7 @@ impl App {
             .map(GpuState::window_padding)
             .unwrap_or(WindowPadding::ZERO);
         let output = self.tab_rail.render(
-            &self.sessions,
+            &self.sessions.rail_source(),
             cols,
             rows,
             [padding.as_f32(), padding.as_f32()],
@@ -2957,10 +3100,13 @@ impl App {
         let origin = self.rail_overlay_origin_px(cell, side);
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         use tab_bar::TabBarSource;
-        self.sessions.active_tab().hash(&mut hasher);
-        self.sessions.tab_count().hash(&mut hasher);
-        for idx in 0..self.sessions.tab_count() {
-            self.sessions.tab_title(idx).hash(&mut hasher);
+        // The rail lists WORKSPACES, so its visual state hashes the workspace
+        // list (active index, count, names), not the active tab titles.
+        let source = self.sessions.rail_source();
+        source.active_tab().hash(&mut hasher);
+        source.tab_count().hash(&mut hasher);
+        for idx in 0..source.tab_count() {
+            source.tab_title(idx).hash(&mut hasher);
         }
         // Hover state changes the highlighted slot, so a hover move while
         // revealed must repaint.
@@ -2990,7 +3136,7 @@ impl App {
         match self.tab_rail.hit_test(
             x_px,
             y_px,
-            &self.sessions,
+            &self.sessions.rail_source(),
             self.rail_overlay_cols(),
             self.tab_rail_grid_rows(),
             self.rail_overlay_origin_px(cell, side),
@@ -3058,25 +3204,48 @@ impl App {
         cursor_visible: bool,
         cell: CellSize,
     ) -> (Snapshot, Vec<SolidQuad>) {
-        if !self.should_show_tab_bar() {
+        let show_top = self.should_show_tab_bar();
+        // F4-P3: under rail auto-hide the rail is NOT decorated into the content
+        // snapshot — it draws only as a floating overlay (`build_rail_overlay`)
+        // over full-bleed content. The top bar is never auto-hidden, so it stays
+        // pinned regardless.
+        let show_rail = self.should_show_workspace_rail() && !self.rail_autohide_active();
+        if !show_top && !show_rail {
             return (snapshot.clone(), Vec::new());
         }
-        // F4-P3: under rail auto-hide the pinned chrome is NOT decorated into the
-        // content snapshot — the rail draws only as a floating overlay
-        // (`build_rail_overlay`) over full-bleed content. This early return is the
-        // fix for the phantom TOP bar: the dispatch below keys off `rail_side()`,
-        // which reads the (deliberately zeroed) auto-hide reservation and so
-        // reports `None`; without this guard an auto-hidden LEFT/RIGHT rail fell
-        // through to the top-bar branch and grew a one-row bar across the top of
-        // a side-placed window.
-        if self.rail_autohide_active() {
-            return (snapshot.clone(), Vec::new());
-        }
-        // Dispatch on placement: the vertical rail grows the snapshot by columns
-        // off a side; the classic top bar grows it by rows off the top.
-        if let Some(side) = self.rail_side() {
+        // Rail-only frame (a background workspace pair whose active tab needs no
+        // top bar): grow columns off the side directly.
+        if !show_top {
+            let side = self.workspace_rail_side();
             return self.decorate_snapshot_with_tab_rail(snapshot, cursor_visible, cell, side);
         }
+        // Top bar always grows rows off the top. The workspace rail then grows
+        // columns off its side, spanning the FULL height (including the tab bar)
+        // for a VS Code-style full-height sidebar. Each band alone reproduces its
+        // single-band behaviour byte-for-byte.
+        let (mut decorated, mut quads) =
+            self.decorate_snapshot_with_top_bar(snapshot, cursor_visible, cell);
+        if show_rail {
+            let side = self.workspace_rail_side();
+            let (deco, rail_quads) =
+                self.decorate_snapshot_with_tab_rail(&decorated, cursor_visible, cell, side);
+            decorated = deco;
+            quads.extend(rail_quads);
+        }
+        (decorated, quads)
+    }
+
+    /// Top tab-bar decoration: grow the snapshot by [`TAB_BAR_ROWS`] rows off the
+    /// top, shift the content (and cursor) down, and paint the active workspace's
+    /// tab strip into the reserved row. Extracted from
+    /// [`Self::decorate_snapshot_with_tab_bar`] so it composes with the rail
+    /// decoration (a frame can show both bands).
+    fn decorate_snapshot_with_top_bar(
+        &self,
+        snapshot: &Snapshot,
+        cursor_visible: bool,
+        cell: CellSize,
+    ) -> (Snapshot, Vec<SolidQuad>) {
         let columns = snapshot.dimensions.columns;
         let rows = snapshot.dimensions.rows + TAB_BAR_ROWS as usize;
         let mut decorated = Snapshot {
@@ -3169,7 +3338,7 @@ impl App {
             .map(GpuState::window_padding)
             .unwrap_or(WindowPadding::ZERO);
         let output = self.tab_rail.render(
-            &self.sessions,
+            &self.sessions.rail_source(),
             rail_cols,
             rows,
             [padding.as_f32(), padding.as_f32()],
@@ -3406,10 +3575,12 @@ impl App {
         // the usable height). Nothing else in this reload path touches the tab
         // bar's visibility, so this is the only trigger for that recompute.
         let tab_bar_was_shown = self.should_show_tab_bar();
-        // F4-V2: capture the effective placement too — a live top↔left flip
-        // changes the reserved AXIS (rows vs columns) without changing the bar's
-        // visibility, so it needs the same grid recompute.
-        let tab_placement_was = self.effective_placement();
+        // Capture the workspace-rail visibility and side too — a live
+        // `workspace_rail` / `tab_bar_placement` change flips the reserved band
+        // (columns off a side) without changing the top bar, so it needs the
+        // same grid recompute.
+        let rail_was_shown = self.should_show_workspace_rail();
+        let rail_side_was = self.workspace_rail_side();
 
         let next_options = self.options_for_settings(&next_settings);
         let (text_rebuilt, padding_changed) = match self.gpu.as_mut() {
@@ -3574,7 +3745,8 @@ impl App {
         // placement (top↔left changes the reserved axis), reserve/reclaim the tab
         // chrome now so the content grid matches. No-op when both are unchanged.
         if self.should_show_tab_bar() != tab_bar_was_shown
-            || self.effective_placement() != tab_placement_was
+            || self.should_show_workspace_rail() != rail_was_shown
+            || self.workspace_rail_side() != rail_side_was
         {
             self.recompute_grid_for_tab_bar();
         }

@@ -14,6 +14,18 @@
 use super::*;
 use crate::core::{InputRegion, RowJoin};
 
+/// Which chrome band a pointer hit landed on. The tab-bar `TabHit` enum is
+/// shared by both bands (Switch/Close/NewTab), so the band discriminates whether
+/// a hit acts on the active workspace's TABS (top bar) or the WORKSPACES (rail).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::native) enum ChromeBand {
+    /// The top tab strip — Switch/Close/NewTab act on tabs of the active
+    /// workspace.
+    TopBar,
+    /// The workspace rail sidebar — Switch/Close/NewTab act on workspaces.
+    WorkspaceRail,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct EditableInputSelection {
     pub(super) text: String,
@@ -169,9 +181,14 @@ impl App {
             }
             return;
         }
-        if self.should_show_tab_bar() {
-            match (button, state, self.current_tab_bar_hit()) {
-                (WinitMouseButton::Left, ElementState::Pressed, Some(TabHit::Switch(idx))) => {
+        if self.any_chrome_shown() {
+            match (button, state, self.current_chrome_hit()) {
+                // ----- Top tab bar: act on the active workspace's TABS -----
+                (
+                    WinitMouseButton::Left,
+                    ElementState::Pressed,
+                    Some((ChromeBand::TopBar, TabHit::Switch(idx))),
+                ) => {
                     let Some(token) = self.sessions.token_at_position(idx) else {
                         return;
                     };
@@ -180,15 +197,16 @@ impl App {
                     }
                     return;
                 }
-                (WinitMouseButton::Left, ElementState::Pressed, Some(TabHit::Close(idx))) => {
+                (
+                    WinitMouseButton::Left,
+                    ElementState::Pressed,
+                    Some((ChromeBand::TopBar, TabHit::Close(idx))),
+                ) => {
                     // The tab-strip `×` closes the WHOLE tab at `idx` — every
                     // pane it holds — mirroring the menu/keyboard "Close Tab".
-                    // It is NOT "Close Pane": `close_tab_at` reaps every leaf of
-                    // tab `idx` (which may be a non-active tab) rather than
-                    // collapsing one leaf. Exit keys on the last *tab*, never the
-                    // last *pane*. A single-pane tab closes byte-identically to
-                    // the old `close(token)` path.
-                    if self.sessions.tab_count() <= 1 {
+                    // Exit keys on the last *tab* of the last *workspace*, never
+                    // the last *pane*.
+                    if self.sessions.tab_count() <= 1 && self.sessions.workspace_count() <= 1 {
                         self.pending_exit = true;
                         return;
                     }
@@ -203,16 +221,49 @@ impl App {
                     self.on_active_session_changed();
                     return;
                 }
-                (WinitMouseButton::Left, ElementState::Pressed, Some(TabHit::NewTab)) => {
+                (
+                    WinitMouseButton::Left,
+                    ElementState::Pressed,
+                    Some((ChromeBand::TopBar, TabHit::NewTab)),
+                ) => {
                     self.handle_new_tab();
                     return;
                 }
+                // ----- Workspace rail: act on the WORKSPACES -----
+                (
+                    WinitMouseButton::Left,
+                    ElementState::Pressed,
+                    Some((ChromeBand::WorkspaceRail, TabHit::Switch(idx))),
+                ) => {
+                    self.activate_workspace(idx);
+                    return;
+                }
+                (
+                    WinitMouseButton::Left,
+                    ElementState::Pressed,
+                    Some((ChromeBand::WorkspaceRail, TabHit::Close(idx))),
+                ) => {
+                    self.close_workspace_at(idx);
+                    return;
+                }
+                (
+                    WinitMouseButton::Left,
+                    ElementState::Pressed,
+                    Some((ChromeBand::WorkspaceRail, TabHit::NewTab)),
+                ) => {
+                    self.handle_new_workspace();
+                    return;
+                }
                 (WinitMouseButton::Left, ElementState::Released, Some(_)) => return,
-                (WinitMouseButton::Right, ElementState::Pressed, Some(hit)) => {
-                    // F7: a right-click on a specific tab opens the tight,
-                    // tab-scoped `TabSlot` menu targeting THAT tab's token
-                    // (NF-F7-1). A hit on the `+`/`×` chrome resolves no token,
-                    // so it opens the empty-strip menu.
+                // ----- Right press: per-surface context menu (F7) -----
+                (
+                    WinitMouseButton::Right,
+                    ElementState::Pressed,
+                    Some((ChromeBand::TopBar, hit)),
+                ) => {
+                    // A right-click on a specific tab opens the tight, tab-scoped
+                    // `TabSlot` menu targeting THAT tab's token (NF-F7-1). A hit on
+                    // the `+`/`×` chrome resolves no token → empty-strip menu.
                     let surface = match hit {
                         TabHit::Switch(idx) => self
                             .sessions
@@ -226,14 +277,36 @@ impl App {
                     self.open_context_menu(surface);
                     return;
                 }
+                (
+                    WinitMouseButton::Right,
+                    ElementState::Pressed,
+                    Some((ChromeBand::WorkspaceRail, hit)),
+                ) => {
+                    // NF-F7-4: a right-click on a workspace slot opens the
+                    // `WorkspaceSlot` menu targeting THAT slot; the `+`/gaps open
+                    // the rail-empty menu.
+                    let surface = match hit {
+                        TabHit::Switch(idx) | TabHit::Close(idx) => {
+                            ContextMenuSurface::WorkspaceSlot(idx)
+                        }
+                        TabHit::NewTab | TabHit::None => ContextMenuSurface::WorkspaceRailEmpty,
+                    };
+                    self.open_context_menu(surface);
+                    return;
+                }
                 (WinitMouseButton::Right, ElementState::Released, Some(_)) => return,
                 (WinitMouseButton::Right, ElementState::Pressed, None)
                     if self.pointer_in_tab_chrome_band() =>
                 {
-                    // NF-F7-2: an empty tab-strip / rail right-click opens its own
-                    // intentional menu instead of leaking the grid menu over the
-                    // bar.
-                    self.open_context_menu(ContextMenuSurface::TabStripEmpty);
+                    // NF-F7-2 / NF-F7-4: an empty-chrome right-click opens the
+                    // surface for whichever band the pointer sits over instead of
+                    // leaking the grid menu over the bar.
+                    let surface = if self.pointer_in_workspace_rail_band() {
+                        ContextMenuSurface::WorkspaceRailEmpty
+                    } else {
+                        ContextMenuSurface::TabStripEmpty
+                    };
+                    self.open_context_menu(surface);
                     return;
                 }
                 _ => {}
@@ -404,53 +477,62 @@ impl App {
         )
     }
 
-    pub(in crate::native) fn current_tab_bar_hit(&self) -> Option<TabHit> {
-        if !self.should_show_tab_bar() {
+    /// The chrome band and hit under the pointer this frame. The workspace rail
+    /// is resolved FIRST: it is a full-height sidebar, so in the top-left corner
+    /// (a rail column over the top-bar row) the rail wins. The top tab bar is
+    /// then resolved in its own X space — a left rail reserves the left columns,
+    /// so the bar is shifted right by that band. `None` off all chrome.
+    pub(in crate::native) fn current_chrome_hit(&self) -> Option<(ChromeBand, TabHit)> {
+        if !self.any_chrome_shown() {
             return None;
-        }
-        // F4-P3: under rail auto-hide the pinned reservation is `NONE`, so the
-        // rail is hit-tested against its floating-overlay geometry (window-edge
-        // origin, overlay width) and only while it is actually revealed — a click
-        // on the hidden edge falls through to the terminal beneath.
-        if self.rail_autohide_active() {
-            return self.rail_overlay_hit();
         }
         let (x_px, y_px) = self.pointer_px?;
         let cell = self.resolved_cell()?;
-        let padding = self
-            .gpu
-            .as_ref()
-            .map(GpuState::window_padding)
-            .unwrap_or(WindowPadding::ZERO);
-        // A vertical rail resolves the same TabHit enum (Switch/Close/NewTab) via
-        // its own row-major X-band hit-test, so the press-dispatch below is
-        // reused verbatim (F4-V2). The top bar keeps the column-major test.
-        let hit = if self.rail_side().is_some() {
-            self.tab_rail.hit_test(
+        // F4-P3: under rail auto-hide the rail floats, so it is hit-tested against
+        // its overlay geometry and only while actually revealed.
+        if self.rail_autohide_active() {
+            if let Some(hit) = self.rail_overlay_hit() {
+                return Some((ChromeBand::WorkspaceRail, hit));
+            }
+        } else if self.should_show_workspace_rail() {
+            let hit = self.tab_rail.hit_test(
                 x_px,
                 y_px,
-                &self.sessions,
+                &self.sessions.rail_source(),
                 self.rail_cols(),
                 self.tab_rail_grid_rows(),
                 self.rail_origin_px(cell),
                 cell,
                 self.rail_geom(),
-            )
-        } else {
-            self.tab_bar.hit_test(
-                x_px,
+            );
+            if hit != TabHit::None {
+                return Some((ChromeBand::WorkspaceRail, hit));
+            }
+        }
+        if self.should_show_tab_bar() {
+            let padding = self
+                .gpu
+                .as_ref()
+                .map(GpuState::window_padding)
+                .unwrap_or(WindowPadding::ZERO);
+            // Map the pointer into the bar's own X space: a left rail reserves the
+            // left columns, shifting the bar right by that band (0 for a right
+            // rail / no rail / floating rail, so the top-only path is unchanged).
+            let left_off = self.tab_reserve().left_reserved_cols() as f64 * cell.width as f64;
+            let hit = self.tab_bar.hit_test(
+                x_px - left_off,
                 y_px,
                 &self.sessions,
                 self.tab_bar_grid_cols(),
                 padding.as_f32(),
                 cell,
                 padding,
-            )
-        };
-        match hit {
-            TabHit::None => None,
-            hit => Some(hit),
+            );
+            if hit != TabHit::None {
+                return Some((ChromeBand::TopBar, hit));
+            }
         }
+        None
     }
 
     /// The current cell size for pointer geometry. From the GPU in production;

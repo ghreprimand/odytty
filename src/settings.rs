@@ -760,6 +760,65 @@ impl TabBarPlacement {
     }
 }
 
+/// Workspace-rail visibility and side (design doc ODP-2). The rail lists
+/// WORKSPACES (never tabs — tabs are the top bar, always). `Auto` (default)
+/// reveals the rail only once a second workspace exists, so a single-workspace
+/// launch is a zero-chrome change from a top-only tab bar. `Always` pins it even
+/// with one workspace. `Left`/`Right` pin it AND force the side. For
+/// `Auto`/`Always` the side is inherited from [`TabBarPlacement`] so a former
+/// vertical-tab user keeps their side: `left`/`right` map through, `top`
+/// defaults the rail to the left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WorkspaceRail {
+    /// Appear only with two or more workspaces (the default; single-workspace =
+    /// no rail).
+    #[default]
+    Auto,
+    /// Always visible, even with a single workspace; side inherited from
+    /// `tab_bar_placement`.
+    Always,
+    /// Always visible, pinned to the left side (explicit override).
+    Left,
+    /// Always visible, pinned to the right side (explicit override).
+    Right,
+}
+
+impl WorkspaceRail {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Always => "always",
+            Self::Left => "left",
+            Self::Right => "right",
+        }
+    }
+
+    /// Whether the rail stays pinned regardless of workspace count. `Auto` is the
+    /// only mode that hides at a single workspace.
+    pub fn always_visible(self) -> bool {
+        !matches!(self, Self::Auto)
+    }
+
+    /// The side this value forces, or `None` to inherit `tab_bar_placement`.
+    pub fn forced_side(self) -> Option<TabBarPlacement> {
+        match self {
+            Self::Left => Some(TabBarPlacement::Left),
+            Self::Right => Some(TabBarPlacement::Right),
+            Self::Auto | Self::Always => None,
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match normalize_name(value).as_str() {
+            "auto" | "default" => Some(Self::Auto),
+            "always" | "on" | "pinned" => Some(Self::Always),
+            "left" => Some(Self::Left),
+            "right" => Some(Self::Right),
+            _ => None,
+        }
+    }
+}
+
 /// Vertical tab-rail width mode (F4-P4): `Auto` sizes the rail to the longest
 /// tab title (clamped to `[MIN_TAB_RAIL_WIDTH, tab_rail_max_width]`); `Manual`
 /// pins an operator-chosen width in cells (clamped to `[MIN_TAB_RAIL_WIDTH,
@@ -1071,6 +1130,10 @@ pub struct Settings {
     /// render arm lands (R2). Default `Top` keeps the render path byte-identical
     /// to the shipped horizontal bar.
     pub tab_bar_placement: TabBarPlacement,
+    /// Workspace-rail visibility/side (ODP-2). `Auto` (default) shows the rail
+    /// only with two or more workspaces; a single-workspace session keeps the
+    /// top-only tab bar unchanged. See [`WorkspaceRail`].
+    pub workspace_rail: WorkspaceRail,
     /// Vertical rail width mode (F4-P1/P4): `Auto` (default) sizes to the longest
     /// tab title; `Manual(cols)` pins a fixed width. Resolved to a `usize` by
     /// [`Settings::rail_width_cols`]. Rail-only; the top bar ignores it.
@@ -1289,6 +1352,7 @@ impl Default for Settings {
             command_status_gutter: DEFAULT_COMMAND_STATUS_GUTTER,
             always_show_tab_bar: DEFAULT_ALWAYS_SHOW_TAB_BAR,
             tab_bar_placement: TabBarPlacement::default(),
+            workspace_rail: WorkspaceRail::default(),
             tab_rail_width: TabRailWidth::default(),
             tab_rail_max_width: DEFAULT_TAB_RAIL_MAX_WIDTH,
             tab_rail_gap: DEFAULT_TAB_RAIL_GAP,
@@ -1885,6 +1949,7 @@ impl Settings {
         );
         let tab_bar_placement =
             parse_tab_bar_placement(get(TAB_BAR_PLACEMENT_ENV).as_deref(), &mut warn);
+        let workspace_rail = parse_workspace_rail(get(WORKSPACE_RAIL_ENV).as_deref(), &mut warn);
         let tab_rail_width = parse_tab_rail_width(get(TAB_RAIL_WIDTH_ENV).as_deref(), &mut warn);
         let tab_rail_max_width =
             parse_tab_rail_max_width(get(TAB_RAIL_MAX_WIDTH_ENV).as_deref(), &mut warn);
@@ -2077,6 +2142,7 @@ impl Settings {
             command_status_gutter,
             always_show_tab_bar,
             tab_bar_placement,
+            workspace_rail,
             tab_rail_width,
             tab_rail_max_width,
             tab_rail_gap,
@@ -2264,6 +2330,7 @@ impl Settings {
             TAB_BAR_PLACEMENT_ENV,
             self.tab_bar_placement.as_str().to_owned(),
         );
+        values.insert(WORKSPACE_RAIL_ENV, self.workspace_rail.as_str().to_owned());
         values.insert(TAB_RAIL_WIDTH_ENV, self.tab_rail_width.as_config_string());
         values.insert(
             TAB_RAIL_MAX_WIDTH_ENV,

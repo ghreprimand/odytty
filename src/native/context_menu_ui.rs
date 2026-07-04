@@ -63,7 +63,7 @@ use crate::settings::BindableAction;
 /// resolved path is an image file (C4); and "Open With…" is shown only when the
 /// resolved path is a regular file (C3b). With no path and single-pane the
 /// visible count is 18; with no path and multi-pane it is 19.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 27;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 30;
 
 /// Body row index of the first visual separator in the single-pane content
 /// reference, between Select All and New Tab. The reference is the
@@ -191,6 +191,16 @@ pub(super) enum ContextMenuItem {
     /// file-section indices stay stable; rendered in the session-management
     /// section (4), right after "Manage Sessions", in the non-path menu.
     DetachSwitch,
+    /// Create a fresh workspace (its own single-pane tab) and switch to it.
+    /// Workspace-scoped: shown on the `WorkspaceSlot` / `WorkspaceRailEmpty`
+    /// surfaces (rail `+` slot / rail right-click). No default chord.
+    NewWorkspace,
+    /// Rename the right-clicked workspace in place. Workspace-scoped
+    /// (`WorkspaceSlot`); opens the shared rename field targeting the slot.
+    RenameWorkspace,
+    /// Close the right-clicked workspace entirely — every tab, every pane.
+    /// Workspace-scoped (`WorkspaceSlot`). Closing the last workspace exits.
+    CloseWorkspace,
 }
 
 impl ContextMenuItem {
@@ -225,6 +235,9 @@ impl ContextMenuItem {
         Self::DetachSwitch,
         Self::CloseOtherTabs,
         Self::MoveToNextWorkspace,
+        Self::NewWorkspace,
+        Self::RenameWorkspace,
+        Self::CloseWorkspace,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -240,7 +253,10 @@ impl ContextMenuItem {
             | Self::RenameTab
             | Self::CloseTab
             | Self::CloseOtherTabs
-            | Self::MoveToNextWorkspace => 1,
+            | Self::MoveToNextWorkspace
+            | Self::NewWorkspace
+            | Self::RenameWorkspace
+            | Self::CloseWorkspace => 1,
             Self::SplitColumns | Self::SplitRows | Self::ClosePane => 2,
             Self::Settings => 3,
             Self::KeyboardShortcuts
@@ -272,6 +288,9 @@ impl ContextMenuItem {
             Self::CloseTab => "Close Tab",
             Self::CloseOtherTabs => "Close Other Tabs",
             Self::MoveToNextWorkspace => "Move to Next Workspace",
+            Self::NewWorkspace => "New Workspace",
+            Self::RenameWorkspace => "Rename Workspace",
+            Self::CloseWorkspace => "Close Workspace",
             Self::SplitColumns => "Split Right",
             Self::SplitRows => "Split Down",
             Self::ClosePane => "Close Pane",
@@ -335,7 +354,12 @@ impl ContextMenuItem {
             | Self::KeyboardShortcuts
             // Detach & switch is pointer-only (no global chord); skip the
             // flat-table lookup.
-            | Self::DetachSwitch => None,
+            | Self::DetachSwitch
+            // Workspace actions have no default chord (rail / menu / palette
+            // cover them; ODP-5).
+            | Self::NewWorkspace
+            | Self::RenameWorkspace
+            | Self::CloseWorkspace => None,
         }
     }
 }
@@ -360,19 +384,13 @@ pub(super) enum ContextMenuSurface {
     #[default]
     Content,
 
-    // ---- provisional; reserved, not wired until their ODP rules ----
-    // Constructed by follow-up packets (PaneDivider = ODP-7; the workspace
-    // surfaces = ODP-10, after the rail becomes the workspaces sidebar). Held
-    // now so the routing and `visible_items`/`section_of`/`discriminant`
-    // matches already absorb them without a rewrite.
-    #[allow(dead_code)]
     /// The inter-pane divider (ODP-7). Reserved; not constructed yet.
+    #[allow(dead_code)]
     PaneDivider,
-    #[allow(dead_code)]
-    /// A workspace slot in the rail-as-workspaces sidebar (ODP-10). Reserved.
-    WorkspaceSlot,
-    #[allow(dead_code)]
-    /// Empty area of the workspace rail (ODP-10). Reserved.
+    /// A workspace slot in the rail-as-workspaces sidebar (§7.4 / NF-F7-4).
+    /// Carries the rail index so Rename/Close act on the RIGHT-CLICKED workspace.
+    WorkspaceSlot(usize),
+    /// Empty area of the workspace rail (the `+` slot, gaps). New Workspace.
     WorkspaceRailEmpty,
 }
 
@@ -389,7 +407,7 @@ impl ContextMenuSurface {
             Self::TabSlot(_) => 1,
             Self::TabStripEmpty => 2,
             Self::PaneDivider => 3,
-            Self::WorkspaceSlot => 4,
+            Self::WorkspaceSlot(_) => 4,
             Self::WorkspaceRailEmpty => 5,
         }
     }
@@ -714,6 +732,10 @@ impl ContextMenuUi {
             // "Open With…" is enabled only when the resolved path is a regular
             // file — the same condition that makes it visible.
             ContextMenuItem::OpenWith => self.is_file_target(),
+            // Workspace actions are always available on their surfaces.
+            ContextMenuItem::NewWorkspace
+            | ContextMenuItem::RenameWorkspace
+            | ContextMenuItem::CloseWorkspace => true,
         }
     }
 
@@ -758,6 +780,13 @@ impl ContextMenuUi {
                 ContextMenuItem::CommandPalette | ContextMenuItem::Settings => 1,
                 _ => 1,
             },
+            ContextMenuSurface::WorkspaceSlot(_) => match item {
+                // New/Rename group; Close in its own destructive group (one
+                // separator before it) — the TabSlot pattern one level up.
+                ContextMenuItem::NewWorkspace | ContextMenuItem::RenameWorkspace => 0,
+                ContextMenuItem::CloseWorkspace => 1,
+                _ => 1,
+            },
             _ => item.section(),
         }
     }
@@ -799,13 +828,23 @@ impl ContextMenuUi {
                     ContextMenuItem::Settings,
                 ];
             }
-            // Provisional surfaces are never constructed yet (reserved variants);
-            // fall through to the Content composition defensively so an
-            // unexpected open can never index an empty item list.
-            ContextMenuSurface::Content
-            | ContextMenuSurface::PaneDivider
-            | ContextMenuSurface::WorkspaceSlot
-            | ContextMenuSurface::WorkspaceRailEmpty => {}
+            // The workspace rail surfaces carry their own tight compositions
+            // (§3.5): a slot offers New/Rename/Close Workspace; the empty rail
+            // offers New Workspace only.
+            ContextMenuSurface::WorkspaceSlot(_) => {
+                return vec![
+                    ContextMenuItem::NewWorkspace,
+                    ContextMenuItem::RenameWorkspace,
+                    ContextMenuItem::CloseWorkspace,
+                ];
+            }
+            ContextMenuSurface::WorkspaceRailEmpty => {
+                return vec![ContextMenuItem::NewWorkspace];
+            }
+            // The provisional pane-divider surface is not constructed yet; fall
+            // through to the Content composition defensively so an unexpected
+            // open can never index an empty item list.
+            ContextMenuSurface::Content | ContextMenuSurface::PaneDivider => {}
         }
         let has_path = self.path_target.is_some();
         let is_image = self.is_image_target();
@@ -836,12 +875,16 @@ impl ContextMenuUi {
         ContextMenuItem::ALL
             .into_iter()
             .filter(|item| !matches!(item, ContextMenuItem::ClosePane) || self.multi_pane)
-            // `Close Other Tabs` and `Move to Next Workspace` are tab-scoped:
-            // never on the content menu.
+            // `Close Other Tabs` and `Move to Next Workspace` are tab-scoped,
+            // and New/Rename/Close Workspace are rail-scoped: never on content.
             .filter(|item| {
                 !matches!(
                     item,
-                    ContextMenuItem::CloseOtherTabs | ContextMenuItem::MoveToNextWorkspace
+                    ContextMenuItem::CloseOtherTabs
+                        | ContextMenuItem::MoveToNextWorkspace
+                        | ContextMenuItem::NewWorkspace
+                        | ContextMenuItem::RenameWorkspace
+                        | ContextMenuItem::CloseWorkspace
                 )
             })
             // Drop the always-disabled `Rename Tab` row on the content surface —
@@ -2300,6 +2343,49 @@ mod tests {
                 item("Settings", false, true),
             ]
         );
+    }
+
+    #[test]
+    fn workspace_slot_menu_offers_workspace_actions() {
+        // §3.5 / §7.4: a workspace-slot right-click opens New / Rename / Close
+        // Workspace, with a separator before the destructive Close.
+        let m = open_surface(ContextMenuSurface::WorkspaceSlot(0), true);
+        assert_eq!(
+            m.rows(),
+            vec![
+                item("New Workspace", true, true),
+                item("Rename Workspace", false, true),
+                ContextMenuRow::Separator,
+                item("Close Workspace", false, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn workspace_rail_empty_menu_is_new_workspace_only() {
+        // §3.5: the empty rail area offers New Workspace only.
+        let m = open_surface(ContextMenuSurface::WorkspaceRailEmpty, true);
+        assert_eq!(m.rows(), vec![item("New Workspace", true, true)]);
+    }
+
+    #[test]
+    fn workspace_actions_never_leak_onto_the_content_menu() {
+        // The workspace items are rail-scoped: the content menu never lists them.
+        let m = open_surface(ContextMenuSurface::Content, true);
+        let labels: Vec<&str> = m
+            .rows()
+            .into_iter()
+            .filter_map(|row| match row {
+                ContextMenuRow::Item { label, .. } => Some(label),
+                ContextMenuRow::Separator => None,
+            })
+            .collect();
+        for banned in ["New Workspace", "Rename Workspace", "Close Workspace"] {
+            assert!(
+                !labels.contains(&banned),
+                "content menu must not contain {banned:?}"
+            );
+        }
     }
 
     #[test]

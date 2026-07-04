@@ -1898,6 +1898,13 @@ impl WorkspaceSet {
         self.workspaces.iter().map(|ws| ws.name.clone()).collect()
     }
 
+    /// The workspace list as a [`TabBarSource`] for the rail widget (§7.1): the
+    /// same geometry / hit-test / panel code the tab strip uses, now listing
+    /// workspaces. Borrows `self`, so it is built per render/hit-test frame.
+    pub(super) fn rail_source(&self) -> WorkspaceRailSource<'_> {
+        WorkspaceRailSource { set: self }
+    }
+
     /// Spawn a fresh shell in a brand-new workspace appended after the current
     /// list and switch focus to it. The new workspace owns exactly one
     /// single-pane tab (no empty workspaces, ODP-3). Mirrors [`Self::spawn`] one
@@ -2064,6 +2071,35 @@ impl TabBarSource for WorkspaceSet {
 
     fn active_tab(&self) -> usize {
         self.active_workspace().active_tab
+    }
+}
+
+/// A borrow of the workspace list presented through [`TabBarSource`] so the F4
+/// rail widget renders and hit-tests the WORKSPACES (name / active / count)
+/// rather than the active workspace's tabs (design doc §7.1). The rail's
+/// `TabHit::Switch(idx)` then dispatches to [`WorkspaceSet::switch_workspace`]
+/// instead of `switch`; `TabHit::NewTab` (the `+` slot) creates a workspace.
+/// Presentation-only: it reads `workspaces` directly, so it carries no per-tab
+/// title-override or session lookup — a workspace's label is its `name`.
+pub(in crate::native) struct WorkspaceRailSource<'a> {
+    set: &'a WorkspaceSet,
+}
+
+impl TabBarSource for WorkspaceRailSource<'_> {
+    fn tab_count(&self) -> usize {
+        self.set.workspaces.len()
+    }
+
+    fn tab_title(&self, idx: usize) -> &str {
+        self.set
+            .workspaces
+            .get(idx)
+            .map(|ws| ws.name.as_str())
+            .unwrap_or("workspace")
+    }
+
+    fn active_tab(&self) -> usize {
+        self.set.active_ws
     }
 }
 

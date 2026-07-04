@@ -149,6 +149,19 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.enter_rename_tab(target);
             }
+            // §7.4 workspace context-menu / rail actions.
+            OverlayOutcome::ContextMenuNewWorkspace => {
+                self.flush_pending_overlay_settings();
+                self.handle_new_workspace();
+            }
+            OverlayOutcome::ContextMenuRenameWorkspace(idx) => {
+                self.flush_pending_overlay_settings();
+                self.enter_rename_workspace(idx);
+            }
+            OverlayOutcome::ContextMenuCloseWorkspace(idx) => {
+                self.flush_pending_overlay_settings();
+                self.close_workspace_at(idx);
+            }
             OverlayOutcome::ContextMenuCloseTab => {
                 self.flush_pending_overlay_settings();
                 let _ = self.close_active_tab();
@@ -1437,20 +1450,17 @@ impl App {
         // — the revealed-band hover returned early above, and a hidden rail has
         // no chrome to hover, so this must NOT fall through to the top-bar
         // hit-test (which would falsely register hits along the content's top).
-        let rail_side = self.rail_side();
-        let tab_bar_hit = if self.should_show_tab_bar() && !self.rail_autohide_active() {
-            if rail_side.is_some() {
-                let hit = self.tab_rail.hit_test(
-                    x_px,
-                    y_px,
-                    &self.sessions,
-                    self.rail_cols(),
-                    self.tab_rail_grid_rows(),
-                    self.rail_origin_px(cell),
-                    cell,
-                    self.rail_geom(),
-                );
-                let hover = (hit != TabHit::None).then_some(hit);
+        // Tab-chrome hover (dual band). `current_chrome_hit` resolves the rail
+        // first (full-height sidebar) then the top bar; whichever the pointer is
+        // over gets its widget hover set and the other cleared. Under rail
+        // auto-hide the pinned hover is skipped — the revealed-band hover is
+        // handled earlier, and a hidden rail has no pinned chrome to hover.
+        let chrome_hit = (!self.rail_autohide_active())
+            .then(|| self.current_chrome_hit())
+            .flatten();
+        let (tab_bar_hit, hit_is_rail) = match chrome_hit {
+            Some((ChromeBand::WorkspaceRail, hit)) => {
+                let hover = Some(hit);
                 if self.tab_rail.hover != hover {
                     self.tab_rail.set_hover(hover);
                     if let Some(window) = self.window.as_ref() {
@@ -1458,18 +1468,10 @@ impl App {
                     }
                 }
                 self.tab_bar.set_hover(None);
-                hover
-            } else {
-                let hit = self.tab_bar.hit_test(
-                    x_px,
-                    y_px,
-                    &self.sessions,
-                    self.tab_bar_grid_cols(),
-                    padding.as_f32(),
-                    cell,
-                    padding,
-                );
-                let hover = (hit != TabHit::None).then_some(hit);
+                (hover, true)
+            }
+            Some((ChromeBand::TopBar, hit)) => {
+                let hover = Some(hit);
                 if self.tab_bar.hover != hover {
                     self.tab_bar.set_hover(hover);
                     if let Some(window) = self.window.as_ref() {
@@ -1477,18 +1479,19 @@ impl App {
                     }
                 }
                 self.tab_rail.set_hover(None);
-                hover
+                (hover, false)
             }
-        } else {
-            self.tab_bar.set_hover(None);
-            self.tab_rail.set_hover(None);
-            None
+            None => {
+                self.tab_bar.set_hover(None);
+                self.tab_rail.set_hover(None);
+                (None, false)
+            }
         };
         if tab_bar_hit.is_some() {
             // Record a benign pointer cell in the chrome region so grid selection
             // / link hover below are skipped; the press path resolves the actual
-            // action via `current_tab_bar_hit` (rail or bar), not this cell.
-            let point = if rail_side.is_some() {
+            // action via `current_chrome_hit` (rail or bar), not this cell.
+            let point = if hit_is_rail {
                 let y = (y_px as f32 - padding.as_f32()).max(0.0);
                 let row = (y / cell.height as f32) as usize;
                 CellPoint {

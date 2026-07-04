@@ -88,6 +88,19 @@ fn tab_bar_app() -> Option<App> {
     Some(app)
 }
 
+/// Inject a fresh workspace (a single-tab, recorded-PTY workspace) and switch to
+/// it, so the workspace rail has multiple slots and the active workspace is
+/// single-tab (no top bar competes with the rail). Returns `false` when no PTY
+/// fixture is available (the caller should already have one from `tab_bar_app`).
+fn add_workspace(app: &mut App) -> bool {
+    let dims = NativeOptions::default().initial_grid;
+    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
+        return false;
+    };
+    app.push_workspace_for_test(terminal, writer, pty);
+    true
+}
+
 fn scrollback_bytes(lines: usize) -> Vec<u8> {
     let mut text = String::new();
     for i in 0..lines {
@@ -560,72 +573,78 @@ fn tab_bar_hit_test_reports_switch_close_and_new_actions() {
 // --- F4-V2 R1: vertical tab rail integration ---
 
 #[test]
-fn tab_reserve_switches_axis_with_placement() {
-    // The reservation flips from rows-off-top (bar) to cols-off-side (rail) when
-    // the placement changes; hidden bar reserves nothing (F4-V2 ODP-8 helper).
+fn tab_reserve_combines_top_bar_and_workspace_rail() {
+    // The top tab bar (tabs) reserves a row off the top; the workspace rail
+    // reserves columns off a side. They are independent bands that can coexist.
+    // With one workspace and the default auto rail, only the top bar reserves
+    // (byte-identical to a top-only bar).
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
     };
     app.set_test_cell_for_test(cell(8, 16));
-    // F4-P4: pin a manual rail width so the reservation is title-independent.
+    // Pin a manual rail width so the reservation is name-length independent.
     app.set_tab_rail_width_manual_for_test(16);
 
-    // Two tabs → bar shown. Default top placement reserves one row.
+    // Two tabs → top bar shown; one workspace → auto rail hidden. Top only.
     app.set_tab_bar_placement_for_test("top");
-    assert_eq!(app.tab_reserve_for_test(), (1, 0), "top reserves one row");
-
-    // Left rail reserves the rail-width columns, zero rows.
-    app.set_tab_bar_placement_for_test("left");
-    assert_eq!(app.tab_reserve_for_test(), (0, 16), "left reserves 16 cols");
-
-    // Right rail is real now (F4-P2): it reserves the rail-width columns off the
-    // RIGHT, zero rows — the same column count as the left rail, mirrored side.
-    app.set_tab_bar_placement_for_test("right");
     assert_eq!(
         app.tab_reserve_for_test(),
-        (0, 16),
-        "right reserves 16 cols (mirror of left)"
+        (1, 0),
+        "top bar reserves one row, no rail"
+    );
+
+    // Force the workspace rail on the LEFT: BOTH bands reserve now.
+    app.set_workspace_rail_for_test("left");
+    assert_eq!(
+        app.tab_reserve_for_test(),
+        (1, 16),
+        "top bar row + left rail band"
+    );
+
+    // The RIGHT rail reserves the same column count off the other side.
+    app.set_workspace_rail_for_test("right");
+    assert_eq!(
+        app.tab_reserve_for_test(),
+        (1, 16),
+        "top bar row + right rail band (mirror)"
     );
 }
 
 #[test]
-fn left_rail_grows_decorated_snapshot_by_columns_not_rows() {
-    // The single-pane rail decoration grows the snapshot by `rail_cols` columns
-    // (content shifts right); the top bar grows it by one row. The reserved axis
-    // used here must match `tab_reserve` (ODP-8 correctness knot).
+fn workspace_rail_grows_decorated_snapshot_by_columns_beside_the_top_bar() {
+    // With the workspace rail shown alongside the top tab bar, the single-pane
+    // decoration grows the snapshot by the rail's COLUMNS (content shifts right)
+    // WITHOUT adding rows — the top bar's row is already present (the rail is a
+    // full-height sidebar beside it). The grown axis must match `tab_reserve`.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
     };
     app.set_test_cell_for_test(cell(8, 16));
-    // F4-P4: pin a manual rail width so the grown-columns delta is a fixed 16.
+    // Pin a manual rail width so the grown-columns delta is a fixed 16.
     app.set_tab_rail_width_manual_for_test(16);
 
-    app.set_tab_bar_placement_for_test("top");
+    // Two tabs → top bar shown; auto rail hidden (one workspace). Top only.
     let (top_cols, top_rows) = app
         .decorated_snapshot_dims_for_test()
         .expect("top decorated dims");
 
-    app.set_tab_bar_placement_for_test("left");
-    let (left_cols, left_rows) = app
+    // Force the rail on the left: the decoration composes the top bar and the
+    // full-height rail, growing columns by the 16-col band, rows unchanged.
+    app.set_workspace_rail_for_test("left");
+    let (rail_cols, rail_rows) = app
         .decorated_snapshot_dims_for_test()
-        .expect("left decorated dims");
+        .expect("rail decorated dims");
 
-    // The base terminal grid is identical here (headless: no live resize), so
-    // the two decorations differ only in the axis they grow: the top bar adds
-    // one ROW (leaving columns unchanged), the left rail adds `rail_cols` COLUMNS
-    // (leaving rows unchanged). Hence the left snapshot has one fewer row than
-    // the top-bar snapshot and 16 more columns.
     assert_eq!(
-        left_rows,
-        top_rows - 1,
-        "left grows columns, not rows (top bar's extra row is absent)"
+        rail_rows, top_rows,
+        "the rail adds columns, not rows (the top bar row stays)"
     );
     assert_eq!(
-        left_cols,
+        rail_cols,
         top_cols + 16,
-        "left adds 16 cols vs the top bar's same-width row"
+        "the rail adds its 16-col band beside the content"
     );
 }
 
@@ -645,8 +664,13 @@ fn left_rail_hit_test_resolves_switch_close_and_new() {
     // Pin short single-line labels so the F4-P1 floating-`+` anchor (one gap
     // below the last slot's LABEL row) is deterministic regardless of the live
     // shell title's length.
-    app.set_session_title_override_for_test(0, Some("a"));
-    app.set_session_title_override_for_test(1, Some("b"));
+    // W2: two workspaces give the rail two slots; the active workspace holds a
+    // single tab so no top bar competes for the corner. Short names keep the
+    // slot geometry deterministic (single label row), matching the labels the
+    // pre-workspace rail tabs used.
+    add_workspace(&mut app);
+    app.rename_workspace_for_test(0, "a");
+    app.rename_workspace_for_test(1, "b");
 
     // R1.1 geometry: a 1-row top margin, then tab 0 at rows [1,3), tab 1 at
     // [4,6). The close × sits inside the ring inset at col 14 (rail_cols 16 −
@@ -685,6 +709,9 @@ fn click_right_of_the_rail_is_not_a_tab_hit() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
+    // W2: a second workspace makes the auto rail appear on the left; the active
+    // workspace's single tab means no top bar, so the content area is clear.
+    add_workspace(&mut app);
 
     app.set_pointer_px_for_test(200.0, 8.0);
     assert_eq!(
@@ -719,6 +746,9 @@ fn rail_seam_drag_sets_and_persists_a_manual_width() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
+    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // is exercised (the rail now lists workspaces).
+    app.set_workspace_rail_for_test("always");
     // Pin a manual width so the seam is deterministic: left rail band [0, 128),
     // so the inner seam sits at x = 16*8 = 128 (headless origin at 0).
     app.set_tab_rail_width_manual_for_test(16);
@@ -769,6 +799,9 @@ fn double_click_rail_seam_resets_to_auto_and_persists() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
+    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // is exercised (the rail now lists workspaces).
+    app.set_workspace_rail_for_test("always");
     // Start from a manual width (seam at x = 20*8 = 160).
     app.set_tab_rail_width_manual_for_test(20);
     let conf = temp_rail_conf("seam-dblclick");
@@ -805,6 +838,9 @@ fn rail_seam_hover_shows_a_resize_cursor_off_the_tab_slots() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
+    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // is exercised (the rail now lists workspaces).
+    app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // seam at x = 128
 
     // Hovering the seam grab band shows a column-resize cursor.
@@ -838,6 +874,10 @@ fn autohide_removes_the_rail_reservation() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
+    // W2: a second workspace makes the auto rail appear (left side, inherited
+    // from placement); the active workspace has a single tab, so no top bar is
+    // reserved and the reservation is the rail band alone.
+    add_workspace(&mut app);
     assert_eq!(
         app.tab_reserve_for_test(),
         (0, 16),
@@ -892,6 +932,9 @@ fn reveal_edge_zone_is_the_window_edge_and_band_extends_to_the_seam() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
+    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // is exercised (the rail now lists workspaces).
+    app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // band [0..128] (pad 0 headless)
     app.set_tab_rail_autohide_for_test(true);
 
@@ -924,6 +967,9 @@ fn reveal_zone_is_logical_px_scaled_for_hidpi() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
+    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // is exercised (the rail now lists workspaces).
+    app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16);
     app.set_tab_rail_autohide_for_test(true);
     app.set_test_scale_for_test(2.0);
@@ -957,6 +1003,9 @@ fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
     };
     app.set_test_cell_for_test(cell(12, 24)); // ~8x16 logical at 1.5x
     app.set_tab_bar_placement_for_test("left");
+    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // is exercised (the rail now lists workspaces).
+    app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // band_w = 16*12 = 192; seam at pad+192
     app.set_tab_rail_autohide_for_test(true);
     app.set_test_scale_for_test(1.5);
@@ -1036,6 +1085,9 @@ fn reveal_visibility_flip_marks_the_frame_for_rebuild() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
+    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // is exercised (the rail now lists workspaces).
+    app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // band [0..128], seam at x=128
     app.set_tab_rail_autohide_for_test(true);
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
@@ -1118,6 +1170,9 @@ fn reveal_arms_at_the_edge_and_the_band_carries_the_debounce() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
+    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // is exercised (the rail now lists workspaces).
+    app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // band [0..128], seam at x=128
     app.set_tab_rail_autohide_for_test(true);
     // pad 0, scale 1 → reach = 16 (default reveal_px). Zone is [0, 16].
@@ -1156,6 +1211,9 @@ fn reveal_arms_and_holds_across_the_live_trace_sequences() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
+    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // is exercised (the rail now lists workspaces).
+    app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // band [0..128], seam at x=128
     app.set_tab_rail_autohide_for_test(true);
     // pad 0, scale 1 → reach = 16 (default reveal_px). Trigger zone [0, 16].
@@ -1223,6 +1281,9 @@ fn reveal_yields_to_an_active_scrollbar_drag() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
+    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // is exercised (the rail now lists workspaces).
+    app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16);
     app.set_tab_rail_autohide_for_test(true);
 
@@ -1277,8 +1338,13 @@ fn revealed_band_click_hits_the_rail_hidden_does_not() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("left");
     app.set_tab_rail_width_manual_for_test(16);
-    app.set_session_title_override_for_test(0, Some("a"));
-    app.set_session_title_override_for_test(1, Some("b"));
+    // W2: two workspaces give the rail two slots; the active workspace holds a
+    // single tab so no top bar competes for the corner. Short names keep the
+    // slot geometry deterministic (single label row), matching the labels the
+    // pre-workspace rail tabs used.
+    add_workspace(&mut app);
+    app.rename_workspace_for_test(0, "a");
+    app.rename_workspace_for_test(1, "b");
     app.set_tab_rail_autohide_for_test(true);
 
     // Slot 0 body (top-margin row 1, label col 2 → centre (2·8+4, 24)).
@@ -1340,6 +1406,9 @@ fn repro_reveal_holds_across_maintenance_polls_no_flicker() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
+    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // is exercised (the rail now lists workspaces).
+    app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16);
     app.set_tab_rail_autohide_for_test(true);
 
@@ -1377,6 +1446,9 @@ fn repro_revealed_content_right_click_opens_menu_not_swallowed() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
+    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // is exercised (the rail now lists workspaces).
+    app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16); // band [0..128], seam at x=128
     app.set_tab_rail_autohide_for_test(true);
     app.force_rail_reveal_for_test();
@@ -1405,6 +1477,9 @@ fn repro_open_menu_suppresses_the_rail_overlay_no_occlusion() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
+    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // is exercised (the rail now lists workspaces).
+    app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16);
     app.set_tab_rail_autohide_for_test(true);
 
@@ -1445,6 +1520,10 @@ fn autohide_left_decoration_grows_no_phantom_top_bar() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
+    // W2: a single-tab active workspace means no top bar, so the autohidden
+    // rail (a floating overlay) is the ONLY chrome — the decoration must add
+    // nothing. A second workspace keeps the rail shown.
+    add_workspace(&mut app);
     app.set_tab_rail_width_manual_for_test(16);
     app.set_tab_rail_autohide_for_test(true);
 
@@ -1480,6 +1559,10 @@ fn autohide_right_decoration_grows_no_phantom_top_bar() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("right");
+    // W2: a single-tab active workspace means no top bar, so the autohidden
+    // rail (a floating overlay) is the ONLY chrome — the decoration must add
+    // nothing. A second workspace keeps the rail shown.
+    add_workspace(&mut app);
     app.set_tab_rail_width_manual_for_test(16);
     app.set_tab_rail_autohide_for_test(true);
 
@@ -1532,6 +1615,9 @@ fn autohide_idle_states_schedule_no_self_wake() {
     app.set_test_cell_for_test(cell(8, 16));
     app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
+    // W2: force the workspace rail on so its reserve/seam/reveal machinery
+    // is exercised (the rail now lists workspaces).
+    app.set_workspace_rail_for_test("always");
     app.set_tab_rail_width_manual_for_test(16);
     app.set_tab_rail_autohide_for_test(true);
 
@@ -1583,8 +1669,13 @@ fn right_rail_hit_test_is_x_flipped_to_the_far_side() {
     };
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("right");
-    app.set_session_title_override_for_test(0, Some("a"));
-    app.set_session_title_override_for_test(1, Some("b"));
+    // W2: two workspaces give the rail two slots; the active workspace holds a
+    // single tab so no top bar competes for the corner. Short names keep the
+    // slot geometry deterministic (single label row), matching the labels the
+    // pre-workspace rail tabs used.
+    add_workspace(&mut app);
+    app.rename_workspace_for_test(0, "a");
+    app.rename_workspace_for_test(1, "b");
 
     // Headless: no live resize, so `self.grid` is the full grid and the right
     // rail band starts at column `cols` (content stays at column 0; pad/gap 0).
@@ -1648,6 +1739,10 @@ fn right_rail_leaves_the_content_origin_unshifted_for_overlays() {
     app.set_test_cell_for_test(cell(8, 16));
 
     app.set_tab_bar_placement_for_test("right");
+    // W2: a second workspace makes the auto rail appear; the active workspace's
+    // single tab means no top bar, so the only offset is the rail's (0 for a
+    // right rail, positive for a left rail).
+    add_workspace(&mut app);
     assert_eq!(
         app.tab_chrome_offset_px_for_test(),
         Some((0.0, 0.0)),
@@ -1682,6 +1777,9 @@ fn right_rail_scrollbar_stays_in_the_content_not_under_the_rail() {
     }
     app.set_test_cell_for_test(cell(8, 16));
     app.set_tab_bar_placement_for_test("right");
+    // W2: force the workspace rail on the right so the collision geometry is
+    // exercised (the rail lists workspaces now).
+    app.set_workspace_rail_for_test("right");
     app.scroll_up_for_test(usize::MAX);
     let len = app.scrollback_len_for_test();
     if len == 0 {
@@ -3227,5 +3325,136 @@ fn attach_overlay_closes_when_switching_to_already_attached_session() {
         !app.overlay_open_for_test(),
         "C5: the attach overlay must close on the already-attached branch so \
          keystrokes reach the switched-to session, not the filter box"
+    );
+}
+
+// --- W2: workspace rail chrome (design doc §7, ODP-2/-6) ---
+
+#[test]
+fn single_workspace_default_shows_no_workspace_rail() {
+    // ODP-2: a single-workspace launch is ZERO chrome change from a top-only tab
+    // bar — the auto rail stays hidden until a second workspace exists.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_rail_width_manual_for_test(16);
+    // Two tabs → top bar; one workspace + auto rail → no rail band.
+    assert_eq!(app.workspace_count_for_test(), 1);
+    assert_eq!(
+        app.tab_reserve_for_test(),
+        (1, 0),
+        "one workspace: top bar only, no rail"
+    );
+
+    // A second workspace makes the auto rail appear; the active (new) workspace
+    // is single-tab, so the top bar drops and the rail band takes over.
+    add_workspace(&mut app);
+    assert_eq!(app.workspace_count_for_test(), 2);
+    assert_eq!(
+        app.tab_reserve_for_test(),
+        (0, 16),
+        "two workspaces: the auto rail appears"
+    );
+}
+
+#[test]
+fn workspace_rail_always_shows_with_a_single_workspace() {
+    // ODP-2: `workspace_rail = always` pins the rail even with one workspace
+    // (alongside the top bar).
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_rail_width_manual_for_test(16);
+    app.set_workspace_rail_for_test("always");
+    assert_eq!(app.workspace_count_for_test(), 1);
+    assert_eq!(
+        app.tab_reserve_for_test(),
+        (1, 16),
+        "always: top bar row + rail band with one workspace"
+    );
+}
+
+#[test]
+fn clicking_a_workspace_rail_slot_switches_the_active_workspace() {
+    // ODP-10 / §7.1: a press on a rail slot dispatches to `switch_workspace`,
+    // not `switch_tab`; the band reports the WORKSPACE surface.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_workspace_rail_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    add_workspace(&mut app); // two workspaces; active = the new one (index 1)
+    app.rename_workspace_for_test(0, "a");
+    app.rename_workspace_for_test(1, "b");
+    assert_eq!(app.active_workspace_index_for_test(), 1);
+
+    // Slot 0 body (top-margin row 1, label col) → the pointer is over the
+    // WORKSPACE band, and a press switches to workspace 0.
+    app.set_pointer_px_for_test(12.0, 24.0);
+    assert_eq!(
+        app.chrome_hit_band_for_test(),
+        Some("workspace"),
+        "the rail band is a workspace surface, not a tab surface"
+    );
+    app.mouse_left_press_for_test();
+    assert_eq!(
+        app.active_workspace_index_for_test(),
+        0,
+        "a rail slot press switches the active workspace"
+    );
+}
+
+#[test]
+fn the_rail_plus_slot_resolves_to_a_new_workspace_hit() {
+    // §7.4: the rail `+` slot is New Workspace — it resolves to a `NewTab` hit on
+    // the WORKSPACE band (dispatched to `handle_new_workspace`).
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_workspace_rail_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    add_workspace(&mut app);
+    app.rename_workspace_for_test(0, "a");
+    app.rename_workspace_for_test(1, "b");
+
+    // The `+` anchors one gap below workspace 1's single label row (row 6 centre
+    // y = 6*16 + 8 = 104), mirroring the tab-rail `+` geometry.
+    app.set_pointer_px_for_test(64.0, 104.0);
+    assert_eq!(app.tab_bar_hit_for_test(), Some("new"), "+ slot → new");
+    assert_eq!(
+        app.chrome_hit_band_for_test(),
+        Some("workspace"),
+        "the + is on the workspace band → New Workspace"
+    );
+}
+
+#[test]
+fn the_shared_rename_field_retargets_the_workspace_name() {
+    // §7.1: the rename field is shared with the tab bar; on the rail it re-targets
+    // `Workspace.name`.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_workspace_rail_for_test("left");
+    app.rename_workspace_for_test(0, "old");
+    let after = app.rename_workspace_via_field_for_test(0, "renamed");
+    assert_eq!(
+        after.as_deref(),
+        Some("renamed"),
+        "committing the rename field writes Workspace.name"
+    );
+    assert!(
+        !app.rename_active_for_test(),
+        "Enter closes the rename field"
     );
 }

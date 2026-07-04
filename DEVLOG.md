@@ -61,6 +61,46 @@ carries a name), where a blank tab rename clears back to the live title.
 
 Windows: platform-neutral — no `cfg(windows)` surface. The full suite runs on
 the windows-latest CI leg.
+---
+
+## 2026-07-04 -- Workspaces get a rail; tabs move to the top bar for good
+
+The workspace layer added under the tabs now has chrome. Tabs and workspaces are
+two levels: **tabs always live on the top bar**, and **workspaces get a
+sidebar** — a vertical rail listing the open workspaces, with the active one
+highlighted and a `+` slot to create another. The rail is the same widget the
+vertical tab rail used (geometry, row-stacked slots, hit-testing, the unified
+panel tint/seam, drag-to-resize, double-click-to-reset, auto-hide with the
+edge-reveal state machine, and the in-place rename field), re-pointed from the
+tab list to the workspace list. The two bands are independent and compose into a
+VS Code-style layout: a full-height sidebar with the tab bar and content to its
+side.
+
+A `workspace_rail` setting controls it: `auto` (the default) shows the rail only
+once a second workspace exists, so a single-workspace session is a **zero-chrome
+change** from a plain top tab bar; `always` pins it even with one workspace; and
+`left`/`right` pin it to a chosen side. The rail width auto-sizes to the longest
+workspace name (or takes a manual width via the seam drag), exactly as the tab
+rail did.
+
+**Migration for vertical-tab users:** `tab_bar_placement=left`/`right` no longer
+puts *tabs* on a side — tabs are top-only now. The setting instead selects the
+**workspace-rail side**, and `auto`/`always` inherit it. An existing left/right
+config therefore keeps its side, now as the workspace rail, with its tabs on the
+top bar. This is a real visual change for those configs (documented in
+`docs/runtime-knobs.md` and `docs/odytty.conf.example`).
+
+Right-click menus gained the two reserved workspace surfaces: a **workspace
+slot** offers New / Rename / Close Workspace (targeting the clicked slot), and
+the **empty rail** offers New Workspace. Rename opens the shared rename field,
+now re-targeting `Workspace.name`. Closing a workspace reaps all its tabs and
+panes; closing the last workspace exits, mirroring the last-tab guard.
+
+Keyboard flash sites were re-keyed to match the reframe: tab actions (new tab,
+switch tab, close tab) no longer flash the rail, since the rail no longer shows
+tabs; a change to the *workspace* list flashes it instead. The session arena
+stays a single flat map keyed by token — the workspace/tab/pane tree carries
+only focus and presentation, so collectors and the pump thread never walk it.
 
 ## 2026-07-04 -- Right-click menus are now context-aware per surface
 

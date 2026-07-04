@@ -737,6 +737,21 @@ impl OverlayUi {
                             OverlayOutcome::Consumed
                         }
                     }
+                    // §7.4 workspace surfaces: New is global; Rename/Close target
+                    // the right-clicked slot's rail index.
+                    ContextMenuItem::NewWorkspace => OverlayOutcome::ContextMenuNewWorkspace,
+                    ContextMenuItem::RenameWorkspace => match self.context_menu.surface() {
+                        crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(idx) => {
+                            OverlayOutcome::ContextMenuRenameWorkspace(idx)
+                        }
+                        _ => OverlayOutcome::Consumed,
+                    },
+                    ContextMenuItem::CloseWorkspace => match self.context_menu.surface() {
+                        crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(idx) => {
+                            OverlayOutcome::ContextMenuCloseWorkspace(idx)
+                        }
+                        _ => OverlayOutcome::Consumed,
+                    },
                     // NF-F7-1: a Close Tab chosen from a specific tab slot closes
                     // THAT tab, not the active one. The Content surface (no
                     // TabSlot token) keeps the active-tab close.
@@ -1695,6 +1710,15 @@ pub(super) enum OverlayOutcome {
     /// (the same handler the `Ctrl+Shift+N` chord fires).
     ContextMenuNewWindow,
     ContextMenuRenameTab(SessionToken),
+    /// Create a fresh workspace from the rail `+` slot / workspace context menu
+    /// (§7.4). The overlay has closed itself; the App dispatches to
+    /// `handle_new_workspace`.
+    ContextMenuNewWorkspace,
+    /// Rename the workspace at rail index `usize` in place (WorkspaceSlot). The
+    /// App opens the shared rename field targeting that workspace.
+    ContextMenuRenameWorkspace(usize),
+    /// Close the workspace at rail index `usize` entirely (WorkspaceSlot).
+    ContextMenuCloseWorkspace(usize),
     ContextMenuCloseTab,
     /// Close a specific tab by token from a tab-slot right-click (NF-F7-1). The
     /// overlay has already closed itself; the App reaps the tab that holds

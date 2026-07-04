@@ -215,7 +215,8 @@ environment variable was not set at startup.
 | `window_border` | `ODYTTY_WINDOW_BORDER` | `on`, `off` | `off` |
 | `window_decorations` | `ODYTTY_WINDOW_DECORATIONS` | `on`, `off` | `on` |
 | `always_show_tab_bar` | `ODYTTY_ALWAYS_SHOW_TAB_BAR` | `on`, `off` | `off` |
-| `tab_bar_placement` | `ODYTTY_TAB_BAR_PLACEMENT` | `top`, `left`, `right` (vertical rail on that side) | `top` |
+| `tab_bar_placement` | `ODYTTY_TAB_BAR_PLACEMENT` | `top`, `left`, `right` — the side the **workspace rail** sits on (tabs always render on the top bar now). `top` puts the rail on the left when it appears | `top` |
+| `workspace_rail` | `ODYTTY_WORKSPACE_RAIL` | `auto` (rail appears once a second workspace exists), `always` (pinned even with one), or `left`/`right` (pinned to that side). `auto`/`always` inherit the side from `tab_bar_placement` | `auto` |
 | `tab_rail_width` | `ODYTTY_TAB_RAIL_WIDTH` | `auto` (size to the longest tab title) or fixed cells `8..=32` (rail only). Drag the rail's inner edge for a manual width; double-click it to reset to `auto` | `auto` |
 | `tab_rail_max_width` | `ODYTTY_TAB_RAIL_MAX_WIDTH` | Integer cells, `8..=32` — cap for the `auto` width before titles ellipsize (rail only) | `24` |
 | `tab_rail_gap` | `ODYTTY_TAB_RAIL_GAP` | Integer rows, `0..=3` (rail only) | `1` |

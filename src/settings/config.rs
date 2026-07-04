@@ -22,7 +22,8 @@ use super::{
     TAB_BAR_PLACEMENT_ENV, TAB_PANEL_STRENGTH_ENV, TAB_RAIL_AUTOHIDE_ENV, TAB_RAIL_GAP_ENV,
     TAB_RAIL_MAX_WIDTH_ENV, TAB_RAIL_REVEAL_PX_ENV, TAB_RAIL_SLOT_ROWS_ENV, TAB_RAIL_WIDTH_ENV,
     TAB_SEAM_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV,
-    WINDOW_BORDER_ENV, WINDOW_DECORATIONS_ENV, WINDOW_PADDING_ENV, normalize_name,
+    WINDOW_BORDER_ENV, WINDOW_DECORATIONS_ENV, WINDOW_PADDING_ENV, WORKSPACE_RAIL_ENV,
+    normalize_name,
 };
 use super::{
     BOX_THICKNESS_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV, INTERACTIVE_PATHS_CLICK_HINT_ENV,
@@ -173,6 +174,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "tabbarplacement" | "tabbarside" | "tabbarposition" | "tabplacement" => {
             Some(TAB_BAR_PLACEMENT_ENV)
         }
+        "workspacerail" | "workspacesidebar" | "workspacebar" | "railmode" => {
+            Some(WORKSPACE_RAIL_ENV)
+        }
         "tabrailwidth" | "railwidth" => Some(TAB_RAIL_WIDTH_ENV),
         "tabrailmaxwidth" | "railmaxwidth" | "maxrailwidth" => Some(TAB_RAIL_MAX_WIDTH_ENV),
         "tabrailgap" | "railgap" | "slotgap" => Some(TAB_RAIL_GAP_ENV),
@@ -284,6 +288,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         COMMAND_STATUS_GUTTER_ENV => Some("command_status_gutter"),
         ALWAYS_SHOW_TAB_BAR_ENV => Some("always_show_tab_bar"),
         TAB_BAR_PLACEMENT_ENV => Some("tab_bar_placement"),
+        WORKSPACE_RAIL_ENV => Some("workspace_rail"),
         TAB_RAIL_WIDTH_ENV => Some("tab_rail_width"),
         TAB_RAIL_MAX_WIDTH_ENV => Some("tab_rail_max_width"),
         TAB_RAIL_GAP_ENV => Some("tab_rail_gap"),

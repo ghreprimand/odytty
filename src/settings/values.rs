@@ -599,6 +599,29 @@ pub(super) fn parse_tab_bar_placement(
     }
 }
 
+pub(super) fn parse_workspace_rail(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> WorkspaceRail {
+    let Some(raw) = raw else {
+        return WorkspaceRail::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return WorkspaceRail::default();
+    }
+    match WorkspaceRail::parse(trimmed) {
+        Some(mode) => mode,
+        None => {
+            warn(&format!(
+                "{WORKSPACE_RAIL_ENV}={trimmed:?} is not auto|always|left|right; using auto"
+            ));
+            WorkspaceRail::default()
+        }
+    }
+}
+
 /// Shared numeric parser for the F4-P1 rail/panel knobs: an absent/blank value
 /// yields `default`; a non-finite or unparseable value warns (`what` names the
 /// quantity) and falls back; otherwise the value is clamped to `[min, max]`.
