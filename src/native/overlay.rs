@@ -353,6 +353,8 @@ impl OverlayUi {
             false,
             rename_target,
             multi_pane,
+            false,
+            crate::native::context_menu_ui::ContextMenuSurface::Content,
             path_target,
             accelerators,
         );
@@ -369,6 +371,8 @@ impl OverlayUi {
         prompt_editing_hint: bool,
         rename_target: Option<SessionToken>,
         multi_pane: bool,
+        multi_tab: bool,
+        surface: crate::native::context_menu_ui::ContextMenuSurface,
         path_target: Option<crate::paths::Resolved>,
         accelerators: [Option<String>; CONTEXT_MENU_ITEMS],
     ) {
@@ -382,6 +386,8 @@ impl OverlayUi {
             prompt_editing_hint,
             rename_target,
             multi_pane,
+            multi_tab,
+            surface,
             path_target,
         );
         self.context_menu.set_accelerators(accelerators);
@@ -728,7 +734,23 @@ impl OverlayUi {
                             OverlayOutcome::Consumed
                         }
                     }
-                    ContextMenuItem::CloseTab => OverlayOutcome::ContextMenuCloseTab,
+                    // NF-F7-1: a Close Tab chosen from a specific tab slot closes
+                    // THAT tab, not the active one. The Content surface (no
+                    // TabSlot token) keeps the active-tab close.
+                    ContextMenuItem::CloseTab => match self.context_menu.surface() {
+                        crate::native::context_menu_ui::ContextMenuSurface::TabSlot(token) => {
+                            OverlayOutcome::ContextMenuCloseTabToken(token)
+                        }
+                        _ => OverlayOutcome::ContextMenuCloseTab,
+                    },
+                    // Tab-scoped: only ever visible on a TabSlot; close every
+                    // other tab, keeping the right-clicked one.
+                    ContextMenuItem::CloseOtherTabs => match self.context_menu.surface() {
+                        crate::native::context_menu_ui::ContextMenuSurface::TabSlot(token) => {
+                            OverlayOutcome::ContextMenuCloseOtherTabs(token)
+                        }
+                        _ => OverlayOutcome::Consumed,
+                    },
                     ContextMenuItem::SplitColumns => OverlayOutcome::ContextMenuSplitColumns,
                     ContextMenuItem::SplitRows => OverlayOutcome::ContextMenuSplitRows,
                     ContextMenuItem::ClosePane => OverlayOutcome::ContextMenuClosePane,
@@ -1663,6 +1685,12 @@ pub(super) enum OverlayOutcome {
     ContextMenuNewWindow,
     ContextMenuRenameTab(SessionToken),
     ContextMenuCloseTab,
+    /// Close a specific tab by token from a tab-slot right-click (NF-F7-1). The
+    /// overlay has already closed itself; the App reaps the tab that holds
+    /// `token`, not the active one.
+    ContextMenuCloseTabToken(SessionToken),
+    /// Close every tab except the one holding `token` (F7 "Close Other Tabs").
+    ContextMenuCloseOtherTabs(SessionToken),
     /// Split the focused pane from the context menu (Part B). The overlay has
     /// already closed itself; the App dispatches these to the same
     /// `split_active_pane` the keyboard split chords fire.
@@ -3337,9 +3365,9 @@ mod tests {
             None,
             Default::default(),
         );
-        // Focus starts at item 0 (Copy); Split Right is item index 9 after F1's
-        // New Window (index 6) extended the tab-actions section.
-        for _ in 0..9 {
+        // Focus starts at item 0 (Copy); with F7 dropping the content-menu
+        // Rename Tab row, Split Right is item index 8.
+        for _ in 0..8 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -3347,7 +3375,7 @@ mod tests {
             OverlayOutcome::ContextMenuSplitColumns
         );
 
-        // Reopen and walk to Split Down (item index 10).
+        // Reopen and walk to Split Down (item index 9).
         overlay.open_context_menu(
             CellPoint { row: 0, column: 0 },
             true,
@@ -3359,12 +3387,97 @@ mod tests {
             None,
             Default::default(),
         );
-        for _ in 0..10 {
+        for _ in 0..9 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
             OverlayOutcome::ContextMenuSplitRows
+        );
+    }
+
+    #[test]
+    fn tab_slot_close_tab_emits_token_targeted_outcome() {
+        // NF-F7-1: closing a tab from a specific tab slot targets THAT tab's
+        // token, not the active tab. Body rows: New Tab(0) Rename Tab(1) sep(2)
+        // Close Tab(3) Close Other Tabs(4) sep(5) New Window(6).
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu_with_prompt_editing_hint(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            false,
+            Some(SessionToken(7)),
+            false,
+            true,
+            crate::native::context_menu_ui::ContextMenuSurface::TabSlot(SessionToken(7)),
+            None,
+            Default::default(),
+        );
+        // Focus cycles through items (separators skipped): New Tab(0) Rename
+        // Tab(1) Close Tab(2) Close Other Tabs(3) New Window(4).
+        for _ in 0..2 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuCloseTabToken(SessionToken(7))
+        );
+    }
+
+    #[test]
+    fn tab_slot_close_other_tabs_emits_token_outcome() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu_with_prompt_editing_hint(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            false,
+            Some(SessionToken(2)),
+            false,
+            true,
+            crate::native::context_menu_ui::ContextMenuSurface::TabSlot(SessionToken(2)),
+            None,
+            Default::default(),
+        );
+        // Close Other Tabs is item index 3 (New Tab / Rename Tab / Close Tab /
+        // Close Other Tabs / New Window).
+        for _ in 0..3 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuCloseOtherTabs(SessionToken(2))
+        );
+    }
+
+    #[test]
+    fn content_close_tab_emits_active_close_outcome() {
+        // The content surface (no TabSlot token) keeps the active-tab close.
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            None,
+            false,
+            None,
+            Default::default(),
+        );
+        // With a selection: Copy(0) Cut(1) Paste(2) Delete(3) Select All(4) sep
+        // New Tab(5) New Window(6) Close Tab(7).
+        for _ in 0..7 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuCloseTab
         );
     }
 
@@ -3400,9 +3513,9 @@ mod tests {
 
     #[test]
     fn context_menu_close_pane_emits_close_pane_outcome_only_multi_pane() {
-        // Multi-pane: Close Pane is visible item index 11 (right after Split
-        // Down at 10; Settings is 12) after F1's New Window shift; activating it
-        // routes up as the Close Pane outcome the App dispatches to
+        // Multi-pane, with selection: Close Pane is visible item index 10 (right
+        // after Split Down at 9; F7 dropped the content-menu Rename Tab row);
+        // activating it routes up as the Close Pane outcome the App dispatches to
         // `apply_pane_action(ClosePane)`.
         let mut overlay = OverlayUi::default();
         overlay.open_context_menu(
@@ -3416,7 +3529,7 @@ mod tests {
             None,
             Default::default(),
         );
-        for _ in 0..11 {
+        for _ in 0..10 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -3424,7 +3537,7 @@ mod tests {
             OverlayOutcome::ContextMenuClosePane
         );
 
-        // Single-pane: Close Pane is hidden, so item index 11 is Settings — the
+        // Single-pane: Close Pane is hidden, so item index 10 is Settings — the
         // Close Pane outcome is unreachable.
         overlay.open_context_menu(
             CellPoint { row: 0, column: 0 },
@@ -3437,7 +3550,7 @@ mod tests {
             None,
             Default::default(),
         );
-        for _ in 0..11 {
+        for _ in 0..10 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -3518,10 +3631,9 @@ mod tests {
             None,
             Default::default(),
         );
-        // 18 visible items single-pane (F1 New Window + F3 Keyboard Shortcuts
-        // added); Manage Sessions is now index 16 (Detach & switch is the last,
-        // index 17).
-        for _ in 0..16 {
+        // 17 visible items single-pane with a selection (F7 dropped the Rename
+        // Tab row); Manage Sessions is index 15 (Detach & switch is last at 16).
+        for _ in 0..15 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -3534,8 +3646,9 @@ mod tests {
     #[test]
     fn context_menu_keyboard_shortcuts_opens_key_bindings() {
         // F3: the "Keyboard Shortcuts" launcher item (first after Settings,
-        // visible index 12 single-pane) activates the key-remap editor via the
-        // same OpenKeyBindings outcome the settings "keybinds" row emits.
+        // visible index 11 single-pane with a selection) activates the key-remap
+        // editor via the same OpenKeyBindings outcome the settings "keybinds" row
+        // emits.
         let mut overlay = OverlayUi::default();
         overlay.open_context_menu(
             CellPoint { row: 0, column: 0 },
@@ -3548,7 +3661,7 @@ mod tests {
             None,
             Default::default(),
         );
-        for _ in 0..12 {
+        for _ in 0..11 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(

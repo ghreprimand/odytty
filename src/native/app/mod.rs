@@ -131,6 +131,7 @@ pub(in crate::native) use self::scroll_anim::ScrollAnimState as SessionScrollAni
 pub(in crate::native) use self::tab_bar::{TAB_BAR_ROWS, TabBarSource};
 use self::tab_bar::{TabBar, TabHit};
 use self::tab_rail::{RailSide, TabRail};
+use super::context_menu_ui::ContextMenuSurface;
 pub(in crate::native) use overlay_registry::ActiveModal;
 
 /// Linux desktop identity used for Wayland app_id/WM_CLASS matching.
@@ -942,6 +943,53 @@ impl App {
         }
         self.on_active_session_changed();
         false
+    }
+
+    /// Close the tab that holds `token` — the whole tab, every pane — from a
+    /// tab-slot right-click (NF-F7-1). Distinct from [`Self::close_active_tab`]:
+    /// the right-clicked tab may be a background one, so this resolves its strip
+    /// index (within the active workspace) and reaps THAT tab. Exits the app on
+    /// the last tab of the last workspace, mirroring the active-close guard;
+    /// closing the last tab of a non-last workspace closes that workspace.
+    fn close_tab_by_token(&mut self, token: SessionToken) {
+        let Some(tab_idx) = self.sessions.position_of_token(token) else {
+            return;
+        };
+        if self.sessions.tab_count() <= 1 && self.sessions.workspace_count() <= 1 {
+            self.pending_exit = true;
+            return;
+        }
+        let _ = self.sessions.close_tab_at(tab_idx);
+        self.flash_rail_autohide();
+        if self.sessions.active_is_single_pane() {
+            self.prefix_engine.cancel();
+        }
+        self.on_active_session_changed();
+    }
+
+    /// Close every tab except the one holding `token` (F7 "Close Other Tabs").
+    /// Reaps from the highest strip index downward so each removal leaves the
+    /// remaining indices stable, then lands on the kept tab. A no-op when the
+    /// kept tab is the only one open (the menu item is disabled there anyway).
+    fn close_other_tabs(&mut self, token: SessionToken) {
+        if self.sessions.position_of_token(token).is_none() || self.sessions.tab_count() <= 1 {
+            return;
+        }
+        // Reap top-down so surviving indices never shift under the loop.
+        while let Some(keep_idx) = self.sessions.position_of_token(token) {
+            let Some(victim) = (0..self.sessions.tab_count())
+                .rev()
+                .find(|&i| i != keep_idx)
+            else {
+                break;
+            };
+            let _ = self.sessions.close_tab_at(victim);
+        }
+        self.flash_rail_autohide();
+        if self.sessions.active_is_single_pane() {
+            self.prefix_engine.cancel();
+        }
+        self.on_active_session_changed();
     }
 
     /// Dispatch a multiplexer pane action resolved on the prefix (§7, K2). The
@@ -1777,7 +1825,14 @@ impl App {
     /// does NOT call `reset_pointer_state_for_overlay`: that would clear the
     /// selection the Copy item needs. No pointer cell (e.g. before the first
     /// move) means no menu.
-    pub(super) fn open_context_menu(&mut self, rename_target: Option<SessionToken>) {
+    pub(super) fn open_context_menu(&mut self, surface: ContextMenuSurface) {
+        // The rename/close target token rides on the surface: a `TabSlot`
+        // right-click targets THAT tab (NF-F7-1); every other surface has no
+        // tab target.
+        let rename_target = match surface {
+            ContextMenuSurface::TabSlot(token) => Some(token),
+            _ => None,
+        };
         // Window-overlay cell space: in a single-pane tab this is exactly
         // `self.pointer_cell`; in a multi-pane tab it maps the pointer into the
         // whole content grid so the menu spawns where it renders (and clicks
@@ -1807,6 +1862,7 @@ impl App {
         // so its accelerator is composed here from the prefix engine rather than
         // the generic `bindable_action` → `chord_for_action` path above.
         let multi_pane = !self.sessions.active_is_single_pane();
+        let multi_tab = self.sessions.tab_count() > 1;
         if multi_pane
             && let Some(label) = self.close_pane_accelerator()
             && let Some(slot) = super::context_menu_ui::ContextMenuItem::ALL
@@ -1833,6 +1889,8 @@ impl App {
             prompt_editing_hint,
             rename_target,
             multi_pane,
+            multi_tab,
+            surface,
             path_target,
             accelerators,
         );
@@ -2158,6 +2216,43 @@ impl App {
     fn rail_cols(&self) -> usize {
         let r = self.tab_reserve();
         r.left_cols + r.right_cols
+    }
+
+    /// Whether the current pointer sits over the tab-chrome band (the horizontal
+    /// top bar or a side rail) rather than the terminal content. Used to route an
+    /// empty-area right-click to the `TabStripEmpty` surface instead of leaking
+    /// the content menu over the bar (NF-F7-2). Returns `false` off a shown bar,
+    /// and — under rail auto-hide — only while the floating rail is actually
+    /// revealed under the pointer.
+    fn pointer_in_tab_chrome_band(&self) -> bool {
+        if !self.should_show_tab_bar() {
+            return false;
+        }
+        let Some((x_px, y_px)) = self.pointer_px else {
+            return false;
+        };
+        let Some(cell) = self.resolved_cell() else {
+            return false;
+        };
+        if self.rail_autohide_active() {
+            // Only the revealed floating band counts; a hidden rail leaves the
+            // pointer over the content beneath.
+            return match self.rail_autohide_side() {
+                Some(side) => {
+                    self.rail_overlay_visible() && self.pointer_in_reveal_band(x_px, cell, side)
+                }
+                None => false,
+            };
+        }
+        let Some((w, h, padding)) = self.resolved_surface() else {
+            return false;
+        };
+        let content = pane_content_rect(w, h, cell, padding, self.tab_reserve());
+        match self.rail_side() {
+            Some(RailSide::Left) => (x_px as f32) < content.x,
+            Some(RailSide::Right) => (x_px as f32) >= content.x + content.w,
+            None => (y_px as f32) < content.y,
+        }
     }
 
     /// Which side the rail occupies this frame, or `None` when no rail is active

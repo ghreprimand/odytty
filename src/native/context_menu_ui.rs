@@ -63,42 +63,42 @@ use crate::settings::BindableAction;
 /// resolved path is an image file (C4); and "Open With…" is shown only when the
 /// resolved path is a regular file (C3b). With no path and single-pane the
 /// visible count is 18; with no path and multi-pane it is 19.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 25;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 26;
 
-/// Body row index of the first visual separator (single-pane layout), between
-/// Select All and New Tab. The separators move when Close Pane appears in a
-/// multi-pane tab; production code derives them dynamically from the visible
-/// item list. These consts describe the **single-pane** layout the unit/
-/// integration tests assert against, so they are test-only.
+/// Body row index of the first visual separator in the single-pane content
+/// reference, between Select All and New Tab. The reference is the
+/// **with-selection** content menu (Copy/Cut/Paste/Delete/Select All present;
+/// F7 hides Copy/Cut/Delete only with no selection, and drops the tab-only
+/// Rename Tab / Close Other Tabs rows). Separators reflow with the visible item
+/// list; these consts describe the reference layout the unit tests assert
+/// against, so they are test-only.
 #[cfg(test)]
 pub(super) const CONTEXT_MENU_SEPARATOR_ROW: usize = 5;
 
-/// Body row index of the second visual separator (single-pane layout), between
-/// Close Tab and the split actions. Shifted down one row by the F1 "New Window"
-/// item, which extends the tab-actions section (New Tab / New Window / Rename
-/// Tab / Close Tab).
+/// Body row index of the second visual separator (with-selection reference),
+/// between Close Tab and the split actions. F7 dropped the content-menu Rename
+/// Tab row, tightening the tab-actions section to New Tab / New Window / Close
+/// Tab.
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_SECOND_SEPARATOR_ROW: usize = 10;
+pub(super) const CONTEXT_MENU_SECOND_SEPARATOR_ROW: usize = 9;
 
-/// Body row index of the third visual separator (single-pane layout), between
-/// the split actions and Settings.
+/// Body row index of the third visual separator (with-selection reference),
+/// between the split actions and Settings.
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 13;
+pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 12;
 
-/// Body row index of the fourth visual separator (single-pane layout), between
-/// Settings and the launcher section (Connection Manager / Command Palette /
-/// Session Replay) added in v0.3.1.
+/// Body row index of the fourth visual separator (with-selection reference),
+/// between Settings and the launcher section (Connection Manager / Command
+/// Palette / Session Replay).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 15;
+pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 14;
 
-/// Total body rows in the **single-pane** layout: eighteen visible items plus
-/// four separator lines (Close Pane hidden). The multi-pane layout has one
-/// more row; production uses [`ContextMenuUi::body_row_count`] for the live
-/// count. (The F3 "Keyboard Shortcuts" item, first in the launcher section,
-/// raised the count from seventeen; the F1 "New Window" item raised it from
-/// sixteen before that.)
+/// Total body rows in the **with-selection** single-pane content reference:
+/// seventeen visible items plus four separator lines (Close Pane hidden; Rename
+/// Tab dropped from the content menu). Production uses
+/// [`ContextMenuUi::body_row_count`] for the live count.
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 22;
+pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 21;
 
 /// Minimum gap (in cells) between the longest label and the right-aligned
 /// accelerator column, so labels and accelerators never abut (Part C).
@@ -120,6 +120,10 @@ pub(super) enum ContextMenuItem {
     NewWindow,
     RenameTab,
     CloseTab,
+    /// Close every tab except the right-clicked one (F7). Tab-scoped: shown only
+    /// on the `TabSlot` surface, targeting the clicked tab's token. Disabled
+    /// when only one tab exists (nothing else to close).
+    CloseOtherTabs,
     /// Split the focused pane into side-by-side columns (new pane right). Same
     /// action as the keyboard `Ctrl+Shift+E` / tmux `Ctrl-b %` path.
     SplitColumns,
@@ -211,6 +215,7 @@ impl ContextMenuItem {
         Self::CopyFile,
         Self::RevealPath,
         Self::DetachSwitch,
+        Self::CloseOtherTabs,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -221,7 +226,11 @@ impl ContextMenuItem {
     fn section(self) -> u8 {
         match self {
             Self::Copy | Self::Cut | Self::Paste | Self::Delete | Self::SelectAll => 0,
-            Self::NewTab | Self::NewWindow | Self::RenameTab | Self::CloseTab => 1,
+            Self::NewTab
+            | Self::NewWindow
+            | Self::RenameTab
+            | Self::CloseTab
+            | Self::CloseOtherTabs => 1,
             Self::SplitColumns | Self::SplitRows | Self::ClosePane => 2,
             Self::Settings => 3,
             Self::KeyboardShortcuts
@@ -251,6 +260,7 @@ impl ContextMenuItem {
             Self::NewWindow => "New Window",
             Self::RenameTab => "Rename Tab",
             Self::CloseTab => "Close Tab",
+            Self::CloseOtherTabs => "Close Other Tabs",
             Self::SplitColumns => "Split Right",
             Self::SplitRows => "Split Down",
             Self::ClosePane => "Close Pane",
@@ -299,6 +309,7 @@ impl ContextMenuItem {
             | Self::Delete
             | Self::SelectAll
             | Self::RenameTab
+            | Self::CloseOtherTabs
             | Self::ClosePane
             | Self::OpenPath
             | Self::OpenInOdytty
@@ -317,6 +328,61 @@ impl ContextMenuItem {
     }
 }
 
+/// Which UI surface a right-click landed on. Drives the menu composition: the
+/// selection / clipboard / path / pane-count / tab-count are still snapshotted
+/// from live app state at open time; the surface selects WHICH composition
+/// consumes them. This generalizes the pre-existing path-vs-global branch in
+/// [`ContextMenuUi::visible_items`] to the tab and empty-strip surfaces, fixing
+/// the "full global menu on a tab" and "grid menu leaking over the empty bar"
+/// findings (F7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum ContextMenuSurface {
+    /// A specific tab slot (top bar; and the vertical rail in the current build
+    /// until the workspace reframe moves tabs to top-only). Carries the tab's
+    /// token so Rename AND Close act on the RIGHT-CLICKED tab, not the active
+    /// one.
+    TabSlot(SessionToken),
+    /// Empty region of the tab strip / rail (the `+` button area, gaps).
+    TabStripEmpty,
+    /// The terminal content grid — the selection/path/pane-aware menu.
+    #[default]
+    Content,
+
+    // ---- provisional; reserved, not wired until their ODP rules ----
+    // Constructed by follow-up packets (PaneDivider = ODP-7; the workspace
+    // surfaces = ODP-10, after the rail becomes the workspaces sidebar). Held
+    // now so the routing and `visible_items`/`section_of`/`discriminant`
+    // matches already absorb them without a rewrite.
+    #[allow(dead_code)]
+    /// The inter-pane divider (ODP-7). Reserved; not constructed yet.
+    PaneDivider,
+    #[allow(dead_code)]
+    /// A workspace slot in the rail-as-workspaces sidebar (ODP-10). Reserved.
+    WorkspaceSlot,
+    #[allow(dead_code)]
+    /// Empty area of the workspace rail (ODP-10). Reserved.
+    WorkspaceRailEmpty,
+}
+
+impl ContextMenuSurface {
+    /// A stable discriminant for the render-cache signature so a surface change
+    /// repaints the menu. The `TabSlot` token is not part of it — the rendered
+    /// rows are identical across tokens (only Rename/Close targeting differs,
+    /// which the spawn cell already distinguishes).
+    fn discriminant(self) -> u8 {
+        // `Content` is 0 so a default (closed) menu's signature equals
+        // `ContextMenuSignature::default()` — the off-path identity invariant.
+        match self {
+            Self::Content => 0,
+            Self::TabSlot(_) => 1,
+            Self::TabStripEmpty => 2,
+            Self::PaneDivider => 3,
+            Self::WorkspaceSlot => 4,
+            Self::WorkspaceRailEmpty => 5,
+        }
+    }
+}
+
 /// Map a selectable item index to its body row, accounting for the four
 /// separators. Items 0–4 sit at body rows 0–4; items 5–8 (tab actions: New Tab /
 /// New Window / Rename Tab / Close Tab) sit at body rows 6–9; items 9–10
@@ -325,11 +391,15 @@ impl ContextMenuItem {
 /// Manage Sessions / Detach & switch) sit at body rows 16–20.
 #[cfg(test)]
 fn item_to_body_row(item_index: usize) -> usize {
-    if item_index >= 12 {
+    // With-selection reference: four separators at body rows 5, 9, 12, 14, so
+    // the launcher section (items 11+) shifts by four, Settings (item 10) by
+    // three, the splits (items 8-9) by two, and the tab actions (items 5-7) by
+    // one.
+    if item_index >= 11 {
         item_index + 4
-    } else if item_index >= 11 {
+    } else if item_index >= 10 {
         item_index + 3
-    } else if item_index >= 9 {
+    } else if item_index >= 8 {
         item_index + 2
     } else if item_index >= CONTEXT_MENU_SEPARATOR_ROW {
         item_index + 1
@@ -411,6 +481,12 @@ pub(super) struct ContextMenuSignature {
     /// Whether the active tab is multi-pane (drives the Close Pane item's
     /// visibility, so a pane-count change must repaint the menu).
     pub(super) multi_pane: bool,
+    /// Whether more than one tab is open (drives the `Close Other Tabs` item's
+    /// enablement on the tab surface, so a tab-count change repaints).
+    pub(super) multi_tab: bool,
+    /// The surface discriminant (F7): a surface change swaps the whole
+    /// composition, so it must repaint.
+    pub(super) surface: u8,
     /// Whether a resolved interactive path sits under the click (drives the file
     /// section's visibility, so its presence must repaint the menu). The
     /// resolved path itself is not part of the signature — the labels are
@@ -444,6 +520,13 @@ pub(super) struct ContextMenuUi {
     /// visibility of the Close Pane item: `false` hides it entirely (single-pane
     /// layout is byte-identical to before the item existed).
     multi_pane: bool,
+    /// Whether more than one tab is open, snapshotted at open time. Gates the
+    /// enablement of the `Close Other Tabs` item (disabled when a lone tab).
+    multi_tab: bool,
+    /// Which surface the right-click landed on (F7). Selects the menu
+    /// composition; defaults to [`ContextMenuSurface::Content`] (the historical
+    /// single menu) so a bare `open` keeps today's behavior.
+    surface: ContextMenuSurface,
     /// The resolved interactive path under the click cell, snapshotted at open
     /// time (re-detected by the App, not reused from the hover state). `Some`
     /// shows the file section (Open / Copy Path / Copy File / Reveal); `None`
@@ -468,6 +551,8 @@ impl Default for ContextMenuUi {
             prompt_editing_hint: false,
             rename_target: None,
             multi_pane: false,
+            multi_tab: false,
+            surface: ContextMenuSurface::Content,
             path_target: None,
             accelerators: Default::default(),
         }
@@ -508,6 +593,8 @@ impl ContextMenuUi {
             false,
             rename_target,
             multi_pane,
+            false,
+            ContextMenuSurface::Content,
             path_target,
         );
     }
@@ -523,6 +610,8 @@ impl ContextMenuUi {
         prompt_editing_hint: bool,
         rename_target: Option<SessionToken>,
         multi_pane: bool,
+        multi_tab: bool,
+        surface: ContextMenuSurface,
         path_target: Option<Resolved>,
     ) {
         self.spawn = spawn;
@@ -533,6 +622,8 @@ impl ContextMenuUi {
         self.prompt_editing_hint = prompt_editing_hint;
         self.rename_target = rename_target;
         self.multi_pane = multi_pane;
+        self.multi_tab = multi_tab;
+        self.surface = surface;
         self.path_target = path_target;
         self.focused = 0;
         // Clear any stale accelerators; the App repopulates immediately via
@@ -571,6 +662,8 @@ impl ContextMenuUi {
             ContextMenuItem::NewWindow => true,
             ContextMenuItem::RenameTab => self.rename_target.is_some(),
             ContextMenuItem::CloseTab => true,
+            // Nothing else to close when a lone tab is open.
+            ContextMenuItem::CloseOtherTabs => self.multi_tab,
             ContextMenuItem::SplitColumns => true,
             ContextMenuItem::SplitRows => true,
             ContextMenuItem::ClosePane => true,
@@ -617,12 +710,69 @@ impl ContextMenuUi {
         })
     }
 
+    /// The section an item belongs to *on the current surface*. On the
+    /// `Content` surface this delegates to the item's global section (verbatim
+    /// separator placement). The tab surfaces regroup the shared items into
+    /// their own tight sections so the separators land where the composition
+    /// wants them, independent of the global grouping.
+    fn section_of(&self, item: ContextMenuItem) -> u8 {
+        match self.surface {
+            ContextMenuSurface::TabSlot(_) => match item {
+                ContextMenuItem::NewTab | ContextMenuItem::RenameTab => 0,
+                ContextMenuItem::CloseTab | ContextMenuItem::CloseOtherTabs => 1,
+                ContextMenuItem::NewWindow => 2,
+                // Not part of the tab composition; grouped with New Window so a
+                // stray item never forces a spurious separator.
+                _ => 2,
+            },
+            ContextMenuSurface::TabStripEmpty => match item {
+                ContextMenuItem::NewTab => 0,
+                ContextMenuItem::CommandPalette | ContextMenuItem::Settings => 1,
+                _ => 1,
+            },
+            _ => item.section(),
+        }
+    }
+
+    /// The right-clicked surface this menu was opened on (F7).
+    pub(super) fn surface(&self) -> ContextMenuSurface {
+        self.surface
+    }
+
     /// The items currently visible, in display order. Close Pane is included
     /// only in a multi-pane tab; everything else is always present. The visible
     /// list is the single source of truth for focus indices, separator
     /// placement, body-row mapping, and rendering, so the menu reflows cleanly
     /// when the pane count changes.
     fn visible_items(&self) -> Vec<ContextMenuItem> {
+        // F7: the tab surfaces carry a tight, tab-scoped composition with no
+        // selection/split/launcher tail. They ignore the path/selection
+        // snapshots entirely (a tab has no grid path under it).
+        match self.surface {
+            ContextMenuSurface::TabSlot(_) => {
+                return vec![
+                    ContextMenuItem::NewTab,
+                    ContextMenuItem::RenameTab,
+                    ContextMenuItem::CloseTab,
+                    ContextMenuItem::CloseOtherTabs,
+                    ContextMenuItem::NewWindow,
+                ];
+            }
+            ContextMenuSurface::TabStripEmpty => {
+                return vec![
+                    ContextMenuItem::NewTab,
+                    ContextMenuItem::CommandPalette,
+                    ContextMenuItem::Settings,
+                ];
+            }
+            // Provisional surfaces are never constructed yet (reserved variants);
+            // fall through to the Content composition defensively so an
+            // unexpected open can never index an empty item list.
+            ContextMenuSurface::Content
+            | ContextMenuSurface::PaneDivider
+            | ContextMenuSurface::WorkspaceSlot
+            | ContextMenuSurface::WorkspaceRailEmpty => {}
+        }
         let has_path = self.path_target.is_some();
         let is_image = self.is_image_target();
         let is_file = self.is_file_target();
@@ -643,9 +793,29 @@ impl ContextMenuUi {
             ]);
             return items;
         }
+        // Content surface. `Copy` is hoisted to the very top when a selection
+        // exists (ODP-8); `ContextMenuItem::ALL` keeps `Copy` in its historical
+        // first slot, so the hoist is a no-op on ordering — the list already
+        // leads with Copy — and this branch only needs to DROP the editing rows
+        // that no longer apply.
+        let has_selection = self.copy_enabled;
         ContextMenuItem::ALL
             .into_iter()
             .filter(|item| !matches!(item, ContextMenuItem::ClosePane) || self.multi_pane)
+            // `Close Other Tabs` is tab-scoped: never on the content menu.
+            .filter(|item| !matches!(item, ContextMenuItem::CloseOtherTabs))
+            // Drop the always-disabled `Rename Tab` row on the content surface —
+            // it only has a target on a tab right-click (kept on `TabSlot`).
+            .filter(|item| !matches!(item, ContextMenuItem::RenameTab))
+            // ODP-5: hide Copy/Cut/Delete entirely with no selection (cleaner
+            // than rendering them dim); Paste/Select All stay the always-present
+            // editing anchors.
+            .filter(|item| {
+                !matches!(
+                    item,
+                    ContextMenuItem::Copy | ContextMenuItem::Cut | ContextMenuItem::Delete
+                ) || has_selection
+            })
             .filter(|item| {
                 !matches!(
                     item,
@@ -676,7 +846,7 @@ impl ContextMenuUi {
         let mut out = Vec::new();
         let mut prev_section: Option<u8> = None;
         for item in self.visible_items() {
-            let section = item.section();
+            let section = self.section_of(item);
             if prev_section.is_some_and(|p| p != section) {
                 out.push(None);
             }
@@ -904,7 +1074,7 @@ impl ContextMenuUi {
         for (item_index, item) in items.iter().enumerate() {
             // Insert a separator wherever consecutive visible items cross a
             // section boundary, so the layout reflows when Close Pane appears.
-            let section = item.section();
+            let section = self.section_of(*item);
             if prev_section.is_some_and(|p| p != section) {
                 out.push(ContextMenuRow::Separator);
             }
@@ -930,6 +1100,8 @@ impl ContextMenuUi {
             prompt_editing_hint: self.prompt_editing_hint,
             rename_enabled: self.rename_target.is_some(),
             multi_pane: self.multi_pane,
+            multi_tab: self.multi_tab,
+            surface: self.surface.discriminant(),
             has_path_target: self.path_target.is_some(),
             is_image_target: self.is_image_target(),
             is_file_target: self.is_file_target(),
@@ -1160,12 +1332,13 @@ mod tests {
         let mut m = menu(true, true);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
-        // Wraps from 0 to the last *visible* item (Detach & switch). Single-pane
-        // hides Close Pane, so the visible count is 18 (10 original + New Window
-        // + Settings + Keyboard Shortcuts + 4 launchers + Detach & switch) and
-        // the last index is 17.
+        // Wraps from 0 to the last *visible* item (Detach & switch). With a
+        // selection the single-pane content menu shows 17 items: Copy/Cut/Paste/
+        // Delete/Select All, New Tab/New Window/Close Tab (Rename Tab dropped),
+        // the two splits, Settings, and the six launcher items (Close Pane
+        // hidden single-pane).
         assert_eq!(m.focused, m.item_count() - 1);
-        assert_eq!(m.item_count(), 18);
+        assert_eq!(m.item_count(), 17);
         m.handle_input(OverlayInput::Down);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Down);
@@ -1173,18 +1346,32 @@ mod tests {
     }
 
     #[test]
-    fn copy_disabled_swallows_activation() {
-        let mut m = menu(false, true);
-        // Focus Copy (index 0, body row 0) and press it — disabled, so no Activate.
-        assert_eq!(
-            m.handle_press(0, m.body_row_count(), PointerButton::Left),
-            ContextMenuOutcome::Consumed
-        );
-        // Focus + activate via keyboard is also a no-op.
-        assert_eq!(
-            m.handle_input(OverlayInput::Activate),
-            ContextMenuOutcome::Consumed
-        );
+    fn copy_cut_delete_hidden_without_selection() {
+        // ODP-5: with no selection the content menu omits Copy/Cut/Delete
+        // entirely (rather than showing them dim); Paste/Select All remain the
+        // editing anchors, so Paste leads the menu at body row 0.
+        let m = menu(false, true);
+        let rows = m.rows();
+        for label in ["Copy Text", "Cut", "Delete"] {
+            assert!(
+                !rows.iter().any(|r| matches!(
+                    r,
+                    ContextMenuRow::Item { label: l, .. } if *l == label
+                )),
+                "{label} must be hidden with no selection"
+            );
+        }
+        assert_eq!(rows[0], item("Paste Text", true, true));
+        assert_eq!(rows[1], item("Select All", false, true));
+    }
+
+    #[test]
+    fn copy_present_and_hoisted_with_selection() {
+        // ODP-8: a selection surfaces Copy at the very top of the content menu.
+        let m = menu(true, false);
+        let rows = m.rows();
+        assert_eq!(rows[0], item("Copy Text", true, true));
+        assert_eq!(rows[1], item("Cut", false, true));
     }
 
     #[test]
@@ -1200,51 +1387,44 @@ mod tests {
     #[test]
     fn select_all_always_activates() {
         let mut m = menu(false, false);
-        // SelectAll is at item index 4 → body row 4.
+        // With no selection Copy/Cut/Delete are hidden, so Select All sits at
+        // item index 1 → body row 1 (right after Paste).
         assert_eq!(
-            m.handle_press(4, m.body_row_count(), PointerButton::Left),
+            m.handle_press(1, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::SelectAll)
         );
     }
 
     #[test]
-    fn new_tab_rename_tab_and_close_tab_gating() {
+    fn content_menu_tab_actions_and_no_rename_row() {
+        // F7: the content menu drops the always-disabled Rename Tab row (it only
+        // has a target on a tab right-click). With no selection the tab-actions
+        // section sits at body rows 3-5: New Tab / New Window / Close Tab.
         let mut m = menu(false, false);
-        assert_eq!(item_to_body_row(5), 6, "New Tab item is at body row 6");
+        let rows = m.rows();
+        assert!(
+            !rows.iter().any(|r| matches!(
+                r,
+                ContextMenuRow::Item {
+                    label: "Rename Tab",
+                    ..
+                }
+            )),
+            "Rename Tab must not appear on the content menu"
+        );
+        assert_eq!(rows[3], item("New Tab", false, true));
+        assert_eq!(rows[4], item("New Window", false, true));
+        assert_eq!(rows[5], item("Close Tab", false, true));
         assert_eq!(
-            m.handle_press(6, m.body_row_count(), PointerButton::Left),
+            m.handle_press(3, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::NewTab)
         );
-        // F1: New Window follows New Tab in the tab-actions section (body row 7),
-        // shifting Rename/Close Tab down one row each.
-        assert_eq!(item_to_body_row(6), 7, "New Window item is at body row 7");
         assert_eq!(
-            m.handle_press(7, m.body_row_count(), PointerButton::Left),
+            m.handle_press(4, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::NewWindow)
         );
-        assert_eq!(item_to_body_row(7), 8, "Rename Tab item is at body row 8");
         assert_eq!(
-            m.handle_press(8, m.body_row_count(), PointerButton::Left),
-            ContextMenuOutcome::Consumed
-        );
-        m.open(
-            CellPoint { row: 4, column: 7 },
-            false,
-            false,
-            false,
-            false,
-            Some(SessionToken(9)),
-            false,
-            None,
-        );
-        assert_eq!(
-            m.handle_press(8, m.body_row_count(), PointerButton::Left),
-            ContextMenuOutcome::Activate(ContextMenuItem::RenameTab)
-        );
-        assert_eq!(m.rename_target(), Some(SessionToken(9)));
-        assert_eq!(item_to_body_row(8), 9, "Close Tab item is at body row 9");
-        assert_eq!(
-            m.handle_press(9, m.body_row_count(), PointerButton::Left),
+            m.handle_press(5, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::CloseTab)
         );
     }
@@ -1252,24 +1432,14 @@ mod tests {
     #[test]
     fn split_items_always_activate() {
         let mut m = menu(false, false);
-        // SplitColumns is item index 9 → body row 11; SplitRows index 10 → row 12
-        // (shifted +1 by the F1 New Window item in the tab-actions section).
+        // With no selection the splits sit at body rows 7 (Split Right) and 8
+        // (Split Down): Paste/Select All · New Tab/New Window/Close Tab · splits.
         assert_eq!(
-            item_to_body_row(9),
-            11,
-            "Split Right item is at body row 11"
-        );
-        assert_eq!(
-            m.handle_press(11, m.body_row_count(), PointerButton::Left),
+            m.handle_press(7, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::SplitColumns)
         );
         assert_eq!(
-            item_to_body_row(10),
-            12,
-            "Split Down item is at body row 12"
-        );
-        assert_eq!(
-            m.handle_press(12, m.body_row_count(), PointerButton::Left),
+            m.handle_press(8, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::SplitRows)
         );
     }
@@ -1277,26 +1447,24 @@ mod tests {
     #[test]
     fn settings_always_activates() {
         let mut m = menu(false, false);
-        // Settings is at item index 11 → body row 14 (shifted +1 by New Window).
-        assert_eq!(item_to_body_row(11), 14, "Settings item is at body row 14");
+        // With no selection Settings sits at body row 10 (2 editing anchors +
+        // sep + 3 tab actions + sep + 2 splits + sep = row 10).
         assert_eq!(
-            m.handle_press(14, m.body_row_count(), PointerButton::Left),
+            m.handle_press(10, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::Settings)
         );
     }
 
     #[test]
     fn single_pane_menu_hides_close_pane() {
-        // Single-pane: Close Pane is absent; the layout is the 22-row menu with
-        // the launcher section (Keyboard Shortcuts / Connection Manager /
-        // Command Palette / Session Replay / Manage Sessions / Detach & switch)
-        // below Settings. F1's New Window shifts Settings to body row 14; F3's
-        // Keyboard Shortcuts is the first launcher item after the fourth
-        // separator.
+        // Single-pane, no selection: Close Pane is absent; Copy/Cut/Delete are
+        // hidden (no selection) and Rename Tab is dropped, so the content menu is
+        // 14 items / 18 body rows — Paste/Select All · New Tab/New Window/Close
+        // Tab · the two splits · Settings · the six launcher items.
         let m = menu(false, false);
-        assert_eq!(m.item_count(), 18);
+        assert_eq!(m.item_count(), 14);
         let rows = m.rows();
-        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 22
+        assert_eq!(rows.len(), 18);
         assert!(
             !rows.iter().any(|r| matches!(
                 r,
@@ -1307,34 +1475,32 @@ mod tests {
             )),
             "Close Pane must not appear in a single-pane menu"
         );
-        // F1: New Window sits between New Tab and Rename Tab (body rows 6/7/8).
-        assert_eq!(rows[6], item("New Tab", false, true));
-        assert_eq!(rows[7], item("New Window", false, true));
-        assert_eq!(rows[8], item("Rename Tab", false, false));
+        assert_eq!(rows[3], item("New Tab", false, true));
+        assert_eq!(rows[4], item("New Window", false, true));
+        assert_eq!(rows[5], item("Close Tab", false, true));
         assert_eq!(
-            rows[14],
+            rows[10],
             item("Settings", false, true),
-            "Settings shifts to body row 14 single-pane (New Window added)"
+            "Settings sits at body row 10 (no selection, Rename Tab dropped)"
         );
-        assert_eq!(rows[15], ContextMenuRow::Separator);
-        // F3: Keyboard Shortcuts is the first launcher item, right below Settings.
-        assert_eq!(rows[16], item("Keyboard Shortcuts", false, true));
-        assert_eq!(rows[17], item("Connection Manager", false, true));
-        assert_eq!(rows[18], item("Command Palette", false, true));
-        assert_eq!(rows[19], item("Session Replay", false, true));
-        assert_eq!(rows[20], item("Manage Sessions", false, true));
-        assert_eq!(rows[21], item("Detach & switch", false, true));
+        assert_eq!(rows[11], ContextMenuRow::Separator);
+        assert_eq!(rows[12], item("Keyboard Shortcuts", false, true));
+        assert_eq!(rows[13], item("Connection Manager", false, true));
+        assert_eq!(rows[14], item("Command Palette", false, true));
+        assert_eq!(rows[15], item("Session Replay", false, true));
+        assert_eq!(rows[16], item("Manage Sessions", false, true));
+        assert_eq!(rows[17], item("Detach & switch", false, true));
     }
 
     #[test]
     fn no_path_menu_hides_the_file_section() {
         // C3: with no resolved path under the click, the four file items are
-        // absent and the layout is the 22-row single-pane menu (F1 New Window +
-        // F3 Keyboard Shortcuts included). This is the no-file-section guarantee.
+        // absent and the layout is the 18-row single-pane content menu (no
+        // selection). This is the no-file-section guarantee.
         let m = menu(false, false);
-        assert_eq!(m.item_count(), 18);
+        assert_eq!(m.item_count(), 14);
         let rows = m.rows();
-        assert_eq!(rows.len(), CONTEXT_MENU_BODY_ROWS); // 22
+        assert_eq!(rows.len(), 18);
         for label in ["Open", "Copy Path", "Copy File", "Reveal in File Manager"] {
             assert!(
                 !rows.iter().any(|r| matches!(
@@ -1599,39 +1765,45 @@ mod tests {
         // Multi-pane: Close Pane appears after Split Down in the split/pane
         // section; the third separator and Settings shift down one row, and the
         // v0.3.1 launcher section follows below Settings.
+        // Multi-pane, no selection: 15 items / 19 body rows. Paste/Select All ·
+        // New Tab/New Window/Close Tab · Split Right/Split Down/Close Pane ·
+        // Settings · six launcher items.
         let m = multipane_menu();
-        assert_eq!(m.item_count(), 19);
+        assert_eq!(m.item_count(), 15);
         let rows = m.rows();
-        assert_eq!(rows.len(), 23, "one more row than single-pane");
-        assert_eq!(rows[11], item("Split Right", false, true));
-        assert_eq!(rows[12], item("Split Down", false, true));
         assert_eq!(
-            rows[13],
+            rows.len(),
+            19,
+            "one more row than the single-pane content menu"
+        );
+        assert_eq!(rows[7], item("Split Right", false, true));
+        assert_eq!(rows[8], item("Split Down", false, true));
+        assert_eq!(
+            rows[9],
             item("Close Pane", false, true),
-            "Close Pane sits at body row 13, alongside the splits (F1 shift)"
+            "Close Pane sits at body row 9, alongside the splits"
         );
-        assert_eq!(rows[14], ContextMenuRow::Separator);
+        assert_eq!(rows[10], ContextMenuRow::Separator);
         assert_eq!(
-            rows[15],
+            rows[11],
             item("Settings", false, true),
-            "Settings shifts to body row 15 in the multi-pane layout (New Window added)"
+            "Settings sits at body row 11 in the multi-pane content menu"
         );
-        assert_eq!(rows[16], ContextMenuRow::Separator);
-        // F3: Keyboard Shortcuts is the first launcher item, below Settings.
-        assert_eq!(rows[17], item("Keyboard Shortcuts", false, true));
-        assert_eq!(rows[18], item("Connection Manager", false, true));
-        assert_eq!(rows[19], item("Command Palette", false, true));
-        assert_eq!(rows[20], item("Session Replay", false, true));
-        assert_eq!(rows[21], item("Manage Sessions", false, true));
-        assert_eq!(rows[22], item("Detach & switch", false, true));
+        assert_eq!(rows[12], ContextMenuRow::Separator);
+        assert_eq!(rows[13], item("Keyboard Shortcuts", false, true));
+        assert_eq!(rows[14], item("Connection Manager", false, true));
+        assert_eq!(rows[15], item("Command Palette", false, true));
+        assert_eq!(rows[16], item("Session Replay", false, true));
+        assert_eq!(rows[17], item("Manage Sessions", false, true));
+        assert_eq!(rows[18], item("Detach & switch", false, true));
     }
 
     #[test]
     fn multi_pane_close_pane_activates_on_press() {
-        // Pressing the Close Pane body row (13, F1 shift) activates the item.
+        // Pressing the Close Pane body row (9) activates the item.
         let mut m = multipane_menu();
         assert_eq!(
-            m.handle_press(13, m.body_row_count(), PointerButton::Left),
+            m.handle_press(9, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::ClosePane)
         );
     }
@@ -1639,13 +1811,13 @@ mod tests {
     #[test]
     fn multi_pane_focus_wraps_through_all_items() {
         // Up from item 0 wraps to the last visible item (Detach & switch, index
-        // 18), proving Close Pane is in the focus cycle only when multi-pane and
+        // 14), proving Close Pane is in the focus cycle only when multi-pane and
         // the launcher items extend the cycle.
         let mut m = multipane_menu();
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
-        assert_eq!(m.focused, 18);
-        assert_eq!(m.item_count(), 19);
+        assert_eq!(m.focused, 14);
+        assert_eq!(m.item_count(), 15);
     }
 
     #[test]
@@ -1679,10 +1851,10 @@ mod tests {
             m.handle_hover(Some(sep), m.body_row_count());
             assert_eq!(m.focused, 2, "separator hover is inert");
         }
-        // Hovering Settings (body row 14, item index 11 after F1 New Window)
-        // focuses it.
-        m.handle_hover(Some(14), m.body_row_count());
-        assert_eq!(m.focused, 11, "hover Settings focuses it");
+        // Hovering Settings (body row 13, item index 10 in the with-selection
+        // reference) focuses it.
+        m.handle_hover(Some(13), m.body_row_count());
+        assert_eq!(m.focused, 10, "hover Settings focuses it");
     }
 
     #[test]
@@ -1733,6 +1905,8 @@ mod tests {
             true,
             None,
             false,
+            false,
+            ContextMenuSurface::Content,
             None,
         );
         let rows = m.rows();
@@ -1828,13 +2002,14 @@ mod tests {
         assert_eq!(rows[5], ContextMenuRow::Separator);
         assert_eq!(rows[6], item("New Tab", false, true));
         assert_eq!(rows[7], item("New Window", false, true));
-        assert_eq!(rows[8], item("Rename Tab", false, false));
-        assert_eq!(rows[9], item("Close Tab", false, true));
-        assert_eq!(rows[10], ContextMenuRow::Separator);
-        assert_eq!(rows[11], item("Split Right", false, true));
-        assert_eq!(rows[12], item("Split Down", false, true));
-        assert_eq!(rows[13], ContextMenuRow::Separator);
-        assert_eq!(rows[14], item("Settings", false, true));
+        // F7: Rename Tab is no longer on the content menu; Close Tab follows
+        // New Window directly.
+        assert_eq!(rows[8], item("Close Tab", false, true));
+        assert_eq!(rows[9], ContextMenuRow::Separator);
+        assert_eq!(rows[10], item("Split Right", false, true));
+        assert_eq!(rows[11], item("Split Down", false, true));
+        assert_eq!(rows[12], ContextMenuRow::Separator);
+        assert_eq!(rows[13], item("Settings", false, true));
     }
 
     #[test]
@@ -1864,9 +2039,10 @@ mod tests {
                 enabled: true,
             }
         );
-        // Split Right (item 9) sits at body row 11 and carries its accelerator.
+        // Split Right sits at body row 10 in the with-selection menu and carries
+        // its accelerator (accelerators are keyed by ALL order, index 9).
         assert_eq!(
-            rows[11],
+            rows[10],
             ContextMenuRow::Item {
                 label: "Split Right",
                 accelerator: Some("Ctrl+Shift+E".to_owned()),
@@ -1882,6 +2058,150 @@ mod tests {
             "accelerators widen the menu: {} !> {narrow}",
             m.menu_width()
         );
+    }
+
+    /// Open a menu on a specific surface (F7) with the given tab-count state.
+    fn open_surface(surface: ContextMenuSurface, multi_tab: bool) -> ContextMenuUi {
+        let mut m = ContextMenuUi::new();
+        m.open_with_prompt_editing_hint(
+            CellPoint { row: 4, column: 7 },
+            true,
+            true,
+            true,
+            true,
+            false,
+            match surface {
+                ContextMenuSurface::TabSlot(token) => Some(token),
+                _ => None,
+            },
+            false,
+            multi_tab,
+            surface,
+            None,
+        );
+        m
+    }
+
+    #[test]
+    fn tab_slot_menu_is_tab_scoped() {
+        // F7: a tab right-click opens a tight, tab-scoped menu — no Copy / Split /
+        // Settings / launcher tail. New Tab / Rename Tab · Close Tab / Close Other
+        // Tabs · New Window, split by two separators.
+        let m = open_surface(ContextMenuSurface::TabSlot(SessionToken(3)), true);
+        let rows = m.rows();
+        assert_eq!(
+            rows,
+            vec![
+                item("New Tab", true, true),
+                item("Rename Tab", false, true),
+                ContextMenuRow::Separator,
+                item("Close Tab", false, true),
+                item("Close Other Tabs", false, true),
+                ContextMenuRow::Separator,
+                item("New Window", false, true),
+            ]
+        );
+        for label in [
+            "Copy Text",
+            "Paste Text",
+            "Select All",
+            "Split Right",
+            "Split Down",
+            "Settings",
+            "Command Palette",
+        ] {
+            assert!(
+                !rows.iter().any(|r| matches!(
+                    r,
+                    ContextMenuRow::Item { label: l, .. } if *l == label
+                )),
+                "tab menu must not contain {label}"
+            );
+        }
+    }
+
+    #[test]
+    fn tab_slot_rename_is_enabled_and_targets_the_token() {
+        let m = open_surface(ContextMenuSurface::TabSlot(SessionToken(9)), true);
+        assert_eq!(m.surface(), ContextMenuSurface::TabSlot(SessionToken(9)));
+        assert_eq!(m.rename_target(), Some(SessionToken(9)));
+    }
+
+    #[test]
+    fn tab_slot_close_other_tabs_disabled_at_one_tab() {
+        // "Close Other Tabs" is inert when only one tab is open.
+        let lone = open_surface(ContextMenuSurface::TabSlot(SessionToken(1)), false);
+        let row = lone
+            .rows()
+            .into_iter()
+            .find(|r| {
+                matches!(
+                    r,
+                    ContextMenuRow::Item {
+                        label: "Close Other Tabs",
+                        ..
+                    }
+                )
+            })
+            .expect("Close Other Tabs present");
+        assert_eq!(row, item("Close Other Tabs", false, false));
+        // With a second tab it activates.
+        let many = open_surface(ContextMenuSurface::TabSlot(SessionToken(1)), true);
+        assert!(matches!(
+            many.rows().into_iter().find(|r| matches!(
+                r,
+                ContextMenuRow::Item {
+                    label: "Close Other Tabs",
+                    ..
+                }
+            )),
+            Some(ContextMenuRow::Item { enabled: true, .. })
+        ));
+    }
+
+    #[test]
+    fn tab_slot_close_other_tabs_activates_on_press() {
+        let mut m = open_surface(ContextMenuSurface::TabSlot(SessionToken(4)), true);
+        // Body rows: New Tab(0) Rename Tab(1) sep(2) Close Tab(3) Close Other
+        // Tabs(4) sep(5) New Window(6).
+        assert_eq!(
+            m.handle_press(3, m.body_row_count(), PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::CloseTab)
+        );
+        let mut m = open_surface(ContextMenuSurface::TabSlot(SessionToken(4)), true);
+        assert_eq!(
+            m.handle_press(4, m.body_row_count(), PointerButton::Left),
+            ContextMenuOutcome::Activate(ContextMenuItem::CloseOtherTabs)
+        );
+    }
+
+    #[test]
+    fn tab_strip_empty_menu_is_minimal() {
+        // F7: an empty-strip right-click opens New Tab · Command Palette ·
+        // Settings, with one separator between New Tab and the two launchers.
+        let m = open_surface(ContextMenuSurface::TabStripEmpty, true);
+        assert_eq!(
+            m.rows(),
+            vec![
+                item("New Tab", true, true),
+                ContextMenuRow::Separator,
+                item("Command Palette", false, true),
+                item("Settings", false, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn surface_change_repaints_the_menu() {
+        // Different surfaces swap the whole composition, so their render-cache
+        // signatures must differ (a surface change repaints).
+        let content = open_surface(ContextMenuSurface::Content, true).render_signature();
+        let tab =
+            open_surface(ContextMenuSurface::TabSlot(SessionToken(1)), true).render_signature();
+        let empty = open_surface(ContextMenuSurface::TabStripEmpty, true).render_signature();
+        assert_ne!(content, tab);
+        assert_ne!(content, empty);
+        assert_ne!(tab, empty);
     }
 
     #[test]
@@ -1916,27 +2236,29 @@ mod tests {
             assert_eq!(item_to_body_row(i), i);
             assert_eq!(body_row_to_item(i), Some(i));
         }
-        // The three separator rows map to no item.
+        // The separator rows map to no item.
         assert_eq!(body_row_to_item(CONTEXT_MENU_SEPARATOR_ROW), None);
         assert_eq!(body_row_to_item(CONTEXT_MENU_SECOND_SEPARATOR_ROW), None);
         assert_eq!(body_row_to_item(CONTEXT_MENU_THIRD_SEPARATOR_ROW), None);
-        // Tab actions (5-8: New Tab / New Window / Rename Tab / Close Tab) shift
-        // past the first separator.
+        assert_eq!(body_row_to_item(CONTEXT_MENU_FOURTH_SEPARATOR_ROW), None);
+        // Tab actions (5-7: New Tab / New Window / Close Tab — Rename Tab dropped)
+        // shift past the first separator.
         assert_eq!(item_to_body_row(5), 6);
         assert_eq!(body_row_to_item(6), Some(5));
         assert_eq!(item_to_body_row(6), 7);
         assert_eq!(body_row_to_item(7), Some(6));
         assert_eq!(item_to_body_row(7), 8);
         assert_eq!(body_row_to_item(8), Some(7));
-        assert_eq!(item_to_body_row(8), 9);
-        assert_eq!(body_row_to_item(9), Some(8));
-        // Split actions (9-10) shift past the first two separators.
+        // Split actions (8-9) shift past the first two separators.
+        assert_eq!(item_to_body_row(8), 10);
+        assert_eq!(body_row_to_item(10), Some(8));
         assert_eq!(item_to_body_row(9), 11);
         assert_eq!(body_row_to_item(11), Some(9));
-        assert_eq!(item_to_body_row(10), 12);
-        assert_eq!(body_row_to_item(12), Some(10));
-        // Settings (11) shifts past all three separators.
-        assert_eq!(item_to_body_row(11), 14);
-        assert_eq!(body_row_to_item(14), Some(11));
+        // Settings (10) shifts past the first three separators.
+        assert_eq!(item_to_body_row(10), 13);
+        assert_eq!(body_row_to_item(13), Some(10));
+        // A launcher item (11) shifts past all four separators.
+        assert_eq!(item_to_body_row(11), 15);
+        assert_eq!(body_row_to_item(15), Some(11));
     }
 }

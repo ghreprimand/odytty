@@ -209,14 +209,33 @@ impl App {
                 }
                 (WinitMouseButton::Left, ElementState::Released, Some(_)) => return,
                 (WinitMouseButton::Right, ElementState::Pressed, Some(hit)) => {
-                    let rename_target = match hit {
-                        TabHit::Switch(idx) => self.sessions.token_at_position(idx),
-                        TabHit::Close(_) | TabHit::NewTab | TabHit::None => None,
+                    // F7: a right-click on a specific tab opens the tight,
+                    // tab-scoped `TabSlot` menu targeting THAT tab's token
+                    // (NF-F7-1). A hit on the `+`/`×` chrome resolves no token,
+                    // so it opens the empty-strip menu.
+                    let surface = match hit {
+                        TabHit::Switch(idx) => self
+                            .sessions
+                            .token_at_position(idx)
+                            .map(ContextMenuSurface::TabSlot)
+                            .unwrap_or(ContextMenuSurface::TabStripEmpty),
+                        TabHit::Close(_) | TabHit::NewTab | TabHit::None => {
+                            ContextMenuSurface::TabStripEmpty
+                        }
                     };
-                    self.open_context_menu(rename_target);
+                    self.open_context_menu(surface);
                     return;
                 }
                 (WinitMouseButton::Right, ElementState::Released, Some(_)) => return,
+                (WinitMouseButton::Right, ElementState::Pressed, None)
+                    if self.pointer_in_tab_chrome_band() =>
+                {
+                    // NF-F7-2: an empty tab-strip / rail right-click opens its own
+                    // intentional menu instead of leaking the grid menu over the
+                    // bar.
+                    self.open_context_menu(ContextMenuSurface::TabStripEmpty);
+                    return;
+                }
                 _ => {}
             }
         }
@@ -271,7 +290,7 @@ impl App {
         // local selection. In a plain shell the gate is skipped and the menu
         // opens. No enable bool: the report gate IS the off switch (D-IN2-1).
         if button == WinitMouseButton::Right && state == ElementState::Pressed {
-            self.open_context_menu(None);
+            self.open_context_menu(ContextMenuSurface::Content);
             return;
         }
 

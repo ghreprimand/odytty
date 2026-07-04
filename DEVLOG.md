@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Right-click menus are now context-aware per surface
+
+**A right-click on a tab opened the full terminal menu — Copy, Cut, Paste,
+Split, Settings, every launcher — with almost nothing relevant to a tab.** The
+same menu leaked over the empty tab strip. The menu machinery already branched
+its composition once (a resolved file path swaps in a file-scoped menu), so the
+fix generalizes that one precedent: the surface a right-click lands on now
+selects which composition renders.
+
+A `ContextMenuSurface` descriptor is computed at right-click time and threaded
+through the open path. Three surfaces are wired now, with three more reserved
+for later work:
+
+- **Tab slot** — a tight, tab-scoped menu: New Tab / Rename Tab · Close Tab /
+  Close Other Tabs · New Window. No editing, split, Settings, or launcher rows.
+  Rename **and** Close now act on the right-clicked tab's token, not the active
+  tab — right-clicking a background tab and choosing Close Tab closed the wrong
+  tab before.
+- **Empty tab strip** — a minimal New Tab · Command Palette · Settings, replacing
+  the grid menu that used to spawn, oddly anchored, over the bar.
+- **Content grid** — the familiar full menu, trimmed: the always-disabled Rename
+  Tab row is dropped (it only has a target on a tab), and Copy/Cut/Delete are
+  hidden entirely when there is no selection rather than shown dim, matching the
+  common "text actions only when text is selected" convention. A selection keeps
+  Copy at the top.
+
+"Close Other Tabs" is a new action (disabled with a single tab); "Duplicate Tab"
+is deferred until tab spawns inherit a working directory. Pane-divider and
+workspace surfaces are reserved in the enum but not yet wired.
+
+Everything downstream of the composition — width, edge-clamp, scroll, focus
+cycling, accelerator hints, and the render cache — still derives purely from the
+visible item list; the render-cache signature gained a surface discriminant so a
+surface change repaints. Platform-neutral: pure pointer routing and cell-rendered
+overlay logic, no platform-specific code; the shared per-surface composition
+tests run on every CI leg.
+
+---
 ## 2026-07-04 -- Workspaces core model: a named workspace layer above tabs
 
 The tab layer grew a level above it: a **workspace** is a named, ordered list of
@@ -49,6 +87,7 @@ Unix-only exactly as before, so on Windows a workspace simply never holds an
 attached tab.
 
 ---
+
 
 ## 2026-07-04 -- Rail auto-hide reveal: the cursor blink no longer eats the revealed rail
 

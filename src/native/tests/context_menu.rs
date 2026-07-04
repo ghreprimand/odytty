@@ -179,12 +179,14 @@ fn enable_tui_mouse_reporting(terminal: &Arc<Mutex<Terminal>>) {
 #[test]
 fn context_menu_rows_include_tab_split_items_and_three_separators() {
     let mut menu = ContextMenuUi::new();
+    // Open with a selection so the reference layout (Copy/Cut/Paste/Delete/
+    // Select All present) is exercised; F7 drops the tab-only Rename Tab row.
     menu.open(
         CellPoint { row: 5, column: 10 },
-        false,
-        false,
-        false,
-        false,
+        true,
+        true,
+        true,
+        true,
         None,
         false,
         None,
@@ -221,16 +223,16 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
             ..
         }
     ));
-    assert!(matches!(
-        rows[8],
+    // F7: Rename Tab dropped from the content menu; Close Tab follows New Window.
+    assert!(!rows.iter().any(|r| matches!(
+        r,
         ContextMenuRow::Item {
             label: "Rename Tab",
-            enabled: false,
             ..
         }
-    ));
+    )));
     assert!(matches!(
-        rows[9],
+        rows[8],
         ContextMenuRow::Item {
             label: "Close Tab",
             enabled: true,
@@ -238,7 +240,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[11],
+        rows[10],
         ContextMenuRow::Item {
             label: "Split Right",
             enabled: true,
@@ -246,7 +248,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[12],
+        rows[11],
         ContextMenuRow::Item {
             label: "Split Down",
             enabled: true,
@@ -254,14 +256,14 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[14],
+        rows[13],
         ContextMenuRow::Item {
             label: "Settings",
             enabled: true,
             ..
         }
     ));
-    // v0.3.1 launcher section: a fourth separator, then the three always-enabled
+    // v0.3.1 launcher section: a fourth separator, then the always-enabled
     // launcher items below Settings.
     assert!(matches!(
         rows[CONTEXT_MENU_FOURTH_SEPARATOR_ROW],
@@ -269,7 +271,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
     ));
     // F3: Keyboard Shortcuts is the first launcher item, right below Settings.
     assert!(matches!(
-        rows[16],
+        rows[15],
         ContextMenuRow::Item {
             label: "Keyboard Shortcuts",
             enabled: true,
@@ -277,7 +279,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[17],
+        rows[16],
         ContextMenuRow::Item {
             label: "Connection Manager",
             enabled: true,
@@ -285,7 +287,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[18],
+        rows[17],
         ContextMenuRow::Item {
             label: "Command Palette",
             enabled: true,
@@ -293,7 +295,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[19],
+        rows[18],
         ContextMenuRow::Item {
             label: "Session Replay",
             enabled: true,
@@ -436,9 +438,11 @@ fn right_clicking_tab_enables_rename_for_that_tab() {
         "right-clicking a tab body enables Rename Tab"
     );
 
-    // Menu spawned at top-left: body row 8 = Rename Tab => grid row 9 (F1's New
-    // Window item shifted the tab-actions section down one row).
-    app.set_pointer_cell_for_test(9, 2);
+    // F7: a tab right-click opens the tight TabSlot menu (New Tab / Rename Tab ·
+    // Close Tab / Close Other Tabs · New Window). Rename Tab is body row 1 =>
+    // grid row 2 (menu spawned at top-left, body starts one row below the top
+    // border).
+    app.set_pointer_cell_for_test(2, 2);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
 
     assert!(app.rename_active_for_test());

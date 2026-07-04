@@ -153,6 +153,16 @@ impl App {
                 self.flush_pending_overlay_settings();
                 let _ = self.close_active_tab();
             }
+            // NF-F7-1: close the right-clicked tab (by token), not the active one.
+            OverlayOutcome::ContextMenuCloseTabToken(token) => {
+                self.flush_pending_overlay_settings();
+                self.close_tab_by_token(token);
+            }
+            // F7: close every tab except the right-clicked one.
+            OverlayOutcome::ContextMenuCloseOtherTabs(token) => {
+                self.flush_pending_overlay_settings();
+                self.close_other_tabs(token);
+            }
             // Part B: the context menu closed itself; split the focused pane
             // through the exact same action the keyboard split chords fire
             // (`apply_pane_action` → `split_active_pane`).
