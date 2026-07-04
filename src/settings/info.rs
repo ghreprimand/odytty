@@ -427,7 +427,7 @@ impl Settings {
                 env: TAB_BAR_PLACEMENT_ENV,
                 name: "Tab bar placement",
                 value: self.tab_bar_placement.as_str().to_owned(),
-                description: "Where the tab bar sits: top (default, horizontal strip), left, or right (vertical rail on that side). Applies live.",
+                description: "Which side the workspace rail sits on when it is shown; tabs always render on the top bar. top (default) puts the rail on the left when it appears; left/right pin the rail side directly. Applies live.",
                 kind: SettingKind::Enum,
                 range: None,
                 options: &["top", "left", "right"],

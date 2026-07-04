@@ -1125,10 +1125,12 @@ pub struct Settings {
     /// byte-identical to today. A lone tab with a custom name shows the bar
     /// regardless of this setting (F4-NF1).
     pub always_show_tab_bar: bool,
-    /// Where the tab bar sits: `Top` (default, horizontal strip) or `Left`
-    /// (vertical rail, F4-V2 R1). `Right` parses but degrades to `Top` until its
-    /// render arm lands (R2). Default `Top` keeps the render path byte-identical
-    /// to the shipped horizontal bar.
+    /// Which side the workspace rail sits on when it is shown; tabs always
+    /// render on the top bar. `Top` (default) places the rail on the left when
+    /// it appears; `Left` and `Right` pin the rail to that side. A former
+    /// vertical-tab user keeps their chosen side through this mapping. Default
+    /// `Top` keeps the single-workspace view byte-identical to the shipped
+    /// top-only bar.
     pub tab_bar_placement: TabBarPlacement,
     /// Workspace-rail visibility/side (ODP-2). `Auto` (default) shows the rail
     /// only with two or more workspaces; a single-workspace session keeps the

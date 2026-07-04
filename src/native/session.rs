@@ -43,7 +43,7 @@ pub(super) struct SessionToken(pub(super) u64);
 
 /// Apply the local-PTY backend capabilities onto a freshly-created terminal
 /// model. Called from EVERY local-pane creation path so the wiring can't drift:
-///   * [`SessionSet::insert_local_session_with`] — the split / new-tab path.
+///   * [`WorkspaceSet::insert_local_session_with`] — the split / new-tab path.
 ///   * [`super::run_native`] — the startup pane (hand-built in `run_native`).
 ///
 /// Currently propagates one capability: whether the backend's shell repaints
