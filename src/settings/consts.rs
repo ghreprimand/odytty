@@ -86,6 +86,7 @@ pub const OS_THEME_LIGHT_ENV: &str = "ODYTTY_OS_THEME_LIGHT";
 pub const CONFIRM_CLOSE_ENV: &str = "ODYTTY_CONFIRM_CLOSE";
 pub const SSH_CONFIG_HOSTS_ENV: &str = "ODYTTY_SSH_CONFIG_HOSTS";
 pub const REMOTE_INTEGRATION_ENV: &str = "ODYTTY_REMOTE_INTEGRATION";
+pub const REMOTE_REUSE_ENV: &str = "ODYTTY_REMOTE_REUSE";
 pub const SESSION_REPLAY_ENV: &str = "ODYTTY_SESSION_REPLAY";
 pub const INTERACTIVE_URLS_ENV: &str = "ODYTTY_INTERACTIVE_URLS";
 pub const INTERACTIVE_PATHS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS";
@@ -182,6 +183,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     CONFIRM_CLOSE_ENV,
     SSH_CONFIG_HOSTS_ENV,
     REMOTE_INTEGRATION_ENV,
+    REMOTE_REUSE_ENV,
     SESSION_REPLAY_ENV,
     INTERACTIVE_URLS_ENV,
     INTERACTIVE_PATHS_ENV,
@@ -700,6 +702,16 @@ pub const DEFAULT_SHELL_INTEGRATION: bool = false;
 /// per-host `Integration off` in `hosts.conf` opts a single host out; turning
 /// this off globally makes every SSH tab byte-identical to a plain ssh launch.
 pub const DEFAULT_REMOTE_INTEGRATION: bool = true;
+
+/// ControlMaster connection reuse for integrated SSH tabs (`ODYTTY_REMOTE_REUSE`):
+/// when on, an integrated SSH tab adds `-o ControlMaster=auto -o ControlPersist`
+/// with an OdyTTY-owned `ControlPath`, so the first tab to a host establishes a
+/// shared master and later tabs multiplex over it with no fresh handshake. On by
+/// default; the failure mode (master gone) degrades to a normal fresh connect. A
+/// per-host `Reuse off` in `hosts.conf` opts a single host out. OpenSSH for
+/// Windows has no socket multiplexing, so reuse is a silent no-op on a Windows
+/// client (the control options are never emitted).
+pub const DEFAULT_REMOTE_REUSE: bool = true;
 
 /// Restore the previous workspace/tab/pane SHAPE at launch
 /// (`ODYTTY_RESTORE_WORKSPACES`): when on, a bare `odytty` launch reopens the

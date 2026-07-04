@@ -1267,6 +1267,13 @@ pub struct Settings {
     /// per-host `Integration off` opts a single host out. Off globally makes
     /// every SSH tab's argv byte-identical to a plain ssh launch.
     pub remote_integration: bool,
+    /// ControlMaster connection reuse for integrated SSH tabs. On by default: an
+    /// integrated SSH tab adds ControlMaster/ControlPersist with an OdyTTY-owned
+    /// ControlPath so a second tab to the same host multiplexes over the first
+    /// with no new handshake. A per-host `Reuse off` opts a single host out. A
+    /// Windows client emits no control options (OpenSSH there has no socket
+    /// multiplexing), so reuse is a silent no-op on Windows.
+    pub remote_reuse: bool,
     /// Opt-in per-session output recording for the scrubbable replay overlay
     /// (Phase 2). Off by default; while off the PTY pump records nothing and the
     /// plain path is byte-identical. When on, each session keeps a bounded
@@ -1393,6 +1400,7 @@ impl Default for Settings {
             confirm_close: DEFAULT_CONFIRM_CLOSE,
             ssh_config_hosts: DEFAULT_SSH_CONFIG_HOSTS,
             remote_integration: DEFAULT_REMOTE_INTEGRATION,
+            remote_reuse: DEFAULT_REMOTE_REUSE,
             session_replay: DEFAULT_SESSION_REPLAY,
             interactive_urls: DEFAULT_INTERACTIVE_URLS,
             interactive_paths: DEFAULT_INTERACTIVE_PATHS,
@@ -2067,6 +2075,12 @@ impl Settings {
             DEFAULT_REMOTE_INTEGRATION,
             &mut warn,
         );
+        let remote_reuse = parse_bool_setting(
+            get(REMOTE_REUSE_ENV).as_deref(),
+            REMOTE_REUSE_ENV,
+            DEFAULT_REMOTE_REUSE,
+            &mut warn,
+        );
         let session_replay = parse_bool_setting(
             get(SESSION_REPLAY_ENV).as_deref(),
             SESSION_REPLAY_ENV,
@@ -2197,6 +2211,7 @@ impl Settings {
             confirm_close,
             ssh_config_hosts,
             remote_integration,
+            remote_reuse,
             session_replay,
             interactive_urls,
             interactive_paths,
@@ -2435,6 +2450,7 @@ impl Settings {
             REMOTE_INTEGRATION_ENV,
             bool_display(self.remote_integration).to_owned(),
         );
+        values.insert(REMOTE_REUSE_ENV, bool_display(self.remote_reuse).to_owned());
         values.insert(
             SESSION_REPLAY_ENV,
             bool_display(self.session_replay).to_owned(),

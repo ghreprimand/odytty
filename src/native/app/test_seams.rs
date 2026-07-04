@@ -90,6 +90,7 @@ impl App {
                 font: None,
                 title: None,
                 integration: None,
+                reuse: None,
                 source: ConnectionHostSource::Odytty,
             })
             .collect();

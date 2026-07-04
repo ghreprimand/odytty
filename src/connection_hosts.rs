@@ -54,6 +54,10 @@ pub struct ConnectionHost {
     /// the global `remote_integration` setting; `Some(false)` forces a plain
     /// ssh session for this host even when the global default is on.
     pub integration: Option<bool>,
+    /// Per-host opt-out for ControlMaster connection reuse. `None` inherits the
+    /// global `remote_reuse` setting; `Some(false)` forces a fresh connection
+    /// for this host even when the global default is on.
+    pub reuse: Option<bool>,
     pub source: ConnectionHostSource,
 }
 
@@ -92,6 +96,7 @@ struct HostBlock {
     font: Option<String>,
     title: Option<String>,
     integration: Option<bool>,
+    reuse: Option<bool>,
 }
 
 impl HostBlock {
@@ -105,6 +110,7 @@ impl HostBlock {
             font: None,
             title: None,
             integration: None,
+            reuse: None,
         }
     }
 }
@@ -190,6 +196,9 @@ pub fn format_odytty_hosts(hosts: &[ConnectionHost]) -> String {
                 Some(if integration { "on" } else { "off" }),
             );
         }
+        if let Some(reuse) = host.reuse {
+            push_optional_field(&mut out, "Reuse", Some(if reuse { "on" } else { "off" }));
+        }
         out.push('\n');
     }
     out
@@ -260,6 +269,7 @@ pub fn merge_connection_hosts(
             font: None,
             title: None,
             integration: None,
+            reuse: None,
             source: ConnectionHostSource::SshConfig,
         });
     }
@@ -317,6 +327,11 @@ fn parse_odytty_hosts_text(text: &str, limits: ConnectionHostsLimits) -> Vec<Con
             "integration" => {
                 if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
                     block.integration = parse_host_bool(value);
+                }
+            }
+            "reuse" => {
+                if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
+                    block.reuse = parse_host_bool(value);
                 }
             }
             _ => {}
@@ -436,6 +451,7 @@ fn flush_block(
             font: block.font.clone(),
             title: block.title.clone(),
             integration: block.integration,
+            reuse: block.reuse,
             source: ConnectionHostSource::Odytty,
         });
     }
@@ -501,6 +517,7 @@ mod tests {
             font: None,
             title: None,
             integration: None,
+            reuse: None,
             source,
         }
     }
@@ -572,6 +589,22 @@ mod tests {
         // wins over an earlier unrecognized one.
         assert_eq!(entries[0].integration, None);
         assert_eq!(entries[1].integration, Some(true));
+    }
+
+    #[test]
+    fn parses_and_round_trips_per_host_reuse_optout() {
+        let entries = parse_odytty_hosts_bytes_with_limits(
+            b"Host bastion\n    HostName bastion.example.invalid\n    Reuse off\n",
+            limits(),
+        );
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].reuse, Some(false));
+        assert_eq!(entries[0].integration, None);
+
+        let formatted = format_odytty_hosts(&entries);
+        assert!(formatted.contains("Reuse off"));
+        let reparsed = parse_odytty_hosts_bytes_with_limits(formatted.as_bytes(), limits());
+        assert_eq!(reparsed[0].reuse, Some(false));
     }
 
     #[test]

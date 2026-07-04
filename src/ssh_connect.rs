@@ -8,7 +8,6 @@
 
 use std::ffi::OsString;
 use std::fmt;
-#[cfg(unix)]
 use std::path::PathBuf;
 
 use crate::connection_hosts::ConnectionHost;
@@ -95,17 +94,58 @@ pub fn ssh_command_for_host(host: &ConnectionHost) -> Result<SshCommand, SshConn
     Ok(SshCommand::new("ssh", args))
 }
 
+/// Idle window (seconds) a shared `ssh` master is kept alive after its last
+/// multiplexed session closes (`ControlPersist`). Ten minutes keeps a working
+/// session's second-and-later tabs to a host near-instant, while a bounded value
+/// means a leaked master is auto-reaped rather than lingering indefinitely.
+#[cfg(not(windows))]
+const SSH_CONTROL_PERSIST_SECS: &str = "600";
+
+/// Runtime knobs for building a remote `ssh` argv. `integration` injects the
+/// shell-integration bootstrap; `reuse` layers `ControlMaster` connection
+/// multiplexing on top when a `control_dir` is available. Both are resolved from
+/// the global setting and per-host override before the argv is built.
+#[derive(Debug, Clone, Default)]
+pub struct RemoteSshOptions {
+    pub integration: bool,
+    pub reuse: bool,
+    /// Directory OdyTTY owns for `ControlMaster` sockets. `None` disables reuse
+    /// (unresolvable state dir, or a Windows client where OpenSSH has no
+    /// socket-multiplexing support).
+    pub control_dir: Option<PathBuf>,
+}
+
 /// Build the system-ssh argv for a saved connection entry, optionally injecting
-/// OdyTTY's shell integration on the remote.
+/// OdyTTY's shell integration on the remote (bash-only, i1).
 ///
-/// When `integration_enabled` is `false` the argv is byte-identical to
-/// [`ssh_command_for_host`] — no remote command, no PTY-forcing `-t`, nothing
-/// added. This is the exact guarantee callers rely on when integration is turned
-/// off globally or opted out for a host.
+/// This is the i1 entry point retained for direct integration-only callers and
+/// its tests; connection reuse is off. See
+/// [`ssh_command_for_host_with_options`] for the full knob surface.
+pub fn ssh_command_for_host_with_integration(
+    host: &ConnectionHost,
+    integration_enabled: bool,
+) -> Result<SshCommand, SshConnectError> {
+    ssh_command_for_host_with_options(
+        host,
+        &RemoteSshOptions {
+            integration: integration_enabled,
+            reuse: false,
+            control_dir: None,
+        },
+    )
+}
+
+/// Build the system-ssh argv for a saved connection entry from resolved remote
+/// options.
 ///
-/// When enabled, the form becomes:
+/// When `opts.integration` is `false` the argv is byte-identical to
+/// [`ssh_command_for_host`] — no remote command, no PTY-forcing `-t`, no control
+/// options, nothing added. This is the exact guarantee callers rely on when
+/// integration is turned off globally or opted out for a host.
 ///
-/// - `ssh -t [-p PORT] -- [USER@]HOST <bootstrap>`
+/// When integration is enabled, the form becomes:
+///
+/// - `ssh -t [CONTROL-OPTS] [-p PORT] -- [USER@]HOST <bootstrap>`
 ///
 /// where `<bootstrap>` is a self-contained POSIX-sh command that materializes
 /// the bash integration rcfile from an inline base64 blob into a temporary file
@@ -115,20 +155,46 @@ pub fn ssh_command_for_host(host: &ConnectionHost) -> Result<SshCommand, SshConn
 /// and every failure path falls back to a plain login shell so the connection is
 /// never broken. Non-bash remote shells silently degrade to a plain session.
 ///
+/// `[CONTROL-OPTS]` (`-o ControlMaster=auto -o ControlPersist=… -o
+/// ControlPath=…`) are added only when `opts.reuse` is set and a `control_dir`
+/// resolved — so the first tab to a host establishes a shared master and later
+/// tabs multiplex over it with no fresh handshake. OpenSSH for Windows has no
+/// socket multiplexing, so the control options are compiled out on Windows
+/// entirely and reuse is a silent no-op there.
+///
 /// i1 is bash-only: the client always emits the bash bootstrap, and the remote
 /// bootstrap self-selects bash-or-fallback at runtime. Extending detection to
 /// zsh/fish is a later increment.
-pub fn ssh_command_for_host_with_integration(
+pub fn ssh_command_for_host_with_options(
     host: &ConnectionHost,
-    integration_enabled: bool,
+    opts: &RemoteSshOptions,
 ) -> Result<SshCommand, SshConnectError> {
-    if !integration_enabled {
+    let destination = ssh_destination(host)?;
+    if !opts.integration {
         return ssh_command_for_host(host);
     }
-    let destination = ssh_destination(host)?;
     let mut args = Vec::new();
     // `-t` forces a remote PTY so the injected bash starts interactive.
     args.push(OsString::from("-t"));
+    // ControlMaster connection reuse. Compiled out on Windows (OpenSSH there has
+    // no ControlMaster/ControlPersist/socket multiplexing), so a Windows client
+    // never emits these options even when reuse is requested.
+    #[cfg(not(windows))]
+    if opts.reuse
+        && let Some(dir) = opts.control_dir.as_deref()
+    {
+        let socket = control_socket_path(dir, &destination);
+        args.push(OsString::from("-o"));
+        args.push(OsString::from("ControlMaster=auto"));
+        args.push(OsString::from("-o"));
+        args.push(OsString::from(format!(
+            "ControlPersist={SSH_CONTROL_PERSIST_SECS}"
+        )));
+        args.push(OsString::from("-o"));
+        let mut control_path = OsString::from("ControlPath=");
+        control_path.push(socket.as_os_str());
+        args.push(control_path);
+    }
     if let Some(port) = host.port {
         args.push(OsString::from("-p"));
         args.push(OsString::from(port.to_string()));
@@ -143,6 +209,44 @@ pub fn ssh_command_for_host_with_integration(
 /// setting wins, otherwise the global default applies.
 pub fn remote_integration_enabled(host_integration: Option<bool>, global_default: bool) -> bool {
     host_integration.unwrap_or(global_default)
+}
+
+/// Resolve whether ControlMaster connection reuse is active for a host: an
+/// explicit per-host setting wins, otherwise the global default applies.
+pub fn remote_reuse_enabled(host_reuse: Option<bool>, global_default: bool) -> bool {
+    host_reuse.unwrap_or(global_default)
+}
+
+/// The `ControlMaster` socket path for a destination under OdyTTY's owned
+/// control dir. The file name is `ssh-<hash>` where `<hash>` is a short,
+/// dependency-free FNV-1a hash of the destination — never the raw `user@host` —
+/// so the full socket path stays well under the platform `sun_path` limit
+/// (104 bytes on macOS/BSD, 108 on Linux) even for long hostnames.
+#[cfg(not(windows))]
+fn control_socket_path(control_dir: &std::path::Path, destination: &str) -> PathBuf {
+    control_dir.join(format!("ssh-{:08x}", fnv1a_32(destination.as_bytes())))
+}
+
+/// 32-bit FNV-1a. Not cryptographic — only a short, stable, dependency-free file
+/// name discriminator for control sockets.
+#[cfg(not(windows))]
+fn fnv1a_32(bytes: &[u8]) -> u32 {
+    let mut hash: u32 = 0x811c_9dc5;
+    for &byte in bytes {
+        hash ^= u32::from(byte);
+        hash = hash.wrapping_mul(0x0100_0193);
+    }
+    hash
+}
+
+/// Create OdyTTY's `ControlMaster` socket directory with owner-only `0700`
+/// permissions, so the multiplexing sockets are never group/world accessible.
+/// Idempotent; tightens permissions on an existing dir too.
+#[cfg(unix)]
+pub fn ensure_control_dir(control_dir: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(control_dir)?;
+    std::fs::set_permissions(control_dir, std::fs::Permissions::from_mode(0o700))
 }
 
 /// The default tab title for an SSH connection: `user@host` when a user is
@@ -297,6 +401,7 @@ mod tests {
             font: None,
             title: None,
             integration: None,
+            reuse: None,
             source: ConnectionHostSource::Odytty,
         }
     }
@@ -366,6 +471,153 @@ mod tests {
         let plain = ssh_command_for_host(&entry).expect("plain");
         let off = ssh_command_for_host_with_integration(&entry, false).expect("off");
         assert_eq!(plain, off);
+        // Requesting reuse can never resurrect control options on the
+        // integration-off path — it stays byte-identical to a plain connect.
+        let off_but_reuse = ssh_command_for_host_with_options(
+            &entry,
+            &RemoteSshOptions {
+                integration: false,
+                reuse: true,
+                control_dir: Some(std::path::PathBuf::from("/run/user/1000/odytty/ssh")),
+            },
+        )
+        .expect("off+reuse");
+        assert_eq!(plain, off_but_reuse);
+    }
+
+    #[test]
+    fn per_host_reuse_overrides_global_default() {
+        assert!(remote_reuse_enabled(None, true));
+        assert!(!remote_reuse_enabled(None, false));
+        assert!(!remote_reuse_enabled(Some(false), true));
+        assert!(remote_reuse_enabled(Some(true), false));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn reuse_adds_control_options_after_pty_and_before_destination() {
+        let entry = remote_host("web1", "deploy", "web1.example.invalid");
+        let command = ssh_command_for_host_with_options(
+            &entry,
+            &RemoteSshOptions {
+                integration: true,
+                reuse: true,
+                control_dir: Some(std::path::PathBuf::from("/run/user/1000/odytty/ssh")),
+            },
+        )
+        .expect("argv");
+        let args = argv(&command);
+        let t_pos = args.iter().position(|a| a == "-t").expect("-t");
+        let cm = args
+            .iter()
+            .position(|a| a == "ControlMaster=auto")
+            .expect("ControlMaster");
+        let sep = args.iter().position(|a| a == "--").expect("--");
+        // Control options sit after `-t` and before the destination separator.
+        assert!(t_pos < cm && cm < sep);
+        assert!(args.iter().any(|a| a == "ControlPersist=600"));
+        assert!(
+            args.iter()
+                .any(|a| a.starts_with("ControlPath=/run/user/1000/odytty/ssh/ssh-"))
+        );
+        // Exactly three `-o` flags for the three control options.
+        assert_eq!(args.iter().filter(|a| a.as_str() == "-o").count(), 3);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn reuse_without_control_dir_emits_no_control_options() {
+        let entry = remote_host("web1", "deploy", "web1.example.invalid");
+        let command = ssh_command_for_host_with_options(
+            &entry,
+            &RemoteSshOptions {
+                integration: true,
+                reuse: true,
+                control_dir: None,
+            },
+        )
+        .expect("argv");
+        let joined = argv(&command).join(" ");
+        assert!(!joined.contains("ControlMaster"));
+        assert!(joined.contains("-t"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn reuse_off_emits_no_control_options() {
+        let entry = remote_host("web1", "deploy", "web1.example.invalid");
+        let command = ssh_command_for_host_with_options(
+            &entry,
+            &RemoteSshOptions {
+                integration: true,
+                reuse: false,
+                control_dir: Some(std::path::PathBuf::from("/run/user/1000/odytty/ssh")),
+            },
+        )
+        .expect("argv");
+        assert!(!argv(&command).join(" ").contains("ControlMaster"));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn control_socket_path_stays_within_sun_path_limit() {
+        // A pathological long hostname must not blow the sun_path budget: the
+        // file name is a fixed-width hash, so only the control dir length varies.
+        let dir = std::path::Path::new("/run/user/1000/odytty/ssh");
+        let dest = format!("verylongusername@{}.example.invalid", "a".repeat(200));
+        let socket = control_socket_path(dir, &dest);
+        assert!(socket.as_os_str().len() < 104, "socket path fits sun_path");
+        // Same destination hashes stably; different destinations differ.
+        assert_eq!(socket, control_socket_path(dir, &dest));
+        assert_ne!(
+            socket,
+            control_socket_path(dir, "other@host.example.invalid")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_control_dir_creates_owner_only_directory() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = std::env::temp_dir().join(format!(
+            "odytty-ctrl-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        let dir = base.join("ssh");
+        ensure_control_dir(&dir).expect("create control dir");
+        let mode = std::fs::metadata(&dir)
+            .expect("metadata")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o700);
+        // Idempotent: a second call tightens rather than fails.
+        ensure_control_dir(&dir).expect("second call");
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_reuse_never_emits_control_options() {
+        let entry = remote_host("web1", "deploy", "web1.example.invalid");
+        let command = ssh_command_for_host_with_options(
+            &entry,
+            &RemoteSshOptions {
+                integration: true,
+                reuse: true,
+                control_dir: Some(std::path::PathBuf::from("C:/odytty/ssh")),
+            },
+        )
+        .expect("argv");
+        let joined = argv(&command).join(" ");
+        assert_eq!(command.program(), &OsString::from("ssh"));
+        assert!(joined.contains("-t"));
+        assert!(!joined.contains("ControlMaster"));
+        assert!(!joined.contains("ControlPath"));
+        assert!(!joined.contains("ControlPersist"));
     }
 
     #[test]

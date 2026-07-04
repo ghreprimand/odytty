@@ -135,8 +135,9 @@ Host web1
 drive the connect action. OdyTTY builds argv as `ssh [-p PORT] -- [USER@]HOST`
 and opens it in a new tab/session; `--` keeps a saved host name from being
 interpreted as another ssh option. `Theme`, `Font`, and `Title` are optional
-per-host profile fields reserved for the overlay UI. `Integration on|off` is an
-optional per-host override for remote shell integration (see below).
+per-host profile fields reserved for the overlay UI. `Integration on|off` and
+`Reuse on|off` are optional per-host overrides for remote shell integration and
+connection reuse (see below).
 
 ### Remote shell integration (`remote_integration`)
 
@@ -156,6 +157,21 @@ fixed, inspectable POSIX-sh bootstrap plus OdyTTY's own public integration
 snippet; no local paths, usernames, or hostnames are embedded in it, and
 authentication stays entirely with the system `ssh`. A remote SSH tab titles
 itself `user@host` when no explicit per-host `Title` is set.
+
+### SSH connection reuse (`remote_reuse`)
+
+With `remote_reuse = on` (the default; `ODYTTY_REMOTE_REUSE=on`), an integrated
+SSH tab adds OpenSSH `ControlMaster=auto` / `ControlPersist` multiplexing with a
+control socket OdyTTY owns under its state directory. The first tab to a host
+establishes a shared master connection; later tabs to the same host reuse it, so
+they open with no second authentication or handshake. If the shared master is
+gone, the tab degrades to an ordinary fresh connect. A per-host `Reuse off` line
+in `hosts.conf` opts a single host out, and `remote_reuse = off` disables it
+globally. Reuse layers onto integrated sessions only, so with
+`remote_integration` off the SSH argv stays byte-identical to a plain `ssh`
+launch regardless of this setting. **Windows:** OpenSSH for Windows has no
+connection multiplexing, so a Windows client never emits control options and
+reuse is a silent no-op there.
 
 OpenSSH config import is separate and default-off. `ssh_config_hosts = on` (or
 `ODYTTY_SSH_CONFIG_HOSTS=on`) lets the connection manager merge host names from
@@ -296,6 +312,7 @@ environment variable was not set at startup.
 | `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` |
 | `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |
 | `remote_integration` | `ODYTTY_REMOTE_INTEGRATION` | `on`, `off` | `on` |
+| `remote_reuse` | `ODYTTY_REMOTE_REUSE` | `on`, `off` | `on` |
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
 | `restore_workspaces` | `ODYTTY_RESTORE_WORKSPACES` | `on`, `off` | `off` |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` |

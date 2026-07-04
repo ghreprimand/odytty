@@ -3228,6 +3228,7 @@ mod tests {
             font: None,
             title: None,
             integration: None,
+            reuse: None,
             source: crate::connection_hosts::ConnectionHostSource::Odytty,
         }
     }

@@ -20,9 +20,16 @@ impl App {
             host.integration,
             self.settings.remote_integration,
         );
+        let reuse_enabled =
+            crate::ssh_connect::remote_reuse_enabled(host.reuse, self.settings.remote_reuse);
+        let opts = crate::ssh_connect::RemoteSshOptions {
+            integration: integration_enabled,
+            reuse: reuse_enabled,
+            control_dir: Self::ssh_control_dir(integration_enabled && reuse_enabled),
+        };
         let token = self
             .sessions
-            .connect_ssh_in_new_tab(host, self.grid, integration_enabled)?;
+            .connect_ssh_in_new_tab(host, self.grid, &opts)?;
         let effective_theme = self.effective_theme;
         let themed_ui_roles = self.themed_ui_roles;
         let osc52_read = self.settings.osc52_read;
@@ -45,5 +52,30 @@ impl App {
         let _ = self.sessions.switch(token);
         self.on_active_session_changed();
         Ok(token)
+    }
+
+    /// Resolve the directory OdyTTY owns for `ControlMaster` sockets, creating it
+    /// with owner-only `0700` permissions. Returns `None` — disabling connection
+    /// reuse — when reuse is off, the state dir is unresolvable, or the directory
+    /// cannot be prepared. On a Windows client this is always `None`: OpenSSH
+    /// there has no socket multiplexing, so no control options are ever emitted.
+    #[cfg(unix)]
+    fn ssh_control_dir(enabled: bool) -> Option<std::path::PathBuf> {
+        if !enabled {
+            return None;
+        }
+        let dir = crate::logging::state_log_dir().join("ssh");
+        match crate::ssh_connect::ensure_control_dir(&dir) {
+            Ok(()) => Some(dir),
+            Err(error) => {
+                tracing::warn!("ssh connection reuse disabled: {error}");
+                None
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    fn ssh_control_dir(_enabled: bool) -> Option<std::path::PathBuf> {
+        None
     }
 }

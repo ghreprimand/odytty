@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Reuse SSH connections across tabs (F6-i3)
+
+Opening a second tab to a host that already has an integrated session no longer
+pays for a fresh TCP and authentication handshake. An integrated SSH tab now
+adds OpenSSH connection multiplexing — `-o ControlMaster=auto -o
+ControlPersist=600 -o ControlPath=…` — with a control socket OdyTTY owns under
+its state directory. The first tab establishes the shared master; later tabs to
+the same host ride over it and open near-instantly.
+
+The socket lives in an OdyTTY-owned directory (never the user's `~/.ssh`),
+created with owner-only `0700` permissions so the multiplexing sockets are never
+group- or world-accessible. Its file name is a fixed-width short hash of the
+destination rather than the raw `user@host`, which keeps the full socket path
+comfortably under the platform `sun_path` limit (104 bytes on macOS/BSD, 108 on
+Linux) even for long hostnames. If the state directory cannot be prepared,
+reuse is silently skipped and the tab connects normally.
+
+Reuse is gated by a new `remote_reuse` setting (on by default; a lost master
+degrades to an ordinary fresh connect, so default-on is safe) with a per-host
+`Reuse off` override in `hosts.conf`. It layers onto integrated sessions only,
+so with `remote_integration` off the SSH argv stays byte-identical to a plain
+`ssh` launch regardless of the reuse setting. Windows behavior: OpenSSH for
+Windows has no ControlMaster/ControlPersist socket multiplexing, so the control
+options are compiled out on a Windows client entirely — reuse is a silent
+no-op there, pinned by a `cfg(windows)` test. Verified with unit tests over
+argv construction (reuse on/off, missing control dir, control-option ordering),
+the destination-hash socket path staying within the `sun_path` budget, and the
+`0700` socket-directory creation.
+
 ## 2026-07-04 -- Sync docs and help strings with the workspace-era chrome
 
 The public docs and two in-code strings are brought back in line with the

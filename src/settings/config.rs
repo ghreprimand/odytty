@@ -28,8 +28,8 @@ use super::{
 use super::{
     BOX_THICKNESS_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV, INTERACTIVE_PATHS_CLICK_HINT_ENV,
     INTERACTIVE_PATHS_EDITOR_ENV, INTERACTIVE_PATHS_ENV, INTERACTIVE_PATHS_IMAGE_INLINE_ENV,
-    INTERACTIVE_URLS_ENV, LINE_HEIGHT_ENV, REMOTE_INTEGRATION_ENV, SESSION_REPLAY_ENV,
-    SSH_CONFIG_HOSTS_ENV,
+    INTERACTIVE_URLS_ENV, LINE_HEIGHT_ENV, REMOTE_INTEGRATION_ENV, REMOTE_REUSE_ENV,
+    SESSION_REPLAY_ENV, SSH_CONFIG_HOSTS_ENV,
 };
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
@@ -207,6 +207,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "remoteintegration" | "sshintegration" | "remoteshellintegration" | "remoteosc133" => {
             Some(REMOTE_INTEGRATION_ENV)
         }
+        "remotereuse" | "sshreuse" | "controlmaster" | "sshcontrolmaster" => Some(REMOTE_REUSE_ENV),
         "sessionreplay" | "replay" | "outputreplay" | "scrollbackreplay" => {
             Some(SESSION_REPLAY_ENV)
         }
@@ -317,6 +318,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         CONFIRM_CLOSE_ENV => Some("confirm_close"),
         SSH_CONFIG_HOSTS_ENV => Some("ssh_config_hosts"),
         REMOTE_INTEGRATION_ENV => Some("remote_integration"),
+        REMOTE_REUSE_ENV => Some("remote_reuse"),
         SESSION_REPLAY_ENV => Some("session_replay"),
         INTERACTIVE_URLS_ENV => Some("interactive_urls"),
         INTERACTIVE_PATHS_ENV => Some("interactive_paths"),

@@ -187,6 +187,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "interactive_paths_editor",
             "ssh_config_hosts",
             "remote_integration",
+            "remote_reuse",
             "session_replay",
             "restore_workspaces",
             "osc52_read",
@@ -1931,6 +1932,24 @@ fn remote_integration_round_trips_through_config_key_mapping() {
     assert!(warnings.is_empty());
     assert_eq!(
         settings.to_edit_values().get(REMOTE_INTEGRATION_ENV),
+        Some(&"off".to_owned())
+    );
+}
+
+#[test]
+fn remote_reuse_round_trips_through_config_key_mapping() {
+    assert_eq!(config_key_to_env("remote_reuse"), Some(REMOTE_REUSE_ENV));
+    assert_eq!(config_key_to_env("controlmaster"), Some(REMOTE_REUSE_ENV));
+    assert_eq!(env_to_config_key(REMOTE_REUSE_ENV), Some("remote_reuse"));
+    // On by default: a lost master degrades to a fresh connect, so default-on
+    // is safe.
+    assert!(Settings::default().remote_reuse);
+
+    let (settings, warnings) = settings_from([(REMOTE_REUSE_ENV, "off")]);
+    assert!(!settings.remote_reuse);
+    assert!(warnings.is_empty());
+    assert_eq!(
+        settings.to_edit_values().get(REMOTE_REUSE_ENV),
         Some(&"off".to_owned())
     );
 }

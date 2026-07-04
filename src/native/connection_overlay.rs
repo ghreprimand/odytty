@@ -468,6 +468,7 @@ mod tests {
             font: None,
             title: None,
             integration: None,
+            reuse: None,
             source,
         }
     }

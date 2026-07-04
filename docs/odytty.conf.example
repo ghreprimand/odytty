@@ -198,6 +198,16 @@ ssh_config_hosts = off
 # no per-host Title is set. Authentication always stays with the system ssh.
 remote_integration = on
 
+# ControlMaster connection reuse for integrated SSH tabs. Default on. An
+# integrated SSH tab adds OpenSSH ControlMaster/ControlPersist with a control
+# socket OdyTTY owns under its state dir, so a second tab to the same host
+# multiplexes over the first with no new handshake. If the shared master is gone
+# the tab falls back to a normal fresh connect. A per-host "Reuse off" line in
+# hosts.conf opts a single host out; off globally disables it. Reuse layers onto
+# integrated sessions only. No effect on a Windows client (OpenSSH there has no
+# connection multiplexing).
+remote_reuse = on
+
 # Per-session output recording for the scrubbable replay overlay. Default off:
 # while off the PTY pump records nothing and the path is byte-identical. When on,
 # each session keeps a bounded in-memory ring of recent screen frames (capped by
