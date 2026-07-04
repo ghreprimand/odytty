@@ -63,6 +63,12 @@ pub(super) struct NativeClipboard {
     /// needing a real clipboard to error.
     #[cfg(test)]
     pub(super) force_write_fail: bool,
+    /// Test-only: the last text handed to `write_clipboard_text`. The real
+    /// clipboard I/O is compiled out under `cfg(test)`, so this records what a
+    /// write path *would* have set — letting NF21-5 prove a focused OSC 52 write
+    /// reaches the clipboard while a non-focused one is discarded before it does.
+    #[cfg(test)]
+    pub(super) last_clipboard_write: Option<String>,
 }
 
 pub(super) trait ClipboardSelectionIo {
@@ -112,7 +118,7 @@ impl ClipboardSelectionIo for NativeClipboard {
         // fail-safe path is exercised separately via `force_write_fail`.
         #[cfg(test)]
         {
-            let _ = text;
+            self.last_clipboard_write = Some(text.to_owned());
             Some(())
         }
         #[cfg(not(test))]

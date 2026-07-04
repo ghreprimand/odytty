@@ -78,19 +78,25 @@ impl App {
             self.effective_theme.background,
         );
         text::set_ansi_palette(&self.effective_theme.palette);
-        if let Ok(mut terminal) = self.terminal.lock() {
-            let cursor_default = if self.themed_ui_roles {
-                rgb(self.effective_theme.cursor)
-            } else {
-                rgb(self.effective_theme.foreground)
-            };
-            terminal.set_base_colors(
-                rgb(self.effective_theme.foreground),
-                rgb(self.effective_theme.background),
-                cursor_default,
-            );
-            // C29: keep OSC 4 replies in sync with the newly effective theme.
-            terminal.set_base_palette(self.effective_theme.palette.map(rgb));
+        let cursor_default = if self.themed_ui_roles {
+            rgb(self.effective_theme.cursor)
+        } else {
+            rgb(self.effective_theme.foreground)
+        };
+        let base_fg = rgb(self.effective_theme.foreground);
+        let base_bg = rgb(self.effective_theme.background);
+        // C29: keep OSC 4 replies in sync with the newly effective theme.
+        let base_palette = self.effective_theme.palette.map(rgb);
+        // NF21-4: an OS light/dark flip must reach EVERY session's terminal
+        // model, not just the active one through `Deref` — otherwise a
+        // background tab (or background workspace's tabs) keeps answering OSC
+        // 4/10/11 with the old theme and paints a stale cursor default on
+        // switch-back. Mirrors the reload-seam fan-out.
+        for session in self.sessions.iter() {
+            if let Ok(mut terminal) = session.terminal.lock() {
+                terminal.set_base_colors(base_fg, base_bg, cursor_default);
+                terminal.set_base_palette(base_palette);
+            }
         }
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.set_theme(self.effective_theme);

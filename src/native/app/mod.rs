@@ -2160,35 +2160,60 @@ impl App {
     }
 
     fn handle_terminal_clipboard_requests(&mut self) {
-        let requests = self
-            .terminal
-            .lock()
-            .map(|mut terminal| terminal.take_clipboard_requests())
-            .unwrap_or_default();
-
-        for request in requests {
-            match request {
-                ClipboardRequest::Write { selection, text } => {
-                    let _ = write_clipboard_selection(&mut self.clipboard, selection, &text);
-                }
-                ClipboardRequest::Read { selection } => {
-                    if !self.settings.osc52_read {
-                        continue;
+        // NF21-5: OSC 52 must be drained for EVERY session, not just the focused
+        // one through `Deref`. A background tab (or, post-W1, a background
+        // workspace's tab) that emitted an OSC 52 write would otherwise queue it
+        // until switch-back and then silently replace the system clipboard —
+        // minutes-stale, from a program the user is not looking at. Policy: a
+        // WRITE from a non-focused session is DISCARDED (a backgrounded program
+        // must not hijack the clipboard); a READ keeps the existing live
+        // `osc52_read` gate. Every session is drained each pass so nothing queues
+        // indefinitely and a discarded write is never applied on switch-back.
+        let focused = self.sessions.active_id();
+        for session in self.sessions.iter() {
+            let is_focused = session.id == focused;
+            let requests = session
+                .terminal
+                .lock()
+                .map(|mut terminal| terminal.take_clipboard_requests())
+                .unwrap_or_default();
+            for request in requests {
+                match request {
+                    ClipboardRequest::Write { selection, text } => {
+                        if is_focused {
+                            let _ =
+                                write_clipboard_selection(&mut self.clipboard, selection, &text);
+                        } else {
+                            // Drop the write and leave the clipboard untouched;
+                            // the drain above already dequeued it so it cannot
+                            // resurface on switch-back.
+                            tracing::debug!(
+                                "discarded OSC 52 clipboard write from a non-focused session"
+                            );
+                        }
                     }
-                    let Some(text) = read_clipboard_selection(&mut self.clipboard, selection)
-                    else {
-                        continue;
-                    };
-                    let host_output = self
-                        .terminal
-                        .lock()
-                        .map(|mut terminal| {
-                            terminal.answer_clipboard_read(selection, &text);
-                            terminal.take_host_output()
-                        })
-                        .unwrap_or_default();
-                    if !host_output.is_empty() {
-                        self.write_pty_bytes(&host_output);
+                    ClipboardRequest::Read { selection } => {
+                        if !self.settings.osc52_read {
+                            continue;
+                        }
+                        let Some(text) = read_clipboard_selection(&mut self.clipboard, selection)
+                        else {
+                            continue;
+                        };
+                        let host_output = session
+                            .terminal
+                            .lock()
+                            .map(|mut terminal| {
+                                terminal.answer_clipboard_read(selection, &text);
+                                terminal.take_host_output()
+                            })
+                            .unwrap_or_default();
+                        if !host_output.is_empty()
+                            && let Ok(mut writer) = session.writer.lock()
+                        {
+                            let _ = writer.write_all(&host_output);
+                            let _ = writer.flush();
+                        }
                     }
                 }
             }
@@ -3699,35 +3724,39 @@ impl App {
         // edit takes effect on the next frame (the grid resolve seam reads it
         // per cell). Mirrors the palette republish above; passthrough at 1.0.
         text::set_min_contrast(self.settings.effective_min_contrast());
-        if let Ok(mut terminal) = self.terminal.lock() {
-            // ID1: when themed UI roles are on, the cursor default color comes
-            // from the theme `cursor` role; otherwise it stays the foreground
-            // (today's behavior). A live OSC 12 dynamic-color override is a
-            // separate mechanism in the core and still takes precedence.
-            let cursor_default = if self.themed_ui_roles {
-                rgb(self.effective_theme.cursor)
-            } else {
-                rgb(self.effective_theme.foreground)
-            };
-            terminal.set_base_colors(
-                rgb(self.effective_theme.foreground),
-                rgb(self.effective_theme.background),
-                cursor_default,
-            );
-            // C29: OSC 4 replies report the theme palette, not the xterm table.
-            terminal.set_base_palette(self.effective_theme.palette.map(rgb));
-            terminal.set_osc52_read_enabled(self.settings.osc52_read);
-            terminal.set_cursor_defaults(
-                self.settings.cursor_style,
-                self.settings.cursor_blink.enabled(),
-            );
-        }
+        // ID1: when themed UI roles are on, the cursor default color comes
+        // from the theme `cursor` role; otherwise it stays the foreground
+        // (today's behavior). A live OSC 12 dynamic-color override is a
+        // separate mechanism in the core and still takes precedence.
+        let cursor_default = if self.themed_ui_roles {
+            rgb(self.effective_theme.cursor)
+        } else {
+            rgb(self.effective_theme.foreground)
+        };
+        let base_fg = rgb(self.effective_theme.foreground);
+        let base_bg = rgb(self.effective_theme.background);
+        // C29: OSC 4 replies report the theme palette, not the xterm table.
+        let base_palette = self.effective_theme.palette.map(rgb);
+        let osc52_read = self.settings.osc52_read;
+        let cursor_style = self.settings.cursor_style;
+        let cursor_blink = self.settings.cursor_blink.enabled();
         // Apply the scrollback cap to *every* session, not just the active one:
         // a background tab streaming unbounded output must stay memory-bounded
         // regardless of focus. Lowering the cap trims existing history at once.
         let scrollback_limit = self.settings.scrollback_limit();
+        // NF21-4: fan the theme colors, palette, OSC 52 read gate and cursor
+        // defaults over EVERY session too, not just the active one through
+        // `Deref`. A background tab (or, post-W1, a background workspace's tabs)
+        // otherwise answered OSC 4/10/11 with the pre-reload theme, kept a stale
+        // cursor default, and carried a model `osc52_read` that could disagree
+        // with the app-level answer-time gate. All values are app-global for the
+        // reload, so one arena sweep applies the whole model state consistently.
         for session in self.sessions.iter() {
             if let Ok(mut terminal) = session.terminal.lock() {
+                terminal.set_base_colors(base_fg, base_bg, cursor_default);
+                terminal.set_base_palette(base_palette);
+                terminal.set_osc52_read_enabled(osc52_read);
+                terminal.set_cursor_defaults(cursor_style, cursor_blink);
                 terminal.set_scrollback_limit(scrollback_limit);
             }
         }

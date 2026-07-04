@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Background sessions track theme changes and OSC 52 policy
+
+Terminal-model state that was previously applied only to the focused session is
+now fanned across every session in the arena — so background tabs, and (since
+workspaces landed) the tabs of background workspaces, stay in sync.
+
+- A settings reload and an OS light/dark flip now push the theme foreground/
+  background, the ANSI palette, the OSC 52 read gate and the cursor defaults to
+  every session, not just the active one. A background tab previously answered
+  OSC 4/10/11 with the pre-change theme and painted a stale cursor default on
+  switch-back; it now reports the current theme immediately.
+- OSC 52 clipboard requests are now drained for every session each pass rather
+  than only the focused one. A clipboard WRITE emitted by a non-focused session
+  is discarded: a program running in a background tab must not be able to replace
+  the system clipboard, and because the request is drained it cannot resurface
+  minutes later when that tab is switched to. A write from the focused session is
+  applied as before, and clipboard READS keep the existing read-enable gate.
+
+Windows: platform-neutral — model setters, clipboard drain and OS-theme apply
+seam are all cross-platform, no `cfg(windows)` surface.
+
+---
+
 ## 2026-07-04 -- Input latches no longer survive a tab or workspace switch
 
 Switching the active session — a tab switch or, since workspaces landed, a

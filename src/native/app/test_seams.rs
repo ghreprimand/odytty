@@ -1925,6 +1925,47 @@ impl App {
         })
     }
 
+    /// Test seam (NF21-4): feed `query` to the `session`-th session's terminal
+    /// and return whatever it emits to the host — used to prove a background
+    /// session answers OSC 4/10/11 with the CURRENT theme after a flip.
+    #[cfg(test)]
+    pub(in crate::native) fn session_osc_answer_for_test(
+        &self,
+        session: usize,
+        query: &[u8],
+    ) -> Vec<u8> {
+        self.sessions
+            .iter()
+            .nth(session)
+            .and_then(|session| {
+                session.terminal.lock().ok().map(|mut terminal| {
+                    terminal.advance(query);
+                    terminal.take_host_output()
+                })
+            })
+            .unwrap_or_default()
+    }
+
+    /// Test seam (NF21-5): drive the production OSC 52 clipboard-request drain
+    /// over every session (the per-redraw call site).
+    #[cfg(test)]
+    pub(in crate::native) fn drain_clipboard_requests_for_test(&mut self) {
+        self.handle_terminal_clipboard_requests();
+    }
+
+    /// Test seam (NF21-5): the last text a clipboard write path handed to the
+    /// (test-stubbed) system clipboard, and a reset so a test can distinguish a
+    /// focused write (records) from a discarded non-focused write (does not).
+    #[cfg(test)]
+    pub(in crate::native) fn last_clipboard_write_for_test(&self) -> Option<String> {
+        self.clipboard.last_clipboard_write.clone()
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn reset_last_clipboard_write_for_test(&mut self) {
+        self.clipboard.last_clipboard_write = None;
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn session_dimensions_for_test(
         &self,
