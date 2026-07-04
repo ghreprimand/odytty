@@ -86,6 +86,7 @@ mod cvd_wiring;
 mod font_save;
 mod gpu_render;
 mod grid_scale;
+mod image_paste;
 mod input_keys;
 mod input_latch_lifecycle;
 mod interactive_urls;

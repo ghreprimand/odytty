@@ -2230,4 +2230,59 @@ impl App {
     pub(in crate::native) fn new_window_argv_for_test() -> Option<Vec<String>> {
         Self::new_window_argv()
     }
+
+    // --- F6-i7 image paste-through seams ---
+
+    /// Seed the synthetic clipboard image the image paste-through flow reads,
+    /// bypassing the real system clipboard.
+    #[cfg(test)]
+    pub(in crate::native) fn set_clipboard_image_for_test(&mut self, png: Option<Vec<u8>>) {
+        self.clipboard.injected_clipboard_image = png;
+    }
+
+    /// Mark the active session as a remote *integrated* upload target (as the
+    /// connect path does), so image paste-through engages for it.
+    #[cfg(test)]
+    pub(in crate::native) fn set_active_remote_upload_for_test(&mut self, destination: &str) {
+        self.sessions.set_active_upload_for_test(destination);
+    }
+
+    /// Force the `remote_image_paste` setting to a given enabled/disabled state.
+    #[cfg(test)]
+    pub(in crate::native) fn set_remote_image_paste_enabled_for_test(&mut self, enabled: bool) {
+        self.settings.remote_image_paste = if enabled {
+            crate::settings::RemoteImagePaste::Ask
+        } else {
+            crate::settings::RemoteImagePaste::Off
+        };
+    }
+
+    /// Drive the paste shortcut (the same entry the Paste keybind hits).
+    #[cfg(test)]
+    pub(in crate::native) fn handle_paste_shortcut_for_test(&mut self) {
+        self.handle_paste_shortcut();
+    }
+
+    /// Whether an image paste is currently awaiting the confirm prompt.
+    #[cfg(test)]
+    pub(in crate::native) fn image_paste_pending_for_test(&self) -> bool {
+        self.pending_image_paste.is_some()
+    }
+
+    /// Confirm the pending image paste (Enter), returning what the upload worker
+    /// would have shipped (session id, PNG byte length) — recorded instead of a
+    /// real `ssh` under `cfg(test)`.
+    #[cfg(test)]
+    pub(in crate::native) fn confirm_image_paste_for_test(
+        &mut self,
+    ) -> Option<(SessionToken, usize)> {
+        self.commit_image_paste();
+        self.last_image_upload.take()
+    }
+
+    /// Cancel the pending image paste (Esc).
+    #[cfg(test)]
+    pub(in crate::native) fn cancel_image_paste_for_test(&mut self) {
+        self.cancel_image_paste();
+    }
 }

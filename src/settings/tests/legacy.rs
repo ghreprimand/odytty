@@ -189,6 +189,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "remote_integration",
             "remote_reuse",
             "remote_tmux",
+            "remote_image_paste",
             "session_replay",
             "restore_workspaces",
             "osc52_read",

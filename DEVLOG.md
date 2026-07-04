@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Paste clipboard images through to remote hosts (F6-i7)
+
+Pasting a clipboard image into a remote integrated SSH tab now offers to upload
+it to the remote host, completing the seamless-remote work.
+
+**Confirm-first upload.** A paste while the clipboard holds an image — and the
+active tab is a remote integrated SSH session — arms an in-pane prompt showing
+the encoded size and target host; nothing leaves the machine until Enter
+confirms (Esc/Ctrl+D cancels). On confirmation the image is PNG-encoded and
+streamed on a background thread over the tab's `ssh` connection (reusing the live
+`ControlMaster` when one is up) into a file created `0600` under an unguessable
+`/tmp/odytty-paste-<random>.png` name. The remote path is then pasted into the
+shell as text — nothing is executed remotely; it is a paste of a path, not a
+command. The random name is drawn from OS-seeded entropy and the `0600` create
+mode (`umask 077; cat >`) closes the shared-`/tmp` race.
+
+**Setting + bounds.** `remote_image_paste` (default `ask`, or `off` to disable)
+gates the feature; there is deliberately no silent auto-upload mode. Images over
+10 MiB (PNG-encoded) are refused with a one-line notice. The feature engages only
+on a remote *integrated* tab — a local tab or an integration-off plain-ssh tab
+pastes exactly as before, and a text clipboard always takes the text path.
+
+**Cleanup.** Uploaded files are removed best-effort (`rm -f` over the same
+connection) when the tab closes. A dropped link means cleanup cannot run and the
+file persists in the remote `/tmp` until the host's own temp reaper removes it —
+guaranteed remote deletion is never promised.
+
+**Windows.** The upload uses the bundled `ssh.exe` the same way (no
+`ControlMaster` reuse, which OpenSSH for Windows lacks), so each upload does its
+own connect; the clipboard image is read through the platform backend. A Windows
+*remote* is out of scope (the `/tmp` path assumes a POSIX host). The real upload
+against a live host is a manual-verify gap; the argv/target builders, the
+gating, and the confirm state machine are unit-tested. `cargo test` green
+(15 suites, 0 failed), `cargo clippy --all-targets --locked -D warnings` clean,
+`cargo fmt --check` clean.
+
+---
+
 ## 2026-07-04 -- Keep split and background panes anchored across output growth
 
 Two viewport-bookkeeping gaps that only surfaced with splits or tab switches

@@ -93,6 +93,11 @@ mod cursor_trail;
 mod detach_switch;
 mod gutter_ui;
 mod hints_ui;
+// The image paste-through upload worker spawns a real `ssh`; under `cfg(test)`
+// the confirm flow records the intended upload instead (see `commit_image_paste`),
+// so the worker module is not compiled for tests.
+#[cfg(not(test))]
+mod image_paste;
 mod ime;
 mod interaction;
 pub(in crate::native) mod interactive_paths;
@@ -256,6 +261,32 @@ struct RailOverlayData {
     origin: [f32; 2],
     wash: Option<SolidQuad>,
     seam: Option<SolidQuad>,
+}
+
+/// A clipboard image awaiting the image paste-through confirm prompt (F6-i7).
+/// Holds the PNG bytes off to the side until Enter confirms the upload, so image
+/// data never leaves the machine on the paste keystroke alone. `session` pins
+/// the tab that initiated it — if the user switches tabs before confirming, the
+/// upload (and its injected path) still target the originating remote shell.
+struct PendingImagePaste {
+    session: SessionToken,
+    png: Vec<u8>,
+}
+
+/// Human-readable byte size for the image paste-through confirm prompt (F6-i7):
+/// `B` under 1 KiB, else one decimal of `KiB`/`MiB`. Binary units so the number
+/// lines up with the fixed-`MiB` upload cap.
+fn format_byte_size(bytes: usize) -> String {
+    const KIB: f64 = 1024.0;
+    const MIB: f64 = 1024.0 * 1024.0;
+    let bytes_f = bytes as f64;
+    if bytes < 1024 {
+        format!("{bytes} B")
+    } else if bytes_f < MIB {
+        format!("{:.1} KiB", bytes_f / KIB)
+    } else {
+        format!("{:.1} MiB", bytes_f / MIB)
+    }
 }
 
 /// Application state driving the `winit` event loop.
@@ -434,6 +465,18 @@ pub(super) struct App {
     /// loop after the overlay outcome is applied — `apply_overlay_outcome` only
     /// has `&mut self` and cannot reach the `ActiveEventLoop` itself.
     pending_exit: bool,
+    /// Image paste-through confirm state (F6-i7). `Some` while a clipboard image
+    /// pasted into a remote integrated tab awaits Enter/Esc: keys drive the
+    /// prompt (Enter uploads, Esc/Ctrl+D cancels) instead of the shell. The
+    /// image bytes are held here until confirmed so nothing leaves the machine
+    /// on the paste keystroke alone.
+    pending_image_paste: Option<PendingImagePaste>,
+    /// Test-only observation of what a confirmed image paste WOULD upload
+    /// (session + PNG byte length), recorded instead of spawning a real `ssh`
+    /// worker under `cfg(test)`. Lets the confirm-flow tests prove Enter commits
+    /// and Esc cancels without touching the network.
+    #[cfg(test)]
+    pub(super) last_image_upload: Option<(SessionToken, usize)>,
     /// WHEEL-SENS: coalesces high-resolution wheel bursts (sub-notch
     /// `PixelDelta` events, fractional `LineDelta`) into discrete notches so one
     /// physical detent is one scroll/zoom step. Identity for a clean
@@ -616,6 +659,9 @@ impl App {
             deadline: None,
             os_theme: None,
             pending_exit: false,
+            pending_image_paste: None,
+            #[cfg(test)]
+            last_image_upload: None,
             wheel_accum: WheelAccumulator::default(),
             overlay_wheel: OverlayWheelDamper::default(),
             tab_bar: TabBar::default(),
@@ -1842,6 +1888,17 @@ impl App {
         // now-defunct PTY. This sits after the global-chord dispatch above, so a
         // tab/workspace switch or the command palette still work while a pane
         // awaits reconnect.
+        // F6-i7: while a clipboard image awaits the paste-through confirm prompt,
+        // keys drive the prompt (Enter uploads, Esc/Ctrl+D cancel) — not the
+        // shell. Sits with the reconnect gate after the global-chord dispatch so
+        // a tab/workspace switch or the palette still work while it is up.
+        if self.pending_image_paste.is_some() {
+            if event_type == KeyEventType::Press {
+                self.handle_image_paste_key(&logical, mods);
+            }
+            return;
+        }
+
         if self.sessions.active_awaiting_reconnect() {
             if event_type == KeyEventType::Press {
                 self.handle_reconnect_key(&logical, mods);
@@ -2115,12 +2172,120 @@ impl App {
     /// reachable. Clipboard failures are deliberately non-fatal: a terminal
     /// should keep running even when the compositor denies clipboard access.
     fn handle_paste_shortcut(&mut self) {
-        let Some(text) = self.clipboard.read_text() else {
+        // A text clipboard always takes the normal text-paste path, unchanged.
+        if let Some(text) = self.clipboard.read_text() {
+            // Paste writes to the PTY, so treat it like typed input: return to live.
+            self.return_to_live();
+            let _ = write_paste_text(&self.terminal, &self.writer, &text);
+            return;
+        }
+        // No text: on a remote integrated tab, a clipboard IMAGE may be offered
+        // for upload (F6-i7). Everywhere else this is a no-op, byte-identical to
+        // the prior "no text, nothing to paste" behavior.
+        self.try_begin_image_paste();
+    }
+
+    /// Begin the image paste-through confirm flow (F6-i7) when the clipboard
+    /// holds an image, the active tab is a remote *integrated* ssh session, and
+    /// the feature is enabled. Reads and PNG-encodes the clipboard image, refuses
+    /// an over-cap image with a one-line notice, and otherwise arms the in-pane
+    /// confirm prompt — nothing is uploaded until Enter confirms. A no-op (and no
+    /// prompt) on a local/plain-ssh tab, with the setting `off`, or with no
+    /// clipboard image, so the default paste path is untouched.
+    fn try_begin_image_paste(&mut self) {
+        // Only a remote integrated tab is an upload target; this is also the gate
+        // that keeps local/plain-ssh tabs completely unaffected.
+        let Some(target) = self.sessions.active_remote_upload_target() else {
             return;
         };
-        // Paste writes to the PTY, so treat it like typed input: return to live.
-        self.return_to_live();
-        let _ = write_paste_text(&self.terminal, &self.writer, &text);
+        if !self.settings.remote_image_paste.is_enabled() {
+            return;
+        }
+        let Some(png) = self.clipboard.read_image_png() else {
+            return;
+        };
+        let size = png.len();
+        let cap = crate::settings::REMOTE_IMAGE_PASTE_MAX_BYTES;
+        if size > cap {
+            self.write_active_banner(&format!(
+                "\r\n\x1b[1;31m image too large \x1b[0m {} exceeds the {} upload cap — not uploaded\r\n",
+                format_byte_size(size),
+                format_byte_size(cap),
+            ));
+            return;
+        }
+        let session = self.sessions.active_id();
+        self.write_active_banner(&format!(
+            "\r\n\x1b[1;36m upload image \x1b[0m {} to {}?  Enter: upload · Esc: cancel\r\n",
+            format_byte_size(size),
+            target,
+        ));
+        self.pending_image_paste = Some(PendingImagePaste { session, png });
+    }
+
+    /// Drive the image paste-through confirm prompt (F6-i7). Enter uploads the
+    /// held image and, on success, pastes the remote path into the shell;
+    /// Esc/Ctrl+D cancel with nothing sent. Any other key leaves the prompt up.
+    /// Called only on a key press while a paste is pending.
+    fn handle_image_paste_key(&mut self, logical: &WinitKey, mods: Modifiers) {
+        match logical {
+            WinitKey::Named(NamedKey::Enter) => self.commit_image_paste(),
+            WinitKey::Named(NamedKey::Escape) => self.cancel_image_paste(),
+            WinitKey::Character(text)
+                if mods.ctrl && !self.super_key && text.eq_ignore_ascii_case("d") =>
+            {
+                self.cancel_image_paste();
+            }
+            _ => {}
+        }
+    }
+
+    /// Cancel a pending image paste: drop the held bytes, note it in the pane,
+    /// and send nothing. The clipboard is untouched.
+    fn cancel_image_paste(&mut self) {
+        if self.pending_image_paste.take().is_some() {
+            self.write_active_banner("\r\n\x1b[2m image paste cancelled\x1b[0m\r\n");
+        }
+    }
+
+    /// Confirm a pending image paste: hand the held PNG to a background upload
+    /// worker for the originating remote session. The worker uploads over `ssh`
+    /// (reusing the live master), then pastes the remote path into that shell on
+    /// success or writes a one-line failure notice on error — so the UI never
+    /// blocks on the transfer. Under `cfg(test)` the spawn is replaced by a
+    /// record into `last_image_upload`, so the confirm flow is testable without a
+    /// network.
+    fn commit_image_paste(&mut self) {
+        let Some(pending) = self.pending_image_paste.take() else {
+            return;
+        };
+        #[cfg(test)]
+        {
+            self.last_image_upload = Some((pending.session, pending.png.len()));
+        }
+        #[cfg(not(test))]
+        {
+            let Some(job) = self.sessions.remote_upload_job(pending.session) else {
+                self.write_active_banner(
+                    "\r\n\x1b[1;31m image upload failed \x1b[0m session is gone\r\n",
+                );
+                return;
+            };
+            image_paste::spawn_upload_worker(job, pending.png);
+        }
+    }
+
+    /// Write a one-line SGR banner into the active pane's terminal model and
+    /// request a redraw. Shared by the reconnect-style in-pane prompts/notices
+    /// (F6-i7): standard SGR so it renders in every theme, leading/trailing CRLF
+    /// so it lands on its own line.
+    fn write_active_banner(&mut self, banner: &str) {
+        crate::native::lock_recover(&self.terminal).advance(banner.as_bytes());
+        self.needs_rebuild = true;
+        self.last_render_signature = None;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
     }
 
     /// Copy the current visible selection to the clipboard. This is kept fully

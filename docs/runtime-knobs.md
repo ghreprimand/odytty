@@ -200,6 +200,35 @@ persisted session. A clean logout (`exit`, status 0) and ordinary remote-command
 failures close the tab as before; only the transport-drop status offers
 reconnect.
 
+### Remote image paste-through (`remote_image_paste`)
+
+With `remote_image_paste = ask` (the default; `ODYTTY_REMOTE_IMAGE_PASTE=ask`),
+pasting while the clipboard holds an **image** and the active tab is a remote
+integrated SSH session offers to upload it to the remote host. A confirm prompt
+appears in the pane — showing the encoded size and the target host — and nothing
+is uploaded until **Enter** confirms (**Esc** cancels). On confirmation the image
+is PNG-encoded and streamed over the tab's `ssh` connection (reusing the live
+`ControlMaster` when one is up) into a file created `0600` under an unguessable
+`/tmp/odytty-paste-<random>.png` name; the remote path is then pasted into the
+shell as text, so it can be referenced by a remote command. Nothing is ever run
+remotely — it is a paste of a path, not a command.
+
+`remote_image_paste = off` (`ODYTTY_REMOTE_IMAGE_PASTE=off`) disables the feature:
+an image paste on a remote tab does nothing. There is deliberately no silent
+auto-upload mode — confirm-first is the only enabled behavior. The feature only
+engages on a remote *integrated* tab; a local tab or an integration-off plain-ssh
+tab pastes exactly as before. Images larger than 10 MiB (PNG-encoded) are refused
+with a one-line notice rather than uploaded.
+
+Uploaded files are cleaned up **best-effort** when the tab closes (an `rm -f`
+over the same connection). If the link has already dropped, cleanup cannot run
+and the file persists in the remote `/tmp` until the remote's own temp-file
+reaper removes it — OdyTTY never promises guaranteed remote deletion. **Windows:**
+the upload uses the bundled `ssh.exe` the same way (no `ControlMaster` reuse, as
+OpenSSH for Windows has none), so each upload does its own connect; the clipboard
+image is read through the platform clipboard backend. A Windows *remote* is out
+of scope (the `/tmp` path assumes a POSIX host).
+
 OpenSSH config import is separate and default-off. `ssh_config_hosts = on` (or
 `ODYTTY_SSH_CONFIG_HOSTS=on`) lets the connection manager merge host names from
 a caller-resolved OpenSSH config path. The same toggle is reachable in the
@@ -341,6 +370,7 @@ environment variable was not set at startup.
 | `remote_integration` | `ODYTTY_REMOTE_INTEGRATION` | `on`, `off` | `on` |
 | `remote_reuse` | `ODYTTY_REMOTE_REUSE` | `on`, `off` | `on` |
 | `remote_tmux` | `ODYTTY_REMOTE_TMUX` | `on`, `off` | `off` |
+| `remote_image_paste` | `ODYTTY_REMOTE_IMAGE_PASTE` | `ask`, `off` | `ask` |
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
 | `restore_workspaces` | `ODYTTY_RESTORE_WORKSPACES` | `on`, `off` | `off` |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` |

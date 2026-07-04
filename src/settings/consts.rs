@@ -88,6 +88,7 @@ pub const SSH_CONFIG_HOSTS_ENV: &str = "ODYTTY_SSH_CONFIG_HOSTS";
 pub const REMOTE_INTEGRATION_ENV: &str = "ODYTTY_REMOTE_INTEGRATION";
 pub const REMOTE_REUSE_ENV: &str = "ODYTTY_REMOTE_REUSE";
 pub const REMOTE_TMUX_ENV: &str = "ODYTTY_REMOTE_TMUX";
+pub const REMOTE_IMAGE_PASTE_ENV: &str = "ODYTTY_REMOTE_IMAGE_PASTE";
 pub const SESSION_REPLAY_ENV: &str = "ODYTTY_SESSION_REPLAY";
 pub const INTERACTIVE_URLS_ENV: &str = "ODYTTY_INTERACTIVE_URLS";
 pub const INTERACTIVE_PATHS_ENV: &str = "ODYTTY_INTERACTIVE_PATHS";
@@ -186,6 +187,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     REMOTE_INTEGRATION_ENV,
     REMOTE_REUSE_ENV,
     REMOTE_TMUX_ENV,
+    REMOTE_IMAGE_PASTE_ENV,
     SESSION_REPLAY_ENV,
     INTERACTIVE_URLS_ENV,
     INTERACTIVE_PATHS_ENV,
@@ -723,6 +725,14 @@ pub const DEFAULT_REMOTE_REUSE: bool = true;
 /// A per-host `Tmux on`/`Tmux off` in `hosts.conf` overrides the default for a
 /// single host. Only meaningful with remote integration enabled.
 pub const DEFAULT_REMOTE_TMUX: bool = false;
+
+/// Ceiling on the PNG-encoded size of a clipboard image uploaded through
+/// image paste-through (F6-i7). A pasted image whose encoded size exceeds this
+/// is refused with a one-line notice rather than uploaded, so a pathological
+/// clipboard can never ship tens of megabytes over the link or fill the remote
+/// `/tmp`. Fixed at 10 MiB for now; the confirm prompt shows the encoded size so
+/// an over-cap paste is obvious.
+pub const REMOTE_IMAGE_PASTE_MAX_BYTES: usize = 10 * 1024 * 1024;
 
 /// Restore the previous workspace/tab/pane SHAPE at launch
 /// (`ODYTTY_RESTORE_WORKSPACES`): when on, a bare `odytty` launch reopens the

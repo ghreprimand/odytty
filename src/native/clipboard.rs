@@ -69,6 +69,13 @@ pub(super) struct NativeClipboard {
     /// reaches the clipboard while a non-focused one is discarded before it does.
     #[cfg(test)]
     pub(super) last_clipboard_write: Option<String>,
+    /// Test-only: PNG bytes `read_image_png` returns instead of touching the real
+    /// clipboard. The real image read (`arboard::Clipboard::get_image`) is
+    /// compiled out under `cfg(test)` for the same reasons text I/O is — so the
+    /// image paste-through (F6-i7) confirm flow can be driven from a synthetic
+    /// clipboard image without a live system clipboard.
+    #[cfg(test)]
+    pub(super) injected_clipboard_image: Option<Vec<u8>>,
 }
 
 pub(super) trait ClipboardSelectionIo {
@@ -230,6 +237,41 @@ impl NativeClipboard {
         self.write_clipboard_text(text)
     }
 
+    /// Read a clipboard image, PNG-encoded (F6-i7 / F6-NF5). Returns `None` when
+    /// the clipboard holds no image, the platform has no image support, or
+    /// encoding fails — the paste path then falls through to text. The bytes are
+    /// re-encoded to PNG (lossless, deterministic, universally handled) from the
+    /// backend's RGBA image so the transfer format is fixed regardless of the
+    /// source. As with the text paths, unit tests never reach the real clipboard
+    /// (off-main-thread NSPasteboard crash + clobbering the developer's live
+    /// clipboard); they inject bytes through `injected_clipboard_image`.
+    pub(super) fn read_image_png(&mut self) -> Option<Vec<u8>> {
+        #[cfg(test)]
+        {
+            self.injected_clipboard_image.clone()
+        }
+        #[cfg(not(test))]
+        {
+            let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
+                Ok(clipboard) => clipboard,
+                Err(err) => {
+                    tracing::warn!("clipboard unavailable for image paste: {err}");
+                    return None;
+                }
+            };
+            let image = match clipboard.get_image() {
+                Ok(image) => image,
+                Err(err) => {
+                    // No image on the clipboard is the common case (a text or
+                    // empty clipboard), so this stays at debug — not a warning.
+                    tracing::debug!("clipboard image read failed: {err}");
+                    return None;
+                }
+            };
+            encode_rgba_to_png(image.width, image.height, &image.bytes)
+        }
+    }
+
     pub(super) fn read_primary_text(&mut self) -> Option<String> {
         self.read_primary_selection_text()
     }
@@ -237,6 +279,30 @@ impl NativeClipboard {
     pub(super) fn write_primary_text(&mut self, text: &str) -> Option<()> {
         self.write_primary_selection_text(text)
     }
+}
+
+/// Encode a raw RGBA8 image (as `arboard` hands back) to PNG bytes. Returns
+/// `None` on a malformed buffer or an encoder error so the caller degrades to a
+/// non-image paste. Compiled out under `cfg(test)` — the image paste-through
+/// tests inject already-encoded bytes and never touch a real clipboard image.
+#[cfg(not(test))]
+fn encode_rgba_to_png(width: usize, height: usize, rgba: &[u8]) -> Option<Vec<u8>> {
+    use image::ImageEncoder;
+    use image::codecs::png::PngEncoder;
+
+    let width = u32::try_from(width).ok()?;
+    let height = u32::try_from(height).ok()?;
+    let expected = (width as usize)
+        .checked_mul(height as usize)?
+        .checked_mul(4)?;
+    if rgba.len() != expected {
+        return None;
+    }
+    let mut png = Vec::new();
+    PngEncoder::new(&mut png)
+        .write_image(rgba, width, height, image::ExtendedColorType::Rgba8)
+        .ok()?;
+    Some(png)
 }
 
 pub(super) fn write_clipboard_selection(

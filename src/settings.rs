@@ -708,6 +708,44 @@ impl CvdMode {
     }
 }
 
+/// Whether a clipboard image pasted into a remote *integrated* ssh tab is
+/// offered for upload (F6-i7). `Ask` (default) prompts before every upload —
+/// image bytes never leave the machine on a keystroke without confirmation;
+/// `Off` disables image paste-through entirely, so such a paste is a no-op.
+/// There is deliberately no silent `Always`: confirm-first is the only enabled
+/// mode. A per-host override is a follow-up; this is the global default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RemoteImagePaste {
+    /// Prompt before uploading; the safe default.
+    #[default]
+    Ask,
+    /// Image paste-through disabled — a clipboard-image paste does nothing.
+    Off,
+}
+
+impl RemoteImagePaste {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ask => "ask",
+            Self::Off => "off",
+        }
+    }
+
+    /// Whether a clipboard-image paste should prompt for upload (i.e. the
+    /// feature is enabled). `Off` returns `false`, so the paste falls through.
+    pub fn is_enabled(self) -> bool {
+        matches!(self, Self::Ask)
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match normalize_name(value).as_str() {
+            "ask" | "on" | "confirm" | "prompt" => Some(Self::Ask),
+            "off" | "no" | "disabled" | "false" => Some(Self::Off),
+            _ => None,
+        }
+    }
+}
+
 /// Where the tab bar/rail sits relative to the terminal content (F4-V2).
 /// `Top` (default) is the shipped horizontal strip; `Left`/`Right` are the
 /// vertical rails on either side. All three placements render (F4-P2 landed the
@@ -1281,6 +1319,11 @@ pub struct Settings {
     /// per-host `Tmux on`/`Tmux off` overrides for a single host. Only meaningful
     /// with `remote_integration` on (the bootstrap is the injection point).
     pub remote_tmux: bool,
+    /// Image paste-through for remote integrated ssh tabs (F6-i7). `Ask`
+    /// (default) prompts before uploading a pasted clipboard image to the remote
+    /// host; `Off` disables it. Only engages on a remote integrated tab; a local
+    /// or plain-ssh tab's paste path is unaffected.
+    pub remote_image_paste: RemoteImagePaste,
     /// Opt-in per-session output recording for the scrubbable replay overlay
     /// (Phase 2). Off by default; while off the PTY pump records nothing and the
     /// plain path is byte-identical. When on, each session keeps a bounded
@@ -1409,6 +1452,7 @@ impl Default for Settings {
             remote_integration: DEFAULT_REMOTE_INTEGRATION,
             remote_reuse: DEFAULT_REMOTE_REUSE,
             remote_tmux: DEFAULT_REMOTE_TMUX,
+            remote_image_paste: RemoteImagePaste::default(),
             session_replay: DEFAULT_SESSION_REPLAY,
             interactive_urls: DEFAULT_INTERACTIVE_URLS,
             interactive_paths: DEFAULT_INTERACTIVE_PATHS,
@@ -2095,6 +2139,8 @@ impl Settings {
             DEFAULT_REMOTE_TMUX,
             &mut warn,
         );
+        let remote_image_paste =
+            parse_remote_image_paste(get(REMOTE_IMAGE_PASTE_ENV).as_deref(), &mut warn);
         let session_replay = parse_bool_setting(
             get(SESSION_REPLAY_ENV).as_deref(),
             SESSION_REPLAY_ENV,
@@ -2227,6 +2273,7 @@ impl Settings {
             remote_integration,
             remote_reuse,
             remote_tmux,
+            remote_image_paste,
             session_replay,
             interactive_urls,
             interactive_paths,
@@ -2467,6 +2514,10 @@ impl Settings {
         );
         values.insert(REMOTE_REUSE_ENV, bool_display(self.remote_reuse).to_owned());
         values.insert(REMOTE_TMUX_ENV, bool_display(self.remote_tmux).to_owned());
+        values.insert(
+            REMOTE_IMAGE_PASTE_ENV,
+            self.remote_image_paste.as_str().to_owned(),
+        );
         values.insert(
             SESSION_REPLAY_ENV,
             bool_display(self.session_replay).to_owned(),

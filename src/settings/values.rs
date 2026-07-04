@@ -599,6 +599,29 @@ pub(super) fn parse_tab_bar_placement(
     }
 }
 
+pub(super) fn parse_remote_image_paste(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> RemoteImagePaste {
+    let Some(raw) = raw else {
+        return RemoteImagePaste::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return RemoteImagePaste::default();
+    }
+    match RemoteImagePaste::parse(trimmed) {
+        Some(mode) => mode,
+        None => {
+            warn(&format!(
+                "{REMOTE_IMAGE_PASTE_ENV}={trimmed:?} is not ask|off; using ask"
+            ));
+            RemoteImagePaste::default()
+        }
+    }
+}
+
 pub(super) fn parse_workspace_rail(
     raw: Option<&OsStr>,
     warn: &mut impl FnMut(&str),

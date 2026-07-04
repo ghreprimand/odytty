@@ -213,6 +213,137 @@ pub fn ssh_command_for_host_with_options(
     Ok(SshCommand::new("ssh", args))
 }
 
+/// Directory component of the remote temp path image paste-through uploads to.
+/// A world-writable sticky dir present on every POSIX host; the file itself is
+/// created `0600` with an unguessable random name (see [`remote_upload_target`]).
+const REMOTE_UPLOAD_DIR: &str = "/tmp";
+
+/// Compose the remote temp path a pasted image is uploaded to: an unguessable
+/// random name under `/tmp` (F6-i7). The random component is drawn from
+/// OS-seeded entropy so a local attacker cannot pre-create a symlink at the
+/// path; combined with the `0600` create mode (the upload runs `umask 077`),
+/// this closes the shared-`/tmp` race. The name uses only `[/tmp/a-z0-9.-]`, so
+/// it is safe to single-quote into the remote shell command with no escaping.
+pub fn remote_upload_target() -> String {
+    format!(
+        "{REMOTE_UPLOAD_DIR}/odytty-paste-{}.png",
+        random_hex_token()
+    )
+}
+
+/// A 128-bit hex token from OS-seeded entropy, dependency-free.
+///
+/// `RandomState` keys are randomized from the OS RNG per construction, so
+/// hashing through fresh states yields values a remote or same-host attacker
+/// cannot predict — the seed is never exposed. Not cryptographic, but the
+/// unguessability requirement here is a `/tmp` filename, backed by `0600`
+/// permissions; a stable per-call source of unpredictable bytes is exactly the
+/// bar. A per-call `nanos ^ pid` spreads the input so two tokens minted in one
+/// process are always distinct.
+fn random_hex_token() -> String {
+    use std::hash::BuildHasher;
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+        ^ u64::from(std::process::id());
+    let high = std::collections::hash_map::RandomState::new().hash_one(seed);
+    let low = std::collections::hash_map::RandomState::new().hash_one(high);
+    format!("{high:016x}{low:016x}")
+}
+
+/// Build the argv that uploads a pasted image to a remote temp path (F6-i7).
+///
+/// The upload runs the system `ssh` binary — the same credential-delegating
+/// transport as the connect path, never an embedded ssh — with a remote command
+/// that creates the file `0600` (`umask 077`) and streams the bytes from the
+/// upload process's stdin:
+///
+/// - `ssh [-o ControlPath=…] [-p PORT] -- DEST "umask 077; cat > '<remote>'"`
+///
+/// The caller wires the local PNG file to the child's stdin. `cat` (rather than
+/// `scp`) is deliberate: it guarantees the `0600` create mode atomically and
+/// reuses the exact ssh option shape (and `ControlMaster` socket) of the connect
+/// path, so the upload multiplexes over the live session with no second auth.
+/// The remote path is an OdyTTY-minted `/tmp/odytty-paste-<hash>.png` (only
+/// `[/tmp/a-z0-9.-]`), single-quoted with no escaping needed. On Windows the
+/// program is still `ssh` (`ssh.exe`) and no `ControlPath` option is emitted
+/// (OpenSSH there has no socket multiplexing), so the upload does its own
+/// connect — functional, just not multiplexed.
+pub fn remote_upload_command(
+    destination: &str,
+    port: Option<u16>,
+    control_dir: Option<&std::path::Path>,
+    remote_path: &str,
+) -> SshCommand {
+    let remote_command = format!("umask 077; cat > '{remote_path}'");
+    SshCommand::new(
+        "ssh",
+        build_remote_exec_args(destination, port, control_dir, remote_command),
+    )
+}
+
+/// Build the best-effort cleanup argv that removes uploaded paste files from the
+/// remote on tab close/disconnect (F6-i7). `None` when there is nothing to
+/// remove. Best-effort by nature: if the link has already dropped the command
+/// cannot run, and the file persists until the remote's own `/tmp` reaper
+/// removes it — a caveat documented honestly rather than a guaranteed deletion.
+pub fn remote_cleanup_command(
+    destination: &str,
+    port: Option<u16>,
+    control_dir: Option<&std::path::Path>,
+    paths: &[String],
+) -> Option<SshCommand> {
+    if paths.is_empty() {
+        return None;
+    }
+    // Each path is an OdyTTY-minted `/tmp/odytty-paste-<hash>.png`, safe to
+    // single-quote with no escaping.
+    let quoted = paths
+        .iter()
+        .map(|p| format!("'{p}'"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let remote_command = format!("rm -f {quoted}");
+    Some(SshCommand::new(
+        "ssh",
+        build_remote_exec_args(destination, port, control_dir, remote_command),
+    ))
+}
+
+/// Shared argv assembly for a one-shot remote command over the connect path's
+/// ssh transport: optional `ControlPath` reuse (Unix only), optional port, then
+/// `-- DEST <remote-command>`. No `-t` (these are non-interactive one-shots).
+fn build_remote_exec_args(
+    destination: &str,
+    port: Option<u16>,
+    control_dir: Option<&std::path::Path>,
+    remote_command: String,
+) -> Vec<OsString> {
+    let mut args = Vec::new();
+    // Multiplex over the live master when one is available; compiled out on
+    // Windows (OpenSSH there has no socket multiplexing), mirroring the connect
+    // builder so a Windows client never emits a control option.
+    #[cfg(not(windows))]
+    if let Some(dir) = control_dir {
+        let socket = control_socket_path(dir, destination);
+        args.push(OsString::from("-o"));
+        let mut control_path = OsString::from("ControlPath=");
+        control_path.push(socket.as_os_str());
+        args.push(control_path);
+    }
+    #[cfg(windows)]
+    let _ = control_dir;
+    if let Some(port) = port {
+        args.push(OsString::from("-p"));
+        args.push(OsString::from(port.to_string()));
+    }
+    args.push(OsString::from("--"));
+    args.push(OsString::from(destination));
+    args.push(OsString::from(remote_command));
+    args
+}
+
 /// Resolve whether remote integration is active for a host: an explicit per-host
 /// setting wins, otherwise the global default applies.
 pub fn remote_integration_enabled(host_integration: Option<bool>, global_default: bool) -> bool {
@@ -376,7 +507,11 @@ pub fn detached_ssh_host_config(
     Ok(config)
 }
 
-fn ssh_destination(host: &ConnectionHost) -> Result<String, SshConnectError> {
+/// The `ssh` destination operand for a host: `USER@HOST` when a user is known,
+/// else the bare host. Validated to reject credential-like or shell-unsafe
+/// fields. Exposed so the connect path can capture the destination for the
+/// image paste-through upload descriptor (F6-i7) without rebuilding the argv.
+pub fn ssh_destination(host: &ConnectionHost) -> Result<String, SshConnectError> {
     let target = host
         .host_name
         .as_deref()
@@ -531,6 +666,106 @@ mod tests {
         assert!(!remote_tmux_enabled(None, false));
         assert!(!remote_tmux_enabled(Some(false), true));
         assert!(remote_tmux_enabled(Some(true), false));
+    }
+
+    #[test]
+    fn remote_upload_target_is_random_and_well_formed() {
+        let a = remote_upload_target();
+        let b = remote_upload_target();
+        assert!(a.starts_with("/tmp/odytty-paste-"));
+        assert!(a.ends_with(".png"));
+        // Unguessability requires two mints to differ.
+        assert_ne!(a, b);
+        // Only hex in the random stem, so the whole path is safe to single-quote
+        // into a remote shell command with no escaping.
+        let stem = a
+            .trim_start_matches("/tmp/odytty-paste-")
+            .trim_end_matches(".png");
+        assert!(!stem.is_empty());
+        assert!(stem.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn remote_upload_command_streams_over_ssh_reusing_the_master() {
+        let dir = std::path::Path::new("/run/user/1000/odytty/ssh");
+        let command = remote_upload_command(
+            "deploy@web1.example.invalid",
+            Some(2222),
+            Some(dir),
+            "/tmp/odytty-paste-abc.png",
+        );
+        assert_eq!(command.program(), &OsString::from("ssh"));
+        let args = argv(&command);
+        // Multiplex over the live master, port before the destination operand,
+        // destination after `--`.
+        assert!(
+            args.iter()
+                .any(|a| a.starts_with("ControlPath=/run/user/1000/odytty/ssh/ssh-"))
+        );
+        let p = args.iter().position(|a| a == "-p").expect("-p");
+        assert_eq!(args[p + 1], "2222");
+        let sep = args.iter().position(|a| a == "--").expect("--");
+        let dest = args
+            .iter()
+            .position(|a| a == "deploy@web1.example.invalid")
+            .expect("dest");
+        assert!(sep < dest);
+        // The remote command creates the file 0600 and streams stdin into it.
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some("umask 077; cat > '/tmp/odytty-paste-abc.png'")
+        );
+        // A one-shot, not an interactive shell: no PTY-forcing `-t`.
+        assert!(!args.iter().any(|a| a == "-t"));
+    }
+
+    #[test]
+    fn remote_upload_command_without_a_control_dir_emits_no_control_option() {
+        let command = remote_upload_command(
+            "host.example.invalid",
+            None,
+            None,
+            "/tmp/odytty-paste-x.png",
+        );
+        let joined = argv(&command).join(" ");
+        assert!(!joined.contains("ControlPath"));
+        assert!(joined.contains("umask 077; cat > '/tmp/odytty-paste-x.png'"));
+        assert!(joined.starts_with("ssh -- host.example.invalid"));
+    }
+
+    #[test]
+    fn remote_cleanup_command_is_none_when_nothing_was_uploaded() {
+        assert!(remote_cleanup_command("host.example.invalid", None, None, &[]).is_none());
+    }
+
+    #[test]
+    fn remote_cleanup_command_removes_each_uploaded_path() {
+        let paths = vec![
+            "/tmp/odytty-paste-a.png".to_owned(),
+            "/tmp/odytty-paste-b.png".to_owned(),
+        ];
+        let command =
+            remote_cleanup_command("host.example.invalid", None, None, &paths).expect("cmd");
+        assert_eq!(
+            argv(&command).last().map(String::as_str),
+            Some("rm -f '/tmp/odytty-paste-a.png' '/tmp/odytty-paste-b.png'")
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_remote_upload_command_emits_no_control_path() {
+        let command = remote_upload_command(
+            "deploy@web1.example.invalid",
+            None,
+            Some(std::path::Path::new("C:/odytty/ssh")),
+            "/tmp/odytty-paste-abc.png",
+        );
+        assert_eq!(command.program(), &OsString::from("ssh"));
+        let joined = argv(&command).join(" ");
+        assert!(!joined.contains("ControlPath"));
+        assert!(joined.contains("umask 077; cat"));
     }
 
     fn tmux_bootstrap(entry: &ConnectionHost, tmux: bool) -> String {

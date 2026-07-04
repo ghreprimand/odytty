@@ -113,6 +113,84 @@ impl RemoteReconnect {
     }
 }
 
+/// What the image paste-through path (F6-i7) needs to upload a pasted clipboard
+/// image to this session's remote host and clean up afterward.
+///
+/// Present ONLY on a remote *integrated* ssh session — that presence is the
+/// trigger gate: a local shell and an integration-off plain-ssh tab both leave
+/// it `None`, so image paste-through never engages there and their paste path
+/// stays byte-identical. Holds the ssh destination + port and the connect
+/// path's `ControlMaster` dir (so the upload multiplexes over the live master
+/// with no second auth), plus the temp paths uploaded during the tab's life for
+/// best-effort cleanup on close.
+pub(super) struct RemoteUpload {
+    destination: String,
+    // Read only by the not-`test` upload/cleanup argv builders; under `cfg(test)`
+    // the confirm flow records the intended upload instead of building an argv.
+    #[cfg_attr(test, allow(dead_code))]
+    port: Option<u16>,
+    #[cfg_attr(test, allow(dead_code))]
+    control_dir: Option<std::path::PathBuf>,
+    /// Remote temp paths uploaded during this tab's life. Shared with the async
+    /// upload worker (it appends a path on a successful upload) and drained on
+    /// close to fire best-effort remote cleanup.
+    uploaded: Arc<Mutex<Vec<String>>>,
+}
+
+impl RemoteUpload {
+    pub(super) fn new(
+        destination: String,
+        port: Option<u16>,
+        control_dir: Option<std::path::PathBuf>,
+    ) -> Self {
+        Self {
+            destination,
+            port,
+            control_dir,
+            uploaded: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    pub(super) fn destination(&self) -> &str {
+        &self.destination
+    }
+
+    #[cfg(not(test))]
+    pub(super) fn port(&self) -> Option<u16> {
+        self.port
+    }
+
+    #[cfg(not(test))]
+    pub(super) fn control_dir(&self) -> Option<&Path> {
+        self.control_dir.as_deref()
+    }
+
+    /// A clonable handle to the uploaded-paths list, handed to the async upload
+    /// worker so it can record a remote path once the transfer succeeds.
+    pub(super) fn uploaded_handle(&self) -> Arc<Mutex<Vec<String>>> {
+        self.uploaded.clone()
+    }
+}
+
+/// The self-contained bundle an image paste-through upload worker needs (F6-i7).
+/// Every field is a cheap clone/handle, so the worker owns everything on its own
+/// thread and never borrows the session set: it uploads over `ssh`, then writes
+/// the remote path (on success) into `writer` or a one-line failure notice into
+/// `terminal`, and wakes a redraw through `proxy`. Compiled out under
+/// `cfg(test)`, where the confirm flow records the intended upload rather than
+/// running the worker.
+#[cfg(not(test))]
+pub(super) struct RemoteUploadJob {
+    pub(super) session: SessionToken,
+    pub(super) destination: String,
+    pub(super) port: Option<u16>,
+    pub(super) control_dir: Option<std::path::PathBuf>,
+    pub(super) uploaded: Arc<Mutex<Vec<String>>>,
+    pub(super) writer: PtyWriter,
+    pub(super) terminal: Arc<Mutex<Terminal>>,
+    pub(super) proxy: Option<EventLoopProxy<UserEvent>>,
+}
+
 /// What to do when a session's shell reaches EOF, given its child exit code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ExitDisposition {
@@ -262,6 +340,11 @@ pub(super) struct Session {
     /// reconnect, Esc/Ctrl+D to dismiss) rather than the now-dead shell. Cleared
     /// on a successful reconnect or when the tab is closed.
     pub(super) awaiting_reconnect: bool,
+    /// Image paste-through upload descriptor (F6-i7). `Some` only on a remote
+    /// *integrated* ssh session; `None` for a local shell or an integration-off
+    /// plain-ssh tab, so image paste-through never engages there. See
+    /// [`RemoteUpload`].
+    pub(super) upload: Option<RemoteUpload>,
 }
 
 impl Session {
@@ -428,6 +511,7 @@ impl Session {
             scroll_frac_offset: 0.0,
             reconnect: None,
             awaiting_reconnect: false,
+            upload: None,
         }
     }
 
@@ -592,7 +676,43 @@ impl Session {
         }
     }
 
+    /// Fire a best-effort remote cleanup for any images this session uploaded
+    /// during its life (F6-i7). Runs the `rm -f` over a detached `ssh` (reusing
+    /// the live `ControlMaster` when available) and never waits on it, so tab
+    /// close stays instant. Best-effort by nature: if the link already dropped
+    /// the command cannot run and the remote's own `/tmp` reaper removes the
+    /// file. Compiled to a no-op under `cfg(test)` so closing a synthetic remote
+    /// tab never spawns a real `ssh`.
+    fn fire_upload_cleanup(&self) {
+        let Some(upload) = self.upload.as_ref() else {
+            return;
+        };
+        let paths = std::mem::take(&mut *crate::native::lock_recover(&upload.uploaded_handle()));
+        // Under `cfg(test)` the paths are simply drained (no real `ssh`); the
+        // discard keeps the binding used without a trailing no-op return.
+        #[cfg(test)]
+        let _ = paths;
+        #[cfg(not(test))]
+        if !paths.is_empty()
+            && let Some(command) = crate::ssh_connect::remote_cleanup_command(
+                upload.destination(),
+                upload.port(),
+                upload.control_dir(),
+                &paths,
+            )
+        {
+            let (program, args) = command.into_program_args();
+            let _ = std::process::Command::new(program)
+                .args(args)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+        }
+    }
+
     fn close(mut self) -> bool {
+        self.fire_upload_cleanup();
         match &self.source {
             SessionSource::Local { pty } => {
                 if let Ok(mut pty) = pty.lock() {
@@ -617,6 +737,7 @@ impl Session {
     }
 
     fn close_after_shell_exit(mut self) -> bool {
+        self.fire_upload_cleanup();
         let pump_thread = self.pump_thread.take();
         match &self.source {
             SessionSource::Local { pty } => {
@@ -1522,7 +1643,25 @@ impl WorkspaceSet {
         let command =
             ssh_command_for_host_with_options(host, opts).map_err(std::io::Error::other)?;
         let title = host.title.clone().unwrap_or_else(|| ssh_tab_title(host));
-        self.spawn_ssh_command_in_new_tab(grid, command, Some(title))
+        let session_id = self.spawn_ssh_command_in_new_tab(grid, command, Some(title))?;
+        // Image paste-through (F6-i7) engages only on a remote *integrated*
+        // session. Capture the upload descriptor here where the resolved host and
+        // options are known; a plain-ssh (integration-off) tab leaves it unset so
+        // its paste path stays byte-identical. The `ControlMaster` dir is passed
+        // only when reuse established a master, so the upload multiplexes over
+        // the live session rather than pointing at a socket that never opened.
+        if opts.integration
+            && let Ok(destination) = crate::ssh_connect::ssh_destination(host)
+            && let Some(session) = self.sessions.get_mut(&session_id)
+        {
+            let control_dir = if opts.reuse {
+                opts.control_dir.clone()
+            } else {
+                None
+            };
+            session.upload = Some(RemoteUpload::new(destination, host.port, control_dir));
+        }
+        Ok(session_id)
     }
 
     fn spawn_ssh_command_in_new_tab(
@@ -1797,6 +1936,47 @@ impl WorkspaceSet {
     /// Esc/Ctrl+D dismisses) instead of the dead shell.
     pub(super) fn active_awaiting_reconnect(&self) -> bool {
         self.active().awaiting_reconnect
+    }
+
+    /// The active session's remote upload destination (`user@host`), or `None`
+    /// when the active tab is not a remote *integrated* ssh session (F6-i7). The
+    /// App uses this both as the image-paste trigger gate and as the host label
+    /// in the confirm prompt.
+    pub(super) fn active_remote_upload_target(&self) -> Option<String> {
+        self.active()
+            .upload
+            .as_ref()
+            .map(|upload| upload.destination().to_owned())
+    }
+
+    /// Assemble the everything-the-worker-needs bundle to upload a pasted image
+    /// to `token`'s remote host on a background thread (F6-i7): the ssh
+    /// destination/port/`ControlMaster` dir plus clonable handles to the
+    /// session's input writer, terminal model, uploaded-paths list, and the
+    /// event-loop proxy (to wake a redraw when the worker finishes). `None` when
+    /// the session is gone or is not a remote integrated tab.
+    #[cfg(not(test))]
+    pub(super) fn remote_upload_job(&self, token: SessionToken) -> Option<RemoteUploadJob> {
+        let session = self.sessions.get(&token)?;
+        let upload = session.upload.as_ref()?;
+        Some(RemoteUploadJob {
+            session: token,
+            destination: upload.destination().to_owned(),
+            port: upload.port(),
+            control_dir: upload.control_dir().map(Path::to_path_buf),
+            uploaded: upload.uploaded_handle(),
+            writer: session.writer.clone(),
+            terminal: session.terminal.clone(),
+            proxy: self.proxy.clone(),
+        })
+    }
+
+    /// Test seam (F6-i7): mark the active session as a remote *integrated*
+    /// upload target, as the connect path does, so the App-level image
+    /// paste-through flow can be exercised without a real ssh connection.
+    #[cfg(test)]
+    pub(super) fn set_active_upload_for_test(&mut self, destination: &str) {
+        self.active_mut().upload = Some(RemoteUpload::new(destination.to_owned(), None, None));
     }
 
     /// Re-establish a dropped remote session in the SAME tab slot: respawn the

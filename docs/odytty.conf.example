@@ -217,6 +217,16 @@ remote_reuse = on
 # effect with remote_integration on (the bootstrap is the injection point).
 remote_tmux = off
 
+# Image paste-through for remote integrated SSH tabs. Default "ask". When a
+# clipboard image is pasted into a remote integrated tab, a confirm prompt (with
+# the encoded size + target host) offers to upload it: on Enter the PNG streams
+# over the tab's ssh connection into a 0600 file under an unguessable
+# /tmp/odytty-paste-<random>.png name, and the remote path is pasted into the
+# shell as text (nothing is run remotely). "off" disables it; there is no silent
+# auto-upload mode. Over-10MiB images are refused. Uploaded files are cleaned up
+# best-effort on tab close. Only engages on a remote integrated tab.
+remote_image_paste = ask
+
 # Per-session output recording for the scrubbable replay overlay. Default off:
 # while off the PTY pump records nothing and the path is byte-identical. When on,
 # each session keeps a bounded in-memory ring of recent screen frames (capped by
