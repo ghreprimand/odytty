@@ -213,6 +213,15 @@ host offers a **Connect to: …** row: `Enter` connects to the typed host, and
 `Shift+Enter` (or `Ctrl+S`) connects and saves it to `hosts.conf`. Both keys are
 shown in a hint line beneath the row.
 
+The connection manager also opens an **Add / Edit connection** form: `Tab` opens
+a blank Add form, and the right arrow (`\u{2192}`) opens an Edit form pre-filled
+from the selected OdyTTY-owned host (`ssh-config`-imported rows are read-only).
+In the form, `Up`/`Down` or `Tab` move between fields, typing edits the focused
+field, `Left`/`Right` (or `Space`) cycle a three-way `inherit`/`on`/`off`
+override, `Enter` presses the focused button, `Ctrl+S` saves from anywhere, and
+`Esc` cancels. A **Test connection** button runs a background reachability +
+key-auth probe and shows a tri-state result.
+
 ## Rebinding shortcuts
 
 There are three ways to change bindings; all three take effect on the next config

@@ -7,6 +7,53 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Add / Edit connection form with a per-host IdentityFile and Test Connection
+
+The connection manager gains an in-app form for creating and editing saved
+hosts, so reaching a new host no longer means hand-editing `hosts.conf`.
+
+**Add / Edit form.** In the connection manager, **Tab** opens a blank Add form
+and the right arrow opens an Edit form pre-filled from the selected OdyTTY-owned
+row; `ssh-config`-imported rows are read-only and never open it. The form carries
+alias / HostName / User / Port up front, with an **Advanced** disclosure for the
+override and profile fields. Field validation matches the ad-hoc connect rules
+(no leading dash, port `1-65535`, argv-safe names), and an alias collision is
+refused inline with no write. Saving appends a new block or edits the existing
+one in place through the byte-splice writer, so every other block, comment, and
+unknown field stays byte-for-byte intact; the reserved `Protocol` field is
+carried across an edit rather than dropped. Both keyboard and mouse drive the
+form.
+
+**Tri-state overrides.** `Integration`, `Reuse`, and `Tmux` are per-host
+`Option<bool>` values (inherit-the-global / force-on / force-off), so the form
+exposes them as a three-way `inherit / on / off` control rather than a checkbox,
+which would collapse *inherit* and *off* and corrupt intent.
+
+**Per-host `IdentityFile` (`ssh -i`).** `hosts.conf` gains an `IdentityFile`
+directive: a path to an existing SSH private key. When set, the connect argv
+(plain and integration-bootstrap paths alike) gains a separate `-i <path>`
+element before the destination operand, so a key that is not in `~/.ssh/config`
+still authenticates. Only the path is stored — never any key material — and
+`ssh-copy-id` remains the once-and-done route off passwords.
+
+**Test Connection (honest three-state).** A *Test connection* action runs an
+argv-only, no-shell probe on a background thread —
+`ssh -v -o ConnectTimeout=5 -o BatchMode=yes [-p PORT] [-i IDENTITY] -- HOST exit`
+— with a hard timeout so the form never hangs. Its exit status and verbose stderr
+classify into a tri-state result: reachable with key/agent auth (green); reachable
+but only interactive auth is offered (amber) — the *expected* state for a password
+host, stated plainly because the connect will still succeed interactively; a
+host-key mismatch (red, a distinct security message); or unreachable (red). The
+worker wakes a redraw when it finishes, so the result renders without polling, and
+editing any field invalidates a stale result. The probe carries no password and
+reads, echoes, and stores nothing credential-shaped.
+
+**Windows:** platform-neutral. The written `hosts.conf` resolves through the same
+config dir; `-i` and the probe use `ssh.exe` the same way; no `ControlPath` is
+added to the probe.
+
+---
+
 ## 2026-07-05 -- Reach a saved host straight from the tab strip
 
 A saved host is now one right-click away from any tab. The tab-scoped context

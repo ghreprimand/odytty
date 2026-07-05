@@ -129,6 +129,7 @@ Host web1
     Theme odyssey
     Font "Victor Mono"
     Title "Synthetic Web"
+    IdentityFile ~/.ssh/id_ed25519
 ```
 
 `Host` aliases are the quick-connect names. `HostName`, `User`, and `Port`
@@ -138,6 +139,12 @@ interpreted as another ssh option. `Theme`, `Font`, and `Title` are optional
 per-host profile fields reserved for the overlay UI. `Integration on|off`,
 `Reuse on|off`, and `Tmux on|off` are optional per-host overrides for remote
 shell integration, connection reuse, and tmux persistence (see below).
+`IdentityFile` names a path to an existing SSH private key; when set, the connect
+argv gains `-i <path>` so a key that is not in `~/.ssh/config` still
+authenticates. OdyTTY stores only the path — never any key material — and
+`ssh-copy-id` remains the once-and-done way off passwords entirely. A `Protocol`
+key is reserved (default and only accepted value `ssh`) so a future transport
+needs no file-format migration; any value is preserved across an edit.
 
 You do not have to hand-edit this file to reach a new host. In the connection
 manager, typing a `[user@]host[:port]` that matches no saved host offers a
@@ -148,6 +155,23 @@ the new block reads `Host <host>` (no redundant `HostName` when the alias is the
 host) plus `User`/`Port` when supplied. An exact-alias collision skips the write
 and reports "already saved". Typed input with embedded spaces, a leading `-`, or
 a port outside `1-65535` is rejected before any connect or write.
+
+You can also add and edit hosts with an in-app form instead of typing directives
+by hand. In the connection manager, **Tab** opens a blank **Add connection**
+form and the **right arrow** (`\u{2192}`) opens an **Edit** form pre-filled from
+the selected OdyTTY-owned row (`ssh-config`-imported rows are read-only). The
+form carries `Alias`, `HostName`, `User`, and `Port` up front, with an
+**Advanced** section for `IdentityFile`, the three-way `Integration` / `Reuse` /
+`Tmux` overrides (**inherit / on / off**), and `Theme` / `Font` / `Title`. Field
+validation matches the ad-hoc rules; an alias collision is refused inline with no
+write. **Save** (or **Ctrl+S**) appends a new block or edits the existing one in
+place — an edit re-renders only that block and leaves every other block, comment,
+and unknown field byte-for-byte untouched. **Test connection** runs a
+non-interactive background probe (`ssh -o BatchMode=yes -o ConnectTimeout=5 …
+exit`) and reports a tri-state result: reachable with key/agent auth, reachable
+but interactive-auth (the expected state for a password host — the connect still
+works, interactively), a host-key mismatch, or unreachable. The probe carries no
+password and stores nothing credential-shaped.
 
 ### Remote shell integration (`remote_integration`)
 

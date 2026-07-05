@@ -693,6 +693,20 @@ alias already exists it just connects and reports "already saved". Typed input
 is validated — embedded spaces, a leading `-`, or an out-of-range port are
 rejected so nothing option-injects into the `ssh` command line.
 
+**Add / Edit form.** For more than a quick save, the connection manager opens an
+in-app form: **Tab** starts a blank **Add connection** and the right arrow opens
+an **Edit** pre-filled from the selected OdyTTY-owned host (`ssh-config`-imported
+rows are read-only). Alongside alias / host / user / port, an **Advanced** section
+carries an `IdentityFile` path (adds `ssh -i` on connect; a path, never a stored
+secret — `ssh-copy-id` is the once-and-done way off passwords), the three-way
+`Integration` / `Reuse` / `Tmux` overrides (**inherit / on / off**), and
+theme / font / title. Saving appends a new block or edits the existing one in
+place, leaving every other block, comment, and unknown field byte-for-byte
+untouched. A **Test connection** button runs a non-interactive background probe
+and reports an honest tri-state result — reachable with key/agent auth, reachable
+but interactive-auth (expected for a password host; the connect still works), a
+host-key mismatch, or unreachable — without ever handling a password.
+
 **Remote shell integration.** By default (`remote_integration`, on) connecting
 to a saved host carries OdyTTY's shell integration onto the remote: an inline,
 bash-only bootstrap writes a temporary rcfile on the remote and execs an
