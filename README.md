@@ -707,6 +707,15 @@ and reports an honest tri-state result — reachable with key/agent auth, reacha
 but interactive-auth (expected for a password host; the connect still works), a
 host-key mismatch, or unreachable — without ever handling a password.
 
+**Host-row right-click menu.** Right-clicking a saved-host row opens a small menu
+with **Open in New Tab** (connect in the current workspace), **Open in New
+Workspace** (a fresh workspace, pre-bound to the host so its new tabs open there
+too), and **Bind Current Workspace** (route the active workspace's new tabs
+through this host). For OdyTTY-owned rows it also offers **Edit…** (the same
+pre-filled form) and **Remove…** (deletes the host's `hosts.conf` block after a
+confirm); `ssh-config`-imported rows are read-only, so those two are hidden.
+Dismissing the menu returns to the manager with its selection intact.
+
 **Remote shell integration.** By default (`remote_integration`, on) connecting
 to a saved host carries OdyTTY's shell integration onto the remote: an inline,
 bash-only bootstrap writes a temporary rcfile on the remote and execs an

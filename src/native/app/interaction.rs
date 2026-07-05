@@ -222,6 +222,18 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.do_replace_tab_with_host(&host, token);
             }
+            // ODP-2C: a connection-row menu chose "Open in New Workspace"; create
+            // a fresh workspace pre-bound to the host and connect its first tab.
+            OverlayOutcome::ConnectHostInNewWorkspace(host) => {
+                self.flush_pending_overlay_settings();
+                self.open_host_in_new_workspace(&host);
+            }
+            // ODP-2C: the remove-host confirm was accepted; delete the host's
+            // hosts.conf block and reopen the manager so the row disappears.
+            OverlayOutcome::RemoveConnectionConfirmed(host) => {
+                self.flush_pending_overlay_settings();
+                self.remove_saved_host(&host);
+            }
             OverlayOutcome::ContextMenuCloseTab => {
                 self.flush_pending_overlay_settings();
                 let _ = self.close_active_tab();

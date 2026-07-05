@@ -116,6 +116,13 @@ pub(super) struct OverlayUi {
     /// and the mode flips through `close()` between opens, forcing a repaint
     /// (same trick as `confirm_kill_session_id`).
     confirm_replace_tab: Option<(Box<ConnectionHost>, SessionToken)>,
+    /// The pending host carried by the remove-host confirm dialog (ODP-2C). Set
+    /// when "Remove…" is chosen on a connection-manager row; the confirm arm
+    /// emits it back so the App deletes its `hosts.conf` block. `None` when the
+    /// dialog is not open. Not in the render signature for the same reason as
+    /// `confirm_replace_tab`: the card layout is target-independent and the mode
+    /// flips through `close()` between opens.
+    confirm_remove_host: Option<Box<ConnectionHost>>,
 }
 
 impl Default for OverlayUi {
@@ -152,6 +159,7 @@ impl OverlayUi {
             picker_return: None,
             builder_from_picker: false,
             confirm_replace_tab: None,
+            confirm_remove_host: None,
         }
     }
 
@@ -427,6 +435,26 @@ impl OverlayUi {
             path_target,
         );
         self.context_menu.set_accelerators(accelerators);
+        self.mode = OverlayMode::ContextMenu;
+        self.open = true;
+    }
+
+    /// Open the connection-row context menu (ODP-2C) at `spawn` for the row at
+    /// filtered index `row_index`, snapshotting `host` so the menu can gate
+    /// Edit/Remove (OdyTTY-owned only) and route each of the five actions. This
+    /// is the one menu-over-overlay surface: it is spawned from WITHIN the
+    /// connection manager, so it does NOT `close()` — only the context-menu
+    /// state and the mode change, leaving the `connections` overlay loaded
+    /// underneath so dismissing the menu returns to it with selection intact.
+    fn open_connection_row_menu(
+        &mut self,
+        spawn: CellPoint,
+        row_index: usize,
+        host: ConnectionHost,
+    ) {
+        self.panel.end_slider_drag();
+        self.context_menu
+            .open_connection_row(spawn, row_index, host);
         self.mode = OverlayMode::ContextMenu;
         self.open = true;
     }
@@ -737,6 +765,89 @@ impl OverlayUi {
         self.open && self.mode == OverlayMode::ConfirmReplaceTab
     }
 
+    /// Open the remove-host confirm dialog (ODP-2C) for the connection-manager
+    /// row `host`. Called when "Remove…" is chosen; the confirm arm emits the
+    /// host back so the App deletes its `hosts.conf` block. The dialog is opened
+    /// FROM the connection-row context menu, which lives over the still-loaded
+    /// connection manager — so this does NOT call `close()` (that would reset
+    /// the return path); it flips the mode and stashes the host directly, and
+    /// the retained `connections` state backs the cancel-returns-to-manager arm.
+    pub(super) fn open_confirm_remove_host(&mut self, host: Box<ConnectionHost>) {
+        self.confirm_remove_host = Some(host);
+        self.mode = OverlayMode::ConfirmRemoveHost;
+        self.open = true;
+    }
+
+    /// Keyboard contract for the remove-host confirm dialog (ODP-2C). Enter or Y
+    /// confirms (emits [`OverlayOutcome::RemoveConnectionConfirmed`] with the
+    /// stashed host; the App deletes the block and reopens the manager); Esc or
+    /// N cancels back to the connection manager with its selection intact (the
+    /// manager state was never torn down). Every other key is swallowed. The
+    /// confirm arm does NOT `close()` — the App reopens the manager fresh — so
+    /// nothing leaks to the PTY.
+    fn handle_confirm_remove_host_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match input {
+            OverlayInput::Activate | OverlayInput::Char('y') | OverlayInput::Char('Y') => {
+                match self.confirm_remove_host.take() {
+                    Some(host) => OverlayOutcome::RemoveConnectionConfirmed(host),
+                    None => self.return_to_connection_manager(),
+                }
+            }
+            OverlayInput::Close | OverlayInput::Char('n') | OverlayInput::Char('N') => {
+                self.return_to_connection_manager()
+            }
+            _ => OverlayOutcome::Consumed,
+        }
+    }
+
+    /// Hit-test a left-click in the remove-host confirm dialog body (click→key
+    /// parity, mirroring `confirm_replace_tab_click`). The action line
+    /// ([`CONFIRM_REMOVE_HOST_ACTION_LINE`]) is the 3rd body row (index 2); a
+    /// click on the "Remove" region confirms, the "Cancel" region cancels back
+    /// to the manager, and anywhere else is inert so a stray click never deletes
+    /// a saved host. ASCII line, so byte offsets equal columns.
+    fn confirm_remove_host_click(
+        &mut self,
+        row_in_body: usize,
+        col_in_body: usize,
+    ) -> OverlayOutcome {
+        const ACTION_ROW: usize = 2;
+        if row_in_body != ACTION_ROW {
+            return OverlayOutcome::Consumed;
+        }
+        let text = CONFIRM_REMOVE_HOST_ACTION_LINE;
+        let remove_start = text.find("[Enter").unwrap_or(0);
+        let cancel_start = text.find("[Esc").unwrap_or(text.len());
+        if col_in_body >= cancel_start {
+            self.return_to_connection_manager()
+        } else if col_in_body >= remove_start {
+            match self.confirm_remove_host.take() {
+                Some(host) => OverlayOutcome::RemoveConnectionConfirmed(host),
+                None => self.return_to_connection_manager(),
+            }
+        } else {
+            OverlayOutcome::Consumed
+        }
+    }
+
+    /// Return to the connection manager from a connection-row menu or its
+    /// remove-confirm dialog (ODP-2C) without reloading — the `connections`
+    /// overlay state (entries, query, selection) survived the mode switch, so
+    /// flipping the mode back restores the manager exactly as it was left.
+    fn return_to_connection_manager(&mut self) -> OverlayOutcome {
+        self.confirm_remove_host = None;
+        self.mode = OverlayMode::Connections;
+        self.open = true;
+        OverlayOutcome::Consumed
+    }
+
+    /// Whether the remove-host confirm dialog is the active overlay mode
+    /// (ODP-2C). Used by the App's test seam to assert the dialog opened.
+    #[cfg(test)]
+    pub(super) fn is_confirm_remove_host(&self) -> bool {
+        self.open && self.mode == OverlayMode::ConfirmRemoveHost
+    }
+
     /// Open the Detach & switch choice dialog (Packet 2) for the focused pane's
     /// `cwd` (empty = unknown → spawn in the default directory). Called by the
     /// App after it reads the focused pane's cwd (the overlay cannot read the
@@ -847,8 +958,28 @@ impl OverlayUi {
     fn apply_context_menu_outcome(&mut self, outcome: ContextMenuOutcome) -> OverlayOutcome {
         match outcome {
             ContextMenuOutcome::Consumed => OverlayOutcome::Consumed,
-            ContextMenuOutcome::Close => OverlayOutcome::Close,
+            // ODP-2C: dismissing a connection-row menu returns to the still-
+            // loaded manager (selection intact), not to the grid.
+            ContextMenuOutcome::Close => {
+                if matches!(
+                    self.context_menu.surface(),
+                    crate::native::context_menu_ui::ContextMenuSurface::ConnectionRow(_)
+                ) {
+                    self.return_to_connection_manager()
+                } else {
+                    OverlayOutcome::Close
+                }
+            }
             ContextMenuOutcome::Activate(item) => {
+                // ODP-2C connection-row items need bespoke transitions (Edit opens
+                // the form in place, Remove opens a confirm, the rest close and
+                // route App-side), so handle them before the generic close.
+                if matches!(
+                    self.context_menu.surface(),
+                    crate::native::context_menu_ui::ContextMenuSurface::ConnectionRow(_)
+                ) {
+                    return self.apply_connection_row_menu_item(item);
+                }
                 self.close();
                 match item {
                     ContextMenuItem::Copy => OverlayOutcome::ContextMenuCopy,
@@ -1001,8 +1132,83 @@ impl OverlayUi {
                     // Detach & switch choice dialog. The overlay cannot read the
                     // terminal, so the cwd is resolved App-side, not here.
                     ContextMenuItem::DetachSwitch => OverlayOutcome::ContextMenuDetachSwitch,
+                    // ODP-2C connection-row items are handled by the early-return
+                    // above whenever the surface is `ConnectionRow`; they are
+                    // never visible on any other surface, so reaching here is
+                    // defensive-only. The menu already closed itself.
+                    ContextMenuItem::ConnRowOpenInTab
+                    | ContextMenuItem::ConnRowOpenInWorkspace
+                    | ContextMenuItem::ConnRowBindWorkspace
+                    | ContextMenuItem::ConnRowEdit
+                    | ContextMenuItem::ConnRowRemove => OverlayOutcome::Consumed,
                 }
             }
+        }
+    }
+
+    /// Route an activated ODP-2C connection-row menu item. Open in New Tab / New
+    /// Workspace / Bind close the manager and hand the App the clicked host;
+    /// Edit opens the P4 form in place (returning to the form, not the grid);
+    /// Remove opens the confirm dialog over the still-loaded manager. A missing
+    /// target (defensive — the items are only visible with one) returns to the
+    /// manager rather than acting.
+    fn apply_connection_row_menu_item(&mut self, item: ContextMenuItem) -> OverlayOutcome {
+        let host = self.context_menu.connection_target().cloned();
+        match item {
+            // Open in a new tab in the current workspace: reuse the manager's own
+            // connect path (same as accepting a row).
+            ContextMenuItem::ConnRowOpenInTab => {
+                self.close();
+                match host {
+                    Some(host) => OverlayOutcome::Connect(Box::new(host)),
+                    None => OverlayOutcome::Close,
+                }
+            }
+            ContextMenuItem::ConnRowOpenInWorkspace => {
+                self.close();
+                match host {
+                    Some(host) => OverlayOutcome::ConnectHostInNewWorkspace(Box::new(host)),
+                    None => OverlayOutcome::Close,
+                }
+            }
+            // Bind the current workspace to the clicked host (reuses the frozen
+            // W5 setter + bind toast via the shared BindWorkspaceToHost outcome).
+            ContextMenuItem::ConnRowBindWorkspace => {
+                self.close();
+                match host {
+                    Some(host) => OverlayOutcome::BindWorkspaceToHost(host.alias),
+                    None => OverlayOutcome::Close,
+                }
+            }
+            // Open the Edit form in place (the manager stays torn down behind the
+            // form, exactly like the keyboard → path). OdyTTY aliases minus this
+            // one supply the collision guard.
+            ContextMenuItem::ConnRowEdit => match host {
+                Some(host) => {
+                    let aliases = self
+                        .connections
+                        .odytty_aliases()
+                        .into_iter()
+                        .filter(|alias| *alias != host.alias)
+                        .collect();
+                    self.connection_form.open_edit(&host, aliases);
+                    self.mode = OverlayMode::ConnectionForm;
+                    self.open = true;
+                    OverlayOutcome::Consumed
+                }
+                None => self.return_to_connection_manager(),
+            },
+            // Destructive: gate behind the remove-confirm dialog over the still-
+            // loaded manager.
+            ContextMenuItem::ConnRowRemove => match host {
+                Some(host) => {
+                    self.open_confirm_remove_host(Box::new(host));
+                    OverlayOutcome::Consumed
+                }
+                None => self.return_to_connection_manager(),
+            },
+            // Not a connection-row item; defensively return to the manager.
+            _ => self.return_to_connection_manager(),
         }
     }
 
@@ -1050,6 +1256,9 @@ impl OverlayUi {
             OverlayMode::DetachSwitchChoice => return self.handle_detach_switch_input(input),
             OverlayMode::ConfirmReplaceTab => {
                 return self.handle_confirm_replace_tab_input(input);
+            }
+            OverlayMode::ConfirmRemoveHost => {
+                return self.handle_confirm_remove_host_input(input);
             }
             OverlayMode::CommandPalette => return self.handle_command_palette_input(input),
             OverlayMode::Replay => return self.handle_replay_input(input),
@@ -1182,15 +1391,28 @@ impl OverlayUi {
                             OverlayOutcome::Consumed
                         }
                     }
-                    OverlayMode::Connections => {
-                        if button == PointerButton::Left
-                            && self.connections.click_row(row_in_body, rect.body_height)
-                        {
-                            self.handle_connections_input(OverlayInput::Activate)
-                        } else {
-                            OverlayOutcome::Consumed
+                    OverlayMode::Connections => match button {
+                        PointerButton::Left => {
+                            if self.connections.click_row(row_in_body, rect.body_height) {
+                                self.handle_connections_input(OverlayInput::Activate)
+                            } else {
+                                OverlayOutcome::Consumed
+                            }
                         }
-                    }
+                        // ODP-2C: a right-click on a saved-host row opens the
+                        // connection-row menu over the still-loaded manager. Off
+                        // a real host row (prompt / hint / ad-hoc / past end) it
+                        // is inert — no menu, selection untouched.
+                        PointerButton::Right => {
+                            match self.connections.host_at_row(row_in_body, rect.body_height) {
+                                Some((row_index, host)) => {
+                                    self.open_connection_row_menu(cell, row_index, host);
+                                    OverlayOutcome::Consumed
+                                }
+                                None => OverlayOutcome::Consumed,
+                            }
+                        }
+                    },
                     OverlayMode::ConnectionForm => {
                         if button == PointerButton::Left {
                             self.handle_connection_form_pointer(row_in_body)
@@ -1262,6 +1484,13 @@ impl OverlayUi {
                             OverlayOutcome::Consumed
                         }
                     }
+                    OverlayMode::ConfirmRemoveHost => {
+                        if button == PointerButton::Left {
+                            self.confirm_remove_host_click(row_in_body, col_in_body)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
                     OverlayMode::Onboarding | OverlayMode::Replay | OverlayMode::ImageView => {
                         OverlayOutcome::Consumed
                     }
@@ -1309,8 +1538,9 @@ impl OverlayUi {
                     | OverlayMode::AttachChoice
                     | OverlayMode::ConfirmKillSession
                     | OverlayMode::DetachSwitchChoice
-                    | OverlayMode::ConfirmReplaceTab => OverlayOutcome::Consumed,
-                    | OverlayMode::ConnectionForm => OverlayOutcome::Consumed,
+                    | OverlayMode::ConfirmReplaceTab
+                    | OverlayMode::ConfirmRemoveHost => OverlayOutcome::Consumed,
+                    OverlayMode::ConnectionForm => OverlayOutcome::Consumed,
                 }
             }
             OverlayPointer::Release { .. } => {
@@ -1332,8 +1562,9 @@ impl OverlayUi {
                     | OverlayMode::AttachChoice
                     | OverlayMode::ConfirmKillSession
                     | OverlayMode::DetachSwitchChoice
-                    | OverlayMode::ConfirmReplaceTab => {}
-                    | OverlayMode::ConnectionForm => {}
+                    | OverlayMode::ConfirmReplaceTab
+                    | OverlayMode::ConfirmRemoveHost => {}
+                    OverlayMode::ConnectionForm => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -1385,6 +1616,7 @@ impl OverlayUi {
                     | OverlayMode::ConfirmKillSession
                     | OverlayMode::DetachSwitchChoice
                     | OverlayMode::ConfirmReplaceTab
+                    | OverlayMode::ConfirmRemoveHost
                     | OverlayMode::ConnectionForm
                     | OverlayMode::ImageView => {}
                 }
@@ -1415,8 +1647,9 @@ impl OverlayUi {
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
-            | OverlayMode::ConfirmReplaceTab => false,
-            | OverlayMode::ConnectionForm => false,
+            | OverlayMode::ConfirmReplaceTab
+            | OverlayMode::ConfirmRemoveHost => false,
+            OverlayMode::ConnectionForm => false,
         }
     }
 
@@ -1442,8 +1675,9 @@ impl OverlayUi {
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
-            | OverlayMode::ConfirmReplaceTab => {}
-            | OverlayMode::ConnectionForm => {}
+            | OverlayMode::ConfirmReplaceTab
+            | OverlayMode::ConfirmRemoveHost => {}
+            OverlayMode::ConnectionForm => {}
         }
     }
 
@@ -1500,6 +1734,7 @@ impl OverlayUi {
             OverlayMode::ConfirmKillSession => "Kill session".to_owned(),
             OverlayMode::DetachSwitchChoice => "Detach & switch".to_owned(),
             OverlayMode::ConfirmReplaceTab => "Replace tab?".to_owned(),
+            OverlayMode::ConfirmRemoveHost => "Remove host?".to_owned(),
         }
     }
 
@@ -1607,8 +1842,9 @@ impl OverlayUi {
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
-            | OverlayMode::ConfirmReplaceTab => {}
-            | OverlayMode::ConnectionForm => {}
+            | OverlayMode::ConfirmReplaceTab
+            | OverlayMode::ConfirmRemoveHost => {}
+            OverlayMode::ConnectionForm => {}
         }
     }
 
@@ -1631,8 +1867,9 @@ impl OverlayUi {
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
-            | OverlayMode::ConfirmReplaceTab => {}
-            | OverlayMode::ConnectionForm => {}
+            | OverlayMode::ConfirmReplaceTab
+            | OverlayMode::ConfirmRemoveHost => {}
+            OverlayMode::ConnectionForm => {}
         }
     }
 
@@ -1676,8 +1913,9 @@ impl OverlayUi {
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
-            | OverlayMode::ConfirmReplaceTab => (false, false),
-            | OverlayMode::ConnectionForm => (false, false),
+            | OverlayMode::ConfirmReplaceTab
+            | OverlayMode::ConfirmRemoveHost => (false, false),
+            OverlayMode::ConnectionForm => (false, false),
         }
     }
 
@@ -2090,6 +2328,16 @@ pub(super) enum OverlayOutcome {
     /// holding this token and open the picked host in its slot. Emitted only
     /// after the running-child confirm; the dialog closed itself.
     ReplaceTabWithHostConfirmed(Box<ConnectionHost>, SessionToken),
+    /// Open a connection-manager row's host in a NEW workspace pre-bound to it
+    /// (ODP-2C "Open in New Workspace"). The context menu closed itself; the App
+    /// creates a fresh workspace, sets its `default_profile`, and connects its
+    /// first tab. Boxed to keep this short-lived enum small.
+    ConnectHostInNewWorkspace(Box<ConnectionHost>),
+    /// The remove-host confirm dialog was accepted (ODP-2C "Remove…"): delete the
+    /// OdyTTY-owned `hosts.conf` block for this host and reopen the connection
+    /// manager so the row disappears. Emitted only after the confirm; the dialog
+    /// closed itself. Boxed to keep this short-lived enum small.
+    RemoveConnectionConfirmed(Box<ConnectionHost>),
     /// Persist a host built in the Add / Edit connection form (REMOTE-UX P4).
     /// The overlay has closed itself; the App appends a new block (`edit_target`
     /// `None`) or byte-splices over the named block, then raises a one-line
@@ -2366,6 +2614,14 @@ pub(super) enum OverlayMode {
     /// Modeled on `ConfirmKillSession`; the pending host + target token are
     /// carried on the overlay.
     ConfirmReplaceTab,
+    /// Remove-host confirm dialog (ODP-2C). A centered, static modal shown when
+    /// "Remove…" is chosen on a connection-manager row: `[Enter / Y]` deletes
+    /// the OdyTTY-owned `hosts.conf` block (emits
+    /// [`OverlayOutcome::RemoveConnectionConfirmed`]) and reopens the manager;
+    /// `[Esc / N]` cancels back to the manager with its selection intact.
+    /// Modeled on `ConfirmKillSession`; the pending host is carried on the
+    /// overlay.
+    ConfirmRemoveHost,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2584,6 +2840,19 @@ const CONFIRM_REPLACE_TAB_WIDTH: usize = 56;
 const CONFIRM_REPLACE_TAB_ACTION_LINE: &str =
     "Replace it?   [Enter / Y] Replace     [Esc / N] Cancel";
 
+/// Fixed body width (cells) for the remove-host confirm dialog (ODP-2C). Sized
+/// for the longest static line plus the panel border inset; the `.max(36)` floor
+/// in [`overlay_rect`] keeps small grids sane.
+const CONFIRM_REMOVE_HOST_WIDTH: usize = 56;
+
+/// The remove-host confirm dialog's action line, shared by the body builder and
+/// the click hit-test ([`OverlayUi::confirm_remove_host_click`]) so the two can
+/// never drift. A leading prompt gives an inert region at col 0 (a stray click
+/// there never deletes the host, mirroring the ConfirmClose guard); the `[Enter`
+/// and `[Esc` bracket tokens anchor the Remove / Cancel regions.
+const CONFIRM_REMOVE_HOST_ACTION_LINE: &str =
+    "Remove it?   [Enter / Y] Remove     [Esc / N] Cancel";
+
 pub(super) fn overlay_rect(
     overlay: &OverlayUi,
     columns: usize,
@@ -2627,6 +2896,8 @@ pub(super) fn overlay_rect(
         OverlayMode::DetachSwitchChoice => DETACH_SWITCH_WIDTH,
         // Static replace-tab confirm dialog (ODP-5D); same treatment.
         OverlayMode::ConfirmReplaceTab => CONFIRM_REPLACE_TAB_WIDTH,
+        // Static remove-host confirm dialog (ODP-2C); same treatment.
+        OverlayMode::ConfirmRemoveHost => CONFIRM_REMOVE_HOST_WIDTH,
     }
     .max(36)
     .min(columns);
@@ -3094,6 +3365,38 @@ impl OverlayUi {
                     },
                     OverlayLine {
                         text: CONFIRM_REPLACE_TAB_ACTION_LINE.to_owned(),
+                        focused: true,
+                        swatch: None,
+                        bold: false,
+                    },
+                ]
+            }
+            // Static remove-host confirm copy (ODP-2C). Row 0 names the host
+            // being deleted, row 1 blank, row 2 the action line — the action row
+            // index (2) matches `ACTION_ROW` in `confirm_remove_host_click`. The
+            // host alias is OdyTTY-owned config text; truncated to the body width
+            // and display-only here.
+            OverlayMode::ConfirmRemoveHost => {
+                let prompt = match self.confirm_remove_host.as_ref() {
+                    Some(host) => format!("Remove \u{201c}{}\u{201d} from hosts.conf?", host.alias),
+                    None => "Remove this host from hosts.conf?".to_owned(),
+                };
+                let prompt: String = prompt.chars().take(body_width.max(1)).collect();
+                vec![
+                    OverlayLine {
+                        text: prompt,
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: String::new(),
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: CONFIRM_REMOVE_HOST_ACTION_LINE.to_owned(),
                         focused: true,
                         swatch: None,
                         bold: false,
@@ -3688,6 +3991,236 @@ mod tests {
             protocol: None,
             identity_file: None,
             source: crate::connection_hosts::ConnectionHostSource::Odytty,
+        }
+    }
+
+    /// A synthetic connection host with an explicit source, for the ODP-2C
+    /// connection-row menu gating tests.
+    fn connection_host_sourced(
+        alias: &str,
+        source: crate::connection_hosts::ConnectionHostSource,
+    ) -> ConnectionHost {
+        ConnectionHost {
+            source,
+            ..connection_host(alias)
+        }
+    }
+
+    // ── ODP-2C connection-row right-click menu (menu-over-overlay) ──────────
+
+    /// Right-click the first saved-host row of an open connection manager,
+    /// returning the resulting outcome. The manager must have >=1 host; row 0 is
+    /// the query prompt, so the first host sits at body row 1.
+    fn right_click_first_host(overlay: &mut OverlayUi) -> OverlayOutcome {
+        let rect = overlay_rect(overlay, 80, 24).expect("connection rect");
+        // Prime the render-derived body window so host_at_row resolves.
+        let _ = overlay
+            .connections
+            .visible_lines(rect.body_width, rect.body_height);
+        overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect.body_top + 1,
+                    column: rect.body_left + 1,
+                },
+                button: PointerButton::Right,
+                x_in_body: None,
+            },
+            rect,
+        )
+    }
+
+    #[test]
+    fn right_click_host_row_opens_connection_row_menu() {
+        // A right-click on a saved-host row opens the connection-row context menu
+        // over the still-loaded manager; the manager stays open underneath.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        assert_eq!(
+            right_click_first_host(&mut overlay),
+            OverlayOutcome::Consumed
+        );
+        assert!(overlay.is_open());
+        assert_eq!(overlay.render_signature().mode, OverlayMode::ContextMenu);
+    }
+
+    #[test]
+    fn right_click_prompt_row_is_inert() {
+        // A right-click on the query prompt (body row 0) opens no menu.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+        let _ = overlay
+            .connections
+            .visible_lines(rect.body_width, rect.body_height);
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect.body_top,
+                    column: rect.body_left + 1,
+                },
+                button: PointerButton::Right,
+                x_in_body: None,
+            },
+            rect,
+        );
+        assert_eq!(outcome, OverlayOutcome::Consumed);
+        assert_eq!(overlay.render_signature().mode, OverlayMode::Connections);
+    }
+
+    #[test]
+    fn connection_row_menu_open_in_tab_connects() {
+        // The first item (Open in New Tab) reuses the manager's connect path.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        right_click_first_host(&mut overlay);
+        match overlay.handle_input(OverlayInput::Activate) {
+            OverlayOutcome::Connect(host) => assert_eq!(host.alias, "web1"),
+            other => panic!("expected Connect, got {other:?}"),
+        }
+        assert!(!overlay.is_open(), "the manager closes on connect");
+    }
+
+    #[test]
+    fn connection_row_menu_open_in_workspace_and_bind_route() {
+        // Open in New Workspace (item 1) and Bind Current Workspace (item 2)
+        // emit their dedicated outcomes carrying the clicked host.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        right_click_first_host(&mut overlay);
+        overlay.handle_input(OverlayInput::Down); // -> Open in New Workspace
+        match overlay.handle_input(OverlayInput::Activate) {
+            OverlayOutcome::ConnectHostInNewWorkspace(host) => assert_eq!(host.alias, "web1"),
+            other => panic!("expected ConnectHostInNewWorkspace, got {other:?}"),
+        }
+
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        right_click_first_host(&mut overlay);
+        overlay.handle_input(OverlayInput::Down);
+        overlay.handle_input(OverlayInput::Down); // -> Bind Current Workspace
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::BindWorkspaceToHost("web1".to_owned())
+        );
+    }
+
+    #[test]
+    fn connection_row_menu_edit_opens_form_in_place() {
+        // Edit (item 3) opens the P4 Edit form pre-filled; the overlay stays open
+        // and switches to the ConnectionForm mode.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        right_click_first_host(&mut overlay);
+        for _ in 0..3 {
+            overlay.handle_input(OverlayInput::Down); // -> Edit
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::Consumed
+        );
+        assert!(overlay.is_open());
+        assert_eq!(overlay.render_signature().mode, OverlayMode::ConnectionForm);
+        assert!(overlay.title().contains("Edit"));
+    }
+
+    #[test]
+    fn connection_row_menu_remove_opens_confirm_then_confirms() {
+        // Remove (item 4) opens the remove-host confirm; confirming emits
+        // RemoveConnectionConfirmed with the clicked host.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        right_click_first_host(&mut overlay);
+        for _ in 0..4 {
+            overlay.handle_input(OverlayInput::Down); // -> Remove
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::Consumed
+        );
+        assert!(overlay.is_confirm_remove_host());
+        match overlay.handle_input(OverlayInput::Activate) {
+            OverlayOutcome::RemoveConnectionConfirmed(host) => assert_eq!(host.alias, "web1"),
+            other => panic!("expected RemoveConnectionConfirmed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn connection_row_menu_remove_cancel_returns_to_manager() {
+        // Cancelling the remove confirm returns to the manager (selection intact),
+        // never to the grid.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        right_click_first_host(&mut overlay);
+        for _ in 0..4 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        overlay.handle_input(OverlayInput::Activate); // -> confirm
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Close),
+            OverlayOutcome::Consumed
+        );
+        assert!(overlay.is_open());
+        assert_eq!(overlay.render_signature().mode, OverlayMode::Connections);
+    }
+
+    #[test]
+    fn connection_row_menu_dismiss_returns_to_manager() {
+        // Esc on the menu itself returns to the manager, not the grid.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        right_click_first_host(&mut overlay);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Close),
+            OverlayOutcome::Consumed
+        );
+        assert!(overlay.is_open());
+        assert_eq!(overlay.render_signature().mode, OverlayMode::Connections);
+    }
+
+    #[test]
+    fn ssh_config_row_menu_hides_edit_and_remove() {
+        // An ssh-config-imported row's menu offers only the three non-mutating
+        // actions; Down cycles through exactly them (Edit/Remove never appear).
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host_sourced(
+            "remote",
+            crate::connection_hosts::ConnectionHostSource::SshConfig,
+        )]);
+        right_click_first_host(&mut overlay);
+        // Item 0 = Open in New Tab (connect). Cycling Down three times wraps back
+        // to item 0, proving only three items exist.
+        for _ in 0..3 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        match overlay.handle_input(OverlayInput::Activate) {
+            OverlayOutcome::Connect(host) => assert_eq!(host.alias, "remote"),
+            other => panic!("wrap to Open in New Tab expected, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn connection_row_menu_click_open_in_tab_connects() {
+        // Click parity: a left-click on the menu's first row (Open in New Tab)
+        // connects, mirroring the keyboard Activate.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        right_click_first_host(&mut overlay);
+        let rect = overlay_rect(&overlay, 80, 24).expect("menu rect");
+        let outcome = overlay.handle_pointer(
+            OverlayPointer::Press {
+                cell: CellPoint {
+                    row: rect.body_top,
+                    column: rect.body_left + 1,
+                },
+                button: PointerButton::Left,
+                x_in_body: None,
+            },
+            rect,
+        );
+        match outcome {
+            OverlayOutcome::Connect(host) => assert_eq!(host.alias, "web1"),
+            other => panic!("expected Connect from click, got {other:?}"),
         }
     }
 

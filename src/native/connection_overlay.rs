@@ -341,6 +341,23 @@ impl ConnectionOverlay {
         (cursor < self.filtered.len()).then_some(cursor)
     }
 
+    /// Map a right-clicked body row to `(filtered cursor, cloned host)` for the
+    /// ODP-2C connection-row context menu. Returns `None` for the prompt row,
+    /// the empty/"No matches"/ad-hoc hint, or a click past the last host — a
+    /// menu only opens on a real saved-host row. Read-only: unlike `click_row`
+    /// it never moves the selection, so right-click-for-menu leaves the keyboard
+    /// cursor where it was.
+    pub(super) fn host_at_row(
+        &self,
+        row_in_body: usize,
+        body_height: usize,
+    ) -> Option<(usize, ConnectionHost)> {
+        let cursor = self.row_at(row_in_body, body_height)?;
+        let entry_index = *self.filtered.get(cursor)?;
+        let host = self.entries.get(entry_index)?.clone();
+        Some((cursor, host))
+    }
+
     /// Select the row under a left-click, reporting whether it landed on a
     /// selectable row so the caller can route the existing Activate. Parity with
     /// Down×N + Activate by construction.
@@ -754,6 +771,34 @@ mod tests {
 
             assert_eq!(click_connect, key_connect, "row {target} parity");
         }
+    }
+
+    #[test]
+    fn host_at_row_returns_row_host_and_ignores_non_host_rows() {
+        // ODP-2C: a right-click hit-test resolves a body row to (cursor, host)
+        // for the connection-row menu; the prompt row and past-end rows yield
+        // None, and the selection is never moved (read-only).
+        let overlay = open(entries());
+        let _ = overlay.visible_lines(80, 10);
+        // Row 0 is the query prompt → no host.
+        assert!(overlay.host_at_row(0, 10).is_none());
+        // Rows 1..=3 map to the three loaded hosts in load order.
+        assert_eq!(
+            overlay
+                .host_at_row(1, 10)
+                .map(|(cursor, host)| (cursor, host.alias)),
+            Some((0, "web1".to_owned()))
+        );
+        assert_eq!(
+            overlay
+                .host_at_row(3, 10)
+                .map(|(cursor, host)| (cursor, host.alias)),
+            Some((2, "remote".to_owned()))
+        );
+        // Past the last host → None.
+        assert!(overlay.host_at_row(4, 10).is_none());
+        // Selection is untouched by the read-only hit-test.
+        assert_eq!(overlay.render_signature().selected, Some(0));
     }
 
     #[test]

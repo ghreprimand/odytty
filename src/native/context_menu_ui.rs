@@ -47,6 +47,7 @@
 
 use super::overlay::{OverlayInput, OverlayRect, PointerButton};
 use super::session::SessionToken;
+use crate::connection_hosts::{ConnectionHost, ConnectionHostSource};
 use crate::paths::Resolved;
 use crate::selection::CellPoint;
 use crate::settings::BindableAction;
@@ -65,8 +66,10 @@ use crate::settings::BindableAction;
 /// resolved path is a regular file (C3b). With no path and a selection the
 /// single-pane content menu shows 21 visible items (New / Rename / Close
 /// Workspace sit in their own section after Split, followed by the conditional
-/// Bind-to-Host XOR Unbind row); multi-pane adds Close Pane for 22.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 35;
+/// Bind-to-Host XOR Unbind row); multi-pane adds Close Pane for 22. The five
+/// ODP-2C connection-row actions (Open in New Tab / Open in New Workspace / Bind
+/// Current Workspace / Edit / Remove) show ONLY on the `ConnectionRow` surface.
+pub(super) const CONTEXT_MENU_ITEMS: usize = 40;
 
 /// Body row index of the first visual separator in the single-pane content
 /// reference, between Select All and New Tab. The reference is the
@@ -239,6 +242,29 @@ pub(super) enum ContextMenuItem {
     /// remote in its slot — gated behind a confirm when the tab holds a running
     /// foreground child (idle shells replace directly, no confirm).
     ReplaceTabWithHost,
+    /// Open the right-clicked connection-manager row's host in a NEW tab in the
+    /// current workspace (ODP-2C). Connection-row-scoped: shown only on the
+    /// `ConnectionRow` surface. Routes through the same connect path the manager
+    /// itself uses; the manager closes.
+    ConnRowOpenInTab,
+    /// Open the right-clicked connection-manager row's host in a NEW workspace
+    /// pre-bound to that host (ODP-2C): the fresh workspace's first tab connects
+    /// and its `default_profile` is set, so New Tab there routes remote.
+    ConnRowOpenInWorkspace,
+    /// Bind the CURRENT workspace to the right-clicked connection-manager row's
+    /// host (ODP-2C). Reuses the frozen `set_active_workspace_default_profile`
+    /// path and emits the bind toast; the host is already chosen (the clicked
+    /// row), so no picker is needed.
+    ConnRowBindWorkspace,
+    /// Open the Add/Edit connection form pre-filled from the right-clicked
+    /// connection-manager row (ODP-2C, defers to the P4 form). Shown ONLY for
+    /// OdyTTY-owned rows — an ssh-config-imported row is read-only and never
+    /// offers Edit (OdyTTY never writes `~/.ssh/config`).
+    ConnRowEdit,
+    /// Remove the right-clicked connection-manager row's `hosts.conf` block
+    /// (ODP-2C, P1 byte-splice). Shown ONLY for OdyTTY-owned rows; gated behind
+    /// a confirm dialog because it deletes a saved host.
+    ConnRowRemove,
 }
 
 impl ContextMenuItem {
@@ -288,6 +314,13 @@ impl ContextMenuItem {
         // accelerator-array indices stay stable (they carry no chord anyway).
         Self::ConnectToHost,
         Self::ReplaceTabWithHost,
+        // ODP-2C connection-row actions; appended after the tab host actions so
+        // every existing index stays stable (all carry no chord).
+        Self::ConnRowOpenInTab,
+        Self::ConnRowOpenInWorkspace,
+        Self::ConnRowBindWorkspace,
+        Self::ConnRowEdit,
+        Self::ConnRowRemove,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -315,7 +348,16 @@ impl ContextMenuItem {
             | Self::RenameWorkspace
             | Self::CloseWorkspace
             | Self::BindWorkspaceToHost
-            | Self::UnbindWorkspace => 3,
+            | Self::UnbindWorkspace
+            // ODP-2C connection-row actions; grouped with the workspace section
+            // for the global fallback (they are ConnectionRow-only, so this only
+            // matters for section() completeness — section_of gives them their
+            // own tight groups).
+            | Self::ConnRowOpenInTab
+            | Self::ConnRowOpenInWorkspace
+            | Self::ConnRowBindWorkspace
+            | Self::ConnRowEdit
+            | Self::ConnRowRemove => 3,
             Self::Settings => 4,
             Self::KeyboardShortcuts
             | Self::ConnectionManager
@@ -354,6 +396,11 @@ impl ContextMenuItem {
             Self::NewLocalTab => "New Local Tab",
             Self::ConnectToHost => "Connect to Host\u{2026}",
             Self::ReplaceTabWithHost => "Replace with Host\u{2026}",
+            Self::ConnRowOpenInTab => "Open in New Tab",
+            Self::ConnRowOpenInWorkspace => "Open in New Workspace",
+            Self::ConnRowBindWorkspace => "Bind Current Workspace",
+            Self::ConnRowEdit => "Edit\u{2026}",
+            Self::ConnRowRemove => "Remove\u{2026}",
             Self::SplitColumns => "Split Right",
             Self::SplitRows => "Split Down",
             Self::ClosePane => "Close Pane",
@@ -430,7 +477,13 @@ impl ContextMenuItem {
             | Self::NewLocalTab
             // ODP-5D tab host actions are pointer/menu-only; no default chord.
             | Self::ConnectToHost
-            | Self::ReplaceTabWithHost => None,
+            | Self::ReplaceTabWithHost
+            // ODP-2C connection-row actions are pointer/menu-only; no chord.
+            | Self::ConnRowOpenInTab
+            | Self::ConnRowOpenInWorkspace
+            | Self::ConnRowBindWorkspace
+            | Self::ConnRowEdit
+            | Self::ConnRowRemove => None,
         }
     }
 }
@@ -463,6 +516,13 @@ pub(super) enum ContextMenuSurface {
     WorkspaceSlot(usize),
     /// Empty area of the workspace rail (the `+` slot, gaps). New Workspace.
     WorkspaceRailEmpty,
+    /// A saved-host row inside the connection-manager overlay (ODP-2C). Carries
+    /// the row's cursor index into the filtered list; the clicked host itself is
+    /// snapshotted separately (see [`ContextMenuUi::connection_target`]) so the
+    /// composition can gate Edit/Remove on its source. This is the only
+    /// menu-over-overlay surface — the menu spawns while the connection manager
+    /// stays loaded underneath, and dismissing it returns to the manager.
+    ConnectionRow(usize),
 }
 
 impl ContextMenuSurface {
@@ -480,6 +540,7 @@ impl ContextMenuSurface {
             Self::PaneDivider => 3,
             Self::WorkspaceSlot(_) => 4,
             Self::WorkspaceRailEmpty => 5,
+            Self::ConnectionRow(_) => 6,
         }
     }
 }
@@ -614,6 +675,10 @@ pub(super) struct ContextMenuSignature {
     /// item's visibility — file-only — so a file-vs-directory target repaints
     /// the menu). C3b.
     pub(super) is_file_target: bool,
+    /// Whether the connection-row target is OdyTTY-owned (ODP-2C): drives the
+    /// Edit/Remove rows' visibility, so an OdyTTY-vs-ssh-config row repaints the
+    /// menu even though both share the `ConnectionRow` surface discriminant.
+    pub(super) connection_is_odytty: bool,
 }
 
 /// The right-click context menu state. Holds the spawn cell, the focused item,
@@ -655,6 +720,12 @@ pub(super) struct ContextMenuUi {
     /// shows the file section (Open / Copy Path / Copy File / Reveal); `None`
     /// hides it entirely so the menu is byte-identical to before C3.
     path_target: Option<Resolved>,
+    /// The saved host under the right-clicked connection-manager row (ODP-2C),
+    /// snapshotted at open time on the `ConnectionRow` surface. `Some` gates
+    /// Edit/Remove on its source (OdyTTY-owned only) and supplies the host to
+    /// each connection-row outcome; `None` on every other surface, so the menu
+    /// is byte-identical to before ODP-2C off that surface.
+    connection_target: Option<Box<ConnectionHost>>,
     /// Per-item effective-keybind labels (Part C), indexed by
     /// [`ContextMenuItem::ALL`] order. `None` means the item shows no
     /// accelerator. Reset to all-`None` on `open`; the App overwrites via
@@ -679,6 +750,7 @@ impl Default for ContextMenuUi {
             bound_workspace: false,
             surface: ContextMenuSurface::Content,
             path_target: None,
+            connection_target: None,
             // `[T; N]: Default` only exists up to N == 32; the item set is now
             // larger, so build the all-`None` array element-wise.
             accelerators: std::array::from_fn(|_| None),
@@ -758,11 +830,61 @@ impl ContextMenuUi {
         self.bound_workspace = bound_workspace;
         self.surface = surface;
         self.path_target = path_target;
+        // Cleared on every non-ConnectionRow open; the connection-row opener
+        // sets it explicitly. Keeps the target from leaking across surfaces.
+        self.connection_target = None;
         self.focused = 0;
         // Clear any stale accelerators; the App repopulates immediately via
         // `set_accelerators`. A bare `open` (the unit-test path) shows no
         // accelerators, which is the label-only legacy layout.
         self.accelerators = std::array::from_fn(|_| None);
+    }
+
+    /// Arm the menu for a right-clicked connection-manager row (ODP-2C). Unlike
+    /// the grid/tab opens this is spawned from WITHIN the connection overlay, so
+    /// it takes only the spawn cell, the row's filtered-list index, and the
+    /// clicked host — the selection/clipboard/pane snapshots are irrelevant to
+    /// the five connection-row actions and are left at their inert defaults. The
+    /// connection-row items carry no chord, so the accelerator array stays
+    /// all-`None` (label-only rendering).
+    pub(super) fn open_connection_row(
+        &mut self,
+        spawn: CellPoint,
+        row_index: usize,
+        host: ConnectionHost,
+    ) {
+        self.spawn = spawn;
+        self.copy_enabled = false;
+        self.cut_enabled = false;
+        self.paste_enabled = false;
+        self.delete_enabled = false;
+        self.prompt_editing_hint = false;
+        self.rename_target = None;
+        self.multi_pane = false;
+        self.multi_tab = false;
+        self.multi_workspace = false;
+        self.bound_workspace = false;
+        self.surface = ContextMenuSurface::ConnectionRow(row_index);
+        self.path_target = None;
+        self.connection_target = Some(Box::new(host));
+        self.focused = 0;
+        self.accelerators = std::array::from_fn(|_| None);
+    }
+
+    /// The saved host snapshotted for a `ConnectionRow` menu (ODP-2C), if any.
+    /// Read by the overlay when a connection-row item activates so each outcome
+    /// carries the clicked host without re-reading any file.
+    pub(super) fn connection_target(&self) -> Option<&ConnectionHost> {
+        self.connection_target.as_deref()
+    }
+
+    /// Whether the connection-row target is an OdyTTY-owned host (ODP-2C). Gates
+    /// Edit/Remove visibility: an ssh-config-imported row is read-only (OdyTTY
+    /// never writes `~/.ssh/config`), so those two items are hidden for it.
+    fn connection_is_odytty(&self) -> bool {
+        self.connection_target
+            .as_deref()
+            .is_some_and(|host| host.source == ConnectionHostSource::Odytty)
     }
 
     /// Set the per-item effective-keybind labels (Part C), in
@@ -835,6 +957,14 @@ impl ContextMenuUi {
             // ODP-5D: always available on the tab surface (the destructive
             // replace is consent-gated at activation, not by disabling here).
             ContextMenuItem::ConnectToHost | ContextMenuItem::ReplaceTabWithHost => true,
+            // ODP-2C: connection-row actions are enabled whenever shown; Edit
+            // and Remove are gated by visibility (OdyTTY-owned only), not here,
+            // and the destructive Remove is consent-gated at activation.
+            ContextMenuItem::ConnRowOpenInTab
+            | ContextMenuItem::ConnRowOpenInWorkspace
+            | ContextMenuItem::ConnRowBindWorkspace
+            | ContextMenuItem::ConnRowEdit
+            | ContextMenuItem::ConnRowRemove => true,
         }
     }
 
@@ -891,6 +1021,15 @@ impl ContextMenuUi {
                 // separator before it) — the TabSlot pattern one level up.
                 ContextMenuItem::NewWorkspace | ContextMenuItem::RenameWorkspace => 0,
                 ContextMenuItem::CloseWorkspace => 1,
+                _ => 1,
+            },
+            ContextMenuSurface::ConnectionRow(_) => match item {
+                // Open/Bind group; Edit/Remove in their own group (a separator
+                // before the mutating actions) — same shape as WorkspaceSlot.
+                ContextMenuItem::ConnRowOpenInTab
+                | ContextMenuItem::ConnRowOpenInWorkspace
+                | ContextMenuItem::ConnRowBindWorkspace => 0,
+                ContextMenuItem::ConnRowEdit | ContextMenuItem::ConnRowRemove => 1,
                 _ => 1,
             },
             _ => item.section(),
@@ -958,6 +1097,22 @@ impl ContextMenuUi {
             ContextMenuSurface::WorkspaceRailEmpty => {
                 return vec![ContextMenuItem::NewWorkspace];
             }
+            // ODP-2C: a connection-manager row offers Open in New Tab / Open in
+            // New Workspace / Bind Current Workspace always; Edit + Remove only
+            // for OdyTTY-owned rows (an ssh-config-imported row is read-only, so
+            // those two mutating items are hidden — never write ~/.ssh/config).
+            ContextMenuSurface::ConnectionRow(_) => {
+                let mut items = vec![
+                    ContextMenuItem::ConnRowOpenInTab,
+                    ContextMenuItem::ConnRowOpenInWorkspace,
+                    ContextMenuItem::ConnRowBindWorkspace,
+                ];
+                if self.connection_is_odytty() {
+                    items.push(ContextMenuItem::ConnRowEdit);
+                    items.push(ContextMenuItem::ConnRowRemove);
+                }
+                return items;
+            }
             // The provisional pane-divider surface is not constructed yet; fall
             // through to the Content composition defensively so an unexpected
             // open can never index an empty item list.
@@ -1006,6 +1161,12 @@ impl ContextMenuUi {
                         // ODP-5D: the tab host actions are TabSlot-only.
                         | ContextMenuItem::ConnectToHost
                         | ContextMenuItem::ReplaceTabWithHost
+                        // ODP-2C: the connection-row actions are ConnectionRow-only.
+                        | ContextMenuItem::ConnRowOpenInTab
+                        | ContextMenuItem::ConnRowOpenInWorkspace
+                        | ContextMenuItem::ConnRowBindWorkspace
+                        | ContextMenuItem::ConnRowEdit
+                        | ContextMenuItem::ConnRowRemove
                 )
             })
             // Drop the always-disabled `Rename Tab` row on the content surface —
@@ -1320,6 +1481,7 @@ impl ContextMenuUi {
             has_path_target: self.path_target.is_some(),
             is_image_target: self.is_image_target(),
             is_file_target: self.is_file_target(),
+            connection_is_odytty: self.connection_is_odytty(),
         }
     }
 }
@@ -2756,5 +2918,126 @@ mod tests {
         // A launcher item (15) shifts past all five separators.
         assert_eq!(item_to_body_row(15), 20);
         assert_eq!(body_row_to_item(20), Some(15));
+    }
+
+    // ── ODP-2C connection-row surface composition ──────────────────────────
+
+    fn conn_host(alias: &str, source: ConnectionHostSource) -> ConnectionHost {
+        ConnectionHost {
+            alias: alias.to_owned(),
+            host_name: Some(format!("{alias}.example.invalid")),
+            user: None,
+            port: None,
+            theme: None,
+            font: None,
+            title: None,
+            integration: None,
+            reuse: None,
+            tmux: None,
+            protocol: None,
+            identity_file: None,
+            source,
+        }
+    }
+
+    #[test]
+    fn connection_row_odytty_shows_all_five_actions() {
+        // An OdyTTY-owned row offers Open in New Tab / Open in New Workspace /
+        // Bind Current Workspace / Edit / Remove, in that order.
+        let mut m = ContextMenuUi::new();
+        m.open_connection_row(
+            CellPoint { row: 3, column: 5 },
+            0,
+            conn_host("web1", ConnectionHostSource::Odytty),
+        );
+        assert_eq!(
+            m.visible_items(),
+            vec![
+                ContextMenuItem::ConnRowOpenInTab,
+                ContextMenuItem::ConnRowOpenInWorkspace,
+                ContextMenuItem::ConnRowBindWorkspace,
+                ContextMenuItem::ConnRowEdit,
+                ContextMenuItem::ConnRowRemove,
+            ]
+        );
+        assert_eq!(
+            m.connection_target().map(|host| host.alias.as_str()),
+            Some("web1")
+        );
+        assert!(m.render_signature().connection_is_odytty);
+        // A separator falls between the open/bind group and the mutating group.
+        assert!(matches!(m.rows().get(3), Some(ContextMenuRow::Separator)));
+    }
+
+    #[test]
+    fn connection_row_ssh_config_hides_edit_and_remove() {
+        // An ssh-config-imported row is read-only (OdyTTY never writes
+        // ~/.ssh/config), so Edit and Remove are hidden — only the three
+        // non-mutating actions show.
+        let mut m = ContextMenuUi::new();
+        m.open_connection_row(
+            CellPoint { row: 3, column: 5 },
+            0,
+            conn_host("remote", ConnectionHostSource::SshConfig),
+        );
+        assert_eq!(
+            m.visible_items(),
+            vec![
+                ContextMenuItem::ConnRowOpenInTab,
+                ContextMenuItem::ConnRowOpenInWorkspace,
+                ContextMenuItem::ConnRowBindWorkspace,
+            ]
+        );
+        assert!(!m.render_signature().connection_is_odytty);
+        // No separator: a single tight group of three.
+        assert!(
+            !m.rows()
+                .iter()
+                .any(|r| matches!(r, ContextMenuRow::Separator))
+        );
+    }
+
+    #[test]
+    fn content_surface_never_shows_connection_row_actions() {
+        // The five ODP-2C items are ConnectionRow-only; the content menu (with a
+        // selection) must never surface them.
+        let m = menu(true, true);
+        for item in m.visible_items() {
+            assert!(
+                !matches!(
+                    item,
+                    ContextMenuItem::ConnRowOpenInTab
+                        | ContextMenuItem::ConnRowOpenInWorkspace
+                        | ContextMenuItem::ConnRowBindWorkspace
+                        | ContextMenuItem::ConnRowEdit
+                        | ContextMenuItem::ConnRowRemove
+                ),
+                "content menu leaked a connection-row item: {item:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn opening_another_surface_clears_the_connection_target() {
+        // The snapshotted host must not leak across a later non-ConnectionRow
+        // open, or a content menu could carry a stale target.
+        let mut m = ContextMenuUi::new();
+        m.open_connection_row(
+            CellPoint { row: 3, column: 5 },
+            0,
+            conn_host("web1", ConnectionHostSource::Odytty),
+        );
+        assert!(m.connection_target().is_some());
+        m.open(
+            CellPoint { row: 0, column: 0 },
+            false,
+            false,
+            false,
+            false,
+            None,
+            false,
+            None,
+        );
+        assert!(m.connection_target().is_none());
     }
 }

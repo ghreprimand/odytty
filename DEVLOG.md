@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Right-click menu on connection-manager rows
+
+Saved hosts in the connection manager gain a per-row right-click menu, so a host
+is reachable in every natural shape without retyping it. Right-clicking a
+saved-host row opens a small context menu with five actions: **Open in New Tab**
+connects in the current workspace; **Open in New Workspace** creates a fresh
+workspace pre-bound to the host (its `default_profile` is set, so new tabs there
+open on the remote too) and connects its first tab; **Bind Current Workspace**
+routes the active workspace's new tabs through the host with the same one-line
+notice the keyboard bind path shows. For OdyTTY-owned rows two more appear:
+**Edit…** opens the pre-filled Add/Edit form, and **Remove…** deletes the host's
+`hosts.conf` block through the byte-splice writer after a confirm dialog.
+`ssh-config`-imported rows are read-only — those two mutating items are hidden,
+so nothing is ever written back to `~/.ssh/config`.
+
+The menu is the first that spawns from within another overlay: it renders over
+the still-loaded connection manager, and dismissing it — or cancelling the
+remove confirm — returns to the manager with its selection intact rather than
+closing to the terminal. "Open in New Workspace" opens the host adjacent and
+drops the placeholder local tab only after the connect succeeds, so a failed
+connect leaves a usable workspace rather than an empty one. Windows is
+platform-neutral here: the connect paths use the same `ssh.exe` route and the
+`hosts.conf` remove is an atomic write on both platforms.
+
 ## 2026-07-05 -- Add / Edit connection form with a per-host IdentityFile and Test Connection
 
 The connection manager gains an in-app form for creating and editing saved

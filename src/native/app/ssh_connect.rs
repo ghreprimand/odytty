@@ -9,7 +9,7 @@
 use super::*;
 use crate::connection_hosts::{
     AppendHostOutcome, ConnectionHost, HostsEditOutcome, append_adhoc_host, edit_host_block,
-    hosts_file_path,
+    hosts_file_path, remove_host_block,
 };
 
 impl App {
@@ -189,6 +189,69 @@ impl App {
         let _ = self.sessions.switch(token);
         self.on_active_session_changed();
         Ok(token)
+    }
+
+    /// Open `host` in a fresh workspace pre-bound to it (ODP-2C "Open in New
+    /// Workspace"). Creates a new workspace (which spawns a placeholder local
+    /// first tab), sets its `default_profile` so future New Tabs there route
+    /// through the SSH connect path, then connects the host as the workspace's
+    /// tab and drops the placeholder — connect-then-close, so a connect failure
+    /// leaves a usable local tab rather than an empty workspace. No bind toast:
+    /// the connecting remote tab is the visible confirmation. Windows: the
+    /// connect uses the same `ssh.exe` path; workspace mechanics are
+    /// platform-neutral.
+    pub(in crate::native) fn open_host_in_new_workspace(&mut self, host: &ConnectionHost) {
+        self.handle_new_workspace();
+        let placeholder = self.sessions.active_id();
+        self.sessions
+            .set_active_workspace_default_profile(Some(host.alias.clone()));
+        if self.connect_ssh_host_in_new_tab(host).is_ok() {
+            self.close_tab_by_token(placeholder);
+            self.on_active_session_changed();
+        }
+    }
+
+    /// Delete the OdyTTY-owned `hosts.conf` block for `host` (ODP-2C "Remove…",
+    /// P1 byte-splice) and reopen the connection manager so the removed row
+    /// disappears — mirroring the Manage-Sessions kill-confirm reopen. Resolves
+    /// the same config dir the manager loads from; a missing config dir, an
+    /// already-gone alias, or a write error each surface a one-line notice and
+    /// never panic. Only OdyTTY-owned rows reach here (the menu hides Remove for
+    /// ssh-config rows), so `~/.ssh/config` is never touched. Windows: the
+    /// config dir resolves through the same settings path logic, and the atomic
+    /// remove works on both platforms.
+    pub(in crate::native) fn remove_saved_host(&mut self, host: &ConnectionHost) {
+        let config_dir = self
+            .settings_reloader
+            .config_path()
+            .and_then(|path| path.parent().map(std::path::Path::to_path_buf));
+        match config_dir {
+            Some(config_dir) => {
+                let path = hosts_file_path(&config_dir);
+                match remove_host_block(&path, &host.alias) {
+                    Ok(HostsEditOutcome::Written) => {
+                        self.raise_open_notice(format!("Removed \"{}\"", host.alias));
+                    }
+                    Ok(HostsEditOutcome::NotFound) => {
+                        self.raise_open_notice(format!(
+                            "\"{}\" is no longer in hosts.conf",
+                            host.alias
+                        ));
+                    }
+                    Err(error) => {
+                        tracing::warn!("failed to remove host from hosts.conf: {error}");
+                        self.raise_open_notice(
+                            "Could not remove the host from hosts.conf".to_owned(),
+                        );
+                    }
+                }
+            }
+            None => {
+                self.raise_open_notice("Could not locate hosts.conf to remove the host".to_owned());
+            }
+        }
+        // Reopen the manager over the refreshed list so the removed row is gone.
+        self.open_connection_overlay();
     }
 
     /// Bind the active workspace to the known host at list index `idx` (F6-W5 /
