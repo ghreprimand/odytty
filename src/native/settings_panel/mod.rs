@@ -231,7 +231,7 @@ impl SettingsPanel {
             .iter()
             .any(|(_, hit)| {
                 hit.entry_index == Some(self.selected)
-                    && matches!(hit.zone, RowZone::Value | RowZone::Stepper { .. })
+                    && matches!(hit.zone, RowZone::Value { .. } | RowZone::Stepper { .. })
             })
     }
 
@@ -2292,7 +2292,7 @@ mod tests {
         let visible_value = hit_map.iter().enumerate().any(|(row_i, hit)| {
             use crate::native::settings_panel::pointer::RowZone;
             hit.entry_index == Some(last)
-                && matches!(hit.zone, RowZone::Value | RowZone::Stepper { .. })
+                && matches!(hit.zone, RowZone::Value { .. } | RowZone::Stepper { .. })
                 && lines[row_i].focused
         });
         assert!(
@@ -2345,7 +2345,7 @@ mod tests {
         assert!(
             !hits
                 .iter()
-                .any(|h| matches!(h.zone, RowZone::Value | RowZone::Stepper { .. })),
+                .any(|h| matches!(h.zone, RowZone::Value { .. } | RowZone::Stepper { .. })),
             "Level 1 must not emit Value/Stepper zones"
         );
 
@@ -2360,7 +2360,7 @@ mod tests {
         assert!(
             hits2
                 .iter()
-                .any(|h| matches!(h.zone, RowZone::Value | RowZone::Stepper { .. })),
+                .any(|h| matches!(h.zone, RowZone::Value { .. } | RowZone::Stepper { .. })),
             "Level 2 must emit Value/Stepper zones"
         );
     }
@@ -2668,7 +2668,7 @@ mod tests {
             .build_settings_rows(w, h)
             .into_iter()
             .filter_map(|(_, hit)| match hit.zone {
-                RowZone::Value | RowZone::Stepper { .. } => hit.entry_index,
+                RowZone::Value { .. } | RowZone::Stepper { .. } => hit.entry_index,
                 _ => None,
             })
             .collect()

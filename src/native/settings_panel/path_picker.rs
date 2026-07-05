@@ -346,7 +346,7 @@ impl PathPickerState {
                 RowHit {
                     // entry_index carries the path-entry index for pointer clicks.
                     entry_index: Some(index),
-                    zone: RowZone::Value,
+                    zone: RowZone::Value { value_x0: 0 },
                 },
             ));
         }

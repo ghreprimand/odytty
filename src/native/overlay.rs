@@ -4407,10 +4407,12 @@ mod tests {
 
     fn theme_value_cell(rect: OverlayRect) -> CellPoint {
         // Row 0 of the body is the first group header ("Theme"); row 1 is the
-        // theme value line. Any body column maps to its Value zone in P1.
+        // theme value line. SETTINGS-CLICKZONES: the compact row splits into a
+        // focus-only NAME zone and an action VALUE zone; the "Theme" name is 5
+        // columns, so the value zone begins at body column 9 — click inside it.
         CellPoint {
             row: rect.body_top + 1,
-            column: rect.body_left,
+            column: rect.body_left + 12,
         }
     }
 

@@ -44,8 +44,9 @@ fn overlay_open_press_is_captured_and_neither_selects_nor_reports() {
     );
     let rect = app.overlay_rect_for_test().expect("overlay rect");
     // At Level 2 Themes: body row 0 is the "Theme" group header; row 1 is the
-    // theme value line. Any body column maps to its Value zone.
-    app.set_pointer_cell_for_test(rect.body_top + 1, rect.body_left);
+    // theme value line. SETTINGS-CLICKZONES: click the action VALUE zone (the
+    // "Theme" name is 5 columns, so the value zone starts at body column 9).
+    app.set_pointer_cell_for_test(rect.body_top + 1, rect.body_left + 12);
 
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
 
@@ -94,7 +95,8 @@ fn overlay_press_does_not_leak_to_pty_even_with_mouse_reporting_enabled() {
     );
     let rect = app.overlay_rect_for_test().expect("overlay rect");
     // body_top + 1 = theme value row (after "Theme" group header at row 0).
-    app.set_pointer_cell_for_test(rect.body_top + 1, rect.body_left);
+    // SETTINGS-CLICKZONES: click the action VALUE zone (starts at body col 9).
+    app.set_pointer_cell_for_test(rect.body_top + 1, rect.body_left + 12);
     app.handle_overlay_pointer_button(ElementState::Pressed, WinitMouseButton::Left);
 
     // Reporting was armed, yet the overlay captured the press: no report button

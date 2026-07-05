@@ -40,8 +40,11 @@ fn center_text(text: &str, width: usize) -> String {
 pub(in crate::native) enum RowZone {
     /// A group label line — inert.
     GroupHeader,
-    /// The `"name: value"` line — the primary action zone.
-    Value,
+    /// The `"name: value"` line. SETTINGS-CLICKZONES: split into a focus-only
+    /// NAME zone (the `marker + name:` prefix, columns `< value_x0`) and an
+    /// action VALUE zone (the value text, columns `>= value_x0`). `value_x0`
+    /// is the body-relative column where the value text begins.
+    Value { value_x0: usize },
     /// A numeric row rendered as a stepper: the down/up controls decrement or
     /// increment once per click, while the readout starts click-to-type edit.
     /// All columns are body-relative (0 = first body cell).
@@ -464,7 +467,14 @@ impl SettingsPanel {
                 if value.chars().count() > max_value {
                     value = ellipsize(&value, max_value);
                 }
-                (format!("{marker} {}: {value}", entry.name), RowZone::Value)
+                // SETTINGS-CLICKZONES: the value text begins after
+                // `marker + ' ' + name + ': '` (2 + name + 2 columns). A click
+                // before this column only focuses the row; a click on it acts.
+                let value_x0 = entry.name.chars().count() + 4;
+                (
+                    format!("{marker} {}: {value}", entry.name),
+                    RowZone::Value { value_x0 },
+                )
             };
             // SETTINGS-COMPACT: one compact line per setting — the per-row help
             // that used to wrap inline now lives in the fixed footer below.
@@ -718,7 +728,17 @@ impl SettingsPanel {
             }
             // A help line only selects its owning row; no value change.
             RowZone::Detail => SettingsPanelOutcome::Consumed,
-            RowZone::Value => self.click_action_on_selected(button),
+            // SETTINGS-CLICKZONES: the compact row splits into a focus-only
+            // NAME zone and an action VALUE zone. Selection was already applied
+            // above, so a name-zone click just focuses the row (the footer
+            // follows); a value-zone click acts exactly as before.
+            RowZone::Value { value_x0 } => {
+                if col_in_body < value_x0 {
+                    SettingsPanelOutcome::Consumed
+                } else {
+                    self.click_action_on_selected(button)
+                }
+            }
             RowZone::Stepper {
                 down_x0,
                 down_w,
@@ -959,13 +979,21 @@ mod tests {
             .expect("known key")
     }
 
-    /// The body row offset of the line whose hit maps to `key`'s value.
-    fn value_row(panel: &SettingsPanel, key: &str) -> usize {
+    /// The body row offset and value-zone start column for `key`'s value row.
+    /// SETTINGS-CLICKZONES: clicks at/after `value_x0` act; earlier columns
+    /// only focus the row.
+    fn value_row(panel: &SettingsPanel, key: &str) -> (usize, usize) {
         let want = entry_index(panel, key);
         panel
             .build_visible_rows(W, H)
             .iter()
-            .position(|(_, hit)| hit.entry_index == Some(want) && hit.zone == RowZone::Value)
+            .enumerate()
+            .find_map(|(row, (_, hit))| match hit.zone {
+                RowZone::Value { value_x0 } if hit.entry_index == Some(want) => {
+                    Some((row, value_x0))
+                }
+                _ => None,
+            })
             .expect("value row present")
     }
 
@@ -1031,7 +1059,7 @@ mod tests {
             if hit.zone == RowZone::GroupHeader {
                 assert!(hit.entry_index.is_none());
             }
-            if hit.zone == RowZone::Value {
+            if matches!(hit.zone, RowZone::Value { .. }) {
                 assert!(line.text.contains(':'), "value line carries 'name: value'");
             }
         }
@@ -1040,9 +1068,9 @@ mod tests {
     #[test]
     fn clicking_a_bool_value_row_toggles_via_commit_seam() {
         let mut p = panel();
-        let row = value_row(&p, "synthetic_styles");
+        let (row, vx) = value_row(&p, "synthetic_styles");
         let SettingsPanelOutcome::Apply(settings) =
-            p.handle_pointer_press(W, H, row, 0, PointerButton::Left, None)
+            p.handle_pointer_press(W, H, row, vx, PointerButton::Left, None)
         else {
             panic!("bool click should apply");
         };
@@ -1053,9 +1081,9 @@ mod tests {
     #[test]
     fn clicking_the_theme_value_row_opens_the_picker() {
         let mut p = panel();
-        let row = value_row(&p, "theme");
+        let (row, vx) = value_row(&p, "theme");
         assert_eq!(
-            p.handle_pointer_press(W, H, row, 0, PointerButton::Left, None),
+            p.handle_pointer_press(W, H, row, vx, PointerButton::Left, None),
             SettingsPanelOutcome::OpenThemePicker
         );
     }
@@ -1067,9 +1095,9 @@ mod tests {
         // click path fell through to the generic List arm and popped a useless
         // "type a value" prompt, leaving the editor mouse-unreachable.
         let mut p = panel();
-        let row = value_row(&p, "keybinds");
+        let (row, vx) = value_row(&p, "keybinds");
         assert_eq!(
-            p.handle_pointer_press(W, H, row, 0, PointerButton::Left, None),
+            p.handle_pointer_press(W, H, row, vx, PointerButton::Left, None),
             SettingsPanelOutcome::OpenKeyBindings,
             "click on keybinds opens the editor (parity with Enter)"
         );
@@ -1081,16 +1109,16 @@ mod tests {
 
     #[test]
     fn left_and_right_click_cycle_an_enum_in_opposite_directions() {
-        let row = value_row(&panel(), "subpixel");
+        let (row, vx) = value_row(&panel(), "subpixel");
         let mut fwd_panel = panel();
         let SettingsPanelOutcome::Apply(fwd) =
-            fwd_panel.handle_pointer_press(W, H, row, 0, PointerButton::Left, None)
+            fwd_panel.handle_pointer_press(W, H, row, vx, PointerButton::Left, None)
         else {
             panic!("enum left-click cycles forward");
         };
         let mut back_panel = panel();
         let SettingsPanelOutcome::Apply(back) =
-            back_panel.handle_pointer_press(W, H, row, 0, PointerButton::Right, None)
+            back_panel.handle_pointer_press(W, H, row, vx, PointerButton::Right, None)
         else {
             panic!("enum right-click cycles backward");
         };
@@ -1098,6 +1126,70 @@ mod tests {
             fwd.subpixel, back.subpixel,
             "forward and backward land on different values"
         );
+    }
+
+    #[test]
+    fn clicking_the_name_zone_focuses_without_mutating() {
+        // SETTINGS-CLICKZONES field finding: compact rows made every pixel of a
+        // `name: value` line run the value action (enums cycled on a
+        // browse-tap). The `marker + name:` prefix is now a focus-only zone.
+        let mut p = panel();
+        // Start focused elsewhere so the click's focus move is observable.
+        p.set_selection(entry_index(&p, "theme"));
+        let target = entry_index(&p, "subpixel");
+        let (row, value_x0) = value_row(&p, "subpixel");
+        assert!(value_x0 > 0, "the value zone starts past the name prefix");
+        // Column 0 is the marker — squarely in the name zone.
+        let outcome = p.handle_pointer_press(W, H, row, 0, PointerButton::Left, None);
+        assert_eq!(
+            outcome,
+            SettingsPanelOutcome::Consumed,
+            "a name-zone click is inert beyond focus"
+        );
+        assert_eq!(
+            p.render_signature().selected,
+            target,
+            "a name-zone click still focuses the row (footer follows)"
+        );
+        assert_eq!(
+            p.render_signature().changed_count,
+            0,
+            "a name-zone click must not change any value"
+        );
+    }
+
+    #[test]
+    fn right_clicking_the_name_zone_does_not_cycle_backward() {
+        // The name zone is inert for both buttons: a right-click there must not
+        // cycle an enum backward (the value-zone right-click behavior).
+        let mut p = panel();
+        let (row, _vx) = value_row(&p, "subpixel");
+        let outcome = p.handle_pointer_press(W, H, row, 0, PointerButton::Right, None);
+        assert_eq!(
+            outcome,
+            SettingsPanelOutcome::Consumed,
+            "a name-zone right-click is inert"
+        );
+        assert_eq!(
+            p.render_signature().changed_count,
+            0,
+            "no backward cycle from the name zone"
+        );
+    }
+
+    #[test]
+    fn clicking_the_value_zone_still_acts() {
+        // The value text stays the action zone: a left-click on it toggles a
+        // bool exactly as before the name/value split.
+        let mut p = panel();
+        let (row, value_x0) = value_row(&p, "synthetic_styles");
+        let SettingsPanelOutcome::Apply(settings) =
+            p.handle_pointer_press(W, H, row, value_x0, PointerButton::Left, None)
+        else {
+            panic!("a value-zone click should apply");
+        };
+        assert!(!settings.synthetic_styles);
+        assert_eq!(p.render_signature().changed_count, 1);
     }
 
     #[test]
@@ -1289,15 +1381,20 @@ mod tests {
         // Value line and a click starts a text edit (keyboard parity preserved).
         let mut p = panel();
         let narrow = 24;
-        let row = p
+        let want = entry_index(&p, "font_size");
+        let (row, vx) = p
             .build_visible_rows(narrow, H)
             .iter()
-            .position(|(_, hit)| {
-                hit.entry_index == Some(entry_index(&p, "font_size")) && hit.zone == RowZone::Value
+            .enumerate()
+            .find_map(|(row, (_, hit))| match hit.zone {
+                RowZone::Value { value_x0 } if hit.entry_index == Some(want) => {
+                    Some((row, value_x0))
+                }
+                _ => None,
             })
             .expect("font_size falls back to a Value row when narrow");
         assert_eq!(
-            p.handle_pointer_press(narrow, H, row, 0, PointerButton::Left, None),
+            p.handle_pointer_press(narrow, H, row, vx, PointerButton::Left, None),
             SettingsPanelOutcome::Consumed
         );
         assert_eq!(p.render_signature().editing_key, Some("font_size"));
@@ -1373,7 +1470,7 @@ mod tests {
         for (_, hit) in &rows {
             if hit.entry_index.is_some() {
                 assert!(
-                    matches!(hit.zone, RowZone::Value | RowZone::Stepper { .. }),
+                    matches!(hit.zone, RowZone::Value { .. } | RowZone::Stepper { .. }),
                     "entry rows must be one compact primary line, got {:?}",
                     hit.zone
                 );
@@ -1382,7 +1479,7 @@ mod tests {
         // Exactly one primary row per visible entry.
         let primary = rows
             .iter()
-            .filter(|(_, h)| matches!(h.zone, RowZone::Value | RowZone::Stepper { .. }))
+            .filter(|(_, h)| matches!(h.zone, RowZone::Value { .. } | RowZone::Stepper { .. }))
             .count();
         assert_eq!(primary, p.entries.len(), "one compact row per entry");
         // No inline Detail rows remain in the settings view.
@@ -1421,7 +1518,7 @@ mod tests {
             .iter()
             .enumerate()
             .find_map(|(i, (_, hit))| match hit.zone {
-                RowZone::Value | RowZone::Stepper { .. } => hit
+                RowZone::Value { .. } | RowZone::Stepper { .. } => hit
                     .entry_index
                     .filter(|&e| e != p.render_signature().selected)
                     .map(|e| (i, e)),
@@ -1485,7 +1582,7 @@ mod tests {
         let value_row_offset = |rows: &[(SettingsPanelLine, RowHit)], entry: usize| {
             rows.iter().position(|(_, h)| {
                 h.entry_index == Some(entry)
-                    && matches!(h.zone, RowZone::Value | RowZone::Stepper { .. })
+                    && matches!(h.zone, RowZone::Value { .. } | RowZone::Stepper { .. })
             })
         };
         for entry in 0..p.entries.len() {
@@ -1540,9 +1637,9 @@ mod tests {
         };
 
         let mut ms = panel();
-        let row = value_row(&ms, target);
+        let (row, vx) = value_row(&ms, target);
         let SettingsPanelOutcome::Apply(via_pointer) =
-            ms.handle_pointer_press(W, H, row, 0, PointerButton::Left, None)
+            ms.handle_pointer_press(W, H, row, vx, PointerButton::Left, None)
         else {
             panic!("pointer click applies the bool toggle");
         };

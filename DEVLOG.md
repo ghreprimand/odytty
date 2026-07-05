@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Split settings rows into name and value click zones
+
+Clicking a compact setting row now depends on where the click lands. The
+`marker + name:` prefix is a focus-only NAME zone; the value text to its right
+is the action VALUE zone. A click on the name only focuses the row (so the help
+footer follows the pointer), while a click on the value acts exactly as before —
+toggling a bool, cycling an enum, opening a picker, or starting a text edit.
+
+Compacting the settings panel had made every column of a `name: value` line run
+the value action, so a click anywhere on the row — including a browse-tap on the
+label to read its footer help — would cycle an enum or flip a bool. Separating
+the two zones restores the ability to focus a row without changing it, matching
+the mental model where the label identifies and the value acts.
+
+The split is column-based, following the existing stepper precedent: the `Value`
+hit zone carries the body column where the value text begins, and a press before
+that column is inert beyond focus. The row text, keyboard model, and stepper
+rows are unchanged; the path picker's whole-row entries keep acting on any
+column. Right-clicks obey the same split — a right-click on the name no longer
+cycles an enum backward.
+
+---
+
 ## 2026-07-05 -- Rail stays put under its own menu, live back-arrows, right rename label, clearer bind toast
 
 Four rough edges surfaced in field testing, fixed together.
@@ -98,6 +121,8 @@ empty tab-strip menu also gains New Workspace beside New Tab.
 composed its question and its `[Enter] yes / [Esc] no` hints as one line, so the
 action keys tail-truncated off narrow overlays. The hints now render on their
 own dedicated line, guaranteed visible regardless of the question's length.
+
+---
 
 ## 2026-07-04 -- Compact the settings panel with a fixed help footer
 
