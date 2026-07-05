@@ -504,7 +504,8 @@ last tab in a workspace closes that workspace; closing the last workspace quits
 the app. The rail follows the `workspace_rail` setting: `auto` (default) reveals it
 once a second workspace exists, `always` pins it even with one, and `left` /
 `right` pin it to that side. When more than one workspace exists, a tab's
-right-click menu adds **Move to Next Workspace** to relocate the clicked tab.
+right-click menu adds **Move to Workspace…**, which opens a picker of the
+other workspaces by name and relocates the clicked tab to the chosen one.
 
 **Restoring a layout.** With `restore_workspaces` on (off by default; the
 Sessions section of Settings, or `ODYTTY_RESTORE_WORKSPACES`), launching

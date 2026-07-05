@@ -7,6 +7,16 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- README: correct the tab-menu move-to-workspace description
+
+The README still described the tab right-click menu's move item as **Move to
+Next Workspace** — the single-destination cycle from its first iteration. The
+menu has since shipped **Move to Workspace…**, a named-destination picker, and
+the README now says so. Doc drift caught in review of the layout-surface work;
+no code change.
+
+---
+
 ## 2026-07-05 -- Named layouts reachable from context menus
 
 Named workspace layouts were previously reachable only through the command
