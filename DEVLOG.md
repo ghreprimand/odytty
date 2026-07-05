@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Bound workspaces carry a link marker in the workspace rail
+
+A workspace bound to a default host (so every new tab opens remote) now reads as
+remote at a glance: its row in the workspace rail gains a compact link glyph in a
+text-side accent color, drawn in the rail-edge margin so it never crowds the
+name. The marker is derived from the cursor/accent role rather than the theme's
+border role, matching the chrome-color rule and staying legible across themes.
+
+Unbound workspaces are unchanged — the rail is byte-identical to before when
+nothing is bound — and the marker appears and disappears live as a workspace is
+bound or unbound. The host name itself is not shown inline; the bind notice and
+the connection surfaces carry it, and the fuller `name @host` treatment is left
+to the rail's later secondary-info pass.
+
+Windows: platform-neutral — the rail glyph is pure presentation.
+
+---
+
 ## 2026-07-05 -- Right-click menu on connection-manager rows
 
 Saved hosts in the connection manager gain a per-row right-click menu, so a host
@@ -30,6 +48,8 @@ drops the placeholder local tab only after the connect succeeds, so a failed
 connect leaves a usable workspace rather than an empty one. Windows is
 platform-neutral here: the connect paths use the same `ssh.exe` route and the
 `hosts.conf` remove is an atomic write on both platforms.
+
+---
 
 ## 2026-07-05 -- Add / Edit connection form with a per-host IdentityFile and Test Connection
 

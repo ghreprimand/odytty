@@ -738,6 +738,7 @@ impl App {
             self.tab_bar_colors(),
             self.rail_geom(),
             self.tab_panel_strength(),
+            self.effective_theme.cursor,
         );
         for glyph in output.glyphs {
             if glyph.row < grid_rows && glyph.col < rail_cols {

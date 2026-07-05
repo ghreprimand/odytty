@@ -3164,6 +3164,13 @@ impl TabBarSource for WorkspaceRailSource<'_> {
         self.set.workspaces.len()
     }
 
+    fn tab_bound(&self, idx: usize) -> bool {
+        self.set
+            .workspaces
+            .get(idx)
+            .is_some_and(|ws| ws.default_profile.is_some())
+    }
+
     fn tab_title(&self, idx: usize) -> &str {
         self.set
             .workspaces

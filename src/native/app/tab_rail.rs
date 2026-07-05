@@ -66,6 +66,12 @@ const DEFAULT_SLOT_GAP: usize = 1;
 /// affordance — no ring at rest, so it never competes with a real tab slot).
 const NEW_TAB_ROWS: usize = 1;
 
+/// Marker painted on a bound workspace's rail row (ODP-7B): a compact
+/// bidirectional-link glyph in a text-side accent role that reads as "everything
+/// opened here is remote". Placed in the rail-edge inset column (the outer,
+/// non-content margin) so it never crowds the label and stays width-robust.
+const BOUND_BADGE: char = '\u{21c4}';
+
 /// Runtime rail slot geometry (F4-P1 knobs): how many rows each slot occupies
 /// and the inter-slot gap. Threaded through [`TabRail::render`] /
 /// [`TabRail::hit_test`] so the operator can tune them live; the widget owns no
@@ -249,6 +255,7 @@ impl TabRail {
         colors: TabBarColors,
         geom: RailGeom,
         panel_strength: f32,
+        bound_accent: Srgb,
     ) -> TabRailOutput {
         let _ = origin_px;
         if rail_cols == 0 || grid_rows == 0 || cell.width == 0 || cell.height == 0 {
@@ -333,6 +340,23 @@ impl TabRail {
                 let g = &mut cells[crow * rail_cols + ccol];
                 g.ch = '×';
                 g.attrs = la;
+            }
+            // Bound-workspace marker (ODP-7B): a compact link glyph in the
+            // text-side accent role (never the theme border), painted in the
+            // rail-edge inset column (the outer, non-content margin) so it
+            // reads as "opens remote" without crowding the label. Unbound
+            // rows (the default) paint nothing here — byte-identical to today.
+            if source.tab_bound(slot.idx) {
+                let badge_col = match placement {
+                    RailSide::Left => 0,
+                    RailSide::Right => rail_cols - 1,
+                };
+                let brow = slot.label_row;
+                if brow < grid_rows && badge_col < rail_cols {
+                    let g = &mut cells[brow * rail_cols + badge_col];
+                    g.ch = BOUND_BADGE;
+                    g.attrs.foreground = rgb(bound_accent);
+                }
             }
         }
 
@@ -755,6 +779,11 @@ mod tests {
         active_bg: (0x40, 0x60, 0x90),
     };
 
+    // A text-side accent color distinct from every COLORS role, so the
+    // bound-workspace badge assertions can pin the badge to this exact value
+    // (never a chrome/border-derived color).
+    const ACCENT: Srgb = (0xF0, 0x50, 0xA0);
+
     fn rail() -> TabRail {
         TabRail::default()
     }
@@ -776,6 +805,7 @@ mod tests {
             COLORS,
             GEOM,
             PANEL_STRENGTH,
+            ACCENT,
         )
     }
 
@@ -855,6 +885,7 @@ mod tests {
             COLORS,
             GEOM,
             PANEL_STRENGTH,
+            ACCENT,
         );
         assert!(out.glyphs.is_empty(), "zero rail_cols → empty");
         let out = rail().render(
@@ -867,6 +898,7 @@ mod tests {
             COLORS,
             GEOM,
             PANEL_STRENGTH,
+            ACCENT,
         );
         assert!(out.glyphs.is_empty(), "zero grid_rows → empty");
     }
@@ -1011,6 +1043,7 @@ mod tests {
             COLORS,
             GEOM,
             0.5,
+            ACCENT,
         );
         // An inter-slot gap cell is the panel surface.
         let gap_row = RAIL_TOP_MARGIN_ROWS + SLOT_ROWS;
@@ -1204,6 +1237,106 @@ mod tests {
             tight.slots[0].label.ends_with('…'),
             "one column narrower truncates"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Bound-workspace badge (ODP-7B)
+    // -----------------------------------------------------------------------
+
+    /// A source whose rows can carry the bound marker, so the badge assertions
+    /// exercise the `tab_bound` override the workspace rail supplies. Every other
+    /// mock keeps the trait default (`false`), so their renders paint no badge.
+    struct BoundMock {
+        titles: Vec<&'static str>,
+        active: usize,
+        bound: Vec<usize>,
+    }
+    impl TabBarSource for BoundMock {
+        fn tab_count(&self) -> usize {
+            self.titles.len()
+        }
+        fn tab_title(&self, idx: usize) -> &str {
+            self.titles[idx]
+        }
+        fn active_tab(&self) -> usize {
+            self.active
+        }
+        fn tab_bound(&self, idx: usize) -> bool {
+            self.bound.contains(&idx)
+        }
+    }
+
+    #[test]
+    fn bound_row_paints_the_accent_badge_in_the_rail_edge_column() {
+        // ODP-7B: a workspace bound to a default host gains a compact link glyph
+        // in the text-side accent role, in the rail-edge (col 0 for Left) inset
+        // column — never crowding the label, never a chrome/border color.
+        let src = BoundMock {
+            titles: vec!["local", "prod"],
+            active: 0,
+            bound: vec![1],
+        };
+        let out = render_default(&src);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
+        let bound_slot = &layout.slots[1];
+        let g = out.glyphs[bound_slot.label_row * RAIL_COLS];
+        assert_eq!(g.ch, BOUND_BADGE, "bound row shows the link badge at col 0");
+        assert_eq!(
+            g.attrs.foreground,
+            rgb(ACCENT),
+            "badge uses the text-side accent role passed in"
+        );
+    }
+
+    #[test]
+    fn unbound_rows_paint_no_badge() {
+        // Zero change for unbound workspaces (the byte-identical default): no row
+        // carries the badge glyph. Fails-before: painting unconditionally.
+        let src = BoundMock {
+            titles: vec!["local", "prod"],
+            active: 0,
+            bound: vec![],
+        };
+        let out = render_default(&src);
+        assert!(
+            out.glyphs.iter().all(|g| g.ch != BOUND_BADGE),
+            "no badge glyph anywhere when nothing is bound"
+        );
+        // And a plain MockSource (trait-default tab_bound = false) is likewise clean.
+        let plain = MockSource::new(&["a", "b"], 0);
+        let out = render_default(&plain);
+        assert!(
+            out.glyphs.iter().all(|g| g.ch != BOUND_BADGE),
+            "the default source paints no badge"
+        );
+    }
+
+    #[test]
+    fn bound_badge_follows_the_outer_inset_column_for_a_right_rail() {
+        // For a Right rail the outer (non-content) margin is the last column, so
+        // the badge tracks the rail edge rather than a fixed side.
+        let src = BoundMock {
+            titles: vec!["prod"],
+            active: 0,
+            bound: vec![0],
+        };
+        let out = rail().render(
+            &src,
+            RAIL_COLS,
+            GRID_ROWS,
+            ORIGIN,
+            CELL,
+            RailSide::Right,
+            COLORS,
+            GEOM,
+            PANEL_STRENGTH,
+            ACCENT,
+        );
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
+        let slot = &layout.slots[0];
+        let g = out.glyphs[slot.label_row * RAIL_COLS + (RAIL_COLS - 1)];
+        assert_eq!(g.ch, BOUND_BADGE, "Right rail badge is in the last column");
+        assert_eq!(g.attrs.foreground, rgb(ACCENT));
     }
 
     // -----------------------------------------------------------------------

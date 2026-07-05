@@ -3408,6 +3408,7 @@ impl App {
             self.tab_bar_colors(),
             self.rail_geom(),
             self.tab_panel_strength(),
+            self.effective_theme.cursor,
         );
         let mut snapshot = Snapshot {
             dimensions: Dimensions::new(cols, rows),
@@ -3735,6 +3736,7 @@ impl App {
             self.tab_bar_colors(),
             self.rail_geom(),
             self.tab_panel_strength(),
+            self.effective_theme.cursor,
         );
         for glyph in output.glyphs {
             let col = rail_col_start + glyph.col;

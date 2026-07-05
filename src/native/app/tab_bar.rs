@@ -89,6 +89,14 @@ pub(in crate::native) trait TabBarSource {
     fn tab_title(&self, idx: usize) -> &str;
     /// Zero-based index of the currently focused tab.
     fn active_tab(&self) -> usize;
+    /// Whether tab `idx` carries a bound-remote marker (workspace rail only:
+    /// a workspace with a default host profile). Default `false` so the tab bar
+    /// and the tab-list sources render no badge; only the workspace-rail source
+    /// overrides this. `idx` is guaranteed to be `< tab_count()`.
+    fn tab_bound(&self, idx: usize) -> bool {
+        let _ = idx;
+        false
+    }
 }
 
 /// Result of a pointer hit test against the tab bar.
