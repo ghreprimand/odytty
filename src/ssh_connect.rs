@@ -82,9 +82,26 @@ impl std::error::Error for SshConnectError {}
 ///
 /// `--` is deliberate: if a saved alias or host starts with `-`, it is still a
 /// destination operand rather than another ssh option. No shell is involved.
+/// Push `-i <path>` for a host's `IdentityFile`, when set (ODP-9 Tier 1). The
+/// path is a separate argv element (never merged into `-i<path>`) so a path is
+/// always read as the identity filename, never an ssh option. An empty path is
+/// ignored. OdyTTY stores only the path; no key material is ever handled.
+fn push_identity_args(args: &mut Vec<OsString>, host: &ConnectionHost) {
+    if let Some(identity) = host
+        .identity_file
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+    {
+        args.push(OsString::from("-i"));
+        args.push(OsString::from(identity));
+    }
+}
+
 pub fn ssh_command_for_host(host: &ConnectionHost) -> Result<SshCommand, SshConnectError> {
     let destination = ssh_destination(host)?;
     let mut args = Vec::new();
+    push_identity_args(&mut args, host);
     if let Some(port) = host.port {
         args.push(OsString::from("-p"));
         args.push(OsString::from(port.to_string()));
@@ -203,6 +220,7 @@ pub fn ssh_command_for_host_with_options(
         control_path.push(socket.as_os_str());
         args.push(control_path);
     }
+    push_identity_args(&mut args, host);
     if let Some(port) = host.port {
         args.push(OsString::from("-p"));
         args.push(OsString::from(port.to_string()));
@@ -569,6 +587,7 @@ mod tests {
             reuse: None,
             tmux: None,
             protocol: None,
+            identity_file: None,
             source: ConnectionHostSource::Odytty,
         }
     }
@@ -667,6 +686,46 @@ mod tests {
         assert!(!remote_tmux_enabled(None, false));
         assert!(!remote_tmux_enabled(Some(false), true));
         assert!(remote_tmux_enabled(Some(true), false));
+    }
+
+    #[test]
+    fn identity_file_adds_dash_i_to_the_connect_argv() {
+        // ODP-9 Tier 1: a set IdentityFile puts `-i <path>` in the plain connect
+        // argv, as a separate argv element before the destination operand.
+        let mut h = host("k");
+        h.identity_file = Some("/home/user/.ssh/id_ed25519.example".to_owned());
+        let args = argv(&ssh_command_for_host(&h).expect("cmd"));
+        let i = args.iter().position(|a| a == "-i").expect("-i present");
+        assert_eq!(args[i + 1], "/home/user/.ssh/id_ed25519.example");
+        // `-i` and its path come before the `--` destination separator.
+        let sep = args.iter().position(|a| a == "--").expect("--");
+        assert!(i + 1 < sep, "identity args precede the destination operand");
+    }
+
+    #[test]
+    fn no_identity_file_emits_no_dash_i() {
+        // Byte-identical to before when no IdentityFile is set.
+        let args = argv(&ssh_command_for_host(&host("k")).expect("cmd"));
+        assert!(
+            !args.iter().any(|a| a == "-i"),
+            "no -i without IdentityFile"
+        );
+    }
+
+    #[test]
+    fn identity_file_adds_dash_i_to_the_integration_argv() {
+        // The integration (bootstrap) argv also carries `-i <path>` when set.
+        let mut h = remote_host("k", "deploy", "k.example.invalid");
+        h.identity_file = Some("/home/user/.ssh/id_ed25519.example".to_owned());
+        let command = ssh_command_for_host_with_integration(&h, true).expect("cmd");
+        let args = argv(&command);
+        let i = args.iter().position(|a| a == "-i").expect("-i present");
+        assert_eq!(args[i + 1], "/home/user/.ssh/id_ed25519.example");
+        let sep = args.iter().position(|a| a == "--").expect("--");
+        assert!(
+            i + 1 < sep,
+            "identity precedes destination in the bootstrap argv"
+        );
     }
 
     #[test]

@@ -618,6 +618,7 @@ mod tests {
             reuse: None,
             tmux: None,
             protocol: None,
+            identity_file: None,
             source,
         }
     }

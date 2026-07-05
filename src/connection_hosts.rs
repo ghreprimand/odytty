@@ -68,6 +68,10 @@ pub struct ConnectionHost {
     /// protocol needs no file-format migration. Any value is preserved across a
     /// round trip; the connect path is SSH-only for now.
     pub protocol: Option<String>,
+    /// Path to an SSH private key (`IdentityFile`). When set, the connect argv
+    /// gains `-i <path>`; OdyTTY stores only the path, never any key material.
+    /// The once-and-done alternative to typing a password is `ssh-copy-id`.
+    pub identity_file: Option<String>,
     pub source: ConnectionHostSource,
 }
 
@@ -109,6 +113,7 @@ struct HostBlock {
     reuse: Option<bool>,
     tmux: Option<bool>,
     protocol: Option<String>,
+    identity_file: Option<String>,
 }
 
 impl HostBlock {
@@ -125,6 +130,7 @@ impl HostBlock {
             reuse: None,
             tmux: None,
             protocol: None,
+            identity_file: None,
         }
     }
 }
@@ -208,6 +214,7 @@ fn push_host_block_aliased(out: &mut String, aliases: &[String], host: &Connecti
     push_optional_field(out, "Theme", host.theme.as_deref());
     push_optional_field(out, "Font", host.font.as_deref());
     push_optional_field(out, "Title", host.title.as_deref());
+    push_optional_field(out, "IdentityFile", host.identity_file.as_deref());
     if let Some(integration) = host.integration {
         push_optional_field(
             out,
@@ -274,6 +281,7 @@ impl AdhocTarget {
             reuse: None,
             tmux: None,
             protocol: None,
+            identity_file: None,
             source: ConnectionHostSource::Odytty,
         }
     }
@@ -735,6 +743,7 @@ pub fn merge_connection_hosts(
             reuse: None,
             tmux: None,
             protocol: None,
+            identity_file: None,
             source: ConnectionHostSource::SshConfig,
         });
     }
@@ -878,6 +887,7 @@ fn flush_block(
             reuse: block.reuse,
             tmux: block.tmux,
             protocol: block.protocol.clone(),
+            identity_file: block.identity_file.clone(),
             source: ConnectionHostSource::Odytty,
         });
     }
@@ -935,6 +945,11 @@ fn apply_host_field(
                 block.title = Some(trim_chars(v, max_chars));
             }
         }
+        "identityfile" => {
+            if let Some(v) = value {
+                block.identity_file = Some(trim_chars(v, max_chars));
+            }
+        }
         "integration" => {
             if let Some(v) = value {
                 block.integration = parse_host_bool(v);
@@ -970,6 +985,7 @@ fn is_known_host_field(keyword: &str) -> bool {
             | "theme"
             | "font"
             | "title"
+            | "identityfile"
             | "integration"
             | "reuse"
             | "tmux"
@@ -1029,6 +1045,7 @@ mod tests {
             reuse: None,
             tmux: None,
             protocol: None,
+            identity_file: None,
             source,
         }
     }
@@ -1666,5 +1683,47 @@ mod tests {
         // rather than dropped, so a hand-added protocol survives a reparse.
         let odd = parse_odytty_hosts_bytes_with_limits(b"Host q\n    Protocol quic\n", limits());
         assert_eq!(odd[0].protocol.as_deref(), Some("quic"));
+    }
+
+    #[test]
+    fn identity_file_parses_emits_and_survives_an_edit() {
+        // ODP-9 Tier 1: IdentityFile stores a key PATH (never a secret) and
+        // round-trips through a render.
+        let entries = parse_odytty_hosts_bytes_with_limits(
+            b"Host k\n    HostName k.example.invalid\n    IdentityFile /home/user/.ssh/id_ed25519.example\n",
+            limits(),
+        );
+        assert_eq!(
+            entries[0].identity_file.as_deref(),
+            Some("/home/user/.ssh/id_ed25519.example")
+        );
+        let mut rendered = String::new();
+        push_host_block(&mut rendered, &entries[0]);
+        assert!(rendered.contains("IdentityFile /home/user/.ssh/id_ed25519.example"));
+
+        // An in-place edit that sets the identity path splices it in while every
+        // other byte is preserved.
+        let dir = temp_dir("odytty-identity-edit");
+        let path = hosts_file_path(&dir);
+        fs::write(&path, annotated_fixture()).expect("seed");
+        let mut updated = host("alpha", ConnectionHostSource::Odytty);
+        updated.host_name = Some("alpha.example.invalid".to_owned());
+        updated.identity_file = Some("/home/user/.ssh/alpha.example".to_owned());
+        assert_eq!(
+            edit_host_block(&path, "alpha", &updated).expect("edit"),
+            HostsEditOutcome::Written
+        );
+        let reparsed = read_odytty_hosts_with_limits(&path, limits());
+        let alpha = reparsed.iter().find(|h| h.alias == "alpha").expect("alpha");
+        assert_eq!(
+            alpha.identity_file.as_deref(),
+            Some("/home/user/.ssh/alpha.example")
+        );
+        let raw = fs::read_to_string(&path).expect("read back");
+        assert!(
+            raw.contains("XCustomField keep-me"),
+            "unknown field preserved"
+        );
+        fs::remove_dir_all(dir).ok();
     }
 }
