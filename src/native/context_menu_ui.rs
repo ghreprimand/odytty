@@ -730,6 +730,16 @@ pub(super) struct ContextMenuUi {
     /// accelerator. Reset to all-`None` on `open`; the App overwrites via
     /// [`Self::set_accelerators`] from the live `KeyBindings`.
     accelerators: [Option<String>; CONTEXT_MENU_ITEMS],
+    /// Column bands to keep the menu box clear of, on the left and right edges
+    /// respectively (MENU-Z-ORDER). A rail-anchored menu opened while the
+    /// auto-hide workspace rail is revealed must not paint UNDER the floating
+    /// rail band (the rail composites topmost, so it would occlude the menu's
+    /// edge). Reserving the rail band's columns positions the box beside the
+    /// rail instead of under it — the rail stays visible (RAIL-PIN) and the menu
+    /// is fully clickable. `0`/`0` (every non-rail open) is byte-identical to
+    /// the pre-clearance layout.
+    reserved_cols_left: usize,
+    reserved_cols_right: usize,
 }
 
 impl Default for ContextMenuUi {
@@ -753,6 +763,8 @@ impl Default for ContextMenuUi {
             // `[T; N]: Default` only exists up to N == 32; the item set is now
             // larger, so build the all-`None` array element-wise.
             accelerators: std::array::from_fn(|_| None),
+            reserved_cols_left: 0,
+            reserved_cols_right: 0,
         }
     }
 }
@@ -833,6 +845,11 @@ impl ContextMenuUi {
         // sets it explicitly. Keeps the target from leaking across surfaces.
         self.connection_target = None;
         self.focused = 0;
+        // Rail clearance is opt-in per open: the App re-applies it via
+        // `set_rail_clearance` only for a rail-anchored menu under auto-hide.
+        // Reset here so a stale reserve never leaks into an unrelated menu.
+        self.reserved_cols_left = 0;
+        self.reserved_cols_right = 0;
         // Clear any stale accelerators; the App repopulates immediately via
         // `set_accelerators`. A bare `open` (the unit-test path) shows no
         // accelerators, which is the label-only legacy layout.
@@ -867,7 +884,21 @@ impl ContextMenuUi {
         self.path_target = None;
         self.connection_target = Some(Box::new(host));
         self.focused = 0;
+        // The connection-row menu spawns over the full-screen manager (the rail
+        // is hidden while that overlay is open), so it needs no rail clearance.
+        self.reserved_cols_left = 0;
+        self.reserved_cols_right = 0;
         self.accelerators = std::array::from_fn(|_| None);
+    }
+
+    /// Reserve `left`/`right` columns the menu box must stay clear of
+    /// (MENU-Z-ORDER). Applied by the App immediately after opening a
+    /// rail-anchored menu while the auto-hide rail is revealed, so the box lands
+    /// beside the floating rail band rather than under it. A no-op reserve
+    /// (`0`, `0`) leaves the layout byte-identical.
+    pub(super) fn set_rail_clearance(&mut self, left: usize, right: usize) {
+        self.reserved_cols_left = left;
+        self.reserved_cols_right = right;
     }
 
     /// The saved host snapshotted for a `ConnectionRow` menu (ODP-2C), if any.
@@ -1299,9 +1330,20 @@ impl ContextMenuUi {
     /// pointer routing and click-outside dismissal work unchanged.
     pub(super) fn rect(&self, columns: usize, rows: usize) -> OverlayRect {
         let body_rows = self.body_row_count();
-        let width = self.menu_width().min(columns.max(1));
+        // MENU-Z-ORDER: constrain the box to the column span left of the reserved
+        // rail band(s). `avail_left`..`avail_right` is the full grid when both
+        // reserves are 0 (every non-rail open), so the default path is
+        // byte-identical. A reserve wider than the grid degrades to the whole
+        // grid rather than vanishing the menu.
+        let avail_left = self.reserved_cols_left.min(columns.saturating_sub(1));
+        let avail_right = columns
+            .saturating_sub(self.reserved_cols_right)
+            .max(avail_left + 1);
+        let span = avail_right - avail_left;
+        let width = self.menu_width().min(span.max(1));
         let height = (body_rows + 2).min(rows.max(1));
-        let left = self.spawn.column.min(columns.saturating_sub(width));
+        let max_left = avail_right.saturating_sub(width).max(avail_left);
+        let left = self.spawn.column.clamp(avail_left, max_left);
         let top = self.spawn.row.min(rows.saturating_sub(height));
         // Clamp the body window to the box interior (height minus the top and
         // bottom border rows). When the menu fits, `height == body_rows + 2` so
@@ -1613,6 +1655,49 @@ mod tests {
         let rect = m.rect(40, 20);
         assert!(rect.left + rect.width <= 40);
         assert!(rect.top + rect.height <= 20);
+    }
+
+    #[test]
+    fn rect_clears_reserved_left_band() {
+        // MENU-Z-ORDER: a left-rail clearance keeps the whole box right of the
+        // reserved band even when the spawn cell lands inside it (a right-click
+        // on the floating rail).
+        let mut m = menu(true, true);
+        m.spawn = CellPoint { row: 2, column: 1 };
+        m.set_rail_clearance(16, 0);
+        let rect = m.rect(80, 34);
+        assert!(
+            rect.left >= 16,
+            "box left ({}) must clear the reserved 16-col rail band",
+            rect.left
+        );
+        assert!(rect.left + rect.width <= 80, "box stays on the grid");
+    }
+
+    #[test]
+    fn rect_clears_reserved_right_band() {
+        // MENU-Z-ORDER: a right-rail clearance keeps the box's right edge left of
+        // the reserved band, even when the spawn cell is near the right edge.
+        let mut m = menu(true, true);
+        m.spawn = CellPoint { row: 2, column: 78 };
+        m.set_rail_clearance(0, 16);
+        let rect = m.rect(80, 34);
+        assert!(
+            rect.left + rect.width <= 80 - 16,
+            "box right edge ({}) must clear the reserved right band (<= 64)",
+            rect.left + rect.width
+        );
+    }
+
+    #[test]
+    fn rect_no_clearance_is_byte_identical() {
+        // A zero reserve must not move the box: the default menu geometry is
+        // unchanged by the clearance machinery.
+        let mut m = menu(true, true);
+        m.spawn = CellPoint { row: 4, column: 7 };
+        let baseline = m.rect(80, 34);
+        m.set_rail_clearance(0, 0);
+        assert_eq!(m.rect(80, 34), baseline, "zero reserve is a no-op");
     }
 
     #[test]

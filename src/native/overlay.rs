@@ -463,6 +463,15 @@ impl OverlayUi {
         self.open = true;
     }
 
+    /// Reserve `left`/`right` columns the open context menu box must stay clear
+    /// of (MENU-Z-ORDER). The App calls this immediately after opening a
+    /// rail-anchored menu while the auto-hide rail is revealed, so the box lands
+    /// beside the floating rail band rather than under it (the rail composites
+    /// topmost). A no-op reserve leaves the layout byte-identical.
+    pub(super) fn set_context_menu_rail_clearance(&mut self, left: usize, right: usize) {
+        self.context_menu.set_rail_clearance(left, right);
+    }
+
     /// Open the connection-row context menu (ODP-2C) at `spawn` for the row at
     /// filtered index `row_index`, snapshotting `host` so the menu can gate
     /// Edit/Remove (OdyTTY-owned only) and route each of the five actions. This

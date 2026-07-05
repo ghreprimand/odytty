@@ -2441,6 +2441,28 @@ impl App {
             path_target,
             accelerators,
         );
+        // MENU-Z-ORDER: a rail-anchored menu keeps the auto-hide rail revealed
+        // (RAIL-PIN), and the rail composites topmost — so without clearance the
+        // menu box paints UNDER the floating rail band and its edge is occluded.
+        // Reserve the rail band's columns (plus a one-column gap) on the rail's
+        // side so the box lands beside the rail, fully visible and clickable.
+        // Only the rail-anchored surfaces pin the rail; every other menu closes
+        // the rail (overlay open ⇒ not revealed), so no clearance is applied and
+        // the geometry is byte-identical.
+        if self.rail_autohide_active()
+            && matches!(
+                surface,
+                ContextMenuSurface::WorkspaceSlot(_) | ContextMenuSurface::WorkspaceRailEmpty
+            )
+            && let Some(side) = self.rail_autohide_side()
+        {
+            let band = self.rail_overlay_cols() + 1;
+            let (left, right) = match side {
+                RailSide::Left => (band, 0),
+                RailSide::Right => (0, band),
+            };
+            self.overlay.set_context_menu_rail_clearance(left, right);
+        }
         self.request_selection_redraw();
     }
 

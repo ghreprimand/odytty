@@ -1649,6 +1649,43 @@ fn autohide_rail_reveals_for_a_workspace_rename_prompt() {
     );
 }
 
+#[test]
+fn autohide_rail_menu_box_clears_the_floating_rail_band() {
+    // MENU-Z-ORDER: a WorkspaceSlot menu opened while the auto-hide rail is
+    // revealed keeps the rail visible (RAIL-PIN) — the rail composites topmost,
+    // so the menu box must land BESIDE the band, never under it, or its edge is
+    // occluded. The box's left column must clear the reserved rail band.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    add_workspace(&mut app);
+    app.rename_workspace_for_test(0, "a");
+    app.rename_workspace_for_test(1, "b");
+    app.set_tab_rail_autohide_for_test(true);
+    app.force_rail_reveal_for_test();
+
+    // Right-click lands inside the floating rail band (column 1 of the left
+    // rail); the menu spawns there but must be shifted clear of the band.
+    app.set_pointer_cell_for_test(2, 1);
+    app.open_workspace_rail_menu_for_test(0);
+    assert!(
+        app.context_menu_open_for_test(),
+        "the workspace slot menu is open"
+    );
+    let band = app.rail_overlay_cols_for_test();
+    let rect = app.overlay_rect_for_test().expect("menu rect");
+    assert!(
+        rect.left >= band,
+        "menu box left ({}) must clear the {}-col floating rail band",
+        rect.left,
+        band
+    );
+}
+
 // --- F4-P3 REGRESSION repros (auto-hide breaks mouse routing) ---
 
 #[test]

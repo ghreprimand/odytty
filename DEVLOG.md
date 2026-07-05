@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Context menu paints above the floating workspace rail
+
+Field testing found a workspace-slot context menu rendering behind the auto-hide
+workspace rail: the rail composites as the topmost floating layer, so a menu
+opened from the rail (which keeps the rail revealed under it) had its edge
+occluded by the rail band. The menu box now reserves the rail band's columns on
+the rail's side when it opens from a rail surface under auto-hide, so it lands
+beside the floating rail rather than under it — the rail stays visible and the
+whole menu is clickable. Every non-rail menu applies no reservation, so its
+geometry is unchanged.
+
+---
+
 ## 2026-07-05 -- Configurable SSH connection-persistence window (`remote_persist`)
 
 The fixed 600-second `ControlPersist` window on a reused SSH master is now
