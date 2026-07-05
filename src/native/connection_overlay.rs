@@ -661,6 +661,7 @@ mod tests {
             tmux: None,
             protocol: None,
             identity_file: None,
+            persist: None,
             source,
         }
     }

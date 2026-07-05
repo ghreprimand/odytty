@@ -72,6 +72,11 @@ pub struct ConnectionHost {
     /// gains `-i <path>`; OdyTTY stores only the path, never any key material.
     /// The once-and-done alternative to typing a password is `ssh-copy-id`.
     pub identity_file: Option<String>,
+    /// Per-host override for the reuse master's `ControlPersist` window (ODP-9
+    /// Tier 2). `None` inherits the global `remote_persist` setting; any value
+    /// here is passed through as the raw `ssh` ControlPersist token (e.g. `off`,
+    /// `2h`, `600`). Unix-only in effect — never emitted on a Windows client.
+    pub persist: Option<String>,
     pub source: ConnectionHostSource,
 }
 
@@ -114,6 +119,7 @@ struct HostBlock {
     tmux: Option<bool>,
     protocol: Option<String>,
     identity_file: Option<String>,
+    persist: Option<String>,
 }
 
 impl HostBlock {
@@ -131,6 +137,7 @@ impl HostBlock {
             tmux: None,
             protocol: None,
             identity_file: None,
+            persist: None,
         }
     }
 }
@@ -215,6 +222,7 @@ fn push_host_block_aliased(out: &mut String, aliases: &[String], host: &Connecti
     push_optional_field(out, "Font", host.font.as_deref());
     push_optional_field(out, "Title", host.title.as_deref());
     push_optional_field(out, "IdentityFile", host.identity_file.as_deref());
+    push_optional_field(out, "Persist", host.persist.as_deref());
     if let Some(integration) = host.integration {
         push_optional_field(
             out,
@@ -282,6 +290,7 @@ impl AdhocTarget {
             tmux: None,
             protocol: None,
             identity_file: None,
+            persist: None,
             source: ConnectionHostSource::Odytty,
         }
     }
@@ -744,6 +753,7 @@ pub fn merge_connection_hosts(
             tmux: None,
             protocol: None,
             identity_file: None,
+            persist: None,
             source: ConnectionHostSource::SshConfig,
         });
     }
@@ -888,6 +898,7 @@ fn flush_block(
             tmux: block.tmux,
             protocol: block.protocol.clone(),
             identity_file: block.identity_file.clone(),
+            persist: block.persist.clone(),
             source: ConnectionHostSource::Odytty,
         });
     }
@@ -970,6 +981,11 @@ fn apply_host_field(
                 block.protocol = Some(trim_chars(v, max_chars));
             }
         }
+        "persist" => {
+            if let Some(v) = value {
+                block.persist = Some(trim_chars(v, max_chars));
+            }
+        }
         _ => return false,
     }
     true
@@ -990,6 +1006,7 @@ fn is_known_host_field(keyword: &str) -> bool {
             | "reuse"
             | "tmux"
             | "protocol"
+            | "persist"
     )
 }
 
@@ -1046,6 +1063,7 @@ mod tests {
             tmux: None,
             protocol: None,
             identity_file: None,
+            persist: None,
             source,
         }
     }
@@ -1665,6 +1683,23 @@ mod tests {
             edited, "Host solo\n    User y",
             "no trailing newline injected"
         );
+    }
+
+    #[test]
+    fn persist_field_parses_emits_and_survives_an_edit() {
+        // ODP-9 Tier 2: a per-host Persist override parses and round-trips.
+        let entries = parse_odytty_hosts_bytes_with_limits(
+            b"Host pw\n    HostName pw.example.invalid\n    Persist 2h\n",
+            limits(),
+        );
+        assert_eq!(entries[0].persist.as_deref(), Some("2h"));
+        let mut rendered = String::new();
+        push_host_block(&mut rendered, &entries[0]);
+        assert!(rendered.contains("Persist 2h"));
+
+        // An off override is preserved verbatim.
+        let off = parse_odytty_hosts_bytes_with_limits(b"Host po\n    Persist off\n", limits());
+        assert_eq!(off[0].persist.as_deref(), Some("off"));
     }
 
     #[test]

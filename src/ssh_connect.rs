@@ -211,6 +211,13 @@ pub struct RemoteSshOptions {
     /// (unresolvable state dir, or a Windows client where OpenSSH has no
     /// socket-multiplexing support).
     pub control_dir: Option<PathBuf>,
+    /// The `ControlPersist=` token for the reuse master (ODP-9 Tier 2): `no` to
+    /// tear the master down with its last connection, or a window in whole
+    /// seconds. `None` uses the built-in default window
+    /// ([`SSH_CONTROL_PERSIST_SECS`]), so callers that do not resolve the
+    /// `remote_persist` knob stay byte-identical to the historical fixed window.
+    /// Ignored on a Windows client (the control options are compiled out there).
+    pub control_persist: Option<String>,
 }
 
 /// Build the system-ssh argv for a saved connection entry, optionally injecting
@@ -230,6 +237,7 @@ pub fn ssh_command_for_host_with_integration(
             reuse: false,
             tmux: false,
             control_dir: None,
+            control_persist: None,
         },
     )
 }
@@ -286,9 +294,11 @@ pub fn ssh_command_for_host_with_options(
         args.push(OsString::from("-o"));
         args.push(OsString::from("ControlMaster=auto"));
         args.push(OsString::from("-o"));
-        args.push(OsString::from(format!(
-            "ControlPersist={SSH_CONTROL_PERSIST_SECS}"
-        )));
+        let persist = opts
+            .control_persist
+            .as_deref()
+            .unwrap_or(SSH_CONTROL_PERSIST_SECS);
+        args.push(OsString::from(format!("ControlPersist={persist}")));
         args.push(OsString::from("-o"));
         let mut control_path = OsString::from("ControlPath=");
         control_path.push(socket.as_os_str());
@@ -452,6 +462,58 @@ pub fn remote_reuse_enabled(host_reuse: Option<bool>, global_default: bool) -> b
 /// setting wins, otherwise the global default applies.
 pub fn remote_tmux_enabled(host_tmux: Option<bool>, global_default: bool) -> bool {
     host_tmux.unwrap_or(global_default)
+}
+
+/// Parse a `ControlPersist` value (a `remote_persist` preset or a per-host
+/// `Persist` override) into the canonical token emitted after `ControlPersist=`:
+/// `no` for an off token (the master dies with its last connection), otherwise
+/// the window in whole seconds. Accepts an off token (`off`/`0`/`no`/`none`),
+/// bare seconds (`600`), and `<n>h`/`<n>m`/`<n>s` combinations (`2h`, `1h30m`,
+/// `90s`). Returns `None` for an unrecognized value so the caller can fall back
+/// to the global default. Pure string handling — no shell, no I/O; the value is
+/// only ever placed as a single `-o ControlPersist=<token>` argv element.
+pub fn parse_control_persist(raw: &str) -> Option<String> {
+    let trimmed = raw.trim().to_ascii_lowercase();
+    if matches!(trimmed.as_str(), "off" | "0" | "no" | "none" | "false") {
+        return Some("no".to_owned());
+    }
+    parse_duration_secs(&trimmed).map(|secs| secs.to_string())
+}
+
+/// Parse a duration into whole seconds. Accepts bare seconds (`600`) or a
+/// sequence of `<n>h`/`<n>m`/`<n>s` units (`2h`, `1h30m`, `90s`). Returns `None`
+/// for an empty string, a bad unit, overflow, or trailing digits without a unit.
+fn parse_duration_secs(s: &str) -> Option<u64> {
+    if s.is_empty() {
+        return None;
+    }
+    if let Ok(secs) = s.parse::<u64>() {
+        return Some(secs);
+    }
+    let mut total: u64 = 0;
+    let mut num = String::new();
+    let mut saw_unit = false;
+    for ch in s.chars() {
+        if ch.is_ascii_digit() {
+            num.push(ch);
+            continue;
+        }
+        let value: u64 = num.parse().ok()?;
+        num.clear();
+        let mult: u64 = match ch {
+            'h' => 3600,
+            'm' => 60,
+            's' => 1,
+            _ => return None,
+        };
+        total = total.checked_add(value.checked_mul(mult)?)?;
+        saw_unit = true;
+    }
+    // Trailing digits with no unit (e.g. "1h30") are rejected as ambiguous.
+    if !num.is_empty() {
+        return None;
+    }
+    saw_unit.then_some(total)
 }
 
 /// The `ControlMaster` socket path for a destination under OdyTTY's owned
@@ -662,6 +724,7 @@ mod tests {
             tmux: None,
             protocol: None,
             identity_file: None,
+            persist: None,
             source: ConnectionHostSource::Odytty,
         }
     }
@@ -740,6 +803,7 @@ mod tests {
                 reuse: true,
                 tmux: false,
                 control_dir: Some(std::path::PathBuf::from("/run/user/1000/odytty/ssh")),
+                control_persist: None,
             },
         )
         .expect("off+reuse");
@@ -978,6 +1042,7 @@ mod tests {
                 reuse: false,
                 tmux,
                 control_dir: None,
+                control_persist: None,
             },
         )
         .expect("argv");
@@ -1024,6 +1089,7 @@ mod tests {
                 reuse: false,
                 tmux: true,
                 control_dir: None,
+                control_persist: None,
             },
         )
         .expect("off+tmux");
@@ -1041,6 +1107,7 @@ mod tests {
                 reuse: true,
                 tmux: false,
                 control_dir: Some(std::path::PathBuf::from("/run/user/1000/odytty/ssh")),
+                control_persist: None,
             },
         )
         .expect("argv");
@@ -1073,6 +1140,7 @@ mod tests {
                 reuse: true,
                 tmux: false,
                 control_dir: None,
+                control_persist: None,
             },
         )
         .expect("argv");
@@ -1092,10 +1160,120 @@ mod tests {
                 reuse: false,
                 tmux: false,
                 control_dir: Some(std::path::PathBuf::from("/run/user/1000/odytty/ssh")),
+                control_persist: None,
             },
         )
         .expect("argv");
         assert!(!argv(&command).join(" ").contains("ControlMaster"));
+    }
+
+    // ODP-9 Tier 2: the `remote_persist` knob replaces the historically-fixed
+    // ControlPersist window. The default resolves to `None` here, which MUST keep
+    // emitting the historical `ControlPersist=600` so the argv is byte-identical
+    // to before the knob (the non-regression gate the ruling called out).
+    #[cfg(not(windows))]
+    #[test]
+    fn default_persist_is_byte_identical_to_the_fixed_600s_window() {
+        let entry = remote_host("web1", "deploy", "web1.example.invalid");
+        let with_default = ssh_command_for_host_with_options(
+            &entry,
+            &RemoteSshOptions {
+                integration: true,
+                reuse: true,
+                tmux: false,
+                control_dir: Some(std::path::PathBuf::from("/run/user/1000/odytty/ssh")),
+                control_persist: None,
+            },
+        )
+        .expect("argv");
+        // Resolving the default `10m` preset to its token is the same string.
+        let with_ten_min = ssh_command_for_host_with_options(
+            &entry,
+            &RemoteSshOptions {
+                integration: true,
+                reuse: true,
+                tmux: false,
+                control_dir: Some(std::path::PathBuf::from("/run/user/1000/odytty/ssh")),
+                control_persist: Some("600".to_owned()),
+            },
+        )
+        .expect("argv");
+        assert!(
+            argv(&with_default)
+                .iter()
+                .any(|a| a == "ControlPersist=600")
+        );
+        assert_eq!(argv(&with_default), argv(&with_ten_min));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn explicit_persist_token_replaces_the_window_exactly_once() {
+        let entry = remote_host("web1", "deploy", "web1.example.invalid");
+        for (token, expected) in [("no", "ControlPersist=no"), ("7200", "ControlPersist=7200")] {
+            let command = ssh_command_for_host_with_options(
+                &entry,
+                &RemoteSshOptions {
+                    integration: true,
+                    reuse: true,
+                    tmux: false,
+                    control_dir: Some(std::path::PathBuf::from("/run/user/1000/odytty/ssh")),
+                    control_persist: Some(token.to_owned()),
+                },
+            )
+            .expect("argv");
+            let args = argv(&command);
+            assert!(args.iter().any(|a| a == expected), "{expected} present");
+            assert_eq!(
+                args.iter()
+                    .filter(|a| a.starts_with("ControlPersist="))
+                    .count(),
+                1,
+                "exactly one ControlPersist option"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_control_persist_maps_off_tokens_and_durations() {
+        // Off tokens tear the master down with its last connection.
+        for off in ["off", "0", "no", "none", "false", "  OFF  "] {
+            assert_eq!(parse_control_persist(off).as_deref(), Some("no"), "{off}");
+        }
+        // Presets and raw durations normalize to whole seconds.
+        assert_eq!(parse_control_persist("10m").as_deref(), Some("600"));
+        assert_eq!(parse_control_persist("30m").as_deref(), Some("1800"));
+        assert_eq!(parse_control_persist("2h").as_deref(), Some("7200"));
+        assert_eq!(parse_control_persist("1h30m").as_deref(), Some("5400"));
+        assert_eq!(parse_control_persist("90s").as_deref(), Some("90"));
+        assert_eq!(parse_control_persist("600").as_deref(), Some("600"));
+        // Garbage yields None so the caller can fall back to the global default.
+        assert_eq!(parse_control_persist("soon"), None);
+        assert_eq!(parse_control_persist("1h30"), None);
+        assert_eq!(parse_control_persist(""), None);
+    }
+
+    // Windows client: OpenSSH has no ControlMaster, so the reuse control options
+    // (including ControlPersist) are compiled out — the knob is inert. This test
+    // pins that a Windows argv carries NO ControlPersist regardless of the token.
+    #[cfg(windows)]
+    #[test]
+    fn windows_never_emits_control_persist() {
+        let entry = remote_host("web1", "deploy", "web1.example.invalid");
+        let command = ssh_command_for_host_with_options(
+            &entry,
+            &RemoteSshOptions {
+                integration: true,
+                reuse: true,
+                tmux: false,
+                control_dir: Some(std::path::PathBuf::from("C:/odytty/ssh")),
+                control_persist: Some("7200".to_owned()),
+            },
+        )
+        .expect("argv");
+        let joined = argv(&command).join(" ");
+        assert!(!joined.contains("ControlPersist"));
+        assert!(!joined.contains("ControlMaster"));
     }
 
     #[cfg(not(windows))]
@@ -1150,6 +1328,7 @@ mod tests {
                 reuse: true,
                 tmux: false,
                 control_dir: Some(std::path::PathBuf::from("C:/odytty/ssh")),
+                control_persist: None,
             },
         )
         .expect("argv");

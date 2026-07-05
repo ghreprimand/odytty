@@ -94,6 +94,7 @@ impl App {
                 tmux: None,
                 protocol: None,
                 identity_file: None,
+                persist: None,
                 source: ConnectionHostSource::Odytty,
             })
             .collect();

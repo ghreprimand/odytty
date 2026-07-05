@@ -157,6 +157,10 @@ pub(super) struct ConnectionForm {
     /// Reserved protocol carried opaquely across an edit so it is not dropped
     /// (it has no form control).
     protocol: Option<String>,
+    /// Per-host `Persist` (ControlPersist) override carried opaquely across an
+    /// edit so it is not dropped (the global setting is the editor; there is no
+    /// per-host form control).
+    persist: Option<String>,
     advanced: bool,
     focus: FormField,
     error: Option<String>,
@@ -202,6 +206,7 @@ impl ConnectionForm {
             reuse: host.reuse,
             tmux: host.tmux,
             protocol: host.protocol.clone(),
+            persist: host.persist.clone(),
             existing_aliases,
             ..Self::default()
         };
@@ -542,6 +547,7 @@ impl ConnectionForm {
             reuse: self.reuse,
             tmux: self.tmux,
             protocol: self.protocol.clone(),
+            persist: self.persist.clone(),
             identity_file: Self::opt(&self.identity_file),
             source: ConnectionHostSource::Odytty,
         })
@@ -868,6 +874,7 @@ mod tests {
             reuse: None,
             tmux: None,
             protocol: Some("ssh".to_owned()),
+            persist: None,
             identity_file: Some("/home/user/.ssh/alpha.example".to_owned()),
             source: ConnectionHostSource::Odytty,
         };

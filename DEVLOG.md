@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Configurable SSH connection-persistence window (`remote_persist`)
+
+The fixed 600-second `ControlPersist` window on a reused SSH master is now
+configurable through a `remote_persist` knob (`off`, `10m`, `30m`, `1h`, `2h`),
+default `10m` -- which resolves to `ControlPersist=600`, so the emitted argv is
+unchanged by default. Keeping a reused master authenticated after the last tab to
+a host closes means a daily-driver host is authenticated roughly once per boot
+rather than once per tab; `off` maps to `ControlPersist=no`, tearing the master
+down with its last connection for anyone who prefers the tighter posture.
+
+A per-host `Persist` line in `hosts.conf` overrides the global window for one
+host and additionally accepts any raw `ssh` ControlPersist value (e.g. `45m`),
+resolved to whole seconds. The knob only affects the reuse path, so with
+connection reuse off the argv is unchanged. Windows: OpenSSH there has no
+connection multiplexing, so the control options -- including this one -- are
+compiled out and the knob is inert on a Windows client.
+
+---
+
 ## 2026-07-05 -- Move a tab to any workspace from a named-destination picker
 
 The tab context menu's "Move to Next Workspace" step is replaced by

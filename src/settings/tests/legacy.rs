@@ -189,6 +189,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "remote_integration",
             "remote_reuse",
             "remote_tmux",
+            "remote_persist",
             "remote_image_paste",
             "session_replay",
             "restore_workspaces",
@@ -1954,6 +1955,46 @@ fn remote_reuse_round_trips_through_config_key_mapping() {
         settings.to_edit_values().get(REMOTE_REUSE_ENV),
         Some(&"off".to_owned())
     );
+}
+
+#[test]
+fn remote_persist_round_trips_and_defaults_to_ten_minutes() {
+    // ODP-9 Tier 2: the config key resolves both directions.
+    assert_eq!(
+        config_key_to_env("remote_persist"),
+        Some(REMOTE_PERSIST_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("controlpersist"),
+        Some(REMOTE_PERSIST_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(REMOTE_PERSIST_ENV),
+        Some("remote_persist")
+    );
+
+    // Default is 10m, which resolves to the historical 600-second window so the
+    // emitted argv is unchanged by default.
+    assert_eq!(Settings::default().remote_persist, RemotePersist::Min10);
+    assert_eq!(
+        Settings::default().remote_persist.control_persist_value(),
+        "600"
+    );
+    assert_eq!(RemotePersist::Off.control_persist_value(), "no");
+
+    // A config value round-trips through the enum and back to its token.
+    let (settings, warnings) = settings_from([(REMOTE_PERSIST_ENV, "2h")]);
+    assert_eq!(settings.remote_persist, RemotePersist::Hour2);
+    assert!(warnings.is_empty());
+    assert_eq!(
+        settings.to_edit_values().get(REMOTE_PERSIST_ENV),
+        Some(&"2h".to_owned())
+    );
+
+    // An unrecognized value warns and keeps the default.
+    let (settings, warnings) = settings_from([(REMOTE_PERSIST_ENV, "banana")]);
+    assert_eq!(settings.remote_persist, RemotePersist::Min10);
+    assert!(!warnings.is_empty());
 }
 
 #[test]

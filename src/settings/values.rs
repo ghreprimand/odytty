@@ -645,6 +645,29 @@ pub(super) fn parse_workspace_rail(
     }
 }
 
+pub(super) fn parse_remote_persist(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> RemotePersist {
+    let Some(raw) = raw else {
+        return RemotePersist::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return RemotePersist::default();
+    }
+    match RemotePersist::parse(trimmed) {
+        Some(mode) => mode,
+        None => {
+            warn(&format!(
+                "{REMOTE_PERSIST_ENV}={trimmed:?} is not off|10m|30m|1h|2h; using 10m"
+            ));
+            RemotePersist::default()
+        }
+    }
+}
+
 /// Shared numeric parser for the F4-P1 rail/panel knobs: an absent/blank value
 /// yields `default`; a non-finite or unparseable value warns (`what` names the
 /// quantity) and falls back; otherwise the value is clamped to `[min, max]`.

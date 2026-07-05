@@ -138,7 +138,9 @@ and opens it in a new tab/session; `--` keeps a saved host name from being
 interpreted as another ssh option. `Theme`, `Font`, and `Title` are optional
 per-host profile fields reserved for the overlay UI. `Integration on|off`,
 `Reuse on|off`, and `Tmux on|off` are optional per-host overrides for remote
-shell integration, connection reuse, and tmux persistence (see below).
+shell integration, connection reuse, and tmux persistence (see below). `Persist`
+overrides the connection-persistence window for one host (any `ssh` ControlPersist
+value, e.g. `off`, `2h`, `45m`).
 `IdentityFile` names a path to an existing SSH private key; when set, the connect
 argv gains `-i <path>` so a key that is not in `~/.ssh/config` still
 authenticates. OdyTTY stores only the path — never any key material — and
@@ -206,6 +208,22 @@ globally. Reuse layers onto integrated sessions only, so with
 launch regardless of this setting. **Windows:** OpenSSH for Windows has no
 connection multiplexing, so a Windows client never emits control options and
 reuse is a silent no-op there.
+
+### SSH connection persistence window (`remote_persist`)
+
+Connection reuse keeps an authenticated master alive for a while after the last
+tab to a host closes, so a daily-driver host is authenticated roughly once per
+boot rather than once per tab. `remote_persist` (`ODYTTY_REMOTE_PERSIST`) sets
+how long that master lingers: `10m` (the default), `30m`, `1h`, `2h`, or `off`.
+The default `10m` maps to OpenSSH `ControlPersist=600`, which is the historical
+fixed window — so the default is a no-op change and existing behavior is
+unchanged. `off` maps to `ControlPersist=no`, tearing the master down with its
+last connection (the pre-persistence posture). A per-host `Persist` line in
+`hosts.conf` overrides the global value for a single host and additionally
+accepts any raw `ssh` ControlPersist value (for example `Persist 45m`). This
+only takes effect with connection reuse on. **Windows:** OpenSSH for Windows has
+no connection multiplexing, so this knob is inert on a Windows client (no control
+options are ever emitted).
 
 ### SSH session persistence (`remote_tmux`)
 
@@ -403,6 +421,7 @@ environment variable was not set at startup.
 | `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |
 | `remote_integration` | `ODYTTY_REMOTE_INTEGRATION` | `on`, `off` | `on` |
 | `remote_reuse` | `ODYTTY_REMOTE_REUSE` | `on`, `off` | `on` |
+| `remote_persist` | `ODYTTY_REMOTE_PERSIST` | `off`, `10m`, `30m`, `1h`, `2h` | `10m` |
 | `remote_tmux` | `ODYTTY_REMOTE_TMUX` | `on`, `off` | `off` |
 | `remote_image_paste` | `ODYTTY_REMOTE_IMAGE_PASTE` | `ask`, `off` | `ask` |
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |

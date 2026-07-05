@@ -158,11 +158,19 @@ impl App {
         // meaningful when integration is on.
         let tmux_enabled = integration_enabled
             && crate::ssh_connect::remote_tmux_enabled(host.tmux, self.settings.remote_tmux);
+        // Resolve the ControlPersist window for the reuse master: a per-host
+        // `Persist` override (any ssh ControlPersist value) wins, else the global
+        // `remote_persist` knob. The default (`10m`) yields `600`, byte-identical
+        // to the historical fixed window. Inert on a Windows client (the reuse
+        // control options are compiled out there).
+        let control_persist =
+            Self::resolve_control_persist(host.persist.as_deref(), self.settings.remote_persist);
         let opts = crate::ssh_connect::RemoteSshOptions {
             integration: integration_enabled,
             reuse: reuse_enabled,
             tmux: tmux_enabled,
             control_dir: Self::ssh_control_dir(integration_enabled && reuse_enabled),
+            control_persist: Some(control_persist),
         };
         let token = self
             .sessions
@@ -381,6 +389,24 @@ impl App {
             .is_some()
         {
             self.raise_open_notice(WORKSPACE_UNBOUND_NOTICE.to_owned());
+        }
+    }
+
+    /// Resolve the `ControlPersist=` token for a host's reuse master: a per-host
+    /// `Persist` override (any recognized ssh ControlPersist value) wins,
+    /// otherwise the global `remote_persist` knob. The global default (`10m`)
+    /// resolves to `600`, so the emitted argv is byte-identical to the historical
+    /// fixed window; an unparseable per-host override falls back to the global.
+    /// Platform-neutral resolution — the token is only ever emitted on Unix
+    /// (the reuse control options are compiled out on a Windows client).
+    fn resolve_control_persist(
+        host_persist: Option<&str>,
+        global: crate::settings::RemotePersist,
+    ) -> String {
+        match host_persist {
+            Some(raw) => crate::ssh_connect::parse_control_persist(raw)
+                .unwrap_or_else(|| global.control_persist_value().to_owned()),
+            None => global.control_persist_value().to_owned(),
         }
     }
 

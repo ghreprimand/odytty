@@ -857,6 +857,76 @@ impl WorkspaceRail {
     }
 }
 
+/// ControlPersist window for the reuse master (ODP-9 Tier 2, `remote_persist`).
+/// The reuse path keeps an authenticated `ssh` master alive after the last tab
+/// to a host closes, so a daily-driver host is authenticated roughly once per
+/// boot rather than once per tab. This knob sets how long that master lingers.
+///
+/// `Min10` (the default) maps to `ControlPersist=600` — byte-identical to the
+/// historical fixed 10-minute window, so default behavior is unchanged. `Off`
+/// maps to `ControlPersist=no`, tearing the master down with its last
+/// connection (the pre-persist security posture). The remaining variants extend
+/// the window. A per-host `Persist` line in `hosts.conf` overrides this globally
+/// and additionally accepts any raw `ssh` ControlPersist value. Unix-only: the
+/// reuse control options are compiled out on a Windows client, so this value is
+/// never emitted there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RemotePersist {
+    /// The shared master dies with its last connection (`ControlPersist=no`).
+    Off,
+    /// Keep the master alive 10 minutes past the last tab (default; the historical
+    /// fixed window, so the emitted argv is byte-identical to before the knob).
+    #[default]
+    Min10,
+    /// Keep the master alive 30 minutes past the last tab.
+    Min30,
+    /// Keep the master alive 1 hour past the last tab.
+    Hour1,
+    /// Keep the master alive 2 hours past the last tab.
+    Hour2,
+}
+
+impl RemotePersist {
+    /// The persisted / config token for this value.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Min10 => "10m",
+            Self::Min30 => "30m",
+            Self::Hour1 => "1h",
+            Self::Hour2 => "2h",
+        }
+    }
+
+    /// The `ControlPersist=` argument value (Unix reuse only): `no` for `Off`,
+    /// otherwise the window in whole seconds. `Min10` -> `600`, matching the
+    /// historical fixed window so the default argv is byte-identical.
+    pub fn control_persist_value(self) -> &'static str {
+        match self {
+            Self::Off => "no",
+            Self::Min10 => "600",
+            Self::Min30 => "1800",
+            Self::Hour1 => "3600",
+            Self::Hour2 => "7200",
+        }
+    }
+
+    /// Parse a config/override token. Accepts the canonical forms plus common
+    /// synonyms (`0`/`no`/`none` = off; bare seconds for the presets), so a hand
+    /// -written config or a per-host `Persist` value resolves without surprise.
+    /// Unrecognized values yield `None` (the caller warns and keeps the default).
+    pub fn parse(value: &str) -> Option<Self> {
+        match normalize_name(value).as_str() {
+            "off" | "0" | "no" | "none" | "false" => Some(Self::Off),
+            "10m" | "600" | "600s" => Some(Self::Min10),
+            "30m" | "1800" | "1800s" => Some(Self::Min30),
+            "1h" | "60m" | "3600" | "3600s" => Some(Self::Hour1),
+            "2h" | "120m" | "7200" | "7200s" => Some(Self::Hour2),
+            _ => None,
+        }
+    }
+}
+
 /// Vertical tab-rail width mode (F4-P4): `Auto` sizes the rail to the longest
 /// tab title (clamped to `[MIN_TAB_RAIL_WIDTH, tab_rail_max_width]`); `Manual`
 /// pins an operator-chosen width in cells (clamped to `[MIN_TAB_RAIL_WIDTH,
@@ -1319,6 +1389,13 @@ pub struct Settings {
     /// per-host `Tmux on`/`Tmux off` overrides for a single host. Only meaningful
     /// with `remote_integration` on (the bootstrap is the injection point).
     pub remote_tmux: bool,
+    /// How long a reuse master lingers after the last tab to a host closes
+    /// (ODP-9 Tier 2). `Min10` (default) is the historical fixed 10-minute
+    /// window (`ControlPersist=600`), so default behavior is byte-identical;
+    /// `Off` tears the master down with its last connection. A per-host `Persist`
+    /// line in `hosts.conf` overrides this. Unix-only: never emitted on a Windows
+    /// client (no ControlMaster there). Only meaningful with `remote_reuse` on.
+    pub remote_persist: RemotePersist,
     /// Image paste-through for remote integrated ssh tabs (F6-i7). `Ask`
     /// (default) prompts before uploading a pasted clipboard image to the remote
     /// host; `Off` disables it. Only engages on a remote integrated tab; a local
@@ -1452,6 +1529,7 @@ impl Default for Settings {
             remote_integration: DEFAULT_REMOTE_INTEGRATION,
             remote_reuse: DEFAULT_REMOTE_REUSE,
             remote_tmux: DEFAULT_REMOTE_TMUX,
+            remote_persist: RemotePersist::default(),
             remote_image_paste: RemoteImagePaste::default(),
             session_replay: DEFAULT_SESSION_REPLAY,
             interactive_urls: DEFAULT_INTERACTIVE_URLS,
@@ -2139,6 +2217,7 @@ impl Settings {
             DEFAULT_REMOTE_TMUX,
             &mut warn,
         );
+        let remote_persist = parse_remote_persist(get(REMOTE_PERSIST_ENV).as_deref(), &mut warn);
         let remote_image_paste =
             parse_remote_image_paste(get(REMOTE_IMAGE_PASTE_ENV).as_deref(), &mut warn);
         let session_replay = parse_bool_setting(
@@ -2273,6 +2352,7 @@ impl Settings {
             remote_integration,
             remote_reuse,
             remote_tmux,
+            remote_persist,
             remote_image_paste,
             session_replay,
             interactive_urls,
@@ -2514,6 +2594,7 @@ impl Settings {
         );
         values.insert(REMOTE_REUSE_ENV, bool_display(self.remote_reuse).to_owned());
         values.insert(REMOTE_TMUX_ENV, bool_display(self.remote_tmux).to_owned());
+        values.insert(REMOTE_PERSIST_ENV, self.remote_persist.as_str().to_owned());
         values.insert(
             REMOTE_IMAGE_PASTE_ENV,
             self.remote_image_paste.as_str().to_owned(),

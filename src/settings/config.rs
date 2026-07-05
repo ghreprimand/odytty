@@ -29,7 +29,8 @@ use super::{
     BOX_THICKNESS_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV, INTERACTIVE_PATHS_CLICK_HINT_ENV,
     INTERACTIVE_PATHS_EDITOR_ENV, INTERACTIVE_PATHS_ENV, INTERACTIVE_PATHS_IMAGE_INLINE_ENV,
     INTERACTIVE_URLS_ENV, LINE_HEIGHT_ENV, REMOTE_IMAGE_PASTE_ENV, REMOTE_INTEGRATION_ENV,
-    REMOTE_REUSE_ENV, REMOTE_TMUX_ENV, SESSION_REPLAY_ENV, SSH_CONFIG_HOSTS_ENV,
+    REMOTE_PERSIST_ENV, REMOTE_REUSE_ENV, REMOTE_TMUX_ENV, SESSION_REPLAY_ENV,
+    SSH_CONFIG_HOSTS_ENV,
 };
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
@@ -208,6 +209,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
             Some(REMOTE_INTEGRATION_ENV)
         }
         "remotereuse" | "sshreuse" | "controlmaster" | "sshcontrolmaster" => Some(REMOTE_REUSE_ENV),
+        "remotepersist" | "controlpersist" | "sshpersist" | "persist" => Some(REMOTE_PERSIST_ENV),
         "sessionreplay" | "replay" | "outputreplay" | "scrollbackreplay" => {
             Some(SESSION_REPLAY_ENV)
         }
@@ -320,6 +322,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         REMOTE_INTEGRATION_ENV => Some("remote_integration"),
         REMOTE_REUSE_ENV => Some("remote_reuse"),
         REMOTE_TMUX_ENV => Some("remote_tmux"),
+        REMOTE_PERSIST_ENV => Some("remote_persist"),
         REMOTE_IMAGE_PASTE_ENV => Some("remote_image_paste"),
         SESSION_REPLAY_ENV => Some("session_replay"),
         INTERACTIVE_URLS_ENV => Some("interactive_urls"),
