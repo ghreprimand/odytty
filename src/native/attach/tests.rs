@@ -407,7 +407,7 @@ fn attached_session_over(socket: &std::path::Path, id: &str) -> Session {
             .expect("attach connects");
     let terminal = Arc::new(Mutex::new(terminal));
     let client = Arc::new(Mutex::new(client));
-    let writer = attach_input_writer(client.clone());
+    let writer = attach_input_writer(client.clone(), SessionToken(0));
     Session::new_attached(SessionToken(0), terminal, writer, client, id, None)
 }
 
@@ -421,7 +421,7 @@ fn attached_session_token(socket: &std::path::Path, id: &str, token: u64) -> Ses
             .expect("attach connects");
     let terminal = Arc::new(Mutex::new(terminal));
     let client = Arc::new(Mutex::new(client));
-    let writer = attach_input_writer(client.clone());
+    let writer = attach_input_writer(client.clone(), SessionToken(token));
     Session::new_attached(SessionToken(token), terminal, writer, client, id, None)
 }
 

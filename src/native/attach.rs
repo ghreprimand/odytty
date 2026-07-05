@@ -228,10 +228,14 @@ impl Write for AttachInputWriter {
 /// Build the input [`PtyWriter`] for an attached session: a boxed
 /// [`AttachInputWriter`] sharing the same [`AttachClient`] the resize/detach path
 /// uses, so input/resize/detach all serialize through one socket lock.
-pub(super) fn attach_input_writer(client: Arc<Mutex<AttachClient>>) -> PtyWriter {
-    Arc::new(Mutex::new(
-        Box::new(AttachInputWriter { client }) as Box<dyn Write + Send>
-    ))
+pub(super) fn attach_input_writer(
+    client: Arc<Mutex<AttachClient>>,
+    session: SessionToken,
+) -> PtyWriter {
+    Arc::new(Mutex::new(super::pty_writer::writer_shim(
+        Box::new(AttachInputWriter { client }) as Box<dyn Write + Send>,
+        session,
+    )))
 }
 
 /// Resolve a hosted session id to its per-user socket path, mirroring the CLI's

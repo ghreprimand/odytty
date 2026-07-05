@@ -7,6 +7,50 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Non-blocking PTY write path (per-session writer thread)
+
+Field diagnosis of an unresponsive remote tab traced the freeze to the PTY write
+path: every write to a pane's shell — encoded keystrokes, pasted text, and the
+output pump's host replies — shared one `Arc<Mutex<Box<dyn Write>>>` over a
+*blocking* master fd. When an `ssh` child stopped draining its stdin PTY (a full
+session-channel flow-control window, with the connection otherwise healthy), the
+thread holding the writer lock parked in `write_all` forever and the main-thread
+input path deadlocked acquiring that same lock — a frozen UI on a live link, and
+no recovery until the window was force-closed.
+
+The blocking write now runs on a dedicated per-session writer thread fed by a
+bounded in-memory queue. Producers only ever enqueue — an O(1) push under a
+briefly-held queue lock that never spans an fd write — so a flow-controlled or
+wedged remote can no longer stall the input, paste, or pump paths. The writer
+thread owns the sole fd/handle clone and releases it on exit, so nothing leaks
+past session teardown. The existing writer type is retained unchanged; the boxed
+writer is now a thin enqueue shim, so every write call site keeps working while
+the retained mutex only ever guards an enqueue, never fd I/O. The paste path no
+longer needs its own transient thread — it enqueues synchronously and returns.
+
+Overflow policy: the queue is byte-bounded (4 MiB). A legitimate large paste into
+a healthy shell drains far faster than it fills and never drops; a wedged remote
+that exceeds the cap sheds its OLDEST buffered bytes rather than ever blocking a
+producer, and the discarded count is surfaced in the log.
+
+Default-on write-stall telemetry lands alongside, independent of the presented-
+frame freeze watchdog (which did not classify this wedge): the writer thread
+stamps a per-session start time before each fd write and clears it after, and a
+single detached monitor emits one `pty_write_stall` line for a write in flight
+past three seconds, plus a `pty_write_overflow` line when drop-oldest has
+discarded data. Both records are state-only — a numeric session id and byte or
+second counts, never terminal content.
+
+Platform note: the shim, queue, writer thread, and monitor are platform-neutral
+`std`, shared by the Unix PTY and Windows ConPTY write paths alike; the
+deterministic writer-thread lifecycle tests (enqueue never blocks under a stalled
+fd, clean exit on close during a stall, drop-oldest, drain-on-clean-close, and a
+fail-before contrast proving the old shared-mutex shape deadlocks a second
+writer) run on every platform leg. `cargo test` green (3409 passed / 0 failed);
+`cargo clippy --all-targets --locked` and `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-05 -- Document the connection-manager build-out in SPEC and TODO
 
 The durable product spec and milestone checklist still described the connection

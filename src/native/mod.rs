@@ -80,6 +80,7 @@ mod palette_overlay;
 mod panic_log;
 mod persistence;
 mod pty;
+mod pty_writer;
 mod render_helpers;
 mod replay_overlay;
 mod resize;
@@ -228,11 +229,12 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         .map_err(|err| NativeError::Pty(err.to_string()))?;
     // One writer, shared: the pump thread sends host responses through it, and
     // the App sends encoded keystrokes through its clone.
-    let writer: PtyWriter = Arc::new(Mutex::new(
+    let writer: PtyWriter = Arc::new(Mutex::new(pty_writer::writer_shim(
         session
             .take_writer()
             .map_err(|err| NativeError::Pty(err.to_string()))?,
-    ));
+        SessionToken(0),
+    )));
 
     // Windows only: a child that dies during its own initialization makes the
     // spawn return `Ok` yet would leave the pane blank (the failure is a

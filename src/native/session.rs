@@ -1581,9 +1581,10 @@ impl WorkspaceSet {
         self.next_token = self.next_token.saturating_add(1);
         let session = spawn(grid).map_err(std::io::Error::other)?;
         let reader = session.try_clone_reader().map_err(std::io::Error::other)?;
-        let writer: PtyWriter = Arc::new(Mutex::new(
+        let writer: PtyWriter = Arc::new(Mutex::new(super::pty_writer::writer_shim(
             session.take_writer().map_err(std::io::Error::other)?,
-        ));
+            session_id,
+        )));
         let mut model = Terminal::new(grid.columns, grid.rows);
         model.set_local_hostname(self.local_hostname.clone());
         seed_initial_working_directory(&mut model, seed_cwd.as_deref());
@@ -1759,7 +1760,7 @@ impl WorkspaceSet {
         terminal.set_local_hostname(self.local_hostname.clone());
         let terminal = Arc::new(Mutex::new(terminal));
         let client = Arc::new(Mutex::new(client));
-        let writer = attach_input_writer(client.clone());
+        let writer = attach_input_writer(client.clone(), token);
         let pump_thread = spawn_attach_pump(reader, terminal.clone(), sink, token);
         self.sessions.insert(
             token,
@@ -2018,7 +2019,9 @@ impl WorkspaceSet {
         let Ok(raw_writer) = spawned.take_writer() else {
             return false;
         };
-        let writer: PtyWriter = Arc::new(Mutex::new(raw_writer));
+        let writer: PtyWriter = Arc::new(Mutex::new(super::pty_writer::writer_shim(
+            raw_writer, token,
+        )));
         let diagnostic = spawned.pending_diagnostic_slot();
         let pump_thread = spawn_pty_pump(
             reader,

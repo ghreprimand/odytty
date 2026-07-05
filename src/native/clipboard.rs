@@ -11,7 +11,7 @@ use arboard::{GetExtLinux, LinuxClipboardKind, SetExtLinux};
 use crate::core::{ClipboardSelection, Snapshot, Terminal};
 use crate::selection;
 
-use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, spawn_chunked_pty_write};
+use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
 
 const BRACKETED_PASTE_START: &[u8] = b"\x1b[200~";
 const BRACKETED_PASTE_END: &[u8] = b"\x1b[201~";
@@ -344,7 +344,7 @@ pub(super) fn write_paste_text(
         .map(|terminal| terminal.bracketed_paste_enabled())
         .unwrap_or(false);
     let chunks = encode_paste_chunks(text, bracketed_paste, PASTE_CHUNK_SIZE);
-    spawn_chunked_pty_write(writer.clone(), chunks, "paste")
+    write_chunks_blocking(writer, &chunks)
 }
 
 pub(super) fn encode_paste_chunks(
