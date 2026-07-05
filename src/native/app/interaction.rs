@@ -194,6 +194,23 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.bind_active_workspace_to_host_alias(alias);
             }
+            // RAIL-BIND: bind the CLICKED rail workspace to a host. The menu
+            // closed itself; open the shared host picker seeded for the slot.
+            OverlayOutcome::ContextMenuBindWorkspaceAt(idx) => {
+                self.flush_pending_overlay_settings();
+                self.open_bind_workspace_at_picker(idx);
+            }
+            // RAIL-BIND: unbind the CLICKED rail workspace directly.
+            OverlayOutcome::ContextMenuUnbindWorkspaceAt(idx) => {
+                self.flush_pending_overlay_settings();
+                self.unbind_workspace_at(idx);
+            }
+            // RAIL-BIND: the shared host picker closed itself; bind the clicked
+            // rail slot to the chosen saved-host alias.
+            OverlayOutcome::BindWorkspaceAtToHost(idx, alias) => {
+                self.flush_pending_overlay_settings();
+                self.bind_workspace_at_to_host_alias(idx, alias);
+            }
             // ODP-5D: a tab-menu host action closed the menu; open the shared
             // host picker seeded for the clicked tab so the pick routes back.
             OverlayOutcome::ContextMenuConnectToHost(token) => {

@@ -2406,8 +2406,15 @@ impl App {
         let multi_tab = self.sessions.tab_count() > 1;
         let multi_workspace = self.sessions.workspace_count() > 1;
         // F6-W5: the tab menu offers a "New Local Tab" escape only when the
-        // active workspace routes New Tab through a bound host.
-        let bound_workspace = self.sessions.active_workspace_default_profile().is_some();
+        // active workspace routes New Tab through a bound host. RAIL-BIND: a
+        // WorkspaceSlot menu targets the CLICKED slot, so its bind/unbind
+        // conditional reads THAT workspace's binding, not the active one.
+        let bound_workspace = match surface {
+            ContextMenuSurface::WorkspaceSlot(idx) => {
+                self.sessions.workspace_default_profile_at(idx).is_some()
+            }
+            _ => self.sessions.active_workspace_default_profile().is_some(),
+        };
         if multi_pane
             && let Some(label) = self.close_pane_accelerator()
             && let Some(slot) = super::context_menu_ui::ContextMenuItem::ALL

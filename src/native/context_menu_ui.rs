@@ -1051,7 +1051,10 @@ impl ContextMenuUi {
                 // separator before it) — the TabSlot pattern one level up.
                 ContextMenuItem::NewWorkspace | ContextMenuItem::RenameWorkspace => 0,
                 ContextMenuItem::CloseWorkspace => 1,
-                _ => 1,
+                // RAIL-BIND: the host bind/unbind action sits in its own group
+                // below the destructive Close.
+                ContextMenuItem::BindWorkspaceToHost | ContextMenuItem::UnbindWorkspace => 2,
+                _ => 2,
             },
             ContextMenuSurface::ConnectionRow(_) => match item {
                 // Open/Bind group; Edit/Remove in their own group (a separator
@@ -1118,11 +1121,21 @@ impl ContextMenuUi {
             // (§3.5): a slot offers New/Rename/Close Workspace; the empty rail
             // offers New Workspace only.
             ContextMenuSurface::WorkspaceSlot(_) => {
-                return vec![
+                let mut items = vec![
                     ContextMenuItem::NewWorkspace,
                     ContextMenuItem::RenameWorkspace,
                     ContextMenuItem::CloseWorkspace,
                 ];
+                // RAIL-BIND: exactly one of the host bind/unbind pair, keyed to
+                // whether the CLICKED workspace is bound (`bound_workspace` is set
+                // to the clicked slot's state for this surface). Bind opens the
+                // shared host picker targeting the slot; Unbind clears it.
+                if self.bound_workspace {
+                    items.push(ContextMenuItem::UnbindWorkspace);
+                } else {
+                    items.push(ContextMenuItem::BindWorkspaceToHost);
+                }
+                return items;
             }
             ContextMenuSurface::WorkspaceRailEmpty => {
                 return vec![ContextMenuItem::NewWorkspace];
@@ -2874,8 +2887,9 @@ mod tests {
 
     #[test]
     fn workspace_slot_menu_offers_workspace_actions() {
-        // §3.5 / §7.4: a workspace-slot right-click opens New / Rename / Close
-        // Workspace, with a separator before the destructive Close.
+        // §3.5 / §7.4 + RAIL-BIND: a workspace-slot right-click opens New /
+        // Rename / Close Workspace, then the host bind action in its own group.
+        // An unbound slot shows "Bind to Host…".
         let m = open_surface(ContextMenuSurface::WorkspaceSlot(0), true);
         assert_eq!(
             m.rows(),
@@ -2884,7 +2898,48 @@ mod tests {
                 item("Rename Workspace", false, true),
                 ContextMenuRow::Separator,
                 item("Close Workspace", false, true),
+                ContextMenuRow::Separator,
+                item("Bind to Host\u{2026}", false, true),
             ]
+        );
+    }
+
+    #[test]
+    fn workspace_slot_menu_shows_unbind_when_bound() {
+        // RAIL-BIND: a slot whose workspace is bound offers "Unbind from Host"
+        // in place of "Bind to Host…" — the same conditional pair as the
+        // content-grid menu, keyed to the CLICKED slot's binding.
+        let mut m = ContextMenuUi::new();
+        m.open_with_prompt_editing_hint(
+            CellPoint { row: 4, column: 7 },
+            false,
+            false,
+            false,
+            false,
+            false,
+            None,
+            false,
+            true,
+            false,
+            true, // bound_workspace = true (clicked slot is bound)
+            ContextMenuSurface::WorkspaceSlot(1),
+            None,
+        );
+        let labels: Vec<&str> = m
+            .rows()
+            .iter()
+            .filter_map(|row| match row {
+                ContextMenuRow::Item { label, .. } => Some(*label),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            labels.contains(&"Unbind from Host"),
+            "bound slot shows Unbind: {labels:?}"
+        );
+        assert!(
+            !labels.iter().any(|l| l.starts_with("Bind to Host")),
+            "bound slot hides Bind: {labels:?}"
         );
     }
 

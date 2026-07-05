@@ -301,6 +301,49 @@ impl App {
         self.request_selection_redraw();
     }
 
+    /// Open the shared host picker (ODP-1B) seeded to bind the workspace at rail
+    /// index `idx` (RAIL-BIND). Same as [`Self::open_bind_workspace_picker`] but
+    /// the pick routes back to the CLICKED slot rather than the active
+    /// workspace, so a rail context menu can bind a workspace without switching
+    /// to it first.
+    pub(in crate::native) fn open_bind_workspace_at_picker(&mut self, idx: usize) {
+        let entries = self.load_connection_entries();
+        self.reset_pointer_state_for_overlay();
+        self.overlay.open_connections_for_purpose(
+            entries,
+            crate::native::connection_overlay::ConnectionPickerPurpose::BindWorkspaceIndex(idx),
+        );
+        self.request_selection_redraw();
+    }
+
+    /// Bind the workspace at rail index `idx` to a host by alias (RAIL-BIND).
+    /// The by-index counterpart to [`Self::bind_active_workspace_to_host_alias`];
+    /// the one-line notice states plainly that the binding routes NEW tabs to
+    /// the remote (existing tabs keep their shells).
+    pub(in crate::native) fn bind_workspace_at_to_host_alias(&mut self, idx: usize, alias: String) {
+        self.sessions
+            .set_workspace_default_profile_at(idx, Some(alias.clone()));
+        // Confirm the bind landed on a real slot (an out-of-range index is a
+        // no-op) before announcing it.
+        if self.sessions.workspace_default_profile_at(idx) == Some(alias.as_str()) {
+            self.raise_open_notice(workspace_bound_notice(&alias));
+        }
+    }
+
+    /// Clear the host binding of the workspace at rail index `idx` (RAIL-BIND),
+    /// returning its New Tab to a local shell. The by-index counterpart to
+    /// [`Self::unbind_active_workspace`]; unbinding an already-local workspace is
+    /// a silent no-op.
+    pub(in crate::native) fn unbind_workspace_at(&mut self, idx: usize) {
+        if self
+            .sessions
+            .set_workspace_default_profile_at(idx, None)
+            .is_some()
+        {
+            self.raise_open_notice(WORKSPACE_UNBOUND_NOTICE.to_owned());
+        }
+    }
+
     /// Open the shared host picker (ODP-1B) seeded to open a host in a new tab
     /// right after the tab that owns `token` (ODP-5D "Connect to host ▸"). The
     /// pick routes back through [`Self::connect_host_in_tab_after`]. With no

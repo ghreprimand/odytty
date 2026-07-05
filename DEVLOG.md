@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Bind a workspace to a host from the rail context menu
+
+Switching a workspace to a remote session was only possible from the terminal
+content menu, which acts on the active workspace — there was no way to bind a
+specific workspace from its own rail slot. The workspace rail's right-click menu
+now carries **Bind to Host…** / **Unbind from Host**, keyed to the clicked
+slot's binding (not the active one, matching the content-menu conditional). Bind
+opens the shared host picker seeded to target that slot; Unbind clears it
+directly. Both reuse the existing one-line notice, which states plainly that a
+binding routes NEW tabs to the remote while existing tabs keep their shells.
+
+---
+
 ## 2026-07-05 -- Connection manager surfaces the Add-connection form
 
 The Add / Edit / save-typed-host actions were reachable only through chords with

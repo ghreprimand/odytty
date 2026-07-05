@@ -1057,10 +1057,20 @@ impl OverlayUi {
                     // closed itself; the App opens the shared host picker seeded
                     // for the BindWorkspace purpose (ODP-1B). Unbind is direct —
                     // no host choice needed.
-                    ContextMenuItem::BindWorkspaceToHost => {
-                        OverlayOutcome::ContextMenuBindWorkspace
-                    }
-                    ContextMenuItem::UnbindWorkspace => OverlayOutcome::ContextMenuUnbindWorkspace,
+                    ContextMenuItem::BindWorkspaceToHost => match self.context_menu.surface() {
+                        // RAIL-BIND: a rail slot binds the CLICKED workspace; the
+                        // content-grid menu binds the active one.
+                        crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(idx) => {
+                            OverlayOutcome::ContextMenuBindWorkspaceAt(idx)
+                        }
+                        _ => OverlayOutcome::ContextMenuBindWorkspace,
+                    },
+                    ContextMenuItem::UnbindWorkspace => match self.context_menu.surface() {
+                        crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(idx) => {
+                            OverlayOutcome::ContextMenuUnbindWorkspaceAt(idx)
+                        }
+                        _ => OverlayOutcome::ContextMenuUnbindWorkspace,
+                    },
                     // NF-F7-1: a Close Tab chosen from a specific tab slot closes
                     // THAT tab, not the active one. The Content surface (no
                     // TabSlot token) keeps the active-tab close.
@@ -2187,6 +2197,10 @@ impl OverlayUi {
                     ConnectionPickerPurpose::BindWorkspace => {
                         OverlayOutcome::BindWorkspaceToHost(host.alias)
                     }
+                    // RAIL-BIND: bind the clicked rail slot to the picked host.
+                    ConnectionPickerPurpose::BindWorkspaceIndex(idx) => {
+                        OverlayOutcome::BindWorkspaceAtToHost(idx, host.alias)
+                    }
                     // ODP-5D: open the picked host in a new tab adjacent to the
                     // clicked tab, or replace that tab (App gates the destructive
                     // close behind a confirm when a foreground child runs).
@@ -2379,10 +2393,21 @@ pub(super) enum OverlayOutcome {
     /// Unbind the ACTIVE workspace (ODP-6B), returning its New Tab to a local
     /// shell. The App clears the binding directly (no host choice needed).
     ContextMenuUnbindWorkspace,
+    /// Bind the workspace at this rail index to a host (RAIL-BIND). The rail
+    /// context menu targets the CLICKED slot; the App opens the shared host
+    /// picker seeded for the `BindWorkspaceIndex` purpose.
+    ContextMenuBindWorkspaceAt(usize),
+    /// Unbind the workspace at this rail index (RAIL-BIND). The App clears the
+    /// clicked slot's binding directly.
+    ContextMenuUnbindWorkspaceAt(usize),
     /// Bind the active workspace to the saved host with this alias (ODP-1B/6B).
     /// Emitted by the shared host picker when opened for the BindWorkspace
     /// purpose; the App calls the frozen `set_active_workspace_default_profile`.
     BindWorkspaceToHost(String),
+    /// Bind the workspace at this rail index to the saved host with this alias
+    /// (RAIL-BIND). Emitted by the shared host picker when opened for the
+    /// `BindWorkspaceIndex` purpose; the App binds the clicked slot.
+    BindWorkspaceAtToHost(usize, String),
     /// Open the shared host picker for the tab holding this token, seeded for
     /// the ODP-5D "Connect to host" purpose (a new adjacent remote tab). The
     /// menu closed itself; the App opens the picker.
@@ -5110,6 +5135,39 @@ mod tests {
             overlay.handle_input(OverlayInput::Activate),
             OverlayOutcome::ContextMenuUnbindWorkspace
         );
+    }
+
+    #[test]
+    fn workspace_slot_menu_bind_unbind_target_the_clicked_slot() {
+        // RAIL-BIND: the rail slot menu's host action targets the CLICKED slot
+        // index. Unbound slot 2 -> "Bind to Host" (index 3) lifts to the picker
+        // outcome carrying idx 2; a bound slot -> "Unbind" lifts to the direct
+        // unbind outcome carrying idx 2.
+        let open = |bound: bool| {
+            let mut overlay = OverlayUi::default();
+            overlay.open_context_menu_with_prompt_editing_hint(
+                CellPoint { row: 0, column: 0 },
+                false,
+                false,
+                false,
+                false,
+                false,
+                None,
+                false,
+                true,
+                false,
+                bound,
+                crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(2),
+                None,
+                std::array::from_fn(|_| None),
+            );
+            for _ in 0..3 {
+                overlay.handle_input(OverlayInput::Down);
+            }
+            overlay.handle_input(OverlayInput::Activate)
+        };
+        assert_eq!(open(false), OverlayOutcome::ContextMenuBindWorkspaceAt(2));
+        assert_eq!(open(true), OverlayOutcome::ContextMenuUnbindWorkspaceAt(2));
     }
 
     #[test]

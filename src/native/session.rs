@@ -2423,6 +2423,28 @@ impl WorkspaceSet {
         std::mem::replace(&mut self.active_workspace_mut().default_profile, profile)
     }
 
+    /// The host alias the workspace at rail index `idx` is bound to (RAIL-BIND),
+    /// or `None` when out of range or unbound. Read for the rail context menu's
+    /// Bind/Unbind conditional, which targets the CLICKED slot rather than the
+    /// active workspace.
+    pub(super) fn workspace_default_profile_at(&self, idx: usize) -> Option<&str> {
+        self.workspaces.get(idx)?.default_profile.as_deref()
+    }
+
+    /// Bind (or, with `None`, unbind) the workspace at rail index `idx`
+    /// (RAIL-BIND). Same semantics as the active-workspace form, but targets a
+    /// specific slot so the rail menu can bind a workspace without first
+    /// switching to it. Returns the previous binding; an out-of-range index is a
+    /// no-op returning `None`.
+    pub(super) fn set_workspace_default_profile_at(
+        &mut self,
+        idx: usize,
+        profile: Option<String>,
+    ) -> Option<String> {
+        let ws = self.workspaces.get_mut(idx)?;
+        std::mem::replace(&mut ws.default_profile, profile)
+    }
+
     /// The workspace list as a [`TabBarSource`] for the rail widget (§7.1): the
     /// same geometry / hit-test / panel code the tab strip uses, now listing
     /// workspaces. Borrows `self`, so it is built per render/hit-test frame.
@@ -4678,6 +4700,27 @@ mod tests {
             "unbind returns the alias that was bound"
         );
         assert_eq!(set.active_workspace_default_profile(), None);
+    }
+
+    /// RAIL-BIND: the by-index bind/query pair targets a specific slot and is a
+    /// safe no-op out of range.
+    #[test]
+    fn workspace_host_binding_by_index() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        assert_eq!(set.workspace_default_profile_at(0), None);
+        assert_eq!(
+            set.set_workspace_default_profile_at(0, Some("edge".to_owned())),
+            None
+        );
+        assert_eq!(set.workspace_default_profile_at(0), Some("edge"));
+        // The active accessor sees the same binding (slot 0 is active here).
+        assert_eq!(set.active_workspace_default_profile(), Some("edge"));
+        // Out-of-range index is a no-op returning None.
+        assert_eq!(
+            set.set_workspace_default_profile_at(9, Some("x".to_owned())),
+            None
+        );
+        assert_eq!(set.workspace_default_profile_at(9), None);
     }
 
     /// F6-W5: a workspace host binding survives the capture -> restore round

@@ -495,9 +495,11 @@ exists, a vertical **rail** lists them down one side; `Ctrl+Shift+PageDown` and
 `Ctrl+Shift+PageUp` cycle between workspaces. `Ctrl+Shift+Enter` creates a new
 workspace and `Ctrl+Shift+G` opens the workspace picker. The rail's `+` slot
 also creates a new workspace, and right-clicking a workspace (or the empty
-rail) offers New, Rename, and Close Workspace — Rename edits the label in
-place. The terminal content menu carries the same New / Rename / Close
-Workspace actions (Rename and Close act on the active workspace). Closing the
+rail) offers New, Rename, and Close Workspace plus **Bind to Host…** /
+**Unbind from Host** for that slot — Rename edits the label in place, and Bind
+routes the clicked workspace's new tabs to a chosen saved host (existing tabs
+keep their shells). The terminal content menu carries the same New / Rename /
+Close Workspace and Bind/Unbind actions (they act on the active workspace). Closing the
 last tab in a workspace closes that workspace; closing the last workspace quits
 the app. The rail follows the `workspace_rail` setting: `auto` (default) reveals it
 once a second workspace exists, `always` pins it even with one, and `left` /
