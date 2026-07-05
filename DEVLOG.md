@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Connection manager stays visible under its row menu
+
+Right-clicking a saved-host row opened the row context menu but blanked the
+connection manager behind it, leaving the small menu floating on an empty
+screen: the overlay system paints only the active mode, and the menu is its own
+mode. The manager now renders underneath the menu — when a connection-row menu
+is active the manager panel is painted first (the overlay is briefly resolved as
+the connection view for geometry and content), then the opaque menu box
+composites over it. The manager's retained state already restored it on dismiss;
+this makes it visible throughout.
+
+---
+
 ## 2026-07-05 -- Context menu paints above the floating workspace rail
 
 Field testing found a workspace-slot context menu rendering behind the auto-hide

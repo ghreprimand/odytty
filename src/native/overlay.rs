@@ -3016,6 +3016,29 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
     };
     // The context menu has its own no-title layout (IN2); dispatch and return.
     if overlay.mode == OverlayMode::ContextMenu {
+        // MENU-OVER-MANAGER: a connection-row menu is spawned from WITHIN the
+        // connection manager, which stays loaded underneath (the mode is
+        // ContextMenu, but `picker_return` restores Connections on dismiss).
+        // The overlay system draws only the active mode, so without this the
+        // manager vanishes and the menu floats on a blank screen. Paint the
+        // manager panel first (temporarily viewing the overlay AS Connections so
+        // `overlay_rect` / `visible_lines` / `title` resolve the manager), then
+        // let the opaque menu box composite over it.
+        if matches!(
+            overlay.context_menu.surface(),
+            crate::native::context_menu_ui::ContextMenuSurface::ConnectionRow(_)
+        ) {
+            let restore = overlay.mode;
+            overlay.mode = OverlayMode::Connections;
+            if let Some(mgr_rect) = overlay_rect(
+                overlay,
+                snapshot.dimensions.columns,
+                snapshot.dimensions.rows,
+            ) {
+                apply_panel(snapshot, overlay, mgr_rect);
+            }
+            overlay.mode = restore;
+        }
         apply_context_menu(snapshot, overlay, rect);
         return;
     }
@@ -3027,6 +3050,16 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         apply_image_view_caption(snapshot, overlay);
         return;
     }
+    apply_panel(snapshot, overlay, rect);
+}
+
+/// Paint the generic bordered overlay panel (fill + border + title + the mode's
+/// visible body lines + scroll affordances) at `rect`. Extracted from
+/// [`apply_overlay`] so the connection-row context menu can render the still-open
+/// connection manager UNDERNEATH itself (MENU-OVER-MANAGER) before the menu box
+/// composites over it — the overlay system only draws the active mode, so the
+/// manager would otherwise vanish the instant its row menu opened.
+fn apply_panel(snapshot: &mut Snapshot, overlay: &mut OverlayUi, rect: OverlayRect) {
     let rows = snapshot.dimensions.rows;
     // Single source of truth for the title text (see `OverlayUi::title`). The
     // leading `\u{2190}` on a mode's title is what the back-arrow hit-test keys
@@ -4147,6 +4180,40 @@ mod tests {
         );
         assert!(overlay.is_open());
         assert_eq!(overlay.render_signature().mode, OverlayMode::ContextMenu);
+    }
+
+    #[test]
+    fn connection_row_menu_renders_manager_underneath() {
+        // MENU-OVER-MANAGER: opening the row menu must NOT blank the manager —
+        // the manager panel paints underneath the menu box so it stays visible.
+        // Render the composed overlay and assert the manager's title row (above
+        // the spawn cell, so never covered by the menu) survives.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        right_click_first_host(&mut overlay);
+        assert_eq!(overlay.render_signature().mode, OverlayMode::ContextMenu);
+
+        let (cols, rows) = (80usize, 24usize);
+        let mut snap = Snapshot {
+            dimensions: Dimensions::new(cols, rows),
+            cursor: Position { row: 0, column: 0 },
+            cursor_visible: false,
+            colors: crate::core::DynamicColors::default(),
+            cells: vec![crate::core::Cell::default(); cols * rows],
+        };
+        apply_overlay(&mut snap, &mut overlay);
+        let rendered: String = (0..rows)
+            .map(|r| {
+                (0..cols)
+                    .map(|c| snap.cells[r * cols + c].grapheme())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains("Connections"),
+            "the manager title must remain visible under the row menu:\n{rendered}"
+        );
     }
 
     #[test]
