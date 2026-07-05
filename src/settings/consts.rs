@@ -45,6 +45,8 @@ pub const CURSOR_TRAIL_ENV: &str = "ODYTTY_CURSOR_TRAIL";
 pub const NEW_OUTPUT_FADE_ENV: &str = "ODYTTY_NEW_OUTPUT_FADE";
 pub const WINDOW_BORDER_ENV: &str = "ODYTTY_WINDOW_BORDER";
 pub const WINDOW_DECORATIONS_ENV: &str = "ODYTTY_WINDOW_DECORATIONS";
+pub const WINDOW_TRANSPARENCY_ENV: &str = "ODYTTY_WINDOW_TRANSPARENCY";
+pub const WINDOW_OPACITY_ENV: &str = "ODYTTY_WINDOW_OPACITY";
 pub const OSC52_READ_ENV: &str = "ODYTTY_OSC52_READ";
 pub const SYNTHETIC_STYLES_ENV: &str = "ODYTTY_SYNTHETIC_STYLES";
 pub const GEOMETRIC_BOXDRAW_ENV: &str = "ODYTTY_GEOMETRIC_BOXDRAW";
@@ -146,6 +148,8 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     NEW_OUTPUT_FADE_ENV,
     WINDOW_BORDER_ENV,
     WINDOW_DECORATIONS_ENV,
+    WINDOW_TRANSPARENCY_ENV,
+    WINDOW_OPACITY_ENV,
     OSC52_READ_ENV,
     SYNTHETIC_STYLES_ENV,
     GEOMETRIC_BOXDRAW_ENV,
@@ -501,6 +505,18 @@ pub const DEFAULT_WINDOW_BORDER: bool = false;
 /// X11 the request is sent to the window manager as a hint and is honored on a
 /// best-effort basis — never a hard guarantee.
 pub const DEFAULT_WINDOW_DECORATIONS: bool = true;
+/// Window transparency master toggle (TRANSPARENCY). Off by default so the
+/// opaque render path is byte-identical to the historical presentation.
+pub const DEFAULT_WINDOW_TRANSPARENCY: bool = false;
+/// Default window opacity as a percentage of full opacity, used when
+/// `window_transparency` is on. 85% keeps text firmly readable while letting
+/// the desktop show through the terminal background.
+pub const DEFAULT_WINDOW_OPACITY: f32 = 85.0;
+/// Minimum window opacity percent (a floor that keeps content legible; below
+/// this the background washes out).
+pub const MIN_WINDOW_OPACITY: f32 = 30.0;
+/// Maximum window opacity percent (fully opaque).
+pub const MAX_WINDOW_OPACITY: f32 = 100.0;
 
 /// Smooth (eased) scrollback animation (`ODYTTY_SMOOTH_SCROLL`, RV4): when on, a
 /// scrollback movement glides into place over a short, bounded ease-out instead

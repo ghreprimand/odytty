@@ -1315,6 +1315,17 @@ pub struct Settings {
     /// remove the title bar reliably, while X11 window managers honor the
     /// request on a best-effort basis — never a hard guarantee.
     pub window_decorations: bool,
+    /// Master toggle for whole-window transparency (TRANSPARENCY). Off by
+    /// default, so the opaque render path is byte-identical to the historical
+    /// presentation. When on (and the display server offers alpha
+    /// compositing), the terminal background is drawn at `window_opacity` so
+    /// the desktop shows through; text, cursor, selection, and overlays stay
+    /// fully opaque. Requires a compositing window manager.
+    pub window_transparency: bool,
+    /// Window opacity as a percent of full opacity (TRANSPARENCY), applied to
+    /// the background only when `window_transparency` is on. Clamped to
+    /// `[MIN_WINDOW_OPACITY, MAX_WINDOW_OPACITY]`; 100 is fully opaque.
+    pub window_opacity: f32,
     /// Whether scrollback movement glides into place over a short bounded ease
     /// instead of jumping instantly (RV4). Off by default; the off path snaps
     /// the viewport exactly as before, is pixel-identical, and schedules zero
@@ -1516,6 +1527,8 @@ impl Default for Settings {
             new_output_fade: DEFAULT_NEW_OUTPUT_FADE,
             window_border: DEFAULT_WINDOW_BORDER,
             window_decorations: DEFAULT_WINDOW_DECORATIONS,
+            window_transparency: DEFAULT_WINDOW_TRANSPARENCY,
+            window_opacity: DEFAULT_WINDOW_OPACITY,
             smooth_scroll: DEFAULT_SMOOTH_SCROLL,
             cvd_mode: CvdMode::default(),
             cvd_strength: DEFAULT_CVD_STRENGTH,
@@ -2163,6 +2176,13 @@ impl Settings {
             DEFAULT_WINDOW_DECORATIONS,
             &mut warn,
         );
+        let window_transparency = parse_bool_setting(
+            get(WINDOW_TRANSPARENCY_ENV).as_deref(),
+            WINDOW_TRANSPARENCY_ENV,
+            DEFAULT_WINDOW_TRANSPARENCY,
+            &mut warn,
+        );
+        let window_opacity = parse_window_opacity(get(WINDOW_OPACITY_ENV).as_deref(), &mut warn);
         let cvd_mode = parse_cvd_mode(get(CVD_MODE_ENV).as_deref(), &mut warn);
         let cvd_strength = parse_cvd_strength(get(CVD_STRENGTH_ENV).as_deref(), &mut warn);
         let bell = parse_bell(get(BELL_ENV).as_deref(), &mut warn);
@@ -2339,6 +2359,8 @@ impl Settings {
             new_output_fade,
             window_border,
             window_decorations,
+            window_transparency,
+            window_opacity,
             smooth_scroll,
             cvd_mode,
             cvd_strength,
@@ -2563,6 +2585,11 @@ impl Settings {
             WINDOW_DECORATIONS_ENV,
             bool_display(self.window_decorations).to_owned(),
         );
+        values.insert(
+            WINDOW_TRANSPARENCY_ENV,
+            bool_display(self.window_transparency).to_owned(),
+        );
+        values.insert(WINDOW_OPACITY_ENV, format_float(self.window_opacity));
         values.insert(
             SMOOTH_SCROLL_ENV,
             bool_display(self.smooth_scroll).to_owned(),

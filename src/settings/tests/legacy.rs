@@ -126,6 +126,8 @@ fn setting_info_covers_every_field_with_descriptions() {
             "window_padding",
             "window_border",
             "window_decorations",
+            "window_transparency",
+            "window_opacity",
             "subpixel",
             "synthetic_styles",
             "geometric_boxdraw",
@@ -2100,4 +2102,104 @@ fn crt_curvature_round_trips_through_config_key_mapping() {
     assert_eq!(config_key_to_env("crt_curvature"), Some(CRT_CURVATURE_ENV));
     assert_eq!(config_key_to_env("curvature"), Some(CRT_CURVATURE_ENV));
     assert_eq!(env_to_config_key(CRT_CURVATURE_ENV), Some("crt_curvature"));
+}
+
+#[test]
+fn window_transparency_defaults_off_and_parses_on_off() {
+    let (default_settings, warnings) = settings_from([]);
+    assert!(!default_settings.window_transparency);
+    assert!(warnings.is_empty());
+
+    let (on, warnings) = settings_from([(WINDOW_TRANSPARENCY_ENV, "on")]);
+    assert!(on.window_transparency);
+    assert!(warnings.is_empty());
+
+    let (off, warnings) = settings_from([(WINDOW_TRANSPARENCY_ENV, "off")]);
+    assert!(!off.window_transparency);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn garbage_window_transparency_falls_back_off_with_warning() {
+    let (settings, warnings) = settings_from([(WINDOW_TRANSPARENCY_ENV, "maybe")]);
+    assert!(!settings.window_transparency);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(WINDOW_TRANSPARENCY_ENV));
+}
+
+#[test]
+fn window_opacity_defaults_parses_and_clamps() {
+    let (default_settings, warnings) = settings_from([]);
+    assert_eq!(default_settings.window_opacity, DEFAULT_WINDOW_OPACITY);
+    assert!(warnings.is_empty());
+
+    let (parsed, warnings) = settings_from([(WINDOW_OPACITY_ENV, "70")]);
+    assert_eq!(parsed.window_opacity, 70.0);
+    assert!(warnings.is_empty());
+
+    // Below the floor and above the ceiling both clamp into range.
+    let (low, warnings) = settings_from([(WINDOW_OPACITY_ENV, "5")]);
+    assert_eq!(low.window_opacity, MIN_WINDOW_OPACITY);
+    assert!(warnings.is_empty());
+
+    let (high, warnings) = settings_from([(WINDOW_OPACITY_ENV, "150")]);
+    assert_eq!(high.window_opacity, MAX_WINDOW_OPACITY);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn garbage_window_opacity_falls_back_with_one_warning() {
+    let (settings, warnings) = settings_from([(WINDOW_OPACITY_ENV, "translucent")]);
+    assert_eq!(settings.window_opacity, DEFAULT_WINDOW_OPACITY);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(WINDOW_OPACITY_ENV));
+}
+
+#[test]
+fn window_transparency_and_opacity_round_trip_through_config_keys() {
+    assert_eq!(
+        config_key_to_env("window_transparency"),
+        Some(WINDOW_TRANSPARENCY_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("transparency"),
+        Some(WINDOW_TRANSPARENCY_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(WINDOW_TRANSPARENCY_ENV),
+        Some("window_transparency")
+    );
+    assert_eq!(
+        config_key_to_env("window_opacity"),
+        Some(WINDOW_OPACITY_ENV)
+    );
+    assert_eq!(config_key_to_env("opacity"), Some(WINDOW_OPACITY_ENV));
+    assert_eq!(
+        env_to_config_key(WINDOW_OPACITY_ENV),
+        Some("window_opacity")
+    );
+}
+
+#[test]
+fn window_opacity_row_is_a_bounded_percent_stepper() {
+    let settings = Settings::default();
+    let info = settings.setting_info();
+    let row = info
+        .iter()
+        .find(|r| r.key == "window_opacity")
+        .expect("window_opacity row present");
+    assert_eq!(row.kind, SettingKind::Number);
+    assert_eq!(row.group, "Rendering");
+    let spec = row.numeric.expect("window_opacity has a numeric spec");
+    assert_eq!(spec.min, MIN_WINDOW_OPACITY);
+    assert_eq!(spec.max, MAX_WINDOW_OPACITY);
+    assert_eq!(spec.step, 5.0);
+    assert_eq!(spec.unit, "%");
+
+    let toggle = info
+        .iter()
+        .find(|r| r.key == "window_transparency")
+        .expect("window_transparency row present");
+    assert_eq!(toggle.kind, SettingKind::Bool);
+    assert_eq!(toggle.group, "Rendering");
 }

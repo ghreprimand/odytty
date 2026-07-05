@@ -636,8 +636,18 @@ impl App {
         // multi-pane content). Owned here so its snapshot outlives the GPU call;
         // `None` unless the floating rail is currently revealed.
         let rail_overlay_data = self.build_rail_overlay(cell);
+        // TRANSPARENCY: window background alpha for this frame, computed before
+        // the mutable GPU borrow (opaque whenever an overlay panel is open).
+        let win_bg_alpha = {
+            let capable = self
+                .gpu
+                .as_ref()
+                .is_some_and(crate::native::gpu::GpuState::transparency_capable);
+            self.effective_window_bg_alpha(capable)
+        };
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.set_scroll_frac_offset(0.0);
+            gpu.set_window_bg_alpha(win_bg_alpha);
             let overlay = overlay_top.as_ref().map(|(snapshot, origin)| OverlayTop {
                 snapshot,
                 origin: *origin,

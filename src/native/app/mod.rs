@@ -282,6 +282,24 @@ struct PendingImagePaste {
 /// Human-readable byte size for the image paste-through confirm prompt (F6-i7):
 /// `B` under 1 KiB, else one decimal of `KiB`/`MiB`. Binary units so the number
 /// lines up with the fixed-`MiB` upload cap.
+/// TRANSPARENCY: pure window-background-alpha decision. Full opacity unless
+/// the transparency setting is on, the swapchain can composite alpha
+/// (`capable`), and no overlay panel is open (an open menu/settings/picker
+/// renders the whole window opaque for readability). Otherwise the
+/// `opacity_pct` percent as a `0..=1` fraction.
+pub(super) fn window_bg_alpha_for(
+    transparency: bool,
+    capable: bool,
+    overlay_open: bool,
+    opacity_pct: f32,
+) -> f32 {
+    if transparency && capable && !overlay_open {
+        (opacity_pct / 100.0).clamp(0.0, 1.0)
+    } else {
+        1.0
+    }
+}
+
 fn format_byte_size(bytes: usize) -> String {
     const KIB: f64 = 1024.0;
     const MIB: f64 = 1024.0 * 1024.0;
@@ -2683,6 +2701,21 @@ impl App {
     /// rail). The master gate the reserve / panel / hit-test / pointer paths key
     /// on so the rail is reachable even when the active workspace has a single
     /// unnamed tab (no top bar). `false` is the byte-identical no-chrome frame.
+    /// TRANSPARENCY: the window background alpha to render this frame. Full
+    /// opacity (`1.0`) unless the `window_transparency` setting is on, the
+    /// swapchain can actually composite alpha (`capable`), and no overlay panel
+    /// is open — an open menu/settings/picker renders the whole window opaque so
+    /// its panel and the content behind it stay fully readable. Otherwise the
+    /// configured `window_opacity` percent as a `0..=1` fraction.
+    fn effective_window_bg_alpha(&self, capable: bool) -> f32 {
+        window_bg_alpha_for(
+            self.settings.window_transparency,
+            capable,
+            self.overlay.is_open(),
+            self.settings.window_opacity,
+        )
+    }
+
     fn any_chrome_shown(&self) -> bool {
         self.should_show_tab_bar() || self.should_show_workspace_rail()
     }
@@ -4519,7 +4552,14 @@ impl ApplicationHandler<UserEvent> for App {
             // Wayland). `None` on any decode failure, so a bad icon can never
             // block window creation. The `.exe` file icon is embedded separately
             // at build time (build.rs / winresource).
-            .with_window_icon(super::window_icon::load());
+            .with_window_icon(super::window_icon::load())
+            // TRANSPARENCY: request a transparency-CAPABLE surface unconditionally.
+            // With `window_transparency` off the presented output is fully opaque
+            // (the background alpha stays 1.0), so today's appearance is preserved;
+            // the flag only lets the compositor honor a translucent background when
+            // the setting is enabled. A no-op where the display server offers no
+            // alpha compositing.
+            .with_transparent(true);
         #[cfg(all(unix, not(target_os = "macos")))]
         let attributes = {
             use winit::platform::wayland::WindowAttributesExtWayland;
@@ -5041,6 +5081,15 @@ impl ApplicationHandler<UserEvent> for App {
                         // plain / no-autohide path (`None`) keeps its classification
                         // exactly, so nothing off the revealed-rail path changes.
                         let update = update.retaining_rail_overlay(rail_overlay_data.is_some());
+                        // TRANSPARENCY: window background alpha for this frame,
+                        // computed before the mutable GPU borrow.
+                        let win_bg_alpha = {
+                            let capable = self
+                                .gpu
+                                .as_ref()
+                                .is_some_and(GpuState::transparency_capable);
+                            self.effective_window_bg_alpha(capable)
+                        };
                         if let Some(gpu) = self.gpu.as_mut() {
                             let rail_overlay = rail_overlay_data.as_ref().map(|data| RailOverlay {
                                 snapshot: &data.snapshot,
@@ -5054,6 +5103,7 @@ impl ApplicationHandler<UserEvent> for App {
                             // `0.0` at rest / on the off path leaves the origin
                             // byte-identical.
                             gpu.set_scroll_frac_offset(scroll_frac_offset);
+                            gpu.set_window_bg_alpha(win_bg_alpha);
                             match update {
                                 GeometryUpdate::Full => {
                                     gpu.update_image_layer(
@@ -5550,6 +5600,24 @@ mod tests {
 
     fn blink() -> CursorBlinkState {
         CursorBlinkState::new(Duration::from_millis(500))
+    }
+
+    /// TRANSPARENCY: the pure window-background-alpha decision. Opaque (`1.0`)
+    /// whenever the setting is off, the compositor can't composite alpha, or an
+    /// overlay panel is open; otherwise the configured percent as a fraction.
+    #[test]
+    fn window_bg_alpha_gates_on_setting_capability_and_overlays() {
+        // Off by default => fully opaque regardless of the opacity percent.
+        assert_eq!(window_bg_alpha_for(false, true, false, 85.0), 1.0);
+        // On + capable + no overlay => the configured percent as a 0..=1 fraction.
+        assert!((window_bg_alpha_for(true, true, false, 85.0) - 0.85).abs() < 1e-6);
+        // Not capable (Opaque-only compositor) => stays opaque.
+        assert_eq!(window_bg_alpha_for(true, false, false, 85.0), 1.0);
+        // An open overlay panel forces the whole window opaque for readability.
+        assert_eq!(window_bg_alpha_for(true, true, true, 85.0), 1.0);
+        // The percent is clamped to a valid 0..=1 fraction.
+        assert_eq!(window_bg_alpha_for(true, true, false, 150.0), 1.0);
+        assert!((window_bg_alpha_for(true, true, false, 30.0) - 0.30).abs() < 1e-6);
     }
 
     /// Pins the black-screen-on-restore recovery policy at the pure seam, with

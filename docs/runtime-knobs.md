@@ -365,6 +365,8 @@ environment variable was not set at startup.
 | `window_padding` | `ODYTTY_WINDOW_PADDING` | Float, `0.0..=64.0` px | `4.0` |
 | `window_border` | `ODYTTY_WINDOW_BORDER` | `on`, `off` | `off` |
 | `window_decorations` | `ODYTTY_WINDOW_DECORATIONS` | `on`, `off` | `on` |
+| `window_transparency` | `ODYTTY_WINDOW_TRANSPARENCY` | `on`, `off` — draw the terminal background translucent at `window_opacity` so the desktop shows through; text, cursor, selection, and every overlay stay fully opaque. Requires a compositing window manager (Wayland natively; X11 needs a compositor; Windows uses DWM). No visible effect where the display server offers no alpha compositing | `off` |
+| `window_opacity` | `ODYTTY_WINDOW_OPACITY` | Percent, `30..=100` (step 5) — background opacity when `window_transparency` is on; `100` is fully opaque. Only the background scales — text and overlays never fade | `85` |
 | `always_show_tab_bar` | `ODYTTY_ALWAYS_SHOW_TAB_BAR` | `on`, `off` | `off` |
 | `tab_bar_placement` | `ODYTTY_TAB_BAR_PLACEMENT` | `top`, `left`, `right` — the side the **workspace rail** sits on (tabs always render on the top bar now). `top` puts the rail on the left when it appears | `top` |
 | `workspace_rail` | `ODYTTY_WORKSPACE_RAIL` | `auto` (rail appears once a second workspace exists), `always` (pinned even with one), or `left`/`right` (pinned to that side). `auto`/`always` inherit the side from `tab_bar_placement` | `auto` |

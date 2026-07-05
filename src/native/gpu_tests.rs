@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::gpu::{
-    BloomOptions, CrtOptions, ViewportUniform, choose_surface_format, create_atlas_bind_group,
-    create_cell_pipeline, create_color_atlas_bind_group, create_color_glyph_pipeline,
-    image::BgImageGpu, multi_pane_wallpaper_edge_wash_quads, physical_font_px, post,
-    scene_target_format, wallpaper_edge_wash_quads,
+    BloomOptions, CrtOptions, ViewportUniform, choose_surface_format, content_build_opacity,
+    create_atlas_bind_group, create_cell_pipeline, create_color_atlas_bind_group,
+    create_color_glyph_pipeline, image::BgImageGpu, multi_pane_wallpaper_edge_wash_quads,
+    physical_font_px, post, scene_clear_color, scene_target_format, select_alpha_mode,
+    wallpaper_edge_wash_quads,
 };
 use crate::atlas::CellSize;
 use crate::core::Terminal;
@@ -1253,4 +1254,73 @@ fn color_quad_vertices(rect: [f32; 4]) -> [ColorGlyphVertex; 6] {
 
 fn color_vertex(pos: [f32; 2], uv: [f32; 2]) -> ColorGlyphVertex {
     ColorGlyphVertex { pos, uv }
+}
+
+// --- TRANSPARENCY: window transparency (alpha-mode selection + off-path equality) ---
+
+#[test]
+fn select_alpha_mode_prefers_premultiplied() {
+    use wgpu::CompositeAlphaMode::{Opaque, PostMultiplied, PreMultiplied};
+    // A capable compositor advertising several modes: premultiplied wins.
+    assert_eq!(
+        select_alpha_mode(&[Opaque, PreMultiplied, PostMultiplied]),
+        PreMultiplied
+    );
+    assert_eq!(select_alpha_mode(&[PreMultiplied, Opaque]), PreMultiplied);
+}
+
+#[test]
+fn select_alpha_mode_falls_back_to_postmultiplied_then_opaque() {
+    use wgpu::CompositeAlphaMode::{Opaque, PostMultiplied};
+    // No premultiplied on offer: postmultiplied is the second choice.
+    assert_eq!(select_alpha_mode(&[Opaque, PostMultiplied]), PostMultiplied);
+    // Opaque-only (e.g. X11 with no compositor): transparency unavailable, but
+    // the surface still configures cleanly with Opaque.
+    assert_eq!(select_alpha_mode(&[Opaque]), Opaque);
+}
+
+#[test]
+fn select_alpha_mode_handles_exotic_and_empty_caps() {
+    use wgpu::CompositeAlphaMode::{Inherit, Opaque};
+    // An exotic list with none of the three preferred modes falls back to the
+    // first advertised mode rather than panicking.
+    assert_eq!(select_alpha_mode(&[Inherit]), Inherit);
+    // A degenerate empty caps list defaults to Opaque (never indexes []).
+    assert_eq!(select_alpha_mode(&[]), Opaque);
+}
+
+#[test]
+fn opaque_path_is_byte_identical_when_transparency_off() {
+    // window_bg_alpha == 1.0 is the opaque default (setting off, not capable, or
+    // an overlay open). The content builder opacity is the shipped cell value
+    // unchanged, and the scene clears to the opaque theme color — no drift.
+    let theme_clear = wgpu::Color {
+        r: 0.1,
+        g: 0.2,
+        b: 0.3,
+        a: 1.0,
+    };
+    assert_eq!(content_build_opacity(1.0, 0.8), 0.8);
+    assert_eq!(content_build_opacity(1.0, 1.0), 1.0);
+    assert_eq!(scene_clear_color(1.0, theme_clear), theme_clear);
+}
+
+#[test]
+fn translucent_path_decouples_surface_alpha_and_clears_transparent() {
+    // Below 1.0 the window alpha becomes the background surface alpha directly,
+    // decoupled from the 0.8 cell_bg_opacity color-weight, so the desktop shows
+    // through at exactly the configured opacity.
+    let theme_clear = wgpu::Color {
+        r: 0.1,
+        g: 0.2,
+        b: 0.3,
+        a: 1.0,
+    };
+    assert_eq!(content_build_opacity(0.85, 0.8), 0.85);
+    assert_eq!(content_build_opacity(0.5, 1.0), 0.5);
+    // The scene clears to premultiplied-transparent so cell quads over it blend
+    // to (rgb*a, a) and padding shows the desktop, not the opaque theme color.
+    let clear = scene_clear_color(0.85, theme_clear);
+    assert_eq!(clear.a, 0.0);
+    assert_eq!((clear.r, clear.g, clear.b), (0.0, 0.0, 0.0));
 }

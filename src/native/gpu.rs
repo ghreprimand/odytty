@@ -117,6 +117,53 @@ pub(super) fn theme_clear_color(theme: &Theme) -> wgpu::Color {
     }
 }
 
+/// TRANSPARENCY: choose the swapchain composite-alpha mode. A transparent
+/// window needs the compositor to blend the surface alpha, so prefer a
+/// transparency-capable mode — `PreMultiplied` first (the framebuffer this
+/// renderer produces over a zero clear is premultiplied), then
+/// `PostMultiplied`, then `Opaque` (transparency silently unavailable). Falls
+/// back to the first advertised mode if the caps list is exotic; the list is
+/// never empty in practice (`Opaque` is universally offered).
+pub(super) fn select_alpha_mode(modes: &[wgpu::CompositeAlphaMode]) -> wgpu::CompositeAlphaMode {
+    use wgpu::CompositeAlphaMode::{Opaque, PostMultiplied, PreMultiplied};
+    for preferred in [PreMultiplied, PostMultiplied, Opaque] {
+        if modes.contains(&preferred) {
+            return preferred;
+        }
+    }
+    modes.first().copied().unwrap_or(Opaque)
+}
+
+/// TRANSPARENCY: the opacity fed to the CONTENT cell-vertex builder. At the
+/// opaque default (`window_bg_alpha == 1.0`) the shipped `cell_bg_opacity` is
+/// returned unchanged (byte-identical). While translucent, the window alpha
+/// replaces the wallpaper color-weight so the background surface alpha is
+/// exactly the window alpha (decoupled from the softening).
+pub(super) fn content_build_opacity(window_bg_alpha: f32, cell_bg_opacity: f32) -> f32 {
+    if window_bg_alpha < 1.0 {
+        window_bg_alpha
+    } else {
+        cell_bg_opacity
+    }
+}
+
+/// TRANSPARENCY: the color the scene pass clears to. Fully transparent
+/// (premultiplied zero) while the window is translucent so padding/gaps show
+/// the desktop and cell background quads blend to premultiplied `(rgb·a, a)`
+/// over it; otherwise the opaque theme clear (byte-identical off path).
+pub(super) fn scene_clear_color(window_bg_alpha: f32, clear_color: wgpu::Color) -> wgpu::Color {
+    if window_bg_alpha < 1.0 {
+        wgpu::Color {
+            r: 0.0,
+            g: 0.0,
+            b: 0.0,
+            a: 0.0,
+        }
+    } else {
+        clear_color
+    }
+}
+
 /// Pack a [`VisualEffect`] into the shader uniform's `effect` slot:
 /// `[scanline_strength, scanline_period_px]`. When off, strength is `0.0`, which
 /// makes the shader's scanline term vanish (pixel-identical to no effect).
@@ -796,6 +843,13 @@ pub(super) struct GpuState {
     /// ID3/U5 cell background opacity multiplier fed to the cell-vertex builder.
     /// `1.0` (the default) keeps cells fully opaque — byte-identical output.
     cell_bg_opacity: f32,
+    /// TRANSPARENCY: effective window background alpha this frame. `1.0`
+    /// (the default, and whenever the window-transparency setting is off, the
+    /// compositor offers no alpha mode, or an overlay panel is open) keeps the
+    /// opaque render path byte-identical. Below `1.0` the scene clears to fully
+    /// transparent and the terminal background is drawn at this alpha so the
+    /// desktop shows through; text/cursor/overlays stay opaque.
+    window_bg_alpha: f32,
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
     /// live PTY output arrives.
     pub(super) atlas: GlyphAtlas,
@@ -998,7 +1052,7 @@ impl GpuState {
             // Fifo (vsync) is universally supported and avoids tearing; the
             // present mode can become a setting once frames carry real content.
             present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: caps.alpha_modes[0],
+            alpha_mode: select_alpha_mode(&caps.alpha_modes),
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -1265,6 +1319,7 @@ impl GpuState {
             // `set_background_image`; cells start fully opaque (identity).
             bg_image: None,
             cell_bg_opacity: crate::settings::DEFAULT_CELL_BG_OPACITY,
+            window_bg_alpha: 1.0,
             atlas,
             color_glyph_atlas,
             emoji_rasterizer,
@@ -1386,6 +1441,50 @@ impl GpuState {
             self.clear_color.b as f32,
             1.0,
         ]
+    }
+
+    /// TRANSPARENCY: set the effective window background alpha for upcoming
+    /// frames. `1.0` restores the fully-opaque path; values below `1.0` (only
+    /// meaningful when the compositor offers a transparent alpha mode) draw the
+    /// terminal background translucent. The App recomputes this each frame from
+    /// the settings and whether an overlay panel is open, so the mutation is a
+    /// cheap store — geometry is rebuilt from it on the next update.
+    pub(super) fn set_window_bg_alpha(&mut self, alpha: f32) {
+        self.window_bg_alpha = alpha.clamp(0.0, 1.0);
+    }
+
+    /// TRANSPARENCY: whether the configured swapchain can present a transparent
+    /// window at all. `Opaque` composite-alpha means the display server offers
+    /// no alpha blending, so the setting has no visible effect and the App
+    /// keeps the opaque path.
+    pub(super) fn transparency_capable(&self) -> bool {
+        self.config.alpha_mode != wgpu::CompositeAlphaMode::Opaque
+    }
+
+    /// TRANSPARENCY: the opacity fed to the cell-vertex builder for terminal
+    /// CONTENT. When translucent, the window alpha replaces the wallpaper
+    /// color-weight so the background surface alpha is exactly `window_bg_alpha`
+    /// (decoupled from the `cell_bg_opacity` softening); otherwise the shipped
+    /// `cell_bg_opacity` is used unchanged (byte-identical opaque path).
+    fn content_build_opacity(&self) -> f32 {
+        content_build_opacity(self.window_bg_alpha, self.cell_bg_opacity)
+    }
+
+    /// TRANSPARENCY: the color the scene pass clears to. Fully transparent
+    /// (premultiplied zero) while the window is translucent, so padding/gaps
+    /// show the desktop and cell background quads blend to premultiplied
+    /// `(rgb·a, a)` over it. Otherwise the opaque theme clear (unchanged).
+    fn scene_clear_color(&self) -> wgpu::Color {
+        scene_clear_color(self.window_bg_alpha, self.clear_color)
+    }
+
+    /// Whether the window-padding / pane-gap edge wash must be emitted this
+    /// frame: either a background image with translucent cells (NF11) or a
+    /// translucent window (TRANSPARENCY, where the scene clear is transparent
+    /// so padding would otherwise show raw desktop instead of the themed
+    /// background at the window alpha). Neither → no wash (byte-identical).
+    fn needs_edge_wash(&self) -> bool {
+        self.window_bg_alpha < 1.0 || (self.bg_image.is_some() && self.cell_bg_opacity < 1.0)
     }
 
     fn content_origin(&self) -> [f32; 2] {
@@ -1827,7 +1926,7 @@ impl GpuState {
                 pane.focus_dim,
                 pane.origin,
                 pane.treatment,
-                self.cell_bg_opacity,
+                self.content_build_opacity(),
             );
             let bg = background_vertex_count(pane.snapshot).min(pane_buf.len() as u32) as usize;
             self.vertices.extend_from_slice(&pane_buf[..bg]);
@@ -1865,8 +1964,7 @@ impl GpuState {
         // under translucent cell backgrounds), and glyphs / dividers /
         // overlays draw in later segments on top. Without a background image
         // or with opaque cells, nothing is emitted — byte-identical frames.
-        if self.bg_image.is_some()
-            && self.cell_bg_opacity < 1.0
+        if self.needs_edge_wash()
             && let Some(first) = panes.first()
         {
             let cell_w = self.atlas.cell.width as f32;
@@ -1882,7 +1980,10 @@ impl GpuState {
                     ]
                 })
                 .collect();
-            let color = linear_rgba(first.snapshot.colors.background, self.cell_bg_opacity);
+            let color = linear_rgba(
+                first.snapshot.colors.background,
+                self.content_build_opacity(),
+            );
             let edge_quads = multi_pane_wallpaper_edge_wash_quads(
                 &grid_rects,
                 [self.config.width, self.config.height],
@@ -2059,6 +2160,7 @@ impl GpuState {
         }
         self.rebuild_color_glyph_segment(snapshot, &color_glyph_runs);
         let origin = self.content_origin();
+        let content_opacity = self.content_build_opacity();
         grid::build_cell_vertices_with_focus_dim_and_origin_into(
             &mut self.vertices,
             snapshot,
@@ -2067,16 +2169,16 @@ impl GpuState {
             focus_dim,
             origin,
             treatment,
-            self.cell_bg_opacity,
+            content_opacity,
         );
         let background_vertices = background_vertex_count(snapshot).min(self.vertices.len() as u32);
-        if self.bg_image.is_some() && self.cell_bg_opacity < 1.0 {
+        if self.needs_edge_wash() {
             let edge_quads = wallpaper_edge_wash_quads(
                 snapshot,
                 self.atlas.cell,
                 origin,
                 [self.config.width, self.config.height],
-                self.cell_bg_opacity,
+                self.content_build_opacity(),
             );
             if !edge_quads.is_empty() {
                 let insert_at = background_vertices as usize;
@@ -2423,7 +2525,9 @@ impl GpuState {
                 depth_slice: None,
                 ops: wgpu::Operations {
                     // Keep the neutral clear, then draw cell quads over it.
-                    load: wgpu::LoadOp::Clear(self.clear_color),
+                    // TRANSPARENCY: a fully-transparent clear when the window is
+                    // translucent (opaque theme clear otherwise — byte-identical).
+                    load: wgpu::LoadOp::Clear(self.scene_clear_color()),
                     store: wgpu::StoreOp::Store,
                 },
             })],

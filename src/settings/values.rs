@@ -919,6 +919,30 @@ pub(super) fn parse_cell_bg_opacity(raw: Option<&OsStr>, warn: &mut impl FnMut(&
     parsed.clamp(MIN_CELL_BG_OPACITY, MAX_CELL_BG_OPACITY)
 }
 
+/// Parse the window opacity percent (TRANSPARENCY). Empty/absent → the
+/// default; non-numeric → a warning and the default; otherwise clamped to
+/// `[MIN_WINDOW_OPACITY, MAX_WINDOW_OPACITY]`.
+pub(super) fn parse_window_opacity(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_WINDOW_OPACITY;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_WINDOW_OPACITY;
+    }
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{WINDOW_OPACITY_ENV}={trimmed:?} is not a valid opacity percent; using {DEFAULT_WINDOW_OPACITY}"
+            ));
+            return DEFAULT_WINDOW_OPACITY;
+        }
+    };
+    parsed.clamp(MIN_WINDOW_OPACITY, MAX_WINDOW_OPACITY)
+}
+
 /// Parse the background-image blur radius (`ODYTTY_BACKGROUND_BLUR_RADIUS`).
 /// `0` (default) means no blur. Invalid values warn and fall back to `0`; valid
 /// values clamp to `MAX_BACKGROUND_BLUR_RADIUS`.

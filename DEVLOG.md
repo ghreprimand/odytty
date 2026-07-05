@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Window transparency: translucent background, opaque text
+
+The terminal background can now be rendered translucent so the desktop shows
+through, joining the visual-experience layer behind an off-by-default toggle.
+Two Rendering settings drive it: `window_transparency` (`on`/`off`, default
+off) and `window_opacity` (a `30..=100` percent stepper, default `85`). With
+the toggle off the render path is byte-identical to the opaque presentation.
+
+Only the **background** scales — the default fill, per-cell background quads,
+the tab-bar cells, and the window-padding band all fade to the configured
+opacity, while text glyphs, the cursor, selection, and every overlay (menus,
+pickers, the settings panel) stay fully opaque. That readability boundary is a
+hard rule: effects never weaken the ability to read the terminal, so while any
+overlay panel is open the whole window renders opaque and the panel plus the
+content behind it stay legible.
+
+Implementation notes: the window is created transparency-capable
+unconditionally, and the swapchain now selects its composite-alpha mode
+explicitly — premultiplied first, then postmultiplied, then opaque — instead
+of blindly taking the first advertised mode. Because every cell already emits
+a tiling opaque background quad, drawing them over a fully-transparent clear
+yields a correct premultiplied framebuffer with no change to the blend state,
+shaders, or vertex format; the padding is filled with the existing edge-wash
+at the same alpha, and the post-process composite already preserves the scene
+alpha so effects and transparency compose. Transparency requires a compositing
+window manager (Wayland natively, X11 with a compositor, Windows via DWM);
+where the display server offers no alpha compositing the toggle has no visible
+effect and the surface stays opaque. `cargo test`, `cargo clippy
+--all-targets --locked -D warnings`, and `cargo fmt --check` are green.
+
+---
+
 ## 2026-07-05 -- README: correct the tab-menu move-to-workspace description
 
 The README still described the tab right-click menu's move item as **Move to

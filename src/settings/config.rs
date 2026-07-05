@@ -23,7 +23,8 @@ use super::{
     TAB_RAIL_AUTOHIDE_ENV, TAB_RAIL_GAP_ENV, TAB_RAIL_MAX_WIDTH_ENV, TAB_RAIL_REVEAL_PX_ENV,
     TAB_RAIL_SLOT_ROWS_ENV, TAB_RAIL_WIDTH_ENV, TAB_SEAM_ENV, TEXT_GAMMA_ENV, THEME_ENV,
     THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV, WINDOW_DECORATIONS_ENV,
-    WINDOW_PADDING_ENV, WORKSPACE_RAIL_ENV, normalize_name,
+    WINDOW_OPACITY_ENV, WINDOW_PADDING_ENV, WINDOW_TRANSPARENCY_ENV, WORKSPACE_RAIL_ENV,
+    normalize_name,
 };
 use super::{
     BOX_THICKNESS_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV, INTERACTIVE_PATHS_CLICK_HINT_ENV,
@@ -149,6 +150,10 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "windowdecorations" | "decorations" | "titlebar" | "borderless" => {
             Some(WINDOW_DECORATIONS_ENV)
         }
+        "windowtransparency" | "transparency" | "transparent" | "windowalpha" => {
+            Some(WINDOW_TRANSPARENCY_ENV)
+        }
+        "windowopacity" | "opacity" => Some(WINDOW_OPACITY_ENV),
         "cursormotion" | "cursorslide" | "cursoranimation" => Some(CURSOR_MOTION_ENV),
         "osc52read" | "allowosc52read" | "clipboardread" => Some(OSC52_READ_ENV),
         "syntheticstyles" | "synthstyles" | "syntheticfonts" => Some(SYNTHETIC_STYLES_ENV),
@@ -312,6 +317,8 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         RESTORE_WORKSPACES_ENV => Some("restore_workspaces"),
         NEW_OUTPUT_FADE_ENV => Some("new_output_fade"),
         WINDOW_BORDER_ENV => Some("window_border"),
+        WINDOW_TRANSPARENCY_ENV => Some("window_transparency"),
+        WINDOW_OPACITY_ENV => Some("window_opacity"),
         WINDOW_DECORATIONS_ENV => Some("window_decorations"),
         SMOOTH_SCROLL_ENV => Some("smooth_scroll"),
         CVD_MODE_ENV => Some("cvd_mode"),

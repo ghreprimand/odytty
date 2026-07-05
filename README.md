@@ -69,7 +69,8 @@ Windows ships as an unsigned portable zip.
 - **Visual experience layer:** 100 built-in themes, user `.theme` files, live theme
   picker, theme builder, semantic cursor/selection/search roles, optional
   bloom/CRT/retro effects, background treatments, cursor motion, focus dimming,
-  new-output fade, window padding, and window border.
+  new-output fade, window padding, window border, and optional window
+  transparency.
 - **Local configuration UX:** `odytty.conf`, live reload, in-app settings panel,
   atomic preservation-first writeback, mouse-friendly controls, font picker,
   keybinding editor, and first-run onboarding. Environment variables always win.
@@ -828,6 +829,27 @@ background_image_scrim = 0.5                      # 0 = none, 1 = opaque scrim; 
 ```
 
 `background_image = default` (the unset value) selects the bundled image again.
+
+#### Window transparency
+
+OdyTTY can render its background translucent so the desktop shows through the
+terminal. Text, the cursor, selection, and every overlay (menus, pickers, the
+settings panel) always stay fully opaque — the readability boundary is hard, so
+only the background fades. It is **off by default**; the opaque path is
+unchanged. Enable it from the settings panel (Rendering → Window transparency /
+Window opacity) or `odytty.conf`:
+
+```ini
+# odytty.conf — let the desktop show through the terminal background
+window_transparency = on
+window_opacity = 85          # percent, 30..=100 (step 5); 100 is fully opaque
+```
+
+Transparency needs a compositing window manager: Wayland handles it natively,
+X11 needs a compositor running, and Windows uses DWM. Where the display server
+offers no alpha compositing the toggle simply has no visible effect. While a
+menu, picker, or the settings panel is open the whole window renders opaque so
+the panel and the content behind it stay readable.
 
 See:
 
