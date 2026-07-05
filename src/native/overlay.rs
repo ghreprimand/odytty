@@ -713,6 +713,19 @@ impl OverlayUi {
         self.open && self.mode == OverlayMode::ContextMenu
     }
 
+    /// Whether the open context menu is anchored to the workspace rail — a
+    /// workspace slot or the empty rail region (RAIL-PIN). The auto-hide rail
+    /// keeps itself revealed while such a menu is open so it does not vanish
+    /// under the very menu targeting it.
+    pub(super) fn is_workspace_rail_context_menu(&self) -> bool {
+        self.is_context_menu()
+            && matches!(
+                self.context_menu.surface(),
+                crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(_)
+                    | crate::native::context_menu_ui::ContextMenuSurface::WorkspaceRailEmpty
+            )
+    }
+
     /// Whether the close-confirmation dialog is the active overlay mode
     /// (CLOSE-CONFIRM). Used by the App's test seam to assert the dialog opened.
     #[cfg(test)]
@@ -1294,23 +1307,63 @@ impl OverlayUi {
             && cell.column < rect.body_left + 3
     }
 
-    /// True if `cell` is in the `←` back-arrow hit zone of the theme or font
-    /// picker/builder/key-bindings title row. All four modes show `← … (Esc =
-    /// back)` in their title, so this hit-test is unconditional on those modes.
+    /// The overlay's title-bar text — the single source of truth shared by the
+    /// painter ([`apply_overlay`]) and the back-arrow hit-test
+    /// ([`Self::picker_title_back_hit`]). A leading `\u{2190}` marks the modes
+    /// that carry a clickable back/close affordance; deriving the hit-test from
+    /// this string (rather than a hand-maintained mode list) is what stops a new
+    /// `\u{2190}`-titled mode from drifting into a click-dead arrow (the NF15
+    /// recurrence class — About, then Connections, were each such a miss).
+    /// `ContextMenu` has no title bar (early-dispatched to its own layout) and
+    /// returns an empty string.
+    pub(super) fn title(&self) -> String {
+        match self.mode {
+            OverlayMode::Settings => self.panel.panel_title(),
+            OverlayMode::ThemePicker => "\u{2190} OdyTTY Themes  (Esc = back)".to_owned(),
+            OverlayMode::ThemeBuilder => "\u{2190} OdyTTY Theme Builder  (Esc = back)".to_owned(),
+            OverlayMode::FontPicker => "\u{2190} OdyTTY Font Picker  (Esc = back)".to_owned(),
+            OverlayMode::KeyBindings => "\u{2190} OdyTTY Key Bindings  (Esc = back)".to_owned(),
+            OverlayMode::Onboarding => "Welcome to OdyTTY".to_owned(),
+            OverlayMode::CommandPalette => "Command Palette".to_owned(),
+            OverlayMode::Replay => "\u{2190} Session Replay  (Esc = back)".to_owned(),
+            OverlayMode::Connections => "\u{2190} Connections  (Esc = back)".to_owned(),
+            OverlayMode::SessionAttach => "\u{2190} Manage Sessions  (Esc = back)".to_owned(),
+            OverlayMode::OpenWith => "\u{2190} Open With\u{2026}  (Esc = back)".to_owned(),
+            OverlayMode::ImageView => {
+                format!("\u{2190} {}  (Esc = close)", self.image_view_caption)
+            }
+            // No title bar — early-dispatched to `apply_context_menu`.
+            OverlayMode::ContextMenu => String::new(),
+            OverlayMode::ConfirmClose => "Close?".to_owned(),
+            OverlayMode::AttachChoice => "Attach session".to_owned(),
+            OverlayMode::ConfirmKillSession => "Kill session".to_owned(),
+            OverlayMode::DetachSwitchChoice => "Detach & switch".to_owned(),
+        }
+    }
+
+    /// Whether this mode's title carries the leading `\u{2190}` back/close
+    /// affordance. Derived from [`Self::title`] so the painter and the hit-test
+    /// can never disagree about which modes offer a clickable arrow.
+    fn title_has_back_affordance(&self) -> bool {
+        self.title().starts_with('\u{2190}')
+    }
+
+    /// True if `cell` is in the `\u{2190}` back-arrow hit zone of a picker-style
+    /// title row. Covers EVERY non-Settings mode whose title starts with the
+    /// arrow — theme/font picker, theme builder, key bindings, replay,
+    /// connections, session-attach, open-with, and the image viewer — by reading
+    /// the affordance off the title text itself (Settings has its own
+    /// level-aware [`Self::settings_title_back_hit`]). A future `\u{2190}`-titled
+    /// mode is covered automatically.
     fn picker_title_back_hit(&self, cell: CellPoint, rect: OverlayRect) -> bool {
-        matches!(
-            self.mode,
-            OverlayMode::ThemePicker
-                | OverlayMode::FontPicker
-                | OverlayMode::ThemeBuilder
-                | OverlayMode::KeyBindings
-        )
-        // Accept the title row and the gap row (rect.top through body_top - 1)
-        // for a forgiving click target matching the Settings back-arrow zone.
-        && cell.row >= rect.top
-        && cell.row < rect.body_top
-        && cell.column >= rect.body_left
-        && cell.column < rect.body_left + 3
+        self.mode != OverlayMode::Settings
+            && self.title_has_back_affordance()
+            // Accept the title row and the gap row (rect.top through body_top-1)
+            // for a forgiving click target matching the Settings back-arrow zone.
+            && cell.row >= rect.top
+            && cell.row < rect.body_top
+            && cell.column >= rect.body_left
+            && cell.column < rect.body_left + 3
     }
 
     /// Test seam (UX4-P2): absolute grid cells for the first visible numeric
@@ -2289,31 +2342,10 @@ pub(super) fn apply_overlay(snapshot: &mut Snapshot, overlay: &mut OverlayUi) {
         return;
     }
     let rows = snapshot.dimensions.rows;
-    // The Settings title is dynamic (shows level, editing state, search query).
-    // ThemePicker, FontPicker, ThemeBuilder, and KeyBindings show a ← back
-    // affordance so mouse users can click to return to the parent screen.
-    let title: String = match overlay.mode {
-        OverlayMode::Settings => overlay.panel.panel_title(),
-        OverlayMode::ThemePicker => "\u{2190} OdyTTY Themes  (Esc = back)".to_owned(),
-        OverlayMode::ThemeBuilder => "\u{2190} OdyTTY Theme Builder  (Esc = back)".to_owned(),
-        OverlayMode::FontPicker => "\u{2190} OdyTTY Font Picker  (Esc = back)".to_owned(),
-        OverlayMode::KeyBindings => "\u{2190} OdyTTY Key Bindings  (Esc = back)".to_owned(),
-        OverlayMode::Onboarding => "Welcome to OdyTTY".to_owned(),
-        OverlayMode::CommandPalette => "Command Palette".to_owned(),
-        OverlayMode::Replay => "\u{2190} Session Replay  (Esc = back)".to_owned(),
-        OverlayMode::Connections => "\u{2190} Connections  (Esc = back)".to_owned(),
-        OverlayMode::SessionAttach => "\u{2190} Manage Sessions  (Esc = back)".to_owned(),
-        OverlayMode::OpenWith => "\u{2190} Open With\u{2026}  (Esc = back)".to_owned(),
-        OverlayMode::ImageView => {
-            format!("\u{2190} {}  (Esc = close)", overlay.image_view_caption)
-        }
-        // Unreachable: handled by the early dispatch above.
-        OverlayMode::ContextMenu => String::new(),
-        OverlayMode::ConfirmClose => "Close?".to_owned(),
-        OverlayMode::AttachChoice => "Attach session".to_owned(),
-        OverlayMode::ConfirmKillSession => "Kill session".to_owned(),
-        OverlayMode::DetachSwitchChoice => "Detach & switch".to_owned(),
-    };
+    // Single source of truth for the title text (see `OverlayUi::title`). The
+    // leading `\u{2190}` on a mode's title is what the back-arrow hit-test keys
+    // off, so both the painter and the hit-test read the same string.
+    let title = overlay.title();
 
     fill_rect(
         snapshot,
@@ -4516,6 +4548,65 @@ mod tests {
             overlay.render_signature().panel.level,
             SettingsLevel::SectionList,
             "clicking one row below title also navigates back"
+        );
+    }
+
+    #[test]
+    fn every_back_titled_mode_has_a_live_title_arrow() {
+        // BACK-ARROW class guard (NF15 recurrence): every mode whose title
+        // starts with `←` MUST have a title-row hit-test that accepts the arrow,
+        // or the affordance is click-dead (Esc masks it). This iterates ALL
+        // modes so a future `←`-titled mode without coverage fails here rather
+        // than shipping a dead arrow (as Connections, then About, once did).
+        const ALL_MODES: [OverlayMode; 17] = [
+            OverlayMode::Settings,
+            OverlayMode::ThemePicker,
+            OverlayMode::ThemeBuilder,
+            OverlayMode::FontPicker,
+            OverlayMode::KeyBindings,
+            OverlayMode::Onboarding,
+            OverlayMode::ContextMenu,
+            OverlayMode::CommandPalette,
+            OverlayMode::Replay,
+            OverlayMode::Connections,
+            OverlayMode::SessionAttach,
+            OverlayMode::OpenWith,
+            OverlayMode::ImageView,
+            OverlayMode::ConfirmClose,
+            OverlayMode::AttachChoice,
+            OverlayMode::ConfirmKillSession,
+            OverlayMode::DetachSwitchChoice,
+        ];
+        let mut back_titled = 0;
+        for mode in ALL_MODES {
+            let overlay = OverlayUi {
+                mode,
+                open: true,
+                ..Default::default()
+            };
+            let title = overlay.title();
+            if !title.starts_with('\u{2190}') {
+                continue;
+            }
+            back_titled += 1;
+            let rect = overlay_rect(&overlay, 80, 24).expect("rect");
+            // The arrow sits at rect.top / rect.body_left; a click there must be
+            // claimed by exactly one of the two title back-hit tests.
+            let cell = CellPoint {
+                row: rect.top,
+                column: rect.body_left,
+            };
+            assert!(
+                overlay.settings_title_back_hit(cell, rect)
+                    || overlay.picker_title_back_hit(cell, rect),
+                "mode {mode:?} draws a ← title but no title hit-test claims the arrow"
+            );
+        }
+        // Sanity: the non-Settings ←-titled pickers are all covered (guards
+        // against the loop silently matching zero modes if `title` regressed).
+        assert!(
+            back_titled >= 8,
+            "expected the picker-style ← modes to be counted, saw {back_titled}"
         );
     }
 

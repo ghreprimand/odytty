@@ -549,9 +549,11 @@ impl App {
             return;
         };
         let char_count = rename.text.chars().count();
+        let prompt = rename_prompt(rename.target);
         let Some(idx) = rename_input_hit(
             columns,
             rows,
+            prompt,
             char_count,
             rename.cursor,
             point.row,
@@ -591,14 +593,21 @@ impl App {
             return;
         };
         let char_count = rename.text.chars().count();
+        let prompt = rename_prompt(rename.target);
         // Clamp the drag onto the input row so vertical straying still tracks
         // the horizontal position (a text drag conventionally follows X).
-        let Some(row) = rename_input_row(columns, rows) else {
+        let Some(row) = rename_input_row(columns, rows, prompt) else {
             return;
         };
-        if let Some(idx) =
-            rename_input_hit(columns, rows, char_count, rename.cursor, row, point.column)
-            && let Some(rename) = self.rename_state.as_mut()
+        if let Some(idx) = rename_input_hit(
+            columns,
+            rows,
+            prompt,
+            char_count,
+            rename.cursor,
+            row,
+            point.column,
+        ) && let Some(rename) = self.rename_state.as_mut()
         {
             rename.cursor = idx;
             self.request_selection_redraw();
@@ -628,19 +637,13 @@ impl App {
         if body_width == 0 {
             return;
         }
-        let prompt_width = RENAME_PROMPT.chars().count().min(body_width);
-        rename_write_text(
-            snapshot,
-            top + 1,
-            body_left,
-            prompt_width,
-            RENAME_PROMPT,
-            panel,
-        );
+        let prompt = rename_prompt(state.target);
+        let prompt_width = prompt.chars().count().min(body_width);
+        rename_write_text(snapshot, top + 1, body_left, prompt_width, prompt, panel);
         // Derive the input trio from the shared layout so render and the mouse
         // hit-test can never drift (F4-RENAME-MOUSE). `rename_layout` replicates
         // the box math above exactly; a unit test pins that agreement.
-        if let Some(layout) = rename_layout(columns, rows) {
+        if let Some(layout) = rename_layout(columns, rows, prompt) {
             rename_write_input(
                 snapshot,
                 layout.input_row,
@@ -709,10 +712,18 @@ impl App {
     }
 }
 
-/// The prompt label printed before the editable input in the rename modal.
-/// Shared between the painter and [`rename_layout`] so the input's start column
-/// is computed identically on both the render and hit-test paths.
-const RENAME_PROMPT: &str = "Tab name: ";
+/// The prompt label printed before the editable input in the rename modal,
+/// chosen by what the rename targets so a workspace rename does not mislabel
+/// itself as a tab rename. Both the painter and [`rename_layout`] resolve the
+/// prompt from the same target so the input's start column is computed
+/// identically on the render and hit-test paths (a longer prompt shifts the
+/// input right by exactly its width).
+fn rename_prompt(target: RenameTarget) -> &'static str {
+    match target {
+        RenameTarget::Tab(_) => "Tab name: ",
+        RenameTarget::Workspace(_) => "Workspace name: ",
+    }
+}
 
 /// Geometry of the tab-rename modal's editable input, derived purely from the
 /// content-grid dimensions. Render (`paint_rename_tab_cells` /
@@ -733,9 +744,11 @@ struct RenameLayout {
 
 /// Replicate the box math in [`App::paint_rename_tab_cells`] exactly, returning
 /// the editable-input geometry — or `None` when the grid is too small for the
-/// modal (the painter bails on the same conditions). A unit test pins that this
-/// stays byte-aligned with the painter.
-fn rename_layout(columns: usize, rows: usize) -> Option<RenameLayout> {
+/// modal (the painter bails on the same conditions). `prompt` is the label the
+/// painter prints before the input, so its width (which differs between tab and
+/// workspace renames) shifts the input start identically here. A unit test pins
+/// that this stays byte-aligned with the painter.
+fn rename_layout(columns: usize, rows: usize, prompt: &str) -> Option<RenameLayout> {
     if columns < 8 || rows < 3 {
         return None;
     }
@@ -748,7 +761,7 @@ fn rename_layout(columns: usize, rows: usize) -> Option<RenameLayout> {
     if body_width == 0 {
         return None;
     }
-    let prompt_width = RENAME_PROMPT.chars().count().min(body_width);
+    let prompt_width = prompt.chars().count().min(body_width);
     let input_left = body_left + prompt_width;
     let input_width = body_width.saturating_sub(prompt_width);
     if input_width == 0 {
@@ -764,8 +777,8 @@ fn rename_layout(columns: usize, rows: usize) -> Option<RenameLayout> {
 }
 
 /// The grid row the rename input occupies, or `None` if the modal cannot fit.
-fn rename_input_row(columns: usize, rows: usize) -> Option<usize> {
-    rename_layout(columns, rows).map(|layout| layout.input_row)
+fn rename_input_row(columns: usize, rows: usize, prompt: &str) -> Option<usize> {
+    rename_layout(columns, rows, prompt).map(|layout| layout.input_row)
 }
 
 /// The first visible character index given the current caret and field width —
@@ -785,12 +798,13 @@ fn rename_visible_start(char_count: usize, cursor: usize, width: usize) -> usize
 fn rename_input_hit(
     columns: usize,
     rows: usize,
+    prompt: &str,
     char_count: usize,
     cursor: usize,
     row: usize,
     col: usize,
 ) -> Option<usize> {
-    let layout = rename_layout(columns, rows)?;
+    let layout = rename_layout(columns, rows, prompt)?;
     if row != layout.input_row || col < layout.box_left || col > layout.box_right {
         return None;
     }
@@ -1006,6 +1020,10 @@ mod rename_mouse_tests {
     //! character the painter drew.
     use super::*;
 
+    /// The tab-rename prompt, resolved from a tab target for the layout tests
+    /// below (they exercise the tab modal geometry).
+    const TAB_PROMPT: &str = "Tab name: ";
+
     /// A `RenameState` with no live session — fine for the edit/selection
     /// helpers, which never touch the target token.
     fn state(text: &str, cursor: usize) -> RenameState {
@@ -1015,6 +1033,38 @@ mod rename_mouse_tests {
             cursor,
             anchor: None,
         }
+    }
+
+    #[test]
+    fn prompt_label_matches_the_rename_target() {
+        // RENAME-LABEL: a tab rename says "Tab name: "; a workspace rename says
+        // "Workspace name: " — the shared modal must not mislabel a workspace as
+        // a tab.
+        assert_eq!(
+            rename_prompt(RenameTarget::Tab(SessionToken(1))),
+            "Tab name: "
+        );
+        assert_eq!(
+            rename_prompt(RenameTarget::Workspace(0)),
+            "Workspace name: "
+        );
+    }
+
+    #[test]
+    fn layout_input_start_follows_the_prompt_width() {
+        // The longer workspace prompt shifts the editable input right by exactly
+        // the extra prompt columns, and the input is that much narrower — so the
+        // width math derives from the actual prompt, never a hard-coded literal.
+        let columns = 80;
+        let rows = 24;
+        let tab = rename_layout(columns, rows, "Tab name: ").expect("tab layout fits");
+        let ws = rename_layout(columns, rows, "Workspace name: ").expect("ws layout fits");
+        let delta = "Workspace name: ".chars().count() - "Tab name: ".chars().count();
+        assert_eq!(ws.input_left, tab.input_left + delta);
+        assert_eq!(ws.input_width, tab.input_width - delta);
+        // The box itself is unchanged — only the prompt/input split moves.
+        assert_eq!(ws.box_left, tab.box_left);
+        assert_eq!(ws.box_right, tab.box_right);
     }
 
     #[test]
@@ -1028,8 +1078,8 @@ mod rename_mouse_tests {
         let left = (columns - width) / 2; // 16
         let top = (rows - 3) / 2; // 10
         let body_left = left + 2; // 18
-        let prompt_width = "Tab name: ".chars().count(); // 10
-        let layout = rename_layout(columns, rows).expect("layout fits");
+        let prompt_width = TAB_PROMPT.chars().count(); // 10
+        let layout = rename_layout(columns, rows, TAB_PROMPT).expect("layout fits");
         assert_eq!(layout.box_left, left);
         assert_eq!(layout.box_right, left + width - 1);
         assert_eq!(layout.input_row, top + 1);
@@ -1039,15 +1089,18 @@ mod rename_mouse_tests {
 
     #[test]
     fn layout_is_none_when_the_grid_is_too_small() {
-        assert!(rename_layout(7, 24).is_none(), "too few columns");
-        assert!(rename_layout(80, 2).is_none(), "too few rows");
+        assert!(
+            rename_layout(7, 24, TAB_PROMPT).is_none(),
+            "too few columns"
+        );
+        assert!(rename_layout(80, 2, TAB_PROMPT).is_none(), "too few rows");
     }
 
     #[test]
     fn hit_maps_a_click_to_the_character_under_it() {
         let columns = 80;
         let rows = 24;
-        let layout = rename_layout(columns, rows).unwrap();
+        let layout = rename_layout(columns, rows, TAB_PROMPT).unwrap();
         // Short text (no scroll): char index == click column - input_left.
         let char_count = 5; // "hello"
         let cursor = 5;
@@ -1055,6 +1108,7 @@ mod rename_mouse_tests {
             let hit = rename_input_hit(
                 columns,
                 rows,
+                TAB_PROMPT,
                 char_count,
                 cursor,
                 layout.input_row,
@@ -1068,12 +1122,13 @@ mod rename_mouse_tests {
     fn hit_clamps_past_end_and_before_start() {
         let columns = 80;
         let rows = 24;
-        let layout = rename_layout(columns, rows).unwrap();
+        let layout = rename_layout(columns, rows, TAB_PROMPT).unwrap();
         let char_count = 3;
         // Far to the right of the 3-char text but still inside the box → end.
         let far = rename_input_hit(
             columns,
             rows,
+            TAB_PROMPT,
             char_count,
             char_count,
             layout.input_row,
@@ -1084,6 +1139,7 @@ mod rename_mouse_tests {
         let onprompt = rename_input_hit(
             columns,
             rows,
+            TAB_PROMPT,
             char_count,
             char_count,
             layout.input_row,
@@ -1096,14 +1152,31 @@ mod rename_mouse_tests {
     fn hit_is_none_off_the_input_row_or_box() {
         let columns = 80;
         let rows = 24;
-        let layout = rename_layout(columns, rows).unwrap();
+        let layout = rename_layout(columns, rows, TAB_PROMPT).unwrap();
         assert!(
-            rename_input_hit(columns, rows, 3, 3, layout.input_row + 1, layout.input_left)
-                .is_none(),
+            rename_input_hit(
+                columns,
+                rows,
+                TAB_PROMPT,
+                3,
+                3,
+                layout.input_row + 1,
+                layout.input_left
+            )
+            .is_none(),
             "different row misses"
         );
         assert!(
-            rename_input_hit(columns, rows, 3, 3, layout.input_row, layout.box_right + 1).is_none(),
+            rename_input_hit(
+                columns,
+                rows,
+                TAB_PROMPT,
+                3,
+                3,
+                layout.input_row,
+                layout.box_right + 1
+            )
+            .is_none(),
             "past the right border misses"
         );
     }
@@ -1115,7 +1188,7 @@ mod rename_mouse_tests {
         // character. Force a narrow input via a small grid.
         let columns = 20;
         let rows = 5;
-        let layout = rename_layout(columns, rows).expect("narrow layout fits");
+        let layout = rename_layout(columns, rows, TAB_PROMPT).expect("narrow layout fits");
         let width = layout.input_width;
         let char_count = width + 10; // longer than the field → scrolled
         let cursor = char_count; // caret at end → window shows the tail
@@ -1125,6 +1198,7 @@ mod rename_mouse_tests {
         let hit = rename_input_hit(
             columns,
             rows,
+            TAB_PROMPT,
             char_count,
             cursor,
             layout.input_row,

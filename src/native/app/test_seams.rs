@@ -1617,6 +1617,13 @@ impl App {
         self.rename_state.is_some()
     }
 
+    /// Test seam (RAIL-PIN): open the right-click context menu anchored to the
+    /// workspace rail slot at `idx`, exactly as a rail right-click would.
+    #[cfg(test)]
+    pub(in crate::native) fn open_workspace_rail_menu_for_test(&mut self, idx: usize) {
+        self.open_context_menu(super::ContextMenuSurface::WorkspaceSlot(idx));
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn close_all_sessions_for_test(&mut self) {
         self.close_all_sessions();
@@ -1909,6 +1916,14 @@ impl App {
         self.sessions
             .token_at_position(session)
             .map(|token| self.sessions.effective_tab_title(token))
+    }
+
+    /// Test seam (RAIL-PIN): open the workspace rename prompt on rail index
+    /// `idx` and leave it open (no commit), so a test can observe the modal's
+    /// effect on the auto-hide rail.
+    #[cfg(test)]
+    pub(in crate::native) fn enter_rename_workspace_for_test(&mut self, idx: usize) {
+        self.enter_rename_workspace(idx);
     }
 
     #[cfg(test)]

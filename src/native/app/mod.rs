@@ -3210,8 +3210,10 @@ impl App {
         };
         // Popup-tracking rule (ODP-4): hold the rail up while an overlay (its
         // right-click context menu) is open — the hide timer is suspended until
-        // the menu closes.
-        self.rail_autohide.set_suspend(self.overlay.is_open());
+        // the menu closes. RAIL-PIN: also suspend while a rail-anchored menu or a
+        // workspace rename prompt is up so the grace never elapses under it.
+        self.rail_autohide
+            .set_suspend(self.overlay.is_open() || self.rail_pinned_open());
         // Motion-aware trigger: fold in the previous sample so the segment
         // prev→curr is tested against the edge zone (a fast approach jumps over a
         // static point zone). Record this sample as the next prev before feeding.
@@ -3302,9 +3304,33 @@ impl App {
     /// short-circuits to the overlay while it is open, so suppressing the draw
     /// keeps render and hit-test consistent.
     fn rail_overlay_visible(&self) -> bool {
-        self.rail_autohide_active()
-            && !self.overlay.is_open()
-            && self.rail_autohide.is_visible(Instant::now())
+        if !self.rail_autohide_active() {
+            return false;
+        }
+        // RAIL-PIN: a context menu opened FROM the rail, or a workspace rename
+        // prompt, is anchored to the rail — the rail must stay revealed under it
+        // rather than stepping aside like an unrelated window overlay does.
+        // `set_suspend` alone was insufficient: the draw was gated on
+        // `!overlay.is_open()`, so the rail vanished the moment its own context
+        // menu opened; and the rename prompt (not an `overlay`) released the
+        // suspend, so the grace elapsed and hid the rail mid-rename.
+        if self.rail_pinned_open() {
+            return true;
+        }
+        !self.overlay.is_open() && self.rail_autohide.is_visible(Instant::now())
+    }
+
+    /// Whether an open menu/prompt is anchored to the workspace rail and so
+    /// should keep the auto-hide rail revealed (RAIL-PIN): a rail context menu
+    /// (workspace slot or empty rail) or a workspace rename prompt. Tab renames
+    /// and non-rail overlays are excluded — only surfaces that target the rail
+    /// pin it open.
+    fn rail_pinned_open(&self) -> bool {
+        self.overlay.is_workspace_rail_context_menu()
+            || matches!(
+                self.rename_state.as_ref().map(|state| state.target),
+                Some(RenameTarget::Workspace(_))
+            )
     }
 
     /// Hover the revealed rail overlay from the live pointer, using the overlay
@@ -4360,7 +4386,9 @@ impl App {
         // (no autohide, or steady visible/hidden), so this is inert on the plain
         // path and while the rail is parked open under the pointer. Keep the
         // suspend latch current so a menu closing lets the grace run again.
-        self.rail_autohide.set_suspend(self.overlay.is_open());
+        // RAIL-PIN: a rail-anchored menu or a workspace rename also suspends it.
+        self.rail_autohide
+            .set_suspend(self.overlay.is_open() || self.rail_pinned_open());
         if self.rail_autohide.poll(now) {
             // A timer boundary that flips the rail's visibility (show debounce
             // elapsing, hide grace / flash expiring) must rebuild the frame so

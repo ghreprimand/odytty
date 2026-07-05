@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Rail stays put under its own menu, live back-arrows, right rename label, clearer bind toast
+
+Four rough edges surfaced in field testing, fixed together.
+
+**Auto-hide rail no longer vanishes under its own menu or rename.** Right-clicking
+a workspace to open its context menu — or opening a workspace rename prompt —
+would hide the auto-hide rail out from under the very surface targeting it. The
+draw gate suppressed the rail whenever *any* window overlay was open, and the
+rename prompt (not a window overlay) let the hide grace elapse. The rail now
+recognizes when a menu or rename is *anchored to the rail* (a workspace slot, the
+empty rail region, or a workspace rename) and stays revealed for its lifetime,
+while unrelated overlays still step aside as before.
+
+**Every back-titled overlay has a live `←` arrow.** The clickable back affordance
+was wired to a hand-maintained list of four modes, so the `←` in the connection
+manager, session replay, session manager, "Open With…", and the image viewer was
+click-dead (Esc still worked, masking it). The affordance is now derived from the
+title text itself — any title that starts with `←` gets the hit-test — with a
+coverage test that iterates every overlay mode so a future back-titled screen
+cannot regress into a dead arrow.
+
+**Workspace rename says "Workspace name:".** The rename prompt is shared between
+tabs and workspaces and always printed "Tab name:", mislabeling a workspace
+rename. The label now follows the rename target, and the modal's input geometry
+derives from the actual prompt width so the longer label stays aligned.
+
+**Binding a workspace to a host explains itself.** The bind confirmation now reads
+"Workspace bound to <host> — new tabs open there; New Local Tab escapes", and
+unbinding reads "Workspace unbound — new tabs open locally", so the behavior
+change and its escape hatch are both discoverable at the moment of binding.
+
+Platform-neutral: all four are UI-side and behave identically on every platform.
+
+---
+
 ## 2026-07-05 -- Connect to an unsaved host from the connection manager
 
 The connection manager could only reach a host that was already saved: typing an

@@ -1583,6 +1583,72 @@ fn revealed_band_click_hits_the_rail_hidden_does_not() {
     );
 }
 
+// --- RAIL-PIN: the rail stays revealed under its own menu / rename prompt ---
+
+#[test]
+fn autohide_rail_stays_revealed_under_its_own_workspace_menu() {
+    // RAIL-PIN: right-clicking a workspace to open its context menu must NOT
+    // hide the rail out from under the menu. Before the fix the draw was gated
+    // on `!overlay.is_open()`, so opening the rail's own menu blanked the rail.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    add_workspace(&mut app);
+    app.rename_workspace_for_test(0, "a");
+    app.rename_workspace_for_test(1, "b");
+    app.set_tab_rail_autohide_for_test(true);
+
+    // Reveal the rail (as a pointer at the edge would), then open the workspace
+    // slot's context menu — the rail must remain drawn.
+    app.force_rail_reveal_for_test();
+    assert!(
+        app.rail_overlay_visible_for_test(),
+        "precondition: revealed"
+    );
+    app.open_workspace_rail_menu_for_test(0);
+    assert!(
+        app.rail_overlay_visible_for_test(),
+        "the rail stays revealed under its own context menu"
+    );
+}
+
+#[test]
+fn autohide_rail_reveals_for_a_workspace_rename_prompt() {
+    // RAIL-PIN: a workspace rename prompt is rail-anchored, so the rail reveals
+    // (and holds) for it — even from a hidden state — so the user sees which
+    // workspace they are renaming. A tab rename does NOT pin the rail.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    add_workspace(&mut app);
+    app.rename_workspace_for_test(0, "a");
+    app.rename_workspace_for_test(1, "b");
+    app.set_tab_rail_autohide_for_test(true);
+
+    // Rail hidden (machine at rest); a workspace rename must reveal it.
+    assert!(
+        !app.rail_overlay_visible_for_test(),
+        "precondition: hidden at rest"
+    );
+    app.enter_rename_workspace_for_test(0);
+    assert!(
+        app.rename_overlay_open_for_test(),
+        "workspace rename prompt is open"
+    );
+    assert!(
+        app.rail_overlay_visible_for_test(),
+        "the rail reveals for a workspace rename prompt"
+    );
+}
+
 // --- F4-P3 REGRESSION repros (auto-hide breaks mouse routing) ---
 
 #[test]
@@ -3590,12 +3656,14 @@ fn unbind_active_workspace_clears_the_binding() {
     app.set_workspace_binding_for_test(Some("edge".to_owned()));
     app.unbind_active_workspace();
     assert_eq!(app.active_workspace_binding_for_test(), None);
+    // W5-BIND-TOAST: unbind confirms that new tabs are local again (the message
+    // is host-agnostic — the escape is stating the new behavior, not the host).
     let notice = app
         .open_notice_message_for_test()
-        .expect("unbind reports the host that was cleared");
+        .expect("unbind emits a one-line notice");
     assert!(
-        notice.contains("edge"),
-        "notice names the unbound host: {notice}"
+        notice.contains("unbound") && notice.contains("local"),
+        "notice states new tabs open locally: {notice}"
     );
 }
 

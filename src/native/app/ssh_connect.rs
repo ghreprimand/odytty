@@ -96,7 +96,9 @@ impl App {
     /// ODP-9), so New Tab in that workspace routes through the SSH connect path.
     /// The index is into the same `load_connection_entries` order the palette
     /// built its rows from; an out-of-range index (host list changed under the
-    /// open palette) is a no-op. A one-line notice confirms the binding.
+    /// open palette) is a no-op. A one-line notice confirms the binding and
+    /// spells out what it changes — every new tab/pane in this workspace now
+    /// spawns on the remote, and "New Local Tab" is the escape hatch.
     pub(in crate::native) fn bind_active_workspace_to_host_index(&mut self, idx: usize) {
         let Some(host) = self.load_connection_entries().into_iter().nth(idx) else {
             return;
@@ -104,15 +106,19 @@ impl App {
         let alias = host.alias;
         self.sessions
             .set_active_workspace_default_profile(Some(alias.clone()));
-        self.raise_open_notice(format!("Workspace bound to \"{alias}\""));
+        self.raise_open_notice(workspace_bound_notice(&alias));
     }
 
     /// Clear the active workspace's host binding (F6-W5), returning New Tab there
-    /// to spawning a local shell. A one-line notice names the host that was
-    /// unbound; unbinding an already-local workspace is a silent no-op.
+    /// to spawning a local shell. A one-line notice confirms new tabs are local
+    /// again; unbinding an already-local workspace is a silent no-op.
     pub(in crate::native) fn unbind_active_workspace(&mut self) {
-        if let Some(prev) = self.sessions.set_active_workspace_default_profile(None) {
-            self.raise_open_notice(format!("Workspace unbound from \"{prev}\""));
+        if self
+            .sessions
+            .set_active_workspace_default_profile(None)
+            .is_some()
+        {
+            self.raise_open_notice(WORKSPACE_UNBOUND_NOTICE.to_owned());
         }
     }
 
@@ -139,5 +145,47 @@ impl App {
     #[cfg(windows)]
     fn ssh_control_dir(_enabled: bool) -> Option<std::path::PathBuf> {
         None
+    }
+}
+
+/// The one-line notice raised when a workspace is bound to a host (W5-BIND-TOAST).
+/// It confirms the binding AND spells out the behavior change — every new tab in
+/// this workspace now spawns on the remote, and "New Local Tab" is the escape.
+fn workspace_bound_notice(alias: &str) -> String {
+    format!("Workspace bound to {alias} — new tabs open there; New Local Tab escapes")
+}
+
+/// The notice raised when a workspace binding is cleared (W5-BIND-TOAST). Host-
+/// agnostic: it states the new behavior (new tabs are local again) rather than
+/// naming the host that was unbound.
+const WORKSPACE_UNBOUND_NOTICE: &str = "Workspace unbound — new tabs open locally";
+
+#[cfg(test)]
+mod bind_notice_tests {
+    use super::{WORKSPACE_UNBOUND_NOTICE, workspace_bound_notice};
+
+    #[test]
+    fn bind_notice_names_the_host_and_the_escape() {
+        // W5-BIND-TOAST: the bind toast must carry the host, that new tabs open
+        // there, and the local-escape hatch so the surface is discoverable.
+        let notice = workspace_bound_notice("prod@edge");
+        assert!(notice.contains("prod@edge"), "names the host: {notice}");
+        assert!(
+            notice.contains("new tabs open there"),
+            "states routing: {notice}"
+        );
+        assert!(
+            notice.contains("New Local Tab"),
+            "names the escape: {notice}"
+        );
+    }
+
+    #[test]
+    fn unbind_notice_states_local_without_a_host() {
+        assert!(
+            WORKSPACE_UNBOUND_NOTICE.contains("unbound")
+                && WORKSPACE_UNBOUND_NOTICE.contains("local"),
+            "unbind toast states new tabs are local: {WORKSPACE_UNBOUND_NOTICE}"
+        );
     }
 }
