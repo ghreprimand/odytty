@@ -17,7 +17,7 @@ use super::SettingsLevel;
 use super::path_picker::PathPickerOutcome;
 use super::sections::SECTIONS;
 use super::{RowEdit, SettingKind, SettingsPanel, SettingsPanelLine, SettingsPanelOutcome};
-use super::{SettingInfo, ellipsize, setting_detail, wrap_words};
+use super::{SettingInfo, ellipsize, setting_detail, settings_detail_footer_reserve, wrap_words};
 use crate::native::overlay::PointerButton;
 
 const STEPPER_BUTTON_W: usize = 3;
@@ -67,6 +67,10 @@ pub(in crate::native) enum RowZone {
     /// The About-view "Copy diagnostics" action row (ABOUT). A click copies the
     /// diagnostics block to the clipboard.
     AboutCopy,
+    /// SETTINGS-COMPACT: a line in the fixed help footer (divider, wrapped help,
+    /// status message, or blank padding). Inert — carries no `entry_index`, so a
+    /// click never changes the selection or a value.
+    Footer,
 }
 
 /// One entry of the hit-map: which setting row a body line belongs to (if any)
@@ -386,6 +390,20 @@ impl SettingsPanel {
             return rows;
         }
 
+        // SETTINGS-COMPACT: each setting renders as one compact line; the
+        // focused row's help moves to a fixed footer pinned to the panel bottom
+        // (menuconfig pattern). Reserve those bottom rows up front so the
+        // scrolling content window is a constant height and never reflows as
+        // focus moves between rows with differing help lengths. The footer is
+        // suppressed when there is no focused entry (empty search results) or
+        // the window is too short to spare the rows.
+        let footer_reserve = self
+            .entries
+            .get(self.selected)
+            .map(|_| settings_detail_footer_reserve(body_height))
+            .unwrap_or(0);
+        let content_height = body_height.saturating_sub(footer_reserve);
+
         // OB-SEARCH: when searching, a fixed filter header sits above the results.
         if self.search_active {
             rows.push((
@@ -403,7 +421,7 @@ impl SettingsPanel {
 
         let mut current_group = "";
         for (index, entry) in self.entries.iter().enumerate().skip(self.scroll) {
-            if rows.len() >= body_height {
+            if rows.len() >= content_height {
                 break;
             }
             if entry.group != current_group {
@@ -419,7 +437,7 @@ impl SettingsPanel {
                         zone: RowZone::GroupHeader,
                     },
                 ));
-                if rows.len() >= body_height {
+                if rows.len() >= content_height {
                     break;
                 }
             }
@@ -448,6 +466,8 @@ impl SettingsPanel {
                 }
                 (format!("{marker} {}: {value}", entry.name), RowZone::Value)
             };
+            // SETTINGS-COMPACT: one compact line per setting — the per-row help
+            // that used to wrap inline now lives in the fixed footer below.
             rows.push((
                 SettingsPanelLine {
                     text,
@@ -459,50 +479,11 @@ impl SettingsPanel {
                     zone,
                 },
             ));
-            if rows.len() >= body_height {
-                break;
-            }
-
-            let detail = setting_detail(entry);
-            for wrapped in wrap_words(&detail, body_width.saturating_sub(4)) {
-                if rows.len() >= body_height {
-                    break;
-                }
-                rows.push((
-                    SettingsPanelLine {
-                        text: format!("    {wrapped}"),
-                        focused: false,
-                        bold: false,
-                    },
-                    RowHit {
-                        entry_index: Some(index),
-                        zone: RowZone::Detail,
-                    },
-                ));
-            }
-            if focused && let Some(message) = self.message.as_deref() {
-                for wrapped in wrap_words(message, body_width.saturating_sub(4)) {
-                    if rows.len() >= body_height {
-                        break;
-                    }
-                    rows.push((
-                        SettingsPanelLine {
-                            text: format!("    ! {wrapped}"),
-                            focused: false,
-                            bold: false,
-                        },
-                        RowHit {
-                            entry_index: Some(index),
-                            zone: RowZone::Message,
-                        },
-                    ));
-                }
-            }
         }
 
         // OB-SEARCH: a query that matches nothing shows an explicit notice rather
         // than an empty body, and never closes the overlay (R3).
-        if self.search_active && self.entries.is_empty() && rows.len() < body_height {
+        if self.search_active && self.entries.is_empty() && rows.len() < content_height {
             rows.push((
                 SettingsPanelLine {
                     text: format!("  No settings match \"{}\".", self.query),
@@ -514,6 +495,52 @@ impl SettingsPanel {
                     zone: RowZone::Message,
                 },
             ));
+        }
+
+        // SETTINGS-COMPACT: the fixed help footer. Pad the scrolling content to
+        // its reserved height so the footer pins to the panel bottom, then emit
+        // a divider and the focused row's help — any transient status message
+        // first — wrapping via the shared word-wrapper and truncating longer
+        // help gracefully. Every footer row is inert (`RowZone::Footer`).
+        if footer_reserve > 0
+            && let Some(entry) = self.entries.get(self.selected)
+        {
+            let footer_line = |text: String| {
+                (
+                    SettingsPanelLine {
+                        text,
+                        focused: false,
+                        bold: false,
+                    },
+                    RowHit {
+                        entry_index: None,
+                        zone: RowZone::Footer,
+                    },
+                )
+            };
+            while rows.len() < content_height {
+                rows.push(footer_line(String::new()));
+            }
+            let wrap_width = body_width.saturating_sub(4).max(1);
+            // Divider between the scrolling rows and the pinned help.
+            rows.push(footer_line(format!("  {}", "\u{2500}".repeat(wrap_width))));
+            let text_capacity = footer_reserve.saturating_sub(1);
+            let mut help: Vec<String> = Vec::new();
+            if let Some(message) = self.message.as_deref() {
+                for wrapped in wrap_words(message, wrap_width) {
+                    help.push(format!("! {wrapped}"));
+                }
+            }
+            for wrapped in wrap_words(&setting_detail(entry), wrap_width) {
+                help.push(wrapped);
+            }
+            help.truncate(text_capacity);
+            for line in help {
+                rows.push(footer_line(format!("  {line}")));
+            }
+            while rows.len() < content_height + footer_reserve {
+                rows.push(footer_line(String::new()));
+            }
         }
 
         rows
@@ -686,7 +713,9 @@ impl SettingsPanel {
             // About zones carry `entry_index: None` and are handled before the
             // entry guard above; unreachable here but kept for exhaustiveness.
             RowZone::AboutLink { .. } | RowZone::AboutCopy => SettingsPanelOutcome::Consumed,
-            RowZone::GroupHeader | RowZone::Message => SettingsPanelOutcome::Consumed,
+            RowZone::GroupHeader | RowZone::Message | RowZone::Footer => {
+                SettingsPanelOutcome::Consumed
+            }
             // A help line only selects its owning row; no value change.
             RowZone::Detail => SettingsPanelOutcome::Consumed,
             RowZone::Value => self.click_action_on_selected(button),
@@ -1306,31 +1335,167 @@ mod tests {
         );
     }
 
+    // SETTINGS-COMPACT geometry: tall enough to spare footer rows while still
+    // leaving a real content window (footer reserves up to 5 rows).
+    const FH: usize = 24;
+
+    /// The focused row's help lines as they render in the fixed footer, with the
+    /// leading indent stripped and the divider / blank padding removed.
+    fn footer_help_lines(p: &SettingsPanel) -> Vec<String> {
+        let divider = format!("  {}", "\u{2500}");
+        p.build_visible_rows(W, FH)
+            .into_iter()
+            .filter(|(_, hit)| hit.zone == RowZone::Footer)
+            .map(|(line, _)| line.text)
+            .filter(|text| !text.trim().is_empty() && !text.starts_with(&divider))
+            .collect()
+    }
+
+    /// What the footer help should be for the currently focused entry (no status
+    /// message active): the wrapped `setting_detail`, indented, truncated to the
+    /// reserved capacity.
+    fn expected_footer_help(p: &SettingsPanel) -> Vec<String> {
+        let entry = &p.entries[p.selected];
+        let capacity = settings_detail_footer_reserve(FH).saturating_sub(1);
+        wrap_words(&setting_detail(entry), W.saturating_sub(4).max(1))
+            .into_iter()
+            .take(capacity)
+            .map(|line| format!("  {line}"))
+            .collect()
+    }
+
     #[test]
-    fn clicking_a_detail_line_focuses_its_owner_without_changing_value() {
-        let mut p = panel();
+    fn settings_rows_are_compact_with_no_inline_detail() {
+        let p = panel();
         let rows = p.build_visible_rows(W, H);
-        let (detail_row, owner) = rows
+        // Every row that belongs to a setting entry is a single primary line —
+        // the inline wrapped help/detail rows are gone.
+        for (_, hit) in &rows {
+            if hit.entry_index.is_some() {
+                assert!(
+                    matches!(hit.zone, RowZone::Value | RowZone::Stepper { .. }),
+                    "entry rows must be one compact primary line, got {:?}",
+                    hit.zone
+                );
+            }
+        }
+        // Exactly one primary row per visible entry.
+        let primary = rows
+            .iter()
+            .filter(|(_, h)| matches!(h.zone, RowZone::Value | RowZone::Stepper { .. }))
+            .count();
+        assert_eq!(primary, p.entries.len(), "one compact row per entry");
+        // No inline Detail rows remain in the settings view.
+        assert!(
+            !rows.iter().any(|(_, h)| h.zone == RowZone::Detail),
+            "settings view emits no inline detail rows"
+        );
+    }
+
+    #[test]
+    fn detail_footer_follows_keyboard_and_click_focus() {
+        use crate::native::overlay::OverlayInput;
+        let mut p = panel();
+
+        // Initial focus: the footer shows the focused row's help.
+        assert!(!footer_help_lines(&p).is_empty(), "footer is populated");
+        assert_eq!(
+            footer_help_lines(&p),
+            expected_footer_help(&p),
+            "footer shows the focused row help"
+        );
+
+        // Keyboard focus move: the footer follows.
+        let before = p.render_signature().selected;
+        let _ = p.handle_input(OverlayInput::Down);
+        assert_ne!(p.render_signature().selected, before, "Down moved focus");
+        assert_eq!(
+            footer_help_lines(&p),
+            expected_footer_help(&p),
+            "footer follows keyboard focus"
+        );
+
+        // Click-to-focus a visible, non-selected value row: the footer follows.
+        let rows = p.build_visible_rows(W, FH);
+        let (row, want) = rows
             .iter()
             .enumerate()
-            .find_map(|(i, (_, hit))| {
-                (hit.zone == RowZone::Detail).then(|| (i, hit.entry_index.unwrap()))
+            .find_map(|(i, (_, hit))| match hit.zone {
+                RowZone::Value | RowZone::Stepper { .. } => hit
+                    .entry_index
+                    .filter(|&e| e != p.render_signature().selected)
+                    .map(|e| (i, e)),
+                _ => None,
             })
-            .expect("a detail line exists");
+            .expect("a clickable non-selected value row is visible");
+        let _ = p.handle_pointer_press(W, FH, row, 0, PointerButton::Left, None);
+        assert_eq!(p.render_signature().selected, want, "click focused the row");
+        // The footer now describes the clicked entry (its help's first wrapped
+        // line is present, regardless of any status message the click set).
+        let first = wrap_words(
+            &setting_detail(&p.entries[want]),
+            W.saturating_sub(4).max(1),
+        )
+        .into_iter()
+        .next()
+        .expect("help has content");
+        let joined = footer_help_lines(&p).join("\n");
+        assert!(
+            joined.contains(&first),
+            "footer follows click focus: {joined:?} missing {first:?}"
+        );
+    }
+
+    #[test]
+    fn footer_lines_are_inert_on_click() {
+        let mut p = panel();
+        let before = p.render_signature().selected;
+        let footer_row = p
+            .build_visible_rows(W, FH)
+            .into_iter()
+            .position(|(_, hit)| hit.zone == RowZone::Footer)
+            .expect("a footer row exists");
         assert_eq!(
-            p.handle_pointer_press(W, H, detail_row, 0, PointerButton::Left, None),
+            p.handle_pointer_press(W, FH, footer_row, 0, PointerButton::Left, None),
             SettingsPanelOutcome::Consumed
         );
         assert_eq!(
             p.render_signature().selected,
-            owner,
-            "detail click focuses owner"
+            before,
+            "clicking the footer changes nothing"
         );
         assert_eq!(
             p.render_signature().changed_count,
             0,
-            "no value change from detail"
+            "no value change from a footer click"
         );
+    }
+
+    #[test]
+    fn navigating_within_the_window_does_not_reflow_rows() {
+        use crate::native::overlay::OverlayInput;
+        let mut p = panel();
+        let before = p.build_visible_rows(W, FH);
+        // A single Down stays within the content window (no scroll), so no row
+        // may shift — the whole point of moving help out of the row stream.
+        let _ = p.handle_input(OverlayInput::Down);
+        let after = p.build_visible_rows(W, FH);
+        assert_eq!(before.len(), after.len(), "row count stable → no reflow");
+        assert_eq!(p.render_signature().scroll, 0, "no scroll on a small move");
+        let value_row_offset = |rows: &[(SettingsPanelLine, RowHit)], entry: usize| {
+            rows.iter().position(|(_, h)| {
+                h.entry_index == Some(entry)
+                    && matches!(h.zone, RowZone::Value | RowZone::Stepper { .. })
+            })
+        };
+        for entry in 0..p.entries.len() {
+            if let (Some(a), Some(b)) = (
+                value_row_offset(&before, entry),
+                value_row_offset(&after, entry),
+            ) {
+                assert_eq!(a, b, "entry {entry} row must not move on navigation");
+            }
+        }
     }
 
     #[test]

@@ -828,7 +828,10 @@ impl SettingsPanel {
             );
         }
         let total = self.entries.len();
-        (self.scroll > 0, self.scroll + body_height < total)
+        // SETTINGS-COMPACT: the fixed help footer steals body rows, so compare
+        // the entry scroll against the shrunk content window, not the full body.
+        let window = body_height.saturating_sub(settings_detail_footer_reserve(body_height));
+        (self.scroll > 0, self.scroll + window < total)
     }
 
     /// Keep the selected section inside the Level-1 visible window by adjusting
@@ -1262,6 +1265,21 @@ fn setting_detail(entry: &SettingInfo) -> String {
     detail
 }
 
+/// SETTINGS-COMPACT: how many body rows the fixed help footer reserves at the
+/// panel bottom — a divider plus the focused row's wrapped help. Kept a pure
+/// function of the body height so the scrolling content window is a constant
+/// size and never reflows as focus moves between rows with differing help
+/// lengths. Returns 0 on windows too short to spare the rows, which collapses
+/// the body back to its full-height (pre-compact) form.
+pub(super) fn settings_detail_footer_reserve(body_height: usize) -> usize {
+    const DIVIDER_ROWS: usize = 1;
+    const MAX_HELP_ROWS: usize = 4;
+    if body_height < 6 {
+        return 0;
+    }
+    (DIVIDER_ROWS + MAX_HELP_ROWS).min(body_height / 2)
+}
+
 fn matches_query(entry: &SettingInfo, needle: &str) -> bool {
     entry.name.to_lowercase().contains(needle)
         || entry.key.to_lowercase().contains(needle)
@@ -1505,6 +1523,10 @@ mod tests {
 
         // Drill into a section; Level-2 navigation uses selected/scroll.
         panel.drill_into_section(2); // Rendering (many entries)
+        // SETTINGS-COMPACT: shrink the window so the compact section overflows
+        // its content region (the fixed help footer reserves the rest), keeping
+        // End's scroll observable.
+        panel.update_body_height(14);
         assert_eq!(panel.render_signature().selected, 0);
         let _ = panel.handle_input(OverlayInput::Down);
         assert_eq!(panel.render_signature().selected, 1);
@@ -2294,11 +2316,16 @@ mod tests {
         );
         let has_bold = lines.iter().any(|line| line.bold);
         assert!(has_bold, "no bold rows found in settings panel lines");
-        let detail_line = lines
+        // Compact rows carry no inline help; the focused row's help renders in
+        // the fixed footer at the panel bottom and is never bold (only the
+        // primary value rows are). The last non-empty body line is a footer
+        // help line.
+        let footer_help = lines
             .iter()
-            .find(|line| line.text.starts_with("    "))
-            .expect("at least one detail line present");
-        assert!(!detail_line.bold, "detail lines must not be bold");
+            .rev()
+            .find(|line| !line.text.trim().is_empty())
+            .expect("footer help line present");
+        assert!(!footer_help.bold, "footer help lines must not be bold");
     }
 
     // ── Two-level model trap tests ────────────────────────────────────────────
@@ -2685,11 +2712,14 @@ mod tests {
         let mut panel = SettingsPanel::new(&Settings::default());
         panel.drill_into_section(2); // Rendering
         panel.update_body_width(90);
-        panel.update_body_height(24);
-        let _ = panel.visible_lines(90, 24);
+        // SETTINGS-COMPACT: a short window whose content region (after the fixed
+        // help footer reserves its rows) is smaller than the section's compact
+        // row count, so the last entry is genuinely off-screen at the top.
+        panel.update_body_height(14);
+        let _ = panel.visible_lines(90, 14);
 
         // Arrow within the visible window: no scroll.
-        let vis = visible_entry_indices(&panel, 90, 24);
+        let vis = visible_entry_indices(&panel, 90, 14);
         let last_visible = *vis.iter().max().expect("rows visible");
         panel.set_selection(last_visible);
         assert_eq!(panel.scroll, 0, "still within window: no scroll");
@@ -2704,7 +2734,7 @@ mod tests {
             panel.scroll <= panel.selected,
             "scroll never overshoots past selection"
         );
-        assert!(panel.selected_in_window(24), "End selection is revealed");
+        assert!(panel.selected_in_window(14), "End selection is revealed");
     }
 
     /// Bug A end-clamp trap: keyboard steps at the numeric min/max saturate the

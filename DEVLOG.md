@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-04 -- Compact the settings panel with a fixed help footer
+
+The Level-2 settings list is now a menuconfig-style compact view: each setting
+renders as a single line (name and current value) and the per-row help that
+used to wrap inline beneath every row moves to a fixed footer pinned to the
+panel bottom, showing only the focused row's help.
+
+**One line per setting.** The value/stepper rows stay exactly as before, but the
+wrapped description/env/range/values/hint paragraph that followed each row is
+gone from the row stream. Far more settings fit on screen at once, and moving
+the selection no longer reflows the rows below it — the whole reason the help
+moved out of the row stream. Numeric steppers, the dirty `*` marker, the group
+headers, and the search view are all unchanged apart from losing their inline
+help.
+
+**Fixed help footer.** A divider plus up to four wrapped help lines sit at the
+very bottom of the body, always describing the focused row. The footer follows
+focus for free — keyboard navigation and click-to-focus both already move the
+selection, and the footer reads from it. There is no expand/collapse; the help
+is simply always visible for whatever row is focused. Any transient status
+message (an applied value, an edit prompt, a startup-only warning) shows above
+the help. The footer reserve is a pure function of the body height, so the
+scrolling content window is a constant size and never jitters as focus moves;
+on windows too short to spare the rows the footer is suppressed and the body
+falls back to its full height. Longer help truncates gracefully rather than
+pushing the divider off-screen.
+
+**Keyboard and mouse unchanged.** Up/Down navigate, Left/Right cycle, Enter
+edits/applies, Esc backs out, Ctrl+S saves — byte-identical. With no inline help
+rows left, the pointer hit-map simplifies: footer lines are inert and never
+change the selection or a value. The Level-1 section list (already a compact
+name + entry-count list) and the About view are untouched. Platform-neutral UI
+change, no Windows surface.
+
+---
+
 ## 2026-07-04 -- Document the seamless-remote and persistence layers
 
 The narrative and reference docs (README, SPEC, keybindings, TODO) now cover the
