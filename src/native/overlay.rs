@@ -10,6 +10,9 @@ use crate::theme::{Srgb, Theme};
 use unicode_width::UnicodeWidthChar;
 use winit::keyboard::{Key as WinitKey, NamedKey};
 
+use super::connection_form::{
+    ConnectionForm, ConnectionFormLine, ConnectionFormOutcome, ConnectionFormSignature,
+};
 use super::connection_overlay::{
     ConnectionOverlay, ConnectionOverlayLine, ConnectionOverlayOutcome, ConnectionOverlaySignature,
     ConnectionPickerPurpose,
@@ -58,6 +61,7 @@ pub(super) struct OverlayUi {
     command_palette: PaletteOverlay,
     replay: ReplayOverlay,
     connections: ConnectionOverlay,
+    connection_form: ConnectionForm,
     session_attach: SessionAttachOverlay,
     open_with: OpenWithOverlay,
     /// Caption (the image's filename) shown in the C4 image-viewer overlay's
@@ -136,6 +140,7 @@ impl OverlayUi {
             command_palette: PaletteOverlay::new(),
             replay: ReplayOverlay::new(),
             connections: ConnectionOverlay::new(),
+            connection_form: ConnectionForm::new(),
             session_attach: SessionAttachOverlay::new(),
             open_with: OpenWithOverlay::new(),
             image_view_caption: String::new(),
@@ -1049,6 +1054,7 @@ impl OverlayUi {
             OverlayMode::CommandPalette => return self.handle_command_palette_input(input),
             OverlayMode::Replay => return self.handle_replay_input(input),
             OverlayMode::Connections => return self.handle_connections_input(input),
+            OverlayMode::ConnectionForm => return self.handle_connection_form_input(input),
             OverlayMode::SessionAttach => return self.handle_session_attach_input(input),
             OverlayMode::OpenWith => return self.handle_open_with_input(input),
             OverlayMode::ImageView => return self.handle_image_view_input(input),
@@ -1185,6 +1191,13 @@ impl OverlayUi {
                             OverlayOutcome::Consumed
                         }
                     }
+                    OverlayMode::ConnectionForm => {
+                        if button == PointerButton::Left {
+                            self.handle_connection_form_pointer(row_in_body)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
                     OverlayMode::SessionAttach => match button {
                         // Left-click on a row attaches (unchanged from Phase 5).
                         PointerButton::Left => {
@@ -1297,6 +1310,7 @@ impl OverlayUi {
                     | OverlayMode::ConfirmKillSession
                     | OverlayMode::DetachSwitchChoice
                     | OverlayMode::ConfirmReplaceTab => OverlayOutcome::Consumed,
+                    | OverlayMode::ConnectionForm => OverlayOutcome::Consumed,
                 }
             }
             OverlayPointer::Release { .. } => {
@@ -1319,6 +1333,7 @@ impl OverlayUi {
                     | OverlayMode::ConfirmKillSession
                     | OverlayMode::DetachSwitchChoice
                     | OverlayMode::ConfirmReplaceTab => {}
+                    | OverlayMode::ConnectionForm => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -1370,6 +1385,7 @@ impl OverlayUi {
                     | OverlayMode::ConfirmKillSession
                     | OverlayMode::DetachSwitchChoice
                     | OverlayMode::ConfirmReplaceTab
+                    | OverlayMode::ConnectionForm
                     | OverlayMode::ImageView => {}
                 }
                 OverlayOutcome::Consumed
@@ -1400,6 +1416,7 @@ impl OverlayUi {
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab => false,
+            | OverlayMode::ConnectionForm => false,
         }
     }
 
@@ -1426,6 +1443,7 @@ impl OverlayUi {
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab => {}
+            | OverlayMode::ConnectionForm => {}
         }
     }
 
@@ -1469,6 +1487,7 @@ impl OverlayUi {
             OverlayMode::CommandPalette => "Command Palette".to_owned(),
             OverlayMode::Replay => "\u{2190} Session Replay  (Esc = back)".to_owned(),
             OverlayMode::Connections => "\u{2190} Connections  (Esc = back)".to_owned(),
+            OverlayMode::ConnectionForm => self.connection_form.title(),
             OverlayMode::SessionAttach => "\u{2190} Manage Sessions  (Esc = back)".to_owned(),
             OverlayMode::OpenWith => "\u{2190} Open With\u{2026}  (Esc = back)".to_owned(),
             OverlayMode::ImageView => {
@@ -1589,6 +1608,7 @@ impl OverlayUi {
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab => {}
+            | OverlayMode::ConnectionForm => {}
         }
     }
 
@@ -1612,6 +1632,7 @@ impl OverlayUi {
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab => {}
+            | OverlayMode::ConnectionForm => {}
         }
     }
 
@@ -1656,6 +1677,7 @@ impl OverlayUi {
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab => (false, false),
+            | OverlayMode::ConnectionForm => (false, false),
         }
     }
 
@@ -1673,6 +1695,7 @@ impl OverlayUi {
             command_palette: self.command_palette.render_signature(),
             replay: self.replay.render_signature(),
             connections: self.connections.render_signature(),
+            connection_form: self.connection_form.render_signature(),
             session_attach: self.session_attach.render_signature(),
             open_with: self.open_with.render_signature(),
         }
@@ -1881,6 +1904,56 @@ impl OverlayUi {
                     ConnectionPickerPurpose::Connect => OverlayOutcome::Close,
                 }
             }
+            // REMOTE-UX P4: Tab / \u{2192} in the connection manager switch this
+            // overlay into the Add / Edit form. The list's frozen OdyTTY-owned
+            // aliases supply the collision guard; the form is a sibling overlay
+            // mode, so no App round-trip is needed to open it.
+            ConnectionOverlayOutcome::AddConnection => {
+                let aliases = self.connections.odytty_aliases();
+                self.connection_form.open_add(aliases);
+                self.mode = OverlayMode::ConnectionForm;
+                OverlayOutcome::Consumed
+            }
+            ConnectionOverlayOutcome::EditConnection(host) => {
+                let aliases = self
+                    .connections
+                    .odytty_aliases()
+                    .into_iter()
+                    .filter(|alias| *alias != host.alias)
+                    .collect();
+                self.connection_form.open_edit(&host, aliases);
+                self.mode = OverlayMode::ConnectionForm;
+                OverlayOutcome::Consumed
+            }
+        }
+    }
+
+    /// Route a key to the Add / Edit connection form (REMOTE-UX P4). The form
+    /// edits presentation state (Consumed), cancels (Close), or accepts (Save)
+    /// \u{2014} the App persists the built host; the form never writes.
+    fn handle_connection_form_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        let outcome = self.connection_form.handle_input(input);
+        self.apply_connection_form_outcome(outcome)
+    }
+
+    /// Route a left-click on a form body row to the form (focus a field or press
+    /// an action button).
+    fn handle_connection_form_pointer(&mut self, row_in_body: usize) -> OverlayOutcome {
+        let outcome = self.connection_form.handle_pointer_press(row_in_body);
+        self.apply_connection_form_outcome(outcome)
+    }
+
+    /// Map a form outcome to an App-side outcome. Save closes the overlay first
+    /// (the connection was just described, not connected), then hands the App the
+    /// built host + edit target to persist.
+    fn apply_connection_form_outcome(&mut self, outcome: ConnectionFormOutcome) -> OverlayOutcome {
+        match outcome {
+            ConnectionFormOutcome::Consumed => OverlayOutcome::Consumed,
+            ConnectionFormOutcome::Close => OverlayOutcome::Close,
+            ConnectionFormOutcome::Save { host, edit_target } => {
+                self.close();
+                OverlayOutcome::SaveConnection { host, edit_target }
+            }
         }
     }
 
@@ -2003,6 +2076,14 @@ pub(super) enum OverlayOutcome {
     /// holding this token and open the picked host in its slot. Emitted only
     /// after the running-child confirm; the dialog closed itself.
     ReplaceTabWithHostConfirmed(Box<ConnectionHost>, SessionToken),
+    /// Persist a host built in the Add / Edit connection form (REMOTE-UX P4).
+    /// The overlay has closed itself; the App appends a new block (`edit_target`
+    /// `None`) or byte-splices over the named block, then raises a one-line
+    /// notice.
+    SaveConnection {
+        host: Box<ConnectionHost>,
+        edit_target: Option<String>,
+    },
     ContextMenuCloseTab,
     /// Close a specific tab by token from a tab-slot right-click (NF-F7-1). The
     /// overlay has already closed itself; the App reaps the tab that holds
@@ -2216,6 +2297,10 @@ pub(super) enum OverlayMode {
     /// and quick-connect. Presentation-only; accepting a row emits a connect
     /// request for the App to spawn. Never mutates live core state.
     Connections,
+    /// Add / Edit connection form (REMOTE-UX P4): create or edit a hosts.conf
+    /// block. Presentation + validation only; Save emits the built host for the
+    /// App to persist (append for Add, byte-splice for Edit).
+    ConnectionForm,
     /// Session-attach summon overlay (Phase 5 / B2): list live detached
     /// sessions, type-to-filter, and attach into a new tab. Presentation-only;
     /// accepting a row emits an attach request for the App. Never mutates live
@@ -2350,6 +2435,7 @@ pub(super) struct OverlayRenderSignature {
     pub(super) command_palette: PaletteOverlaySignature,
     pub(super) replay: ReplayOverlaySignature,
     pub(super) connections: ConnectionOverlaySignature,
+    pub(super) connection_form: ConnectionFormSignature,
     pub(super) session_attach: SessionAttachOverlaySignature,
     pub(super) open_with: OpenWithOverlaySignature,
 }
@@ -2503,6 +2589,7 @@ pub(super) fn overlay_rect(
         OverlayMode::CommandPalette => overlay.command_palette.desired_width(columns),
         OverlayMode::Replay => overlay.replay.desired_width(columns),
         OverlayMode::Connections => overlay.connections.desired_width(columns),
+        OverlayMode::ConnectionForm => overlay.connection_form.desired_width(columns),
         OverlayMode::SessionAttach => overlay.session_attach.desired_width(columns),
         OverlayMode::OpenWith => overlay.open_with.desired_width(columns),
         // The image viewer (C4) uses a full-width backdrop panel; the decoded
@@ -2809,6 +2896,12 @@ impl OverlayUi {
                 .into_iter()
                 .map(OverlayLine::from)
                 .collect(),
+            OverlayMode::ConnectionForm => self
+                .connection_form
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
             OverlayMode::SessionAttach => self
                 .session_attach
                 .visible_lines(body_width, body_height)
@@ -3093,6 +3186,17 @@ impl From<ReplayOverlayLine> for OverlayLine {
 
 impl From<ConnectionOverlayLine> for OverlayLine {
     fn from(line: ConnectionOverlayLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+            swatch: None,
+            bold: line.bold,
+        }
+    }
+}
+
+impl From<ConnectionFormLine> for OverlayLine {
+    fn from(line: ConnectionFormLine) -> Self {
         Self {
             text: line.text,
             focused: line.focused,
@@ -3642,6 +3746,64 @@ mod tests {
             !overlay.is_open(),
             "connection overlay must close after Connect"
         );
+    }
+
+    #[test]
+    fn tab_opens_the_add_connection_form() {
+        // REMOTE-UX P4: Tab in the connection manager switches this overlay to
+        // the Add form (a sibling mode); the overlay stays open.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Tab),
+            OverlayOutcome::Consumed
+        );
+        assert!(overlay.is_open());
+        assert_eq!(overlay.render_signature().mode, OverlayMode::ConnectionForm);
+        assert!(overlay.title().contains("Add Connection"));
+    }
+
+    #[test]
+    fn add_form_save_emits_save_connection_for_append() {
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(Vec::new());
+        overlay.handle_input(OverlayInput::Tab); // -> Add form, focus on Alias
+        for ch in "newhost".chars() {
+            overlay.handle_input(OverlayInput::Char(ch));
+        }
+        match overlay.handle_input(OverlayInput::Save) {
+            OverlayOutcome::SaveConnection { host, edit_target } => {
+                assert_eq!(host.alias, "newhost");
+                assert_eq!(edit_target, None, "Add appends");
+            }
+            other => panic!("expected SaveConnection, got {other:?}"),
+        }
+        assert!(!overlay.is_open(), "form closes on save");
+    }
+
+    #[test]
+    fn right_arrow_opens_edit_form_for_an_odytty_row() {
+        // The selected OdyTTY-owned row opens pre-filled in the Edit form; Save
+        // targets the original block for the byte-splice writer.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(vec![connection_host("web1")]);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Right),
+            OverlayOutcome::Consumed
+        );
+        assert_eq!(overlay.render_signature().mode, OverlayMode::ConnectionForm);
+        assert!(overlay.title().contains("Edit Connection"));
+        match overlay.handle_input(OverlayInput::Save) {
+            OverlayOutcome::SaveConnection { host, edit_target } => {
+                assert_eq!(host.alias, "web1");
+                assert_eq!(
+                    edit_target.as_deref(),
+                    Some("web1"),
+                    "Edit splices the block"
+                );
+            }
+            other => panic!("expected SaveConnection, got {other:?}"),
+        }
     }
 
     #[test]
@@ -5013,7 +5175,7 @@ mod tests {
         // or the affordance is click-dead (Esc masks it). This iterates ALL
         // modes so a future `←`-titled mode without coverage fails here rather
         // than shipping a dead arrow (as Connections, then About, once did).
-        const ALL_MODES: [OverlayMode; 17] = [
+        const ALL_MODES: [OverlayMode; 18] = [
             OverlayMode::Settings,
             OverlayMode::ThemePicker,
             OverlayMode::ThemeBuilder,
@@ -5024,6 +5186,7 @@ mod tests {
             OverlayMode::CommandPalette,
             OverlayMode::Replay,
             OverlayMode::Connections,
+            OverlayMode::ConnectionForm,
             OverlayMode::SessionAttach,
             OverlayMode::OpenWith,
             OverlayMode::ImageView,

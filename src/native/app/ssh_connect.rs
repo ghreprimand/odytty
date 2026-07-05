@@ -8,7 +8,8 @@
 
 use super::*;
 use crate::connection_hosts::{
-    AppendHostOutcome, ConnectionHost, append_adhoc_host, hosts_file_path,
+    AppendHostOutcome, ConnectionHost, HostsEditOutcome, append_adhoc_host, edit_host_block,
+    hosts_file_path,
 };
 
 impl App {
@@ -40,6 +41,58 @@ impl App {
                 tracing::warn!("failed to save ad-hoc host to hosts.conf: {error}");
                 self.raise_open_notice("Could not save the host to hosts.conf".to_owned());
             }
+        }
+    }
+
+    /// Persist a host built in the Add / Edit connection form (REMOTE-UX P4).
+    /// `edit_target` `None` appends a new block; `Some(alias)` byte-splices over
+    /// the existing block owning that alias, leaving every other block, comment,
+    /// and unknown field untouched. Resolves the same config dir the connection
+    /// manager loads from; a missing config dir or a write error surfaces a
+    /// one-line notice and never panics. The form already guarded the
+    /// alias-collision case, so an unexpected `AlreadyExists` is reported rather
+    /// than silently dropped. Windows: the config dir resolves through the same
+    /// settings path logic, so the write lands under the platform config dir
+    /// exactly as on Unix.
+    pub(in crate::native) fn persist_connection_form(
+        &mut self,
+        host: &ConnectionHost,
+        edit_target: Option<String>,
+    ) {
+        let Some(config_dir) = self
+            .settings_reloader
+            .config_path()
+            .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+        else {
+            self.raise_open_notice("Could not locate hosts.conf to save the host".to_owned());
+            return;
+        };
+        let path = hosts_file_path(&config_dir);
+        match edit_target {
+            Some(original) => match edit_host_block(&path, &original, host) {
+                Ok(HostsEditOutcome::Written) => {
+                    self.raise_open_notice(format!("Updated \"{}\"", host.alias));
+                }
+                Ok(HostsEditOutcome::NotFound) => {
+                    self.raise_open_notice(format!("\"{original}\" is no longer in hosts.conf"));
+                }
+                Err(error) => {
+                    tracing::warn!("failed to edit host in hosts.conf: {error}");
+                    self.raise_open_notice("Could not update the host in hosts.conf".to_owned());
+                }
+            },
+            None => match append_adhoc_host(&path, host) {
+                Ok(AppendHostOutcome::Appended) => {
+                    self.raise_open_notice(format!("Saved \"{}\" to hosts.conf", host.alias));
+                }
+                Ok(AppendHostOutcome::AlreadyExists) => {
+                    self.raise_open_notice(format!("\"{}\" is already saved", host.alias));
+                }
+                Err(error) => {
+                    tracing::warn!("failed to save host to hosts.conf: {error}");
+                    self.raise_open_notice("Could not save the host to hosts.conf".to_owned());
+                }
+            },
         }
     }
 

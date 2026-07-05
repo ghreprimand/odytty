@@ -373,6 +373,14 @@ impl App {
                 let _ = self.connect_ssh_host_in_new_tab(&host);
                 self.save_adhoc_host(&host);
             }
+            // REMOTE-UX P4: the Add / Edit connection form closed itself before
+            // emitting this; persist the built host — append a new block for Add,
+            // byte-splice over the named block for Edit. A write failure surfaces
+            // a one-line notice and never panics.
+            OverlayOutcome::SaveConnection { host, edit_target } => {
+                self.flush_pending_overlay_settings();
+                self.persist_connection_form(&host, edit_target);
+            }
             // Phase 5 / B2: the session-attach overlay closed itself before
             // emitting this; attach the chosen session into a new tab. A stale
             // id (the session ended between list and accept) returns Err from

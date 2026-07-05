@@ -291,7 +291,7 @@ impl AdhocTarget {
 /// letters, digits, `.`, `-`, or `_`, and never leading with `-` (which the
 /// system `ssh` would read as an option — the argv `--` guard is a second line
 /// of defense, not the only one).
-fn is_valid_adhoc_part(value: &str) -> bool {
+pub(crate) fn is_valid_adhoc_part(value: &str) -> bool {
     if value.is_empty() || value.starts_with('-') {
         return false;
     }

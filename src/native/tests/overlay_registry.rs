@@ -140,6 +140,7 @@ fn closed_overlay_sig() -> OverlayRenderSignature {
             results_len: 0,
             results_fingerprint: 0,
         },
+        connection_form: crate::native::connection_form::ConnectionFormSignature::default(),
         session_attach: SessionAttachOverlaySignature {
             query: String::new(),
             selected: None,

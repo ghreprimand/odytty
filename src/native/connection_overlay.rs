@@ -98,6 +98,13 @@ pub(super) enum ConnectionOverlayOutcome {
     /// pending action (ODP-1B). The App routes the chosen host per the purpose
     /// rather than connecting. Never emitted in the default `Connect` purpose.
     Pick(Box<ConnectionHost>, ConnectionPickerPurpose),
+    /// Open the Add-connection form (REMOTE-UX P4). Raised by Tab in the
+    /// connection manager; the overlay switches itself to the form mode.
+    AddConnection,
+    /// Open the Edit form pre-filled from the selected OdyTTY-owned host
+    /// (REMOTE-UX P4). Raised by `\u{2192}` on a saved OdyTTY row;
+    /// `ssh-config`-imported rows are read-only and never emit this.
+    EditConnection(Box<ConnectionHost>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,6 +206,17 @@ impl ConnectionOverlay {
         self.entries.get(entry_index)
     }
 
+    /// The aliases of the OdyTTY-owned saved hosts, for the Add/Edit form's
+    /// alias-collision guard. `ssh-config`-imported names live in a different
+    /// file and never collide with a `hosts.conf` block, so they are excluded.
+    pub(super) fn odytty_aliases(&self) -> Vec<String> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.source == ConnectionHostSource::Odytty)
+            .map(|entry| entry.alias.clone())
+            .collect()
+    }
+
     pub(super) fn handle_input(&mut self, input: OverlayInput) -> ConnectionOverlayOutcome {
         match input {
             OverlayInput::Close => ConnectionOverlayOutcome::Close,
@@ -273,10 +291,17 @@ impl ConnectionOverlay {
                     ConnectionOverlayOutcome::Consumed
                 }
             }
-            OverlayInput::Char(_)
-            | OverlayInput::Left
-            | OverlayInput::Right
-            | OverlayInput::Tab => ConnectionOverlayOutcome::Consumed,
+            // Tab opens the Add-connection form; `\u{2192}` opens the Edit form for a
+            // selected OdyTTY-owned row (P4). An `ssh-config`-imported row is
+            // read-only, so `\u{2192}` there is inert.
+            OverlayInput::Tab => ConnectionOverlayOutcome::AddConnection,
+            OverlayInput::Right => match self.selected_entry() {
+                Some(entry) if entry.source == ConnectionHostSource::Odytty => {
+                    ConnectionOverlayOutcome::EditConnection(Box::new(entry.clone()))
+                }
+                _ => ConnectionOverlayOutcome::Consumed,
+            },
+            OverlayInput::Char(_) | OverlayInput::Left => ConnectionOverlayOutcome::Consumed,
         }
     }
 

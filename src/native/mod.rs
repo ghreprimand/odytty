@@ -56,6 +56,7 @@ mod app;
 mod attach;
 mod bindings;
 mod clipboard;
+mod connection_form;
 mod connection_overlay;
 mod context_menu_ui;
 mod copy_mode;
