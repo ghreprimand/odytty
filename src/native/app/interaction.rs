@@ -320,6 +320,14 @@ impl App {
                 self.flush_pending_overlay_settings();
                 let _ = self.connect_ssh_host_in_new_tab(&host);
             }
+            // ADHOC-CONNECT: connect to a typed host AND append it to hosts.conf.
+            // The connect and the save are independent — a save failure never
+            // blocks the connection, and vice versa.
+            OverlayOutcome::ConnectAndSave(host) => {
+                self.flush_pending_overlay_settings();
+                let _ = self.connect_ssh_host_in_new_tab(&host);
+                self.save_adhoc_host(&host);
+            }
             // Phase 5 / B2: the session-attach overlay closed itself before
             // emitting this; attach the chosen session into a new tab. A stale
             // id (the session ended between list and accept) returns Err from

@@ -164,9 +164,11 @@ impl PaletteOverlay {
                 }
                 None => PaletteOverlayOutcome::Consumed,
             },
-            OverlayInput::Left | OverlayInput::Right | OverlayInput::Save | OverlayInput::Tab => {
-                PaletteOverlayOutcome::Consumed
-            }
+            OverlayInput::Left
+            | OverlayInput::Right
+            | OverlayInput::Save
+            | OverlayInput::ActivateAlt
+            | OverlayInput::Tab => PaletteOverlayOutcome::Consumed,
         }
     }
 

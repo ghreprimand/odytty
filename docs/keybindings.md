@@ -208,6 +208,11 @@ type-to-search settings by name. Modal dialogs print their own one-key choices
 (for example the attach dialog's `[N]`ew tab / `[R]`eplace, or close-confirm's
 `[Y]`/`[N]`).
 
+In the connection manager, typing a `[user@]host[:port]` that matches no saved
+host offers a **Connect to: …** row: `Enter` connects to the typed host, and
+`Shift+Enter` (or `Ctrl+S`) connects and saves it to `hosts.conf`. Both keys are
+shown in a hint line beneath the row.
+
 ## Rebinding shortcuts
 
 There are three ways to change bindings; all three take effect on the next config

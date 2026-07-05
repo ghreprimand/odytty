@@ -180,6 +180,7 @@ impl SessionAttachOverlay {
             | OverlayInput::Left
             | OverlayInput::Right
             | OverlayInput::Save
+            | OverlayInput::ActivateAlt
             | OverlayInput::Tab => SessionAttachOverlayOutcome::Consumed,
         }
     }

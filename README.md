@@ -679,6 +679,16 @@ opt-in off, the overlay lists OdyTTY-owned hosts only and never references
 `~/.ssh`. The overlay is presentation-only; selecting a host spawns the system
 `ssh` in a new session.
 
+**Ad-hoc connect.** You do not have to save a host first. When the filter query
+matches no saved host but is a well-formed `[user@]host[:port]`, the overlay
+offers a **Connect to: …** row: **Enter** connects to it straight away (through
+the same path a saved host uses), and **Shift+Enter** (or **Ctrl+S**) connects
+*and* appends a matching `Host` block to `hosts.conf` so it is saved for next
+time. The write is atomic and preserves the file's existing contents; if the
+alias already exists it just connects and reports "already saved". Typed input
+is validated — embedded spaces, a leading `-`, or an out-of-range port are
+rejected so nothing option-injects into the `ssh` command line.
+
 **Remote shell integration.** By default (`remote_integration`, on) connecting
 to a saved host carries OdyTTY's shell integration onto the remote: an inline,
 bash-only bootstrap writes a temporary rcfile on the remote and execs an

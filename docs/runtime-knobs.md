@@ -139,6 +139,16 @@ per-host profile fields reserved for the overlay UI. `Integration on|off`,
 `Reuse on|off`, and `Tmux on|off` are optional per-host overrides for remote
 shell integration, connection reuse, and tmux persistence (see below).
 
+You do not have to hand-edit this file to reach a new host. In the connection
+manager, typing a `[user@]host[:port]` that matches no saved host offers a
+**Connect to: …** row — **Enter** connects, and **Shift+Enter** (or **Ctrl+S**)
+connects and appends a `Host` block here for you. The append is atomic
+(temp-file-and-rename) and preserves the file's existing contents byte-for-byte;
+the new block reads `Host <host>` (no redundant `HostName` when the alias is the
+host) plus `User`/`Port` when supplied. An exact-alias collision skips the write
+and reports "already saved". Typed input with embedded spaces, a leading `-`, or
+a port outside `1-65535` is rejected before any connect or write.
+
 ### Remote shell integration (`remote_integration`)
 
 An SSH tab runs the system `ssh` as its local child, so by default the remote

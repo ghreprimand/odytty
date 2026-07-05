@@ -1653,6 +1653,12 @@ impl OverlayUi {
                 self.close();
                 OverlayOutcome::Connect(host)
             }
+            // Ad-hoc connect + save: close first (same password-safety reason as
+            // Connect), then hand the App the host to spawn AND persist.
+            ConnectionOverlayOutcome::ConnectAndSave(host) => {
+                self.close();
+                OverlayOutcome::ConnectAndSave(host)
+            }
         }
     }
 
@@ -1824,6 +1830,11 @@ pub(super) enum OverlayOutcome {
     /// [`ConnectionHost`] so the connect action has alias, host name, user, and
     /// port without re-reading any file.
     Connect(Box<ConnectionHost>),
+    /// Connect to an ad-hoc host AND append it to `hosts.conf` (ADHOC-CONNECT
+    /// save offer). Emitted only from the synthetic "Connect to: …" row when the
+    /// query matched no saved host; the App spawns the connection and persists a
+    /// `Host` block. Boxed for the same size reason as `Connect`.
+    ConnectAndSave(Box<ConnectionHost>),
     /// Attach to a live session accepted from the session-attach overlay (Phase
     /// 5 / B2). The overlay has already closed itself by the time this is
     /// emitted; the App attaches the session id into a new tab. A stale id (the
@@ -2009,6 +2020,10 @@ pub(super) enum OverlayInput {
     Left,
     Right,
     Activate,
+    /// Activate with the Shift modifier held (Shift+Enter) — a secondary accept
+    /// most overlays ignore. The connection manager uses it for
+    /// connect-and-save; other overlays treat it as inert.
+    ActivateAlt,
     Save,
     Backspace,
     Close,
@@ -2092,6 +2107,7 @@ pub(super) fn overlay_input_from_winit(
         WinitKey::Named(NamedKey::End) => Some(OverlayInput::End),
         WinitKey::Named(NamedKey::ArrowLeft) => Some(OverlayInput::Left),
         WinitKey::Named(NamedKey::ArrowRight) => Some(OverlayInput::Right),
+        WinitKey::Named(NamedKey::Enter) if mods.shift => Some(OverlayInput::ActivateAlt),
         WinitKey::Named(NamedKey::Enter) => Some(OverlayInput::Activate),
         WinitKey::Named(NamedKey::Tab) if !mods.ctrl && !mods.alt => Some(OverlayInput::Tab),
         WinitKey::Named(NamedKey::Backspace) => Some(OverlayInput::Backspace),

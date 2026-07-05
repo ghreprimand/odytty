@@ -7,9 +7,42 @@
 //! fields and never handles credentials or key material.
 
 use super::*;
-use crate::connection_hosts::ConnectionHost;
+use crate::connection_hosts::{
+    AppendHostOutcome, ConnectionHost, append_adhoc_host, hosts_file_path,
+};
 
 impl App {
+    /// Append an ad-hoc host to the OdyTTY-owned `hosts.conf` (ADHOC-CONNECT
+    /// save offer). Resolves the same config dir the connection manager loads
+    /// from; a missing config dir, an exact-alias collision, or a write error
+    /// each surface a one-line notice and never disturb the just-opened
+    /// connection. Windows: the config dir resolves through the same settings
+    /// path logic, so the write lands under `%APPDATA%`/the platform config dir
+    /// exactly as on Unix.
+    pub(in crate::native) fn save_adhoc_host(&mut self, host: &ConnectionHost) {
+        let Some(config_dir) = self
+            .settings_reloader
+            .config_path()
+            .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+        else {
+            self.raise_open_notice("Could not locate hosts.conf to save the host".to_owned());
+            return;
+        };
+        let path = hosts_file_path(&config_dir);
+        match append_adhoc_host(&path, host) {
+            Ok(AppendHostOutcome::Appended) => {
+                self.raise_open_notice(format!("Saved \"{}\" to hosts.conf", host.alias));
+            }
+            Ok(AppendHostOutcome::AlreadyExists) => {
+                self.raise_open_notice(format!("\"{}\" is already saved", host.alias));
+            }
+            Err(error) => {
+                tracing::warn!("failed to save ad-hoc host to hosts.conf: {error}");
+                self.raise_open_notice("Could not save the host to hosts.conf".to_owned());
+            }
+        }
+    }
+
     /// Hand-off seam for the connection-manager overlay: consume a resolved
     /// connection entry and present it as a focused new tab.
     pub(in crate::native) fn connect_ssh_host_in_new_tab(

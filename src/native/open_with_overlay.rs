@@ -170,6 +170,7 @@ impl OpenWithOverlay {
             | OverlayInput::Left
             | OverlayInput::Right
             | OverlayInput::Save
+            | OverlayInput::ActivateAlt
             | OverlayInput::Tab => OpenWithOverlayOutcome::Consumed,
         }
     }

@@ -118,7 +118,8 @@ impl ReplayOverlay {
             | OverlayInput::Tab
             | OverlayInput::Save
             | OverlayInput::Backspace
-            | OverlayInput::Activate => ReplayOverlayOutcome::Consumed,
+            | OverlayInput::Activate
+            | OverlayInput::ActivateAlt => ReplayOverlayOutcome::Consumed,
         }
     }
 

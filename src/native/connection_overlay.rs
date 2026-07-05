@@ -18,7 +18,7 @@ use std::cell::Cell;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use crate::connection_hosts::{ConnectionHost, ConnectionHostSource};
+use crate::connection_hosts::{ConnectionHost, ConnectionHostSource, parse_adhoc_target};
 use crate::fuzzy;
 
 use super::overlay::OverlayInput;
@@ -57,6 +57,10 @@ pub(super) enum ConnectionOverlayOutcome {
     /// The user accepted a host. The App spawns the connection (presentation is
     /// done; this overlay never spawns anything itself).
     Connect(Box<ConnectionHost>),
+    /// The user accepted an ad-hoc `[user@]host[:port]` that matched no saved
+    /// host and asked to save it: the App connects AND appends a `Host` block to
+    /// `hosts.conf`. Carried only from the synthetic "Connect to: …" row.
+    ConnectAndSave(Box<ConnectionHost>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -174,14 +178,42 @@ impl ConnectionOverlay {
             }
             OverlayInput::Activate => match self.selected_entry() {
                 Some(entry) => ConnectionOverlayOutcome::Connect(Box::new(entry.clone())),
-                None => ConnectionOverlayOutcome::Consumed,
+                // No saved row is selected — offer the ad-hoc connect when the
+                // query is a well-formed destination.
+                None => match self.adhoc_target() {
+                    Some(host) => ConnectionOverlayOutcome::Connect(Box::new(host)),
+                    None => ConnectionOverlayOutcome::Consumed,
+                },
             },
+            // Shift+Enter (ActivateAlt) or Ctrl+S (Save) on the synthetic ad-hoc
+            // row = connect AND append the host to hosts.conf. On a saved row it
+            // is inert (the host is already saved). Ctrl+S is the Windows-safe
+            // alternative to Shift+Enter and behaves identically here.
+            OverlayInput::ActivateAlt | OverlayInput::Save => {
+                if self.selected_entry().is_none()
+                    && let Some(host) = self.adhoc_target()
+                {
+                    ConnectionOverlayOutcome::ConnectAndSave(Box::new(host))
+                } else {
+                    ConnectionOverlayOutcome::Consumed
+                }
+            }
             OverlayInput::Char(_)
             | OverlayInput::Left
             | OverlayInput::Right
-            | OverlayInput::Save
             | OverlayInput::Tab => ConnectionOverlayOutcome::Consumed,
         }
+    }
+
+    /// The ad-hoc connection host for the current query, or `None` when the
+    /// query matches a saved host (so the normal list is shown) or does not
+    /// parse as `[user@]host[:port]`. Only meaningful when the filtered list is
+    /// empty — a query that fuzzy-matches a saved row never offers ad-hoc.
+    fn adhoc_target(&self) -> Option<ConnectionHost> {
+        if !self.filtered.is_empty() {
+            return None;
+        }
+        parse_adhoc_target(&self.query).map(|target| target.to_connection_host())
     }
 
     /// Scroll one row in response to a wheel notch (negative = toward the top).
@@ -213,6 +245,17 @@ impl ConnectionOverlay {
     /// selectable row so the caller can route the existing Activate. Parity with
     /// Down×N + Activate by construction.
     pub(super) fn click_row(&mut self, row_in_body: usize, body_height: usize) -> bool {
+        // The synthetic ad-hoc "Connect to: …" row sits at body row 1 when the
+        // filtered list is empty but the query parses; a click there connects
+        // (the caller routes Activate, which the empty-selection path resolves
+        // to the ad-hoc host). Saving still requires Shift+Enter / Ctrl+S.
+        if body_height > 1
+            && row_in_body == 1
+            && self.filtered.is_empty()
+            && parse_adhoc_target(&self.query).is_some()
+        {
+            return true;
+        }
         match self.row_at(row_in_body, body_height) {
             Some(cursor) => {
                 self.selected = cursor;
@@ -257,11 +300,35 @@ impl ConnectionOverlay {
         }
         if self.filtered.is_empty() {
             self.scroll_offset.set(0);
-            lines.push(ConnectionOverlayLine {
-                text: "No matches".to_owned(),
-                focused: false,
-                bold: false,
-            });
+            // When the query is a well-formed `[user@]host[:port]` that matches
+            // no saved host, offer an ad-hoc connect row in place of "No
+            // matches" — with a key hint so both actions are discoverable.
+            if let Some(target) = parse_adhoc_target(&self.query) {
+                lines.push(ConnectionOverlayLine {
+                    text: truncate_for_width(
+                        &format!("Connect to: {}", target.display()),
+                        body_width,
+                    ),
+                    focused: true,
+                    bold: false,
+                });
+                if lines.len() < body_height {
+                    lines.push(ConnectionOverlayLine {
+                        text: truncate_for_width(
+                            "[Enter] connect · [Shift+Enter] connect + save",
+                            body_width,
+                        ),
+                        focused: false,
+                        bold: false,
+                    });
+                }
+            } else {
+                lines.push(ConnectionOverlayLine {
+                    text: "No matches".to_owned(),
+                    focused: false,
+                    bold: false,
+                });
+            }
             return lines;
         }
         let remaining = body_height - lines.len();
@@ -591,14 +658,85 @@ mod tests {
     }
 
     #[test]
-    fn no_match_query_emits_consumed_on_activate() {
+    fn unparseable_no_match_query_emits_consumed_on_activate() {
+        // A query that matches nothing AND does not parse as a destination (it
+        // has an embedded space) keeps the old inert behavior: "No matches",
+        // Activate is a no-op.
         let mut overlay = open(entries());
-        type_query(&mut overlay, "zzzznomatch");
+        type_query(&mut overlay, "bad host");
         assert_eq!(overlay.render_signature().results_len, 0);
+        let lines = overlay.visible_lines(80, 10);
+        assert!(lines[1].text.contains("No matches"));
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
             ConnectionOverlayOutcome::Consumed
         );
+    }
+
+    #[test]
+    fn adhoc_query_offers_connect_row_and_connects_on_activate() {
+        // A query that matches no saved host but parses as user@host:port shows
+        // a "Connect to: …" row plus a key hint, and Activate connects the
+        // ad-hoc host (global remote defaults; no per-host overrides).
+        let mut overlay = open(entries());
+        type_query(&mut overlay, "deploy@host.example.invalid:2200");
+        assert_eq!(overlay.render_signature().results_len, 0);
+        let lines = overlay.visible_lines(80, 10);
+        assert!(
+            lines[1]
+                .text
+                .contains("Connect to: deploy@host.example.invalid:2200")
+        );
+        assert!(lines[2].text.contains("[Enter] connect"));
+        assert!(lines[2].text.contains("[Shift+Enter] connect + save"));
+
+        let ConnectionOverlayOutcome::Connect(host) = overlay.handle_input(OverlayInput::Activate)
+        else {
+            panic!("ad-hoc Activate must connect");
+        };
+        assert_eq!(host.alias, "host.example.invalid");
+        assert_eq!(host.host_name, None);
+        assert_eq!(host.user.as_deref(), Some("deploy"));
+        assert_eq!(host.port, Some(2200));
+        assert_eq!(host.integration, None, "no per-host override");
+    }
+
+    #[test]
+    fn adhoc_shift_enter_and_ctrl_s_emit_connect_and_save() {
+        // Shift+Enter (ActivateAlt) and Ctrl+S (Save) both connect AND save the
+        // ad-hoc host.
+        for input in [OverlayInput::ActivateAlt, OverlayInput::Save] {
+            let mut overlay = open(entries());
+            type_query(&mut overlay, "host.example.invalid");
+            let ConnectionOverlayOutcome::ConnectAndSave(host) = overlay.handle_input(input) else {
+                panic!("ad-hoc {input:?} must connect-and-save");
+            };
+            assert_eq!(host.alias, "host.example.invalid");
+        }
+    }
+
+    #[test]
+    fn adhoc_save_inputs_are_inert_on_a_saved_row() {
+        // Shift+Enter / Ctrl+S over a real saved host is a no-op (already saved).
+        for input in [OverlayInput::ActivateAlt, OverlayInput::Save] {
+            let mut overlay = open(entries());
+            assert_eq!(
+                overlay.handle_input(input),
+                ConnectionOverlayOutcome::Consumed
+            );
+        }
+    }
+
+    #[test]
+    fn adhoc_connect_row_is_clickable() {
+        // Clicking body row 1 (the "Connect to: …" row) connects, mirroring the
+        // Enter path; the hint row and prompt row are inert.
+        let mut overlay = open(entries());
+        type_query(&mut overlay, "host.example.invalid");
+        let _ = overlay.visible_lines(80, 10);
+        assert!(!overlay.click_row(0, 10), "query prompt inert");
+        assert!(overlay.click_row(1, 10), "connect row is clickable");
+        assert!(!overlay.click_row(2, 10), "hint row inert");
     }
 
     #[test]

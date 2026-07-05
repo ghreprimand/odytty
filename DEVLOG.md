@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Connect to an unsaved host from the connection manager
+
+The connection manager could only reach a host that was already saved: typing an
+unknown `user@host` showed "No matches" and Enter did nothing, so the only way to
+a first remote connection was hand-editing `hosts.conf`. It now connects to a
+typed destination directly, with an optional save.
+
+**Ad-hoc connect.** When the filter query matches no saved host but parses as a
+well-formed `[user@]host[:port]`, the overlay renders a **Connect to: …** row in
+place of "No matches", with a hint line showing both keys. **Enter** connects to
+the typed host through the same path a saved host uses (global
+`remote_integration`/`remote_reuse`/`remote_tmux` defaults; no per-host
+overrides). The row is also clickable.
+
+**Save offer.** **Shift+Enter** — or **Ctrl+S** as a modifier-safe alternative —
+connects *and* appends a `Host` block to `hosts.conf`. The append is atomic
+(temp-file-and-rename) and preserves existing content byte-for-byte; the block
+reads `Host <host>` (no redundant `HostName` when the alias is the host) plus
+`User`/`Port` when supplied. An exact-alias collision connects but skips the
+write with an "already saved" notice, and a save failure never blocks the
+connection.
+
+**Input safety.** Typed input is validated before any connect or write: empty or
+whitespace input, embedded spaces, an option-injecting leading `-`, a missing
+host, a doubled `@`, or a port outside `1-65535` are all rejected. The argv
+`--` guard remains regardless as a second line of defense.
+
+Windows: the connect uses the same `ssh.exe` path as the rest of the remote
+work, and `hosts.conf` resolves through the same platform config-dir logic, so
+the save lands in the platform config dir exactly as on Unix. Shift+Enter and
+Ctrl+S are both captured in the overlay on every platform.
+
 ## 2026-07-05 -- Workspace chords, workspace context-menu actions, and a visible reassign prompt
 
 Three field-test findings on the workspace UX, one change set.
