@@ -1954,6 +1954,20 @@ impl OverlayUi {
                 self.close();
                 OverlayOutcome::SaveConnection { host, edit_target }
             }
+            // The form stays open through a Test so the tri-state result renders
+            // when the App's background probe lands.
+            ConnectionFormOutcome::Test(host) => OverlayOutcome::TestConnection(host),
+        }
+    }
+
+    /// Feed a completed Test Connection probe result back into the open form
+    /// (ODP-8). A no-op unless the connection form is the active mode.
+    pub(super) fn set_connection_form_test_result(
+        &mut self,
+        result: Result<crate::ssh_connect::ProbeClass, String>,
+    ) {
+        if self.mode == OverlayMode::ConnectionForm {
+            self.connection_form.set_test_result(result);
         }
     }
 
@@ -2084,6 +2098,10 @@ pub(super) enum OverlayOutcome {
         host: Box<ConnectionHost>,
         edit_target: Option<String>,
     },
+    /// Run a background Test Connection probe for the Add / Edit form (ODP-8).
+    /// The overlay stays open; the App spawns the probe and feeds the tri-state
+    /// result back through `set_connection_form_test_result`.
+    TestConnection(Box<ConnectionHost>),
     ContextMenuCloseTab,
     /// Close a specific tab by token from a tab-slot right-click (NF-F7-1). The
     /// overlay has already closed itself; the App reaps the tab that holds
@@ -3200,7 +3218,7 @@ impl From<ConnectionFormLine> for OverlayLine {
         Self {
             text: line.text,
             focused: line.focused,
-            swatch: None,
+            swatch: line.swatch,
             bold: line.bold,
         }
     }
@@ -3804,6 +3822,32 @@ mod tests {
             }
             other => panic!("expected SaveConnection, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn form_test_button_emits_test_connection_and_stays_open() {
+        // The Test action routes up as OverlayOutcome::TestConnection (the App
+        // runs the probe); the form must NOT close so the result can render.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(Vec::new());
+        overlay.handle_input(OverlayInput::Tab); // -> Add form, focus Alias
+        for ch in "host".chars() {
+            overlay.handle_input(OverlayInput::Char(ch));
+        }
+        // Alias -> HostName -> User -> Port -> Advanced -> Test (5 downs).
+        for _ in 0..5 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        match overlay.handle_input(OverlayInput::Activate) {
+            OverlayOutcome::TestConnection(host) => assert_eq!(host.alias, "host"),
+            other => panic!("expected TestConnection, got {other:?}"),
+        }
+        assert!(overlay.is_open(), "form stays open through a Test");
+        assert_eq!(overlay.render_signature().mode, OverlayMode::ConnectionForm);
+        // The App feeds the result back; only the form mode consumes it.
+        overlay.set_connection_form_test_result(Ok(crate::ssh_connect::ProbeClass::AuthOk));
+        let lines = overlay.visible_lines(72, 40);
+        assert!(lines.iter().any(|l| l.text.contains("Reachable")));
     }
 
     #[test]

@@ -85,6 +85,7 @@ use super::viewport::{
 mod background_ui;
 mod bell;
 pub(in crate::native) mod click_hint;
+mod connection_probe;
 mod connections_ui;
 mod copy_mode_ui;
 mod cursor;
@@ -471,6 +472,11 @@ pub(super) struct App {
     /// image bytes are held here until confirmed so nothing leaves the machine
     /// on the paste keystroke alone.
     pending_image_paste: Option<PendingImagePaste>,
+    /// A background Test Connection probe (ODP-8) in flight from the Add / Edit
+    /// connection form. The worker thread sends its tri-state result here and
+    /// wakes a redraw; `run_about_to_wait_maintenance` drains it into the form.
+    connection_probe:
+        Option<std::sync::mpsc::Receiver<Result<crate::ssh_connect::ProbeClass, String>>>,
     /// Test-only observation of what a confirmed image paste WOULD upload
     /// (session + PNG byte length), recorded instead of spawning a real `ssh`
     /// worker under `cfg(test)`. Lets the confirm-flow tests prove Enter commits
@@ -660,6 +666,7 @@ impl App {
             os_theme: None,
             pending_exit: false,
             pending_image_paste: None,
+            connection_probe: None,
             #[cfg(test)]
             last_image_upload: None,
             wheel_accum: WheelAccumulator::default(),
@@ -4286,6 +4293,9 @@ impl App {
     }
 
     fn run_about_to_wait_maintenance(&mut self, now: Instant) {
+        // REMOTE-UX P4 / ODP-8: drain a finished Test Connection probe into the
+        // open form. Idle when no probe is in flight.
+        self.poll_connection_probe();
         // NF20-B: settle the cursor-animation / render-hold timers of every
         // non-active pane. Background panes are never rendered, so their timers
         // have no consumer; parking them here — the one place that runs before

@@ -82,6 +82,80 @@ impl std::error::Error for SshConnectError {}
 ///
 /// `--` is deliberate: if a saved alias or host starts with `-`, it is still a
 /// destination operand rather than another ssh option. No shell is involved.
+/// The tri-state outcome of a Test Connection probe (ODP-8). A probe can only
+/// verify reachability + *non-interactive* (key/agent) auth — it never has a
+/// password and must never store one, so `InteractiveAuth` is the EXPECTED
+/// result for a password host, not a failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProbeClass {
+    /// TCP + host key + non-interactive auth all succeeded (exit 0). Green.
+    AuthOk,
+    /// The handshake reached the server, but only interactive auth (password /
+    /// keyboard-interactive) is offered, which `BatchMode` refuses. The host is
+    /// up and a real connect WILL work — interactively. Amber, not a failure.
+    InteractiveAuth,
+    /// The host key does not match a stored key — a distinct, security-relevant
+    /// failure (possible MITM or a re-keyed host). Red.
+    HostKeyMismatch,
+    /// Unreachable: connect timeout, connection refused, or DNS failure. Red.
+    Unreachable,
+}
+
+/// Build the argv for a Test Connection probe (ODP-8): a non-interactive,
+/// no-shell, one-shot `exit`. `BatchMode=yes` disables every prompt so the probe
+/// can never hang on a password; `-v` surfaces the offered auth methods on
+/// stderr for the amber discriminator; `ConnectTimeout=5` bounds the TCP wait.
+/// Argv-only with the same `--` destination guard as the connect path; no
+/// `ControlPath` is ever added (a probe must not disturb a live master).
+pub fn ssh_probe_command_for_host(host: &ConnectionHost) -> Result<SshCommand, SshConnectError> {
+    let destination = ssh_destination(host)?;
+    let mut args = vec![
+        OsString::from("-v"),
+        OsString::from("-o"),
+        OsString::from("ConnectTimeout=5"),
+        OsString::from("-o"),
+        OsString::from("BatchMode=yes"),
+    ];
+    if let Some(port) = host.port {
+        args.push(OsString::from("-p"));
+        args.push(OsString::from(port.to_string()));
+    }
+    push_identity_args(&mut args, host);
+    args.push(OsString::from("--"));
+    args.push(OsString::from(destination));
+    args.push(OsString::from("exit"));
+    Ok(SshCommand::new("ssh", args))
+}
+
+/// Classify a probe from its exit success and captured stderr. `exit_ok` (exit
+/// 0) is unambiguous key/agent success. Otherwise the stderr text discriminates
+/// a host-key mismatch (distinct, security-relevant) and a reachable-but-
+/// interactive-auth host (the handshake happened; a password/keyboard method is
+/// offered) from an outright unreachable host. Only OpenSSH's own English
+/// diagnostics are matched; nothing credential-shaped is ever read or stored.
+pub fn classify_probe(exit_ok: bool, stderr: &str) -> ProbeClass {
+    if exit_ok {
+        return ProbeClass::AuthOk;
+    }
+    let lower = stderr.to_ascii_lowercase();
+    if lower.contains("host key verification failed")
+        || lower.contains("remote host identification has changed")
+    {
+        return ProbeClass::HostKeyMismatch;
+    }
+    // The handshake reached auth: the server offered a method BatchMode refuses,
+    // or refused the key with a password fallback available. Either way the host
+    // is up and a real connect proceeds interactively.
+    if lower.contains("authentications that can continue")
+        || lower.contains("keyboard-interactive")
+        || lower.contains("password")
+        || lower.contains("permission denied")
+    {
+        return ProbeClass::InteractiveAuth;
+    }
+    ProbeClass::Unreachable
+}
+
 /// Push `-i <path>` for a host's `IdentityFile`, when set (ODP-9 Tier 1). The
 /// path is a separate argv element (never merged into `-i<path>`) so a path is
 /// always read as the identity filename, never an ssh option. An empty path is
@@ -709,6 +783,74 @@ mod tests {
         assert!(
             !args.iter().any(|a| a == "-i"),
             "no -i without IdentityFile"
+        );
+    }
+
+    #[test]
+    fn probe_argv_is_batchmode_noninteractive_and_argv_only() {
+        // ODP-8: the probe is a no-shell one-shot `exit` with BatchMode + a
+        // bounded ConnectTimeout, argv-only, guarded by `--`.
+        let mut h = remote_host("k", "deploy", "k.example.invalid");
+        h.port = Some(2222);
+        h.identity_file = Some("/home/user/.ssh/id_ed25519.example".to_owned());
+        let args = argv(&ssh_probe_command_for_host(&h).expect("probe"));
+        assert!(args.iter().any(|a| a == "BatchMode=yes"));
+        assert!(args.iter().any(|a| a == "ConnectTimeout=5"));
+        // Port, identity, and destination are all present, destination after --.
+        let p = args.iter().position(|a| a == "-p").expect("-p");
+        assert_eq!(args[p + 1], "2222");
+        let i = args.iter().position(|a| a == "-i").expect("-i");
+        assert_eq!(args[i + 1], "/home/user/.ssh/id_ed25519.example");
+        let sep = args.iter().position(|a| a == "--").expect("--");
+        assert_eq!(args[sep + 1], "deploy@k.example.invalid");
+        // The remote command is a bare `exit`; no `-t`, no ControlPath.
+        assert_eq!(args.last().map(String::as_str), Some("exit"));
+        assert!(!args.iter().any(|a| a == "-t"));
+        assert!(!args.iter().any(|a| a.starts_with("ControlPath")));
+    }
+
+    #[test]
+    fn classify_probe_maps_the_three_states_and_hostkey() {
+        // Exit 0 = key/agent auth OK.
+        assert_eq!(classify_probe(true, ""), ProbeClass::AuthOk);
+        // A host-key change is a distinct, security-relevant failure.
+        assert_eq!(
+            classify_probe(
+                false,
+                "@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@"
+            ),
+            ProbeClass::HostKeyMismatch
+        );
+        assert_eq!(
+            classify_probe(false, "Host key verification failed."),
+            ProbeClass::HostKeyMismatch
+        );
+        // Reachable but interactive auth (the expected password-host state).
+        assert_eq!(
+            classify_probe(
+                false,
+                "debug1: Authentications that can continue: publickey,password"
+            ),
+            ProbeClass::InteractiveAuth
+        );
+        assert_eq!(
+            classify_probe(
+                false,
+                "deploy@host: Permission denied (publickey,password)."
+            ),
+            ProbeClass::InteractiveAuth
+        );
+        // Unreachable classes.
+        assert_eq!(
+            classify_probe(false, "ssh: connect to host x port 22: Connection refused"),
+            ProbeClass::Unreachable
+        );
+        assert_eq!(
+            classify_probe(
+                false,
+                "ssh: Could not resolve hostname x: Name or service not known"
+            ),
+            ProbeClass::Unreachable
         );
     }
 

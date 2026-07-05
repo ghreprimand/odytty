@@ -15,6 +15,8 @@
 //! through an edit opaquely rather than surfaced as a control.
 
 use crate::connection_hosts::{ConnectionHost, ConnectionHostSource, is_valid_adhoc_part};
+use crate::ssh_connect::ProbeClass;
+use crate::theme::Srgb;
 
 use super::overlay::OverlayInput;
 
@@ -36,6 +38,7 @@ enum FormField {
     Theme,
     Font,
     Title,
+    Test,
     Save,
     Cancel,
 }
@@ -63,10 +66,26 @@ impl FormField {
             FormField::Theme => "Theme",
             FormField::Font => "Font",
             FormField::Title => "Title",
+            FormField::Test => "Test",
             FormField::Save => "Save",
             FormField::Cancel => "Cancel",
         }
     }
+}
+
+/// The live state of a Test Connection probe (ODP-8).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+enum TestState {
+    /// No probe has run for the current field values.
+    #[default]
+    Idle,
+    /// A probe is in flight (the App is running it on a background thread).
+    Running,
+    /// A probe finished with this tri-state classification.
+    Done(ProbeClass),
+    /// The probe could not be spawned / built (e.g. invalid host); the message
+    /// is a short, non-credential reason.
+    Error(String),
 }
 
 /// Whether the form creates a new block or edits an existing one.
@@ -93,6 +112,9 @@ pub(super) enum ConnectionFormOutcome {
         host: Box<ConnectionHost>,
         edit_target: Option<String>,
     },
+    /// Run a background Test Connection probe against the built host (ODP-8).
+    /// The form stays open and shows the tri-state result when it lands.
+    Test(Box<ConnectionHost>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +122,10 @@ pub(super) struct ConnectionFormLine {
     pub(super) text: String,
     pub(super) focused: bool,
     pub(super) bold: bool,
+    /// A small color swatch drawn at the row start — the tri-state Test result
+    /// indicator (green ok / amber interactive-auth / red failure). `None` for
+    /// every ordinary field row.
+    pub(super) swatch: Option<Srgb>,
 }
 
 /// Render-cache signature: any field, toggle, focus, or error change repaints.
@@ -111,6 +137,7 @@ pub(super) struct ConnectionFormSignature {
     fields: Vec<String>,
     tristates: Vec<Option<bool>>,
     error: Option<String>,
+    test: TestState,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -133,6 +160,8 @@ pub(super) struct ConnectionForm {
     advanced: bool,
     focus: FormField,
     error: Option<String>,
+    /// The Test Connection probe state (ODP-8).
+    test: TestState,
     /// Saved aliases that would collide on save (Add: all; Edit: all but this
     /// block's own alias). Checked inline so a collision never writes.
     existing_aliases: Vec<String>,
@@ -216,6 +245,7 @@ impl ConnectionForm {
                 FormField::Title,
             ]);
         }
+        fields.push(FormField::Test);
         fields.push(FormField::Save);
         fields.push(FormField::Cancel);
         fields
@@ -265,6 +295,7 @@ impl ConnectionForm {
     /// Cycle a tri-state control: inherit → on → off → inherit (or the reverse
     /// when `forward` is false).
     fn cycle_tristate(&mut self, field: FormField, forward: bool) {
+        self.invalidate_test();
         if let Some(slot) = self.tristate_mut(field) {
             *slot = if forward {
                 match *slot {
@@ -310,6 +341,7 @@ impl ConnectionForm {
             OverlayInput::Backspace => {
                 if let Some(buf) = self.text_buf_mut(self.focus) {
                     buf.pop();
+                    self.invalidate_test();
                 }
                 ConnectionFormOutcome::Consumed
             }
@@ -318,6 +350,7 @@ impl ConnectionForm {
                     self.cycle_tristate(self.focus, true);
                 } else if let Some(buf) = self.text_buf_mut(self.focus) {
                     buf.push(ch);
+                    self.invalidate_test();
                 }
                 ConnectionFormOutcome::Consumed
             }
@@ -333,6 +366,7 @@ impl ConnectionForm {
     fn activate_focus(&mut self) -> ConnectionFormOutcome {
         match self.focus {
             FormField::Save => self.try_save(),
+            FormField::Test => self.try_test(),
             FormField::Cancel => ConnectionFormOutcome::Close,
             FormField::Advanced => {
                 self.advanced = !self.advanced;
@@ -363,7 +397,9 @@ impl ConnectionForm {
         // Clicking an action row (or the disclosure) acts immediately; clicking
         // a data field just focuses it.
         match field {
-            FormField::Save | FormField::Cancel | FormField::Advanced => self.activate_focus(),
+            FormField::Save | FormField::Test | FormField::Cancel | FormField::Advanced => {
+                self.activate_focus()
+            }
             _ => ConnectionFormOutcome::Consumed,
         }
     }
@@ -386,7 +422,7 @@ impl ConnectionForm {
     /// Validate the current buffers and either build the host to save or set an
     /// inline error and stay open.
     fn try_save(&mut self) -> ConnectionFormOutcome {
-        match self.validate() {
+        match self.validate(true) {
             Ok(host) => {
                 let edit_target = match &self.mode {
                     FormMode::Add => None,
@@ -404,7 +440,38 @@ impl ConnectionForm {
         }
     }
 
-    fn validate(&mut self) -> Result<ConnectionHost, String> {
+    /// Validate just enough to build a host to probe (no alias-collision check —
+    /// a Test only asks whether the destination is reachable), mark the form as
+    /// testing, and emit the probe request. The App runs it on a background
+    /// thread and feeds the result back through [`Self::set_test_result`].
+    fn try_test(&mut self) -> ConnectionFormOutcome {
+        match self.validate(false) {
+            Ok(host) => {
+                self.test = TestState::Running;
+                ConnectionFormOutcome::Test(Box::new(host))
+            }
+            Err(message) => {
+                self.error = Some(message);
+                ConnectionFormOutcome::Consumed
+            }
+        }
+    }
+
+    /// Record the outcome of a background Test Connection probe (ODP-8).
+    pub(super) fn set_test_result(&mut self, result: Result<ProbeClass, String>) {
+        self.test = match result {
+            Ok(class) => TestState::Done(class),
+            Err(message) => TestState::Error(message),
+        };
+    }
+
+    /// A form edit invalidates any prior probe result (it no longer describes
+    /// the current fields).
+    fn invalidate_test(&mut self) {
+        self.test = TestState::Idle;
+    }
+
+    fn validate(&mut self, check_collision: bool) -> Result<ConnectionHost, String> {
         let alias = self.alias.trim().to_owned();
         if alias.is_empty() {
             self.focus = FormField::Alias;
@@ -414,8 +481,9 @@ impl ConnectionForm {
             self.focus = FormField::Alias;
             return Err("Alias: letters, digits, . - _ only; no leading -".to_owned());
         }
-        // Alias-collision guard: never clobber a different saved host.
-        if self.existing_aliases.contains(&alias) {
+        // Alias-collision guard: never clobber a different saved host (skipped
+        // for a Test, which only probes reachability).
+        if check_collision && self.existing_aliases.contains(&alias) {
             self.focus = FormField::Alias;
             return Err(format!("A host named \"{alias}\" already exists"));
         }
@@ -504,6 +572,10 @@ impl ConnectionForm {
         if let Some(error) = &self.error {
             rows.push(FormRow::Text(format!("! {error}"), false));
         }
+        rows.push(FormRow::Field(FormField::Test));
+        if let Some((text, swatch)) = self.test_status() {
+            rows.push(FormRow::Status(text, swatch));
+        }
         rows.push(FormRow::Field(FormField::Save));
         rows.push(FormRow::Field(FormField::Cancel));
         rows.push(FormRow::Spacer);
@@ -533,6 +605,7 @@ impl ConnectionForm {
                     "[ Save connection ]".to_owned()
                 }
             }
+            FormField::Test => "[ Test connection ]".to_owned(),
             FormField::Cancel => "[ Cancel ]".to_owned(),
             _ if field.is_tristate() => {
                 let slot = match field {
@@ -568,7 +641,8 @@ impl ConnectionForm {
         ConnectionFormLine {
             text: truncate_for_width(&text, body_width),
             focused,
-            bold: matches!(field, FormField::Save | FormField::Cancel),
+            bold: matches!(field, FormField::Save | FormField::Test | FormField::Cancel),
+            swatch: None,
         }
     }
 
@@ -588,15 +662,61 @@ impl ConnectionForm {
                     text: String::new(),
                     focused: false,
                     bold: false,
+                    swatch: None,
                 }),
                 FormRow::Text(text, bold) => lines.push(ConnectionFormLine {
                     text: truncate_for_width(&text, body_width),
                     focused: false,
                     bold,
+                    swatch: None,
+                }),
+                // A swatch consumes three leading columns, so its text budget is
+                // three narrower.
+                FormRow::Status(text, swatch) => lines.push(ConnectionFormLine {
+                    text: truncate_for_width(&text, body_width.saturating_sub(3)),
+                    focused: false,
+                    bold: true,
+                    swatch,
                 }),
             }
         }
         lines
+    }
+
+    /// The Test-result status line (text + optional swatch), or `None` when no
+    /// probe has run for the current fields. The amber copy states outright that
+    /// an interactive-auth result is EXPECTED for a password host and the connect
+    /// will still work, so amber never reads as "broken".
+    fn test_status(&self) -> Option<(String, Option<Srgb>)> {
+        match &self.test {
+            TestState::Idle => None,
+            TestState::Running => Some((
+                "Testing\u{2026} reachability + key/agent auth".to_owned(),
+                None,
+            )),
+            TestState::Error(message) => {
+                Some((format!("Test could not run: {message}"), Some(TEST_RED)))
+            }
+            TestState::Done(class) => Some(match class {
+                ProbeClass::AuthOk => (
+                    "Reachable \u{2014} key/agent auth OK".to_owned(),
+                    Some(TEST_GREEN),
+                ),
+                ProbeClass::InteractiveAuth => (
+                    "Reachable \u{2014} will prompt for a password when you connect (expected)"
+                        .to_owned(),
+                    Some(TEST_AMBER),
+                ),
+                ProbeClass::HostKeyMismatch => (
+                    "Host key mismatch \u{2014} verify the host before connecting".to_owned(),
+                    Some(TEST_RED),
+                ),
+                ProbeClass::Unreachable => (
+                    "Unreachable \u{2014} check the host, port, and network".to_owned(),
+                    Some(TEST_RED),
+                ),
+            }),
+        }
     }
 
     pub(super) fn render_signature(&self) -> ConnectionFormSignature {
@@ -616,17 +736,27 @@ impl ConnectionForm {
             ],
             tristates: vec![self.integration, self.reuse, self.tmux],
             error: self.error.clone(),
+            test: self.test.clone(),
         }
     }
 }
 
-/// A rendered row: a focusable field, a blank spacer, or static text.
+/// A rendered row: a focusable field, a blank spacer, static text, or the
+/// swatched Test-result status line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum FormRow {
     Field(FormField),
     Spacer,
     Text(String, bool),
+    Status(String, Option<Srgb>),
 }
+
+/// Fixed status colors for the tri-state Test result. These are semantic status
+/// indicators (ok / caution / failure), not theme chrome, so they are fixed
+/// rather than derived from a theme role.
+const TEST_GREEN: Srgb = (0x3f, 0xc0, 0x60);
+const TEST_AMBER: Srgb = (0xd0, 0x94, 0x20);
+const TEST_RED: Srgb = (0xd0, 0x44, 0x44);
 
 fn truncate_for_width(text: &str, max_chars: usize) -> String {
     if max_chars == 0 {
@@ -855,6 +985,70 @@ mod tests {
             form.handle_pointer_press(cancel_row),
             ConnectionFormOutcome::Close
         );
+    }
+
+    #[test]
+    fn test_action_validates_and_emits_a_probe_request() {
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        typed(&mut form, "reachable-host");
+        form.focus = FormField::Test;
+        match form.handle_input(OverlayInput::Activate) {
+            ConnectionFormOutcome::Test(host) => assert_eq!(host.alias, "reachable-host"),
+            other => panic!("expected Test, got {other:?}"),
+        }
+        assert_eq!(form.test, TestState::Running);
+        // The Running status renders (no swatch while pending).
+        let lines = form.visible_lines(72, 40);
+        assert!(lines.iter().any(|l| l.text.contains("Testing")));
+    }
+
+    #[test]
+    fn test_action_on_an_invalid_host_shows_an_error_not_a_probe() {
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        // Empty alias: Test cannot build a host.
+        form.focus = FormField::Test;
+        assert_eq!(
+            form.handle_input(OverlayInput::Activate),
+            ConnectionFormOutcome::Consumed
+        );
+        assert!(form.error.is_some());
+        assert_eq!(form.test, TestState::Idle);
+    }
+
+    #[test]
+    fn set_test_result_renders_the_tri_state_with_a_swatch() {
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        // Amber = reachable but interactive auth; the copy must say it is
+        // expected and the connect still works.
+        form.set_test_result(Ok(ProbeClass::InteractiveAuth));
+        let lines = form.visible_lines(72, 40);
+        let status = lines
+            .iter()
+            .find(|l| l.swatch.is_some())
+            .expect("a swatched status row");
+        assert_eq!(status.swatch, Some(TEST_AMBER));
+        assert!(status.text.contains("expected"));
+        // A failure is red.
+        form.set_test_result(Ok(ProbeClass::Unreachable));
+        let red = form
+            .visible_lines(72, 40)
+            .into_iter()
+            .find(|l| l.swatch == Some(TEST_RED));
+        assert!(red.is_some());
+    }
+
+    #[test]
+    fn editing_a_field_invalidates_a_prior_test_result() {
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.set_test_result(Ok(ProbeClass::AuthOk));
+        assert!(matches!(form.test, TestState::Done(_)));
+        // Typing into the focused field clears the stale result.
+        typed(&mut form, "x");
+        assert_eq!(form.test, TestState::Idle);
     }
 
     #[test]

@@ -381,6 +381,12 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.persist_connection_form(&host, edit_target);
             }
+            // REMOTE-UX P4 / ODP-8: run the Test Connection probe on a
+            // background thread; the overlay stays open and shows the tri-state
+            // result when it lands.
+            OverlayOutcome::TestConnection(host) => {
+                self.run_connection_probe(&host);
+            }
             // Phase 5 / B2: the session-attach overlay closed itself before
             // emitting this; attach the chosen session into a new tab. A stale
             // id (the session ended between list and accept) returns Err from

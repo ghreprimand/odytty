@@ -96,6 +96,52 @@ impl App {
         }
     }
 
+    /// Run a Test Connection probe for a host built in the Add / Edit form
+    /// (REMOTE-UX P4 / ODP-8) on a background thread, storing the receiver so
+    /// `run_about_to_wait_maintenance` can drain the tri-state result into the
+    /// open form. The argv is the same non-interactive `BatchMode` one-shot the
+    /// probe builder produces; a build error (an invalid host) surfaces in the
+    /// form rather than spawning. Windows: the probe uses `ssh.exe` the same
+    /// way; no `ControlPath` is ever added.
+    pub(in crate::native) fn run_connection_probe(&mut self, host: &ConnectionHost) {
+        let command = match crate::ssh_connect::ssh_probe_command_for_host(host) {
+            Ok(command) => command,
+            Err(_) => {
+                self.overlay
+                    .set_connection_form_test_result(Err("invalid host for a probe".to_owned()));
+                return;
+            }
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.connection_probe = Some(rx);
+        let proxy = self.sessions.event_proxy();
+        let session = self.sessions.active_id();
+        super::connection_probe::spawn_connection_probe(command, session, proxy, tx);
+    }
+
+    /// Drain a completed Test Connection probe (if any) into the open form and
+    /// wake a repaint. Idle when no probe is in flight. Called from the
+    /// about-to-wait maintenance pass.
+    pub(in crate::native) fn poll_connection_probe(&mut self) {
+        let Some(rx) = self.connection_probe.as_ref() else {
+            return;
+        };
+        match rx.try_recv() {
+            Ok(result) => {
+                self.overlay.set_connection_form_test_result(result);
+                self.connection_probe = None;
+                self.needs_rebuild = true;
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                self.connection_probe = None;
+            }
+        }
+    }
+
     /// Hand-off seam for the connection-manager overlay: consume a resolved
     /// connection entry and present it as a focused new tab.
     pub(in crate::native) fn connect_ssh_host_in_new_tab(

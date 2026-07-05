@@ -1048,6 +1048,13 @@ impl WorkspaceSet {
         self.active_focused_token()
     }
 
+    /// A clone of the event-loop proxy, for background workers that need to wake
+    /// a redraw when they finish (e.g. the Test Connection probe). `None` in
+    /// headless / test builds without a real event loop.
+    pub(super) fn event_proxy(&self) -> Option<EventLoopProxy<UserEvent>> {
+        self.proxy.clone()
+    }
+
     /// Park the animation / render-hold timers of every pane that has no render
     /// consumer this frame, matching the fan-out of the `next_wake_deadline`
     /// sources with a consumer of equal reach (NF20-B / NF21-1).
