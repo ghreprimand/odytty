@@ -276,6 +276,29 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.move_tab_to_workspace(token, dest_ws);
             }
+            // LAYOUT-SURFACE: a WorkspaceSlot menu chose Save as Layout; open the
+            // name prompt seeded from the CLICKED workspace.
+            OverlayOutcome::ContextMenuSaveLayoutAt(idx) => {
+                self.flush_pending_overlay_settings();
+                self.enter_save_layout_prompt(idx);
+            }
+            // LAYOUT-SURFACE: the content-grid workspace section chose Save as
+            // Layout; open the name prompt seeded from the ACTIVE workspace.
+            OverlayOutcome::ContextMenuSaveActiveLayout => {
+                self.flush_pending_overlay_settings();
+                self.enter_save_layout_prompt(self.sessions.active_workspace_index());
+            }
+            // LAYOUT-SURFACE: open the saved-layout picker (seeded App-side).
+            OverlayOutcome::ContextMenuOpenLayoutPicker => {
+                self.flush_pending_overlay_settings();
+                self.open_saved_layout_picker();
+            }
+            // LAYOUT-SURFACE: the picker chose a layout; instantiate it (APPEND a
+            // new workspace, never clobber the current one).
+            OverlayOutcome::ContextMenuOpenLayout(name) => {
+                self.flush_pending_overlay_settings();
+                self.open_layout(&name);
+            }
             // Part B: the context menu closed itself; split the focused pane
             // through the exact same action the keyboard split chords fire
             // (`apply_pane_action` → `split_active_pane`).

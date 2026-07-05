@@ -14,17 +14,35 @@ use crate::native::persistence::{self, LoadOutcome};
 use crate::native::session::RestoreReport;
 
 impl App {
-    /// Save the ACTIVE workspace as a named layout (8g). The layout name is the
-    /// workspace's current display name (sanitized to a safe filename); saving
-    /// again under the same name overwrites. A one-line notice confirms the
-    /// saved name or reports a write failure.
+    /// Save the ACTIVE workspace as a named layout (8g), using the workspace's
+    /// own display name as the layout name. This is the command-palette entry's
+    /// prompt-free path; the menu "Save as Layout\u{2026}" surface routes a typed
+    /// name through [`Self::save_workspace_as_layout`] instead. Saving again
+    /// under the same name overwrites; a one-line notice confirms.
     pub(super) fn save_active_workspace_as_layout(&mut self) {
-        let full = self.sessions.capture_shape();
         let active = self.sessions.active_workspace_index();
-        let Some(workspace) = full.workspaces.get(active).cloned() else {
+        self.save_workspace_as_layout(active, None);
+    }
+
+    /// Save the workspace at rail index `idx` as a named layout (8g). This backs
+    /// the "Save as Layout\u{2026}" menu surfaces (LAYOUT-SURFACE): a rail slot
+    /// saves the clicked workspace, the content-grid section the active one.
+    /// `name_override` is the typed layout name from the prompt; `None` falls
+    /// back to the workspace's own display name (the palette path). A stale index
+    /// or an empty resulting name is a no-op; a write failure degrades to a
+    /// one-line notice rather than disturbing the running window.
+    pub(super) fn save_workspace_as_layout(&mut self, idx: usize, name_override: Option<&str>) {
+        let full = self.sessions.capture_shape();
+        let Some(workspace) = full.workspaces.get(idx).cloned() else {
             return;
         };
-        let name = workspace.name.clone();
+        let name = match name_override {
+            Some(text) => text.trim().to_owned(),
+            None => workspace.name.clone(),
+        };
+        if name.is_empty() {
+            return;
+        }
         let layout = persistence::ShapeSnapshot {
             version: full.version,
             active_workspace: 0,
@@ -87,6 +105,16 @@ impl App {
                 self.raise_open_notice(format!("Couldn't delete layout \u{201c}{name}\u{201d}."))
             }
         }
+    }
+
+    /// Open the "Open Layout \u{25b8}" picker (LAYOUT-SURFACE), seeded with the
+    /// saved layout names. Opens even with no saved layouts (the picker then
+    /// shows an explanatory line) so the feature is discoverable from the menu.
+    pub(super) fn open_saved_layout_picker(&mut self) {
+        let names = persistence::list_layout_names();
+        self.reset_pointer_state_for_overlay();
+        self.overlay.open_layout_picker(names);
+        self.request_selection_redraw();
     }
 }
 

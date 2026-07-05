@@ -220,6 +220,11 @@ pub(super) enum RenameTarget {
     Tab(SessionToken),
     /// A workspace, keyed by its rail index.
     Workspace(usize),
+    /// A "Save as Layout" name prompt (LAYOUT-SURFACE), keyed by the rail index
+    /// of the workspace being captured. Reuses the rename modal's field / mouse
+    /// selection / signature machinery, but on Enter saves the workspace as a
+    /// named layout instead of renaming it.
+    SaveLayout(usize),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3382,14 +3387,15 @@ impl App {
 
     /// Whether an open menu/prompt is anchored to the workspace rail and so
     /// should keep the auto-hide rail revealed (RAIL-PIN): a rail context menu
-    /// (workspace slot or empty rail) or a workspace rename prompt. Tab renames
+    /// (workspace slot or empty rail), a workspace rename prompt, or a
+    /// "Save as Layout" name prompt (which a rail slot can spawn). Tab renames
     /// and non-rail overlays are excluded — only surfaces that target the rail
     /// pin it open.
     fn rail_pinned_open(&self) -> bool {
         self.overlay.is_workspace_rail_context_menu()
             || matches!(
                 self.rename_state.as_ref().map(|state| state.target),
-                Some(RenameTarget::Workspace(_))
+                Some(RenameTarget::Workspace(_) | RenameTarget::SaveLayout(_))
             )
     }
 

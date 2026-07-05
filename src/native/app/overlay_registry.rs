@@ -405,6 +405,19 @@ impl App {
         self.begin_rename(RenameTarget::Workspace(idx), seed);
     }
 
+    /// Open the "Save as Layout" name prompt for the workspace at rail index
+    /// `idx` (LAYOUT-SURFACE), seeded with that workspace's current name as a
+    /// sensible default. Reuses the rename modal; Enter commits via
+    /// [`Self::commit_rename`] to the WP3 `save_workspace_as_layout` path. A
+    /// stale index is a no-op.
+    pub(super) fn enter_save_layout_prompt(&mut self, idx: usize) {
+        let Some(name) = self.sessions.workspace_name(idx) else {
+            return;
+        };
+        let seed = name.to_owned();
+        self.begin_rename(RenameTarget::SaveLayout(idx), seed);
+    }
+
     /// Shared setup for the rename overlay: seed the field with `text`, park the
     /// caret at the end, and clear any stale pointer streak from a previous
     /// field so a leftover drag/double-click can't leak in (F4-RENAME-MOUSE).
@@ -422,31 +435,19 @@ impl App {
     }
 
     pub(super) fn rename_key(&mut self, key: &WinitKey) {
+        // Enter commits and may need full `&mut self` (a layout save reaches
+        // beyond the disjoint `sessions` field the tab/workspace renames touch),
+        // so it takes ownership of the prompt state up front rather than
+        // borrowing it across the commit.
+        if matches!(key, WinitKey::Named(NamedKey::Enter)) {
+            self.commit_rename();
+            return;
+        }
         let Some(state) = self.rename_state.as_mut() else {
             return;
         };
         match key {
             WinitKey::Named(NamedKey::Escape) => {
-                self.rename_state = None;
-                self.rename_dragging = false;
-            }
-            WinitKey::Named(NamedKey::Enter) => {
-                let target = state.target;
-                let text = state.text.trim().to_owned();
-                match target {
-                    RenameTarget::Tab(token) => {
-                        let override_name = (!text.is_empty()).then_some(text);
-                        self.sessions.set_title_override(token, override_name);
-                    }
-                    RenameTarget::Workspace(idx) => {
-                        // A workspace always keeps a name: an empty field leaves
-                        // the existing label unchanged (unlike a tab, which
-                        // clears back to its live title).
-                        if !text.is_empty() {
-                            self.sessions.rename_workspace(idx, text);
-                        }
-                    }
-                }
                 self.rename_state = None;
                 self.rename_dragging = false;
             }
@@ -506,6 +507,41 @@ impl App {
             }
             _ => {}
         }
+        self.request_selection_redraw();
+    }
+
+    /// Commit the in-progress rename / layout-save prompt (Enter). Takes the
+    /// prompt state by value so the commit has full `&mut self` — a layout save
+    /// reaches beyond the disjoint `sessions` field the tab/workspace renames
+    /// touch. A no-op when no prompt is open.
+    fn commit_rename(&mut self) {
+        let Some(state) = self.rename_state.take() else {
+            return;
+        };
+        let text = state.text.trim().to_owned();
+        match state.target {
+            RenameTarget::Tab(token) => {
+                let override_name = (!text.is_empty()).then_some(text);
+                self.sessions.set_title_override(token, override_name);
+            }
+            RenameTarget::Workspace(idx) => {
+                // A workspace always keeps a name: an empty field leaves the
+                // existing label unchanged (unlike a tab, which clears back to
+                // its live title).
+                if !text.is_empty() {
+                    self.sessions.rename_workspace(idx, text);
+                }
+            }
+            RenameTarget::SaveLayout(idx) => {
+                // LAYOUT-SURFACE: an empty name cancels the save (never writes an
+                // unnamed layout file); otherwise capture the workspace at `idx`
+                // under the typed name via the shared WP3 save path.
+                if !text.is_empty() {
+                    self.save_workspace_as_layout(idx, Some(&text));
+                }
+            }
+        }
+        self.rename_dragging = false;
         self.request_selection_redraw();
     }
 
@@ -722,6 +758,7 @@ fn rename_prompt(target: RenameTarget) -> &'static str {
     match target {
         RenameTarget::Tab(_) => "Tab name: ",
         RenameTarget::Workspace(_) => "Workspace name: ",
+        RenameTarget::SaveLayout(_) => "Layout name: ",
     }
 }
 
@@ -1048,6 +1085,9 @@ mod rename_mouse_tests {
             rename_prompt(RenameTarget::Workspace(0)),
             "Workspace name: "
         );
+        // LAYOUT-SURFACE: the Save-as-Layout prompt reuses the modal with its own
+        // label so a layout save is never mislabeled as a rename.
+        assert_eq!(rename_prompt(RenameTarget::SaveLayout(0)), "Layout name: ");
     }
 
     #[test]

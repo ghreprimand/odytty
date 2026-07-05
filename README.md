@@ -514,10 +514,14 @@ command-line argument suppresses restore, and only the primary instance
 restores. The saved snapshot records **structure only** — never terminal
 output, scrollback, environment, or the commands that were running — so a
 restored pane is always a fresh shell at its directory, never a replayed
-session. A workspace can also be saved as a **named layout** from the command
-palette (**Save Current Workspace as Layout**); opening a layout later
-(**Open Layout**) appends it as a new workspace rather than replacing the
-current one. On Unix, a restored or instantiated pane whose detached
+session. A workspace can also be saved as a **named layout** — from the command
+palette (**Save Current Workspace as Layout**), a workspace rail slot's
+right-click menu (**Save as Layout…**, saving the clicked workspace), or the
+content-grid right-click menu (saving the active one). Opening a layout later —
+**Open Layout** in the palette, or **Open Layout…** from the empty rail, the
+empty tab strip, or the content-grid menu — appends it as a new workspace rather
+than replacing the current one; with no layouts saved yet the picker explains
+how to create one. On Unix, a restored or instantiated pane whose detached
 session-host is still alive reattaches to it; a dead one silently opens a
 fresh shell, with a compact "N of M sessions reattached" notice. Restore and
 named layouts are cross-platform (the state dir uses `%LOCALAPPDATA%` on

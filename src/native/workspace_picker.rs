@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Native "Move to Workspace…" destination picker (W4-v2).
+//! Native filtered name-list picker (W4-v2 + LAYOUT-SURFACE).
 //!
 //! A minimal sibling of the "Open With…" app picker (`open_with_overlay.rs`),
-//! specialized over workspace destinations: a presentation-only overlay that
-//! lists the workspaces a tab can move to (every workspace EXCEPT the one that
-//! owns the clicked tab), type-to-filters them, and on Enter emits
-//! [`WorkspacePickerOutcome::Move`] carrying the clicked tab's token paired with
-//! the chosen workspace's ORIGINAL index for the App to splice.
+//! specialized over a frozen list of named entries. It serves two consumers
+//! selected by [`WorkspacePickerPurpose`]:
+//! * "Move to Workspace…" (W4-v2) — lists the workspaces a tab can move to
+//!   (every workspace EXCEPT the one that owns the clicked tab) and on Enter
+//!   emits [`WorkspacePickerOutcome::Move`] carrying the clicked tab's token
+//!   paired with the chosen workspace's ORIGINAL index for the App to splice.
+//! * "Open Layout ▸" (LAYOUT-SURFACE) — lists the saved layout names and on
+//!   Enter emits [`WorkspacePickerOutcome::OpenLayout`] carrying the chosen
+//!   name; with no saved layouts the picker still opens and shows an
+//!   explanatory line so the feature is discoverable.
 //!
 //! This is the shared "menu item -> seeded picker -> tagged accept" pattern
 //! (ODP-1 Option B) applied to the workspace list: the connection overlay serves
@@ -30,6 +35,19 @@ use super::session::SessionToken;
 /// bounded). Matches the ceiling the other list overlays use.
 const MAX_RESULTS: usize = 40;
 
+/// What an accepted pick means — the tagged-accept half of the shared
+/// "menu item -> seeded picker -> tagged accept" pattern (ODP-1B).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum WorkspacePickerPurpose {
+    /// Move-to-Workspace (W4-v2): accept emits [`WorkspacePickerOutcome::Move`]
+    /// with the carried token + the chosen entry's original workspace index.
+    #[default]
+    MoveTab,
+    /// Open-Layout (LAYOUT-SURFACE): accept emits
+    /// [`WorkspacePickerOutcome::OpenLayout`] with the chosen entry's name.
+    OpenLayout,
+}
+
 /// One move destination: a workspace's ORIGINAL rail index (the
 /// [`super::session::WorkspaceSet::move_tab_to_workspace`] target) paired with
 /// its display name.
@@ -47,8 +65,11 @@ pub(super) struct WorkspacePicker {
     entries: Vec<WorkspacePickerEntry>,
     /// The clicked tab whose token the move targets (F7 surface): the tab moves,
     /// not the active tab. Set at open; `None` before the first open (the empty
-    /// default, which the entry list also guards).
+    /// default, which the entry list also guards). Unused for the Open-Layout
+    /// purpose (layouts carry no token).
     token: Option<SessionToken>,
+    /// Which consumer this picker was opened for (tagged accept).
+    purpose: WorkspacePickerPurpose,
     query: String,
     filtered: Vec<usize>,
     selected: usize,
@@ -64,6 +85,9 @@ pub(super) enum WorkspacePickerOutcome {
     /// chosen workspace's original index; the App performs the `Tab` value
     /// splice. This overlay never mutates the model itself.
     Move(SessionToken, usize),
+    /// The user accepted a saved layout (LAYOUT-SURFACE). Carries the chosen
+    /// layout name; the App instantiates it (APPEND a new workspace, WP3 8e).
+    OpenLayout(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,11 +111,31 @@ impl WorkspacePicker {
     }
 
     /// Load a frozen set of destinations for the tab `token` and reset the
-    /// query/cursor. The list is owned by the overlay, so it stays stable while
-    /// open even if workspaces change underneath.
+    /// query/cursor for the Move-to-Workspace purpose. The list is owned by the
+    /// overlay, so it stays stable while open even if workspaces change
+    /// underneath.
     pub(super) fn open(&mut self, entries: Vec<WorkspacePickerEntry>, token: SessionToken) {
+        self.purpose = WorkspacePickerPurpose::MoveTab;
         self.entries = entries;
         self.token = Some(token);
+        self.query.clear();
+        self.selected = 0;
+        self.reset_scroll();
+        self.recompute();
+    }
+
+    /// Load the saved layout names for the Open-Layout purpose (LAYOUT-SURFACE).
+    /// The entry index is the name's position (unused on accept — Open-Layout
+    /// keys on the name); an empty list is valid and renders the explanatory
+    /// empty line rather than refusing to open, so the picker teaches the feature.
+    pub(super) fn open_layouts(&mut self, names: Vec<String>) {
+        self.purpose = WorkspacePickerPurpose::OpenLayout;
+        self.entries = names
+            .into_iter()
+            .enumerate()
+            .map(|(index, name)| WorkspacePickerEntry { index, name })
+            .collect();
+        self.token = None;
         self.query.clear();
         self.selected = 0;
         self.reset_scroll();
@@ -132,6 +176,17 @@ impl WorkspacePicker {
         let max = self.filtered.len() - 1;
         let next = (self.selected as isize + delta).clamp(0, max as isize);
         self.selected = next as usize;
+    }
+
+    /// The line shown when no rows are selectable. An Open-Layout picker with no
+    /// saved layouts explains the feature (LAYOUT-SURFACE teaching moment);
+    /// otherwise it is the ordinary "no filter match" hint.
+    fn empty_line_text(&self) -> String {
+        if self.entries.is_empty() && matches!(self.purpose, WorkspacePickerPurpose::OpenLayout) {
+            "No saved layouts yet \u{2014} use Save as Layout first".to_owned()
+        } else {
+            "No matches".to_owned()
+        }
     }
 
     fn selected_entry(&self) -> Option<&WorkspacePickerEntry> {
@@ -176,9 +231,15 @@ impl WorkspacePicker {
                 self.follow_selection_for_known_body_height();
                 WorkspacePickerOutcome::Consumed
             }
-            OverlayInput::Activate => match (self.token, self.selected_entry()) {
-                (Some(token), Some(entry)) => WorkspacePickerOutcome::Move(token, entry.index),
-                _ => WorkspacePickerOutcome::Consumed,
+            OverlayInput::Activate => match self.purpose {
+                WorkspacePickerPurpose::MoveTab => match (self.token, self.selected_entry()) {
+                    (Some(token), Some(entry)) => WorkspacePickerOutcome::Move(token, entry.index),
+                    _ => WorkspacePickerOutcome::Consumed,
+                },
+                WorkspacePickerPurpose::OpenLayout => match self.selected_entry() {
+                    Some(entry) => WorkspacePickerOutcome::OpenLayout(entry.name.clone()),
+                    None => WorkspacePickerOutcome::Consumed,
+                },
             },
             OverlayInput::Char(_)
             | OverlayInput::Left
@@ -250,7 +311,7 @@ impl WorkspacePicker {
         if self.filtered.is_empty() {
             self.scroll_offset.set(0);
             lines.push(WorkspacePickerLine {
-                text: "No matches".to_owned(),
+                text: self.empty_line_text(),
                 focused: false,
                 bold: false,
             });
@@ -507,5 +568,69 @@ mod tests {
         let overlay = open(dests());
         assert_eq!(overlay.visible_lines(60, 2).len(), 2);
         assert!(overlay.visible_lines(60, 10).len() <= 10);
+    }
+
+    // ── LAYOUT-SURFACE: Open-Layout purpose ────────────────────────────────
+
+    fn open_layouts(names: &[&str]) -> WorkspacePicker {
+        let mut overlay = WorkspacePicker::new();
+        overlay.open_layouts(names.iter().map(|s| (*s).to_owned()).collect());
+        overlay
+    }
+
+    #[test]
+    fn open_layouts_lists_names_and_accept_emits_open_layout() {
+        let mut overlay = open_layouts(&["dev", "prod", "scratch"]);
+        assert_eq!(overlay.render_signature().results_len, 3);
+        // The second row (prod) accepts as OpenLayout carrying the NAME, not an
+        // index — layouts key on the name, unlike the Move purpose.
+        overlay.handle_input(OverlayInput::Down);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            WorkspacePickerOutcome::OpenLayout("prod".to_owned()),
+        );
+    }
+
+    #[test]
+    fn open_layouts_fuzzy_filters_by_name() {
+        let mut overlay = open_layouts(&["dev", "prod", "scratch"]);
+        for ch in "prod".chars() {
+            overlay.handle_input(OverlayInput::Char(ch));
+        }
+        assert_eq!(overlay.render_signature().results_len, 1);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            WorkspacePickerOutcome::OpenLayout("prod".to_owned()),
+        );
+    }
+
+    #[test]
+    fn empty_layout_picker_shows_an_explanatory_line_and_no_accept() {
+        // With no saved layouts the picker still opens (discoverability) and
+        // shows a teaching line; Activate is inert (nothing to open).
+        let mut overlay = open_layouts(&[]);
+        assert_eq!(overlay.render_signature().results_len, 0);
+        let lines = overlay.visible_lines(80, 10);
+        assert!(
+            lines.iter().any(|l| l.text.contains("No saved layouts")),
+            "empty layout picker teaches the feature: {lines:?}"
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            WorkspacePickerOutcome::Consumed,
+        );
+    }
+
+    #[test]
+    fn reopening_for_move_after_layouts_restores_move_accept() {
+        // The shared picker is reused across purposes: opening for Move after an
+        // Open-Layout session emits the Move outcome again (purpose is reset).
+        let mut overlay = open_layouts(&["dev"]);
+        overlay.open(dests(), SessionToken(7));
+        overlay.handle_input(OverlayInput::Down);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            WorkspacePickerOutcome::Move(SessionToken(7), 2),
+        );
     }
 }

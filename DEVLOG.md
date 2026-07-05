@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Named layouts reachable from context menus
+
+Named workspace layouts were previously reachable only through the command
+palette, leaving menu-driven discovery with no path to them. Saving and opening
+now appear on the workspace context menus.
+
+- A workspace rail slot's right-click menu gains **Save as Layout…** (captures
+  the clicked workspace); the content-grid workspace section gains it too
+  (captures the active workspace). Both open a **Layout name:** prompt seeded
+  with the workspace's current name, reusing the shared rename modal's field,
+  mouse-selection, and box-layout machinery; committing writes through the
+  existing named-layout save path.
+- **Open Layout…** appears on the empty workspace rail, the empty tab strip,
+  and the content-grid workspace section. It opens a type-to-filter picker
+  seeded with the saved layout names; choosing one appends the layout as a new
+  workspace rather than replacing the current one. With no layouts saved the
+  picker still opens and shows an explanatory line, so the feature is
+  discoverable before a first layout exists.
+- The named-list picker that backs "Move to Workspace…" now serves both
+  purposes through a tagged accept, so the two menu-driven pickers share one
+  overlay, rendering, scroll, and pointer path.
+- The command-palette entries are unchanged; an empty name cancels the save
+  rather than writing an unnamed file.
+
+Verified: full suite green; clippy `-D warnings` clean; fmt clean. Windows:
+platform-neutral — layout files already use `%LOCALAPPDATA%` on Windows, and the
+menu / picker / prompt paths carry no OS-specific behavior.
+
+---
+
 ## 2026-07-05 -- Connection form: IdentityFile key browser + per-field help
 
 Two rough edges on the Add / Edit connection form surfaced in field use. The
@@ -30,6 +60,10 @@ the three-way Integration/Reuse/Tmux overrides, the Theme/Font/Title per-host
 overrides, and the connect fields each expect. It follows keyboard focus and
 click-to-focus, wraps to the body width, and collapses off first on a short
 window like the connection-manager footer.
+
+---
+
+## 2026-07-05 -- Non-blocking PTY write path (per-session writer thread)
 
 Field diagnosis of an unresponsive remote tab traced the freeze to the PTY write
 path: every write to a pane's shell — encoded keystrokes, pasted text, and the

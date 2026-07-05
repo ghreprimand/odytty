@@ -308,12 +308,30 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
             ..
         }
     ));
+    // LAYOUT-SURFACE: Save as Layout / Open Layout round out the workspace
+    // section, right before the workspace|Settings separator.
+    assert!(matches!(
+        rows[17],
+        ContextMenuRow::Item {
+            label: "Save as Layout\u{2026}",
+            enabled: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[18],
+        ContextMenuRow::Item {
+            label: "Open Layout\u{2026}",
+            enabled: true,
+            ..
+        }
+    ));
     assert!(matches!(
         rows[CONTEXT_MENU_FOURTH_SEPARATOR_ROW],
         ContextMenuRow::Separator
     ));
     assert!(matches!(
-        rows[18],
+        rows[20],
         ContextMenuRow::Item {
             label: "Settings",
             enabled: true,
@@ -328,7 +346,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
     ));
     // F3: Keyboard Shortcuts is the first launcher item, right below Settings.
     assert!(matches!(
-        rows[20],
+        rows[22],
         ContextMenuRow::Item {
             label: "Keyboard Shortcuts",
             enabled: true,
@@ -336,7 +354,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[21],
+        rows[23],
         ContextMenuRow::Item {
             label: "Connection Manager",
             enabled: true,
@@ -344,7 +362,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[22],
+        rows[24],
         ContextMenuRow::Item {
             label: "Command Palette",
             enabled: true,
@@ -352,7 +370,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[23],
+        rows[25],
         ContextMenuRow::Item {
             label: "Session Replay",
             enabled: true,
@@ -1603,28 +1621,38 @@ fn launcher_items_show_live_accelerator_labels() {
     assert!(app.context_menu_open_for_test());
 
     let (cols, rows) = app.grid_dims_for_test();
-    let rendered = app.render_overlay_rows_for_test(cols, rows);
-    let row_with = |needle: &str| -> String {
-        rendered
-            .iter()
-            .find(|line| line.contains(needle))
-            .unwrap_or_else(|| panic!("{needle} not rendered in {rendered:?}"))
-            .clone()
+    // On the short 80x24 test grid the menu is taller than the viewport and
+    // scrolls, so the bottom launcher rows only render once focus walks down to
+    // them (LAYOUT-SURFACE added two workspace rows). Drive focus down until each
+    // needle scrolls into view, bounded so a genuinely-absent item still panics.
+    let find_row = |app: &mut App, needle: &str| -> String {
+        for _ in 0..=CONTEXT_MENU_BODY_ROWS {
+            let rendered = app.render_overlay_rows_for_test(cols, rows);
+            if let Some(line) = rendered.iter().find(|line| line.contains(needle)) {
+                return line.clone();
+            }
+            app.drive_overlay_key_for_test(
+                winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
+                false,
+                false,
+            );
+        }
+        panic!("{needle} not rendered after scrolling the menu");
     };
     assert!(
-        row_with("Connection Manager").contains("Ctrl+Shift+S"),
+        find_row(&mut app, "Connection Manager").contains("Ctrl+Shift+S"),
         "Connection Manager shows its bound chord"
     );
     assert!(
-        row_with("Command Palette").contains("Ctrl+Shift+P"),
+        find_row(&mut app, "Command Palette").contains("Ctrl+Shift+P"),
         "Command Palette shows its bound chord"
     );
     assert!(
-        row_with("Session Replay").contains("Ctrl+Shift+R"),
+        find_row(&mut app, "Session Replay").contains("Ctrl+Shift+R"),
         "Session Replay shows its bound chord"
     );
     assert!(
-        row_with("Manage Sessions").contains("Ctrl+Shift+A"),
+        find_row(&mut app, "Manage Sessions").contains("Ctrl+Shift+A"),
         "Manage Sessions shows its bound chord (Phase 5 / B2)"
     );
 }

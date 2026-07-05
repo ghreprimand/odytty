@@ -360,6 +360,20 @@ impl OverlayUi {
         self.open = true;
     }
 
+    /// Open the "Open Layout ▸" picker over a frozen list of saved layout names
+    /// (LAYOUT-SURFACE). The App seeds the names; accepting a row emits
+    /// [`OverlayOutcome::ContextMenuOpenLayout`] with the chosen name for the App
+    /// to instantiate (APPEND a new workspace, WP3 8e). An empty list still opens
+    /// and shows an explanatory line so the feature is discoverable.
+    /// Presentation/filter-only.
+    pub(super) fn open_layout_picker(&mut self, names: Vec<String>) {
+        self.panel.end_slider_drag();
+        self.theme_builder.end_channel_drag();
+        self.workspace_picker.open_layouts(names);
+        self.mode = OverlayMode::WorkspacePicker;
+        self.open = true;
+    }
+
     #[cfg(test)]
     pub(super) fn open_command_palette_for_test<H, S>(&mut self, history: H, cwd: Option<&str>)
     where
@@ -1071,6 +1085,18 @@ impl OverlayUi {
                         }
                         _ => OverlayOutcome::ContextMenuUnbindWorkspace,
                     },
+                    // LAYOUT-SURFACE: a rail slot saves the CLICKED workspace;
+                    // the content-grid section saves the active one. Either way
+                    // the App opens the "Layout name:" prompt.
+                    ContextMenuItem::SaveAsLayout => match self.context_menu.surface() {
+                        crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(idx) => {
+                            OverlayOutcome::ContextMenuSaveLayoutAt(idx)
+                        }
+                        _ => OverlayOutcome::ContextMenuSaveActiveLayout,
+                    },
+                    // LAYOUT-SURFACE: open the saved-layout picker (surface-
+                    // independent — the App seeds it from the saved layout names).
+                    ContextMenuItem::OpenLayout => OverlayOutcome::ContextMenuOpenLayoutPicker,
                     // NF-F7-1: a Close Tab chosen from a specific tab slot closes
                     // THAT tab, not the active one. The Content surface (no
                     // TabSlot token) keeps the active-tab close.
@@ -2334,6 +2360,10 @@ impl OverlayUi {
                 self.close();
                 OverlayOutcome::MoveTabToWorkspacePicked(token, dest_ws)
             }
+            WorkspacePickerOutcome::OpenLayout(name) => {
+                self.close();
+                OverlayOutcome::ContextMenuOpenLayout(name)
+            }
         }
     }
 
@@ -2484,6 +2514,20 @@ pub(super) enum OverlayOutcome {
     /// already closed itself; the App splices the tab between workspaces without
     /// switching (unless the source workspace empties).
     MoveTabToWorkspacePicked(SessionToken, usize),
+    /// Save the workspace at the given rail index as a named layout, chosen from
+    /// a WorkspaceSlot rail menu (LAYOUT-SURFACE). The menu closed itself; the
+    /// App opens the "Layout name:" prompt seeded from that workspace.
+    ContextMenuSaveLayoutAt(usize),
+    /// Save the ACTIVE workspace as a named layout, chosen from the content-grid
+    /// workspace section (LAYOUT-SURFACE). The App opens the "Layout name:"
+    /// prompt seeded from the active workspace.
+    ContextMenuSaveActiveLayout,
+    /// Open the "Open Layout ▸" picker (LAYOUT-SURFACE). The menu closed itself;
+    /// the App seeds the picker with the saved layout names.
+    ContextMenuOpenLayoutPicker,
+    /// The layout picker chose a saved layout by name (LAYOUT-SURFACE). The
+    /// overlay closed itself; the App instantiates it (APPEND a new workspace).
+    ContextMenuOpenLayout(String),
     /// Split the focused pane from the context menu (Part B). The overlay has
     /// already closed itself; the App dispatches these to the same
     /// `split_active_pane` the keyboard split chords fire.
@@ -5220,6 +5264,97 @@ mod tests {
     }
 
     #[test]
+    fn workspace_slot_menu_save_as_layout_targets_the_clicked_slot() {
+        // LAYOUT-SURFACE: Save as Layout on a rail slot lifts to the
+        // ContextMenuSaveLayoutAt outcome carrying the CLICKED slot index.
+        // Unbound slot 2 menu: New(0) Rename(1) Close(2) Bind(3) Save(4).
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu_with_prompt_editing_hint(
+            CellPoint { row: 0, column: 0 },
+            false,
+            false,
+            false,
+            false,
+            false,
+            None,
+            false,
+            true,
+            false,
+            false,
+            crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(2),
+            None,
+            std::array::from_fn(|_| None),
+        );
+        for _ in 0..4 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuSaveLayoutAt(2)
+        );
+    }
+
+    #[test]
+    fn rail_empty_menu_open_layout_emits_picker_outcome() {
+        // LAYOUT-SURFACE: the empty rail offers New Workspace(0) then Open
+        // Layout(1); activating Open Layout lifts to the picker outcome.
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu_with_prompt_editing_hint(
+            CellPoint { row: 0, column: 0 },
+            false,
+            false,
+            false,
+            false,
+            false,
+            None,
+            false,
+            true,
+            false,
+            false,
+            crate::native::context_menu_ui::ContextMenuSurface::WorkspaceRailEmpty,
+            None,
+            std::array::from_fn(|_| None),
+        );
+        overlay.handle_input(OverlayInput::Down);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuOpenLayoutPicker
+        );
+    }
+
+    #[test]
+    fn content_menu_save_as_layout_targets_the_active_workspace() {
+        // LAYOUT-SURFACE: Save as Layout on the content surface (no slot target)
+        // lifts to the active-workspace save outcome. With a selection the
+        // workspace section is New(10) Rename(11) Close(12) Bind(13) Save(14)
+        // Open(15).
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu_with_prompt_editing_hint(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            false,
+            None,
+            false,
+            true,
+            false,
+            false,
+            crate::native::context_menu_ui::ContextMenuSurface::Content,
+            None,
+            std::array::from_fn(|_| None),
+        );
+        for _ in 0..14 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuSaveActiveLayout
+        );
+    }
+
+    #[test]
     fn context_menu_file_items_emit_path_outcomes() {
         // C3: with a resolved path target, the file section's four items lift
         // into the matching path outcomes carrying the resolved data. Synthetic
@@ -5291,10 +5426,11 @@ mod tests {
             None,
             std::array::from_fn(|_| None),
         );
-        // 21 visible items single-pane with a selection (F7 dropped the Rename
-        // Tab row; the workspace section adds three + the Bind to Host row);
-        // Manage Sessions is index 19 (Detach & switch is last at 20).
-        for _ in 0..19 {
+        // 23 visible items single-pane with a selection (F7 dropped the Rename
+        // Tab row; the workspace section adds New/Rename/Close + Bind to Host +
+        // Save as Layout + Open Layout); Manage Sessions is index 21 (Detach &
+        // switch is last at 22).
+        for _ in 0..21 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -5307,10 +5443,10 @@ mod tests {
     #[test]
     fn context_menu_keyboard_shortcuts_opens_key_bindings() {
         // F3: the "Keyboard Shortcuts" launcher item (first after Settings,
-        // visible index 15 single-pane with a selection — the workspace section
-        // plus the Bind to Host row shift the launcher block down by four)
-        // activates the key-remap editor via the same OpenKeyBindings outcome the
-        // settings "keybinds" row emits.
+        // visible index 17 single-pane with a selection — the workspace section
+        // plus Bind to Host + Save as Layout + Open Layout shift the launcher
+        // block down by six) activates the key-remap editor via the same
+        // OpenKeyBindings outcome the settings "keybinds" row emits.
         let mut overlay = OverlayUi::default();
         overlay.open_context_menu(
             CellPoint { row: 0, column: 0 },
@@ -5323,7 +5459,7 @@ mod tests {
             None,
             std::array::from_fn(|_| None),
         );
-        for _ in 0..15 {
+        for _ in 0..17 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(

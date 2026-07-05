@@ -74,9 +74,10 @@ fn context_menu_keyboard_scrolls_rendered_rows() {
     assert!(has_arrow(&before, '▼'), "more-below arrow shows initially");
     assert!(!has_arrow(&before, '▲'), "no more-above arrow at the top");
 
-    // Walk focus down to Settings (item index 11 after F1's New Window); the
-    // window must scroll to reveal it.
-    down(&mut app, 11);
+    // Walk focus down to Settings (item index 13 — the workspace section plus
+    // Bind to Host + Save as Layout + Open Layout precede it now); the window
+    // must scroll to reveal it.
+    down(&mut app, 13);
     let after = app.render_overlay_rows_for_test(TINY_COLS, TINY_ROWS);
     assert_ne!(
         joined(&before),
