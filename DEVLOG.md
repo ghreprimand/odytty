@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Document the connection-manager build-out in SPEC and TODO
+
+The durable product spec and milestone checklist still described the connection
+manager as a v1 quick-connect list, predating the ad-hoc connect, Add/Edit form,
+Test-connection probe, IdentityFile field, and host-row right-click menu that
+have since shipped. `SPEC.md` gains a paragraph covering those reachability
+paths — ad-hoc `[user@]host[:port]` connect, the byte-span splice writer that
+leaves every other block and comment untouched, the reserved `Protocol` field,
+the password-free tri-state probe, and the host-row menu — and `TODO.md` gains a
+matching `[x]` child bullet so the shipped-vs-remaining record stays honest. The
+user-facing reference docs (README, keybindings, runtime-knobs) were already
+current and are untouched. Documentation only; no code surface, no platform
+behavior change.
+
+---
+
 ## 2026-07-05 -- Bind a workspace to a host from the rail context menu
 
 Switching a workspace to a remote session was only possible from the terminal

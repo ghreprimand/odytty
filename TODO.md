@@ -1263,6 +1263,15 @@ feature validates against.
       (isolation test proves the live frame is byte-identical when active). With
       the opt-in off it shows OdyTTY-owned hosts only and never references
       `~/.ssh` (proven by test). Tests use synthetic fixtures only.
+  - [x] Connection-manager build-out: ad-hoc **Connect to: …** for an unsaved
+        `[user@]host[:port]` (Enter connects, Shift+Enter connects and appends a
+        `hosts.conf` block); an in-app **Add / Edit** form that writes a single
+        block with a byte-span splice (every other block, comment, and unknown
+        field left byte-for-byte untouched) and a per-host `IdentityFile`
+        (`ssh -i`, never a stored secret); a **Test connection** tri-state probe
+        that carries no password; and a saved-host right-click menu (Open in New
+        Tab / Open in New Workspace / Bind Current Workspace, plus Edit / Remove
+        for OdyTTY-owned rows). A `Protocol` field is reserved (`ssh` only).
 - [ ] Plugin systems, AI features, dashboards, or rich nonstandard workflows.
 - [ ] Heavy animation or effects that can compromise readability or latency.
 - [ ] Broad cross-platform support beyond Linux-first validation.

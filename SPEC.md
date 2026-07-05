@@ -873,7 +873,18 @@ its first stable layer.
   spawn (system `ssh`); the overlay itself is presentation-only and never
   mutates live core terminal state, so the live frame is byte-identical whether
   or not it is active. With the opt-in off, the overlay shows OdyTTY-owned hosts
-  only and OdyTTY never reads or references `~/.ssh`.
+  only and OdyTTY never reads or references `~/.ssh`. Beyond quick-connect, the
+  overlay reaches saved hosts several ways: typing a `[user@]host[:port]` that
+  matches no saved host offers an ad-hoc **Connect to: …** row (Enter connects,
+  Shift+Enter connects and appends a `hosts.conf` block); an in-app **Add / Edit
+  connection** form writes or edits a single block with a byte-span splice that
+  leaves every other block, comment, and unknown field byte-for-byte untouched,
+  carries an optional `IdentityFile` path (adds `ssh -i`, never a stored secret)
+  and a reserved `Protocol` field, and offers a **Test connection** probe that
+  reports an honest tri-state result without ever handling a password. A host-row
+  right-click menu opens the selected host in a new tab or a fresh host-bound
+  workspace, binds the current workspace to it, or (for OdyTTY-owned rows) edits
+  or removes it.
 - Remote shell integration (`remote_integration`, default on; `remote_reuse`,
   default on; `remote_tmux`, default off): the connect path builds the remote
   `ssh` argv through a single owned builder (`src/ssh_connect.rs`). With
