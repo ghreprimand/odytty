@@ -568,6 +568,7 @@ mod tests {
             integration: None,
             reuse: None,
             tmux: None,
+            protocol: None,
             source: ConnectionHostSource::Odytty,
         }
     }

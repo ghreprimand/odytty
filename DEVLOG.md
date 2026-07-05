@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Edit and remove hosts.conf blocks without disturbing the rest of the file
+
+The connection list gains in-place block editing that preserves everything it
+does not change. Editing or removing a saved host used to require re-serializing
+the whole file from the parsed model, which silently dropped comments and any
+field the parser did not recognize — unacceptable for a file people hand-edit.
+
+**Byte-span splice.** The parser now locates each `Host` block by its byte range
+in the source and captures the block's unrecognized lines (comments, unknown
+directives) verbatim. Editing a host re-renders only that block — its known
+fields in canonical form, followed by its preserved unknown lines — and splices
+it over its original span; every other byte in the file is untouched. Removing a
+host deletes its span plus the single trailing blank-line separator, leaving no
+doubled gap and never touching a comment that belongs to the next block. Writes
+go through the existing atomic temp-and-rename helper.
+
+**The one honest caveat:** editing a host canonicalizes that host's own known
+fields (field order and indentation); its unknown lines, every other host, and
+every comment are preserved byte-for-byte.
+
+**Reserved `Protocol` field.** The host grammar and model gain a `Protocol`
+key, defaulting to and currently accepting only `ssh`, so a future transport
+needs no file-format migration — old files parse and the field is already there.
+Any value is preserved across a round trip; the connect path stays SSH-only.
+
+**Lossy whole-file writer removed.** The model-round-trip serializer that dropped
+comments and unknown fields is gone in favor of the byte-preserving append and
+splice writers, so no path can reach for the lossy rewrite.
+
+Platform-neutral: byte-level file IO and atomic rename behave identically on
+every platform; no OS-specific surface.
+
+---
+
 ## 2026-07-05 -- Shared host picker: bind a workspace to a host from the right-click menu
 
 Reaching a saved remote host used to mean the command palette or a hand-edited

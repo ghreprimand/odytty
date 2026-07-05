@@ -63,6 +63,11 @@ pub struct ConnectionHost {
     /// persistent tmux session even when the global default is off (and
     /// `Some(false)` opts a host out when the default is on).
     pub tmux: Option<bool>,
+    /// Reserved connection protocol. `None` (and the only currently accepted
+    /// value, `ssh`) select the SSH transport; the field exists so a future
+    /// protocol needs no file-format migration. Any value is preserved across a
+    /// round trip; the connect path is SSH-only for now.
+    pub protocol: Option<String>,
     pub source: ConnectionHostSource,
 }
 
@@ -103,6 +108,7 @@ struct HostBlock {
     integration: Option<bool>,
     reuse: Option<bool>,
     tmux: Option<bool>,
+    protocol: Option<String>,
 }
 
 impl HostBlock {
@@ -118,6 +124,7 @@ impl HostBlock {
             integration: None,
             reuse: None,
             tmux: None,
+            protocol: None,
         }
     }
 }
@@ -167,36 +174,26 @@ pub fn parse_odytty_hosts_bytes_with_limits(
     parse_odytty_hosts_text(&text, limits)
 }
 
-/// Save OdyTTY-owned hosts in a stable `Host <alias>` block format.
-pub fn save_odytty_hosts(path: impl AsRef<Path>, hosts: &[ConnectionHost]) -> io::Result<()> {
-    let path = path.as_ref();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(path, format_odytty_hosts(hosts))
-}
-
-/// Format OdyTTY-owned hosts in the storage format documented for `hosts.conf`.
-pub fn format_odytty_hosts(hosts: &[ConnectionHost]) -> String {
-    let mut out = String::new();
-    for host in hosts {
-        if host.alias.trim().is_empty() {
-            continue;
-        }
-        push_host_block(&mut out, host);
-        // A blank line separates consecutive blocks in the serialized file.
-        out.push('\n');
-    }
-    out
-}
-
-/// Push a single `Host` block (no trailing blank-line separator) into `out`.
+/// Push a single `Host` block (no trailing blank-line separator) into `out`,
+/// rendering the `Host` line from the host's single alias.
 fn push_host_block(out: &mut String, host: &ConnectionHost) {
-    out.push_str("Host ");
-    out.push_str(&quote_field(&host.alias));
+    push_host_block_aliased(out, std::slice::from_ref(&host.alias), host);
+}
+
+/// Push a `Host` block whose `Host` line carries `aliases` verbatim. The parser
+/// flattens a multi-alias `Host a b` block into one entry per alias, so an
+/// in-place edit re-renders the block with all its sibling aliases by passing
+/// them here; field lines come from `host`.
+fn push_host_block_aliased(out: &mut String, aliases: &[String], host: &ConnectionHost) {
+    out.push_str("Host");
+    for alias in aliases {
+        out.push(' ');
+        out.push_str(&quote_field(alias));
+    }
     out.push('\n');
-    // Only emit HostName when it differs from the alias — a plain `Host x`
-    // block connects to `x` directly, so a redundant `HostName x` is noise.
+    // Only emit HostName when it differs from the primary alias — a plain
+    // `Host x` block connects to `x` directly, so a redundant `HostName x` is
+    // noise.
     if let Some(host_name) = host.host_name.as_deref()
         && host_name != host.alias
     {
@@ -224,6 +221,9 @@ fn push_host_block(out: &mut String, host: &ConnectionHost) {
     if let Some(tmux) = host.tmux {
         push_optional_field(out, "Tmux", Some(if tmux { "on" } else { "off" }));
     }
+    // Reserved Protocol field: preserved across a round trip, SSH-only at
+    // connect time.
+    push_optional_field(out, "Protocol", host.protocol.as_deref());
 }
 
 /// A parsed ad-hoc connection target from a typed `[user@]host[:port]` query.
@@ -273,6 +273,7 @@ impl AdhocTarget {
             integration: None,
             reuse: None,
             tmux: None,
+            protocol: None,
             source: ConnectionHostSource::Odytty,
         }
     }
@@ -420,6 +421,252 @@ fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     }
 }
 
+/// A `Host` block located by byte span in the source file, for in-place edit
+/// and remove. `content_end` is the byte just past the block's last body line
+/// (an Edit replaces `start..content_end`); `remove_end` extends through the
+/// block's trailing blank-line separator (a Remove deletes `start..remove_end`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BlockSpan {
+    start: usize,
+    content_end: usize,
+    remove_end: usize,
+    aliases: Vec<String>,
+    /// In-block lines the parser does not model (comments, unknown directives),
+    /// captured verbatim (newline-stripped) and re-emitted after the known
+    /// fields when the block is edited.
+    unknown_lines: Vec<String>,
+}
+
+/// Outcome of an in-place edit or remove against the OdyTTY-owned hosts file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostsEditOutcome {
+    /// The target block was found and the file was rewritten atomically.
+    Written,
+    /// No block matched the requested alias (or the file was absent/empty); the
+    /// file was left untouched.
+    NotFound,
+}
+
+/// Parse `source` into `Host` block spans, preserving each block's byte range
+/// and its unrecognized in-block lines. A block runs from its `Host` line to the
+/// first following blank line or next `Host` line (comments and unknown
+/// directives inside that contiguous run are captured verbatim); trailing blank
+/// lines up to the next block are recorded as the removable separator. Content
+/// before the first `Host` line is a preamble owned by no block and is never
+/// spliced.
+fn parse_host_blocks(source: &str, max_chars: usize) -> Vec<BlockSpan> {
+    // Line table: (byte offset of the line, the line text incl. trailing '\n').
+    let mut lines: Vec<(usize, &str)> = Vec::new();
+    let mut offset = 0;
+    for line in source.split_inclusive('\n') {
+        lines.push((offset, line));
+        offset += line.len();
+    }
+    let total = source.len();
+    let n = lines.len();
+
+    let line_keyword = |raw: &str| directive(tokenize_line(raw.trim_end_matches(['\r', '\n'])));
+    let is_blank = |raw: &str| raw.trim_end_matches(['\r', '\n']).trim().is_empty();
+    let is_host = |raw: &str| {
+        line_keyword(raw)
+            .map(|(kw, _)| kw == "host")
+            .unwrap_or(false)
+    };
+
+    let mut blocks = Vec::new();
+    let mut i = 0;
+    // Skip the preamble: anything before the first `Host` line.
+    while i < n && !is_host(lines[i].1) {
+        i += 1;
+    }
+    while i < n {
+        let (start, host_line) = lines[i];
+        let aliases = match line_keyword(host_line) {
+            Some((kw, args)) if kw == "host" => concrete_aliases(&args, max_chars),
+            _ => Vec::new(),
+        };
+        let mut unknown_lines = Vec::new();
+        let mut j = i + 1;
+        while j < n {
+            let raw = lines[j].1;
+            if is_blank(raw) {
+                break;
+            }
+            match line_keyword(raw) {
+                Some((kw, _)) if kw == "host" => break,
+                Some((kw, _)) if is_known_host_field(&kw) => {}
+                // A comment (no directive) or an unrecognized directive: keep it
+                // verbatim so an edit re-emits it rather than dropping it.
+                _ => unknown_lines.push(raw.trim_end_matches(['\r', '\n']).to_owned()),
+            }
+            j += 1;
+        }
+        let content_end = if j < n { lines[j].0 } else { total };
+        // Trailing blank-line separator, up to the next non-blank line.
+        let mut k = j;
+        while k < n && is_blank(lines[k].1) {
+            k += 1;
+        }
+        let remove_end = if k < n { lines[k].0 } else { total };
+        blocks.push(BlockSpan {
+            start,
+            content_end,
+            remove_end,
+            aliases,
+            unknown_lines,
+        });
+        // Advance to the next `Host` line; inter-block comments/blanks are the
+        // next block's preamble and belong to no block.
+        i = k;
+        while i < n && !is_host(lines[i].1) {
+            i += 1;
+        }
+    }
+    blocks
+}
+
+/// Index of the block whose alias list contains `alias`, if any.
+fn find_block(blocks: &[BlockSpan], alias: &str) -> Option<usize> {
+    blocks
+        .iter()
+        .position(|block| block.aliases.iter().any(|a| a == alias))
+}
+
+/// Re-render one block's body: its `Host` line, the known fields from
+/// `updated`, then the preserved unknown lines. `target_alias` is replaced by
+/// `updated.alias` in the block's alias list so a single-alias rename works and
+/// any sibling aliases survive.
+fn render_edited_block(block: &BlockSpan, target_alias: &str, updated: &ConnectionHost) -> String {
+    let new_aliases: Vec<String> = if block.aliases.is_empty() {
+        vec![updated.alias.clone()]
+    } else {
+        block
+            .aliases
+            .iter()
+            .map(|a| {
+                if a == target_alias {
+                    updated.alias.clone()
+                } else {
+                    a.clone()
+                }
+            })
+            .collect()
+    };
+    let mut rendered = String::new();
+    push_host_block_aliased(&mut rendered, &new_aliases, updated);
+    for line in &block.unknown_lines {
+        rendered.push_str(line);
+        rendered.push('\n');
+    }
+    rendered
+}
+
+/// Splice a byte-identical edit of the block owning `target_alias`, replacing
+/// only that block's body with `updated` re-rendered. Every other byte —
+/// comments, blank lines, other blocks' unknown fields — is preserved. Returns
+/// `None` when no block matches. Valid UTF-8 in/out; a source with invalid UTF-8
+/// is lossily normalized (matching the reader), so the byte-identity guarantee
+/// holds for well-formed files.
+fn splice_host_block_edit(
+    source: &str,
+    target_alias: &str,
+    updated: &ConnectionHost,
+    max_chars: usize,
+) -> Option<String> {
+    let blocks = parse_host_blocks(source, max_chars);
+    let idx = find_block(&blocks, target_alias)?;
+    let block = &blocks[idx];
+    let mut rendered = render_edited_block(block, target_alias, updated);
+    // Stay byte-aligned when the original block ended at EOF without a newline.
+    let had_trailing_newline =
+        block.content_end > 0 && source.as_bytes().get(block.content_end - 1) == Some(&b'\n');
+    if !had_trailing_newline {
+        while rendered.ends_with('\n') {
+            rendered.pop();
+        }
+    }
+    let mut out = String::with_capacity(source.len() + rendered.len());
+    out.push_str(&source[..block.start]);
+    out.push_str(&rendered);
+    out.push_str(&source[block.content_end..]);
+    Some(out)
+}
+
+/// Splice a removal of the block owning `target_alias`, deleting its body and
+/// its trailing blank-line separator so no doubled gap remains. Every other
+/// byte is preserved. Returns `None` when no block matches.
+fn splice_host_block_remove(source: &str, target_alias: &str, max_chars: usize) -> Option<String> {
+    let blocks = parse_host_blocks(source, max_chars);
+    let idx = find_block(&blocks, target_alias)?;
+    let block = &blocks[idx];
+    let mut out = String::with_capacity(source.len());
+    out.push_str(&source[..block.start]);
+    out.push_str(&source[block.remove_end..]);
+    Some(out)
+}
+
+/// Edit the OdyTTY-owned `Host` block whose alias list contains `target_alias`,
+/// re-rendering only that block from `updated` and splicing it over its byte
+/// span — every other byte (comments, blank lines, unknown fields in other
+/// blocks) is preserved. The write is atomic (temp sibling + rename). A missing
+/// file, empty file, or unmatched alias returns [`HostsEditOutcome::NotFound`]
+/// and never writes.
+///
+/// The one caveat, worth surfacing in an editing UI: the edited host's own
+/// known fields are re-serialized to canonical form (ordering/whitespace); its
+/// unknown lines and all other hosts and comments are untouched.
+pub fn edit_host_block(
+    path: impl AsRef<Path>,
+    target_alias: &str,
+    updated: &ConnectionHost,
+) -> io::Result<HostsEditOutcome> {
+    let path = path.as_ref();
+    let source = match fs::read(path) {
+        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(HostsEditOutcome::NotFound),
+        Err(err) => return Err(err),
+    };
+    match splice_host_block_edit(
+        &source,
+        target_alias,
+        updated,
+        DEFAULT_CONNECTION_HOSTS_MAX_FIELD_CHARS,
+    ) {
+        Some(next) => {
+            write_bytes_atomic(path, next.as_bytes())?;
+            Ok(HostsEditOutcome::Written)
+        }
+        None => Ok(HostsEditOutcome::NotFound),
+    }
+}
+
+/// Remove the OdyTTY-owned `Host` block whose alias list contains
+/// `target_alias`, deleting its byte span and trailing blank-line separator;
+/// every other byte is preserved. Atomic write. A missing/empty file or an
+/// unmatched alias returns [`HostsEditOutcome::NotFound`] and never writes.
+pub fn remove_host_block(
+    path: impl AsRef<Path>,
+    target_alias: &str,
+) -> io::Result<HostsEditOutcome> {
+    let path = path.as_ref();
+    let source = match fs::read(path) {
+        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+        Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(HostsEditOutcome::NotFound),
+        Err(err) => return Err(err),
+    };
+    match splice_host_block_remove(
+        &source,
+        target_alias,
+        DEFAULT_CONNECTION_HOSTS_MAX_FIELD_CHARS,
+    ) {
+        Some(next) => {
+            write_bytes_atomic(path, next.as_bytes())?;
+            Ok(HostsEditOutcome::Written)
+        }
+        None => Ok(HostsEditOutcome::NotFound),
+    }
+}
+
 /// Load and merge local connection sources using the resolved runtime setting.
 pub fn load_connection_hosts(
     settings: &Settings,
@@ -487,6 +734,7 @@ pub fn merge_connection_hosts(
             integration: None,
             reuse: None,
             tmux: None,
+            protocol: None,
             source: ConnectionHostSource::SshConfig,
         });
     }
@@ -503,60 +751,14 @@ fn parse_odytty_hosts_text(text: &str, limits: ConnectionHostsLimits) -> Vec<Con
         let Some((keyword, args)) = directive(tokens) else {
             continue;
         };
-        match keyword.as_str() {
-            "host" => {
-                flush_block(&mut entries, &mut seen, current.take(), limits.max_entries);
-                current = Some(HostBlock::new(concrete_aliases(
-                    &args,
-                    limits.max_field_chars,
-                )));
-            }
-            "hostname" => {
-                if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
-                    block.host_name = Some(trim_chars(value, limits.max_field_chars));
-                }
-            }
-            "user" => {
-                if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
-                    block.user = Some(trim_chars(value, limits.max_field_chars));
-                }
-            }
-            "port" => {
-                if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
-                    block.port = value.parse::<u16>().ok();
-                }
-            }
-            "theme" => {
-                if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
-                    block.theme = Some(trim_chars(value, limits.max_field_chars));
-                }
-            }
-            "font" => {
-                if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
-                    block.font = Some(trim_chars(value, limits.max_field_chars));
-                }
-            }
-            "title" => {
-                if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
-                    block.title = Some(trim_chars(value, limits.max_field_chars));
-                }
-            }
-            "integration" => {
-                if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
-                    block.integration = parse_host_bool(value);
-                }
-            }
-            "reuse" => {
-                if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
-                    block.reuse = parse_host_bool(value);
-                }
-            }
-            "tmux" => {
-                if let (Some(block), Some(value)) = (current.as_mut(), args.first()) {
-                    block.tmux = parse_host_bool(value);
-                }
-            }
-            _ => {}
+        if keyword == "host" {
+            flush_block(&mut entries, &mut seen, current.take(), limits.max_entries);
+            current = Some(HostBlock::new(concrete_aliases(
+                &args,
+                limits.max_field_chars,
+            )));
+        } else if let Some(block) = current.as_mut() {
+            apply_host_field(block, &keyword, &args, limits.max_field_chars);
         }
 
         if entries.len() >= limits.max_entries {
@@ -675,6 +877,7 @@ fn flush_block(
             integration: block.integration,
             reuse: block.reuse,
             tmux: block.tmux,
+            protocol: block.protocol.clone(),
             source: ConnectionHostSource::Odytty,
         });
     }
@@ -689,6 +892,89 @@ fn parse_host_bool(value: &str) -> Option<bool> {
         "off" | "no" | "false" | "0" => Some(false),
         _ => None,
     }
+}
+
+/// Apply one recognized `hosts.conf` field directive to `block`, returning
+/// `true` when `keyword` names a known host field. Unknown keywords return
+/// `false` so a byte-preserving caller can capture the raw line verbatim.
+fn apply_host_field(
+    block: &mut HostBlock,
+    keyword: &str,
+    args: &[String],
+    max_chars: usize,
+) -> bool {
+    let value = args.first();
+    match keyword {
+        "hostname" => {
+            if let Some(v) = value {
+                block.host_name = Some(trim_chars(v, max_chars));
+            }
+        }
+        "user" => {
+            if let Some(v) = value {
+                block.user = Some(trim_chars(v, max_chars));
+            }
+        }
+        "port" => {
+            if let Some(v) = value {
+                block.port = v.parse::<u16>().ok();
+            }
+        }
+        "theme" => {
+            if let Some(v) = value {
+                block.theme = Some(trim_chars(v, max_chars));
+            }
+        }
+        "font" => {
+            if let Some(v) = value {
+                block.font = Some(trim_chars(v, max_chars));
+            }
+        }
+        "title" => {
+            if let Some(v) = value {
+                block.title = Some(trim_chars(v, max_chars));
+            }
+        }
+        "integration" => {
+            if let Some(v) = value {
+                block.integration = parse_host_bool(v);
+            }
+        }
+        "reuse" => {
+            if let Some(v) = value {
+                block.reuse = parse_host_bool(v);
+            }
+        }
+        "tmux" => {
+            if let Some(v) = value {
+                block.tmux = parse_host_bool(v);
+            }
+        }
+        "protocol" => {
+            if let Some(v) = value {
+                block.protocol = Some(trim_chars(v, max_chars));
+            }
+        }
+        _ => return false,
+    }
+    true
+}
+
+/// Whether `keyword` (already lowercased) names a recognized host field.
+fn is_known_host_field(keyword: &str) -> bool {
+    matches!(
+        keyword,
+        "hostname"
+            | "user"
+            | "port"
+            | "theme"
+            | "font"
+            | "title"
+            | "integration"
+            | "reuse"
+            | "tmux"
+            | "protocol"
+    )
 }
 
 fn push_optional_field(out: &mut String, key: &str, value: Option<&str>) {
@@ -742,6 +1028,7 @@ mod tests {
             integration: None,
             reuse: None,
             tmux: None,
+            protocol: None,
             source,
         }
     }
@@ -950,8 +1237,9 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].integration, Some(false));
 
-        // The field survives a save/reload round-trip.
-        let formatted = format_odytty_hosts(&entries);
+        // The field survives a render/reload round-trip.
+        let mut formatted = String::new();
+        push_host_block(&mut formatted, &entries[0]);
         assert!(formatted.contains("Integration off"));
         let reparsed = parse_odytty_hosts_bytes_with_limits(formatted.as_bytes(), limits());
         assert_eq!(reparsed[0].integration, Some(false));
@@ -979,7 +1267,8 @@ mod tests {
         assert_eq!(entries[0].reuse, Some(false));
         assert_eq!(entries[0].integration, None);
 
-        let formatted = format_odytty_hosts(&entries);
+        let mut formatted = String::new();
+        push_host_block(&mut formatted, &entries[0]);
         assert!(formatted.contains("Reuse off"));
         let reparsed = parse_odytty_hosts_bytes_with_limits(formatted.as_bytes(), limits());
         assert_eq!(reparsed[0].reuse, Some(false));
@@ -996,21 +1285,22 @@ mod tests {
         assert_eq!(entries[0].reuse, None);
         assert_eq!(entries[0].integration, None);
 
-        let formatted = format_odytty_hosts(&entries);
+        let mut formatted = String::new();
+        push_host_block(&mut formatted, &entries[0]);
         assert!(formatted.contains("Tmux on"));
         let reparsed = parse_odytty_hosts_bytes_with_limits(formatted.as_bytes(), limits());
         assert_eq!(reparsed[0].tmux, Some(true));
     }
 
     #[test]
-    fn save_round_trips_odytty_owned_hosts() {
+    fn append_round_trips_odytty_owned_hosts() {
         let dir = temp_dir("odytty-connection-hosts");
         let path = hosts_file_path(&dir);
         let mut entry = host("web 1", ConnectionHostSource::Odytty);
         entry.user = Some("deploy".to_owned());
         entry.title = Some("Synthetic Web".to_owned());
 
-        save_odytty_hosts(&path, &[entry.clone()]).expect("save synthetic hosts");
+        append_adhoc_host(&path, &entry).expect("append synthetic host");
         let loaded = read_odytty_hosts_with_limits(&path, limits());
 
         assert_eq!(loaded, vec![entry]);
@@ -1129,5 +1419,252 @@ mod tests {
             vec!["owned", "remote"]
         );
         fs::remove_dir_all(dir).ok();
+    }
+
+    // ---- ODP-4B: block-span byte-splice edit / remove ----
+
+    /// A hand-annotated fixture: a leading comment, three blocks (one
+    /// multi-alias), an in-block comment, an unknown field, a tab indent, and
+    /// blank-line separators — the shapes an in-place edit must not disturb.
+    fn annotated_fixture() -> String {
+        [
+            "# OdyTTY hosts \u{2014} hand annotated",
+            "",
+            "Host alpha",
+            "    HostName alpha.example.invalid",
+            "    User alice",
+            "    # alpha is the bastion",
+            "    XCustomField keep-me",
+            "",
+            "Host beta gamma",
+            "\tHostName beta.example.invalid",
+            "    User bob",
+            "",
+            "# a note that belongs to delta",
+            "Host delta",
+            "    HostName delta.example.invalid",
+            "",
+        ]
+        .join("\n")
+    }
+
+    fn max_chars() -> usize {
+        limits().max_field_chars
+    }
+
+    #[test]
+    fn edit_replaces_only_the_target_block_bytes() {
+        let orig = annotated_fixture();
+        let mut updated = host("beta", ConnectionHostSource::Odytty);
+        updated.host_name = Some("beta.example.invalid".to_owned());
+        updated.user = Some("bob-2".to_owned());
+
+        let edited =
+            splice_host_block_edit(&orig, "beta", &updated, max_chars()).expect("beta edited");
+
+        // Everything before the edited block is byte-identical...
+        let head = orig.find("Host beta gamma").expect("beta present");
+        assert_eq!(
+            &edited[..head],
+            &orig[..head],
+            "preamble + alpha block untouched"
+        );
+        // ...and everything from the delta preamble comment onward is too.
+        let tail = orig
+            .find("# a note that belongs to delta")
+            .expect("delta note present");
+        assert!(
+            edited.ends_with(&orig[tail..]),
+            "delta note + delta block untouched"
+        );
+        // The edited block took the new user and canonicalized its tab indent;
+        // its sibling alias survived.
+        assert!(edited.contains("Host beta gamma"), "sibling alias kept");
+        assert!(edited.contains("    User bob-2"));
+        assert!(
+            !edited.contains("\tHostName beta"),
+            "tab indent canonicalized"
+        );
+        assert!(!edited.contains("    User bob\n"), "old user replaced");
+    }
+
+    #[test]
+    fn edit_preserves_unknown_lines_inside_the_edited_block() {
+        let orig = annotated_fixture();
+        let mut updated = host("alpha", ConnectionHostSource::Odytty);
+        updated.host_name = Some("alpha.example.invalid".to_owned());
+        updated.user = Some("alice-2".to_owned());
+
+        let edited =
+            splice_host_block_edit(&orig, "alpha", &updated, max_chars()).expect("alpha edited");
+
+        assert!(edited.contains("    User alice-2"), "new user applied");
+        // The unknown field and in-block comment survive, re-emitted after the
+        // known fields.
+        assert!(
+            edited.contains("    XCustomField keep-me"),
+            "unknown field kept"
+        );
+        assert!(
+            edited.contains("    # alpha is the bastion"),
+            "in-block comment kept"
+        );
+        let user_at = edited.find("User alice-2").unwrap();
+        let unknown_at = edited.find("XCustomField keep-me").unwrap();
+        assert!(
+            unknown_at > user_at,
+            "unknown lines follow the known fields"
+        );
+    }
+
+    #[test]
+    fn edit_then_parse_round_trips_the_new_value() {
+        let dir = temp_dir("odytty-edit-parse");
+        let path = hosts_file_path(&dir);
+        fs::write(&path, annotated_fixture()).expect("seed");
+
+        let mut updated = host("alpha", ConnectionHostSource::Odytty);
+        updated.host_name = Some("alpha.example.invalid".to_owned());
+        updated.user = Some("alice-2".to_owned());
+        let outcome = edit_host_block(&path, "alpha", &updated).expect("edit");
+        assert_eq!(outcome, HostsEditOutcome::Written);
+
+        let reparsed = read_odytty_hosts_with_limits(&path, limits());
+        let alpha = reparsed
+            .iter()
+            .find(|h| h.alias == "alpha")
+            .expect("alpha still present");
+        assert_eq!(alpha.user.as_deref(), Some("alice-2"));
+        // The unknown field remains in the raw file after the round trip.
+        let raw = fs::read_to_string(&path).expect("read back");
+        assert!(raw.contains("XCustomField keep-me"));
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn remove_middle_block_leaves_no_doubled_gap() {
+        let orig = annotated_fixture();
+        let edited = splice_host_block_remove(&orig, "beta", max_chars()).expect("beta removed");
+
+        let head = orig.find("Host beta gamma").unwrap();
+        assert_eq!(&edited[..head], &orig[..head], "prefix untouched");
+        let tail = orig.find("# a note that belongs to delta").unwrap();
+        assert!(edited.ends_with(&orig[tail..]), "suffix untouched");
+        assert!(!edited.contains("Host beta gamma"));
+        assert!(!edited.contains("User bob"));
+        assert!(
+            !edited.contains("\n\n\n"),
+            "trailing blank consumed, no doubled gap"
+        );
+    }
+
+    #[test]
+    fn remove_first_block_keeps_the_preamble() {
+        let orig = annotated_fixture();
+        let edited = splice_host_block_remove(&orig, "alpha", max_chars()).expect("alpha removed");
+
+        let head = orig.find("Host alpha").unwrap();
+        assert_eq!(&edited[..head], &orig[..head], "leading comment preserved");
+        let tail = orig.find("Host beta gamma").unwrap();
+        assert!(
+            edited.ends_with(&orig[tail..]),
+            "remaining blocks untouched"
+        );
+        assert!(edited.starts_with("# OdyTTY hosts"));
+        assert!(!edited.contains("Host alpha"));
+        assert!(
+            !edited.contains("XCustomField"),
+            "alpha's unknown field left with it"
+        );
+    }
+
+    #[test]
+    fn remove_last_block_orphans_only_its_own_body() {
+        let orig = annotated_fixture();
+        let edited = splice_host_block_remove(&orig, "delta", max_chars()).expect("delta removed");
+
+        let head = orig.find("Host delta").unwrap();
+        assert_eq!(&edited[..head], &orig[..head], "prefix untouched");
+        assert!(!edited.contains("Host delta"));
+        // The note above delta is its preamble (blank-line separated), owned by
+        // no block, so it stays.
+        assert!(edited.contains("# a note that belongs to delta"));
+        assert!(edited.contains("Host beta gamma"));
+    }
+
+    #[test]
+    fn edit_and_remove_on_a_missing_file_report_not_found() {
+        let dir = temp_dir("odytty-edit-missing");
+        let path = dir.join("does-not-exist").join(CONNECTION_HOSTS_FILE_NAME);
+        let updated = host("x", ConnectionHostSource::Odytty);
+
+        assert_eq!(
+            edit_host_block(&path, "x", &updated).expect("edit missing"),
+            HostsEditOutcome::NotFound
+        );
+        assert_eq!(
+            remove_host_block(&path, "x").expect("remove missing"),
+            HostsEditOutcome::NotFound
+        );
+        assert!(!path.exists(), "a not-found edit never creates the file");
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn edit_on_empty_or_unmatched_file_leaves_it_untouched() {
+        let dir = temp_dir("odytty-edit-untouched");
+        let path = hosts_file_path(&dir);
+
+        // Empty file: nothing to edit.
+        fs::write(&path, b"").expect("seed empty");
+        assert_eq!(
+            edit_host_block(&path, "any", &host("any", ConnectionHostSource::Odytty))
+                .expect("edit empty"),
+            HostsEditOutcome::NotFound
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "");
+
+        // Populated file, alias that matches no block: bytes unchanged.
+        let fixture = annotated_fixture();
+        fs::write(&path, &fixture).expect("seed fixture");
+        assert_eq!(
+            remove_host_block(&path, "nonexistent").expect("remove unmatched"),
+            HostsEditOutcome::NotFound
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), fixture);
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn edit_stays_byte_aligned_at_eof_without_a_trailing_newline() {
+        let orig = "Host solo\n    User x".to_owned();
+        let mut updated = host("solo", ConnectionHostSource::Odytty);
+        updated.host_name = None;
+        updated.user = Some("y".to_owned());
+
+        let edited =
+            splice_host_block_edit(&orig, "solo", &updated, max_chars()).expect("solo edited");
+        assert_eq!(
+            edited, "Host solo\n    User y",
+            "no trailing newline injected"
+        );
+    }
+
+    #[test]
+    fn protocol_field_parses_emits_and_preserves_odd_values() {
+        // The reserved Protocol field parses and round-trips through a render.
+        let entries = parse_odytty_hosts_bytes_with_limits(
+            b"Host p\n    HostName p.example.invalid\n    Protocol ssh\n",
+            limits(),
+        );
+        assert_eq!(entries[0].protocol.as_deref(), Some("ssh"));
+        let mut rendered = String::new();
+        push_host_block(&mut rendered, &entries[0]);
+        assert!(rendered.contains("Protocol ssh"));
+
+        // A non-`ssh` value is preserved verbatim (reserved, forward-compatible)
+        // rather than dropped, so a hand-added protocol survives a reparse.
+        let odd = parse_odytty_hosts_bytes_with_limits(b"Host q\n    Protocol quic\n", limits());
+        assert_eq!(odd[0].protocol.as_deref(), Some("quic"));
     }
 }
