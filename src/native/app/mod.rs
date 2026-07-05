@@ -1186,16 +1186,40 @@ impl App {
         self.on_active_session_changed();
     }
 
-    /// Move the right-clicked tab to the next workspace in rail order (ODP-7,
-    /// "Move to Next Workspace"). A `Tab` value splice — the sessions stay in the
-    /// arena. v1 moves WITHOUT following: the active workspace is unchanged and
-    /// the rail flashes so the departure is visible, unless moving the last tab
-    /// out closes the source workspace, which necessarily shifts focus to a
-    /// neighbor. Reconciles focus only when the move actually changed the active
-    /// workspace, so a same-workspace no-op stays byte-identical.
-    fn move_tab_to_next_workspace(&mut self, token: SessionToken) {
+    /// Open the "Move to Workspace" destination picker for the right-clicked tab
+    /// (W4-v2). Seeds the picker with every workspace EXCEPT the one that owns
+    /// `token`, carrying the token so the accepted destination moves the clicked
+    /// tab (not the active one). A no-op when there is no other workspace to move
+    /// to — the picker never opens with an empty list.
+    fn open_move_tab_workspace_picker(&mut self, token: SessionToken) {
+        let destinations = self.sessions.move_tab_destinations(token);
+        if destinations.is_empty() {
+            return;
+        }
+        let entries = destinations
+            .into_iter()
+            .map(
+                |(index, name)| crate::native::workspace_picker::WorkspacePickerEntry {
+                    index,
+                    name,
+                },
+            )
+            .collect();
+        self.reset_pointer_state_for_overlay();
+        self.overlay.open_workspace_picker(entries, token);
+        self.request_selection_redraw();
+    }
+
+    /// Move the tab holding `token` into the workspace at `dest_ws` (W4-v2, the
+    /// destination chosen from the picker). A `Tab` value splice — the sessions
+    /// stay in the arena. Moves WITHOUT following: the active workspace is
+    /// unchanged and the rail flashes so the departure is visible, unless moving
+    /// the last tab out closes the source workspace, which necessarily shifts
+    /// focus to a neighbor. Reconciles focus only when the move actually changed
+    /// the active workspace, so a same-workspace no-op stays byte-identical.
+    fn move_tab_to_workspace(&mut self, token: SessionToken, dest_ws: usize) {
         let active_before = self.sessions.active_workspace_index();
-        let (moved, _source_closed) = self.sessions.move_tab_to_next_workspace(token);
+        let (moved, _source_closed) = self.sessions.move_tab_to_workspace(token, dest_ws);
         if !moved {
             return;
         }

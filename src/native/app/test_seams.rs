@@ -1556,14 +1556,30 @@ impl App {
         self.handle_new_tab();
     }
 
-    /// Move the tab holding `token` to the next workspace (ODP-7), driving the
-    /// same App handler the "Move to Next Workspace" menu item dispatches.
+    /// Move the tab holding `token` into the workspace at `dest_ws` (W4-v2),
+    /// driving the same App handler the "Move to Workspace" picker accept
+    /// dispatches.
     #[cfg(test)]
-    pub(in crate::native) fn move_tab_to_next_workspace_for_test(
+    pub(in crate::native) fn move_tab_to_workspace_for_test(
         &mut self,
         token: crate::native::session::SessionToken,
+        dest_ws: usize,
     ) {
-        self.move_tab_to_next_workspace(token);
+        self.move_tab_to_workspace(token, dest_ws);
+    }
+
+    /// Open the "Move to Workspace" destination picker for the tab holding
+    /// `token` (W4-v2), driving the same App handler the tab context-menu item
+    /// dispatches. Returns the picker's seeded destination count so a test can
+    /// assert exclusion/visibility without reaching into the overlay.
+    #[cfg(test)]
+    pub(in crate::native) fn open_move_tab_workspace_picker_for_test(
+        &mut self,
+        token: crate::native::session::SessionToken,
+    ) -> usize {
+        let count = self.sessions.move_tab_destinations(token).len();
+        self.open_move_tab_workspace_picker(token);
+        count
     }
 
     /// Drive the workspace `BindableAction`s exactly as the key-dispatch match

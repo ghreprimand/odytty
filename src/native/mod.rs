@@ -92,6 +92,7 @@ mod theme_picker;
 mod viewport;
 mod watchdog;
 mod window_icon;
+mod workspace_picker;
 
 #[cfg(test)]
 mod gpu_tests;

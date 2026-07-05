@@ -260,7 +260,7 @@ fn palette_rename_workspace_row_opens_the_overlay() {
     ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
 )]
 #[test]
-fn move_tab_to_next_workspace_splices_without_switching() {
+fn move_tab_to_workspace_splices_without_switching() {
     let (mut app, _event_loop) = app_or_skip!();
     // ws0 gets a second tab; ws1 is created (and becomes active), then we go
     // back to ws0 so the move is from the active workspace.
@@ -272,9 +272,9 @@ fn move_tab_to_next_workspace_splices_without_switching() {
     assert_eq!(app.active_workspace_index_for_test(), 0);
     assert_eq!(app.active_workspace_tab_count_for_test(), 2);
 
-    // Move the active tab of ws0 to the next workspace (ws1).
+    // Move the active tab of ws0 to ws1 via the picker path.
     let token = app.active_session_token_for_test();
-    app.move_tab_to_next_workspace_for_test(token);
+    app.move_tab_to_workspace_for_test(token, 1);
 
     // v1: the active workspace does not follow the tab.
     assert_eq!(app.active_workspace_index_for_test(), 0);
@@ -304,9 +304,9 @@ fn moving_the_last_tab_out_closes_the_source_workspace_app() {
     assert_eq!(app.workspace_count_for_test(), 2);
     assert_eq!(app.active_workspace_index_for_test(), 1);
 
-    // Moving ws1's only tab out empties and closes ws1 (ODP-3).
+    // Moving ws1's only tab out (into ws0) empties and closes ws1 (ODP-3).
     let token = app.active_session_token_for_test();
-    app.move_tab_to_next_workspace_for_test(token);
+    app.move_tab_to_workspace_for_test(token, 0);
     assert_eq!(app.workspace_count_for_test(), 1, "emptied source closed");
     assert!(
         !app.pending_exit_for_test(),
@@ -323,7 +323,8 @@ fn move_tab_is_a_noop_with_a_single_workspace() {
     let (mut app, _event_loop) = app_or_skip!();
     assert_eq!(app.workspace_count_for_test(), 1);
     let token = app.active_session_token_for_test();
-    app.move_tab_to_next_workspace_for_test(token);
+    // Single workspace: no destinations, so the picker never opens (W4-v2).
+    assert_eq!(app.open_move_tab_workspace_picker_for_test(token), 0);
     // Nothing moved: still one workspace, one tab.
     assert_eq!(app.workspace_count_for_test(), 1);
     assert_eq!(app.active_workspace_tab_count_for_test(), 1);

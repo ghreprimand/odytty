@@ -52,6 +52,7 @@ use super::viewport::{
     scroll_indicator_quad_with_padding, scrollbar_offset_for_drag, wheel_lines, wheel_lines_scaled,
     wheel_zoom_steps,
 };
+use super::workspace_picker::WorkspacePickerSignature;
 use crate::core::{
     Attrs, Cell, CursorStyle, Dimensions, KeyboardModes as CoreKeyboardModes,
     MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol, MouseTracking, Position,

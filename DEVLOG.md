@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Move a tab to any workspace from a named-destination picker
+
+The tab context menu's "Move to Next Workspace" step is replaced by
+**Move to Workspace...**, which opens a type-to-filter picker listing every
+workspace the tab can move to. Choosing a destination splices the clicked tab
+into it -- the same `Tab` value move as before, so sessions never leave the
+global arena -- and the source workspace still closes when its last tab leaves.
+
+The picker is seeded with every workspace except the tab's own, carries the
+clicked tab's token (so it moves the right tab, not the active one), and matches
+each destination by name; its accept carries back the chosen workspace's real
+rail index. It reuses the shared "menu item -> seeded picker -> tagged accept"
+pattern as a thin sibling of the app/host pickers, scaling past the two-workspace
+case the single-step move handled. The item stays hidden with only one workspace
+open (nowhere to move to).
+
+Windows: platform-neutral -- the picker and move are pure UI over the workspace
+model.
+
+---
+
 ## 2026-07-05 -- Bound workspaces carry a link marker in the workspace rail
 
 A workspace bound to a default host (so every new tab opens remote) now reads as

@@ -2560,19 +2560,21 @@ impl WorkspaceSet {
         (true, false)
     }
 
-    /// Move the tab that owns `token` to the NEXT workspace in rail order
-    /// (wrapping) — the v1 "Move to Next Workspace" context-menu action. A no-op
-    /// with a single workspace. Returns `(moved, source_closed)` from
-    /// [`Self::move_tab_to_workspace`].
-    pub(super) fn move_tab_to_next_workspace(&mut self, token: SessionToken) -> (bool, bool) {
-        if self.workspaces.len() <= 1 {
-            return (false, false);
-        }
+    /// The destination candidates for the "Move to Workspace" picker (W4-v2):
+    /// every workspace EXCEPT the one that owns `token`, as `(original rail
+    /// index, name)` pairs. The index is the [`Self::move_tab_to_workspace`]
+    /// target. Empty when the token is unknown or it is the only workspace
+    /// (nothing to move to), which suppresses the picker.
+    pub(super) fn move_tab_destinations(&self, token: SessionToken) -> Vec<(usize, String)> {
         let Some((src_idx, _)) = self.locate_token(token) else {
-            return (false, false);
+            return Vec::new();
         };
-        let dest_idx = (src_idx + 1) % self.workspaces.len();
-        self.move_tab_to_workspace(token, dest_idx)
+        self.workspaces
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| *idx != src_idx)
+            .map(|(idx, ws)| (idx, ws.name.clone()))
+            .collect()
     }
 
     /// Move the just-appended, currently-active tab so it sits immediately after
@@ -4530,7 +4532,7 @@ mod tests {
         assert_eq!(set.workspace_count(), 2);
         assert_eq!(set.active_workspace_index(), 0);
 
-        let (moved, source_closed) = set.move_tab_to_next_workspace(SessionToken(0));
+        let (moved, source_closed) = set.move_tab_to_workspace(SessionToken(0), 1);
         assert!(moved);
         assert!(source_closed, "the emptied source workspace closes (ODP-3)");
         assert_eq!(set.workspace_count(), 1);
@@ -4544,26 +4546,29 @@ mod tests {
     }
 
     #[test]
-    fn move_tab_to_next_workspace_wraps_and_is_a_noop_with_one_workspace() {
-        // Single workspace: nowhere to move.
+    fn move_tab_destinations_excludes_the_source_and_is_empty_alone() {
+        // Single workspace: no destinations, so the picker never opens (W4-v2).
         let mut set = WorkspaceSet::new(build_session(), None);
-        assert_eq!(
-            set.move_tab_to_next_workspace(SessionToken(0)),
-            (false, false)
+        assert!(
+            set.move_tab_destinations(SessionToken(0)).is_empty(),
+            "one workspace = nowhere to move"
         );
 
-        // Three workspaces: from ws2 the next wraps to ws0.
+        // Three workspaces named in order; from ws2 the destinations are ws0 and
+        // ws1 (the source ws2 is excluded), carrying their ORIGINAL indices.
         set.push_workspace(build_session_with_id(SessionToken(1)));
         set.push_workspace(build_session_with_id(SessionToken(2)));
+        set.rename_workspace(0, "alpha".to_owned());
+        set.rename_workspace(1, "beta".to_owned());
+        set.rename_workspace(2, "gamma".to_owned());
         assert!(set.switch_workspace(2));
-        // Give ws2 a second tab so moving one out does not close it.
-        set.push(build_session_with_id(SessionToken(3)));
-        let (moved, source_closed) = set.move_tab_to_next_workspace(SessionToken(3));
-        assert!(moved);
-        assert!(!source_closed);
-        // token 3 wrapped into ws0, which now holds [0, 3].
-        assert!(set.switch_workspace(0));
-        assert_eq!(set.token_at_position(1), Some(SessionToken(3)));
+        let token = set.active_id();
+        let dests = set.move_tab_destinations(token);
+        assert_eq!(
+            dests,
+            vec![(0, "alpha".to_owned()), (1, "beta".to_owned())],
+            "source workspace excluded; original indices + names preserved"
+        );
     }
 
     #[test]

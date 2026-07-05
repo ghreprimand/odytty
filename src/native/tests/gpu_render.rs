@@ -313,6 +313,12 @@ fn overlay_sig(open: bool) -> OverlayRenderSignature {
             results_len: 0,
             results_fingerprint: 0,
         },
+        workspace_picker: WorkspacePickerSignature {
+            query: String::new(),
+            selected: None,
+            results_len: 0,
+            results_fingerprint: 0,
+        },
     }
 }
 

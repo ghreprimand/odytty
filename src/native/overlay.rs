@@ -45,6 +45,10 @@ use super::theme_builder::{
     ThemeBuilderSignature,
 };
 use super::theme_picker::{ThemePicker, ThemePickerLine, ThemePickerOutcome, ThemePickerSignature};
+use super::workspace_picker::{
+    WorkspacePicker, WorkspacePickerEntry, WorkspacePickerLine, WorkspacePickerOutcome,
+    WorkspacePickerSignature,
+};
 
 #[derive(Debug, Clone)]
 pub(super) struct OverlayUi {
@@ -64,6 +68,7 @@ pub(super) struct OverlayUi {
     connection_form: ConnectionForm,
     session_attach: SessionAttachOverlay,
     open_with: OpenWithOverlay,
+    workspace_picker: WorkspacePicker,
     /// Caption (the image's filename) shown in the C4 image-viewer overlay's
     /// body. The image itself draws through the GPU image layer, over the panel;
     /// this presentation-only string is the only state the viewer mode carries.
@@ -150,6 +155,7 @@ impl OverlayUi {
             connection_form: ConnectionForm::new(),
             session_attach: SessionAttachOverlay::new(),
             open_with: OpenWithOverlay::new(),
+            workspace_picker: WorkspacePicker::new(),
             image_view_caption: String::new(),
             attach_choice_session_id: String::new(),
             confirm_kill_session_id: String::new(),
@@ -333,6 +339,24 @@ impl OverlayUi {
         self.theme_builder.end_channel_drag();
         self.open_with.open(entries);
         self.mode = OverlayMode::OpenWith;
+        self.open = true;
+    }
+
+    /// Open the "Move to Workspace…" destination picker over a frozen list of
+    /// workspaces the clicked tab can move to (W4-v2). The App seeds the list
+    /// (every workspace EXCEPT the source) and carries the clicked tab's
+    /// `token`; accepting a row emits [`OverlayOutcome::MoveTabToWorkspacePicked`]
+    /// with the token + the chosen workspace's original index for the App to
+    /// splice. Presentation/filter-only.
+    pub(super) fn open_workspace_picker(
+        &mut self,
+        entries: Vec<WorkspacePickerEntry>,
+        token: SessionToken,
+    ) {
+        self.panel.end_slider_drag();
+        self.theme_builder.end_channel_drag();
+        self.workspace_picker.open(entries, token);
+        self.mode = OverlayMode::WorkspacePicker;
         self.open = true;
     }
 
@@ -1045,11 +1069,12 @@ impl OverlayUi {
                         }
                         _ => OverlayOutcome::Consumed,
                     },
-                    // ODP-7: move the right-clicked tab to the next workspace.
-                    // Only ever visible on a TabSlot with >1 workspace.
-                    ContextMenuItem::MoveToNextWorkspace => match self.context_menu.surface() {
+                    // W4-v2: open the "Move to Workspace" picker for the
+                    // right-clicked tab. Only ever visible on a TabSlot with >1
+                    // workspace.
+                    ContextMenuItem::MoveToWorkspace => match self.context_menu.surface() {
                         crate::native::context_menu_ui::ContextMenuSurface::TabSlot(token) => {
-                            OverlayOutcome::ContextMenuMoveTabToNextWorkspace(token)
+                            OverlayOutcome::ContextMenuMoveToWorkspace(token)
                         }
                         _ => OverlayOutcome::Consumed,
                     },
@@ -1266,6 +1291,9 @@ impl OverlayUi {
             OverlayMode::ConnectionForm => return self.handle_connection_form_input(input),
             OverlayMode::SessionAttach => return self.handle_session_attach_input(input),
             OverlayMode::OpenWith => return self.handle_open_with_input(input),
+            OverlayMode::WorkspacePicker => {
+                return self.handle_workspace_picker_input(input);
+            }
             OverlayMode::ImageView => return self.handle_image_view_input(input),
             OverlayMode::Settings => {}
         }
@@ -1449,6 +1477,17 @@ impl OverlayUi {
                             OverlayOutcome::Consumed
                         }
                     }
+                    OverlayMode::WorkspacePicker => {
+                        if button == PointerButton::Left
+                            && self
+                                .workspace_picker
+                                .click_row(row_in_body, rect.body_height)
+                        {
+                            self.handle_workspace_picker_input(OverlayInput::Activate)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
                     OverlayMode::ConfirmClose => {
                         if button == PointerButton::Left {
                             self.confirm_close_click(row_in_body, col_in_body)
@@ -1533,6 +1572,7 @@ impl OverlayUi {
                     | OverlayMode::Connections
                     | OverlayMode::SessionAttach
                     | OverlayMode::OpenWith
+                    | OverlayMode::WorkspacePicker
                     | OverlayMode::ImageView
                     | OverlayMode::ConfirmClose
                     | OverlayMode::AttachChoice
@@ -1557,6 +1597,7 @@ impl OverlayUi {
                     | OverlayMode::Connections
                     | OverlayMode::SessionAttach
                     | OverlayMode::OpenWith
+                    | OverlayMode::WorkspacePicker
                     | OverlayMode::ImageView
                     | OverlayMode::ConfirmClose
                     | OverlayMode::AttachChoice
@@ -1598,6 +1639,7 @@ impl OverlayUi {
                     OverlayMode::Connections => self.connections.scroll_lines(lines),
                     OverlayMode::SessionAttach => self.session_attach.scroll_lines(lines),
                     OverlayMode::OpenWith => self.open_with.scroll_lines(lines),
+                    OverlayMode::WorkspacePicker => self.workspace_picker.scroll_lines(lines),
                     OverlayMode::ContextMenu => {
                         // Wheel moves the focused item (and thus the focus-
                         // derived scroll window), mirroring the picker overlays.
@@ -1642,6 +1684,7 @@ impl OverlayUi {
             | OverlayMode::Connections
             | OverlayMode::SessionAttach
             | OverlayMode::OpenWith
+            | OverlayMode::WorkspacePicker
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
@@ -1670,6 +1713,7 @@ impl OverlayUi {
             | OverlayMode::Connections
             | OverlayMode::SessionAttach
             | OverlayMode::OpenWith
+            | OverlayMode::WorkspacePicker
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
@@ -1724,6 +1768,9 @@ impl OverlayUi {
             OverlayMode::ConnectionForm => self.connection_form.title(),
             OverlayMode::SessionAttach => "\u{2190} Manage Sessions  (Esc = back)".to_owned(),
             OverlayMode::OpenWith => "\u{2190} Open With\u{2026}  (Esc = back)".to_owned(),
+            OverlayMode::WorkspacePicker => {
+                "\u{2190} Move to Workspace\u{2026}  (Esc = back)".to_owned()
+            }
             OverlayMode::ImageView => {
                 format!("\u{2190} {}  (Esc = close)", self.image_view_caption)
             }
@@ -1837,6 +1884,7 @@ impl OverlayUi {
             | OverlayMode::Connections
             | OverlayMode::SessionAttach
             | OverlayMode::OpenWith
+            | OverlayMode::WorkspacePicker
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
@@ -1862,6 +1910,7 @@ impl OverlayUi {
             | OverlayMode::Connections
             | OverlayMode::SessionAttach
             | OverlayMode::OpenWith
+            | OverlayMode::WorkspacePicker
             | OverlayMode::ImageView
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
@@ -1899,6 +1948,7 @@ impl OverlayUi {
             OverlayMode::Connections => self.connections.scroll_indicator(body_height),
             OverlayMode::SessionAttach => self.session_attach.scroll_indicator(body_height),
             OverlayMode::OpenWith => self.open_with.scroll_indicator(body_height),
+            OverlayMode::WorkspacePicker => self.workspace_picker.scroll_indicator(body_height),
             OverlayMode::CommandPalette => self.command_palette.scroll_indicator(body_height),
             OverlayMode::ThemeBuilder => self.theme_builder.scroll_indicator(body_height),
             // Replay (read-only frame preview whose scroll axis is time, not a
@@ -1936,6 +1986,7 @@ impl OverlayUi {
             connection_form: self.connection_form.render_signature(),
             session_attach: self.session_attach.render_signature(),
             open_with: self.open_with.render_signature(),
+            workspace_picker: self.workspace_picker.render_signature(),
         }
     }
 
@@ -2236,6 +2287,21 @@ impl OverlayUi {
         }
     }
 
+    /// Route a key to the "Move to Workspace" destination picker (W4-v2). The
+    /// overlay type-filters and selects (Consumed), requests Close, or accepts a
+    /// destination (Move), whose token + chosen workspace index the App splices
+    /// -- the overlay never mutates the model itself.
+    fn handle_workspace_picker_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match self.workspace_picker.handle_input(input) {
+            WorkspacePickerOutcome::Consumed => OverlayOutcome::Consumed,
+            WorkspacePickerOutcome::Close => OverlayOutcome::Close,
+            WorkspacePickerOutcome::Move(token, dest_ws) => {
+                self.close();
+                OverlayOutcome::MoveTabToWorkspacePicked(token, dest_ws)
+            }
+        }
+    }
+
     fn settings_with_theme(&self, theme: Theme) -> Settings {
         let mut settings = self.settings.clone();
         settings.theme = theme;
@@ -2357,11 +2423,16 @@ pub(super) enum OverlayOutcome {
     ContextMenuCloseTabToken(SessionToken),
     /// Close every tab except the one holding `token` (F7 "Close Other Tabs").
     ContextMenuCloseOtherTabs(SessionToken),
-    /// Move the tab holding `token` to the next workspace in rail order (ODP-7,
-    /// "Move to workspace" v1). The overlay has already closed itself; the App
-    /// splices the tab between workspaces without switching (unless the source
-    /// workspace empties).
-    ContextMenuMoveTabToNextWorkspace(SessionToken),
+    /// Open the "Move to Workspace" destination picker for the tab holding
+    /// `token` (W4-v2). The context menu has already closed itself; the App
+    /// seeds the picker with every workspace but the source and routes the
+    /// accepted destination back as [`Self::MoveTabToWorkspacePicked`].
+    ContextMenuMoveToWorkspace(SessionToken),
+    /// Move the tab holding `token` into the workspace at the given rail index,
+    /// chosen from the "Move to Workspace" picker (W4-v2). The overlay has
+    /// already closed itself; the App splices the tab between workspaces without
+    /// switching (unless the source workspace empties).
+    MoveTabToWorkspacePicked(SessionToken, usize),
     /// Split the focused pane from the context menu (Part B). The overlay has
     /// already closed itself; the App dispatches these to the same
     /// `split_active_pane` the keyboard split chords fire.
@@ -2577,6 +2648,11 @@ pub(super) enum OverlayMode {
     /// (argv-only, via `spawn_detached`). Presentation-only; the rows carry
     /// pre-built argv. Never mutates live core state.
     OpenWith,
+    /// "Move to Workspace" destination picker (W4-v2): list the workspaces
+    /// the clicked tab can move to (all but its source), type-to-filter, and
+    /// on Enter splice the tab into the chosen workspace. Presentation/filter
+    /// only; never mutates live core state.
+    WorkspacePicker,
     /// In-terminal image viewer (Phase 9 / C4): a presentation-only overlay
     /// that renders a decoded image span ("Open in OdyTTY") centered over a
     /// dimmed backdrop panel, through the existing GPU image-layer raster path.
@@ -2712,6 +2788,7 @@ pub(super) struct OverlayRenderSignature {
     pub(super) connection_form: ConnectionFormSignature,
     pub(super) session_attach: SessionAttachOverlaySignature,
     pub(super) open_with: OpenWithOverlaySignature,
+    pub(super) workspace_picker: WorkspacePickerSignature,
 }
 
 pub(super) fn overlay_input_from_winit(
@@ -2879,6 +2956,7 @@ pub(super) fn overlay_rect(
         OverlayMode::ConnectionForm => overlay.connection_form.desired_width(columns),
         OverlayMode::SessionAttach => overlay.session_attach.desired_width(columns),
         OverlayMode::OpenWith => overlay.open_with.desired_width(columns),
+        OverlayMode::WorkspacePicker => overlay.workspace_picker.desired_width(columns),
         // The image viewer (C4) uses a full-width backdrop panel; the decoded
         // image is drawn centered over it by the GPU image layer, so the panel
         // is just the dimmed frame behind the picture.
@@ -3199,6 +3277,12 @@ impl OverlayUi {
                 .collect(),
             OverlayMode::OpenWith => self
                 .open_with
+                .visible_lines(body_width, body_height)
+                .into_iter()
+                .map(OverlayLine::from)
+                .collect(),
+            OverlayMode::WorkspacePicker => self
+                .workspace_picker
                 .visible_lines(body_width, body_height)
                 .into_iter()
                 .map(OverlayLine::from)
@@ -3540,6 +3624,17 @@ impl From<SessionAttachOverlayLine> for OverlayLine {
 
 impl From<OpenWithOverlayLine> for OverlayLine {
     fn from(line: OpenWithOverlayLine) -> Self {
+        Self {
+            text: line.text,
+            focused: line.focused,
+            swatch: None,
+            bold: line.bold,
+        }
+    }
+}
+
+impl From<WorkspacePickerLine> for OverlayLine {
+    fn from(line: WorkspacePickerLine) -> Self {
         Self {
             text: line.text,
             focused: line.focused,
@@ -4709,14 +4804,14 @@ mod tests {
             std::array::from_fn(|_| None),
         );
         // Items: New Tab(0) Rename Tab(1) Close Tab(2) Close Other Tabs(3)
-        // Connect to Host(4) Replace with Host(5) Move to Next Workspace(6)
+        // Connect to Host(4) Replace with Host(5) Move to Workspace(6)
         // New Window(7).
         for _ in 0..6 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
-            OverlayOutcome::ContextMenuMoveTabToNextWorkspace(SessionToken(5))
+            OverlayOutcome::ContextMenuMoveToWorkspace(SessionToken(5))
         );
     }
 
@@ -5752,7 +5847,7 @@ mod tests {
         // or the affordance is click-dead (Esc masks it). This iterates ALL
         // modes so a future `←`-titled mode without coverage fails here rather
         // than shipping a dead arrow (as Connections, then About, once did).
-        const ALL_MODES: [OverlayMode; 18] = [
+        const ALL_MODES: [OverlayMode; 19] = [
             OverlayMode::Settings,
             OverlayMode::ThemePicker,
             OverlayMode::ThemeBuilder,
@@ -5766,6 +5861,7 @@ mod tests {
             OverlayMode::ConnectionForm,
             OverlayMode::SessionAttach,
             OverlayMode::OpenWith,
+            OverlayMode::WorkspacePicker,
             OverlayMode::ImageView,
             OverlayMode::ConfirmClose,
             OverlayMode::AttachChoice,

@@ -248,10 +248,16 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.close_other_tabs(token);
             }
-            // ODP-7: move the right-clicked tab to the next workspace.
-            OverlayOutcome::ContextMenuMoveTabToNextWorkspace(token) => {
+            // W4-v2: open the "Move to Workspace" destination picker for the
+            // right-clicked tab.
+            OverlayOutcome::ContextMenuMoveToWorkspace(token) => {
                 self.flush_pending_overlay_settings();
-                self.move_tab_to_next_workspace(token);
+                self.open_move_tab_workspace_picker(token);
+            }
+            // W4-v2: the picker chose a destination workspace; splice the tab.
+            OverlayOutcome::MoveTabToWorkspacePicked(token, dest_ws) => {
+                self.flush_pending_overlay_settings();
+                self.move_tab_to_workspace(token, dest_ws);
             }
             // Part B: the context menu closed itself; split the focused pane
             // through the exact same action the keyboard split chords fire
