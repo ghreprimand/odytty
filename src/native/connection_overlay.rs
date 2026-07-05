@@ -28,6 +28,15 @@ use super::session::SessionToken;
 /// fuzzy ranking bounded regardless of how large the hosts list is).
 const MAX_RESULTS: usize = 40;
 
+/// FORM-DISCOVERABILITY: the always-visible affordance footer reserves the two
+/// bottom body rows of the connection manager — an actionable "+ Add
+/// connection…" row and a key-hint line — so the Add/Edit/save actions are
+/// reachable by sight and by mouse, not only through invisible chords.
+const FOOTER_ROWS: usize = 2;
+const ADD_ROW_LABEL: &str = "+ Add connection\u{2026}";
+const KEY_HINT_LINE: &str =
+    "Tab add \u{b7} \u{2192} edit \u{b7} Enter connect \u{b7} Shift+Enter save typed host";
+
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConnectionOverlay {
     /// The frozen connection list captured at open time, in load order
@@ -53,6 +62,12 @@ pub(super) struct ConnectionOverlay {
     /// manager; a tagged purpose makes this the same list a shared picker for a
     /// pending menu action. Reset on every `open`.
     purpose: ConnectionPickerPurpose,
+    /// Whether the always-visible "+ Add connection…" footer row is the current
+    /// selection (FORM-DISCOVERABILITY). Reached by `Down` past the last host or
+    /// a click on the row; `Enter` there opens the Add form. Reset on open and
+    /// on any query change. Only meaningful in the `Connect` purpose (the footer
+    /// is not shown for transient pickers).
+    add_row_focused: bool,
 }
 
 /// What accepting a row in the connection picker means (ODP-1B shared picker
@@ -150,8 +165,39 @@ impl ConnectionOverlay {
         self.query.clear();
         self.selected = 0;
         self.purpose = purpose;
+        self.add_row_focused = false;
         self.reset_scroll();
         self.recompute();
+    }
+
+    /// Body rows reserved at the bottom for the affordance footer
+    /// (FORM-DISCOVERABILITY). Only the connection-manager (`Connect`) purpose
+    /// shows it, and only when the window has room for the query row, at least
+    /// one result row, and the two footer rows — a tiny window falls back to the
+    /// pre-footer layout so the list is never squeezed to nothing.
+    fn footer_rows(&self, body_height: usize) -> usize {
+        if matches!(self.purpose, ConnectionPickerPurpose::Connect)
+            && body_height >= 1 + 1 + FOOTER_ROWS
+        {
+            FOOTER_ROWS
+        } else {
+            0
+        }
+    }
+
+    /// Result rows visible in the scrolling window: the body minus the query row
+    /// and any reserved footer rows. Every list-geometry method funnels through
+    /// this so the footer reservation stays consistent across render, scroll,
+    /// and click mapping.
+    fn visible_results_rows(&self, body_height: usize) -> usize {
+        body_height.saturating_sub(1 + self.footer_rows(body_height))
+    }
+
+    /// Whether the affordance footer is currently drawn, using the last body
+    /// height the render pass recorded (keyboard nav has no live body height).
+    /// `false` until the overlay has rendered once.
+    fn footer_active(&self) -> bool {
+        self.footer_rows(self.last_body_height.get()) > 0
     }
 
     /// Whether the ad-hoc "Connect to: …" affordance is offered. Only the
@@ -181,6 +227,9 @@ impl ConnectionOverlay {
                 .map(|(index, _)| index)
                 .collect();
         }
+        // A query change re-anchors the selection to a real row; the add-row
+        // focus never survives a filter change.
+        self.add_row_focused = false;
         self.clamp_selection();
     }
 
@@ -206,6 +255,12 @@ impl ConnectionOverlay {
         self.entries.get(entry_index)
     }
 
+    /// Whether the selection sits on the last (or no) host — the point from
+    /// which `Down` steps onto the "+ Add connection…" footer row.
+    fn at_last_result(&self) -> bool {
+        self.filtered.is_empty() || self.selected + 1 >= self.filtered.len()
+    }
+
     /// The aliases of the OdyTTY-owned saved hosts, for the Add/Edit form's
     /// alias-collision guard. `ssh-config`-imported names live in a different
     /// file and never collide with a `hosts.conf` block, so they are excluded.
@@ -221,21 +276,36 @@ impl ConnectionOverlay {
         match input {
             OverlayInput::Close => ConnectionOverlayOutcome::Close,
             OverlayInput::Up => {
-                self.move_selection(-1);
+                // Leaving the footer's "+ Add connection…" row returns to the
+                // last host; otherwise walk the result list as before.
+                if self.add_row_focused {
+                    self.add_row_focused = false;
+                } else {
+                    self.move_selection(-1);
+                }
                 self.follow_selection_for_known_body_height();
                 ConnectionOverlayOutcome::Consumed
             }
             OverlayInput::Down => {
-                self.move_selection(1);
+                // Past the last host, `Down` steps onto the always-visible
+                // "+ Add connection…" footer row (FORM-DISCOVERABILITY) rather
+                // than sticking on the final host.
+                if self.footer_active() && !self.add_row_focused && self.at_last_result() {
+                    self.add_row_focused = true;
+                } else if !self.add_row_focused {
+                    self.move_selection(1);
+                }
                 self.follow_selection_for_known_body_height();
                 ConnectionOverlayOutcome::Consumed
             }
             OverlayInput::PageUp | OverlayInput::Home => {
+                self.add_row_focused = false;
                 self.move_selection(-(MAX_RESULTS as isize));
                 self.follow_selection_for_known_body_height();
                 ConnectionOverlayOutcome::Consumed
             }
             OverlayInput::PageDown | OverlayInput::End => {
+                self.add_row_focused = false;
                 self.move_selection(MAX_RESULTS as isize);
                 self.follow_selection_for_known_body_height();
                 ConnectionOverlayOutcome::Consumed
@@ -255,8 +325,12 @@ impl ConnectionOverlay {
                 ConnectionOverlayOutcome::Consumed
             }
             OverlayInput::Activate => match self.purpose {
-                // Connection manager: accept a saved row, else offer the ad-hoc
+                // Connection manager: the "+ Add connection…" footer row opens
+                // the Add form; else accept a saved row, else offer the ad-hoc
                 // connect when the query is a well-formed destination.
+                ConnectionPickerPurpose::Connect if self.add_row_focused => {
+                    ConnectionOverlayOutcome::AddConnection
+                }
                 ConnectionPickerPurpose::Connect => match self.selected_entry() {
                     Some(entry) => ConnectionOverlayOutcome::Connect(Box::new(entry.clone())),
                     None => match self.adhoc_target() {
@@ -283,7 +357,8 @@ impl ConnectionOverlay {
             // is the Windows-safe alternative to Shift+Enter and behaves
             // identically here.
             OverlayInput::ActivateAlt | OverlayInput::Save => {
-                if self.selected_entry().is_none()
+                if !self.add_row_focused
+                    && self.selected_entry().is_none()
                     && let Some(host) = self.adhoc_target()
                 {
                     ConnectionOverlayOutcome::ConnectAndSave(Box::new(host))
@@ -293,8 +368,10 @@ impl ConnectionOverlay {
             }
             // Tab opens the Add-connection form; `\u{2192}` opens the Edit form for a
             // selected OdyTTY-owned row (P4). An `ssh-config`-imported row is
-            // read-only, so `\u{2192}` there is inert.
+            // read-only, so `\u{2192}` there is inert. The footer add-row is not
+            // an editable host, so `\u{2192}` there is inert too.
             OverlayInput::Tab => ConnectionOverlayOutcome::AddConnection,
+            OverlayInput::Right if self.add_row_focused => ConnectionOverlayOutcome::Consumed,
             OverlayInput::Right => match self.selected_entry() {
                 Some(entry) if entry.source == ConnectionHostSource::Odytty => {
                     ConnectionOverlayOutcome::EditConnection(Box::new(entry.clone()))
@@ -331,7 +408,7 @@ impl ConnectionOverlay {
         if body_height == 0 || row_in_body == 0 || self.filtered.is_empty() {
             return None;
         }
-        let visible_results = body_height - 1;
+        let visible_results = self.visible_results_rows(body_height);
         let within = row_in_body - 1;
         if within >= visible_results {
             return None;
@@ -362,6 +439,14 @@ impl ConnectionOverlay {
     /// selectable row so the caller can route the existing Activate. Parity with
     /// Down×N + Activate by construction.
     pub(super) fn click_row(&mut self, row_in_body: usize, body_height: usize) -> bool {
+        // FORM-DISCOVERABILITY: the pinned "+ Add connection…" footer row sits at
+        // `body_height - FOOTER_ROWS`; a click there focuses it so the caller's
+        // routed Activate opens the Add form.
+        let footer = self.footer_rows(body_height);
+        if footer > 0 && row_in_body == body_height - footer {
+            self.add_row_focused = true;
+            return true;
+        }
         // The synthetic ad-hoc "Connect to: …" row sits at body row 1 when the
         // filtered list is empty but the query parses; a click there connects
         // (the caller routes Activate, which the empty-selection path resolves
@@ -371,11 +456,13 @@ impl ConnectionOverlay {
             && self.filtered.is_empty()
             && self.adhoc_target().is_some()
         {
+            self.add_row_focused = false;
             return true;
         }
         match self.row_at(row_in_body, body_height) {
             Some(cursor) => {
                 self.selected = cursor;
+                self.add_row_focused = false;
                 self.follow_selection_for_known_body_height();
                 true
             }
@@ -394,80 +481,105 @@ impl ConnectionOverlay {
             return Vec::new();
         }
         let scroll_offset = self.scroll_offset_for_body_height(body_height);
-        let mut lines = Vec::with_capacity(body_height.min(MAX_RESULTS + 2));
+        // FORM-DISCOVERABILITY: reserve the bottom rows for the pinned affordance
+        // footer so it is always visible; content fills the space above it.
+        let footer = self.footer_rows(body_height);
+        let content_cap = body_height.saturating_sub(footer);
+        let mut lines = Vec::with_capacity(body_height.min(MAX_RESULTS + 2 + FOOTER_ROWS));
         lines.push(ConnectionOverlayLine {
             text: truncate_for_width(&format!("> {}", self.query), body_width),
             focused: false,
             bold: true,
         });
-        if lines.len() >= body_height {
-            return lines;
-        }
-        if self.entries.is_empty() {
-            self.scroll_offset.set(0);
-            lines.push(ConnectionOverlayLine {
-                text: truncate_for_width(
-                    "No saved connections — add hosts to hosts.conf or enable ssh_config_hosts.",
-                    body_width,
-                ),
-                focused: false,
-                bold: false,
-            });
-            return lines;
-        }
-        if self.filtered.is_empty() {
-            self.scroll_offset.set(0);
-            // When the query is a well-formed `[user@]host[:port]` that matches
-            // no saved host, offer an ad-hoc connect row in place of "No
-            // matches" — with a key hint so both actions are discoverable. A
-            // bind picker (no ad-hoc) always shows the plain "No matches".
-            if let Some(target) = self
-                .allows_adhoc()
-                .then(|| parse_adhoc_target(&self.query))
-                .flatten()
-            {
+        if lines.len() < content_cap {
+            if self.entries.is_empty() {
+                self.scroll_offset.set(0);
                 lines.push(ConnectionOverlayLine {
                     text: truncate_for_width(
-                        &format!("Connect to: {}", target.display()),
+                        "No saved connections — add hosts to hosts.conf or enable ssh_config_hosts.",
                         body_width,
                     ),
-                    focused: true,
+                    focused: false,
                     bold: false,
                 });
-                if lines.len() < body_height {
+            } else if self.filtered.is_empty() {
+                self.scroll_offset.set(0);
+                // When the query is a well-formed `[user@]host[:port]` that
+                // matches no saved host, offer an ad-hoc connect row in place of
+                // "No matches" — with a key hint so both actions are
+                // discoverable. A bind picker (no ad-hoc) shows plain "No
+                // matches".
+                if let Some(target) = self
+                    .allows_adhoc()
+                    .then(|| parse_adhoc_target(&self.query))
+                    .flatten()
+                {
                     lines.push(ConnectionOverlayLine {
                         text: truncate_for_width(
-                            "[Enter] connect · [Shift+Enter] connect + save",
+                            &format!("Connect to: {}", target.display()),
                             body_width,
                         ),
+                        focused: !self.add_row_focused,
+                        bold: false,
+                    });
+                    if lines.len() < content_cap {
+                        lines.push(ConnectionOverlayLine {
+                            text: truncate_for_width(
+                                "[Enter] connect · [Shift+Enter] connect + save",
+                                body_width,
+                            ),
+                            focused: false,
+                            bold: false,
+                        });
+                    }
+                } else {
+                    lines.push(ConnectionOverlayLine {
+                        text: "No matches".to_owned(),
                         focused: false,
                         bold: false,
                     });
                 }
             } else {
+                let visible_results = self.visible_results_rows(body_height);
+                for (visible_index, &entry_index) in self
+                    .filtered
+                    .iter()
+                    .skip(scroll_offset)
+                    .take(visible_results)
+                    .enumerate()
+                {
+                    let row = scroll_offset + visible_index;
+                    let Some(entry) = self.entries.get(entry_index) else {
+                        continue;
+                    };
+                    lines.push(ConnectionOverlayLine {
+                        text: truncate_for_width(&row_label(entry), body_width),
+                        focused: row == self.selected && !self.add_row_focused,
+                        bold: false,
+                    });
+                }
+            }
+        }
+        // Pin the affordance footer to the bottom of the body: pad the gap above
+        // it with blanks, then the actionable "+ Add connection…" row and the
+        // key-hint line. `footer == 0` (a transient picker or a window too short)
+        // leaves the layout byte-identical to the pre-footer manager.
+        if footer > 0 {
+            while lines.len() < body_height - footer {
                 lines.push(ConnectionOverlayLine {
-                    text: "No matches".to_owned(),
+                    text: String::new(),
                     focused: false,
                     bold: false,
                 });
             }
-            return lines;
-        }
-        let remaining = body_height - lines.len();
-        for (visible_index, &entry_index) in self
-            .filtered
-            .iter()
-            .skip(scroll_offset)
-            .take(remaining)
-            .enumerate()
-        {
-            let row = scroll_offset + visible_index;
-            let Some(entry) = self.entries.get(entry_index) else {
-                continue;
-            };
             lines.push(ConnectionOverlayLine {
-                text: truncate_for_width(&row_label(entry), body_width),
-                focused: row == self.selected,
+                text: truncate_for_width(ADD_ROW_LABEL, body_width),
+                focused: self.add_row_focused,
+                bold: false,
+            });
+            lines.push(ConnectionOverlayLine {
+                text: truncate_for_width(KEY_HINT_LINE, body_width),
+                focused: false,
                 bold: false,
             });
         }
@@ -479,7 +591,7 @@ impl ConnectionOverlay {
     /// line, so the result viewport is `body_height - 1`. `(false, false)`
     /// whenever everything fits, so a tall overlay draws no arrows.
     pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
-        let visible_results = body_height.saturating_sub(1);
+        let visible_results = self.visible_results_rows(body_height);
         if visible_results == 0 || self.filtered.len() <= visible_results {
             self.scroll_offset.set(0);
             return (false, false);
@@ -510,7 +622,7 @@ impl ConnectionOverlay {
     /// Mirrors the palette overlay so the two list overlays scroll identically.
     fn scroll_offset_for_body_height(&self, body_height: usize) -> usize {
         self.last_body_height.set(body_height);
-        let visible_results = body_height.saturating_sub(1);
+        let visible_results = self.visible_results_rows(body_height);
         let results_len = self.filtered.len();
         if visible_results == 0 || results_len <= visible_results {
             self.scroll_offset.set(0);
@@ -551,6 +663,10 @@ impl ConnectionOverlay {
         // classifying the frame `Retained` and freezing the list (the
         // cache-staleness lesson from the settings Level-1 list).
         self.scroll_offset.get().hash(&mut hasher);
+        // FORM-DISCOVERABILITY: toggling focus onto the "+ Add connection…"
+        // footer row moves the highlight without changing query/selection, so
+        // fold it in or the highlight would freeze on a `Retained` frame.
+        self.add_row_focused.hash(&mut hasher);
         for &entry_index in self.filtered.iter().take(MAX_RESULTS) {
             if let Some(entry) = self.entries.get(entry_index) {
                 entry.alias.hash(&mut hasher);
@@ -717,6 +833,73 @@ mod tests {
         assert!(lines[1].text.starts_with("web1"));
         assert!(lines[2].text.starts_with("db-primary"));
         assert!(lines[3].text.starts_with("remote"));
+    }
+
+    #[test]
+    fn manager_renders_add_row_and_key_hint_footer() {
+        // FORM-DISCOVERABILITY: the manager pins a "+ Add connection…" row and a
+        // key-hint line to the bottom of the body so the form is discoverable.
+        let overlay = open(entries());
+        let lines = overlay.visible_lines(80, 12);
+        let add = &lines[lines.len() - 2];
+        let hint = &lines[lines.len() - 1];
+        assert!(add.text.contains("Add connection"), "add-row pinned bottom");
+        assert!(hint.text.contains("Tab add"), "key hint pinned bottom");
+        assert!(hint.text.contains("Shift+Enter save"), "save chord shown");
+    }
+
+    #[test]
+    fn down_past_last_host_focuses_add_row_and_enter_opens_form() {
+        // Walking `Down` past the last host lands on the add-row; Enter there
+        // opens the Add form, and Up steps back onto the last host.
+        let mut overlay = open(entries());
+        let _ = overlay.visible_lines(80, 12); // prime the body height
+        for _ in 0..entries().len() {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            ConnectionOverlayOutcome::AddConnection,
+            "Enter on the add-row opens the Add form"
+        );
+        // Re-open (Activate did not close the manager itself) and confirm Up
+        // leaves the add-row.
+        let _ = overlay.handle_input(OverlayInput::Up);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            ConnectionOverlayOutcome::Connect(Box::new(entries()[2].clone())),
+            "Up returns to the last host, where Enter connects"
+        );
+    }
+
+    #[test]
+    fn click_add_row_opens_form() {
+        // A click on the pinned add-row focuses it (click_row true) so the
+        // caller's routed Activate opens the Add form.
+        let mut overlay = open(entries());
+        let body_height = 12;
+        let _ = overlay.visible_lines(80, body_height);
+        assert!(
+            overlay.click_row(body_height - FOOTER_ROWS, body_height),
+            "click lands on the add-row"
+        );
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            ConnectionOverlayOutcome::AddConnection
+        );
+    }
+
+    #[test]
+    fn bind_picker_has_no_add_row_footer() {
+        // A transient picker (bind a workspace) is a host chooser, not the
+        // manager — it shows no Add footer.
+        let overlay = open_for_bind(entries());
+        let lines = overlay.visible_lines(80, 12);
+        let joined: String = lines.iter().map(|l| l.text.as_str()).collect();
+        assert!(
+            !joined.contains("Add connection"),
+            "picker hides the add-row"
+        );
     }
 
     #[test]
@@ -984,8 +1167,13 @@ mod tests {
         let mut overlay = open(Vec::new());
         assert_eq!(overlay.entry_count(), 0);
         let lines = overlay.visible_lines(80, 10);
-        assert_eq!(lines.len(), 2);
         assert!(lines[1].text.contains("No saved connections"));
+        // FORM-DISCOVERABILITY: even an empty manager shows the affordance
+        // footer so a first-time user can reach the Add form.
+        let joined: String = lines.iter().map(|l| l.text.as_str()).collect();
+        assert!(joined.contains("Add connection"), "add-row visible");
+        assert!(joined.contains("Tab add"), "key hint visible");
+        // Nothing is selected and the add-row is not focused, so Enter is inert.
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
             ConnectionOverlayOutcome::Consumed

@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Connection manager surfaces the Add-connection form
+
+The Add / Edit / save-typed-host actions were reachable only through chords with
+no on-screen affordance, so the form was effectively undiscoverable. The
+connection manager now pins two rows to the bottom of the list: an actionable
+**+ Add connection…** row (opens the Add form on Enter or a click, reachable by
+arrowing past the last host) and a key-hint line spelling out the actions
+(`Tab add · → edit · Enter connect · Shift+Enter save typed host`). The footer
+shows in the manager only — transient host pickers (bind a workspace, connect
+from a tab) stay a plain chooser — and collapses on a window too short to keep a
+result row visible, leaving the compact layout unchanged.
+
+---
+
 ## 2026-07-05 -- Connection manager stays visible under its row menu
 
 Right-clicking a saved-host row opened the row context menu but blanked the

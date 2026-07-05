@@ -216,6 +216,9 @@ shown in a hint line beneath the row.
 The connection manager also opens an **Add / Edit connection** form: `Tab` opens
 a blank Add form, and the right arrow (`\u{2192}`) opens an Edit form pre-filled
 from the selected OdyTTY-owned host (`ssh-config`-imported rows are read-only).
+A pinned **+ Add connection…** row at the bottom of the list opens the Add form
+on `Enter` or a click, and a key-hint line beneath it (`Tab add · \u{2192} edit ·
+Enter connect · Shift+Enter save typed host`) keeps those actions visible.
 In the form, `Up`/`Down` or `Tab` move between fields, typing edits the focused
 field, `Left`/`Right` (or `Space`) cycle a three-way `inherit`/`on`/`off`
 override, `Enter` presses the focused button, `Ctrl+S` saves from anywhere, and
