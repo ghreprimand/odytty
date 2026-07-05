@@ -7,7 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-07-05 -- Non-blocking PTY write path (per-session writer thread)
+## 2026-07-05 -- Connection form: IdentityFile key browser + per-field help
+
+Two rough edges on the Add / Edit connection form surfaced in field use. The
+**IdentityFile** field was a blank type-a-path-from-memory box, and the Advanced
+section gave no indication what its fields expected.
+
+The IdentityFile row now opens a key browser: pressing Enter on the empty field
+lists candidate private keys found under `~/.ssh`, filtered by file name. The
+scan is filename-heuristics only — `id_*`, `*.pem`, `*.key`, and any file with a
+matching `.pub` sibling qualify, while `*.pub`, `known_hosts`, `config`, and
+`authorized_keys` are excluded — and it reads directory-entry names only, never
+opening a key file, so no key material ever enters memory. Picking a row fills
+the field with the full path; typing a path by hand stays fully supported, since
+keys can live outside `~/.ssh`. An empty or unreadable `~/.ssh` still opens the
+browser, which shows a "type a path manually" hint. On Windows the same scan
+resolves `~/.ssh` under `%USERPROFILE%`.
+
+A focused-field help footer, following the compact-settings pattern, renders one
+to two wrapped lines describing the field under the cursor — what IdentityFile,
+the three-way Integration/Reuse/Tmux overrides, the Theme/Font/Title per-host
+overrides, and the connect fields each expect. It follows keyboard focus and
+click-to-focus, wraps to the body width, and collapses off first on a short
+window like the connection-manager footer.
 
 Field diagnosis of an unresponsive remote tab traced the freeze to the PTY write
 path: every write to a pane's shell — encoded keystrokes, pasted text, and the

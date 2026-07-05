@@ -2269,6 +2269,18 @@ impl OverlayUi {
             // The form stays open through a Test so the tri-state result renders
             // when the App's background probe lands.
             ConnectionFormOutcome::Test(host) => OverlayOutcome::TestConnection(host),
+            // The form stays open; the App scans ~/.ssh (names only) and seeds
+            // the browser back through `open_identity_key_browse` (FORM-UX).
+            ConnectionFormOutcome::BrowseIdentityKeys => OverlayOutcome::BrowseIdentityKeys,
+        }
+    }
+
+    /// Seed and open the IdentityFile key browser inside the open connection
+    /// form (FORM-UX). A no-op unless the form is the active mode. `candidates`
+    /// are the `~/.ssh` key PATHS the App discovered by filename heuristics.
+    pub(super) fn open_identity_key_browse(&mut self, candidates: Vec<String>) {
+        if self.mode == OverlayMode::ConnectionForm {
+            self.connection_form.open_key_browse(candidates);
         }
     }
 
@@ -2450,6 +2462,11 @@ pub(super) enum OverlayOutcome {
     /// The overlay stays open; the App spawns the probe and feeds the tri-state
     /// result back through `set_connection_form_test_result`.
     TestConnection(Box<ConnectionHost>),
+    /// Open the IdentityFile key browser for the Add / Edit form (FORM-UX). The
+    /// overlay stays open; the App scans `~/.ssh` for candidate private keys
+    /// (filename heuristics only — never key contents) and seeds the browser
+    /// back through `open_identity_key_browse`.
+    BrowseIdentityKeys,
     ContextMenuCloseTab,
     /// Close a specific tab by token from a tab-slot right-click (NF-F7-1). The
     /// overlay has already closed itself; the App reaps the tab that holds
@@ -4578,6 +4595,38 @@ mod tests {
         overlay.set_connection_form_test_result(Ok(crate::ssh_connect::ProbeClass::AuthOk));
         let lines = overlay.visible_lines(72, 40);
         assert!(lines.iter().any(|l| l.text.contains("Reachable")));
+    }
+
+    #[test]
+    fn form_identity_browse_round_trips_and_stays_open() {
+        // FORM-UX: Enter on the empty IdentityFile field routes up as
+        // BrowseIdentityKeys (the App scans ~/.ssh); the form stays open, and
+        // seeding it via open_identity_key_browse fills the field on a pick.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections(Vec::new());
+        overlay.handle_input(OverlayInput::Tab); // -> Add form, focus Alias
+        // Alias -> HostName -> User -> Port -> Advanced, then activate Advanced
+        // to reveal IdentityFile, then one Down onto it.
+        for _ in 0..4 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        overlay.handle_input(OverlayInput::Activate); // toggle Advanced open
+        overlay.handle_input(OverlayInput::Down); // -> IdentityFile
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::BrowseIdentityKeys
+        );
+        assert!(overlay.is_open(), "form stays open for the browser");
+        assert_eq!(overlay.render_signature().mode, OverlayMode::ConnectionForm);
+        // The App seeds the browser; a pick fills the field and closes it.
+        overlay.open_identity_key_browse(vec!["/home/u/.ssh/id_ed25519".to_owned()]);
+        let lines = overlay.visible_lines(72, 20);
+        assert!(lines.iter().any(|l| l.text.contains("id_ed25519")));
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::Consumed
+        );
+        assert!(overlay.is_open(), "picking a key returns to the form");
     }
 
     #[test]

@@ -164,9 +164,16 @@ form and the **right arrow** (`\u{2192}`) opens an **Edit** form pre-filled from
 the selected OdyTTY-owned row (`ssh-config`-imported rows are read-only). The
 form carries `Alias`, `HostName`, `User`, and `Port` up front, with an
 **Advanced** section for `IdentityFile`, the three-way `Integration` / `Reuse` /
-`Tmux` overrides (**inherit / on / off**), and `Theme` / `Font` / `Title`. Field
-validation matches the ad-hoc rules; an alias collision is refused inline with no
-write. **Save** (or **Ctrl+S**) appends a new block or edits the existing one in
+`Tmux` overrides (**inherit / on / off**), and `Theme` / `Font` / `Title`. On the
+**IdentityFile** row, **Enter** (while the field is empty) opens a browser of
+candidate private keys found under `~/.ssh` — filename heuristics only (`id_*`,
+`*.pem`, `*.key`, and any file with a matching `.pub` sibling; `*.pub`,
+`known_hosts`, `config`, and `authorized_keys` are excluded). The browser lists
+file **names** only and never reads key contents; picking one fills the path, and
+typing a path by hand stays fully supported (keys can live outside `~/.ssh`). A
+focused-field help line at the bottom of the form explains each field as you move
+through it. Field validation matches the ad-hoc rules; an alias collision is
+refused inline with no write. **Save** (or **Ctrl+S**) appends a new block or edits the existing one in
 place — an edit re-renders only that block and leaves every other block, comment,
 and unknown field byte-for-byte untouched. **Test connection** runs a
 non-interactive background probe (`ssh -o BatchMode=yes -o ConnectTimeout=5 …

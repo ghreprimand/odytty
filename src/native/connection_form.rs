@@ -71,6 +71,43 @@ impl FormField {
             FormField::Cancel => "Cancel",
         }
     }
+
+    /// One- or two-line help for the focused field, shown in the form's footer
+    /// (FORM-UX, the SETTINGS-COMPACT focused-row pattern). Facts mirror the
+    /// `hosts.conf` reference in `docs/runtime-knobs.md` — no new claims.
+    fn help(self) -> &'static str {
+        match self {
+            FormField::Alias => {
+                "Quick-connect name for this host. Letters, digits, . - _ (no leading -)."
+            }
+            FormField::HostName => "Host to connect to (defaults to the alias if left empty).",
+            FormField::User => "Login user (ssh user@host). Empty uses your ssh default.",
+            FormField::Port => "TCP port (empty = 22).",
+            FormField::Advanced => {
+                "Enter toggles optional per-host overrides: identity key, integration/reuse/tmux, theme/font/title."
+            }
+            FormField::IdentityFile => {
+                "Path to an existing private key; passed as ssh -i. Empty uses the agent/ssh defaults. Enter browses ~/.ssh; ssh-copy-id installs a key on the host. Only the path is stored, never key material."
+            }
+            FormField::Integration => {
+                "Remote shell integration. inherit = follow the global setting; on/off override it for this host."
+            }
+            FormField::Reuse => {
+                "Connection reuse (ControlMaster). inherit = follow the global setting; on/off override it for this host."
+            }
+            FormField::Tmux => {
+                "tmux session persistence. inherit = follow the global setting; on/off override it for this host."
+            }
+            FormField::Theme => "Per-host theme override. Empty uses the app default.",
+            FormField::Font => "Per-host font override. Empty uses the app default.",
+            FormField::Title => "Per-host tab title. Empty falls back to user@host.",
+            FormField::Test => {
+                "Run a non-interactive reachability + key/agent probe. Never sends a password."
+            }
+            FormField::Save => "Write this connection to hosts.conf and close the form.",
+            FormField::Cancel => "Discard changes and close the form.",
+        }
+    }
 }
 
 /// The live state of a Test Connection probe (ODP-8).
@@ -115,6 +152,12 @@ pub(super) enum ConnectionFormOutcome {
     /// Run a background Test Connection probe against the built host (ODP-8).
     /// The form stays open and shows the tri-state result when it lands.
     Test(Box<ConnectionHost>),
+    /// Open the IdentityFile key browser (FORM-UX). The form stays open; the App
+    /// scans `~/.ssh` for candidate private keys (filename heuristics only —
+    /// never key contents) and seeds the in-form browser through
+    /// [`ConnectionForm::open_key_browse`]. Manual typing stays available, so
+    /// this only fires when the field is empty.
+    BrowseIdentityKeys,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -138,6 +181,69 @@ pub(super) struct ConnectionFormSignature {
     tristates: Vec<Option<bool>>,
     error: Option<String>,
     test: TestState,
+    /// The IdentityFile browser state (FORM-UX): `None` when the form shows its
+    /// fields, else the browser's query + selection so a repaint tracks it.
+    browse: Option<(String, usize, usize)>,
+}
+
+/// The in-form IdentityFile key browser (FORM-UX). A seeded, type-to-filter
+/// list of candidate private-key PATHS discovered under `~/.ssh` by the App —
+/// filename heuristics only, never key contents. Accepting a row fills the
+/// IdentityFile field with the chosen path; Esc returns to the form. Manual
+/// typing is always available, so an empty scan just shows a hint.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct KeyBrowse {
+    /// Candidate key paths, seeded by the App at open (already sorted). Display
+    /// shows the file name; accepting fills the field with the full path.
+    candidates: Vec<String>,
+    query: String,
+    filtered: Vec<usize>,
+    selected: usize,
+}
+
+impl KeyBrowse {
+    fn open(candidates: Vec<String>) -> Self {
+        let mut browse = KeyBrowse {
+            candidates,
+            ..KeyBrowse::default()
+        };
+        browse.recompute();
+        browse
+    }
+
+    fn recompute(&mut self) {
+        if self.query.is_empty() {
+            self.filtered = (0..self.candidates.len()).collect();
+        } else {
+            let needle = self.query.to_ascii_lowercase();
+            self.filtered = (0..self.candidates.len())
+                .filter(|&i| {
+                    basename(&self.candidates[i])
+                        .to_ascii_lowercase()
+                        .contains(&needle)
+                })
+                .collect();
+        }
+        if self.filtered.is_empty() {
+            self.selected = 0;
+        } else if self.selected >= self.filtered.len() {
+            self.selected = self.filtered.len() - 1;
+        }
+    }
+
+    fn move_selection(&mut self, delta: isize) {
+        if self.filtered.is_empty() {
+            return;
+        }
+        let max = self.filtered.len() as isize - 1;
+        self.selected = (self.selected as isize + delta).clamp(0, max) as usize;
+    }
+
+    /// The path the current selection would fill in, if any.
+    fn selected_path(&self) -> Option<&str> {
+        let idx = *self.filtered.get(self.selected)?;
+        self.candidates.get(idx).map(String::as_str)
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -169,6 +275,9 @@ pub(super) struct ConnectionForm {
     /// Saved aliases that would collide on save (Add: all; Edit: all but this
     /// block's own alias). Checked inline so a collision never writes.
     existing_aliases: Vec<String>,
+    /// When `Some`, the IdentityFile key browser is active over the form
+    /// (FORM-UX). Input/render route to the browser until a pick or Esc.
+    browse: Option<KeyBrowse>,
 }
 
 impl ConnectionForm {
@@ -319,6 +428,10 @@ impl ConnectionForm {
     }
 
     pub(super) fn handle_input(&mut self, input: OverlayInput) -> ConnectionFormOutcome {
+        // While the IdentityFile browser is open it captures every key.
+        if self.browse.is_some() && self.handle_browse_input(input) {
+            return ConnectionFormOutcome::Consumed;
+        }
         match input {
             OverlayInput::Close => ConnectionFormOutcome::Close,
             OverlayInput::Save => self.try_save(),
@@ -384,6 +497,12 @@ impl ConnectionForm {
                 self.cycle_tristate(field, true);
                 ConnectionFormOutcome::Consumed
             }
+            // Enter on an EMPTY IdentityFile field opens the ~/.ssh key browser
+            // (FORM-UX). A non-empty field advances instead so a typed path is
+            // never interrupted — manual entry stays fully supported.
+            FormField::IdentityFile if self.identity_file.trim().is_empty() => {
+                ConnectionFormOutcome::BrowseIdentityKeys
+            }
             // Enter on a text field advances to the next field, a familiar form
             // convenience that never submits by accident.
             _ => {
@@ -393,8 +512,75 @@ impl ConnectionForm {
         }
     }
 
+    /// Seed and open the IdentityFile key browser over the form (FORM-UX). The
+    /// App discovered `candidates` by scanning `~/.ssh` (filename heuristics
+    /// only), so an empty list simply shows a "type a path manually" hint.
+    pub(super) fn open_key_browse(&mut self, candidates: Vec<String>) {
+        self.focus = FormField::IdentityFile;
+        self.browse = Some(KeyBrowse::open(candidates));
+    }
+
+    #[cfg(test)]
+    fn browsing(&self) -> bool {
+        self.browse.is_some()
+    }
+
+    /// Route a key while the IdentityFile browser is open. Esc/Close returns to
+    /// the form; Enter (or ActivateAlt) fills the field with the selected path;
+    /// typing filters. Returns `true` when the browser handled the key.
+    fn handle_browse_input(&mut self, input: OverlayInput) -> bool {
+        let Some(browse) = self.browse.as_mut() else {
+            return false;
+        };
+        match input {
+            OverlayInput::Close => {
+                self.browse = None;
+            }
+            OverlayInput::Up => browse.move_selection(-1),
+            OverlayInput::Down | OverlayInput::Tab => browse.move_selection(1),
+            OverlayInput::PageUp | OverlayInput::Home => browse.move_selection(isize::MIN / 2),
+            OverlayInput::PageDown | OverlayInput::End => browse.move_selection(isize::MAX / 2),
+            OverlayInput::Backspace => {
+                browse.query.pop();
+                browse.recompute();
+            }
+            OverlayInput::Char(ch) if !ch.is_control() => {
+                browse.query.push(ch);
+                browse.recompute();
+            }
+            OverlayInput::Activate | OverlayInput::ActivateAlt => {
+                if let Some(path) = browse.selected_path() {
+                    self.identity_file = path.to_owned();
+                    self.invalidate_test();
+                }
+                self.browse = None;
+            }
+            OverlayInput::Char(_)
+            | OverlayInput::Left
+            | OverlayInput::Right
+            | OverlayInput::Save => {}
+        }
+        true
+    }
+
     /// Map a left-click on body row `row` to a focus change or an action.
     pub(super) fn handle_pointer_press(&mut self, row: usize) -> ConnectionFormOutcome {
+        // While the key browser is open a click selects (and accepts) a row.
+        if let Some(browse) = self.browse.as_mut() {
+            // Row 0 is the browser prompt; candidate rows follow it.
+            if row >= 1 {
+                let cursor = row - 1;
+                if cursor < browse.filtered.len() {
+                    browse.selected = cursor;
+                    if let Some(path) = browse.selected_path() {
+                        self.identity_file = path.to_owned();
+                        self.invalidate_test();
+                    }
+                    self.browse = None;
+                }
+            }
+            return ConnectionFormOutcome::Consumed;
+        }
         let Some(field) = self.field_at_row(row) else {
             return ConnectionFormOutcome::Consumed;
         };
@@ -585,6 +771,10 @@ impl ConnectionForm {
         rows.push(FormRow::Field(FormField::Save));
         rows.push(FormRow::Field(FormField::Cancel));
         rows.push(FormRow::Spacer);
+        // Focused-field help footer (FORM-UX): follows keyboard focus + click,
+        // wrapped to the body width in `visible_lines`. Collapses off first on a
+        // short window, exactly like the connection-manager footer.
+        rows.push(FormRow::Help(self.focus));
         rows.push(FormRow::Text(
             "[Tab/\u{2191}\u{2193}] move   [Enter] act   [Ctrl+S] save   [Esc] cancel".to_owned(),
             false,
@@ -657,6 +847,10 @@ impl ConnectionForm {
         body_width: usize,
         body_height: usize,
     ) -> Vec<ConnectionFormLine> {
+        // The IdentityFile key browser owns the whole body while it is open.
+        if let Some(browse) = self.browse.as_ref() {
+            return self.browse_lines(browse, body_width, body_height);
+        }
         let mut lines = Vec::new();
         for row in self.rows() {
             if lines.len() >= body_height {
@@ -684,7 +878,81 @@ impl ConnectionForm {
                     bold: true,
                     swatch,
                 }),
+                FormRow::Help(field) => {
+                    for wrapped in wrap_for_width(field.help(), body_width) {
+                        if lines.len() >= body_height {
+                            break;
+                        }
+                        lines.push(ConnectionFormLine {
+                            text: wrapped,
+                            focused: false,
+                            bold: false,
+                            swatch: None,
+                        });
+                    }
+                }
             }
+        }
+        lines
+    }
+
+    /// Render the IdentityFile key browser body (FORM-UX): a `> query` prompt,
+    /// then candidate file NAMES (never contents), or a "type a path manually"
+    /// hint when the scan found nothing, then a key-hint footer.
+    fn browse_lines(
+        &self,
+        browse: &KeyBrowse,
+        body_width: usize,
+        body_height: usize,
+    ) -> Vec<ConnectionFormLine> {
+        let mut lines = Vec::with_capacity(body_height.min(browse.filtered.len() + 3));
+        lines.push(ConnectionFormLine {
+            text: truncate_for_width(
+                &format!("Browse ~/.ssh keys  > {}", browse.query),
+                body_width,
+            ),
+            focused: false,
+            bold: true,
+            swatch: None,
+        });
+        if browse.filtered.is_empty() {
+            if lines.len() < body_height {
+                let hint = if browse.candidates.is_empty() {
+                    "No keys found under ~/.ssh \u{2014} Esc, then type a path manually"
+                } else {
+                    "No matches \u{2014} Esc to go back"
+                };
+                lines.push(ConnectionFormLine {
+                    text: truncate_for_width(hint, body_width),
+                    focused: false,
+                    bold: false,
+                    swatch: None,
+                });
+            }
+        } else {
+            // Reserve the last row for the footer hint when there is room.
+            let footer_reserve = usize::from(body_height > 3);
+            let room = body_height.saturating_sub(1 + footer_reserve);
+            for (row, &idx) in browse.filtered.iter().take(room).enumerate() {
+                let name = basename(&browse.candidates[idx]);
+                lines.push(ConnectionFormLine {
+                    text: truncate_for_width(name, body_width),
+                    focused: row == browse.selected,
+                    bold: false,
+                    swatch: None,
+                });
+            }
+        }
+        if lines.len() < body_height {
+            lines.push(ConnectionFormLine {
+                text: truncate_for_width(
+                    "[\u{2191}\u{2193}] pick   [Enter] use   [Esc] back",
+                    body_width,
+                ),
+                focused: false,
+                bold: false,
+                swatch: None,
+            });
         }
         lines
     }
@@ -743,6 +1011,10 @@ impl ConnectionForm {
             tristates: vec![self.integration, self.reuse, self.tmux],
             error: self.error.clone(),
             test: self.test.clone(),
+            browse: self
+                .browse
+                .as_ref()
+                .map(|b| (b.query.clone(), b.selected, b.filtered.len())),
         }
     }
 }
@@ -755,6 +1027,9 @@ enum FormRow {
     Spacer,
     Text(String, bool),
     Status(String, Option<Srgb>),
+    /// The focused-field help footer (FORM-UX). Rendered as one or more wrapped
+    /// lines at the body width by [`ConnectionForm::visible_lines`].
+    Help(FormField),
 }
 
 /// Fixed status colors for the tri-state Test result. These are semantic status
@@ -769,6 +1044,57 @@ fn truncate_for_width(text: &str, max_chars: usize) -> String {
         return String::new();
     }
     text.chars().take(max_chars).collect()
+}
+
+/// The final path component, for browser display. Handles both `/` and `\`
+/// separators so a Windows `%USERPROFILE%\.ssh\id_ed25519` path shows its name.
+fn basename(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
+}
+
+/// Greedy word-wrap for the help footer: split on spaces, packing whole words up
+/// to `width` columns per line. A single word longer than `width` is hard-split
+/// so it never overflows. `width == 0` yields nothing.
+fn wrap_for_width(text: &str, width: usize) -> Vec<String> {
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        let word_len = word.chars().count();
+        let cur_len = current.chars().count();
+        if current.is_empty() {
+            // A word wider than the line is hard-split across lines.
+            if word_len > width {
+                let mut chars = word.chars().peekable();
+                while chars.peek().is_some() {
+                    let chunk: String = chars.by_ref().take(width).collect();
+                    lines.push(chunk);
+                }
+            } else {
+                current = word.to_owned();
+            }
+        } else if cur_len + 1 + word_len <= width {
+            current.push(' ');
+            current.push_str(word);
+        } else {
+            lines.push(std::mem::take(&mut current));
+            if word_len > width {
+                let mut chars = word.chars().peekable();
+                while chars.peek().is_some() {
+                    let chunk: String = chars.by_ref().take(width).collect();
+                    lines.push(chunk);
+                }
+            } else {
+                current = word.to_owned();
+            }
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
 }
 
 #[cfg(test)]
@@ -1063,5 +1389,171 @@ mod tests {
         let mut form = ConnectionForm::new();
         form.open_add(Vec::new());
         assert!(form.visible_lines(72, 5).len() <= 5);
+    }
+
+    #[test]
+    fn enter_on_empty_identity_file_requests_the_key_browser() {
+        // FORM-UX IDENTITY-BROWSE: Enter on an EMPTY IdentityFile field asks the
+        // App to scan ~/.ssh; a non-empty field advances instead (manual typing
+        // is never interrupted).
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.advanced = true;
+        form.focus = FormField::IdentityFile;
+        assert_eq!(
+            form.handle_input(OverlayInput::Activate),
+            ConnectionFormOutcome::BrowseIdentityKeys
+        );
+        // With a typed path, Enter advances focus rather than browsing.
+        typed(&mut form, "/keys/mine");
+        assert_eq!(
+            form.handle_input(OverlayInput::Activate),
+            ConnectionFormOutcome::Consumed
+        );
+        assert_ne!(form.focus, FormField::IdentityFile);
+    }
+
+    #[test]
+    fn key_browser_pick_fills_the_field_and_closes() {
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.advanced = true;
+        form.focus = FormField::IdentityFile;
+        form.open_key_browse(vec![
+            "/home/u/.ssh/id_ed25519".to_owned(),
+            "/home/u/.ssh/work.pem".to_owned(),
+        ]);
+        assert!(form.browsing());
+        // Browser rows render by file NAME, never the path's directory.
+        let lines = form.visible_lines(72, 10);
+        assert!(lines.iter().any(|l| l.text == "id_ed25519"));
+        assert!(lines.iter().any(|l| l.text == "work.pem"));
+        // Down then Enter fills the field with the second candidate's full path.
+        form.handle_input(OverlayInput::Down);
+        assert_eq!(
+            form.handle_input(OverlayInput::Activate),
+            ConnectionFormOutcome::Consumed
+        );
+        assert!(!form.browsing());
+        assert_eq!(form.identity_file, "/home/u/.ssh/work.pem");
+    }
+
+    #[test]
+    fn key_browser_filters_by_name_and_esc_returns_without_change() {
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.open_key_browse(vec![
+            "/k/id_ed25519".to_owned(),
+            "/k/id_rsa".to_owned(),
+            "/k/work.pem".to_owned(),
+        ]);
+        typed(&mut form, "rsa");
+        let lines = form.visible_lines(72, 10);
+        assert!(lines.iter().any(|l| l.text == "id_rsa"));
+        assert!(!lines.iter().any(|l| l.text == "work.pem"));
+        // Esc backs out of the browser without touching the field.
+        assert_eq!(
+            form.handle_input(OverlayInput::Close),
+            ConnectionFormOutcome::Consumed
+        );
+        assert!(!form.browsing());
+        assert!(form.identity_file.is_empty());
+    }
+
+    #[test]
+    fn empty_key_scan_shows_a_type_a_path_hint() {
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.open_key_browse(Vec::new());
+        let lines = form.visible_lines(72, 10);
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.text.contains("type a path manually")),
+            "empty scan surfaces the manual-entry hint"
+        );
+        // Enter on the empty browser is inert (no path to fill) and closes it.
+        assert_eq!(
+            form.handle_input(OverlayInput::Activate),
+            ConnectionFormOutcome::Consumed
+        );
+        assert!(!form.browsing());
+        assert!(form.identity_file.is_empty());
+    }
+
+    #[test]
+    fn key_browser_click_selects_and_fills() {
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.open_key_browse(vec!["/k/id_ed25519".to_owned(), "/k/id_rsa".to_owned()]);
+        // Row 0 is the prompt; row 2 is the second candidate.
+        assert_eq!(
+            form.handle_pointer_press(2),
+            ConnectionFormOutcome::Consumed
+        );
+        assert!(!form.browsing());
+        assert_eq!(form.identity_file, "/k/id_rsa");
+    }
+
+    #[test]
+    fn focused_field_help_footer_follows_focus() {
+        // FORM-UX FIELD-HELP: the footer shows the FOCUSED field's help.
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.focus = FormField::Alias;
+        let alias_help = form.visible_lines(72, 40);
+        assert!(
+            alias_help
+                .iter()
+                .any(|l| l.text.contains("Quick-connect name")),
+            "Alias help shows when Alias is focused"
+        );
+        // Focus IdentityFile: the footer switches to its help (mentions ssh -i).
+        form.advanced = true;
+        form.focus = FormField::IdentityFile;
+        let id_help = form.visible_lines(72, 40);
+        assert!(
+            id_help.iter().any(|l| l.text.contains("ssh -i")),
+            "IdentityFile help mentions ssh -i"
+        );
+        assert!(
+            !id_help
+                .iter()
+                .any(|l| l.text.contains("Quick-connect name")),
+            "only the focused field's help renders"
+        );
+    }
+
+    #[test]
+    fn help_footer_wraps_within_the_body_width() {
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.advanced = true;
+        form.focus = FormField::IdentityFile;
+        // Narrow body: every emitted line stays within the width (footer wraps
+        // rather than truncating the long help).
+        let width = 30;
+        for line in form.visible_lines(width, 40) {
+            assert!(
+                line.text.chars().count() <= width,
+                "line within width: {:?}",
+                line.text
+            );
+        }
+    }
+
+    #[test]
+    fn wrap_for_width_hard_splits_overlong_words() {
+        let out = wrap_for_width("short verylongwordthatexceeds", 8);
+        assert!(out.iter().all(|l| l.chars().count() <= 8));
+        assert_eq!(out[0], "short");
+        assert!(wrap_for_width("anything", 0).is_empty());
+    }
+
+    #[test]
+    fn basename_handles_both_separators() {
+        assert_eq!(basename("/home/u/.ssh/id_ed25519"), "id_ed25519");
+        assert_eq!(basename(r"C:\Users\u\.ssh\id_rsa"), "id_rsa");
+        assert_eq!(basename("bare"), "bare");
     }
 }

@@ -222,7 +222,11 @@ Enter connect · Shift+Enter save typed host`) keeps those actions visible.
 In the form, `Up`/`Down` or `Tab` move between fields, typing edits the focused
 field, `Left`/`Right` (or `Space`) cycle a three-way `inherit`/`on`/`off`
 override, `Enter` presses the focused button, `Ctrl+S` saves from anywhere, and
-`Esc` cancels. A **Test connection** button runs a background reachability +
+`Esc` cancels. On the **IdentityFile** row, `Enter` (while the field is empty)
+opens a browser of candidate private keys under `~/.ssh` (`Up`/`Down` pick,
+`Enter` fills the path, `Esc` returns); typing a path by hand still works. A
+focused-field help line at the bottom explains each field as you move through it.
+A **Test connection** button runs a background reachability +
 key-auth probe and shows a tri-state result.
 
 ## Rebinding shortcuts

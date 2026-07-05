@@ -142,6 +142,21 @@ impl App {
         }
     }
 
+    /// Scan `~/.ssh` for candidate SSH private keys to seed the IdentityFile
+    /// browser (FORM-UX). Filename heuristics ONLY — this reads directory-entry
+    /// NAMES and never opens a key file, so no key material ever enters memory.
+    /// Returns full paths, sorted; a missing or unreadable `~/.ssh` yields an
+    /// empty list and the browser shows a "type a path manually" hint. Windows:
+    /// `~/.ssh` resolves under `%USERPROFILE%` exactly as on Unix.
+    pub(in crate::native) fn gather_identity_key_candidates(&self) -> Vec<String> {
+        let Some(ssh_dir) =
+            crate::native::persistence::restore_home_dir().map(|home| home.join(".ssh"))
+        else {
+            return Vec::new();
+        };
+        gather_identity_key_candidates_in(&ssh_dir)
+    }
+
     /// Hand-off seam for the connection-manager overlay: consume a resolved
     /// connection entry and present it as a focused new tab.
     pub(in crate::native) fn connect_ssh_host_in_new_tab(
@@ -490,6 +505,165 @@ fn workspace_bound_notice(alias: &str) -> String {
 /// agnostic: it states the new behavior (new tabs are local again) rather than
 /// naming the host that was unbound.
 const WORKSPACE_UNBOUND_NOTICE: &str = "Workspace unbound — new tabs open locally";
+
+/// Directory scan behind [`App::gather_identity_key_candidates`], split out so a
+/// test can drive it against a synthetic `~/.ssh` of obviously-fake key names
+/// (never real key material). Reads entry NAMES only — never file contents —
+/// and skips subdirectories. Returns full paths, sorted for a stable list.
+fn gather_identity_key_candidates_in(ssh_dir: &std::path::Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(ssh_dir) else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = Vec::new();
+    let mut pub_stems: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for entry in entries.flatten() {
+        // Skip subdirectories — a key is a file (or a symlink to one).
+        if entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        if let Some(stem) = name.strip_suffix(".pub") {
+            pub_stems.insert(stem.to_owned());
+        }
+        names.push(name);
+    }
+    let mut out: Vec<String> = names
+        .iter()
+        .filter(|name| is_identity_key_candidate(name, pub_stems.contains(name.as_str())))
+        .map(|name| ssh_dir.join(name).to_string_lossy().into_owned())
+        .collect();
+    out.sort();
+    out
+}
+
+/// Filename-only heuristic for a candidate SSH private key (FORM-UX). Given a
+/// bare file `name` and whether a matching `<name>.pub` sibling exists, decide
+/// whether to offer it in the IdentityFile browser. Never inspects file
+/// contents. Excludes `*.pub`, `known_hosts*`, `config`, and `authorized_keys`;
+/// includes `id_*`, `*.pem`, `*.key`, and any file with a `.pub` sibling.
+fn is_identity_key_candidate(name: &str, has_pub_sibling: bool) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(".pub")
+        || lower == "config"
+        || lower == "authorized_keys"
+        || lower.starts_with("known_hosts")
+    {
+        return false;
+    }
+    has_pub_sibling
+        || lower.starts_with("id_")
+        || lower.ends_with(".pem")
+        || lower.ends_with(".key")
+}
+
+#[cfg(test)]
+mod identity_key_candidate_tests {
+    use super::{gather_identity_key_candidates_in, is_identity_key_candidate};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("{prefix}-{}-{nanos}", std::process::id()));
+        fs::create_dir_all(&path).expect("create synthetic temp dir");
+        path
+    }
+
+    #[test]
+    fn heuristic_includes_keys_and_excludes_bookkeeping() {
+        // Positive: id_* / *.pem / *.key / any file with a .pub sibling.
+        assert!(is_identity_key_candidate("id_ed25519", true));
+        assert!(is_identity_key_candidate("id_rsa", false));
+        assert!(is_identity_key_candidate("work.pem", false));
+        assert!(is_identity_key_candidate("deploy.key", false));
+        assert!(
+            is_identity_key_candidate("customname", true),
+            "pub sibling qualifies"
+        );
+        // Negative: the public half and ssh bookkeeping files are never keys.
+        assert!(!is_identity_key_candidate("id_ed25519.pub", true));
+        assert!(!is_identity_key_candidate("config", false));
+        assert!(!is_identity_key_candidate("known_hosts", false));
+        assert!(!is_identity_key_candidate("known_hosts.old", false));
+        assert!(!is_identity_key_candidate("authorized_keys", false));
+        assert!(!is_identity_key_candidate("randomnote.txt", false));
+        assert!(!is_identity_key_candidate("", false));
+    }
+
+    #[test]
+    fn scan_lists_private_keys_only_by_name_never_contents() {
+        // Synthetic ~/.ssh with obviously-fake names — NOT real key material.
+        let dir = temp_dir("odytty-ssh-keys");
+        for (name, body) in [
+            ("id_ed25519", "FAKE-NOT-A-KEY"),
+            ("id_ed25519.pub", "FAKE-PUB"),
+            ("mykey", "FAKE-NOT-A-KEY"),
+            ("mykey.pub", "FAKE-PUB"),
+            ("work.pem", "FAKE-NOT-A-KEY"),
+            ("config", "Host x"),
+            ("known_hosts", "example.invalid ssh-ed25519 AAAA"),
+            ("authorized_keys", "ssh-ed25519 AAAA"),
+            ("notes.txt", "hello"),
+        ] {
+            fs::write(dir.join(name), body).expect("write synthetic file");
+        }
+        fs::create_dir_all(dir.join("sockets")).expect("subdir");
+
+        let found = gather_identity_key_candidates_in(&dir);
+        let names: Vec<String> = found
+            .iter()
+            .map(|p| {
+                std::path::Path::new(p)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        // id_ed25519 (id_ + pub sibling), mykey (pub sibling), work.pem.
+        assert!(names.contains(&"id_ed25519".to_owned()));
+        assert!(names.contains(&"mykey".to_owned()));
+        assert!(names.contains(&"work.pem".to_owned()));
+        // Excluded: the .pub halves, config, known_hosts, authorized_keys, notes,
+        // and the subdirectory.
+        assert!(!names.iter().any(|n| n.ends_with(".pub")));
+        assert!(!names.contains(&"config".to_owned()));
+        assert!(!names.contains(&"known_hosts".to_owned()));
+        assert!(!names.contains(&"authorized_keys".to_owned()));
+        assert!(!names.contains(&"notes.txt".to_owned()));
+        assert!(!names.contains(&"sockets".to_owned()));
+        // Full paths, sorted.
+        assert!(found.windows(2).all(|w| w[0] <= w[1]), "sorted");
+        assert!(
+            found.iter().all(|p| p.contains("odytty-ssh-keys")),
+            "full paths"
+        );
+
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn missing_ssh_dir_yields_empty() {
+        let dir = std::env::temp_dir().join(format!(
+            "odytty-ssh-absent-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        assert!(gather_identity_key_candidates_in(&dir).is_empty());
+    }
+}
 
 #[cfg(test)]
 mod bind_notice_tests {

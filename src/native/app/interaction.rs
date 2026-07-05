@@ -422,6 +422,14 @@ impl App {
             OverlayOutcome::TestConnection(host) => {
                 self.run_connection_probe(&host);
             }
+            // FORM-UX: the IdentityFile field asked to browse. Scan ~/.ssh for
+            // candidate private keys (filename heuristics only — never key
+            // contents) and seed the in-form browser. An empty scan still opens
+            // the browser, which shows a "type a path manually" hint.
+            OverlayOutcome::BrowseIdentityKeys => {
+                let candidates = self.gather_identity_key_candidates();
+                self.overlay.open_identity_key_browse(candidates);
+            }
             // Phase 5 / B2: the session-attach overlay closed itself before
             // emitting this; attach the chosen session into a new tab. A stale
             // id (the session ended between list and accept) returns Err from
