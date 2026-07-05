@@ -55,9 +55,10 @@ use crate::settings::BindableAction;
 /// Select All / New Tab / New Window / Rename Tab / Close Tab / Split Right /
 /// Split Down / Close Pane / Settings / Connection Manager / Command Palette /
 /// Session Replay / Manage Sessions / Detach & switch / Open / Open in OdyTTY /
-/// Open With… / Copy Path / Copy File / Reveal in File Manager) plus the F3
-/// "Keyboard Shortcuts" launcher item — the size of the accelerator array the
-/// App fills in `ALL` order. NOT the number of *visible* items: Close Pane is
+/// Open With… / Copy Path / Copy File / Reveal in File Manager / Connect to
+/// Host / Replace with Host) plus the F3 "Keyboard Shortcuts" launcher item —
+/// the size of the accelerator array the App fills in `ALL` order. NOT the
+/// number of *visible* items: Close Pane is
 /// hidden in a single-pane tab; path-scoped menus show only file actions plus
 /// pinned Copy/Paste text actions; "Open in OdyTTY" is shown only when the
 /// resolved path is an image file (C4); and "Open With…" is shown only when the
@@ -65,7 +66,7 @@ use crate::settings::BindableAction;
 /// single-pane content menu shows 21 visible items (New / Rename / Close
 /// Workspace sit in their own section after Split, followed by the conditional
 /// Bind-to-Host XOR Unbind row); multi-pane adds Close Pane for 22.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 33;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 35;
 
 /// Body row index of the first visual separator in the single-pane content
 /// reference, between Select All and New Tab. The reference is the
@@ -226,6 +227,18 @@ pub(super) enum ContextMenuItem {
     /// already local, so the row would be a duplicate). Placed last in
     /// [`Self::ALL`] so the existing accelerator-array indices stay stable.
     NewLocalTab,
+    /// Open a saved host in a NEW tab positioned right after the right-clicked
+    /// tab (ODP-5D "Connect to host ▸"). Tab-scoped: shown only on the `TabSlot`
+    /// surface. Activating it opens the shared host picker (ODP-1B) seeded with
+    /// the clicked tab's token; the picked host spawns adjacent to that tab, so
+    /// it reads as "connect from here" and never disturbs the clicked shell.
+    ConnectToHost,
+    /// Replace the right-clicked tab with a saved host (ODP-5D "Replace this tab
+    /// with ▸"). Tab-scoped (`TabSlot`). Opens the same shared host picker for
+    /// the clicked tab's token; on pick, the App closes that tab and opens the
+    /// remote in its slot — gated behind a confirm when the tab holds a running
+    /// foreground child (idle shells replace directly, no confirm).
+    ReplaceTabWithHost,
 }
 
 impl ContextMenuItem {
@@ -271,6 +284,10 @@ impl ContextMenuItem {
         Self::CloseOtherTabs,
         Self::MoveToNextWorkspace,
         Self::NewLocalTab,
+        // ODP-5D tab-scoped host actions; appended last so the existing
+        // accelerator-array indices stay stable (they carry no chord anyway).
+        Self::ConnectToHost,
+        Self::ReplaceTabWithHost,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -287,7 +304,12 @@ impl ContextMenuItem {
             | Self::RenameTab
             | Self::CloseTab
             | Self::CloseOtherTabs
-            | Self::MoveToNextWorkspace => 1,
+            | Self::MoveToNextWorkspace
+            // Tab-scoped host actions; grouped with the tab section for the
+            // global fallback (they are TabSlot-only, so this only matters for
+            // section() completeness — section_of gives them their own group).
+            | Self::ConnectToHost
+            | Self::ReplaceTabWithHost => 1,
             Self::SplitColumns | Self::SplitRows | Self::ClosePane => 2,
             Self::NewWorkspace
             | Self::RenameWorkspace
@@ -330,6 +352,8 @@ impl ContextMenuItem {
             Self::BindWorkspaceToHost => "Bind to Host\u{2026}",
             Self::UnbindWorkspace => "Unbind from Host",
             Self::NewLocalTab => "New Local Tab",
+            Self::ConnectToHost => "Connect to Host\u{2026}",
+            Self::ReplaceTabWithHost => "Replace with Host\u{2026}",
             Self::SplitColumns => "Split Right",
             Self::SplitRows => "Split Down",
             Self::ClosePane => "Close Pane",
@@ -403,7 +427,10 @@ impl ContextMenuItem {
             | Self::BindWorkspaceToHost
             | Self::UnbindWorkspace
             // New Local Tab is the F6-W5 escape hatch; no default chord.
-            | Self::NewLocalTab => None,
+            | Self::NewLocalTab
+            // ODP-5D tab host actions are pointer/menu-only; no default chord.
+            | Self::ConnectToHost
+            | Self::ReplaceTabWithHost => None,
         }
     }
 }
@@ -805,6 +832,9 @@ impl ContextMenuUi {
             | ContextMenuItem::UnbindWorkspace => true,
             // Only shown on a bound-workspace tab menu; always enabled there.
             ContextMenuItem::NewLocalTab => true,
+            // ODP-5D: always available on the tab surface (the destructive
+            // replace is consent-gated at activation, not by disabling here).
+            ContextMenuItem::ConnectToHost | ContextMenuItem::ReplaceTabWithHost => true,
         }
     }
 
@@ -840,11 +870,14 @@ impl ContextMenuUi {
                 | ContextMenuItem::NewLocalTab
                 | ContextMenuItem::RenameTab => 0,
                 ContextMenuItem::CloseTab | ContextMenuItem::CloseOtherTabs => 1,
-                ContextMenuItem::MoveToNextWorkspace => 2,
-                ContextMenuItem::NewWindow => 3,
+                // ODP-5D host actions form their own group between the close
+                // section and the workspace/window tail.
+                ContextMenuItem::ConnectToHost | ContextMenuItem::ReplaceTabWithHost => 2,
+                ContextMenuItem::MoveToNextWorkspace => 3,
+                ContextMenuItem::NewWindow => 4,
                 // Not part of the tab composition; grouped with New Window so a
                 // stray item never forces a spurious separator.
-                _ => 3,
+                _ => 4,
             },
             ContextMenuSurface::TabStripEmpty => match item {
                 // New Tab / New Workspace are the creation group; Command Palette
@@ -891,6 +924,11 @@ impl ContextMenuUi {
                     ContextMenuItem::CloseTab,
                     ContextMenuItem::CloseOtherTabs,
                 ]);
+                // ODP-5D: a host is reachable straight from the tab strip. The
+                // default opens a remote tab adjacent to the clicked one; the
+                // consent-gated replace sits right under it.
+                items.push(ContextMenuItem::ConnectToHost);
+                items.push(ContextMenuItem::ReplaceTabWithHost);
                 // ODP-7: the move item only appears when there is a destination
                 // workspace. Single-workspace tab menus are unchanged.
                 if self.multi_workspace {
@@ -965,6 +1003,9 @@ impl ContextMenuUi {
                         // F6-W5: the New Local Tab escape is a bound-workspace
                         // tab-menu row only; never on the content surface.
                         | ContextMenuItem::NewLocalTab
+                        // ODP-5D: the tab host actions are TabSlot-only.
+                        | ContextMenuItem::ConnectToHost
+                        | ContextMenuItem::ReplaceTabWithHost
                 )
             })
             // Drop the always-disabled `Rename Tab` row on the content surface —
@@ -2374,7 +2415,8 @@ mod tests {
     fn tab_slot_menu_is_tab_scoped() {
         // F7: a tab right-click opens a tight, tab-scoped menu — no Copy / Split /
         // Settings / launcher tail. New Tab / Rename Tab · Close Tab / Close Other
-        // Tabs · New Window, split by two separators.
+        // Tabs · Connect to Host / Replace with Host (ODP-5D) · New Window, split
+        // by three separators.
         let m = open_surface(ContextMenuSurface::TabSlot(SessionToken(3)), true);
         let rows = m.rows();
         assert_eq!(
@@ -2385,6 +2427,9 @@ mod tests {
                 ContextMenuRow::Separator,
                 item("Close Tab", false, true),
                 item("Close Other Tabs", false, true),
+                ContextMenuRow::Separator,
+                item("Connect to Host\u{2026}", false, true),
+                item("Replace with Host\u{2026}", false, true),
                 ContextMenuRow::Separator,
                 item("New Window", false, true),
             ]
@@ -2474,8 +2519,9 @@ mod tests {
 
     #[test]
     fn move_to_workspace_row_shown_and_bracketed_with_multiple_workspaces() {
-        // ODP-7: with >1 workspace the move row appears between the close group
-        // and New Window, each in its own section (separators bracket it).
+        // ODP-7: with >1 workspace the move row appears between the host-actions
+        // group (ODP-5D) and New Window, each in its own section (separators
+        // bracket it).
         let m = open_surface_ws(ContextMenuSurface::TabSlot(SessionToken(3)), true, true);
         let rows = m.rows();
         assert_eq!(
@@ -2486,6 +2532,9 @@ mod tests {
                 ContextMenuRow::Separator,
                 item("Close Tab", false, true),
                 item("Close Other Tabs", false, true),
+                ContextMenuRow::Separator,
+                item("Connect to Host\u{2026}", false, true),
+                item("Replace with Host\u{2026}", false, true),
                 ContextMenuRow::Separator,
                 item("Move to Next Workspace", false, true),
                 ContextMenuRow::Separator,

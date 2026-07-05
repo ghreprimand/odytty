@@ -131,6 +131,84 @@ impl App {
         self.request_selection_redraw();
     }
 
+    /// Open the shared host picker (ODP-1B) seeded to open a host in a new tab
+    /// right after the tab that owns `token` (ODP-5D "Connect to host ▸"). The
+    /// pick routes back through [`Self::connect_host_in_tab_after`]. With no
+    /// saved hosts the picker still opens and shows its empty-state hint.
+    pub(in crate::native) fn open_connect_tab_after_picker(&mut self, token: SessionToken) {
+        let entries = self.load_connection_entries();
+        self.reset_pointer_state_for_overlay();
+        self.overlay.open_connections_for_purpose(
+            entries,
+            crate::native::connection_overlay::ConnectionPickerPurpose::ConnectTabAfter(token),
+        );
+        self.request_selection_redraw();
+    }
+
+    /// Open the shared host picker (ODP-1B) seeded to REPLACE the tab that owns
+    /// `token` with a saved host (ODP-5D "Replace this tab with ▸"). The pick
+    /// routes back through [`Self::replace_tab_with_host`], which gates the
+    /// destructive close behind a confirm when that tab is busy.
+    pub(in crate::native) fn open_replace_tab_picker(&mut self, token: SessionToken) {
+        let entries = self.load_connection_entries();
+        self.reset_pointer_state_for_overlay();
+        self.overlay.open_connections_for_purpose(
+            entries,
+            crate::native::connection_overlay::ConnectionPickerPurpose::ReplaceTab(token),
+        );
+        self.request_selection_redraw();
+    }
+
+    /// Open `host` in a NEW tab positioned right after the tab that owns `anchor`
+    /// (ODP-5D). The connect path appends the tab and switches to it; the
+    /// reposition then slides it into the neighbour slot so it reads as
+    /// "connect from here" without disturbing the clicked shell. A connect
+    /// failure is swallowed like every other connect path.
+    pub(in crate::native) fn connect_host_in_tab_after(
+        &mut self,
+        host: &ConnectionHost,
+        anchor: SessionToken,
+    ) {
+        if self.connect_ssh_host_in_new_tab(host).is_ok() {
+            self.sessions.reposition_active_tab_after(anchor);
+            self.on_active_session_changed();
+        }
+    }
+
+    /// Replace the tab that owns `target` with `host` (ODP-5D). When that tab
+    /// holds a running foreground child the destructive close is gated behind a
+    /// confirm dialog carrying the pending host + token; an idle tab (shell at
+    /// its prompt) replaces directly with no prompt.
+    pub(in crate::native) fn replace_tab_with_host(
+        &mut self,
+        host: Box<ConnectionHost>,
+        target: SessionToken,
+    ) {
+        if self.sessions.tab_foreground_job_running(target) {
+            self.reset_pointer_state_for_overlay();
+            self.overlay.open_confirm_replace_tab(host, target);
+            self.request_selection_redraw();
+        } else {
+            self.do_replace_tab_with_host(&host, target);
+        }
+    }
+
+    /// Perform the replace (ODP-5D): open `host` adjacent to `target`, then close
+    /// `target` so the remote lands in its former slot. Ordered connect-then-
+    /// close so the anchor still exists when the new tab is placed, and so a
+    /// connect failure leaves the original tab untouched (no data loss).
+    pub(in crate::native) fn do_replace_tab_with_host(
+        &mut self,
+        host: &ConnectionHost,
+        target: SessionToken,
+    ) {
+        if self.connect_ssh_host_in_new_tab(host).is_ok() {
+            self.sessions.reposition_active_tab_after(target);
+            self.close_tab_by_token(target);
+            self.on_active_session_changed();
+        }
+    }
+
     /// Clear the active workspace's host binding (F6-W5), returning New Tab there
     /// to spawning a local shell. A one-line notice confirms new tabs are local
     /// again; unbinding an already-local workspace is a silent no-op.

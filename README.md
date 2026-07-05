@@ -534,9 +534,13 @@ the only close. The content menu also has a launcher section at the bottom —
 "Connection Manager", "Command Palette", and "Session Replay" — each labelled
 with its effective chord and opening the matching overlay. Right-clicking a tab
 opens a separate, tab-scoped menu (New Tab, Rename Tab, Close Tab, Close Other
-Tabs, New Window — plus Move to Next Workspace when more than one workspace
-exists), and right-clicking the empty tab strip offers New Tab, Command Palette,
-and Settings. Once the active tab
+Tabs, **Connect to Host…**, **Replace with Host…**, New Window — plus Move to
+Next Workspace when more than one workspace exists), and right-clicking the empty
+tab strip offers New Tab, Command Palette, and Settings. **Connect to Host…**
+opens a saved host in a new tab positioned right after the clicked one (the
+clicked shell is left untouched); **Replace with Host…** opens the host in the
+clicked tab's place, first asking to confirm when that tab still has a program
+running. Once the active tab
 has multiple panes, a tmux-style prefix (default
 `Ctrl+b`, configurable via
 `pane_prefix`) opens a transient pane-command mode; press the prefix then a pane

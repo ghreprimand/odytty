@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Reach a saved host straight from the tab strip
+
+A saved host is now one right-click away from any tab. The tab-scoped context
+menu gains two entries between the close group and New Window: **Connect to
+Host…** and **Replace with Host…**, each acting on the CLICKED tab (not the
+active one), consistent with the rest of the tab menu.
+
+**Connect from here.** Choosing **Connect to Host…** opens the shared host
+picker and, on selection, opens that host in a new tab positioned immediately
+after the clicked tab — so it reads as "connect from here" and never disturbs
+the clicked shell. It routes through the standard connect path, so per-host
+integration/reuse/tmux defaults apply exactly as they do from the connection
+manager.
+
+**Replace, with consent.** **Replace with Host…** opens the same picker but, on
+selection, opens the host in the clicked tab's place. When that tab still holds
+a running foreground program, a confirm dialog gates the destructive close —
+`[Enter / Y]` replaces, `[Esc / N]` cancels — so a busy shell is never discarded
+silently. A tab sitting idle at its prompt replaces directly with no prompt. The
+replace opens the remote adjacent to the target first and closes the target
+after, so the remote lands in the former slot and a connect failure leaves the
+original tab untouched (no data loss).
+
+**Shared picker, more purposes.** The host picker's purpose tag (introduced for
+workspace binding) now also carries the clicked tab's identity for the connect
+and replace flows: a menu item opens the picker seeded with saved hosts plus a
+pending action, and accepting a row routes the chosen host to that action rather
+than connecting. Ad-hoc "Connect to: …" rows stay suppressed in these tagged
+pickers — a saved host is required. Windows: the same `ssh.exe` connect path;
+new-tab placement, the picker, and the confirm dialog are platform-neutral.
+
+---
+
 ## 2026-07-05 -- Edit and remove hosts.conf blocks without disturbing the rest of the file
 
 The connection list gains in-place block editing that preserves everything it

@@ -104,6 +104,14 @@ pub(super) struct OverlayUi {
     /// in this state navigates back to `ThemePicker` rather than closing the
     /// whole overlay. False for the standalone / Settings-launched path.
     builder_from_picker: bool,
+    /// The pending host + target tab carried by the replace-tab confirm dialog
+    /// (ODP-5D). Set when the dialog opens (the clicked tab held a running
+    /// foreground child); the confirm arm emits it back so the App closes that
+    /// tab and opens the host in its slot. `None` when the dialog is not open.
+    /// Not in the render signature: the card layout is identical for any target
+    /// and the mode flips through `close()` between opens, forcing a repaint
+    /// (same trick as `confirm_kill_session_id`).
+    confirm_replace_tab: Option<(Box<ConnectionHost>, SessionToken)>,
 }
 
 impl Default for OverlayUi {
@@ -138,6 +146,7 @@ impl OverlayUi {
             key_remap_close_after_save: false,
             picker_return: None,
             builder_from_picker: false,
+            confirm_replace_tab: None,
         }
     }
 
@@ -641,6 +650,88 @@ impl OverlayUi {
         self.open && self.mode == OverlayMode::ConfirmKillSession
     }
 
+    /// Open the replace-tab confirm dialog (ODP-5D) for the picked `host` and
+    /// the `target` tab it will replace. Called by the App only when that tab
+    /// holds a running foreground child (an idle tab replaces directly, no
+    /// prompt). Idempotent: starts with `close()` so a repeated open cannot
+    /// stack dialogs. The host + token are stashed so the confirm arm can emit
+    /// them back to the App.
+    pub(super) fn open_confirm_replace_tab(
+        &mut self,
+        host: Box<ConnectionHost>,
+        target: SessionToken,
+    ) {
+        self.close();
+        self.confirm_replace_tab = Some((host, target));
+        self.mode = OverlayMode::ConfirmReplaceTab;
+        self.open = true;
+    }
+
+    /// Keyboard contract for the replace-tab confirm dialog (ODP-5D). Enter or Y
+    /// confirms (emits [`OverlayOutcome::ReplaceTabWithHostConfirmed`] with the
+    /// stashed host + token); Esc or N cancels (closes the dialog, replaces
+    /// nothing); every other key is swallowed so nothing leaks to the PTY behind
+    /// the modal. The confirm arm closes the dialog before emitting, mirroring
+    /// `ConfirmClose`.
+    fn handle_confirm_replace_tab_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match input {
+            OverlayInput::Activate | OverlayInput::Char('y') | OverlayInput::Char('Y') => {
+                match self.confirm_replace_tab.take() {
+                    Some((host, token)) => {
+                        self.close();
+                        OverlayOutcome::ReplaceTabWithHostConfirmed(host, token)
+                    }
+                    None => OverlayOutcome::Close,
+                }
+            }
+            OverlayInput::Close | OverlayInput::Char('n') | OverlayInput::Char('N') => {
+                OverlayOutcome::Close
+            }
+            _ => OverlayOutcome::Consumed,
+        }
+    }
+
+    /// Hit-test a left-click in the replace-tab confirm dialog body (click→key
+    /// parity, mirroring `confirm_kill_session_click`). The action line
+    /// ([`CONFIRM_REPLACE_TAB_ACTION_LINE`]) is the 3rd body row (index 2); a
+    /// click on the "Replace" region confirms, the "Cancel" region cancels, and
+    /// anywhere else — including the leading prompt text and the other rows — is
+    /// inert so a stray click never destroys a running shell. ASCII line, so
+    /// byte offsets equal columns.
+    fn confirm_replace_tab_click(
+        &mut self,
+        row_in_body: usize,
+        col_in_body: usize,
+    ) -> OverlayOutcome {
+        const ACTION_ROW: usize = 2;
+        if row_in_body != ACTION_ROW {
+            return OverlayOutcome::Consumed;
+        }
+        let text = CONFIRM_REPLACE_TAB_ACTION_LINE;
+        let replace_start = text.find("[Enter").unwrap_or(0);
+        let cancel_start = text.find("[Esc").unwrap_or(text.len());
+        if col_in_body >= cancel_start {
+            OverlayOutcome::Close
+        } else if col_in_body >= replace_start {
+            match self.confirm_replace_tab.take() {
+                Some((host, token)) => {
+                    self.close();
+                    OverlayOutcome::ReplaceTabWithHostConfirmed(host, token)
+                }
+                None => OverlayOutcome::Close,
+            }
+        } else {
+            OverlayOutcome::Consumed
+        }
+    }
+
+    /// Whether the replace-tab confirm dialog is the active overlay mode
+    /// (ODP-5D). Used by the App's test seam to assert the dialog opened.
+    #[cfg(test)]
+    pub(super) fn is_confirm_replace_tab(&self) -> bool {
+        self.open && self.mode == OverlayMode::ConfirmReplaceTab
+    }
+
     /// Open the Detach & switch choice dialog (Packet 2) for the focused pane's
     /// `cwd` (empty = unknown → spawn in the default directory). Called by the
     /// App after it reads the focused pane's cwd (the overlay cannot read the
@@ -826,6 +917,22 @@ impl OverlayUi {
                         }
                         _ => OverlayOutcome::Consumed,
                     },
+                    // ODP-5D: open the shared host picker for the clicked tab.
+                    // The App seeds it for the ConnectTabAfter / ReplaceTab
+                    // purpose so the pick routes back to the right tab. TabSlot-
+                    // only, so a stray non-tab surface is inert.
+                    ContextMenuItem::ConnectToHost => match self.context_menu.surface() {
+                        crate::native::context_menu_ui::ContextMenuSurface::TabSlot(token) => {
+                            OverlayOutcome::ContextMenuConnectToHost(token)
+                        }
+                        _ => OverlayOutcome::Consumed,
+                    },
+                    ContextMenuItem::ReplaceTabWithHost => match self.context_menu.surface() {
+                        crate::native::context_menu_ui::ContextMenuSurface::TabSlot(token) => {
+                            OverlayOutcome::ContextMenuReplaceTabWithHost(token)
+                        }
+                        _ => OverlayOutcome::Consumed,
+                    },
                     ContextMenuItem::SplitColumns => OverlayOutcome::ContextMenuSplitColumns,
                     ContextMenuItem::SplitRows => OverlayOutcome::ContextMenuSplitRows,
                     ContextMenuItem::ClosePane => OverlayOutcome::ContextMenuClosePane,
@@ -936,6 +1043,9 @@ impl OverlayUi {
                 return self.handle_confirm_kill_session_input(input);
             }
             OverlayMode::DetachSwitchChoice => return self.handle_detach_switch_input(input),
+            OverlayMode::ConfirmReplaceTab => {
+                return self.handle_confirm_replace_tab_input(input);
+            }
             OverlayMode::CommandPalette => return self.handle_command_palette_input(input),
             OverlayMode::Replay => return self.handle_replay_input(input),
             OverlayMode::Connections => return self.handle_connections_input(input),
@@ -1132,6 +1242,13 @@ impl OverlayUi {
                             OverlayOutcome::Consumed
                         }
                     }
+                    OverlayMode::ConfirmReplaceTab => {
+                        if button == PointerButton::Left {
+                            self.confirm_replace_tab_click(row_in_body, col_in_body)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
                     OverlayMode::Onboarding | OverlayMode::Replay | OverlayMode::ImageView => {
                         OverlayOutcome::Consumed
                     }
@@ -1178,7 +1295,8 @@ impl OverlayUi {
                     | OverlayMode::ConfirmClose
                     | OverlayMode::AttachChoice
                     | OverlayMode::ConfirmKillSession
-                    | OverlayMode::DetachSwitchChoice => OverlayOutcome::Consumed,
+                    | OverlayMode::DetachSwitchChoice
+                    | OverlayMode::ConfirmReplaceTab => OverlayOutcome::Consumed,
                 }
             }
             OverlayPointer::Release { .. } => {
@@ -1199,7 +1317,8 @@ impl OverlayUi {
                     | OverlayMode::ConfirmClose
                     | OverlayMode::AttachChoice
                     | OverlayMode::ConfirmKillSession
-                    | OverlayMode::DetachSwitchChoice => {}
+                    | OverlayMode::DetachSwitchChoice
+                    | OverlayMode::ConfirmReplaceTab => {}
                 }
                 OverlayOutcome::Consumed
             }
@@ -1250,6 +1369,7 @@ impl OverlayUi {
                     | OverlayMode::AttachChoice
                     | OverlayMode::ConfirmKillSession
                     | OverlayMode::DetachSwitchChoice
+                    | OverlayMode::ConfirmReplaceTab
                     | OverlayMode::ImageView => {}
                 }
                 OverlayOutcome::Consumed
@@ -1278,7 +1398,8 @@ impl OverlayUi {
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
-            | OverlayMode::DetachSwitchChoice => false,
+            | OverlayMode::DetachSwitchChoice
+            | OverlayMode::ConfirmReplaceTab => false,
         }
     }
 
@@ -1303,7 +1424,8 @@ impl OverlayUi {
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
-            | OverlayMode::DetachSwitchChoice => {}
+            | OverlayMode::DetachSwitchChoice
+            | OverlayMode::ConfirmReplaceTab => {}
         }
     }
 
@@ -1358,6 +1480,7 @@ impl OverlayUi {
             OverlayMode::AttachChoice => "Attach session".to_owned(),
             OverlayMode::ConfirmKillSession => "Kill session".to_owned(),
             OverlayMode::DetachSwitchChoice => "Detach & switch".to_owned(),
+            OverlayMode::ConfirmReplaceTab => "Replace tab?".to_owned(),
         }
     }
 
@@ -1464,7 +1587,8 @@ impl OverlayUi {
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
-            | OverlayMode::DetachSwitchChoice => {}
+            | OverlayMode::DetachSwitchChoice
+            | OverlayMode::ConfirmReplaceTab => {}
         }
     }
 
@@ -1486,7 +1610,8 @@ impl OverlayUi {
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
-            | OverlayMode::DetachSwitchChoice => {}
+            | OverlayMode::DetachSwitchChoice
+            | OverlayMode::ConfirmReplaceTab => {}
         }
     }
 
@@ -1529,7 +1654,8 @@ impl OverlayUi {
             | OverlayMode::ConfirmClose
             | OverlayMode::AttachChoice
             | OverlayMode::ConfirmKillSession
-            | OverlayMode::DetachSwitchChoice => (false, false),
+            | OverlayMode::DetachSwitchChoice
+            | OverlayMode::ConfirmReplaceTab => (false, false),
         }
     }
 
@@ -1740,6 +1866,15 @@ impl OverlayUi {
                     ConnectionPickerPurpose::BindWorkspace => {
                         OverlayOutcome::BindWorkspaceToHost(host.alias)
                     }
+                    // ODP-5D: open the picked host in a new tab adjacent to the
+                    // clicked tab, or replace that tab (App gates the destructive
+                    // close behind a confirm when a foreground child runs).
+                    ConnectionPickerPurpose::ConnectTabAfter(token) => {
+                        OverlayOutcome::ConnectHostInTabAfter(host, token)
+                    }
+                    ConnectionPickerPurpose::ReplaceTab(token) => {
+                        OverlayOutcome::ReplaceTabWithHostPicked(host, token)
+                    }
                     // The default purpose never emits Pick (it emits Connect),
                     // so this arm is unreachable in practice; route it to Close
                     // defensively rather than panicking.
@@ -1848,6 +1983,26 @@ pub(super) enum OverlayOutcome {
     /// Emitted by the shared host picker when opened for the BindWorkspace
     /// purpose; the App calls the frozen `set_active_workspace_default_profile`.
     BindWorkspaceToHost(String),
+    /// Open the shared host picker for the tab holding this token, seeded for
+    /// the ODP-5D "Connect to host" purpose (a new adjacent remote tab). The
+    /// menu closed itself; the App opens the picker.
+    ContextMenuConnectToHost(SessionToken),
+    /// Open the shared host picker for the tab holding this token, seeded for
+    /// the ODP-5D "Replace this tab with host" purpose. The menu closed itself.
+    ContextMenuReplaceTabWithHost(SessionToken),
+    /// Open the picked saved host in a NEW tab positioned right after the tab
+    /// holding this token (ODP-5D). Emitted by the shared host picker opened for
+    /// the ConnectTabAfter purpose; the picker closed itself.
+    ConnectHostInTabAfter(Box<ConnectionHost>, SessionToken),
+    /// Replace the tab holding this token with the picked saved host (ODP-5D).
+    /// Emitted by the shared host picker opened for the ReplaceTab purpose; the
+    /// App gates the destructive close behind a confirm when a foreground child
+    /// is running, else replaces directly.
+    ReplaceTabWithHostPicked(Box<ConnectionHost>, SessionToken),
+    /// The replace-tab confirm dialog was accepted (ODP-5D): close the tab
+    /// holding this token and open the picked host in its slot. Emitted only
+    /// after the running-child confirm; the dialog closed itself.
+    ReplaceTabWithHostConfirmed(Box<ConnectionHost>, SessionToken),
     ContextMenuCloseTab,
     /// Close a specific tab by token from a tab-slot right-click (NF-F7-1). The
     /// overlay has already closed itself; the App reaps the tab that holds
@@ -2100,6 +2255,14 @@ pub(super) enum OverlayMode {
     /// fresh shell in the same cwd, not a live-process migration. Modeled on
     /// `AttachChoice`; the focused pane's cwd is carried on the overlay.
     DetachSwitchChoice,
+    /// Replace-tab confirm dialog (ODP-5D). A centered, static modal shown when
+    /// "Replace with Host…" targets a tab whose pane holds a running foreground
+    /// child: `[Enter / Y]` closes that tab and opens the picked host in its
+    /// slot (emits [`OverlayOutcome::ReplaceTabWithHostConfirmed`]), `[Esc / N]`
+    /// cancels. An idle tab replaces directly, never reaching this dialog.
+    /// Modeled on `ConfirmKillSession`; the pending host + target token are
+    /// carried on the overlay.
+    ConfirmReplaceTab,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2304,6 +2467,19 @@ const DETACH_SWITCH_WIDTH: usize = 64;
 const DETACH_SWITCH_ACTION_LINE: &str =
     "Swap closes this.  [S] Swap   [K] Keep both   [Esc] Cancel";
 
+/// Fixed body width (cells) for the replace-tab confirm dialog (ODP-5D). Sized
+/// for the longest static line plus the panel border inset; the `.max(36)` floor
+/// in [`overlay_rect`] keeps small grids sane.
+const CONFIRM_REPLACE_TAB_WIDTH: usize = 56;
+
+/// The replace-tab confirm dialog's action line, shared by the body builder and
+/// the click hit-test ([`OverlayUi::confirm_replace_tab_click`]) so the two can
+/// never drift. A leading prompt gives an inert region at col 0 (a stray click
+/// there never destroys the shell, mirroring the ConfirmClose guard); the
+/// `[Enter` and `[Esc` bracket tokens anchor the Replace / Cancel regions.
+const CONFIRM_REPLACE_TAB_ACTION_LINE: &str =
+    "Replace it?   [Enter / Y] Replace     [Esc / N] Cancel";
+
 pub(super) fn overlay_rect(
     overlay: &OverlayUi,
     columns: usize,
@@ -2344,6 +2520,8 @@ pub(super) fn overlay_rect(
         OverlayMode::ConfirmKillSession => CONFIRM_KILL_SESSION_WIDTH,
         // Static Detach & switch choice dialog (Packet 2); same treatment.
         OverlayMode::DetachSwitchChoice => DETACH_SWITCH_WIDTH,
+        // Static replace-tab confirm dialog (ODP-5D); same treatment.
+        OverlayMode::ConfirmReplaceTab => CONFIRM_REPLACE_TAB_WIDTH,
     }
     .max(36)
     .min(columns);
@@ -2768,6 +2946,43 @@ impl OverlayUi {
                     },
                     OverlayLine {
                         text: DETACH_SWITCH_ACTION_LINE.to_owned(),
+                        focused: true,
+                        swatch: None,
+                        bold: false,
+                    },
+                ]
+            }
+            // Static replace-tab confirm copy (ODP-5D). Row 0 names the host and
+            // the running-shell hazard, row 1 blank, row 2 the action line — the
+            // action row index (2) matches `ACTION_ROW` in
+            // `confirm_replace_tab_click`. The host alias is OdyTTY-owned config
+            // text; it is truncated to the body width and display-only here.
+            OverlayMode::ConfirmReplaceTab => {
+                let prompt = match self.confirm_replace_tab.as_ref() {
+                    Some((host, _)) => {
+                        format!(
+                            "A program is running here — replace it with {}?",
+                            host.alias
+                        )
+                    }
+                    None => "A program is running in this tab.".to_owned(),
+                };
+                let prompt: String = prompt.chars().take(body_width.max(1)).collect();
+                vec![
+                    OverlayLine {
+                        text: prompt,
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: String::new(),
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: CONFIRM_REPLACE_TAB_ACTION_LINE.to_owned(),
                         focused: true,
                         swatch: None,
                         bold: false,
@@ -3449,6 +3664,96 @@ mod tests {
         );
     }
 
+    #[test]
+    fn connect_tab_after_picker_lifts_to_connect_host_in_tab_after() {
+        // ODP-5D: the shared host picker opened for ConnectTabAfter lifts an
+        // accepted host into ConnectHostInTabAfter(host, token) — carrying the
+        // clicked tab's token — and closes itself before emitting.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections_for_purpose(
+            vec![connection_host("web1")],
+            ConnectionPickerPurpose::ConnectTabAfter(SessionToken(4)),
+        );
+        match overlay.handle_input(OverlayInput::Activate) {
+            OverlayOutcome::ConnectHostInTabAfter(host, token) => {
+                assert_eq!(host.alias, "web1");
+                assert_eq!(token, SessionToken(4));
+            }
+            other => panic!("expected ConnectHostInTabAfter, got {other:?}"),
+        }
+        assert!(!overlay.is_open(), "picker must close after a connect pick");
+    }
+
+    #[test]
+    fn replace_tab_picker_lifts_to_replace_tab_with_host_picked() {
+        // ODP-5D: the ReplaceTab picker lifts into ReplaceTabWithHostPicked so
+        // the App can gate the destructive close behind its running-child check.
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections_for_purpose(
+            vec![connection_host("web1")],
+            ConnectionPickerPurpose::ReplaceTab(SessionToken(6)),
+        );
+        match overlay.handle_input(OverlayInput::Activate) {
+            OverlayOutcome::ReplaceTabWithHostPicked(host, token) => {
+                assert_eq!(host.alias, "web1");
+                assert_eq!(token, SessionToken(6));
+            }
+            other => panic!("expected ReplaceTabWithHostPicked, got {other:?}"),
+        }
+        assert!(!overlay.is_open(), "picker must close after a replace pick");
+    }
+
+    #[test]
+    fn confirm_replace_tab_dialog_keys_confirm_and_cancel() {
+        // ODP-5D: Enter/Y on the replace confirm emits the confirmed outcome
+        // carrying the stashed host + token; Esc/N cancels without emitting it.
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_replace_tab(Box::new(connection_host("web1")), SessionToken(2));
+        assert!(overlay.is_confirm_replace_tab());
+        match overlay.handle_input(OverlayInput::Activate) {
+            OverlayOutcome::ReplaceTabWithHostConfirmed(host, token) => {
+                assert_eq!(host.alias, "web1");
+                assert_eq!(token, SessionToken(2));
+            }
+            other => panic!("expected ReplaceTabWithHostConfirmed, got {other:?}"),
+        }
+        assert!(!overlay.is_open(), "dialog closes on confirm");
+
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_replace_tab(Box::new(connection_host("web1")), SessionToken(2));
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Close),
+            OverlayOutcome::Close
+        );
+    }
+
+    #[test]
+    fn confirm_replace_tab_click_replace_confirms_cancel_dismisses() {
+        // Click→key parity: a click on the "Replace" region confirms, the
+        // "Cancel" region cancels, and the prompt text is inert (no destructive
+        // click by accident).
+        let replace_col = CONFIRM_REPLACE_TAB_ACTION_LINE.find("[Enter").unwrap() + 2;
+        let cancel_col = CONFIRM_REPLACE_TAB_ACTION_LINE.find("[Esc").unwrap() + 2;
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_replace_tab(Box::new(connection_host("db")), SessionToken(9));
+        assert!(matches!(
+            overlay.confirm_replace_tab_click(2, replace_col),
+            OverlayOutcome::ReplaceTabWithHostConfirmed(_, SessionToken(9))
+        ));
+
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_replace_tab(Box::new(connection_host("db")), SessionToken(9));
+        assert_eq!(
+            overlay.confirm_replace_tab_click(2, cancel_col),
+            OverlayOutcome::Close
+        );
+        // Prompt-row click is inert — the dialog stays open, nothing destructive.
+        assert_eq!(
+            overlay.confirm_replace_tab_click(0, replace_col),
+            OverlayOutcome::Consumed
+        );
+    }
+
     /// A synthetic live session for the session-attach overlay tests.
     fn listed_session(id: &str, name: &str) -> ListedSession {
         ListedSession {
@@ -3664,13 +3969,58 @@ mod tests {
             std::array::from_fn(|_| None),
         );
         // Items: New Tab(0) Rename Tab(1) Close Tab(2) Close Other Tabs(3)
-        // Move to Next Workspace(4) New Window(5).
-        for _ in 0..4 {
+        // Connect to Host(4) Replace with Host(5) Move to Next Workspace(6)
+        // New Window(7).
+        for _ in 0..6 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
             OverlayOutcome::ContextMenuMoveTabToNextWorkspace(SessionToken(5))
+        );
+    }
+
+    #[test]
+    fn tab_slot_connect_and_replace_host_emit_token_outcomes() {
+        // ODP-5D: the tab-menu host actions carry the CLICKED tab's token so the
+        // App seeds the picker for the right tab. Single-workspace tab menu:
+        // New Tab(0) Rename Tab(1) Close Tab(2) Close Other Tabs(3)
+        // Connect to Host(4) Replace with Host(5) New Window(6).
+        let open = || {
+            let mut overlay = OverlayUi::default();
+            overlay.open_context_menu_with_prompt_editing_hint(
+                CellPoint { row: 0, column: 0 },
+                true,
+                true,
+                true,
+                true,
+                false,
+                Some(SessionToken(8)),
+                false,
+                true,
+                false,
+                false,
+                crate::native::context_menu_ui::ContextMenuSurface::TabSlot(SessionToken(8)),
+                None,
+                std::array::from_fn(|_| None),
+            );
+            overlay
+        };
+        let mut connect = open();
+        for _ in 0..4 {
+            connect.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            connect.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuConnectToHost(SessionToken(8))
+        );
+        let mut replace = open();
+        for _ in 0..5 {
+            replace.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            replace.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuReplaceTabWithHost(SessionToken(8))
         );
     }
 

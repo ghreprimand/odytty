@@ -2567,6 +2567,51 @@ impl WorkspaceSet {
         let dest_idx = (src_idx + 1) % self.workspaces.len();
         self.move_tab_to_workspace(token, dest_idx)
     }
+
+    /// Move the just-appended, currently-active tab so it sits immediately after
+    /// the tab that owns `anchor` in the active workspace (ODP-5D "Connect to
+    /// host ▸": the new remote tab reads as opening from the clicked tab). The
+    /// moved tab is assumed to be the last strip entry — the state left by
+    /// `connect_ssh_in_new_tab` + `switch`. A no-op when the anchor is missing,
+    /// is itself the last tab, or the moved tab is already directly after it. On
+    /// success `active_tab` follows the moved tab to its new index so it stays
+    /// focused.
+    pub(super) fn reposition_active_tab_after(&mut self, anchor: SessionToken) {
+        let ws = self.active_workspace_mut();
+        let last = ws.tabs.len().saturating_sub(1);
+        let Some(anchor_idx) = ws.tabs.iter().position(|t| t.layout.contains(anchor)) else {
+            return;
+        };
+        // Anchor is the last tab (or the moved tab itself), or the moved tab is
+        // already the neighbour just after the anchor — nothing to reorder.
+        if anchor_idx + 1 >= last {
+            return;
+        }
+        let dest = anchor_idx + 1;
+        let tab = ws.tabs.remove(last);
+        ws.tabs.insert(dest, tab);
+        ws.active_tab = dest;
+    }
+
+    /// Whether any pane of the tab that owns `token` has a running foreground
+    /// job (ODP-5D replace gating). Scans that tab's leaf sessions across ALL
+    /// workspaces so a background tab can be probed; an attached pane always
+    /// reports not-running (its job lives on the remote host). `false` when the
+    /// token resolves to no tab.
+    pub(super) fn tab_foreground_job_running(&self, token: SessionToken) -> bool {
+        let Some((ws_idx, tab_idx)) = self.locate_token(token) else {
+            return false;
+        };
+        self.workspaces[ws_idx].tabs[tab_idx]
+            .layout
+            .leaves()
+            .into_iter()
+            .any(|leaf| {
+                self.sessions
+                    .get(&leaf)
+                    .is_some_and(Session::foreground_job_running)
+            })
+    }
 }
 
 /// The result of one arena-wide bell / prompt-marks drain
@@ -4505,6 +4550,51 @@ mod tests {
         // token 3 wrapped into ws0, which now holds [0, 3].
         assert!(set.switch_workspace(0));
         assert_eq!(set.token_at_position(1), Some(SessionToken(3)));
+    }
+
+    #[test]
+    fn reposition_active_tab_after_slides_new_tab_next_to_a_non_active_anchor() {
+        // ODP-5D: the connect flow appends the remote tab last + switches to it;
+        // reposition then slides it to sit right after the CLICKED (anchor) tab,
+        // even when the anchor is neither the active nor the last tab.
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push(build_session_with_id(SessionToken(1)));
+        set.push(build_session_with_id(SessionToken(2)));
+        // The freshly-appended remote tab, made active (mirrors connect + switch).
+        set.push(build_session_with_id(SessionToken(3)));
+        assert!(set.switch(SessionToken(3)));
+        // Strip is [0, 1, 2, 3]; anchor on the clicked tab 1 (≠ active, ≠ last).
+        set.reposition_active_tab_after(SessionToken(1));
+        assert_eq!(set.token_at_position(0), Some(SessionToken(0)));
+        assert_eq!(set.token_at_position(1), Some(SessionToken(1)));
+        assert_eq!(set.token_at_position(2), Some(SessionToken(3)));
+        assert_eq!(set.token_at_position(3), Some(SessionToken(2)));
+        // The moved tab stays active/focused at its new index.
+        assert_eq!(set.active_id(), SessionToken(3));
+    }
+
+    #[test]
+    fn reposition_active_tab_after_is_a_noop_when_already_adjacent_or_anchor_missing() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push(build_session_with_id(SessionToken(1)));
+        set.push(build_session_with_id(SessionToken(2)));
+        assert!(set.switch(SessionToken(2)));
+        // Anchor is the tab right before the moved (last) tab: already in place.
+        set.reposition_active_tab_after(SessionToken(1));
+        assert_eq!(set.token_at_position(2), Some(SessionToken(2)));
+        // Unknown anchor: nothing moves.
+        set.reposition_active_tab_after(SessionToken(99));
+        assert_eq!(set.token_at_position(2), Some(SessionToken(2)));
+    }
+
+    #[test]
+    fn tab_foreground_job_running_resolves_tokens_and_defaults_false_when_idle() {
+        // ODP-5D replace gating: a resolvable idle/headless tab reports
+        // not-running (→ replace-direct path), and an unknown token is false.
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push(build_session_with_id(SessionToken(1)));
+        assert!(!set.tab_foreground_job_running(SessionToken(1)));
+        assert!(!set.tab_foreground_job_running(SessionToken(99)));
     }
 
     #[test]

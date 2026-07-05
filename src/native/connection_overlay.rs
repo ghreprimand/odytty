@@ -22,6 +22,7 @@ use crate::connection_hosts::{ConnectionHost, ConnectionHostSource, parse_adhoc_
 use crate::fuzzy;
 
 use super::overlay::OverlayInput;
+use super::session::SessionToken;
 
 /// Maximum rows rendered in the result list (keeps the overlay compact and the
 /// fuzzy ranking bounded regardless of how large the hosts list is).
@@ -72,6 +73,14 @@ pub(super) enum ConnectionPickerPurpose {
     /// Bind the active workspace to the chosen saved host (ODP-6B). Ad-hoc /
     /// unsaved rows are not offered — a workspace binds by saved-host alias.
     BindWorkspace,
+    /// Open the chosen saved host in a NEW tab positioned right after the tab
+    /// that owns this token (ODP-5D "Connect to host ▸"). The clicked tab is
+    /// left untouched — the new remote tab reads as "connect from here".
+    ConnectTabAfter(SessionToken),
+    /// Replace the tab that owns this token with the chosen saved host (ODP-5D
+    /// "Replace this tab with ▸"). The App gates the destructive close behind a
+    /// confirm when that tab holds a running foreground child.
+    ReplaceTab(SessionToken),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -237,10 +246,13 @@ impl ConnectionOverlay {
                         None => ConnectionOverlayOutcome::Consumed,
                     },
                 },
-                // Tagged pending action: only a saved host is acceptable (a
-                // workspace binds by saved-host alias), so an empty selection is
-                // inert. The App routes the pick per the purpose.
-                ConnectionPickerPurpose::BindWorkspace => match self.selected_entry() {
+                // Any tagged pending action (bind a workspace, connect from a
+                // tab, replace a tab): only a saved host is acceptable — these
+                // pickers offer saved hosts only, so an empty selection is inert.
+                // The App routes the pick per the carried purpose.
+                ConnectionPickerPurpose::BindWorkspace
+                | ConnectionPickerPurpose::ConnectTabAfter(_)
+                | ConnectionPickerPurpose::ReplaceTab(_) => match self.selected_entry() {
                     Some(entry) => {
                         ConnectionOverlayOutcome::Pick(Box::new(entry.clone()), self.purpose)
                     }
@@ -853,6 +865,46 @@ mod tests {
             );
         }
         assert!(!overlay.click_row(1, 10), "no ad-hoc row to click");
+    }
+
+    #[test]
+    fn connect_tab_after_purpose_emits_pick_with_token() {
+        // ODP-5D: the tab "Connect to host" picker returns Pick(host, purpose)
+        // carrying the clicked tab's token, so the App opens the host in a new
+        // tab adjacent to THAT tab. Ad-hoc rows are suppressed like every tagged
+        // purpose.
+        let token = SessionToken(7);
+        let mut overlay = ConnectionOverlay::new();
+        overlay.open_for_purpose(entries(), ConnectionPickerPurpose::ConnectTabAfter(token));
+        type_query(&mut overlay, "host.example.invalid");
+        assert_eq!(overlay.render_signature().results_len, 0);
+        assert!(!overlay.visible_lines(80, 10)[1].text.contains("Connect to"));
+        // A saved row still picks and routes with the token intact.
+        overlay.open_for_purpose(entries(), ConnectionPickerPurpose::ConnectTabAfter(token));
+        let ConnectionOverlayOutcome::Pick(host, purpose) =
+            overlay.handle_input(OverlayInput::Activate)
+        else {
+            panic!("connect-tab-after purpose must emit Pick");
+        };
+        assert_eq!(host.alias, "web1");
+        assert_eq!(purpose, ConnectionPickerPurpose::ConnectTabAfter(token));
+    }
+
+    #[test]
+    fn replace_tab_purpose_emits_pick_with_token() {
+        // ODP-5D: the "Replace this tab with" picker carries the target tab's
+        // token so the App knows which tab to replace after the pick.
+        let token = SessionToken(3);
+        let mut overlay = ConnectionOverlay::new();
+        overlay.open_for_purpose(entries(), ConnectionPickerPurpose::ReplaceTab(token));
+        overlay.handle_input(OverlayInput::Down); // select db-primary
+        let ConnectionOverlayOutcome::Pick(host, purpose) =
+            overlay.handle_input(OverlayInput::Activate)
+        else {
+            panic!("replace-tab purpose must emit Pick");
+        };
+        assert_eq!(host.alias, "db-primary");
+        assert_eq!(purpose, ConnectionPickerPurpose::ReplaceTab(token));
     }
 
     #[test]

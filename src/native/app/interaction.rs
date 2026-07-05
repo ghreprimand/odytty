@@ -194,6 +194,34 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.bind_active_workspace_to_host_alias(alias);
             }
+            // ODP-5D: a tab-menu host action closed the menu; open the shared
+            // host picker seeded for the clicked tab so the pick routes back.
+            OverlayOutcome::ContextMenuConnectToHost(token) => {
+                self.flush_pending_overlay_settings();
+                self.open_connect_tab_after_picker(token);
+            }
+            OverlayOutcome::ContextMenuReplaceTabWithHost(token) => {
+                self.flush_pending_overlay_settings();
+                self.open_replace_tab_picker(token);
+            }
+            // ODP-5D: the picker closed itself; open the host in a new tab right
+            // after the clicked tab (leaves the clicked shell untouched).
+            OverlayOutcome::ConnectHostInTabAfter(host, token) => {
+                self.flush_pending_overlay_settings();
+                self.connect_host_in_tab_after(&host, token);
+            }
+            // ODP-5D: replace the clicked tab with the picked host — gated behind
+            // a confirm when that tab holds a running foreground child.
+            OverlayOutcome::ReplaceTabWithHostPicked(host, token) => {
+                self.flush_pending_overlay_settings();
+                self.replace_tab_with_host(host, token);
+            }
+            // ODP-5D: the replace confirm was accepted; run the destructive
+            // close+connect now.
+            OverlayOutcome::ReplaceTabWithHostConfirmed(host, token) => {
+                self.flush_pending_overlay_settings();
+                self.do_replace_tab_with_host(&host, token);
+            }
             OverlayOutcome::ContextMenuCloseTab => {
                 self.flush_pending_overlay_settings();
                 let _ = self.close_active_tab();
