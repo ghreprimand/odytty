@@ -366,8 +366,12 @@ impl KeyRemapUi {
                     for_action: action,
                     conflicts_with: other,
                 });
+                // The confirm/cancel key hints go on their OWN line so a narrow
+                // overlay never tail-truncates them off the end of the question
+                // (field use found the `[Enter]/[Esc]` tail clipped on normal
+                // window widths). `visible_lines` splits the message on `\n`.
                 self.message = Some(format!(
-                    "{} is bound to {} — reassign to {}? [Enter] yes  [Esc] no",
+                    "{} is bound to {} — reassign to {}?\n[Enter] yes  [Esc] no",
                     format_key_chord(chord),
                     bindable_action_display_name(other),
                     bindable_action_display_name(action)
@@ -518,12 +522,22 @@ impl KeyRemapUi {
     ) -> Vec<KeyRemapLine> {
         let bindings = self.effective_bindings();
         let mut rows: Vec<KeyRemapLine> = Vec::new();
-        // Header + message occupy the first lines; the action list scrolls.
+        // Header + message occupy the first lines; the action list scrolls. A
+        // message may span multiple lines (the conflict prompt carries its key
+        // hints on a second line so they are never tail-truncated); each `\n`
+        // segment becomes its own render line.
+        let message_line_count = self
+            .message
+            .as_ref()
+            .map(|m| m.lines().count().max(1))
+            .unwrap_or(0);
         if let Some(message) = &self.message {
-            rows.push(KeyRemapLine {
-                text: message.clone(),
-                focused: false,
-            });
+            for line in message.lines() {
+                rows.push(KeyRemapLine {
+                    text: line.to_owned(),
+                    focused: false,
+                });
+            }
         }
         let body_budget = body_height.max(1);
         let list_budget = body_budget.saturating_sub(rows.len()).max(1);
@@ -532,11 +546,7 @@ impl KeyRemapUi {
             if rows.len() >= body_budget {
                 break;
             }
-            if rows
-                .len()
-                .saturating_sub(usize::from(self.message.is_some()))
-                >= list_budget
-            {
+            if rows.len().saturating_sub(message_line_count) >= list_budget {
                 break;
             }
             let focused = offset == self.selected;
@@ -715,6 +725,48 @@ mod tests {
         assert_eq!(
             ui.conflict.as_ref().map(|c| c.conflicts_with),
             Some(BindableAction::CommandPalette)
+        );
+    }
+
+    #[test]
+    fn conflict_prompt_key_hints_sit_on_their_own_line() {
+        // Field use found the reassign prompt's `[Enter]/[Esc]` key hints
+        // tail-truncated on narrow windows. The hints must render on their own
+        // line so a downstream horizontal clip of the (long) question line can
+        // never remove the action keys.
+        let mut ui = ui();
+        select_action(&mut ui, BindableAction::NewTab);
+        ui.handle_input(OverlayInput::Activate);
+        ui.deliver_chord(Some(char_chord(true, true, 'p')));
+        assert!(ui.conflict.is_some(), "the capture must have conflicted");
+
+        // Render at a narrow body width (the width arg is advisory; the point is
+        // the hints occupy a dedicated, short line rather than the question's
+        // tail).
+        let lines: Vec<String> = ui
+            .visible_lines(24, 100)
+            .into_iter()
+            .map(|line| line.text)
+            .collect();
+        let hint_line = lines
+            .iter()
+            .find(|t| t.contains("[Enter]") && t.contains("[Esc]"))
+            .expect("a line must carry the Enter/Esc hints");
+        // The hint line is dedicated — it does NOT also carry the long question,
+        // so a tail clip of the question can never eat the hints.
+        assert!(
+            !hint_line.contains("is bound to"),
+            "key hints must be on their own line, not the question's tail: {hint_line:?}"
+        );
+        // The hint line is short enough to survive a narrow overlay.
+        assert!(
+            hint_line.chars().count() <= 24,
+            "hint line must fit a narrow overlay: {hint_line:?}"
+        );
+        // And the question itself is still present (on a separate line).
+        assert!(
+            lines.iter().any(|t| t.contains("is bound to")),
+            "the reassign question is still shown"
         );
     }
 

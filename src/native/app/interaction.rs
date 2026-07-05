@@ -167,6 +167,16 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.close_workspace_at(idx);
             }
+            // Content-grid workspace section: Rename/Close target the active
+            // workspace (no per-workspace click target on the grid).
+            OverlayOutcome::ContextMenuRenameActiveWorkspace => {
+                self.flush_pending_overlay_settings();
+                self.enter_rename_workspace(self.sessions.active_workspace_index());
+            }
+            OverlayOutcome::ContextMenuCloseActiveWorkspace => {
+                self.flush_pending_overlay_settings();
+                self.close_workspace_at(self.sessions.active_workspace_index());
+            }
             OverlayOutcome::ContextMenuCloseTab => {
                 self.flush_pending_overlay_settings();
                 let _ = self.close_active_tab();

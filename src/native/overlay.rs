@@ -752,11 +752,19 @@ impl OverlayUi {
                         crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(idx) => {
                             OverlayOutcome::ContextMenuRenameWorkspace(idx)
                         }
+                        // The content-grid menu has no per-workspace target, so
+                        // Rename/Close act on the active workspace.
+                        crate::native::context_menu_ui::ContextMenuSurface::Content => {
+                            OverlayOutcome::ContextMenuRenameActiveWorkspace
+                        }
                         _ => OverlayOutcome::Consumed,
                     },
                     ContextMenuItem::CloseWorkspace => match self.context_menu.surface() {
                         crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(idx) => {
                             OverlayOutcome::ContextMenuCloseWorkspace(idx)
+                        }
+                        crate::native::context_menu_ui::ContextMenuSurface::Content => {
+                            OverlayOutcome::ContextMenuCloseActiveWorkspace
                         }
                         _ => OverlayOutcome::Consumed,
                     },
@@ -1731,6 +1739,11 @@ pub(super) enum OverlayOutcome {
     ContextMenuRenameWorkspace(usize),
     /// Close the workspace at rail index `usize` entirely (WorkspaceSlot).
     ContextMenuCloseWorkspace(usize),
+    /// Rename the ACTIVE workspace (content-grid menu, which has no per-workspace
+    /// click target). The App resolves the active index itself.
+    ContextMenuRenameActiveWorkspace,
+    /// Close the ACTIVE workspace (content-grid menu, no per-workspace target).
+    ContextMenuCloseActiveWorkspace,
     ContextMenuCloseTab,
     /// Close a specific tab by token from a tab-slot right-click (NF-F7-1). The
     /// overlay has already closed itself; the App reaps the tab that holds
@@ -3628,8 +3641,9 @@ mod tests {
             OverlayOutcome::ContextMenuClosePane
         );
 
-        // Single-pane: Close Pane is hidden, so item index 10 is Settings — the
-        // Close Pane outcome is unreachable.
+        // Single-pane: Close Pane is hidden, so item index 10 is New Workspace
+        // (the first workspace-section item) — the Close Pane outcome is
+        // unreachable.
         overlay.open_context_menu(
             CellPoint { row: 0, column: 0 },
             true,
@@ -3646,8 +3660,45 @@ mod tests {
         }
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
-            OverlayOutcome::ContextMenuSettings
+            OverlayOutcome::ContextMenuNewWorkspace
         );
+    }
+
+    #[test]
+    fn content_menu_workspace_actions_target_the_active_workspace() {
+        // The content-grid workspace section has no per-workspace click target,
+        // so Rename/Close route up as the active-workspace outcomes (the App
+        // resolves the active index); New Workspace is unconditional.
+        let open = || {
+            let mut overlay = OverlayUi::default();
+            overlay.open_context_menu(
+                CellPoint { row: 0, column: 0 },
+                true,
+                true,
+                true,
+                true,
+                None,
+                false,
+                None,
+                Default::default(),
+            );
+            overlay
+        };
+        // Single-pane with selection: New/Rename/Close Workspace are visible
+        // indices 10/11/12 (right after the two splits at 8/9).
+        let step_to = |idx: usize| {
+            let mut overlay = open();
+            for _ in 0..idx {
+                overlay.handle_input(OverlayInput::Down);
+            }
+            overlay.handle_input(OverlayInput::Activate)
+        };
+        assert_eq!(step_to(10), OverlayOutcome::ContextMenuNewWorkspace);
+        assert_eq!(
+            step_to(11),
+            OverlayOutcome::ContextMenuRenameActiveWorkspace
+        );
+        assert_eq!(step_to(12), OverlayOutcome::ContextMenuCloseActiveWorkspace);
     }
 
     #[test]
@@ -3722,9 +3773,10 @@ mod tests {
             None,
             Default::default(),
         );
-        // 17 visible items single-pane with a selection (F7 dropped the Rename
-        // Tab row); Manage Sessions is index 15 (Detach & switch is last at 16).
-        for _ in 0..15 {
+        // 20 visible items single-pane with a selection (F7 dropped the Rename
+        // Tab row; the workspace section adds three); Manage Sessions is index 18
+        // (Detach & switch is last at 19).
+        for _ in 0..18 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -3737,9 +3789,9 @@ mod tests {
     #[test]
     fn context_menu_keyboard_shortcuts_opens_key_bindings() {
         // F3: the "Keyboard Shortcuts" launcher item (first after Settings,
-        // visible index 11 single-pane with a selection) activates the key-remap
-        // editor via the same OpenKeyBindings outcome the settings "keybinds" row
-        // emits.
+        // visible index 14 single-pane with a selection — the workspace section
+        // shifts the launcher block down by three) activates the key-remap editor
+        // via the same OpenKeyBindings outcome the settings "keybinds" row emits.
         let mut overlay = OverlayUi::default();
         overlay.open_context_menu(
             CellPoint { row: 0, column: 0 },
@@ -3752,7 +3804,7 @@ mod tests {
             None,
             Default::default(),
         );
-        for _ in 0..11 {
+        for _ in 0..14 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(

@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Workspace chords, workspace context-menu actions, and a visible reassign prompt
+
+Three field-test findings on the workspace UX, one change set.
+
+**Default chords for workspace create/switch.** Field use showed New Workspace
+and the workspace picker were undiscoverable without a chord. `Ctrl+Shift+Enter`
+now creates a workspace and `Ctrl+Shift+G` opens the picker. Plain `Enter` and
+`Shift+Enter` are untouched (the chords require Ctrl+Shift, and the search
+overlay's `Shift+Enter` stays modal). `Ctrl+Shift+G` is clear of GTK/ibus's
+`Ctrl+Shift+U` Unicode-entry chord on Linux. Close and Rename Workspace stay
+unbound by default — Close is destructive, and Rename follows the Rename-Tab
+precedent; both remain assignable in the key-remap editor.
+
+**Workspace actions on the content menu.** The terminal content menu gains a
+workspace section — New / Rename / Close Workspace — rendered after the split
+section and before Settings, with the accelerator hint column showing the live
+binding (New Workspace now shows `Ctrl+Shift+Enter`). The content surface has no
+per-workspace click target, so Rename and Close act on the active workspace. The
+empty tab-strip menu also gains New Workspace beside New Tab.
+
+**Reassign prompt key hints no longer truncate.** The key-remap conflict prompt
+composed its question and its `[Enter] yes / [Esc] no` hints as one line, so the
+action keys tail-truncated off narrow overlays. The hints now render on their
+own dedicated line, guaranteed visible regardless of the question's length.
+
 ## 2026-07-04 -- Compact the settings panel with a fixed help footer
 
 The Level-2 settings list is now a menuconfig-style compact view: each setting

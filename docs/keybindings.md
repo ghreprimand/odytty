@@ -269,19 +269,22 @@ conveniences so the first split is always reachable.
 ## Workspaces
 
 A **workspace** groups a set of tabs; switching workspaces swaps the entire tab
-strip. Two chords are bound by default:
+strip. Four chords are bound by default:
 
 | Chord | Action | Token |
 | --- | --- | --- |
 | `Ctrl+Shift+PageDown` | Switch to the next workspace | `next-workspace` |
 | `Ctrl+Shift+PageUp` | Switch to the previous workspace | `prev-workspace` |
+| `Ctrl+Shift+Enter` | Create a new workspace | `new-workspace` |
+| `Ctrl+Shift+G` | Open the workspace picker | `workspace-picker` |
 
-Creating, renaming, and closing a workspace are unbound by default — the rail's
-`+` slot, the workspace right-click menu, and the command palette cover them —
-but each is a bindable action (`new-workspace`, `close-workspace`,
-`rename-workspace`, `workspace-picker`) you can assign a chord in the settings
-key-remap editor or the `keybinds` config. Closing the last tab of a workspace
-closes that workspace; closing the last workspace quits OdyTTY.
+Renaming and closing a workspace are unbound by default — the rail's `+` slot,
+the workspace right-click menu, and the command palette cover them — but each is
+a bindable action (`close-workspace`, `rename-workspace`) you can assign a chord
+in the settings key-remap editor or the `keybinds` config. (Close stays unbound
+because it is destructive; Rename follows the same precedent as Rename Tab.)
+Closing the last tab of a workspace closes that workspace; closing the last
+workspace quits OdyTTY.
 
 The command palette also carries workspace and layout actions that have no
 default chord: **New Workspace**, **Rename Workspace**, **Bind Workspace to

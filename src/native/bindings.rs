@@ -538,10 +538,7 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
         ),
         // Workspace cycling. `Ctrl+Shift+PageDown/PageUp` sit mnemonically above
         // the `Ctrl+PageDown/PageUp` tab-cycling chords and are otherwise free
-        // (scroll uses Shift+Page*, tab cycling uses Ctrl+Page*). New / Close /
-        // Rename Workspace stay unbound by default — the rail, context menu, and
-        // command palette cover them, and the `Ctrl+Shift+<letter>` space is
-        // nearly exhausted.
+        // (scroll uses Shift+Page*, tab cycling uses Ctrl+Page*).
         (
             named_chord(KeyBindingNamedKey::PageDown, true, true, false, false),
             BindableAction::NextWorkspace,
@@ -549,6 +546,23 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
         (
             named_chord(KeyBindingNamedKey::PageUp, true, true, false, false),
             BindableAction::PrevWorkspace,
+        ),
+        // New Workspace and the workspace picker gained default chords once field
+        // use showed the create/switch actions were undiscoverable without them.
+        // `Ctrl+Shift+Enter` for new-workspace mirrors `Ctrl+Shift+T`'s new-tab
+        // feel one level up; plain `Enter` and `Shift+Enter` are untouched (the
+        // chord requires Ctrl+Shift, and the search overlay's `Shift+Enter` is
+        // modal). `Ctrl+Shift+G` opens the picker — free in the letter space and
+        // clear of GTK/ibus's `Ctrl+Shift+U` Unicode entry. Close / Rename
+        // Workspace stay unbound (destructive close, Rename-Tab precedent); the
+        // rail, context menu, and command palette cover them.
+        (
+            named_chord(KeyBindingNamedKey::Enter, true, true, false, false),
+            BindableAction::NewWorkspace,
+        ),
+        (
+            char_chord('g', true, true, false, false),
+            BindableAction::WorkspacePicker,
         ),
     ]
 }
@@ -892,7 +906,7 @@ mod tests {
         // in `from_overrides`), but the *default* direct split chords must
         // survive that skip so the GUI split remains reachable.
         let overrides = vec![KeyBindingOverride {
-            chord: char_chord('g', true, true, false, false),
+            chord: char_chord('z', true, true, false, false),
             action: BindableAction::SplitColumns,
         }];
         let bindings = KeyBindings::from_overrides(&overrides);
@@ -901,9 +915,10 @@ mod tests {
             bindings.action_for_chord(char_chord('e', true, true, false, false)),
             Some(BindableAction::SplitColumns)
         );
-        // The attempted bare override chord did not take.
+        // The attempted bare override chord did not take. `Ctrl+Shift+Z` is an
+        // otherwise-unbound sentinel (the picker took `Ctrl+Shift+G`).
         assert_eq!(
-            bindings.action_for_chord(char_chord('g', true, true, false, false)),
+            bindings.action_for_chord(char_chord('z', true, true, false, false)),
             None
         );
     }
@@ -933,6 +948,63 @@ mod tests {
             bindings.action_for_chord(char_chord('b', true, true, false, false)),
             Some(BindableAction::ThemeBuilder),
             "Ctrl+Shift+B opens the theme builder"
+        );
+    }
+
+    #[test]
+    fn workspace_create_and_picker_have_default_chords() {
+        // Field use showed New Workspace and the picker were undiscoverable
+        // without a chord. `Ctrl+Shift+Enter` creates a workspace; `Ctrl+Shift+G`
+        // opens the picker. Close / Rename Workspace stay unbound.
+        let bindings = KeyBindings::default();
+        assert_eq!(
+            bindings.action_for_chord(named_chord(
+                KeyBindingNamedKey::Enter,
+                true,
+                true,
+                false,
+                false
+            )),
+            Some(BindableAction::NewWorkspace),
+            "Ctrl+Shift+Enter creates a new workspace"
+        );
+        assert_eq!(
+            bindings.action_for_chord(char_chord('g', true, true, false, false)),
+            Some(BindableAction::WorkspacePicker),
+            "Ctrl+Shift+G opens the workspace picker"
+        );
+        // Plain Enter and Shift+Enter are untouched — they never resolve to a
+        // workspace action, so the shell and the modal search overlay keep them.
+        assert_eq!(
+            bindings.action_for_chord(named_chord(
+                KeyBindingNamedKey::Enter,
+                false,
+                false,
+                false,
+                false
+            )),
+            None,
+            "plain Enter reaches the shell"
+        );
+        assert_eq!(
+            bindings.action_for_chord(named_chord(
+                KeyBindingNamedKey::Enter,
+                false,
+                true,
+                false,
+                false
+            )),
+            None,
+            "Shift+Enter stays with the search overlay"
+        );
+        // Close / Rename Workspace remain unbound by default.
+        assert_eq!(
+            bindings.chord_for_action(BindableAction::CloseWorkspace),
+            None
+        );
+        assert_eq!(
+            bindings.chord_for_action(BindableAction::RenameWorkspace),
+            None
         );
     }
 

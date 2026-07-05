@@ -492,11 +492,14 @@ remembers which one was active, so switching workspaces swaps the whole tab
 strip at once. A session starts with a single workspace, and a single-workspace
 session looks exactly as before — no extra chrome. Once a second workspace
 exists, a vertical **rail** lists them down one side; `Ctrl+Shift+PageDown` and
-`Ctrl+Shift+PageUp` cycle between workspaces. The rail's `+` slot creates a new
-workspace, and right-clicking a workspace (or the empty rail) offers New,
-Rename, and Close Workspace — Rename edits the label in place. Closing the last
-tab in a workspace closes that workspace; closing the last workspace quits the
-app. The rail follows the `workspace_rail` setting: `auto` (default) reveals it
+`Ctrl+Shift+PageUp` cycle between workspaces. `Ctrl+Shift+Enter` creates a new
+workspace and `Ctrl+Shift+G` opens the workspace picker. The rail's `+` slot
+also creates a new workspace, and right-clicking a workspace (or the empty
+rail) offers New, Rename, and Close Workspace — Rename edits the label in
+place. The terminal content menu carries the same New / Rename / Close
+Workspace actions (Rename and Close act on the active workspace). Closing the
+last tab in a workspace closes that workspace; closing the last workspace quits
+the app. The rail follows the `workspace_rail` setting: `auto` (default) reveals it
 once a second workspace exists, `always` pins it even with one, and `left` /
 `right` pin it to that side. When more than one workspace exists, a tab's
 right-click menu adds **Move to Next Workspace** to relocate the clicked tab.

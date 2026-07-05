@@ -61,8 +61,10 @@ use crate::settings::BindableAction;
 /// hidden in a single-pane tab; path-scoped menus show only file actions plus
 /// pinned Copy/Paste text actions; "Open in OdyTTY" is shown only when the
 /// resolved path is an image file (C4); and "Open With…" is shown only when the
-/// resolved path is a regular file (C3b). With no path and single-pane the
-/// visible count is 18; with no path and multi-pane it is 19.
+/// resolved path is a regular file (C3b). With no path and a selection the
+/// single-pane content menu shows 20 visible items (New / Rename / Close
+/// Workspace now sit in their own section after Split); multi-pane adds Close
+/// Pane for 21.
 pub(super) const CONTEXT_MENU_ITEMS: usize = 31;
 
 /// Body row index of the first visual separator in the single-pane content
@@ -83,22 +85,29 @@ pub(super) const CONTEXT_MENU_SEPARATOR_ROW: usize = 5;
 pub(super) const CONTEXT_MENU_SECOND_SEPARATOR_ROW: usize = 9;
 
 /// Body row index of the third visual separator (with-selection reference),
-/// between the split actions and Settings.
+/// between the split actions and the workspace section (New / Rename / Close
+/// Workspace).
 #[cfg(test)]
 pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 12;
 
 /// Body row index of the fourth visual separator (with-selection reference),
+/// between the workspace section and Settings.
+#[cfg(test)]
+pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 16;
+
+/// Body row index of the fifth visual separator (with-selection reference),
 /// between Settings and the launcher section (Connection Manager / Command
 /// Palette / Session Replay).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 14;
+pub(super) const CONTEXT_MENU_FIFTH_SEPARATOR_ROW: usize = 18;
 
 /// Total body rows in the **with-selection** single-pane content reference:
-/// seventeen visible items plus four separator lines (Close Pane hidden; Rename
-/// Tab dropped from the content menu). Production uses
-/// [`ContextMenuUi::body_row_count`] for the live count.
+/// twenty visible items plus five separator lines (Close Pane hidden; Rename
+/// Tab dropped from the content menu; the workspace section adds three items and
+/// one separator). Production uses [`ContextMenuUi::body_row_count`] for the
+/// live count.
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 21;
+pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 25;
 
 /// Minimum gap (in cells) between the longest label and the right-aligned
 /// accelerator column, so labels and accelerators never abut (Part C).
@@ -226,6 +235,12 @@ impl ContextMenuItem {
         Self::SplitColumns,
         Self::SplitRows,
         Self::ClosePane,
+        // Workspace section: on the content surface these render after the split
+        // section and before Settings (their ALL position drives that order),
+        // giving a distinct workspace group between panes and Settings.
+        Self::NewWorkspace,
+        Self::RenameWorkspace,
+        Self::CloseWorkspace,
         Self::Settings,
         Self::KeyboardShortcuts,
         Self::ConnectionManager,
@@ -241,9 +256,6 @@ impl ContextMenuItem {
         Self::DetachSwitch,
         Self::CloseOtherTabs,
         Self::MoveToNextWorkspace,
-        Self::NewWorkspace,
-        Self::RenameWorkspace,
-        Self::CloseWorkspace,
         Self::NewLocalTab,
     ];
 
@@ -251,7 +263,7 @@ impl ContextMenuItem {
     /// wherever consecutive *visible* items cross a section boundary, so the
     /// separator placement reflows automatically when Close Pane appears or
     /// disappears: editing (0), tab actions (1), split/pane actions (2),
-    /// Settings (3).
+    /// workspace actions (3), Settings (4), launchers (5), file/path (6).
     fn section(self) -> u8 {
         match self {
             Self::Copy | Self::Cut | Self::Paste | Self::Delete | Self::SelectAll => 0,
@@ -261,24 +273,22 @@ impl ContextMenuItem {
             | Self::RenameTab
             | Self::CloseTab
             | Self::CloseOtherTabs
-            | Self::MoveToNextWorkspace
-            | Self::NewWorkspace
-            | Self::RenameWorkspace
-            | Self::CloseWorkspace => 1,
+            | Self::MoveToNextWorkspace => 1,
             Self::SplitColumns | Self::SplitRows | Self::ClosePane => 2,
-            Self::Settings => 3,
+            Self::NewWorkspace | Self::RenameWorkspace | Self::CloseWorkspace => 3,
+            Self::Settings => 4,
             Self::KeyboardShortcuts
             | Self::ConnectionManager
             | Self::CommandPalette
             | Self::SessionReplay
             | Self::SessionAttach
-            | Self::DetachSwitch => 4,
+            | Self::DetachSwitch => 5,
             Self::OpenPath
             | Self::OpenInOdytty
             | Self::OpenWith
             | Self::CopyPath
             | Self::CopyFile
-            | Self::RevealPath => 5,
+            | Self::RevealPath => 6,
         }
     }
 
@@ -424,19 +434,22 @@ impl ContextMenuSurface {
     }
 }
 
-/// Map a selectable item index to its body row, accounting for the four
-/// separators. Items 0–4 sit at body rows 0–4; items 5–8 (tab actions: New Tab /
-/// New Window / Rename Tab / Close Tab) sit at body rows 6–9; items 9–10
-/// (splits) sit at body rows 11–12; Settings (index 11) sits at body row 14; the
-/// launcher items 12–16 (Connection Manager / Command Palette / Session Replay /
-/// Manage Sessions / Detach & switch) sit at body rows 16–20.
+/// Map a selectable item index to its body row, accounting for the five
+/// separators. With-selection single-pane reference: items 0–4 (editing) sit at
+/// body rows 0–4; items 5–7 (tab actions: New Tab / New Window / Close Tab) sit
+/// at body rows 6–8; items 8–9 (splits) sit at body rows 10–11; items 10–12
+/// (workspace: New / Rename / Close Workspace) sit at body rows 13–15; Settings
+/// (index 13) sits at body row 17; the launcher items 14–19 sit at body rows
+/// 19–24.
 #[cfg(test)]
 fn item_to_body_row(item_index: usize) -> usize {
-    // With-selection reference: four separators at body rows 5, 9, 12, 14, so
-    // the launcher section (items 11+) shifts by four, Settings (item 10) by
-    // three, the splits (items 8-9) by two, and the tab actions (items 5-7) by
-    // one.
-    if item_index >= 11 {
+    // With-selection reference: five separators at body rows 5, 9, 12, 16, 18,
+    // so the launcher section (items 14+) shifts by five, Settings (item 13) by
+    // four, the workspace section (items 10-12) by three, the splits (items 8-9)
+    // by two, and the tab actions (items 5-7) by one.
+    if item_index >= 14 {
+        item_index + 5
+    } else if item_index >= 13 {
         item_index + 4
     } else if item_index >= 10 {
         item_index + 3
@@ -459,8 +472,11 @@ fn body_row_to_item(body_row: usize) -> Option<usize> {
         || body_row == CONTEXT_MENU_SECOND_SEPARATOR_ROW
         || body_row == CONTEXT_MENU_THIRD_SEPARATOR_ROW
         || body_row == CONTEXT_MENU_FOURTH_SEPARATOR_ROW
+        || body_row == CONTEXT_MENU_FIFTH_SEPARATOR_ROW
     {
         None
+    } else if body_row > CONTEXT_MENU_FIFTH_SEPARATOR_ROW {
+        Some(body_row - 5)
     } else if body_row > CONTEXT_MENU_FOURTH_SEPARATOR_ROW {
         Some(body_row - 4)
     } else if body_row > CONTEXT_MENU_THIRD_SEPARATOR_ROW {
@@ -802,7 +818,9 @@ impl ContextMenuUi {
                 _ => 3,
             },
             ContextMenuSurface::TabStripEmpty => match item {
-                ContextMenuItem::NewTab => 0,
+                // New Tab / New Workspace are the creation group; Command Palette
+                // / Settings sit below a separator.
+                ContextMenuItem::NewTab | ContextMenuItem::NewWorkspace => 0,
                 ContextMenuItem::CommandPalette | ContextMenuItem::Settings => 1,
                 _ => 1,
             },
@@ -855,6 +873,7 @@ impl ContextMenuUi {
             ContextMenuSurface::TabStripEmpty => {
                 return vec![
                     ContextMenuItem::NewTab,
+                    ContextMenuItem::NewWorkspace,
                     ContextMenuItem::CommandPalette,
                     ContextMenuItem::Settings,
                 ];
@@ -906,16 +925,14 @@ impl ContextMenuUi {
         ContextMenuItem::ALL
             .into_iter()
             .filter(|item| !matches!(item, ContextMenuItem::ClosePane) || self.multi_pane)
-            // `Close Other Tabs` and `Move to Next Workspace` are tab-scoped,
-            // and New/Rename/Close Workspace are rail-scoped: never on content.
+            // `Close Other Tabs` and `Move to Next Workspace` are tab-scoped:
+            // never on content. New/Rename/Close Workspace ARE on content (their
+            // own section after Split); Rename/Close target the active workspace.
             .filter(|item| {
                 !matches!(
                     item,
                     ContextMenuItem::CloseOtherTabs
                         | ContextMenuItem::MoveToNextWorkspace
-                        | ContextMenuItem::NewWorkspace
-                        | ContextMenuItem::RenameWorkspace
-                        | ContextMenuItem::CloseWorkspace
                         // F6-W5: the New Local Tab escape is a bound-workspace
                         // tab-menu row only; never on the content surface.
                         | ContextMenuItem::NewLocalTab
@@ -1361,9 +1378,9 @@ mod tests {
     #[test]
     fn rect_tracks_spawn_when_it_fits() {
         let m = menu(true, true);
-        // The 19-row single-pane menu (21 rows with borders) needs a grid tall
+        // The 25-row single-pane menu (27 rows with borders) needs a grid tall
         // enough to host it at the spawn row without clamping upward.
-        let rect = m.rect(80, 30);
+        let rect = m.rect(80, 34);
         assert_eq!(rect.left, 7);
         assert_eq!(rect.top, 4);
         assert_eq!(rect.body_top, 5);
@@ -1375,7 +1392,7 @@ mod tests {
         // The fits-on-screen case: the whole body is visible, the scroll offset
         // is zero, and the layout is byte-identical to the pre-scroll menu.
         let m = menu(true, true);
-        let rect = m.rect(80, 24);
+        let rect = m.rect(80, 34);
         assert_eq!(
             rect.body_height,
             m.body_row_count(),
@@ -1452,12 +1469,12 @@ mod tests {
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
         // Wraps from 0 to the last *visible* item (Detach & switch). With a
-        // selection the single-pane content menu shows 17 items: Copy/Cut/Paste/
+        // selection the single-pane content menu shows 20 items: Copy/Cut/Paste/
         // Delete/Select All, New Tab/New Window/Close Tab (Rename Tab dropped),
-        // the two splits, Settings, and the six launcher items (Close Pane
-        // hidden single-pane).
+        // the two splits, New/Rename/Close Workspace, Settings, and the six
+        // launcher items (Close Pane hidden single-pane).
         assert_eq!(m.focused, m.item_count() - 1);
-        assert_eq!(m.item_count(), 17);
+        assert_eq!(m.item_count(), 20);
         m.handle_input(OverlayInput::Down);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Down);
@@ -1566,10 +1583,10 @@ mod tests {
     #[test]
     fn settings_always_activates() {
         let mut m = menu(false, false);
-        // With no selection Settings sits at body row 10 (2 editing anchors +
-        // sep + 3 tab actions + sep + 2 splits + sep = row 10).
+        // With no selection Settings sits at body row 14 (2 editing anchors +
+        // sep + 3 tab actions + sep + 2 splits + sep + 3 workspace + sep = 14).
         assert_eq!(
-            m.handle_press(10, m.body_row_count(), PointerButton::Left),
+            m.handle_press(14, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::Settings)
         );
     }
@@ -1578,12 +1595,13 @@ mod tests {
     fn single_pane_menu_hides_close_pane() {
         // Single-pane, no selection: Close Pane is absent; Copy/Cut/Delete are
         // hidden (no selection) and Rename Tab is dropped, so the content menu is
-        // 14 items / 18 body rows — Paste/Select All · New Tab/New Window/Close
-        // Tab · the two splits · Settings · the six launcher items.
+        // 17 items / 22 body rows — Paste/Select All · New Tab/New Window/Close
+        // Tab · the two splits · New/Rename/Close Workspace · Settings · the six
+        // launcher items.
         let m = menu(false, false);
-        assert_eq!(m.item_count(), 14);
+        assert_eq!(m.item_count(), 17);
         let rows = m.rows();
-        assert_eq!(rows.len(), 18);
+        assert_eq!(rows.len(), 22);
         assert!(
             !rows.iter().any(|r| matches!(
                 r,
@@ -1597,29 +1615,32 @@ mod tests {
         assert_eq!(rows[3], item("New Tab", false, true));
         assert_eq!(rows[4], item("New Window", false, true));
         assert_eq!(rows[5], item("Close Tab", false, true));
+        assert_eq!(rows[10], item("New Workspace", false, true));
+        assert_eq!(rows[11], item("Rename Workspace", false, true));
+        assert_eq!(rows[12], item("Close Workspace", false, true));
         assert_eq!(
-            rows[10],
+            rows[14],
             item("Settings", false, true),
-            "Settings sits at body row 10 (no selection, Rename Tab dropped)"
+            "Settings sits at body row 14 (no selection, workspace section added)"
         );
-        assert_eq!(rows[11], ContextMenuRow::Separator);
-        assert_eq!(rows[12], item("Keyboard Shortcuts", false, true));
-        assert_eq!(rows[13], item("Connection Manager", false, true));
-        assert_eq!(rows[14], item("Command Palette", false, true));
-        assert_eq!(rows[15], item("Session Replay", false, true));
-        assert_eq!(rows[16], item("Manage Sessions", false, true));
-        assert_eq!(rows[17], item("Detach & switch", false, true));
+        assert_eq!(rows[15], ContextMenuRow::Separator);
+        assert_eq!(rows[16], item("Keyboard Shortcuts", false, true));
+        assert_eq!(rows[17], item("Connection Manager", false, true));
+        assert_eq!(rows[18], item("Command Palette", false, true));
+        assert_eq!(rows[19], item("Session Replay", false, true));
+        assert_eq!(rows[20], item("Manage Sessions", false, true));
+        assert_eq!(rows[21], item("Detach & switch", false, true));
     }
 
     #[test]
     fn no_path_menu_hides_the_file_section() {
         // C3: with no resolved path under the click, the four file items are
-        // absent and the layout is the 18-row single-pane content menu (no
+        // absent and the layout is the 22-row single-pane content menu (no
         // selection). This is the no-file-section guarantee.
         let m = menu(false, false);
-        assert_eq!(m.item_count(), 14);
+        assert_eq!(m.item_count(), 17);
         let rows = m.rows();
-        assert_eq!(rows.len(), 18);
+        assert_eq!(rows.len(), 22);
         for label in ["Open", "Copy Path", "Copy File", "Reveal in File Manager"] {
             assert!(
                 !rows.iter().any(|r| matches!(
@@ -1882,17 +1903,17 @@ mod tests {
     #[test]
     fn multi_pane_menu_shows_close_pane_in_the_split_section() {
         // Multi-pane: Close Pane appears after Split Down in the split/pane
-        // section; the third separator and Settings shift down one row, and the
-        // v0.3.1 launcher section follows below Settings.
-        // Multi-pane, no selection: 15 items / 19 body rows. Paste/Select All ·
+        // section; the workspace section, Settings, and the v0.3.1 launcher
+        // section follow below.
+        // Multi-pane, no selection: 18 items / 23 body rows. Paste/Select All ·
         // New Tab/New Window/Close Tab · Split Right/Split Down/Close Pane ·
-        // Settings · six launcher items.
+        // New/Rename/Close Workspace · Settings · six launcher items.
         let m = multipane_menu();
-        assert_eq!(m.item_count(), 15);
+        assert_eq!(m.item_count(), 18);
         let rows = m.rows();
         assert_eq!(
             rows.len(),
-            19,
+            23,
             "one more row than the single-pane content menu"
         );
         assert_eq!(rows[7], item("Split Right", false, true));
@@ -1903,18 +1924,22 @@ mod tests {
             "Close Pane sits at body row 9, alongside the splits"
         );
         assert_eq!(rows[10], ContextMenuRow::Separator);
+        assert_eq!(rows[11], item("New Workspace", false, true));
+        assert_eq!(rows[12], item("Rename Workspace", false, true));
+        assert_eq!(rows[13], item("Close Workspace", false, true));
+        assert_eq!(rows[14], ContextMenuRow::Separator);
         assert_eq!(
-            rows[11],
+            rows[15],
             item("Settings", false, true),
-            "Settings sits at body row 11 in the multi-pane content menu"
+            "Settings sits at body row 15 in the multi-pane content menu"
         );
-        assert_eq!(rows[12], ContextMenuRow::Separator);
-        assert_eq!(rows[13], item("Keyboard Shortcuts", false, true));
-        assert_eq!(rows[14], item("Connection Manager", false, true));
-        assert_eq!(rows[15], item("Command Palette", false, true));
-        assert_eq!(rows[16], item("Session Replay", false, true));
-        assert_eq!(rows[17], item("Manage Sessions", false, true));
-        assert_eq!(rows[18], item("Detach & switch", false, true));
+        assert_eq!(rows[16], ContextMenuRow::Separator);
+        assert_eq!(rows[17], item("Keyboard Shortcuts", false, true));
+        assert_eq!(rows[18], item("Connection Manager", false, true));
+        assert_eq!(rows[19], item("Command Palette", false, true));
+        assert_eq!(rows[20], item("Session Replay", false, true));
+        assert_eq!(rows[21], item("Manage Sessions", false, true));
+        assert_eq!(rows[22], item("Detach & switch", false, true));
     }
 
     #[test]
@@ -1930,13 +1955,13 @@ mod tests {
     #[test]
     fn multi_pane_focus_wraps_through_all_items() {
         // Up from item 0 wraps to the last visible item (Detach & switch, index
-        // 14), proving Close Pane is in the focus cycle only when multi-pane and
-        // the launcher items extend the cycle.
+        // 17), proving Close Pane is in the focus cycle only when multi-pane and
+        // the workspace + launcher items extend the cycle.
         let mut m = multipane_menu();
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
-        assert_eq!(m.focused, 14);
-        assert_eq!(m.item_count(), 15);
+        assert_eq!(m.focused, 17);
+        assert_eq!(m.item_count(), 18);
     }
 
     #[test]
@@ -1970,10 +1995,10 @@ mod tests {
             m.handle_hover(Some(sep), m.body_row_count());
             assert_eq!(m.focused, 2, "separator hover is inert");
         }
-        // Hovering Settings (body row 13, item index 10 in the with-selection
-        // reference) focuses it.
-        m.handle_hover(Some(13), m.body_row_count());
-        assert_eq!(m.focused, 10, "hover Settings focuses it");
+        // Hovering Settings (body row 17, item index 13 in the with-selection
+        // reference — the workspace section now sits above Settings) focuses it.
+        m.handle_hover(Some(17), m.body_row_count());
+        assert_eq!(m.focused, 13, "hover Settings focuses it");
     }
 
     #[test]
@@ -2130,7 +2155,12 @@ mod tests {
         assert_eq!(rows[10], item("Split Right", false, true));
         assert_eq!(rows[11], item("Split Down", false, true));
         assert_eq!(rows[12], ContextMenuRow::Separator);
-        assert_eq!(rows[13], item("Settings", false, true));
+        // Workspace section sits between Split and Settings.
+        assert_eq!(rows[13], item("New Workspace", false, true));
+        assert_eq!(rows[14], item("Rename Workspace", false, true));
+        assert_eq!(rows[15], item("Close Workspace", false, true));
+        assert_eq!(rows[16], ContextMenuRow::Separator);
+        assert_eq!(rows[17], item("Settings", false, true));
     }
 
     #[test]
@@ -2408,13 +2438,15 @@ mod tests {
 
     #[test]
     fn tab_strip_empty_menu_is_minimal() {
-        // F7: an empty-strip right-click opens New Tab · Command Palette ·
-        // Settings, with one separator between New Tab and the two launchers.
+        // F7: an empty-strip right-click opens New Tab · New Workspace ·
+        // Command Palette · Settings, with one separator between the creation
+        // group (New Tab / New Workspace) and the two launchers.
         let m = open_surface(ContextMenuSurface::TabStripEmpty, true);
         assert_eq!(
             m.rows(),
             vec![
                 item("New Tab", true, true),
+                item("New Workspace", false, true),
                 ContextMenuRow::Separator,
                 item("Command Palette", false, true),
                 item("Settings", false, true),
@@ -2446,8 +2478,11 @@ mod tests {
     }
 
     #[test]
-    fn workspace_actions_never_leak_onto_the_content_menu() {
-        // The workspace items are rail-scoped: the content menu never lists them.
+    fn workspace_actions_appear_on_the_content_menu() {
+        // The content menu carries a workspace section (New / Rename / Close
+        // Workspace) after the split section, before Settings. Rename/Close
+        // target the active workspace (the content surface has no per-workspace
+        // click target).
         let m = open_surface(ContextMenuSurface::Content, true);
         let labels: Vec<&str> = m
             .rows()
@@ -2457,12 +2492,20 @@ mod tests {
                 ContextMenuRow::Separator => None,
             })
             .collect();
-        for banned in ["New Workspace", "Rename Workspace", "Close Workspace"] {
+        for expected in ["New Workspace", "Rename Workspace", "Close Workspace"] {
             assert!(
-                !labels.contains(&banned),
-                "content menu must not contain {banned:?}"
+                labels.contains(&expected),
+                "content menu must contain {expected:?}"
             );
         }
+        // They sit after the split section and before Settings.
+        let split = labels.iter().position(|l| *l == "Split Right").unwrap();
+        let new_ws = labels.iter().position(|l| *l == "New Workspace").unwrap();
+        let settings = labels.iter().position(|l| *l == "Settings").unwrap();
+        assert!(
+            split < new_ws && new_ws < settings,
+            "workspace section sits between Split and Settings"
+        );
     }
 
     #[test]
@@ -2515,6 +2558,7 @@ mod tests {
         assert_eq!(body_row_to_item(CONTEXT_MENU_SECOND_SEPARATOR_ROW), None);
         assert_eq!(body_row_to_item(CONTEXT_MENU_THIRD_SEPARATOR_ROW), None);
         assert_eq!(body_row_to_item(CONTEXT_MENU_FOURTH_SEPARATOR_ROW), None);
+        assert_eq!(body_row_to_item(CONTEXT_MENU_FIFTH_SEPARATOR_ROW), None);
         // Tab actions (5-7: New Tab / New Window / Close Tab — Rename Tab dropped)
         // shift past the first separator.
         assert_eq!(item_to_body_row(5), 6);
@@ -2528,11 +2572,16 @@ mod tests {
         assert_eq!(body_row_to_item(10), Some(8));
         assert_eq!(item_to_body_row(9), 11);
         assert_eq!(body_row_to_item(11), Some(9));
-        // Settings (10) shifts past the first three separators.
+        // Workspace actions (10-12) shift past the first three separators.
         assert_eq!(item_to_body_row(10), 13);
         assert_eq!(body_row_to_item(13), Some(10));
-        // A launcher item (11) shifts past all four separators.
-        assert_eq!(item_to_body_row(11), 15);
-        assert_eq!(body_row_to_item(15), Some(11));
+        assert_eq!(item_to_body_row(12), 15);
+        assert_eq!(body_row_to_item(15), Some(12));
+        // Settings (13) shifts past the first four separators.
+        assert_eq!(item_to_body_row(13), 17);
+        assert_eq!(body_row_to_item(17), Some(13));
+        // A launcher item (14) shifts past all five separators.
+        assert_eq!(item_to_body_row(14), 19);
+        assert_eq!(body_row_to_item(19), Some(14));
     }
 }

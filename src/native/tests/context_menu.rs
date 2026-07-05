@@ -9,8 +9,9 @@
 //! `context_menu_ui`.
 
 use super::super::context_menu_ui::{
-    CONTEXT_MENU_BODY_ROWS, CONTEXT_MENU_FOURTH_SEPARATOR_ROW, CONTEXT_MENU_SECOND_SEPARATOR_ROW,
-    CONTEXT_MENU_SEPARATOR_ROW, CONTEXT_MENU_THIRD_SEPARATOR_ROW, ContextMenuRow, ContextMenuUi,
+    CONTEXT_MENU_BODY_ROWS, CONTEXT_MENU_FIFTH_SEPARATOR_ROW, CONTEXT_MENU_FOURTH_SEPARATOR_ROW,
+    CONTEXT_MENU_SECOND_SEPARATOR_ROW, CONTEXT_MENU_SEPARATOR_ROW,
+    CONTEXT_MENU_THIRD_SEPARATOR_ROW, ContextMenuRow, ContextMenuUi,
 };
 use super::super::pty::UserEvent;
 use super::super::session::{Session, SessionToken, WorkspaceSet};
@@ -255,23 +256,53 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
             ..
         }
     ));
+    // Workspace section: after Split, before Settings, bracketed by the third
+    // (split|workspace) and fourth (workspace|Settings) separators.
     assert!(matches!(
         rows[13],
+        ContextMenuRow::Item {
+            label: "New Workspace",
+            enabled: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[14],
+        ContextMenuRow::Item {
+            label: "Rename Workspace",
+            enabled: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[15],
+        ContextMenuRow::Item {
+            label: "Close Workspace",
+            enabled: true,
+            ..
+        }
+    ));
+    assert!(matches!(
+        rows[CONTEXT_MENU_FOURTH_SEPARATOR_ROW],
+        ContextMenuRow::Separator
+    ));
+    assert!(matches!(
+        rows[17],
         ContextMenuRow::Item {
             label: "Settings",
             enabled: true,
             ..
         }
     ));
-    // v0.3.1 launcher section: a fourth separator, then the always-enabled
+    // v0.3.1 launcher section: a fifth separator, then the always-enabled
     // launcher items below Settings.
     assert!(matches!(
-        rows[CONTEXT_MENU_FOURTH_SEPARATOR_ROW],
+        rows[CONTEXT_MENU_FIFTH_SEPARATOR_ROW],
         ContextMenuRow::Separator
     ));
     // F3: Keyboard Shortcuts is the first launcher item, right below Settings.
     assert!(matches!(
-        rows[15],
+        rows[19],
         ContextMenuRow::Item {
             label: "Keyboard Shortcuts",
             enabled: true,
@@ -279,7 +310,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[16],
+        rows[20],
         ContextMenuRow::Item {
             label: "Connection Manager",
             enabled: true,
@@ -287,7 +318,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[17],
+        rows[21],
         ContextMenuRow::Item {
             label: "Command Palette",
             enabled: true,
@@ -295,7 +326,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[18],
+        rows[22],
         ContextMenuRow::Item {
             label: "Session Replay",
             enabled: true,
