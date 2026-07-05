@@ -177,6 +177,23 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.close_workspace_at(self.sessions.active_workspace_index());
             }
+            // ODP-6B: bind the active workspace to a host. The menu closed
+            // itself; open the shared host picker (ODP-1B) seeded for binding.
+            OverlayOutcome::ContextMenuBindWorkspace => {
+                self.flush_pending_overlay_settings();
+                self.open_bind_workspace_picker();
+            }
+            // ODP-6B: unbind the active workspace directly (no host choice).
+            OverlayOutcome::ContextMenuUnbindWorkspace => {
+                self.flush_pending_overlay_settings();
+                self.unbind_active_workspace();
+            }
+            // ODP-1B/6B: the shared host picker closed itself before emitting
+            // this; bind the active workspace to the chosen saved-host alias.
+            OverlayOutcome::BindWorkspaceToHost(alias) => {
+                self.flush_pending_overlay_settings();
+                self.bind_active_workspace_to_host_alias(alias);
+            }
             OverlayOutcome::ContextMenuCloseTab => {
                 self.flush_pending_overlay_settings();
                 let _ = self.close_active_tab();

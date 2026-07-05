@@ -48,6 +48,30 @@ pub(super) struct ConnectionOverlay {
     /// The last body height the render pass saw, so keyboard nav (which has no
     /// body height) can re-follow the selection through the same math.
     last_body_height: Cell<usize>,
+    /// What accepting a row does (ODP-1B). Default `Connect` is the connection
+    /// manager; a tagged purpose makes this the same list a shared picker for a
+    /// pending menu action. Reset on every `open`.
+    purpose: ConnectionPickerPurpose,
+}
+
+/// What accepting a row in the connection picker means (ODP-1B shared picker
+/// infra). `Connect` is the historical connection-manager behavior: the picker
+/// is the connect surface, so accept spawns ssh (and Shift+Enter optionally
+/// saves an ad-hoc host). The tagged variants turn the SAME filtered host list
+/// into the generic "menu item → seeded picker → tagged accept" mechanism: a
+/// context-menu item opens the picker seeded with saved hosts plus a pending
+/// action, and accepting a row hands the App the chosen host paired with that
+/// action to route — instead of connecting. New consumers (tab "Connect to
+/// host", connection-row actions) add their own variant when they land; the
+/// mechanism does not change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum ConnectionPickerPurpose {
+    /// The connection manager: accept connects; ad-hoc save is offered.
+    #[default]
+    Connect,
+    /// Bind the active workspace to the chosen saved host (ODP-6B). Ad-hoc /
+    /// unsaved rows are not offered — a workspace binds by saved-host alias.
+    BindWorkspace,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,6 +85,10 @@ pub(super) enum ConnectionOverlayOutcome {
     /// host and asked to save it: the App connects AND appends a `Host` block to
     /// `hosts.conf`. Carried only from the synthetic "Connect to: …" row.
     ConnectAndSave(Box<ConnectionHost>),
+    /// The user accepted a saved host while the picker was opened for a tagged
+    /// pending action (ODP-1B). The App routes the chosen host per the purpose
+    /// rather than connecting. Never emitted in the default `Connect` purpose.
+    Pick(Box<ConnectionHost>, ConnectionPickerPurpose),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,12 +114,35 @@ impl ConnectionOverlay {
     /// Load a frozen set of connection candidates and reset the query/cursor.
     /// The list is owned by the overlay, so it stays stable while open even if
     /// the underlying files change.
+    /// Open the connection manager (the default `Connect` purpose). Test-only:
+    /// production opens through the App/overlay via [`Self::open_for_purpose`],
+    /// which threads the picker purpose.
+    #[cfg(test)]
     pub(super) fn open(&mut self, entries: Vec<ConnectionHost>) {
+        self.open_for_purpose(entries, ConnectionPickerPurpose::Connect);
+    }
+
+    /// Load a frozen candidate set for a tagged pending action (ODP-1B). The
+    /// list/filter/cursor behavior is identical to [`Self::open`]; only the
+    /// meaning of accept differs (see [`ConnectionPickerPurpose`]).
+    pub(super) fn open_for_purpose(
+        &mut self,
+        entries: Vec<ConnectionHost>,
+        purpose: ConnectionPickerPurpose,
+    ) {
         self.entries = entries;
         self.query.clear();
         self.selected = 0;
+        self.purpose = purpose;
         self.reset_scroll();
         self.recompute();
+    }
+
+    /// Whether the ad-hoc "Connect to: …" affordance is offered. Only the
+    /// connection-manager (`Connect`) purpose connects to an unsaved host; a
+    /// bind picker offers saved hosts only, so it shows the plain "No matches".
+    fn allows_adhoc(&self) -> bool {
+        matches!(self.purpose, ConnectionPickerPurpose::Connect)
     }
 
     #[cfg(test)]
@@ -176,19 +227,31 @@ impl ConnectionOverlay {
                 self.follow_selection_for_known_body_height();
                 ConnectionOverlayOutcome::Consumed
             }
-            OverlayInput::Activate => match self.selected_entry() {
-                Some(entry) => ConnectionOverlayOutcome::Connect(Box::new(entry.clone())),
-                // No saved row is selected — offer the ad-hoc connect when the
-                // query is a well-formed destination.
-                None => match self.adhoc_target() {
-                    Some(host) => ConnectionOverlayOutcome::Connect(Box::new(host)),
+            OverlayInput::Activate => match self.purpose {
+                // Connection manager: accept a saved row, else offer the ad-hoc
+                // connect when the query is a well-formed destination.
+                ConnectionPickerPurpose::Connect => match self.selected_entry() {
+                    Some(entry) => ConnectionOverlayOutcome::Connect(Box::new(entry.clone())),
+                    None => match self.adhoc_target() {
+                        Some(host) => ConnectionOverlayOutcome::Connect(Box::new(host)),
+                        None => ConnectionOverlayOutcome::Consumed,
+                    },
+                },
+                // Tagged pending action: only a saved host is acceptable (a
+                // workspace binds by saved-host alias), so an empty selection is
+                // inert. The App routes the pick per the purpose.
+                ConnectionPickerPurpose::BindWorkspace => match self.selected_entry() {
+                    Some(entry) => {
+                        ConnectionOverlayOutcome::Pick(Box::new(entry.clone()), self.purpose)
+                    }
                     None => ConnectionOverlayOutcome::Consumed,
                 },
             },
             // Shift+Enter (ActivateAlt) or Ctrl+S (Save) on the synthetic ad-hoc
-            // row = connect AND append the host to hosts.conf. On a saved row it
-            // is inert (the host is already saved). Ctrl+S is the Windows-safe
-            // alternative to Shift+Enter and behaves identically here.
+            // row = connect AND append the host to hosts.conf. On a saved row, in
+            // a bind picker, or when the query is not ad-hoc it is inert. Ctrl+S
+            // is the Windows-safe alternative to Shift+Enter and behaves
+            // identically here.
             OverlayInput::ActivateAlt | OverlayInput::Save => {
                 if self.selected_entry().is_none()
                     && let Some(host) = self.adhoc_target()
@@ -210,7 +273,7 @@ impl ConnectionOverlay {
     /// parse as `[user@]host[:port]`. Only meaningful when the filtered list is
     /// empty — a query that fuzzy-matches a saved row never offers ad-hoc.
     fn adhoc_target(&self) -> Option<ConnectionHost> {
-        if !self.filtered.is_empty() {
+        if !self.allows_adhoc() || !self.filtered.is_empty() {
             return None;
         }
         parse_adhoc_target(&self.query).map(|target| target.to_connection_host())
@@ -252,7 +315,7 @@ impl ConnectionOverlay {
         if body_height > 1
             && row_in_body == 1
             && self.filtered.is_empty()
-            && parse_adhoc_target(&self.query).is_some()
+            && self.adhoc_target().is_some()
         {
             return true;
         }
@@ -302,8 +365,13 @@ impl ConnectionOverlay {
             self.scroll_offset.set(0);
             // When the query is a well-formed `[user@]host[:port]` that matches
             // no saved host, offer an ad-hoc connect row in place of "No
-            // matches" — with a key hint so both actions are discoverable.
-            if let Some(target) = parse_adhoc_target(&self.query) {
+            // matches" — with a key hint so both actions are discoverable. A
+            // bind picker (no ad-hoc) always shows the plain "No matches".
+            if let Some(target) = self
+                .allows_adhoc()
+                .then(|| parse_adhoc_target(&self.query))
+                .flatten()
+            {
                 lines.push(ConnectionOverlayLine {
                     text: truncate_for_width(
                         &format!("Connect to: {}", target.display()),
@@ -737,6 +805,53 @@ mod tests {
         assert!(!overlay.click_row(0, 10), "query prompt inert");
         assert!(overlay.click_row(1, 10), "connect row is clickable");
         assert!(!overlay.click_row(2, 10), "hint row inert");
+    }
+
+    // ── ODP-1B shared picker: bind purpose ─────────────────────────────────
+
+    fn open_for_bind(entries: Vec<ConnectionHost>) -> ConnectionOverlay {
+        let mut overlay = ConnectionOverlay::new();
+        overlay.open_for_purpose(entries, ConnectionPickerPurpose::BindWorkspace);
+        overlay
+    }
+
+    #[test]
+    fn bind_purpose_accept_emits_pick_not_connect() {
+        // A tagged bind picker returns Pick(host, BindWorkspace) on accept, so
+        // the App binds the workspace instead of spawning a connection.
+        let mut overlay = open_for_bind(entries());
+        overlay.handle_input(OverlayInput::Down); // select db-primary
+        let ConnectionOverlayOutcome::Pick(host, purpose) =
+            overlay.handle_input(OverlayInput::Activate)
+        else {
+            panic!("bind purpose must emit Pick");
+        };
+        assert_eq!(host.alias, "db-primary");
+        assert_eq!(purpose, ConnectionPickerPurpose::BindWorkspace);
+    }
+
+    #[test]
+    fn bind_purpose_suppresses_adhoc_row_and_save() {
+        // A bind picker never offers the ad-hoc "Connect to: …" row (a workspace
+        // binds by saved-host alias), and Shift+Enter / Ctrl+S are inert.
+        let mut overlay = open_for_bind(entries());
+        type_query(&mut overlay, "host.example.invalid");
+        assert_eq!(overlay.render_signature().results_len, 0);
+        let lines = overlay.visible_lines(80, 10);
+        assert!(lines[1].text.contains("No matches"));
+        assert!(!lines[1].text.contains("Connect to"));
+        // No selectable row → Activate and the save inputs are all inert.
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            ConnectionOverlayOutcome::Consumed
+        );
+        for input in [OverlayInput::ActivateAlt, OverlayInput::Save] {
+            assert_eq!(
+                overlay.handle_input(input),
+                ConnectionOverlayOutcome::Consumed
+            );
+        }
+        assert!(!overlay.click_row(1, 10), "no ad-hoc row to click");
     }
 
     #[test]

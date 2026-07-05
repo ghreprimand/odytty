@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-05 -- Shared host picker: bind a workspace to a host from the right-click menu
+
+Reaching a saved remote host used to mean the command palette or a hand-edited
+config. A shared picker mechanism now lets a menu item open a seeded,
+type-to-filter host list and route the chosen host to a pending action, rather
+than always connecting.
+
+**Menu item → seeded picker → tagged accept.** The connection list gained a
+purpose tag: opened the usual way it is the connection manager (accept connects,
+Shift+Enter saves an ad-hoc host); opened for a pending action it becomes a
+generic picker — accepting a saved host hands that host back paired with the
+action to perform. The list, fuzzy filter, scrolling, and mouse/keyboard
+handling are the existing connection overlay, so no second picker was built. A
+bind picker offers saved hosts only (a workspace binds by alias), so the ad-hoc
+"Connect to: …" row and its save keys are suppressed there; Esc cancels straight
+back to the terminal, not back to the menu.
+
+**First consumer: bind a workspace to a host.** The content-grid workspace
+section now shows **Bind to Host…** when the active workspace is local and
+**Unbind from Host** when it is bound — exactly one of the pair, keyed to the
+bind state. Bind opens the shared host picker; accepting a host routes every new
+tab in that workspace through the SSH connect path (with *New Local Tab* as the
+escape hatch) and raises the same one-line notice the palette bind does. Unbind
+clears the binding directly. The picker mechanism is generic: further consumers
+(a tab "Connect to host" verb, connection-row actions, a named workspace-move
+picker) ride the same path.
+
+Windows: platform-neutral — the picker, menu, and bind routing are pure UI over
+the same `ssh.exe` connect path; no ControlPath or platform branch.
+
+---
+
 ## 2026-07-05 -- Split settings rows into name and value click zones
 
 Clicking a compact setting row now depends on where the click lands. The

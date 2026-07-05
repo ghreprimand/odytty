@@ -103,10 +103,32 @@ impl App {
         let Some(host) = self.load_connection_entries().into_iter().nth(idx) else {
             return;
         };
-        let alias = host.alias;
+        self.bind_active_workspace_to_host_alias(host.alias);
+    }
+
+    /// Bind the active workspace to a host by its alias (ODP-6B). Shared tail of
+    /// the palette index path and the ODP-1B host-picker path; a one-line notice
+    /// spells out what the binding changes (every new tab/pane spawns on the
+    /// remote; "New Local Tab" is the escape hatch).
+    pub(in crate::native) fn bind_active_workspace_to_host_alias(&mut self, alias: String) {
         self.sessions
             .set_active_workspace_default_profile(Some(alias.clone()));
         self.raise_open_notice(workspace_bound_notice(&alias));
+    }
+
+    /// Open the shared host picker (ODP-1B) seeded for binding the active
+    /// workspace (ODP-6B). Reuses the connection-manager list — the same
+    /// OdyTTY-owned hosts plus any opt-in ssh-config names — with a tagged
+    /// purpose so accepting a row binds instead of connecting. With no saved
+    /// hosts the picker still opens and shows its empty-state hint.
+    pub(in crate::native) fn open_bind_workspace_picker(&mut self) {
+        let entries = self.load_connection_entries();
+        self.reset_pointer_state_for_overlay();
+        self.overlay.open_connections_for_purpose(
+            entries,
+            crate::native::connection_overlay::ConnectionPickerPurpose::BindWorkspace,
+        );
+        self.request_selection_redraw();
     }
 
     /// Clear the active workspace's host binding (F6-W5), returning New Tab there

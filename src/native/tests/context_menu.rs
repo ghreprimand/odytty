@@ -146,11 +146,27 @@ fn app_with_recording_writer_and_terminal(
 /// would silently drift onto the wrong item.
 fn click_menu_item(app: &mut App, needle: &str) {
     let (cols, rows) = app.grid_dims_for_test();
-    let rendered = app.render_overlay_rows_for_test(cols, rows);
-    let grid_row = rendered
-        .iter()
-        .position(|line| line.contains(needle))
-        .unwrap_or_else(|| panic!("menu item {needle:?} not visible in {rendered:?}"));
+    // On a short grid the menu is taller than the viewport and scrolls, so a
+    // bottom item (e.g. Detach & switch) is not rendered at the initial scroll
+    // offset. Drive focus down until the needle scrolls into view, bounded by
+    // the visible item count so a genuinely-absent item still panics.
+    let mut grid_row = None;
+    // Bounded by the total body-row count — a genuinely-absent needle still
+    // panics after exhausting every scroll position.
+    for _ in 0..=CONTEXT_MENU_BODY_ROWS {
+        let rendered = app.render_overlay_rows_for_test(cols, rows);
+        if let Some(row) = rendered.iter().position(|line| line.contains(needle)) {
+            grid_row = Some(row);
+            break;
+        }
+        app.drive_overlay_key_for_test(
+            winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
+            false,
+            false,
+        );
+    }
+    let grid_row = grid_row
+        .unwrap_or_else(|| panic!("menu item {needle:?} not visible after scrolling the menu"));
     let rect = app.overlay_rect_for_test().expect("context menu open");
     app.set_pointer_cell_for_test(grid_row, rect.body_left);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
@@ -282,12 +298,22 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
             ..
         }
     ));
+    // ODP-6B: an unbound workspace shows Bind to Host as the workspace section's
+    // last row, right before the workspace|Settings separator.
+    assert!(matches!(
+        rows[16],
+        ContextMenuRow::Item {
+            label: "Bind to Host\u{2026}",
+            enabled: true,
+            ..
+        }
+    ));
     assert!(matches!(
         rows[CONTEXT_MENU_FOURTH_SEPARATOR_ROW],
         ContextMenuRow::Separator
     ));
     assert!(matches!(
-        rows[17],
+        rows[18],
         ContextMenuRow::Item {
             label: "Settings",
             enabled: true,
@@ -302,7 +328,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
     ));
     // F3: Keyboard Shortcuts is the first launcher item, right below Settings.
     assert!(matches!(
-        rows[19],
+        rows[20],
         ContextMenuRow::Item {
             label: "Keyboard Shortcuts",
             enabled: true,
@@ -310,7 +336,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[20],
+        rows[21],
         ContextMenuRow::Item {
             label: "Connection Manager",
             enabled: true,
@@ -318,7 +344,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[21],
+        rows[22],
         ContextMenuRow::Item {
             label: "Command Palette",
             enabled: true,
@@ -326,7 +352,7 @@ fn context_menu_rows_include_tab_split_items_and_three_separators() {
         }
     ));
     assert!(matches!(
-        rows[22],
+        rows[23],
         ContextMenuRow::Item {
             label: "Session Replay",
             enabled: true,

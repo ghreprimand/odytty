@@ -12,6 +12,7 @@ use winit::keyboard::{Key as WinitKey, NamedKey};
 
 use super::connection_overlay::{
     ConnectionOverlay, ConnectionOverlayLine, ConnectionOverlayOutcome, ConnectionOverlaySignature,
+    ConnectionPickerPurpose,
 };
 use super::context_menu_ui::{
     CONTEXT_MENU_ITEMS, ContextMenuItem, ContextMenuOutcome, ContextMenuSignature, ContextMenuUi,
@@ -267,9 +268,20 @@ impl OverlayUi {
     /// empty when no hosts are configured, in which case the overlay shows a
     /// hint rather than failing to open.
     pub(super) fn open_connections(&mut self, entries: Vec<ConnectionHost>) {
+        self.open_connections_for_purpose(entries, ConnectionPickerPurpose::Connect);
+    }
+
+    /// Open the connection list as a shared picker for a tagged pending action
+    /// (ODP-1B). Identical presentation to [`Self::open_connections`]; only the
+    /// meaning of accept differs (the App routes the pick per the purpose).
+    pub(super) fn open_connections_for_purpose(
+        &mut self,
+        entries: Vec<ConnectionHost>,
+        purpose: ConnectionPickerPurpose,
+    ) {
         self.panel.end_slider_drag();
         self.theme_builder.end_channel_drag();
-        self.connections.open(entries);
+        self.connections.open_for_purpose(entries, purpose);
         self.mode = OverlayMode::Connections;
         self.open = true;
     }
@@ -781,6 +793,14 @@ impl OverlayUi {
                         }
                         _ => OverlayOutcome::Consumed,
                     },
+                    // ODP-6B: bind the active workspace to a host. The menu
+                    // closed itself; the App opens the shared host picker seeded
+                    // for the BindWorkspace purpose (ODP-1B). Unbind is direct —
+                    // no host choice needed.
+                    ContextMenuItem::BindWorkspaceToHost => {
+                        OverlayOutcome::ContextMenuBindWorkspace
+                    }
+                    ContextMenuItem::UnbindWorkspace => OverlayOutcome::ContextMenuUnbindWorkspace,
                     // NF-F7-1: a Close Tab chosen from a specific tab slot closes
                     // THAT tab, not the active one. The Content surface (no
                     // TabSlot token) keeps the active-tab close.
@@ -1712,6 +1732,20 @@ impl OverlayUi {
                 self.close();
                 OverlayOutcome::ConnectAndSave(host)
             }
+            // ODP-1B shared picker: a tagged pick routes per its purpose. Close
+            // first (same reason as Connect), then hand the App the chosen host.
+            ConnectionOverlayOutcome::Pick(host, purpose) => {
+                self.close();
+                match purpose {
+                    ConnectionPickerPurpose::BindWorkspace => {
+                        OverlayOutcome::BindWorkspaceToHost(host.alias)
+                    }
+                    // The default purpose never emits Pick (it emits Connect),
+                    // so this arm is unreachable in practice; route it to Close
+                    // defensively rather than panicking.
+                    ConnectionPickerPurpose::Connect => OverlayOutcome::Close,
+                }
+            }
         }
     }
 
@@ -1803,6 +1837,17 @@ pub(super) enum OverlayOutcome {
     ContextMenuRenameActiveWorkspace,
     /// Close the ACTIVE workspace (content-grid menu, no per-workspace target).
     ContextMenuCloseActiveWorkspace,
+    /// Bind the ACTIVE workspace to a host (ODP-6B). The context menu closed
+    /// itself; the App opens the shared host picker (ODP-1B) seeded for the
+    /// BindWorkspace purpose, and the pick emits [`Self::BindWorkspaceToHost`].
+    ContextMenuBindWorkspace,
+    /// Unbind the ACTIVE workspace (ODP-6B), returning its New Tab to a local
+    /// shell. The App clears the binding directly (no host choice needed).
+    ContextMenuUnbindWorkspace,
+    /// Bind the active workspace to the saved host with this alias (ODP-1B/6B).
+    /// Emitted by the shared host picker when opened for the BindWorkspace
+    /// purpose; the App calls the frozen `set_active_workspace_default_profile`.
+    BindWorkspaceToHost(String),
     ContextMenuCloseTab,
     /// Close a specific tab by token from a tab-slot right-click (NF-F7-1). The
     /// overlay has already closed itself; the App reaps the tab that holds
@@ -3382,6 +3427,27 @@ mod tests {
         );
     }
 
+    #[test]
+    fn bind_purpose_picker_accept_emits_bind_outcome() {
+        // ODP-1B/6B: the shared host picker opened for the BindWorkspace purpose
+        // lifts an accepted host into BindWorkspaceToHost(alias) — not Connect —
+        // and closes itself before emitting (like Connect).
+        let mut overlay = OverlayUi::default();
+        overlay.open_connections_for_purpose(
+            vec![connection_host("web1")],
+            ConnectionPickerPurpose::BindWorkspace,
+        );
+        assert!(overlay.is_open());
+        match overlay.handle_input(OverlayInput::Activate) {
+            OverlayOutcome::BindWorkspaceToHost(alias) => assert_eq!(alias, "web1"),
+            other => panic!("expected BindWorkspaceToHost, got {other:?}"),
+        }
+        assert!(
+            !overlay.is_open(),
+            "shared picker must close after a bind pick"
+        );
+    }
+
     /// A synthetic live session for the session-attach overlay tests.
     fn listed_session(id: &str, name: &str) -> ListedSession {
         ListedSession {
@@ -3479,7 +3545,7 @@ mod tests {
             None,
             false,
             None,
-            Default::default(),
+            std::array::from_fn(|_| None),
         );
         // Focus starts at item 0 (Copy); with F7 dropping the content-menu
         // Rename Tab row, Split Right is item index 8.
@@ -3501,7 +3567,7 @@ mod tests {
             None,
             false,
             None,
-            Default::default(),
+            std::array::from_fn(|_| None),
         );
         for _ in 0..9 {
             overlay.handle_input(OverlayInput::Down);
@@ -3532,7 +3598,7 @@ mod tests {
             false,
             crate::native::context_menu_ui::ContextMenuSurface::TabSlot(SessionToken(7)),
             None,
-            Default::default(),
+            std::array::from_fn(|_| None),
         );
         // Focus cycles through items (separators skipped): New Tab(0) Rename
         // Tab(1) Close Tab(2) Close Other Tabs(3) New Window(4).
@@ -3562,7 +3628,7 @@ mod tests {
             false,
             crate::native::context_menu_ui::ContextMenuSurface::TabSlot(SessionToken(2)),
             None,
-            Default::default(),
+            std::array::from_fn(|_| None),
         );
         // Close Other Tabs is item index 3 (New Tab / Rename Tab / Close Tab /
         // Close Other Tabs / New Window).
@@ -3594,7 +3660,7 @@ mod tests {
             false,
             crate::native::context_menu_ui::ContextMenuSurface::TabSlot(SessionToken(5)),
             None,
-            Default::default(),
+            std::array::from_fn(|_| None),
         );
         // Items: New Tab(0) Rename Tab(1) Close Tab(2) Close Other Tabs(3)
         // Move to Next Workspace(4) New Window(5).
@@ -3620,7 +3686,7 @@ mod tests {
             None,
             false,
             None,
-            Default::default(),
+            std::array::from_fn(|_| None),
         );
         // With a selection: Copy(0) Cut(1) Paste(2) Delete(3) Select All(4) sep
         // New Tab(5) New Window(6) Close Tab(7).
@@ -3649,7 +3715,7 @@ mod tests {
             None,
             false,
             None,
-            Default::default(),
+            std::array::from_fn(|_| None),
         );
         for _ in 0..6 {
             overlay.handle_input(OverlayInput::Down);
@@ -3679,7 +3745,7 @@ mod tests {
             None,
             true,
             None,
-            Default::default(),
+            std::array::from_fn(|_| None),
         );
         for _ in 0..10 {
             overlay.handle_input(OverlayInput::Down);
@@ -3701,7 +3767,7 @@ mod tests {
             None,
             false,
             None,
-            Default::default(),
+            std::array::from_fn(|_| None),
         );
         for _ in 0..10 {
             overlay.handle_input(OverlayInput::Down);
@@ -3728,7 +3794,7 @@ mod tests {
                 None,
                 false,
                 None,
-                Default::default(),
+                std::array::from_fn(|_| None),
             );
             overlay
         };
@@ -3747,6 +3813,40 @@ mod tests {
             OverlayOutcome::ContextMenuRenameActiveWorkspace
         );
         assert_eq!(step_to(12), OverlayOutcome::ContextMenuCloseActiveWorkspace);
+        // ODP-6B: an unbound workspace shows Bind to Host at index 13, which
+        // lifts to the "open the shared host picker" outcome.
+        assert_eq!(step_to(13), OverlayOutcome::ContextMenuBindWorkspace);
+    }
+
+    #[test]
+    fn content_menu_bound_workspace_offers_unbind() {
+        // ODP-6B: when the active workspace is bound, the workspace section's
+        // conditional row is Unbind (index 13), lifting to the direct-unbind
+        // outcome (no host picker needed).
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu_with_prompt_editing_hint(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            false,
+            None,
+            false,
+            false,
+            false,
+            true, // bound_workspace
+            crate::native::context_menu_ui::ContextMenuSurface::Content,
+            None,
+            std::array::from_fn(|_| None),
+        );
+        for _ in 0..13 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuUnbindWorkspace
+        );
     }
 
     #[test]
@@ -3774,7 +3874,7 @@ mod tests {
                 None,
                 false,
                 Some(resolved.clone()),
-                Default::default(),
+                std::array::from_fn(|_| None),
             );
             for _ in 0..steps {
                 overlay.handle_input(OverlayInput::Down);
@@ -3819,12 +3919,12 @@ mod tests {
             None,
             false,
             None,
-            Default::default(),
+            std::array::from_fn(|_| None),
         );
-        // 20 visible items single-pane with a selection (F7 dropped the Rename
-        // Tab row; the workspace section adds three); Manage Sessions is index 18
-        // (Detach & switch is last at 19).
-        for _ in 0..18 {
+        // 21 visible items single-pane with a selection (F7 dropped the Rename
+        // Tab row; the workspace section adds three + the Bind to Host row);
+        // Manage Sessions is index 19 (Detach & switch is last at 20).
+        for _ in 0..19 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -3837,9 +3937,10 @@ mod tests {
     #[test]
     fn context_menu_keyboard_shortcuts_opens_key_bindings() {
         // F3: the "Keyboard Shortcuts" launcher item (first after Settings,
-        // visible index 14 single-pane with a selection — the workspace section
-        // shifts the launcher block down by three) activates the key-remap editor
-        // via the same OpenKeyBindings outcome the settings "keybinds" row emits.
+        // visible index 15 single-pane with a selection — the workspace section
+        // plus the Bind to Host row shift the launcher block down by four)
+        // activates the key-remap editor via the same OpenKeyBindings outcome the
+        // settings "keybinds" row emits.
         let mut overlay = OverlayUi::default();
         overlay.open_context_menu(
             CellPoint { row: 0, column: 0 },
@@ -3850,9 +3951,9 @@ mod tests {
             None,
             false,
             None,
-            Default::default(),
+            std::array::from_fn(|_| None),
         );
-        for _ in 0..14 {
+        for _ in 0..15 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
