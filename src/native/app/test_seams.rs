@@ -1503,7 +1503,7 @@ impl App {
     /// a snapshot (skipping only the persistence-file load), so a test can prove
     /// the appended sessions are seeded with the current theme exactly as
     /// [`Self::open_layout`] does. Requires an event-loop proxy (real spawn).
-    #[cfg(test)]
+    #[cfg(all(test, not(target_os = "macos")))]
     pub(in crate::native) fn append_snapshot_for_test(
         &mut self,
         snapshot: &crate::native::persistence::ShapeSnapshot,

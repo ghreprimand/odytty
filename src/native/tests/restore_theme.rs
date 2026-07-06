@@ -17,7 +17,9 @@
 //! (the proxy-backed one is skipped where no PTY / off-main-thread winit
 //! `EventLoop` is available, as elsewhere in the suite).
 
+#[cfg(not(target_os = "macos"))]
 use super::super::pty::UserEvent;
+#[cfg(not(target_os = "macos"))]
 use super::super::session::{RestoreReport, Session, SessionToken, WorkspaceSet};
 use super::*;
 use crate::core::RgbColor;

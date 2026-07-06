@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Platform-gated the restore-theme test imports and seam
+
+The RESTORE-THEME regression suite carries a proxy-backed test that needs a
+real PTY and an off-main-thread winit `EventLoop`, so it is skipped where that
+is unavailable — macOS among them. Its imports (`UserEvent` and the session
+types) and the `append_snapshot_for_test` seam were left ungated, so on the
+skipped platform they had no consumer and tripped the deny-by-default
+unused-import and dead-code lints. The imports now carry the same
+`not(target_os = "macos")` gate as the test that uses them, and the seam is
+`cfg(all(test, not(target_os = "macos")))`. No behavior change on any
+platform; the always-run model-state sweep test is untouched.
+
+---
+
 ## 2026-07-06 -- Layout saving: overwrite prompt, whole-app save on the rail, and pristine-workspace consume
 
 Three rough edges in named-layout saving are smoothed.
