@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Connection form: IdentityFile field advertises its key browser
+
+The IdentityFile field in the Add/Edit connection form opens a `~/.ssh` key
+browser on Enter, but when the field was empty its value slot rendered blank —
+the browse affordance was announced only in the focused-row help footer, and
+the field sits behind the Advanced disclosure, so the browser was easy to miss.
+
+An empty IdentityFile value slot now shows a parenthesized inline hint,
+`(Enter: browse ~/.ssh keys)`, distinct from a real typed path. The hint is
+render-only: the field model stays an empty string and the hint never
+round-trips into a saved host. Any typed character or a picked path replaces it
+immediately. The text is platform-neutral UI copy with no Windows-specific
+surface.
+
 ## 2026-07-05 -- Window transparency: translucent background, opaque text
 
 The terminal background can now be rendered translucent so the desktop shows

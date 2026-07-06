@@ -829,9 +829,19 @@ impl ConnectionForm {
                     FormField::Title => &self.title,
                     _ => "",
                 };
-                // A trailing caret marks the edit cursor on the focused field.
-                let caret = if focused { "\u{2588}" } else { "" };
-                format!("{:<13}{value}{caret}", field.label())
+                // While the IdentityFile field is empty, its value slot shows a
+                // parenthesized browse-affordance hint instead of a bare blank, so
+                // the Enter-to-browse action is discoverable without focusing the
+                // row or reading the footer help. This is render-only: the field
+                // model stays an empty string and the hint never round-trips into
+                // a saved host. Any typed character or a picked path replaces it.
+                if field == FormField::IdentityFile && value.is_empty() {
+                    format!("{:<13}(Enter: browse ~/.ssh keys)", field.label())
+                } else {
+                    // A trailing caret marks the edit cursor on the focused field.
+                    let caret = if focused { "\u{2588}" } else { "" };
+                    format!("{:<13}{value}{caret}", field.label())
+                }
             }
         };
         ConnectionFormLine {
@@ -1411,6 +1421,70 @@ mod tests {
             ConnectionFormOutcome::Consumed
         );
         assert_ne!(form.focus, FormField::IdentityFile);
+    }
+
+    #[test]
+    fn empty_identity_file_shows_the_browse_hint_placeholder() {
+        // FORM-BROWSE-HINT: an empty IdentityFile value slot advertises the
+        // Enter-to-browse action inline (discoverability), rendered even when the
+        // row is not focused.
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.advanced = true;
+        let lines = form.visible_lines(72, 40);
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.text.contains("IdentityFile") && l.text.contains("(Enter: browse")),
+            "empty IdentityFile row should show the browse hint"
+        );
+    }
+
+    #[test]
+    fn typed_identity_file_replaces_the_browse_hint() {
+        // The hint is render-only: one typed character swaps it for the real
+        // value, and no hint text lingers.
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.advanced = true;
+        form.focus = FormField::IdentityFile;
+        typed(&mut form, "/keys/mine");
+        let lines = form.visible_lines(72, 40);
+        let row = lines
+            .iter()
+            .find(|l| l.text.contains("IdentityFile"))
+            .expect("IdentityFile row");
+        assert!(row.text.contains("/keys/mine"));
+        assert!(!row.text.contains("(Enter: browse"));
+    }
+
+    #[test]
+    fn browse_hint_never_saves_into_the_host() {
+        // FORM-BROWSE-HINT invariant: the placeholder is display-only and must
+        // never leak into a saved connection's identity_file.
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        typed(&mut form, "hostk");
+        form.advanced = true;
+        // Render the form (which paints the hint) but leave the field untouched.
+        let _ = form.visible_lines(72, 40);
+        let (host, _) = saved(&mut form).expect("save");
+        assert_eq!(host.identity_file, None);
+    }
+
+    #[test]
+    fn browse_hint_truncates_cleanly_on_a_narrow_body() {
+        // A narrow body clips the hint through truncate_for_width without panic
+        // and without emitting a full closing paren that implies a real value.
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.advanced = true;
+        let lines = form.visible_lines(20, 40);
+        let row = lines
+            .iter()
+            .find(|l| l.text.contains("IdentityFile"))
+            .expect("IdentityFile row");
+        assert!(row.text.chars().count() <= 20);
     }
 
     #[test]
