@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Quitting no longer stalls on a wedged remote
+
+Closing the whole application (Super+Q, the window-manager close button, or the
+last tab) tore every session down on the main thread, one after another: each
+sent SIGKILL to its shell, then blocked reaping the child and joining its reader
+thread. For a local shell that returns instantly, but a remote whose `ssh` link
+had gone dead could sit unkillable in a network syscall, so the reap blocked and
+the window stopped repainting or responding — long enough for the desktop to
+raise a "not responding" dialog — with the stall scaling by the number of open
+remote sessions. Shutdown is now bounded: every child is signalled immediately,
+then the blocking reap and reader-thread join run on a detached thread that the
+exit path waits on only up to a short deadline before letting the process finish
+regardless. Healthy sessions still reap cleanly and instantly (the wait returns
+the moment teardown completes); a wedged remote can no longer hold the window
+hostage on the way out — the operating system reaps any orphaned child once the
+process exits. Single-tab close in a running window is unchanged: it still reaps
+and joins synchronously, which a long-lived process needs to avoid leaking.
+
+---
+
 ## 2026-07-06 -- Rename prompts stay readable under window transparency
 
 The rename/prompt band ("Layout name:", "Workspace name:", "Tab name:") rendered

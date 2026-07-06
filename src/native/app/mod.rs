@@ -1499,13 +1499,16 @@ impl App {
         self.on_active_session_changed();
     }
 
+    /// Whole-app shutdown teardown, run once after the event loop exits.
+    /// CLOSE-HANG: delegates to [`WorkspaceSet::shutdown_all`], which kills every
+    /// child promptly then reaps + joins OFF the main thread under a bounded
+    /// deadline. The previous serial per-session `pty.wait()` + `pump_thread.join()`
+    /// on the main thread blocked indefinitely when a remote `ssh` link was
+    /// wedged, which surfaced as a Super+Q not-responding stall with several
+    /// remote workspaces open.
     pub(super) fn close_all_sessions(&mut self) {
-        while !self.sessions.is_empty() {
-            let Some(token) = self.sessions.token_at_position(0) else {
-                break;
-            };
-            let _ = self.sessions.close(token);
-        }
+        self.sessions
+            .shutdown_all(crate::native::session::SHUTDOWN_REAP_DEADLINE);
     }
 
     /// Pure computation of the next timer wake instant: the minimum over every

@@ -224,6 +224,15 @@ pub(super) fn classify_remote_exit(code: Option<i32>) -> ExitDisposition {
 /// so it renders in every theme's palette, and kept short enough for a narrow
 /// pane. The prompt actions (Enter / Esc) are handled by the App's key path
 /// while the session is awaiting reconnect.
+/// CLOSE-HANG: the bounded wall-clock budget the whole-app shutdown teardown
+/// waits for every session's child to be reaped and its pump thread joined
+/// before it detaches the reaper and lets the process exit anyway. Healthy
+/// sessions reap in well under this (the wait returns the instant the reaper
+/// signals completion); the deadline only bites when a remote is wedged, so a
+/// dead `ssh` link caps teardown here instead of freezing it. The OS reaps any
+/// still-orphaned child once the process exits.
+pub(super) const SHUTDOWN_REAP_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
+
 const RECONNECT_BANNER: &str =
     "\r\n\x1b[1;33m connection dropped \x1b[0m  Enter: reconnect · Esc: close\r\n";
 
@@ -766,6 +775,52 @@ impl Session {
             }
         }
         true
+    }
+
+    /// Whole-app shutdown teardown for one session. SIGKILL the child *now*
+    /// (synchronous but non-blocking — signal delivery never waits) so no
+    /// runaway shell or `ssh` client survives the process, then return the
+    /// blocking reap (`wait`) + pump-thread join as a deferred closure the
+    /// caller runs OFF the main thread under a single bounded deadline
+    /// ([`WorkspaceSet::shutdown_all`]). This is the CLOSE-HANG fix: a wedged
+    /// remote — an `ssh` client parked in a dead-socket syscall whose `wait()`
+    /// blocks for the kernel's network timeout, or a reader thread that never
+    /// sees EOF — must never delay window teardown. The process is exiting, so
+    /// if the deferred reaper outlives the deadline the OS reaps the orphaned
+    /// child and the detached thread dies with the process. Contrast
+    /// [`Self::close`] (single-tab close in a long-lived process), which reaps
+    /// and joins synchronously to avoid a zombie / thread leak.
+    fn shutdown(mut self) -> Box<dyn FnOnce() + Send> {
+        self.fire_upload_cleanup();
+        let pump_thread = self.pump_thread.take();
+        match self.source {
+            SessionSource::Local { pty } => {
+                // Kill promptly on the calling thread — SIGKILL is delivered
+                // without waiting for the child to actually die.
+                if let Ok(mut guard) = pty.lock() {
+                    let _ = guard.kill();
+                }
+                Box::new(move || {
+                    if let Ok(mut guard) = pty.lock() {
+                        let _ = guard.wait();
+                    }
+                    if let Some(thread) = pump_thread {
+                        let _ = thread.join();
+                    }
+                })
+            }
+            // A detach is best-effort network I/O; defer it too so a wedged
+            // control socket cannot stall teardown.
+            #[cfg(unix)]
+            SessionSource::Attached { client } => Box::new(move || {
+                if let Ok(mut guard) = client.lock() {
+                    let _ = guard.detach();
+                }
+                if let Some(thread) = pump_thread {
+                    let _ = thread.join();
+                }
+            }),
+        }
     }
 }
 
@@ -1842,6 +1897,46 @@ impl WorkspaceSet {
             .iter()
             .find(|(_, session)| session.attached_session_id.as_deref() == Some(session_id))
             .map(|(token, _)| *token)
+    }
+
+    /// Whole-app shutdown (CLOSE-HANG): drain every session, SIGKILL each child
+    /// promptly on the calling thread, then reap + join them OFF the calling
+    /// thread under a single bounded `deadline`. Draining first means
+    /// [`Self::is_empty`] holds the instant this returns. A wedged remote can no
+    /// longer freeze teardown: the blocking `wait()`/join runs on a detached
+    /// reaper thread, and the caller waits at most `deadline` before letting the
+    /// process exit (the OS reaps any orphaned child). Healthy sessions reap
+    /// well within the budget — the wait returns as soon as the reaper signals,
+    /// not after the full deadline. Replaces the old serial per-session
+    /// `pty.wait()` + `pump_thread.join()` on the main thread, which blocked
+    /// indefinitely on a hung `ssh` client and produced the Super+Q
+    /// not-responding stall.
+    pub(super) fn shutdown_all(&mut self, deadline: std::time::Duration) {
+        let drained = std::mem::take(&mut self.sessions);
+        self.workspaces.clear();
+        self.active_ws = 0;
+        // `Session::shutdown` sends SIGKILL synchronously as the reaper closures
+        // are built, so every child is signalled before we wait on anything.
+        let reapers: Vec<Box<dyn FnOnce() + Send>> =
+            drained.into_values().map(Session::shutdown).collect();
+        if reapers.is_empty() {
+            return;
+        }
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let spawned = std::thread::Builder::new()
+            .name("odytty-shutdown-reap".to_owned())
+            .spawn(move || {
+                for reap in reapers {
+                    reap();
+                }
+                let _ = tx.send(());
+            });
+        // If even the reaper thread fails to spawn, don't block — the process is
+        // exiting and the OS reaps. Otherwise wait up to the deadline for a
+        // clean reap, then detach.
+        if spawned.is_ok() {
+            let _ = rx.recv_timeout(deadline);
+        }
     }
 
     /// Focus the tab (and pane) that owns `token`, scanning ALL workspaces so a
@@ -3249,6 +3344,49 @@ mod tests {
 
     fn build_session() -> Session {
         build_session_with_id(SessionToken(0))
+    }
+
+    /// Build a session whose pump (reader) thread is PARKED and will not exit on
+    /// its own for `park` — the shape a wedged remote leaves behind (the ssh
+    /// child never delivers EOF, so the reader never returns). Used to prove the
+    /// shutdown teardown does not block the caller on that join.
+    fn build_session_with_parked_reader(id: SessionToken, park: std::time::Duration) -> Session {
+        let dims = Dimensions::new(20, 8);
+        let pty = spawn_test_pause_shell(dims).expect("spawn test shell");
+        let writer: PtyWriter = Arc::new(Mutex::new(pty.take_writer().expect("writer")));
+        let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+        let pty = Arc::new(Mutex::new(pty));
+        let parked = std::thread::Builder::new()
+            .name("test-wedged-reader".to_owned())
+            .spawn(move || std::thread::sleep(park))
+            .expect("spawn parked reader");
+        Session::new(id, terminal, writer, pty, Some(parked))
+    }
+
+    /// CLOSE-HANG regression: whole-app shutdown must stay bounded even when a
+    /// session's reader thread is wedged (no EOF), the shape that hung Super+Q
+    /// with remote workspaces. The old serial path joined the pump thread on the
+    /// caller, so a parked reader would block shutdown for the full park time;
+    /// `shutdown_all` offloads the reap + join to a detached thread and returns
+    /// within the bounded deadline. Fail-before: the caller would take ~the park
+    /// duration (5s) and blow the assertion; pass-after: it returns in ~the
+    /// deadline.
+    #[test]
+    fn shutdown_all_is_bounded_when_a_reader_is_wedged() {
+        let park = std::time::Duration::from_secs(5);
+        let session = build_session_with_parked_reader(SessionToken(1), park);
+        let mut set = WorkspaceSet::new(session, None);
+
+        let deadline = std::time::Duration::from_millis(200);
+        let start = Instant::now();
+        set.shutdown_all(deadline);
+        let elapsed = start.elapsed();
+
+        assert!(set.is_empty(), "shutdown drains the session set");
+        assert!(
+            elapsed < std::time::Duration::from_secs(2),
+            "shutdown must be bounded, not block on the wedged reader join (took {elapsed:?})"
+        );
     }
 
     fn tabset_with_proxy_for_test() -> Option<(WorkspaceSet, EventLoop<UserEvent>)> {
