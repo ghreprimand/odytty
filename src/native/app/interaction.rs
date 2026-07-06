@@ -295,6 +295,18 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.enter_save_all_layout_prompt();
             }
+            // OVERWRITE-WARN: the collision dialog's Replace arm — force-write the
+            // layout, clobbering the existing file, routed by the carried kind.
+            OverlayOutcome::OverwriteLayoutConfirmed { name, kind } => {
+                self.flush_pending_overlay_settings();
+                self.overwrite_layout_confirmed(&name, kind);
+            }
+            // OVERWRITE-WARN: the collision dialog's "different name" arm — reopen
+            // the "Layout name:" prompt seeded with the colliding name.
+            OverlayOutcome::RenameLayoutInstead { name, kind } => {
+                self.flush_pending_overlay_settings();
+                self.reopen_layout_name_prompt(kind, name);
+            }
             // LAYOUT-SURFACE: open the saved-layout picker (seeded App-side).
             OverlayOutcome::ContextMenuOpenLayoutPicker => {
                 self.flush_pending_overlay_settings();

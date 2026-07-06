@@ -17,75 +17,126 @@ impl App {
     /// Save the ACTIVE workspace as a named layout (8g), using the workspace's
     /// own display name as the layout name. This is the command-palette entry's
     /// prompt-free path; the menu "Save as Layout\u{2026}" surface routes a typed
-    /// name through [`Self::save_workspace_as_layout`] instead. Saving again
-    /// under the same name overwrites; a one-line notice confirms.
+    /// name through [`Self::save_workspace_as_layout`] instead. A name that
+    /// collides with an existing layout raises the overwrite-confirm dialog
+    /// (OVERWRITE-WARN) rather than silently clobbering, even on this prompt-free
+    /// path; otherwise a one-line notice confirms.
     pub(super) fn save_active_workspace_as_layout(&mut self) {
         let active = self.sessions.active_workspace_index();
         self.save_workspace_as_layout(active, None);
     }
 
     /// Save the workspace at rail index `idx` as a named layout (8g). This backs
-    /// the "Save as Layout\u{2026}" menu surfaces (LAYOUT-SURFACE): a rail slot
-    /// saves the clicked workspace, the content-grid section the active one.
-    /// `name_override` is the typed layout name from the prompt; `None` falls
-    /// back to the workspace's own display name (the palette path). A stale index
-    /// or an empty resulting name is a no-op; a write failure degrades to a
-    /// one-line notice rather than disturbing the running window.
+    /// the "Save Workspace as Layout\u{2026}" menu surfaces (LAYOUT-SURFACE): a
+    /// rail slot saves the clicked workspace, the content-grid section the active
+    /// one. `name_override` is the typed layout name from the prompt; `None`
+    /// falls back to the workspace's own display name (the palette path). A stale
+    /// index or an empty resulting name is a no-op. OVERWRITE-WARN: a name that
+    /// already exists raises the overwrite-confirm dialog instead of clobbering;
+    /// otherwise a write failure degrades to a one-line notice.
     pub(super) fn save_workspace_as_layout(&mut self, idx: usize, name_override: Option<&str>) {
-        let full = self.sessions.capture_shape();
-        let Some(workspace) = full.workspaces.get(idx).cloned() else {
+        let Some(name) = self.resolve_layout_name(name_override, idx) else {
             return;
         };
-        let name = match name_override {
-            Some(text) => text.trim().to_owned(),
-            None => workspace.name.clone(),
-        };
-        if name.is_empty() {
+        // OVERWRITE-WARN: a collision prompts (replace vs. a different name)
+        // rather than silently overwriting — on every save path, prompt-free
+        // palette entry included.
+        if persistence::layout_exists(&name) {
+            self.overlay
+                .open_confirm_overwrite_layout(name, LayoutSaveKind::Workspace(idx));
+            self.request_selection_redraw();
             return;
         }
-        let layout = persistence::ShapeSnapshot {
-            version: full.version,
-            active_workspace: 0,
-            workspaces: vec![workspace],
-        };
-        match persistence::save_layout(&name, &layout) {
-            Ok(stem) => self.raise_open_notice(format!("Saved layout \u{201c}{stem}\u{201d}")),
-            Err(_) => self.raise_open_notice("Couldn't save the layout.".to_owned()),
-        }
+        self.write_workspace_layout(idx, &name);
     }
 
     /// Save the WHOLE application — every workspace, with its tabs, split trees,
     /// per-pane cwd, and host bindings, and the active-workspace index preserved
     /// — as a single named layout (SAVE-ALL-LAYOUT). This is the primary "Save as
-    /// Layout" surface: a layout means the whole session, not one workspace. It
-    /// reuses [`persistence::save_layout`] with the full [`capture_shape`] output
-    /// (no per-workspace slice). `name_override` is the typed layout name from the
-    /// prompt; `None` (the palette path) falls back to the active workspace's own
-    /// name as a sensible default. An empty resulting name is a no-op; a write
-    /// failure degrades to a one-line notice rather than disturbing the window.
-    ///
-    /// [`capture_shape`]: crate::native::session::SessionSet::capture_shape
+    /// Layout" surface: a layout means the whole session, not one workspace.
+    /// `name_override` is the typed layout name from the prompt; `None` (the
+    /// palette path) falls back to the active workspace's own name as a sensible
+    /// default. An empty resulting name is a no-op. OVERWRITE-WARN: a name that
+    /// already exists raises the overwrite-confirm dialog instead of clobbering;
+    /// otherwise a write failure degrades to a one-line notice.
     pub(super) fn save_all_workspaces_as_layout(&mut self, name_override: Option<&str>) {
-        let full = self.sessions.capture_shape();
-        let name = match name_override {
-            Some(text) => text.trim().to_owned(),
-            None => full
-                .workspaces
-                .get(full.active_workspace)
-                .map(|workspace| workspace.name.clone())
-                .unwrap_or_default(),
+        let Some(name) =
+            self.resolve_layout_name(name_override, self.sessions.active_workspace_index())
+        else {
+            return;
         };
-        if name.is_empty() {
+        if persistence::layout_exists(&name) {
+            self.overlay
+                .open_confirm_overwrite_layout(name, LayoutSaveKind::WholeApp);
+            self.request_selection_redraw();
             return;
         }
+        self.write_all_workspaces_layout(&name);
+    }
+
+    /// Resolve the effective layout name for a save: the trimmed typed name when
+    /// present, else the display name of the workspace at `default_idx` (the
+    /// prompt-free palette default). `None` when nothing usable remains, so an
+    /// empty name is a silent no-op on every path.
+    fn resolve_layout_name(
+        &self,
+        name_override: Option<&str>,
+        default_idx: usize,
+    ) -> Option<String> {
+        let name = match name_override {
+            Some(text) => text.trim().to_owned(),
+            None => self.sessions.workspace_name(default_idx)?.to_owned(),
+        };
+        (!name.is_empty()).then_some(name)
+    }
+
+    /// Force-write the workspace at rail index `idx` as layout `name`, no
+    /// collision check — the confirmed-replace arm of OVERWRITE-WARN and the
+    /// no-collision fast path both land here. Re-captures the current state so a
+    /// Replace writes what is on screen now. A stale index or write failure
+    /// degrades to a one-line notice.
+    fn write_workspace_layout(&mut self, idx: usize, name: &str) {
+        let full = self.sessions.capture_shape();
+        let Some(workspace) = full.workspaces.get(idx).cloned() else {
+            return;
+        };
+        let layout = persistence::ShapeSnapshot {
+            version: full.version,
+            active_workspace: 0,
+            workspaces: vec![workspace],
+        };
+        match persistence::save_layout(name, &layout) {
+            Ok(stem) => self.raise_open_notice(format!("Saved layout \u{201c}{stem}\u{201d}")),
+            Err(_) => self.raise_open_notice("Couldn't save the layout.".to_owned()),
+        }
+    }
+
+    /// Force-write every workspace as layout `name`, no collision check — the
+    /// confirmed-replace arm of OVERWRITE-WARN and the no-collision fast path both
+    /// land here. Reuses [`persistence::save_layout`] with the full
+    /// [`capture_shape`] output (no per-workspace slice); a write failure degrades
+    /// to a one-line notice.
+    ///
+    /// [`capture_shape`]: crate::native::session::SessionSet::capture_shape
+    fn write_all_workspaces_layout(&mut self, name: &str) {
+        let full = self.sessions.capture_shape();
         let count = full.workspaces.len();
-        match persistence::save_layout(&name, &full) {
+        match persistence::save_layout(name, &full) {
             Ok(stem) => self.raise_open_notice(if count == 1 {
                 format!("Saved layout \u{201c}{stem}\u{201d}")
             } else {
                 format!("Saved layout \u{201c}{stem}\u{201d} ({count} workspaces)")
             }),
             Err(_) => self.raise_open_notice("Couldn't save the layout.".to_owned()),
+        }
+    }
+
+    /// The confirmed-replace arm of the overwrite-layout dialog (OVERWRITE-WARN):
+    /// force-write the layout, clobbering the existing file, routed by `kind`.
+    pub(super) fn overwrite_layout_confirmed(&mut self, name: &str, kind: LayoutSaveKind) {
+        match kind {
+            LayoutSaveKind::Workspace(idx) => self.write_workspace_layout(idx, name),
+            LayoutSaveKind::WholeApp => self.write_all_workspaces_layout(name),
         }
     }
 

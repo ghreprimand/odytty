@@ -519,15 +519,19 @@ restored pane is always a fresh shell at its directory, never a replayed
 session. A session can be saved as a **named layout**. A layout captures the
 **whole application** — every workspace, with its tabs, splits, working
 directories, and host bindings — via **Save as Layout…** on the content-grid
-right-click menu, the empty rail menu, or the command palette (**Save All
-Workspaces as Layout**). A single workspace can be captured on its own with
-**Save Workspace as Layout…** — a workspace rail slot's right-click menu saves
-the clicked workspace, the content-grid menu saves the active one, and the
-palette entry (**Save Workspace as Layout**) saves the active one. Opening a
-layout later — **Open Layout** in the palette, or **Open Layout…** from the
-empty rail, the empty tab strip, or the content-grid menu — appends its
-workspace(s) rather than replacing the current ones; with no layouts saved yet
-the picker explains how to create one. On Unix, a restored or instantiated pane whose detached
+right-click menu, a workspace rail slot's right-click menu, the empty rail
+menu, or the command palette (**Save All Workspaces as Layout**). A single
+workspace can be captured on its own with **Save Workspace as Layout…** — a
+workspace rail slot's right-click menu saves the clicked workspace, the
+content-grid menu saves the active one, and the palette entry (**Save Workspace
+as Layout**) saves the active one. Saving under a name that already exists
+prompts before overwriting — replace the existing layout, pick a different
+name, or cancel. Opening a layout later — **Open Layout** in the palette, or
+**Open Layout…** from the empty rail, the empty tab strip, or the content-grid
+menu — appends its workspace(s) rather than replacing the current ones, except
+when the window still holds a single untouched default workspace, which the
+opened layout consumes so a fresh window shows exactly what was saved; with no
+layouts saved yet the picker explains how to create one. On Unix, a restored or instantiated pane whose detached
 session-host is still alive reattaches to it; a dead one silently opens a
 fresh shell, with a compact "N of M sessions reattached" notice. Restore and
 named layouts are cross-platform (the state dir uses `%LOCALAPPDATA%` on

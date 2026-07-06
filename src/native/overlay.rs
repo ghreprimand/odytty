@@ -128,6 +128,14 @@ pub(super) struct OverlayUi {
     /// `confirm_replace_tab`: the card layout is target-independent and the mode
     /// flips through `close()` between opens.
     confirm_remove_host: Option<Box<ConnectionHost>>,
+    /// The pending save carried by the overwrite-layout confirm dialog
+    /// (OVERWRITE-WARN). Set when a Save as Layout resolves to a name that
+    /// already exists on disk; carries the resolved layout `name` and which save
+    /// it was (whole app vs. one workspace) so the confirm arm can either force
+    /// the write (Replace) or reopen the name prompt (a different name). `None`
+    /// when the dialog is not open. Not in the render signature: the card layout
+    /// is name-independent and the mode flips through `close()` between opens.
+    confirm_overwrite_layout: Option<(String, LayoutSaveKind)>,
 }
 
 impl Default for OverlayUi {
@@ -166,6 +174,7 @@ impl OverlayUi {
             builder_from_picker: false,
             confirm_replace_tab: None,
             confirm_remove_host: None,
+            confirm_overwrite_layout: None,
         }
     }
 
@@ -895,6 +904,95 @@ impl OverlayUi {
         self.open && self.mode == OverlayMode::ConfirmRemoveHost
     }
 
+    /// Open the overwrite-layout confirm dialog (OVERWRITE-WARN) for the resolved
+    /// layout `name` that already exists on disk. `kind` records which save it
+    /// was so the confirm arm re-drives the right path. Idempotent: starts with
+    /// `close()` so a repeated open cannot stack dialogs.
+    pub(super) fn open_confirm_overwrite_layout(&mut self, name: String, kind: LayoutSaveKind) {
+        self.close();
+        self.confirm_overwrite_layout = Some((name, kind));
+        self.mode = OverlayMode::ConfirmOverwriteLayout;
+        self.open = true;
+    }
+
+    /// Keyboard contract for the overwrite-layout confirm dialog (OVERWRITE-WARN).
+    /// Enter replaces the existing layout (emits
+    /// [`OverlayOutcome::OverwriteLayoutConfirmed`]); `R` reopens the name prompt
+    /// for a different name (emits [`OverlayOutcome::RenameLayoutInstead`]); Esc
+    /// cancels the save; every other key is swallowed so nothing leaks to the PTY
+    /// behind the modal. Both action arms close the dialog before emitting.
+    fn handle_confirm_overwrite_layout_input(&mut self, input: OverlayInput) -> OverlayOutcome {
+        match input {
+            OverlayInput::Activate => match self.confirm_overwrite_layout.take() {
+                Some((name, kind)) => {
+                    self.close();
+                    OverlayOutcome::OverwriteLayoutConfirmed { name, kind }
+                }
+                None => OverlayOutcome::Close,
+            },
+            OverlayInput::Char('r') | OverlayInput::Char('R') => {
+                match self.confirm_overwrite_layout.take() {
+                    Some((name, kind)) => {
+                        self.close();
+                        OverlayOutcome::RenameLayoutInstead { name, kind }
+                    }
+                    None => OverlayOutcome::Close,
+                }
+            }
+            OverlayInput::Close => OverlayOutcome::Close,
+            _ => OverlayOutcome::Consumed,
+        }
+    }
+
+    /// Hit-test a left-click in the overwrite-layout confirm dialog body
+    /// (click→key parity, mirroring `confirm_replace_tab_click`). The action line
+    /// ([`CONFIRM_OVERWRITE_LAYOUT_ACTION_LINE`]) is the 3rd body row (index 2);
+    /// the three bracket regions map, left-to-right, to Replace / Rename / Cancel,
+    /// and anywhere before the first bracket — the leading prompt — is inert. ASCII
+    /// line, so byte offsets equal columns.
+    fn confirm_overwrite_layout_click(
+        &mut self,
+        row_in_body: usize,
+        col_in_body: usize,
+    ) -> OverlayOutcome {
+        const ACTION_ROW: usize = 2;
+        if row_in_body != ACTION_ROW {
+            return OverlayOutcome::Consumed;
+        }
+        let text = CONFIRM_OVERWRITE_LAYOUT_ACTION_LINE;
+        let replace_start = text.find("[Enter").unwrap_or(0);
+        let rename_start = text.find("[R]").unwrap_or(text.len());
+        let cancel_start = text.find("[Esc").unwrap_or(text.len());
+        if col_in_body >= cancel_start {
+            OverlayOutcome::Close
+        } else if col_in_body >= rename_start {
+            match self.confirm_overwrite_layout.take() {
+                Some((name, kind)) => {
+                    self.close();
+                    OverlayOutcome::RenameLayoutInstead { name, kind }
+                }
+                None => OverlayOutcome::Close,
+            }
+        } else if col_in_body >= replace_start {
+            match self.confirm_overwrite_layout.take() {
+                Some((name, kind)) => {
+                    self.close();
+                    OverlayOutcome::OverwriteLayoutConfirmed { name, kind }
+                }
+                None => OverlayOutcome::Close,
+            }
+        } else {
+            OverlayOutcome::Consumed
+        }
+    }
+
+    /// Whether the overwrite-layout confirm dialog is the active overlay mode
+    /// (OVERWRITE-WARN). Used by the App's test seam to assert the dialog opened.
+    #[cfg(test)]
+    pub(super) fn is_confirm_overwrite_layout(&self) -> bool {
+        self.open && self.mode == OverlayMode::ConfirmOverwriteLayout
+    }
+
     /// Open the Detach & switch choice dialog (Packet 2) for the focused pane's
     /// `cwd` (empty = unknown → spawn in the default directory). Called by the
     /// App after it reads the focused pane's cwd (the overlay cannot read the
@@ -1334,6 +1432,9 @@ impl OverlayUi {
             OverlayMode::ConfirmRemoveHost => {
                 return self.handle_confirm_remove_host_input(input);
             }
+            OverlayMode::ConfirmOverwriteLayout => {
+                return self.handle_confirm_overwrite_layout_input(input);
+            }
             OverlayMode::CommandPalette => return self.handle_command_palette_input(input),
             OverlayMode::Replay => return self.handle_replay_input(input),
             OverlayMode::Connections => return self.handle_connections_input(input),
@@ -1583,6 +1684,13 @@ impl OverlayUi {
                             OverlayOutcome::Consumed
                         }
                     }
+                    OverlayMode::ConfirmOverwriteLayout => {
+                        if button == PointerButton::Left {
+                            self.confirm_overwrite_layout_click(row_in_body, col_in_body)
+                        } else {
+                            OverlayOutcome::Consumed
+                        }
+                    }
                     OverlayMode::Onboarding | OverlayMode::Replay | OverlayMode::ImageView => {
                         OverlayOutcome::Consumed
                     }
@@ -1632,7 +1740,8 @@ impl OverlayUi {
                     | OverlayMode::ConfirmKillSession
                     | OverlayMode::DetachSwitchChoice
                     | OverlayMode::ConfirmReplaceTab
-                    | OverlayMode::ConfirmRemoveHost => OverlayOutcome::Consumed,
+                    | OverlayMode::ConfirmRemoveHost
+                    | OverlayMode::ConfirmOverwriteLayout => OverlayOutcome::Consumed,
                     OverlayMode::ConnectionForm => OverlayOutcome::Consumed,
                 }
             }
@@ -1657,7 +1766,8 @@ impl OverlayUi {
                     | OverlayMode::ConfirmKillSession
                     | OverlayMode::DetachSwitchChoice
                     | OverlayMode::ConfirmReplaceTab
-                    | OverlayMode::ConfirmRemoveHost => {}
+                    | OverlayMode::ConfirmRemoveHost
+                    | OverlayMode::ConfirmOverwriteLayout => {}
                     OverlayMode::ConnectionForm => {}
                 }
                 OverlayOutcome::Consumed
@@ -1712,6 +1822,7 @@ impl OverlayUi {
                     | OverlayMode::DetachSwitchChoice
                     | OverlayMode::ConfirmReplaceTab
                     | OverlayMode::ConfirmRemoveHost
+                    | OverlayMode::ConfirmOverwriteLayout
                     | OverlayMode::ConnectionForm
                     | OverlayMode::ImageView => {}
                 }
@@ -1744,7 +1855,8 @@ impl OverlayUi {
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab
-            | OverlayMode::ConfirmRemoveHost => false,
+            | OverlayMode::ConfirmRemoveHost
+            | OverlayMode::ConfirmOverwriteLayout => false,
             OverlayMode::ConnectionForm => false,
         }
     }
@@ -1773,7 +1885,8 @@ impl OverlayUi {
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab
-            | OverlayMode::ConfirmRemoveHost => {}
+            | OverlayMode::ConfirmRemoveHost
+            | OverlayMode::ConfirmOverwriteLayout => {}
             OverlayMode::ConnectionForm => {}
         }
     }
@@ -1835,6 +1948,7 @@ impl OverlayUi {
             OverlayMode::DetachSwitchChoice => "Detach & switch".to_owned(),
             OverlayMode::ConfirmReplaceTab => "Replace tab?".to_owned(),
             OverlayMode::ConfirmRemoveHost => "Remove host?".to_owned(),
+            OverlayMode::ConfirmOverwriteLayout => "Layout exists".to_owned(),
         }
     }
 
@@ -1944,7 +2058,8 @@ impl OverlayUi {
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab
-            | OverlayMode::ConfirmRemoveHost => {}
+            | OverlayMode::ConfirmRemoveHost
+            | OverlayMode::ConfirmOverwriteLayout => {}
             OverlayMode::ConnectionForm => {}
         }
     }
@@ -1970,7 +2085,8 @@ impl OverlayUi {
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab
-            | OverlayMode::ConfirmRemoveHost => {}
+            | OverlayMode::ConfirmRemoveHost
+            | OverlayMode::ConfirmOverwriteLayout => {}
             OverlayMode::ConnectionForm => {}
         }
     }
@@ -2017,7 +2133,8 @@ impl OverlayUi {
             | OverlayMode::ConfirmKillSession
             | OverlayMode::DetachSwitchChoice
             | OverlayMode::ConfirmReplaceTab
-            | OverlayMode::ConfirmRemoveHost => (false, false),
+            | OverlayMode::ConfirmRemoveHost
+            | OverlayMode::ConfirmOverwriteLayout => (false, false),
             OverlayMode::ConnectionForm => (false, false),
         }
     }
@@ -2389,6 +2506,17 @@ impl OverlayUi {
     }
 }
 
+/// Which Save as Layout a pending action refers to (OVERWRITE-WARN). Carried by
+/// the overwrite-confirm dialog so its Replace / different-name arms can re-drive
+/// the right save path: the whole application, or one workspace by rail index.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LayoutSaveKind {
+    /// Save every workspace as one layout (the primary "Save as Layout…").
+    WholeApp,
+    /// Save the single workspace at this rail index ("Save Workspace as Layout…").
+    Workspace(usize),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum OverlayOutcome {
     Consumed,
@@ -2541,6 +2669,22 @@ pub(super) enum OverlayOutcome {
     /// (SAVE-ALL-LAYOUT), chosen from the content-grid section or the empty rail.
     /// The App opens the "Layout name:" prompt seeded from the active workspace.
     ContextMenuSaveAllLayout,
+    /// The overwrite-layout confirm dialog's Replace arm was accepted
+    /// (OVERWRITE-WARN). The App re-captures the current state and force-writes
+    /// the layout under `name`, clobbering the existing file. `kind` says which
+    /// save it was (whole app vs. one workspace).
+    OverwriteLayoutConfirmed {
+        name: String,
+        kind: LayoutSaveKind,
+    },
+    /// The overwrite-layout confirm dialog's "different name" arm was chosen
+    /// (OVERWRITE-WARN). The App reopens the "Layout name:" prompt seeded with
+    /// `name` so the user can pick a non-colliding name; `kind` restores the
+    /// same save target.
+    RenameLayoutInstead {
+        name: String,
+        kind: LayoutSaveKind,
+    },
     /// Open the "Open Layout ▸" picker (LAYOUT-SURFACE). The menu closed itself;
     /// the App seeds the picker with the saved layout names.
     ContextMenuOpenLayoutPicker,
@@ -2812,6 +2956,14 @@ pub(super) enum OverlayMode {
     /// Modeled on `ConfirmKillSession`; the pending host is carried on the
     /// overlay.
     ConfirmRemoveHost,
+    /// Overwrite-layout confirm dialog (OVERWRITE-WARN). A centered, static
+    /// three-way modal shown when a Save as Layout resolves to a name that
+    /// already exists on disk: `[Enter]` replaces the existing layout (emits
+    /// [`OverlayOutcome::OverwriteLayoutConfirmed`]), `[R]` reopens the name
+    /// prompt for a different name (emits [`OverlayOutcome::RenameLayoutInstead`]),
+    /// `[Esc]` cancels the save entirely. The resolved name + which save it was
+    /// are carried on the overlay (`confirm_overwrite_layout`).
+    ConfirmOverwriteLayout,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3044,6 +3196,20 @@ const CONFIRM_REMOVE_HOST_WIDTH: usize = 56;
 const CONFIRM_REMOVE_HOST_ACTION_LINE: &str =
     "Remove it?   [Enter / Y] Remove     [Esc / N] Cancel";
 
+/// Fixed body width (cells) for the overwrite-layout confirm dialog
+/// (OVERWRITE-WARN). Sized for the three-way action line plus the panel border
+/// inset; the `.max(36)` floor in [`overlay_rect`] keeps small grids sane.
+const CONFIRM_OVERWRITE_LAYOUT_WIDTH: usize = 62;
+
+/// The overwrite-layout confirm dialog's three-way action line, shared by the
+/// body builder and the click hit-test
+/// ([`OverlayUi::confirm_overwrite_layout_click`]) so the two can never drift. A
+/// leading prompt gives an inert region at col 0 (a stray click there neither
+/// overwrites nor reopens the prompt); the `[Enter`, `[R]` and `[Esc` bracket
+/// tokens anchor the Replace / Rename / Cancel regions, in that column order.
+const CONFIRM_OVERWRITE_LAYOUT_ACTION_LINE: &str =
+    "Overwrite?   [Enter] Replace   [R] Rename   [Esc] Cancel";
+
 pub(super) fn overlay_rect(
     overlay: &OverlayUi,
     columns: usize,
@@ -3090,6 +3256,8 @@ pub(super) fn overlay_rect(
         OverlayMode::ConfirmReplaceTab => CONFIRM_REPLACE_TAB_WIDTH,
         // Static remove-host confirm dialog (ODP-2C); same treatment.
         OverlayMode::ConfirmRemoveHost => CONFIRM_REMOVE_HOST_WIDTH,
+        // Static overwrite-layout confirm dialog (OVERWRITE-WARN); same treatment.
+        OverlayMode::ConfirmOverwriteLayout => CONFIRM_OVERWRITE_LAYOUT_WIDTH,
     }
     .max(36)
     .min(columns);
@@ -3628,6 +3796,40 @@ impl OverlayUi {
                     },
                     OverlayLine {
                         text: CONFIRM_REMOVE_HOST_ACTION_LINE.to_owned(),
+                        focused: true,
+                        swatch: None,
+                        bold: false,
+                    },
+                ]
+            }
+            // Static overwrite-layout confirm copy (OVERWRITE-WARN). Row 0 names
+            // the colliding layout, row 1 blank, row 2 the three-way action line
+            // — the action row index (2) matches `ACTION_ROW` in
+            // `confirm_overwrite_layout_click`. The layout name is user-entered
+            // text; truncated to the body width and display-only here.
+            OverlayMode::ConfirmOverwriteLayout => {
+                let prompt = match self.confirm_overwrite_layout.as_ref() {
+                    Some((name, _)) => {
+                        format!("Layout \u{201c}{name}\u{201d} already exists.")
+                    }
+                    None => "A layout with that name already exists.".to_owned(),
+                };
+                let prompt: String = prompt.chars().take(body_width.max(1)).collect();
+                vec![
+                    OverlayLine {
+                        text: prompt,
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: String::new(),
+                        focused: false,
+                        swatch: None,
+                        bold: false,
+                    },
+                    OverlayLine {
+                        text: CONFIRM_OVERWRITE_LAYOUT_ACTION_LINE.to_owned(),
                         focused: true,
                         swatch: None,
                         bold: false,
@@ -4803,6 +5005,80 @@ mod tests {
         );
     }
 
+    #[test]
+    fn overwrite_layout_confirm_keyboard_three_way() {
+        // OVERWRITE-WARN: Enter replaces, R reopens the prompt, Esc cancels.
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_overwrite_layout("work".to_owned(), LayoutSaveKind::WholeApp);
+        assert!(overlay.is_confirm_overwrite_layout(), "dialog opened");
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::OverwriteLayoutConfirmed {
+                name: "work".to_owned(),
+                kind: LayoutSaveKind::WholeApp,
+            }
+        );
+        assert!(!overlay.is_open(), "dialog closes on replace");
+
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_overwrite_layout("dev".to_owned(), LayoutSaveKind::Workspace(3));
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Char('r')),
+            OverlayOutcome::RenameLayoutInstead {
+                name: "dev".to_owned(),
+                kind: LayoutSaveKind::Workspace(3),
+            }
+        );
+
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_overwrite_layout("dev".to_owned(), LayoutSaveKind::WholeApp);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Close),
+            OverlayOutcome::Close
+        );
+    }
+
+    #[test]
+    fn overwrite_layout_confirm_click_regions() {
+        // OVERWRITE-WARN click→key parity: the three bracket regions map, left to
+        // right, to Replace / Rename / Cancel; the leading prompt is inert.
+        let replace_col = CONFIRM_OVERWRITE_LAYOUT_ACTION_LINE.find("[Enter").unwrap() + 2;
+        let rename_col = CONFIRM_OVERWRITE_LAYOUT_ACTION_LINE.find("[R]").unwrap() + 1;
+        let cancel_col = CONFIRM_OVERWRITE_LAYOUT_ACTION_LINE.find("[Esc").unwrap() + 2;
+
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_overwrite_layout("work".to_owned(), LayoutSaveKind::WholeApp);
+        assert_eq!(
+            overlay.confirm_overwrite_layout_click(2, replace_col),
+            OverlayOutcome::OverwriteLayoutConfirmed {
+                name: "work".to_owned(),
+                kind: LayoutSaveKind::WholeApp,
+            }
+        );
+
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_overwrite_layout("work".to_owned(), LayoutSaveKind::Workspace(1));
+        assert_eq!(
+            overlay.confirm_overwrite_layout_click(2, rename_col),
+            OverlayOutcome::RenameLayoutInstead {
+                name: "work".to_owned(),
+                kind: LayoutSaveKind::Workspace(1),
+            }
+        );
+
+        let mut overlay = OverlayUi::default();
+        overlay.open_confirm_overwrite_layout("work".to_owned(), LayoutSaveKind::WholeApp);
+        assert_eq!(
+            overlay.confirm_overwrite_layout_click(2, cancel_col),
+            OverlayOutcome::Close
+        );
+        // Prompt-row click is inert — the dialog stays open.
+        assert_eq!(
+            overlay.confirm_overwrite_layout_click(0, replace_col),
+            OverlayOutcome::Consumed
+        );
+    }
+
     /// A synthetic live session for the session-attach overlay tests.
     fn listed_session(id: &str, name: &str) -> ListedSession {
         ListedSession {
@@ -5284,27 +5560,46 @@ mod tests {
 
     #[test]
     fn workspace_slot_menu_save_as_layout_targets_the_clicked_slot() {
-        // LAYOUT-SURFACE: Save as Layout on a rail slot lifts to the
-        // ContextMenuSaveLayoutAt outcome carrying the CLICKED slot index.
-        // Unbound slot 2 menu: New(0) Rename(1) Close(2) Bind(3) Save(4).
-        let mut overlay = OverlayUi::default();
-        overlay.open_context_menu_with_prompt_editing_hint(
-            CellPoint { row: 0, column: 0 },
-            false,
-            false,
-            false,
-            false,
-            false,
-            None,
-            false,
-            true,
-            false,
-            false,
-            crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(2),
-            None,
-            std::array::from_fn(|_| None),
-        );
+        // LAYOUT-SURFACE + RAIL-SAVE-ALL: the rail slot menu offers BOTH the
+        // whole-app "Save as Layout…" (surface-independent → ContextMenuSaveAllLayout)
+        // and the single-workspace "Save Workspace as Layout…" (targeting the
+        // CLICKED slot → ContextMenuSaveLayoutAt). Unbound slot 2 menu:
+        // New(0) Rename(1) Close(2) Bind(3) SaveAll(4) SaveWorkspace(5).
+        let open = |surface| {
+            let mut overlay = OverlayUi::default();
+            overlay.open_context_menu_with_prompt_editing_hint(
+                CellPoint { row: 0, column: 0 },
+                false,
+                false,
+                false,
+                false,
+                false,
+                None,
+                false,
+                true,
+                false,
+                false,
+                surface,
+                None,
+                std::array::from_fn(|_| None),
+            );
+            overlay
+        };
+        let surface = crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(2);
+
+        // Index 4 = whole-app save.
+        let mut overlay = open(surface);
         for _ in 0..4 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuSaveAllLayout
+        );
+
+        // Index 5 = single-workspace save of the clicked slot.
+        let mut overlay = open(surface);
+        for _ in 0..5 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(

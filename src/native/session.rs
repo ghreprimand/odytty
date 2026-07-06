@@ -913,6 +913,15 @@ impl Workspace {
     }
 }
 
+/// The generated default label for the workspace that will sit at zero-based
+/// rail `index` ("Workspace 1", "Workspace 2", …). Kept in one place so the
+/// spawn sites and the PRISTINE-CONSUME default-name check
+/// ([`WorkspaceSet::is_single_pristine_workspace`]) can never disagree about
+/// what an untouched, never-renamed workspace is called.
+fn default_workspace_name(index: usize) -> String {
+    format!("Workspace {}", index + 1)
+}
+
 /// The workspace list and the session arena that backs it (design doc §3.1).
 ///
 /// The hierarchy is `WorkspaceSet` -> [`Workspace`] -> [`Tab`] -> pane. Sessions
@@ -953,7 +962,7 @@ impl WorkspaceSet {
         sessions.insert(token, initial);
         Self {
             sessions,
-            workspaces: vec![Workspace::single("Workspace 1".to_owned(), token)],
+            workspaces: vec![Workspace::single(default_workspace_name(0), token)],
             active_ws: 0,
             next_token,
             proxy,
@@ -1065,6 +1074,29 @@ impl WorkspaceSet {
     /// workspace merely closes that workspace.
     pub(super) fn workspace_count(&self) -> usize {
         self.workspaces.len()
+    }
+
+    /// PRISTINE-CONSUME: true when the whole set is exactly one untouched,
+    /// freshly-spawned workspace — the state a bare launch produces. Used at
+    /// open-layout time to decide whether an append should CONSUME this default
+    /// workspace (replace it) rather than leave it beside the restored set, so a
+    /// layout opened onto a fresh window yields exactly what was saved.
+    ///
+    /// Judged on SHAPE facts only — never shell activity: one workspace still
+    /// bearing its generated ([`default_workspace_name`]) name, no host binding,
+    /// a single tab with no title override, and that tab a single leaf pane (no
+    /// splits). ANY real state — a second workspace, a rename, a host binding, a
+    /// split, or an extra tab — is not pristine and appends as before.
+    pub(super) fn is_single_pristine_workspace(&self) -> bool {
+        if self.workspaces.len() != 1 {
+            return false;
+        }
+        let ws = &self.workspaces[0];
+        ws.name == default_workspace_name(0)
+            && ws.default_profile.is_none()
+            && ws.tabs.len() == 1
+            && ws.tabs[0].title_override.is_none()
+            && ws.tabs[0].layout.is_single_pane()
     }
 
     /// The token of the focused pane of the active tab - the `Deref` target.
@@ -2294,7 +2326,7 @@ impl WorkspaceSet {
         let id = session.id;
         self.next_token = self.next_token.max(id.0.saturating_add(1));
         self.sessions.insert(id, session);
-        let name = format!("Workspace {}", self.workspaces.len() + 1);
+        let name = default_workspace_name(self.workspaces.len());
         self.workspaces.push(Workspace::single(name, id));
         id
     }
@@ -2559,7 +2591,7 @@ impl WorkspaceSet {
         grid: crate::core::Dimensions,
     ) -> Result<SessionToken, std::io::Error> {
         let token = self.insert_spawned_session(grid)?;
-        let name = format!("Workspace {}", self.workspaces.len() + 1);
+        let name = default_workspace_name(self.workspaces.len());
         self.workspaces.push(Workspace::single(name, token));
         self.active_ws = self.workspaces.len() - 1;
         Ok(token)
@@ -3083,9 +3115,20 @@ impl WorkspaceSet {
         }
         let panes = build.spawned.len();
         let workspaces = build.workspaces.len();
-        let first_appended = self.workspaces.len();
-        self.workspaces.extend(build.workspaces);
-        self.active_ws = first_appended;
+        // PRISTINE-CONSUME: opening a layout onto a bare launch (exactly one
+        // untouched default workspace) should yield precisely the saved set, so
+        // the built workspaces REPLACE the pristine one instead of appending
+        // beside it. Its lone session is reaped first so the arena never leaks.
+        // Any real state appends as before, never clobbering (8e).
+        if self.is_single_pristine_workspace() {
+            let stale = std::mem::replace(&mut self.workspaces, build.workspaces);
+            self.discard_session(stale[0].tabs[0].focused);
+            self.active_ws = 0;
+        } else {
+            let first_appended = self.workspaces.len();
+            self.workspaces.extend(build.workspaces);
+            self.active_ws = first_appended;
+        }
         RestoreReport::Restored {
             workspaces,
             panes,
@@ -5010,6 +5053,129 @@ mod tests {
         assert_eq!(set.workspace_name(4), Some("lay-3"));
         // The first appended workspace becomes active (8e focus rule).
         assert_eq!(set.active_workspace_index(), 2);
+    }
+
+    /// PRISTINE-CONSUME: a bare launch is exactly one untouched default
+    /// workspace, so the predicate reads `true`.
+    #[test]
+    fn is_single_pristine_workspace_true_for_a_fresh_launch() {
+        let set = WorkspaceSet::new(build_session(), None);
+        assert!(set.is_single_pristine_workspace());
+    }
+
+    /// PRISTINE-CONSUME: every kind of real state defeats the pristine check —
+    /// a second workspace, a rename, a host binding, a split, or an extra tab.
+    #[test]
+    fn is_single_pristine_workspace_false_for_any_real_state() {
+        // A second workspace.
+        let mut two = WorkspaceSet::new(build_session(), None);
+        two.push_workspace(build_session_with_id(SessionToken(1)));
+        assert!(!two.is_single_pristine_workspace(), "two workspaces");
+
+        // A renamed sole workspace.
+        let mut renamed = WorkspaceSet::new(build_session(), None);
+        renamed.rename_workspace(0, "prod".to_owned());
+        assert!(!renamed.is_single_pristine_workspace(), "renamed");
+
+        // A host-bound sole workspace.
+        let mut bound = WorkspaceSet::new(build_session(), None);
+        bound.set_active_workspace_default_profile(Some("edge".to_owned()));
+        assert!(!bound.is_single_pristine_workspace(), "host-bound");
+
+        // A split sole workspace (two panes in the one tab).
+        let mut split = WorkspaceSet::new(build_session(), None);
+        split.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        assert!(!split.is_single_pristine_workspace(), "split");
+
+        // A sole workspace with a second tab.
+        let mut two_tabs = WorkspaceSet::new(build_session(), None);
+        let extra = two_tabs.push_arena_only(build_session_with_id(SessionToken(1)));
+        two_tabs.workspaces[0].tabs.push(Tab::single(extra));
+        assert!(!two_tabs.is_single_pristine_workspace(), "two tabs");
+
+        // A renamed tab title on the sole tab.
+        let mut titled = WorkspaceSet::new(build_session(), None);
+        let token = titled.workspaces[0].tabs[0].focused;
+        titled.set_title_override(token, Some("build".to_owned()));
+        assert!(!titled.is_single_pristine_workspace(), "tab titled");
+    }
+
+    /// PRISTINE-CONSUME: opening a layout onto a pristine launch replaces the
+    /// default workspace with the saved set — no stray "Workspace 1" left over,
+    /// and the pristine session is reaped from the arena.
+    #[test]
+    fn append_consumes_a_pristine_workspace_on_open() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let pristine_token = set.workspaces[0].tabs[0].focused;
+        assert!(set.sessions.contains_key(&pristine_token));
+
+        let leaf = || crate::native::persistence::TabShape {
+            title: None,
+            focused_leaf: 0,
+            layout: crate::native::persistence::PaneShape::Leaf {
+                cwd: None,
+                session_host_id: None,
+            },
+        };
+        let ws = |name: &str| crate::native::persistence::WorkspaceShape {
+            name: name.to_owned(),
+            default_profile: None,
+            active_tab: 0,
+            tabs: vec![leaf()],
+        };
+        let layout = crate::native::persistence::ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            active_workspace: 0,
+            workspaces: vec![ws("saved-a"), ws("saved-b")],
+        };
+
+        let mut handed = Vec::new();
+        let report = set.append_from_snapshot_with(&layout, None, fake_spawner(&mut handed));
+        assert!(matches!(
+            report,
+            RestoreReport::Restored { workspaces: 2, .. }
+        ));
+        // Exactly the saved set — the pristine workspace is gone, not appended.
+        assert_eq!(set.workspace_count(), 2);
+        assert_eq!(set.workspace_name(0), Some("saved-a"));
+        assert_eq!(set.workspace_name(1), Some("saved-b"));
+        assert_eq!(set.active_workspace_index(), 0);
+        // The consumed workspace's session was reaped.
+        assert!(!set.sessions.contains_key(&pristine_token));
+    }
+
+    /// PRISTINE-CONSUME: a single but NON-pristine workspace (here, renamed) is
+    /// NOT consumed — the layout appends beside it, never clobbering real state.
+    #[test]
+    fn append_does_not_consume_a_single_but_renamed_workspace() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.rename_workspace(0, "live".to_owned());
+
+        let layout = crate::native::persistence::ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            active_workspace: 0,
+            workspaces: vec![crate::native::persistence::WorkspaceShape {
+                name: "saved".to_owned(),
+                default_profile: None,
+                active_tab: 0,
+                tabs: vec![crate::native::persistence::TabShape {
+                    title: None,
+                    focused_leaf: 0,
+                    layout: crate::native::persistence::PaneShape::Leaf {
+                        cwd: None,
+                        session_host_id: None,
+                    },
+                }],
+            }],
+        };
+
+        let mut handed = Vec::new();
+        set.append_from_snapshot_with(&layout, None, fake_spawner(&mut handed));
+        // The renamed workspace survives; the layout is appended as a second.
+        assert_eq!(set.workspace_count(), 2);
+        assert_eq!(set.workspace_name(0), Some("live"));
+        assert_eq!(set.workspace_name(1), Some("saved"));
+        assert_eq!(set.active_workspace_index(), 1);
     }
 
     /// WP3 / 8h: a pane carrying a session-host id whose host is not alive (no

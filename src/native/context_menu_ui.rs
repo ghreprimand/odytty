@@ -1103,8 +1103,9 @@ impl ContextMenuUi {
                 // RAIL-BIND: the host bind/unbind action sits in its own group
                 // below the destructive Close.
                 ContextMenuItem::BindWorkspaceToHost | ContextMenuItem::UnbindWorkspace => 2,
-                // LAYOUT-SURFACE: Save as Layout in a trailing group of its own.
-                ContextMenuItem::SaveAsLayout => 3,
+                // LAYOUT-SURFACE + RAIL-SAVE-ALL: both save actions share a
+                // trailing group of their own (one separator above them).
+                ContextMenuItem::SaveAllLayout | ContextMenuItem::SaveAsLayout => 3,
                 _ => 3,
             },
             ContextMenuSurface::ConnectionRow(_) => match item {
@@ -1194,7 +1195,10 @@ impl ContextMenuUi {
                 } else {
                     items.push(ContextMenuItem::BindWorkspaceToHost);
                 }
-                // LAYOUT-SURFACE: capture the clicked workspace as a named layout.
+                // LAYOUT-SURFACE + RAIL-SAVE-ALL: the whole-app save leads (a
+                // layout means the whole session), then the single-workspace
+                // save of the CLICKED slot — same order as the content menu.
+                items.push(ContextMenuItem::SaveAllLayout);
                 items.push(ContextMenuItem::SaveAsLayout);
                 return items;
             }
@@ -2980,11 +2984,12 @@ mod tests {
 
     #[test]
     fn workspace_slot_menu_offers_workspace_actions() {
-        // §3.5 / §7.4 + RAIL-BIND + LAYOUT-SURFACE: a workspace-slot right-click
-        // opens New / Rename / Close Workspace, the host bind action in its own
-        // group, then Save Workspace as Layout below a separator (the single-
-        // workspace save, targeting the CLICKED slot). An unbound slot shows
-        // "Bind to Host…".
+        // §3.5 / §7.4 + RAIL-BIND + LAYOUT-SURFACE + RAIL-SAVE-ALL: a
+        // workspace-slot right-click opens New / Rename / Close Workspace, the
+        // host bind action in its own group, then the layout group below a
+        // separator — the whole-app "Save as Layout…" leading the single-
+        // workspace "Save Workspace as Layout…" (targeting the CLICKED slot). An
+        // unbound slot shows "Bind to Host…".
         let m = open_surface(ContextMenuSurface::WorkspaceSlot(0), true);
         assert_eq!(
             m.rows(),
@@ -2996,6 +3001,7 @@ mod tests {
                 ContextMenuRow::Separator,
                 item("Bind to Host\u{2026}", false, true),
                 ContextMenuRow::Separator,
+                item("Save as Layout\u{2026}", false, true),
                 item("Save Workspace as Layout\u{2026}", false, true),
             ]
         );

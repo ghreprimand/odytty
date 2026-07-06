@@ -432,6 +432,18 @@ impl App {
         self.begin_rename(RenameTarget::SaveAllLayout, seed);
     }
 
+    /// Reopen the "Layout name:" prompt for a different name after an overwrite
+    /// collision (OVERWRITE-WARN "Rename" arm), seeded with the colliding `seed`
+    /// so the user can edit it. `kind` restores the same save target — the whole
+    /// app or the workspace at a rail index — that hit the collision.
+    pub(super) fn reopen_layout_name_prompt(&mut self, kind: LayoutSaveKind, seed: String) {
+        let target = match kind {
+            LayoutSaveKind::WholeApp => RenameTarget::SaveAllLayout,
+            LayoutSaveKind::Workspace(idx) => RenameTarget::SaveLayout(idx),
+        };
+        self.begin_rename(target, seed);
+    }
+
     /// Shared setup for the rename overlay: seed the field with `text`, park the
     /// caret at the end, and clear any stale pointer streak from a previous
     /// field so a leftover drag/double-click can't leak in (F4-RENAME-MOUSE).

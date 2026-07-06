@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Layout saving: overwrite prompt, whole-app save on the rail, and pristine-workspace consume
+
+Three rough edges in named-layout saving are smoothed.
+
+Saving a layout under a name that already exists no longer silently clobbers the
+existing file. A collision now raises a small confirm dialog — replace the
+existing layout, pick a different name (which reopens the name prompt seeded with
+the typed name), or cancel. The check covers every save surface, including the
+prompt-free command-palette entries, and is keyed by the same sanitized filename
+stem the writer uses, so the existence test can never disagree with what a name
+maps to on disk.
+
+The workspace rail slot's right-click menu now offers the whole-app **Save as
+Layout…** alongside the single-workspace **Save Workspace as Layout…**, matching
+the content-grid menu — previously the rail slot could only save its own one
+workspace.
+
+Opening a layout onto a bare window no longer leaves the default "Workspace 1"
+sitting beside the restored set. When the window holds exactly one untouched
+default workspace — its generated name, no host binding, a single tab with no
+custom title, and no splits — an opened layout consumes that workspace instead
+of appending beside it, so a fresh window shows exactly what was saved. Any real
+state (a second workspace, a rename, a binding, a split, or an extra tab) still
+appends, never clobbering. The judgement is made on structural facts only, never
+on shell activity.
+
+Platform-agnostic: the menu wiring, the confirm dialog, and the shape-level
+pristine check are identical across platforms, and layouts continue to use the
+cross-platform state dir.
+
+---
+
 ## 2026-07-06 -- Secondary windows say why they won't restore
 
 Only one window per machine-user owns session restore and autosave — an

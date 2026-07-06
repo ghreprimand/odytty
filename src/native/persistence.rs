@@ -483,6 +483,22 @@ pub(crate) fn save_layout(name: &str, snapshot: &ShapeSnapshot) -> io::Result<St
     save_layout_in(&layouts_dir(), name, snapshot)
 }
 
+/// Whether a saved layout already exists for `name` in `dir` (OVERWRITE-WARN).
+/// Keyed by the SAME sanitized stem [`save_layout_in`] writes, so the existence
+/// check can never disagree with the writer about which file a name maps to. An
+/// unusable name (nothing survives sanitization) can never collide, so it is
+/// reported absent.
+fn layout_exists_in(dir: &Path, name: &str) -> bool {
+    layout_path_in(dir, name).is_some_and(|path| path.is_file())
+}
+
+/// Whether a saved layout already exists for `name` (OVERWRITE-WARN). The save
+/// paths call this before writing so a name collision can prompt the user
+/// (replace vs. a different name) instead of silently clobbering.
+pub(crate) fn layout_exists(name: &str) -> bool {
+    layout_exists_in(&layouts_dir(), name)
+}
+
 /// The sorted `*.json` file stems under `dir` (WP3 core). A missing directory is
 /// an empty list, never an error; non-`*.json` files are ignored.
 fn list_layout_names_in(dir: &Path) -> Vec<String> {

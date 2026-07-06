@@ -475,3 +475,47 @@ fn layout_save_list_load_delete_round_trip() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// OVERWRITE-WARN: `layout_exists_in` reports presence keyed by the SAME
+/// sanitized stem the writer uses, so a name that maps onto an existing file is
+/// detected even when it differs only in unsanitized characters — the check can
+/// never disagree with the writer about which file a name means.
+#[test]
+fn layout_exists_matches_the_writer_stem() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("odytty-overwrite-{}-{nanos}", std::process::id()));
+
+    let layout = ShapeSnapshot {
+        version: SNAPSHOT_VERSION,
+        active_workspace: 0,
+        workspaces: vec![WorkspaceShape {
+            name: "w".to_owned(),
+            default_profile: None,
+            active_tab: 0,
+            tabs: vec![TabShape {
+                title: None,
+                focused_leaf: 0,
+                layout: leaf(None),
+            }],
+        }],
+    };
+
+    // Absent before any write.
+    assert!(!layout_exists_in(&dir, "My Layout"));
+    // An unusable name can never collide.
+    assert!(!layout_exists_in(&dir, "   "));
+
+    let stem = save_layout_in(&dir, "My/Layout", &layout).expect("save");
+    // "My/Layout" and "My_Layout" sanitize to the same stem, so both report the
+    // written file as existing.
+    assert_eq!(stem, "My_Layout");
+    assert!(layout_exists_in(&dir, "My/Layout"));
+    assert!(layout_exists_in(&dir, "My_Layout"));
+    // A genuinely different name does not collide.
+    assert!(!layout_exists_in(&dir, "Other"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

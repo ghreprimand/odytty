@@ -52,8 +52,8 @@ use super::cvd_theme::CvdThemeCache;
 use super::gpu::{BloomOptions, CrtOptions, FrameOutcome, GpuState, RailOverlay};
 use super::options::{NativeError, NativeOptions};
 use super::overlay::{
-    OverlayInput, OverlayOutcome, OverlayPointer, OverlayUi, PointerButton, apply_overlay,
-    overlay_input_from_winit, overlay_rect,
+    LayoutSaveKind, OverlayInput, OverlayOutcome, OverlayPointer, OverlayUi, PointerButton,
+    apply_overlay, overlay_input_from_winit, overlay_rect,
 };
 #[cfg(test)]
 use super::pty::PtyWriter;
