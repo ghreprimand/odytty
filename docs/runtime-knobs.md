@@ -165,7 +165,9 @@ the selected OdyTTY-owned row (`ssh-config`-imported rows are read-only). The
 form carries `Alias`, `HostName`, `User`, and `Port` up front, with an
 **Advanced** section for `IdentityFile`, the three-way `Integration` / `Reuse` /
 `Tmux` overrides (**inherit / on / off**), and `Theme` / `Font` / `Title`. On the
-**IdentityFile** row, **Enter** (while the field is empty) opens a browser of
+**IdentityFile** row, **Enter** (while the field is empty) — or a click on the
+always-visible **[Browse]** chip at the end of the row (whether the field is
+empty or already holds a path) — opens a browser of
 candidate private keys found under `~/.ssh` — filename heuristics only (`id_*`,
 `*.pem`, `*.key`, and any file with a matching `.pub` sibling; `*.pub`,
 `known_hosts`, `config`, and `authorized_keys` are excluded). The browser lists

@@ -223,6 +223,7 @@ In the form, `Up`/`Down` or `Tab` move between fields, typing edits the focused
 field, `Left`/`Right` (or `Space`) cycle a three-way `inherit`/`on`/`off`
 override, `Enter` presses the focused button, `Ctrl+S` saves from anywhere, and
 `Esc` cancels. On the **IdentityFile** row, `Enter` (while the field is empty)
+or a click on the always-visible `[Browse]` chip (empty or filled field alike)
 opens a browser of candidate private keys under `~/.ssh` (`Up`/`Down` pick,
 `Enter` fills the path, `Esc` returns); typing a path by hand still works. A
 focused-field help line at the bottom explains each field as you move through it.

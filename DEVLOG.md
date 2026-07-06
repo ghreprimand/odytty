@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Connection form: persistent, clickable key browser
+
+The Add / Edit connection form's IdentityFile row now carries an always-visible
+browse affordance. An empty field shows a `[Browse ~/.ssh keys]` chip; a filled
+field shows the path followed by a compact `[Browse]` chip. Clicking the chip
+opens the `~/.ssh` key browser regardless of whether a path is already set, and
+picking a key replaces the current value — the browser is no longer reachable
+only from an empty field, and no longer keyboard-only. Enter on an empty field
+still opens the browser and typing a path by hand is unchanged. The chip is
+render-only: it is never part of the field value and never written to a saved
+host. Its click target is derived from the rendered row text rather than a
+parallel geometry calculation, so the hit region always matches what is drawn;
+a body too narrow to show the chip simply yields no clickable region. Field help
+and the connection-form docs note the click path.
+
+---
+
 ## 2026-07-06 -- Transparency composes with a background image
 
 Window transparency now shows through a configured background image. The

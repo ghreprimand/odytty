@@ -20,6 +20,18 @@ use crate::theme::Srgb;
 
 use super::overlay::OverlayInput;
 
+/// The persistent `[Browse]` chip drawn at the trailing end of the IdentityFile
+/// row when a path is set (BROWSE-UX). Clicking it opens the `~/.ssh` key
+/// browser regardless of field content; it is render-only and never stored.
+const BROWSE_CHIP: &str = "[Browse]";
+/// The chip drawn when IdentityFile is empty: doubles as the discoverability
+/// hint (keyboard Enter or a click both open the key browser).
+const BROWSE_CHIP_EMPTY: &str = "[Browse ~/.ssh keys]";
+/// Shared prefix of both chip variants; the click hit-test locates the chip by
+/// finding this marker in the rendered row, so the target always matches what
+/// is drawn (no parallel geometry).
+const BROWSE_CHIP_MARKER: &str = "[Browse";
+
 /// One focusable control in the form, in top-to-bottom order within each group.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum FormField {
@@ -87,7 +99,7 @@ impl FormField {
                 "Enter toggles optional per-host overrides: identity key, integration/reuse/tmux, theme/font/title."
             }
             FormField::IdentityFile => {
-                "Path to an existing private key; passed as ssh -i. Empty uses the agent/ssh defaults. Enter browses ~/.ssh; ssh-copy-id installs a key on the host. Only the path is stored, never key material."
+                "Path to an existing private key; passed as ssh -i. Empty uses the agent/ssh defaults. Enter (empty field) or clicking [Browse] opens the ~/.ssh key browser; ssh-copy-id installs a key on the host. Only the path is stored, never key material."
             }
             FormField::Integration => {
                 "Remote shell integration. inherit = follow the global setting; on/off override it for this host."
@@ -564,7 +576,12 @@ impl ConnectionForm {
     }
 
     /// Map a left-click on body row `row` to a focus change or an action.
-    pub(super) fn handle_pointer_press(&mut self, row: usize) -> ConnectionFormOutcome {
+    pub(super) fn handle_pointer_press(
+        &mut self,
+        row: usize,
+        col: usize,
+        body_width: usize,
+    ) -> ConnectionFormOutcome {
         // While the key browser is open a click selects (and accepts) a row.
         if let Some(browse) = self.browse.as_mut() {
             // Row 0 is the browser prompt; candidate rows follow it.
@@ -585,6 +602,18 @@ impl ConnectionForm {
             return ConnectionFormOutcome::Consumed;
         };
         self.focus = field;
+        // A click landing on the IdentityFile row's trailing browse chip opens the
+        // `~/.ssh` key browser regardless of field content (BROWSE-UX). The chip
+        // span is derived from the rendered row, so the hit target always matches
+        // what is drawn — a narrow body that truncates the chip off simply yields
+        // no span and the click falls through to plain focus.
+        if field == FormField::IdentityFile
+            && let Some((chip_start, chip_end)) = self.identity_browse_chip_span(body_width)
+            && col >= chip_start
+            && col < chip_end
+        {
+            return ConnectionFormOutcome::BrowseIdentityKeys;
+        }
         // Clicking an action row (or the disclosure) acts immediately; clicking
         // a data field just focuses it.
         match field {
@@ -593,6 +622,28 @@ impl ConnectionForm {
             }
             _ => ConnectionFormOutcome::Consumed,
         }
+    }
+
+    /// The column span `[start, end)` of the IdentityFile row's trailing browse
+    /// chip within the rendered form body, or `None` when the IdentityFile row is
+    /// not currently rendered (Advanced collapsed) or the body is too narrow to
+    /// show the chip. Derived from the exact rendered row text (single source of
+    /// truth) so click hit-testing never drifts from what is drawn. Columns are
+    /// char indices because the form body truncates by character, matching the
+    /// overlay's `col_in_body`.
+    fn identity_browse_chip_span(&self, body_width: usize) -> Option<(usize, usize)> {
+        if !self
+            .rows()
+            .iter()
+            .any(|r| matches!(r, FormRow::Field(FormField::IdentityFile)))
+        {
+            return None;
+        }
+        let line = self.render_field(FormField::IdentityFile, body_width).text;
+        let byte_start = line.rfind(BROWSE_CHIP_MARKER)?;
+        let col_start = line[..byte_start].chars().count();
+        let col_end = line.chars().count();
+        Some((col_start, col_end))
     }
 
     /// The field rendered on body row `row`, if any (spacer / header / error
@@ -829,17 +880,23 @@ impl ConnectionForm {
                     FormField::Title => &self.title,
                     _ => "",
                 };
-                // While the IdentityFile field is empty, its value slot shows a
-                // parenthesized browse-affordance hint instead of a bare blank, so
-                // the Enter-to-browse action is discoverable without focusing the
-                // row or reading the footer help. This is render-only: the field
-                // model stays an empty string and the hint never round-trips into
-                // a saved host. Any typed character or a picked path replaces it.
-                if field == FormField::IdentityFile && value.is_empty() {
-                    format!("{:<13}(Enter: browse ~/.ssh keys)", field.label())
+                // The IdentityFile row always carries a trailing browse chip so the
+                // `~/.ssh` key browser is reachable both by keyboard (Enter on an
+                // empty field) and by mouse (click the chip) regardless of whether
+                // a path is set (BROWSE-UX). An empty field shows the hint chip
+                // `[Browse ~/.ssh keys]`; a filled field shows the path followed by
+                // a compact `[Browse]` chip. The chip is render-only: the field
+                // model never contains it and it never round-trips into a saved
+                // host. Any typed character or a picked path replaces the value.
+                let caret = if focused { "\u{2588}" } else { "" };
+                if field == FormField::IdentityFile {
+                    if value.is_empty() {
+                        format!("{:<13}{BROWSE_CHIP_EMPTY}", field.label())
+                    } else {
+                        format!("{:<13}{value}{caret}  {BROWSE_CHIP}", field.label())
+                    }
                 } else {
                     // A trailing caret marks the edit cursor on the focused field.
-                    let caret = if focused { "\u{2588}" } else { "" };
                     format!("{:<13}{value}{caret}", field.label())
                 }
             }
@@ -1314,7 +1371,7 @@ mod tests {
         form.open_add(Vec::new());
         // Row 1 is HostName (row 0 = Alias). A click focuses it.
         assert_eq!(
-            form.handle_pointer_press(1),
+            form.handle_pointer_press(1, 0, 80),
             ConnectionFormOutcome::Consumed
         );
         assert_eq!(form.focus, FormField::HostName);
@@ -1325,7 +1382,7 @@ mod tests {
             .position(|r| matches!(r, FormRow::Field(FormField::Cancel)))
             .expect("cancel row");
         assert_eq!(
-            form.handle_pointer_press(cancel_row),
+            form.handle_pointer_press(cancel_row, 0, 80),
             ConnectionFormOutcome::Close
         );
     }
@@ -1423,68 +1480,156 @@ mod tests {
         assert_ne!(form.focus, FormField::IdentityFile);
     }
 
+    /// The rendered IdentityFile row at the given body width (Advanced expanded).
+    #[cfg(test)]
+    fn identity_row_text(form: &ConnectionForm, width: usize) -> String {
+        form.visible_lines(width, 40)
+            .into_iter()
+            .find(|l| l.text.contains("IdentityFile"))
+            .map(|l| l.text)
+            .expect("IdentityFile row")
+    }
+
     #[test]
-    fn empty_identity_file_shows_the_browse_hint_placeholder() {
-        // FORM-BROWSE-HINT: an empty IdentityFile value slot advertises the
-        // Enter-to-browse action inline (discoverability), rendered even when the
+    fn empty_identity_file_shows_the_browse_chip() {
+        // BROWSE-UX: an empty IdentityFile value slot shows the persistent browse
+        // chip (which doubles as the discoverability hint), rendered even when the
         // row is not focused.
         let mut form = ConnectionForm::new();
         form.open_add(Vec::new());
         form.advanced = true;
-        let lines = form.visible_lines(72, 40);
+        let row = identity_row_text(&form, 72);
         assert!(
-            lines
-                .iter()
-                .any(|l| l.text.contains("IdentityFile") && l.text.contains("(Enter: browse")),
-            "empty IdentityFile row should show the browse hint"
+            row.contains(BROWSE_CHIP_EMPTY),
+            "empty IdentityFile row should show the empty browse chip: {row:?}"
         );
     }
 
     #[test]
-    fn typed_identity_file_replaces_the_browse_hint() {
-        // The hint is render-only: one typed character swaps it for the real
-        // value, and no hint text lingers.
+    fn filled_identity_file_keeps_a_trailing_browse_chip() {
+        // BROWSE-UX BROWSE-PERSIST: a non-empty field still shows a [Browse] chip
+        // so the browser stays reachable without deleting the path first.
         let mut form = ConnectionForm::new();
         form.open_add(Vec::new());
         form.advanced = true;
         form.focus = FormField::IdentityFile;
         typed(&mut form, "/keys/mine");
-        let lines = form.visible_lines(72, 40);
-        let row = lines
-            .iter()
-            .find(|l| l.text.contains("IdentityFile"))
-            .expect("IdentityFile row");
-        assert!(row.text.contains("/keys/mine"));
-        assert!(!row.text.contains("(Enter: browse"));
+        let row = identity_row_text(&form, 72);
+        assert!(row.contains("/keys/mine"), "path shown: {row:?}");
+        assert!(
+            row.contains(BROWSE_CHIP),
+            "filled row keeps a chip: {row:?}"
+        );
+        // The empty-state hint chip must not linger once a path is present.
+        assert!(!row.contains(BROWSE_CHIP_EMPTY));
     }
 
     #[test]
-    fn browse_hint_never_saves_into_the_host() {
-        // FORM-BROWSE-HINT invariant: the placeholder is display-only and must
-        // never leak into a saved connection's identity_file.
+    fn browse_chip_never_saves_into_the_host() {
+        // BROWSE-UX invariant: the chip is display-only and must never leak into a
+        // saved connection's identity_file, whether the field is empty or filled.
         let mut form = ConnectionForm::new();
         form.open_add(Vec::new());
         typed(&mut form, "hostk");
         form.advanced = true;
-        // Render the form (which paints the hint) but leave the field untouched.
+        // Render the form (which paints the chip) but leave the field untouched.
         let _ = form.visible_lines(72, 40);
         let (host, _) = saved(&mut form).expect("save");
         assert_eq!(host.identity_file, None);
     }
 
     #[test]
-    fn browse_hint_truncates_cleanly_on_a_narrow_body() {
-        // A narrow body clips the hint through truncate_for_width without panic
-        // and without emitting a full closing paren that implies a real value.
+    fn browse_chip_truncates_cleanly_on_a_narrow_body() {
+        // A narrow body clips the chip through truncate_for_width without panic.
         let mut form = ConnectionForm::new();
         form.open_add(Vec::new());
         form.advanced = true;
-        let lines = form.visible_lines(20, 40);
-        let row = lines
+        let row = identity_row_text(&form, 20);
+        assert!(row.chars().count() <= 20);
+        // A body so narrow that even the chip marker is clipped away yields no
+        // clickable span (rather than a bogus one) — the click falls through to
+        // plain focus. The label occupies 13 columns; width 16 clips the marker.
+        assert_eq!(form.identity_browse_chip_span(16), None);
+        // A width that still shows the marker keeps a (possibly partial) span.
+        assert!(form.identity_browse_chip_span(20).is_some());
+    }
+
+    #[test]
+    fn clicking_the_browse_chip_opens_the_browser_when_empty() {
+        // BROWSE-MOUSE: a click on the empty-state chip opens the key browser
+        // (the App round-trip that gathers ~/.ssh candidates).
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.advanced = true;
+        let width = 72;
+        let (start, end) = form
+            .identity_browse_chip_span(width)
+            .expect("empty chip span");
+        let row = form
+            .rows()
             .iter()
-            .find(|l| l.text.contains("IdentityFile"))
+            .position(|r| matches!(r, FormRow::Field(FormField::IdentityFile)))
             .expect("IdentityFile row");
-        assert!(row.text.chars().count() <= 20);
+        assert_eq!(
+            form.handle_pointer_press(row, start, width),
+            ConnectionFormOutcome::BrowseIdentityKeys
+        );
+        // A click just before the chip only focuses the field (no browse).
+        assert_eq!(
+            form.handle_pointer_press(row, start.saturating_sub(1), width),
+            ConnectionFormOutcome::Consumed
+        );
+        // Sanity: end is one past the last chip column.
+        assert!(end > start);
+    }
+
+    #[test]
+    fn clicking_the_browse_chip_opens_the_browser_when_filled() {
+        // BROWSE-PERSIST + BROWSE-MOUSE: the chip stays clickable with a path set.
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.advanced = true;
+        form.focus = FormField::IdentityFile;
+        typed(&mut form, "/keys/mine");
+        let width = 72;
+        let (start, _) = form
+            .identity_browse_chip_span(width)
+            .expect("filled chip span");
+        let row = form
+            .rows()
+            .iter()
+            .position(|r| matches!(r, FormRow::Field(FormField::IdentityFile)))
+            .expect("IdentityFile row");
+        assert_eq!(
+            form.handle_pointer_press(row, start, width),
+            ConnectionFormOutcome::BrowseIdentityKeys
+        );
+    }
+
+    #[test]
+    fn picking_a_key_replaces_an_existing_identity_path() {
+        // BROWSE-UX: browsing over a set path REPLACES it with the picked key.
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.advanced = true;
+        form.focus = FormField::IdentityFile;
+        typed(&mut form, "/old/key");
+        form.open_key_browse(vec!["/home/u/.ssh/id_ed25519".to_owned()]);
+        assert_eq!(
+            form.handle_input(OverlayInput::Activate),
+            ConnectionFormOutcome::Consumed
+        );
+        assert_eq!(form.identity_file, "/home/u/.ssh/id_ed25519");
+    }
+
+    #[test]
+    fn browse_chip_span_is_none_when_advanced_collapsed() {
+        // The IdentityFile row lives under Advanced; collapsed, there is no chip
+        // and therefore no clickable span.
+        let mut form = ConnectionForm::new();
+        form.open_add(Vec::new());
+        form.advanced = false;
+        assert_eq!(form.identity_browse_chip_span(72), None);
     }
 
     #[test]
@@ -1562,7 +1707,7 @@ mod tests {
         form.open_key_browse(vec!["/k/id_ed25519".to_owned(), "/k/id_rsa".to_owned()]);
         // Row 0 is the prompt; row 2 is the second candidate.
         assert_eq!(
-            form.handle_pointer_press(2),
+            form.handle_pointer_press(2, 0, 80),
             ConnectionFormOutcome::Consumed
         );
         assert!(!form.browsing());

@@ -1488,7 +1488,11 @@ impl OverlayUi {
                     },
                     OverlayMode::ConnectionForm => {
                         if button == PointerButton::Left {
-                            self.handle_connection_form_pointer(row_in_body)
+                            self.handle_connection_form_pointer(
+                                row_in_body,
+                                col_in_body,
+                                rect.body_width,
+                            )
                         } else {
                             OverlayOutcome::Consumed
                         }
@@ -2276,8 +2280,15 @@ impl OverlayUi {
 
     /// Route a left-click on a form body row to the form (focus a field or press
     /// an action button).
-    fn handle_connection_form_pointer(&mut self, row_in_body: usize) -> OverlayOutcome {
-        let outcome = self.connection_form.handle_pointer_press(row_in_body);
+    fn handle_connection_form_pointer(
+        &mut self,
+        row_in_body: usize,
+        col_in_body: usize,
+        body_width: usize,
+    ) -> OverlayOutcome {
+        let outcome =
+            self.connection_form
+                .handle_pointer_press(row_in_body, col_in_body, body_width);
         self.apply_connection_form_outcome(outcome)
     }
 
