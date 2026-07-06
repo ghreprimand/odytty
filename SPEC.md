@@ -1151,8 +1151,11 @@ be **structurally unable** to harm body-text legibility by construction:
   safe-by-construction: gradient/vignette darken is applied to the per-cell
   background **before** the minimum-contrast floor resolves, and image backgrounds
   use a readability scrim plus `cell_bg_opacity` so the floor sees a bounded
-  background. The knob is forced off under the plain renderer profile. Blur-behind
-  transparency remains a planned future extension.
+  background. The knob is forced off under the plain renderer profile. Whole-window
+  transparency ships separately (`window_transparency` / `window_opacity`,
+  default off): only background layers scale toward the desktop while text,
+  cursor, selection, and overlays stay fully opaque. Blur-behind (acrylic)
+  compositing remains a planned future extension.
 - Any new Tier-3 effect must document its structural legibility guarantee
   before landing.
 
@@ -1176,7 +1179,7 @@ builder, and image layer, consuming core snapshots through a narrow seam.
 
 Text is cell-based: each codepoint occupies one or two columns (`unicode-width`
 consistent with core), and all coordinate systems are per-cell. The default
-body font is bundled **Victor Mono** (SIL OFL 1.1) at 20 logical pixels;
+body font is bundled **Victor Mono** (SIL OFL 1.1) at 21 logical pixels;
 **JetBrains Mono** is also bundled and remains selectable. SGR italic maps to
 Victor Mono's roman-slant Oblique faces. The font picker lists families in two
 subgroups — **Bundled Fonts** (Victor Mono, JetBrains Mono — always present,

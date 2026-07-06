@@ -25,6 +25,24 @@ byte-identical.
 
 ---
 
+## 2026-07-06 -- Documentation sweep: public docs verified against shipped behavior
+
+A pass over the public documentation reconciled every user-facing doc with the
+code that ships. The default body-font size is now documented as 21 logical
+pixels (README, SPEC) to match `DEFAULT_FONT_SIZE_PX`. The settings reference
+gains the `bell` knob (`off`/`visual`/`urgent`/`all`, default `urgent`), which
+was absent from `runtime-knobs.md`, and the keyboard reference lists the
+`Ctrl+Shift+N` **New Window** global chord alongside the other tab actions. The
+roadmap records window transparency (`window_transparency` / `window_opacity`)
+as shipped and describes the whole-application named-layout model, while `SPEC.md`
+clarifies that whole-window transparency ships today and blur-behind (acrylic)
+compositing remains a future extension. The tab context menu is documented under
+its actual label, **Move to Workspace…**, and the remote section notes the
+`remote_persist` ControlMaster-persistence window. Documentation only — no code
+or version changes.
+
+---
+
 ## 2026-07-06 -- Layouts capture the whole session
 
 A saved layout now means the whole application, matching how a layout reads to

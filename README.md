@@ -437,7 +437,7 @@ screen flash), `all` (both), or `off`. There is no audible bell.
 
 ### Text, Emoji, And Graphics
 
-Text rendering uses bundled Victor Mono by default at 20 logical pixels with
+Text rendering uses bundled Victor Mono by default at 21 logical pixels with
 line height `1.0`. JetBrains Mono is also bundled and remains selectable via
 `font_family`. The font picker groups families into **Bundled Fonts** (Victor
 Mono, JetBrains Mono — always available) and **System Fonts** (host monospace
@@ -547,7 +547,7 @@ the only close. The content menu also has a launcher section at the bottom —
 with its effective chord and opening the matching overlay. Right-clicking a tab
 opens a separate, tab-scoped menu (New Tab, Rename Tab, Close Tab, Close Other
 Tabs, **Connect to Host…**, **Replace with Host…**, New Window — plus Move to
-Next Workspace when more than one workspace exists), and right-clicking the empty
+Workspace… when more than one workspace exists), and right-clicking the empty
 tab strip offers New Tab, Command Palette, and Settings. **Connect to Host…**
 opens a saved host in a new tab positioned right after the clicked one (the
 clicked shell is left untouched); **Replace with Host…** opens the host in the
@@ -735,7 +735,9 @@ interactive shell against it, so a remote bash session gains the same prompt
 and input boundaries as a local one. Nothing is persisted on the remote, and a
 non-bash shell or any failure degrades to a plain `ssh`. The tab is titled
 `user@host`. `remote_reuse` (on) multiplexes further tabs to the same host over
-a shared ControlMaster connection so they connect with no new handshake;
+a shared ControlMaster connection so they connect with no new handshake, and
+`remote_persist` (10 minutes by default) keeps that master socket alive after
+the last tab closes so a quick reconnect skips re-authentication;
 `remote_tmux` (off by default) wraps the remote shell in a persistent
 `tmux new-session -A -s odytty` so a dropped-and-reconnected link resumes the
 same remote session. When a remote connection drops, the tab is held open with

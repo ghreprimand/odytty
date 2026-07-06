@@ -867,6 +867,15 @@ feature validates against.
         panel uses an inline path picker for `background_image` without blocking
         overlay navigation while directories are enumerated. Blur-behind
         transparency remains future work.
+  - [x] Window transparency (`window_transparency`, default off; `window_opacity`
+        percent, default 85): the terminal background and chrome bands draw
+        translucent so the desktop shows through, while text, cursor, selection,
+        and every overlay stay fully opaque — the readability boundary. The
+        surface alpha mode is chosen explicitly (premultiplied → postmultiplied →
+        opaque fallback) and degrades cleanly where the display server offers no
+        alpha compositing (X11 with no compositor); the opaque path is
+        byte-identical, and wallpaper backgrounds compose under the same window
+        alpha. Windows composites through DWM.
 - [ ] Pointer excellence — make the mouse a joy, without disturbing TUI mouse
       reporting (Shift stays the selection-vs-passthrough seam).
   - [x] Extend an existing selection: Shift+click, double-click-then-drag by
@@ -979,8 +988,11 @@ feature validates against.
   - [x] `restore_workspaces` (default off) reopens the previous shape on a bare
         `odytty` launch for the primary instance only; any CLI arg suppresses it;
         debounced autosave on shape change plus save on clean exit.
-  - [x] Named layouts: Save Current Workspace as Layout, Open Layout (appends a
-        workspace, never clobbers), Delete Layout — from the command palette.
+  - [x] Named layouts: Save All Workspaces as Layout (whole-app capture) and
+        Save Workspace as Layout (a single workspace), Open Layout (appends a
+        workspace, never clobbers), and Delete Layout — from the command
+        palette and the workspace-rail / content / empty-tab-strip right-click
+        menus.
   - [x] Unix session-host reattach on restore: an alive per-pane session-host id
         reattaches; a dead one opens a fresh shell silently, with a compact
         "N of M sessions reattached" notice. Windows stores no ids (all fresh).

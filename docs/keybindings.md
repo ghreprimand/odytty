@@ -47,6 +47,7 @@ These work anywhere in the window. They are all rebindable (see
 | `Shift+PageUp` | Scroll the viewport up one page | `scroll-up` |
 | `Shift+PageDown` | Scroll the viewport down one page | `scroll-down` |
 | `Ctrl+Shift+T` | New tab | `new-tab` |
+| `Ctrl+Shift+N` | New window (launch another OdyTTY instance) | `new-window` |
 | `Ctrl+Shift+W` | Close the active tab (and all of its panes) | `close-tab` |
 | `Ctrl+PageDown` | Next tab | `next-tab` |
 | `Ctrl+PageUp` | Previous tab | `prev-tab` |
