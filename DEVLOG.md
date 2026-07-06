@@ -7,6 +7,45 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Restore reconnects remote panes instead of aborting the layout
+
+Opening a layout that contained remote workspaces failed outright ("Couldn't
+open layout"), and launch restore silently did nothing, whenever a captured
+pane had been connected to a remote host. Two defects compounded:
+
+- The shape snapshot recorded a remote pane as an ordinary local pane carrying
+  the pane's *remote* working directory (e.g. `/root` from the remote's
+  OSC 7). On restore that directory was resolved against the *local*
+  filesystem; a same-named local directory (`/root`, mode 700) exists but
+  denies a shell, so the local spawn failed.
+- The rebuild was all-or-nothing: one failed pane reaped everything and
+  reported the whole restore as skipped, so a single remote pane took down the
+  entire layout (and the same data in the autosave took down launch restore).
+
+The snapshot schema now records a pane's remote host. A pane opened through the
+`ssh` connect path stores what it connected to — the saved-profile alias when
+it came from a `hosts.conf` entry (so restore re-resolves the full per-host
+configuration: `HostName`, `Port`, `IdentityFile`, integration/reuse/tmux), or
+the literal `[user@]host[:port]` for an ad-hoc destination. On restore, such a
+pane respawns through the connect path as a fresh remote login shell — commands
+are never re-run, and the remote cwd is not restored (the shell lands at the
+host's own default). A host that no longer resolves opens a local shell,
+counted in the restore notice. The new `remote_host` key serializes as `null`
+for local panes and is tolerated-absent on older snapshots (a missing key loads
+as a local pane).
+
+The restore rebuild no longer aborts on a single recoverable pane. A local pane
+whose captured directory exists but refuses a shell now retries once at home
+(counted as a stale-directory fallback) before giving up; the whole restore is
+abandoned only if even the home spawn fails. A layout now comes back in full —
+three remote workspaces reconnect as three remote workspaces — or degrades per
+pane with a compact notice, never wholesale.
+
+Cross-platform: the reconnect uses the same `ssh`/`ssh.exe` argv path on every
+OS (no ControlMaster on a Windows client), no session-host id is stored on
+Windows, and the existing-directory spawn retry is platform-neutral.
+---
+
 ## 2026-07-06 -- Platform-gated the restore-theme test imports and seam
 
 The RESTORE-THEME regression suite carries a proxy-backed test that needs a

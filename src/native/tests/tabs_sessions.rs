@@ -160,6 +160,7 @@ fn capture_shape_records_workspaces_tabs_panes_and_cwd() {
                 PaneShape::Leaf {
                     cwd: Some("/home/tester/project".to_owned()),
                     session_host_id: None,
+                    remote_host: None,
                 }
             );
             assert!(matches!(**second, PaneShape::Leaf { .. }));

@@ -10,6 +10,7 @@ fn leaf(cwd: Option<&str>) -> PaneShape {
     PaneShape::Leaf {
         cwd: cwd.map(str::to_owned),
         session_host_id: None,
+        remote_host: None,
     }
 }
 
@@ -380,6 +381,7 @@ fn pane_session_host_id_round_trips_and_is_forward_compatible() {
                 layout: PaneShape::Leaf {
                     cwd: Some("/srv".to_owned()),
                     session_host_id: Some("odytty-4f2a".to_owned()),
+                    remote_host: None,
                 },
             }],
         }],
@@ -403,6 +405,49 @@ fn pane_session_host_id_round_trips_and_is_forward_compatible() {
         PaneShape::Leaf {
             session_host_id, ..
         } => assert_eq!(*session_host_id, None),
+        other => panic!("expected a leaf, got {other:?}"),
+    }
+}
+
+/// RESTORE-REMOTE: a pane's remote host round-trips through the snapshot under
+/// the stable `remote_host` key, and a pre-RESTORE-REMOTE snapshot (no such
+/// key) parses to a plain local pane.
+#[test]
+fn pane_remote_host_round_trips_and_is_forward_compatible() {
+    let snapshot = ShapeSnapshot {
+        version: SNAPSHOT_VERSION,
+        active_workspace: 0,
+        workspaces: vec![WorkspaceShape {
+            name: "w".to_owned(),
+            default_profile: None,
+            active_tab: 0,
+            tabs: vec![TabShape {
+                title: None,
+                focused_leaf: 0,
+                layout: PaneShape::Leaf {
+                    cwd: Some("/home/me".to_owned()),
+                    session_host_id: None,
+                    remote_host: Some("prod".to_owned()),
+                },
+            }],
+        }],
+    };
+    let text = snapshot.to_json_pretty();
+    assert!(text.contains("\"remote_host\": \"prod\""), "{text}");
+    assert_eq!(
+        ShapeSnapshot::from_json_str(&text).expect("round-trips"),
+        snapshot
+    );
+
+    // A snapshot written before the remote_host key existed loads as a local
+    // pane (a missing key parses to None, not an error).
+    let legacy = r#"{ "version": 1, "active_workspace": 0, "workspaces": [
+        { "name": "w", "active_tab": 0, "tabs": [
+            { "title": null, "focused_leaf": 0, "layout": { "leaf": { "cwd": "/srv", "session_host_id": null } } }
+        ] } ] }"#;
+    let parsed = ShapeSnapshot::from_json_str(legacy).expect("legacy parses");
+    match &parsed.workspaces[0].tabs[0].layout {
+        PaneShape::Leaf { remote_host, .. } => assert_eq!(*remote_host, None),
         other => panic!("expected a leaf, got {other:?}"),
     }
 }

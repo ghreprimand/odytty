@@ -685,7 +685,8 @@ its first stable layer.
   workspace opens with exactly one single-pane tab.
 - Workspace-shape persistence (`restore_workspaces`, default off): OdyTTY can
   snapshot the window's **shape** — workspace names, tab titles and order, the
-  pane split tree and ratios, and each pane's working directory — to an atomic
+  pane split tree and ratios, each pane's working directory, and the remote
+  host a remote pane was connected to — to an atomic
   temp-and-rename file in the platform state dir (`%LOCALAPPDATA%` on Windows).
   The snapshot is a strict privacy boundary: it records structure only and
   **never** grid content, scrollback, environment, or the commands that were
@@ -696,7 +697,15 @@ its first stable layer.
   instantiated as an appended workspace, never a clobber. On Unix a pane may
   carry a detached session-host id and reattach on restore when that host is
   still alive (falling back to a fresh shell silently); Windows stores no ids
-  and always restores fresh.
+  and always restores fresh. A pane opened on a remote host records
+  the connection — the saved-profile alias, or the literal
+  `[user@]host[:port]` for an ad-hoc destination — and restore reconnects it
+  through the `ssh` path as a fresh remote login shell. The remote cwd is not
+  restored (the shell lands at the host's own default), and no command is ever
+  re-run. A host that no longer resolves opens a local shell instead, and a
+  local pane whose captured directory exists but denies a shell retries at home
+  rather than aborting the whole restore — a layout comes back in full or
+  degrades per pane, never wholesale.
 - Readability pipeline: visual enhancements are explicit settings with
   individual opt-outs, and `render_quality=plain` preserves the pixel-identical
   plain/fast path that bypasses extras. Three delivered knobs:

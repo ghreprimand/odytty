@@ -354,6 +354,14 @@ pub(super) struct Session {
     /// plain-ssh tab, so image paste-through never engages there. See
     /// [`RemoteUpload`].
     pub(super) upload: Option<RemoteUpload>,
+    /// The remote host this session is connected to (RESTORE-REMOTE), or
+    /// `None` for a local shell. Set by the `ssh` connect path to the
+    /// saved-profile alias (when opened from a `hosts.conf` entry) or the
+    /// literal `[user@]host[:port]` destination (ad-hoc). Captured into the
+    /// shape snapshot so restore respawns the pane through the connect path
+    /// instead of a local shell at the remote's cwd. Never set on a local
+    /// session, so a local pane's capture/restore is unchanged.
+    pub(super) remote_destination: Option<String>,
 }
 
 impl Session {
@@ -521,6 +529,7 @@ impl Session {
             reconnect: None,
             awaiting_reconnect: false,
             upload: None,
+            remote_destination: None,
         }
     }
 
@@ -1651,6 +1660,30 @@ impl WorkspaceSet {
         self.insert_local_session_with(grid, None, |grid| {
             PtySession::spawn_exec(grid, program, args, None)
         })
+    }
+
+    /// Spawn a restored remote `ssh` session (RESTORE-REMOTE) and insert it into
+    /// the arena WITHOUT tab/pane wiring — the restore rebuild owns tree
+    /// assembly. Mirrors the connect path's reconnect-anchor + remote-destination
+    /// bookkeeping so a restored remote pane behaves exactly like a
+    /// freshly-connected one: a mid-session drop re-runs this argv, and the next
+    /// shape capture records it as remote again. The remote shell lands at its
+    /// own default directory (the captured remote cwd is not `chdir`'d in v1).
+    /// Windows uses the same `ssh.exe` argv with no ControlMaster options.
+    pub(super) fn insert_ssh_restored_session(
+        &mut self,
+        grid: crate::core::Dimensions,
+        command: SshCommand,
+        remote_destination: String,
+    ) -> Result<SessionToken, std::io::Error> {
+        let reconnect = RemoteReconnect::new(command.clone());
+        let (program, args) = command.into_program_args();
+        let session_id = self.insert_exec_session(grid, program, args)?;
+        if let Some(session) = self.sessions.get_mut(&session_id) {
+            session.reconnect = Some(reconnect);
+            session.remote_destination = Some(remote_destination);
+        }
+        Ok(session_id)
     }
 
     fn insert_local_session_with(
@@ -2896,6 +2929,11 @@ pub(super) enum RestoreReport {
         /// How many panes CARRIED a session-host id to try (the "M"); a dead id
         /// spawned a fresh shell and is counted here but not in `reattached`.
         reattach_attempted: usize,
+        /// How many panes recorded a remote host that could not be resolved on
+        /// restore (RESTORE-REMOTE) — neither a currently-saved profile nor a
+        /// parseable `[user@]host[:port]` destination — and so opened as a local
+        /// shell instead. Drives the "N opened locally" line in the notice.
+        remote_fallback: usize,
     },
     /// Nothing restorable (empty snapshot) or a spawn failed mid-rebuild; the
     /// launch layout was left untouched.
@@ -2913,6 +2951,7 @@ struct SnapshotBuild {
     stale_cwd: usize,
     reattached: usize,
     reattach_attempted: usize,
+    remote_fallback: usize,
     aborted: bool,
 }
 
@@ -2985,6 +3024,7 @@ impl WorkspaceSet {
             PaneNode::Leaf(token) => PaneShape::Leaf {
                 cwd: self.pane_cwd(*token),
                 session_host_id: self.pane_session_host_id(*token),
+                remote_host: self.pane_remote_destination(*token),
             },
             PaneNode::Split {
                 axis,
@@ -3020,22 +3060,38 @@ impl WorkspaceSet {
             .and_then(|session| session.attached_session_id.clone())
     }
 
-    /// Rebuild the ENTIRE workspace list from a saved shape, spawning a fresh
-    /// interactive shell for every pane at its captured cwd (design §10.6, WP2).
-    /// The pre-existing launch session(s) are reaped once the restored tree is
-    /// in place, so the window shows exactly the saved shape and nothing else.
-    /// Restore is all-or-nothing: if any pane fails to spawn, everything spawned
-    /// so far is reaped and [`RestoreReport::Skipped`] is returned with the
-    /// launch layout left untouched (sub-ODP 8f: never a broken/empty window).
-    pub(super) fn restore_from_snapshot(
+    /// The remote destination the pane backed by `token` is connected to
+    /// (RESTORE-REMOTE), or `None` for a local pane. Captured into the shape so
+    /// restore respawns the pane through the `ssh` connect path rather than a
+    /// local shell. Local panes leave it `None`, so their capture is unchanged.
+    fn pane_remote_destination(&self, token: SessionToken) -> Option<String> {
+        self.sessions
+            .get(&token)
+            .and_then(|session| session.remote_destination.clone())
+    }
+
+    /// Rebuild the ENTIRE workspace list from a saved shape (design §10.6, WP2).
+    /// Every local pane spawns a fresh interactive shell at its captured cwd;
+    /// every remote pane reconnects through `spawn_remote` (RESTORE-REMOTE),
+    /// supplied by the App, which owns settings and the saved-host list — or
+    /// falls back to a local shell when the host is unresolvable. The
+    /// pre-existing launch session(s) are reaped once the restored tree is in
+    /// place, so the window shows exactly the saved shape. A local pane that
+    /// cannot spawn even at home aborts the whole restore
+    /// ([`RestoreReport::Skipped`], sub-ODP 8f: never a broken/empty window).
+    pub(super) fn restore_from_snapshot_remote(
         &mut self,
         snapshot: &crate::native::persistence::ShapeSnapshot,
         grid: crate::core::Dimensions,
         home: Option<&Path>,
+        spawn_remote: impl FnMut(&mut Self, &str) -> Option<SessionToken>,
     ) -> RestoreReport {
-        self.restore_from_snapshot_with(snapshot, home, |set, cwd| {
-            set.insert_restored_session(grid, cwd).ok()
-        })
+        self.restore_from_snapshot_with(
+            snapshot,
+            home,
+            |set, cwd| set.insert_restored_session(grid, cwd).ok(),
+            spawn_remote,
+        )
     }
 
     /// Shape-rebuild core, generic over how a leaf is spawned so tests can drive
@@ -3048,8 +3104,9 @@ impl WorkspaceSet {
         snapshot: &crate::native::persistence::ShapeSnapshot,
         home: Option<&Path>,
         spawn_leaf: impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
+        spawn_remote: impl FnMut(&mut Self, &str) -> Option<SessionToken>,
     ) -> RestoreReport {
-        let build = self.build_from_snapshot(snapshot, home, spawn_leaf);
+        let build = self.build_from_snapshot(snapshot, home, spawn_leaf, spawn_remote);
         if build.aborted || build.workspaces.is_empty() {
             for token in build.spawned {
                 self.discard_session(token);
@@ -3080,23 +3137,30 @@ impl WorkspaceSet {
             stale_cwd: build.stale_cwd,
             reattached: build.reattached,
             reattach_attempted: build.reattach_attempted,
+            remote_fallback: build.remote_fallback,
         }
     }
 
     /// WP3 / 8e: instantiate a saved layout by APPENDING its workspace(s) after
     /// the current list and switching to the first one — never clobbering the
-    /// live layout. Shares the reattach + cwd rebuild with restore. On a spawn
-    /// failure mid-build everything spawned so far is reaped and the current
-    /// workspaces are untouched ([`RestoreReport::Skipped`]).
-    pub(super) fn append_from_snapshot(
+    /// live layout (PRISTINE-CONSUME placement). Remote panes reconnect through
+    /// `spawn_remote` (RESTORE-REMOTE); the append-mode counterpart to
+    /// [`Self::restore_from_snapshot_remote`]. On a spawn failure mid-build
+    /// everything spawned so far is reaped and the current workspaces are
+    /// untouched ([`RestoreReport::Skipped`]).
+    pub(super) fn append_from_snapshot_remote(
         &mut self,
         snapshot: &crate::native::persistence::ShapeSnapshot,
         grid: crate::core::Dimensions,
         home: Option<&Path>,
+        spawn_remote: impl FnMut(&mut Self, &str) -> Option<SessionToken>,
     ) -> RestoreReport {
-        self.append_from_snapshot_with(snapshot, home, |set, cwd| {
-            set.insert_restored_session(grid, cwd).ok()
-        })
+        self.append_from_snapshot_with(
+            snapshot,
+            home,
+            |set, cwd| set.insert_restored_session(grid, cwd).ok(),
+            spawn_remote,
+        )
     }
 
     /// Append-mode rebuild core, generic over the leaf spawner (headless tests).
@@ -3105,8 +3169,9 @@ impl WorkspaceSet {
         snapshot: &crate::native::persistence::ShapeSnapshot,
         home: Option<&Path>,
         spawn_leaf: impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
+        spawn_remote: impl FnMut(&mut Self, &str) -> Option<SessionToken>,
     ) -> RestoreReport {
-        let build = self.build_from_snapshot(snapshot, home, spawn_leaf);
+        let build = self.build_from_snapshot(snapshot, home, spawn_leaf, spawn_remote);
         if build.aborted || build.workspaces.is_empty() {
             for token in build.spawned {
                 self.discard_session(token);
@@ -3135,6 +3200,7 @@ impl WorkspaceSet {
             stale_cwd: build.stale_cwd,
             reattached: build.reattached,
             reattach_attempted: build.reattach_attempted,
+            remote_fallback: build.remote_fallback,
         }
     }
 
@@ -3148,6 +3214,7 @@ impl WorkspaceSet {
         snapshot: &crate::native::persistence::ShapeSnapshot,
         home: Option<&Path>,
         mut spawn_leaf: impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
+        mut spawn_remote: impl FnMut(&mut Self, &str) -> Option<SessionToken>,
     ) -> SnapshotBuild {
         let mut build = SnapshotBuild::default();
 
@@ -3162,6 +3229,7 @@ impl WorkspaceSet {
                     &tab_shape.layout,
                     home,
                     &mut spawn_leaf,
+                    &mut spawn_remote,
                     &mut build,
                     &mut leaves,
                 ) else {
@@ -3203,6 +3271,7 @@ impl WorkspaceSet {
         shape: &crate::native::persistence::PaneShape,
         home: Option<&Path>,
         spawn_leaf: &mut impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
+        spawn_remote: &mut impl FnMut(&mut Self, &str) -> Option<SessionToken>,
         build: &mut SnapshotBuild,
         leaves: &mut Vec<SessionToken>,
     ) -> Option<PaneNode> {
@@ -3211,6 +3280,7 @@ impl WorkspaceSet {
             PaneShape::Leaf {
                 cwd,
                 session_host_id,
+                remote_host,
             } => {
                 // 8h: a pane that was attached to a detached session-host tries to
                 // reattach first. A live host reattaches (full scrollback); a dead
@@ -3225,11 +3295,44 @@ impl WorkspaceSet {
                         return Some(PaneNode::leaf(token));
                     }
                 }
+                // RESTORE-REMOTE: a pane captured from an `ssh` connection
+                // respawns through the connect path — a fresh remote login shell,
+                // never a re-run of any captured command (8i). An unresolvable
+                // host (no saved profile and not a parseable destination) yields
+                // `None` and falls through to a local shell, counted for the
+                // notice. The remote shell lands at its own default directory; the
+                // captured (remote) cwd is not chdir'd locally in v1.
+                if let Some(host) = remote_host.as_deref() {
+                    if let Some(token) = spawn_remote(self, host) {
+                        build.spawned.push(token);
+                        leaves.push(token);
+                        return Some(PaneNode::leaf(token));
+                    }
+                    build.remote_fallback += 1;
+                }
                 let resolved = resolve_cwd(cwd.as_deref(), home);
                 if resolved.stale {
                     build.stale_cwd += 1;
                 }
-                let token = spawn_leaf(self, resolved.path)?;
+                // A captured directory that still exists but denies the spawn
+                // (EACCES on a mode-000 dir, or a remote cwd like `/root` that
+                // exists locally but refuses `chdir`) must not abort the whole
+                // restore. Retry once at home before giving up (counted stale);
+                // abort only if home also fails or there is no home to try.
+                let token = match spawn_leaf(self, resolved.path.clone()) {
+                    Some(token) => token,
+                    None => {
+                        let home_path = home.map(Path::to_path_buf);
+                        if resolved.path == home_path {
+                            return None;
+                        }
+                        let token = spawn_leaf(self, home_path)?;
+                        if !resolved.stale {
+                            build.stale_cwd += 1;
+                        }
+                        token
+                    }
+                };
                 build.spawned.push(token);
                 leaves.push(token);
                 Some(PaneNode::leaf(token))
@@ -3240,8 +3343,10 @@ impl WorkspaceSet {
                 first,
                 second,
             } => {
-                let first = self.rebuild_pane(first, home, spawn_leaf, build, leaves)?;
-                let second = self.rebuild_pane(second, home, spawn_leaf, build, leaves)?;
+                let first =
+                    self.rebuild_pane(first, home, spawn_leaf, spawn_remote, build, leaves)?;
+                let second =
+                    self.rebuild_pane(second, home, spawn_leaf, spawn_remote, build, leaves)?;
                 Some(PaneNode::Split {
                     axis: axis.to_split_axis(),
                     ratio: *ratio,
@@ -4866,6 +4971,29 @@ mod tests {
         }
     }
 
+    /// A remote spawner that never resolves a host — the default for the
+    /// pre-RESTORE-REMOTE round-trip tests, which use only local leaves. A leaf
+    /// carrying a `remote_host` would fall through to the local spawner.
+    fn no_remote_spawner() -> impl FnMut(&mut WorkspaceSet, &str) -> Option<SessionToken> {
+        |_, _| None
+    }
+
+    /// A headless remote spawner (RESTORE-REMOTE): records each identity it is
+    /// asked to reconnect and inserts a placeholder session, standing in for the
+    /// real `ssh` connect path so a test can assert remote leaves route here
+    /// with the right host string.
+    fn fake_remote_spawner(
+        seen: &mut Vec<String>,
+    ) -> impl FnMut(&mut WorkspaceSet, &str) -> Option<SessionToken> + '_ {
+        move |set: &mut WorkspaceSet, identity: &str| {
+            seen.push(identity.to_owned());
+            let token = SessionToken(set.next_token);
+            set.next_token = set.next_token.saturating_add(1);
+            set.sessions.insert(token, build_session_with_id(token));
+            Some(token)
+        }
+    }
+
     /// F6-W5: binding the active workspace to a host alias is observable through
     /// the accessor, idempotent, and unbinding returns the previous alias.
     #[test]
@@ -4922,7 +5050,12 @@ mod tests {
 
         let mut restored = WorkspaceSet::new(build_session(), None);
         let mut handed = Vec::new();
-        restored.restore_from_snapshot_with(&snapshot, None, fake_spawner(&mut handed));
+        restored.restore_from_snapshot_with(
+            &snapshot,
+            None,
+            fake_spawner(&mut handed),
+            no_remote_spawner(),
+        );
         assert_eq!(
             restored.active_workspace_default_profile(),
             Some("edge-1"),
@@ -4956,13 +5089,19 @@ mod tests {
                     layout: crate::native::persistence::PaneShape::Leaf {
                         cwd: None,
                         session_host_id: None,
+                        remote_host: None,
                     },
                 }],
             }],
         };
 
         let mut handed = Vec::new();
-        let report = set.append_from_snapshot_with(&layout, None, fake_spawner(&mut handed));
+        let report = set.append_from_snapshot_with(
+            &layout,
+            None,
+            fake_spawner(&mut handed),
+            no_remote_spawner(),
+        );
         assert!(matches!(
             report,
             RestoreReport::Restored { workspaces: 1, .. }
@@ -5024,6 +5163,7 @@ mod tests {
             layout: crate::native::persistence::PaneShape::Leaf {
                 cwd: None,
                 session_host_id: None,
+                remote_host: None,
             },
         };
         let ws = |name: &str| crate::native::persistence::WorkspaceShape {
@@ -5039,7 +5179,12 @@ mod tests {
         };
 
         let mut handed = Vec::new();
-        let report = set.append_from_snapshot_with(&layout, None, fake_spawner(&mut handed));
+        let report = set.append_from_snapshot_with(
+            &layout,
+            None,
+            fake_spawner(&mut handed),
+            no_remote_spawner(),
+        );
         assert!(
             matches!(report, RestoreReport::Restored { workspaces: 3, .. }),
             "all three layout workspaces are appended"
@@ -5115,6 +5260,7 @@ mod tests {
             layout: crate::native::persistence::PaneShape::Leaf {
                 cwd: None,
                 session_host_id: None,
+                remote_host: None,
             },
         };
         let ws = |name: &str| crate::native::persistence::WorkspaceShape {
@@ -5130,7 +5276,12 @@ mod tests {
         };
 
         let mut handed = Vec::new();
-        let report = set.append_from_snapshot_with(&layout, None, fake_spawner(&mut handed));
+        let report = set.append_from_snapshot_with(
+            &layout,
+            None,
+            fake_spawner(&mut handed),
+            no_remote_spawner(),
+        );
         assert!(matches!(
             report,
             RestoreReport::Restored { workspaces: 2, .. }
@@ -5164,13 +5315,19 @@ mod tests {
                     layout: crate::native::persistence::PaneShape::Leaf {
                         cwd: None,
                         session_host_id: None,
+                        remote_host: None,
                     },
                 }],
             }],
         };
 
         let mut handed = Vec::new();
-        set.append_from_snapshot_with(&layout, None, fake_spawner(&mut handed));
+        set.append_from_snapshot_with(
+            &layout,
+            None,
+            fake_spawner(&mut handed),
+            no_remote_spawner(),
+        );
         // The renamed workspace survives; the layout is appended as a second.
         assert_eq!(set.workspace_count(), 2);
         assert_eq!(set.workspace_name(0), Some("live"));
@@ -5196,13 +5353,19 @@ mod tests {
                     layout: crate::native::persistence::PaneShape::Leaf {
                         cwd: None,
                         session_host_id: Some("odytty-nonexistent-host".to_owned()),
+                        remote_host: None,
                     },
                 }],
             }],
         };
         let mut set = WorkspaceSet::new(build_session(), None);
         let mut handed = Vec::new();
-        let report = set.restore_from_snapshot_with(&snapshot, None, fake_spawner(&mut handed));
+        let report = set.restore_from_snapshot_with(
+            &snapshot,
+            None,
+            fake_spawner(&mut handed),
+            no_remote_spawner(),
+        );
         assert!(
             matches!(
                 report,
@@ -5239,8 +5402,12 @@ mod tests {
 
         let mut restored = WorkspaceSet::new(build_session(), None);
         let mut handed = Vec::new();
-        let report =
-            restored.restore_from_snapshot_with(&snapshot, None, fake_spawner(&mut handed));
+        let report = restored.restore_from_snapshot_with(
+            &snapshot,
+            None,
+            fake_spawner(&mut handed),
+            no_remote_spawner(),
+        );
 
         assert!(
             matches!(
@@ -5284,10 +5451,12 @@ mod tests {
                         first: Box::new(PaneShape::Leaf {
                             cwd: Some("/definitely/not/a/real/dir/odytty-wp2".to_owned()),
                             session_host_id: None,
+                            remote_host: None,
                         }),
                         second: Box::new(PaneShape::Leaf {
                             cwd: None,
                             session_host_id: None,
+                            remote_host: None,
                         }),
                     },
                 }],
@@ -5296,8 +5465,12 @@ mod tests {
         let home = std::env::temp_dir();
         let mut set = WorkspaceSet::new(build_session(), None);
         let mut handed = Vec::new();
-        let report =
-            set.restore_from_snapshot_with(&snapshot, Some(&home), fake_spawner(&mut handed));
+        let report = set.restore_from_snapshot_with(
+            &snapshot,
+            Some(&home),
+            fake_spawner(&mut handed),
+            no_remote_spawner(),
+        );
 
         assert!(
             matches!(
@@ -5323,6 +5496,7 @@ mod tests {
         let leaf = |cwd: Option<&str>| PaneShape::Leaf {
             cwd: cwd.map(str::to_owned),
             session_host_id: None,
+            remote_host: None,
         };
         let snapshot = ShapeSnapshot {
             version: crate::native::persistence::SNAPSHOT_VERSION,
@@ -5347,22 +5521,227 @@ mod tests {
         };
         let mut set = WorkspaceSet::new(build_session(), None);
         let mut spawned = 0u32;
-        let report = set.restore_from_snapshot_with(&snapshot, None, |inner, _cwd| {
-            spawned += 1;
-            if spawned >= 2 {
-                return None; // second leaf fails
-            }
-            let token = SessionToken(inner.next_token);
-            inner.next_token = inner.next_token.saturating_add(1);
-            inner.sessions.insert(token, build_session_with_id(token));
-            Some(token)
-        });
+        let report = set.restore_from_snapshot_with(
+            &snapshot,
+            None,
+            |inner, _cwd| {
+                spawned += 1;
+                if spawned >= 2 {
+                    return None; // second leaf fails
+                }
+                let token = SessionToken(inner.next_token);
+                inner.next_token = inner.next_token.saturating_add(1);
+                inner.sessions.insert(token, build_session_with_id(token));
+                Some(token)
+            },
+            no_remote_spawner(),
+        );
 
         assert_eq!(report, RestoreReport::Skipped);
         // Launch layout intact: one workspace, one (launch) session; the partial
         // spawn was reaped.
         assert_eq!(set.workspace_count(), 1);
         assert_eq!(set.len(), 1);
+    }
+
+    /// RESTORE-REMOTE: a leaf carrying a `remote_host` reconnects through the
+    /// remote spawner (with the exact stored identity), while a local leaf beside
+    /// it still routes to the local spawner. No pane falls back.
+    #[test]
+    fn restore_reconnects_remote_leaves_and_keeps_local_leaves_local() {
+        use crate::native::persistence::{
+            PaneShape, ShapeSnapshot, SplitAxisShape, TabShape, WorkspaceShape,
+        };
+        let snapshot = ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            active_workspace: 0,
+            workspaces: vec![WorkspaceShape {
+                name: "W".to_owned(),
+                default_profile: None,
+                active_tab: 0,
+                tabs: vec![TabShape {
+                    title: None,
+                    focused_leaf: 0,
+                    layout: PaneShape::Split {
+                        axis: SplitAxisShape::Columns,
+                        ratio: 0.5,
+                        first: Box::new(PaneShape::Leaf {
+                            cwd: Some("/tmp".to_owned()),
+                            session_host_id: None,
+                            remote_host: None,
+                        }),
+                        second: Box::new(PaneShape::Leaf {
+                            // A remote pane captured the REMOTE cwd; it must not be
+                            // used to chdir a local shell — this leaf reconnects.
+                            cwd: Some("/root".to_owned()),
+                            session_host_id: None,
+                            remote_host: Some("prod".to_owned()),
+                        }),
+                    },
+                }],
+            }],
+        };
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let mut local_handed = Vec::new();
+        let mut remote_seen = Vec::new();
+        let report = set.restore_from_snapshot_with(
+            &snapshot,
+            None,
+            fake_spawner(&mut local_handed),
+            fake_remote_spawner(&mut remote_seen),
+        );
+        // The remote leaf reached the connect spawner with its stored identity;
+        // the local leaf reached the local spawner with its own cwd — and the
+        // remote leaf never touched the local spawner (no /root local shell).
+        assert_eq!(remote_seen, vec!["prod".to_owned()]);
+        assert_eq!(local_handed, vec![Some(std::path::PathBuf::from("/tmp"))]);
+        assert!(
+            matches!(
+                report,
+                RestoreReport::Restored {
+                    panes: 2,
+                    remote_fallback: 0,
+                    ..
+                }
+            ),
+            "{report:?}"
+        );
+    }
+
+    /// RESTORE-REMOTE: a remote leaf whose host cannot be resolved (the spawner
+    /// returns `None`) falls back to a local shell, counted in `remote_fallback`,
+    /// and the restore still succeeds — never a wholesale abort.
+    #[test]
+    fn restore_falls_back_to_local_when_remote_host_unresolvable() {
+        use crate::native::persistence::{PaneShape, ShapeSnapshot, TabShape, WorkspaceShape};
+        let snapshot = ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            active_workspace: 0,
+            workspaces: vec![WorkspaceShape {
+                name: "W".to_owned(),
+                default_profile: None,
+                active_tab: 0,
+                tabs: vec![TabShape {
+                    title: None,
+                    focused_leaf: 0,
+                    layout: PaneShape::Leaf {
+                        // cwd None so the local fallback lands at home cleanly
+                        // (no stale-cwd noise) — this asserts the remote_fallback
+                        // count in isolation.
+                        cwd: None,
+                        session_host_id: None,
+                        remote_host: Some("gone.example.invalid".to_owned()),
+                    },
+                }],
+            }],
+        };
+        let home = std::env::temp_dir();
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let mut local_handed = Vec::new();
+        let report = set.restore_from_snapshot_with(
+            &snapshot,
+            Some(&home),
+            fake_spawner(&mut local_handed),
+            no_remote_spawner(),
+        );
+        assert_eq!(local_handed, vec![Some(home)]);
+        assert!(
+            matches!(
+                report,
+                RestoreReport::Restored {
+                    panes: 1,
+                    remote_fallback: 1,
+                    stale_cwd: 0,
+                    ..
+                }
+            ),
+            "{report:?}"
+        );
+    }
+
+    /// RESTORE-REMOTE / sub-ODP 8f: a local leaf whose captured directory exists
+    /// but denies the spawn (the EACCES a real `chdir` would hit, e.g. a remote
+    /// `/root` that exists locally at mode 700) retries once at home — counted as
+    /// stale_cwd — instead of aborting the whole restore.
+    #[test]
+    fn restore_retries_at_home_when_spawn_fails_at_an_existing_cwd() {
+        use crate::native::persistence::{PaneShape, ShapeSnapshot, TabShape, WorkspaceShape};
+        // A real directory that EXISTS (so resolve_cwd does not pre-fall-back to
+        // home) but that the spawner will refuse, standing in for a live chdir
+        // EACCES on a mode-000/700 directory.
+        let bad = std::env::temp_dir().join(format!("odytty-eacces-{}", std::process::id()));
+        std::fs::create_dir_all(&bad).unwrap();
+        let bad_str = bad.to_string_lossy().into_owned();
+        let home = std::env::temp_dir();
+        let snapshot = ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            active_workspace: 0,
+            workspaces: vec![WorkspaceShape {
+                name: "W".to_owned(),
+                default_profile: None,
+                active_tab: 0,
+                tabs: vec![TabShape {
+                    title: None,
+                    focused_leaf: 0,
+                    layout: PaneShape::Leaf {
+                        cwd: Some(bad_str.clone()),
+                        session_host_id: None,
+                        remote_host: None,
+                    },
+                }],
+            }],
+        };
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let mut handed: Vec<Option<std::path::PathBuf>> = Vec::new();
+        let bad_path = bad.clone();
+        let report = set.restore_from_snapshot_with(
+            &snapshot,
+            Some(&home),
+            |inner: &mut WorkspaceSet, cwd: Option<std::path::PathBuf>| {
+                handed.push(cwd.clone());
+                // Refuse the captured directory (the simulated EACCES); accept the
+                // home retry.
+                if cwd.as_deref() == Some(bad_path.as_path()) {
+                    return None;
+                }
+                let token = SessionToken(inner.next_token);
+                inner.next_token = inner.next_token.saturating_add(1);
+                inner.sessions.insert(token, build_session_with_id(token));
+                Some(token)
+            },
+            no_remote_spawner(),
+        );
+        let _ = std::fs::remove_dir_all(&bad);
+        // First tried the captured dir, then retried at home; counted stale, and
+        // the restore succeeded rather than aborting.
+        assert_eq!(handed, vec![Some(bad), Some(home)]);
+        assert!(
+            matches!(
+                report,
+                RestoreReport::Restored {
+                    panes: 1,
+                    stale_cwd: 1,
+                    ..
+                }
+            ),
+            "{report:?}"
+        );
+    }
+
+    /// RESTORE-REMOTE: a session's remote destination is captured into the shape
+    /// as the leaf's `remote_host`; a local session leaves it `None`.
+    #[test]
+    fn capture_records_remote_destination_as_remote_host() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let token = set.active_id();
+        set.sessions.get_mut(&token).unwrap().remote_destination = Some("prod".to_owned());
+        let snapshot = set.capture_shape();
+        match &snapshot.workspaces[0].tabs[0].layout {
+            crate::native::persistence::PaneShape::Leaf { remote_host, .. } => {
+                assert_eq!(remote_host.as_deref(), Some("prod"));
+            }
+            other => panic!("expected a leaf, got {other:?}"),
+        }
     }
 
     /// The structural fingerprint changes when the shape changes and is stable

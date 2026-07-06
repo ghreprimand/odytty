@@ -1510,9 +1510,12 @@ impl App {
     ) -> crate::native::session::RestoreReport {
         use crate::native::persistence::restore_home_dir;
         let home = restore_home_dir();
-        let report = self
-            .sessions
-            .append_from_snapshot(snapshot, self.grid, home.as_deref());
+        let report = self.sessions.append_from_snapshot_remote(
+            snapshot,
+            self.grid,
+            home.as_deref(),
+            |_, _| None,
+        );
         if matches!(
             report,
             crate::native::session::RestoreReport::Restored { .. }

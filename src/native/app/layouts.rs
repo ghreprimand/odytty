@@ -149,14 +149,22 @@ impl App {
         match persistence::load_layout(name) {
             LoadOutcome::Loaded(snapshot) => {
                 let home = persistence::restore_home_dir();
-                let report =
-                    self.sessions
-                        .append_from_snapshot(&snapshot, self.grid, home.as_deref());
+                // RESTORE-REMOTE: reconnect remote panes through the ssh connect
+                // path (owned context so the closure never borrows `self`).
+                let ctx = self.remote_restore_context();
+                let grid = self.grid;
+                let report = self.sessions.append_from_snapshot_remote(
+                    &snapshot,
+                    grid,
+                    home.as_deref(),
+                    |set, identity| ctx.spawn(set, grid, identity),
+                );
                 match report {
                     RestoreReport::Restored {
                         stale_cwd,
                         reattached,
                         reattach_attempted,
+                        remote_fallback,
                         ..
                     } => {
                         // Seed the appended sessions with the current theme
@@ -175,6 +183,7 @@ impl App {
                             reattached,
                             reattach_attempted,
                             stale_cwd,
+                            remote_fallback,
                         ));
                     }
                     RestoreReport::Skipped => self
@@ -220,6 +229,7 @@ fn layout_open_notice(
     reattached: usize,
     reattach_attempted: usize,
     stale_cwd: usize,
+    remote_fallback: usize,
 ) -> String {
     let mut notice = format!("Opened layout \u{201c}{name}\u{201d}");
     let mut extras: Vec<String> = Vec::new();
@@ -227,6 +237,9 @@ fn layout_open_notice(
         extras.push(format!(
             "{reattached} of {reattach_attempted} sessions reattached"
         ));
+    }
+    if remote_fallback > 0 {
+        extras.push(format!("{remote_fallback} opened locally"));
     }
     if stale_cwd > 0 {
         extras.push("some panes opened at home".to_owned());
@@ -248,14 +261,14 @@ mod tests {
     #[test]
     fn notice_is_bare_when_nothing_special_happened() {
         assert_eq!(
-            layout_open_notice("work", 0, 0, 0),
+            layout_open_notice("work", 0, 0, 0, 0),
             "Opened layout \u{201c}work\u{201d}."
         );
     }
 
     #[test]
     fn notice_reports_reattach_and_stale() {
-        let n = layout_open_notice("remote", 2, 3, 1);
+        let n = layout_open_notice("remote", 2, 3, 1, 0);
         assert!(n.contains("2 of 3 sessions reattached"), "{n}");
         assert!(n.contains("some panes opened at home"), "{n}");
     }

@@ -4362,13 +4362,23 @@ impl App {
         match persistence::load_snapshot() {
             LoadOutcome::Loaded(snapshot) => {
                 let home = persistence::restore_home_dir();
-                let report =
-                    self.sessions
-                        .restore_from_snapshot(&snapshot, self.grid, home.as_deref());
+                // RESTORE-REMOTE: reconnect remote panes through the ssh connect
+                // path. The context (settings + saved hosts) is gathered once,
+                // owned, so the spawn closure never borrows `self` while the
+                // workspace set is borrowed mutably.
+                let ctx = self.remote_restore_context();
+                let grid = self.grid;
+                let report = self.sessions.restore_from_snapshot_remote(
+                    &snapshot,
+                    grid,
+                    home.as_deref(),
+                    |set, identity| ctx.spawn(set, grid, identity),
+                );
                 if let RestoreReport::Restored {
                     stale_cwd,
                     reattached,
                     reattach_attempted,
+                    remote_fallback,
                     ..
                 } = report
                 {
@@ -4378,6 +4388,9 @@ impl App {
                         extras.push(format!(
                             "{reattached} of {reattach_attempted} sessions reattached"
                         ));
+                    }
+                    if remote_fallback > 0 {
+                        extras.push(format!("{remote_fallback} opened locally"));
                     }
                     if stale_cwd > 0 {
                         extras.push("some panes opened at home".to_owned());

@@ -108,6 +108,16 @@ pub(crate) enum PaneShape {
         /// shell silently. Never captured on Windows (no detached-session
         /// transport there), and tolerated-absent on pre-WP3 snapshots.
         session_host_id: Option<String>,
+        /// The remote host this pane was connected to (RESTORE-REMOTE), or
+        /// `None` for a locally-spawned pane. Holds the saved-profile alias when
+        /// the pane was opened from a `hosts.conf` entry (so restore re-resolves
+        /// its full per-host config), else the literal `[user@]host[:port]`
+        /// destination for an ad-hoc connection. On restore this pane respawns
+        /// through the `ssh` connect path — a fresh remote login shell, never a
+        /// re-run of any captured command (8i). Serialized as `null` for a local
+        /// pane and tolerated-absent on pre-RESTORE-REMOTE snapshots (a missing
+        /// key loads as `None`, i.e. a local pane).
+        remote_host: Option<String>,
     },
     Split {
         axis: SplitAxisShape,
@@ -131,11 +141,13 @@ impl PaneShape {
             PaneShape::Leaf {
                 cwd,
                 session_host_id,
+                remote_host,
             } => Json::obj([(
                 "leaf",
                 Json::obj([
                     ("cwd", opt_str(cwd)),
                     ("session_host_id", opt_str(session_host_id)),
+                    ("remote_host", opt_str(remote_host)),
                 ]),
             )]),
             PaneShape::Split {
@@ -160,6 +172,7 @@ impl PaneShape {
             Ok(PaneShape::Leaf {
                 cwd: leaf.get("cwd").and_then(Json::as_owned_str),
                 session_host_id: leaf.get("session_host_id").and_then(Json::as_owned_str),
+                remote_host: leaf.get("remote_host").and_then(Json::as_owned_str),
             })
         } else if let Some(split) = value.get("split") {
             let axis = split

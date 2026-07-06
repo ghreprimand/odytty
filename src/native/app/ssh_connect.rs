@@ -190,6 +190,12 @@ impl App {
         let token = self
             .sessions
             .connect_ssh_in_new_tab(host, self.grid, &opts)?;
+        // RESTORE-REMOTE: remember what this session connected to so the shape
+        // snapshot can respawn it through the connect path on restore. A
+        // currently-saved profile is stored by alias (restore re-resolves its
+        // full per-host config); anything else is stored as its full
+        // `[user@]host[:port]` destination (reconstructed ad-hoc on restore).
+        let remote_identity = self.remote_identity_for_host(host);
         let effective_theme = self.effective_theme;
         let themed_ui_roles = self.themed_ui_roles;
         let osc52_read = self.settings.osc52_read;
@@ -208,6 +214,7 @@ impl App {
                 cell,
                 scrollback_limit,
             );
+            session.remote_destination = Some(remote_identity);
         }
         let _ = self.sessions.switch(token);
         self.on_active_session_changed();
@@ -450,6 +457,38 @@ impl App {
         }
     }
 
+    /// The identity to remember for a session connecting to `host`
+    /// (RESTORE-REMOTE): the saved-profile alias when `host` is a currently-
+    /// saved `hosts.conf` (or opt-in ssh-config) entry, so restore re-resolves
+    /// its full per-host configuration; otherwise the full `[user@]host[:port]`
+    /// destination, which the restore path reconstructs as an ad-hoc connection.
+    /// Storing the bare alias for an ad-hoc host would drop its user and port.
+    fn remote_identity_for_host(&self, host: &ConnectionHost) -> String {
+        let saved = self
+            .load_connection_entries()
+            .iter()
+            .any(|entry| entry.alias == host.alias);
+        if saved {
+            host.alias.clone()
+        } else {
+            remote_display_destination(host)
+        }
+    }
+
+    /// Snapshot the settings and saved hosts a snapshot restore needs to respawn
+    /// remote panes (RESTORE-REMOTE), owned so the spawn closure is self-
+    /// contained and does not borrow `self` while the workspace set is borrowed
+    /// mutably. Loading the saved hosts once (not per pane) keeps restore cheap.
+    pub(super) fn remote_restore_context(&self) -> RemoteRestoreContext {
+        RemoteRestoreContext {
+            saved_hosts: self.load_connection_entries(),
+            integration_default: self.settings.remote_integration,
+            reuse_default: self.settings.remote_reuse,
+            tmux_default: self.settings.remote_tmux,
+            persist_default: self.settings.remote_persist,
+        }
+    }
+
     /// Resolve the `ControlPersist=` token for a host's reuse master: a per-host
     /// `Persist` override (any recognized ssh ControlPersist value) wins,
     /// otherwise the global `remote_persist` knob. The global default (`10m`)
@@ -491,6 +530,95 @@ impl App {
     #[cfg(windows)]
     fn ssh_control_dir(_enabled: bool) -> Option<std::path::PathBuf> {
         None
+    }
+}
+
+/// The full `[user@]host[:port]` destination string for `host`
+/// (RESTORE-REMOTE): the value stored for an ad-hoc connection so restore can
+/// reconstruct it via `parse_adhoc_target`. Prefers an explicit `HostName` over
+/// the alias, includes the user only when set, and appends the port only when
+/// non-default. Mirrors `ssh_destination` but keeps the port (which ssh passes
+/// as `-p`, not in the destination operand).
+fn remote_display_destination(host: &ConnectionHost) -> String {
+    let target = host
+        .host_name
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .unwrap_or(host.alias.as_str());
+    let mut out = String::new();
+    if let Some(user) = host.user.as_deref().filter(|value| !value.is_empty()) {
+        out.push_str(user);
+        out.push('@');
+    }
+    out.push_str(target);
+    if let Some(port) = host.port {
+        out.push(':');
+        out.push_str(&port.to_string());
+    }
+    out
+}
+
+/// Everything the snapshot-restore spawn closure needs to reconnect a remote
+/// pane (RESTORE-REMOTE) without borrowing the `App` — owned settings plus the
+/// saved-host list, gathered once by [`App::remote_restore_context`].
+pub(super) struct RemoteRestoreContext {
+    saved_hosts: Vec<ConnectionHost>,
+    integration_default: bool,
+    reuse_default: bool,
+    tmux_default: bool,
+    persist_default: crate::settings::RemotePersist,
+}
+
+impl RemoteRestoreContext {
+    /// Resolve a stored remote identity back to a connectable host: first a
+    /// currently-saved profile by alias (full per-host config preserved), else a
+    /// parseable `[user@]host[:port]` ad-hoc destination. `None` when the
+    /// identity is neither — the caller then opens a local shell and counts it.
+    fn resolve(&self, identity: &str) -> Option<ConnectionHost> {
+        if let Some(host) = self.saved_hosts.iter().find(|h| h.alias == identity) {
+            return Some(host.clone());
+        }
+        crate::connection_hosts::parse_adhoc_target(identity).map(|t| t.to_connection_host())
+    }
+
+    /// Build the connect options for a restored host from the captured settings,
+    /// mirroring [`App::connect_ssh_host_in_new_tab`] exactly (integration /
+    /// reuse / tmux / ControlPersist), so a restored remote pane is configured
+    /// identically to a freshly-connected one.
+    fn options_for(&self, host: &ConnectionHost) -> crate::ssh_connect::RemoteSshOptions {
+        let integration = crate::ssh_connect::remote_integration_enabled(
+            host.integration,
+            self.integration_default,
+        );
+        let reuse = crate::ssh_connect::remote_reuse_enabled(host.reuse, self.reuse_default);
+        let tmux =
+            integration && crate::ssh_connect::remote_tmux_enabled(host.tmux, self.tmux_default);
+        let control_persist =
+            App::resolve_control_persist(host.persist.as_deref(), self.persist_default);
+        crate::ssh_connect::RemoteSshOptions {
+            integration,
+            reuse,
+            tmux,
+            control_dir: App::ssh_control_dir(integration && reuse),
+            control_persist: Some(control_persist),
+        }
+    }
+
+    /// Respawn a remote pane for `identity` in `set`, returning its token, or
+    /// `None` when the identity is unresolvable or the argv cannot be built (the
+    /// restore falls back to a local shell). A fresh remote login shell — no
+    /// captured command is ever re-run (8i).
+    pub(super) fn spawn(
+        &self,
+        set: &mut crate::native::session::WorkspaceSet,
+        grid: crate::core::Dimensions,
+        identity: &str,
+    ) -> Option<crate::native::session::SessionToken> {
+        let host = self.resolve(identity)?;
+        let opts = self.options_for(&host);
+        let command = crate::ssh_connect::ssh_command_for_host_with_options(&host, &opts).ok()?;
+        set.insert_ssh_restored_session(grid, command, identity.to_owned())
+            .ok()
     }
 }
 
