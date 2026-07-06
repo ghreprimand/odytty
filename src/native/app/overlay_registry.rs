@@ -677,13 +677,9 @@ impl App {
         };
         let columns = snapshot.dimensions.columns;
         let rows = snapshot.dimensions.rows;
-        if columns < 8 || rows < 3 {
+        let Some((left, top, width, height)) = rename_band_box(columns, rows) else {
             return;
-        }
-        let width = columns.clamp(8, 48);
-        let height = 3;
-        let left = (columns - width) / 2;
-        let top = (rows - height) / 2;
+        };
         let panel = rename_panel_attrs();
         let border = rename_border_attrs();
         rename_fill_rect(snapshot, left, top, width, height, panel);
@@ -710,6 +706,18 @@ impl App {
                 panel,
             );
         }
+    }
+
+    /// TRANSPARENCY (PROMPT-OPACITY): the rename/prompt band's outer cell box in
+    /// content-grid coordinates (`left, top, width, height`), or `None` when no
+    /// rename is active or the grid is too small for the modal. Shares
+    /// [`rename_band_box`] with the painter so the cells the opaque-region span
+    /// holds opaque match exactly the cells `paint_rename_tab_cells` fills. The
+    /// band paints on its own path (not `overlay_rect`), so without marking this
+    /// span opaque it renders translucent under a translucent window.
+    pub(super) fn rename_band_content_rect(&self) -> Option<(usize, usize, usize, usize)> {
+        self.rename_state.as_ref()?;
+        rename_band_box(self.grid.columns, self.grid.rows)
     }
 
     // --- cursor render-params aggregator (Wave-15b foundation) ---------------
@@ -783,6 +791,23 @@ fn rename_prompt(target: RenameTarget) -> &'static str {
     }
 }
 
+/// The rename/prompt modal's outer cell box (`left, top, width, height`) in
+/// content-grid coordinates, or `None` when the grid is too small for the modal.
+/// The single source of the box math the painter ([`App::paint_rename_tab_cells`])
+/// and the input-geometry helper ([`rename_layout`]) both build on, so the
+/// rendered band, the mouse hit-test, and the opaque-region span
+/// (PROMPT-OPACITY) can never drift.
+fn rename_band_box(columns: usize, rows: usize) -> Option<(usize, usize, usize, usize)> {
+    if columns < 8 || rows < 3 {
+        return None;
+    }
+    let width = columns.clamp(8, 48);
+    let height = 3usize;
+    let left = (columns - width) / 2;
+    let top = (rows - height) / 2;
+    Some((left, top, width, height))
+}
+
 /// Geometry of the tab-rename modal's editable input, derived purely from the
 /// content-grid dimensions. Render (`paint_rename_tab_cells` /
 /// `rename_write_input`) and the mouse hit-test both go through this so a click
@@ -807,13 +832,7 @@ struct RenameLayout {
 /// workspace renames) shifts the input start identically here. A unit test pins
 /// that this stays byte-aligned with the painter.
 fn rename_layout(columns: usize, rows: usize, prompt: &str) -> Option<RenameLayout> {
-    if columns < 8 || rows < 3 {
-        return None;
-    }
-    let width = columns.clamp(8, 48);
-    let height = 3usize;
-    let left = (columns - width) / 2;
-    let top = (rows - height) / 2;
+    let (left, top, width, _height) = rename_band_box(columns, rows)?;
     let body_left = left + 2;
     let body_width = width.saturating_sub(4);
     if body_width == 0 {
@@ -1149,6 +1168,29 @@ mod rename_mouse_tests {
         assert_eq!(layout.input_row, top + 1);
         assert_eq!(layout.input_left, body_left + prompt_width);
         assert_eq!(layout.input_width, width - 4 - prompt_width);
+    }
+
+    #[test]
+    fn band_box_is_the_single_source_for_the_painter_and_hit_test() {
+        // PROMPT-OPACITY: `rename_band_box` is the one place the centered
+        // 8..=48-wide, 3-tall box math lives; the painter, the input hit-test
+        // (`rename_layout`), and the opaque-region span all build on it, so the
+        // opaque cells can never drift from the painted band.
+        let columns = 80;
+        let rows = 24;
+        let (left, top, width, height) =
+            rename_band_box(columns, rows).expect("band fits an 80x24 grid");
+        assert_eq!(width, columns.clamp(8, 48));
+        assert_eq!(height, 3);
+        assert_eq!(left, (columns - width) / 2);
+        assert_eq!(top, (rows - height) / 2);
+        // The input hit-test derives its box origin from the same helper.
+        let layout = rename_layout(columns, rows, TAB_PROMPT).expect("layout fits");
+        assert_eq!(layout.box_left, left);
+        assert_eq!(layout.box_right, left + width - 1);
+        // Too-small grids collapse identically: no band, no opaque span.
+        assert!(rename_band_box(7, 24).is_none(), "too few columns");
+        assert!(rename_band_box(80, 2).is_none(), "too few rows");
     }
 
     #[test]

@@ -329,3 +329,40 @@ fn move_tab_is_a_noop_with_a_single_workspace() {
     assert_eq!(app.workspace_count_for_test(), 1);
     assert_eq!(app.active_workspace_tab_count_for_test(), 1);
 }
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn rename_band_holds_the_single_pane_opaque_region_under_transparency() {
+    // PROMPT-OPACITY: the rename/prompt band paints on its own path (not
+    // `overlay_rect`), so before it was folded into the single-pane opaque span
+    // it rendered translucent under a translucent window. With no modal open
+    // the span is `None` (the opaque-window path stays byte-identical); opening
+    // a workspace rename must mark the band's cells opaque.
+    let (mut app, _event_loop) = app_or_skip!();
+    assert!(
+        app.single_pane_overlay_opaque_region_for_test().is_none(),
+        "no modal open ⇒ no opaque span (opaque path is byte-identical)"
+    );
+
+    app.dispatch_workspace_action_for_test(BindableAction::RenameWorkspace);
+    assert!(app.rename_overlay_open_for_test(), "rename prompt opened");
+
+    let region = app
+        .single_pane_overlay_opaque_region_for_test()
+        .expect("an open rename band marks an opaque span");
+    let (columns, rows) = app.grid_dims_for_test();
+    let (top_rows, _side_cols) = app.tab_reserve_for_test();
+    // The band is the centered 8..=48-wide, 3-tall box, shifted down by the
+    // tab-chrome reservation. Pin width/height/top so the opaque cells match
+    // the painted band exactly.
+    assert_eq!(region.width, columns.clamp(8, 48), "band width");
+    assert_eq!(region.height, 3, "band height");
+    assert_eq!(
+        region.top,
+        (rows - 3) / 2 + top_rows,
+        "band top offset by the tab-chrome reservation"
+    );
+}

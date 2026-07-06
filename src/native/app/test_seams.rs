@@ -184,6 +184,17 @@ impl App {
         overlay_rect(&self.overlay, self.grid.columns, self.grid.rows)
     }
 
+    /// Test seam (PROMPT-OPACITY): the single-pane opaque cell span held opaque
+    /// under a translucent window — covers an open overlay panel or, taking
+    /// precedence, the rename/prompt band. `None` when neither is open (the
+    /// byte-identical opaque path also passes `None`).
+    #[cfg(test)]
+    pub(in crate::native) fn single_pane_overlay_opaque_region_for_test(
+        &self,
+    ) -> Option<crate::grid::CellRegion> {
+        self.single_pane_overlay_opaque_region()
+    }
+
     /// Test seam (UX4-P1): whether a local text selection is in progress.
     #[cfg(test)]
     pub(in crate::native) fn selecting_for_test(&self) -> bool {

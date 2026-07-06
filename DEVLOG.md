@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Rename prompts stay readable under window transparency
+
+The rename/prompt band ("Layout name:", "Workspace name:", "Tab name:") rendered
+translucent when window transparency was enabled. With a single pane the band
+paints directly into the terminal snapshot on its own path, and only overlay
+panels were being held opaque, so the modal's cells scaled with the window
+opacity and grew hard to read against the desktop behind them. The single-pane
+opaque region now covers the rename band as well: while a rename is active its
+centred box takes precedence over any overlay rect, and those cells are held
+fully opaque while the surrounding terminal keeps the configured translucency.
+The centred-box math is centralized in one helper shared by the painter, the
+mouse hit-test, and the opaque-region span, so the opaque cells can never drift
+from the painted band. The opaque-window path is unchanged — with no modal open,
+or transparency off, no opaque span is emitted and the render stays
+byte-identical.
+
+---
+
 ## 2026-07-06 -- Layouts capture the whole session
 
 A saved layout now means the whole application, matching how a layout reads to

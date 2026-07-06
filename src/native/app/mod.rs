@@ -2717,24 +2717,31 @@ impl App {
         )
     }
 
-    /// TRANSPARENCY (MENU-OPACITY): the opaque cell span for an overlay panel
-    /// merged into the SINGLE-PANE snapshot, in the built (tab-chrome-decorated)
-    /// snapshot's coordinates. The overlay is painted into the terminal grid at
-    /// [`overlay_rect`]'s centred rect, then the tab-bar/rail decoration shifts
-    /// the content (and with it the panel) down by the reserved rows and right by
-    /// the reserved columns — so the span the renderer sees is the overlay rect
-    /// plus that reservation. Holding these cells opaque keeps the panel readable
-    /// while the terminal cells around it scale with the window opacity. `None`
-    /// when no overlay is open; the caller also passes `None` on the opaque
+    /// TRANSPARENCY (MENU-OPACITY / PROMPT-OPACITY): the opaque cell span for a
+    /// modal surface merged into the SINGLE-PANE snapshot, in the built
+    /// (tab-chrome-decorated) snapshot's coordinates. Two surfaces paint into the
+    /// terminal grid centred: an overlay panel at [`overlay_rect`]'s rect, and
+    /// the rename/prompt band ([`Self::rename_band_content_rect`]) on its own
+    /// path. The rename band paints AFTER (on top of) any overlay, so it takes
+    /// precedence when a rename is active; otherwise the open overlay panel's
+    /// rect is used. The tab-bar/rail decoration then shifts the content (and
+    /// with it the surface) down by the reserved rows and right by the reserved
+    /// columns, so the span the renderer sees is that rect plus the reservation.
+    /// Holding these cells opaque keeps the surface readable while the terminal
+    /// cells around it scale with the window opacity. `None` when neither a
+    /// rename nor an overlay is open; the caller also passes `None` on the opaque
     /// window path so that path stays byte-identical.
     fn single_pane_overlay_opaque_region(&self) -> Option<crate::grid::CellRegion> {
-        let rect = overlay_rect(&self.overlay, self.grid.columns, self.grid.rows)?;
+        let (left, top, width, height) = self.rename_band_content_rect().or_else(|| {
+            overlay_rect(&self.overlay, self.grid.columns, self.grid.rows)
+                .map(|rect| (rect.left, rect.top, rect.width, rect.height))
+        })?;
         let reserve = self.tab_reserve();
         Some(crate::grid::CellRegion {
-            left: rect.left + reserve.left_reserved_cols(),
-            top: rect.top + reserve.top_rows,
-            width: rect.width,
-            height: rect.height,
+            left: left + reserve.left_reserved_cols(),
+            top: top + reserve.top_rows,
+            width,
+            height,
         })
     }
 
