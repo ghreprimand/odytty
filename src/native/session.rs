@@ -5566,7 +5566,7 @@ mod tests {
                         axis: SplitAxisShape::Columns,
                         ratio: 0.5,
                         first: Box::new(PaneShape::Leaf {
-                            cwd: Some("/tmp".to_owned()),
+                            cwd: Some(std::env::temp_dir().to_string_lossy().into_owned()),
                             session_host_id: None,
                             remote_host: None,
                         }),
@@ -5594,7 +5594,7 @@ mod tests {
         // the local leaf reached the local spawner with its own cwd — and the
         // remote leaf never touched the local spawner (no /root local shell).
         assert_eq!(remote_seen, vec!["prod".to_owned()]);
-        assert_eq!(local_handed, vec![Some(std::path::PathBuf::from("/tmp"))]);
+        assert_eq!(local_handed, vec![Some(std::env::temp_dir())]);
         assert!(
             matches!(
                 report,

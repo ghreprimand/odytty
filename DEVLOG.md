@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Fix restore round-trip test portability across platforms
+
+A restore round-trip test pinned a local pane's captured directory to the
+literal `/tmp`. On platforms where that path does not exist, the cwd resolver
+correctly falls back to home, so the test's expectation of a `/tmp` spawn no
+longer held and the case failed on the Windows CI leg. The captured directory
+now comes from the platform temp directory (`std::env::temp_dir()`), with the
+expected value built from the same source, so the assertion holds identically
+everywhere. Test-only change; the restore and cwd-resolution product paths are
+unchanged.
+
+---
+
 ## 2026-07-06 -- Restore reconnects remote panes instead of aborting the layout
 
 Opening a layout that contained remote workspaces failed outright ("Couldn't
