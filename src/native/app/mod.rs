@@ -225,6 +225,10 @@ pub(super) enum RenameTarget {
     /// selection / signature machinery, but on Enter saves the workspace as a
     /// named layout instead of renaming it.
     SaveLayout(usize),
+    /// A "Save as Layout" name prompt for the WHOLE application (SAVE-ALL-LAYOUT):
+    /// on Enter, captures every workspace as one named layout. Carries no index —
+    /// the capture is session-wide.
+    SaveAllLayout,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3446,7 +3450,11 @@ impl App {
         self.overlay.is_workspace_rail_context_menu()
             || matches!(
                 self.rename_state.as_ref().map(|state| state.target),
-                Some(RenameTarget::Workspace(_) | RenameTarget::SaveLayout(_))
+                Some(
+                    RenameTarget::Workspace(_)
+                        | RenameTarget::SaveLayout(_)
+                        | RenameTarget::SaveAllLayout
+                )
             )
     }
 

@@ -70,7 +70,7 @@ use crate::settings::BindableAction;
 /// adds Close Pane for 24. The five
 /// ODP-2C connection-row actions (Open in New Tab / Open in New Workspace / Bind
 /// Current Workspace / Edit / Remove) show ONLY on the `ConnectionRow` surface.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 42;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 43;
 
 /// Body row index of the first visual separator in the single-pane content
 /// reference, between Select All and New Tab. The reference is the
@@ -97,25 +97,26 @@ pub(super) const CONTEXT_MENU_THIRD_SEPARATOR_ROW: usize = 12;
 
 /// Body row index of the fourth visual separator (with-selection reference),
 /// between the workspace section and Settings. The unbound reference shows the
-/// Bind-to-Host row plus Save as Layout / Open Layout, so the section is six
-/// items long (LAYOUT-SURFACE).
+/// Bind-to-Host row plus the whole-app Save as Layout, the single-workspace Save
+/// Workspace as Layout, and Open Layout, so the section is seven items long
+/// (LAYOUT-SURFACE + SAVE-ALL-LAYOUT).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 19;
+pub(super) const CONTEXT_MENU_FOURTH_SEPARATOR_ROW: usize = 20;
 
 /// Body row index of the fifth visual separator (with-selection reference),
 /// between Settings and the launcher section (Connection Manager / Command
 /// Palette / Session Replay).
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_FIFTH_SEPARATOR_ROW: usize = 21;
+pub(super) const CONTEXT_MENU_FIFTH_SEPARATOR_ROW: usize = 22;
 
 /// Total body rows in the **with-selection** single-pane content reference:
-/// twenty-three visible items plus five separator lines (Close Pane hidden;
+/// twenty-four visible items plus five separator lines (Close Pane hidden;
 /// Rename Tab dropped from the content menu; the workspace section adds New /
-/// Rename / Close Workspace, the conditional Bind-to-Host row, Save as Layout,
-/// Open Layout, and one separator). Production uses
-/// [`ContextMenuUi::body_row_count`] for the live count.
+/// Rename / Close Workspace, the conditional Bind-to-Host row, the whole-app
+/// Save as Layout, Save Workspace as Layout, Open Layout, and one separator).
+/// Production uses [`ContextMenuUi::body_row_count`] for the live count.
 #[cfg(test)]
-pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 28;
+pub(super) const CONTEXT_MENU_BODY_ROWS: usize = 29;
 
 /// Minimum gap (in cells) between the longest label and the right-aligned
 /// accelerator column, so labels and accelerators never abut (Part C).
@@ -226,10 +227,18 @@ pub(super) enum ContextMenuItem {
     /// shell. Content-grid workspace section, shown ONLY when the active
     /// workspace is bound — the conditional counterpart to Bind to Host.
     UnbindWorkspace,
-    /// Save a workspace as a named layout (LAYOUT-SURFACE). Workspace-scoped:
-    /// on a `WorkspaceSlot` it saves the CLICKED workspace; in the content-grid
-    /// workspace section it saves the ACTIVE one. Opens the "Layout name:" prompt
-    /// (the rename-modal idiom); the WP3 save path writes the file. No chord.
+    /// Save the WHOLE application (every workspace) as one named layout
+    /// (SAVE-ALL-LAYOUT). This is the primary "Save as Layout" surface — a layout
+    /// means the whole session. Shown on the content-grid workspace section and
+    /// the empty rail; opens the "Layout name:" prompt, then the whole-app save
+    /// path writes the file. No chord.
+    SaveAllLayout,
+    /// Save a SINGLE workspace as a named layout (LAYOUT-SURFACE). Workspace-
+    /// scoped: on a `WorkspaceSlot` it saves the CLICKED workspace; in the
+    /// content-grid workspace section it saves the ACTIVE one. Labelled "Save
+    /// Workspace as Layout…" to distinguish it from the whole-app save. Opens the
+    /// "Layout name:" prompt (the rename-modal idiom); the WP3 save path writes
+    /// the file. No chord.
     SaveAsLayout,
     /// Open a saved layout by name (LAYOUT-SURFACE). Shown on the empty rail, the
     /// empty tab strip, and the content-grid workspace section; opens the shared
@@ -308,7 +317,9 @@ impl ContextMenuItem {
         Self::BindWorkspaceToHost,
         Self::UnbindWorkspace,
         // LAYOUT-SURFACE: Save/Open Layout round out the workspace section, so
-        // on the content surface they render right after the bind/unbind row.
+        // on the content surface they render right after the bind/unbind row. The
+        // whole-app "Save as Layout" leads the single-workspace variant.
+        Self::SaveAllLayout,
         Self::SaveAsLayout,
         Self::OpenLayout,
         Self::Settings,
@@ -367,6 +378,7 @@ impl ContextMenuItem {
             | Self::BindWorkspaceToHost
             | Self::UnbindWorkspace
             // LAYOUT-SURFACE: Save/Open Layout live in the workspace section.
+            | Self::SaveAllLayout
             | Self::SaveAsLayout
             | Self::OpenLayout
             // ODP-2C connection-row actions; grouped with the workspace section
@@ -413,7 +425,8 @@ impl ContextMenuItem {
             Self::CloseWorkspace => "Close Workspace",
             Self::BindWorkspaceToHost => "Bind to Host\u{2026}",
             Self::UnbindWorkspace => "Unbind from Host",
-            Self::SaveAsLayout => "Save as Layout\u{2026}",
+            Self::SaveAllLayout => "Save as Layout\u{2026}",
+            Self::SaveAsLayout => "Save Workspace as Layout\u{2026}",
             Self::OpenLayout => "Open Layout\u{2026}",
             Self::NewLocalTab => "New Local Tab",
             Self::ConnectToHost => "Connect to Host\u{2026}",
@@ -501,6 +514,7 @@ impl ContextMenuItem {
             | Self::ConnectToHost
             | Self::ReplaceTabWithHost
             // LAYOUT-SURFACE save/open are pointer/menu-only; no chord.
+            | Self::SaveAllLayout
             | Self::SaveAsLayout
             | Self::OpenLayout
             // ODP-2C connection-row actions are pointer/menu-only; no chord.
@@ -573,19 +587,20 @@ impl ContextMenuSurface {
 /// Map a selectable item index to its body row, accounting for the five
 /// separators. With-selection single-pane reference: items 0–4 (editing) sit at
 /// body rows 0–4; items 5–7 (tab actions: New Tab / New Window / Close Tab) sit
-/// at body rows 6–8; items 8–9 (splits) sit at body rows 10–11; items 10–15
+/// at body rows 6–8; items 8–9 (splits) sit at body rows 10–11; items 10–16
 /// (workspace: New / Rename / Close Workspace / Bind to Host / Save as Layout /
-/// Open Layout) sit at body rows 13–18; Settings (index 16) sits at body row 20;
-/// the launcher items 17–22 sit at body rows 22–27.
+/// Save Workspace as Layout / Open Layout) sit at body rows 13–19; Settings
+/// (index 17) sits at body row 21; the launcher items 18–23 sit at body rows
+/// 23–28.
 #[cfg(test)]
 fn item_to_body_row(item_index: usize) -> usize {
-    // With-selection reference: five separators at body rows 5, 9, 12, 19, 21,
-    // so the launcher section (items 17+) shifts by five, Settings (item 16) by
-    // four, the workspace section (items 10-15) by three, the splits (items 8-9)
+    // With-selection reference: five separators at body rows 5, 9, 12, 20, 22,
+    // so the launcher section (items 18+) shifts by five, Settings (item 17) by
+    // four, the workspace section (items 10-16) by three, the splits (items 8-9)
     // by two, and the tab actions (items 5-7) by one.
-    if item_index >= 17 {
+    if item_index >= 18 {
         item_index + 5
-    } else if item_index >= 16 {
+    } else if item_index >= 17 {
         item_index + 4
     } else if item_index >= 10 {
         item_index + 3
@@ -1011,6 +1026,7 @@ impl ContextMenuUi {
             // LAYOUT-SURFACE: Save/Open Layout are always available on their
             // surfaces (Open Layout stays enabled even with no saved layouts —
             // the picker teaches the feature).
+            | ContextMenuItem::SaveAllLayout
             | ContextMenuItem::SaveAsLayout
             | ContextMenuItem::OpenLayout => true,
             // Only shown on a bound-workspace tab menu; always enabled there.
@@ -1183,9 +1199,14 @@ impl ContextMenuUi {
                 return items;
             }
             ContextMenuSurface::WorkspaceRailEmpty => {
-                // LAYOUT-SURFACE: the empty rail also offers Open Layout so a
-                // saved layout is reachable from a bare rail.
-                return vec![ContextMenuItem::NewWorkspace, ContextMenuItem::OpenLayout];
+                // LAYOUT-SURFACE + SAVE-ALL-LAYOUT: the empty rail offers the
+                // whole-app Save as Layout and Open Layout so saving/restoring a
+                // full session is reachable from a bare rail.
+                return vec![
+                    ContextMenuItem::NewWorkspace,
+                    ContextMenuItem::SaveAllLayout,
+                    ContextMenuItem::OpenLayout,
+                ];
             }
             // ODP-2C: a connection-manager row offers Open in New Tab / Open in
             // New Workspace / Bind Current Workspace always; Edit + Remove only
@@ -1763,9 +1784,10 @@ mod tests {
     #[test]
     fn rect_tracks_spawn_when_it_fits() {
         let m = menu(true, true);
-        // The 25-row single-pane menu (27 rows with borders) needs a grid tall
-        // enough to host it at the spawn row without clamping upward.
-        let rect = m.rect(80, 34);
+        // The with-selection single-pane menu (CONTEXT_MENU_BODY_ROWS body rows
+        // plus two borders) needs a grid tall enough to host it at the spawn row
+        // without clamping upward.
+        let rect = m.rect(80, CONTEXT_MENU_BODY_ROWS + 6);
         assert_eq!(rect.left, 7);
         assert_eq!(rect.top, 4);
         assert_eq!(rect.body_top, 5);
@@ -1854,13 +1876,13 @@ mod tests {
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
         // Wraps from 0 to the last *visible* item (Detach & switch). With a
-        // selection the single-pane content menu shows 23 items: Copy/Cut/Paste/
+        // selection the single-pane content menu shows 24 items: Copy/Cut/Paste/
         // Delete/Select All, New Tab/New Window/Close Tab (Rename Tab dropped),
         // the two splits, New/Rename/Close Workspace + Bind to Host (unbound) +
-        // Save as Layout + Open Layout, Settings, and the six launcher items
-        // (Close Pane hidden single-pane).
+        // Save as Layout + Save Workspace as Layout + Open Layout, Settings, and
+        // the six launcher items (Close Pane hidden single-pane).
         assert_eq!(m.focused, m.item_count() - 1);
-        assert_eq!(m.item_count(), 23);
+        assert_eq!(m.item_count(), 24);
         m.handle_input(OverlayInput::Down);
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Down);
@@ -1969,11 +1991,12 @@ mod tests {
     #[test]
     fn settings_always_activates() {
         let mut m = menu(false, false);
-        // With no selection Settings sits at body row 17 (2 editing anchors +
-        // sep + 3 tab actions + sep + 2 splits + sep + 6 workspace (incl. Bind
-        // to Host + Save as Layout + Open Layout) + sep = 17).
+        // With no selection Settings sits at body row 18 (2 editing anchors +
+        // sep + 3 tab actions + sep + 2 splits + sep + 7 workspace (incl. Bind
+        // to Host + Save as Layout + Save Workspace as Layout + Open Layout) +
+        // sep = 18).
         assert_eq!(
-            m.handle_press(17, m.body_row_count(), PointerButton::Left),
+            m.handle_press(18, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::Settings)
         );
     }
@@ -1982,14 +2005,14 @@ mod tests {
     fn single_pane_menu_hides_close_pane() {
         // Single-pane, no selection: Close Pane is absent; Copy/Cut/Delete are
         // hidden (no selection) and Rename Tab is dropped, so the content menu is
-        // 20 items / 25 body rows — Paste/Select All · New Tab/New Window/Close
+        // 21 items / 26 body rows — Paste/Select All · New Tab/New Window/Close
         // Tab · the two splits · New/Rename/Close Workspace + Bind to Host
-        // (unbound) + Save as Layout + Open Layout · Settings · the six launcher
-        // items.
+        // (unbound) + Save as Layout + Save Workspace as Layout + Open Layout ·
+        // Settings · the six launcher items.
         let m = menu(false, false);
-        assert_eq!(m.item_count(), 20);
+        assert_eq!(m.item_count(), 21);
         let rows = m.rows();
-        assert_eq!(rows.len(), 25);
+        assert_eq!(rows.len(), 26);
         assert!(
             !rows.iter().any(|r| matches!(
                 r,
@@ -2012,31 +2035,35 @@ mod tests {
             "an unbound workspace shows Bind to Host in the workspace section"
         );
         assert_eq!(rows[14], item("Save as Layout\u{2026}", false, true));
-        assert_eq!(rows[15], item("Open Layout\u{2026}", false, true));
-        assert_eq!(rows[16], ContextMenuRow::Separator);
         assert_eq!(
-            rows[17],
-            item("Settings", false, true),
-            "Settings sits at body row 17 (no selection, workspace + bind + layout)"
+            rows[15],
+            item("Save Workspace as Layout\u{2026}", false, true)
         );
-        assert_eq!(rows[18], ContextMenuRow::Separator);
-        assert_eq!(rows[19], item("Keyboard Shortcuts", false, true));
-        assert_eq!(rows[20], item("Connection Manager", false, true));
-        assert_eq!(rows[21], item("Command Palette", false, true));
-        assert_eq!(rows[22], item("Session Replay", false, true));
-        assert_eq!(rows[23], item("Manage Sessions", false, true));
-        assert_eq!(rows[24], item("Detach & switch", false, true));
+        assert_eq!(rows[16], item("Open Layout\u{2026}", false, true));
+        assert_eq!(rows[17], ContextMenuRow::Separator);
+        assert_eq!(
+            rows[18],
+            item("Settings", false, true),
+            "Settings sits at body row 18 (no selection, workspace + bind + layout)"
+        );
+        assert_eq!(rows[19], ContextMenuRow::Separator);
+        assert_eq!(rows[20], item("Keyboard Shortcuts", false, true));
+        assert_eq!(rows[21], item("Connection Manager", false, true));
+        assert_eq!(rows[22], item("Command Palette", false, true));
+        assert_eq!(rows[23], item("Session Replay", false, true));
+        assert_eq!(rows[24], item("Manage Sessions", false, true));
+        assert_eq!(rows[25], item("Detach & switch", false, true));
     }
 
     #[test]
     fn no_path_menu_hides_the_file_section() {
         // C3: with no resolved path under the click, the four file items are
-        // absent and the layout is the 25-row single-pane content menu (no
+        // absent and the layout is the 26-row single-pane content menu (no
         // selection). This is the no-file-section guarantee.
         let m = menu(false, false);
-        assert_eq!(m.item_count(), 20);
+        assert_eq!(m.item_count(), 21);
         let rows = m.rows();
-        assert_eq!(rows.len(), 25);
+        assert_eq!(rows.len(), 26);
         for label in ["Open", "Copy Path", "Copy File", "Reveal in File Manager"] {
             assert!(
                 !rows.iter().any(|r| matches!(
@@ -2376,16 +2403,16 @@ mod tests {
         // Multi-pane: Close Pane appears after Split Down in the split/pane
         // section; the workspace section, Settings, and the v0.3.1 launcher
         // section follow below.
-        // Multi-pane, no selection: 21 items / 26 body rows. Paste/Select All ·
+        // Multi-pane, no selection: 22 items / 27 body rows. Paste/Select All ·
         // New Tab/New Window/Close Tab · Split Right/Split Down/Close Pane ·
-        // New/Rename/Close Workspace + Bind to Host + Save as Layout + Open
-        // Layout · Settings · six launchers.
+        // New/Rename/Close Workspace + Bind to Host + Save as Layout + Save
+        // Workspace as Layout + Open Layout · Settings · six launchers.
         let m = multipane_menu();
-        assert_eq!(m.item_count(), 21);
+        assert_eq!(m.item_count(), 22);
         let rows = m.rows();
         assert_eq!(
             rows.len(),
-            26,
+            27,
             "one more row than the single-pane content menu"
         );
         assert_eq!(rows[7], item("Split Right", false, true));
@@ -2401,20 +2428,24 @@ mod tests {
         assert_eq!(rows[13], item("Close Workspace", false, true));
         assert_eq!(rows[14], item("Bind to Host\u{2026}", false, true));
         assert_eq!(rows[15], item("Save as Layout\u{2026}", false, true));
-        assert_eq!(rows[16], item("Open Layout\u{2026}", false, true));
-        assert_eq!(rows[17], ContextMenuRow::Separator);
         assert_eq!(
-            rows[18],
-            item("Settings", false, true),
-            "Settings sits at body row 18 in the multi-pane content menu"
+            rows[16],
+            item("Save Workspace as Layout\u{2026}", false, true)
         );
-        assert_eq!(rows[19], ContextMenuRow::Separator);
-        assert_eq!(rows[20], item("Keyboard Shortcuts", false, true));
-        assert_eq!(rows[21], item("Connection Manager", false, true));
-        assert_eq!(rows[22], item("Command Palette", false, true));
-        assert_eq!(rows[23], item("Session Replay", false, true));
-        assert_eq!(rows[24], item("Manage Sessions", false, true));
-        assert_eq!(rows[25], item("Detach & switch", false, true));
+        assert_eq!(rows[17], item("Open Layout\u{2026}", false, true));
+        assert_eq!(rows[18], ContextMenuRow::Separator);
+        assert_eq!(
+            rows[19],
+            item("Settings", false, true),
+            "Settings sits at body row 19 in the multi-pane content menu"
+        );
+        assert_eq!(rows[20], ContextMenuRow::Separator);
+        assert_eq!(rows[21], item("Keyboard Shortcuts", false, true));
+        assert_eq!(rows[22], item("Connection Manager", false, true));
+        assert_eq!(rows[23], item("Command Palette", false, true));
+        assert_eq!(rows[24], item("Session Replay", false, true));
+        assert_eq!(rows[25], item("Manage Sessions", false, true));
+        assert_eq!(rows[26], item("Detach & switch", false, true));
     }
 
     #[test]
@@ -2430,13 +2461,13 @@ mod tests {
     #[test]
     fn multi_pane_focus_wraps_through_all_items() {
         // Up from item 0 wraps to the last visible item (Detach & switch, index
-        // 20), proving Close Pane is in the focus cycle only when multi-pane and
+        // 21), proving Close Pane is in the focus cycle only when multi-pane and
         // the workspace + launcher items extend the cycle.
         let mut m = multipane_menu();
         assert_eq!(m.focused, 0);
         m.handle_input(OverlayInput::Up);
-        assert_eq!(m.focused, 20);
-        assert_eq!(m.item_count(), 21);
+        assert_eq!(m.focused, 21);
+        assert_eq!(m.item_count(), 22);
     }
 
     #[test]
@@ -2470,11 +2501,11 @@ mod tests {
             m.handle_hover(Some(sep), m.body_row_count());
             assert_eq!(m.focused, 2, "separator hover is inert");
         }
-        // Hovering Settings (body row 20, item index 16 in the with-selection
-        // reference — the workspace section + Bind + Save/Open Layout rows now
-        // sit above Settings) focuses it.
-        m.handle_hover(Some(20), m.body_row_count());
-        assert_eq!(m.focused, 16, "hover Settings focuses it");
+        // Hovering Settings (body row 21, item index 17 in the with-selection
+        // reference — the workspace section + Bind + Save/Save Workspace/Open
+        // Layout rows now sit above Settings) focuses it.
+        m.handle_hover(Some(21), m.body_row_count());
+        assert_eq!(m.focused, 17, "hover Settings focuses it");
     }
 
     #[test]
@@ -2638,9 +2669,13 @@ mod tests {
         assert_eq!(rows[15], item("Close Workspace", false, true));
         assert_eq!(rows[16], item("Bind to Host\u{2026}", false, true));
         assert_eq!(rows[17], item("Save as Layout\u{2026}", false, true));
-        assert_eq!(rows[18], item("Open Layout\u{2026}", false, true));
-        assert_eq!(rows[19], ContextMenuRow::Separator);
-        assert_eq!(rows[20], item("Settings", false, true));
+        assert_eq!(
+            rows[18],
+            item("Save Workspace as Layout\u{2026}", false, true)
+        );
+        assert_eq!(rows[19], item("Open Layout\u{2026}", false, true));
+        assert_eq!(rows[20], ContextMenuRow::Separator);
+        assert_eq!(rows[21], item("Settings", false, true));
     }
 
     #[test]
@@ -2947,7 +2982,8 @@ mod tests {
     fn workspace_slot_menu_offers_workspace_actions() {
         // §3.5 / §7.4 + RAIL-BIND + LAYOUT-SURFACE: a workspace-slot right-click
         // opens New / Rename / Close Workspace, the host bind action in its own
-        // group, then Save as Layout below a separator. An unbound slot shows
+        // group, then Save Workspace as Layout below a separator (the single-
+        // workspace save, targeting the CLICKED slot). An unbound slot shows
         // "Bind to Host…".
         let m = open_surface(ContextMenuSurface::WorkspaceSlot(0), true);
         assert_eq!(
@@ -2960,7 +2996,7 @@ mod tests {
                 ContextMenuRow::Separator,
                 item("Bind to Host\u{2026}", false, true),
                 ContextMenuRow::Separator,
-                item("Save as Layout\u{2026}", false, true),
+                item("Save Workspace as Layout\u{2026}", false, true),
             ]
         );
     }
@@ -3006,15 +3042,16 @@ mod tests {
 
     #[test]
     fn workspace_rail_empty_menu_offers_new_workspace_and_open_layout() {
-        // §3.5 + LAYOUT-SURFACE: the empty rail area offers New Workspace, then
-        // Open Layout below a separator (a saved layout is reachable from a bare
-        // rail).
+        // §3.5 + LAYOUT-SURFACE + SAVE-ALL-LAYOUT: the empty rail area offers New
+        // Workspace, then the whole-app Save as Layout and Open Layout below a
+        // separator (save/restore a full session from a bare rail).
         let m = open_surface(ContextMenuSurface::WorkspaceRailEmpty, true);
         assert_eq!(
             m.rows(),
             vec![
                 item("New Workspace", true, true),
                 ContextMenuRow::Separator,
+                item("Save as Layout\u{2026}", false, true),
                 item("Open Layout\u{2026}", false, true),
             ]
         );
@@ -3115,18 +3152,19 @@ mod tests {
         assert_eq!(body_row_to_item(10), Some(8));
         assert_eq!(item_to_body_row(9), 11);
         assert_eq!(body_row_to_item(11), Some(9));
-        // Workspace actions (10-15: New / Rename / Close + Bind to Host + Save as
-        // Layout + Open Layout) shift past the first three separators.
+        // Workspace actions (10-16: New / Rename / Close + Bind to Host + Save as
+        // Layout + Save Workspace as Layout + Open Layout) shift past the first
+        // three separators.
         assert_eq!(item_to_body_row(10), 13);
         assert_eq!(body_row_to_item(13), Some(10));
-        assert_eq!(item_to_body_row(15), 18);
-        assert_eq!(body_row_to_item(18), Some(15));
-        // Settings (16) shifts past the first four separators.
-        assert_eq!(item_to_body_row(16), 20);
-        assert_eq!(body_row_to_item(20), Some(16));
-        // A launcher item (17) shifts past all five separators.
-        assert_eq!(item_to_body_row(17), 22);
-        assert_eq!(body_row_to_item(22), Some(17));
+        assert_eq!(item_to_body_row(16), 19);
+        assert_eq!(body_row_to_item(19), Some(16));
+        // Settings (17) shifts past the first four separators.
+        assert_eq!(item_to_body_row(17), 21);
+        assert_eq!(body_row_to_item(21), Some(17));
+        // A launcher item (18) shifts past all five separators.
+        assert_eq!(item_to_body_row(18), 23);
+        assert_eq!(body_row_to_item(23), Some(18));
     }
 
     // ── ODP-2C connection-row surface composition ──────────────────────────

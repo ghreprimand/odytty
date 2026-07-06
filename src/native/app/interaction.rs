@@ -288,6 +288,13 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.enter_save_layout_prompt(self.sessions.active_workspace_index());
             }
+            // SAVE-ALL-LAYOUT: the content-grid section or the empty rail chose the
+            // whole-app Save as Layout; open the name prompt (captures every
+            // workspace on Enter).
+            OverlayOutcome::ContextMenuSaveAllLayout => {
+                self.flush_pending_overlay_settings();
+                self.enter_save_all_layout_prompt();
+            }
             // LAYOUT-SURFACE: open the saved-layout picker (seeded App-side).
             OverlayOutcome::ContextMenuOpenLayoutPicker => {
                 self.flush_pending_overlay_settings();

@@ -7,9 +7,9 @@
 
 use super::*;
 use crate::native::palette_overlay::{
-    LAYOUT_SAVE_ID, WORKSPACE_NEW_ID, WORKSPACE_NEW_LOCAL_TAB_ID, WORKSPACE_RENAME_ID,
-    WORKSPACE_UNBIND_ID, WorkspacePaletteContext, parse_layout_delete_id, parse_layout_open_id,
-    parse_workspace_bind_id, parse_workspace_switch_id,
+    LAYOUT_SAVE_ALL_ID, LAYOUT_SAVE_ID, WORKSPACE_NEW_ID, WORKSPACE_NEW_LOCAL_TAB_ID,
+    WORKSPACE_RENAME_ID, WORKSPACE_UNBIND_ID, WorkspacePaletteContext, parse_layout_delete_id,
+    parse_layout_open_id, parse_workspace_bind_id, parse_workspace_switch_id,
 };
 use crate::palette_catalog::PaletteAction;
 use crate::settings::BindableAction;
@@ -83,6 +83,10 @@ impl App {
         }
         if id == WORKSPACE_NEW_LOCAL_TAB_ID {
             self.handle_new_local_tab();
+            return;
+        }
+        if id == LAYOUT_SAVE_ALL_ID {
+            self.save_all_workspaces_as_layout(None);
             return;
         }
         if id == LAYOUT_SAVE_ID {

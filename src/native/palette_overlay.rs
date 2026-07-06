@@ -348,8 +348,12 @@ pub(super) const WORKSPACE_UNBIND_ID: &str = "workspace-unbind";
 /// shell even when the active workspace is bound to a host. Only shown when the
 /// active workspace is bound (an unbound workspace's New Tab is already local).
 pub(super) const WORKSPACE_NEW_LOCAL_TAB_ID: &str = "workspace-new-local-tab";
-/// Stable id for the "Save Current Workspace as Layout" row (WP3 / 8g).
+/// Stable id for the "Save Workspace as Layout" row (WP3 / 8g): captures only
+/// the active workspace.
 pub(super) const LAYOUT_SAVE_ID: &str = "layout-save";
+/// Stable id for the "Save All Workspaces as Layout" row (SAVE-ALL-LAYOUT):
+/// captures every workspace as one named layout.
+pub(super) const LAYOUT_SAVE_ALL_ID: &str = "layout-save-all";
 /// Stable id prefix for the "Open Layout …" rows; the layout's index in the
 /// saved-layout list is appended. [`parse_layout_open_id`] recovers it.
 pub(super) const LAYOUT_OPEN_ID_PREFIX: &str = "layout-open-";
@@ -423,10 +427,15 @@ fn workspace_palette_entries(ctx: &WorkspacePaletteContext<'_>) -> Vec<PaletteEn
             "New Local Tab",
         ));
     }
-    // WP3 named layouts: a save row, then open/delete rows per saved layout.
+    // WP3 named layouts: a whole-app save row and a single-workspace save row,
+    // then open/delete rows per saved layout.
+    entries.push(PaletteEntry::action(
+        LAYOUT_SAVE_ALL_ID,
+        "Save All Workspaces as Layout",
+    ));
     entries.push(PaletteEntry::action(
         LAYOUT_SAVE_ID,
-        "Save Current Workspace as Layout",
+        "Save Workspace as Layout",
     ));
     for (idx, name) in ctx.layout_names.iter().enumerate() {
         entries.push(PaletteEntry::action(
@@ -602,6 +611,37 @@ mod tests {
         );
         assert!(labels.iter().any(|l| l == "Unbind Workspace From Host"));
         assert!(labels.iter().any(|l| l == "New Local Tab"));
+    }
+
+    /// SAVE-ALL-LAYOUT: the palette exposes BOTH a whole-app "Save All Workspaces
+    /// as Layout" row and the single-workspace "Save Workspace as Layout" row.
+    #[test]
+    fn workspace_palette_entries_expose_both_layout_saves() {
+        let ctx = WorkspacePaletteContext {
+            names: &["Workspace 1".to_owned()],
+            host_aliases: &[],
+            bound_profile: None,
+            layout_names: &[],
+        };
+        let entries = workspace_palette_entries(&ctx);
+        let ids: Vec<String> = entries
+            .iter()
+            .filter_map(|entry| match entry.selection() {
+                PaletteSelection::Action { id } => Some(id),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            ids.contains(&LAYOUT_SAVE_ALL_ID.to_owned()),
+            "whole-app save row present: {ids:?}"
+        );
+        assert!(
+            ids.contains(&LAYOUT_SAVE_ID.to_owned()),
+            "single-workspace save row present: {ids:?}"
+        );
+        let labels: Vec<&str> = entries.iter().map(|entry| entry.label()).collect();
+        assert!(labels.contains(&"Save All Workspaces as Layout"));
+        assert!(labels.contains(&"Save Workspace as Layout"));
     }
 
     #[test]

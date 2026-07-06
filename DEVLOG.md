@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Layouts capture the whole session
+
+A saved layout now means the whole application, matching how a layout reads to
+most people. **Save as Layout…** — on the content-grid right-click menu, the
+empty workspace rail menu, and the command palette (**Save All Workspaces as
+Layout**) — captures every workspace, with its tabs, split trees, per-pane
+working directories, host bindings, and the active-workspace index, as one named
+layout. The previous single-workspace save is preserved under the clearer name
+**Save Workspace as Layout…**: a workspace rail slot's menu saves the clicked
+workspace, the content-grid menu and palette save the active one. Opening a
+layout still appends its workspace(s) after the live list rather than replacing
+them, and a whole-app layout appends every workspace it holds.
+
+---
+
 ## 2026-07-06 -- Restored workspaces render in the current theme
 
 Workspaces brought back by restore-on-launch or instantiated from a saved

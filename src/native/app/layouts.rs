@@ -54,6 +54,41 @@ impl App {
         }
     }
 
+    /// Save the WHOLE application — every workspace, with its tabs, split trees,
+    /// per-pane cwd, and host bindings, and the active-workspace index preserved
+    /// — as a single named layout (SAVE-ALL-LAYOUT). This is the primary "Save as
+    /// Layout" surface: a layout means the whole session, not one workspace. It
+    /// reuses [`persistence::save_layout`] with the full [`capture_shape`] output
+    /// (no per-workspace slice). `name_override` is the typed layout name from the
+    /// prompt; `None` (the palette path) falls back to the active workspace's own
+    /// name as a sensible default. An empty resulting name is a no-op; a write
+    /// failure degrades to a one-line notice rather than disturbing the window.
+    ///
+    /// [`capture_shape`]: crate::native::session::SessionSet::capture_shape
+    pub(super) fn save_all_workspaces_as_layout(&mut self, name_override: Option<&str>) {
+        let full = self.sessions.capture_shape();
+        let name = match name_override {
+            Some(text) => text.trim().to_owned(),
+            None => full
+                .workspaces
+                .get(full.active_workspace)
+                .map(|workspace| workspace.name.clone())
+                .unwrap_or_default(),
+        };
+        if name.is_empty() {
+            return;
+        }
+        let count = full.workspaces.len();
+        match persistence::save_layout(&name, &full) {
+            Ok(stem) => self.raise_open_notice(if count == 1 {
+                format!("Saved layout \u{201c}{stem}\u{201d}")
+            } else {
+                format!("Saved layout \u{201c}{stem}\u{201d} ({count} workspaces)")
+            }),
+            Err(_) => self.raise_open_notice("Couldn't save the layout.".to_owned()),
+        }
+    }
+
     /// Open (instantiate) a saved layout by APPENDING its workspace(s) after the
     /// current list and switching to the first one (8e). A corrupt, version-
     /// skewed, or missing layout degrades to a notice and leaves the current

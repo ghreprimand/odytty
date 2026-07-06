@@ -311,9 +311,10 @@ workspace quits OdyTTY.
 The command palette also carries workspace and layout actions that have no
 default chord: **New Workspace**, **Rename Workspace**, **Bind Workspace to
 Host** / **Unbind Workspace From Host** and **New Local Tab** (when a workspace
-is bound to a remote host), and **Save Current Workspace as Layout** /
-**Open Layout** / **Delete Layout**. Any of the bindable workspace actions
-above can still be given a chord; the layout and host-binding actions are
+is bound to a remote host), and **Save All Workspaces as Layout** /
+**Save Workspace as Layout** / **Open Layout** / **Delete Layout**. Any of the
+bindable workspace actions above can still be given a chord; the layout and
+host-binding actions are
 palette- and menu-only.
 
 ## Remote reconnect prompt

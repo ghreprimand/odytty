@@ -516,14 +516,18 @@ command-line argument suppresses restore, and only the primary instance
 restores. The saved snapshot records **structure only** — never terminal
 output, scrollback, environment, or the commands that were running — so a
 restored pane is always a fresh shell at its directory, never a replayed
-session. A workspace can also be saved as a **named layout** — from the command
-palette (**Save Current Workspace as Layout**), a workspace rail slot's
-right-click menu (**Save as Layout…**, saving the clicked workspace), or the
-content-grid right-click menu (saving the active one). Opening a layout later —
-**Open Layout** in the palette, or **Open Layout…** from the empty rail, the
-empty tab strip, or the content-grid menu — appends it as a new workspace rather
-than replacing the current one; with no layouts saved yet the picker explains
-how to create one. On Unix, a restored or instantiated pane whose detached
+session. A session can be saved as a **named layout**. A layout captures the
+**whole application** — every workspace, with its tabs, splits, working
+directories, and host bindings — via **Save as Layout…** on the content-grid
+right-click menu, the empty rail menu, or the command palette (**Save All
+Workspaces as Layout**). A single workspace can be captured on its own with
+**Save Workspace as Layout…** — a workspace rail slot's right-click menu saves
+the clicked workspace, the content-grid menu saves the active one, and the
+palette entry (**Save Workspace as Layout**) saves the active one. Opening a
+layout later — **Open Layout** in the palette, or **Open Layout…** from the
+empty rail, the empty tab strip, or the content-grid menu — appends its
+workspace(s) rather than replacing the current ones; with no layouts saved yet
+the picker explains how to create one. On Unix, a restored or instantiated pane whose detached
 session-host is still alive reattaches to it; a dead one silently opens a
 fresh shell, with a compact "N of M sessions reattached" notice. Restore and
 named layouts are cross-platform (the state dir uses `%LOCALAPPDATA%` on

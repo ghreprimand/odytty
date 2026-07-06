@@ -1085,6 +1085,10 @@ impl OverlayUi {
                         }
                         _ => OverlayOutcome::ContextMenuUnbindWorkspace,
                     },
+                    // SAVE-ALL-LAYOUT: the whole-app save is surface-independent —
+                    // it captures every workspace regardless of where the menu was
+                    // opened. The App opens the "Layout name:" prompt.
+                    ContextMenuItem::SaveAllLayout => OverlayOutcome::ContextMenuSaveAllLayout,
                     // LAYOUT-SURFACE: a rail slot saves the CLICKED workspace;
                     // the content-grid section saves the active one. Either way
                     // the App opens the "Layout name:" prompt.
@@ -2533,6 +2537,10 @@ pub(super) enum OverlayOutcome {
     /// workspace section (LAYOUT-SURFACE). The App opens the "Layout name:"
     /// prompt seeded from the active workspace.
     ContextMenuSaveActiveLayout,
+    /// Save the WHOLE application (every workspace) as one named layout
+    /// (SAVE-ALL-LAYOUT), chosen from the content-grid section or the empty rail.
+    /// The App opens the "Layout name:" prompt seeded from the active workspace.
+    ContextMenuSaveAllLayout,
     /// Open the "Open Layout ▸" picker (LAYOUT-SURFACE). The menu closed itself;
     /// the App seeds the picker with the saved layout names.
     ContextMenuOpenLayoutPicker,
@@ -5307,8 +5315,39 @@ mod tests {
 
     #[test]
     fn rail_empty_menu_open_layout_emits_picker_outcome() {
-        // LAYOUT-SURFACE: the empty rail offers New Workspace(0) then Open
-        // Layout(1); activating Open Layout lifts to the picker outcome.
+        // LAYOUT-SURFACE + SAVE-ALL-LAYOUT: the empty rail offers New Workspace(0),
+        // the whole-app Save as Layout(1), then Open Layout(2); activating Open
+        // Layout lifts to the picker outcome, and Save as Layout lifts to the
+        // whole-app save outcome.
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu_with_prompt_editing_hint(
+            CellPoint { row: 0, column: 0 },
+            false,
+            false,
+            false,
+            false,
+            false,
+            None,
+            false,
+            true,
+            false,
+            false,
+            crate::native::context_menu_ui::ContextMenuSurface::WorkspaceRailEmpty,
+            None,
+            std::array::from_fn(|_| None),
+        );
+        overlay.handle_input(OverlayInput::Down);
+        overlay.handle_input(OverlayInput::Down);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuOpenLayoutPicker
+        );
+    }
+
+    #[test]
+    fn rail_empty_menu_save_all_layout_emits_whole_app_outcome() {
+        // SAVE-ALL-LAYOUT: the empty rail's Save as Layout (index 1) lifts to the
+        // surface-independent whole-app save outcome.
         let mut overlay = OverlayUi::default();
         overlay.open_context_menu_with_prompt_editing_hint(
             CellPoint { row: 0, column: 0 },
@@ -5329,16 +5368,47 @@ mod tests {
         overlay.handle_input(OverlayInput::Down);
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
-            OverlayOutcome::ContextMenuOpenLayoutPicker
+            OverlayOutcome::ContextMenuSaveAllLayout
         );
     }
 
     #[test]
     fn content_menu_save_as_layout_targets_the_active_workspace() {
-        // LAYOUT-SURFACE: Save as Layout on the content surface (no slot target)
-        // lifts to the active-workspace save outcome. With a selection the
-        // workspace section is New(10) Rename(11) Close(12) Bind(13) Save(14)
-        // Open(15).
+        // LAYOUT-SURFACE: Save Workspace as Layout on the content surface (no slot
+        // target) lifts to the active-workspace save outcome. With a selection the
+        // workspace section is New(10) Rename(11) Close(12) Bind(13)
+        // SaveAll(14) SaveWorkspace(15) Open(16).
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu_with_prompt_editing_hint(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            false,
+            None,
+            false,
+            true,
+            false,
+            false,
+            crate::native::context_menu_ui::ContextMenuSurface::Content,
+            None,
+            std::array::from_fn(|_| None),
+        );
+        for _ in 0..15 {
+            overlay.handle_input(OverlayInput::Down);
+        }
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuSaveActiveLayout
+        );
+    }
+
+    #[test]
+    fn content_menu_save_all_layout_emits_whole_app_outcome() {
+        // SAVE-ALL-LAYOUT: the whole-app Save as Layout on the content surface
+        // (index 14, right after Bind) lifts to the surface-independent whole-app
+        // save outcome, ahead of the single-workspace Save Workspace as Layout.
         let mut overlay = OverlayUi::default();
         overlay.open_context_menu_with_prompt_editing_hint(
             CellPoint { row: 0, column: 0 },
@@ -5361,7 +5431,7 @@ mod tests {
         }
         assert_eq!(
             overlay.handle_input(OverlayInput::Activate),
-            OverlayOutcome::ContextMenuSaveActiveLayout
+            OverlayOutcome::ContextMenuSaveAllLayout
         );
     }
 
@@ -5437,11 +5507,11 @@ mod tests {
             None,
             std::array::from_fn(|_| None),
         );
-        // 23 visible items single-pane with a selection (F7 dropped the Rename
+        // 24 visible items single-pane with a selection (F7 dropped the Rename
         // Tab row; the workspace section adds New/Rename/Close + Bind to Host +
-        // Save as Layout + Open Layout); Manage Sessions is index 21 (Detach &
-        // switch is last at 22).
-        for _ in 0..21 {
+        // Save as Layout + Save Workspace as Layout + Open Layout); Manage
+        // Sessions is index 22 (Detach & switch is last at 23).
+        for _ in 0..22 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -5454,10 +5524,11 @@ mod tests {
     #[test]
     fn context_menu_keyboard_shortcuts_opens_key_bindings() {
         // F3: the "Keyboard Shortcuts" launcher item (first after Settings,
-        // visible index 17 single-pane with a selection — the workspace section
-        // plus Bind to Host + Save as Layout + Open Layout shift the launcher
-        // block down by six) activates the key-remap editor via the same
-        // OpenKeyBindings outcome the settings "keybinds" row emits.
+        // visible index 18 single-pane with a selection — the workspace section
+        // plus Bind to Host + Save as Layout + Save Workspace as Layout + Open
+        // Layout shift the launcher block down by seven) activates the key-remap
+        // editor via the same OpenKeyBindings outcome the settings "keybinds"
+        // row emits.
         let mut overlay = OverlayUi::default();
         overlay.open_context_menu(
             CellPoint { row: 0, column: 0 },
@@ -5470,7 +5541,7 @@ mod tests {
             None,
             std::array::from_fn(|_| None),
         );
-        for _ in 0..17 {
+        for _ in 0..18 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(

@@ -418,6 +418,20 @@ impl App {
         self.begin_rename(RenameTarget::SaveLayout(idx), seed);
     }
 
+    /// Open the "Save as Layout" name prompt for the WHOLE application
+    /// (SAVE-ALL-LAYOUT), seeded with the active workspace's name as a default.
+    /// Reuses the rename modal; Enter commits via [`Self::commit_rename`] to the
+    /// [`Self::save_all_workspaces_as_layout`] path, capturing every workspace.
+    pub(super) fn enter_save_all_layout_prompt(&mut self) {
+        let idx = self.sessions.active_workspace_index();
+        let seed = self
+            .sessions
+            .workspace_name(idx)
+            .map(str::to_owned)
+            .unwrap_or_default();
+        self.begin_rename(RenameTarget::SaveAllLayout, seed);
+    }
+
     /// Shared setup for the rename overlay: seed the field with `text`, park the
     /// caret at the end, and clear any stale pointer streak from a previous
     /// field so a leftover drag/double-click can't leak in (F4-RENAME-MOUSE).
@@ -538,6 +552,13 @@ impl App {
                 // under the typed name via the shared WP3 save path.
                 if !text.is_empty() {
                     self.save_workspace_as_layout(idx, Some(&text));
+                }
+            }
+            RenameTarget::SaveAllLayout => {
+                // SAVE-ALL-LAYOUT: an empty name cancels; otherwise capture every
+                // workspace as one named layout under the typed name.
+                if !text.is_empty() {
+                    self.save_all_workspaces_as_layout(Some(&text));
                 }
             }
         }
@@ -758,7 +779,7 @@ fn rename_prompt(target: RenameTarget) -> &'static str {
     match target {
         RenameTarget::Tab(_) => "Tab name: ",
         RenameTarget::Workspace(_) => "Workspace name: ",
-        RenameTarget::SaveLayout(_) => "Layout name: ",
+        RenameTarget::SaveLayout(_) | RenameTarget::SaveAllLayout => "Layout name: ",
     }
 }
 
@@ -1088,6 +1109,9 @@ mod rename_mouse_tests {
         // LAYOUT-SURFACE: the Save-as-Layout prompt reuses the modal with its own
         // label so a layout save is never mislabeled as a rename.
         assert_eq!(rename_prompt(RenameTarget::SaveLayout(0)), "Layout name: ");
+        // SAVE-ALL-LAYOUT: the whole-app save prompt shares the "Layout name: "
+        // label.
+        assert_eq!(rename_prompt(RenameTarget::SaveAllLayout), "Layout name: ");
     }
 
     #[test]

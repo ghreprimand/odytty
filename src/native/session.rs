@@ -4795,6 +4795,85 @@ mod tests {
         assert_eq!(set.active_workspace_index(), 2);
     }
 
+    /// SAVE-ALL-LAYOUT: `capture_shape` records EVERY workspace (not just the
+    /// active one), preserving rail order and the active-workspace index. This is
+    /// the whole-app save side — the same snapshot the single-workspace save then
+    /// slices down to one.
+    #[test]
+    fn capture_shape_records_every_workspace() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push_workspace(build_session_with_id(SessionToken(1)));
+        set.push_workspace(build_session_with_id(SessionToken(2)));
+        set.rename_workspace(0, "one".to_owned());
+        set.rename_workspace(1, "two".to_owned());
+        set.rename_workspace(2, "three".to_owned());
+        // Focus the middle workspace so the captured active index is non-zero.
+        set.switch_workspace(1);
+
+        let snapshot = set.capture_shape();
+        assert_eq!(
+            snapshot.workspaces.len(),
+            3,
+            "captures all three workspaces"
+        );
+        assert_eq!(snapshot.workspaces[0].name, "one");
+        assert_eq!(snapshot.workspaces[1].name, "two");
+        assert_eq!(snapshot.workspaces[2].name, "three");
+        assert_eq!(
+            snapshot.active_workspace, 1,
+            "the active-workspace index is preserved in the whole-app capture"
+        );
+    }
+
+    /// SAVE-ALL-LAYOUT: opening a whole-app layout (a multi-workspace snapshot)
+    /// APPENDS every one of its workspaces after the live list, never just the
+    /// first — the open side of the whole-app save.
+    #[test]
+    fn append_from_snapshot_appends_all_workspaces_of_a_multi_workspace_layout() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push_workspace(build_session_with_id(SessionToken(1)));
+        set.rename_workspace(0, "live-a".to_owned());
+        set.rename_workspace(1, "live-b".to_owned());
+        assert_eq!(set.workspace_count(), 2);
+
+        // A three-workspace layout snapshot (the whole-app save output shape).
+        let leaf = || crate::native::persistence::TabShape {
+            title: None,
+            focused_leaf: 0,
+            layout: crate::native::persistence::PaneShape::Leaf {
+                cwd: None,
+                session_host_id: None,
+            },
+        };
+        let ws = |name: &str| crate::native::persistence::WorkspaceShape {
+            name: name.to_owned(),
+            default_profile: None,
+            active_tab: 0,
+            tabs: vec![leaf()],
+        };
+        let layout = crate::native::persistence::ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            active_workspace: 0,
+            workspaces: vec![ws("lay-1"), ws("lay-2"), ws("lay-3")],
+        };
+
+        let mut handed = Vec::new();
+        let report = set.append_from_snapshot_with(&layout, None, fake_spawner(&mut handed));
+        assert!(
+            matches!(report, RestoreReport::Restored { workspaces: 3, .. }),
+            "all three layout workspaces are appended"
+        );
+        // The two live workspaces survive; the three layout workspaces follow.
+        assert_eq!(set.workspace_count(), 5);
+        assert_eq!(set.workspace_name(0), Some("live-a"));
+        assert_eq!(set.workspace_name(1), Some("live-b"));
+        assert_eq!(set.workspace_name(2), Some("lay-1"));
+        assert_eq!(set.workspace_name(3), Some("lay-2"));
+        assert_eq!(set.workspace_name(4), Some("lay-3"));
+        // The first appended workspace becomes active (8e focus rule).
+        assert_eq!(set.active_workspace_index(), 2);
+    }
+
     /// WP3 / 8h: a pane carrying a session-host id whose host is not alive (no
     /// runtime dir in the test) is counted as a reattach attempt but falls back
     /// to a fresh shell — never a dead pane. Verifies the "N of M" accounting.
