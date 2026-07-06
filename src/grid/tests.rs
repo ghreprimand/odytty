@@ -1350,3 +1350,105 @@ fn bg_treatment_degenerate_grids_are_total() {
     assert_eq!(g.apply_to(bg, 0, 0, 1, 1), bg);
     assert_eq!(v.apply_to(bg, 0, 0, 1, 1), bg);
 }
+
+/// TRANSPARENCY (MENU-OPACITY): `CellRegion` marks the overlay panel's cell
+/// span so the builder holds those backgrounds opaque while the terminal cells
+/// around them scale with the window opacity.
+#[test]
+fn cell_region_contains_covers_its_rect_only() {
+    let r = CellRegion {
+        left: 2,
+        top: 1,
+        width: 3,
+        height: 2,
+    };
+    // Inside: [rows 1..=2] x [cols 2..=4].
+    assert!(r.contains(1, 2));
+    assert!(r.contains(2, 4));
+    // Outside on every edge.
+    assert!(!r.contains(0, 2), "row above");
+    assert!(!r.contains(3, 2), "row below");
+    assert!(!r.contains(1, 1), "col left");
+    assert!(!r.contains(1, 5), "col right");
+}
+
+/// TRANSPARENCY (MENU-OPACITY) core guarantee: with a translucent
+/// `cell_bg_opacity`, cells inside the opaque region draw fully opaque while
+/// cells outside scale by the opacity — and `None` scales every cell (the
+/// byte-identical path). Mirrors the single-pane path where an overlay panel is
+/// painted into the translucent snapshot: the panel stays a readable surface,
+/// the terminal behind it keeps the window opacity.
+#[test]
+fn opaque_region_holds_marked_cells_opaque_only() {
+    let Some(atlas) = atlas() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // Three blank cells in a row => three background quads (pass 1 emits all
+    // backgrounds first; blanks emit no glyph and the cursor is hidden).
+    let mut term = Terminal::new(3, 1);
+    term.advance(b"\x1b[?25l");
+    let snapshot = term.snapshot();
+
+    let opacity = 0.5;
+    let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * VERTS_PER_QUAD].color[3];
+
+    // Region covers ONLY the middle cell (col 1).
+    let region = CellRegion {
+        left: 1,
+        top: 0,
+        width: 1,
+        height: 1,
+    };
+    let mut with_region = Vec::new();
+    build_cell_vertices_with_focus_dim_and_origin_into(
+        &mut with_region,
+        &snapshot,
+        &atlas,
+        &[],
+        0.0,
+        [0.0, 0.0],
+        BackgroundTreatmentParams::default(),
+        opacity,
+        Some(region),
+    );
+    let edge = bg_alpha(&with_region, 0);
+    let marked = bg_alpha(&with_region, 1);
+    let edge_right = bg_alpha(&with_region, 2);
+    // The marked (overlay) cell is fully opaque; the edges scale by the opacity.
+    assert!(
+        marked > edge,
+        "marked cell must be more opaque than the edges"
+    );
+    assert!(
+        (edge - marked * opacity).abs() < 1e-6,
+        "an edge cell scales the marked cell's opaque alpha by the window opacity"
+    );
+    assert!(
+        (edge_right - edge).abs() < 1e-6,
+        "both edge cells scale identically"
+    );
+
+    // `None` scales EVERY cell — byte-identical to the pre-region path — so the
+    // middle cell now matches the edges (nothing is held opaque).
+    let mut no_region = Vec::new();
+    build_cell_vertices_with_focus_dim_and_origin_into(
+        &mut no_region,
+        &snapshot,
+        &atlas,
+        &[],
+        0.0,
+        [0.0, 0.0],
+        BackgroundTreatmentParams::default(),
+        opacity,
+        None,
+    );
+    assert!(
+        (bg_alpha(&no_region, 1) - edge).abs() < 1e-6,
+        "with no region the middle cell scales like every other cell"
+    );
+    assert!(
+        (bg_alpha(&no_region, 1) - marked).abs() > 1e-6,
+        "the region is what lifts the middle cell to opaque"
+    );
+}

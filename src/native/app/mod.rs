@@ -282,18 +282,15 @@ struct PendingImagePaste {
 /// Human-readable byte size for the image paste-through confirm prompt (F6-i7):
 /// `B` under 1 KiB, else one decimal of `KiB`/`MiB`. Binary units so the number
 /// lines up with the fixed-`MiB` upload cap.
-/// TRANSPARENCY: pure window-background-alpha decision. Full opacity unless
-/// the transparency setting is on, the swapchain can composite alpha
-/// (`capable`), and no overlay panel is open (an open menu/settings/picker
-/// renders the whole window opaque for readability). Otherwise the
-/// `opacity_pct` percent as a `0..=1` fraction.
-pub(super) fn window_bg_alpha_for(
-    transparency: bool,
-    capable: bool,
-    overlay_open: bool,
-    opacity_pct: f32,
-) -> f32 {
-    if transparency && capable && !overlay_open {
+/// TRANSPARENCY: pure window-background-alpha decision. Full opacity unless the
+/// transparency setting is on and the swapchain can composite alpha
+/// (`capable`); otherwise the `opacity_pct` percent as a `0..=1` fraction. An
+/// open overlay panel no longer forces the whole window opaque — the window
+/// stays translucent and only the panel's own cell span is held opaque
+/// (MENU-OPACITY), so a menu/settings/picker never reseals the transparent
+/// window while it is up.
+pub(super) fn window_bg_alpha_for(transparency: bool, capable: bool, opacity_pct: f32) -> f32 {
+    if transparency && capable {
         (opacity_pct / 100.0).clamp(0.0, 1.0)
     } else {
         1.0
@@ -2702,18 +2699,39 @@ impl App {
     /// on so the rail is reachable even when the active workspace has a single
     /// unnamed tab (no top bar). `false` is the byte-identical no-chrome frame.
     /// TRANSPARENCY: the window background alpha to render this frame. Full
-    /// opacity (`1.0`) unless the `window_transparency` setting is on, the
-    /// swapchain can actually composite alpha (`capable`), and no overlay panel
-    /// is open — an open menu/settings/picker renders the whole window opaque so
-    /// its panel and the content behind it stay fully readable. Otherwise the
-    /// configured `window_opacity` percent as a `0..=1` fraction.
+    /// opacity (`1.0`) unless the `window_transparency` setting is on and the
+    /// swapchain can actually composite alpha (`capable`); otherwise the
+    /// configured `window_opacity` percent as a `0..=1` fraction. An open overlay
+    /// panel keeps the window translucent (MENU-OPACITY): only the panel's own
+    /// cell span is held opaque so it stays readable, while the content behind it
+    /// keeps showing the desktop through.
     fn effective_window_bg_alpha(&self, capable: bool) -> f32 {
         window_bg_alpha_for(
             self.settings.window_transparency,
             capable,
-            self.overlay.is_open(),
             self.settings.window_opacity,
         )
+    }
+
+    /// TRANSPARENCY (MENU-OPACITY): the opaque cell span for an overlay panel
+    /// merged into the SINGLE-PANE snapshot, in the built (tab-chrome-decorated)
+    /// snapshot's coordinates. The overlay is painted into the terminal grid at
+    /// [`overlay_rect`]'s centred rect, then the tab-bar/rail decoration shifts
+    /// the content (and with it the panel) down by the reserved rows and right by
+    /// the reserved columns — so the span the renderer sees is the overlay rect
+    /// plus that reservation. Holding these cells opaque keeps the panel readable
+    /// while the terminal cells around it scale with the window opacity. `None`
+    /// when no overlay is open; the caller also passes `None` on the opaque
+    /// window path so that path stays byte-identical.
+    fn single_pane_overlay_opaque_region(&self) -> Option<crate::grid::CellRegion> {
+        let rect = overlay_rect(&self.overlay, self.grid.columns, self.grid.rows)?;
+        let reserve = self.tab_reserve();
+        Some(crate::grid::CellRegion {
+            left: rect.left + reserve.left_reserved_cols(),
+            top: rect.top + reserve.top_rows,
+            width: rect.width,
+            height: rect.height,
+        })
     }
 
     fn any_chrome_shown(&self) -> bool {
@@ -5090,6 +5108,17 @@ impl ApplicationHandler<UserEvent> for App {
                                 .is_some_and(GpuState::transparency_capable);
                             self.effective_window_bg_alpha(capable)
                         };
+                        // TRANSPARENCY (MENU-OPACITY): while the window is
+                        // translucent, hold the open overlay panel's cell span
+                        // opaque so a menu/settings/picker stays readable without
+                        // resealing the whole window. `None` on the opaque path
+                        // (and when no overlay is open) keeps that path
+                        // byte-identical.
+                        let overlay_opaque_region = if win_bg_alpha < 1.0 {
+                            self.single_pane_overlay_opaque_region()
+                        } else {
+                            None
+                        };
                         if let Some(gpu) = self.gpu.as_mut() {
                             let rail_overlay = rail_overlay_data.as_ref().map(|data| RailOverlay {
                                 snapshot: &data.snapshot,
@@ -5104,6 +5133,7 @@ impl ApplicationHandler<UserEvent> for App {
                             // byte-identical.
                             gpu.set_scroll_frac_offset(scroll_frac_offset);
                             gpu.set_window_bg_alpha(win_bg_alpha);
+                            gpu.set_overlay_opaque_region(overlay_opaque_region);
                             match update {
                                 GeometryUpdate::Full => {
                                     gpu.update_image_layer(
@@ -5603,21 +5633,21 @@ mod tests {
     }
 
     /// TRANSPARENCY: the pure window-background-alpha decision. Opaque (`1.0`)
-    /// whenever the setting is off, the compositor can't composite alpha, or an
-    /// overlay panel is open; otherwise the configured percent as a fraction.
+    /// whenever the setting is off or the compositor can't composite alpha;
+    /// otherwise the configured percent as a fraction. An open overlay panel no
+    /// longer forces opacity (MENU-OPACITY) — the window stays translucent and
+    /// the panel is held opaque per-surface elsewhere.
     #[test]
-    fn window_bg_alpha_gates_on_setting_capability_and_overlays() {
+    fn window_bg_alpha_gates_on_setting_and_capability() {
         // Off by default => fully opaque regardless of the opacity percent.
-        assert_eq!(window_bg_alpha_for(false, true, false, 85.0), 1.0);
-        // On + capable + no overlay => the configured percent as a 0..=1 fraction.
-        assert!((window_bg_alpha_for(true, true, false, 85.0) - 0.85).abs() < 1e-6);
+        assert_eq!(window_bg_alpha_for(false, true, 85.0), 1.0);
+        // On + capable => the configured percent as a 0..=1 fraction.
+        assert!((window_bg_alpha_for(true, true, 85.0) - 0.85).abs() < 1e-6);
         // Not capable (Opaque-only compositor) => stays opaque.
-        assert_eq!(window_bg_alpha_for(true, false, false, 85.0), 1.0);
-        // An open overlay panel forces the whole window opaque for readability.
-        assert_eq!(window_bg_alpha_for(true, true, true, 85.0), 1.0);
+        assert_eq!(window_bg_alpha_for(true, false, 85.0), 1.0);
         // The percent is clamped to a valid 0..=1 fraction.
-        assert_eq!(window_bg_alpha_for(true, true, false, 150.0), 1.0);
-        assert!((window_bg_alpha_for(true, true, false, 30.0) - 0.30).abs() < 1e-6);
+        assert_eq!(window_bg_alpha_for(true, true, 150.0), 1.0);
+        assert!((window_bg_alpha_for(true, true, 30.0) - 0.30).abs() < 1e-6);
     }
 
     /// Pins the black-screen-on-restore recovery policy at the pure seam, with

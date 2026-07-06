@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Transparency stays put when a menu opens
+
+Opening any overlay while the window was translucent flashed the whole window
+opaque until the overlay closed. The window-alpha decision forced full opacity
+whenever a menu, picker, or the settings panel was open, on the reasoning that
+the panel and everything behind it should stay readable. In practice it read as
+the transparency switching itself off the instant a context menu appeared.
+
+The readability boundary is now applied per-surface, not to the whole window.
+While translucent, an open overlay keeps the window at its configured opacity;
+only the overlay panel's own cells are held fully opaque so the panel itself
+stays a solid, readable surface, while the terminal behind it keeps showing the
+desktop through. The multi-pane path already composited its overlay as a
+separate opaque layer, so it needed only the forced-opacity gate removed; the
+single-pane path paints the overlay directly into the terminal snapshot, so the
+panel's cell span is now marked and the cell-vertex builder holds exactly those
+backgrounds opaque while the surrounding cells scale with the window opacity.
+The opaque window path is unchanged and byte-identical: with transparency off
+(or opacity at 100) no cell span is marked and every cell scales as before.
+Text, cursor, selection, and the overlay glyphs stay opaque throughout. Windows
+composes the same shader/vertex path through DWM; the change is platform-neutral.
+`cargo test`, `cargo clippy --all-targets --locked -D warnings`, and `cargo fmt
+--check` are green.
+
+---
+
 ## 2026-07-06 -- Connection form: persistent, clickable key browser
 
 The Add / Edit connection form's IdentityFile row now carries an always-visible

@@ -524,7 +524,41 @@ pub fn build_cell_vertices_with_focus_dim_into(
         // — the shipped default is 0.8 since v0.6.0, but this seam's contract is
         // opaque cells regardless of that default.
         1.0,
+        // No overlay panel rides this seam, so no cell is force-opaque.
+        None,
     );
+}
+
+/// TRANSPARENCY (MENU-OPACITY): a rectangular span of grid cells whose
+/// background quads must stay **fully opaque** regardless of the frame's
+/// `cell_bg_opacity`. In the single-pane path an open overlay panel (context
+/// menu / settings / picker) is painted directly into the terminal snapshot, so
+/// when the window is translucent the whole snapshot — including the panel — is
+/// built at the window alpha. That resealed nothing but sank the panel to the
+/// window opacity, letting the desktop bleed through the menu. Marking the
+/// panel's cell span keeps the overlay SURFACE opaque (the ruled readability
+/// boundary) while the terminal cells outside it still scale with the window
+/// opacity. Coordinates are cell indices in the snapshot being built (i.e. after
+/// any tab-chrome decoration); `None` at the call site is the byte-identical
+/// path (multi-pane draws its overlay as a separate opaque layer, and the opaque
+/// window path never sets a region).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CellRegion {
+    pub left: usize,
+    pub top: usize,
+    pub width: usize,
+    pub height: usize,
+}
+
+impl CellRegion {
+    /// Whether cell `(row, col)` falls inside this region.
+    #[inline]
+    pub fn contains(&self, row: usize, col: usize) -> bool {
+        col >= self.left
+            && col < self.left + self.width
+            && row >= self.top
+            && row < self.top + self.height
+    }
 }
 
 // ID3/U5 adds `cell_bg_opacity` as the 8th argument; the existing inputs
@@ -541,6 +575,11 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
     origin: [f32; 2],
     treatment: BackgroundTreatmentParams,
     cell_bg_opacity: f32,
+    // TRANSPARENCY (MENU-OPACITY): cells inside this span draw their background
+    // fully opaque, ignoring `cell_bg_opacity`, so an overlay panel painted into
+    // a translucent snapshot stays a readable opaque surface. `None` is the
+    // byte-identical path (every cell uses `cell_bg_opacity`).
+    opaque_region: Option<CellRegion>,
 ) {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
@@ -620,7 +659,17 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
             // untouched there), so `enforce_contrast_rgba` still floors against
             // the theme background `l_bg`; the readability scrim guarantees the
             // composited luminance stays on the safe side of `l_bg`.
-            let bg = [bg[0], bg[1], bg[2], bg[3] * cell_bg_opacity];
+            // TRANSPARENCY (MENU-OPACITY): a cell inside `opaque_region`
+            // (an overlay panel painted into a translucent snapshot) forces its
+            // background fully opaque so the panel reads as a solid surface; every
+            // other cell scales by `cell_bg_opacity` exactly as before. `None`
+            // (the default) leaves `bg[3] * cell_bg_opacity` untouched.
+            let cell_opacity = if opaque_region.is_some_and(|r| r.contains(row, col)) {
+                1.0
+            } else {
+                cell_bg_opacity
+            };
+            let bg = [bg[0], bg[1], bg[2], bg[3] * cell_opacity];
             let span = span_of(row, col);
             let x0 = origin[0] + col as f32 * cell_w;
             let y0 = origin[1] + row as f32 * cell_h;

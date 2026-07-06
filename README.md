@@ -847,9 +847,10 @@ window_opacity = 85          # percent, 30..=100 (step 5); 100 is fully opaque
 
 Transparency needs a compositing window manager: Wayland handles it natively,
 X11 needs a compositor running, and Windows uses DWM. Where the display server
-offers no alpha compositing the toggle simply has no visible effect. While a
-menu, picker, or the settings panel is open the whole window renders opaque so
-the panel and the content behind it stay readable.
+offers no alpha compositing the toggle simply has no visible effect. A menu,
+picker, or the settings panel stays a readable opaque surface while it is open —
+only that panel, not the whole window: the terminal behind it keeps showing the
+desktop through, so opening a menu no longer flashes the window opaque.
 
 A configured background image is part of that background: with transparency
 on it becomes translucent too and composes over the desktop, rather than

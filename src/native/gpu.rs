@@ -844,12 +844,23 @@ pub(super) struct GpuState {
     /// `1.0` (the default) keeps cells fully opaque — byte-identical output.
     cell_bg_opacity: f32,
     /// TRANSPARENCY: effective window background alpha this frame. `1.0`
-    /// (the default, and whenever the window-transparency setting is off, the
-    /// compositor offers no alpha mode, or an overlay panel is open) keeps the
-    /// opaque render path byte-identical. Below `1.0` the scene clears to fully
-    /// transparent and the terminal background is drawn at this alpha so the
-    /// desktop shows through; text/cursor/overlays stay opaque.
+    /// (the default, and whenever the window-transparency setting is off or the
+    /// compositor offers no alpha mode) keeps the opaque render path
+    /// byte-identical. Below `1.0` the scene clears to fully transparent and the
+    /// terminal background is drawn at this alpha so the desktop shows through;
+    /// text/cursor/overlays stay opaque. An open overlay panel no longer forces
+    /// this to `1.0` — the window stays translucent and only the panel's own
+    /// cell span is held opaque (see `overlay_opaque_region`).
     window_bg_alpha: f32,
+    /// TRANSPARENCY (MENU-OPACITY): while the window is translucent AND an
+    /// overlay panel is merged into the single-pane snapshot, the panel's cell
+    /// span (in the built snapshot's coordinates, after tab-chrome decoration).
+    /// The cell-vertex builder forces these cells' backgrounds fully opaque so
+    /// the panel stays a readable surface while the terminal cells around it keep
+    /// the window opacity. `None` (the default, the opaque window path, and every
+    /// multi-pane frame — where the overlay is a separate opaque layer) is the
+    /// byte-identical path.
+    overlay_opaque_region: Option<grid::CellRegion>,
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
     /// live PTY output arrives.
     pub(super) atlas: GlyphAtlas,
@@ -1243,6 +1254,8 @@ impl GpuState {
             // Initial buffer is the blank snapshot; cells stay fully opaque until
             // a live `set_cell_bg_opacity` arrives (identity / byte-identical).
             crate::settings::DEFAULT_CELL_BG_OPACITY,
+            // No overlay panel is merged into the initial snapshot.
+            None,
         );
         let cell_vertex_count = vertices.len() as u32;
         grid::append_cursor_vertices_with_origin(
@@ -1320,6 +1333,7 @@ impl GpuState {
             bg_image: None,
             cell_bg_opacity: crate::settings::DEFAULT_CELL_BG_OPACITY,
             window_bg_alpha: 1.0,
+            overlay_opaque_region: None,
             atlas,
             color_glyph_atlas,
             emoji_rasterizer,
@@ -1447,8 +1461,8 @@ impl GpuState {
     /// frames. `1.0` restores the fully-opaque path; values below `1.0` (only
     /// meaningful when the compositor offers a transparent alpha mode) draw the
     /// terminal background translucent. The App recomputes this each frame from
-    /// the settings and whether an overlay panel is open, so the mutation is a
-    /// cheap store — geometry is rebuilt from it on the next update.
+    /// the settings, so the mutation is a cheap store — geometry is rebuilt from
+    /// it on the next update.
     pub(super) fn set_window_bg_alpha(&mut self, alpha: f32) {
         self.window_bg_alpha = alpha.clamp(0.0, 1.0);
         // TRANSPARENCY: the wallpaper pass is a separate GPU layer, so the
@@ -1459,6 +1473,17 @@ impl GpuState {
         if let Some(bg) = self.bg_image.as_mut() {
             bg.set_window_alpha(&self.queue, self.window_bg_alpha);
         }
+    }
+
+    /// TRANSPARENCY (MENU-OPACITY): set the overlay panel's opaque cell span for
+    /// the upcoming single-pane frame, or `None` to force no cells. Only
+    /// meaningful while the window is translucent and an overlay is merged into
+    /// the snapshot; the App passes `None` on the opaque window path and on every
+    /// multi-pane frame (there the overlay is a separate opaque layer), keeping
+    /// those paths byte-identical. A cheap store — the builder reads it on the
+    /// next update.
+    pub(super) fn set_overlay_opaque_region(&mut self, region: Option<grid::CellRegion>) {
+        self.overlay_opaque_region = region;
     }
 
     /// TRANSPARENCY: whether the configured swapchain can present a transparent
@@ -1942,6 +1967,9 @@ impl GpuState {
                 pane.origin,
                 pane.treatment,
                 self.content_build_opacity(),
+                // Multi-pane panes never carry an overlay panel: it is composited
+                // as a separate opaque `OverlayTop` layer, so no cell is forced.
+                None,
             );
             let bg = background_vertex_count(pane.snapshot).min(pane_buf.len() as u32) as usize;
             self.vertices.extend_from_slice(&pane_buf[..bg]);
@@ -2050,6 +2078,9 @@ impl GpuState {
                 overlay.origin,
                 overlay.treatment,
                 self.cell_bg_opacity,
+                // The overlay-top snapshot IS the panel; it is already built at
+                // the opaque `cell_bg_opacity` on its own layer.
+                None,
             );
             self.vertices.extend_from_slice(&overlay_buf);
         }
@@ -2185,6 +2216,12 @@ impl GpuState {
             origin,
             treatment,
             content_opacity,
+            // TRANSPARENCY (MENU-OPACITY): while the window is translucent an open
+            // overlay panel is painted into this very snapshot; its cell span is
+            // forced opaque so the panel stays readable while the terminal cells
+            // around it keep the window opacity. `None` on the opaque window path
+            // (set by the caller) is byte-identical.
+            self.overlay_opaque_region,
         );
         let background_vertices = background_vertex_count(snapshot).min(self.vertices.len() as u32);
         if self.needs_edge_wash() {
@@ -2295,6 +2332,8 @@ impl GpuState {
             rail.origin,
             rail.treatment,
             self.cell_bg_opacity,
+            // The rail strip is its own opaque overlay; no merged panel to force.
+            None,
         );
         self.vertices.extend_from_slice(&strip);
         if let Some(seam) = rail.seam {
