@@ -157,6 +157,10 @@ pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(1
 /// most a couple of seconds of shape change.
 const SHAPE_AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(1500);
 
+/// SECONDARY-INSTANCE-NOTICE banner text. A named constant so the test pins the
+/// exact wording the operator reads and no edit can drift it silently.
+const SECONDARY_INSTANCE_NOTICE: &str = "Another OdyTTY window owns session restore — this window won't restore or autosave workspaces.";
+
 /// Native presenter policy for DECSET 2026 synchronized output.
 ///
 /// The terminal core owns the mode bit. The native layer owns the safety policy:
@@ -4284,6 +4288,24 @@ impl App {
     /// second concurrent window stays inert on both.
     pub(super) fn set_primary_instance(&mut self, primary: bool) {
         self.autosave_is_primary = primary;
+    }
+
+    /// SECONDARY-INSTANCE-NOTICE: a second concurrent window cannot own session
+    /// restore or autosave — a live primary holds the instance lock — and that
+    /// suppression is otherwise silent, which reads as "restore didn't work"
+    /// after relaunching over a still-running (or wedged) first window. When
+    /// this instance is secondary and the user expects restore
+    /// (`restore_workspaces` on), raise the one-line banner once at startup so
+    /// the behavior is legible. Purely a notice: ownership is unchanged. A stale
+    /// lock cannot reach here — the advisory instance lock is released the
+    /// instant its owner exits or crashes, so a non-primary election always
+    /// means a live peer still holds it (the same std lock API on every
+    /// platform, so this is platform-agnostic).
+    pub(super) fn notice_secondary_instance_if_suppressed(&mut self) {
+        if self.autosave_is_primary || !self.settings.restore_workspaces {
+            return;
+        }
+        self.raise_open_notice(SECONDARY_INSTANCE_NOTICE.to_owned());
     }
 
     /// Apply the current app-global presentation/model state — theme base

@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Secondary windows say why they won't restore
+
+Only one window per machine-user owns session restore and autosave — an
+advisory lock elects it, so two windows never race on the saved workspace file.
+A second window launched while another already holds the lock stays inert on
+both, but silently: with restore turned on, relaunching over a still-running (or
+frozen) first window produced a fresh window that "didn't restore", with no
+explanation. That silent case now surfaces a one-line banner at startup —
+"Another OdyTTY window owns session restore — this window won't restore or
+autosave workspaces." — whenever a window comes up as a secondary instance with
+restore enabled. It is a notice only: ownership is unchanged, and a window that
+is not relying on restore stays quiet. Because the lock is a kernel advisory
+lock released the instant its owner exits or crashes, a secondary election
+always means a live peer still holds it — there is no stale-lock case to
+mistake for a live one. Same lock API on every platform, so the notice fires
+identically on Windows.
+
+---
+
 ## 2026-07-06 -- Quitting no longer stalls on a wedged remote
 
 Closing the whole application (Super+Q, the window-manager close button, or the

@@ -302,6 +302,11 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     if is_primary && bare_launch && settings.restore_workspaces {
         app.restore_workspaces_on_launch();
     }
+    // SECONDARY-INSTANCE-NOTICE: a second concurrent window is silently inert on
+    // restore/autosave (a live primary holds the instance lock). Surface that
+    // once at startup when the user expects restore, so relaunching over a
+    // still-running or wedged first window no longer reads as "restore failed".
+    app.notice_secondary_instance_if_suppressed();
     // FREEZE-HARDEN (b): run the app under the freeze watchdog — a thin
     // ApplicationHandler wrapper noting input/redraw activity and mirroring a
     // state snapshot, plus a detached monitor thread that logs the state

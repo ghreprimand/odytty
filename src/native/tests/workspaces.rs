@@ -366,3 +366,61 @@ fn rename_band_holds_the_single_pane_opaque_region_under_transparency() {
         "band top offset by the tab-chrome reservation"
     );
 }
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn secondary_instance_raises_the_restore_suppressed_notice() {
+    // SECONDARY-INSTANCE-NOTICE: a second concurrent window is silently inert on
+    // restore/autosave. When the user expects restore, the startup gate must
+    // surface the one-line banner so the silence stops reading as "restore
+    // didn't work".
+    let (mut app, _event_loop) = app_or_skip!();
+    app.set_primary_instance_for_test(false);
+    app.set_restore_workspaces_for_test(true);
+    app.notice_secondary_instance_for_test();
+    let message = app
+        .open_notice_message_for_test()
+        .expect("a secondary instance expecting restore raises the notice");
+    assert!(
+        message.contains("won't restore or autosave"),
+        "notice explains the suppression: {message}"
+    );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn primary_instance_stays_silent_on_the_restore_notice() {
+    // The owner of the lock restores and autosaves normally — no notice.
+    let (mut app, _event_loop) = app_or_skip!();
+    app.set_primary_instance_for_test(true);
+    app.set_restore_workspaces_for_test(true);
+    app.notice_secondary_instance_for_test();
+    assert!(
+        app.open_notice_message_for_test().is_none(),
+        "the primary instance never raises the suppression notice"
+    );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn secondary_instance_without_restore_expectation_stays_silent() {
+    // With restore off the user is not relying on it, so the secondary window
+    // has nothing to explain — no notice.
+    let (mut app, _event_loop) = app_or_skip!();
+    app.set_primary_instance_for_test(false);
+    app.set_restore_workspaces_for_test(false);
+    app.notice_secondary_instance_for_test();
+    assert!(
+        app.open_notice_message_for_test().is_none(),
+        "restore off ⇒ the secondary window stays silent"
+    );
+}

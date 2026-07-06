@@ -1529,6 +1529,19 @@ impl App {
         self.set_primary_instance(primary);
     }
 
+    /// Test seam (SECONDARY-INSTANCE-NOTICE): flip the `restore_workspaces`
+    /// setting so the notice gate can be exercised without a config file.
+    #[cfg(test)]
+    pub(in crate::native) fn set_restore_workspaces_for_test(&mut self, on: bool) {
+        self.settings.restore_workspaces = on;
+    }
+
+    /// Test seam (SECONDARY-INSTANCE-NOTICE): drive the startup notice gate.
+    #[cfg(test)]
+    pub(in crate::native) fn notice_secondary_instance_for_test(&mut self) {
+        self.notice_secondary_instance_if_suppressed();
+    }
+
     /// Test seam (WP2): number of shape writes the autosave has emitted. Under
     /// `cfg(test)` `write_shape_snapshot` bumps a counter instead of touching
     /// disk, so the debounce-coalescing tests assert exactly-once without I/O.
