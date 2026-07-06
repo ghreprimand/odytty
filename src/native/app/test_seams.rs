@@ -1461,6 +1461,56 @@ impl App {
         self.sessions.capture_shape()
     }
 
+    /// Test seam (RESTORE-THEME): the dynamic default `(foreground, background)`
+    /// of a session's terminal, in arena order. A live-created session carries
+    /// the theme colors; a session spawned by snapshot restore / layout append
+    /// carries `DynamicColors::default()` until the app seeds it. Lets a test
+    /// assert the seed actually ran.
+    #[cfg(test)]
+    pub(in crate::native) fn session_dynamic_colors_for_test(
+        &self,
+        session: usize,
+    ) -> Option<(crate::core::RgbColor, crate::core::RgbColor)> {
+        self.sessions.iter().nth(session).and_then(|session| {
+            session.terminal.lock().ok().map(|terminal| {
+                let colors = terminal.dynamic_colors();
+                (colors.foreground, colors.background)
+            })
+        })
+    }
+
+    /// Test seam (RESTORE-THEME): apply the current app-global presentation state
+    /// (theme colors / palette / cursor defaults / scrollback cap) to every
+    /// session's terminal — the same sweep restore-on-launch and layout append
+    /// run so snapshot-spawned sessions stop rendering in the default palette.
+    #[cfg(test)]
+    pub(in crate::native) fn apply_model_state_to_all_sessions_for_test(&mut self) {
+        self.apply_model_state_to_all_sessions();
+    }
+
+    /// Test seam (RESTORE-THEME): drive the production layout-append path against
+    /// a snapshot (skipping only the persistence-file load), so a test can prove
+    /// the appended sessions are seeded with the current theme exactly as
+    /// [`Self::open_layout`] does. Requires an event-loop proxy (real spawn).
+    #[cfg(test)]
+    pub(in crate::native) fn append_snapshot_for_test(
+        &mut self,
+        snapshot: &crate::native::persistence::ShapeSnapshot,
+    ) -> crate::native::session::RestoreReport {
+        use crate::native::persistence::restore_home_dir;
+        let home = restore_home_dir();
+        let report = self
+            .sessions
+            .append_from_snapshot(snapshot, self.grid, home.as_deref());
+        if matches!(
+            report,
+            crate::native::session::RestoreReport::Restored { .. }
+        ) {
+            self.apply_model_state_to_all_sessions();
+        }
+        report
+    }
+
     /// Test seam (WP2): mark this headless `App` as the primary instance so the
     /// debounced shape autosave runs (it is inert on non-primary instances).
     #[cfg(test)]

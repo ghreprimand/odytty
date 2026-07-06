@@ -73,6 +73,14 @@ impl App {
                         reattach_attempted,
                         ..
                     } => {
+                        // Seed the appended sessions with the current theme
+                        // palette / cursor defaults / scrollback cap. Append
+                        // spawns terminals inside the session arena without
+                        // routing them through `initialize_session_with`, so
+                        // without this they render menus, overlays and content in
+                        // the `DynamicColors::default()` palette instead of the
+                        // theme's — a per-workspace presentation divergence.
+                        self.apply_model_state_to_all_sessions();
                         self.flash_rail_autohide();
                         self.recompute_grid_for_tab_bar();
                         self.on_active_session_changed();

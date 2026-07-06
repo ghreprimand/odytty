@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Restored workspaces render in the current theme
+
+Workspaces brought back by restore-on-launch or instantiated from a saved
+layout rendered their menus, overlays and terminal content in the default
+palette rather than the active theme, so two workspaces in one window could
+look different even though every setting is app-global. A right-click menu in a
+live-created workspace drew in the theme's colors; the same menu in a restored
+or appended workspace drew in the default grey, because context menus and
+overlay panels paint in the terminal's own palette.
+
+The cause was a gap in how sessions receive the theme. A live-created session
+has the theme colors, palette, cursor defaults and scrollback cap applied to
+its terminal right after it spawns. Sessions spawned while rebuilding a saved
+shape — restore-on-launch and layout append — are created directly in the
+session arena and never passed through that step, so they kept the built-in
+`DynamicColors` default (a light grey on near-black) and answered every
+`Color::Default` / indexed lookup with it. The palette sweep that fans theme
+state over every session already existed for live theme changes; it now also
+runs once at the end of restore-on-launch and after a layout append, so every
+restored or appended session is seeded with the current presentation state
+before its first frame. This also covers the close-confirmation and other
+overlays, which paint through the same terminal palette, so they render
+consistently in a restored workspace. The sweep is idempotent and app-global;
+the live-create path is unchanged. The restore and append paths are identical
+across Linux, macOS and Windows, so the fix is platform-neutral. `cargo test`,
+`cargo clippy --all-targets --locked -D warnings`, and `cargo fmt --check` are
+green.
+
+---
+
 ## 2026-07-06 -- Transparency stays put when a menu opens
 
 Opening any overlay while the window was translucent flashed the whole window

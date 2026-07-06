@@ -99,6 +99,7 @@ mod overlay_registry;
 mod overlay_small_window;
 mod poison_recovery;
 mod replay_isolation;
+mod restore_theme;
 mod scrollbar;
 mod selection_extend;
 mod sh2_native;

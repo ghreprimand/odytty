@@ -4184,42 +4184,15 @@ impl App {
         // edit takes effect on the next frame (the grid resolve seam reads it
         // per cell). Mirrors the palette republish above; passthrough at 1.0.
         text::set_min_contrast(self.settings.effective_min_contrast());
-        // ID1: when themed UI roles are on, the cursor default color comes
-        // from the theme `cursor` role; otherwise it stays the foreground
-        // (today's behavior). A live OSC 12 dynamic-color override is a
-        // separate mechanism in the core and still takes precedence.
-        let cursor_default = if self.themed_ui_roles {
-            rgb(self.effective_theme.cursor)
-        } else {
-            rgb(self.effective_theme.foreground)
-        };
-        let base_fg = rgb(self.effective_theme.foreground);
-        let base_bg = rgb(self.effective_theme.background);
-        // C29: OSC 4 replies report the theme palette, not the xterm table.
-        let base_palette = self.effective_theme.palette.map(rgb);
-        let osc52_read = self.settings.osc52_read;
-        let cursor_style = self.settings.cursor_style;
-        let cursor_blink = self.settings.cursor_blink.enabled();
-        // Apply the scrollback cap to *every* session, not just the active one:
-        // a background tab streaming unbounded output must stay memory-bounded
-        // regardless of focus. Lowering the cap trims existing history at once.
-        let scrollback_limit = self.settings.scrollback_limit();
-        // NF21-4: fan the theme colors, palette, OSC 52 read gate and cursor
-        // defaults over EVERY session too, not just the active one through
-        // `Deref`. A background tab (or, post-W1, a background workspace's tabs)
-        // otherwise answered OSC 4/10/11 with the pre-reload theme, kept a stale
-        // cursor default, and carried a model `osc52_read` that could disagree
-        // with the app-level answer-time gate. All values are app-global for the
-        // reload, so one arena sweep applies the whole model state consistently.
-        for session in self.sessions.iter() {
-            if let Ok(mut terminal) = session.terminal.lock() {
-                terminal.set_base_colors(base_fg, base_bg, cursor_default);
-                terminal.set_base_palette(base_palette);
-                terminal.set_osc52_read_enabled(osc52_read);
-                terminal.set_cursor_defaults(cursor_style, cursor_blink);
-                terminal.set_scrollback_limit(scrollback_limit);
-            }
-        }
+        // NF21-4: fan the theme colors, palette, OSC 52 read gate, cursor
+        // defaults and scrollback cap over EVERY session, not just the active
+        // one through `Deref`. A background tab (or a background workspace's
+        // tabs) otherwise answered OSC 4/10/11 with the pre-reload theme, kept a
+        // stale cursor default, and carried a model `osc52_read` that could
+        // disagree with the app-level answer-time gate. All values are app-global
+        // for the reload, so one arena sweep applies the whole model state
+        // consistently.
+        self.apply_model_state_to_all_sessions();
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.set_theme(self.effective_theme);
             gpu.set_visual(self.visual);
@@ -4295,6 +4268,47 @@ impl App {
         self.autosave_is_primary = primary;
     }
 
+    /// Apply the current app-global presentation/model state — theme base
+    /// colors, palette, cursor defaults, OSC 52 read gate and scrollback cap — to
+    /// EVERY session's terminal. Live-created sessions receive this through
+    /// [`Self::initialize_session_with`] right after spawn; sessions built by
+    /// snapshot restore-on-launch or layout append never pass through that path,
+    /// so without this sweep they keep the `DynamicColors::default()` palette and
+    /// render every `Color::Default` / `Color::Indexed` surface with the wrong
+    /// colors. That is most visible on context menus and overlays, which paint in
+    /// the terminal palette (`panel_attrs` etc.): a restored workspace's menu drew
+    /// in the default grey while a live workspace's drew in the theme palette, so
+    /// the two diverged in one window even though every setting is app-global.
+    /// All values here are app-global, so one arena sweep is consistent, and it
+    /// is idempotent — re-applying to an already-seeded session is a no-op.
+    fn apply_model_state_to_all_sessions(&mut self) {
+        // ID1: with themed UI roles on, the cursor default comes from the theme
+        // `cursor` role; otherwise it stays the foreground (today's behavior). A
+        // live OSC 12 override is a separate core mechanism and still wins.
+        let cursor_default = if self.themed_ui_roles {
+            rgb(self.effective_theme.cursor)
+        } else {
+            rgb(self.effective_theme.foreground)
+        };
+        let base_fg = rgb(self.effective_theme.foreground);
+        let base_bg = rgb(self.effective_theme.background);
+        // C29: OSC 4 replies report the theme palette, not the xterm table.
+        let base_palette = self.effective_theme.palette.map(rgb);
+        let osc52_read = self.settings.osc52_read;
+        let cursor_style = self.settings.cursor_style;
+        let cursor_blink = self.settings.cursor_blink.enabled();
+        let scrollback_limit = self.settings.scrollback_limit();
+        for session in self.sessions.iter() {
+            if let Ok(mut terminal) = session.terminal.lock() {
+                terminal.set_base_colors(base_fg, base_bg, cursor_default);
+                terminal.set_base_palette(base_palette);
+                terminal.set_osc52_read_enabled(osc52_read);
+                terminal.set_cursor_defaults(cursor_style, cursor_blink);
+                terminal.set_scrollback_limit(scrollback_limit);
+            }
+        }
+    }
+
     /// WP2 restore-on-launch (sub-ODPs 8a/8b/8f). Called once at startup, and
     /// only when this is the primary instance, the launch was a bare `odytty`,
     /// and `restore_workspaces` is on. Rebuilds the saved shape; on a stale
@@ -4345,6 +4359,14 @@ impl App {
                 );
             }
         }
+        // Seed the restored sessions with the current theme palette / cursor
+        // defaults / scrollback cap. Restore spawns terminals inside the session
+        // arena without routing them through `initialize_session_with`, so
+        // without this they would render menus, overlays and terminal content in
+        // the `DynamicColors::default()` palette instead of the theme's — a
+        // per-workspace presentation divergence in one window. Idempotent for the
+        // launch session on the no-restore arms.
+        self.apply_model_state_to_all_sessions();
         // Establish the post-restore fingerprint baseline so the restored shape
         // does not itself trigger an immediate redundant autosave.
         self.autosave_fingerprint = Some(self.sessions.structural_fingerprint());
