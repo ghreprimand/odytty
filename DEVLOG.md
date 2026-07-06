@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Transparency composes with a background image
+
+Window transparency now shows through a configured background image. The
+wallpaper is drawn first, over the scene clear and behind every cell quad, and
+it previously emitted a fully opaque fragment (`alpha = 1.0`). With a
+translucent window that opaque wallpaper resealed the transparent clear, so the
+desktop never showed through wherever the image painted — transparency appeared
+to do nothing unless the image was removed.
+
+The wallpaper fragment now carries the window background alpha through the image
+uniform's third slot and outputs it as its alpha. Blended over the transparent
+clear, the quad resolves to a correct premultiplied `(colour*alpha, alpha)`,
+matching the premultiplied framebuffer every other background layer already
+targets — so a translucent window composes the wallpaper over the desktop
+instead of the image sealing the hole. At full opacity (`window_alpha == 1.0`,
+the default and the whole opaque path) the output is byte-identical to before:
+the alpha resolves to `1.0` and the command stream is unchanged, because the
+live alpha is only re-uploaded when it actually changes. Text, cursor,
+selection, and overlays stay fully opaque — the readability boundary is
+unchanged, and the CRT/bloom post path is untouched. Windows composes the same
+shader path through DWM; the fix is platform-agnostic. `cargo test`, `cargo
+clippy --all-targets --locked -D warnings`, and `cargo fmt --check` are green.
+
+---
+
 ## 2026-07-06 -- Connection form: IdentityFile field advertises its key browser
 
 The IdentityFile field in the Add/Edit connection form opens a `~/.ssh` key
@@ -20,6 +45,8 @@ render-only: the field model stays an empty string and the hint never
 round-trips into a saved host. Any typed character or a picked path replaces it
 immediately. The text is platform-neutral UI copy with no Windows-specific
 surface.
+
+---
 
 ## 2026-07-05 -- Window transparency: translucent background, opaque text
 

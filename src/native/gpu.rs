@@ -1451,6 +1451,14 @@ impl GpuState {
     /// cheap store — geometry is rebuilt from it on the next update.
     pub(super) fn set_window_bg_alpha(&mut self, alpha: f32) {
         self.window_bg_alpha = alpha.clamp(0.0, 1.0);
+        // TRANSPARENCY: the wallpaper pass is a separate GPU layer, so the
+        // window alpha must reach its uniform too — otherwise the image draws
+        // fully opaque over the transparent clear and no desktop shows through.
+        // `set_window_alpha` is a no-op when the value is unchanged, so the
+        // opaque path issues no extra GPU write (command stream unchanged).
+        if let Some(bg) = self.bg_image.as_mut() {
+            bg.set_window_alpha(&self.queue, self.window_bg_alpha);
+        }
     }
 
     /// TRANSPARENCY: whether the configured swapchain can present a transparent
@@ -1729,6 +1737,13 @@ impl GpuState {
             );
         } else if let Some(bg) = self.bg_image.as_mut() {
             bg.refresh_scrim(&self.queue, &theme, cell_bg_opacity, scrim_override);
+        }
+        // TRANSPARENCY: a freshly-loaded image starts opaque, so re-seed the
+        // live window alpha (a no-op when already opaque) — the wallpaper must
+        // pick up an in-effect translucent window on load, not only on the next
+        // opacity change.
+        if let Some(bg) = self.bg_image.as_mut() {
+            bg.set_window_alpha(&self.queue, self.window_bg_alpha);
         }
     }
 

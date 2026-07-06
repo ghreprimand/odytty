@@ -56,12 +56,26 @@ pub(in crate::native) struct BgImageGpu {
     l_treat_min: f32,
     /// Explicit scrim override (`None` ⇒ auto-compute the floor-safe scrim).
     scrim_override: Option<f32>,
+    /// TRANSPARENCY: the window background alpha the wallpaper quad is drawn at.
+    /// `1.0` (the default and the opaque path) reproduces the pre-transparency
+    /// output exactly; while the window is translucent this rides the uniform's
+    /// third slot so the image scales to the window opacity instead of
+    /// repainting the transparent scene clear opaque.
+    window_alpha: f32,
 }
 
 impl BgImageGpu {
     /// The `(path, blur_radius)` this texture was decoded from.
     pub(in crate::native) fn source(&self) -> (&Path, u32) {
         (self.source.0.as_path(), self.source.1)
+    }
+
+    /// TRANSPARENCY: the window background alpha the wallpaper quad is currently
+    /// drawn at (test accessor; the live value is set by
+    /// [`Self::set_window_alpha`]).
+    #[cfg(test)]
+    pub(in crate::native) fn window_alpha(&self) -> f32 {
+        self.window_alpha
     }
 
     /// Load + blur + scan an image and build the GPU pipeline/texture/uniform.
@@ -198,6 +212,9 @@ impl BgImageGpu {
             theme,
             cell_bg_opacity,
             scrim_override,
+            // Seeded opaque; GpuState re-seeds the live window alpha right after
+            // load (set_background_image) so a translucent window takes effect.
+            1.0,
         );
         let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("odytty-bg-image-uniform"),
@@ -239,6 +256,7 @@ impl BgImageGpu {
             l_treat_max,
             l_treat_min,
             scrim_override,
+            window_alpha: 1.0,
         })
     }
 
@@ -259,8 +277,28 @@ impl BgImageGpu {
             theme,
             cell_bg_opacity,
             scrim_override,
+            self.window_alpha,
         );
         queue.write_buffer(&self.uniform_buf, 0, bytemuck::cast_slice(&uniform));
+    }
+
+    /// TRANSPARENCY: set the window background alpha the wallpaper quad is drawn
+    /// at. `1.0` restores the fully-opaque wallpaper (byte-identical to the
+    /// pre-transparency output); a value below `1.0` scales the image so the
+    /// desktop shows through it instead of the wallpaper repainting the
+    /// transparent scene clear opaque. Only the uniform's third slot changes, so
+    /// the scrim result is untouched — a targeted one-`f32` buffer write, and a
+    /// no-op (no GPU write at all) when the value is unchanged, which keeps the
+    /// opaque path's command stream identical to today.
+    pub(in crate::native) fn set_window_alpha(&mut self, queue: &wgpu::Queue, alpha: f32) {
+        let alpha = alpha.clamp(0.0, 1.0);
+        if (alpha - self.window_alpha).abs() <= f32::EPSILON {
+            return;
+        }
+        self.window_alpha = alpha;
+        // Overwrite ONLY `window_alpha` (index 2) of the `[f32; 4]` uniform —
+        // byte offset 8, one f32 — leaving the scrim slots intact.
+        queue.write_buffer(&self.uniform_buf, 8, bytemuck::bytes_of(&alpha));
     }
 
     /// Recompute the scrim on a theme change (T10), reusing the stored explicit
@@ -306,14 +344,18 @@ impl BgImageGpu {
     }
 }
 
-/// Build the scrim uniform `[scrim_alpha, scrim_is_white, pad, pad]` for the
-/// active theme. Pure: drives both the initial upload and every refresh.
+/// Build the scrim uniform `[scrim_alpha, scrim_is_white, window_alpha, pad]`
+/// for the active theme. Pure: drives both the initial upload and every
+/// refresh. `window_alpha` rides the third slot (TRANSPARENCY) so the wallpaper
+/// fragment scales to the window opacity; `1.0` is the opaque, byte-identical
+/// value.
 fn scrim_uniform(
     l_treat_max: f32,
     l_treat_min: f32,
     theme: &Theme,
     cell_bg_opacity: f32,
     scrim_override: Option<f32>,
+    window_alpha: f32,
 ) -> [f32; 4] {
     let (alpha, is_white) = compute_scrim(
         l_treat_max,
@@ -322,7 +364,7 @@ fn scrim_uniform(
         cell_bg_opacity,
         scrim_override,
     );
-    [alpha, if is_white { 1.0 } else { 0.0 }, 0.0, 0.0]
+    [alpha, if is_white { 1.0 } else { 0.0 }, window_alpha, 0.0]
 }
 
 /// Compute `(scrim_alpha, scrim_is_white)` for the active theme.
@@ -571,6 +613,31 @@ mod tests {
     }
 
     #[test]
+    fn scrim_uniform_carries_window_alpha() {
+        // TRANSPARENCY: the wallpaper fragment reads the window alpha from the
+        // uniform's third slot. Opaque path (window_alpha == 1.0) is
+        // byte-identical to the pre-transparency output; while translucent the
+        // slot holds the window alpha so the image scales with the opacity
+        // instead of repainting the transparent scene clear opaque.
+        let opaque = scrim_uniform(0.0, 0.0, &dark_theme(), 1.0, None, 1.0);
+        assert_eq!(opaque[2], 1.0, "opaque wallpaper must draw at alpha 1.0");
+        let translucent = scrim_uniform(0.0, 0.0, &dark_theme(), 1.0, None, 0.85);
+        assert!(
+            (translucent[2] - 0.85).abs() < 1e-6,
+            "translucent wallpaper draw alpha must equal the window alpha"
+        );
+        // The scrim slots are independent of the window alpha.
+        assert_eq!(
+            opaque[0], translucent[0],
+            "scrim alpha unchanged by window alpha"
+        );
+        assert_eq!(
+            opaque[1], translucent[1],
+            "scrim polarity unchanged by window alpha"
+        );
+    }
+
+    #[test]
     fn box_blur_is_noop_at_zero_radius() {
         let mut a = vec![10, 20, 30, 255, 40, 50, 60, 255];
         let before = a.clone();
@@ -719,5 +786,47 @@ mod tests {
             draw_into(&device, &queue, &bg, surface_format).is_none(),
             "round-trip back to the surface format must draw cleanly"
         );
+    }
+
+    /// TRANSPARENCY: `set_window_alpha` stores the live window alpha, re-uploads
+    /// the uniform slot without panicking, and is a no-op when unchanged. A
+    /// freshly-loaded image starts opaque (`1.0`) so the opaque path is
+    /// byte-identical until GpuState seeds a translucent value.
+    #[test]
+    fn set_window_alpha_stores_and_reuploads() {
+        let Some((device, queue)) = test_device() else {
+            eprintln!("skipping: no usable GPU adapter");
+            return;
+        };
+        let path = std::path::Path::new(crate::settings::BUNDLED_BACKGROUND_SENTINEL);
+        let mut bg = BgImageGpu::load(
+            &device,
+            &queue,
+            wgpu::TextureFormat::Bgra8UnormSrgb,
+            path,
+            0,
+            None,
+            &dark_theme(),
+            1.0,
+        )
+        .expect("bundled background must load");
+        assert_eq!(bg.window_alpha(), 1.0, "a fresh image starts fully opaque");
+
+        bg.set_window_alpha(&queue, 0.5);
+        assert!(
+            (bg.window_alpha() - 0.5).abs() < 1e-6,
+            "window alpha must store"
+        );
+        // Out-of-range is clamped.
+        bg.set_window_alpha(&queue, 2.0);
+        assert_eq!(bg.window_alpha(), 1.0, "window alpha clamps to [0, 1]");
+        // A theme refresh preserves the live window alpha (rides the same slot).
+        bg.set_window_alpha(&queue, 0.7);
+        bg.refresh_for_theme(&queue, &light_theme(), 0.5);
+        assert!(
+            (bg.window_alpha() - 0.7).abs() < 1e-6,
+            "a scrim refresh must preserve the window alpha"
+        );
+        device.poll(wgpu::PollType::wait_indefinitely()).ok();
     }
 }

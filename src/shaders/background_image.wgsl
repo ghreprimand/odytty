@@ -9,16 +9,22 @@
 // `color::readability_scrim_for`).
 //
 // The fullscreen quad is hardcoded from `@builtin(vertex_index)`; no vertex
-// buffer is bound. The fragment outputs fully opaque (`alpha = 1.0`) — the
-// image fully replaces the clear colour in the window region, and the cell
-// layer above provides the see-through via `cell_bg_opacity`.
+// buffer is bound. The fragment outputs the window background alpha (`1.0`
+// when opaque — byte-identical to the pre-transparency output; `window_alpha`
+// while the window is translucent, so the desktop shows through the wallpaper
+// instead of the image repainting the transparent clear opaque). The cell
+// layer above provides the behind-text see-through via `cell_bg_opacity`.
 
 struct BgImageUniform {
     // Scrim overlay strength in [0, 1]. 0.0 = image shown unscrimmed.
     scrim_alpha: f32,
     // > 0.5 selects a white scrim (light themes); otherwise a black scrim.
     scrim_is_white: f32,
-    _pad0: f32,
+    // TRANSPARENCY: window background alpha in [0, 1]. `1.0` (the default and
+    // the opaque path) is byte-identical to the pre-transparency output. While
+    // the window is translucent this scales the wallpaper quad so the desktop
+    // shows through it rather than the image repainting the transparent clear.
+    window_alpha: f32,
     _pad1: f32,
 };
 
@@ -57,5 +63,8 @@ fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
     let img = textureSample(bg_tex, bg_sampler, input.uv);
     let scrim_col = select(vec3<f32>(0.0), vec3<f32>(1.0), u.scrim_is_white > 0.5);
     let scrimmed = mix(img.rgb, scrim_col, u.scrim_alpha);
-    return vec4<f32>(scrimmed, 1.0);
+    // ALPHA_BLENDING over the scene clear (transparent while translucent)
+    // premultiplies this to `(scrimmed·window_alpha, window_alpha)`, matching
+    // the PreMultiplied surface composite the cell background layer targets.
+    return vec4<f32>(scrimmed, u.window_alpha);
 }

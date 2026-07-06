@@ -851,6 +851,10 @@ offers no alpha compositing the toggle simply has no visible effect. While a
 menu, picker, or the settings panel is open the whole window renders opaque so
 the panel and the content behind it stay readable.
 
+A configured background image is part of that background: with transparency
+on it becomes translucent too and composes over the desktop, rather than
+sealing the window opaque where the image draws.
+
 See:
 
 - [`docs/runtime-knobs.md`](docs/runtime-knobs.md) for every config key,
