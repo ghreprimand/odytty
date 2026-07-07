@@ -347,6 +347,25 @@ pub(super) fn write_paste_text(
     write_chunks_blocking(writer, &chunks)
 }
 
+/// Encode a self-generated token for VERBATIM injection into the shell, never
+/// wrapped in bracketed-paste (DEC 2004) markers regardless of the pane's paste
+/// mode. Used for the uploaded-image remote path (`/tmp/odytty-paste-<hex>.png`):
+/// it is newline-free and shell-metacharacter-free, so bracketed framing adds no
+/// safety, and a stale or desynced 2004 state on a restored/reconnected remote
+/// pane would otherwise make the markers echo literally around the path.
+pub(super) fn encode_verbatim_paste(text: &str) -> Vec<Vec<u8>> {
+    encode_paste_chunks(text, false, PASTE_CHUNK_SIZE)
+}
+
+/// Write `text` to the pane verbatim (unbracketed), independent of the pane's
+/// bracketed-paste mode. See [`encode_verbatim_paste`].
+// Sole caller is the image-upload completion (`image_paste::run_upload`), which
+// is behind `cfg(not(test))`, so this reads as dead code in the lib-test build.
+#[cfg_attr(test, allow(dead_code))]
+pub(super) fn write_text_unbracketed(writer: &PtyWriter, text: &str) -> std::io::Result<()> {
+    write_chunks_blocking(writer, &encode_verbatim_paste(text))
+}
+
 pub(super) fn encode_paste_chunks(
     text: &str,
     bracketed_paste: bool,
@@ -415,6 +434,39 @@ fn normalize_plain_paste(text: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn contains_marker(bytes: &[u8], marker: &[u8]) -> bool {
+        bytes.windows(marker.len()).any(|window| window == marker)
+    }
+
+    #[test]
+    fn uploaded_image_path_paste_is_never_bracketed() {
+        // The image-upload completion injects the remote path via
+        // `encode_verbatim_paste`, which must NEVER wrap it in DEC 2004
+        // bracketed-paste markers -- even when the pane reports bracketed paste
+        // on -- because a stale or desynced 2004 state on a restored remote pane
+        // makes the markers echo literally around the path (the reported garble).
+        let path = "/tmp/odytty-paste-0123456789abcdef0123456789abcdef.png";
+        let verbatim = flatten_chunks(&encode_verbatim_paste(path));
+        assert!(
+            !contains_marker(&verbatim, BRACKETED_PASTE_START),
+            "verbatim paste must not contain the bracketed-paste start marker"
+        );
+        assert!(
+            !contains_marker(&verbatim, BRACKETED_PASTE_END),
+            "verbatim paste must not contain the bracketed-paste end marker"
+        );
+        // The exact path bytes are injected unchanged: no framing, no newline,
+        // so nothing is executed.
+        assert_eq!(verbatim, path.as_bytes());
+
+        // Contrast: the flag-respecting encoder DOES frame the same path when a
+        // pane reports bracketed paste on. This guards against a regression that
+        // routes the upload path back through the conditional encoder.
+        let flagged = flatten_chunks(&encode_paste_chunks(path, true, PASTE_CHUNK_SIZE));
+        assert!(contains_marker(&flagged, BRACKETED_PASTE_START));
+        assert!(contains_marker(&flagged, BRACKETED_PASTE_END));
+    }
 
     #[derive(Default)]
     struct MockClipboard {

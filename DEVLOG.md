@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-07 -- Uploaded image paths inject verbatim, never bracketed
+
+Pasting a clipboard image into an integrated remote tab uploads the PNG over
+the existing ssh transport, then injects the resulting remote path
+(`/tmp/odytty-paste-<hex>.png`) into the shell so it can be used as an argument.
+That injection reused the general paste encoder, which wraps its payload in
+bracketed-paste (DEC 2004) markers whenever the pane model reports the mode as
+on. On a restored or reconnected remote pane the model's 2004 state can disagree
+with the fresh remote readline's actual mode, so the markers echoed literally:
+the path rendered as `^[[200~/tmp/...png~` and failed when the line was run.
+
+The uploaded path is self-generated -- a single token with no newline and no
+shell metacharacters -- so bracketed-paste framing protects against nothing and
+is pure downside. The completion now injects it verbatim (unbracketed)
+regardless of the pane's paste mode, through a dedicated encode path that never
+emits the 2004 markers. Interactive clipboard paste is unchanged: it still
+honors the pane's bracketed-paste mode, which is the correct behavior for
+arbitrary pasted content.
+
+State: full suite green. The encode decision is covered by a headless test that
+asserts the uploaded-path encoding carries no bracketed markers even when the
+pane reports the mode on, contrasted against the flag-respecting encoder which
+does frame the same path. Platform-agnostic -- the paste write and the upload
+transport are identical across platforms.
+
+---
+
 ## 2026-07-07 -- Reconnect no longer carries stale input modes into the fresh shell
 
 Reconnecting a dropped remote session reuses the existing terminal model so

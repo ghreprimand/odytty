@@ -7,7 +7,7 @@
 //! system `ssh` binary — the same credential-delegating transport as the connect
 //! path, never an embedded ssh — streaming the bytes into a remote `cat` that
 //! creates the file `0600` under an unguessable `/tmp` name. On success the
-//! remote path is pasted into the shell (a text paste of the path, nothing is
+//! remote path is injected into the shell verbatim (unbracketed, nothing is
 //! executed); on failure a one-line notice is written into the pane. Either way
 //! a redraw is woken so the result renders.
 
@@ -15,7 +15,7 @@ use std::process::{Command, Stdio};
 
 use super::super::pty::UserEvent;
 use super::super::session::RemoteUploadJob;
-use crate::native::clipboard::write_paste_text;
+use crate::native::clipboard::write_text_unbracketed;
 use crate::native::lock_recover;
 
 /// Hand a confirmed image paste to a background upload worker. Fire-and-forget:
@@ -30,10 +30,14 @@ fn run_upload(job: RemoteUploadJob, png: Vec<u8>) {
     let remote_path = crate::ssh_connect::remote_upload_target();
     match perform_upload(&job, &png, &remote_path) {
         Ok(()) => {
-            // Record the path for best-effort cleanup on tab close, then paste it
-            // into the shell exactly like a text paste (no execution).
+            // Record the path for best-effort cleanup on tab close, then inject
+            // it into the shell verbatim -- unbracketed regardless of the pane's
+            // paste mode. A stale DEC 2004 state on a restored/reconnected remote
+            // pane would otherwise echo the bracketed-paste markers literally
+            // around the path; the path is a self-generated, newline-free token,
+            // so nothing executes.
             lock_recover(&job.uploaded).push(remote_path.clone());
-            let _ = write_paste_text(&job.terminal, &job.writer, &remote_path);
+            let _ = write_text_unbracketed(&job.writer, &remote_path);
         }
         Err(reason) => {
             let banner = format!("\r\n\x1b[1;31m image upload failed \x1b[0m {reason}\r\n");
