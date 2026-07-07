@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-07 -- Smooth scroll eases the real notch distance
+
+With `smooth_scroll` enabled, the eased glide previously captured a fixed
+single cell-height regardless of how far a wheel notch actually moved the
+viewport. Since a notch jumps `scroll_wheel_lines` rows (three by default,
+often more), the viewport hard-jumped the full distance while only one row
+eased in — a large step with a one-row tail, and raising the line count made it
+look worse rather than smoother.
+
+The glide now tracks the actual step distance (`delta * cell_h`), clamped to a
+two-cell ceiling (`SMOOTH_SCROLL_MAX_CELLS`) so a rapid flurry of notches still
+cannot stack a large, laggy catch-up offset — the protection the old one-cell
+cap provided, kept without throwing the distance away. The 80 ms ease-out, the
+snap-by-default contract, and the drag-autoscroll exclusion are unchanged, and
+the default stays off with the off path byte-identical. The magnitude is
+computed by a small pure helper so it is unit-tested without GPU cell metrics.
+
+---
+
 ## 2026-07-07 -- Release v0.8.0 — Workspaces, layout persistence, seamless remote terminals, transparency
 
 This release groups the workspace layer, an opt-in persistence track, the remote

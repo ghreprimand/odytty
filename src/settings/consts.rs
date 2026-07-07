@@ -535,6 +535,13 @@ pub const DEFAULT_SMOOTH_SCROLL: bool = false;
 /// for now; a future tuning knob can expose it once a measured baseline exists.
 pub const SMOOTH_SCROLL_DURATION: Duration = Duration::from_millis(80);
 
+/// Ceiling on the RV4 smooth-scroll glide magnitude, in cell-heights. The
+/// ease tracks the actual wheel-notch distance (`scroll_wheel_lines` rows per
+/// notch) so a larger step glides proportionally instead of hard-jumping with
+/// only a one-row tail, but the displacement is clamped to this many cells so
+/// a rapid flurry of notches can never stack a large, laggy catch-up offset.
+pub const SMOOTH_SCROLL_MAX_CELLS: f32 = 2.0;
+
 /// Frame cadence for the RV4 smooth-scroll animation (~60 fps). Each in-flight
 /// scroll schedules at most a handful of wakes before settling.
 pub const SMOOTH_SCROLL_FRAME: Duration = Duration::from_millis(16);

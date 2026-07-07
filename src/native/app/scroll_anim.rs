@@ -34,6 +34,20 @@ fn ease_out_cubic(p: f32) -> f32 {
     1.0 - inv * inv * inv
 }
 
+/// Initial glide displacement (pixels) for a smooth-scroll of `delta` rows at
+/// the current cell height. The magnitude tracks the actual notch distance
+/// (`delta * cell_h`) so a larger wheel step eases proportionally, clamped to
+/// `±(max_cells * cell_h)` so a rapid flurry can never stack a large laggy
+/// offset (the T3 concern the old one-cell cap was protecting). Sign
+/// convention: `delta > 0` (scroll-up, older content entering from above)
+/// yields a positive displacement — the viewport starts shifted DOWN and
+/// eases up to rest. Pure and GPU-free so the magnitude is unit-testable
+/// without cell metrics.
+fn scroll_anim_from_px(delta: isize, cell_h: f32, max_cells: f32) -> f32 {
+    let ceiling = max_cells * cell_h;
+    (delta as f32 * cell_h).clamp(-ceiling, ceiling)
+}
+
 /// Active eased scrollback glide (RV4). Records the start instant and the full
 /// sub-row pixel displacement at `t = 0`, which decays to `0.0` over
 /// [`crate::settings::SMOOTH_SCROLL_DURATION`].
@@ -47,12 +61,13 @@ pub(in crate::native) struct ScrollAnimState {
 
 impl App {
     /// Begin (or replace) a smooth-scroll glide for a user scroll of `delta`
-    /// rows. Captures a one-cell-height displacement in the direction the
-    /// content came from, decaying to zero — the magnitude is always one cell
-    /// (a catch-up ease), never proportional to `delta`, so a fast/large scroll
-    /// never stacks offset (T3). A new scroll always REPLACES the prior glide.
-    /// Only reached from the `scroll_viewport` trigger when `smooth_scroll` is on
-    /// and the change is user-initiated (not a drag-autoscroll).
+    /// rows. Captures a displacement in the direction the content came from,
+    /// decaying to zero — the magnitude tracks the actual notch distance
+    /// (`delta` rows), clamped to `SMOOTH_SCROLL_MAX_CELLS` cells so a
+    /// fast/large scroll eases proportionally without ever stacking a big laggy
+    /// offset (T3). A new scroll always REPLACES the prior glide. Only reached
+    /// from the `scroll_viewport` trigger when `smooth_scroll` is on and the
+    /// change is user-initiated (not a drag-autoscroll).
     #[cfg(test)]
     pub(super) fn begin_scroll_anim(&mut self, delta: isize) {
         self.begin_scroll_anim_of(self.sessions.active_id(), delta);
@@ -70,9 +85,10 @@ impl App {
             return;
         }
         // scroll-up (delta > 0, viewing older content) → content enters from
-        // above → start shifted DOWN (positive) and ease up to rest.
-        let sign = if delta > 0 { 1.0 } else { -1.0 };
-        let from_px = sign * cell_h;
+        // above → start shifted DOWN (positive) and ease up to rest. The glide
+        // tracks the actual notch distance, clamped so a rapid flurry can never
+        // stack a large laggy offset (T3).
+        let from_px = scroll_anim_from_px(delta, cell_h, crate::settings::SMOOTH_SCROLL_MAX_CELLS);
         session.scroll_anim = Some(ScrollAnimState {
             start: Instant::now(),
             from_px,
@@ -172,6 +188,29 @@ mod tests {
             assert!(v > prev, "ease must increase: {v} <= {prev}");
             prev = v;
         }
+    }
+
+    // --- pure glide magnitude (no App / no GPU) ------------------------------
+
+    #[test]
+    fn scroll_anim_magnitude_tracks_delta_clamped() {
+        let cell = 16.0_f32;
+        // One notch of one row eases exactly one cell (unchanged small-step feel).
+        assert_eq!(scroll_anim_from_px(1, cell, 2.0), cell);
+        // A step under the ceiling passes through proportionally (3 rows, ceiling 4).
+        assert_eq!(scroll_anim_from_px(3, cell, 4.0), 3.0 * cell);
+        // A large step clamps to the ceiling: 6 rows at the shipped cap eases at
+        // most SMOOTH_SCROLL_MAX_CELLS cells, not 6 — the old fixed one-cell cap
+        // threw the distance away; this keeps the flurry protection without it.
+        assert_eq!(
+            scroll_anim_from_px(6, cell, crate::settings::SMOOTH_SCROLL_MAX_CELLS),
+            crate::settings::SMOOTH_SCROLL_MAX_CELLS * cell
+        );
+        // Sign is preserved and the negative side clamps symmetrically.
+        assert_eq!(scroll_anim_from_px(-1, cell, 2.0), -cell);
+        assert_eq!(scroll_anim_from_px(-6, cell, 2.0), -2.0 * cell);
+        // A no-op scroll yields no displacement.
+        assert_eq!(scroll_anim_from_px(0, cell, 2.0), 0.0);
     }
 
     fn build_app() -> Option<App> {
