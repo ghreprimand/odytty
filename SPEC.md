@@ -781,11 +781,15 @@ its first stable layer.
 - Close confirmation (`confirm_close`, default on): shows a brief in-window
   prompt before closing if a foreground program is still running. An idle shell
   closes without prompting. Off disables the guard unconditionally.
-- Smooth scrolling (`smooth_scroll`, off by default): viewport scroll movement
-  eases over a short bounded window instead of jumping to the target instantly.
-  The scroll target updates immediately — no input lag — and only the visual
-  presentation catches up over the fixed ~80 ms easing window. Off is
-  pixel-identical to the instant-snap path.
+- Pixel-precise scrolling (`pixel_scroll`, on by default): high-resolution
+  wheels and touchpads that emit pixel deltas scroll the viewport by a
+  continuous sub-row amount tracking physical finger travel 1:1, instead of
+  quantizing to whole notches. Continuous pixel input is tracked directly rather
+  than eased, avoiding sawtoothing on high-resolution devices. `scroll_pixel_speed`
+  (default `1.0`, range `0.25..=4.0`) tunes the sensitivity. Classic detented
+  wheels emit line deltas and are unaffected, keeping `scroll_wheel_lines` as the
+  per-notch multiplier. Single-pane only for now; in a split, pixel input falls
+  back to the notch path.
 - Font weight control (`font_weight`, empty = regular by default): selects a
   named base weight face (e.g. `Light`, `Medium`, `SemiBold`) for normal text,
   independently of the SGR bold attribute; bold SGR still contrasts against your

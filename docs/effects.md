@@ -348,39 +348,46 @@ window_opacity = 85
 
 ---
 
-## Smooth scrolling
+## Pixel-precise scrolling
 
-`smooth_scroll = on` eases viewport scroll movement over a short bounded window
-(default 80 ms ease-out-cubic) so scrollback navigation feels fluid rather than
-abrupt.
+High-resolution wheels and touchpads emit pixel-precise deltas that report
+physical finger travel. With `pixel_scroll = on` (the default), that input
+scrolls the viewport by a continuous sub-row amount tracking travel 1:1, instead
+of quantizing to whole notches. Continuous pixel input is tracked directly
+rather than eased, which avoids the sawtoothing an easing catch-up produces on
+high-resolution devices.
 
-The scroll target updates immediately on every wheel tick or keyboard scroll —
-there is no input lag. Only the visual presentation catches up over the easing
-window. If you scroll faster than the window can settle, the animation always
-tracks the most recent target.
-
-Smooth scrolling is off by default; `off` preserves the instant-snap behavior
-and is pixel-identical to the pre-feature renderer.
+Classic detented wheels emit line deltas and are unaffected — they keep using
+`scroll_wheel_lines` as the per-notch multiplier. Pixel-precise scrolling is
+single-pane only for now; inside a split, pixel input falls back to the notch
+path.
 
 ### Settings
 
-| Setting | Env | Type | Default |
-|---------|-----|------|---------|
-| `smooth_scroll` | `ODYTTY_SMOOTH_SCROLL` | `on` / `off` | `off` |
+| Setting | Env | Type | Default | Range |
+|---------|-----|------|---------|-------|
+| `pixel_scroll` | `ODYTTY_PIXEL_SCROLL` | `on` / `off` | `on` | — |
+| `scroll_pixel_speed` | `ODYTTY_SCROLL_PIXEL_SPEED` | float | `1.0` | `0.25–4.0` |
 
-**`smooth_scroll`** — master switch. `on` enables eased movement; `off`
-(default) is instant and pixel-identical to the pre-feature renderer.
+**`pixel_scroll`** — master switch for the continuous lane. `on` (default)
+tracks pixel-precise devices 1:1; `off` routes them through the same discrete
+notch path as detented wheels.
 
-### Enabling via odytty.conf
+**`scroll_pixel_speed`** — sensitivity multiplier for the continuous lane. `1.0`
+tracks finger travel exactly; higher scrolls faster than the finger, lower
+slower. Applies only to pixel-precise input.
+
+### Configuring via odytty.conf
 
 ```
-smooth_scroll = on
+pixel_scroll = on
+scroll_pixel_speed = 1.0
 ```
 
-### Enabling via environment
+### Configuring via environment
 
 ```sh
-ODYTTY_SMOOTH_SCROLL=on cargo run --release
+ODYTTY_SCROLL_PIXEL_SPEED=1.5 cargo run --release
 ```
 
 ---

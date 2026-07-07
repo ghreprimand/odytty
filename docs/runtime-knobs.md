@@ -419,7 +419,8 @@ environment variable was not set at startup.
 | `scroll_wheel_lines` | `ODYTTY_SCROLL_WHEEL_LINES` | Float, `1.0..=10.0` lines | `3.0` |
 | `scrollback_lines` | `ODYTTY_SCROLLBACK_LINES` | Integer lines, `0..=1000000` (`0` = unlimited) | `10000` |
 | `scroll_drag_speed` | `ODYTTY_SCROLL_DRAG_SPEED` | `ramp`, `legacy` | `ramp` |
-| `smooth_scroll` | `ODYTTY_SMOOTH_SCROLL` | `on`, `off` | `off` |
+| `pixel_scroll` | `ODYTTY_PIXEL_SCROLL` | `on`, `off` | `on` |
+| `scroll_pixel_speed` | `ODYTTY_SCROLL_PIXEL_SPEED` | Float, `0.25..=4.0` | `1.0` |
 | `selection_drag_extend` | `ODYTTY_SELECTION_DRAG_EXTEND` | `on`, `off` | `on` |
 | `scrollbar_drag` | `ODYTTY_SCROLLBAR_DRAG` | `on`, `off` | `on` |
 | `wheel_zoom` | `ODYTTY_WHEEL_ZOOM` | `on`, `off` | `on` |
@@ -494,8 +495,19 @@ environment variable was not set at startup.
   `U+25CF`, stay on the monochrome fallback path. If the color face does not
   cover a color-routed codepoint, OdyTTY emits no color run and falls through to
   the same monochrome coverage/symbol fallback renderer.
-- `smooth_scroll` uses a fixed bounded ease of 80 ms. There is no current
-  `smooth_scroll_duration` config key.
+- `pixel_scroll` (default on) governs high-resolution, pixel-precise input —
+  touchpads and hi-res wheels that emit pixel deltas. Such input scrolls the
+  viewport by a continuous sub-row amount that tracks physical finger travel
+  1:1, rather than quantizing to whole notches. Continuous pixel input is
+  tracked directly instead of eased, which avoids the sawtoothing that an
+  easing catch-up produces on high-resolution devices. Classic detented wheels
+  emit line deltas and are unaffected — they continue to use `scroll_wheel_lines`
+  as the per-notch multiplier. Pixel-precise scrolling is single-pane only for
+  now; inside a split, pixel input falls back to the notch path.
+- `scroll_pixel_speed` (default `1.0`, range `0.25..=4.0`) is the sensitivity
+  multiplier for the continuous pixel lane. `1.0` tracks finger travel exactly;
+  higher scrolls faster than the finger, lower slower. It applies only to
+  pixel-precise input, never to detented wheels.
 - `cursor_blink = auto` currently resolves to the conventional blinking
   terminal default on Linux.
 - `background_treatment = image` draws a PNG, JPEG, or WebP behind the grid. Use
