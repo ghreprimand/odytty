@@ -513,10 +513,20 @@ Sessions section of Settings, or `ODYTTY_RESTORE_WORKSPACES`), launching
 `odytty` with no arguments reopens the previous window shape — its workspaces,
 tabs, and pane splits, each pane at its recorded working directory. Any
 command-line argument suppresses restore, and only the primary instance
-restores. The saved snapshot records **structure only** — never terminal
-output, scrollback, environment, or the commands that were running — so a
-restored pane is always a fresh shell at its directory, never a replayed
-session. A session can be saved as a **named layout**. A layout captures the
+restores: a second window launched while the first is running keeps the lock
+owner in charge and shows a one-line notice ("Another OdyTTY window owns
+session restore — this window won't restore or autosave workspaces"), so it
+never fights over the saved state. The saved snapshot records **structure
+only** — never terminal output, scrollback, environment, or the commands that
+were running — so a restored pane is always a fresh shell at its directory,
+never a replayed session. A pane that was connected to a remote host is
+restored by reconnecting to that host through the same `ssh` path, landing a
+fresh remote login shell at the host's own default directory (the recorded
+remote directory is not re-entered in this version, and nothing that was
+running is re-run). A host that no longer resolves opens a local shell instead;
+a local pane whose recorded directory has vanished or denies access retries at
+your home directory rather than aborting the restore. Snapshots saved before
+remote restore existed reopen those panes as local shells. A session can be saved as a **named layout**. A layout captures the
 **whole application** — every workspace, with its tabs, splits, working
 directories, and host bindings — via **Save as Layout…** on the content-grid
 right-click menu, a workspace rail slot's right-click menu, the empty rail
@@ -750,9 +760,18 @@ the last tab closes so a quick reconnect skips re-authentication;
 same remote session. When a remote connection drops, the tab is held open with
 a reconnect prompt — **Enter** reconnects in place, **Esc** or **Ctrl+D**
 closes the tab. Pasting a clipboard image into an integrated remote tab offers
-a confirm-first upload (`remote_image_paste`, `ask` by default): on confirm the
-image is streamed to a private temp file on the remote and its path is pasted
-as text — nothing runs remotely. Each knob has a per-host override in
+a confirm-first upload (`remote_image_paste`, `ask` by default). A one-line
+prompt appears in the pane — `upload image <size> to user@host?  Enter: upload
+· Esc: cancel` — and only on **Enter** does the image transfer. It streams over
+the same authenticated `ssh` connection (reusing the ControlMaster socket when
+one is up) into a `0600` file under an unguessable `/tmp` name; nothing runs
+remotely and images above the 10 MiB cap are refused with a notice. On success
+the pane shows `image uploaded <path> · copied to clipboard` and the remote
+path is copied to the local clipboard — it is **not** typed into the shell, so
+an empty prompt never runs a stray path. Paste it (`Ctrl+Shift+V`) wherever you
+want it as a command argument. Uploaded files are cleaned up best-effort when
+the tab closes. This works on reconnected and restored remote tabs too. Each
+knob has a per-host override in
 `hosts.conf` (`Integration`, `Reuse`, `Tmux`). Connection reuse is a
 Unix-client feature; on a Windows client each connection authenticates
 independently through `ssh.exe`.

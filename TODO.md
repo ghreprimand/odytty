@@ -977,22 +977,33 @@ feature validates against.
         plain integrated bash when the remote lacks tmux.
   - [x] i7 image paste-through: pasting a clipboard image into an integrated
         remote tab arms a confirm-first upload (`remote_image_paste`, default
-        `ask`); the image streams to a private temp file on the remote and its
-        path is pasted as text, size-capped, cleaned up best-effort.
+        `ask`); the image streams over the existing `ssh` connection to a `0600`
+        temp file on the remote, then a one-line notice reports the path and
+        copies it to the local clipboard (never typed into the shell),
+        size-capped, cleaned up best-effort. Works on reconnected and restored
+        remote tabs.
   - [x] W5 workspace default host: a workspace can bind a saved host so New Tab
         connects there, with a New Local Tab escape; unbound is byte-identical.
 - [x] Workspace-shape persistence and restore-on-launch: an atomic shape
       snapshot (workspace names, tab order, pane split tree + ratios, per-pane
-      cwd) written to the platform state dir; never grid content, scrollback,
-      or commands.
+      cwd, and the remote host a remote pane was connected to) written to the
+      platform state dir; never grid content, scrollback, or commands.
   - [x] `restore_workspaces` (default off) reopens the previous shape on a bare
         `odytty` launch for the primary instance only; any CLI arg suppresses it;
-        debounced autosave on shape change plus save on clean exit.
+        debounced autosave on shape change plus save on clean exit. A secondary
+        window (lock held by a live primary) shows a one-line notice explaining
+        it will not restore or autosave.
+  - [x] Remote panes reconnect on restore: a pane connected to a remote host
+        respawns through the `ssh` connect path as a fresh remote login shell at
+        the host's default directory; an unresolvable host degrades to a local
+        shell, and pre-remote snapshots reopen those panes locally.
   - [x] Named layouts: Save All Workspaces as Layout (whole-app capture) and
-        Save Workspace as Layout (a single workspace), Open Layout (appends a
-        workspace, never clobbers), and Delete Layout — from the command
-        palette and the workspace-rail / content / empty-tab-strip right-click
-        menus.
+        Save Workspace as Layout (a single workspace), Open Layout, and Delete
+        Layout — from the command palette and the workspace-rail / content /
+        empty-tab-strip right-click menus. Saving over an existing name prompts
+        replace-or-rename; opening a layout onto a populated window prompts
+        Replace / Add / Cancel, while a single pristine default workspace is
+        consumed silently.
   - [x] Unix session-host reattach on restore: an alive per-pane session-host id
         reattaches; a dead one opens a fresh shell silently, with a compact
         "N of M sessions reattached" notice. Windows stores no ids (all fresh).

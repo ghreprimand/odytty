@@ -913,9 +913,11 @@ its first stable layer.
   dropped remote tab is held open with an in-pane reconnect prompt
   (Enter re-establishes in the same tab, Esc/Ctrl+D closes). Pasting a
   clipboard image into an integrated remote tab arms a confirm-first upload
-  (`remote_image_paste`, default `ask`): the image is streamed to a private
-  temp file on the remote and its path pasted as text, with a size cap and
-  best-effort cleanup — nothing is executed remotely. A workspace can be bound
+  (`remote_image_paste`, default `ask`): the image is streamed over the existing
+  `ssh` connection to a `0600` private temp file on the remote, then a one-line
+  notice reports the path and copies it to the local clipboard — the path is not
+  typed into the shell, so no stray command runs. A size cap and best-effort
+  cleanup apply, and reconnected/restored remote tabs support it. A workspace can be bound
   to a saved host so **New Tab** connects there, with a **New Local Tab**
   escape. ControlMaster reuse is compiled out on a Windows client (OpenSSH
   there has no connection multiplexing); integration, tmux, reconnect, image

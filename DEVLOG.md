@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-07 -- Documentation refresh: image paste, layout modes, remote restore
+
+The public documentation was brought level with recently shipped behavior. The
+remote image paste-through flow is now described end-to-end in README, SPEC, and
+the runtime-knobs reference: a confirm prompt, an upload over the existing `ssh`
+connection into a `0600` temp file, and — on success — a one-line notice plus a
+copy of the remote path to the local clipboard, rather than typing the path into
+the shell where a bare path could run on the next Enter. The persistence
+narrative gains remote-pane reconnection on restore (a remote pane respawns
+through the `ssh` connect path as a fresh login shell at the host's default
+directory) and the secondary-instance notice (a window whose peer already owns
+the restore lock explains that it will not restore or autosave). The layout
+open/save prompts — replace-or-rename on a name collision, and Replace / Add /
+Cancel when opening onto a populated window with a pristine default consumed
+silently — are documented across README and the roadmap. Documentation only; no
+code or version changes.
+
+---
+
 ## 2026-07-07 -- Uploaded image path is copied to the clipboard, not typed into the shell
 
 Completing an image paste into an integrated remote tab uploads the PNG and

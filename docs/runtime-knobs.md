@@ -270,9 +270,13 @@ appears in the pane — showing the encoded size and the target host — and not
 is uploaded until **Enter** confirms (**Esc** cancels). On confirmation the image
 is PNG-encoded and streamed over the tab's `ssh` connection (reusing the live
 `ControlMaster` when one is up) into a file created `0600` under an unguessable
-`/tmp/odytty-paste-<random>.png` name; the remote path is then pasted into the
-shell as text, so it can be referenced by a remote command. Nothing is ever run
-remotely — it is a paste of a path, not a command.
+`/tmp/odytty-paste-<random>.png` name. On success a one-line notice —
+`image uploaded <path> · copied to clipboard` — is written into the pane and the
+remote path is copied to the **local clipboard**; the path is **not** typed into
+the shell (a bare path on an empty prompt would run on the next Enter and error).
+Paste it (`Ctrl+Shift+V`) into a command wherever the file is wanted. Nothing is
+ever run remotely — it is an upload plus a clipboard copy, not a command. The
+feature also engages on reconnected and restored remote tabs.
 
 `remote_image_paste = off` (`ODYTTY_REMOTE_IMAGE_PASTE=off`) disables the feature:
 an image paste on a remote tab does nothing. There is deliberately no silent
