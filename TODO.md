@@ -1256,7 +1256,7 @@ feature validates against.
       into the active pane without pressing Enter; selecting actions dispatches
       the local action after the overlay closes.
 - [x] SSH config parser substrate: pure, bounded parser over caller-supplied
-      OpenSSH config bytes/path for the future connection manager. It surfaces
+      OpenSSH config bytes/path for the connection manager. It surfaces
       concrete `Host` aliases plus optional `HostName`/`User`/`Port`, skips
       `Include`, ignores runtime-dependent `Match` blocks until the next `Host`,
       treats wildcard/negated patterns as non-quick-connect entries, and never
