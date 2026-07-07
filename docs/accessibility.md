@@ -127,6 +127,16 @@ the OS dark/light preference automatically. See [`themes.md`](themes.md) for the
 theme format, the in-app Theme Picker (`Ctrl+Shift+H`) and Theme Builder
 (`Ctrl+Shift+B`), and the full built-in library.
 
+## Window transparency and the contrast floor
+
+`window_transparency` (off by default) lets the desktop show through the window
+background, but it is designed to leave legibility untouched: only backgrounds
+and chrome bands scale toward `window_opacity`, while text, cursor, selection,
+and every overlay stay fully opaque. The minimum-contrast floor is computed
+against the terminal's own background color, not the blended desktop behind it,
+so lowering the opacity never lifts foreground text off its readability floor.
+See [`effects.md`](effects.md#window-transparency) for the settings.
+
 ## Privacy
 
 None of these features phone home. OdyTTY has no telemetry, analytics, crash

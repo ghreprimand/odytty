@@ -45,6 +45,18 @@ address or other personal contact is required.
   clipboard, the interactive file-open paths).
 - Detached-session host/socket issues that cross a trust boundary
   (`src/session_host/`).
+- Workspace/layout snapshot leakage: the persistence snapshot is defined to
+  record structure only — workspace and tab names, pane split ratios, and each
+  pane's working directory — and to NEVER capture terminal grid content,
+  scrollback, environment, or the commands that were running. A restored pane is
+  always a fresh shell at the captured directory. A snapshot that persists any of
+  the excluded content is in scope.
+- Remote image paste-through writing outside its intended bounds: an image
+  pasted into a remote session is uploaded over the existing SSH connection into
+  a temporary file created `0600` under `umask 077`, and its path is copied to
+  the clipboard rather than injected into the shell for execution. A path that
+  escapes the temp location, world-readable upload permissions, or the path being
+  auto-executed is in scope.
 
 ## Out of scope
 

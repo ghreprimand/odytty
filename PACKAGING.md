@@ -135,6 +135,15 @@ tag_prefix: v
 
 See [`docs/release.md`](docs/release.md) for the release artifact checklist.
 
+## Arch / AUR
+
+An AUR package for Arch-family systems is built from the template in
+`dist/aur/` (PKGBUILD plus its publish runbook). It is a community distribution
+channel that tracks the published GitHub release rather than an official release
+artifact — the release workflow itself publishes only the source release, the
+Linux AppImage, and the Windows zip. End-user install steps live in
+[`docs/install.md`](docs/install.md#arch-linux-aur).
+
 ## Windows Artifacts
 
 The release workflow publishes both Windows zip names:

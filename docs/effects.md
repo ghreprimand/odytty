@@ -319,6 +319,35 @@ background_blur_radius = 8
 
 ---
 
+## Window transparency
+
+Separately from the per-cell wallpaper opacity above, OdyTTY can make the whole
+window translucent so the desktop shows through behind the terminal.
+
+| Setting | Env | Type | Default |
+|---------|-----|------|---------|
+| `window_transparency` | `ODYTTY_WINDOW_TRANSPARENCY` | `on`/`off` | `off` |
+| `window_opacity` | `ODYTTY_WINDOW_OPACITY` | percent `30`–`100`, step `5` | `85` |
+
+`window_transparency` is **off by default**, and with it off the render path is
+the unchanged opaque one. When on, only the terminal background and the chrome
+bands scale toward `window_opacity` — text, cursor, selection, and every overlay
+(menus, pickers, settings, prompts) stay fully opaque, so readability never
+depends on the opacity value. `window_opacity` is a percent: `100` is fully
+opaque and lower values let more of the desktop through.
+
+Transparency needs a compositing window manager: Wayland composites natively,
+X11 needs a running compositor, and Windows uses DWM. Where no alpha compositing
+is available the toggle has no visible effect and the window stays opaque.
+Blur/acrylic behind the window is not offered.
+
+```conf
+window_transparency = on
+window_opacity = 85
+```
+
+---
+
 ## Smooth scrolling
 
 `smooth_scroll = on` eases viewport scroll movement over a short bounded window
