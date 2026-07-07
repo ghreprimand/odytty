@@ -34,6 +34,17 @@ use image::BgImageGpu;
 pub(super) use post::{BloomOptions, CrtOptions};
 use post::{PostProcessOptions, PostProcessResources};
 
+/// SCROLL-CHROME-BOUNCE: the composited-chrome geometry the App hands the GPU
+/// each single-pane frame so [`GpuState::chrome_pin`] can hold the tab bar / rail
+/// still while the terminal content glides. Column indices are in the decorated
+/// snapshot's coordinate space (post tab-chrome decoration).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ChromePinGeom {
+    pub(super) top_rows: usize,
+    pub(super) rail_col_start: usize,
+    pub(super) rail_col_end: usize,
+}
+
 /// One pane's render inputs for [`GpuState::update_from_panes`] (design doc
 /// §3.2). All geometry is physical pixels in the same origin-top-left basis as
 /// `grid.rs` vertices. The caller (the App multi-pane render dispatch) owns
@@ -950,6 +961,10 @@ pub(super) struct GpuState {
     /// origin byte-identical. Updated each animating frame via
     /// [`Self::set_scroll_frac_offset`].
     scroll_frac_offset: f32,
+    /// SCROLL-CHROME-BOUNCE: the composited-chrome geometry (top-bar rows + rail
+    /// column band) to pin against `scroll_frac_offset` this frame. `None` (no
+    /// chrome, or the multi-pane path) leaves the pin inert / byte-identical.
+    chrome_pin_geom: Option<ChromePinGeom>,
     /// FREEZE-HARDEN (b): monotonically increasing count of frames actually
     /// presented (`frame.present()` reached). Read by the freeze watchdog to
     /// distinguish "work pending, frames flowing" from "work pending, render
@@ -1256,6 +1271,7 @@ impl GpuState {
             crate::settings::DEFAULT_CELL_BG_OPACITY,
             // No overlay panel is merged into the initial snapshot.
             None,
+            grid::ChromePin::NONE,
         );
         let cell_vertex_count = vertices.len() as u32;
         grid::append_cursor_vertices_with_origin(
@@ -1280,6 +1296,7 @@ impl GpuState {
             &color_glyph_atlas,
             &initial_color_glyph_runs,
             origin,
+            grid::ChromePin::NONE,
         );
         let color_glyph_vertex_count = color_glyph_vertices.len() as u32;
         let initial_color_glyph_bytes =
@@ -1361,6 +1378,7 @@ impl GpuState {
             font_family: options.font_family.clone(),
             font_weight: options.font_weight.clone(),
             scroll_frac_offset: 0.0,
+            chrome_pin_geom: None,
             frames_presented: 0,
             atlas_texture,
             atlas_sampler,
@@ -1536,6 +1554,29 @@ impl GpuState {
     /// leaves the origin byte-identical to before this feature existed.
     pub(super) fn set_scroll_frac_offset(&mut self, offset_px: f32) {
         self.scroll_frac_offset = offset_px;
+    }
+
+    /// SCROLL-CHROME-BOUNCE: the composited-chrome geometry to pin against the
+    /// sub-row scroll offset this frame (top-bar rows + rail column band). `None`
+    /// (no chrome, or the multi-pane path) leaves the pin inert.
+    pub(super) fn set_chrome_pin_geom(&mut self, geom: Option<ChromePinGeom>) {
+        self.chrome_pin_geom = geom;
+    }
+
+    /// Assemble the frame's [`grid::ChromePin`] from the pinned-chrome geometry
+    /// and the live sub-row offset. Inert (`ChromePin::NONE`) whenever there is
+    /// no chrome to pin or no glide is in flight, so the plain / at-rest path
+    /// stays byte-identical.
+    fn chrome_pin(&self) -> grid::ChromePin {
+        match self.chrome_pin_geom {
+            Some(geom) if self.scroll_frac_offset != 0.0 => grid::ChromePin {
+                scroll_offset_y: self.scroll_frac_offset,
+                top_rows: geom.top_rows,
+                rail_col_start: geom.rail_col_start,
+                rail_col_end: geom.rail_col_end,
+            },
+            _ => grid::ChromePin::NONE,
+        }
     }
 
     fn refresh_window_padding(&mut self) -> bool {
@@ -1970,6 +2011,8 @@ impl GpuState {
                 // Multi-pane panes never carry an overlay panel: it is composited
                 // as a separate opaque `OverlayTop` layer, so no cell is forced.
                 None,
+                // Multi-pane never glides sub-row (frac forced 0): pin inert.
+                grid::ChromePin::NONE,
             );
             let bg = background_vertex_count(pane.snapshot).min(pane_buf.len() as u32) as usize;
             self.vertices.extend_from_slice(&pane_buf[..bg]);
@@ -1981,6 +2024,7 @@ impl GpuState {
                 &self.color_glyph_atlas,
                 runs,
                 pane.origin,
+                grid::ChromePin::NONE,
             );
 
             tail.reserve(pane.overlays.len() * grid::VERTS_PER_QUAD);
@@ -2081,6 +2125,7 @@ impl GpuState {
                 // The overlay-top snapshot IS the panel; it is already built at
                 // the opaque `cell_bg_opacity` on its own layer.
                 None,
+                grid::ChromePin::NONE,
             );
             self.vertices.extend_from_slice(&overlay_buf);
         }
@@ -2207,6 +2252,8 @@ impl GpuState {
         self.rebuild_color_glyph_segment(snapshot, &color_glyph_runs);
         let origin = self.content_origin();
         let content_opacity = self.content_build_opacity();
+        // SCROLL-CHROME-BOUNCE: hold composited chrome still while content glides.
+        let chrome_pin = self.chrome_pin();
         grid::build_cell_vertices_with_focus_dim_and_origin_into(
             &mut self.vertices,
             snapshot,
@@ -2222,6 +2269,7 @@ impl GpuState {
             // around it keep the window opacity. `None` on the opaque window path
             // (set by the caller) is byte-identical.
             self.overlay_opaque_region,
+            chrome_pin,
         );
         let background_vertices = background_vertex_count(snapshot).min(self.vertices.len() as u32);
         if self.needs_edge_wash() {
@@ -2334,6 +2382,7 @@ impl GpuState {
             self.cell_bg_opacity,
             // The rail strip is its own opaque overlay; no merged panel to force.
             None,
+            grid::ChromePin::NONE,
         );
         self.vertices.extend_from_slice(&strip);
         if let Some(seam) = rail.seam {
@@ -2346,12 +2395,15 @@ impl GpuState {
             self.refresh_color_glyph_atlas_texture();
         }
         let origin = self.content_origin();
+        // SCROLL-CHROME-BOUNCE: crop content color glyphs at the tab-bar seam.
+        let chrome_pin = self.chrome_pin();
         grid::build_color_glyph_vertices_with_origin_into(
             &mut self.color_glyph_vertices,
             snapshot,
             &self.color_glyph_atlas,
             runs,
             origin,
+            chrome_pin,
         );
         self.color_glyph_vertex_count = self.color_glyph_vertices.len() as u32;
 

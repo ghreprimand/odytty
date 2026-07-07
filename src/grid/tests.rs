@@ -1411,6 +1411,7 @@ fn opaque_region_holds_marked_cells_opaque_only() {
         BackgroundTreatmentParams::default(),
         opacity,
         Some(region),
+        crate::grid::ChromePin::NONE,
     );
     let edge = bg_alpha(&with_region, 0);
     let marked = bg_alpha(&with_region, 1);
@@ -1442,6 +1443,7 @@ fn opaque_region_holds_marked_cells_opaque_only() {
         BackgroundTreatmentParams::default(),
         opacity,
         None,
+        crate::grid::ChromePin::NONE,
     );
     assert!(
         (bg_alpha(&no_region, 1) - edge).abs() < 1e-6,
@@ -1451,4 +1453,155 @@ fn opaque_region_holds_marked_cells_opaque_only() {
         (bg_alpha(&no_region, 1) - marked).abs() > 1e-6,
         "the region is what lifts the middle cell to opaque"
     );
+}
+
+// SCROLL-CHROME-BOUNCE: the sub-row smooth-scroll offset (folded into
+// `content_origin`'s Y) must move ONLY the terminal content, never the
+// composited chrome (top tab bar / side rail). Before the fix the whole
+// decorated snapshot — chrome rows included — was built through the shifted
+// origin, so the bar visibly drifted with the scrollback.
+#[cfg(test)]
+mod chrome_pin {
+    use super::*;
+
+    /// A 2-col × `rows`-row blank snapshot (cursor hidden), so pass-1 emits one
+    /// background quad per cell in row-major order.
+    fn blank_snapshot(rows: usize) -> Snapshot {
+        let mut term = Terminal::new(2, rows);
+        term.advance(b"\x1b[?25l");
+        term.snapshot()
+    }
+
+    /// Top-left Y of the background quad for cell `(row, col)` (2-col grid).
+    fn bg_top(verts: &[Vertex], row: usize, col: usize) -> f32 {
+        quad_rect(verts, row * 2 + col)[1]
+    }
+
+    fn build(
+        snapshot: &Snapshot,
+        atlas: &GlyphAtlas,
+        origin: [f32; 2],
+        pin: ChromePin,
+    ) -> Vec<Vertex> {
+        let mut out = Vec::new();
+        build_cell_vertices_with_focus_dim_and_origin_into(
+            &mut out,
+            snapshot,
+            atlas,
+            &[],
+            0.0,
+            origin,
+            BackgroundTreatmentParams::default(),
+            1.0,
+            None,
+            pin,
+        );
+        out
+    }
+
+    #[test]
+    fn top_bar_stays_pinned_while_content_glides() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let snapshot = blank_snapshot(3);
+        let cell_h = atlas.cell.height as f32;
+        let pad = 8.0_f32;
+        let frac = cell_h * 0.4; // a sub-row glide offset, folded into origin Y
+        let origin = [pad, pad + frac];
+        // One composited tab-bar row at the top, no rail.
+        let pin = ChromePin {
+            scroll_offset_y: frac,
+            top_rows: 1,
+            rail_col_start: 0,
+            rail_col_end: 0,
+        };
+        let verts = build(&snapshot, &atlas, origin, pin);
+
+        // Chrome row (0) stays at the UN-shifted pad-y — this is the assertion
+        // that fails before the fix (chrome would sit at pad + frac).
+        assert!(
+            (bg_top(&verts, 0, 0) - pad).abs() < 1e-3,
+            "tab-bar chrome must stay pinned at pad, got {}",
+            bg_top(&verts, 0, 0)
+        );
+        // First content row's background sits flush at the seam (pad + cell_h),
+        // so a downward glide opens no gap and an upward one does not bleed up.
+        let seam = pad + cell_h;
+        assert!(
+            (bg_top(&verts, 1, 0) - seam).abs() < 1e-3,
+            "first content row background flush to the seam, got {}",
+            bg_top(&verts, 1, 0)
+        );
+        // A lower content row carries the full sub-row glide (it still moves).
+        assert!(
+            (bg_top(&verts, 2, 0) - (pad + frac + 2.0 * cell_h)).abs() < 1e-3,
+            "content row 2 must carry the frac glide, got {}",
+            bg_top(&verts, 2, 0)
+        );
+    }
+
+    #[test]
+    fn rail_band_stays_pinned_while_content_glides() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let snapshot = blank_snapshot(2);
+        let cell_h = atlas.cell.height as f32;
+        let pad = 8.0_f32;
+        let frac = cell_h * 0.4;
+        let origin = [pad, pad + frac];
+        // A left rail occupying column 0 (all rows), content in column 1. No top
+        // bar (top_rows 0), so the vertical offset is what must be pinned.
+        let pin = ChromePin {
+            scroll_offset_y: frac,
+            top_rows: 0,
+            rail_col_start: 0,
+            rail_col_end: 1,
+        };
+        let verts = build(&snapshot, &atlas, origin, pin);
+
+        // Rail column (0) is pinned in Y at every row.
+        assert!(
+            (bg_top(&verts, 1, 0) - (pad + cell_h)).abs() < 1e-3,
+            "rail band must stay pinned in Y, got {}",
+            bg_top(&verts, 1, 0)
+        );
+        // Content column (1) still glides with the frac offset.
+        assert!(
+            (bg_top(&verts, 1, 1) - (pad + frac + cell_h)).abs() < 1e-3,
+            "content column must carry the frac glide, got {}",
+            bg_top(&verts, 1, 1)
+        );
+    }
+
+    #[test]
+    fn inert_pin_is_byte_identical_to_none() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let snapshot = blank_snapshot(3);
+        let pad = 8.0_f32;
+        let origin = [pad, pad]; // at rest: no sub-row offset
+        // A pin with chrome geometry but scroll_offset_y == 0 must be inert.
+        let inert = ChromePin {
+            scroll_offset_y: 0.0,
+            top_rows: 1,
+            rail_col_start: 0,
+            rail_col_end: 1,
+        };
+        let with_inert = build(&snapshot, &atlas, origin, inert);
+        let with_none = build(&snapshot, &atlas, origin, ChromePin::NONE);
+        assert_eq!(
+            with_inert, with_none,
+            "an at-rest pin (scroll_offset_y == 0) must be byte-identical to NONE"
+        );
+        // And every background quad sits at its plain, un-clamped origin.
+        let cell_h = atlas.cell.height as f32;
+        assert!((bg_top(&with_none, 0, 0) - pad).abs() < 1e-3);
+        assert!((bg_top(&with_none, 1, 0) - (pad + cell_h)).abs() < 1e-3);
+    }
 }

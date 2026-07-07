@@ -647,6 +647,8 @@ impl App {
         };
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.set_scroll_frac_offset(0.0);
+            // SCROLL-CHROME-BOUNCE: multi-pane never glides sub-row; pin inert.
+            gpu.set_chrome_pin_geom(None);
             gpu.set_window_bg_alpha(win_bg_alpha);
             // TRANSPARENCY (MENU-OPACITY): the multi-pane overlay panel is
             // composited as a separate opaque `OverlayTop` layer, not merged into

@@ -196,7 +196,14 @@ pub fn build_color_glyph_vertices_into(
     atlas: &ColorGlyphAtlas,
     runs: &[ColorGlyphRun],
 ) {
-    build_color_glyph_vertices_with_origin_into(out, snapshot, atlas, runs, [0.0, 0.0]);
+    build_color_glyph_vertices_with_origin_into(
+        out,
+        snapshot,
+        atlas,
+        runs,
+        [0.0, 0.0],
+        ChromePin::NONE,
+    );
 }
 
 pub fn build_color_glyph_vertices_with_origin_into(
@@ -205,6 +212,8 @@ pub fn build_color_glyph_vertices_with_origin_into(
     atlas: &ColorGlyphAtlas,
     runs: &[ColorGlyphRun],
     origin: [f32; 2],
+    // SCROLL-CHROME-BOUNCE: crop content color glyphs at the tab-bar seam.
+    chrome_pin: ChromePin,
 ) {
     out.clear();
     out.reserve(runs.len() * VERTS_PER_QUAD);
@@ -213,6 +222,9 @@ pub fn build_color_glyph_vertices_with_origin_into(
     let rows = snapshot.dimensions.rows;
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
+    // SCROLL-CHROME-BOUNCE: color glyphs are always content; crop any that glide
+    // up under the pinned tab bar at the seam (inert unless a glide is running).
+    let chrome_seam_y = chrome_pin.seam_y(origin[1], cell_h);
 
     for run in runs {
         if run.row >= rows || run.column >= cols {
@@ -237,16 +249,24 @@ pub fn build_color_glyph_vertices_with_origin_into(
 
         let x0 = origin[0] + run.column as f32 * cell_w;
         let y0 = origin[1] + run.row as f32 * cell_h;
-        push_color_glyph_quad(
-            out,
-            [
+        let x1 = x0 + bounds.pixel_width as f32;
+        if chrome_pin.active() && chrome_pin.top_rows > 0 {
+            push_color_glyph_quad_clipped_top(
+                out,
                 x0,
                 y0,
-                x0 + bounds.pixel_width as f32,
-                y0 + bounds.pixel_height as f32,
-            ],
-            bounds.uv,
-        );
+                x1,
+                bounds.pixel_height as f32,
+                bounds.uv,
+                chrome_seam_y,
+            );
+        } else {
+            push_color_glyph_quad(
+                out,
+                [x0, y0, x1, y0 + bounds.pixel_height as f32],
+                bounds.uv,
+            );
+        }
     }
 }
 
@@ -526,6 +546,8 @@ pub fn build_cell_vertices_with_focus_dim_into(
         1.0,
         // No overlay panel rides this seam, so no cell is force-opaque.
         None,
+        // Off-screen `[0.0, 0.0]` origin build: no chrome to pin.
+        ChromePin::NONE,
     );
 }
 
@@ -561,6 +583,101 @@ impl CellRegion {
     }
 }
 
+/// SCROLL-CHROME-BOUNCE: pins composited chrome (the top tab-bar band and any
+/// side rail band) against the sub-row smooth-scroll offset that `content_origin`
+/// folds into the vertex Y. Without it the whole decorated single-pane snapshot
+/// — chrome rows included — glides with the scrollback, so the tab bar visibly
+/// drifts. Chrome cells subtract `scroll_offset_y` (landing back at the
+/// un-shifted pad-y) while terminal content keeps it (so content still glides).
+/// `NONE` / `scroll_offset_y == 0.0` makes every branch inert, so the plain and
+/// at-rest paths stay byte-identical.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ChromePin {
+    /// The sub-row vertical offset already folded into `origin[1]`. Chrome cells
+    /// subtract it to stay pinned; `0.0` disables the whole mechanism.
+    pub scroll_offset_y: f32,
+    /// Composited tab-bar rows at the top of the snapshot (pinned; also the seam
+    /// below which content is clamped so a sub-row overshoot can neither bleed
+    /// into the bar nor open a gap under it).
+    pub top_rows: usize,
+    /// Pinned side-rail column band `[rail_col_start, rail_col_end)` spanning
+    /// every row. Empty (`start == end`) when no rail is composited.
+    pub rail_col_start: usize,
+    /// End (exclusive) of the pinned rail column band.
+    pub rail_col_end: usize,
+}
+
+impl ChromePin {
+    /// Inert pin: no chrome, no offset. Every call site that is not the
+    /// single-pane gliding content path passes this, keeping the frame
+    /// byte-identical.
+    pub const NONE: Self = Self {
+        scroll_offset_y: 0.0,
+        top_rows: 0,
+        rail_col_start: 0,
+        rail_col_end: 0,
+    };
+
+    /// Whether the pin is doing anything this frame (a glide is in flight).
+    #[inline]
+    fn active(&self) -> bool {
+        self.scroll_offset_y != 0.0
+    }
+
+    /// Whether cell `(row, col)` is composited chrome (top bar or rail band),
+    /// which must stay pinned rather than glide with the content.
+    #[inline]
+    fn is_chrome(&self, row: usize, col: usize) -> bool {
+        row < self.top_rows || (col >= self.rail_col_start && col < self.rail_col_end)
+    }
+
+    /// The un-shifted top-of-content Y (the seam below the pinned top bar) for a
+    /// build whose `origin[1]` already carries `scroll_offset_y`.
+    #[inline]
+    fn seam_y(&self, shifted_origin_y: f32, cell_h: f32) -> f32 {
+        (shifted_origin_y - self.scroll_offset_y) + self.top_rows as f32 * cell_h
+    }
+
+    /// The top-left Y of cell `(row, col)`: pinned (un-shifted) for chrome,
+    /// glide-shifted for content. Inert (plain shifted origin) when `!active()`.
+    #[inline]
+    fn cell_top_y(&self, shifted_origin_y: f32, cell_h: f32, row: usize, col: usize) -> f32 {
+        if self.active() && self.is_chrome(row, col) {
+            (shifted_origin_y - self.scroll_offset_y) + row as f32 * cell_h
+        } else {
+            shifted_origin_y + row as f32 * cell_h
+        }
+    }
+}
+
+/// SCROLL-CHROME-BOUNCE: the vertical span of a content cell's background quad,
+/// clamped at the tab-bar seam so a gliding sub-row offset neither bleeds the
+/// content background up into the pinned bar nor opens a gap beneath it. The
+/// first content row is pulled flush to the seam (filling a downward-glide gap
+/// or cropping an upward overshoot); lower rows keep their natural top (already
+/// below the seam). Chrome cells and the inert path return the natural span.
+#[inline]
+fn content_bg_span(
+    pin: &ChromePin,
+    seam_y: f32,
+    y0: f32,
+    cell_h: f32,
+    row: usize,
+    col: usize,
+) -> (f32, f32) {
+    let bottom = y0 + cell_h;
+    if pin.active() && pin.top_rows > 0 && !pin.is_chrome(row, col) {
+        let top = if row == pin.top_rows {
+            seam_y
+        } else {
+            y0.max(seam_y)
+        };
+        (top, bottom)
+    } else {
+        (y0, bottom)
+    }
+}
+
 // ID3/U5 adds `cell_bg_opacity` as the 8th argument; the existing inputs
 // (geometry, focus dim, treatment) are already discrete render parameters and
 // bundling them into a struct would obscure the two live call sites more than
@@ -580,12 +697,18 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
     // a translucent snapshot stays a readable opaque surface. `None` is the
     // byte-identical path (every cell uses `cell_bg_opacity`).
     opaque_region: Option<CellRegion>,
+    // SCROLL-CHROME-BOUNCE: pins composited chrome against the sub-row glide.
+    // `ChromePin::NONE` (every non-single-pane-content caller) is byte-identical.
+    chrome_pin: ChromePin,
 ) {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
     let baseline = atlas.cell.baseline as f32;
+    // SCROLL-CHROME-BOUNCE: the pinned-chrome seam for this build (inert unless a
+    // glide is in flight — then the top bar/rail stay put while content glides).
+    let chrome_seam_y = chrome_pin.seam_y(origin[1], cell_h);
 
     let needed = rows * cols * VERTS_PER_QUAD * 2;
     out.clear();
@@ -672,10 +795,12 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
             let bg = [bg[0], bg[1], bg[2], bg[3] * cell_opacity];
             let span = span_of(row, col);
             let x0 = origin[0] + col as f32 * cell_w;
-            let y0 = origin[1] + row as f32 * cell_h;
+            let y0 = chrome_pin.cell_top_y(origin[1], cell_h, row, col);
+            let (bg_top, bg_bottom) =
+                content_bg_span(&chrome_pin, chrome_seam_y, y0, cell_h, row, col);
             push_quad(
                 out,
-                [x0, y0, x0 + cell_w * span, y0 + cell_h],
+                [x0, bg_top, x0 + cell_w * span, bg_bottom],
                 [0.0, 0.0, 0.0, 0.0],
                 bg,
                 0.0,
@@ -695,7 +820,7 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
             let (fg, bg) = resolve(cell, row, col);
             let span = span_of(row, col);
             let x0 = origin[0] + col as f32 * cell_w;
-            let y0 = origin[1] + row as f32 * cell_h;
+            let y0 = chrome_pin.cell_top_y(origin[1], cell_h, row, col);
 
             if !cell.attrs.hidden()
                 && cell.ch != ' '
@@ -703,7 +828,15 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
                 && let Some(bounds) =
                     atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), cell.ch)
             {
-                push_glyph_quad(out, x0, y0, bounds, fg);
+                // SCROLL-CHROME-BOUNCE: a content glyph gliding up under the
+                // pinned bar is cropped at the seam (UV, not squash); chrome
+                // glyphs and the inert path draw uncropped (byte-identical).
+                if chrome_pin.active() && chrome_pin.top_rows > 0 && !chrome_pin.is_chrome(row, col)
+                {
+                    push_glyph_quad_clipped_top(out, x0, y0, bounds, fg, chrome_seam_y);
+                } else {
+                    push_glyph_quad(out, x0, y0, bounds, fg);
+                }
             }
 
             let underline_style = cell.attrs.effective_underline_style();
@@ -944,6 +1077,60 @@ fn push_glyph_quad(out: &mut Vec<Vertex>, x0: f32, y0: f32, bounds: GlyphBounds,
     let gx1 = gx0 + bounds.width as f32;
     let gy1 = gy0 + bounds.height as f32;
     push_quad(out, [gx0, gy0, gx1, gy1], bounds.uv, color, 1.0);
+}
+
+/// SCROLL-CHROME-BOUNCE: push a coverage glyph whose top is cropped at
+/// `clip_top_y` via a UV adjustment (never a squash), so a content glyph gliding
+/// up under the pinned tab bar cannot paint into the chrome band. Glyphs entirely
+/// above the seam are dropped.
+fn push_glyph_quad_clipped_top(
+    out: &mut Vec<Vertex>,
+    x0: f32,
+    y0: f32,
+    bounds: GlyphBounds,
+    color: [f32; 4],
+    clip_top_y: f32,
+) {
+    let gx0 = x0 + bounds.offset_x as f32;
+    let mut gy0 = y0 + bounds.offset_y as f32;
+    let gx1 = gx0 + bounds.width as f32;
+    let gy1 = gy0 + bounds.height as f32;
+    if gy1 <= clip_top_y {
+        return;
+    }
+    let [u0, mut v0, u1, v1] = bounds.uv;
+    if gy0 < clip_top_y {
+        let t = (clip_top_y - gy0) / (gy1 - gy0);
+        v0 += t * (v1 - v0);
+        gy0 = clip_top_y;
+    }
+    push_quad(out, [gx0, gy0, gx1, gy1], [u0, v0, u1, v1], color, 1.0);
+}
+
+/// SCROLL-CHROME-BOUNCE: color-glyph analogue of [`push_glyph_quad_clipped_top`]
+/// — crop the emoji quad's top at the seam via UV so a gliding color glyph never
+/// paints into the pinned tab bar.
+fn push_color_glyph_quad_clipped_top(
+    out: &mut Vec<ColorGlyphVertex>,
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    pixel_height: f32,
+    uv: [f32; 4],
+    clip_top_y: f32,
+) {
+    let mut gy0 = y0;
+    let gy1 = y0 + pixel_height;
+    if gy1 <= clip_top_y {
+        return;
+    }
+    let [u0, mut v0, u1, v1] = uv;
+    if gy0 < clip_top_y {
+        let t = (clip_top_y - gy0) / (gy1 - gy0);
+        v0 += t * (v1 - v0);
+        gy0 = clip_top_y;
+    }
+    push_color_glyph_quad(out, [x0, gy0, x1, gy1], [u0, v0, u1, v1]);
 }
 
 /// Rebuild the full vertex list and append presentation-only solid overlays.

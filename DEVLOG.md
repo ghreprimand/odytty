@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-07 -- Pin composited chrome against sub-row scroll motion
+
+Smooth scrolling folds a sub-row vertical offset into the render origin so the
+terminal content can glide between whole rows. That offset was applied to the
+*entire* rendered snapshot, but the top tab bar and the side workspace rail are
+composited into the same snapshot (grown as reserved rows/columns before the
+content). The result: while scrollback glided, the tab-bar text and rail visibly
+drifted with it, because chrome shared the content's origin shift.
+
+The offset now applies only to the terminal content region. A lightweight pin,
+active only while a glide is in flight, holds the composited chrome cells (the
+top-bar rows and the rail column band) at their un-shifted position while content
+cells keep gliding. The tab-bar seam is handled so a sub-row overshoot can
+neither bleed the content up into the bar nor open a gap beneath it: the first
+content row's background is pulled flush to the seam, and a content glyph or
+color glyph that would cross the seam is cropped there via a UV adjustment rather
+than a squash. At rest, or on any path that does not glide (multi-pane, the
+floating rail overlay, overlay panels), the pin is inert and the frame is
+byte-identical to before. The same content-origin seam backs the continuous
+pixel-precise touchpad lane, so this also removes the latent chrome drag there.
+
+---
+
 ## 2026-07-07 -- Optional animated scroll glide for discrete wheels
 
 Discrete mouse wheels emit whole detents with no sub-step data (a high-resolution

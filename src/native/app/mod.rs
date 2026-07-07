@@ -48,7 +48,7 @@ use super::clipboard::{
     NativeClipboard, read_clipboard_selection, write_clipboard_selection, write_paste_text,
 };
 use super::cvd_theme::CvdThemeCache;
-use super::gpu::{BloomOptions, CrtOptions, FrameOutcome, GpuState, RailOverlay};
+use super::gpu::{BloomOptions, ChromePinGeom, CrtOptions, FrameOutcome, GpuState, RailOverlay};
 use super::options::{NativeError, NativeOptions};
 use super::overlay::{
     LayoutSaveKind, OverlayInput, OverlayOutcome, OverlayPointer, OverlayUi, PointerButton,
@@ -3897,6 +3897,37 @@ impl App {
         self.tab_reserve().left_reserved_cols()
     }
 
+    /// SCROLL-CHROME-BOUNCE: the composited-chrome geometry to hand the GPU so it
+    /// pins the tab bar / rail against the sub-row scroll glide. `decorated_cols`
+    /// is the tab-chrome-decorated snapshot's column count (the coordinate space
+    /// the rail band indices live in). `None` when nothing is composited (no bar,
+    /// no rail), which keeps the pin inert / byte-identical.
+    fn chrome_pin_geom(&self, decorated_cols: usize) -> Option<ChromePinGeom> {
+        let reserve = self.tab_reserve();
+        let top_rows = reserve.top_rows;
+        let (rail_col_start, rail_col_end) = if reserve.left_cols > 0 {
+            // Left rail (+ gap) occupies the leftmost reserved columns.
+            (0, reserve.left_reserved_cols())
+        } else if reserve.right_cols > 0 {
+            // Right rail (+ gap) occupies the rightmost reserved columns.
+            (
+                decorated_cols.saturating_sub(reserve.right_reserved_cols()),
+                decorated_cols,
+            )
+        } else {
+            (0, 0)
+        };
+        if top_rows == 0 && rail_col_start == rail_col_end {
+            None
+        } else {
+            Some(ChromePinGeom {
+                top_rows,
+                rail_col_start,
+                rail_col_end,
+            })
+        }
+    }
+
     fn apply_user_event(&mut self, event: UserEvent) -> bool {
         match event {
             UserEvent::Redraw { session } => {
@@ -5176,6 +5207,10 @@ impl ApplicationHandler<UserEvent> for App {
                         // (it feeds the `anim` cache key); the CursorOnly arm
                         // reuses the same value so the cached cursor matches.
                         let scroll_frac_offset = self.scroll_frac_offset;
+                        // SCROLL-CHROME-BOUNCE: geometry (in decorated-snapshot
+                        // columns) so the GPU pins the tab bar / rail while the
+                        // terminal content glides. `None` when no chrome shown.
+                        let chrome_pin_geom = self.chrome_pin_geom(snapshot.dimensions.columns);
                         let tab_bar_row_offset = self.tab_bar_row_offset();
                         let tab_bar_col_offset = self.tab_bar_col_offset();
                         // F4-P1 unified tab panel + seam: background-segment quads
@@ -5241,6 +5276,7 @@ impl ApplicationHandler<UserEvent> for App {
                             // `0.0` at rest / on the off path leaves the origin
                             // byte-identical.
                             gpu.set_scroll_frac_offset(scroll_frac_offset);
+                            gpu.set_chrome_pin_geom(chrome_pin_geom);
                             gpu.set_window_bg_alpha(win_bg_alpha);
                             gpu.set_overlay_opaque_region(overlay_opaque_region);
                             match update {
