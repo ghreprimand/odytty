@@ -569,7 +569,8 @@ mod tests {
         };
         let sb = seed_scrollback(&app);
         assert!(sb >= 5);
-        assert!(!app.settings.scroll_glide, "off by default");
+        // Exercise the OFF path explicitly (the default is now on).
+        app.settings.scroll_glide = false;
         let token = app.sessions.active_id();
         app.scroll_viewport_of(token, 5);
         assert_eq!(app.viewport.offset(), 5, "the integer offset still jumps");

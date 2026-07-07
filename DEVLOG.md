@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-07 -- Scroll defaults tuned: glide on, six rows per wheel notch
+
+Two scroll defaults now match the tuned interactive feel. Scrollback glides
+between wheel notches by default (`scroll_glide` on), and a wheel notch advances
+six rows of local scrollback by default (`scroll_wheel_lines` 6). Both remain
+fully configurable — an explicit `scroll_glide = off` or `scroll_wheel_lines = 3`
+in the config overrides the default with no forced value.
+
+The per-notch multiplier governs local scrollback only, as documented. The
+alternate-screen alternate-scroll translation (wheel → cursor keys for a pager
+or other non-mouse-tracking full-screen program) is a reporting path and now
+uses the fixed step explicitly, so a pager still advances a stable number of
+lines per notch regardless of the local-scroll multiplier. Previously that path
+happened to read the multiplier, which was harmless only while the default
+matched the fixed step; raising the local default surfaced the coupling.
+
+---
+
 ## 2026-07-07 -- Pin composited chrome against sub-row scroll motion
 
 Smooth scrolling folds a sub-row vertical offset into the render origin so the

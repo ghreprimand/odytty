@@ -1003,26 +1003,27 @@ fn pixel_scroll_round_trips_through_config_key_mapping() {
 }
 
 #[test]
-fn scroll_glide_round_trips_and_defaults_off() {
-    // The new discrete-wheel glide knob maps both ways and stays off by default
-    // (proven-then-flip). Config parsing is generic, so an explicit value is
-    // honored without any per-field code.
+fn scroll_glide_round_trips_and_defaults_on() {
+    // The discrete-wheel glide knob maps both ways and is on by default (tuned
+    // interactive feel). Config parsing is generic, so an explicit value
+    // overrides the default without any per-field code.
     assert_eq!(config_key_to_env("scroll_glide"), Some(SCROLL_GLIDE_ENV));
     assert_eq!(config_key_to_env("glidescroll"), Some(SCROLL_GLIDE_ENV));
     assert_eq!(env_to_config_key(SCROLL_GLIDE_ENV), Some("scroll_glide"));
 
     let (settings, warnings) = settings_from_config_and_env("", []);
-    assert!(!settings.scroll_glide, "scroll_glide is off by default");
+    assert!(settings.scroll_glide, "scroll_glide is on by default");
     assert!(warnings.is_empty());
 
+    // An explicit off overrides the default (no forced value).
     let (settings, warnings) = settings_from_config_and_env(
-        "scroll_glide = on
+        "scroll_glide = off
 ",
         [],
     );
     assert!(
-        settings.scroll_glide,
-        "an explicit scroll_glide = on parses"
+        !settings.scroll_glide,
+        "an explicit scroll_glide = off overrides the on default"
     );
     assert!(warnings.is_empty());
 }

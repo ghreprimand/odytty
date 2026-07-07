@@ -1252,7 +1252,7 @@ impl Settings {
                 env: SCROLL_GLIDE_ENV,
                 name: "Animated scroll glide",
                 value: bool_display(self.scroll_glide).to_owned(),
-                description: "When on, a wheel notch still moves the viewport instantly, but the rendered view eases toward the new position over a few frames for a smoother glide. Off by default; affects only detented wheels (high-resolution wheels and touchpads use Pixel-precise scrolling instead).",
+                description: "When on, a wheel notch still moves the viewport instantly, but the rendered view eases toward the new position over a few frames for a smoother glide. On by default; affects only detented wheels (high-resolution wheels and touchpads use Pixel-precise scrolling instead).",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],

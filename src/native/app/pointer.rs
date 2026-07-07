@@ -608,9 +608,10 @@ impl App {
 
         // WHEEL-SENS + MOUSE-WHEEL-SPEED: coalesce the burst into discrete
         // notches, then local scrollback honors the configured per-notch
-        // multiplier (default 3 = byte-identical for a clean `LineDelta(_, ±1)`).
-        // The TUI reporting and overlay paths intentionally use the fixed
-        // default step, so this only affects local viewport scrolling.
+        // multiplier (`scroll_wheel_lines`, default 6). The TUI reporting and
+        // overlay paths intentionally use the fixed default step
+        // (`WHEEL_STEP_LINES`), so the multiplier affects only local viewport
+        // scrolling.
         if let Some(notch) = self.wheel_accum.coalesce_scroll(delta, cell_height) {
             let lines = wheel_lines_scaled(notch, cell_height, self.settings.scroll_wheel_step());
             if lines == 0 {
@@ -620,9 +621,11 @@ impl App {
             // scrollback) a non-mouse-tracking TUI like a pager or Claude CLI
             // expects the wheel to move via cursor keys. Reporting is already off
             // here (the report gate returned above), so translate the wheel into
-            // Up/Down presses; otherwise move the local scrollback viewport.
+            // Up/Down presses at the FIXED step (`scroll_wheel_lines` is
+            // documented local-scroll only, so the pager step stays stable);
+            // otherwise move the local scrollback viewport by the multiplied count.
             if self.alternate_scroll_active() {
-                self.send_wheel_as_arrows(lines);
+                self.send_wheel_as_arrows(wheel_lines(notch, cell_height));
             } else {
                 let target = self.local_wheel_scroll_target();
                 self.scroll_viewport_of(target, lines);

@@ -368,7 +368,7 @@ path.
 |---------|-----|------|---------|-------|
 | `pixel_scroll` | `ODYTTY_PIXEL_SCROLL` | `on` / `off` | `on` | — |
 | `scroll_pixel_speed` | `ODYTTY_SCROLL_PIXEL_SPEED` | float | `1.0` | `0.25–4.0` |
-| `scroll_glide` | `ODYTTY_SCROLL_GLIDE` | `on` / `off` | `off` | — |
+| `scroll_glide` | `ODYTTY_SCROLL_GLIDE` | `on` / `off` | `on` | — |
 
 **`pixel_scroll`** — master switch for the continuous lane. `on` (default)
 tracks pixel-precise devices 1:1; `off` routes them through the same discrete
@@ -382,7 +382,7 @@ slower. Applies only to pixel-precise input.
 wheels carry no sub-step data, so pixel tracking cannot smooth them; instead the
 viewport offset jumps instantly per notch and the rendered view eases toward it
 with a forward-chase follower that only moves in the scroll direction (so a
-notch stream cannot sawtooth). Off by default; single-pane, primary screen only.
+notch stream cannot sawtooth). On by default; single-pane, primary screen only.
 
 ### Configuring via odytty.conf
 

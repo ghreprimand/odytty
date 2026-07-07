@@ -126,7 +126,7 @@ cursor_trail = on
 new_output_fade = off
 
 # Input, selection, and tabs. Tab rename is available from the tab context menu.
-scroll_wheel_lines = 3
+scroll_wheel_lines = 6
 # Lines of scrollback history retained before the oldest are dropped (0 =
 # unlimited; bounds memory so endless output cannot exhaust RAM).
 scrollback_lines = 10000
@@ -136,8 +136,8 @@ scroll_drag_speed = ramp
 pixel_scroll = on
 scroll_pixel_speed = 1.0
 # Animate scrollback between discrete wheel notches (forward-chase glide).
-# Off by default; touchpads/hi-res wheels use pixel_scroll above instead.
-scroll_glide = off
+# On by default; touchpads/hi-res wheels use pixel_scroll above instead.
+scroll_glide = on
 selection_drag_extend = on
 scrollbar_drag = on
 wheel_zoom = on

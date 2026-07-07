@@ -186,10 +186,10 @@ fn numeric_spec_slider_math_clamps_and_snaps() {
 
 #[test]
 fn scroll_wheel_lines_defaults_parses_and_clamps() {
-    // Absent → default (byte-identical historical step of 3).
+    // Absent → default (6 rows per notch, the tuned interactive feel).
     let (settings, warnings) = settings_from([]);
     assert_eq!(settings.scroll_wheel_lines, DEFAULT_SCROLL_WHEEL_LINES);
-    assert_eq!(settings.scroll_wheel_step(), 3);
+    assert_eq!(settings.scroll_wheel_step(), 6);
     assert!(warnings.is_empty());
 
     // A valid in-range value is taken as-is and rounds to a usize step.

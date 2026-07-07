@@ -790,13 +790,14 @@ its first stable layer.
   wheels emit line deltas and are unaffected, keeping `scroll_wheel_lines` as the
   per-notch multiplier. Single-pane only for now; in a split, pixel input falls
   back to the notch path.
-- Animated scroll glide (`scroll_glide`, off by default): discrete wheels emit
+- Animated scroll glide (`scroll_glide`, on by default): discrete wheels emit
   whole notches with no sub-step data, so smoothness between notches can only
   come from animating them. When on, a notch moves the integer viewport offset
   instantly (governing selection, scrollbar, and return-to-live as always) while
   the rendered view eases toward it with a forward-chase follower that only ever
-  moves in the scroll direction, so continuous input cannot sawtooth. Opt-in,
-  single-pane, primary screen only; high-resolution input uses `pixel_scroll`.
+  moves in the scroll direction, so continuous input cannot sawtooth. On by
+  default; single-pane, primary screen only; high-resolution input uses
+  `pixel_scroll`.
 - Font weight control (`font_weight`, empty = regular by default): selects a
   named base weight face (e.g. `Light`, `Medium`, `SemiBold`) for normal text,
   independently of the SGR bold attribute; bold SGR still contrasts against your

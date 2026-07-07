@@ -403,13 +403,14 @@ pub const MIN_BOX_THICKNESS: f32 = 0.5;
 pub const MAX_BOX_THICKNESS: f32 = 3.0;
 
 /// Mouse-wheel scroll multiplier (`ODYTTY_SCROLL_WHEEL_LINES`, MOUSE-WHEEL-SPEED):
-/// rows of local scrollback advanced per wheel notch. The default `3.0` is
-/// byte-identical to the historical hardcoded `WHEEL_STEP_LINES`. Stored as `f32`
+/// rows of local scrollback advanced per wheel notch. The default `6.0` rows
+/// per notch is chosen for interactive feel; `WHEEL_STEP_LINES` (3) remains the
+/// fixed step used only for TUI / overlay / mouse-reporting paths. Stored as `f32`
 /// to ride the shared numeric-setting model (slider / keyboard step / range
 /// label); the wheel path rounds it to a `usize >= 1`. Local viewport scroll
 /// only — when TUI mouse reporting is active the wheel still reports unchanged,
 /// and continuous (touchpad pixel) deltas are never multiplied.
-pub const DEFAULT_SCROLL_WHEEL_LINES: f32 = 3.0;
+pub const DEFAULT_SCROLL_WHEEL_LINES: f32 = 6.0;
 pub const MIN_SCROLL_WHEEL_LINES: f32 = 1.0;
 pub const MAX_SCROLL_WHEEL_LINES: f32 = 10.0;
 
@@ -537,8 +538,9 @@ pub const DEFAULT_PIXEL_SCROLL: bool = true;
 /// moves in the scroll direction, so continuous notches cannot sawtooth.
 /// Discrete wheels emit whole notches with no sub-step data, so this is the
 /// only source of smoothness for them; high-resolution / touchpad devices use
-/// `pixel_scroll` instead. At rest the render path is byte-identical.
-pub const DEFAULT_SCROLL_GLIDE: bool = false;
+/// `pixel_scroll` instead. On by default (tuned interactive feel); at rest the
+/// render path is byte-identical.
+pub const DEFAULT_SCROLL_GLIDE: bool = true;
 
 /// Sensitivity multiplier for the continuous pixel-scroll lane
 /// (`ODYTTY_SCROLL_PIXEL_SPEED`). `1.0` (default) tracks finger travel exactly
