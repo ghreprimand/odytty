@@ -1215,6 +1215,34 @@ impl Screen {
         self.synchronized_output = false;
         self.mark_dirty();
     }
+
+    /// Reset the transient **input-reporting** mode family to its power-on
+    /// state, leaving cells, scrollback, cursor position, and attributes
+    /// untouched. This is the subset of terminal reset that governs how the
+    /// front end encodes input back to the host: bracketed paste (DEC 2004),
+    /// mouse tracking + encoding, application cursor keys / kitty keyboard,
+    /// focus reporting, OSC 133 click events, and alternate scroll.
+    ///
+    /// Used when a remote session is respawned into a FRESH shell while the
+    /// terminal model is deliberately reused to preserve scrollback (see
+    /// `WorkspaceSet::reconnect`). A fresh login shell re-emits whatever input
+    /// modes it wants at its first prompt, so carrying the dropped session's
+    /// latched modes across the respawn is never correct: a stale bracketed
+    /// paste would wrap the next paste in `\e[200~` / `\e[201~` markers the new
+    /// readline never enabled, and it would echo them literally into the
+    /// command line. Cells and scrollback are untouched, so the preserved
+    /// history and dropped banner remain intact.
+    pub(super) fn reset_input_reporting_modes(&mut self) {
+        self.bracketed_paste = false;
+        self.mouse = MouseProtocol::default();
+        self.keyboard = KeyboardModes::default();
+        self.kitty_keyboard_stack.clear();
+        self.focus_reporting = false;
+        self.click_events_enabled = false;
+        // Alternate scroll powers on ENABLED (RIS default, not DECSTR), so its
+        // reset value is `true`.
+        self.alternate_scroll = true;
+    }
 }
 
 fn mode_status(set: bool) -> u8 {

@@ -479,6 +479,58 @@ fn soft_reset_leaves_alternate_scroll_untouched() {
 }
 
 #[test]
+fn reset_input_reporting_modes_clears_the_latched_transient_family() {
+    // A remote session that latched input-reporting modes (a TUI, or the shell's
+    // readline enabling bracketed paste) must not carry them across a reconnect
+    // respawn into a FRESH login shell — the model is reused to preserve
+    // scrollback, so `WorkspaceSet::reconnect` calls this reset. Pins the
+    // primitive: without it, a stale DEC 2004 makes the next paste wrap in
+    // \e[200~/\e[201~ markers the fresh readline never enabled, echoing them
+    // literally (the reported garbled-paste symptom).
+    let mut terminal = Terminal::new(8, 2);
+    // Latch the whole family a pre-drop shell/TUI could have set.
+    terminal.advance(b"\x1b[?2004h"); // bracketed paste on
+    terminal.advance(b"\x1b[?1000h"); // mouse tracking (Normal)
+    terminal.advance(b"\x1b[?1006h"); // SGR mouse encoding
+    terminal.advance(b"\x1b[?1h"); // application cursor keys (DECCKM)
+    terminal.advance(b"\x1b[?1004h"); // focus reporting
+    terminal.advance(b"\x1b[?1007l"); // alternate scroll OFF (non-default)
+
+    assert!(terminal.bracketed_paste_enabled());
+    assert_eq!(terminal.mouse_protocol().tracking, MouseTracking::Normal);
+    assert_eq!(terminal.mouse_protocol().encoding, MouseEncoding::Sgr);
+    assert!(terminal.keyboard_modes().application_cursor);
+    assert!(terminal.focus_reporting());
+    assert!(!terminal.alternate_scroll_enabled());
+
+    terminal.reset_input_reporting_modes();
+
+    // The reported symptom: bracketed paste must be off so a paste is not
+    // wrapped in markers the fresh readline never enabled. (Fail-before: with
+    // the reset absent, this stays true.)
+    assert!(
+        !terminal.bracketed_paste_enabled(),
+        "reset clears bracketed paste (the reported garbled-paste symptom)"
+    );
+    assert_eq!(
+        terminal.mouse_protocol(),
+        MouseProtocol::default(),
+        "mouse tracking + encoding return to power-on off/default"
+    );
+    assert!(
+        !terminal.keyboard_modes().application_cursor,
+        "application cursor keys return to the default (normal) form"
+    );
+    assert!(!terminal.focus_reporting(), "focus reporting returns off");
+    assert!(
+        terminal.alternate_scroll_enabled(),
+        "alternate scroll powers on ENABLED (RIS default)"
+    );
+    // Cells/scrollback/cursor are input-mode-independent; the reset touches
+    // none of them, so the preserved history and dropped banner remain intact.
+}
+
+#[test]
 fn encode_focus_event_gated_and_directional() {
     // Disabled: nothing is emitted regardless of direction.
     assert_eq!(encode_focus_event(false, true), None);

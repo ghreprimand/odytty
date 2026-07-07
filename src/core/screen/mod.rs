@@ -2076,6 +2076,15 @@ impl Terminal {
         self.screen.bracketed_paste_enabled()
     }
 
+    /// Reset the transient input-reporting mode family (bracketed paste, mouse,
+    /// application cursor keys, focus reporting, click events, alternate scroll)
+    /// to power-on defaults without touching cells, scrollback, or the cursor.
+    /// See [`Screen::reset_input_reporting_modes`]; used on remote reconnect to
+    /// keep a dropped session's latched modes from leaking into the fresh shell.
+    pub(crate) fn reset_input_reporting_modes(&mut self) {
+        self.screen.reset_input_reporting_modes();
+    }
+
     /// DECSET 1007 (alternate scroll mode) state. See
     /// [`Screen::alternate_scroll_enabled`].
     pub fn alternate_scroll_enabled(&self) -> bool {

@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-07 -- Reconnect no longer carries stale input modes into the fresh shell
+
+Reconnecting a dropped remote session reuses the existing terminal model so
+the prior scrollback and the "connection dropped" banner survive the respawn.
+That reuse also carried the dropped session's latched input-reporting modes
+across the boundary into what is a brand-new login shell. A stale bracketed
+paste (DEC private mode 2004) — enabled by the previous shell's readline or by
+a full-screen program that exited uncleanly — is the visible failure: the
+reconnected shell's readline never enabled it, but the paste path still saw
+the mode as on and wrapped the pasted text in `\e[200~` / `\e[201~` markers.
+With bracketed paste actually off at the fresh readline, those markers echo
+literally, so a pasted path renders as `^[[200~/path~` and, once the line is
+run, fails.
+
+Reconnect now resets the transient input-reporting family — bracketed paste,
+mouse tracking and encoding, application cursor keys, kitty keyboard, focus
+reporting, OSC 133 click events, and alternate scroll — to power-on defaults
+at respawn, before the new shell's output is processed. This is a scoped
+soft-reset: cells, scrollback, cursor position, and attributes are untouched,
+so the preserved history and dropped banner remain intact, and the fresh shell
+re-emits whatever input modes it wants at its first prompt. Resetting is always
+correct here precisely because the modes belong to a process that has already
+exited.
+
+The image paste-through path itself is unaffected and was verified sound: the
+remote path it pastes is a bare `/tmp/odytty-paste-<hex>.png` with no trailing
+newline, and neither the bracketed nor the plain paste encoder introduces a
+carriage return absent one in the source. The pasted bytes cannot self-execute;
+a run only happens on an explicit Enter.
+
+Windows: the reset is platform-agnostic terminal-model logic and the reconnect
+respawn path is shared, so a Windows client gets the same fix; ControlMaster
+multiplexing is already off there and is orthogonal.
+
+---
+
 ## 2026-07-06 -- Restored remote tabs regain image paste-through
 
 Pasting a screenshot into a restored, integrated remote tab did nothing —

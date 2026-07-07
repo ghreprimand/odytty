@@ -2247,6 +2247,14 @@ impl WorkspaceSet {
             raw_writer, token,
         )));
         let diagnostic = spawned.pending_diagnostic_slot();
+        // Respawning into a FRESH remote login shell: the terminal model is
+        // reused to preserve scrollback, but the dropped session's latched
+        // input-reporting modes must not survive the respawn. A stale bracketed
+        // paste (DEC 2004) would wrap the next paste in \e[200~ / \e[201~
+        // markers the fresh readline never enabled, so it would echo them
+        // literally into the command line. The reconnected shell re-emits
+        // whatever modes it wants at its first prompt.
+        crate::native::lock_recover(&terminal).reset_input_reporting_modes();
         let pump_thread = spawn_pty_pump(
             reader,
             writer.clone(),
@@ -4255,6 +4263,51 @@ mod tests {
         );
         // The reconnect anchor is retained so a second drop can reconnect again.
         assert!(sessions.get(ssh).expect("ssh session").reconnect.is_some());
+        assert!(!sessions.close(ssh));
+        assert!(sessions.close(SessionToken(0)));
+    }
+
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "winit EventLoop cannot be built off the main thread on macOS"
+    )]
+    #[cfg(not(windows))]
+    #[test]
+    fn reconnect_resets_stale_input_reporting_modes() {
+        let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+            return;
+        };
+        let ssh = sessions
+            .spawn_ssh_command_in_new_tab_for_test(Dimensions::new(20, 8), exit_code_command(255))
+            .expect("ssh stub session");
+        // A pre-drop remote shell (or a TUI) latches bracketed paste on the
+        // reused model. Reconnect must clear it so a paste into the FRESH shell
+        // is not wrapped in \e[200~/\e[201~ markers the new readline never
+        // enabled — otherwise they echo literally into the command line.
+        crate::native::lock_recover(&sessions.get(ssh).expect("ssh session").terminal)
+            .advance(b"\x1b[?2004h");
+        assert!(
+            crate::native::lock_recover(&sessions.get(ssh).expect("ssh session").terminal)
+                .bracketed_paste_enabled(),
+            "the pre-drop shell latched bracketed paste on the reused model"
+        );
+
+        let armed = (0..200).any(|_| {
+            if sessions.try_arm_reconnect(ssh) {
+                true
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                false
+            }
+        });
+        assert!(armed, "drop must arm reconnect");
+        assert!(sessions.reconnect(ssh), "reconnect respawns the session");
+        assert!(
+            !crate::native::lock_recover(&sessions.get(ssh).expect("ssh session").terminal)
+                .bracketed_paste_enabled(),
+            "reconnect must clear the pre-drop bracketed-paste latch so a paste \
+             into the fresh shell is not wrapped in markers it never enabled"
+        );
         assert!(!sessions.close(ssh));
         assert!(sessions.close(SessionToken(0)));
     }
