@@ -731,25 +731,50 @@ impl Session {
 
     fn close(mut self) -> bool {
         self.fire_upload_cleanup();
-        match &self.source {
+        let pump_thread = self.pump_thread.take();
+        match self.source {
             SessionSource::Local { pty } => {
-                if let Ok(mut pty) = pty.lock() {
-                    let _ = pty.kill();
-                    let _ = pty.wait();
+                // Kill promptly on the calling (main) thread — SIGKILL delivery
+                // never waits for the child to actually die.
+                if let Ok(mut guard) = pty.lock() {
+                    let _ = guard.kill();
                 }
+                // Defer the blocking reap (`wait`) + reader join to a detached
+                // thread. CLOSE-HANG-2: a ControlPersist mux master can hold the
+                // PTY slave open after the client is killed, so the reader never
+                // sees EOF and its join would block the calling thread — freezing
+                // an interactive tab/workspace close, and compounding across
+                // rapid successive closes. The reaper reaps the zombie and joins
+                // the reader on its own, then exits: no zombie, no thread leak,
+                // and the close returns to the event loop immediately.
+                let _ = std::thread::Builder::new()
+                    .name("odytty-session-close".to_owned())
+                    .spawn(move || {
+                        if let Ok(mut guard) = pty.lock() {
+                            let _ = guard.wait();
+                        }
+                        if let Some(thread) = pump_thread {
+                            let _ = thread.join();
+                        }
+                    });
             }
             // Closing an attached tab is a clean detach: the host keeps the PTY
-            // + terminal model alive for later reattach by id. (`Drop` on the
-            // client is the backstop; this makes the intent explicit.)
+            // + terminal model alive for later reattach by id. `detach()` is
+            // best-effort network I/O and the reader join is unbounded, so run
+            // both off the main thread too (`Drop` on the client is the backstop).
             #[cfg(unix)]
             SessionSource::Attached { client } => {
-                if let Ok(mut client) = client.lock() {
-                    let _ = client.detach();
-                }
+                let _ = std::thread::Builder::new()
+                    .name("odytty-session-close".to_owned())
+                    .spawn(move || {
+                        if let Ok(mut guard) = client.lock() {
+                            let _ = guard.detach();
+                        }
+                        if let Some(thread) = pump_thread {
+                            let _ = thread.join();
+                        }
+                    });
             }
-        }
-        if let Some(thread) = self.pump_thread.take() {
-            let _ = thread.join();
         }
         true
     }
@@ -772,15 +797,22 @@ impl Session {
                     });
             }
             // The host child already exited (or the link dropped). Detach is
-            // best-effort and the pump thread is ending on its own; reap it.
+            // best-effort network I/O and the reader is ending on its own, but a
+            // wedged control socket could still stall an inline detach + join —
+            // run both off the main thread, matching the Local arm.
             #[cfg(unix)]
             SessionSource::Attached { client } => {
-                if let Ok(mut client) = client.lock() {
-                    let _ = client.detach();
-                }
-                if let Some(thread) = pump_thread {
-                    let _ = thread.join();
-                }
+                let client = client.clone();
+                let _ = std::thread::Builder::new()
+                    .name("odytty-session-close".to_owned())
+                    .spawn(move || {
+                        if let Ok(mut client) = client.lock() {
+                            let _ = client.detach();
+                        }
+                        if let Some(thread) = pump_thread {
+                            let _ = thread.join();
+                        }
+                    });
             }
         }
         true
@@ -796,9 +828,11 @@ impl Session {
     /// blocks for the kernel's network timeout, or a reader thread that never
     /// sees EOF — must never delay window teardown. The process is exiting, so
     /// if the deferred reaper outlives the deadline the OS reaps the orphaned
-    /// child and the detached thread dies with the process. Contrast
-    /// [`Self::close`] (single-tab close in a long-lived process), which reaps
-    /// and joins synchronously to avoid a zombie / thread leak.
+    /// child and the detached thread dies with the process. [`Self::close`]
+    /// (single-tab close in a long-lived process) uses the same off-main-thread
+    /// deferral, but its reaper runs to completion — reaping the zombie and
+    /// joining the reader — rather than leaning on process exit, so a live
+    /// process leaks neither.
     fn shutdown(mut self) -> Box<dyn FnOnce() + Send> {
         self.fire_upload_cleanup();
         let pump_thread = self.pump_thread.take();
@@ -3534,6 +3568,66 @@ mod tests {
         assert!(
             elapsed < std::time::Duration::from_secs(2),
             "shutdown must be bounded, not block on the wedged reader join (took {elapsed:?})"
+        );
+    }
+
+    /// CLOSE-HANG-2 regression: an interactive tab/workspace close must not
+    /// block the caller on a wedged reader join. A ControlPersist mux master can
+    /// hold the PTY slave open after the client is killed, so the reader never
+    /// sees EOF and its join would otherwise block for the full park. The
+    /// parked-reader session reproduces that shape; `close` kills synchronously
+    /// and defers wait + join to a detached reaper, returning promptly while the
+    /// reaper finishes later. Fail-before: the old inline `pty.wait()` + join
+    /// blocked the caller ~the park (3s) and blew the assertion; pass-after: it
+    /// returns well under a second.
+    #[test]
+    fn interactive_close_is_bounded_when_a_reader_is_wedged() {
+        let park = std::time::Duration::from_secs(3);
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let wedged = SessionToken(1);
+        set.push(build_session_with_parked_reader(wedged, park));
+
+        let start = Instant::now();
+        let last = set.close(wedged);
+        let elapsed = start.elapsed();
+
+        assert!(
+            !last,
+            "a live tab remains, so close does not signal app exit"
+        );
+        assert_eq!(set.len(), 1, "the wedged session leaves the arena");
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "interactive close must not block on the wedged reader join (took {elapsed:?})"
+        );
+    }
+
+    /// CLOSE-HANG-2 regression: closing several wedged sessions in quick
+    /// succession (the "closed several remote workspaces fast" freeze) must not
+    /// compound serially. Each close defers its reap, so N closes return in
+    /// aggregate well under a second even though every reader is parked.
+    /// Fail-before: the closes summed to N x park (~15s) on the caller.
+    #[test]
+    fn rapid_successive_closes_do_not_compound() {
+        let park = std::time::Duration::from_secs(3);
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let mut wedged = Vec::new();
+        for i in 1..=5u64 {
+            let token = SessionToken(i);
+            set.push(build_session_with_parked_reader(token, park));
+            wedged.push(token);
+        }
+
+        let start = Instant::now();
+        for token in wedged {
+            let _ = set.close(token);
+        }
+        let elapsed = start.elapsed();
+
+        assert_eq!(set.len(), 1, "every wedged session left the arena");
+        assert!(
+            elapsed < std::time::Duration::from_secs(1),
+            "rapid successive closes must not compound serially (took {elapsed:?})"
         );
     }
 

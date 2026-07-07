@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Interactive tab and workspace close no longer blocks on a wedged remote
+
+Closing a tab or workspace ran the session teardown on the main thread:
+the child was killed, then `wait()` reaped it and the reader thread was
+joined inline. With a remote session using a ControlPersist multiplexer, the
+background master process can keep the PTY slave open after the client is
+killed, so the reader never sees EOF and the join never returns — freezing
+the app on the close. Closing several remote workspaces in quick succession
+compounded the stall serially.
+
+Interactive close now mirrors the shutdown teardown: the child is killed
+synchronously (signal delivery never waits), and the blocking reap plus
+reader join move to a short detached reaper thread. The close returns to the
+event loop immediately; the reaper reaps the child and joins the reader on
+its own, so there is no zombie and no thread leak in the long-lived process.
+The attached-tab detach path, which performs best-effort network I/O, moves
+off the main thread as well. Every close entry point inherits this — single
+tab, Close Other Tabs, workspace close, and the replace-tab path — since
+they all reap through the same session-close routine. Two regression tests
+cover it: a close with a wedged reader returns in well under a second (it
+blocked for the full reader park before), and a rapid succession of such
+closes does not compound.
+
+Windows: ConPTY has no multiplexer master, so the EOF trap does not arise
+there, but the reap and join move off the main thread on every platform —
+the teardown pattern is platform-neutral and the `cfg(windows)` surface is
+otherwise unchanged.
+
+---
+
 ## 2026-07-06 -- Opening a layout onto a populated window asks Replace or Add
 
 Opening a saved layout while workspaces were already open silently appended the
