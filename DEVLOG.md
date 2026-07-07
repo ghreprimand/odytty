@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-07 -- Wheel scroll amount now also drives alternate-scroll pagers
+
+The mouse-wheel scroll multiplier (`scroll_wheel_lines`, default six rows per
+notch) now governs alternate-scroll (DECSET 1007) arrow emulation as well as
+local scrollback. On the alternate screen, a program that enables alternate
+scroll without full mouse tracking — classic pagers like `less`, `man`, and
+`git log` — receives the wheel as cursor-key presses; that translation now
+emits the same rows-per-notch as the local viewport, so a pager scrolls in
+step with scrollback rather than at a separate fixed rate. This supersedes the
+prior behavior where the pager path used a fixed step independent of the knob.
+
+The fixed internal step remains the base only for the paths that own the wheel
+magnitude themselves: full mouse-reporting applications, whose report carries
+direction rather than magnitude, and the overlay free-scroll. Continuous
+touchpad pixel input is still never multiplied.
+
+---
+
 ## 2026-07-07 -- Scroll defaults tuned: glide on, six rows per wheel notch
 
 Two scroll defaults now match the tuned interactive feel. Scrollback glides

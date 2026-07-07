@@ -798,6 +798,12 @@ its first stable layer.
   moves in the scroll direction, so continuous input cannot sawtooth. On by
   default; single-pane, primary screen only; high-resolution input uses
   `pixel_scroll`.
+- Wheel scroll amount (`scroll_wheel_lines`, default `6` rows per notch): sets
+  how far one wheel notch moves local scrollback, and the same amount drives
+  alternate-scroll (DECSET 1007) arrow emulation, so pagers like `less`, `man`,
+  and `git log` scroll at the same rows-per-notch as the viewport. Full
+  mouse-reporting applications own the wheel (their report carries direction,
+  not magnitude), and continuous pixel input is never multiplied.
 - Font weight control (`font_weight`, empty = regular by default): selects a
   named base weight face (e.g. `Light`, `Medium`, `SemiBold`) for normal text,
   independently of the SGR bold attribute; bold SGR still contrasts against your

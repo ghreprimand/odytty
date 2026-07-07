@@ -137,12 +137,15 @@ impl Viewport {
     }
 }
 
-/// Convert a mouse-wheel delta into a signed row count at the default step:
-/// positive scrolls up into history, negative scrolls toward the live bottom.
-/// Line deltas map each notch to [`WHEEL_STEP_LINES`] rows; pixel deltas convert
-/// by the cell height. Thin wrapper over [`wheel_lines_scaled`] at the default
-/// step, used by the direction-only reporting path and the overlay free-scroll
-/// (which deliberately ignore the user's local-scroll multiplier).
+/// Convert a mouse-wheel delta into a signed row count at the fixed default
+/// step: positive scrolls up into history, negative scrolls toward the live
+/// bottom. Line deltas map each notch to [`WHEEL_STEP_LINES`] rows; pixel deltas
+/// convert by the cell height. Thin wrapper over [`wheel_lines_scaled`] at the
+/// fixed step, used by the direction-only reporting path and the overlay
+/// free-scroll — paths that own their own magnitude and so deliberately ignore
+/// the user's `scroll_wheel_lines` multiplier. Local scrollback and
+/// alternate-scroll arrow emulation instead go through [`wheel_lines_scaled`]
+/// with the configured multiplier.
 pub(super) fn wheel_lines(delta: MouseScrollDelta, cell_height: u32) -> isize {
     wheel_lines_scaled(delta, cell_height, WHEEL_STEP_LINES)
 }

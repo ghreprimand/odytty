@@ -517,6 +517,14 @@ environment variable was not set at startup.
   stream of notches cannot sawtooth. On by default; single-pane only,
   and only on the primary screen. High-resolution wheels and touchpads use
   `pixel_scroll` instead.
+- `scroll_wheel_lines` sets how many rows one wheel notch advances the local
+  scrollback viewport (default `6`). The same count also drives
+  alternate-scroll (DECSET 1007) arrow emulation, so classic pagers (`less`,
+  `man`, `git log`) that enable alternate-scroll without full mouse tracking
+  scroll at the same rows-per-notch as the viewport. Full mouse-reporting TUIs
+  own the wheel — their report carries direction, not magnitude — so the
+  multiplier does not apply there, and continuous (touchpad pixel) deltas are
+  never multiplied.
 - `cursor_blink = auto` currently resolves to the conventional blinking
   terminal default on Linux.
 - `background_treatment = image` draws a PNG, JPEG, or WebP behind the grid. Use

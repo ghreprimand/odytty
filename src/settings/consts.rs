@@ -403,13 +403,16 @@ pub const MIN_BOX_THICKNESS: f32 = 0.5;
 pub const MAX_BOX_THICKNESS: f32 = 3.0;
 
 /// Mouse-wheel scroll multiplier (`ODYTTY_SCROLL_WHEEL_LINES`, MOUSE-WHEEL-SPEED):
-/// rows of local scrollback advanced per wheel notch. The default `6.0` rows
-/// per notch is chosen for interactive feel; `WHEEL_STEP_LINES` (3) remains the
-/// fixed step used only for TUI / overlay / mouse-reporting paths. Stored as `f32`
-/// to ride the shared numeric-setting model (slider / keyboard step / range
-/// label); the wheel path rounds it to a `usize >= 1`. Local viewport scroll
-/// only — when TUI mouse reporting is active the wheel still reports unchanged,
-/// and continuous (touchpad pixel) deltas are never multiplied.
+/// rows advanced per wheel notch. The default `6.0` rows per notch is chosen
+/// for interactive feel. Applies to BOTH local scrollback and alternate-scroll
+/// (DECSET 1007) arrow emulation, so classic pagers (`less`, `man`, `git log`)
+/// scroll at the same rows-per-notch as the local viewport. `WHEEL_STEP_LINES`
+/// (3) remains the fixed base only for the overlay free-scroll and the
+/// notch-reporting / pixel-conversion paths. Stored as `f32` to ride the shared
+/// numeric-setting model (slider / keyboard step / range label); the wheel path
+/// rounds it to a `usize >= 1`. Full mouse-reporting TUIs still own the wheel —
+/// their report carries direction, not magnitude — and continuous (touchpad
+/// pixel) deltas are never multiplied.
 pub const DEFAULT_SCROLL_WHEEL_LINES: f32 = 6.0;
 pub const MIN_SCROLL_WHEEL_LINES: f32 = 1.0;
 pub const MAX_SCROLL_WHEEL_LINES: f32 = 10.0;

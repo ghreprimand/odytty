@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! ALT-SCROLL (DECSET 1007) routing tests. On the alternate screen — which has
 //! no scrollback — a wheel notch is translated into cursor-key presses so a TUI
-//! that does not track the mouse (a pager, Claude CLI, ...) still scrolls. These
+//! that enables alternate-scroll without full mouse tracking (classic pagers
+//! like `less`, `man`, `git log`) still scrolls. The emulated arrow count
+//! honors the `scroll_wheel_lines` multiplier, so a pager scrolls at the same
+//! rows-per-notch as the local viewport (default 6). These
 //! pin the routing matrix: alt-screen + reporting-off ⇒ arrows (CSI, or SS3
 //! under DECCKM); primary screen ⇒ no PTY write (local scrollback instead);
 //! reporting-on ⇒ the normal wheel report wins; 1007 disabled ⇒ no arrows.
@@ -32,7 +35,7 @@ impl Write for RecordingWriter {
 /// Build an `App` whose PTY writes are recorded, after feeding `setup` (mode
 /// sequences) into the terminal. The recorder is cleared before return so a test
 /// only sees bytes the wheel produces. Returns `None` when no PTY is available.
-fn app_with_setup(setup: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
+fn app_with_setup_settings(setup: &[u8], settings: Settings) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
     let dims = Dimensions::new(COLS, ROWS);
     let session = spawn_test_pause_shell(dims).ok()?;
     let recorder = RecordingWriter::default();
@@ -49,11 +52,15 @@ fn app_with_setup(setup: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
         terminal,
         writer,
         pty,
-        Settings::default(),
+        settings,
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
     bytes.lock().expect("bytes").clear();
     Some((app, bytes))
+}
+
+fn app_with_setup(setup: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
+    app_with_setup_settings(setup, Settings::default())
 }
 
 fn wheel_up(app: &mut App) {
@@ -69,13 +76,14 @@ fn recorded(bytes: &Arc<Mutex<Vec<u8>>>) -> Vec<u8> {
 
 #[test]
 fn alt_screen_wheel_up_sends_up_arrows() {
-    // Enter the alternate screen (1049h). A wheel-up notch becomes the default
-    // 3 Up cursor keys in CSI form — byte-identical to three real Up presses.
+    // Enter the alternate screen (1049h). A wheel-up notch becomes the
+    // multiplier-scaled 6 Up cursor keys in CSI form (byte-identical to six
+    // real Up presses at the default `scroll_wheel_lines` of 6).
     let Some((mut app, bytes)) = app_with_setup(b"\x1b[?1049h") else {
         return;
     };
     wheel_up(&mut app);
-    assert_eq!(recorded(&bytes), b"\x1b[A".repeat(3));
+    assert_eq!(recorded(&bytes), b"\x1b[A".repeat(6));
 }
 
 #[test]
@@ -84,7 +92,7 @@ fn alt_screen_wheel_down_sends_down_arrows() {
         return;
     };
     wheel_down(&mut app);
-    assert_eq!(recorded(&bytes), b"\x1b[B".repeat(3));
+    assert_eq!(recorded(&bytes), b"\x1b[B".repeat(6));
 }
 
 #[test]
@@ -96,7 +104,7 @@ fn alt_screen_decckm_uses_ss3_arrows() {
         return;
     };
     wheel_up(&mut app);
-    assert_eq!(recorded(&bytes), b"\x1bOA".repeat(3));
+    assert_eq!(recorded(&bytes), b"\x1bOA".repeat(6));
 }
 
 #[test]
@@ -127,7 +135,7 @@ fn alt_screen_with_mouse_reporting_suppresses_alt_scroll_arrows() {
     let out = recorded(&bytes);
     assert_ne!(
         out,
-        b"\x1b[A".repeat(3),
+        b"\x1b[A".repeat(6),
         "reporting must suppress alt-scroll"
     );
     assert!(
@@ -148,5 +156,41 @@ fn alt_screen_with_1007_disabled_sends_nothing() {
     assert!(
         recorded(&bytes).is_empty(),
         "1007-disabled wheel must not emit cursor keys"
+    );
+}
+
+#[test]
+fn alt_scroll_arrow_count_tracks_wheel_lines_setting() {
+    // RE-COUPLE: the alternate-scroll (DECSET 1007) arrow emulation honors the
+    // `scroll_wheel_lines` multiplier, so a pager scrolls at the same
+    // rows-per-notch as local scrollback. At 3 lines/notch a wheel-up notch
+    // emits 3 Up arrows; at the default 6 it emits 6 — the count follows the
+    // knob, not a fixed step.
+    let three = Settings {
+        scroll_wheel_lines: 3.0,
+        ..Settings::default()
+    };
+    let Some((mut app, bytes)) = app_with_setup_settings(b"\x1b[?1049h", three) else {
+        return;
+    };
+    wheel_up(&mut app);
+    assert_eq!(
+        recorded(&bytes),
+        b"\x1b[A".repeat(3),
+        "scroll_wheel_lines=3 must emit 3 Up arrows"
+    );
+
+    let six = Settings {
+        scroll_wheel_lines: 6.0,
+        ..Settings::default()
+    };
+    let Some((mut app, bytes)) = app_with_setup_settings(b"\x1b[?1049h", six) else {
+        return;
+    };
+    wheel_up(&mut app);
+    assert_eq!(
+        recorded(&bytes),
+        b"\x1b[A".repeat(6),
+        "scroll_wheel_lines=6 must emit 6 Up arrows"
     );
 }

@@ -564,6 +564,9 @@ impl App {
         if self.modal_captures_pointer() {
             return;
         }
+        // Full mouse-tracking TUIs (vim with mouse, tmux, htop, Claude Code)
+        // own the wheel: the SGR/legacy report carries direction, not
+        // magnitude, so `scroll_wheel_lines` deliberately does not apply here.
         if self.should_report_mouse_to_pty() {
             let _ = self.handle_reported_wheel(delta);
             return;
@@ -607,25 +610,27 @@ impl App {
         }
 
         // WHEEL-SENS + MOUSE-WHEEL-SPEED: coalesce the burst into discrete
-        // notches, then local scrollback honors the configured per-notch
-        // multiplier (`scroll_wheel_lines`, default 6). The TUI reporting and
-        // overlay paths intentionally use the fixed default step
-        // (`WHEEL_STEP_LINES`), so the multiplier affects only local viewport
-        // scrolling.
+        // notches, then honor the configured per-notch multiplier
+        // (`scroll_wheel_lines`, default 6) for BOTH local scrollback and
+        // alternate-scroll (DECSET 1007) arrow emulation, so a pager scrolls
+        // at the same rows-per-notch as the local viewport. The fixed
+        // `WHEEL_STEP_LINES` stays the base only for the mouse-reporting and
+        // overlay free-scroll paths, which own the wheel magnitude themselves.
         if let Some(notch) = self.wheel_accum.coalesce_scroll(delta, cell_height) {
             let lines = wheel_lines_scaled(notch, cell_height, self.settings.scroll_wheel_step());
             if lines == 0 {
                 return;
             }
             // ALT-SCROLL (DECSET 1007): on the alternate screen (which has no
-            // scrollback) a non-mouse-tracking TUI like a pager or Claude CLI
-            // expects the wheel to move via cursor keys. Reporting is already off
-            // here (the report gate returned above), so translate the wheel into
-            // Up/Down presses at the FIXED step (`scroll_wheel_lines` is
-            // documented local-scroll only, so the pager step stays stable);
-            // otherwise move the local scrollback viewport by the multiplied count.
+            // scrollback) a TUI that enables alternate-scroll WITHOUT full mouse
+            // tracking — classic pagers like `less`, `man`, `git log` — expects
+            // the wheel to move via cursor keys. Reporting is already off here
+            // (the report gate returned above), so translate the wheel into
+            // Up/Down presses at the SAME multiplied count as local scrollback
+            // (`scroll_wheel_lines`), keeping pagers in step with the viewport;
+            // otherwise move the local scrollback viewport by that count.
             if self.alternate_scroll_active() {
-                self.send_wheel_as_arrows(wheel_lines(notch, cell_height));
+                self.send_wheel_as_arrows(lines);
             } else {
                 let target = self.local_wheel_scroll_target();
                 self.scroll_viewport_of(target, lines);
