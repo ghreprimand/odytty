@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-07 -- Uploaded image path is copied to the clipboard, not typed into the shell
+
+Completing an image paste into an integrated remote tab uploads the PNG and
+produces a remote path (`/tmp/odytty-paste-<hex>.png`). That path was typed
+into the shell at the prompt, which is confusing: it lands as editable input on
+an otherwise-empty line, so the natural Enter runs it and fails ("Permission
+denied" -- a PNG is not executable). The path is an argument, not a command.
+
+The successful-upload completion no longer writes anything to the shell.
+Instead it posts a one-line in-pane notice -- `image uploaded  <path> · copied
+to clipboard` -- and copies the remote path to the local clipboard, so it can
+be pasted as an argument wherever it is needed. Overwriting the clipboard image
+is intended: the image has been uploaded, so the path is the deliverable. The
+failure path is unchanged (its one-line notice still renders in the pane).
+
+The upload runs on a background worker; clipboard access is main-thread/UI-bound
+on some platforms, so the completion is marshalled back to the main event loop
+via a new event carrying the session and the remote path. The main handler
+writes the notice into the originating pane's model and performs the clipboard
+copy. The verbatim-paste encode path added for the previous fix is removed with
+its only caller.
+
+State: full suite green. A headless test drives the completion handler and
+asserts the path is copied to the clipboard, a notice is posted into the pane,
+and NO bytes are written to the PTY. Platform-agnostic -- the notice is
+terminal-model text and the clipboard write uses the app's existing
+cross-platform clipboard; no PTY or upload-transport change.
+
+---
+
 ## 2026-07-07 -- Uploaded image paths inject verbatim, never bracketed
 
 Pasting a clipboard image into an integrated remote tab uploads the PNG over

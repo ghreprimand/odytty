@@ -7,15 +7,17 @@
 //! system `ssh` binary — the same credential-delegating transport as the connect
 //! path, never an embedded ssh — streaming the bytes into a remote `cat` that
 //! creates the file `0600` under an unguessable `/tmp` name. On success the
-//! remote path is injected into the shell verbatim (unbracketed, nothing is
-//! executed); on failure a one-line notice is written into the pane. Either way
-//! a redraw is woken so the result renders.
+//! remote path is NOT typed into the shell (a bare path on an empty prompt
+//! would run on the next Enter and error); instead the completion is marshalled
+//! to the main thread, which posts a one-line in-pane notice and copies the
+//! path to the local clipboard so it can be pasted as an argument. On failure a
+//! one-line notice is written into the pane. Either way a redraw is woken so
+//! the result renders.
 
 use std::process::{Command, Stdio};
 
 use super::super::pty::UserEvent;
 use super::super::session::RemoteUploadJob;
-use crate::native::clipboard::write_text_unbracketed;
 use crate::native::lock_recover;
 
 /// Hand a confirmed image paste to a background upload worker. Fire-and-forget:
@@ -30,25 +32,30 @@ fn run_upload(job: RemoteUploadJob, png: Vec<u8>) {
     let remote_path = crate::ssh_connect::remote_upload_target();
     match perform_upload(&job, &png, &remote_path) {
         Ok(()) => {
-            // Record the path for best-effort cleanup on tab close, then inject
-            // it into the shell verbatim -- unbracketed regardless of the pane's
-            // paste mode. A stale DEC 2004 state on a restored/reconnected remote
-            // pane would otherwise echo the bracketed-paste markers literally
-            // around the path; the path is a self-generated, newline-free token,
-            // so nothing executes.
+            // Register the path for best-effort cleanup on tab close, then hand
+            // the completion to the main thread: it posts an in-pane notice and
+            // copies the path to the local clipboard. Nothing is typed into the
+            // shell. Clipboard I/O is main-thread/UI-bound on some platforms, so
+            // it must not run on this worker.
             lock_recover(&job.uploaded).push(remote_path.clone());
-            let _ = write_text_unbracketed(&job.writer, &remote_path);
+            if let Some(proxy) = job.proxy.as_ref() {
+                let _ = proxy.send_event(UserEvent::ImageUploaded {
+                    session: job.session,
+                    remote_path,
+                });
+            }
         }
         Err(reason) => {
+            // The failure notice only writes the terminal model, so it stays on
+            // the worker; a redraw is woken below.
             let banner = format!("\r\n\x1b[1;31m image upload failed \x1b[0m {reason}\r\n");
             lock_recover(&job.terminal).advance(banner.as_bytes());
+            if let Some(proxy) = job.proxy.as_ref() {
+                let _ = proxy.send_event(UserEvent::Redraw {
+                    session: job.session,
+                });
+            }
         }
-    }
-    // Wake a redraw so the injected path / failure notice renders promptly.
-    if let Some(proxy) = job.proxy.as_ref() {
-        let _ = proxy.send_event(UserEvent::Redraw {
-            session: job.session,
-        });
     }
 }
 

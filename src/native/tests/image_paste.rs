@@ -51,6 +51,95 @@ fn app_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
     Some((app, event_loop))
 }
 
+/// Build a headless `App` (no `EventLoop`, no window) whose sole session's PTY
+/// writer records every byte into the returned buffer. Used to prove the
+/// image-upload completion handler writes NOTHING to the shell. Returns `None`
+/// only if a test PTY can't be spawned.
+fn recorded_app() -> Option<(App, std::sync::Arc<std::sync::Mutex<Vec<u8>>>)> {
+    struct RecordingWriter {
+        bytes: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    }
+    impl std::io::Write for RecordingWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.bytes.lock().expect("bytes").extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let dims = Dimensions::new(80, 24);
+    let session = spawn_test_pause_shell(dims).ok()?;
+    let _ = session.take_writer().ok()?;
+    let bytes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorder = RecordingWriter {
+        bytes: bytes.clone(),
+    };
+    let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
+    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let pty = Arc::new(Mutex::new(session));
+    let app = App::new(
+        NativeOptions::default(),
+        terminal,
+        writer,
+        pty,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    Some((app, bytes))
+}
+
+#[test]
+fn image_upload_completion_notifies_and_copies_without_pty_write() {
+    // IMAGE-PASTE-NOTICE: a successful image upload must NOT type the remote
+    // path into the shell (a bare path on an empty prompt runs on the next
+    // Enter and errors). Instead the completion posts an in-pane notice and
+    // copies the path to the local clipboard.
+    let Some((mut app, bytes)) = recorded_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let token = app.active_session_token_for_test();
+    let remote_path = "/tmp/odytty-paste-0123456789abcdef0123456789abcdef.png".to_owned();
+    app.reset_last_clipboard_write_for_test();
+
+    let should_exit = app.dispatch_user_event_for_test(UserEvent::ImageUploaded {
+        session: token,
+        remote_path: remote_path.clone(),
+    });
+    assert!(!should_exit);
+
+    // (1) The remote path is copied to the local clipboard, exactly.
+    assert_eq!(
+        app.last_clipboard_write_for_test().as_deref(),
+        Some(remote_path.as_str()),
+        "the remote path is copied to the clipboard"
+    );
+
+    // (2) A self-explaining notice landed in the originating pane.
+    let pane = app
+        .session_plain_text_for_test(0)
+        .expect("session plain text");
+    assert!(
+        pane.contains("image uploaded"),
+        "an 'image uploaded' notice is posted: {pane:?}"
+    );
+    // "copied to clipboard" may wrap at the grid edge, so check the tokens
+    // rather than the exact phrase.
+    assert!(
+        pane.contains("copied") && pane.contains("clipboard"),
+        "the notice explains the path was copied: {pane:?}"
+    );
+
+    // (3) NOTHING was written to the PTY: the confusing bare-path insertion is
+    // gone. This is the regression guard.
+    assert!(
+        bytes.lock().expect("bytes").is_empty(),
+        "image-upload completion writes no bytes to the shell"
+    );
+}
+
 macro_rules! app_or_skip {
     () => {{
         let Some((app, event_loop)) = app_with_proxy() else {

@@ -15,12 +15,23 @@ use super::session::SessionToken;
 /// The loop otherwise sleeps (`ControlFlow::Wait`) with no input wired this
 /// packet, so these proxy events are what drive redraws as shell output
 /// arrives and what signals a clean exit when the shell ends.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// Not `Copy`: the `ImageUploaded` variant carries an owned `String`. Every
+// send/handle site constructs a fresh event and moves it once, so dropping
+// `Copy` costs nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum UserEvent {
     /// New PTY output landed in the shared terminal; rebuild + redraw.
     Redraw { session: SessionToken },
     /// The shell's PTY reached EOF (shell exited): exit the loop.
     ShellExited { session: SessionToken },
+    /// F6-i7: a background image upload finished successfully. The worker sends
+    /// this so the MAIN thread can post the in-pane notice and copy the remote
+    /// path to the local clipboard -- clipboard I/O is main-thread/UI-bound on
+    /// some platforms and the upload worker never touches it.
+    ImageUploaded {
+        session: SessionToken,
+        remote_path: String,
+    },
 }
 
 /// The single PTY master writer, shared behind a lock.

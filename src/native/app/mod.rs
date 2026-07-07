@@ -3940,6 +3940,34 @@ impl App {
                     false
                 }
             }
+            UserEvent::ImageUploaded {
+                session,
+                remote_path,
+            } => {
+                // F6-i7 post-upload UX: the background upload finished. The
+                // remote path is NOT typed into the shell -- a bare path sitting
+                // on an empty prompt runs on the next Enter and errors (the PNG
+                // is not executable). Instead post a self-explaining notice into
+                // the originating pane and copy the path to the local clipboard,
+                // so it can be pasted as an argument wherever it is wanted.
+                if let Some(target) = self.sessions.get_mut(session) {
+                    let banner = format!(
+                        "\r\n\x1b[1;32m image uploaded \x1b[0m {remote_path} \u{b7} copied to clipboard\r\n"
+                    );
+                    crate::native::lock_recover(&target.terminal).advance(banner.as_bytes());
+                    target.needs_rebuild = true;
+                    target.last_render_signature = None;
+                }
+                // Overwriting the clipboard image is intended: the image is
+                // uploaded now, so the remote path is the deliverable.
+                let _ = self.clipboard.write_text(&remote_path);
+                if self.sessions.is_visible_pane(session)
+                    && let Some(window) = self.window.as_ref()
+                {
+                    window.request_redraw();
+                }
+                false
+            }
         }
     }
 

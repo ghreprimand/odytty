@@ -186,7 +186,6 @@ pub(super) struct RemoteUploadJob {
     pub(super) port: Option<u16>,
     pub(super) control_dir: Option<std::path::PathBuf>,
     pub(super) uploaded: Arc<Mutex<Vec<String>>>,
-    pub(super) writer: PtyWriter,
     pub(super) terminal: Arc<Mutex<Terminal>>,
     pub(super) proxy: Option<EventLoopProxy<UserEvent>>,
 }
@@ -2197,7 +2196,6 @@ impl WorkspaceSet {
             port: upload.port(),
             control_dir: upload.control_dir().map(Path::to_path_buf),
             uploaded: upload.uploaded_handle(),
-            writer: session.writer.clone(),
             terminal: session.terminal.clone(),
             proxy: self.proxy.clone(),
         })
