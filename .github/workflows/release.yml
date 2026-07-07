@@ -270,11 +270,14 @@ jobs:
     # and its SHA256SUMS exist. Runs in an Arch container for makepkg / updpkgsums
     # / namcap, and pushes to the SEPARATE AUR git repo (not this repo's master).
     #
-    # Failure mode: this job runs AFTER `release` has already published the
-    # GitHub release (and after `scoop`). If AUR_SSH_PRIVATE_KEY is unset or the
-    # push fails, this job goes red but nothing already published is rolled back
-    # — fix forward (set the secret and re-run, or publish by hand via the
-    # dist/aur/README.md runbook).
+    # The AUR package is currently community-maintained (an external packager
+    # tracks the GitHub releases), so upstream does not self-publish. When no
+    # AUR_SSH_PRIVATE_KEY secret is configured, the push step skips cleanly and
+    # the job stays green — the PKGBUILD is still stamped and namcap-linted as a
+    # validation gate. To take over upstream publishing later, obtain maintainer
+    # rights to the `odytty` pkgbase, add the secret, and re-run; the push then
+    # activates automatically. This job runs AFTER `release` has published the
+    # GitHub release, so nothing already published depends on it.
     needs: [release]
     runs-on: ubuntu-latest
     container: archlinux:base-devel
@@ -327,9 +330,9 @@ jobs:
           set -euo pipefail
           version="${{ steps.ver.outputs.version }}"
           if [ -z "${AUR_SSH_PRIVATE_KEY:-}" ]; then
-            echo "::error::AUR_SSH_PRIVATE_KEY is not set — cannot push to the AUR."
-            echo "The GitHub release is already published; set the secret and re-run, or publish by hand via dist/aur/README.md."
-            exit 1
+            echo "AUR publish skipped: no AUR_SSH_PRIVATE_KEY configured."
+            echo "The AUR package is community-maintained; upstream does not self-publish this release. Nothing to do."
+            exit 0
           fi
           install -d -m700 ~/.ssh
           printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur

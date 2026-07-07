@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-07 -- AUR publish step skips cleanly when no signing key is configured
+
+The release workflow's AUR job no longer fails the release matrix when there is
+no AUR signing key to push with. The package is currently community-maintained
+— an external packager tracks the GitHub releases on the AUR — so upstream does
+not self-publish. With no `AUR_SSH_PRIVATE_KEY` secret set, the push step now
+logs that the publish was skipped and exits successfully, keeping the release
+matrix green. The PKGBUILD is still stamped with the release version and linted
+with `namcap` in the same job, so it remains a validation gate. Taking over
+upstream publishing later only requires maintainer rights to the `odytty`
+pkgbase plus the secret; the existing push path then activates unchanged.
+
+---
+
 ## 2026-07-07 -- Documentation refresh: image paste, layout modes, remote restore
 
 The public documentation was brought level with recently shipped behavior. The
