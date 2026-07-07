@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Restored remote tabs regain image paste-through
+
+Pasting a screenshot into a restored, integrated remote tab did nothing —
+no upload prompt appeared, unlike a freshly-connected tab to the same host.
+The restore path rebuilt the remote session with its reconnect anchor and
+remote destination but never attached the image paste-through upload
+descriptor, so the paste trigger saw no remote upload target and silently
+fell back to the plain clipboard path.
+
+The upload descriptor is now built by a single shared helper used by both
+the fresh-connect and restore paths, so a restored integrated pane is
+configured identically to a freshly-connected one and the two cannot drift.
+Paste-through remains a remote-integrated feature: a plain-ssh restored pane
+leaves it unset and its paste path stays byte-identical. An audit of the
+restore path against the connect path confirmed this was the only piece of
+per-session bookkeeping the restore missed — theme, cursor, scrollback, and
+OSC-52 state are already reapplied to restored sessions, and the reconnect
+anchor and remote destination were already set.
+
+Windows: the upload descriptor is still attached for an integrated restored
+pane; only its optional ControlMaster directory is always absent there (no
+socket multiplexing on a Windows client), and the `scp.exe` upload path is
+unaffected.
+
+---
+
 ## 2026-07-06 -- Interactive tab and workspace close no longer blocks on a wedged remote
 
 Closing a tab or workspace ran the session teardown on the main thread:

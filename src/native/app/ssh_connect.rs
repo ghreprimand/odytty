@@ -617,7 +617,12 @@ impl RemoteRestoreContext {
         let host = self.resolve(identity)?;
         let opts = self.options_for(&host);
         let command = crate::ssh_connect::ssh_command_for_host_with_options(&host, &opts).ok()?;
-        set.insert_ssh_restored_session(grid, command, identity.to_owned())
+        // RESTORE-UPLOAD: carry the image paste-through descriptor so a restored
+        // integrated pane uploads pasted images exactly like a fresh connect.
+        // Built by the same shared helper the connect path uses, so the two stay
+        // in lockstep; `None` for a plain-ssh (integration-off) pane.
+        let upload = crate::native::session::WorkspaceSet::remote_upload_for(&host, &opts);
+        set.insert_ssh_restored_session(grid, command, identity.to_owned(), upload)
             .ok()
     }
 }

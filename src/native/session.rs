@@ -1698,17 +1698,25 @@ impl WorkspaceSet {
 
     /// Spawn a restored remote `ssh` session (RESTORE-REMOTE) and insert it into
     /// the arena WITHOUT tab/pane wiring — the restore rebuild owns tree
-    /// assembly. Mirrors the connect path's reconnect-anchor + remote-destination
-    /// bookkeeping so a restored remote pane behaves exactly like a
-    /// freshly-connected one: a mid-session drop re-runs this argv, and the next
-    /// shape capture records it as remote again. The remote shell lands at its
-    /// own default directory (the captured remote cwd is not `chdir`'d in v1).
-    /// Windows uses the same `ssh.exe` argv with no ControlMaster options.
+    /// assembly. Mirrors the connect path's per-session bookkeeping so a restored
+    /// remote pane behaves exactly like a freshly-connected one: the
+    /// reconnect-anchor (a mid-session drop re-runs this argv), the
+    /// remote-destination (the next shape capture records it as remote again),
+    /// and the image paste-through `upload` descriptor (built by the caller with
+    /// [`Self::remote_upload_for`], `Some` only for an integrated host — a
+    /// plain-ssh restored pane passes `None` and its paste path stays
+    /// byte-identical). Without it a restored integrated pane could not upload a
+    /// pasted image, unlike its freshly-connected twin. The remote shell lands at
+    /// its own default directory (the captured remote cwd is not `chdir`'d in
+    /// v1). Windows uses the same `ssh.exe` argv with no ControlMaster options;
+    /// `upload` is still set for an integrated pane (its `scp.exe` path is
+    /// unaffected, `control_dir` simply always `None` there).
     pub(super) fn insert_ssh_restored_session(
         &mut self,
         grid: crate::core::Dimensions,
         command: SshCommand,
         remote_destination: String,
+        upload: Option<RemoteUpload>,
     ) -> Result<SessionToken, std::io::Error> {
         let reconnect = RemoteReconnect::new(command.clone());
         let (program, args) = command.into_program_args();
@@ -1716,6 +1724,7 @@ impl WorkspaceSet {
         if let Some(session) = self.sessions.get_mut(&session_id) {
             session.reconnect = Some(reconnect);
             session.remote_destination = Some(remote_destination);
+            session.upload = upload;
         }
         Ok(session_id)
     }
@@ -1809,21 +1818,42 @@ impl WorkspaceSet {
         // Image paste-through (F6-i7) engages only on a remote *integrated*
         // session. Capture the upload descriptor here where the resolved host and
         // options are known; a plain-ssh (integration-off) tab leaves it unset so
-        // its paste path stays byte-identical. The `ControlMaster` dir is passed
-        // only when reuse established a master, so the upload multiplexes over
-        // the live session rather than pointing at a socket that never opened.
-        if opts.integration
-            && let Ok(destination) = crate::ssh_connect::ssh_destination(host)
+        // its paste path stays byte-identical. Built by the shared helper so the
+        // restore path stays in lockstep (RESTORE-UPLOAD).
+        if let Some(upload) = Self::remote_upload_for(host, opts)
             && let Some(session) = self.sessions.get_mut(&session_id)
         {
-            let control_dir = if opts.reuse {
-                opts.control_dir.clone()
-            } else {
-                None
-            };
-            session.upload = Some(RemoteUpload::new(destination, host.port, control_dir));
+            session.upload = Some(upload);
         }
         Ok(session_id)
+    }
+
+    /// The image paste-through upload descriptor (F6-i7) for a resolved host +
+    /// options, or `None` when paste-through does not engage. Paste-through is a
+    /// remote *integrated* feature, so a plain-ssh (integration-off) session gets
+    /// `None` and its paste path stays byte-identical. The `ControlMaster` dir is
+    /// carried only when reuse established a master, so the upload multiplexes
+    /// over the live session rather than pointing at a socket that never opened.
+    /// Shared by the fresh-connect ([`Self::connect_ssh_in_new_tab`]) and restore
+    /// ([`Self::insert_ssh_restored_session`]) paths so a restored integrated
+    /// pane is configured identically to a freshly-connected one — the two must
+    /// not drift (RESTORE-UPLOAD). Windows: `control_dir` is always `None` there
+    /// (no socket multiplexing); the descriptor is otherwise identical and the
+    /// `scp.exe` upload path is unaffected.
+    pub(super) fn remote_upload_for(
+        host: &ConnectionHost,
+        opts: &RemoteSshOptions,
+    ) -> Option<RemoteUpload> {
+        if !opts.integration {
+            return None;
+        }
+        let destination = crate::ssh_connect::ssh_destination(host).ok()?;
+        let control_dir = if opts.reuse {
+            opts.control_dir.clone()
+        } else {
+            None
+        };
+        Some(RemoteUpload::new(destination, host.port, control_dir))
     }
 
     fn spawn_ssh_command_in_new_tab(
@@ -3967,6 +3997,127 @@ mod tests {
                 .is_none()
         );
         assert!(!sessions.close(ssh));
+        assert!(sessions.close(SessionToken(0)));
+    }
+
+    /// RESTORE-UPLOAD: image paste-through (F6-i7) is a remote *integrated*
+    /// feature, so the shared upload-descriptor builder engages only when
+    /// integration is on and yields the ssh destination; a plain-ssh host leaves
+    /// it unset. Pure logic, so it also covers the Windows client (where
+    /// `control_dir` is always `None` but the descriptor is otherwise identical).
+    #[test]
+    fn remote_upload_for_engages_only_on_integrated_hosts() {
+        let host = crate::connection_hosts::parse_adhoc_target("root@host.example.invalid")
+            .expect("adhoc target parses")
+            .to_connection_host();
+        let integrated = RemoteSshOptions {
+            integration: true,
+            ..RemoteSshOptions::default()
+        };
+        let plain = RemoteSshOptions {
+            integration: false,
+            ..RemoteSshOptions::default()
+        };
+        assert_eq!(
+            WorkspaceSet::remote_upload_for(&host, &integrated)
+                .map(|upload| upload.destination().to_owned()),
+            Some("root@host.example.invalid".to_owned()),
+            "an integrated host carries the paste-through upload descriptor"
+        );
+        assert!(
+            WorkspaceSet::remote_upload_for(&host, &plain).is_none(),
+            "a plain-ssh host leaves paste-through unset"
+        );
+    }
+
+    /// RESTORE-UPLOAD regression: a restored *integrated* remote pane exposes its
+    /// image paste-through target exactly like a freshly-connected one, so
+    /// pasting a screenshot into a restored remote tab offers the upload.
+    /// Fail-before: `insert_ssh_restored_session` never set `session.upload`, so
+    /// `active_remote_upload_target()` was `None` on every restored pane and the
+    /// paste bailed silently. Pass-after: the descriptor flows through.
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "winit EventLoop cannot be built off the main thread on macOS"
+    )]
+    #[cfg(not(windows))]
+    #[test]
+    fn restored_integrated_remote_pane_exposes_its_upload_target() {
+        let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+            return;
+        };
+        let host = crate::connection_hosts::parse_adhoc_target("root@host.example.invalid")
+            .expect("adhoc target parses")
+            .to_connection_host();
+        let integrated = RemoteSshOptions {
+            integration: true,
+            ..RemoteSshOptions::default()
+        };
+        let upload = WorkspaceSet::remote_upload_for(&host, &integrated);
+        let token = sessions
+            .insert_ssh_restored_session(
+                Dimensions::new(20, 8),
+                exit_code_command(0),
+                "root@host.example.invalid".to_owned(),
+                upload,
+            )
+            .expect("restored ssh session");
+        // Restore inserts into the arena without tab wiring (the rebuild owns the
+        // pane tree); graft + focus so the active_* API resolves to it.
+        sessions
+            .active_workspace_mut()
+            .tabs
+            .push(Tab::single(token));
+        assert!(sessions.switch(token));
+        assert_eq!(
+            sessions.active_remote_upload_target(),
+            Some("root@host.example.invalid".to_owned()),
+            "a restored integrated remote pane engages image paste-through"
+        );
+        assert!(!sessions.close(token));
+        assert!(sessions.close(SessionToken(0)));
+    }
+
+    /// RESTORE-UPLOAD: a restored plain-ssh (integration-off) remote pane leaves
+    /// paste-through unset — byte-identical to before — so a restored pane never
+    /// gains a capability its freshly-connected twin lacks.
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "winit EventLoop cannot be built off the main thread on macOS"
+    )]
+    #[cfg(not(windows))]
+    #[test]
+    fn restored_plain_remote_pane_leaves_paste_through_unset() {
+        let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+            return;
+        };
+        let host = crate::connection_hosts::parse_adhoc_target("root@host.example.invalid")
+            .expect("adhoc target parses")
+            .to_connection_host();
+        let plain = RemoteSshOptions {
+            integration: false,
+            ..RemoteSshOptions::default()
+        };
+        let upload = WorkspaceSet::remote_upload_for(&host, &plain);
+        let token = sessions
+            .insert_ssh_restored_session(
+                Dimensions::new(20, 8),
+                exit_code_command(0),
+                "root@host.example.invalid".to_owned(),
+                upload,
+            )
+            .expect("restored ssh session");
+        sessions
+            .active_workspace_mut()
+            .tabs
+            .push(Tab::single(token));
+        assert!(sessions.switch(token));
+        assert_eq!(
+            sessions.active_remote_upload_target(),
+            None,
+            "a plain-ssh restored pane stays byte-identical: no paste-through"
+        );
+        assert!(!sessions.close(token));
         assert!(sessions.close(SessionToken(0)));
     }
 
