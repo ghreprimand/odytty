@@ -780,6 +780,8 @@ impl App {
             self.open_notice_deadline(),
             // UX-A (Phase 11) click-hint auto-expiry — `None` when no hint shown.
             self.click_hint_deadline(),
+            // SCROLL-GLIDE follower — `None` at rest / on the off path.
+            self.scroll_glide_deadline(),
         ]
         .into_iter()
         .flatten()

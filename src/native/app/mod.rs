@@ -2659,6 +2659,10 @@ impl App {
         // rebuild re-baselines (snaps) instead of fading up to a full viewport.
         // No-op when `new_output_fade` is off (the tracker is already empty).
         self.row_fade_starts.clear();
+        // SCROLL-GLIDE: a switch is a viewport discontinuity — settle the
+        // incoming session's follower so it renders at its exact offset rather
+        // than a stale lagging position.
+        self.snap_scroll_glide_of(self.sessions.active_id());
         self.recompute_grid_for_tab_bar();
         self.tab_bar.set_hover(None);
         self.last_render_signature = None;
@@ -4948,6 +4952,14 @@ impl ApplicationHandler<UserEvent> for App {
                             // sequence) so the single-pane and multipane paths
                             // stay in lockstep.
                             let offset = self.anchor_viewport_for_render(scrollback_len);
+                            // SCROLL-GLIDE: advance the forward-chase follower
+                            // one frame toward the just-anchored offset and
+                            // snapshot at its floored row (the sub-row remainder
+                            // rides the existing scroll_frac_offset seam, so the
+                            // shift is always under one cell). Both are a no-op /
+                            // the logical offset unless a glide is in flight.
+                            self.update_scroll_glide(now, cell.height, offset);
+                            let offset = self.glide_render_offset(offset, scrollback_len);
                             let mut search = std::mem::take(&mut self.search);
                             // P0-3: same-frame search refresh + graphics read.
                             let terminal = crate::native::lock_recover(&self.terminal);

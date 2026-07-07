@@ -1338,6 +1338,13 @@ pub struct Settings {
     /// than the finger. Stored as `f32` to ride the shared numeric-setting model.
     /// Applies only to pixel-precise input, never the detented-wheel path.
     pub scroll_pixel_speed: f32,
+    /// Animated scrollback glide between discrete wheel notches (SCROLL-GLIDE).
+    /// Default OFF. When on, a notch moves the integer viewport offset instantly
+    /// and the rendered viewport eases toward it with a forward-chase follower
+    /// that only moves in the scroll direction (so a notch stream cannot
+    /// sawtooth). Only detented wheels use this; high-resolution/touchpad input
+    /// uses `pixel_scroll`. At rest the render path is byte-identical.
+    pub scroll_glide: bool,
     /// Colour-vision-deficiency palette adaptation mode (U4, Accessibility).
     /// `Off` by default — the off path publishes the authored palette unchanged
     /// and is pixel-identical to before. The deficiency modes daltonise the
@@ -1535,6 +1542,7 @@ impl Default for Settings {
             window_opacity: DEFAULT_WINDOW_OPACITY,
             pixel_scroll: DEFAULT_PIXEL_SCROLL,
             scroll_pixel_speed: DEFAULT_SCROLL_PIXEL_SPEED,
+            scroll_glide: DEFAULT_SCROLL_GLIDE,
             cvd_mode: CvdMode::default(),
             cvd_strength: DEFAULT_CVD_STRENGTH,
             bell: BellMode::default(),
@@ -2085,6 +2093,12 @@ impl Settings {
         );
         let scroll_pixel_speed =
             parse_scroll_pixel_speed(get(SCROLL_PIXEL_SPEED_ENV).as_deref(), &mut warn);
+        let scroll_glide = parse_bool_setting(
+            get(SCROLL_GLIDE_ENV).as_deref(),
+            SCROLL_GLIDE_ENV,
+            DEFAULT_SCROLL_GLIDE,
+            &mut warn,
+        );
         let copy_on_select = parse_bool_setting(
             get(COPY_ON_SELECT_ENV).as_deref(),
             COPY_ON_SELECT_ENV,
@@ -2370,6 +2384,7 @@ impl Settings {
             window_opacity,
             pixel_scroll,
             scroll_pixel_speed,
+            scroll_glide,
             cvd_mode,
             cvd_strength,
             bell,
@@ -2603,6 +2618,7 @@ impl Settings {
             SCROLL_PIXEL_SPEED_ENV,
             format_float(self.scroll_pixel_speed),
         );
+        values.insert(SCROLL_GLIDE_ENV, bool_display(self.scroll_glide).to_owned());
         values.insert(CVD_MODE_ENV, self.cvd_mode.as_str().to_owned());
         values.insert(CVD_STRENGTH_ENV, format_float(self.cvd_strength));
         values.insert(BELL_ENV, self.bell.as_str().to_owned());

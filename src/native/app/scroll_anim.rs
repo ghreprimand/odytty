@@ -25,6 +25,7 @@
 //! hard-zeros the shared GPU offset at `panes.rs`).
 
 use super::*;
+use std::time::Duration;
 
 /// Apply `d_rows` of continuous scroll travel to a running sub-row remainder,
 /// returning the whole-row carry (to move the integer viewport offset) and the
@@ -38,6 +39,34 @@ fn carry_scroll_frac(frac: f32, d_rows: f32) -> (isize, f32) {
     let total = frac + d_rows;
     let whole = total.trunc();
     (whole as isize, total - whole)
+}
+
+/// Time constant for the SCROLL-GLIDE follower's exponential approach. Larger =
+/// slower, longer glide; smaller = snappier. A tuning const so the feel can be
+/// retuned without touching the stepping math.
+const SCROLL_GLIDE_TAU: Duration = Duration::from_millis(80);
+
+/// Frame pacing for the glide animation wake (matches the other frame-paced
+/// animations), and the assumed dt for the first frame after arming.
+const SCROLL_GLIDE_FRAME: Duration = Duration::from_millis(16);
+
+/// The follower settles (snaps to the logical offset and ends the glide) once it
+/// is within this many rows of the target — well under a pixel at any cell size.
+const GLIDE_SETTLE_ROWS: f32 = 0.01;
+
+/// One frame of the SCROLL-GLIDE forward-chase follower: ease `visual` toward
+/// `logical` by an exponential factor derived from the real frame `dt` and the
+/// time constant `tau`, so the motion is frame-rate independent. The factor
+/// `1 - e^(-dt/tau)` is in `[0, 1)` for any positive `dt`, so the result never
+/// overshoots or reverses past `logical`. With `logical` only ever moving in the
+/// scroll direction, that makes the chase structurally sawtooth-proof (unlike
+/// the removed catch-up ease, which re-armed a backward displacement per notch).
+/// Pure, so the approach behavior is unit-testable without a clock or GPU.
+fn glide_step(visual: f32, logical: f32, dt: Duration, tau: Duration) -> f32 {
+    let dt_s = dt.as_secs_f32();
+    let tau_s = tau.as_secs_f32().max(1e-4);
+    let alpha = (1.0 - (-dt_s / tau_s).exp()).clamp(0.0, 1.0);
+    visual + (logical - visual) * alpha
 }
 
 impl App {
@@ -167,6 +196,147 @@ impl App {
     /// cache reclassifies and the GPU rebuilds the shifted vertices.
     pub(super) fn scroll_frac_bits(&self) -> u32 {
         self.scroll_frac_offset.to_bits()
+    }
+
+    /// Whether a discrete wheel/keyboard scroll should engage the SCROLL-GLIDE
+    /// follower: the `scroll_glide` knob is on, the active tab is a single pane
+    /// (v1 renders the sub-row shift only on that path), the primary screen is
+    /// showing (no scrollback to glide on the alternate screen), and the pointer
+    /// is not mid selection-drag (drag-autoscroll steps whole rows).
+    fn scroll_glide_eligible(&self) -> bool {
+        self.settings.scroll_glide
+            && self.sessions.active_is_single_pane()
+            && !self.pointer_drag.is_selecting()
+            && self.on_primary_screen()
+    }
+
+    /// The follower's rendered position just before a scroll jump, for
+    /// [`Self::arm_scroll_glide_of`]: the lagging visual of an in-flight glide,
+    /// else the current integer offset. Read BEFORE the offset moves so a notch
+    /// stream keeps chasing from where it currently renders.
+    pub(super) fn scroll_glide_start_visual(&self, token: SessionToken) -> f32 {
+        self.sessions
+            .get(token)
+            .map(|session| {
+                if session.glide_active {
+                    session.glide_visual
+                } else {
+                    session.viewport.offset() as f32
+                }
+            })
+            .unwrap_or(0.0)
+    }
+
+    /// Arm (or re-arm) the glide follower for `token` after a user-initiated
+    /// wheel/keyboard scroll moved the integer offset. `start_visual` is where
+    /// the follower was rendering before the jump, so a notch stream keeps
+    /// chasing without a reset. The lag is clamped to one viewport height so a
+    /// rapid burst cannot leave a long laggy crawl. No-op when the glide is
+    /// ineligible (off / multipane / alt-screen / selecting) or the lag is
+    /// already negligible, leaving the byte-identical instant-scroll path.
+    pub(super) fn arm_scroll_glide_of(&mut self, token: SessionToken, start_visual: f32) {
+        if !self.scroll_glide_eligible() {
+            return;
+        }
+        let vp_rows = self.grid.rows.max(1) as f32;
+        if let Some(session) = self.sessions.get_mut(token) {
+            let logical = session.viewport.offset();
+            let logical_f = logical as f32;
+            let visual = start_visual.clamp(logical_f - vp_rows, logical_f + vp_rows);
+            if (visual - logical_f).abs() < GLIDE_SETTLE_ROWS {
+                return;
+            }
+            session.glide_visual = visual;
+            session.glide_active = true;
+            session.glide_target = logical;
+            session.glide_last_tick = None;
+        }
+    }
+
+    /// Snap the glide follower for `token` to rest (visual == logical, no wake) —
+    /// the snap-by-default seam alongside [`Self::clear_scroll_frac_of`]. Zeroes
+    /// the sub-row pixel offset only when a glide was actually in flight, so a
+    /// snap on an idle session leaves any continuous-lane remainder untouched.
+    pub(super) fn snap_scroll_glide_of(&mut self, token: SessionToken) {
+        if let Some(session) = self.sessions.get_mut(token) {
+            if session.glide_active {
+                session.glide_active = false;
+                session.scroll_frac_offset = 0.0;
+            }
+            session.glide_last_tick = None;
+            session.glide_visual = session.viewport.offset() as f32;
+        }
+    }
+
+    /// Advance the active session's glide follower one frame toward `logical`
+    /// (the just-anchored integer offset), setting the sub-row pixel offset the
+    /// render reads. A no-op unless a glide is in flight, so the off path costs
+    /// one branch. Snaps immediately when the target moved between frames (output
+    /// growth re-anchored the offset) or once the follower settles within
+    /// [`GLIDE_SETTLE_ROWS`] of the target.
+    pub(super) fn update_scroll_glide(&mut self, now: Instant, cell_height: u32, logical: usize) {
+        let cell_h = cell_height as f32;
+        let token = self.sessions.active_id();
+        let Some(session) = self.sessions.get_mut(token) else {
+            return;
+        };
+        if !session.glide_active {
+            return;
+        }
+        // A between-frame target change (output growth re-anchored the scrolled
+        // viewport) is a snap site: land at the new logical offset immediately
+        // rather than gliding across the re-anchoring.
+        if session.glide_target != logical {
+            session.glide_active = false;
+            session.glide_last_tick = None;
+            session.glide_visual = logical as f32;
+            session.scroll_frac_offset = 0.0;
+            return;
+        }
+        let dt = match session.glide_last_tick {
+            Some(prev) => now.saturating_duration_since(prev),
+            None => SCROLL_GLIDE_FRAME,
+        };
+        session.glide_last_tick = Some(now);
+        let logical_f = logical as f32;
+        let next = glide_step(session.glide_visual, logical_f, dt, SCROLL_GLIDE_TAU);
+        if (next - logical_f).abs() < GLIDE_SETTLE_ROWS {
+            session.glide_active = false;
+            session.glide_last_tick = None;
+            session.glide_visual = logical_f;
+            session.scroll_frac_offset = 0.0;
+        } else {
+            session.glide_visual = next;
+            session.scroll_frac_offset = (next - next.floor()) * cell_h;
+        }
+    }
+
+    /// The scrollback offset the active session should SNAPSHOT at this frame:
+    /// the glide follower's floored row while a glide is in flight (so the
+    /// content_origin sub-row shift is always under one cell — no multi-row edge
+    /// gap), else the passed-through logical offset, clamped to a valid offset.
+    /// The logical `viewport` offset is unchanged — selection, scrollbar, and
+    /// "at live bottom" all still read it; only the render snapshot follows the
+    /// glide.
+    pub(super) fn glide_render_offset(&self, logical: usize, scrollback_len: usize) -> usize {
+        let token = self.sessions.active_id();
+        match self.sessions.get(token) {
+            Some(session) if session.glide_active => {
+                (session.glide_visual.floor().max(0.0) as usize).min(scrollback_len)
+            }
+            _ => logical,
+        }
+    }
+
+    /// Frame-paced animation wake while a glide is in flight (`None` at rest / on
+    /// the off path), folded into [`App::animation_deadline`] so the maintenance
+    /// pass repaints every frame until the follower settles.
+    pub(super) fn scroll_glide_deadline(&self) -> Option<Instant> {
+        let token = self.sessions.active_id();
+        self.sessions
+            .get(token)
+            .filter(|session| session.glide_active)
+            .map(|_| Instant::now() + SCROLL_GLIDE_FRAME)
     }
 }
 
@@ -344,6 +514,186 @@ mod tests {
         assert!(
             !app.continuous_scroll_eligible(),
             "with the knob off, PixelDelta falls back to the notch path"
+        );
+    }
+
+    // --- SCROLL-GLIDE pure follower (no App / no GPU) -----------------------
+
+    #[test]
+    fn glide_step_is_a_monotonic_forward_chase() {
+        let tau = Duration::from_millis(80);
+        let dt = Duration::from_millis(16);
+        // Chasing upward (logical > visual): each step advances toward 5 and
+        // never overshoots or reverses. This is the anti-sawtooth invariant.
+        let mut v = 0.0f32;
+        for _ in 0..200 {
+            let next = glide_step(v, 5.0, dt, tau);
+            assert!(next > v - 1e-6, "never reverses: {next} vs {v}");
+            assert!(next <= 5.0 + 1e-6, "never overshoots the target: {next}");
+            v = next;
+        }
+        assert!((v - 5.0).abs() < 0.01, "converges to the target: {v}");
+
+        // Chasing downward is symmetric (logical < visual): monotone decrease,
+        // no undershoot past the target.
+        let mut v = 5.0f32;
+        for _ in 0..200 {
+            let next = glide_step(v, 0.0, dt, tau);
+            assert!(next < v + 1e-6, "never reverses downward: {next} vs {v}");
+            assert!(next >= -1e-6, "never undershoots the target: {next}");
+            v = next;
+        }
+        assert!(v.abs() < 0.01, "converges downward: {v}");
+    }
+
+    #[test]
+    fn glide_step_bigger_dt_moves_further_but_never_past_target() {
+        let tau = Duration::from_millis(80);
+        // A large dt (a dropped-frame catch-up) moves most of the way in one
+        // step, but the exponential factor stays < 1, so it never overshoots.
+        let small = glide_step(0.0, 10.0, Duration::from_millis(8), tau);
+        let big = glide_step(0.0, 10.0, Duration::from_millis(64), tau);
+        assert!(
+            big > small,
+            "a longer frame advances further: {big} vs {small}"
+        );
+        assert!(big < 10.0, "even a long frame does not overshoot: {big}");
+    }
+
+    // --- SCROLL-GLIDE App integration (real PTY, synthetic cell height) -----
+
+    #[test]
+    fn scroll_glide_off_is_byte_identical() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        let sb = seed_scrollback(&app);
+        assert!(sb >= 5);
+        assert!(!app.settings.scroll_glide, "off by default");
+        let token = app.sessions.active_id();
+        app.scroll_viewport_of(token, 5);
+        assert_eq!(app.viewport.offset(), 5, "the integer offset still jumps");
+        assert!(!app.glide_active, "no glide armed on the off path");
+        assert_eq!(
+            app.scroll_frac_offset, 0.0,
+            "no sub-row shift on the off path"
+        );
+        assert_eq!(app.scroll_frac_bits(), 0, "render signature bit stays 0");
+        assert_eq!(
+            app.glide_render_offset(5, sb),
+            5,
+            "render snapshots at the logical offset when no glide is armed"
+        );
+    }
+
+    #[test]
+    fn scroll_glide_on_arms_a_lagging_follower() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        let sb = seed_scrollback(&app);
+        assert!(sb >= 5);
+        app.settings.scroll_glide = true;
+        let token = app.sessions.active_id();
+        app.scroll_viewport_of(token, 5);
+        // The logical offset jumps instantly; the follower lags at the old
+        // position and the render snapshots there until it eases up.
+        assert_eq!(app.viewport.offset(), 5, "logical offset is instant");
+        assert!(app.glide_active, "the glide is armed");
+        assert!((app.glide_visual - 0.0).abs() < 1e-6, "follower lags at 0");
+        assert_eq!(
+            app.glide_render_offset(5, sb),
+            0,
+            "render snapshots at the follower's floored row, not the logical row"
+        );
+    }
+
+    #[test]
+    fn glide_follower_eases_toward_logical_and_settles() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        let sb = seed_scrollback(&app);
+        assert!(sb >= 5);
+        app.settings.scroll_glide = true;
+        let token = app.sessions.active_id();
+        app.scroll_viewport_of(token, 5);
+        assert!(app.glide_active);
+
+        let base = Instant::now();
+        let mut prev = app.glide_visual;
+        let mut settled = false;
+        for i in 1..=400u32 {
+            app.update_scroll_glide(base + Duration::from_millis(16 * i as u64), 16, 5);
+            if !app.glide_active {
+                settled = true;
+                break;
+            }
+            assert!(
+                app.glide_visual >= prev - 1e-6,
+                "follower only moves toward the target: {} vs {prev}",
+                app.glide_visual
+            );
+            assert!(app.glide_visual <= 5.0 + 1e-6, "never overshoots");
+            prev = app.glide_visual;
+        }
+        assert!(settled, "the glide settles in bounded time");
+        assert_eq!(
+            app.viewport.offset(),
+            5,
+            "logical offset unchanged by the glide"
+        );
+        assert!(
+            (app.glide_visual - 5.0).abs() < 1e-6,
+            "follower lands on the target"
+        );
+        assert_eq!(
+            app.scroll_frac_offset, 0.0,
+            "no residual sub-row shift at rest"
+        );
+        assert_eq!(app.scroll_glide_deadline(), None, "no wake once settled");
+    }
+
+    #[test]
+    fn viewport_change_snaps_the_glide() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        let sb = seed_scrollback(&app);
+        assert!(sb >= 5);
+        app.settings.scroll_glide = true;
+        let token = app.sessions.active_id();
+        app.scroll_viewport_of(token, 5);
+        assert!(app.glide_active, "precondition: glide armed");
+        // Any non-scroll viewport change (here, return-to-live on input) snaps
+        // the follower to the exact offset — no gliding a programmatic jump.
+        app.return_to_live();
+        assert!(!app.glide_active, "return-to-live snaps the glide");
+        assert_eq!(app.scroll_frac_offset, 0.0, "snap zeroes the sub-row shift");
+        assert_eq!(app.viewport.offset(), 0, "back at the live tail");
+    }
+
+    #[test]
+    fn glide_lag_is_clamped_to_one_viewport_height() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        let sb = seed_scrollback(&app);
+        assert!(sb >= 5);
+        app.settings.scroll_glide = true;
+        let token = app.sessions.active_id();
+        app.scroll_viewport_of(token, 5);
+        let vp = app.grid.rows.max(1) as f32;
+        let logical = app.viewport.offset() as f32;
+        // A start far beyond one viewport of lag: the clamp caps the follower's
+        // starting lag at one viewport height so a rapid burst cannot leave a
+        // long laggy crawl. visual starts exactly `logical - vp` behind.
+        app.arm_scroll_glide_of(token, logical - vp * 10.0);
+        assert!(app.glide_active);
+        assert!(
+            (app.glide_visual - (logical - vp)).abs() < 1e-6,
+            "lag clamped to one viewport height ({vp}): {}",
+            app.glide_visual
         );
     }
 }

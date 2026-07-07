@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-07 -- Optional animated scroll glide for discrete wheels
+
+Discrete mouse wheels emit whole detents with no sub-step data (a high-resolution
+free-spin wheel only fires them faster, not finer), so pixel-precise tracking
+cannot smooth them — the only source of smoothness between notches is animating
+the notch itself. An opt-in `scroll_glide` setting (default off) does that.
+
+The mechanism is a forward-chase damped follower, deliberately unlike the eased
+catch-up that was removed earlier this cycle. A wheel notch still moves the
+integer viewport offset instantly — that offset remains the single source of
+truth for selection coordinates, the scrollbar, return-to-live, and "am I at the
+live bottom." Only the *rendered* position is a follower: each frame it eases
+toward the logical offset by a frame-rate-independent exponential factor, moving
+only in the scroll direction. Because a continuing gesture only ever pushes the
+target further the same way, the follower can never reverse, so a stream of
+notches cannot sawtooth the way the catch-up model did.
+
+Rendering snapshots at the follower's floored row and carries the sub-row
+remainder through the existing content-origin shift, so the displacement is
+always under one cell and never opens a multi-row gap regardless of how far the
+follower lags. Every non-scroll viewport change — typing back to live, a search
+jump, a scrollbar drag, a resize, output growth while scrolled back — snaps the
+follower to the exact offset rather than gliding a programmatic jump, and the
+lag is capped at one viewport height so a burst cannot leave a long crawl. At
+rest the follower sits exactly on the offset and the render path is
+byte-identical to before; the feature is single-pane and primary-screen only.
+
+---
+
 ## 2026-07-07 -- Full-selection copy across scrollback
 
 A mouse selection extended past the visible viewport — select, then scroll to

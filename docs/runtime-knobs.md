@@ -421,6 +421,7 @@ environment variable was not set at startup.
 | `scroll_drag_speed` | `ODYTTY_SCROLL_DRAG_SPEED` | `ramp`, `legacy` | `ramp` |
 | `pixel_scroll` | `ODYTTY_PIXEL_SCROLL` | `on`, `off` | `on` |
 | `scroll_pixel_speed` | `ODYTTY_SCROLL_PIXEL_SPEED` | Float, `0.25..=4.0` | `1.0` |
+| `scroll_glide` | `ODYTTY_SCROLL_GLIDE` | `on`, `off` | `off` |
 | `selection_drag_extend` | `ODYTTY_SELECTION_DRAG_EXTEND` | `on`, `off` | `on` |
 | `scrollbar_drag` | `ODYTTY_SCROLLBAR_DRAG` | `on`, `off` | `on` |
 | `wheel_zoom` | `ODYTTY_WHEEL_ZOOM` | `on`, `off` | `on` |
@@ -508,6 +509,14 @@ environment variable was not set at startup.
   multiplier for the continuous pixel lane. `1.0` tracks finger travel exactly;
   higher scrolls faster than the finger, lower slower. It applies only to
   pixel-precise input, never to detented wheels.
+- `scroll_glide` (default off) animates scrollback between discrete wheel
+  notches. Detented wheels emit whole notches with no sub-step data, so pixel
+  tracking cannot help them; instead the integer viewport offset still jumps
+  instantly per notch, but the rendered view eases toward it over a few frames
+  — a forward-chase follower that only ever moves in the scroll direction, so a
+  stream of notches cannot sawtooth. Off by default (opt-in); single-pane only,
+  and only on the primary screen. High-resolution wheels and touchpads use
+  `pixel_scroll` instead.
 - `cursor_blink = auto` currently resolves to the conventional blinking
   terminal default on Linux.
 - `background_treatment = image` draws a PNG, JPEG, or WebP behind the grid. Use

@@ -135,6 +135,9 @@ scroll_drag_speed = ramp
 # (on by default); scroll_pixel_speed is the 1:1 sensitivity multiplier.
 pixel_scroll = on
 scroll_pixel_speed = 1.0
+# Animate scrollback between discrete wheel notches (forward-chase glide).
+# Off by default; touchpads/hi-res wheels use pixel_scroll above instead.
+scroll_glide = off
 selection_drag_extend = on
 scrollbar_drag = on
 wheel_zoom = on

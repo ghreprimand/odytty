@@ -2351,6 +2351,9 @@ impl App {
     /// pane through [`Self::scroll_viewport`].
     pub(super) fn scroll_viewport_of(&mut self, token: SessionToken, delta: isize) {
         let scrollback_len = self.scrollback_len_of(token);
+        // SCROLL-GLIDE: capture where the follower currently renders BEFORE the
+        // offset jumps, so a notch stream re-arms from its lagging position.
+        let glide_start_visual = self.scroll_glide_start_visual(token);
         let changed = {
             let Some(session) = self.sessions.get_mut(token) else {
                 return;
@@ -2365,10 +2368,13 @@ impl App {
         };
         if changed {
             // Discrete notch scrolling moves the integer `Viewport::offset`
-            // immediately and renders on the exact row — there is no ease.
-            // `on_viewport_changed_of` snaps by default, clearing any sub-row
-            // remainder the continuous (pixel) lane may have left.
+            // immediately. `on_viewport_changed_of` snaps by default (clearing
+            // any continuous-lane remainder AND the glide follower); re-arm the
+            // SCROLL-GLIDE follower right after so the RENDERED viewport eases
+            // toward the new offset (a no-op / instant jump when the knob is off
+            // or the glide is ineligible).
             self.on_viewport_changed_of(token);
+            self.arm_scroll_glide_of(token, glide_start_visual);
         }
     }
 
@@ -2427,6 +2433,9 @@ impl App {
         // offset. The continuous lane re-writes the remainder after this call.
         // No-op at rest (byte-identical off path).
         self.clear_scroll_frac_of(token);
+        // SCROLL-GLIDE: the same snap-by-default seam settles the forward-chase
+        // follower to the exact offset; the scroll path re-arms it afterward.
+        self.snap_scroll_glide_of(token);
         self.hovered_hyperlink = self
             .pointer_cell
             .and_then(|point| self.visible_cell_hyperlink(point));

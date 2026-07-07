@@ -175,6 +175,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "scroll_drag_speed",
             "pixel_scroll",
             "scroll_pixel_speed",
+            "scroll_glide",
             "scrollbar_drag",
             "wheel_zoom",
             "command_status_gutter",
@@ -999,6 +1000,31 @@ fn pixel_scroll_round_trips_through_config_key_mapping() {
         env_to_config_key(SCROLL_PIXEL_SPEED_ENV),
         Some("scroll_pixel_speed")
     );
+}
+
+#[test]
+fn scroll_glide_round_trips_and_defaults_off() {
+    // The new discrete-wheel glide knob maps both ways and stays off by default
+    // (proven-then-flip). Config parsing is generic, so an explicit value is
+    // honored without any per-field code.
+    assert_eq!(config_key_to_env("scroll_glide"), Some(SCROLL_GLIDE_ENV));
+    assert_eq!(config_key_to_env("glidescroll"), Some(SCROLL_GLIDE_ENV));
+    assert_eq!(env_to_config_key(SCROLL_GLIDE_ENV), Some("scroll_glide"));
+
+    let (settings, warnings) = settings_from_config_and_env("", []);
+    assert!(!settings.scroll_glide, "scroll_glide is off by default");
+    assert!(warnings.is_empty());
+
+    let (settings, warnings) = settings_from_config_and_env(
+        "scroll_glide = on
+",
+        [],
+    );
+    assert!(
+        settings.scroll_glide,
+        "an explicit scroll_glide = on parses"
+    );
+    assert!(warnings.is_empty());
 }
 
 #[test]

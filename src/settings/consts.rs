@@ -59,6 +59,7 @@ pub const SCROLLBACK_LINES_ENV: &str = "ODYTTY_SCROLLBACK_LINES";
 pub const SCROLL_DRAG_SPEED_ENV: &str = "ODYTTY_SCROLL_DRAG_SPEED";
 pub const PIXEL_SCROLL_ENV: &str = "ODYTTY_PIXEL_SCROLL";
 pub const SCROLL_PIXEL_SPEED_ENV: &str = "ODYTTY_SCROLL_PIXEL_SPEED";
+pub const SCROLL_GLIDE_ENV: &str = "ODYTTY_SCROLL_GLIDE";
 pub const COPY_ON_SELECT_ENV: &str = "ODYTTY_COPY_ON_SELECT";
 pub const SMART_CTRL_C_ENV: &str = "ODYTTY_SMART_CTRL_C";
 pub const SELECTION_DRAG_EXTEND_ENV: &str = "ODYTTY_SELECTION_DRAG_EXTEND";
@@ -163,6 +164,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SCROLL_DRAG_SPEED_ENV,
     PIXEL_SCROLL_ENV,
     SCROLL_PIXEL_SPEED_ENV,
+    SCROLL_GLIDE_ENV,
     COPY_ON_SELECT_ENV,
     SMART_CTRL_C_ENV,
     SELECTION_DRAG_EXTEND_ENV,
@@ -527,6 +529,16 @@ pub const MAX_WINDOW_OPACITY: f32 = 100.0;
 /// input — classic detented wheels (line deltas) keep the notch path unchanged
 /// whether this is on or off, and at rest the render path is byte-identical.
 pub const DEFAULT_PIXEL_SCROLL: bool = true;
+
+/// Animated scrollback glide between discrete wheel notches
+/// (`ODYTTY_SCROLL_GLIDE`): default OFF. When on, a wheel notch moves the
+/// integer viewport offset instantly (as always) but the RENDERED viewport
+/// eases toward it over a few frames — a forward-chase follower that only ever
+/// moves in the scroll direction, so continuous notches cannot sawtooth.
+/// Discrete wheels emit whole notches with no sub-step data, so this is the
+/// only source of smoothness for them; high-resolution / touchpad devices use
+/// `pixel_scroll` instead. At rest the render path is byte-identical.
+pub const DEFAULT_SCROLL_GLIDE: bool = false;
 
 /// Sensitivity multiplier for the continuous pixel-scroll lane
 /// (`ODYTTY_SCROLL_PIXEL_SPEED`). `1.0` (default) tracks finger travel exactly

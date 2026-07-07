@@ -339,6 +339,17 @@ pub(super) struct Session {
     /// [`Self::scroll_frac_offset`]. `0.0` at rest.
     pub(super) scroll_frac_rows: f32,
     pub(super) scroll_frac_offset: f32,
+    /// SCROLL-GLIDE forward-chase follower. `glide_visual` is the rendered
+    /// viewport position in offset-rows; it eases toward the integer
+    /// `viewport` offset while `glide_active`. `glide_target` is the logical
+    /// offset being chased (a between-frame change of it, e.g. output growth,
+    /// snaps the glide). `glide_last_tick` is the previous frame time for the
+    /// frame-rate-independent step. Inactive/at rest: `glide_active == false`,
+    /// `glide_visual == offset`, and the render path is byte-identical.
+    pub(super) glide_visual: f32,
+    pub(super) glide_active: bool,
+    pub(super) glide_target: usize,
+    pub(super) glide_last_tick: Option<Instant>,
     /// Remote reconnect anchor (F6-i4). `Some` only for sessions launched through
     /// the `ssh` connect path; `None` for a local shell, so exit classification
     /// and the reconnect prompt never engage for a local session. See
@@ -526,6 +537,10 @@ impl Session {
             row_fade_epoch: 0,
             scroll_frac_rows: 0.0,
             scroll_frac_offset: 0.0,
+            glide_visual: 0.0,
+            glide_active: false,
+            glide_target: 0,
+            glide_last_tick: None,
             reconnect: None,
             awaiting_reconnect: false,
             upload: None,
