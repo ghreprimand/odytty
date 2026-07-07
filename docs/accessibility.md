@@ -76,12 +76,37 @@ Both are disabled on the `render_quality = plain` path.
 
 ## Reduced motion and a calm profile
 
-Every motion effect is **off by default**, so a fresh install is already static:
-cursor easing, cursor glide/motion, cursor glow, the cursor trail (which also
-requires cursor motion), the new-output fade, and smooth scrolling are all off
-unless you turn them on. Smooth scrolling, when enabled, never adds input
-latency — the scroll target snaps immediately and only the sub-row pixel offset
-eases.
+Most cursor motion is off by default, so a fresh install is nearly static.
+Cursor slide (`cursor_motion`), cursor glow (`cursor_glow`), and the new-output
+fade (`new_output_fade`) are all off unless you turn them on. The cursor trail
+(`cursor_trail`) is enabled but only draws while cursor slide is also on, so with
+slide off there is no trail either.
+
+Three motion features *are* on by default, because none of them adds input
+latency:
+
+- **Cursor blink fade** (`cursor_easing`) eases the cursor's opacity in and out
+  across each blink instead of switching it hard on and off. It only acts while
+  the cursor is blinking and the window is focused; it never moves the cursor.
+- **Animated scroll glide** (`scroll_glide`) applies to detented wheels: a notch
+  still moves the viewport instantly, but the rendered view eases toward the new
+  position over a few frames.
+- **Continuous pixel scrolling** (`pixel_scroll`) tracks high-resolution wheels
+  and touchpads 1:1 on a sub-row lane.
+
+For both scroll features the scroll target snaps immediately — only the visual
+position eases, and it moves solely in the scroll direction, so it cannot
+overshoot.
+
+There is no reduced-motion or "calm" master switch that forces these off; a
+fully static terminal requires turning them off explicitly:
+
+```conf
+# odytty.conf — no cursor or scroll motion at all
+cursor_easing = off
+scroll_glide = off
+pixel_scroll = off
+```
 
 Two ambient effects *are* on by default — `bloom` and `crt` (a subtle scanline
 and vignette). The default `visual = ambient` is a back-compat alias that folds
@@ -94,7 +119,9 @@ turn these off individually:
 bloom = off
 crt = off
 visual = off
-# (all motion effects are already off by default)
+# cursor slide, glow, and the new-output fade are already off by default;
+# add cursor_easing = off, scroll_glide = off, pixel_scroll = off for a
+# fully static terminal (see above)
 ```
 
 The `render_quality = plain` profile disables post-processing, background

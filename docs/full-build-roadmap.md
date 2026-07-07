@@ -240,8 +240,10 @@ Sharp, stable, comfortable text is a primary product pillar.
   renderer.
 - **Shipped — Per-codepoint font override.** `symbol_map` maps codepoint ranges
   to chosen fallback font families.
-- **Shipped — Smooth scrolling** on a bounded latency budget, with instant
-  scroll preserved as the default-safe path.
+- **Shipped — Scroll feel.** Detented wheels ease the rendered view toward each
+  notch over a few frames (`scroll_glide`); high-resolution wheels and touchpads
+  track physical travel 1:1 on a continuous pixel lane (`pixel_scroll`). Both
+  default on, and the scroll target snaps instantly so there is no input latency.
 - **Shipped — Stem-darkening default activation.** The rasterization machinery
   ships default-on at `0.5`, with `0.0` as the byte-identical opt-out.
 - **Someday — Legibility font features.** A narrow, charter-clean subset (such

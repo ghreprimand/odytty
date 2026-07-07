@@ -252,8 +252,12 @@ highest-priority additions.
   U+2580–259F, Braille, and Powerline separators rendered as pixel-perfect
   geometry at exact cell size rather than font glyphs. Controlled by
   `ODYTTY_GEOMETRIC_BOXDRAW` / `geometric_boxdraw`; default on (since v0.6.0).
-- **Smooth scrolling (landed):** interpolated viewport movement within a strict
-  bounded 80 ms latency budget; instant/off mode preserved and default-safe.
+- **Scroll glide and pixel scrolling (landed, default-on):** detented wheels ease
+  the rendered view toward each notch over a few frames (`scroll_glide`);
+  high-resolution wheels and touchpads track physical travel 1:1 on a continuous
+  sub-row lane (`pixel_scroll`, `scroll_pixel_speed`). The scroll target snaps
+  instantly, so neither adds input latency, and both move only in the scroll
+  direction so they cannot overshoot.
 - **Stem darkening for light-on-dark text (landed, default-on):** a coverage
   boost that keeps glyph stroke weight on light-on-dark displays.
   `ODYTTY_STEM_DARKEN` / `stem_darken`, range `0.0`–`1.0`, default `0.7`.

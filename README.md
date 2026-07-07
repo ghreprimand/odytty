@@ -451,7 +451,8 @@ events, UTF-8, SGR, urxvt, legacy encodings, and SGR-pixel mode 1016 with true
 physical pixel coordinates from the native window. Alternate scroll mode (1007,
 default on) translates the wheel into cursor-key presses on the alternate
 screen, so full-screen TUIs that do not track the mouse — pagers and similar —
-scroll with the wheel.
+scroll with the wheel at the same rows-per-notch as the local viewport
+(the configured `scroll_wheel_lines` amount).
 
 Keyboard support includes mode-aware legacy encoding and the Kitty keyboard
 protocol as a negotiated overlay. With no Kitty flags active, legacy bytes are
