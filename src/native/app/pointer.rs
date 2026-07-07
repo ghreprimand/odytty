@@ -674,34 +674,14 @@ impl App {
 
     pub(super) fn current_selection_text(&self) -> Option<String> {
         let range = self.selection.range()?;
-        // P0-3: poison-recover instead of aborting across the AppKit→Rust FFI on
-        // the copy / PRIMARY-selection choke point. Byte-identical when healthy.
-        let terminal = crate::native::lock_recover(&self.terminal);
-        let scrollback_len = terminal.screen().scrollback_len();
-        let offset = self.viewport.offset();
-        // MOUSE-RECT: a block selection copies the column band on every row
-        // (`selected_text_block`), versus the wrapped path's first/last-partial
-        // run. Both branches resolve the visible range and early-return on a
-        // fully-off-viewport selection BEFORE snapshotting, so the wrapped path
-        // stays byte-identical (same calls, same order) and the block path skips
-        // the snapshot clone when nothing is visible. This single choke point is
-        // shared by PRIMARY, CLIPBOARD, copy-on-select, and the keyboard copy.
-        if self.selection_block {
-            let visible_range = selection::visible_block_range_from_absolute(
-                range,
-                offset,
-                scrollback_len,
-                self.grid,
-            )?;
-            let snapshot = terminal.snapshot_with_scrollback(offset);
-            let text = selection::selected_text_block(&snapshot, visible_range);
-            (!text.is_empty()).then_some(text)
-        } else {
-            let visible_range =
-                selection::visible_range_from_absolute(range, offset, scrollback_len, self.grid)?;
-            let snapshot = terminal.snapshot_with_scrollback(offset);
-            selected_clipboard_text(&snapshot, visible_range)
-        }
+        // Extract the FULL absolute selection (spanning scrollback), never
+        // clamped to the visible viewport: a selection scrolled partly off
+        // screen copies in full. The scrollback-window walk is shared with the
+        // copy-mode yank so mouse and keyboard copy can never diverge. This
+        // single choke point is shared by PRIMARY, CLIPBOARD, copy-on-select,
+        // and keyboard copy; `selection_block` picks the wrapped vs column-band
+        // rule.
+        self.absolute_selection_text(range, self.selection_block)
     }
 
     pub(super) fn editable_input_selection_for_context_menu(

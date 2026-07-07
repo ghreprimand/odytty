@@ -45,28 +45,25 @@ fn clipboard_slot_can_drop_failed_or_stale_handle() {
 }
 
 #[test]
-fn selected_clipboard_text_is_plain_terminal_text() {
+fn selected_text_extracts_plain_terminal_text() {
     let snapshot = snapshot(&["copy me   ", "not image "], 10);
     let range = selection::SelectionRange {
         start: CellPoint { row: 0, column: 0 },
         end: CellPoint { row: 0, column: 6 },
     };
 
-    assert_eq!(
-        selected_clipboard_text(&snapshot, range).as_deref(),
-        Some("copy me")
-    );
+    assert_eq!(selection::selected_text(&snapshot, range), "copy me");
 }
 
 #[test]
-fn selected_clipboard_text_ignores_empty_selection_payloads() {
+fn selected_text_trims_an_all_blank_selection_to_empty() {
     let snapshot = snapshot(&["          "], 10);
     let range = selection::SelectionRange {
         start: CellPoint { row: 0, column: 0 },
         end: CellPoint { row: 0, column: 9 },
     };
 
-    assert_eq!(selected_clipboard_text(&snapshot, range), None);
+    assert!(selection::selected_text(&snapshot, range).is_empty());
 }
 
 #[derive(Clone, Default)]

@@ -45,8 +45,7 @@ use super::bindings::{
     motion_report_button, prefix_chord_from_winit, wheel_report_button,
 };
 use super::clipboard::{
-    NativeClipboard, read_clipboard_selection, selected_clipboard_text, write_clipboard_selection,
-    write_paste_text,
+    NativeClipboard, read_clipboard_selection, write_clipboard_selection, write_paste_text,
 };
 use super::cvd_theme::CvdThemeCache;
 use super::gpu::{BloomOptions, CrtOptions, FrameOutcome, GpuState, RailOverlay};

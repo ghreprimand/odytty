@@ -1120,6 +1120,31 @@ impl App {
         });
     }
 
+    /// Test seam (SELECT-COPY-CLAMP): set a BLOCK (column-band) absolute
+    /// selection so a rectangular copy spanning scrollback can be exercised
+    /// through the exact `current_selection_text` choke point.
+    #[cfg(test)]
+    pub(in crate::native) fn set_block_selection_range_for_test(
+        &mut self,
+        start_row: usize,
+        start_column: usize,
+        end_row: usize,
+        end_column: usize,
+    ) {
+        use crate::selection::{AbsoluteCellPoint, AbsoluteSelectionRange};
+        self.selection_block = true;
+        self.selection.set_range(AbsoluteSelectionRange {
+            start: AbsoluteCellPoint {
+                row: start_row,
+                column: start_column,
+            },
+            end: AbsoluteCellPoint {
+                row: end_row,
+                column: end_column,
+            },
+        });
+    }
+
     /// Test seam (MOUSE-SCROLLBAR): the live viewport offset.
     #[cfg(test)]
     pub(in crate::native) fn viewport_offset_for_test(&self) -> usize {

@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-07 -- Full-selection copy across scrollback
+
+A mouse selection extended past the visible viewport — select, then scroll to
+grow the selection across several screens — copied only the rows that happened
+to be on screen at copy time; everything above or below was silently dropped.
+The selection is stored in absolute coordinates and spans scrollback correctly
+(the highlight was right all along); only the text extraction clamped to a
+single visible screen.
+
+The copy choke point shared by the primary selection, the clipboard,
+copy-on-select, and keyboard copy now extracts the full absolute range. It walks
+the selection in viewport-height windows and concatenates, so a selection taller
+than the screen is copied in full. This is the same window-walk the copy-mode
+(keyboard) yank already used; both paths now share one helper, so mouse and
+keyboard copy can no longer drift. The helper handles wrapped/line selections
+and block (column-band) selections alike, and reproduces the per-row rule
+directly so a partial boundary row is never collapsed away. On-screen
+selections are byte-identical to before.
+
+---
+
 ## 2026-07-07 -- Pixel-precise continuous scrolling for high-resolution devices
 
 The eased catch-up scroll animation re-armed a fresh displacement on every

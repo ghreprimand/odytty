@@ -15,9 +15,7 @@ use super::bindings::{
     is_theme_picker_shortcut, map_keypad_physical_key, map_named_key, map_winit_mouse_button,
     motion_report_button, wheel_report_button,
 };
-use super::clipboard::{
-    ClipboardSlot, encode_paste_chunks, flatten_chunks, selected_clipboard_text,
-};
+use super::clipboard::{ClipboardSlot, encode_paste_chunks, flatten_chunks};
 use super::connection_overlay::ConnectionOverlaySignature;
 use super::context_menu_ui::ContextMenuSignature;
 use super::font_picker::FontPickerSignature;
@@ -101,6 +99,7 @@ mod poison_recovery;
 mod replay_isolation;
 mod restore_theme;
 mod scrollbar;
+mod selection_copy_span;
 mod selection_extend;
 mod sh2_native;
 mod sh_click;

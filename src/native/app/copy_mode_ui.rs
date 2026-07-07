@@ -108,7 +108,7 @@ impl App {
                     return chars.get(p.column).copied();
                 }
                 // Window placing the row at (or below) the viewport top —
-                // same mapping as `copy_mode_selection_text`.
+                // same mapping as `absolute_selection_text`.
                 let w_offset = scrollback_len.saturating_sub(p.row);
                 let snap = terminal.snapshot_with_scrollback(w_offset);
                 let cols = snap.dimensions.columns;
@@ -146,7 +146,7 @@ impl App {
                 // `None` for a degenerate (single-cell) selection, so nothing is
                 // copied in that case.
                 if let Some(range) = self.copy_mode.as_ref().and_then(CopyModeState::range)
-                    && let Some(text) = self.copy_mode_selection_text(range)
+                    && let Some(text) = self.absolute_selection_text(range, false)
                 {
                     let _ = self.clipboard.write_text(&text);
                 }
@@ -190,23 +190,43 @@ impl App {
         }
     }
 
-    /// Extract the text of a copy-mode selection, spanning scrollback as needed.
+    /// Extract the text of an absolute selection, spanning scrollback as needed.
     ///
-    /// The pure-core selection is in ABSOLUTE coordinates and may cover far more
+    /// The stored selection is in ABSOLUTE coordinates and may cover far more
     /// rows than one viewport, so this walks the range in viewport-height
-    /// windows and applies the SAME per-row rule as [`selection::selected_text`]
-    /// (trailing-trim, wide-continuation drop, `'\n'` join) — reproduced rather
-    /// than routed through `visible_range_from_absolute`, whose `normalize_range`
-    /// collapses a single-cell row span to `None` (which would silently drop a
-    /// boundary row). Blank interior rows are preserved as empty strings.
-    fn copy_mode_selection_text(&self, range: AbsoluteSelectionRange) -> Option<String> {
+    /// windows and concatenates: a selection scrolled partly off screen is
+    /// copied in full, never clamped to whatever happens to be visible at copy
+    /// time. Shared by the copy-mode (keyboard) yank and the mouse
+    /// PRIMARY/CLIPBOARD/copy-on-select choke point so the two can never drift.
+    ///
+    /// `block == false` reproduces [`selection::selected_text`] semantics
+    /// (first/last row partial, interior rows full width); `block == true`
+    /// reproduces [`selection::selected_text_block`] (the same inclusive column
+    /// band on every row). The per-row rule (trailing-trim, wide-continuation
+    /// drop, newline join) is reproduced directly rather than routed through
+    /// `visible_range_from_absolute`, whose `normalize_range` collapses a
+    /// single-cell row span to `None` (which would silently drop a boundary
+    /// row). Blank interior rows are preserved as empty strings; an entirely
+    /// blank selection yields `None`.
+    pub(super) fn absolute_selection_text(
+        &self,
+        range: AbsoluteSelectionRange,
+        block: bool,
+    ) -> Option<String> {
         let rows = self.grid.rows;
         let cols = self.grid.columns;
         if rows == 0 || cols == 0 {
             return None;
         }
-        let terminal = self.terminal.lock().ok()?;
+        // Poison-recover rather than abort across the AppKit/Rust FFI on this
+        // copy / PRIMARY-selection choke point; byte-identical when healthy.
+        let terminal = crate::native::lock_recover(&self.terminal);
         let scrollback_len = terminal.screen().scrollback_len();
+
+        // A block selection's column band is fixed on every row; its two corner
+        // columns may be in either order, so min/max them once.
+        let block_lo = range.start.column.min(range.end.column);
+        let block_hi = range.start.column.max(range.end.column);
 
         let mut lines: Vec<String> = Vec::new();
         let mut abs_row = range.start.row;
@@ -216,6 +236,10 @@ impl App {
             let snapshot = terminal.snapshot_with_scrollback(offset);
             let snap_cols = snapshot.dimensions.columns;
             let snap_rows = snapshot.dimensions.rows;
+            if snap_cols == 0 {
+                break;
+            }
+            let last_col = snap_cols - 1;
             let top = scrollback_len.saturating_sub(offset);
             let window_bottom = top + rows - 1;
             let chunk_end = window_bottom.min(range.end.row);
@@ -225,17 +249,22 @@ impl App {
                 if vrow >= snap_rows {
                     break;
                 }
-                let start_col = if r == range.start.row {
-                    range.start.column.min(snap_cols - 1)
+                let (start_col, end_col) = if block {
+                    (block_lo.min(last_col), block_hi.min(last_col))
                 } else {
-                    0
-                };
-                // `LINE_END_COLUMN` (line-wise selection) clamps to the last
-                // column here, giving a full-width row.
-                let end_col = if r == range.end.row {
-                    range.end.column.min(snap_cols - 1)
-                } else {
-                    snap_cols - 1
+                    let start_col = if r == range.start.row {
+                        range.start.column.min(last_col)
+                    } else {
+                        0
+                    };
+                    // `LINE_END_COLUMN` (copy-mode line-wise) clamps here to the
+                    // last column, giving a full-width row.
+                    let end_col = if r == range.end.row {
+                        range.end.column.min(last_col)
+                    } else {
+                        last_col
+                    };
+                    (start_col, end_col)
                 };
                 let off = vrow * snap_cols;
                 let line: String = snapshot.cells[off + start_col..=off + end_col]
@@ -249,7 +278,8 @@ impl App {
             }
             abs_row = chunk_end + 1;
         }
-        (!lines.is_empty()).then(|| lines.join("\n"))
+        let text = lines.join("\n");
+        (!text.is_empty()).then_some(text)
     }
 
     /// Map a raw winit key (with the live modifier state) to a normalized
@@ -686,7 +716,7 @@ mod tests {
             .and_then(CopyModeState::range)
             .expect("a multi-cell selection has a range");
         let text = app
-            .copy_mode_selection_text(range)
+            .absolute_selection_text(range, false)
             .expect("selection yields text");
         assert_eq!(text, "hello", "char-wise yank copies the exact run");
     }
@@ -872,7 +902,7 @@ mod tests {
             .and_then(CopyModeState::range)
             .expect("line selection has a range");
         let text = app
-            .copy_mode_selection_text(range)
+            .absolute_selection_text(range, false)
             .expect("line yields text");
         assert_eq!(
             text, "a full line of text",

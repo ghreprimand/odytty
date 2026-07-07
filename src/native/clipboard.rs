@@ -8,8 +8,7 @@ use arboard::Clipboard;
 ))]
 use arboard::{GetExtLinux, LinuxClipboardKind, SetExtLinux};
 
-use crate::core::{ClipboardSelection, Snapshot, Terminal};
-use crate::selection;
+use crate::core::{ClipboardSelection, Terminal};
 
 use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
 
@@ -324,14 +323,6 @@ pub(super) fn read_clipboard_selection(
         ClipboardSelection::Clipboard => clipboard.read_clipboard_text(),
         ClipboardSelection::Primary => clipboard.read_primary_selection_text(),
     }
-}
-
-pub(super) fn selected_clipboard_text(
-    snapshot: &Snapshot,
-    range: selection::SelectionRange,
-) -> Option<String> {
-    let text = selection::selected_text(snapshot, range);
-    (!text.is_empty()).then_some(text)
 }
 
 pub(super) fn write_paste_text(
