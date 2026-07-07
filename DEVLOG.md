@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-07 -- Release v0.8.1 — Scroll glide, pixel-precise scrolling, and full-selection copy
+
+Point release focused on scroll feel and a copy fix, collecting the scroll work landed since v0.8.0 into a tagged release.
+
+Scrollback scrolling gains an optional animated glide, on by default. The viewport jumps to its target row instantly in logic while a separate visual position eases toward it each frame, moving only in the scroll direction so it structurally cannot overshoot or bounce. High-resolution and touchpad devices drive a separate continuous pixel-precise lane that tracks pointer travel directly rather than snapping one notch at a time.
+
+The mouse-wheel scroll amount is now six rows per notch by default and remains configurable (`scroll_wheel_lines`). It governs both local scrollback and alternate-scroll pagers — `less`, `man`, `git log` — so the two advance in step; full mouse-tracking programs such as vim with mouse, tmux, and htop still own the wheel themselves.
+
+The composited tab bar and vertical workspace rail are pinned against the sub-row scroll offset, so only terminal content glides and the chrome no longer drifts with the scroll.
+
+Copying a mouse selection that extends beyond the visible screen now captures the full selected range across scrollback, not just the on-screen portion, for both normal and rectangular block selection.
+
+---
+
 ## 2026-07-07 -- Wheel scroll amount now also drives alternate-scroll pagers
 
 The mouse-wheel scroll multiplier (`scroll_wheel_lines`, default six rows per
