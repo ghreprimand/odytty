@@ -218,9 +218,9 @@ labels, and visible font-load failure reporting all ship today.
 - **Next — Settings completeness.** Map every configuration group (including the
   newer connection and session groups) into a settings section so no shipped knob
   is unreachable from the panel. The `keybinds` parser and the in-app key-remap
-  editor already cover all 31 bindable actions; the only remaining gap is the
-  panel's keybinds *option list*, which still omits the theme-builder and
-  session-attach actions. See [keybindings.md](./keybindings.md) for the full
+  editor already cover all 38 bindable actions — including the theme-builder,
+  session-attach, and workspace actions — so every action is reachable from the
+  panel's keybinds editor. See [keybindings.md](./keybindings.md) for the full
   keyboard reference.
 - **Someday — Profiles.** Named configuration profiles once the base config
   model has settled.
@@ -525,9 +525,9 @@ viewer, the session attach launcher, and the multi-context epic (panes,
 persistent sessions, command palette, and connection manager) all ship:
 
 1. **Settings completeness & discoverability** — map every shipped configuration
-   group into the settings panel so nothing is unreachable, and add the
-   theme-builder and session-attach actions to the panel's keybinds option list
-   (the parser and the key-remap editor already cover all 31 actions). The
+   group into the settings panel so nothing is unreachable (the keybinds parser
+   and the key-remap editor already cover all 38 actions, including the
+   theme-builder, session-attach, and workspace actions). The
    highest value-to-effort work: it removes real friction with mostly wiring, not
    new subsystems.
 2. **Crash & logging story** — a predictable, bounded, local, privacy-preserving
