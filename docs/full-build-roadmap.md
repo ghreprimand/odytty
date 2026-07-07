@@ -283,6 +283,7 @@ plain bypass.
   the contrast floor. Blur-behind remains future.
 - **Shipped — Window-chrome identity.** Themed padding and optional thin
   semantic-role border.
+- **Shipped — Window transparency.** An opt-in translucent window (off by default): the terminal background and chrome bands draw at a configurable opacity so the desktop shows through, while text, cursor, selection, and overlays stay fully opaque for readability. Requires a compositing window manager (DWM on Windows; X11 without a compositor degrades to opaque). Blur/acrylic behind the window remains future.
 - **Shipped — Subtle motion.** Cursor glow, trail, slide, blink fade, and
   fade-in of new output —
   bounded, and fully disable-able.
@@ -301,9 +302,7 @@ gap to close and unlocks the most downstream value. Semantic prompt marking
   success/failure indicator in the gutter.
 - **Shipped — Click to position the cursor** at a prompt, using the prompt-marking
   click events. The click slice only — not a takeover of shell input editing.
-- **Someday — Remote shell integration.** Automatically carrying terminal info
-  and shell integration to a remote host over SSH; depends on shell-integration
-  maturity first.
+- **Shipped — Remote shell integration.** Connecting to a saved SSH host carries OdyTTY's shell integration onto the remote over an inline, bash-only bootstrap with nothing persisted remotely (default on, per-host opt-out; tab titled user@host). SSH connections are reused across tabs via ControlMaster/ControlPersist (Unix client); dropped connections hold open with a reconnect prompt; sessions optionally persist with tmux; and clipboard images paste through to the remote (uploaded over the existing connection into a 0600 temp file, path copied to the clipboard).
 
 ## Track 6 — Interaction & productivity
 
@@ -322,8 +321,10 @@ scroll-thumb; the full set of TUI mouse-reporting modes (including pixel-precise
 reporting); and hyperlink hover with modifier-click to open. Each behavior change
 is opt-in or configurable and never disturbs an application's own mouse handling.
 
-- **Shipped — Right-click context menu** (copy, paste, selection/input actions,
-  settings, and tab actions).
+- **Shipped — Right-click context menu**, composed per surface — the terminal
+  grid (copy, paste, selection/input actions, settings), a tab slot (new, rename,
+  close, close others, move to workspace), the empty tab strip, and the workspace
+  rail — so each menu offers only what fits where it was invoked.
 - (See also: click-to-position-cursor in Track 5, and the mouse-driven settings
   panel in Track 1.)
 
@@ -399,6 +400,7 @@ handful of deliberately-deferred niceties.
 
 - **Shipped — Tabs.** Multiple PTY/terminal sessions, tab switching, tab close,
   tab rename, new-tab affordance, and conventional tab keybindings.
+- **Shipped — Workspaces.** A layer above tabs: named workspaces each own their own tab strip, listed in a vertical rail that auto-appears once a second workspace exists (a single-workspace session is unchanged). Create/rename/close/cycle by keyboard or context menu, move a tab between workspaces from a named-destination picker, and bind a workspace to a remote host so its new tabs open there.
 - **Shipped — Tab polish.** In-band image placements offset correctly while the
   tab bar is visible.
 - **Shipped — A detachable-capable core.** Persistent sessions were architected
@@ -417,6 +419,11 @@ handful of deliberately-deferred niceties.
   read-only, name-only `~/.ssh/config` parsing, with an OdyTTY-owned hosts list
   as the default so the feature works without touching `~/.ssh`. An SSH pane can
   itself be a persistent session, so a dropped link can be reattached locally.
+  An Add/Edit connection form with a Test Connection probe and a per-host
+  IdentityFile field manages the OdyTTY-owned hosts; a right-click menu on a host
+  row opens it in a new tab or new workspace, binds the current workspace to it,
+  or edits/removes it; and an unsaved host can be connected to ad hoc, with an
+  offer to save it to the hosts list.
 - **Shipped — Session attach launcher.** The shipped persistence is now pleasant to
   reach: `odytty attach` with no id attaches the sole live session (or lists when
   several exist), and an in-window Manage Sessions overlay (default `Ctrl+Shift+A`)
@@ -430,8 +437,7 @@ handful of deliberately-deferred niceties.
   session in the focused pane's current directory and switches to it, so a window
   can hand off to a new detached session without leaving the keyboard.
 - **Someday — Broadcast input** to multiple panes at once.
-- **Someday — Window-state persistence** (reopen where you left off) — a lighter
-  cousin of session persistence.
+- **Shipped — Window-state persistence & named layouts.** Opt-in restore (off by default) reopens the previous window shape — workspaces, tabs, and pane splits at their recorded working directories — when launched with no arguments. The snapshot records structure only, never terminal output, scrollback, environment, or the commands that were running, so a restored pane is always a fresh shell. Named layouts capture the whole session and reopen with a replace-or-add prompt; on Unix, still-alive SSH sessions reattach.
 - **Someday — Multi-window** management.
 
 ## Track 10 — Packaging, release & platform
