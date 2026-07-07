@@ -312,11 +312,24 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.open_saved_layout_picker();
             }
-            // LAYOUT-SURFACE: the picker chose a layout; instantiate it (APPEND a
-            // new workspace, never clobber the current one).
+            // LAYOUT-SURFACE: the picker chose a layout; open it — onto real
+            // state this raises the Replace/Add/Cancel prompt (LAYOUT-OPEN-MODE),
+            // onto a bare launch it opens directly (pristine-consume).
             OverlayOutcome::ContextMenuOpenLayout(name) => {
                 self.flush_pending_overlay_settings();
                 self.open_layout(&name);
+            }
+            // LAYOUT-OPEN-MODE: the open-layout dialog's Replace arm — tear down
+            // the current workspaces and install the saved set as the whole app.
+            OverlayOutcome::OpenLayoutReplace(name) => {
+                self.flush_pending_overlay_settings();
+                self.instantiate_layout(&name, LayoutPlacement::Replace);
+            }
+            // LAYOUT-OPEN-MODE: the open-layout dialog's Add arm — append the
+            // saved set beside the current workspaces (the prior behavior).
+            OverlayOutcome::OpenLayoutAdd(name) => {
+                self.flush_pending_overlay_settings();
+                self.instantiate_layout(&name, LayoutPlacement::Add);
             }
             // Part B: the context menu closed itself; split the focused pane
             // through the exact same action the keyboard split chords fire

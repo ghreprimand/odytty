@@ -1713,6 +1713,20 @@ impl App {
         self.rename_state.is_some()
     }
 
+    /// Test seam (LAYOUT-OPEN-MODE): drive the production `open_layout` gating —
+    /// onto a pristine window it opens directly, onto real state it raises the
+    /// Replace/Add/Cancel dialog.
+    #[cfg(test)]
+    pub(in crate::native) fn open_layout_for_test(&mut self, name: &str) {
+        self.open_layout(name);
+    }
+
+    /// Test seam (LAYOUT-OPEN-MODE): whether the open-layout mode dialog is up.
+    #[cfg(test)]
+    pub(in crate::native) fn confirm_open_layout_open_for_test(&self) -> bool {
+        self.overlay.is_confirm_open_layout()
+    }
+
     /// Test seam (RAIL-PIN): open the right-click context menu anchored to the
     /// workspace rail slot at `idx`, exactly as a rail right-click would.
     #[cfg(test)]

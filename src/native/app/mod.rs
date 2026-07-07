@@ -103,6 +103,7 @@ mod ime;
 mod interaction;
 pub(in crate::native) mod interactive_paths;
 mod layouts;
+use layouts::LayoutPlacement;
 mod new_row_fade;
 mod open_notice;
 mod open_with_ui;

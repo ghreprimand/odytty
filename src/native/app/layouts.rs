@@ -13,6 +13,19 @@ use super::*;
 use crate::native::persistence::{self, LoadOutcome};
 use crate::native::session::RestoreReport;
 
+/// How a saved layout lands on the current window (LAYOUT-OPEN-MODE). Chosen by
+/// the open-layout mode dialog when the window already holds real state; a bare
+/// launch always uses `Add` (which consumes its lone pristine workspace).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LayoutPlacement {
+    /// Append the saved workspace(s) beside the current set (the pre-existing
+    /// open-append behavior; consumes a single pristine workspace).
+    Add,
+    /// Tear down every current workspace and install the saved set as the whole
+    /// application, honoring the saved active-workspace index.
+    Replace,
+}
+
 impl App {
     /// Save the ACTIVE workspace as a named layout (8g), using the workspace's
     /// own display name as the layout name. This is the command-palette entry's
@@ -140,12 +153,34 @@ impl App {
         }
     }
 
-    /// Open (instantiate) a saved layout by APPENDING its workspace(s) after the
-    /// current list and switching to the first one (8e). A corrupt, version-
+    /// Open a saved layout, deciding how it lands on the current window
+    /// (LAYOUT-OPEN-MODE). Onto a bare launch — exactly one untouched default
+    /// workspace — the layout opens directly, consuming that pristine workspace
+    /// so the window shows precisely the saved set (no prompt). Onto a window
+    /// that already holds real state, a small dialog asks whether to REPLACE the
+    /// current workspaces with the saved set or ADD them beside it, since a
+    /// silent append doubled everything before. The layout is not loaded here on
+    /// the prompt path; the accept arm re-loads and instantiates it.
+    pub(super) fn open_layout(&mut self, name: &str) {
+        if self.sessions.is_single_pristine_workspace() {
+            // Pristine launch: the append path consumes the lone default
+            // workspace, so the result is exactly the saved set. No prompt.
+            self.instantiate_layout(name, LayoutPlacement::Add);
+        } else {
+            self.overlay.open_confirm_open_layout(name.to_owned());
+            self.request_selection_redraw();
+        }
+    }
+
+    /// Instantiate a saved layout onto the current window with an explicit
+    /// placement (LAYOUT-OPEN-MODE): `Add` APPENDS its workspace(s) after the
+    /// current list (consuming a single pristine workspace, 8e / PRISTINE-CONSUME),
+    /// `Replace` tears down every current workspace and installs the saved set as
+    /// the whole application (active workspace honored). A corrupt, version-
     /// skewed, or missing layout degrades to a notice and leaves the current
     /// workspaces untouched. On success a compact notice reports any session
-    /// reattachment (8h) or stale-directory fallback.
-    pub(super) fn open_layout(&mut self, name: &str) {
+    /// reattachment (8h), stale-directory fallback, or remote fallback.
+    pub(super) fn instantiate_layout(&mut self, name: &str, placement: LayoutPlacement) {
         match persistence::load_layout(name) {
             LoadOutcome::Loaded(snapshot) => {
                 let home = persistence::restore_home_dir();
@@ -153,12 +188,27 @@ impl App {
                 // path (owned context so the closure never borrows `self`).
                 let ctx = self.remote_restore_context();
                 let grid = self.grid;
-                let report = self.sessions.append_from_snapshot_remote(
-                    &snapshot,
-                    grid,
-                    home.as_deref(),
-                    |set, identity| ctx.spawn(set, grid, identity),
-                );
+                let report = match placement {
+                    // Add: append beside the current set (pristine-consume when
+                    // the window is a bare launch).
+                    LayoutPlacement::Add => self.sessions.append_from_snapshot_remote(
+                        &snapshot,
+                        grid,
+                        home.as_deref(),
+                        |set, identity| ctx.spawn(set, grid, identity),
+                    ),
+                    // Replace: tear down every current workspace (reaping their
+                    // sessions through the same per-session close path a tab close
+                    // uses) and install the saved set as the whole app, honoring
+                    // the saved active-workspace index. Reuses the restore path —
+                    // no new teardown machinery.
+                    LayoutPlacement::Replace => self.sessions.restore_from_snapshot_remote(
+                        &snapshot,
+                        grid,
+                        home.as_deref(),
+                        |set, identity| ctx.spawn(set, grid, identity),
+                    ),
+                };
                 match report {
                     RestoreReport::Restored {
                         stale_cwd,
@@ -167,8 +217,8 @@ impl App {
                         remote_fallback,
                         ..
                     } => {
-                        // Seed the appended sessions with the current theme
-                        // palette / cursor defaults / scrollback cap. Append
+                        // Seed the instantiated sessions with the current theme
+                        // palette / cursor defaults / scrollback cap. The rebuild
                         // spawns terminals inside the session arena without
                         // routing them through `initialize_session_with`, so
                         // without this they render menus, overlays and content in

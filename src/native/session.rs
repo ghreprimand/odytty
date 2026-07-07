@@ -5335,6 +5335,65 @@ mod tests {
         assert_eq!(set.active_workspace_index(), 1);
     }
 
+    /// LAYOUT-OPEN-MODE (Replace): instantiating a layout via the restore path
+    /// onto a populated multi-workspace window installs EXACTLY the saved set —
+    /// every prior workspace and its sessions are reaped (no survivors in the
+    /// arena), and the saved active-workspace index is honored.
+    #[test]
+    fn replace_via_restore_leaves_no_survivors() {
+        // A populated window: three workspaces, one session each.
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push_workspace(build_session_with_id(SessionToken(1)));
+        set.push_workspace(build_session_with_id(SessionToken(2)));
+        set.rename_workspace(0, "old-a".to_owned());
+        set.rename_workspace(1, "old-b".to_owned());
+        set.rename_workspace(2, "old-c".to_owned());
+        assert_eq!(set.workspace_count(), 3);
+        assert_eq!(set.len(), 3, "three live sessions before replace");
+
+        // A two-workspace layout with a non-zero active index.
+        let leaf = || crate::native::persistence::TabShape {
+            title: None,
+            focused_leaf: 0,
+            layout: crate::native::persistence::PaneShape::Leaf {
+                cwd: None,
+                session_host_id: None,
+                remote_host: None,
+            },
+        };
+        let ws = |name: &str| crate::native::persistence::WorkspaceShape {
+            name: name.to_owned(),
+            default_profile: None,
+            active_tab: 0,
+            tabs: vec![leaf()],
+        };
+        let layout = crate::native::persistence::ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            active_workspace: 1,
+            workspaces: vec![ws("saved-a"), ws("saved-b")],
+        };
+
+        let mut handed = Vec::new();
+        let report = set.restore_from_snapshot_with(
+            &layout,
+            None,
+            fake_spawner(&mut handed),
+            no_remote_spawner(),
+        );
+        assert!(matches!(
+            report,
+            RestoreReport::Restored { workspaces: 2, .. }
+        ));
+        // Exactly the saved set — no old workspaces survive.
+        assert_eq!(set.workspace_count(), 2);
+        assert_eq!(set.workspace_name(0), Some("saved-a"));
+        assert_eq!(set.workspace_name(1), Some("saved-b"));
+        // Every prior session was reaped: the arena holds only the two new panes.
+        assert_eq!(set.len(), 2, "no survivor sessions from the old set");
+        // The saved active-workspace index is honored.
+        assert_eq!(set.active_workspace_index(), 1);
+    }
+
     /// WP3 / 8h: a pane carrying a session-host id whose host is not alive (no
     /// runtime dir in the test) is counted as a reattach attempt but falls back
     /// to a fresh shell — never a dead pane. Verifies the "N of M" accounting.

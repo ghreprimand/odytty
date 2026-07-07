@@ -424,3 +424,53 @@ fn secondary_instance_without_restore_expectation_stays_silent() {
         "restore off ⇒ the secondary window stays silent"
     );
 }
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn open_layout_onto_pristine_window_opens_without_a_prompt() {
+    // LAYOUT-OPEN-MODE: a bare launch is a single pristine workspace, so opening
+    // a layout goes straight through (the pristine-consume path) with no
+    // Replace/Add prompt — even when the named layout doesn't exist (it then
+    // raises a "not found" notice, but never the mode dialog).
+    let (mut app, _event_loop) = app_or_skip!();
+    assert_eq!(app.workspace_count_for_test(), 1);
+
+    app.open_layout_for_test("no-such-layout");
+    assert!(
+        !app.confirm_open_layout_open_for_test(),
+        "a pristine window opens a layout directly, no prompt"
+    );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn open_layout_onto_real_state_raises_the_mode_prompt() {
+    // LAYOUT-OPEN-MODE: once the window holds real state (here, a second
+    // workspace), opening a layout raises the Replace/Add/Cancel dialog instead
+    // of silently appending.
+    let (mut app, _event_loop) = app_or_skip!();
+    app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
+    assert_eq!(
+        app.workspace_count_for_test(),
+        2,
+        "window now holds real state"
+    );
+
+    app.open_layout_for_test("some-layout");
+    assert!(
+        app.confirm_open_layout_open_for_test(),
+        "opening onto real state raises the mode prompt"
+    );
+    // The prompt did not itself change the workspace set.
+    assert_eq!(
+        app.workspace_count_for_test(),
+        2,
+        "prompt leaves the set intact"
+    );
+}

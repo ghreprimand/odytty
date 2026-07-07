@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-06 -- Opening a layout onto a populated window asks Replace or Add
+
+Opening a saved layout while workspaces were already open silently appended the
+whole saved set beside the live one, so a session opened onto its own saved
+layout ended up with everything doubled. Opening a layout now decides how it
+lands. Onto a window that already holds real state, a small dialog asks: Replace
+tears down the current workspaces and installs the saved set as the whole window;
+Add appends the saved workspace(s) beside the current ones (the previous
+behavior); Cancel leaves everything untouched. The Replace path reuses the
+launch-restore machinery — every existing session is reaped through the same
+per-session close path a tab close uses, then the saved set is installed with its
+active workspace honored — so there is no separate teardown to keep in step. A
+fresh window that still holds a single untouched default workspace skips the
+prompt entirely and lets the layout consume that workspace, so opening a layout
+onto a bare window shows exactly what was saved.
+
+The dialog reuses the confirm-band pattern of the overwrite-layout prompt, so it
+paints opaque under window transparency like the other modal bands. The prompt
+carries only the layout name; the accept arm re-loads and instantiates it.
+
+Platform-neutral: the dialog, the gating, and the restore/append paths are
+identical across platforms.
+
+---
+
 ## 2026-07-06 -- Fix restore round-trip test portability across platforms
 
 A restore round-trip test pinned a local pane's captured directory to the

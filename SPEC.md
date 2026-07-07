@@ -693,8 +693,12 @@ its first stable layer.
   running, so a restore can never replay a command. Restore fires only for the
   primary instance (elected via a state-dir lock file) on a bare `odytty`
   launch; any CLI argument suppresses it, and a fresh shell is always spawned
-  per pane. Named layouts persist the same shape under a chosen name and are
-  instantiated as an appended workspace, never a clobber. On Unix a pane may
+  per pane. Named layouts persist the same shape under a chosen name. Opening a
+  layout onto a window that already holds real state prompts for how it lands —
+  **Replace** the current workspaces with the saved set, **Add** the saved
+  workspace(s) beside them, or **Cancel** — while a fresh window holding a single
+  untouched default workspace skips the prompt and lets the layout consume that
+  workspace. On Unix a pane may
   carry a detached session-host id and reattach on restore when that host is
   still alive (falling back to a fresh shell silently); Windows stores no ids
   and always restores fresh. A pane opened on a remote host records

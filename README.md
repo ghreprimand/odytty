@@ -528,10 +528,13 @@ as Layout**) saves the active one. Saving under a name that already exists
 prompts before overwriting — replace the existing layout, pick a different
 name, or cancel. Opening a layout later — **Open Layout** in the palette, or
 **Open Layout…** from the empty rail, the empty tab strip, or the content-grid
-menu — appends its workspace(s) rather than replacing the current ones, except
-when the window still holds a single untouched default workspace, which the
-opened layout consumes so a fresh window shows exactly what was saved; with no
-layouts saved yet the picker explains how to create one. On Unix, a restored or instantiated pane whose detached
+menu — asks how it should land when the window already holds real state:
+**Replace** tears down the current workspaces and installs the saved set as the
+whole window, **Add** appends the saved workspace(s) beside the current ones,
+and **Cancel** leaves everything untouched. A fresh window that still holds a
+single untouched default workspace skips the prompt — the opened layout consumes
+that workspace so the window shows exactly what was saved. With no layouts saved
+yet the picker explains how to create one. On Unix, a restored or instantiated pane whose detached
 session-host is still alive reattaches to it; a dead one silently opens a
 fresh shell, with a compact "N of M sessions reattached" notice. Restore and
 named layouts are cross-platform (the state dir uses `%LOCALAPPDATA%` on
