@@ -594,6 +594,18 @@ impl App {
             return;
         }
 
+        // SCROLL-FEEL Tier 2: high-resolution `PixelDelta` input drives the
+        // continuous fractional lane (sub-row pixel-precise), bypassing the
+        // notch coalescer entirely. Discrete `LineDelta`, and every
+        // ineligible case (pixel_scroll off, multipane, alt-screen, Ctrl-zoom,
+        // selection-drag), fall through to the unchanged notch path below.
+        if let MouseScrollDelta::PixelDelta(pos) = delta
+            && self.continuous_scroll_eligible()
+        {
+            self.drive_continuous_scroll(self.sessions.active_id(), pos.y, cell_height);
+            return;
+        }
+
         // WHEEL-SENS + MOUSE-WHEEL-SPEED: coalesce the burst into discrete
         // notches, then local scrollback honors the configured per-notch
         // multiplier (default 3 = byte-identical for a clean `LineDelta(_, ±1)`).
@@ -932,6 +944,10 @@ impl App {
         // partial grid-scroll notch does not bleed into the overlay list scroll
         // (and vice-versa) once the overlay captures the wheel.
         self.wheel_accum.reset();
+        // SCROLL-FEEL Tier 2: drop any sub-row scroll remainder too, so a
+        // partial continuous glide does not resume against the overlay.
+        let token = self.sessions.active_id();
+        self.clear_scroll_frac_of(token);
         // P1-8: clear the overlay damper's pixel carry too, so a partial
         // terminal-scroll flick can't seed the first overlay detent.
         self.overlay_wheel.reset();

@@ -1326,14 +1326,18 @@ pub struct Settings {
     /// the background only when `window_transparency` is on. Clamped to
     /// `[MIN_WINDOW_OPACITY, MAX_WINDOW_OPACITY]`; 100 is fully opaque.
     pub window_opacity: f32,
-    /// Whether scrollback movement glides into place over a short bounded ease
-    /// instead of jumping instantly (RV4). Off by default; the off path snaps
-    /// the viewport exactly as before, is pixel-identical, and schedules zero
-    /// extra wakes. The scroll target always updates immediately (no added
-    /// input latency); only the visual position eases toward it, hard-capped so
-    /// it always settles. Programmatic jumps and active drag-autoscroll snap.
-    /// Purely presentational; never changes which rows are shown.
-    pub smooth_scroll: bool,
+    /// Continuous pixel-precise scrollback for high-resolution wheels/touchpads
+    /// (SCROLL-FEEL Tier 2). On by default. When on, `PixelDelta` input drives a
+    /// continuous sub-row lane tracking physical travel instead of quantizing to
+    /// whole notches; it affects only pixel-precise input, so detented wheels
+    /// (line deltas) are unchanged whether this is on or off and the at-rest
+    /// render path is byte-identical. Single-pane only in v1.
+    pub pixel_scroll: bool,
+    /// Sensitivity multiplier for the continuous pixel-scroll lane. `1.0`
+    /// (default) tracks finger travel exactly; higher/lower scroll faster/slower
+    /// than the finger. Stored as `f32` to ride the shared numeric-setting model.
+    /// Applies only to pixel-precise input, never the detented-wheel path.
+    pub scroll_pixel_speed: f32,
     /// Colour-vision-deficiency palette adaptation mode (U4, Accessibility).
     /// `Off` by default — the off path publishes the authored palette unchanged
     /// and is pixel-identical to before. The deficiency modes daltonise the
@@ -1529,7 +1533,8 @@ impl Default for Settings {
             window_decorations: DEFAULT_WINDOW_DECORATIONS,
             window_transparency: DEFAULT_WINDOW_TRANSPARENCY,
             window_opacity: DEFAULT_WINDOW_OPACITY,
-            smooth_scroll: DEFAULT_SMOOTH_SCROLL,
+            pixel_scroll: DEFAULT_PIXEL_SCROLL,
+            scroll_pixel_speed: DEFAULT_SCROLL_PIXEL_SPEED,
             cvd_mode: CvdMode::default(),
             cvd_strength: DEFAULT_CVD_STRENGTH,
             bell: BellMode::default(),
@@ -2072,12 +2077,14 @@ impl Settings {
             parse_scrollback_lines(get(SCROLLBACK_LINES_ENV).as_deref(), &mut warn);
         let scroll_drag_speed =
             parse_scroll_drag_speed(get(SCROLL_DRAG_SPEED_ENV).as_deref(), &mut warn);
-        let smooth_scroll = parse_bool_setting(
-            get(SMOOTH_SCROLL_ENV).as_deref(),
-            SMOOTH_SCROLL_ENV,
-            DEFAULT_SMOOTH_SCROLL,
+        let pixel_scroll = parse_bool_setting(
+            get(PIXEL_SCROLL_ENV).as_deref(),
+            PIXEL_SCROLL_ENV,
+            DEFAULT_PIXEL_SCROLL,
             &mut warn,
         );
+        let scroll_pixel_speed =
+            parse_scroll_pixel_speed(get(SCROLL_PIXEL_SPEED_ENV).as_deref(), &mut warn);
         let copy_on_select = parse_bool_setting(
             get(COPY_ON_SELECT_ENV).as_deref(),
             COPY_ON_SELECT_ENV,
@@ -2361,7 +2368,8 @@ impl Settings {
             window_decorations,
             window_transparency,
             window_opacity,
-            smooth_scroll,
+            pixel_scroll,
+            scroll_pixel_speed,
             cvd_mode,
             cvd_strength,
             bell,
@@ -2590,9 +2598,10 @@ impl Settings {
             bool_display(self.window_transparency).to_owned(),
         );
         values.insert(WINDOW_OPACITY_ENV, format_float(self.window_opacity));
+        values.insert(PIXEL_SCROLL_ENV, bool_display(self.pixel_scroll).to_owned());
         values.insert(
-            SMOOTH_SCROLL_ENV,
-            bool_display(self.smooth_scroll).to_owned(),
+            SCROLL_PIXEL_SPEED_ENV,
+            format_float(self.scroll_pixel_speed),
         );
         values.insert(CVD_MODE_ENV, self.cvd_mode.as_str().to_owned());
         values.insert(CVD_STRENGTH_ENV, format_float(self.cvd_strength));

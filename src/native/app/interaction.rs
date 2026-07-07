@@ -1399,6 +1399,10 @@ impl App {
             // notch so a gesture interrupted by an alt-tab does not
             // resume against the next surface on focus regain.
             self.wheel_accum.reset();
+            // SCROLL-FEEL Tier 2: drop any sub-row scroll remainder too, so a
+            // partial continuous glide does not resume after an alt-tab.
+            let token = self.sessions.active_id();
+            self.clear_scroll_frac_of(token);
             // P1-8: drop the overlay damper's pixel carry too, for the
             // same reason (a half-detent flick must not resume later).
             self.overlay_wheel.reset();
@@ -2360,17 +2364,11 @@ impl App {
             }
         };
         if changed {
-            // `on_viewport_changed_of` clears any glide (snap by default, RV4
-            // D-RV4-8). Re-arm the eased glide only for a user-initiated scroll
-            // while `smooth_scroll` is on; a selection drag-autoscroll
-            // (`pointer_drag.is_selecting()`) must snap to avoid nested easing
-            // (D-RV4-10 / T5). The integer `Viewport::offset` already moved
-            // above, so the scroll TARGET is updated with zero added latency —
-            // only the visual catches up.
+            // Discrete notch scrolling moves the integer `Viewport::offset`
+            // immediately and renders on the exact row — there is no ease.
+            // `on_viewport_changed_of` snaps by default, clearing any sub-row
+            // remainder the continuous (pixel) lane may have left.
             self.on_viewport_changed_of(token);
-            if self.settings.smooth_scroll && !self.pointer_drag.is_selecting() {
-                self.begin_scroll_anim_of(token, delta);
-            }
         }
     }
 
@@ -2423,11 +2421,12 @@ impl App {
     }
 
     pub(super) fn on_viewport_changed_of(&mut self, token: SessionToken) {
-        // RV4: snap by default — clear any in-flight smooth-scroll glide. The
-        // user `scroll_viewport` path re-arms it after this call, so every other
-        // viewport change (return-to-live, search nav, scrollbar-thumb drag,
-        // resize) snaps. No-op on the off path (the glide is always `None`).
-        self.clear_scroll_anim_of(token);
+        // Snap by default — clear any sub-row scroll remainder the continuous
+        // (pixel) lane left, so every viewport change (return-to-live, search
+        // nav, scrollbar-thumb drag, resize) lands exactly on the integer
+        // offset. The continuous lane re-writes the remainder after this call.
+        // No-op at rest (byte-identical off path).
+        self.clear_scroll_frac_of(token);
         self.hovered_hyperlink = self
             .pointer_cell
             .and_then(|point| self.visible_cell_hyperlink(point));

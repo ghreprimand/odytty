@@ -774,8 +774,6 @@ impl App {
             self.cursor_blink_fade_deadline(),
             self.cursor_motion_deadline(),
             self.new_row_fade_deadline(),
-            // RV4 smooth scroll — 4th contributor; `None` on the off path.
-            self.scroll_anim_deadline(),
             // BELL visual flash — `None` on the off / urgent-only path.
             self.bell_flash_deadline(),
             // OPEN-NOTICE (P0-2) auto-expiry — `None` when no notice is in flight.

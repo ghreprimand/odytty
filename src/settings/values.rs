@@ -465,6 +465,33 @@ pub(super) fn parse_scroll_wheel_lines(raw: Option<&OsStr>, warn: &mut impl FnMu
     parsed.clamp(MIN_SCROLL_WHEEL_LINES, MAX_SCROLL_WHEEL_LINES)
 }
 
+/// Parse the pixel-scroll sensitivity multiplier (SCROLL-FEEL Tier 2). Mirrors
+/// the other numeric parsers: absent/blank yields the default; a non-finite or
+/// unparseable value warns and falls back; otherwise it is clamped to
+/// `[MIN_SCROLL_PIXEL_SPEED, MAX_SCROLL_PIXEL_SPEED]`.
+pub(super) fn parse_scroll_pixel_speed(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_SCROLL_PIXEL_SPEED;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_SCROLL_PIXEL_SPEED;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{SCROLL_PIXEL_SPEED_ENV}={trimmed:?} is not a valid pixel-scroll speed; using {DEFAULT_SCROLL_PIXEL_SPEED}"
+            ));
+            return DEFAULT_SCROLL_PIXEL_SPEED;
+        }
+    };
+
+    parsed.clamp(MIN_SCROLL_PIXEL_SPEED, MAX_SCROLL_PIXEL_SPEED)
+}
+
 /// Parse the scrollback retention cap (SCROLLBACK-CAP). Mirrors the other numeric
 /// parsers: absent/blank yields the default; a non-finite or unparseable value
 /// warns and falls back; otherwise it is clamped to

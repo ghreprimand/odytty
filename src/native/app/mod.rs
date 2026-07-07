@@ -136,7 +136,6 @@ mod watchdog_probe;
 mod window_border;
 
 pub(in crate::native) use self::hints_ui::HintsUi;
-pub(in crate::native) use self::scroll_anim::ScrollAnimState as SessionScrollAnimState;
 pub(in crate::native) use self::tab_bar::{TAB_BAR_ROWS, TabBarSource};
 use self::tab_bar::{TabBar, TabHit};
 use self::tab_rail::{RailSide, TabRail};
@@ -4576,7 +4575,7 @@ impl App {
         // new-row fade, open-notice / click-hint expiry) rebuilds once so the
         // frame advances. NF21-2: the predicate is "an animation is in flight",
         // NOT "now >= deadline". Three of the frame-paced contributors
-        // (new_row_fade / scroll_anim / bell embed `Instant::now() + FRAME`), as
+        // (new_row_fade / bell embed `Instant::now() + FRAME`), as
         // does the cursor ease/slide, so `now >= deadline` is essentially never
         // satisfied mid-flight — the old equality check silently never fired for
         // them and the animation only stepped when an unrelated wake (a blink
@@ -5015,11 +5014,6 @@ impl ApplicationHandler<UserEvent> for App {
                         // overlay context, so the fade quads this frame reflect
                         // this rebuild's new rows. No-op while the knob is off.
                         self.update_row_fade(now, scrollback_len);
-                        // RV4 smooth scroll: advance the eased glide for this
-                        // frame (recompute `scroll_frac_offset`, settle when the
-                        // bounded duration elapses). No-op while idle / off, so
-                        // the offset stays 0.0 and the path is byte-identical.
-                        self.update_scroll_anim(now);
                         let ctx = self.overlay_ctx(
                             scrollback_len,
                             cell,
@@ -6117,34 +6111,6 @@ mod tests {
         assert!(
             app.needs_rebuild,
             "a due animation wake requests a rebuild (no wake-without-redraw)"
-        );
-    }
-
-    /// NF21-2 acceptance (i, scroll contributor): a smooth-scroll glide settles
-    /// even with the cursor blink not armed — it schedules its own repaint wake
-    /// rather than depending on an unrelated blink toggle.
-    #[test]
-    fn scroll_glide_schedules_a_wake_without_a_blink_toggle() {
-        let Some(mut app) = build_idle_app() else {
-            return;
-        };
-        app.focused = false;
-        assert_eq!(
-            app.next_wake_deadline(),
-            None,
-            "precondition: no blink wake to piggyback on"
-        );
-        app.seed_scroll_glide_for_test(16.0);
-        let wake = app.next_wake_deadline();
-        assert!(
-            wake.is_some(),
-            "an in-flight smooth-scroll glide must schedule a repaint wake (NF21-2)"
-        );
-        app.needs_rebuild = false;
-        app.run_about_to_wait_maintenance_for_test(wake.unwrap());
-        assert!(
-            app.needs_rebuild,
-            "a due glide wake requests a rebuild so the offset advances toward rest"
         );
     }
 

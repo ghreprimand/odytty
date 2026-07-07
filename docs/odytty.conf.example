@@ -131,7 +131,10 @@ scroll_wheel_lines = 3
 # unlimited; bounds memory so endless output cannot exhaust RAM).
 scrollback_lines = 10000
 scroll_drag_speed = ramp
-smooth_scroll = off
+# Continuous pixel-precise scrolling for high-resolution wheels/touchpads
+# (on by default); scroll_pixel_speed is the 1:1 sensitivity multiplier.
+pixel_scroll = on
+scroll_pixel_speed = 1.0
 selection_drag_extend = on
 scrollbar_drag = on
 wheel_zoom = on

@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-07 -- Pixel-precise continuous scrolling for high-resolution devices
+
+The eased catch-up scroll animation re-armed a fresh displacement on every
+coalesced notch, so continuous high-resolution input (touchpads and hi-res
+wheels emitting pixel deltas) sawtoothed — a repeating up/tug-down bounce —
+rather than gliding. It was the wrong mechanism for pixel-streaming input and
+has been removed along with the `smooth_scroll` setting.
+
+High-resolution `PixelDelta` input now takes a continuous fractional lane. A
+per-pane sub-row remainder tracks physical finger travel one-to-one (one
+cell-height of travel = one row), carrying whole rows into the integer viewport
+offset and rendering the leftover fraction as the existing sub-row pixel offset,
+so the viewport glides smoothly between rows. The mapping is physically
+proportional and carries no notch multiplier, so a burst sums to exactly the
+travel distance and cannot run away; a defensive per-event cap of one viewport
+height absorbs a malformed delta. The lane engages only for pixel-precise input
+on a single pane's primary screen, and never while mouse reporting, alt-scroll,
+Ctrl+wheel zoom, an overlay, or a selection drag owns the wheel — every one of
+those keeps the discrete notch path, which is byte-identical to before. Detented
+wheels (line deltas) are unaffected whether the lane is on or off, and at rest
+the render path is unchanged.
+
+Two knobs cover it: `pixel_scroll` (on by default; it only affects pixel-precise
+devices, invisible to detented-mouse users) and `scroll_pixel_speed` (default
+`1.0` for exact one-to-one tracking). Momentum from the OS input stack is ridden
+as ordinary pixel events with no synthesized decay; content simply stops at the
+oldest and newest rows with no overscroll. A configuration still carrying the
+removed `smooth_scroll` key loads cleanly — the unknown key is skipped with a
+one-line notice and the continuous lane keeps its default.
+
+Continuous fractional scroll is single-pane only for now; in a split, pixel
+input falls back to the stepped notch path.
+
+---
+
 ## 2026-07-07 -- Smooth scroll eases the real notch distance
 
 With `smooth_scroll` enabled, the eased glide previously captured a fixed

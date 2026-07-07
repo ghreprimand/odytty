@@ -173,7 +173,8 @@ fn setting_info_covers_every_field_with_descriptions() {
             "scrollback_lines",
             "selection_drag_extend",
             "scroll_drag_speed",
-            "smooth_scroll",
+            "pixel_scroll",
+            "scroll_pixel_speed",
             "scrollbar_drag",
             "wheel_zoom",
             "command_status_gutter",
@@ -983,6 +984,60 @@ fn focus_dim_round_trips_through_config_key_mapping() {
     assert_eq!(config_key_to_env("focus_dim"), Some(FOCUS_DIM_ENV));
     assert_eq!(config_key_to_env("unfocuseddim"), Some(FOCUS_DIM_ENV));
     assert_eq!(env_to_config_key(FOCUS_DIM_ENV), Some("focus_dim"));
+}
+
+#[test]
+fn pixel_scroll_round_trips_through_config_key_mapping() {
+    assert_eq!(config_key_to_env("pixel_scroll"), Some(PIXEL_SCROLL_ENV));
+    assert_eq!(config_key_to_env("pixelscroll"), Some(PIXEL_SCROLL_ENV));
+    assert_eq!(env_to_config_key(PIXEL_SCROLL_ENV), Some("pixel_scroll"));
+    assert_eq!(
+        config_key_to_env("scroll_pixel_speed"),
+        Some(SCROLL_PIXEL_SPEED_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(SCROLL_PIXEL_SPEED_ENV),
+        Some("scroll_pixel_speed")
+    );
+}
+
+#[test]
+fn pixel_scroll_defaults_on_and_speed_is_identity() {
+    let (settings, warnings) = settings_from_config_and_env("", []);
+    assert!(
+        settings.pixel_scroll,
+        "continuous pixel scroll is on by default"
+    );
+    assert_eq!(
+        settings.scroll_pixel_speed, 1.0,
+        "1:1 physical tracking default"
+    );
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn stale_smooth_scroll_config_key_loads_clean_without_disabling_pixel_scroll() {
+    // The removed `smooth_scroll` knob is no longer recognized. An existing
+    // config that still carries it must load cleanly (unknown key → warn+skip,
+    // never a hard error) and must NOT silently disable the independent
+    // continuous pixel-scroll lane, which keeps its on-by-default.
+    let (settings, warnings) = settings_from_config_and_env(
+        r#"
+            smooth_scroll = on
+            font_size = 15
+        "#,
+        [],
+    );
+    assert_eq!(
+        settings.font_size_px, 15.0,
+        "the rest of the config still applies"
+    );
+    assert!(
+        settings.pixel_scroll,
+        "pixel_scroll stays on despite the stale key"
+    );
+    assert_eq!(warnings.len(), 1, "only the stale key warns");
+    assert!(warnings[0].contains("unknown key"));
 }
 
 #[test]

@@ -1,170 +1,170 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! RV4 smooth scrolling — optional eased scrollback animation.
+//! Continuous fractional scrolling — sub-row pixel-precise scrollback for
+//! high-resolution wheels/touchpads (`PixelDelta`).
 //!
-//! The core scroll model stays integer-row: [`Viewport::offset`] snaps to the
-//! new row immediately (the scroll TARGET updates with zero added latency), and
-//! only the VISUAL position eases toward it. The easing is a single sub-row
-//! pixel offset ([`App::scroll_frac_offset`]) decaying to zero over a short,
-//! hard-capped duration; it is pushed to the GPU `content_origin` Y so the whole
-//! rendered viewport — cells, cursor, and overlays — glides uniformly, then
-//! settles. At rest the offset is `0.0` and no wake is scheduled.
+//! The scroll model stays integer-row: [`Viewport::offset`] carries whole rows,
+//! and a per-session sub-row remainder (`Session::scroll_frac_rows`, unit =
+//! rows, invariant `(-1.0, 1.0)`) tracks the fractional position between two
+//! integer offsets. The remainder is turned into a pixel displacement
+//! (`Session::scroll_frac_offset`) pushed to the GPU `content_origin` Y
+//! (`gpu.rs`), so the whole rendered viewport — cells, cursor, and overlays —
+//! shifts uniformly by the sub-row amount.
 //!
-//! Off-path contract (D-RV4-6 / §6): with `smooth_scroll` off, the
-//! `scroll_viewport` trigger never calls [`App::begin_scroll_anim`], so
-//! [`App::scroll_anim`] is always `None`, [`App::scroll_frac_offset`] stays
-//! `0.0` (the GPU `content_origin` is unshifted), [`App::scroll_anim_deadline`]
-//! is `None` (zero extra wakes), and [`App::scroll_frac_bits`] is a constant `0`
-//! in the content render signature — the default render path is byte-identical
-//! to before this feature existed.
+//! Sign convention: positive = content shifted DOWN (a scroll-up, older content
+//! entering from the top); negative = up. At rest (`scroll_frac_rows == 0.0`)
+//! the offset is `0.0` and the render-signature bit ([`App::scroll_frac_bits`])
+//! is a constant `0`, so the default render path is byte-identical to an
+//! integer-only scroll.
 //!
-//! Snap-by-default (D-RV4-2/D-RV4-8): every viewport change clears the glide via
-//! [`App::clear_scroll_anim`] (called from `on_viewport_changed`); only a
-//! user-initiated `scroll_viewport` re-arms it afterwards, and only when not in
-//! a selection drag-autoscroll (which would otherwise nest easing). So
-//! programmatic jumps — return-to-live, search navigation, scrollbar-thumb
-//! drag, resize — and active drag-autoscroll always snap.
+//! Only high-resolution `PixelDelta` input on the continuous lane drives this
+//! (see `handle_mouse_wheel`); discrete `LineDelta` notches move the integer
+//! offset directly and never touch the remainder. The pixel travel maps 1:1 to
+//! rows (× `scroll_pixel_speed`, identity by default), so a burst sums to
+//! exactly the physical travel — runaway-proof by construction, no notch
+//! multiplier. The lane is single-pane only in v1 (the multipane render path
+//! hard-zeros the shared GPU offset at `panes.rs`).
 
 use super::*;
 
-/// Ease-out cubic (matches the cursor-slide curve): fast departure, gentle
-/// arrival. Maps `0.0..=1.0` to itself. Local copy so the feature lives in its
-/// own lane.
-fn ease_out_cubic(p: f32) -> f32 {
-    let inv = 1.0 - p;
-    1.0 - inv * inv * inv
-}
-
-/// Initial glide displacement (pixels) for a smooth-scroll of `delta` rows at
-/// the current cell height. The magnitude tracks the actual notch distance
-/// (`delta * cell_h`) so a larger wheel step eases proportionally, clamped to
-/// `±(max_cells * cell_h)` so a rapid flurry can never stack a large laggy
-/// offset (the T3 concern the old one-cell cap was protecting). Sign
-/// convention: `delta > 0` (scroll-up, older content entering from above)
-/// yields a positive displacement — the viewport starts shifted DOWN and
-/// eases up to rest. Pure and GPU-free so the magnitude is unit-testable
-/// without cell metrics.
-fn scroll_anim_from_px(delta: isize, cell_h: f32, max_cells: f32) -> f32 {
-    let ceiling = max_cells * cell_h;
-    (delta as f32 * cell_h).clamp(-ceiling, ceiling)
-}
-
-/// Active eased scrollback glide (RV4). Records the start instant and the full
-/// sub-row pixel displacement at `t = 0`, which decays to `0.0` over
-/// [`crate::settings::SMOOTH_SCROLL_DURATION`].
-#[derive(Debug, Clone, Copy)]
-pub(in crate::native) struct ScrollAnimState {
-    start: Instant,
-    /// Pixel displacement at `t = 0`. Positive = content shifted DOWN (a
-    /// scroll-up, where new content enters from the top); negative = up.
-    from_px: f32,
+/// Apply `d_rows` of continuous scroll travel to a running sub-row remainder,
+/// returning the whole-row carry (to move the integer viewport offset) and the
+/// new fractional remainder in `(-1.0, 1.0)`. Pure so the carry arithmetic is
+/// unit-testable without GPU cell metrics. `trunc` carries toward zero, so the
+/// remainder never flips sign spuriously and whole rows always move the integer
+/// offset by an exact row count — the sub-row part below one row is *kept*, not
+/// discarded (the old notch coalescer truncated it, so sub-notch pixel travel
+/// produced no motion at all).
+fn carry_scroll_frac(frac: f32, d_rows: f32) -> (isize, f32) {
+    let total = frac + d_rows;
+    let whole = total.trunc();
+    (whole as isize, total - whole)
 }
 
 impl App {
-    /// Begin (or replace) a smooth-scroll glide for a user scroll of `delta`
-    /// rows. Captures a displacement in the direction the content came from,
-    /// decaying to zero — the magnitude tracks the actual notch distance
-    /// (`delta` rows), clamped to `SMOOTH_SCROLL_MAX_CELLS` cells so a
-    /// fast/large scroll eases proportionally without ever stacking a big laggy
-    /// offset (T3). A new scroll always REPLACES the prior glide. Only reached
-    /// from the `scroll_viewport` trigger when `smooth_scroll` is on and the
-    /// change is user-initiated (not a drag-autoscroll).
-    #[cfg(test)]
-    pub(super) fn begin_scroll_anim(&mut self, delta: isize) {
-        self.begin_scroll_anim_of(self.sessions.active_id(), delta);
+    /// Whether an eligible `PixelDelta` wheel event should drive the continuous
+    /// fractional scroll lane rather than the discrete notch lane. All must
+    /// hold: the `pixel_scroll` knob is on; the active tab is a single pane (the
+    /// multipane render path can't express per-pane sub-row offsets); the active
+    /// screen is the primary screen (the alternate screen has no scrollback to
+    /// render fractionally); Ctrl is not held (a zoom gesture); and the pointer
+    /// is not mid selection-drag (drag-autoscroll steps whole rows). The
+    /// mouse-reporting and overlay-open cases are already excluded by earlier
+    /// returns in `handle_mouse_wheel`.
+    pub(super) fn continuous_scroll_eligible(&self) -> bool {
+        self.settings.pixel_scroll
+            && self.sessions.active_is_single_pane()
+            && !self.modifiers.ctrl
+            && !self.pointer_drag.is_selecting()
+            && self.on_primary_screen()
     }
 
-    pub(super) fn begin_scroll_anim_of(&mut self, token: SessionToken, delta: isize) {
-        let cell_h = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height) as f32;
-        let Some(session) = self.sessions.get_mut(token) else {
+    /// Whether the active terminal is showing its primary screen (not an
+    /// alternate-screen application like a pager or full-screen TUI). Continuous
+    /// fractional scroll is meaningful only where there is scrollback to glide
+    /// through.
+    fn on_primary_screen(&self) -> bool {
+        self.terminal
+            .lock()
+            .map(|t| !t.on_alternate_screen())
+            .unwrap_or(true)
+    }
+
+    /// Drive the continuous fractional scroll lane for one `PixelDelta` event of
+    /// `pos_y` pixels on session `token`. Maps pixels 1:1 to rows (×
+    /// `scroll_pixel_speed`, identity by default) so a burst sums to exactly the
+    /// physical travel, carries whole rows into the integer [`Viewport::offset`],
+    /// and keeps the sub-row remainder as the visual offset. It never arms an
+    /// ease — there is none; the sub-row position is set directly. The remainder
+    /// is clamped at the scrollback bounds so momentum past either end deposits
+    /// nothing (no drift, no rubber-band).
+    pub(super) fn drive_continuous_scroll(
+        &mut self,
+        token: SessionToken,
+        pos_y: f64,
+        cell_height: u32,
+    ) {
+        let cell_h = cell_height as f32;
+        if cell_h <= 0.0 {
             return;
+        }
+        // 1:1 physical: one cell-height of finger travel = one row. `pos_y > 0`
+        // = scroll up toward history (matches `wheel_delta_notches`'s sign).
+        let mut d_rows = (pos_y as f32 / cell_h) * self.settings.scroll_pixel_speed;
+        if d_rows == 0.0 {
+            return;
+        }
+        // Defensive: cap a single malformed giant PixelDelta at one viewport
+        // height so a driver glitch cannot leap across all of scrollback. Never
+        // reached in normal input.
+        let vp_rows = (self.grid.rows.max(1)) as f32;
+        d_rows = d_rows.clamp(-vp_rows, vp_rows);
+
+        let scrollback_len = self.scrollback_len_of(token);
+        let (whole, mut new_frac) = {
+            let Some(session) = self.sessions.get_mut(token) else {
+                return;
+            };
+            carry_scroll_frac(session.scroll_frac_rows, d_rows)
         };
-        if cell_h <= 0.0 || delta == 0 {
-            // No metrics yet (pre-GPU) or a no-op scroll: snap rather than glide.
-            session.scroll_anim = None;
-            session.scroll_frac_offset = 0.0;
-            return;
+        // Carry whole rows into the integer offset (clamped by the viewport).
+        if whole != 0
+            && let Some(session) = self.sessions.get_mut(token)
+        {
+            match whole.cmp(&0) {
+                std::cmp::Ordering::Greater => {
+                    session.viewport.scroll_up(whole as usize, scrollback_len);
+                }
+                std::cmp::Ordering::Less => {
+                    session.viewport.scroll_down((-whole) as usize);
+                }
+                std::cmp::Ordering::Equal => {}
+            }
         }
-        // scroll-up (delta > 0, viewing older content) → content enters from
-        // above → start shifted DOWN (positive) and ease up to rest. The glide
-        // tracks the actual notch distance, clamped so a rapid flurry can never
-        // stack a large laggy offset (T3).
-        let from_px = scroll_anim_from_px(delta, cell_h, crate::settings::SMOOTH_SCROLL_MAX_CELLS);
-        session.scroll_anim = Some(ScrollAnimState {
-            start: Instant::now(),
-            from_px,
-        });
-        session.scroll_frac_offset = from_px;
-    }
-
-    /// Snap: clear any glide and zero the offset. The default for every viewport
-    /// change (`on_viewport_changed`); the user `scroll_viewport` path re-arms
-    /// after it when appropriate, so all programmatic jumps snap.
-    #[cfg(test)]
-    pub(super) fn clear_scroll_anim(&mut self) {
-        self.clear_scroll_anim_of(self.sessions.active_id());
-    }
-
-    /// Test seam: seed an in-flight glide on the active session directly, so a
-    /// headless test (no GPU cell metrics) can exercise the wake-scheduling /
-    /// maintenance-step wiring that `begin_scroll_anim_of` would set up on a real
-    /// scroll. Constructs the module-private `ScrollAnimState` from within its
-    /// own module.
-    #[cfg(test)]
-    pub(in crate::native) fn seed_scroll_glide_for_test(&mut self, from_px: f32) {
-        let token = self.sessions.active_id();
+        // Boundary clamp: once the integer offset saturates, drop the leftover
+        // remainder that would push further past the end. Positive = content
+        // shifted down (older); at the oldest row (`offset >= scrollback_len`) a
+        // positive remainder is impossible. Negative = content shifted up
+        // (newer); at the live bottom (`offset == 0`) a negative remainder is
+        // impossible.
+        let offset = self
+            .sessions
+            .get(token)
+            .map(|session| session.viewport.offset())
+            .unwrap_or(0);
+        if offset == 0 && new_frac < 0.0 {
+            new_frac = 0.0;
+        }
+        if offset >= scrollback_len && new_frac > 0.0 {
+            new_frac = 0.0;
+        }
+        // Snap-clears the remainder (`on_viewport_changed_of` →
+        // `clear_scroll_frac_of`), marks a rebuild, and requests a redraw; then
+        // write the sub-row offset AFTER the clear so the continuous position
+        // survives this frame (mirrors how the discrete path re-armed the old
+        // ease after the same snap).
+        self.on_viewport_changed_of(token);
         if let Some(session) = self.sessions.get_mut(token) {
-            session.scroll_anim = Some(ScrollAnimState {
-                start: Instant::now(),
-                from_px,
-            });
-            session.scroll_frac_offset = from_px;
+            session.scroll_frac_rows = new_frac;
+            session.scroll_frac_offset = new_frac * cell_h;
         }
     }
 
-    pub(super) fn clear_scroll_anim_of(&mut self, token: SessionToken) {
+    /// Clear any sub-row scroll remainder for `token` and zero its pixel offset
+    /// — the snap-by-default seam invoked on every viewport change
+    /// (`on_viewport_changed_of`: return-to-live, search nav, scrollbar-thumb
+    /// drag, resize). A no-op when already at rest, so the off path stays
+    /// byte-identical.
+    pub(super) fn clear_scroll_frac_of(&mut self, token: SessionToken) {
         if let Some(session) = self.sessions.get_mut(token) {
-            session.scroll_anim = None;
+            session.scroll_frac_rows = 0.0;
             session.scroll_frac_offset = 0.0;
         }
     }
 
-    /// Advance the glide for the current frame: recompute
-    /// [`App::scroll_frac_offset`] and settle (clear) once the bounded duration
-    /// elapses. No-op while idle / off, leaving the offset `0.0`
-    /// (byte-identical). Called once per rebuild, before the render signature is
-    /// built and the offset is pushed to the GPU.
-    pub(super) fn update_scroll_anim(&mut self, now: Instant) {
-        let Some(state) = self.scroll_anim else {
-            self.scroll_frac_offset = 0.0;
-            return;
-        };
-        let duration = crate::settings::SMOOTH_SCROLL_DURATION;
-        let elapsed = now.saturating_duration_since(state.start);
-        if elapsed >= duration {
-            self.scroll_anim = None;
-            self.scroll_frac_offset = 0.0;
-            return;
-        }
-        let p = (elapsed.as_secs_f32() / duration.as_secs_f32()).clamp(0.0, 1.0);
-        self.scroll_frac_offset = state.from_px * (1.0 - ease_out_cubic(p));
-    }
-
-    /// Next glide wake, or `None` once the glide settles (always `None` on the
-    /// off path, where `scroll_anim` is `None`). Folded into
-    /// [`App::animation_deadline`] as the fourth contributor — the soonest of
-    /// the next frame and the settle instant.
-    pub(super) fn scroll_anim_deadline(&self) -> Option<Instant> {
-        self.scroll_anim.as_ref().map(|state| {
-            let settle = state.start + crate::settings::SMOOTH_SCROLL_DURATION;
-            let next_frame = Instant::now() + crate::settings::SMOOTH_SCROLL_FRAME;
-            settle.min(next_frame)
-        })
-    }
-
-    /// `f32::to_bits()` of the current scroll offset, for the content render
-    /// signature. Constant `0` on the off path / at rest (so the cache decision
-    /// is unchanged), and changes every animating frame so the cache
-    /// reclassifies and the GPU rebuilds the shifted vertices.
+    /// `f32::to_bits()` of the current sub-row pixel offset, folded into the
+    /// content render signature. Constant `0` at rest (so the cache decision is
+    /// unchanged), and changes whenever the fractional position moves so the
+    /// cache reclassifies and the GPU rebuilds the shifted vertices.
     pub(super) fn scroll_frac_bits(&self) -> u32 {
         self.scroll_frac_offset.to_bits()
     }
@@ -176,42 +176,38 @@ mod tests {
     use crate::core::Terminal;
     use std::sync::Mutex;
 
-    // --- pure curve properties (no App) -------------------------------------
+    // --- pure carry arithmetic (no App / no GPU) ----------------------------
 
     #[test]
-    fn ease_out_cubic_endpoints_and_monotonic() {
-        assert_eq!(ease_out_cubic(0.0), 0.0);
-        assert_eq!(ease_out_cubic(1.0), 1.0);
-        let mut prev = ease_out_cubic(0.0);
-        for i in 1..=10 {
-            let v = ease_out_cubic(i as f32 / 10.0);
-            assert!(v > prev, "ease must increase: {v} <= {prev}");
-            prev = v;
-        }
+    fn carry_keeps_the_sub_row_remainder_and_moves_whole_rows() {
+        // 2.5 rows of travel from rest: two whole rows carry, half a row is kept
+        // as the sub-row remainder (the notch coalescer used to truncate this).
+        let (whole, frac) = carry_scroll_frac(0.0, 2.5);
+        assert_eq!(whole, 2);
+        assert!((frac - 0.5).abs() < 1e-6, "remainder kept: {frac}");
+
+        // A further sub-row event crosses the next whole row and keeps the rest.
+        let (whole, frac) = carry_scroll_frac(0.5, 0.6);
+        assert_eq!(whole, 1);
+        assert!((frac - 0.1).abs() < 1e-6, "remainder carried: {frac}");
+
+        // Pure sub-notch travel moves the remainder with NO whole-row carry —
+        // the visual glides by a fraction of a row while the integer offset is
+        // unchanged. This is the sub-notch-produces-no-motion bug, gone.
+        let (whole, frac) = carry_scroll_frac(0.0, 0.3);
+        assert_eq!(whole, 0, "no whole-row move for sub-row travel");
+        assert!((frac - 0.3).abs() < 1e-6);
+
+        // Sign is preserved (negative = toward live).
+        let (whole, frac) = carry_scroll_frac(0.0, -1.4);
+        assert_eq!(whole, -1);
+        assert!((frac + 0.4).abs() < 1e-6, "signed remainder: {frac}");
+
+        // Zero travel is inert.
+        assert_eq!(carry_scroll_frac(0.25, 0.0), (0, 0.25));
     }
 
-    // --- pure glide magnitude (no App / no GPU) ------------------------------
-
-    #[test]
-    fn scroll_anim_magnitude_tracks_delta_clamped() {
-        let cell = 16.0_f32;
-        // One notch of one row eases exactly one cell (unchanged small-step feel).
-        assert_eq!(scroll_anim_from_px(1, cell, 2.0), cell);
-        // A step under the ceiling passes through proportionally (3 rows, ceiling 4).
-        assert_eq!(scroll_anim_from_px(3, cell, 4.0), 3.0 * cell);
-        // A large step clamps to the ceiling: 6 rows at the shipped cap eases at
-        // most SMOOTH_SCROLL_MAX_CELLS cells, not 6 — the old fixed one-cell cap
-        // threw the distance away; this keeps the flurry protection without it.
-        assert_eq!(
-            scroll_anim_from_px(6, cell, crate::settings::SMOOTH_SCROLL_MAX_CELLS),
-            crate::settings::SMOOTH_SCROLL_MAX_CELLS * cell
-        );
-        // Sign is preserved and the negative side clamps symmetrically.
-        assert_eq!(scroll_anim_from_px(-1, cell, 2.0), -cell);
-        assert_eq!(scroll_anim_from_px(-6, cell, 2.0), -2.0 * cell);
-        // A no-op scroll yields no displacement.
-        assert_eq!(scroll_anim_from_px(0, cell, 2.0), 0.0);
-    }
+    // --- App-level integration (real PTY, synthetic cell height) ------------
 
     fn build_app() -> Option<App> {
         let d = Dimensions::new(40, 6);
@@ -230,94 +226,124 @@ mod tests {
         ))
     }
 
-    // --- T1: off-path identity ----------------------------------------------
-
-    #[test]
-    fn off_path_is_idle_and_byte_identical() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
-        assert!(!app.settings.smooth_scroll, "off by default");
-        // No GPU metrics in a headless build; begin must snap (clear), never arm.
-        app.begin_scroll_anim(3);
-        assert!(
-            app.scroll_anim.is_none(),
-            "no glide on the off/headless path"
-        );
-        assert_eq!(app.scroll_frac_offset, 0.0);
-        assert_eq!(app.scroll_anim_deadline(), None, "no wake while idle");
-        assert_eq!(app.scroll_frac_bits(), 0, "constant 0 in the signature");
-        app.update_scroll_anim(Instant::now());
-        assert_eq!(app.scroll_frac_offset, 0.0, "update is a no-op while idle");
+    /// Feed enough line feeds to push rows into scrollback so the viewport has
+    /// history to glide through.
+    fn seed_scrollback(app: &App) -> usize {
+        if let Ok(mut t) = app.terminal.lock() {
+            for _ in 0..40 {
+                t.advance(b"line\r\n");
+            }
+            t.screen().scrollback_len()
+        } else {
+            0
+        }
     }
 
-    // --- begin / settle / deadline ------------------------------------------
-
     #[test]
-    fn glide_settles_to_zero_within_the_bounded_duration() {
+    fn continuous_scroll_carries_whole_rows_and_keeps_the_fraction() {
         let Some(mut app) = build_app() else {
             return;
         };
-        // Drive the state machine directly (no GPU): seed an explicit glide.
-        let t0 = Instant::now();
-        app.scroll_anim = Some(ScrollAnimState {
-            start: t0,
-            from_px: 16.0,
-        });
-        app.scroll_frac_offset = 16.0;
-        // Mid-glide: offset strictly between 0 and the initial magnitude, and a
-        // wake is scheduled.
-        let mid = t0 + crate::settings::SMOOTH_SCROLL_DURATION / 2;
-        app.update_scroll_anim(mid);
+        let sb = seed_scrollback(&app);
+        assert!(sb >= 4, "need scrollback to glide through: {sb}");
+        let token = app.sessions.active_id();
+        // 2.5 rows up at a 16 px cell: two rows carry into the integer offset,
+        // half a row remains as the sub-row pixel offset (0.5 * 16 = 8 px).
+        app.drive_continuous_scroll(token, 40.0, 16);
+        assert_eq!(app.viewport.offset(), 2, "two whole rows moved the offset");
         assert!(
-            app.scroll_frac_offset > 0.0 && app.scroll_frac_offset < 16.0,
-            "eases toward rest: {}",
+            (app.scroll_frac_offset - 8.0).abs() < 1e-3,
+            "half a row of sub-row offset: {}",
             app.scroll_frac_offset
         );
-        assert!(app.scroll_anim_deadline().is_some(), "wake while gliding");
-        assert_ne!(app.scroll_frac_bits(), 0, "signature changes while gliding");
-        // Past the hard cap: settled, idle, zero — no perpetual wake.
-        let after = t0 + crate::settings::SMOOTH_SCROLL_DURATION + Duration::from_millis(1);
-        app.update_scroll_anim(after);
-        assert_eq!(app.scroll_frac_offset, 0.0, "settles to zero");
-        assert!(app.scroll_anim.is_none(), "glide cleared at the cap");
-        assert_eq!(app.scroll_anim_deadline(), None, "no wake once settled");
-    }
+        assert_ne!(
+            app.scroll_frac_bits(),
+            0,
+            "signature reflects the sub-row shift"
+        );
 
-    // --- snap clears the glide ----------------------------------------------
-
-    #[test]
-    fn clear_snaps_immediately() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
-        app.scroll_anim = Some(ScrollAnimState {
-            start: Instant::now(),
-            from_px: -16.0,
-        });
-        app.scroll_frac_offset = -16.0;
-        app.clear_scroll_anim();
-        assert!(app.scroll_anim.is_none());
-        assert_eq!(app.scroll_frac_offset, 0.0);
-        assert_eq!(app.scroll_anim_deadline(), None);
-    }
-
-    // --- aggregator integration ---------------------------------------------
-
-    #[test]
-    fn deadline_joins_animation_aggregator() {
-        let Some(mut app) = build_app() else {
-            return;
-        };
-        // Cursor animation knobs off ⇒ the aggregate equals the scroll deadline.
-        assert_eq!(app.animation_deadline(), None, "idle ⇒ no aggregate wake");
-        app.scroll_anim = Some(ScrollAnimState {
-            start: Instant::now(),
-            from_px: 16.0,
-        });
+        // A sub-row follow-up (0.25 row) moves ONLY the visual — the integer
+        // offset does not change, but the pixel offset advances. Sub-notch pixel
+        // travel now produces motion (it was truncated to nothing before).
+        app.drive_continuous_scroll(token, 4.0, 16);
+        assert_eq!(app.viewport.offset(), 2, "sub-row travel keeps the offset");
         assert!(
-            app.animation_deadline().is_some(),
-            "an in-flight glide contributes to the single animation timer"
+            (app.scroll_frac_offset - 12.0).abs() < 1e-3,
+            "sub-row glide advanced: {}",
+            app.scroll_frac_offset
+        );
+    }
+
+    #[test]
+    fn continuous_scroll_deposits_nothing_past_the_live_bottom() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        seed_scrollback(&app);
+        let token = app.sessions.active_id();
+        // Already at the live bottom (offset 0). Scrolling toward live (negative
+        // travel) deposits nothing: no drift, no rubber-band.
+        app.drive_continuous_scroll(token, -32.0, 16);
+        assert_eq!(app.viewport.offset(), 0, "cannot move below the live row");
+        assert_eq!(app.scroll_frac_offset, 0.0, "no residual sub-row offset");
+        assert_eq!(app.scroll_frac_rows, 0.0);
+    }
+
+    #[test]
+    fn continuous_scroll_arms_no_animation_wake() {
+        // Fight-avoidance made structural: the ease is gone, so a continuous
+        // scroll can never schedule an animation wake (the old bounce came from
+        // re-arming an 80 ms ease on every notch). An idle app driven by the
+        // continuous lane still reports no animation deadline.
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        seed_scrollback(&app);
+        let token = app.sessions.active_id();
+        app.drive_continuous_scroll(token, 24.0, 16);
+        assert_eq!(
+            app.animation_deadline(),
+            None,
+            "the continuous lane sets the offset directly and schedules no ease wake"
+        );
+    }
+
+    #[test]
+    fn clear_scroll_frac_snaps_immediately() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        seed_scrollback(&app);
+        let token = app.sessions.active_id();
+        app.drive_continuous_scroll(token, 40.0, 16);
+        assert_ne!(
+            app.scroll_frac_offset, 0.0,
+            "precondition: mid sub-row glide"
+        );
+        app.clear_scroll_frac_of(token);
+        assert_eq!(app.scroll_frac_offset, 0.0, "snap zeroes the pixel offset");
+        assert_eq!(app.scroll_frac_rows, 0.0, "and the row remainder");
+        assert_eq!(
+            app.scroll_frac_bits(),
+            0,
+            "constant 0 in the signature at rest"
+        );
+    }
+
+    #[test]
+    fn pixel_scroll_off_makes_the_continuous_lane_ineligible() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        assert!(app.settings.pixel_scroll, "on by default");
+        assert!(
+            app.continuous_scroll_eligible(),
+            "single-pane primary screen with the knob on is eligible"
+        );
+        app.settings.pixel_scroll = false;
+        assert!(
+            !app.continuous_scroll_eligible(),
+            "with the knob off, PixelDelta falls back to the notch path"
         );
     }
 }

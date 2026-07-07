@@ -23,9 +23,7 @@ use crate::text::CellSize;
 
 use winit::event_loop::EventLoopProxy;
 
-use super::app::{
-    CursorBlinkState, HintsUi, SessionScrollAnimState, SynchronizedOutputHold, TabBarSource,
-};
+use super::app::{CursorBlinkState, HintsUi, SynchronizedOutputHold, TabBarSource};
 #[cfg(unix)]
 use super::attach::{AttachClient, attach_input_writer, resolve_session_socket, spawn_attach_pump};
 use super::copy_mode::CopyModeState;
@@ -336,7 +334,10 @@ pub(super) struct Session {
     pub(super) row_fade_starts: Vec<Option<Instant>>,
     pub(super) last_scrollback_len_for_fade: usize,
     pub(super) row_fade_epoch: u64,
-    pub(super) scroll_anim: Option<SessionScrollAnimState>,
+    /// Sub-row scroll remainder in rows (SCROLL-FEEL Tier 2), invariant
+    /// `(-1.0, 1.0)`; whole rows carry into `viewport`. Drives
+    /// [`Self::scroll_frac_offset`]. `0.0` at rest.
+    pub(super) scroll_frac_rows: f32,
     pub(super) scroll_frac_offset: f32,
     /// Remote reconnect anchor (F6-i4). `Some` only for sessions launched through
     /// the `ssh` connect path; `None` for a local shell, so exit classification
@@ -523,7 +524,7 @@ impl Session {
             row_fade_starts: Vec::new(),
             last_scrollback_len_for_fade: 0,
             row_fade_epoch: 0,
-            scroll_anim: None,
+            scroll_frac_rows: 0.0,
             scroll_frac_offset: 0.0,
             reconnect: None,
             awaiting_reconnect: false,

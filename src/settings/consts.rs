@@ -57,7 +57,8 @@ pub const THEMED_UI_ROLES_ENV: &str = "ODYTTY_THEMED_UI_ROLES";
 pub const SCROLL_WHEEL_LINES_ENV: &str = "ODYTTY_SCROLL_WHEEL_LINES";
 pub const SCROLLBACK_LINES_ENV: &str = "ODYTTY_SCROLLBACK_LINES";
 pub const SCROLL_DRAG_SPEED_ENV: &str = "ODYTTY_SCROLL_DRAG_SPEED";
-pub const SMOOTH_SCROLL_ENV: &str = "ODYTTY_SMOOTH_SCROLL";
+pub const PIXEL_SCROLL_ENV: &str = "ODYTTY_PIXEL_SCROLL";
+pub const SCROLL_PIXEL_SPEED_ENV: &str = "ODYTTY_SCROLL_PIXEL_SPEED";
 pub const COPY_ON_SELECT_ENV: &str = "ODYTTY_COPY_ON_SELECT";
 pub const SMART_CTRL_C_ENV: &str = "ODYTTY_SMART_CTRL_C";
 pub const SELECTION_DRAG_EXTEND_ENV: &str = "ODYTTY_SELECTION_DRAG_EXTEND";
@@ -160,7 +161,8 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SCROLL_WHEEL_LINES_ENV,
     SCROLLBACK_LINES_ENV,
     SCROLL_DRAG_SPEED_ENV,
-    SMOOTH_SCROLL_ENV,
+    PIXEL_SCROLL_ENV,
+    SCROLL_PIXEL_SPEED_ENV,
     COPY_ON_SELECT_ENV,
     SMART_CTRL_C_ENV,
     SELECTION_DRAG_EXTEND_ENV,
@@ -518,33 +520,22 @@ pub const MIN_WINDOW_OPACITY: f32 = 30.0;
 /// Maximum window opacity percent (fully opaque).
 pub const MAX_WINDOW_OPACITY: f32 = 100.0;
 
-/// Smooth (eased) scrollback animation (`ODYTTY_SMOOTH_SCROLL`, RV4): when on, a
-/// scrollback movement glides into place over a short, bounded ease-out instead
-/// of jumping instantly. Off by default — while off the viewport snaps to its new
-/// row exactly as before and the render path is pixel-identical, scheduling zero
-/// extra wakes. The scroll TARGET always updates immediately (no added input
-/// latency); only the visual position eases toward it, and the animation is hard
-/// capped so it always settles and never schedules a perpetual wake. Programmatic
-/// jumps (search navigation, return-to-live, resize, scrollbar-thumb drag) and
-/// active drag-autoscroll always snap rather than animate. Purely presentational;
-/// never affects which rows are shown or any cell semantics.
-pub const DEFAULT_SMOOTH_SCROLL: bool = false;
+/// Continuous pixel-precise scrollback (`ODYTTY_PIXEL_SCROLL`): when on,
+/// high-resolution wheels and touchpads that emit pixel deltas scroll the
+/// viewport by a continuous sub-row amount tracking physical travel, instead of
+/// quantizing to whole notches. On by default. It only affects pixel-precise
+/// input — classic detented wheels (line deltas) keep the notch path unchanged
+/// whether this is on or off, and at rest the render path is byte-identical.
+pub const DEFAULT_PIXEL_SCROLL: bool = true;
 
-/// Duration of the RV4 smooth-scroll ease. A short, bounded budget so the
-/// animation always settles quickly and never adds perceptible latency. Fixed
-/// for now; a future tuning knob can expose it once a measured baseline exists.
-pub const SMOOTH_SCROLL_DURATION: Duration = Duration::from_millis(80);
-
-/// Ceiling on the RV4 smooth-scroll glide magnitude, in cell-heights. The
-/// ease tracks the actual wheel-notch distance (`scroll_wheel_lines` rows per
-/// notch) so a larger step glides proportionally instead of hard-jumping with
-/// only a one-row tail, but the displacement is clamped to this many cells so
-/// a rapid flurry of notches can never stack a large, laggy catch-up offset.
-pub const SMOOTH_SCROLL_MAX_CELLS: f32 = 2.0;
-
-/// Frame cadence for the RV4 smooth-scroll animation (~60 fps). Each in-flight
-/// scroll schedules at most a handful of wakes before settling.
-pub const SMOOTH_SCROLL_FRAME: Duration = Duration::from_millis(16);
+/// Sensitivity multiplier for the continuous pixel-scroll lane
+/// (`ODYTTY_SCROLL_PIXEL_SPEED`). `1.0` (default) tracks finger travel exactly
+/// (one cell-height of travel = one row); higher scrolls faster than the finger,
+/// lower slower. Stored as `f32` to ride the shared numeric-setting model.
+/// Applies only to pixel-precise input; detented wheels use `scroll_wheel_lines`.
+pub const DEFAULT_SCROLL_PIXEL_SPEED: f32 = 1.0;
+pub const MIN_SCROLL_PIXEL_SPEED: f32 = 0.25;
+pub const MAX_SCROLL_PIXEL_SPEED: f32 = 4.0;
 
 /// Follow the OS dark/light appearance preference (`ODYTTY_FOLLOW_OS_THEME`,
 /// OS-THEME): when on, OdyTTY switches between the `os_theme_dark` and
