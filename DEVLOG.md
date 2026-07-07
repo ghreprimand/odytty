@@ -7,6 +7,55 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-07 -- Release v0.8.0 — Workspaces, layout persistence, seamless remote terminals, transparency
+
+This release groups the workspace layer, an opt-in persistence track, the remote
+terminal stack, context-aware menus, a settings overhaul, and window
+transparency into one version, alongside the tab-chrome rework and a batch of
+event-loop, rendering, and shutdown fixes.
+
+Tabs now live inside named workspaces, each with its own tab strip and a vertical
+rail that appears automatically once a second workspace exists; a single-workspace
+session looks exactly as before. Workspaces can be created, renamed, closed,
+cycled from the keyboard, bound to a remote host, and a tab can be moved between
+them from a named-destination picker. Opt-in layout persistence (off by default)
+reopens the previous window shape — workspaces, tabs, and pane splits at their
+recorded working directories — when launched with no command-line arguments. The
+saved snapshot records structure only: never terminal output, scrollback,
+environment, or the commands that were running, so a restored pane is always a
+fresh shell and restore can never re-run what was on screen. Named layouts
+capture the whole session and reopen with a replace-or-add prompt; on Unix, still
+-alive SSH sessions reattach, and restored remote panes reconnect through the ssh
+path rather than aborting the layout.
+
+Seamless remote terminals carry the shell integration onto a remote host over an
+inline, bash-only bootstrap with nothing persisted remotely, reuse SSH
+connections across tabs via ControlMaster, hold a dropped connection open with a
+reconnect prompt, optionally persist sessions with tmux, and paste clipboard
+images through to the remote (uploaded over the existing connection into a 0600
+temp file, with the path copied to the clipboard rather than typed into the
+shell). A rebuilt connection manager adds an Add/Edit form with a Test Connection
+probe and a per-host identity file, a right-click menu on host rows, and ad-hoc
+connection to an unsaved host with an offer to save it.
+
+Right-click menus are composed per surface — a tab slot, the empty tab strip, the
+terminal grid, and the workspace rail each get their own tight menu targeting the
+clicked object. The settings panel is compacted to one line per row with a fixed
+help footer that follows focus, and each row splits into a name zone (select) and
+a value zone (act). Window transparency (off by default) makes the background and
+chrome bands translucent while text, cursor, selection, and overlays stay opaque;
+an opacity stepper controls the level, and the opaque path is byte-identical when
+the feature is off. The tab chrome is reworked into a flat, glow-accented
+treatment with an unmistakable active state, on a top bar or a drag-resizable,
+auto-hiding vertical rail on either side. Shutdown and rapid-close paths are now
+bounded so a wedged remote session can no longer stall exit.
+
+Windows: window transparency composites through DWM; SSH connection reuse is a
+Unix-client feature and each Windows connection authenticates independently;
+restored remote panes open as fresh shells.
+
+---
+
 ## 2026-07-07 -- AUR publish step skips cleanly when no signing key is configured
 
 The release workflow's AUR job no longer fails the release matrix when there is

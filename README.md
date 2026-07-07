@@ -129,6 +129,34 @@ URLs), while `odytty-<version>-x86_64.AppImage` /
 **identical** copies for pinning a specific version. Each alias and its
 version-pinned twin carry matching checksums in `SHA256SUMS`.
 
+#### Arch Linux (AUR)
+
+A community-maintained AUR package,
+[`odytty`](https://aur.archlinux.org/packages/odytty), is available for
+Arch-family systems. It builds from the tagged GitHub source and compiles
+locally:
+
+```sh
+paru -S odytty      # or: yay -S odytty
+```
+
+…or manually:
+
+```sh
+git clone https://aur.archlinux.org/odytty.git
+cd odytty
+makepkg -si
+```
+
+This package is maintained by a community contributor and is **not published by
+the project** — it is not an official release channel. As with every AUR
+package, the PKGBUILD is a build script that runs on your machine and AUR
+packages are not vetted by Arch, so review the PKGBUILD before installing (your
+AUR helper shows it by default). It tracks the published GitHub releases and
+usually updates shortly after one, though timing depends on its maintainer. The
+channels the project publishes and controls directly are the always-latest
+release artifacts above (AppImage, tarball) and the from-source build below.
+
 #### Build from source
 
 For the current source release, install OdyTTY for the current user.

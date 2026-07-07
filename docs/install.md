@@ -129,10 +129,12 @@ makepkg -si
 The package builds from the release source tarball and installs the binary,
 desktop entry, AppStream metadata, and icons under pacman ownership. The
 first install compiles from source (pulling in `cargo`/`rust`), so it takes a
-few minutes. The package is refreshed automatically shortly after each release
-publishes, so `paru -Syu` (or `yay -Syu`) picks up new versions without any
-manual step. The PKGBUILD source of truth and its publish runbook live in
-`dist/aur/`.
+few minutes. The AUR package is community-maintained and tracks the published
+GitHub releases; it usually updates shortly after a release, though timing
+depends on its maintainer. To pick up the very latest immediately regardless of
+the AUR package's state, build from the release source tarball directly (the
+PKGBUILD template and its publish runbook live in `dist/aur/`), or use the
+always-latest download links below.
 
 ## Build From Source
 
@@ -266,7 +268,7 @@ installing each release under a versioned directory and pointing
 `~/.local/bin/odytty` at the selected version:
 
 ```sh
-version=0.7.5
+version=0.8.0
 cargo build --release --locked
 install -Dm755 target/release/odytty \
   "$HOME/.local/opt/odytty/$version/bin/odytty"
@@ -289,8 +291,8 @@ To roll back, repoint the symlink to an older directory under
 ## Odyssey/LFS Versioned Install
 
 Odyssey source builds are versioned by pacman, not by leaving build products in
-the source tree. A release tag such as `v0.7.5` should be archived into
-`/sources/odytty-0.7.5.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
+the source tree. A release tag such as `v0.8.0` should be archived into
+`/sources/odytty-0.8.0.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
 with `odyssey-build`.
 
 Example PKGBUILD:
@@ -298,7 +300,7 @@ Example PKGBUILD:
 ```bash
 # Maintainer: Unfinished Works <maintainers@odytty.unfinished-works.com>
 pkgname=odytty
-pkgver=0.7.5
+pkgver=0.8.0
 pkgrel=1
 pkgdesc="GPU-rendered Rust terminal emulator with an Odyssey visual identity"
 arch=('x86_64')
