@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Homebrew tap recipes and a guarded release auto-bump
+
+macOS gains a Homebrew install path, seeded but inert until opted into.
+
+Two canonical recipes now live in `dist/homebrew/`, following the same
+in-repo-source-of-truth pattern as `dist/aur/`: `Casks/odytty.rb` installs the
+prebuilt, ad-hoc-signed `OdyTTY.app` (Apple Silicon / arm64) the release
+workflow produces — a cask install strips `com.apple.quarantine`, so the ad-hoc
+signature launches without a Gatekeeper warning — and `Formula/odytty.rb` is a
+source-build fallback that compiles the CLI binary from the release tarball
+(`depends_on "rust" => :build`), covering Intel Macs and anyone preferring a
+local build. The channel is cask-primary with the formula as the documented
+fallback.
+
+A guarded `homebrew` job in the release workflow mirrors the proven Scoop and
+AUR auto-bumps: after the release publishes, it reads the macOS-zip and
+source-tarball checksums from `SHA256SUMS`, stamps version/url/sha256 into both
+recipes, and pushes them to the separate `ghreprimand/homebrew-odytty` tap over
+an SSH deploy key with a pinned GitHub host key. Like the AUR job, it is
+guarded: when the `HOMEBREW_TAP_DEPLOY_KEY` secret is unset it rewrites the
+recipes locally as a validation gate and then exits cleanly without publishing,
+so the pipeline is green from day one and the channel activates only once the
+operator creates the tap repo and adds the deploy key. Idempotency and
+push-race retry match the other channels.
+
+The macOS packaging leg is refined per the packaging design: the ad-hoc sign
+drops the needless timestamp-server call (`--sign - --timestamp=none`, still no
+`--deep` for a single-executable bundle) and the bundle zip uses
+`ditto --sequesterRsrc` as Apple recommends; the `codesign --verify` gate is
+unchanged.
+
+macOS-only surface: no Linux or Windows build, packaging, or runtime behavior
+changes. A signed/notarized `.dmg` remains deferred to if/when the Apple
+Developer Program is adopted.
+
+---
+
 ## 2026-07-08 -- Settings panel reachability audit; keybinds option hint completed
 
 A field-by-field audit confirmed every user-facing `Settings` field is

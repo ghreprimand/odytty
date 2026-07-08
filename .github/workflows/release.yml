@@ -159,7 +159,7 @@ jobs:
           # Ad-hoc signature: sign the single-binary bundle plainly. Do NOT use
           # --deep (deprecated and wrong for a one-executable .app); the plain
           # sign covers the binary and the bundle together.
-          codesign --force -s - dist/build/OdyTTY.app
+          codesign --force --sign - --timestamp=none dist/build/OdyTTY.app
           codesign --verify --verbose dist/build/OdyTTY.app
 
       - name: Package macOS zip
@@ -167,7 +167,7 @@ jobs:
           version="${{ steps.ver.outputs.version }}"
           # ditto -c -k --keepParent produces a macOS-correct zip that preserves
           # the .app bundle's structure; a plain `zip -r` can corrupt bundles.
-          ditto -c -k --keepParent dist/build/OdyTTY.app \
+          ditto -c -k --sequesterRsrc --keepParent dist/build/OdyTTY.app \
             "dist/build/odytty-$version-macos-arm64.zip"
 
       - name: Upload macOS artifact
@@ -319,6 +319,132 @@ jobs:
             git rebase origin/master
           done
           echo "::error::Failed to push Scoop manifest bump after 5 attempts" >&2
+          exit 1
+
+  homebrew:
+    name: Bump Homebrew tap
+    # Mirrors the `scoop` job's structure but pushes to a SEPARATE repo (the
+    # `ghreprimand/homebrew-odytty` tap) the way the `aur` job pushes to the AUR
+    # remote — so it needs an explicit push credential, not GITHUB_TOKEN. The
+    # channel is cask-primary (the prebuilt .app zip) with a source-build formula
+    # fallback; the canonical recipes live in dist/homebrew/ and are stamped from
+    # the published SHA256SUMS and pushed to the tap here.
+    #
+    # GUARDED (mirrors the AUR job): when HOMEBREW_TAP_DEPLOY_KEY is unset the
+    # push step exits 0 with an explanatory echo — the recipes are still rewritten
+    # locally as a validation gate, but nothing publishes. So the job is green
+    # from day one; the operator activates the channel by creating the tap repo
+    # and adding the deploy-key secret. Runs AFTER `release` so the macOS zip, the
+    # source tarball, and SHA256SUMS all exist.
+    needs: [release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Derive version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download SHA256SUMS from the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern SHA256SUMS \
+            --output SHA256SUMS
+          test -s SHA256SUMS || { echo "::error::SHA256SUMS is empty or missing" >&2; exit 1; }
+
+      - name: Stamp the canonical recipes
+        run: |
+          set -euo pipefail
+          version="${{ steps.ver.outputs.version }}"
+          cask_zip="odytty-${version}-macos-arm64.zip"
+          src_tarball="odytty-${version}.tar.gz"
+          cask_hash="$(awk -v f="$cask_zip" '$2 == f { print $1 }' SHA256SUMS)"
+          src_hash="$(awk -v f="$src_tarball" '$2 == f { print $1 }' SHA256SUMS)"
+          if [ -z "$cask_hash" ]; then
+            echo "::error::No SHA256 entry for ${cask_zip} in SHA256SUMS" >&2
+            exit 1
+          fi
+          if [ -z "$src_hash" ]; then
+            echo "::error::No SHA256 entry for ${src_tarball} in SHA256SUMS" >&2
+            exit 1
+          fi
+          # Cask: the url interpolates #{version}, so only version + sha256 move.
+          sed -i \
+            -e "s/^  version \".*\"/  version \"${version}\"/" \
+            -e "s/^  sha256 \".*\"/  sha256 \"${cask_hash}\"/" \
+            dist/homebrew/Casks/odytty.rb
+          # Formula: Homebrew derives the version from the url, so rewrite the
+          # url (carrying both version fields) and the sha256.
+          src_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${version}/${src_tarball}"
+          sed -i \
+            -e "s|^  url \".*\"|  url \"${src_url}\"|" \
+            -e "s/^  sha256 \".*\"/  sha256 \"${src_hash}\"/" \
+            dist/homebrew/Formula/odytty.rb
+          echo "Stamped cask (${cask_hash}) and formula (${src_hash}) to ${version}."
+
+      - name: Push to the Homebrew tap
+        env:
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          version="${{ steps.ver.outputs.version }}"
+          if [ -z "${HOMEBREW_TAP_DEPLOY_KEY:-}" ]; then
+            echo "Homebrew publish skipped: no HOMEBREW_TAP_DEPLOY_KEY configured."
+            echo "The tap is operator-gated; create ghreprimand/homebrew-odytty and add the deploy key to activate. Nothing to do."
+            exit 0
+          fi
+          install -d -m700 ~/.ssh
+          printf '%s\n' "$HOMEBREW_TAP_DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # Pin GitHub's Ed25519 host key: scan it, then verify against the
+          # PUBLISHED fingerprint before trusting it (no blind TOFU).
+          ssh-keyscan -t ed25519 github.com > ~/.ssh/known_hosts 2>/dev/null
+          fp="$(ssh-keygen -lf ~/.ssh/known_hosts | awk '{print $2}')"
+          expected="SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU"
+          if [ "$fp" != "$expected" ]; then
+            echo "::error::GitHub host key fingerprint mismatch: got '$fp' expected '$expected'"
+            exit 1
+          fi
+          printf 'Host github.com\n  User git\n  IdentityFile ~/.ssh/id_ed25519\n  IdentitiesOnly yes\n' > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git clone git@github.com:ghreprimand/homebrew-odytty.git tap-repo
+          branch="$(git -C tap-repo rev-parse --abbrev-ref HEAD)"
+          # Idempotency guard (mirrors scoop/aur): skip if the tap's cask already
+          # carries this version.
+          if grep -qE "^[[:space:]]*version \"${version}\"" tap-repo/Casks/odytty.rb 2>/dev/null; then
+            echo "Tap already at ${version}; nothing to do."
+            exit 0
+          fi
+          mkdir -p tap-repo/Casks tap-repo/Formula
+          cp dist/homebrew/Casks/odytty.rb tap-repo/Casks/odytty.rb
+          cp dist/homebrew/Formula/odytty.rb tap-repo/Formula/odytty.rb
+          cd tap-repo
+          git add Casks/odytty.rb Formula/odytty.rb
+          git commit -m "Homebrew: bump to v${version}"
+          # Guard against a concurrent push racing this one: on rejection, rebase
+          # onto the latest tap branch and retry (mirrors the Scoop loop).
+          for attempt in 1 2 3 4 5; do
+            if git push origin "HEAD:${branch}"; then
+              echo "Pushed Homebrew bump on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Push rejected (attempt ${attempt}); rebasing on origin/${branch} and retrying."
+            git fetch origin "${branch}"
+            git rebase "origin/${branch}"
+          done
+          echo "::error::Failed to push Homebrew tap bump after 5 attempts" >&2
           exit 1
 
   aur:
