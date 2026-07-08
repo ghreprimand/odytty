@@ -7,74 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-07-08 -- Serialize test-harness pseudoconsole spawns
+## 2026-07-08 -- Withdraw the Windows append-origin click-to-place correction
 
-The native test suite runs multi-threaded on Linux and Windows (only macOS is
-pinned to a single test thread). Opening a real pseudoconsole on Windows is
-sensitive to concurrent spawn and teardown: under parallelism two ConPTY starts
-occasionally collide and one child dies at startup ("the pseudoconsole could
-not start a usable shell"), an intermittent failure that could surface in any of
-the ~40 native test files that spawn a short-lived pause shell through the shared
-`spawn_test_pause_shell` helper. A single run showing a mix of passing and
-failing pseudoconsole tests — rather than a uniform failure — is the signature
-of spawn contention rather than a broken environment.
+A recent change nudged click-to-position travel back by one cell at the append
+origin on Windows, to compensate for a terminal cursor that PSReadLine appears
+to report one edit-position right of its true buffer caret. That correction is
+withdrawn along with the test-harness spawn serialization that accompanied it,
+returning `click_travel_delta` to its prior, uniform behavior on every platform.
 
-The helper now serializes just the spawn window behind a process-global mutex:
-the guard is held only across the `spawn_shell_command` call and released before
-the test body's pause-shell wait, so concurrent spawns can no longer overlap
-while the rest of every test stays fully parallel and total suite time is
-unchanged. Serialization is deterministic by construction — serialized spawns
-cannot race — which is the correctness argument, since the failure reproduces
-only on Windows under parallelism and a single green run would not prove it
-fixed. Windows additionally retries a transient startup failure a small bounded
-number of times; the retry is expressed with a runtime `cfg!(windows)` attempt
-count rather than a `#[cfg]` block, so the exact loop that runs on Windows is
-compiled and lint-checked on every platform. The mutex tolerates a poisoned lock
-(it guards no data) rather than cascading a poison error into later spawns.
+The correction cannot stand as written. It keys purely on click geometry — the
+caret sitting at the input region's end column under the `RightEdgeUnknown`
+heuristic — but that state does not identify the shell. A `RightEdgeUnknown`
+region covers PowerShell, bash, and any other shell without an OSC 133
+input-end signal, so a shell that reports an accurate append-origin cursor
+(git-bash on ConPTY, for instance) would be shifted wrong by exactly one cell.
+The offset is also unconfirmed against a real PowerShell session: whether it is
+a ConPTY-wide report bias or specific to PSReadLine is unresolved, and the
+click-travel site has no shell identity with which to distinguish the two. A
+geometry-only rule is therefore the wrong layer for the fix.
 
-Windows behavior: this changes test-harness shell spawning only. The production
-ConPTY spawn path (`src/pty/windows.rs`) is untouched; no runtime terminal
-behavior changes on any platform.
+Because the correction was compiled only on Windows, its unit fixtures changed
+the expected cursor-key counts on the Windows test leg alone, turning six
+shared click-to-position tests red there while the other platforms stayed
+green. Reverting restores those tests to a single cross-platform expectation.
 
-State: full library test suite green (3366 tests), `cargo fmt --check` and
-`cargo clippy --all-targets` clean. The fix targets an intermittent
-Windows-only CI flake; the Windows CI leg is the authoritative verification.
+The `ODYTTY_NF18_TRACE` diagnostic gate is left in place: a capture from a real
+Windows session is what will settle whether the offset is ConPTY-wide or
+PSReadLine-specific, and at which layer a durable correction belongs.
 
----
-
-## 2026-07-08 -- PowerShell click-to-place append off-by-one correction
-
-Click-to-position on a live PowerShell prompt under Windows/ConPTY landed the
-caret one cell left of the clicked glyph, but only from the append origin — a
-click made while the line-editor caret sat one past the last input glyph.
-PSReadLine emits a terminal cursor one edit-position right of its true buffer
-caret at that append position, and the synthesized click-to-place travel is
-derived from that emitted cursor, so a left-travel from the append origin
-over-shot by exactly one press. The `Exact` input-region path (fish / OSC 133)
-validates its cursor against the live grid and was unaffected; the
-`RightEdgeUnknown` heuristic path (PowerShell, bash) has no such validation and
-trusted the emitted position, which is why the miss was PowerShell-only despite
-identical pixel and delta arithmetic across platforms.
-
-The travel model now pulls the source caret back one glyph at the append origin
-only — the caret at the region's end column on its last row — and only on the
-`RightEdgeUnknown` path. This is deliberately not a blanket shift: once the model
-re-syncs to the click column, a subsequent mid-line click carries the correct
-cursor and must not be corrected again, so the gate is strictly the append
-origin. The correction is Windows-scoped: Linux and macOS shells report an
-accurate cursor on this path, so applying it there would introduce an
-off-by-one where none exists. The `Exact` path stays byte-identical on every
+Windows behavior: this reverts a test-and-Windows-only change; the production
+ConPTY spawn path is unchanged and no runtime terminal behavior changes on any
 platform.
 
-New unit tests pin the trace geometry directly — the corrected 7-press travel on
-Windows, the uncorrected 8-press travel off Windows (proving the non-Windows
-path is untouched), a mid-line click that is never corrected on any platform,
-and an `Exact`-path append that stays byte-identical. The `ODYTTY_NF18_TRACE`
-diagnostic gate is retained for now: automated tests assert the model does what
-it is coded to do but cannot exercise the live ConPTY↔PSReadLine cursor
-behavior, so hands-on verification on the Windows binary remains the real
-acceptance check before the gate is removed. Non-GPU suite green; fmt and clippy
-clean.
+State: `click_travel_delta` is back to its pre-correction form and the shared
+click-to-position tests pass identically on every platform. Full library test
+suite green, `cargo fmt --check` and `cargo clippy --all-targets` clean.
+
+---
 
 ## 2026-07-08 -- Default body-font size returns to 20px
 
