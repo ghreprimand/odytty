@@ -22,7 +22,7 @@ for public repositories.
   --all-targets --locked -- -D warnings`, `cargo test --locked`). This is the
   cross-platform correctness gate; it produces no artifacts.
 - **`.github/workflows/release.yml`** — on a `vX.Y.Z` tag push, creates the
-  source tarball, Linux AppImage, Windows zip, `SHA256SUMS`, and publishes the
+  source tarball, Linux AppImage, Windows zip, macOS `.app` zip, `SHA256SUMS`, and publishes the
   GitHub Release automatically. Tag pushes are restricted to maintainers, so
   this never runs from fork pull requests.
 
