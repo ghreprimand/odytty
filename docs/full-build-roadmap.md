@@ -453,10 +453,21 @@ Making OdyTTY installable and maintainable outside the source tree.
   hand.
 - **Next — Crash & logging story.** A predictable diagnostics path (bounded,
   local, privacy-preserving) for when something does go wrong.
-- **Ongoing — Broader platform work.** macOS now builds and is exercised in CI
-  alongside Linux; Linux-first remains the guiding constraint. Confirm behavior
-  under both Wayland and X11 where relevant, and avoid portability abstractions
-  until real platform pressure exists.
+- **Shipped — macOS release artifact.** The release workflow now emits an
+  ad-hoc-signed `OdyTTY.app` bundle, zipped as `odytty-macos-arm64.zip`
+  (Apple Silicon / arm64), from the macos-latest CI leg — checksummed in
+  `SHA256SUMS` with an always-latest alias and a version-pinned twin. Ad-hoc
+  signing is free and account-less, so an un-quarantined app launches without a
+  Gatekeeper warning; no Apple Developer account or notarization is involved.
+- **Next — macOS Homebrew tap.** A `homebrew-odytty` tap (cask pointing at the
+  release `.app` zip, plus a source-build formula fallback) and a release-time
+  cask auto-bump, so macOS users install and update with `brew` rather than
+  hand-unzipping. A signed/notarized `.dmg` stays deferred to if/when the Apple
+  Developer Program is adopted.
+- **Ongoing — Broader platform work.** macOS builds, is exercised in CI, and
+  now ships an artifact alongside Linux; Linux-first remains the guiding
+  constraint. Confirm behavior under both Wayland and X11 where relevant, and
+  avoid portability abstractions until real platform pressure exists.
 
 ## Track 11 — Exploratory / far future
 

@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- macOS app bundle now built, signed, and packaged by CI
+
+The release workflow gains a macOS leg that produces a downloadable app.
+
+On a tag push, the macos-latest runner (Apple Silicon / arm64) builds the
+release binary, smoke-tests it with `--version` (which exits before any GPU or
+window init, so it runs headlessly like the other legs), and assembles an
+`OdyTTY.app` bundle via `dist/macos/make-app.sh` — copying in the binary,
+building a multi-resolution `.icns` from the committed 1024px icon, and stamping
+the version into `Info.plist`. The bundle is then ad-hoc code-signed
+(`codesign --force -s -`, no `--deep`) and verified. Ad-hoc signing is free and
+account-less; it is what lets an un-quarantined app launch on Apple Silicon
+without a Gatekeeper warning, with no Apple Developer account or notarization.
+
+The bundle is zipped with `ditto -c -k --keepParent` (which preserves the
+bundle structure the way macOS expects, unlike a plain `zip -r`) as
+`odytty-macos-arm64.zip`. The publish job now depends on the macOS leg, sweeps
+the zip into the release, and adds the always-latest `odytty-macos-arm64.zip`
+alias next to the version-pinned twin — both byte-identical and checksummed in
+`SHA256SUMS`, so their hashes match. The release Downloads preamble names the
+new artifact.
+
+This is a macOS-only surface: no Linux or Windows build, packaging, or runtime
+behavior changes. A Homebrew tap (cask + source formula) that installs from
+this artifact is the next step; a signed/notarized `.dmg` remains deferred to
+if/when the Apple Developer Program is adopted.
+
+---
+
 ## 2026-07-07 -- Release v0.8.1 — Scroll glide, pixel-precise scrolling, and full-selection copy
 
 Point release focused on scroll feel and a copy fix, collecting the scroll work landed since v0.8.0 into a tagged release.

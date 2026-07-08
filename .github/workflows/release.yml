@@ -121,9 +121,64 @@ jobs:
           name: windows
           path: dist/build/*.zip
 
+  macos:
+    name: macOS app zip (arm64)
+    # GitHub's macos-latest runner is Apple Silicon (arm64). Assembles an
+    # OdyTTY.app bundle from the release binary, ad-hoc-signs it, and zips it
+    # with ditto (which preserves the bundle the way macOS expects). The ad-hoc
+    # signature (identity "-") is free and account-less; it is what lets an
+    # Apple Silicon Mac launch the app without a Gatekeeper warning once the
+    # download's quarantine attribute is removed. No notarization / Developer ID.
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUSTFLAGS: "--remap-path-prefix=${{ github.workspace }}=."
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Smoke test the macOS binary
+        # --version exits before any GPU/window init, so it runs headlessly in CI.
+        run: ./target/release/odytty --version
+
+      - name: Assemble and sign OdyTTY.app
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          mkdir -p dist/build
+          cp target/release/odytty dist/build/odytty
+          bash dist/macos/make-app.sh "$version"
+          # Ad-hoc signature: sign the single-binary bundle plainly. Do NOT use
+          # --deep (deprecated and wrong for a one-executable .app); the plain
+          # sign covers the binary and the bundle together.
+          codesign --force -s - dist/build/OdyTTY.app
+          codesign --verify --verbose dist/build/OdyTTY.app
+
+      - name: Package macOS zip
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          # ditto -c -k --keepParent produces a macOS-correct zip that preserves
+          # the .app bundle's structure; a plain `zip -r` can corrupt bundles.
+          ditto -c -k --keepParent dist/build/OdyTTY.app \
+            "dist/build/odytty-$version-macos-arm64.zip"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/build/*.zip
+
   release:
     name: Publish release
-    needs: [source, appimage, windows]
+    needs: [source, appimage, windows, macos]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
@@ -149,6 +204,7 @@ jobs:
           cp "odytty-${version}.tar.gz" "odytty.tar.gz"
           cp "odytty-${version}-x86_64.AppImage" "odytty-x86_64.AppImage"
           cp "odytty-${version}-windows-x86_64.zip" "odytty-windows-x86_64.zip"
+          cp "odytty-${version}-macos-arm64.zip" "odytty-macos-arm64.zip"
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
 
@@ -165,9 +221,10 @@ jobs:
           body: |
             ### Downloads
 
-            `odytty-x86_64.AppImage`, `odytty-windows-x86_64.zip`, and
-            `odytty.tar.gz` are the **always-latest** names — use these for a
-            stable URL that resolves to the newest release. The
+            `odytty-x86_64.AppImage`, `odytty-windows-x86_64.zip`,
+            `odytty-macos-arm64.zip`, and `odytty.tar.gz` are the
+            **always-latest** names — use these for a stable URL that resolves
+            to the newest release. The
             `…-${{ steps.ver.outputs.version }}-…` files are the **identical**
             version-pinned copies (same bytes), for when you want to pin a
             specific version. Every file is checksummed in `SHA256SUMS`; each
