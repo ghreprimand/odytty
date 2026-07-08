@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Settings panel reachability audit; keybinds option hint completed
+
+A field-by-field audit confirmed every user-facing `Settings` field is
+reachable from the settings panel. All 13 raw `SettingInfo` groups map into one
+of the panel's 10 display sections, and every field surfaces through a section
+that group resolves to — `native_autoclose` included, via its
+`native_autoclose_ms` row in the Development group (the Advanced section). No
+shipped knob is unreachable; the group-to-section guard already pins this
+invariant.
+
+The one straggler the audit surfaced was documentation-shaped, not a
+reachability gap: the `keybinds` row's static option-hint list had fallen behind
+the action enum, listing 29 of the 38 bindable actions. It now enumerates all 38
+in `BindableAction::ALL` order — the same order the in-app key-remap editor
+presents — so the panel's keybinds-row hint, the remap editor, and the config
+parser agree. The missing tokens were `new-window`, `theme-builder`,
+`session-attach`, and the six workspace actions (`new`/`close`/`rename`/`next`/
+`prev`-workspace and the workspace picker).
+
+The regression test for that list was rewritten to derive its expectation from
+`BindableAction::ALL` rather than a frozen literal, so it is now a genuine drift
+guard: adding a variant to the enum fails the test until its display token is
+added to the row. This is settings state only, with no platform-specific
+surface — `native_autoclose` and the keybinds option list behave identically on
+Linux, macOS, and Windows.
+
+---
+
 ## 2026-07-08 -- macOS app bundle now built, signed, and packaged by CI
 
 The release workflow gains a macOS leg that produces a downloadable app.

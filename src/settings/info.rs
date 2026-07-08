@@ -1103,9 +1103,12 @@ impl Settings {
                 description: "Terminal-local shortcut overrides for search, settings, theme picker, command palette, copy, paste, and scrollback actions. PTY key encoding is unchanged unless an override captures that chord.",
                 kind: SettingKind::List,
                 range: None,
-                // D-KBR-2: all BindableAction names, in the same order as the
-                // `bindable_action_name` authority (settings/values.rs). Display
-                // only — the parser already accepts every action.
+                // D-KBR-2: every BindableAction display name, in the exact
+                // order of `BindableAction::ALL` (the same order the in-app
+                // key-remap editor lists). Display only — the parser already
+                // accepts every action. Pinned to `ALL` by
+                // `keybinds_info_options_lists_all_actions` so a new variant
+                // fails that test until its token is added here.
                 options: &[
                     "search",
                     "settings",
@@ -1120,12 +1123,21 @@ impl Settings {
                     "hints",
                     "clear-input",
                     "command-palette",
-                    "session-replay",
                     "connection-manager",
+                    "session-replay",
+                    "theme-builder",
+                    "session-attach",
                     "new-tab",
+                    "new-window",
                     "next-tab",
                     "prev-tab",
                     "close-tab",
+                    "new-workspace",
+                    "close-workspace",
+                    "rename-workspace",
+                    "next-workspace",
+                    "prev-workspace",
+                    "workspace-picker",
                     "split-columns",
                     "split-rows",
                     "focus-pane-left",

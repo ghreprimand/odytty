@@ -134,50 +134,26 @@ fn advanced_font_row_stays_empty_after_a_family_pick() {
 
 #[test]
 fn keybinds_info_options_lists_all_actions() {
-    // D-KBR-2 / R7: the `keybinds` row's options[] must enumerate every
-    // BindableAction. Pinned to the
-    // `bindable_action_display_name` authority so the list and the parser tokens
-    // can never drift, and so adding a BindableAction variant fails here until
-    // its display token is added to the row.
+    // D-KBR-2 / R7: the `keybinds` row's options[] must enumerate EVERY
+    // BindableAction, in the exact order of `BindableAction::ALL`, so the panel's
+    // keybinds-row hint list matches the in-app key-remap editor (which also
+    // sources its rows from `ALL`) and never falls behind the enum. Deriving the
+    // expectation from `ALL` (rather than a frozen literal) makes this a true
+    // drift guard: adding a variant to `ALL` fails here until its display token
+    // is added to the row's options[]. Pinned to the `bindable_action_display_name`
+    // authority so the tokens and the parser can never drift.
     let rows = Settings::default().setting_info();
     let keybinds = row(&rows, "keybinds");
-    let expected = [
-        BindableAction::Search,
-        BindableAction::SettingsPanel,
-        BindableAction::ThemePicker,
-        BindableAction::Copy,
-        BindableAction::Paste,
-        BindableAction::ScrollPageUp,
-        BindableAction::ScrollPageDown,
-        BindableAction::JumpPromptPrev,
-        BindableAction::JumpPromptNext,
-        BindableAction::CopyMode,
-        BindableAction::Hints,
-        BindableAction::ClearInput,
-        BindableAction::CommandPalette,
-        BindableAction::SessionReplay,
-        BindableAction::ConnectionManager,
-        BindableAction::NewTab,
-        BindableAction::NextTab,
-        BindableAction::PrevTab,
-        BindableAction::CloseTab,
-        BindableAction::SplitColumns,
-        BindableAction::SplitRows,
-        BindableAction::FocusPaneLeft,
-        BindableAction::FocusPaneRight,
-        BindableAction::FocusPaneUp,
-        BindableAction::FocusPaneDown,
-        BindableAction::FocusPaneNext,
-        BindableAction::ClosePane,
-        BindableAction::ZoomPane,
-        BindableAction::EqualizePanes,
-    ];
-    let expected_names: Vec<&'static str> = expected
+    let expected_names: Vec<&'static str> = BindableAction::ALL
         .iter()
         .map(|action| bindable_action_display_name(*action))
         .collect();
     assert_eq!(keybinds.options, expected_names.as_slice());
-    assert_eq!(keybinds.options.len(), 29, "all 29 actions selectable");
+    assert_eq!(
+        keybinds.options.len(),
+        BindableAction::ALL.len(),
+        "every bindable action is selectable from the keybinds row"
+    );
 }
 
 #[test]

@@ -215,13 +215,16 @@ labels, and visible font-load failure reporting all ship today.
   hand-editing config.
 - **Shipped — CLI introspection: list available fonts**, completing the
   existing introspection helpers.
-- **Next — Settings completeness.** Map every configuration group (including the
-  newer connection and session groups) into a settings section so no shipped knob
-  is unreachable from the panel. The `keybinds` parser and the in-app key-remap
-  editor already cover all 38 bindable actions — including the theme-builder,
-  session-attach, and workspace actions — so every action is reachable from the
-  panel's keybinds editor. See [keybindings.md](./keybindings.md) for the full
-  keyboard reference.
+- **Shipped — Settings completeness.** Every configuration group (13 raw groups,
+  including the connection and session groups) maps into one of the panel's 10
+  display sections, so no shipped knob is unreachable from the panel; a field
+  audit confirmed every user-facing `Settings` field surfaces through a reachable
+  `SettingInfo` row (`native_autoclose` included, via the Development → Advanced
+  section). The `keybinds` parser and the in-app key-remap editor cover all 38
+  bindable actions — including the theme-builder, session-attach, and workspace
+  actions — and the panel's keybinds-row option hint now enumerates the same 38
+  in `BindableAction::ALL` order. See [keybindings.md](./keybindings.md) for the
+  full keyboard reference.
 - **Someday — Profiles.** Named configuration profiles once the base config
   model has settled.
 
@@ -535,15 +538,9 @@ the readability-safe background treatments, the interactive paths and image
 viewer, the session attach launcher, and the multi-context epic (panes,
 persistent sessions, command palette, and connection manager) all ship:
 
-1. **Settings completeness & discoverability** — map every shipped configuration
-   group into the settings panel so nothing is unreachable (the keybinds parser
-   and the key-remap editor already cover all 38 actions, including the
-   theme-builder, session-attach, and workspace actions). The
-   highest value-to-effort work: it removes real friction with mostly wiring, not
-   new subsystems.
-2. **Crash & logging story** — a predictable, bounded, local, privacy-preserving
+1. **Crash & logging story** — a predictable, bounded, local, privacy-preserving
    diagnostics path for when something does go wrong (see Track 10).
-3. **Effect default-tuning pass** — once a human-eye baseline exists, revisit the
+2. **Effect default-tuning pass** — once a human-eye baseline exists, revisit the
    conservative default strengths of stem darkening, standalone scanlines, and
    bloom (see Track 2).
 
