@@ -7,6 +7,48 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Windows click-to-place lands on the clicked glyph
+
+Click-to-position on a live prompt under Windows/ConPTY landed the caret one
+cell left of the clicked glyph. On the heuristic input-region path — shells that
+emit no OSC 133 input-end mark, such as PowerShell/PSReadLine and cmd — ConPTY
+reports the terminal cursor one cell right of the shell's true editable caret.
+The click-to-place travel is synthesized as `target - reported_cursor` cursor
+keys but is applied by the shell from the true caret one cell to the left, so
+every click landed one cell short.
+
+The correction pulls the source caret back one glyph on that path so the emitted
+travel lands on the clicked cell. It applies at every caret position, not only
+at the line end: the report is one-right wherever the caret sits, and the
+correction stays self-consistent across successive clicks (each fresh read is
+again one-right, so each re-applies it). An earlier, narrower attempt guarded
+the shift to the append origin only; real clicks are mid-line, so it never fired
+and is superseded here.
+
+The correction is scoped to Windows. Linux and macOS shells report an accurate
+cursor on this path, so applying it there would introduce an off-by-one where
+none exists. The Exact / OSC 133 path (fish) validates its cursor against the
+live grid and is untouched, so it stays byte-identical on every platform.
+Because the emitted cursor-key counts now differ by platform on the heuristic
+path, the click-to-position tests carry per-platform expectations; the Exact and
+non-Windows cases are unchanged and run in the standard suite.
+
+The `ODYTTY_NF18_TRACE` diagnostic gate is retained: the correction now covers
+all heuristic-path ConPTY shells (cmd, git-bash), and whether the one-cell-right
+report is universal to ConPTY or specific to PSReadLine is still being
+corroborated. If a shell that reports an accurate cursor turns up on this path,
+a shell-aware gate is the follow-up.
+
+Windows behavior: this IS a Windows-only behavior change on the heuristic
+click-to-place path; no other platform and no non-heuristic (Exact) path is
+affected, and the production ConPTY spawn path is unchanged.
+
+State: full library test suite green (3365 tests), `cargo fmt --check` and
+`cargo clippy --all-targets` clean. The Windows CI leg is the authoritative
+verification for the per-platform (`cfg(windows)`) expectations.
+
+---
+
 ## 2026-07-08 -- Withdraw the Windows append-origin click-to-place correction
 
 A recent change nudged click-to-position travel back by one cell at the append

@@ -2583,6 +2583,27 @@ fn click_travel_delta(
         return None;
     }
     let cursor_flat = flat_at(cursor_rel, cursor.column);
+    // NF18/A2 (Windows/ConPTY only): under ConPTY the terminal cursor is
+    // reported one cell RIGHT of the shell's true editable caret on the
+    // `RightEdgeUnknown` heuristic path (PowerShell/PSReadLine, cmd, and other
+    // shells that emit no OSC 133 input-end mark). The travel is synthesized as
+    // `target - reported_cursor` arrows but is applied from the true caret one
+    // cell left, so the caret lands exactly one cell left of the click — every
+    // click, deterministically. Pull the source caret back one glyph so the
+    // emitted travel lands on the clicked cell. This is universal on the path
+    // (not only at the append origin): the report is one-right at every caret
+    // position, and the correction stays self-consistent across successive
+    // clicks (each new read is again one-right, so each re-applies it). The
+    // Exact / OSC-133 path (fish) validates its cursor against the live grid
+    // and is untouched, so it stays byte-identical. Linux/macOS shells report
+    // an accurate cursor on this path, so the correction is Windows-scoped;
+    // applying it there would introduce an off-by-one where none exists.
+    #[cfg(windows)]
+    let cursor_flat = if region.certainty == crate::core::InputCertainty::RightEdgeUnknown {
+        cursor_flat.saturating_sub(1)
+    } else {
+        cursor_flat
+    };
     let delta = i32::try_from(target).ok()? - i32::try_from(cursor_flat).ok()?;
     if delta == 0 { None } else { Some(delta) }
 }
@@ -2935,5 +2956,97 @@ mod tests {
                 "encoding {encoding:?} must not take the pixel seam"
             );
         }
+    }
+
+    // --- NF18: Windows/ConPTY click-to-place cursor-report correction ---
+    //
+    // Under ConPTY the terminal cursor is reported one cell right of the shell's
+    // true edit caret on the `RightEdgeUnknown` heuristic path (PowerShell, cmd,
+    // and other shells with no OSC 133 input-end mark), so `click_travel_delta`
+    // pulls the source caret back one glyph on Windows only. These pin the model
+    // directly: a mid-line click (the real-world case — the earlier append-origin
+    // guard never fired on live clicks) shifts one more positive on Windows,
+    // stays unchanged elsewhere, and the Exact / OSC-133 path is untouched.
+
+    const NF18_START_COL: usize = 34;
+    const NF18_END_COL: usize = 54; // exclusive input end
+    const NF18_LEN: usize = NF18_END_COL - NF18_START_COL; // 20 glyphs
+
+    /// A single-row snapshot with `NF18_LEN` ASCII glyphs starting at
+    /// `NF18_START_COL` on row 0.
+    fn nf18_snapshot() -> Snapshot {
+        let columns = 80usize;
+        let rows = 28usize;
+        let mut cells = vec![crate::core::Cell::blank(); columns * rows];
+        for i in 0..NF18_LEN {
+            // Any single-width, non-blank glyph; only the non-continuation count
+            // matters to the flatten, not the character.
+            cells[NF18_START_COL + i] = crate::core::Cell::new('x', crate::core::Attrs::default());
+        }
+        Snapshot {
+            dimensions: Dimensions::new(columns, rows),
+            cursor: Position {
+                row: 0,
+                column: NF18_END_COL,
+            },
+            cursor_visible: true,
+            colors: crate::core::DynamicColors::default(),
+            cells,
+        }
+    }
+
+    /// Single-row input region; `Exact` carries authoritative row spans, the
+    /// heuristic path leaves them empty (reconstructed from the bounds).
+    fn nf18_region(certainty: InputCertainty) -> crate::core::InputRegion {
+        let row_spans = if certainty == InputCertainty::Exact {
+            vec![(NF18_START_COL, NF18_END_COL)]
+        } else {
+            Vec::new()
+        };
+        crate::core::InputRegion {
+            start_row: 0,
+            start_col: NF18_START_COL,
+            end_row: 0,
+            end_col: NF18_END_COL,
+            joins: Vec::new(),
+            certainty,
+            row_spans,
+        }
+    }
+
+    /// Mid-line travel: caret at glyph 10 (column 44), click at glyph 6
+    /// (column 40). Neither sits at the input end, so the earlier append-origin
+    /// guard would not have fired here — this is the live-click case.
+    fn nf18_midline_delta(certainty: InputCertainty) -> Option<i32> {
+        click_travel_delta(
+            &nf18_snapshot(),
+            &nf18_region(certainty),
+            CellPoint { row: 0, column: 40 },
+            Position { row: 0, column: 44 },
+            0,
+            28,
+        )
+    }
+
+    #[test]
+    fn nf18_conpty_correction_shifts_midline_click_windows_only() {
+        // Uncorrected travel is 6 - 10 = -4 (4 Left). Under ConPTY the reported
+        // cursor is one right of the true caret, so the correction pulls the
+        // source caret back one glyph: -3 (3 Left) on Windows, -4 elsewhere. The
+        // runtime `cfg!` keeps both arms compiled and lint-checked on every
+        // platform (the non-Windows arm is exercised by this local run).
+        let expected = if cfg!(windows) { -3 } else { -4 };
+        assert_eq!(
+            nf18_midline_delta(InputCertainty::RightEdgeUnknown),
+            Some(expected)
+        );
+    }
+
+    #[test]
+    fn nf18_exact_path_midline_click_is_byte_identical() {
+        // The fish / OSC 133 Exact path validates its cursor and is untouched by
+        // the correction (gated on `RightEdgeUnknown`), so the delta is the
+        // literal -4 on every platform, Windows included.
+        assert_eq!(nf18_midline_delta(InputCertainty::Exact), Some(-4));
     }
 }

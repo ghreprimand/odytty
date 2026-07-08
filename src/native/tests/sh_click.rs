@@ -124,9 +124,14 @@ fn bundled_snippet_repositions_only_when_setting_on() {
         return; // no PTY in this environment
     };
     let written_on = click_at(&mut app_on, &bytes_on, 0, 2);
+    // Under ConPTY the terminal cursor is reported one cell right of the
+    // shell's true edit caret on the RightEdgeUnknown path, so the emitted
+    // travel is one shorter toward the caret (Windows-only correction);
+    // other platforms report an accurate cursor and are unchanged.
+    let lefts = if cfg!(windows) { 4 } else { 5 };
     assert_eq!(
         written_on,
-        b"\x1b[D".repeat(5),
+        b"\x1b[D".repeat(lefts),
         "with sh_click on, the bundled snippet's click_events=1 lets a click reposition"
     );
 
@@ -146,11 +151,17 @@ fn click_left_of_cursor_emits_left_arrows_on_live_prompt() {
     let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
         return; // no PTY in this environment
     };
-    // Cursor at column 7 ("$ hello"); click column 2 -> delta -5 -> 5x Left.
+    // Cursor at column 7 ("$ hello"); click column 2 -> delta -5 -> 5x Left
+    // (4x on Windows/ConPTY, see below).
     let written = click_at(&mut app, &bytes, 0, 2);
+    // Under ConPTY the terminal cursor is reported one cell right of the
+    // shell's true edit caret on the RightEdgeUnknown path, so the emitted
+    // travel is one shorter toward the caret (Windows-only correction);
+    // other platforms report an accurate cursor and are unchanged.
+    let lefts = if cfg!(windows) { 4 } else { 5 };
     assert_eq!(
         written,
-        b"\x1b[D".repeat(5),
+        b"\x1b[D".repeat(lefts),
         "a bare click left of the cursor moves the shell cursor left"
     );
 }
@@ -165,9 +176,15 @@ fn click_right_of_cursor_emits_right_arrows() {
     else {
         return;
     };
-    // Cursor at column 4; click column 6 -> 2 glyphs ("ll") -> 2x Right.
+    // Cursor at column 4; click column 6 -> 2 glyphs ("ll") -> 2x Right
+    // (3x on Windows/ConPTY, see below).
     let written = click_at(&mut app, &bytes, 0, 6);
-    assert_eq!(written, b"\x1b[C".repeat(2));
+    // Under ConPTY the terminal cursor is reported one cell right of the
+    // shell's true edit caret on the RightEdgeUnknown path, so the emitted
+    // travel is one shorter toward the caret (Windows-only correction);
+    // other platforms report an accurate cursor and are unchanged.
+    let rights = if cfg!(windows) { 3 } else { 2 };
+    assert_eq!(written, b"\x1b[C".repeat(rights));
 }
 
 #[test]
@@ -194,17 +211,31 @@ fn click_honors_application_cursor_mode() {
         return;
     };
     let written = click_at(&mut app, &bytes, 0, 2);
-    assert_eq!(written, b"\x1bOD".repeat(5));
+    // Under ConPTY the terminal cursor is reported one cell right of the
+    // shell's true edit caret on the RightEdgeUnknown path, so the emitted
+    // travel is one shorter toward the caret (Windows-only correction);
+    // other platforms report an accurate cursor and are unchanged.
+    let lefts = if cfg!(windows) { 4 } else { 5 };
+    assert_eq!(written, b"\x1bOD".repeat(lefts));
 }
 
 #[test]
-fn click_on_cursor_cell_emits_nothing() {
-    // T4 same-cell: a click on the cursor's own column is a no-op (delta 0).
+fn click_on_reported_cursor_cell() {
+    // T4 same-cell: a click on the reported cursor's own column. On an accurate
+    // cursor (Unix/macOS shells, and fish's Exact path) delta is 0 -> a no-op.
+    // Under ConPTY the reported cursor sits one cell right of the true edit
+    // caret on the RightEdgeUnknown path, so a click on the *reported* cursor
+    // cell lands one cell right of the true caret and steps it a single Right.
     let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
         return;
     };
     let written = click_at(&mut app, &bytes, 0, 7);
-    assert!(written.is_empty(), "same-cell click yields no movement");
+    let expected: &[u8] = if cfg!(windows) { b"\x1b[C" } else { b"" };
+    assert_eq!(
+        written, expected,
+        "same-cell click is inert with an accurate cursor, one Right under the \
+         one-cell-right ConPTY report"
+    );
 }
 
 #[test]
@@ -318,11 +349,16 @@ fn wide_glyph_line_counts_glyphs_not_cells() {
         return;
     };
     // Cursor at column 6 (after both wide glyphs); click column 2 (the first
-    // glyph's lead cell) -> 2 glyphs -> 2x Left.
+    // glyph's lead cell) -> 2 glyphs -> 2x Left (1x on Windows/ConPTY, see below).
     let written = click_at(&mut app, &bytes, 0, 2);
+    // Under ConPTY the terminal cursor is reported one cell right of the
+    // shell's true edit caret on the RightEdgeUnknown path, so the emitted
+    // travel is one shorter toward the caret (Windows-only correction);
+    // other platforms report an accurate cursor and are unchanged.
+    let lefts = if cfg!(windows) { 1 } else { 2 };
     assert_eq!(
         written,
-        b"\x1b[D".repeat(2),
+        b"\x1b[D".repeat(lefts),
         "one wide glyph is one caret step, not two"
     );
 }
@@ -393,9 +429,14 @@ fn heuristic_soft_wrap_multi_row_click_travels() {
         return;
     };
     let written = click_at(&mut app, &bytes, 0, 10);
+    // Under ConPTY the terminal cursor is reported one cell right of the
+    // shell's true edit caret on the RightEdgeUnknown path, so the emitted
+    // travel is one shorter toward the caret (Windows-only correction);
+    // other platforms report an accurate cursor and are unchanged.
+    let lefts = if cfg!(windows) { 74 } else { 75 };
     assert_eq!(
         written,
-        b"\x1b[D".repeat(75),
+        b"\x1b[D".repeat(lefts),
         "heuristic tier travels across soft wraps too"
     );
 }
