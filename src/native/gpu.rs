@@ -1024,13 +1024,21 @@ impl GpuState {
         // Read-only diagnostics; does not influence rendering.
         let adapter_diagnostics = AdapterDiagnostics::from_wgpu(&adapter.get_info());
         // Name the selected adapter once at startup so a performance report can
-        // be diagnosed from the log alone (the About panel shows the same data
-        // live). A software rasterizer — a silent llvmpipe/lavapipe/SwiftShader
-        // or Windows WARP fallback — is the usual cause of a "very slow even with
-        // effects off" report, so it earns a loud warning pointing at the docs.
-        eprintln!("odytty: GPU adapter: {}", adapter_diagnostics.summary());
+        // be diagnosed from the log alone. Routed through `tracing` (not
+        // stderr) so it lands in the rotated `odytty.log`: stderr may be
+        // redirected to /dev/null (the scenario `logging.rs` was built for),
+        // and on Windows the GUI subsystem has no visible stderr at all, so the
+        // log is the only place the adapter identity survives. Emitted at WARN
+        // because the log's default floor is WARN — an INFO line would be
+        // dropped by default, leaving "diagnosed from the log alone" untrue.
+        // The summary is device metadata only (backend/name/limits), never
+        // terminal content. A software rasterizer — a silent
+        // llvmpipe/lavapipe/SwiftShader or Windows WARP fallback — is the usual
+        // cause of a "very slow even with effects off" report, so it earns a
+        // louder warning pointing at the docs.
+        tracing::warn!("odytty: GPU adapter: {}", adapter_diagnostics.summary());
         if adapter_diagnostics.is_software() {
-            eprintln!(
+            tracing::warn!(
                 "odytty: WARNING: rendering in software ({}); expect low performance. \
                  See the \"Slow rendering / software adapter\" section of docs/install.md",
                 adapter_diagnostics.name
@@ -1041,13 +1049,13 @@ impl GpuState {
         let enabled_features = adapter_features & wgpu::Features::DUAL_SOURCE_BLENDING;
         let subpixel = effective_subpixel_mode(options.subpixel, enabled_features);
         if options.subpixel.enabled() && !subpixel.enabled() {
-            eprintln!(
+            tracing::warn!(
                 "odytty: ODYTTY_SUBPIXEL requested but the GPU adapter lacks dual-source blending; using grayscale text"
             );
         }
         let post_process_format = post::supported_format(&adapter);
         if post_process_format.is_none() {
-            eprintln!(
+            tracing::warn!(
                 "odytty: GPU adapter lacks filterable Rgba16Float render targets; post-process effects disabled"
             );
         }
@@ -1065,7 +1073,7 @@ impl GpuState {
         let caps = surface.get_capabilities(&adapter);
         let (format, surface_is_srgb) = choose_surface_format(&caps.formats);
         if !surface_is_srgb {
-            eprintln!(
+            tracing::warn!(
                 "odytty: GPU surface offered no sRGB format; using {format:?}; text and colors may render darker than intended"
             );
         }
@@ -1645,7 +1653,7 @@ impl GpuState {
     ) -> Result<bool, NativeError> {
         let next_subpixel = effective_subpixel_mode(options.subpixel, self.enabled_features);
         if options.subpixel.enabled() && !next_subpixel.enabled() {
-            eprintln!(
+            tracing::warn!(
                 "odytty: ODYTTY_SUBPIXEL requested but the GPU adapter lacks dual-source blending; using grayscale text"
             );
         }

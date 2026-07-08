@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- GPU adapter startup diagnostics now reach the rotated log
+
+The startup GPU diagnostics — the selected-adapter summary, the
+software-rasterizer warning, and the subpixel / post-process / sRGB
+capability warnings — were written with `eprintln!`, so they only ever reached
+stderr. Under the exact scenario the runtime log was built for (stderr
+redirected to `/dev/null`) those lines were discarded, and the code's own claim
+that a performance report could be "diagnosed from the log alone" was untrue.
+
+They now route through `tracing`, so they land in the rotated `odytty.log`
+alongside the rest of the diagnostics. All are emitted at WARN: the log's
+default level floor is WARN, so an INFO record would be dropped by default and
+the adapter identity would still be missing from the log — the very gap this
+closes. The adapter summary is device metadata only (backend, adapter name,
+driver, limits); no terminal content, window titles, or PTY bytes pass through
+this path, preserving the logging privacy invariant.
+
+This matters most on Windows, whose GUI-subsystem binary has no visible stderr
+at all: before this change the adapter identity was simply unrecoverable from a
+Windows run; now it is in the log like every other platform. The change is a
+shared, cross-platform `tracing` routing swap — no platform-specific code and no
+`cfg` gates; Linux, macOS, and Windows all gain the log lines identically.
+
+---
+
 ## 2026-07-08 -- Retire the rail-autohide reveal trace
 
 The `ODYTTY_RAIL_TRACE` env-gated diagnostic is removed now that the
