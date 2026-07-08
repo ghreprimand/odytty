@@ -50,7 +50,7 @@ Windows ships as an unsigned portable zip.
   right-click context menu,
   command-aware prompt navigation from OSC 133, click-to-place cursor (with
   shell integration, click in the typed command line to move the shell cursor
-  there — including across soft-wrapped lines), configurable bell (visual flash
+  there, including across soft-wrapped lines), configurable bell (visual flash
   / window urgency), close confirmation, and tabs.
 - **Splits / panes:** split any tab into side-by-side or stacked panes, each
   with its own shell, scrollback, selection, search, and cursor. A configurable
@@ -62,7 +62,7 @@ Windows ships as an unsigned portable zip.
   in output into Ctrl+click targets that open in your editor at the right line
   and column, with an in-app image lightbox for image paths, an "Open With…"
   picker, OSC 8 hyperlinks, and keyboard quick-select hints.
-- **Detached and managed sessions:** sessions that outlive the window — a local
+- **Detached and managed sessions:** sessions that outlive the window: a local
   CLI (`odytty new` / `list` / `attach`) plus an in-window Manage Sessions
   overlay to attach, rename, and kill them, a New-tab/Replace attach prompt, and
   detach-and-switch to hand the focused pane to a fresh managed session.
@@ -81,7 +81,7 @@ Windows ships as an unsigned portable zip.
   with the system `ssh` binary and agent. Connections can optionally carry
   OdyTTY's shell integration onto the remote, reuse a single authenticated
   connection across tabs, hold a dropped tab open with a reconnect prompt, and
-  persist the remote shell in `tmux` — each an opt-in knob, all degrading to a
+  persist the remote shell in `tmux`, each an opt-in knob, all degrading to a
   plain `ssh` when unavailable.
 - **Privacy posture:** no telemetry, analytics, crash reporting, account,
   cloud sync, or update ping. Network-capable actions are explicit and
@@ -92,9 +92,12 @@ Windows ships as an unsigned portable zip.
 ## Install And Run
 
 Linux is the primary, battle-tested target. macOS is newly supported and in
-active development (see [macOS](#macos) below). Windows ships
-as an unsigned portable zip; Scoop is the recommended install path, or download
-the zip directly.
+active development, with Homebrew as its recommended install path. Windows ships
+as an unsigned portable zip, with Scoop as its recommended install path.
+
+**Jump to:** [Linux](#linux) · [macOS](#macos) · [Windows](#windows)
+
+---
 
 ### Linux
 
@@ -102,7 +105,7 @@ Requires Linux and a Vulkan-capable GPU. Wayland is the primary target; X11
 works through the current `winit`/GPU stack with some window-manager-dependent
 behavior for borderless windows and OS theme detection.
 
-#### AppImage (quickest)
+#### AppImage (recommended)
 
 Download the AppImage and `SHA256SUMS` from the latest release, verify it, make
 it executable, and run it:
@@ -115,11 +118,11 @@ chmod +x odytty-x86_64.AppImage
 ./odytty-x86_64.AppImage
 ```
 
-The `chmod +x` is required — browsers download the AppImage without the
+The `chmod +x` is required: browsers download the AppImage without the
 executable bit, so without it the file opens in an archive viewer or fails with
 "permission denied". The AppImage needs a working host Vulkan driver (Mesa or a
 vendor driver); it deliberately does not bundle the GPU stack. This is a
-best-effort x86_64 artifact — if it fails to start, build from source below.
+best-effort x86_64 artifact; if it fails to start, build from source below.
 
 Each release attaches both version-less and version-pinned downloads:
 `odytty-x86_64.AppImage` / `odytty-windows-x86_64.zip` / `odytty.tar.gz` are
@@ -149,7 +152,7 @@ makepkg -si
 ```
 
 This package is maintained by a community contributor and is **not published by
-the project** — it is not an official release channel. As with every AUR
+the project**. It is not an official release channel. As with every AUR
 package, the PKGBUILD is a build script that runs on your machine and AUR
 packages are not vetted by Arch, so review the PKGBUILD before installing (your
 AUR helper shows it by default). It tracks the published GitHub releases and
@@ -207,22 +210,95 @@ application:
 odytty
 ```
 
+---
+
+### macOS
+
+macOS support is newer and in active development, not yet as battle-tested as
+Linux. The prebuilt app is an Apple Silicon (arm64) build; Intel Macs use the
+source build below.
+
+#### Homebrew (recommended)
+
+The Homebrew tap is the least-friction path. Add the tap and install the cask:
+
+```sh
+brew tap ghreprimand/odytty
+brew install --cask odytty
+```
+
+The cask installs the prebuilt, ad-hoc-signed `OdyTTY.app` into `/Applications`,
+so it appears in Launchpad and Spotlight and can be dragged to the Dock to pin
+it. Homebrew is Apple-independent and strips the quarantine attribute on
+install, so the app launches with no Gatekeeper warning even though it is not
+notarized; no Apple Developer account is involved. `brew upgrade` picks up new
+releases automatically.
+
+To compile locally instead (Intel Macs, or to build from source), use the
+source formula, which installs the `odytty` CLI on your `PATH` with no `.app`
+bundle:
+
+```sh
+brew install ghreprimand/odytty/odytty
+```
+
+#### Build from source
+
+A source build works with the standard Rust toolchain
+([rustup](https://rustup.rs)) and the Xcode Command Line Tools. Both Apple
+Silicon and Intel are supported (whatever `cargo` targets natively on your
+machine). A binary you compile locally is never quarantined, so it launches with
+no Gatekeeper prompt.
+
+```sh
+xcode-select --install   # once, if you don't already have the Command Line Tools
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty.tar.gz
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+grep " odytty.tar.gz$" SHA256SUMS | shasum -a 256 -c -
+tar -xf odytty.tar.gz
+cd odytty-*/
+cargo build --release --locked
+./target/release/odytty
+```
+
+To get a double-clickable **OdyTTY.app** in Applications (a locally built bundle
+is also not quarantined, so it opens with no Gatekeeper prompt):
+
+```sh
+mkdir -p dist/build
+cp target/release/odytty dist/build/odytty
+bash dist/macos/make-app.sh "$version"
+cp -R dist/build/OdyTTY.app /Applications/
+```
+
+To run it as just `odytty` from any shell, symlink the built binary onto your
+`PATH`:
+
+```sh
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$PWD/target/release/odytty" "$HOME/.local/bin/odytty"
+# Make sure ~/.local/bin is on PATH (add to ~/.zshrc if needed):
+#   export PATH="$HOME/.local/bin:$PATH"
+```
+
+---
+
 ### Windows
 
-Windows support is new and still maturing — treat it as an early, actively
+Windows support is new and still maturing; treat it as an early, actively
 supported target rather than a settled one. It builds and runs the full
 terminal, and every push is exercised on a Windows CI leg, but the polish bar
-is behind Linux. **Bug reports for the Windows build are especially welcome** —
-please [open an issue](https://github.com/ghreprimand/odytty/issues) with your
+is behind Linux. **Bug reports for the Windows build are especially welcome.**
+Please [open an issue](https://github.com/ghreprimand/odytty/issues) with your
 Windows version and a short repro if something misbehaves.
 
 The Windows build is a single unsigned, portable `odytty.exe` packaged as
 `odytty-windows-x86_64.zip`. There is no installer and nothing is written
-outside your profile — configuration lives under `%APPDATA%\odytty\`. Two
+outside your profile: configuration lives under `%APPDATA%\odytty\`. Two
 install paths:
 
 **Scoop (recommended).** [Scoop](https://scoop.sh) is a per-user package
-manager for Windows — no admin rights, everything under your profile. If you
+manager for Windows (no admin rights, everything under your profile). If you
 don't already have it, install it once in PowerShell:
 
 ```powershell
@@ -263,7 +339,7 @@ Start or the taskbar for an easy launcher.
 **About the SmartScreen prompt.** OdyTTY is not code-signed yet, so the first
 time you launch it Windows may show a blue "Windows protected your PC"
 SmartScreen dialog naming an unknown publisher. This is expected for unsigned
-open-source software and can appear however you install it — a package manager
+open-source software and can appear however you install it: a package manager
 removes the browser-download friction but does not, on its own, guarantee the
 first-run prompt won't show. To run OdyTTY: click **More info**, then **Run
 anyway**. To clear the "downloaded from the internet" mark up front instead,
@@ -276,8 +352,8 @@ Unblock-File .\odytty\odytty.exe
 Code-signed Windows binaries are a planned improvement; until then the
 SmartScreen click-through above is the intended one-time step.
 
-**Not yet a Windows "default terminal."** You launch OdyTTY directly — from the
-Start menu, by typing `odytty`, or from a pinned shortcut — and it hosts your
+**Not yet a Windows "default terminal."** You launch OdyTTY directly (from the
+Start menu, by typing `odytty`, or from a pinned shortcut), and it hosts your
 shells in its own tabs and panes. It can't yet be set as the system *default
 terminal* (the app Windows hands console programs to when they're launched from
 Explorer or another program): that requires implementing the Windows
@@ -293,52 +369,13 @@ pseudoconsole. Not in this release: detachable/resumable session hosting and
 detached SSH (Unix-only), the headless `--interactive` mode, and the full
 "Open With" application list; the hostname field and command-palette shell
 history degrade to empty on Windows. Interactive Windows behaviour is verified
-manually on-device — CI proves the build compiles and its unit tests pass.
+manually on-device; CI proves the build compiles and its unit tests pass.
 
-### macOS
+---
 
-macOS support is newer and in active development — not yet as battle-tested as
-Linux. OdyTTY is built
-from source: a binary you compile locally is never quarantined, so it launches
-with no Gatekeeper warning and needs no signing, notarization, or workaround.
-The current published channel is this build-from-source path; a prebuilt,
-ad-hoc-signed `OdyTTY.app` zip and a Homebrew tap are landing with the next
-release, at which point `brew install` becomes the primary macOS path.
+### Running and inspecting
 
-Requires the Rust toolchain ([rustup](https://rustup.rs)) and the Xcode Command
-Line Tools. Both Apple Silicon and Intel are supported (whatever `cargo` targets
-natively on your machine).
-
-```sh
-xcode-select --install   # once, if you don't already have the Command Line Tools
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty.tar.gz
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-grep " odytty.tar.gz$" SHA256SUMS | shasum -a 256 -c -
-tar -xf odytty.tar.gz
-cd odytty-*/
-cargo build --release --locked
-./target/release/odytty
-```
-
-To get a double-clickable **OdyTTY.app** in Applications (a locally built bundle
-is also not quarantined, so it opens with no Gatekeeper prompt):
-
-```sh
-mkdir -p dist/build
-cp target/release/odytty dist/build/odytty
-bash dist/macos/make-app.sh "$version"
-cp -R dist/build/OdyTTY.app /Applications/
-```
-
-To run it as just `odytty` from any shell (as the examples below show), symlink
-the built binary onto your `PATH`:
-
-```sh
-mkdir -p "$HOME/.local/bin"
-ln -sfn "$PWD/target/release/odytty" "$HOME/.local/bin/odytty"
-# Make sure ~/.local/bin is on PATH (add to ~/.zshrc if needed):
-#   export PATH="$HOME/.local/bin:$PATH"
-```
+These commands apply on every platform once `odytty` is on your `PATH`.
 
 Run a command directly inside OdyTTY:
 
@@ -379,10 +416,10 @@ cargo build --release --locked
 OdyTTY is driven primarily by its in-app menus: the settings panel, the theme
 and font pickers, and the `Ctrl+Shift+P` command palette all run live inside the
 terminal, so browsing themes, choosing fonts, and changing configuration happen
-visually with an immediate preview — no command-line required. The introspection
-commands below are a **scriptable alternative** to those menus for quick checks,
-automation, and headless inspection; they print and exit without opening a
-window:
+visually with an immediate preview, with no command-line required. The
+introspection commands below are a **scriptable alternative** to those menus for
+quick checks, automation, and headless inspection; they print and exit without
+opening a window:
 
 ```sh
 odytty --list-themes
@@ -413,7 +450,7 @@ The same introspection works from the source tree before installing:
 `name`/`appearance`/`family` rows. `--list-fonts` prints discoverable system
 font files. `--show-config` prints the current stable config-dump subset (including
 `symbol_fallback` and `symbol_font_source`, which reports the resolved
-symbol/Nerd-font fallback **chain**, joined with ` > ` — e.g.
+symbol/Nerd-font fallback **chain**, joined with ` > `, for example
 `bundled > bundled > host:<path>`, or `disabled`); the full settings authority is
 [`docs/runtime-knobs.md`](docs/runtime-knobs.md).
 
@@ -452,7 +489,7 @@ Mouse support includes X10/normal/button-event/any-event tracking, focus
 events, UTF-8, SGR, urxvt, legacy encodings, and SGR-pixel mode 1016 with true
 physical pixel coordinates from the native window. Alternate scroll mode (1007,
 default on) translates the wheel into cursor-key presses on the alternate
-screen, so full-screen TUIs that do not track the mouse — pagers and similar —
+screen, so full-screen TUIs that do not track the mouse (pagers and similar)
 scroll with the wheel at the same rows-per-notch as the local viewport
 (the configured `scroll_wheel_lines` amount).
 
@@ -471,9 +508,9 @@ screen flash), `all` (both), or `off`. There is no audible bell.
 Text rendering uses bundled Victor Mono by default at 20 logical pixels with
 line height `1.0`. JetBrains Mono is also bundled and remains selectable via
 `font_family`. The font picker groups families into **Bundled Fonts** (Victor
-Mono, JetBrains Mono — always available) and **System Fonts** (host monospace
+Mono, JetBrains Mono, always available) and **System Fonts** (host monospace
 families), and either resolves with zero config. The symbol/Nerd-font fallback
-is a **chain** of bundled faces — Nerd Fonts **v3** and **v2** — so PUA prompt
+is a **chain** of bundled faces (Nerd Fonts **v3** and **v2**), so PUA prompt
 icons render out of the box regardless of which Nerd Font era a config emits or
 whether the host has any Nerd font installed. System font families, direct font
 files, font-weight variants, per-range symbol maps, synthetic styles, subpixel
@@ -481,8 +518,8 @@ AA, glyph coverage gamma, stem darkening, and minimum-contrast enforcement are
 configurable.
 
 Color emoji uses `swash` and a dedicated premultiplied-RGBA atlas. Bitmap-strike
-color fonts are supported — Noto Color Emoji (CBDT/CBLC) on Linux and Apple Color
-Emoji (sbix) on macOS — including variation selectors, flags, keycaps, skin
+color fonts are supported: Noto Color Emoji (CBDT/CBLC) on Linux and Apple Color
+Emoji (sbix) on macOS, including variation selectors, flags, keycaps, skin
 tones, and common ZWJ clusters. Text-default symbols stay on the monochrome
 fallback path, and missing color glyph coverage falls back there instead of
 tofu. Emoji pixels are not SGR-tinted. COLR/CPAL and SVG-in-OpenType expansion
@@ -499,8 +536,8 @@ Animation and Kitty Unicode placeholders are not supported.
 
 The native app runs multiple sessions. `Ctrl+Shift+T` opens a new tab,
 `Ctrl+Shift+W` closes the active tab, and `Ctrl+PageDown` /
-`Ctrl+PageUp` switch tabs. Closing a tab closes the **whole** tab — every pane
-it holds — which is distinct from closing a single pane (see "Close Pane"
+`Ctrl+PageUp` switch tabs. Closing a tab closes the **whole** tab (every pane
+it holds), which is distinct from closing a single pane (see "Close Pane"
 below); closing the last tab of the last workspace quits the app. The tab bar appears when
 two or more sessions exist; a single shell keeps the original full-grid view.
 To keep the bar visible with a single tab, turn on **Always show tab bar**
@@ -522,79 +559,93 @@ across restarts.
 **Workspaces** group sets of tabs. Each workspace keeps its own tabs and
 remembers which one was active, so switching workspaces swaps the whole tab
 strip at once. A session starts with a single workspace, and a single-workspace
-session looks exactly as before — no extra chrome. Once a second workspace
-exists, a vertical **rail** lists them down one side; `Ctrl+Shift+PageDown` and
-`Ctrl+Shift+PageUp` cycle between workspaces. `Ctrl+Shift+Enter` creates a new
-workspace and `Ctrl+Shift+G` opens the workspace picker. The rail's `+` slot
-also creates a new workspace, and right-clicking a workspace (or the empty
-rail) offers New, Rename, and Close Workspace plus **Bind to Host…** /
-**Unbind from Host** for that slot — Rename edits the label in place, and Bind
-routes the clicked workspace's new tabs to a chosen saved host (existing tabs
-keep their shells). The terminal content menu carries the same New / Rename /
-Close Workspace and Bind/Unbind actions (they act on the active workspace). Closing the
-last tab in a workspace closes that workspace; closing the last workspace quits
-the app. The rail follows the `workspace_rail` setting: `auto` (default) reveals it
-once a second workspace exists, `always` pins it even with one, and `left` /
-`right` pin it to that side. When more than one workspace exists, a tab's
-right-click menu adds **Move to Workspace…**, which opens a picker of the
-other workspaces by name and relocates the clicked tab to the chosen one.
+session looks exactly as before, with no extra chrome.
+
+Once a second workspace exists, a vertical **rail** lists them down one side.
+`Ctrl+Shift+PageDown` and `Ctrl+Shift+PageUp` cycle between workspaces,
+`Ctrl+Shift+Enter` creates a new workspace, and `Ctrl+Shift+G` opens the
+workspace picker. The rail's `+` slot also creates a new workspace. The rail
+follows the `workspace_rail` setting: `auto` (default) reveals it once a second
+workspace exists, `always` pins it even with one, and `left` / `right` pin it to
+that side.
+
+Right-clicking a workspace (or the empty rail) offers New, Rename, and Close
+Workspace plus **Bind to Host…** / **Unbind from Host** for that slot. Rename
+edits the label in place, and Bind routes the clicked workspace's new tabs to a
+chosen saved host (existing tabs keep their shells). The terminal content menu
+carries the same New / Rename / Close Workspace and Bind/Unbind actions, acting
+on the active workspace.
+
+Closing the last tab in a workspace closes that workspace; closing the last
+workspace quits the app. When more than one workspace exists, a tab's right-click
+menu adds **Move to Workspace…**, which opens a picker of the other workspaces by
+name and relocates the clicked tab to the chosen one.
 
 **Restoring a layout.** With `restore_workspaces` on (off by default; the
 Sessions section of Settings, or `ODYTTY_RESTORE_WORKSPACES`), launching
-`odytty` with no arguments reopens the previous window shape — its workspaces,
+`odytty` with no arguments reopens the previous window shape: its workspaces,
 tabs, and pane splits, each pane at its recorded working directory. Any
 command-line argument suppresses restore, and only the primary instance
-restores: a second window launched while the first is running keeps the lock
+restores. A second window launched while the first is running keeps the lock
 owner in charge and shows a one-line notice ("Another OdyTTY window owns
-session restore — this window won't restore or autosave workspaces"), so it
-never fights over the saved state. The saved snapshot records **structure
-only** — never terminal output, scrollback, environment, or the commands that
-were running — so a restored pane is always a fresh shell at its directory,
-never a replayed session. A pane that was connected to a remote host is
-restored by reconnecting to that host through the same `ssh` path, landing a
-fresh remote login shell at the host's own default directory (the recorded
-remote directory is not re-entered in this version, and nothing that was
-running is re-run). A host that no longer resolves opens a local shell instead;
-a local pane whose recorded directory has vanished or denies access retries at
-your home directory rather than aborting the restore. Snapshots saved before
-remote restore existed reopen those panes as local shells. A session can be saved as a **named layout**. A layout captures the
-**whole application** — every workspace, with its tabs, splits, working
-directories, and host bindings — via **Save as Layout…** on the content-grid
-right-click menu, a workspace rail slot's right-click menu, the empty rail
-menu, or the command palette (**Save All Workspaces as Layout**). A single
-workspace can be captured on its own with **Save Workspace as Layout…** — a
-workspace rail slot's right-click menu saves the clicked workspace, the
-content-grid menu saves the active one, and the palette entry (**Save Workspace
-as Layout**) saves the active one. Saving under a name that already exists
-prompts before overwriting — replace the existing layout, pick a different
-name, or cancel. Opening a layout later — **Open Layout** in the palette, or
-**Open Layout…** from the empty rail, the empty tab strip, or the content-grid
-menu — asks how it should land when the window already holds real state:
-**Replace** tears down the current workspaces and installs the saved set as the
-whole window, **Add** appends the saved workspace(s) beside the current ones,
-and **Cancel** leaves everything untouched. A fresh window that still holds a
-single untouched default workspace skips the prompt — the opened layout consumes
-that workspace so the window shows exactly what was saved. With no layouts saved
-yet the picker explains how to create one. On Unix, a restored or instantiated pane whose detached
-session-host is still alive reattaches to it; a dead one silently opens a
-fresh shell, with a compact "N of M sessions reattached" notice. Restore and
-named layouts are cross-platform (the state dir uses `%LOCALAPPDATA%` on
-Windows); session-host reattach is Unix-only, so a Windows restore always
-lands fresh shells.
+session restore, this window won't restore or autosave workspaces"), so it never
+fights over the saved state.
+
+The saved snapshot records **structure only**, never terminal output,
+scrollback, environment, or the commands that were running, so a restored pane
+is always a fresh shell at its directory, never a replayed session. A pane that
+was connected to a remote host is restored by reconnecting to that host through
+the same `ssh` path, landing a fresh remote login shell at the host's own
+default directory (the recorded remote directory is not re-entered in this
+version, and nothing that was running is re-run). A host that no longer resolves
+opens a local shell instead; a local pane whose recorded directory has vanished
+or denies access retries at your home directory rather than aborting the
+restore. Snapshots saved before remote restore existed reopen those panes as
+local shells.
+
+A session can also be saved as a **named layout**. A layout captures the **whole
+application**: every workspace, with its tabs, splits, working directories, and
+host bindings. Save one via **Save as Layout…** on the content-grid right-click
+menu, a workspace rail slot's right-click menu, the empty rail menu, or the
+command palette (**Save All Workspaces as Layout**). A single workspace can be
+captured on its own with **Save Workspace as Layout…**: a workspace rail slot's
+right-click menu saves the clicked workspace, the content-grid menu saves the
+active one, and the palette entry (**Save Workspace as Layout**) saves the
+active one. Saving under a name that already exists prompts before overwriting,
+so you can replace the existing layout, pick a different name, or cancel.
+
+Opening a layout later (**Open Layout** in the palette, or **Open Layout…** from
+the empty rail, the empty tab strip, or the content-grid menu) asks how it should
+land when the window already holds real state:
+
+- **Replace** tears down the current workspaces and installs the saved set as the
+  whole window.
+- **Add** appends the saved workspace(s) beside the current ones.
+- **Cancel** leaves everything untouched.
+
+A fresh window that still holds a single untouched default workspace skips the
+prompt: the opened layout consumes that workspace so the window shows exactly
+what was saved. With no layouts saved yet the picker explains how to create one.
+
+On Unix, a restored or instantiated pane whose detached session-host is still
+alive reattaches to it; a dead one silently opens a fresh shell, with a compact
+"N of M sessions reattached" notice. Restore and named layouts are
+cross-platform (the state dir uses `%LOCALAPPDATA%` on Windows); session-host
+reattach is Unix-only, so a Windows restore always lands fresh shells.
 
 Any tab can be split into panes. The direct chords `Ctrl+Shift+E` (split into
 columns, new pane on the right) and `Ctrl+Shift+O` (split into rows, new pane
-below) create a split on a single-pane tab — they match Ghostty's Linux
+below) create a split on a single-pane tab; they match Ghostty's Linux
 defaults and work at both single-pane and multi-pane. You can also split from
 the terminal's right-click menu's "Split Right" / "Split Down" items. When the
 active tab is already multi-pane, that same content menu also offers a "Close
 Pane" item (labelled with the effective `Ctrl+b x` prefix chord) to close just
 the focused pane; it is hidden in a single-pane tab, where closing the tab is
-the only close. The content menu also has a launcher section at the bottom —
-"Connection Manager", "Command Palette", and "Session Replay" — each labelled
+the only close. The content menu also has a launcher section at the bottom:
+"Connection Manager", "Command Palette", and "Session Replay", each labelled
 with its effective chord and opening the matching overlay. Right-clicking a tab
 opens a separate, tab-scoped menu (New Tab, Rename Tab, Close Tab, Close Other
-Tabs, **Connect to Host…**, **Replace with Host…**, New Window — plus Move to
+Tabs, **Connect to Host…**, **Replace with Host…**, New Window, plus Move to
 Workspace… when more than one workspace exists), and right-clicking the empty
 tab strip offers New Tab, Command Palette, and Settings. **Connect to Host…**
 opens a saved host in a new tab positioned right after the clicked one (the
@@ -651,7 +702,7 @@ Core local shortcuts:
 
 The command palette, connection manager, session replay, theme builder, and
 Manage Sessions each ship with a default `Ctrl+Shift+<letter>` chord and a
-discoverable menu entry — the launcher actions appear in the right-click menu's
+discoverable menu entry: the launcher actions appear in the right-click menu's
 launcher section, and the theme builder is an "Open Theme Builder" entry in the
 Settings → Themes section. These chords are all `Ctrl+Shift+<letter>`, which a
 TUI cannot receive, so PTY input is unchanged. Prompt navigation is the
@@ -691,7 +742,7 @@ Until prompt input marks are active, the right-click menu disables Cut/Delete
 for prompt input and shows an "Enable shell integration in Settings" hint. A
 plain `Delete` / `Backspace` with **no** selection still passes through to the
 shell normally; with an active selection but no known prompt boundary, OdyTTY
-will not send blind edit bytes — it clears the stale selection and surfaces the
+will not send blind edit bytes; it clears the stale selection and surfaces the
 same shell-integration hint instead of risking a corrupted command line.
 
 For a one-off/dev override, run
@@ -705,8 +756,8 @@ action after the overlay closes.
 
 Output replay is available as the `session-replay` action, bound by default to
 `Ctrl+Shift+R`. Turn on recording with `session_replay = on` (or
-`ODYTTY_SESSION_REPLAY=on` as a one-off override) — off by default, so the plain
-path is unchanged — then rebind the scrub overlay if desired:
+`ODYTTY_SESSION_REPLAY=on` as a one-off override); it is off by default, so the
+plain path is unchanged. Then rebind the scrub overlay if desired:
 
 ```conf
 # odytty.conf
@@ -719,7 +770,7 @@ For a one-off/dev override, run
 env wins for that session.
 
 The ring is capped (600 frames and 24 MiB, whichever binds first) and
-local-only — frames never touch disk or the network. The overlay is
+local-only; frames never touch disk or the network. The overlay is
 presentation-only: `←`/`→` step, `PgUp`/`PgDn` jump ten, `Home`/`End` jump to
 the ends, and the live session keeps running underneath untouched while you
 scrub.
@@ -750,7 +801,7 @@ the same path a saved host uses), and **Shift+Enter** (or **Ctrl+S**) connects
 *and* appends a matching `Host` block to `hosts.conf` so it is saved for next
 time. The write is atomic and preserves the file's existing contents; if the
 alias already exists it just connects and reports "already saved". Typed input
-is validated — embedded spaces, a leading `-`, or an out-of-range port are
+is validated: embedded spaces, a leading `-`, or an out-of-range port are
 rejected so nothing option-injects into the `ssh` command line.
 
 **Add / Edit form.** For more than a quick save, the connection manager opens an
@@ -758,14 +809,14 @@ in-app form: **Tab** starts a blank **Add connection** and the right arrow opens
 an **Edit** pre-filled from the selected OdyTTY-owned host (`ssh-config`-imported
 rows are read-only). Alongside alias / host / user / port, an **Advanced** section
 carries an `IdentityFile` path (adds `ssh -i` on connect; a path, never a stored
-secret — `ssh-copy-id` is the once-and-done way off passwords), the three-way
+secret; `ssh-copy-id` is the once-and-done way off passwords), the three-way
 `Integration` / `Reuse` / `Tmux` overrides (**inherit / on / off**), and
 theme / font / title. Saving appends a new block or edits the existing one in
 place, leaving every other block, comment, and unknown field byte-for-byte
 untouched. A **Test connection** button runs a non-interactive background probe
-and reports an honest tri-state result — reachable with key/agent auth, reachable
-but interactive-auth (expected for a password host; the connect still works), a
-host-key mismatch, or unreachable — without ever handling a password.
+and reports an honest tri-state result without ever handling a password:
+reachable with key/agent auth, reachable but interactive-auth (expected for a
+password host; the connect still works), a host-key mismatch, or unreachable.
 
 **Host-row right-click menu.** Right-clicking a saved-host row opens a small menu
 with **Open in New Tab** (connect in the current workspace), **Open in New
@@ -789,16 +840,16 @@ the last tab closes so a quick reconnect skips re-authentication;
 `remote_tmux` (off by default) wraps the remote shell in a persistent
 `tmux new-session -A -s odytty` so a dropped-and-reconnected link resumes the
 same remote session. When a remote connection drops, the tab is held open with
-a reconnect prompt — **Enter** reconnects in place, **Esc** or **Ctrl+D**
+a reconnect prompt: **Enter** reconnects in place, **Esc** or **Ctrl+D**
 closes the tab. Pasting a clipboard image into an integrated remote tab offers
 a confirm-first upload (`remote_image_paste`, `ask` by default). A one-line
-prompt appears in the pane — `upload image <size> to user@host?  Enter: upload
-· Esc: cancel` — and only on **Enter** does the image transfer. It streams over
+prompt appears in the pane (`upload image <size> to user@host?  Enter: upload
+· Esc: cancel`), and only on **Enter** does the image transfer. It streams over
 the same authenticated `ssh` connection (reusing the ControlMaster socket when
 one is up) into a `0600` file under an unguessable `/tmp` name; nothing runs
 remotely and images above the 10 MiB cap are refused with a notice. On success
 the pane shows `image uploaded <path> · copied to clipboard` and the remote
-path is copied to the local clipboard — it is **not** typed into the shell, so
+path is copied to the local clipboard; it is **not** typed into the shell, so
 an empty prompt never runs a stray path. Paste it (`Ctrl+Shift+V`) wherever you
 want it as a command argument. Uploaded files are cleaned up best-effort when
 the tab closes. This works on reconnected and restored remote tabs too. Each
@@ -828,18 +879,20 @@ hint, plus right-click "Open", "Open With…", "Copy Path", "Copy File", and
 opener (`xdg-open` on Linux, `open` on macOS) with a scheme allowlist; nothing is
 ever run through a shell.
 
-The `keybinds` config key can rebind local actions: `search`, `settings`,
-`theme-picker`, `theme-builder`, `copy`, `paste`, `scroll-up`, `scroll-down`,
-`jump-prompt-prev`, `jump-prompt-next`, `copy-mode`, `hints`, `clear-input`,
-`command-palette`, `session-replay`, `connection-manager`, `session-attach`,
-`new-tab`, `next-tab`, `prev-tab`, `close-tab`, and `duplicate-tab`. The pane actions
-(`split-columns`, `split-rows`, `focus-pane-left` / `-right` / `-up` / `-down`,
-`focus-pane-next`, `close-pane`, `zoom-pane`, `equalize-panes`) are rebindable
-too — the chord is the key pressed *after* the prefix, e.g.
-`keybinds = ctrl+f=zoom-pane`. `ODYTTY_KEYBINDS` provides the same syntax as a
-session-scoped override. See [`docs/keybindings.md`](docs/keybindings.md) for the
-complete keyboard reference — every default chord, the pane prefix, copy mode,
-hints, and rebinding.
+The `keybinds` config key can rebind local actions. The global actions are
+`search`, `settings`, `theme-picker`, `theme-builder`, `copy`, `paste`,
+`scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`,
+`hints`, `clear-input`, `command-palette`, `session-replay`,
+`connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`,
+`prev-tab`, `close-tab`, and `duplicate-tab`. The workspace actions are
+`new-workspace`, `close-workspace`, `rename-workspace`, `next-workspace`,
+`prev-workspace`, and `workspace-picker`. The pane actions (`split-columns`,
+`split-rows`, `focus-pane-left` / `-right` / `-up` / `-down`, `focus-pane-next`,
+`close-pane`, `zoom-pane`, `equalize-panes`) are rebindable too; the chord is the
+key pressed *after* the prefix, for example `keybinds = ctrl+f=zoom-pane`.
+`ODYTTY_KEYBINDS` provides the same syntax as a session-scoped override. See
+[`docs/keybindings.md`](docs/keybindings.md) for the complete keyboard reference:
+every default chord, the pane prefix, copy mode, hints, and rebinding.
 
 ### Settings And Themes
 
@@ -876,16 +929,16 @@ the repository license (see [`assets/backgrounds/LICENSE`](assets/backgrounds/LI
 To turn the background **off**, set either key in `odytty.conf`:
 
 ```ini
-# odytty.conf — disable the bundled background entirely
+# odytty.conf: disable the bundled background entirely
 background_treatment = color   # draw the theme background only (no image)
-# — or —
+# or use:
 background_image = none        # keep image treatment available but use no image
 ```
 
 To use **your own** image instead, point `background_image` at a file:
 
 ```ini
-# odytty.conf — use a custom background
+# odytty.conf: use a custom background
 background_treatment = image
 background_image = /path/to/your/wallpaper.png   # png / jpeg / webp
 background_image_scrim = 0.5                      # 0 = none, 1 = opaque scrim; `auto` = floor-safe
@@ -897,22 +950,22 @@ background_image_scrim = 0.5                      # 0 = none, 1 = opaque scrim; 
 
 OdyTTY can render its background translucent so the desktop shows through the
 terminal. Text, the cursor, selection, and every overlay (menus, pickers, the
-settings panel) always stay fully opaque — the readability boundary is hard, so
+settings panel) always stay fully opaque; the readability boundary is hard, so
 only the background fades. It is **off by default**; the opaque path is
 unchanged. Enable it from the settings panel (Rendering → Window transparency /
 Window opacity) or `odytty.conf`:
 
 ```ini
-# odytty.conf — let the desktop show through the terminal background
+# odytty.conf: let the desktop show through the terminal background
 window_transparency = on
 window_opacity = 85          # percent, 20..=100 (step 5); 100 is fully opaque
 ```
 
 Transparency needs a compositing window manager: Wayland handles it natively,
 X11 needs a compositor running, and Windows uses DWM. Where the display server
-offers no alpha compositing the toggle simply has no visible effect. A menu,
-picker, or the settings panel stays a readable opaque surface while it is open —
-only that panel, not the whole window: the terminal behind it keeps showing the
+offers no alpha compositing the toggle has no visible effect. A menu, picker, or
+the settings panel stays a readable opaque surface while it is open, and only
+that panel, not the whole window. The terminal behind it keeps showing the
 desktop through, so opening a menu no longer flashes the window opaque.
 
 A configured background image is part of that background: with transparency
@@ -1011,33 +1064,33 @@ analytics, no crash reporting, and no update pings.
 
 ## Project Docs
 
-- [`SPEC.md`](SPEC.md) — product charter and architecture decisions.
-- [`TODO.md`](TODO.md) — current milestone checklist and remaining work.
-- [`DEVLOG.md`](DEVLOG.md) — reverse-chronological development record.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — project stance on contributions, plus
+- [`SPEC.md`](SPEC.md): product charter and architecture decisions.
+- [`TODO.md`](TODO.md): current milestone checklist and remaining work.
+- [`DEVLOG.md`](DEVLOG.md): reverse-chronological development record.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md): project stance on contributions, plus
   testing and public-repo safety rules.
-- [`SECURITY.md`](SECURITY.md) — supported versions and private vulnerability
+- [`SECURITY.md`](SECURITY.md): supported versions and private vulnerability
   reporting.
-- [`PACKAGING.md`](PACKAGING.md) — downstream package install surface and
+- [`PACKAGING.md`](PACKAGING.md): downstream package install surface and
   release packaging notes.
-- [`docs/install.md`](docs/install.md) — source builds, desktop launcher
+- [`docs/install.md`](docs/install.md): source builds, desktop launcher
   registration, AppStream metadata, Odyssey/LFS packaging, and default-terminal
   notes.
-- [`docs/release.md`](docs/release.md) — release artifact checklist and
+- [`docs/release.md`](docs/release.md): release artifact checklist and
   Odyssey-Mon upstream tracking notes.
-- [`docs/runtime-knobs.md`](docs/runtime-knobs.md) — settings reference.
-- [`docs/keybindings.md`](docs/keybindings.md) — complete keyboard reference and
+- [`docs/runtime-knobs.md`](docs/runtime-knobs.md): settings reference.
+- [`docs/keybindings.md`](docs/keybindings.md): complete keyboard reference and
   rebinding.
-- [`docs/accessibility.md`](docs/accessibility.md) — contrast floor, color-vision
+- [`docs/accessibility.md`](docs/accessibility.md): contrast floor, color-vision
   modes, dimming, motion, and bell.
-- [`docs/themes.md`](docs/themes.md) — theme format and built-in library.
-- [`docs/graphics.md`](docs/graphics.md) — Kitty graphics and Sixel support.
-- [`docs/visual-architecture.md`](docs/visual-architecture.md) — renderer and
+- [`docs/themes.md`](docs/themes.md): theme format and built-in library.
+- [`docs/graphics.md`](docs/graphics.md): Kitty graphics and Sixel support.
+- [`docs/visual-architecture.md`](docs/visual-architecture.md): renderer and
   visual-layer architecture.
-- [`docs/hidpi-validation.md`](docs/hidpi-validation.md) — manual HiDPI checks.
-- [`docs/diagnostics.md`](docs/diagnostics.md) — logging, crash reporting, and
+- [`docs/hidpi-validation.md`](docs/hidpi-validation.md): manual HiDPI checks.
+- [`docs/diagnostics.md`](docs/diagnostics.md): logging, crash reporting, and
   the privacy floor.
-- [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) — long-range map.
+- [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md): long-range map.
 
 ## License
 
