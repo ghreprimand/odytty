@@ -83,6 +83,8 @@ odytty-0.6.2-x86_64.AppImage
 odytty-x86_64.AppImage
 odytty-0.6.2-windows-x86_64.zip
 odytty-windows-x86_64.zip
+odytty-0.6.2-macos-arm64.zip
+odytty-macos-arm64.zip
 SHA256SUMS
 ```
 
@@ -123,7 +125,7 @@ appstreamcli validate --pedantic dist/linux/io.unfinished_works.odytty.metainfo.
    Windows.
 
 4. Tag the release and push the tag. This triggers `release.yml`, which builds
-   the tarball, AppImage, Windows zip, writes `SHA256SUMS`, and publishes the
+   the tarball, AppImage, Windows zip, and macOS `.app` zip, writes `SHA256SUMS`, and publishes the
    GitHub Release:
 
 ```sh
@@ -169,7 +171,30 @@ sha256sum odytty-0.6.2.tar.gz > SHA256SUMS
    `master`. The manifest first became installable from this repo with the
    release that included `odytty-<version>-windows-x86_64.zip` and `SHA256SUMS`.
 
-7. Build the Odyssey package from the published archive, not from the working
+7. For macOS distribution metadata, the Homebrew tap
+   (`ghreprimand/homebrew-odytty`) is bumped to the new release, mirroring the
+   Scoop manifest. The cask's `version`, `url`, and `sha256` are the fields
+   `brew` reads, so `brew upgrade --cask odytty` serves the previous version
+   until this bump lands. As with Scoop, the bump can only happen **after** the
+   release's `SHA256SUMS` asset exists — the cask hash comes from the
+   `odytty-<version>-macos-arm64.zip` row.
+
+   **Primary path — automatic (CI).** The `homebrew` job in `release.yml` runs
+   after the release is published: it downloads `SHA256SUMS`, stamps the cask
+   and source-build formula (version/url/sha256) in `dist/homebrew/`, and
+   pushes them over SSH to the `ghreprimand/homebrew-odytty` tap. After
+   tagging, confirm the tap received the bump commit and that the cask's pinned
+   `version` matches the tag. The job is guarded: it runs green and pushes
+   nothing when the `HOMEBREW_TAP_DEPLOY_KEY` secret is absent, exactly like the
+   AUR job.
+
+   **Fallback — manual.** If the `homebrew` job failed or was skipped, edit the
+   cask in the tap directly: set `version` to the release, set `url` to
+   `…/releases/download/v<version>/odytty-<version>-macos-arm64.zip`, and set
+   `sha256` to that file's row in the published `SHA256SUMS`; commit and push to
+   the tap's default branch.
+
+8. Build the Odyssey package from the published archive, not from the working
    tree, and verify file ownership:
 
 ```sh
