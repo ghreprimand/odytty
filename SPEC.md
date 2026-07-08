@@ -684,7 +684,11 @@ its first stable layer.
   behaviourally identical to the prior single tab-list model. Lifecycle
   invariants: a workspace is never empty — closing a workspace's last tab closes
   that workspace; the last tab of the last workspace exits the app; a new
-  workspace opens with exactly one single-pane tab.
+  workspace opens with exactly one single-pane tab. This typed-exit escalation
+  is configurable through `shell_exit_closes`: with `app`, a shell exit (typed
+  `exit` or Ctrl-D) that would close any workspace quits OdyTTY instead, without
+  reaping that workspace first, so a `restore_workspaces` snapshot still
+  captures it.
 - Workspace-shape persistence (`restore_workspaces`, default off): OdyTTY can
   snapshot the window's **shape** — workspace names, tab titles and order, the
   pane split tree and ratios, each pane's working directory, and the remote

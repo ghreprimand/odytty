@@ -435,6 +435,7 @@ environment variable was not set at startup.
 | `interactive_paths_image_inline` | `ODYTTY_INTERACTIVE_PATHS_IMAGE_INLINE` | `on`, `off` | `on` |
 | `interactive_paths_editor` | `ODYTTY_INTERACTIVE_PATHS_EDITOR` | editor name or argv template | *(empty — use `$EDITOR`)* |
 | `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` |
+| `shell_exit_closes` | `ODYTTY_SHELL_EXIT_CLOSES` | `workspace` (typing `exit`/Ctrl-D that empties a workspace closes just that workspace; the last workspace still quits), `app` (a shell exit that would close a workspace quits OdyTTY instead, even with other workspaces open — pairs with `restore_workspaces` so the same set reopens next launch). Governs only the shell-exit path; the rail close button and close-tab/-workspace/-pane keybinds keep per-surface meaning | `workspace` |
 | `bell` | `ODYTTY_BELL` | `off`, `visual`, `urgent`, `all` — how the terminal reacts to BEL: `urgent` requests window attention when unfocused, `visual` briefly flashes the screen, `all` does both, `off` ignores it. No audible bell | `urgent` |
 | `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |
 | `remote_integration` | `ODYTTY_REMOTE_INTEGRATION` | `on`, `off` | `on` |

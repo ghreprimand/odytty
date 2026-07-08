@@ -105,20 +105,28 @@ session looks exactly as before, with no extra chrome.
 Once a second workspace exists, a vertical **rail** lists them down one side.
 `Ctrl+Shift+PageDown` and `Ctrl+Shift+PageUp` cycle between workspaces,
 `Ctrl+Shift+Enter` creates a new workspace, and `Ctrl+Shift+G` opens the
-workspace picker. The rail's `+` slot also creates a new workspace. The rail
+workspace picker. The rail's `+` slot also creates a new workspace; it now rests at a more
+visible brightness, and a dead gap row sits just above it, so a click just past
+the last workspace is inert and never opens a workspace by accident. The rail
 follows the `workspace_rail` setting: `auto` (default) reveals it once a second
 workspace exists, `always` pins it even with one, and `left` / `right` pin it to
 that side.
 
 Right-clicking a workspace (or the empty rail) offers New, Rename, and Close
-Workspace plus **Bind to Host…** / **Unbind from Host** for that slot. Rename
+Workspace plus **Bind to Host…** / **Unbind from Host** for that slot. It also
+offers **Move Up** / **Move Down** to reorder the slot in the rail (menu-only,
+with no bindable chord); the move follows the active workspace by identity so
+the focused workspace never changes, and the new order persists across restart. Rename
 edits the label in place, and Bind routes the clicked workspace's new tabs to a
 chosen saved host (existing tabs keep their shells). The terminal content menu
 carries the same New / Rename / Close Workspace and Bind/Unbind actions, acting
 on the active workspace.
 
 Closing the last tab in a workspace closes that workspace; closing the last
-workspace quits the app. When more than one workspace exists, a tab's right-click
+workspace quits the app. Typing `exit` or Ctrl-D follows the
+`shell_exit_closes` setting: the default `workspace` matches this cascade, while
+`app` quits OdyTTY whenever an exit would close a workspace, pairing with
+**Restore workspaces** so the set reopens next launch. When more than one workspace exists, a tab's right-click
 menu adds **Move to Workspace…**, which opens a picker of the other workspaces by
 name and relocates the clicked tab to the chosen one.
 

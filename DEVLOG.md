@@ -7,7 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-07-08 -- Workspace reorder, clearer new-slot affordances, and an exit-behavior setting
+## 2026-07-08 -- Documentation currency for workspace reorder, exit behavior, and rail affordances
+
+User-facing docs catch up to the batch-1 workspace/chrome ergonomics.
+
+The `shell_exit_closes` setting is now documented in the settings reference
+(`docs/runtime-knobs.md`), SPEC's workspace-lifecycle invariants, the feature
+guide, and the keybindings guide: default `workspace` keeps the close cascade
+(a typed `exit`/Ctrl-D that empties a workspace closes just that workspace, and
+the last workspace still quits), while `app` quits OdyTTY whenever a shell exit
+would close a workspace and pairs with `restore_workspaces` so the same set
+reopens next launch. The docs state that only the typed-exit path is governed;
+the rail close button and the close-tab/-workspace/-pane keybinds keep
+per-surface meaning in both modes.
+
+Workspace reorder (right-click Move Up / Move Down, menu-only, follows the
+active workspace by identity, persisted) is now described in the feature and
+keybindings guides, with an explicit note that it is not a bindable chord. The
+rail `+` slot's dead-gap row and its brighter at-rest affordance are documented
+in the feature guide.
+
+Docs-only; no code or behavior change.
 
 Four workspace/chrome ergonomics land together.
 

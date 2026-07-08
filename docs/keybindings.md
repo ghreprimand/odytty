@@ -304,10 +304,16 @@ strip. Four chords are bound by default:
 Renaming and closing a workspace are unbound by default — the rail's `+` slot,
 the workspace right-click menu, and the command palette cover them — but each is
 a bindable action (`close-workspace`, `rename-workspace`) you can assign a chord
-in the settings key-remap editor or the `keybinds` config. (Close stays unbound
+in the settings key-remap editor or the `keybinds` config. The workspace
+right-click menu also offers **Move Up** / **Move Down** to reorder the rail
+order; these are menu-only and have no bindable chord. (Close stays unbound
 because it is destructive; Rename follows the same precedent as Rename Tab.)
 Closing the last tab of a workspace closes that workspace; closing the last
-workspace quits OdyTTY.
+workspace quits OdyTTY. Typing `exit` or Ctrl-D is governed by the
+`shell_exit_closes` setting: the default `workspace` matches this cascade, while
+`app` quits OdyTTY whenever an exit would close a workspace. The close-tab,
+close-workspace, and close-pane keybinds and the rail close button always close
+a single surface, in both modes.
 
 The command palette also carries workspace and layout actions that have no
 default chord: **New Workspace**, **Rename Workspace**, **Bind Workspace to
