@@ -487,15 +487,17 @@ Making OdyTTY installable and maintainable outside the source tree.
   `SHA256SUMS` with an always-latest alias and a version-pinned twin. Ad-hoc
   signing is free and account-less, so an un-quarantined app launches without a
   Gatekeeper warning; no Apple Developer account or notarization is involved.
-- **Next — macOS Homebrew tap (recipes in-repo, operator-gated).** The
-  canonical cask (points at the release `.app` zip) and source-build formula
-  fallback live in `dist/homebrew/`, and a guarded `homebrew` release job stamps
-  their version/url/sha256 from the published `SHA256SUMS` and pushes them to the
-  `ghreprimand/homebrew-odytty` tap — mirroring the Scoop/AUR auto-bump. The
-  channel is inert until the operator creates the tap repo and adds the
-  `HOMEBREW_TAP_DEPLOY_KEY` secret (until then the job runs green and publishes
-  nothing, exactly like the AUR job). A signed/notarized `.dmg` stays deferred
-  to if/when the Apple Developer Program is adopted.
+- **Shipped — macOS Homebrew tap.** The canonical cask (points at the release
+  `.app` zip and its `SHA256SUMS` checksum) and a source-build formula fallback
+  live in `dist/homebrew/`. On each tagged release a `homebrew` job stamps their
+  version, url, and sha256 from the published `SHA256SUMS` and pushes them to the
+  live `ghreprimand/homebrew-odytty` tap, mirroring the Scoop/AUR auto-bump;
+  users install with `brew tap ghreprimand/odytty` then
+  `brew install --cask odytty`. The tap repo and its `HOMEBREW_TAP_DEPLOY_KEY`
+  deploy key are provisioned; the job stays guarded (runs green, publishes
+  nothing) whenever the key is absent, exactly like the AUR job. A
+  signed/notarized `.dmg` stays deferred to if/when the Apple Developer Program
+  is adopted.
 - **Ongoing — Broader platform work.** macOS builds, is exercised in CI, and
   now ships an artifact alongside Linux; Linux-first remains the guiding
   constraint. Confirm behavior under both Wayland and X11 where relevant, and
