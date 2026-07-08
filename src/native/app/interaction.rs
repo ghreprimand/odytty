@@ -2250,6 +2250,12 @@ impl App {
         let Some(point) = self.pointer_cell else {
             return false;
         };
+        // HALF-CELL targeting (all platforms): resolve whether the live click
+        // fell in the right half of its cell before locking the terminal, so
+        // the caret target snaps to the nearest column boundary rather than
+        // flooring to the cell's left edge. `false` (floor) when no live pointer
+        // pixel is available, preserving the prior behaviour.
+        let subcell_round_up = self.click_subcell_rounds_up(point);
         let delta = {
             let Ok(terminal) = self.terminal.lock() else {
                 return false;
@@ -2278,6 +2284,7 @@ impl App {
                 &snapshot,
                 &region,
                 point,
+                subcell_round_up,
                 cursor,
                 scrollback_len,
                 self.grid.rows,
@@ -2323,6 +2330,71 @@ impl App {
         self.return_to_live();
         self.write_pty_bytes(&bytes);
         true
+    }
+
+    /// HALF-CELL (nearest-boundary) click-to-position targeting: whether the
+    /// live pointer fell in the RIGHT half of its resolved cell. Click-to-place
+    /// snaps the caret target to the nearest column BOUNDARY — before a
+    /// left-half click, after a right-half click — instead of flooring to the
+    /// cell's left edge, matching universal text-editor caret hit-testing. (A
+    /// floor target lands the caret one cell left of a click that fell a hair
+    /// right of a cell boundary, the reported "clicking between two characters
+    /// sometimes lands one cell left" symptom.)
+    ///
+    /// The sub-cell fraction is recovered from the cached `pointer_px` using the
+    /// exact horizontal adjustments [`Self::update_pointer_cell`] applies before
+    /// it resolves the cell, so the fraction lines up with the resolved column:
+    /// single-pane subtracts the tab-chrome dx (a left rail shifts X; the top
+    /// bar does not) and the window padding; multi-pane uses the focused pane's
+    /// content-rect x origin (which already folds in the chrome/rail offset).
+    /// Returns `false` — floor targeting, the shipped behaviour — when the
+    /// pointer pixel or cell metrics are unavailable, so a synthesized press
+    /// with no live coordinates stays byte-identical.
+    ///
+    /// Platform-agnostic: a pointer past the right edge (column clamped) yields
+    /// a fraction >= 0.5 and rounds up, which is harmless because the travel
+    /// flatten clamps the target to the input's end; a pointer left of the
+    /// origin yields a negative fraction and rounds down. No Windows surface —
+    /// this composes with, and is independent of, the `cfg(windows)` ConPTY
+    /// cursor-report correction in [`click_travel_delta`].
+    fn click_subcell_rounds_up(&self, point: CellPoint) -> bool {
+        let Some((x_px, _)) = self.pointer_px else {
+            return false;
+        };
+        let Some(cell) = self.resolved_cell() else {
+            return false;
+        };
+        let cell_w = f64::from(cell.width.max(1));
+        // Origin of the column axis in the same physical-x basis the cell was
+        // resolved against.
+        let origin_x = if let Some((content, _)) = self.multipane_geometry() {
+            // Multi-pane: the focused pane's content sub-rect x origin.
+            let focused = self.sessions.active_id();
+            let Some(rect_x) = self
+                .sessions
+                .active_pane_rects(content, PANE_DIVIDER_PX)
+                .into_iter()
+                .find(|(token, _)| *token == focused)
+                .map(|(_, rect)| f64::from(rect.x))
+            else {
+                return false;
+            };
+            rect_x
+        } else {
+            // Single-pane: window padding after the tab-chrome dx. Both are 0 on
+            // the plain top-bar path, so this is the bare padding there.
+            let (chrome_dx, _) = self.tab_chrome_offset_px(cell);
+            let pad = self
+                .gpu
+                .as_ref()
+                .map(GpuState::window_padding)
+                .unwrap_or(WindowPadding::ZERO);
+            chrome_dx + f64::from(pad.physical_px())
+        };
+        // Fraction of the pointer within the resolved cell: >= 0.5 targets the
+        // trailing boundary (caret after the glyph).
+        let frac = (x_px - origin_x) / cell_w - point.column as f64;
+        frac >= 0.5
     }
 
     /// Number of rows a Shift+PageUp/PageDown press scrolls: one screenful less
@@ -2497,12 +2569,20 @@ impl App {
 /// so one wide glyph is one press — the shipped raw-cell delta over-sent
 /// arrows on CJK/emoji lines (F2-NF1).
 ///
+/// `subcell_round_up` is the half-cell (nearest-boundary) target: when the
+/// click fell in the right half of its cell the caret targets the NEXT column
+/// boundary (after the glyph), else the current one (before it). The
+/// prompt-side no-op still tests the floored `click.column`, so rounding up
+/// never crosses the input start; `flat_at` clamps the target, so a right-half
+/// click on the last glyph resolves to the append origin.
+///
 /// Pure and GPU-free; `click` and `cursor` are in visible-viewport
 /// coordinates, the region is absolute (offset by `scrollback_len`).
 fn click_travel_delta(
     snapshot: &Snapshot,
     region: &crate::core::InputRegion,
     click: CellPoint,
+    subcell_round_up: bool,
     cursor: Position,
     scrollback_len: usize,
     grid_rows: usize,
@@ -2571,11 +2651,30 @@ fn click_travel_delta(
     };
     let click_rel = click.row - base_visible;
     // Prompt-side click (left of the input start on its row): a proper no-op,
-    // never a caret walk to buffer position 0.
+    // never a caret walk to buffer position 0. The guard tests the LITERAL cell
+    // the pixel is over (the floored `click.column`), NOT the nearest-boundary
+    // target below, so a right-half click on the last prompt cell stays a no-op
+    // and never rounds up across the input start into a bogus travel.
     if click.column < spans[click_rel].0 {
         return None;
     }
-    let target = flat_at(click_rel, click.column);
+    // HALF-CELL (nearest-boundary) caret targeting: a click that fell in the
+    // right half of its cell (`subcell_round_up`) targets the NEXT column
+    // boundary — the caret AFTER that glyph — while a left-half click targets
+    // the current column (caret BEFORE it), matching universal text-editor
+    // hit-testing. Flooring to the cell's left edge (still used when no sub-cell
+    // fraction is available) lands the caret one cell left of a click that fell
+    // a hair past a cell boundary. `flat_at` clamps the target to the span end,
+    // so a right-half click on the last input glyph resolves to the append
+    // origin, never past it; a wide glyph's continuation cell flattens to the
+    // same offset as its lead, so a right-half click on a 2-cell glyph lands the
+    // caret after the whole glyph.
+    let target_col = if subcell_round_up {
+        click.column + 1
+    } else {
+        click.column
+    };
+    let target = flat_at(click_rel, target_col);
     // The cursor sits on the region's rows whenever certainty != Unknown; a
     // disagreement here means the region and grid raced — degrade to no-op.
     let cursor_rel = cursor.row.checked_sub(base_visible)?;
@@ -3022,6 +3121,7 @@ mod tests {
             &nf18_snapshot(),
             &nf18_region(certainty),
             CellPoint { row: 0, column: 40 },
+            false,
             Position { row: 0, column: 44 },
             0,
             28,
@@ -3048,5 +3148,111 @@ mod tests {
         // the correction (gated on `RightEdgeUnknown`), so the delta is the
         // literal -4 on every platform, Windows included.
         assert_eq!(nf18_midline_delta(InputCertainty::Exact), Some(-4));
+    }
+
+    // --- HALF-CELL (nearest-boundary) click-to-position targeting ---
+    //
+    // Click-to-place snaps the caret target to the nearest column BOUNDARY: a
+    // right-half click (`round_up`) targets a glyph's trailing edge, one column
+    // further than a left-half click on the same cell. The prompt-side guard
+    // tests the floored cell, so rounding up never crosses the input start. All
+    // single-width and non-destructive, so these run on every platform (the
+    // `cfg(windows)` ConPTY cursor correction is orthogonal — exercised here on
+    // the `RightEdgeUnknown` path only through its own gate on native Windows).
+
+    /// Signed travel for a click on the floored cell `col` (with `round_up` =
+    /// the pixel fell in that cell's right half) against a single-row,
+    /// single-width input of `len` glyphs starting at `start`, cursor at
+    /// `cursor_col`. Uses the `Exact` certainty so these assert the pure
+    /// half-cell rounding (target-column) logic on every platform, decoupled
+    /// from the orthogonal `cfg(windows)` ConPTY cursor correction (which gates
+    /// on `RightEdgeUnknown` and is covered separately, with its own Windows
+    /// expectations, by the `sh_click` integration tests).
+    fn halfcell_delta(
+        start: usize,
+        len: usize,
+        col: usize,
+        round_up: bool,
+        cursor_col: usize,
+    ) -> Option<i32> {
+        let columns = 80usize;
+        let rows = 28usize;
+        let mut cells = vec![crate::core::Cell::blank(); columns * rows];
+        for i in 0..len {
+            cells[start + i] = crate::core::Cell::new('x', crate::core::Attrs::default());
+        }
+        let snapshot = Snapshot {
+            dimensions: Dimensions::new(columns, rows),
+            cursor: Position {
+                row: 0,
+                column: cursor_col,
+            },
+            cursor_visible: true,
+            colors: crate::core::DynamicColors::default(),
+            cells,
+        };
+        let region = crate::core::InputRegion {
+            start_row: 0,
+            start_col: start,
+            end_row: 0,
+            end_col: start + len,
+            joins: Vec::new(),
+            certainty: InputCertainty::Exact,
+            row_spans: vec![(start, start + len)],
+        };
+        click_travel_delta(
+            &snapshot,
+            &region,
+            CellPoint {
+                row: 0,
+                column: col,
+            },
+            round_up,
+            Position {
+                row: 0,
+                column: cursor_col,
+            },
+            0,
+            rows,
+        )
+    }
+
+    #[test]
+    fn halfcell_right_half_targets_one_column_further_than_left_half() {
+        // Input "xxxxx" at cols 2..7, cursor at the append origin (col 7 = 5
+        // glyphs). A click on the 3rd glyph (col 4): the LEFT half targets
+        // before it (2 glyphs in -> delta -3), the RIGHT half targets after it
+        // (3 glyphs in -> delta -2). Exactly one column apart — the
+        // nearest-boundary behaviour that fixes the one-cell-left mis-land.
+        assert_eq!(halfcell_delta(2, 5, 4, false, 7), Some(-3));
+        assert_eq!(halfcell_delta(2, 5, 4, true, 7), Some(-2));
+    }
+
+    #[test]
+    fn halfcell_last_glyph_right_half_clamps_to_append_origin() {
+        // Cursor pulled back to col 4 (2 glyphs in). A right-half click on the
+        // LAST glyph (col 6) targets the append origin (5 glyphs), never past it
+        // -> delta +3; a click well past the input clamps to the same origin.
+        assert_eq!(halfcell_delta(2, 5, 6, true, 4), Some(3));
+        assert_eq!(halfcell_delta(2, 5, 10, true, 4), Some(3));
+    }
+
+    #[test]
+    fn halfcell_prompt_side_right_half_never_rounds_into_the_input() {
+        // A right-half click on the last prompt cell (col 1; input starts at
+        // col 2) stays a clean no-op: the guard tests the floored cell, so
+        // rounding up to col 2 never fires a bogus travel toward position 0.
+        assert_eq!(halfcell_delta(2, 5, 1, true, 7), None);
+        assert_eq!(halfcell_delta(2, 5, 1, false, 7), None);
+    }
+
+    #[test]
+    fn halfcell_left_half_of_first_glyph_is_the_input_start() {
+        // A left-half click on the first input glyph (col 2) targets buffer
+        // position 0; from the append origin (col 7 = 5 glyphs) that is -5.
+        // Rounding up moves one glyph in (delta -4) — the boundary after the
+        // first glyph.
+        assert_eq!(halfcell_delta(2, 5, 2, false, 7), Some(-5));
+        assert_eq!(halfcell_delta(2, 5, 2, true, 7), Some(-4));
     }
 }

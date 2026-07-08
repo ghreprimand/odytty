@@ -7,6 +7,45 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Click-to-place snaps to the nearest character boundary
+
+Clicking in a live command line to reposition the shell cursor occasionally
+landed the caret one cell left of the intended gap, depending on exactly where
+between two glyphs the click fell. Cell hit-testing floors a pixel to the left
+edge of the cell it lands in — correct for selection, hover, and hyperlink
+hit-testing, which want the cell the pixel is literally over — but for caret
+targeting a click a hair right of a cell boundary floored back into the previous
+cell, so the caret arrived one column short.
+
+Click-to-place now targets the nearest column boundary: a click in a glyph's
+right half lands the caret after it, the left half before it. The sub-cell
+fraction is recovered from the cached pointer pixel using the exact horizontal
+adjustments the pointer-cell resolver applies before it floors — single-pane
+subtracts the tab-chrome offset and the window padding; a split uses the focused
+pane's content-rect x origin — so the fraction lines up with the resolved
+column. The general cell hit-test is untouched: selection still anchors on the
+cell under the pixel.
+
+The refinement is contained to caret targeting and stays fail-safe at the edges.
+The prompt-side no-op tests the floored cell, so a right-half click on the last
+prompt cell never rounds up across the input start into a bogus travel. The
+travel flatten clamps the target to the input's end, so a right-half click on
+the last input glyph resolves to the append origin rather than overshooting. A
+wide glyph's continuation cell flattens to the same offset as its lead cell, so
+a right-half click on a two-cell glyph lands the caret after the whole glyph.
+
+Platform-agnostic — it improves click feel on every platform equally and needs
+no platform-specific code. It composes with, and is independent of, the
+Windows/ConPTY cursor-report correction: nearest-boundary targeting decides
+where the click points, the ConPTY correction decides where the reported cursor
+sits, and the two adjust orthogonal axes.
+
+Covered by sh_click integration tests (left-half vs right-half straddling a
+glyph boundary, a right-half click on a wide glyph, the last-glyph clamp, and
+the prompt-side no-op) plus pure unit tests over the target-column flatten.
+`cargo test` (full non-GPU lib suite, 3373) and `cargo fmt --check` are clean;
+`cargo clippy --all-targets` is clean under the deny gate.
+
 ## 2026-07-08 -- Windows click-to-place lands on the clicked glyph
 
 Click-to-position on a live prompt under Windows/ConPTY landed the caret one

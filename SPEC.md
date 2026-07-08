@@ -491,7 +491,9 @@ downstream work.
 input boundary (`B` mark): selecting prompt text and pressing Delete/Backspace
 deletes only the selected editable input through shell-edit bytes, and (with the
 `sh_click` setting, on by default) clicking in the typed command line repositions
-the shell cursor — including across soft-wrapped lines. Both require shell integration, because OdyTTY must know the prompt
+the shell cursor to the nearest character boundary (a click in a glyph's right
+half lands the caret after it, the left half before it) — including across
+soft-wrapped lines. Both require shell integration, because OdyTTY must know the prompt
 boundary before it can safely edit or position within shell input — it never
 guesses with a no-OSC heuristic that could corrupt the command line. When the
 boundary is unknown (integration off, or no prompt mark yet), a selection-delete

@@ -82,6 +82,30 @@ fn click_at(app: &mut App, bytes: &Arc<Mutex<Vec<u8>>>, row: usize, column: usiz
     bytes.lock().expect("bytes").clone()
 }
 
+/// Like [`click_at`], but drives a sub-cell pointer PIXEL as well, so the
+/// nearest-boundary (half-cell) targeting is exercised end to end (the plain
+/// `click_at` leaves `pointer_px` unset and rounds down to the cell's left
+/// edge). `frac` is the horizontal position within the clicked cell in
+/// `[0.0, 1.0)`: `< 0.5` is the left half (caret before the glyph), `>= 0.5`
+/// the right half (caret after it). A known test cell size makes the sub-cell
+/// pixel math deterministic without a GPU.
+fn click_at_frac(
+    app: &mut App,
+    bytes: &Arc<Mutex<Vec<u8>>>,
+    row: usize,
+    column: usize,
+    frac: f64,
+) -> Vec<u8> {
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_pointer_cell_for_test(row, column);
+    let x_px = (column as f64 + frac) * 8.0;
+    let y_px = (row as f64 + 0.5) * 16.0;
+    app.set_pointer_px_for_test(x_px, y_px);
+    let _ = app.left_button_outcome_for_test(true); // press
+    let _ = app.left_button_outcome_for_test(false); // release
+    bytes.lock().expect("bytes").clone()
+}
+
 /// The prompt-start (OSC 133 `A`) bytes the bash shell-integration snippet
 /// emits, translated from the snippet's `printf` form into real PTY bytes,
 /// followed by the prompt, the `B` input-start mark the snippet also emits
@@ -473,4 +497,103 @@ fn alt_screen_click_is_inert() {
     };
     let written = click_at(&mut app, &bytes, 0, 2);
     assert!(written.is_empty(), "alt screen -> no click-to-position");
+}
+
+// --- HALF-CELL (nearest-boundary) click-to-position targeting (all platforms) ---
+//
+// Click-to-place snaps the caret target to the nearest column BOUNDARY, so a
+// click that falls in a glyph's right half places the caret AFTER it rather than
+// flooring to the cell's left edge (the reported "clicking between two chars
+// sometimes lands one cell left" symptom on Linux). These drive the full
+// press/release routing plus the sub-cell pixel recovery. The `cfg!(windows)`
+// branches account for the orthogonal ConPTY cursor-report correction (the
+// heuristic path reports the cursor one cell right on native Windows).
+
+#[test]
+fn half_cell_left_and_right_half_straddle_a_glyph_boundary() {
+    // "$ hello", cursor at col 7 (5 glyphs in). A click on the 'l' at col 4:
+    // the LEFT half lands the caret before it (delta -3), the RIGHT half after
+    // it (delta -2) — exactly one column apart.
+    let lefts = if cfg!(windows) { 2 } else { 3 };
+    let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
+        return; // no PTY in this environment
+    };
+    assert_eq!(
+        click_at_frac(&mut app, &bytes, 0, 4, 0.2),
+        b"\x1b[D".repeat(lefts),
+        "a left-half click targets the boundary before the glyph"
+    );
+
+    let rights = if cfg!(windows) { 1 } else { 2 };
+    let Some((mut app2, bytes2)) = build_app(live_prompt_click_enabled()) else {
+        return;
+    };
+    assert_eq!(
+        click_at_frac(&mut app2, &bytes2, 0, 4, 0.8),
+        b"\x1b[D".repeat(rights),
+        "a right-half click targets the boundary after the glyph"
+    );
+}
+
+#[test]
+fn half_cell_right_half_of_a_wide_glyph_lands_after_the_whole_glyph() {
+    // "漢字ab": 漢 spans cols 2-3, 字 cols 4-5, then a, b; cursor after b (col 8,
+    // 4 glyphs in). A right-half click on 漢's lead cell (col 2) rounds across
+    // its continuation cell and lands the caret AFTER the whole glyph (1 glyph
+    // in -> 3 Left), never between the glyph's two cells.
+    let Some((mut app, bytes)) =
+        build_app("\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07漢字ab".as_bytes())
+    else {
+        return;
+    };
+    let lefts = if cfg!(windows) { 2 } else { 3 };
+    assert_eq!(
+        click_at_frac(&mut app, &bytes, 0, 2, 0.8),
+        b"\x1b[D".repeat(lefts),
+        "a right-half click on a 2-cell glyph places the caret after the whole glyph"
+    );
+}
+
+#[test]
+fn half_cell_last_glyph_right_half_clamps_to_the_append_origin() {
+    // "$ hello" with the cursor pulled back to col 4 (2 glyphs in). A right-half
+    // click on the LAST glyph 'o' (col 6) targets the append origin (5 glyphs),
+    // never past it -> 3 Right.
+    let rights = if cfg!(windows) { 4 } else { 3 };
+    let Some((mut app, bytes)) =
+        build_app(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07hello\x1b[3D")
+    else {
+        return;
+    };
+    assert_eq!(
+        click_at_frac(&mut app, &bytes, 0, 6, 0.8),
+        b"\x1b[C".repeat(rights),
+        "a right-half click on the last glyph clamps to the append origin"
+    );
+
+    // A click well past the input's right edge clamps to the SAME append origin.
+    let Some((mut app2, bytes2)) =
+        build_app(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07hello\x1b[3D")
+    else {
+        return;
+    };
+    assert_eq!(
+        click_at_frac(&mut app2, &bytes2, 0, 10, 0.8),
+        b"\x1b[C".repeat(rights),
+        "a click past the input end also clamps to the append origin"
+    );
+}
+
+#[test]
+fn half_cell_prompt_side_right_half_is_a_noop() {
+    // "$ " is the prompt (cols 0-1); the input starts at col 2. A right-half
+    // click on the last prompt cell (col 1) must NOT round up across the input
+    // start into a bogus travel — the guard tests the floored cell.
+    let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
+        return;
+    };
+    assert!(
+        click_at_frac(&mut app, &bytes, 0, 1, 0.8).is_empty(),
+        "a right-half click on the prompt stays a no-op"
+    );
 }
