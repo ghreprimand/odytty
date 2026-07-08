@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- macOS default-terminal guidance and cask launcher note
+
+The install guide's Default Terminal section gains a macOS subsection: macOS
+exposes no OS-level "default terminal" setting, so Terminal.app stays the
+system default and OdyTTY is launched directly from Launchpad, Spotlight, or
+the Dock. A Homebrew cask install places `OdyTTY.app` in `/Applications`, so it
+appears in Launchpad and Spotlight and can be pinned to the Dock. The section
+also notes Windows cannot yet be set as the system default terminal, so all
+three platforms are acknowledged rather than only Linux.
+
+The macOS Homebrew section now states that the cask's `/Applications` app
+bundle is the GUI launcher (Launchpad/Spotlight/Dock), while the source formula
+installs only the `odytty` CLI on PATH with no launcher.
+
+---
+
 ## 2026-07-08 -- Doc accuracy sweep and macOS install guide
 
 Documentation-only correctness pass, plus the first dedicated macOS install

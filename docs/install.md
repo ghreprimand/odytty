@@ -110,7 +110,10 @@ The **cask** installs the prebuilt, ad-hoc-signed `OdyTTY.app` into
 `/Applications`. Homebrew is Apple-independent, and `brew` strips the
 quarantine attribute on install, so the app launches with no "unidentified
 developer" Gatekeeper warning even though it is not notarized. The cask
-recipe goes live with the release it points at.
+recipe goes live with the release it points at. Because the app lands in
+`/Applications`, it appears in Launchpad and Spotlight and can be dragged to
+the Dock to pin it — no separate launcher step. (The source formula below
+installs only the `odytty` CLI on your PATH, with no GUI launcher.)
 
 Prefer to compile locally instead? Use the **source formula**, which builds
 from the release tarball with your own toolchain:
@@ -532,6 +535,20 @@ sudo update-alternatives --config x-terminal-emulator
 
 On systems without `update-alternatives`, this mechanism does not exist unless
 the distribution or local system owner installs it.
+
+### macOS
+
+macOS has no OS-level "default terminal" setting. Unlike the default browser
+or mail app, macOS exposes no system preference to replace Terminal.app as the
+terminal other applications hand console programs off to; Terminal.app remains
+the system default. Launch OdyTTY directly instead — from **Launchpad**, from
+**Spotlight** (⌘-Space, type "OdyTTY"), or from a **Dock** icon. A Homebrew
+cask install places `OdyTTY.app` in `/Applications`, so it appears in Launchpad
+and Spotlight automatically and can be dragged to the Dock to pin it.
+
+Windows likewise cannot yet be set as the system default terminal — the
+Windows section above explains why (the default-terminal handoff protocol is
+not implemented). Launch it directly there too.
 
 ## Troubleshooting
 
