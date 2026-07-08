@@ -69,6 +69,75 @@ fn glide_step(visual: f32, logical: f32, dt: Duration, tau: Duration) -> f32 {
     visual + (logical - visual) * alpha
 }
 
+/// Advance a single session's glide follower one frame toward `logical` (the
+/// just-anchored integer offset). Operates purely on the session's own glide
+/// state, so it is callable both from the single-pane render path (via
+/// [`App::update_scroll_glide`]) and from the multipane rebuild loop while that
+/// loop already holds a `&mut Session` borrow — without going back through
+/// `App::sessions`. A no-op unless a glide is in flight. Snaps immediately when
+/// the target moved between frames (output growth re-anchored the offset) or
+/// once the follower settles within [`GLIDE_SETTLE_ROWS`] of the target. Sets
+/// the session's sub-row `scroll_frac_offset`; the single-pane render reads it,
+/// the multipane render deliberately ignores it (it pins the shared GPU offset
+/// to zero and snapshots at the FLOORED follower row instead), so a split glides
+/// whole-row with no cross-divider bleed.
+pub(super) fn advance_session_glide(
+    session: &mut Session,
+    now: Instant,
+    cell_height: u32,
+    logical: usize,
+) {
+    let cell_h = cell_height as f32;
+    if !session.glide_active {
+        return;
+    }
+    // A between-frame target change (output growth re-anchored the scrolled
+    // viewport) is a snap site: land at the new logical offset immediately
+    // rather than gliding across the re-anchoring.
+    if session.glide_target != logical {
+        session.glide_active = false;
+        session.glide_last_tick = None;
+        session.glide_visual = logical as f32;
+        session.scroll_frac_offset = 0.0;
+        return;
+    }
+    let dt = match session.glide_last_tick {
+        Some(prev) => now.saturating_duration_since(prev),
+        None => SCROLL_GLIDE_FRAME,
+    };
+    session.glide_last_tick = Some(now);
+    let logical_f = logical as f32;
+    let next = glide_step(session.glide_visual, logical_f, dt, SCROLL_GLIDE_TAU);
+    if (next - logical_f).abs() < GLIDE_SETTLE_ROWS {
+        session.glide_active = false;
+        session.glide_last_tick = None;
+        session.glide_visual = logical_f;
+        session.scroll_frac_offset = 0.0;
+    } else {
+        session.glide_visual = next;
+        session.scroll_frac_offset = (next - next.floor()) * cell_h;
+    }
+}
+
+/// The scrollback offset a session should SNAPSHOT this frame: the glide
+/// follower's floored row while a glide is in flight (so any sub-row remainder
+/// is always under one cell), else the passed-through `logical` offset, clamped
+/// to a valid offset. Shared by the single-pane path (via
+/// [`App::glide_render_offset`]) and the per-pane multipane loop. The logical
+/// `viewport` offset is unchanged — selection, scrollbar, and "at live bottom"
+/// still read it; only the render snapshot follows the glide.
+pub(super) fn session_glide_render_offset(
+    session: &Session,
+    logical: usize,
+    scrollback_len: usize,
+) -> usize {
+    if session.glide_active {
+        (session.glide_visual.floor().max(0.0) as usize).min(scrollback_len)
+    } else {
+        logical
+    }
+}
+
 impl App {
     /// Whether an eligible `PixelDelta` wheel event should drive the continuous
     /// fractional scroll lane rather than the discrete notch lane. All must
@@ -95,6 +164,25 @@ impl App {
         self.terminal
             .lock()
             .map(|t| !t.on_alternate_screen())
+            .unwrap_or(true)
+    }
+
+    /// Per-pane variant of [`Self::on_primary_screen`] for `token` — the split
+    /// glide arms on the pane under the pointer, which need not be the focused
+    /// pane, so its eligibility must read its OWN screen (a background pane on an
+    /// alternate screen has no scrollback to glide). Locks that session's
+    /// terminal; `true` (eligible) if the session or lock is unavailable, matching
+    /// the focused-pane fallback.
+    fn on_primary_screen_of(&self, token: SessionToken) -> bool {
+        self.sessions
+            .get(token)
+            .and_then(|session| {
+                session
+                    .terminal
+                    .lock()
+                    .ok()
+                    .map(|t| !t.on_alternate_screen())
+            })
             .unwrap_or(true)
     }
 
@@ -199,15 +287,20 @@ impl App {
     }
 
     /// Whether a discrete wheel/keyboard scroll should engage the SCROLL-GLIDE
-    /// follower: the `scroll_glide` knob is on, the active tab is a single pane
-    /// (v1 renders the sub-row shift only on that path), the primary screen is
-    /// showing (no scrollback to glide on the alternate screen), and the pointer
-    /// is not mid selection-drag (drag-autoscroll steps whole rows).
-    fn scroll_glide_eligible(&self) -> bool {
+    /// follower for pane `token`: the `scroll_glide` knob is on, that pane is on
+    /// its primary screen (no scrollback to glide on the alternate screen), and
+    /// the pointer is not mid selection-drag (drag-autoscroll steps whole rows).
+    /// Per-pane by design — a split arms the glide on the pane under the pointer,
+    /// not the focused one — so the old single-pane restriction is gone: a split
+    /// now glides row-by-row (the multipane render snapshots at the FLOORED
+    /// follower row and applies no sub-cell shift across a divider, so there is no
+    /// cross-pane bleed). For a single-pane tab `token` is the active pane and
+    /// every surviving term is unchanged, so the single-pane decision — and its
+    /// byte-identical render path — is intact.
+    fn scroll_glide_eligible_of(&self, token: SessionToken) -> bool {
         self.settings.scroll_glide
-            && self.sessions.active_is_single_pane()
             && !self.pointer_drag.is_selecting()
-            && self.on_primary_screen()
+            && self.on_primary_screen_of(token)
     }
 
     /// The follower's rendered position just before a scroll jump, for
@@ -235,7 +328,7 @@ impl App {
     /// ineligible (off / multipane / alt-screen / selecting) or the lag is
     /// already negligible, leaving the byte-identical instant-scroll path.
     pub(super) fn arm_scroll_glide_of(&mut self, token: SessionToken, start_visual: f32) {
-        if !self.scroll_glide_eligible() {
+        if !self.scroll_glide_eligible_of(token) {
             return;
         }
         let vp_rows = self.grid.rows.max(1) as f32;
@@ -275,39 +368,9 @@ impl App {
     /// growth re-anchored the offset) or once the follower settles within
     /// [`GLIDE_SETTLE_ROWS`] of the target.
     pub(super) fn update_scroll_glide(&mut self, now: Instant, cell_height: u32, logical: usize) {
-        let cell_h = cell_height as f32;
         let token = self.sessions.active_id();
-        let Some(session) = self.sessions.get_mut(token) else {
-            return;
-        };
-        if !session.glide_active {
-            return;
-        }
-        // A between-frame target change (output growth re-anchored the scrolled
-        // viewport) is a snap site: land at the new logical offset immediately
-        // rather than gliding across the re-anchoring.
-        if session.glide_target != logical {
-            session.glide_active = false;
-            session.glide_last_tick = None;
-            session.glide_visual = logical as f32;
-            session.scroll_frac_offset = 0.0;
-            return;
-        }
-        let dt = match session.glide_last_tick {
-            Some(prev) => now.saturating_duration_since(prev),
-            None => SCROLL_GLIDE_FRAME,
-        };
-        session.glide_last_tick = Some(now);
-        let logical_f = logical as f32;
-        let next = glide_step(session.glide_visual, logical_f, dt, SCROLL_GLIDE_TAU);
-        if (next - logical_f).abs() < GLIDE_SETTLE_ROWS {
-            session.glide_active = false;
-            session.glide_last_tick = None;
-            session.glide_visual = logical_f;
-            session.scroll_frac_offset = 0.0;
-        } else {
-            session.glide_visual = next;
-            session.scroll_frac_offset = (next - next.floor()) * cell_h;
+        if let Some(session) = self.sessions.get_mut(token) {
+            advance_session_glide(session, now, cell_height, logical);
         }
     }
 
@@ -321,10 +384,8 @@ impl App {
     pub(super) fn glide_render_offset(&self, logical: usize, scrollback_len: usize) -> usize {
         let token = self.sessions.active_id();
         match self.sessions.get(token) {
-            Some(session) if session.glide_active => {
-                (session.glide_visual.floor().max(0.0) as usize).min(scrollback_len)
-            }
-            _ => logical,
+            Some(session) => session_glide_render_offset(session, logical, scrollback_len),
+            None => logical,
         }
     }
 
@@ -337,6 +398,17 @@ impl App {
             .get(token)
             .filter(|session| session.glide_active)
             .map(|_| Instant::now() + SCROLL_GLIDE_FRAME)
+    }
+
+    /// Frame-paced animation wake while ANY visible pane of a split is mid-glide
+    /// (`None` at rest / when single-pane / on the off path). The multipane
+    /// counterpart to [`Self::scroll_glide_deadline`]: sourced ONLY in the
+    /// multipane wake path so it does not fan wider than its consumer (the
+    /// per-pane glide advance in `rebuild_multipane`) — the other animation
+    /// timers still have no multipane consumer, so they stay single-pane-gated.
+    pub(super) fn multipane_glide_deadline(&self) -> Option<Instant> {
+        (!self.sessions.active_is_single_pane() && self.sessions.any_visible_pane_gliding())
+            .then(|| Instant::now() + SCROLL_GLIDE_FRAME)
     }
 }
 
@@ -695,6 +767,179 @@ mod tests {
             (app.glide_visual - (logical - vp)).abs() < 1e-6,
             "lag clamped to one viewport height ({vp}): {}",
             app.glide_visual
+        );
+    }
+
+    // --- SCROLL-GLIDE per-pane (split) state machine — no GPU --------------
+
+    /// Build a headless two-pane split: pane A (the original, pre-split active)
+    /// and pane B (the new focused pane), each seeded with its own scrollback.
+    /// Skips (returns `None`) when no PTY is available, like [`build_app`].
+    fn build_split_app() -> Option<(App, SessionToken, SessionToken)> {
+        let mut app = build_app()?;
+        let a = app.sessions.active_id();
+        // Give pane A history to glide through.
+        seed_scrollback(&app);
+        // Build a second pane with its own seeded scrollback, then split.
+        let d = Dimensions::new(40, 6);
+        let session = crate::native::test_support::spawn_test_pause_shell(d).ok()?;
+        let writer: crate::native::pty::PtyWriter =
+            Arc::new(Mutex::new(session.take_writer().ok()?));
+        let terminal_b = Arc::new(Mutex::new(Terminal::new(d.columns, d.rows)));
+        if let Ok(mut t) = terminal_b.lock() {
+            for _ in 0..40 {
+                t.advance(b"line\r\n");
+            }
+        }
+        let pty = Arc::new(Mutex::new(session));
+        app.seed_split_pane_for_test(false, terminal_b, writer, pty);
+        let b = app.sessions.active_id();
+        assert_ne!(a, b, "split minted a distinct second pane");
+        Some((app, a, b))
+    }
+
+    #[test]
+    fn split_lifts_the_single_pane_glide_gate() {
+        let Some((mut app, a, b)) = build_split_app() else {
+            return;
+        };
+        app.settings.scroll_glide = true;
+        assert!(
+            !app.sessions.active_is_single_pane(),
+            "precondition: the active tab is a split"
+        );
+        // The old gate made the glide ineligible in ANY split; per-pane
+        // eligibility now returns true for either primary-screen pane.
+        assert!(
+            app.scroll_glide_eligible_of(a),
+            "pane A is glide-eligible in a split"
+        );
+        assert!(
+            app.scroll_glide_eligible_of(b),
+            "pane B is glide-eligible in a split"
+        );
+        // The knob still gates it: off ⇒ ineligible, byte-identical instant scroll.
+        app.settings.scroll_glide = false;
+        assert!(!app.scroll_glide_eligible_of(a), "knob off ⇒ ineligible");
+    }
+
+    #[test]
+    fn split_glide_is_per_pane_isolated() {
+        let Some((mut app, a, b)) = build_split_app() else {
+            return;
+        };
+        app.settings.scroll_glide = true;
+        assert!(!app.sessions.any_visible_pane_gliding(), "no glide at rest");
+        assert_eq!(
+            app.multipane_glide_deadline(),
+            None,
+            "no frame wake at rest / zero-wake idle"
+        );
+
+        // Scroll ONLY pane A: its follower arms; pane B stays wholly inert.
+        app.scroll_viewport_of(a, 5);
+        {
+            let sa = app.sessions.get(a).expect("pane A");
+            assert!(sa.glide_active, "pane A glide armed");
+            assert_eq!(sa.viewport.offset(), 5, "pane A logical offset jumped");
+        }
+        {
+            let sb = app.sessions.get(b).expect("pane B");
+            assert!(!sb.glide_active, "pane B never armed by A's scroll");
+            assert_eq!(sb.viewport.offset(), 0, "pane B viewport is isolated");
+        }
+        assert!(
+            app.sessions.any_visible_pane_gliding(),
+            "the split reports an in-flight glide"
+        );
+        assert!(
+            app.multipane_glide_deadline().is_some(),
+            "and sources a frame wake"
+        );
+
+        // Advancing pane A's follower each frame never perturbs pane B's glide
+        // state — the follower is strictly per-session.
+        let b_visual = app.sessions.get(b).unwrap().glide_visual;
+        let base = Instant::now();
+        for i in 1..=8u32 {
+            if let Some(session) = app.sessions.get_mut(a) {
+                advance_session_glide(session, base + Duration::from_millis(16 * i as u64), 16, 5);
+            }
+            let sb = app.sessions.get(b).unwrap();
+            assert!(!sb.glide_active, "pane B stays inert while A glides");
+            assert_eq!(sb.glide_visual, b_visual, "pane B follower is frozen");
+        }
+    }
+
+    #[test]
+    fn split_render_offset_follows_the_floored_glide_row() {
+        let Some((mut app, a, _b)) = build_split_app() else {
+            return;
+        };
+        app.settings.scroll_glide = true;
+        app.scroll_viewport_of(a, 5);
+        // The follower lags at the old row (0); the split render snapshots at the
+        // FLOORED follower row, not the logical offset (5) — the whole-row glide.
+        let session = app.sessions.get(a).expect("pane A");
+        assert_eq!(
+            session_glide_render_offset(session, 5, 100),
+            0,
+            "snapshot follows the floored follower row, not the logical offset"
+        );
+    }
+
+    #[test]
+    fn split_glide_wake_clears_once_the_follower_settles() {
+        let Some((mut app, a, _b)) = build_split_app() else {
+            return;
+        };
+        app.settings.scroll_glide = true;
+        app.scroll_viewport_of(a, 5);
+        assert!(
+            app.multipane_glide_deadline().is_some(),
+            "wake armed while gliding"
+        );
+        let base = Instant::now();
+        let mut settled = false;
+        for i in 1..=400u32 {
+            if let Some(session) = app.sessions.get_mut(a) {
+                advance_session_glide(session, base + Duration::from_millis(16 * i as u64), 16, 5);
+            }
+            if !app.sessions.get(a).unwrap().glide_active {
+                settled = true;
+                break;
+            }
+        }
+        assert!(settled, "the split glide settles in bounded time");
+        assert_eq!(
+            app.multipane_glide_deadline(),
+            None,
+            "wake clears once settled — the split returns to zero-wake idle"
+        );
+    }
+
+    #[test]
+    fn single_pane_glide_still_carries_the_sub_cell_offset() {
+        // HARD INVARIANT: generalizing the gate must not touch the single-pane
+        // sub-cell render. A lone pane mid-glide still carries a non-zero sub-row
+        // pixel offset (the split path pins it to 0; single-pane does not).
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        let sb = seed_scrollback(&app);
+        assert!(sb >= 5);
+        app.settings.scroll_glide = true;
+        assert!(
+            app.sessions.active_is_single_pane(),
+            "precondition: single pane"
+        );
+        let token = app.sessions.active_id();
+        app.scroll_viewport_of(token, 5);
+        app.update_scroll_glide(Instant::now(), 16, 5);
+        assert!(app.glide_active, "still gliding mid-approach");
+        assert_ne!(
+            app.scroll_frac_offset, 0.0,
+            "single-pane keeps the sub-cell shift (byte-identical render path)"
         );
     }
 }

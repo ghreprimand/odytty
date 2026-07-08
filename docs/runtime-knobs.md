@@ -503,8 +503,9 @@ environment variable was not set at startup.
   tracked directly instead of eased, which avoids the sawtoothing that an
   easing catch-up produces on high-resolution devices. Classic detented wheels
   emit line deltas and are unaffected — they continue to use `scroll_wheel_lines`
-  as the per-notch multiplier. Pixel-precise scrolling is single-pane only for
-  now; inside a split, pixel input falls back to the notch path.
+  as the per-notch multiplier. Sub-row pixel-precise scrolling is single-pane
+  for now; inside a split, pixel input falls back to the notch path — which now
+  eases as a per-pane whole-row glide (see `scroll_glide`).
 - `scroll_pixel_speed` (default `1.0`, range `0.25..=4.0`) is the sensitivity
   multiplier for the continuous pixel lane. `1.0` tracks finger travel exactly;
   higher scrolls faster than the finger, lower slower. It applies only to
@@ -514,9 +515,12 @@ environment variable was not set at startup.
   tracking cannot help them; instead the integer viewport offset still jumps
   instantly per notch, but the rendered view eases toward it over a few frames
   — a forward-chase follower that only ever moves in the scroll direction, so a
-  stream of notches cannot sawtooth. On by default; single-pane only,
-  and only on the primary screen. High-resolution wheels and touchpads use
-  `pixel_scroll` instead.
+  stream of notches cannot sawtooth. On by default; primary screen only.
+  In a split, each pane glides independently as an eased whole-row follower — the
+  pane under the pointer, without stealing focus — better than the old instant
+  jump; the sub-cell smoothness between rows is single-pane for now, pending
+  per-pane clipping. High-resolution wheels and touchpads use `pixel_scroll`
+  instead.
 - `scroll_wheel_lines` sets how many rows one wheel notch advances the local
   scrollback viewport (default `6`). The same count also drives
   alternate-scroll (DECSET 1007) arrow emulation, so classic pagers (`less`,

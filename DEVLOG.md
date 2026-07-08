@@ -7,6 +7,52 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Split panes gain per-pane whole-row scroll glide
+
+The animated scroll glide (`scroll_glide`) previously engaged only on a
+single-pane tab: in a split, a wheel notch jumped the viewport instantly with no
+easing, because the follower was gated off whenever more than one pane was
+visible. That gate is now per-pane. A wheel over any pane of a split arms that
+pane's own forward-chase follower — the pane under the pointer, without stealing
+focus — and the multi-pane render advances each visible pane's follower every
+frame, snapshotting it at the follower's floored row. Each pane glides
+independently: scrolling one leaves every other pane's viewport and follower
+untouched.
+
+The glide in a split is deliberately whole-row. The sub-cell (pixel-precise)
+smoothness the continuous lane gives a single pane rides a shared per-frame
+pixel offset that, applied inside a split, would smear a partial bottom row
+across the 1px divider into the neighbouring pane — the panes share one batched
+draw with no per-pane clip, and only the surface edge makes the single-pane
+shift safe. So the multi-pane path pins that sub-cell offset to zero and steps
+whole rows instead, which is strictly better than the old instant jump and has
+no cross-divider bleed. The eased sub-cell feel within a split awaits a per-pane
+vertical clip-rect in the vertex builders and is tracked as its own follow-up.
+
+Structurally: the glide follower and render-offset logic are factored into
+per-session helpers shared by both the single-pane and multi-pane paths, so the
+single-pane render is byte-identical — a lone pane still carries the sub-cell
+pixel offset mid-glide. Two frame-scheduler sites that were single-pane-gated now
+also source a bounded, frame-paced wake while any visible split pane is
+mid-glide, and stop once every follower settles, returning to zero-wake idle. The
+wake sources only the glide timer, not the other animation timers, which still
+have no multi-pane consumer.
+
+Scroll input and PTY handling are platform-uniform: this changes only render/
+scheduler bookkeeping keyed on viewport state, with no `cfg`-specific surface, so
+behaviour is identical on Linux, Windows (ConPTY), and macOS.
+
+`cargo test` (full non-GPU suite, 3363 tests) and `cargo fmt --check` pass;
+`cargo clippy --all-targets` is clean under the `all = deny` gate. Added split
+state-machine coverage: gate-lift eligibility, per-pane follower isolation,
+floored render offset, bounded wake settle, and a single-pane sub-cell
+byte-identity guard. Docs updated: the `scroll_glide` / `pixel_scroll` caveats in
+SPEC and runtime-knobs now describe the whole-row split glide with the sub-cell
+follow-up called out, and the roadmap records the shipped split glide plus the
+open sub-cell item.
+
+---
+
 ## 2026-07-08 -- Diagnostics story documented; crash-and-logging currency
 
 A new `docs/diagnostics.md` documents the crash, freeze, and logging path end to

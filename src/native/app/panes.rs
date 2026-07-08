@@ -20,6 +20,7 @@
 //! overlay parity and the inactive-pane dim are later checkboxes on the Phase 1
 //! plan.
 
+use super::scroll_anim::{advance_session_glide, session_glide_render_offset};
 use super::*;
 use crate::native::gpu::{OverlayTop, PaneRender, RailOverlay};
 use crate::native::layout::{PaneRect, divider_rects, grid_dims_for_rect};
@@ -450,6 +451,11 @@ impl App {
             return;
         };
         let (surface_w, surface_h) = surface;
+        // SCROLL-GLIDE (per-pane): a single frame timestamp for advancing every
+        // visible pane's follower below. The follower is frame-rate independent
+        // (its step reads each session's own last-tick delta), so one shared
+        // `now` for the whole rebuild is correct.
+        let now = Instant::now();
         let show_tab_bar = self.should_show_tab_bar();
         let reserve = self.tab_reserve();
         let content = pane_content_rect(surface_w, surface_h, cell, padding, reserve);
@@ -485,11 +491,26 @@ impl App {
             // of sliding under fresh output, and its baseline stays current so
             // collapsing the split back to a single pane applies no jump.
             let offset = session.anchor_viewport_for_render(scrollback_len);
-            let snapshot = terminal.snapshot_with_scrollback(offset);
+            // SCROLL-GLIDE (per-pane, whole-row): advance THIS pane's follower
+            // one frame toward its just-anchored offset and snapshot at the
+            // FLOORED follower row. The sub-row remainder is deliberately not
+            // rendered in the multipane path — the shared GPU `scroll_frac_offset`
+            // is pinned to 0 below — so a split eases row-by-row with no
+            // cross-divider bleed (sub-cell smoothness in splits is a separate
+            // renderer change). Inert at rest / when no glide is armed:
+            // `render_offset == offset`, so the frame is byte-identical to before.
+            // This runs on the `&mut session` borrow already held here (the
+            // terminal lock is on a cloned Arc, so the two do not alias).
+            advance_session_glide(session, now, cell.height, offset);
+            let render_offset = session_glide_render_offset(session, offset, scrollback_len);
+            let snapshot = terminal.snapshot_with_scrollback(render_offset);
             let cursor_style = terminal.cursor_style();
             let is_focused = *token == focused;
             if is_focused {
-                focused_overlay = Some((panes_owned.len(), offset, scrollback_len));
+                // Paint the focused pane's overlays at the RENDER offset so
+                // selection / search highlights stay aligned with the glide-
+                // floored content (identical to `offset` when no glide is armed).
+                focused_overlay = Some((panes_owned.len(), render_offset, scrollback_len));
             }
             drop(terminal);
             // Absorb each pane's sub-cell remainder onto its window-margin side

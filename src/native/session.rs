@@ -1248,6 +1248,17 @@ impl WorkspaceSet {
             .any(|token| self.sessions.get(&token).is_some_and(|s| s.needs_rebuild))
     }
 
+    /// True when any currently visible pane of the active tab has an in-flight
+    /// SCROLL-GLIDE follower. The multipane wake path sources a frame-paced
+    /// repaint off this so a split's per-pane glide advances every frame until it
+    /// settles (mirrors the focused-only `scroll_glide_deadline` for single-pane).
+    /// For a single-pane tab this is exactly the focused pane's `glide_active`.
+    pub(super) fn any_visible_pane_gliding(&self) -> bool {
+        self.active_visible_tokens()
+            .into_iter()
+            .any(|token| self.sessions.get(&token).is_some_and(|s| s.glide_active))
+    }
+
     /// Clear `needs_rebuild` on every visible pane of the active tab. Paired with
     /// [`Self::any_visible_pane_needs_rebuild`]: `rebuild_multipane` snapshots
     /// every visible pane, so it must clear every visible pane's flag — clearing

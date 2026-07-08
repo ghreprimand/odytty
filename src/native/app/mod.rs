@@ -1615,6 +1615,15 @@ impl App {
                 .active_is_single_pane()
                 .then(|| self.animation_deadline())
                 .flatten(),
+            // NF21-1 (partial): in a split, source ONLY the per-pane glide wake.
+            // `rebuild_multipane` advances each visible pane's glide follower —
+            // its consumer — so this wake does not fan wider than its consumer
+            // (the NF20-B rule the single-pane gate above enforces). The other
+            // animation timers (cursor / bell / notice / hint) are still
+            // single-pane-only consumers, so widening all of `animation_deadline()`
+            // to multipane would spin them; only the glide deadline is sourced.
+            // `None` at rest / single-pane, so the idle wake set is unchanged.
+            self.multipane_glide_deadline(),
             // WP2: wake to flush the debounced workspace-shape autosave. `None`
             // at rest (nothing pending), so the idle wake set is unchanged; when
             // a shape mutation is pending this fires the one write ~1.5s later.
@@ -4631,6 +4640,20 @@ impl App {
         // wakes only at their expiry, so `is_some()` sees them due on that one
         // pass and the rebuild clears them.
         if self.sessions.active_is_single_pane() && self.animation_deadline().is_some() {
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        } else if self.multipane_glide_deadline().is_some() {
+            // NF21-1 (partial): a split with an in-flight per-pane glide must
+            // repaint each frame until every follower settles. Setting the
+            // focused pane's `needs_rebuild` opens `should_rebuild_frame`'s
+            // tab-wide gate, so `rebuild_multipane` runs and advances EVERY
+            // visible pane's glide (regardless of which pane the wheel scrolled);
+            // it then clears all visible panes' flags, so this cannot storm — the
+            // wake is bounded by GLIDE_SETTLE_ROWS and returns to zero-wake idle
+            // once the glides settle. Only the glide timer is sourced here (the
+            // other animation timers have no multipane consumer).
             self.needs_rebuild = true;
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();

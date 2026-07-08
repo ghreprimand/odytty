@@ -247,6 +247,13 @@ Sharp, stable, comfortable text is a primary product pillar.
   notch over a few frames (`scroll_glide`); high-resolution wheels and touchpads
   track physical travel 1:1 on a continuous pixel lane (`pixel_scroll`). Both
   default on, and the scroll target snaps instantly so there is no input latency.
+  In a split each pane glides independently as an eased whole-row follower — the
+  pane under the pointer, without stealing focus.
+- **Next — Sub-cell scroll smoothness in splits.** Within a split the glide
+  steps whole rows; the sub-cell (pixel-precise) smoothness the continuous lane
+  gives a single pane awaits a per-pane vertical clip-rect in the pane vertex
+  builders, so a partial bottom row cannot bleed across a divider. The
+  single-pane path already ships the sub-cell smoothness.
 - **Shipped — Stem-darkening default activation.** The rasterization machinery
   ships default-on at `0.5`, with `0.0` as the byte-identical opt-out.
 - **Someday — Legibility font features.** A narrow, charter-clean subset (such
@@ -560,6 +567,9 @@ persistent sessions, command palette, and connection manager) all ship:
 1. **Effect default-tuning pass** — once a human-eye baseline exists, revisit the
    conservative default strengths of stem darkening, standalone scanlines, and
    bloom (see Track 2).
+2. **Sub-cell scroll smoothness in splits** — splits now glide whole-row per
+   pane; the pixel-precise sub-cell smoothness within a split awaits a per-pane
+   clip-rect in the vertex builders (see Track 2).
 
 Everything beyond a plain terminal stays measured, opt-out-able, and — above all
 — never something you are forced to hand-edit a config file to reach.
