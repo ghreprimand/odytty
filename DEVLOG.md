@@ -38,6 +38,31 @@ logs land in `%LOCALAPPDATA%\odytty` rather than `%TEMP%`.
 
 ---
 
+## 2026-07-08 -- Window-opacity floor lowered to 20% for deeper bleed-through
+
+The minimum window opacity now reaches 20% (was 30%), so the Rendering-panel
+opacity stepper and the `ODYTTY_WINDOW_OPACITY` env / `window_opacity` config
+knob can be taken further toward a near-transparent background for maximum
+desktop bleed-through. The floor is a single constant (`MIN_WINDOW_OPACITY`);
+the panel numeric spec, the env clamp, and the config clamp all derive from it,
+so they follow automatically. The 5% step grid is unchanged and 20 lands cleanly
+on it.
+
+Legibility is unaffected by design: only the terminal background and chrome
+bands scale toward the opacity value — text, cursor, selection, and every
+overlay stay fully opaque, and the readability scrim keeps glyphs readable
+independent of the setting. The lower floor deepens desktop bleed-through, not
+text washout. The env floor is now pinned by a literal test (an input of `20`
+survives unchanged; `10` clamps up to `20`) in addition to the existing symbolic
+assertions.
+
+Platform-uniform: the constant is shared across all targets with no `cfg`
+surface. Transparency still requires a compositing window manager on each
+platform (Wayland natively, X11 with a compositor, Windows via DWM); this change
+only lowers the floor that path already honored.
+
+---
+
 ## 2026-07-08 -- Theme library expanded with 12 original OdysseyOS palettes
 
 The built-in theme roster grows from 100 to 112 with a contrast-validated batch

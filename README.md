@@ -904,7 +904,7 @@ Window opacity) or `odytty.conf`:
 ```ini
 # odytty.conf — let the desktop show through the terminal background
 window_transparency = on
-window_opacity = 85          # percent, 30..=100 (step 5); 100 is fully opaque
+window_opacity = 85          # percent, 20..=100 (step 5); 100 is fully opaque
 ```
 
 Transparency needs a compositing window manager: Wayland handles it natively,

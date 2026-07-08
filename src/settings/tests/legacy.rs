@@ -2224,6 +2224,15 @@ fn window_opacity_defaults_parses_and_clamps() {
     assert_eq!(low.window_opacity, MIN_WINDOW_OPACITY);
     assert!(warnings.is_empty());
 
+    // The 20% floor is pinned by literal, not only symbolically: an exact
+    // floor value survives unchanged, and a value below it clamps up to 20.
+    let (at_floor, warnings) = settings_from([(WINDOW_OPACITY_ENV, "20")]);
+    assert_eq!(at_floor.window_opacity, 20.0);
+    assert!(warnings.is_empty());
+    let (below, warnings) = settings_from([(WINDOW_OPACITY_ENV, "10")]);
+    assert_eq!(below.window_opacity, 20.0);
+    assert!(warnings.is_empty());
+
     let (high, warnings) = settings_from([(WINDOW_OPACITY_ENV, "150")]);
     assert_eq!(high.window_opacity, MAX_WINDOW_OPACITY);
     assert!(warnings.is_empty());

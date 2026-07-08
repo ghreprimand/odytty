@@ -520,9 +520,11 @@ pub const DEFAULT_WINDOW_TRANSPARENCY: bool = false;
 /// `window_transparency` is on. 85% keeps text firmly readable while letting
 /// the desktop show through the terminal background.
 pub const DEFAULT_WINDOW_OPACITY: f32 = 85.0;
-/// Minimum window opacity percent (a floor that keeps content legible; below
-/// this the background washes out).
-pub const MIN_WINDOW_OPACITY: f32 = 30.0;
+/// Minimum window opacity percent: a deliberate deep-transparency floor (20%)
+/// for maximum desktop bleed-through. Text, cursor, and selection stay legible
+/// regardless — only the background scales toward this value, and the
+/// readability scrim keeps glyphs readable independent of it.
+pub const MIN_WINDOW_OPACITY: f32 = 20.0;
 /// Maximum window opacity percent (fully opaque).
 pub const MAX_WINDOW_OPACITY: f32 = 100.0;
 
