@@ -220,9 +220,9 @@ labels, and visible font-load failure reporting all ship today.
   display sections, so no shipped knob is unreachable from the panel; a field
   audit confirmed every user-facing `Settings` field surfaces through a reachable
   `SettingInfo` row (`native_autoclose` included, via the Development → Advanced
-  section). The `keybinds` parser and the in-app key-remap editor cover all 38
+  section). The `keybinds` parser and the in-app key-remap editor cover all 39
   bindable actions — including the theme-builder, session-attach, and workspace
-  actions — and the panel's keybinds-row option hint now enumerates the same 38
+  actions — and the panel's keybinds-row option hint now enumerates the same 39
   in `BindableAction::ALL` order. See [keybindings.md](./keybindings.md) for the
   full keyboard reference.
 - **Someday — Profiles.** Named configuration profiles once the base config
@@ -353,6 +353,11 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   tracked cwd falls back to the default directory, and opening is never blocked on
   a missing cwd. Cross-platform (ConPTY honors the working directory; drive-letter
   OSC 7 cwds are normalized).
+- **Shipped — Duplicate Tab.** A tab context-menu entry (and the bindable
+  `duplicate-tab` action) opens a new local tab in the active pane's working
+  directory. Honest framing: this is a fresh shell in the same directory, not a
+  process fork — scrollback and the running program are not copied. Rides the new
+  tab / new window cwd inheritance above; brings the bindable-action count to 39.
 - **Shipped — OSC 8 hyperlinks.** Explicit hyperlink escapes render as
   hover-affordanced links that open on modifier (`Ctrl`) click through the same
   argv-safe dispatch, gated to a `http`/`https`/`file`/`mailto` scheme allowlist

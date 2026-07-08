@@ -594,7 +594,7 @@ its first stable layer.
 - Configurable cursor shapes and blink policy (DECSCUSR + settings)
 - Configurable terminal-local key bindings; `keybinds` / `ODYTTY_KEYBINDS`
   supports all bindable local, tab, palette, and pane actions. The in-app
-  key-remap editor in the settings panel covers every bindable action (all 38)
+  key-remap editor in the settings panel covers every bindable action (all 39)
   (select a row and press `Enter` to capture a new chord, `Backspace` resets to
   default, `R` resets all, conflict prompt on clash, writes to `odytty.conf` via
   the preservation-first writeback path). See

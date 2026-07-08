@@ -210,7 +210,7 @@ fn all_bindable_actions_is_exhaustive() {
             Search | SettingsPanel | ThemePicker | Copy | Paste | ScrollPageUp | ScrollPageDown
             | JumpPromptPrev | JumpPromptNext | CopyMode | Hints | ClearInput => 0,
             CommandPalette | ConnectionManager | SessionReplay | ThemeBuilder | SessionAttach => 1,
-            NewTab | NewWindow | NextTab | PrevTab | CloseTab => 2,
+            NewTab | NewWindow | NextTab | PrevTab | CloseTab | DuplicateTab => 2,
             NewWorkspace | CloseWorkspace | RenameWorkspace | NextWorkspace | PrevWorkspace
             | WorkspacePicker => 3,
             SplitColumns | SplitRows | FocusPaneLeft | FocusPaneRight | FocusPaneUp

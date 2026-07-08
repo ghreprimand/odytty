@@ -144,6 +144,12 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.handle_new_local_tab();
             }
+            // Duplicate Tab: same cwd-aware local-tab spawn as New Local Tab —
+            // a fresh shell in the active pane's directory (not a process fork).
+            OverlayOutcome::ContextMenuDuplicateTab => {
+                self.flush_pending_overlay_settings();
+                self.handle_new_local_tab();
+            }
             // F1: the context menu closed itself; launch another OdyTTY window
             // through the same handler the Ctrl+Shift+N chord fires.
             OverlayOutcome::ContextMenuNewWindow => {

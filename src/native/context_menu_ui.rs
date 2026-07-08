@@ -70,7 +70,7 @@ use crate::settings::BindableAction;
 /// adds Close Pane for 24. The five
 /// ODP-2C connection-row actions (Open in New Tab / Open in New Workspace / Bind
 /// Current Workspace / Edit / Remove) show ONLY on the `ConnectionRow` surface.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 43;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 44;
 
 /// Body row index of the first visual separator in the single-pane content
 /// reference, between Select All and New Tab. The reference is the
@@ -252,6 +252,13 @@ pub(super) enum ContextMenuItem {
     /// already local, so the row would be a duplicate). Placed last in
     /// [`Self::ALL`] so the existing accelerator-array indices stay stable.
     NewLocalTab,
+    /// Duplicate the right-clicked tab: open a new local tab in the active
+    /// pane's working directory (F1 cwd inheritance). HONEST framing: this is a
+    /// fresh shell in the same directory, not a process fork — scrollback and the
+    /// running program are not copied. Tab-scoped (`TabSlot`); bindable via
+    /// [`BindableAction::DuplicateTab`]. Appended last in [`Self::ALL`] so the
+    /// existing accelerator-array indices stay stable.
+    DuplicateTab,
     /// Open a saved host in a NEW tab positioned right after the right-clicked
     /// tab (ODP-5D "Connect to host ▸"). Tab-scoped: shown only on the `TabSlot`
     /// surface. Activating it opens the shared host picker (ODP-1B) seeded with
@@ -349,6 +356,9 @@ impl ContextMenuItem {
         Self::ConnRowBindWorkspace,
         Self::ConnRowEdit,
         Self::ConnRowRemove,
+        // DUPLICATE-TAB: appended last so every existing accelerator-array index
+        // stays stable (its accelerator is filled from the flat table).
+        Self::DuplicateTab,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -361,6 +371,7 @@ impl ContextMenuItem {
             Self::Copy | Self::Cut | Self::Paste | Self::Delete | Self::SelectAll => 0,
             Self::NewTab
             | Self::NewLocalTab
+            | Self::DuplicateTab
             | Self::NewWindow
             | Self::RenameTab
             | Self::CloseTab
@@ -429,6 +440,7 @@ impl ContextMenuItem {
             Self::SaveAsLayout => "Save Workspace as Layout\u{2026}",
             Self::OpenLayout => "Open Layout\u{2026}",
             Self::NewLocalTab => "New Local Tab",
+            Self::DuplicateTab => "Duplicate Tab",
             Self::ConnectToHost => "Connect to Host\u{2026}",
             Self::ReplaceTabWithHost => "Replace with Host\u{2026}",
             Self::ConnRowOpenInTab => "Open in New Tab",
@@ -467,6 +479,7 @@ impl ContextMenuItem {
             Self::NewTab => Some(BindableAction::NewTab),
             Self::NewWindow => Some(BindableAction::NewWindow),
             Self::CloseTab => Some(BindableAction::CloseTab),
+            Self::DuplicateTab => Some(BindableAction::DuplicateTab),
             Self::SplitColumns => Some(BindableAction::SplitColumns),
             Self::SplitRows => Some(BindableAction::SplitRows),
             Self::Settings => Some(BindableAction::SettingsPanel),
@@ -988,6 +1001,7 @@ impl ContextMenuUi {
             ContextMenuItem::NewWindow => true,
             ContextMenuItem::RenameTab => self.rename_target.is_some(),
             ContextMenuItem::CloseTab => true,
+            ContextMenuItem::DuplicateTab => true,
             // Nothing else to close when a lone tab is open.
             ContextMenuItem::CloseOtherTabs => self.multi_tab,
             // Only visible when >1 workspace exists; always enabled once shown.
@@ -1075,6 +1089,7 @@ impl ContextMenuUi {
             ContextMenuSurface::TabSlot(_) => match item {
                 ContextMenuItem::NewTab
                 | ContextMenuItem::NewLocalTab
+                | ContextMenuItem::DuplicateTab
                 | ContextMenuItem::RenameTab => 0,
                 ContextMenuItem::CloseTab | ContextMenuItem::CloseOtherTabs => 1,
                 // ODP-5D host actions form their own group between the close
@@ -1149,6 +1164,9 @@ impl ContextMenuUi {
                 if self.bound_workspace {
                     items.push(ContextMenuItem::NewLocalTab);
                 }
+                // Duplicate Tab rides beside New Tab: a fresh local shell in the
+                // active pane's cwd.
+                items.push(ContextMenuItem::DuplicateTab);
                 items.extend([
                     ContextMenuItem::RenameTab,
                     ContextMenuItem::CloseTab,
@@ -1273,6 +1291,8 @@ impl ContextMenuUi {
                         // F6-W5: the New Local Tab escape is a bound-workspace
                         // tab-menu row only; never on the content surface.
                         | ContextMenuItem::NewLocalTab
+                        // DUPLICATE-TAB: a tab-menu row only; never on content.
+                        | ContextMenuItem::DuplicateTab
                         // ODP-5D: the tab host actions are TabSlot-only.
                         | ContextMenuItem::ConnectToHost
                         | ContextMenuItem::ReplaceTabWithHost
@@ -2778,6 +2798,7 @@ mod tests {
             rows,
             vec![
                 item("New Tab", true, true),
+                item("Duplicate Tab", false, true),
                 item("Rename Tab", false, true),
                 ContextMenuRow::Separator,
                 item("Close Tab", false, true),
@@ -2883,6 +2904,7 @@ mod tests {
             rows,
             vec![
                 item("New Tab", true, true),
+                item("Duplicate Tab", false, true),
                 item("Rename Tab", false, true),
                 ContextMenuRow::Separator,
                 item("Close Tab", false, true),
@@ -2950,15 +2972,15 @@ mod tests {
     #[test]
     fn tab_slot_close_other_tabs_activates_on_press() {
         let mut m = open_surface(ContextMenuSurface::TabSlot(SessionToken(4)), true);
-        // Body rows: New Tab(0) Rename Tab(1) sep(2) Close Tab(3) Close Other
-        // Tabs(4) sep(5) New Window(6).
+        // Body rows: New Tab(0) Duplicate Tab(1) Rename Tab(2) sep(3) Close
+        // Tab(4) Close Other Tabs(5) sep(6) New Window(7).
         assert_eq!(
-            m.handle_press(3, m.body_row_count(), PointerButton::Left),
+            m.handle_press(4, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::CloseTab)
         );
         let mut m = open_surface(ContextMenuSurface::TabSlot(SessionToken(4)), true);
         assert_eq!(
-            m.handle_press(4, m.body_row_count(), PointerButton::Left),
+            m.handle_press(5, m.body_row_count(), PointerButton::Left),
             ContextMenuOutcome::Activate(ContextMenuItem::CloseOtherTabs)
         );
     }

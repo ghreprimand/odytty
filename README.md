@@ -831,7 +831,7 @@ The `keybinds` config key can rebind local actions: `search`, `settings`,
 `theme-picker`, `theme-builder`, `copy`, `paste`, `scroll-up`, `scroll-down`,
 `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`, `hints`, `clear-input`,
 `command-palette`, `session-replay`, `connection-manager`, `session-attach`,
-`new-tab`, `next-tab`, `prev-tab`, and `close-tab`. The pane actions
+`new-tab`, `next-tab`, `prev-tab`, `close-tab`, and `duplicate-tab`. The pane actions
 (`split-columns`, `split-rows`, `focus-pane-left` / `-right` / `-up` / `-down`,
 `focus-pane-next`, `close-pane`, `zoom-pane`, `equalize-panes`) are rebindable
 too — the chord is the key pressed *after* the prefix, e.g.

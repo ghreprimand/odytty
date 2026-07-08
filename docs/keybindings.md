@@ -276,7 +276,7 @@ These tokens are accepted on the right-hand side of `chord=action`:
 `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`,
 `hints`, `clear-input`, `command-palette`, `session-replay`,
 `connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`,
-`prev-tab`, `close-tab`, `new-workspace`, `close-workspace`, `rename-workspace`,
+`prev-tab`, `close-tab`, `duplicate-tab`, `new-workspace`, `close-workspace`, `rename-workspace`,
 `next-workspace`, `prev-workspace`, `workspace-picker`, `split-columns`,
 `split-rows`, `focus-pane-left`,
 `focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`,

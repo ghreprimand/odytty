@@ -901,6 +901,7 @@ fn action_value(action: BindableAction) -> &'static str {
         BindableAction::NextTab => "next-tab",
         BindableAction::PrevTab => "prev-tab",
         BindableAction::CloseTab => "close-tab",
+        BindableAction::DuplicateTab => "duplicate-tab",
         BindableAction::NewWorkspace => "new-workspace",
         BindableAction::CloseWorkspace => "close-workspace",
         BindableAction::RenameWorkspace => "rename-workspace",

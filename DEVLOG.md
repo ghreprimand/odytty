@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Duplicate Tab: a fresh shell in the active pane's directory
+
+A Duplicate Tab action opens a new local tab in the active pane's working
+directory. Honest framing: this duplicates the working directory, not the
+process — it is a fresh shell where the current one is, and the scrollback and
+the running program are not copied (a terminal cannot losslessly fork a live
+child). It rides the new-tab cwd inheritance, so the duplicate lands in the same
+directory and reports it from the first frame.
+
+It is reachable two ways: a "Duplicate Tab" entry on the tab context menu,
+sitting in the New Tab group, and a bindable `duplicate-tab` action (no default
+chord — assign one via `keybinds`). Adding it grows the bindable-action set from
+38 to 39; the enum's `ALL` array, the exhaustiveness guard, the in-app key-remap
+editor's row count, the panel's keybinds-row option hint, and the docs stating
+the count all move together.
+
+Cross-platform: the duplicate uses the same cwd-aware local-tab spawn as New
+Local Tab, so it inherits the directory on Windows (ConPTY) as on Unix wherever
+the shell emits OSC 7. No Windows-specific surface.
+
+---
+
 ## 2026-07-08 -- New tab and new window inherit the active pane's working directory
 
 Opening a new tab or a new window now starts in the working directory of the

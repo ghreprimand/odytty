@@ -1231,6 +1231,7 @@ impl OverlayUi {
                     ContextMenuItem::SelectAll => OverlayOutcome::ContextMenuSelectAll,
                     ContextMenuItem::NewTab => OverlayOutcome::ContextMenuNewTab,
                     ContextMenuItem::NewLocalTab => OverlayOutcome::ContextMenuNewLocalTab,
+                    ContextMenuItem::DuplicateTab => OverlayOutcome::ContextMenuDuplicateTab,
                     ContextMenuItem::NewWindow => OverlayOutcome::ContextMenuNewWindow,
                     ContextMenuItem::RenameTab => {
                         if let Some(target) = self.context_menu.rename_target() {
@@ -2668,6 +2669,12 @@ pub(super) enum OverlayOutcome {
     /// escape hatch). The overlay has closed itself; the App dispatches this to
     /// `handle_new_local_tab`, bypassing the workspace host binding.
     ContextMenuNewLocalTab,
+    /// Duplicate the right-clicked tab from the tab context menu: a fresh local
+    /// shell in the active pane's cwd (F1 cwd inheritance), not a process fork.
+    /// The overlay has already closed itself; the App dispatches this to
+    /// `handle_new_local_tab` (the same cwd-aware local-tab spawn New Local Tab
+    /// uses), the same effect as the `duplicate-tab` bindable action.
+    ContextMenuDuplicateTab,
     /// Launch another OdyTTY window from the context menu (F1). The overlay has
     /// already closed itself; the App dispatches this to `handle_new_window`
     /// (the same handler the `Ctrl+Shift+N` chord fires).
@@ -5452,10 +5459,41 @@ mod tests {
     }
 
     #[test]
+    fn tab_slot_duplicate_tab_emits_duplicate_outcome() {
+        // Duplicate Tab sits right after New Tab on the tab menu and emits the
+        // ContextMenuDuplicateTab outcome (the App spawns a fresh local shell in
+        // the active pane's cwd). Focus order (separators skipped): New Tab(0)
+        // Duplicate Tab(1) ...
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu_with_prompt_editing_hint(
+            CellPoint { row: 0, column: 0 },
+            true,
+            true,
+            true,
+            true,
+            false,
+            Some(SessionToken(3)),
+            false,
+            true,
+            false,
+            false,
+            crate::native::context_menu_ui::ContextMenuSurface::TabSlot(SessionToken(3)),
+            None,
+            std::array::from_fn(|_| None),
+        );
+        overlay.handle_input(OverlayInput::Down);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuDuplicateTab
+        );
+    }
+
+    #[test]
     fn tab_slot_close_tab_emits_token_targeted_outcome() {
         // NF-F7-1: closing a tab from a specific tab slot targets THAT tab's
-        // token, not the active tab. Body rows: New Tab(0) Rename Tab(1) sep(2)
-        // Close Tab(3) Close Other Tabs(4) sep(5) New Window(6).
+        // token, not the active tab. Body rows: New Tab(0) Duplicate Tab(1)
+        // Rename Tab(2) sep(3) Close Tab(4) Close Other Tabs(5) sep(6)
+        // New Window(7).
         let mut overlay = OverlayUi::default();
         overlay.open_context_menu_with_prompt_editing_hint(
             CellPoint { row: 0, column: 0 },
@@ -5473,9 +5511,9 @@ mod tests {
             None,
             std::array::from_fn(|_| None),
         );
-        // Focus cycles through items (separators skipped): New Tab(0) Rename
-        // Tab(1) Close Tab(2) Close Other Tabs(3) New Window(4).
-        for _ in 0..2 {
+        // Focus cycles through items (separators skipped): New Tab(0) Duplicate
+        // Tab(1) Rename Tab(2) Close Tab(3) Close Other Tabs(4) New Window(5).
+        for _ in 0..3 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -5503,9 +5541,9 @@ mod tests {
             None,
             std::array::from_fn(|_| None),
         );
-        // Close Other Tabs is item index 3 (New Tab / Rename Tab / Close Tab /
-        // Close Other Tabs / New Window).
-        for _ in 0..3 {
+        // Close Other Tabs is item index 4 (New Tab / Duplicate Tab / Rename
+        // Tab / Close Tab / Close Other Tabs / New Window).
+        for _ in 0..4 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -5535,10 +5573,10 @@ mod tests {
             None,
             std::array::from_fn(|_| None),
         );
-        // Items: New Tab(0) Rename Tab(1) Close Tab(2) Close Other Tabs(3)
-        // Connect to Host(4) Replace with Host(5) Move to Workspace(6)
-        // New Window(7).
-        for _ in 0..6 {
+        // Items: New Tab(0) Duplicate Tab(1) Rename Tab(2) Close Tab(3)
+        // Close Other Tabs(4) Connect to Host(5) Replace with Host(6)
+        // Move to Workspace(7) New Window(8).
+        for _ in 0..7 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -5551,8 +5589,9 @@ mod tests {
     fn tab_slot_connect_and_replace_host_emit_token_outcomes() {
         // ODP-5D: the tab-menu host actions carry the CLICKED tab's token so the
         // App seeds the picker for the right tab. Single-workspace tab menu:
-        // New Tab(0) Rename Tab(1) Close Tab(2) Close Other Tabs(3)
-        // Connect to Host(4) Replace with Host(5) New Window(6).
+        // New Tab(0) Duplicate Tab(1) Rename Tab(2) Close Tab(3)
+        // Close Other Tabs(4) Connect to Host(5) Replace with Host(6)
+        // New Window(7).
         let open = || {
             let mut overlay = OverlayUi::default();
             overlay.open_context_menu_with_prompt_editing_hint(
@@ -5574,7 +5613,7 @@ mod tests {
             overlay
         };
         let mut connect = open();
-        for _ in 0..4 {
+        for _ in 0..5 {
             connect.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -5582,7 +5621,7 @@ mod tests {
             OverlayOutcome::ContextMenuConnectToHost(SessionToken(8))
         );
         let mut replace = open();
-        for _ in 0..5 {
+        for _ in 0..6 {
             replace.handle_input(OverlayInput::Down);
         }
         assert_eq!(

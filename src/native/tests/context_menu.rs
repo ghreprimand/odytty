@@ -522,11 +522,11 @@ fn right_clicking_tab_enables_rename_for_that_tab() {
         "right-clicking a tab body enables Rename Tab"
     );
 
-    // F7: a tab right-click opens the tight TabSlot menu (New Tab / Rename Tab ·
-    // Close Tab / Close Other Tabs · New Window). Rename Tab is body row 1 =>
-    // grid row 2 (menu spawned at top-left, body starts one row below the top
-    // border).
-    app.set_pointer_cell_for_test(2, 2);
+    // F7: a tab right-click opens the tight TabSlot menu (New Tab / Duplicate
+    // Tab / Rename Tab · Close Tab / Close Other Tabs · New Window). Rename Tab
+    // is body row 2 => grid row 3 (menu spawned at top-left, body starts one row
+    // below the top border; Duplicate Tab now sits between New Tab and Rename).
+    app.set_pointer_cell_for_test(3, 2);
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
 
     assert!(app.rename_active_for_test());

@@ -1132,6 +1132,7 @@ impl Settings {
                     "next-tab",
                     "prev-tab",
                     "close-tab",
+                    "duplicate-tab",
                     "new-workspace",
                     "close-workspace",
                     "rename-workspace",

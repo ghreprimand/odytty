@@ -1868,6 +1868,14 @@ impl App {
                     }
                     return;
                 }
+                Some(BindableAction::DuplicateTab) => {
+                    // Duplicate = a fresh local shell in the active pane's cwd (F1
+                    // cwd inheritance), NOT a process fork: scrollback and the
+                    // running program are not copied. Routes through the same
+                    // cwd-aware local-tab spawn as New Local Tab.
+                    self.handle_new_local_tab();
+                    return;
+                }
                 Some(BindableAction::NewWorkspace) => {
                     self.handle_new_workspace();
                     return;

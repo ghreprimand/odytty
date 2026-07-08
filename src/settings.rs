@@ -242,6 +242,11 @@ pub enum BindableAction {
     NextTab,
     PrevTab,
     CloseTab,
+    /// Open a new local tab in the active pane's working directory — a fresh
+    /// shell where the current one is, not a process fork (scrollback and the
+    /// running program are not duplicated). Reachable from the tab context menu
+    /// and bindable; no default chord.
+    DuplicateTab,
     // --- Workspace actions. A workspace groups a set of tabs; these are global
     //     chords (never on the multiplexer prefix), so `is_pane_action` stays
     //     false for them. Creation/rename/close are unbound by default (the rail
@@ -299,7 +304,7 @@ impl BindableAction {
     /// coverage guard checks against, so a new variant cannot be silently
     /// omitted from the editor. Keep it exhaustive — the
     /// `all_bindable_actions_is_exhaustive` test pins it to the enum's size.
-    pub const ALL: [Self; 38] = [
+    pub const ALL: [Self; 39] = [
         // Core non-tab actions.
         Self::Search,
         Self::SettingsPanel,
@@ -325,6 +330,7 @@ impl BindableAction {
         Self::NextTab,
         Self::PrevTab,
         Self::CloseTab,
+        Self::DuplicateTab,
         // Workspace actions.
         Self::NewWorkspace,
         Self::CloseWorkspace,
@@ -387,6 +393,7 @@ impl BindableAction {
             "nexttab" | "tabnext" => Some(Self::NextTab),
             "prevtab" | "previoustab" | "tabprev" => Some(Self::PrevTab),
             "closetab" | "tabclose" => Some(Self::CloseTab),
+            "duplicatetab" | "tabduplicate" | "duplicate" => Some(Self::DuplicateTab),
             "newworkspace" | "workspacenew" => Some(Self::NewWorkspace),
             "closeworkspace" | "workspaceclose" => Some(Self::CloseWorkspace),
             "renameworkspace" | "workspacerename" => Some(Self::RenameWorkspace),
