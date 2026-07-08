@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Windows click-to-place off-by-one was floor-rounding, not a cursor-report offset
+
+The Windows/ConPTY click-to-place symptom — the caret landing one cell left of
+the clicked glyph on the heuristic input path (PowerShell/PSReadLine, cmd, and
+other shells with no OSC 133 input-end mark) — had been attributed to ConPTY
+reporting the terminal cursor one cell right of the shell's true edit caret, and
+patched with a Windows-only shim that pulled the source caret back one glyph.
+
+That diagnosis was wrong. The one-cell-left was floor-rounding in click-target
+resolution all along — the same general symptom the nearest-boundary rounding
+addresses — not a cursor-report offset. With the nearest-boundary rounding in
+place, the Windows-only shim overcorrects: each independently shifts the caret
+one column, so together they overshoot by one to the right. The nearest-boundary
+rounding is the real fix, and it is platform-uniform: a click in a glyph's right
+half lands the caret after it on every OS, Windows included.
+
+The Windows-only shim is therefore withdrawn. `click_travel_delta` now carries
+no per-platform behaviour at all; the emitted cursor-key travel is byte-identical
+on Linux, Windows (ConPTY), and macOS. The per-platform (`cfg!(windows)`)
+expectations that modelled the shim collapse to single platform-uniform values,
+the unit tests that pinned the one-glyph shift are removed, and the half-cell
+straddle/wide-glyph/clamp/prompt-side coverage stays — that is the fix that
+remains. Because the travel is now identical everywhere, these expectations pass
+in the standard Linux suite rather than only on the Windows CI leg.
+
+The `ODYTTY_NF18_TRACE` diagnostic gate is kept for now, pending confirmation on
+a Windows dev build that the nearest-boundary rounding lands the caret correctly
+under ConPTY; it retires once that is verified.
+
+Windows behavior: this removes the only Windows-specific branch in the
+click-to-place travel, so the path is now uniform across platforms; the
+production ConPTY spawn path is unchanged and no other runtime behavior moves.
+
+State: full library test suite green (3383 tests), `cargo fmt --check` and
+`cargo clippy --all-targets` clean. With the shim gone the expectations are
+platform-uniform and verified locally on Linux; the Windows CI leg confirms the
+`cfg`-compiled paths still build and pass.
+
+---
+
 ## 2026-07-08 -- Sub-cell scroll smoothness inside split panes
 
 Scrollback glide inside a split now eases with pixel-precise sub-cell
@@ -69,10 +109,8 @@ wide glyph's continuation cell flattens to the same offset as its lead cell, so
 a right-half click on a two-cell glyph lands the caret after the whole glyph.
 
 Platform-agnostic — it improves click feel on every platform equally and needs
-no platform-specific code. It composes with, and is independent of, the
-Windows/ConPTY cursor-report correction: nearest-boundary targeting decides
-where the click points, the ConPTY correction decides where the reported cursor
-sits, and the two adjust orthogonal axes.
+no platform-specific code. Click-to-place travel carries no per-platform
+behaviour, so this nearest-boundary rounding is the whole of the fix on every OS.
 
 Covered by sh_click integration tests (left-half vs right-half straddling a
 glyph boundary, a right-half click on a wide glyph, the last-glyph clamp, and

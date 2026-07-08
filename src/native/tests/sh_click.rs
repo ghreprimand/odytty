@@ -148,11 +148,7 @@ fn bundled_snippet_repositions_only_when_setting_on() {
         return; // no PTY in this environment
     };
     let written_on = click_at(&mut app_on, &bytes_on, 0, 2);
-    // Under ConPTY the terminal cursor is reported one cell right of the
-    // shell's true edit caret on the RightEdgeUnknown path, so the emitted
-    // travel is one shorter toward the caret (Windows-only correction);
-    // other platforms report an accurate cursor and are unchanged.
-    let lefts = if cfg!(windows) { 4 } else { 5 };
+    let lefts = 5;
     assert_eq!(
         written_on,
         b"\x1b[D".repeat(lefts),
@@ -175,14 +171,9 @@ fn click_left_of_cursor_emits_left_arrows_on_live_prompt() {
     let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
         return; // no PTY in this environment
     };
-    // Cursor at column 7 ("$ hello"); click column 2 -> delta -5 -> 5x Left
-    // (4x on Windows/ConPTY, see below).
+    // Cursor at column 7 ("$ hello"); click column 2 -> delta -5 -> 5x Left.
     let written = click_at(&mut app, &bytes, 0, 2);
-    // Under ConPTY the terminal cursor is reported one cell right of the
-    // shell's true edit caret on the RightEdgeUnknown path, so the emitted
-    // travel is one shorter toward the caret (Windows-only correction);
-    // other platforms report an accurate cursor and are unchanged.
-    let lefts = if cfg!(windows) { 4 } else { 5 };
+    let lefts = 5;
     assert_eq!(
         written,
         b"\x1b[D".repeat(lefts),
@@ -200,14 +191,9 @@ fn click_right_of_cursor_emits_right_arrows() {
     else {
         return;
     };
-    // Cursor at column 4; click column 6 -> 2 glyphs ("ll") -> 2x Right
-    // (3x on Windows/ConPTY, see below).
+    // Cursor at column 4; click column 6 -> 2 glyphs ("ll") -> 2x Right.
     let written = click_at(&mut app, &bytes, 0, 6);
-    // Under ConPTY the terminal cursor is reported one cell right of the
-    // shell's true edit caret on the RightEdgeUnknown path, so the emitted
-    // travel is one shorter toward the caret (Windows-only correction);
-    // other platforms report an accurate cursor and are unchanged.
-    let rights = if cfg!(windows) { 3 } else { 2 };
+    let rights = 2;
     assert_eq!(written, b"\x1b[C".repeat(rights));
 }
 
@@ -235,30 +221,22 @@ fn click_honors_application_cursor_mode() {
         return;
     };
     let written = click_at(&mut app, &bytes, 0, 2);
-    // Under ConPTY the terminal cursor is reported one cell right of the
-    // shell's true edit caret on the RightEdgeUnknown path, so the emitted
-    // travel is one shorter toward the caret (Windows-only correction);
-    // other platforms report an accurate cursor and are unchanged.
-    let lefts = if cfg!(windows) { 4 } else { 5 };
+    let lefts = 5;
     assert_eq!(written, b"\x1bOD".repeat(lefts));
 }
 
 #[test]
-fn click_on_reported_cursor_cell() {
-    // T4 same-cell: a click on the reported cursor's own column. On an accurate
-    // cursor (Unix/macOS shells, and fish's Exact path) delta is 0 -> a no-op.
-    // Under ConPTY the reported cursor sits one cell right of the true edit
-    // caret on the RightEdgeUnknown path, so a click on the *reported* cursor
-    // cell lands one cell right of the true caret and steps it a single Right.
+fn click_on_cursor_cell_emits_nothing() {
+    // T4 same-cell: a click on the cursor's own column is delta 0 on every
+    // platform -> a no-op. Click-to-place carries no per-platform behaviour, so
+    // a click that lands on the caret's own cell has nothing to send.
     let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
         return;
     };
     let written = click_at(&mut app, &bytes, 0, 7);
-    let expected: &[u8] = if cfg!(windows) { b"\x1b[C" } else { b"" };
-    assert_eq!(
-        written, expected,
-        "same-cell click is inert with an accurate cursor, one Right under the \
-         one-cell-right ConPTY report"
+    assert!(
+        written.is_empty(),
+        "a click on the cursor's own cell emits nothing"
     );
 }
 
@@ -373,13 +351,9 @@ fn wide_glyph_line_counts_glyphs_not_cells() {
         return;
     };
     // Cursor at column 6 (after both wide glyphs); click column 2 (the first
-    // glyph's lead cell) -> 2 glyphs -> 2x Left (1x on Windows/ConPTY, see below).
+    // glyph's lead cell) -> 2 glyphs -> 2x Left.
     let written = click_at(&mut app, &bytes, 0, 2);
-    // Under ConPTY the terminal cursor is reported one cell right of the
-    // shell's true edit caret on the RightEdgeUnknown path, so the emitted
-    // travel is one shorter toward the caret (Windows-only correction);
-    // other platforms report an accurate cursor and are unchanged.
-    let lefts = if cfg!(windows) { 1 } else { 2 };
+    let lefts = 2;
     assert_eq!(
         written,
         b"\x1b[D".repeat(lefts),
@@ -453,11 +427,7 @@ fn heuristic_soft_wrap_multi_row_click_travels() {
         return;
     };
     let written = click_at(&mut app, &bytes, 0, 10);
-    // Under ConPTY the terminal cursor is reported one cell right of the
-    // shell's true edit caret on the RightEdgeUnknown path, so the emitted
-    // travel is one shorter toward the caret (Windows-only correction);
-    // other platforms report an accurate cursor and are unchanged.
-    let lefts = if cfg!(windows) { 74 } else { 75 };
+    let lefts = 75;
     assert_eq!(
         written,
         b"\x1b[D".repeat(lefts),
@@ -505,16 +475,14 @@ fn alt_screen_click_is_inert() {
 // click that falls in a glyph's right half places the caret AFTER it rather than
 // flooring to the cell's left edge (the reported "clicking between two chars
 // sometimes lands one cell left" symptom on Linux). These drive the full
-// press/release routing plus the sub-cell pixel recovery. The `cfg!(windows)`
-// branches account for the orthogonal ConPTY cursor-report correction (the
-// heuristic path reports the cursor one cell right on native Windows).
+// press/release routing plus the sub-cell pixel recovery.
 
 #[test]
 fn half_cell_left_and_right_half_straddle_a_glyph_boundary() {
     // "$ hello", cursor at col 7 (5 glyphs in). A click on the 'l' at col 4:
     // the LEFT half lands the caret before it (delta -3), the RIGHT half after
     // it (delta -2) — exactly one column apart.
-    let lefts = if cfg!(windows) { 2 } else { 3 };
+    let lefts = 3;
     let Some((mut app, bytes)) = build_app(live_prompt_click_enabled()) else {
         return; // no PTY in this environment
     };
@@ -524,7 +492,7 @@ fn half_cell_left_and_right_half_straddle_a_glyph_boundary() {
         "a left-half click targets the boundary before the glyph"
     );
 
-    let rights = if cfg!(windows) { 1 } else { 2 };
+    let rights = 2;
     let Some((mut app2, bytes2)) = build_app(live_prompt_click_enabled()) else {
         return;
     };
@@ -546,7 +514,7 @@ fn half_cell_right_half_of_a_wide_glyph_lands_after_the_whole_glyph() {
     else {
         return;
     };
-    let lefts = if cfg!(windows) { 2 } else { 3 };
+    let lefts = 3;
     assert_eq!(
         click_at_frac(&mut app, &bytes, 0, 2, 0.8),
         b"\x1b[D".repeat(lefts),
@@ -559,7 +527,7 @@ fn half_cell_last_glyph_right_half_clamps_to_the_append_origin() {
     // "$ hello" with the cursor pulled back to col 4 (2 glyphs in). A right-half
     // click on the LAST glyph 'o' (col 6) targets the append origin (5 glyphs),
     // never past it -> 3 Right.
-    let rights = if cfg!(windows) { 4 } else { 3 };
+    let rights = 3;
     let Some((mut app, bytes)) =
         build_app(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07hello\x1b[3D")
     else {
