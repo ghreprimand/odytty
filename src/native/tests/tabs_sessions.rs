@@ -1416,8 +1416,8 @@ fn reveal_arms_at_the_edge_and_the_band_carries_the_debounce() {
 
 #[test]
 fn reveal_arms_and_holds_across_the_live_trace_sequences() {
-    // Round-5 regression, built from the operator's live ODYTTY_RAIL_TRACE. Two
-    // sequences the trace exposed as broken, replayed through the real feed path:
+    // Round-5 regression covering two pointer sequences that were once broken,
+    // replayed through the real feed path:
     //   (1) a fast approach that overshoots OFF the window edge (samples jump
     //       30–200px and hop over a static point zone) must still arm+reveal;
     //   (2) a fast in-then-past-the-seam FOLLOW-THROUGH within the confirm window

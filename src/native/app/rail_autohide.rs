@@ -118,18 +118,6 @@ impl RailAutohide {
         flashing || matches!(self.phase, Phase::Revealed | Phase::HideGrace(_))
     }
 
-    /// The current phase as a short static label, for the `ODYTTY_RAIL_TRACE`
-    /// operator-runnable reveal trace (coordinates + phases only, never
-    /// content). Not part of the state machine's logic.
-    pub(super) fn phase_name(&self) -> &'static str {
-        match self.phase {
-            Phase::Hidden => "hidden",
-            Phase::Revealing(_) => "revealing",
-            Phase::Revealed => "revealed",
-            Phase::HideGrace(_) => "hidegrace",
-        }
-    }
-
     /// Feed a fresh pointer sample. `in_edge` = the pointer is in — or its motion
     /// segment crossed — the reveal trigger zone at the window edge; `in_band` =
     /// pointer anywhere in the keep-alive region (edge zone ∪ revealed band).

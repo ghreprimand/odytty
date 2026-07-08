@@ -3382,27 +3382,7 @@ impl App {
         let prev_px_x = self.last_rail_pointer_px;
         self.last_rail_pointer_px = Some(px_x);
         let (in_edge, in_band) = self.reveal_pointer_contact(px_x, prev_px_x, cell, side);
-        // ODYTTY_RAIL_TRACE (operator-runnable): one privacy-clean line per
-        // sample — pointer coordinate + reveal phase only, never terminal
-        // content. Logs the phase both before and after the sample so a reveal /
-        // abort / hide transition is visible in the log the operator hands back.
-        let phase_from = self.rail_autohide.phase_name();
-        let visible_from = self.rail_autohide.is_visible(now);
         let changed = self.rail_autohide.on_pointer(in_edge, in_band, now);
-        if rail_trace_enabled() {
-            tracing::warn!(
-                target: "odytty::rail_reveal",
-                px_x,
-                in_edge,
-                in_band,
-                phase_from,
-                phase_to = self.rail_autohide.phase_name(),
-                visible_from,
-                visible_to = self.rail_autohide.is_visible(now),
-                changed,
-                "rail reveal pointer sample"
-            );
-        }
         if changed {
             // A visibility flip must rebuild the frame, not merely re-present it:
             // the rail overlay is only assembled inside the `should_rebuild_frame`
@@ -5603,18 +5583,6 @@ fn rail_width_cols_from_pointer(
         RailSide::Right => (surface_w - pad - px_x) / cw,
     };
     raw.round().clamp(min as f32, max as f32) as u16
-}
-
-/// Whether the operator-runnable rail reveal trace is enabled
-/// (`ODYTTY_RAIL_TRACE=1` or `=true`). Read once and cached — a per-pointer-
-/// sample env lookup would be wasteful. Privacy: the trace emits only pointer
-/// coordinates and reveal-phase labels, never terminal content, titles, or PTY
-/// bytes (the FREEZE-HARDEN logging privacy rule).
-fn rail_trace_enabled() -> bool {
-    static ENABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
-        std::env::var_os("ODYTTY_RAIL_TRACE").is_some_and(|v| v == "1" || v == "true")
-    });
-    *ENABLED
 }
 
 /// F4-P3 reveal-zone regression: whether a raw physical pointer x is inside the

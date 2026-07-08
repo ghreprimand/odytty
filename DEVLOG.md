@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Retire the rail-autohide reveal trace
+
+The `ODYTTY_RAIL_TRACE` env-gated diagnostic is removed now that the
+rail-autohide reveal path is settled (the no-orphan reveal rule holds). Gone: the
+per-pointer-sample trace emit in the reveal feed, its cached env reader, and the
+phase-label helper that existed only to name phases for that trace. The reveal
+state machine itself is unchanged — only the trace plumbing draped over it is
+dropped.
+
+The two-phase reveal regression coverage stays: the test that replays the fast
+overshoot and in-then-past-the-seam follow-through sequences asserts behavior
+through the real feed path and never depended on the trace output, so it keeps
+guarding the fix. The permanent passive diagnostics `ODYTTY_REFLOW_TRACE` and
+`ODYTTY_NF18_TRACE` are untouched. No user-facing or platform surface.
+
+---
+
 ## 2026-07-08 -- Duplicate Tab: a fresh shell in the active pane's directory
 
 A Duplicate Tab action opens a new local tab in the active pane's working
