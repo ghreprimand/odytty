@@ -2,7 +2,7 @@
 
 OdyTTY releases create both a source tag and a GitHub Release entry that package
 monitors can discover. The first public release was `v0.1.0`; the current
-release is `v0.8.1`. `Cargo.toml` must match the release version. The version
+release is `v0.8.2`. `Cargo.toml` must match the release version. The version
 examples below use `0.6.2` as an illustrative tag — substitute the tag you are
 cutting.
 

@@ -345,7 +345,7 @@ installing each release under a versioned directory and pointing
 `~/.local/bin/odytty` at the selected version:
 
 ```sh
-version=0.8.1
+version=0.8.2
 cargo build --release --locked
 install -Dm755 target/release/odytty \
   "$HOME/.local/opt/odytty/$version/bin/odytty"
@@ -368,8 +368,8 @@ To roll back, repoint the symlink to an older directory under
 ## Odyssey/LFS Versioned Install
 
 Odyssey source builds are versioned by pacman, not by leaving build products in
-the source tree. A release tag such as `v0.8.1` should be archived into
-`/sources/odytty-0.8.1.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
+the source tree. A release tag such as `v0.8.2` should be archived into
+`/sources/odytty-0.8.2.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
 with `odyssey-build`.
 
 Example PKGBUILD:
@@ -377,7 +377,7 @@ Example PKGBUILD:
 ```bash
 # Maintainer: Unfinished Works <maintainers@odytty.unfinished-works.com>
 pkgname=odytty
-pkgver=0.8.1
+pkgver=0.8.2
 pkgrel=1
 pkgdesc="GPU-rendered Rust terminal emulator with an Odyssey visual identity"
 arch=('x86_64')

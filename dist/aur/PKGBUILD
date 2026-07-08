@@ -12,7 +12,7 @@
 # `git archive` tarball the Release workflow attaches), so the package is
 # versioned, owned by pacman, and reproducible from a fixed source.
 pkgname=odytty
-pkgver=0.8.1
+pkgver=0.8.2
 pkgrel=1
 pkgdesc="GPU-rendered Rust terminal emulator with an Odyssey visual identity"
 arch=('x86_64')

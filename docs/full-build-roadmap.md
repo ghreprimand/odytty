@@ -431,6 +431,7 @@ handful of deliberately-deferred niceties.
   tab rename, new-tab affordance, and conventional tab keybindings.
 - **Shipped — Workspaces.** A layer above tabs: named workspaces each own their own tab strip, listed in a vertical rail that auto-appears once a second workspace exists (a single-workspace session is unchanged). Create/rename/close/cycle by keyboard or context menu, move a tab between workspaces from a named-destination picker, and bind a workspace to a remote host so its new tabs open there.
 - **Shipped — Workspace reorder.** The workspace rail's right-click menu moves a slot up or down; the reorder is an adjacent swap that follows the active workspace by identity (the focused workspace never changes) and is captured in the shape autosave so the order restores next launch.
+- **Next — Drag-to-reorder workspaces in the rail.** A press-drag-drop gesture on a rail slot as a feel-polish complement to the shipped menu reorder; deferred so the menu path ships first.
 - **Shipped — Tab polish.** In-band image placements offset correctly while the
   tab bar is visible.
 - **Shipped — New-slot affordance clarity.** The tab bar and workspace-rail `+` rest at a lifted color (not the dim inactive floor) so they read as deliberate add controls, brightening further on hover. A dead separator row with a faint rule sits between the workspace list and the rail `+`, so a click just past the last workspace no longer opens one by accident.
@@ -575,6 +576,9 @@ persistent sessions, command palette, and connection manager) all ship:
 1. **Effect default-tuning pass** — once a human-eye baseline exists, revisit the
    conservative default strengths of stem darkening, standalone scanlines, and
    bloom (see Track 2).
+2. **Drag-to-reorder workspaces in the rail** — a press-drag-drop gesture on a
+   rail slot as a feel-polish complement to the shipped menu reorder; deferred
+   so the menu path ships first.
 
 Everything beyond a plain terminal stays measured, opt-out-able, and — above all
 — never something you are forced to hand-edit a config file to reach.

@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Release v0.8.2 — macOS app and Homebrew tap, split-pane scroll glide, workspace reorder, and exit control
+
+Packaging and workspace-ergonomics release.
+
+macOS gains a first-class install path. The macos-latest release leg now
+assembles an OdyTTY.app bundle (the Metal/wgpu binary, an Info.plist, and the
+app icon), ad-hoc signs it with a free account-less certificate, and publishes
+a zipped artifact under an always-latest alias, a version-pinned twin, and a
+SHA256SUMS row. A Homebrew tap ships that bundle as a cask, with a
+source-build formula fallback for Intel hosts, and a release job rewrites the
+cask version, url, and sha after each publish so the tap tracks the newest
+release automatically.
+
+Scroll glide follows splits. The animated glide follower and its continuous
+pixel-precise lane are now per-pane state, so a wheel over one pane in a split
+glides only that pane's viewport; splits previously fell back to a plain notch
+jump. The chrome-pin that holds the tab bar and workspace rail steady against
+sub-row scroll motion still holds under splits.
+
+Workspace ergonomics. Workspaces reorder from the rail's right-click menu as
+an adjacent swap that follows the active workspace by identity and persists in
+the shape autosave. A new shell_exit_closes setting governs what a typed exit
+does when it would close a whole workspace: the default workspace mode closes
+just that workspace, while app mode quits OdyTTY without reaping first, so a
+restored layout reopens the same set. New tabs and windows inherit the active
+pane's working directory through the existing OSC 7 tracking, and a Duplicate
+Tab action rides that inheritance.
+
+Polish. The built-in theme library grows to 112 palettes. The settings panel
+reaches every shipped knob. The tab-bar and workspace-rail new-slot controls
+rest at a lifted color with a dead-row mis-click guard below the last
+workspace. The window-opacity floor lowers to 20 percent and the default font
+size is 20px. GPU adapter startup diagnostics route through the rotated log.
+The README is split into a lighter landing page with detail pages behind it.
+
+Windows: the PowerShell click-to-place caret now lands exactly at the click.
+The fix is platform-uniform nearest-boundary rounding rather than a
+per-platform offset, and the exit-behavior setting flows through the same
+ConPTY path.
+
+Release gate: full non-GPU suite green, fmt clean, clippy clean under the deny
+gate, and metainfo plus desktop-file validation pass. MSRV holds at 1.96.
+
 ## 2026-07-08 -- Documentation currency for workspace reorder, exit behavior, and rail affordances
 
 User-facing docs catch up to the batch-1 workspace/chrome ergonomics.
