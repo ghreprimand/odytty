@@ -382,7 +382,10 @@ slower. Applies only to pixel-precise input.
 wheels carry no sub-step data, so pixel tracking cannot smooth them; instead the
 viewport offset jumps instantly per notch and the rendered view eases toward it
 with a forward-chase follower that only moves in the scroll direction (so a
-notch stream cannot sawtooth). On by default; single-pane, primary screen only.
+notch stream cannot sawtooth). On by default; primary screen only. In a split,
+each pane glides independently as an eased follower — the pane under the pointer
+moves on its own, its overflowing partial row clipped to the pane so it never
+smears across the divider into a neighbour.
 
 ### Configuring via odytty.conf
 

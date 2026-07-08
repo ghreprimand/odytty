@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Doc accuracy sweep and macOS install guide
+
+Documentation-only correctness pass, plus the first dedicated macOS install
+guide.
+
+Accuracy fixes brought public docs back in line with code truth:
+
+- The default body font size is stated as **20 logical pixels** in `README.md`
+  and `SPEC.md`, matching `DEFAULT_FONT_SIZE_PX = 20.0` — the docs had drifted
+  to 21.
+- The `scroll_glide` note in `docs/effects.md` no longer claims single-pane
+  only. Glide now follows each pane independently inside splits (the pane under
+  the pointer eases on its own, its partial row clipped to the pane); the
+  wording is aligned with `SPEC.md` and `docs/runtime-knobs.md`. The
+  `pixel_scroll` continuous lane remains single-pane and is unchanged.
+- The built-in theme-library milestone in `TODO.md` reads **112** to match the
+  shipped roster.
+
+`docs/install.md` gains a **macOS (Apple Silicon)** section covering the three
+install paths: the Homebrew tap (cask for the prebuilt ad-hoc-signed `.app`,
+source formula as a build-it-yourself fallback), a direct `.app` zip download
+with the one-time `xattr -dr com.apple.quarantine` stopgap, and a from-source
+build. It explains why Homebrew installs launch without a Gatekeeper warning
+(Apple-independent, quarantine stripped on install) and defers a signed,
+notarized `.dmg` to if/when the project enrolls in the Apple Developer Program.
+The intro artifact list and per-system picker now mention the macOS channel.
+
+---
+
 ## 2026-07-08 -- Retire the click-to-place investigation trace
 
 The temporary `ODYTTY_NF18_TRACE` gate is removed. It instrumented the

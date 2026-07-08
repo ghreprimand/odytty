@@ -6,15 +6,16 @@ OdyTTY ships as a versioned release. Each release provides:
 - a GitHub Release entry with `SHA256SUMS` for every artifact;
 - a best-effort x86_64 **AppImage** (one download for most Linux distributions);
 - an unsigned Windows x86_64 portable **zip**;
+- a prebuilt **macOS** `.app` zip for Apple Silicon (ad-hoc signed) plus a Homebrew tap;
 - an **AUR** package (`odytty`) for Arch-family systems;
 - source-build instructions for Odyssey/LFS and other developer systems;
 - a desktop entry, AppStream metadata, and icon installed into Freedesktop
   locations.
 
-Pick by system: Scoop (or a direct zip download) on Windows, AppImage for a
-no-install single-file Linux run, the AUR package on Arch-family systems, and a
-pacman-tracked source package on Odyssey itself so the install is versioned,
-owned, removable, and visible to Odyssey-Mon.
+Pick by system: Scoop (or a direct zip download) on Windows, Homebrew on
+macOS, AppImage for a no-install single-file Linux run, the AUR package on
+Arch-family systems, and a pacman-tracked source package on Odyssey itself so
+the install is versioned, owned, removable, and visible to Odyssey-Mon.
 
 ## Windows
 
@@ -86,6 +87,79 @@ the Windows default-terminal handoff protocol, which OdyTTY doesn't implement
 yet. Launch it directly instead: from the Start menu, by typing `odytty`, or
 from a pinned shortcut. Detached/resumable session hosting is Unix-only in this
 release; the Windows build opens local ConPTY-backed tabs and panes.
+
+## macOS (Apple Silicon)
+
+macOS builds and passes the full test suite on every push, and the release
+ships a prebuilt `OdyTTY.app` for Apple Silicon (arm64). The binary is
+**ad-hoc code-signed** in CI (`codesign -s -`), which needs no Apple Developer
+account and no notarization — enough for the app to launch, but not an Apple
+Developer identity. There is no `.dmg` and no Gatekeeper-approved signature yet.
+
+### Homebrew (recommended)
+
+The Homebrew tap is the least-friction path and needs no manual quarantine
+handling. Add the tap and install the cask:
+
+```sh
+brew tap ghreprimand/odytty
+brew install --cask odytty
+```
+
+The **cask** installs the prebuilt, ad-hoc-signed `OdyTTY.app` into
+`/Applications`. Homebrew is Apple-independent, and `brew` strips the
+quarantine attribute on install, so the app launches with no "unidentified
+developer" Gatekeeper warning even though it is not notarized. The cask
+recipe goes live with the release it points at.
+
+Prefer to compile locally instead? Use the **source formula**, which builds
+from the release tarball with your own toolchain:
+
+```sh
+brew install ghreprimand/odytty/odytty
+```
+
+Per release there is nothing to do on your side: CI bumps the tap's cask to
+each new version automatically shortly after the release publishes, so
+`brew upgrade` picks it up.
+
+### Direct .app zip download
+
+If you download the `.app` zip straight from the GitHub Release instead of
+using Homebrew, macOS tags it with a quarantine attribute (because it arrived
+from the internet and the signature is ad-hoc, not notarized). Verify the
+checksum, unzip, move the app into place, then clear the quarantine flag once:
+
+```sh
+curl -L -o odytty-macos-arm64.zip https://github.com/ghreprimand/odytty/releases/latest/download/odytty-macos-arm64.zip
+curl -L -o SHA256SUMS https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+shasum -a 256 -c SHA256SUMS --ignore-missing
+unzip odytty-macos-arm64.zip
+mv OdyTTY.app /Applications/
+xattr -dr com.apple.quarantine /Applications/OdyTTY.app
+```
+
+The `xattr -dr com.apple.quarantine` step is the one-time stopgap that lets an
+ad-hoc-signed app past Gatekeeper without notarization. Homebrew installs do
+this for you, so the step is only needed for a direct (non-brew) zip download.
+
+### Build from source
+
+A source build works today on macOS with the standard Rust toolchain:
+
+```sh
+cargo build --release
+```
+
+The resulting binary runs directly; the `.app` bundle and ad-hoc signature are
+only assembled for the packaged release artifact.
+
+### Signed / notarized builds
+
+A signed, notarized `.dmg` (no `xattr` stopgap, no first-run friction on any
+download path) requires enrollment in the Apple Developer Program. That is
+deferred to if/when the project opts into that program; until then the ad-hoc
+signature plus Homebrew's quarantine strip is the account-free path.
 
 ## AppImage (x86_64)
 

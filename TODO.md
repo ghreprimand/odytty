@@ -904,7 +904,7 @@ feature validates against.
         `xdg-mime` / macOS app-picker overlay), Copy Path, Copy File, and Reveal
         in File Manager. See `docs/keybindings.md` for the chord reference.
 - [ ] Theme library and config UX.
-  - [x] Built-in theme library expanded to 100 contrast-validated themes
+  - [x] Built-in theme library expanded to 112 contrast-validated themes
         (data-only, ongoing).
   - [x] Mouse-driven settings overlay with sliders and click-to-type numeric
         entry.

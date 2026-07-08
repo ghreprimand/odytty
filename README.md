@@ -467,7 +467,7 @@ screen flash), `all` (both), or `off`. There is no audible bell.
 
 ### Text, Emoji, And Graphics
 
-Text rendering uses bundled Victor Mono by default at 21 logical pixels with
+Text rendering uses bundled Victor Mono by default at 20 logical pixels with
 line height `1.0`. JetBrains Mono is also bundled and remains selectable via
 `font_family`. The font picker groups families into **Bundled Fonts** (Victor
 Mono, JetBrains Mono — always available) and **System Fonts** (host monospace
