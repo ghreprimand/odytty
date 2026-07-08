@@ -48,8 +48,13 @@ impl App {
 
     /// The focused pane's current working directory (from OSC 7 tracking), or
     /// `None` when unknown. Reads the active session's terminal — the same lock
-    /// the interactive-paths hover resolution uses.
-    fn focused_pane_cwd(&self) -> Option<String> {
+    /// the interactive-paths hover resolution uses. Shared across the crate as
+    /// the single OSC 7 cwd read helper: the detach/switch dialog seeds it, and
+    /// the F1 cwd-inheritance path (new tab / new window / Duplicate Tab) threads
+    /// it into the spawn so a new shell starts where the active pane is. Windows:
+    /// OSC 7 drive-letter cwds are already normalized upstream
+    /// (`strip_leading_drive_slash`), so this returns a valid path there too.
+    pub(in crate::native) fn focused_pane_cwd(&self) -> Option<String> {
         self.terminal
             .lock()
             .ok()

@@ -230,13 +230,52 @@ fn new_window_chord_reaches_the_spawn_boundary() {
 
 #[test]
 fn new_window_argv_is_the_current_executable() {
-    // F1: the pure argv builder returns exactly the current exe, no args.
-    let argv = App::new_window_argv_for_test().expect("current exe resolvable in tests");
-    assert_eq!(argv.len(), 1, "no extra args in v1");
+    // F1: with no cwd, the pure argv builder returns exactly the current exe.
+    let argv = App::new_window_argv_for_test(None).expect("current exe resolvable in tests");
+    assert_eq!(
+        argv.len(),
+        1,
+        "no extra args when the pane has no tracked cwd"
+    );
     let exe = std::env::current_exe()
         .expect("current exe resolvable")
         .into_os_string()
         .into_string()
         .expect("valid UTF-8");
     assert_eq!(argv[0], exe);
+}
+
+#[test]
+fn new_window_argv_propagates_the_focused_pane_cwd() {
+    // F1 cwd inheritance: a tracked OSC 7 cwd is appended as
+    // `--working-directory <cwd>` so the new window opens where the active pane
+    // is. Cross-platform: `--working-directory` is honored on Windows too.
+    let argv = App::new_window_argv_for_test(Some("/home/user/project"))
+        .expect("current exe resolvable in tests");
+    let exe = std::env::current_exe()
+        .expect("current exe resolvable")
+        .into_os_string()
+        .into_string()
+        .expect("valid UTF-8");
+    assert_eq!(
+        argv,
+        vec![
+            exe,
+            "--working-directory".to_owned(),
+            "/home/user/project".to_owned(),
+        ]
+    );
+}
+
+#[test]
+fn new_window_argv_ignores_an_empty_cwd() {
+    // A pane whose OSC 7 cwd is an empty string (the detach dialog's "unknown"
+    // sentinel) must NOT emit a `--working-directory ""` arg — it falls back to
+    // the bare-exe argv, opening in the default directory.
+    let argv = App::new_window_argv_for_test(Some("")).expect("current exe resolvable in tests");
+    assert_eq!(
+        argv.len(),
+        1,
+        "an empty cwd adds no --working-directory arg"
+    );
 }

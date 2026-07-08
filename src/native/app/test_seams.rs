@@ -2373,12 +2373,13 @@ impl App {
         NEW_WINDOW_SPAWN_ARGV.with(|cell| std::mem::take(&mut *cell.borrow_mut()))
     }
 
-    /// Test seam (F1): the argv the App would spawn for a new window (just the
-    /// current executable). Exposes the pure `new_window_argv` builder so a test
-    /// can assert the argv shape without driving a full dispatch.
+    /// Test seam (F1): the argv the App would spawn for a new window. Exposes the
+    /// pure `new_window_argv` builder (with the optional cwd propagation) so a
+    /// test can assert the argv shape — bare exe, or exe +
+    /// `--working-directory <cwd>` — without driving a full dispatch.
     #[cfg(test)]
-    pub(in crate::native) fn new_window_argv_for_test() -> Option<Vec<String>> {
-        Self::new_window_argv()
+    pub(in crate::native) fn new_window_argv_for_test(cwd: Option<&str>) -> Option<Vec<String>> {
+        Self::new_window_argv(cwd)
     }
 
     // --- F6-i7 image paste-through seams ---

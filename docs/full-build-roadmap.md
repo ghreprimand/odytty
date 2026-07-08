@@ -345,6 +345,14 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   decorations or borderless mode (compositor-dependent on Linux).
 - **Shipped — Bindable clear-input action** (low priority; the standard key
   combinations already cover the common case).
+- **Shipped — New tab / new window cwd inheritance.** Opening a new tab or a new
+  window starts in the active pane's working directory (from the OSC 7 cwd
+  already tracked per pane), not the directory OdyTTY was launched from. New tabs
+  seed the directory into both the spawned shell and the pane's advisory cwd; new
+  windows carry it via the existing `--working-directory` argument. A pane with no
+  tracked cwd falls back to the default directory, and opening is never blocked on
+  a missing cwd. Cross-platform (ConPTY honors the working directory; drive-letter
+  OSC 7 cwds are normalized).
 - **Shipped — OSC 8 hyperlinks.** Explicit hyperlink escapes render as
   hover-affordanced links that open on modifier (`Ctrl`) click through the same
   argv-safe dispatch, gated to a `http`/`https`/`file`/`mailto` scheme allowlist

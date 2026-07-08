@@ -1663,13 +1663,31 @@ impl WorkspaceSet {
         &mut self,
         grid: crate::core::Dimensions,
     ) -> Result<SessionToken, std::io::Error> {
+        self.insert_spawned_session_in(grid, None)
+    }
+
+    /// Like [`Self::insert_spawned_session`] but seeds the new shell at `cwd`
+    /// (F1 cwd inheritance / Duplicate Tab). Threads the directory to BOTH the
+    /// shell spawn (so the child process starts there) and the terminal model's
+    /// advisory cwd (so the pane reports the right directory — and tab title —
+    /// from the first frame, before any OSC 7 arrives), mirroring
+    /// [`Self::insert_restored_session`]. `cwd == None` is byte-identical to the
+    /// legacy `insert_spawned_session` path (spawn wherever the process already
+    /// is). Cross-platform: the working directory is honored by the POSIX PTY
+    /// and Windows ConPTY spawns alike.
+    fn insert_spawned_session_in(
+        &mut self,
+        grid: crate::core::Dimensions,
+        cwd: Option<std::path::PathBuf>,
+    ) -> Result<SessionToken, std::io::Error> {
         let shell_integration = self.shell_integration_enabled;
-        self.insert_local_session_with(grid, None, |grid| {
+        let spawn_cwd = cwd.clone();
+        self.insert_local_session_with(grid, cwd, move |grid| {
             let settings = crate::settings::Settings {
                 shell_integration,
                 ..crate::settings::Settings::default()
             };
-            PtySession::spawn_default_shell_in_with_settings(grid, None, &settings)
+            PtySession::spawn_default_shell_in_with_settings(grid, spawn_cwd, &settings)
         })
     }
 
@@ -1803,13 +1821,18 @@ impl WorkspaceSet {
         Ok(session_id)
     }
 
-    /// Spawn a new session in a brand-new single-pane tab (the existing
-    /// new-tab behaviour). Tab order is append-to-end, unchanged.
+    /// Spawn a new session in a brand-new single-pane tab. Tab order is
+    /// append-to-end, unchanged. `cwd == None` is the legacy new-tab behaviour
+    /// (spawn wherever the process already is); a `Some` path seeds the new
+    /// shell — and the pane's advisory cwd — there (F1 cwd inheritance /
+    /// Duplicate Tab). Cross-platform: the POSIX PTY and Windows ConPTY spawns
+    /// both honor the working directory.
     pub(super) fn spawn(
         &mut self,
         grid: crate::core::Dimensions,
+        cwd: Option<std::path::PathBuf>,
     ) -> Result<SessionToken, std::io::Error> {
-        let session_id = self.insert_spawned_session(grid)?;
+        let session_id = self.insert_spawned_session_in(grid, cwd)?;
         self.active_workspace_mut()
             .tabs
             .push(Tab::single(session_id));
@@ -3761,7 +3784,7 @@ mod tests {
             return;
         };
         let token = sessions
-            .spawn(Dimensions::new(20, 8))
+            .spawn(Dimensions::new(20, 8), None)
             .expect("spawn local session");
         assert!(sessions.switch(token));
 
@@ -3801,7 +3824,7 @@ mod tests {
             .into_owned();
 
         let token = sessions
-            .spawn(Dimensions::new(20, 8))
+            .spawn(Dimensions::new(20, 8), None)
             .expect("spawn local session");
         assert!(sessions.switch(token));
 
@@ -3822,6 +3845,39 @@ mod tests {
                 terminal.current_working_directory(),
                 Some("/tmp/odytty-osc7-updated"),
                 "OSC 7 remains authoritative after the spawn cwd seed"
+            );
+        }
+
+        assert!(!sessions.close(token));
+        assert!(sessions.close(SessionToken(0)));
+    }
+
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "winit EventLoop cannot be built off the main thread on macOS"
+    )]
+    #[test]
+    fn spawn_inherits_an_explicit_working_directory() {
+        // F1 cwd inheritance / Duplicate Tab: a new tab spawned with an explicit
+        // cwd seeds the pane's advisory directory to that path (before any OSC 7),
+        // so New Tab / Duplicate Tab opens where the active pane was. Distinct
+        // from the None path, which falls back to the process cwd.
+        let Some((mut sessions, _event_loop)) = tabset_with_proxy_for_test() else {
+            return;
+        };
+        let inherited = std::path::PathBuf::from("/tmp/odytty-inherited-cwd");
+        let token = sessions
+            .spawn(Dimensions::new(20, 8), Some(inherited.clone()))
+            .expect("spawn local session in cwd");
+        assert!(sessions.switch(token));
+
+        let session = sessions.active();
+        {
+            let terminal = session.terminal.lock().expect("terminal lock");
+            assert_eq!(
+                terminal.current_working_directory(),
+                Some("/tmp/odytty-inherited-cwd"),
+                "a new tab seeded with an explicit cwd reports it before the first OSC 7"
             );
         }
 

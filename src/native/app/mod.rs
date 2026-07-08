@@ -896,7 +896,13 @@ impl App {
     /// binding-aware [`Self::handle_new_tab`] delegates here when the active
     /// workspace is unbound.
     fn handle_new_local_tab(&mut self) {
-        if let Ok(session_id) = self.sessions.spawn(self.grid) {
+        // F1 cwd inheritance: seed the new tab's shell in the active pane's OSC 7
+        // cwd when known, so New Tab opens where you already are. A pane with no
+        // tracked cwd (None) spawns in the default directory, unchanged. Works on
+        // Windows too — ConPTY honors the working directory and drive-letter OSC 7
+        // cwds are already normalized.
+        let cwd = self.focused_pane_cwd().map(std::path::PathBuf::from);
+        if let Ok(session_id) = self.sessions.spawn(self.grid, cwd) {
             let effective_theme = self.effective_theme;
             let themed_ui_roles = self.themed_ui_roles;
             let osc52_read = self.settings.osc52_read;
@@ -928,11 +934,15 @@ impl App {
     /// (never a bare `Command::spawn`), so the child is reaped and never left a
     /// zombie. Best-effort: an unresolvable executable path or a spawn failure
     /// is logged and dropped — a new-window request must never crash the
-    /// running window (consistent with the C6 log-and-drop philosophy). V1 does
-    /// NOT propagate the focused pane's shell cwd (that needs OSC 7 / procfs
-    /// plumbing; tracked as a follow-up).
+    /// running window (consistent with the C6 log-and-drop philosophy). F1 cwd
+    /// inheritance: when the focused pane has a tracked OSC 7 cwd, the new window
+    /// is launched with `--working-directory <cwd>` so it opens where the active
+    /// pane is; a pane with no tracked cwd launches in the default directory,
+    /// unchanged. Cross-platform — `--working-directory` is honored on Windows,
+    /// and drive-letter OSC 7 cwds are already normalized upstream.
     pub(in crate::native) fn handle_new_window(&mut self) {
-        let Some(argv) = Self::new_window_argv() else {
+        let cwd = self.focused_pane_cwd();
+        let Some(argv) = Self::new_window_argv(cwd.as_deref()) else {
             tracing::warn!(
                 "new-window: could not resolve the current executable; not launching a window"
             );
@@ -953,14 +963,21 @@ impl App {
         }
     }
 
-    /// The argv that opens a new OdyTTY window: just the current executable, no
-    /// args (the child inherits the environment). Pure — returns `None` when the
-    /// current-exe path cannot be resolved or is not valid UTF-8 (the argv seam
-    /// is `String`-based). Split out so the dispatch decision is unit-testable
-    /// without spawning.
-    fn new_window_argv() -> Option<Vec<String>> {
+    /// The argv that opens a new OdyTTY window: the current executable, plus
+    /// `["--working-directory", cwd]` when `cwd` is `Some` (F1 cwd inheritance).
+    /// The child otherwise inherits the environment. Pure — returns `None` when
+    /// the current-exe path cannot be resolved or is not valid UTF-8 (the argv
+    /// seam is `String`-based). Split out so the dispatch decision (and the cwd
+    /// propagation) is unit-testable without spawning. `cwd == None` yields the
+    /// bare-exe argv, byte-identical to the pre-F1 behavior.
+    fn new_window_argv(cwd: Option<&str>) -> Option<Vec<String>> {
         let exe = std::env::current_exe().ok()?;
-        Some(vec![exe.into_os_string().into_string().ok()?])
+        let mut argv = vec![exe.into_os_string().into_string().ok()?];
+        if let Some(cwd) = cwd.filter(|dir| !dir.is_empty()) {
+            argv.push("--working-directory".to_owned());
+            argv.push(cwd.to_owned());
+        }
+        Some(argv)
     }
 
     /// Attach to a detached, session-host-backed session by id and present it as

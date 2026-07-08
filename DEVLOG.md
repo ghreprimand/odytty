@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- New tab and new window inherit the active pane's working directory
+
+Opening a new tab or a new window now starts in the working directory of the
+active pane, rather than the directory OdyTTY itself was launched from. The
+directory comes from the OSC 7 cwd already tracked per pane, so it follows the
+shell as you `cd` around; a pane that has not reported a cwd falls back to the
+previous behavior (the process's own directory), and opening is never blocked on
+a missing cwd.
+
+New tabs seed the inherited directory into both the spawned shell and the pane's
+advisory cwd, so the tab reports the right directory — and tab title — from its
+first frame, before any OSC 7 arrives. New windows are launched with the
+existing `--working-directory` argument carrying the inherited path; the pure
+argv builder gained an optional cwd parameter so this is unit-tested at the
+spawn boundary without launching a second instance. An empty cwd sentinel adds
+no argument.
+
+This is cross-platform. The `--working-directory` argument and the shell-spawn
+working directory are honored by the POSIX PTY and the Windows ConPTY backend
+alike, and OSC 7 drive-letter cwds are already normalized upstream, so cwd
+inheritance works on Windows for shells that emit OSC 7. No path is Unix-only.
+
+---
+
 ## 2026-07-08 -- Homebrew tap recipes and a guarded release auto-bump
 
 macOS gains a Homebrew install path, seeded but inert until opted into.
