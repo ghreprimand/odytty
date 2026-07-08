@@ -1230,6 +1230,21 @@ impl App {
         self.on_active_session_changed();
     }
 
+    /// Reorder the workspace at rail index `idx` one slot in the rail
+    /// (RAIL-REORDER): `up` moves it toward the front, otherwise toward the
+    /// back. The model follows the active workspace by identity, so the focused
+    /// workspace never changes under the user; the rail flashes so the move is
+    /// visible, and the reorder shifts the shape autosave fingerprint so the new
+    /// order is persisted. A rejected move (already at an end / bad index) is a
+    /// silent no-op. Pure rail bookkeeping -- no grid reflow or focus change,
+    /// so no `on_active_session_changed`.
+    fn move_workspace_at(&mut self, idx: usize, up: bool) {
+        if self.sessions.move_workspace(idx, up) {
+            self.flash_rail_autohide();
+            self.request_selection_redraw();
+        }
+    }
+
     /// Open the "Move to Workspace" destination picker for the right-clicked tab
     /// (W4-v2). Seeds the picker with every workspace EXCEPT the one that owns
     /// `token`, carrying the token so the accepted destination moves the clicked
@@ -2512,6 +2527,13 @@ impl App {
             path_target,
             accelerators,
         );
+        // RAIL-REORDER: a WorkspaceSlot menu needs the total workspace count to
+        // gate its Move Up/Down rows (Move Down hides on the last slot). Set it
+        // only for that surface; every other menu leaves the count at 0.
+        if let ContextMenuSurface::WorkspaceSlot(_) = surface {
+            self.overlay
+                .set_context_menu_workspace_count(self.sessions.workspace_count());
+        }
         // MENU-Z-ORDER: a rail-anchored menu keeps the auto-hide rail revealed
         // (RAIL-PIN), and the rail composites topmost — so without clearance the
         // menu box paints UNDER the floating rail band and its edge is occluded.
@@ -3975,6 +3997,34 @@ impl App {
                 if self.sessions.position_of_token(session).is_some()
                     && self.sessions.iter().count() <= 1
                 {
+                    self.pending_exit = true;
+                    return true;
+                }
+                // SHELL-EXIT-CLOSES (App mode): a shell exit that would close its
+                // whole workspace quits OdyTTY instead of closing just that
+                // workspace, even when other workspaces survive. Take the SAME
+                // "set pending_exit WITHOUT reaping" path the last-workspace exit
+                // uses, so the shutdown snapshot still captures every workspace
+                // (including this one) for layout restore. Exits that only close
+                // a pane or tab are unaffected (the predicate is false there).
+                // Windows: the ConPTY shell exit flows through this same
+                // UserEvent path, so App mode behaves identically there.
+                if self.settings.shell_exit_closes == crate::settings::ShellExitCloses::App
+                    && self.sessions.shell_exit_closes_workspace(session)
+                {
+                    // Reuse the window-close confirmation so quitting cannot
+                    // silently kill a live foreground job in another workspace.
+                    // With no live job elsewhere (or confirm-close off) the quit
+                    // is immediate, matching the historical last-session exit.
+                    if self.settings.confirm_close
+                        && self.sessions.any_foreground_job_running_except(session)
+                    {
+                        self.overlay.open_confirm_close();
+                        if let Some(window) = self.window.as_ref() {
+                            window.request_redraw();
+                        }
+                        return false;
+                    }
                     self.pending_exit = true;
                     return true;
                 }

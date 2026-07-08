@@ -70,7 +70,7 @@ use crate::settings::BindableAction;
 /// adds Close Pane for 24. The five
 /// ODP-2C connection-row actions (Open in New Tab / Open in New Workspace / Bind
 /// Current Workspace / Edit / Remove) show ONLY on the `ConnectionRow` surface.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 44;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 46;
 
 /// Body row index of the first visual separator in the single-pane content
 /// reference, between Select All and New Tab. The reference is the
@@ -218,6 +218,15 @@ pub(super) enum ContextMenuItem {
     /// Close the right-clicked workspace entirely — every tab, every pane.
     /// Workspace-scoped (`WorkspaceSlot`). Closing the last workspace exits.
     CloseWorkspace,
+    /// Move the right-clicked workspace one slot toward the front of the rail
+    /// (RAIL-REORDER). Workspace-scoped (`WorkspaceSlot`); shown only when the
+    /// slot is not already first. Appended last in [`Self::ALL`] so existing
+    /// accelerator-array indices stay stable; carries no chord.
+    MoveWorkspaceUp,
+    /// Move the right-clicked workspace one slot toward the back of the rail
+    /// (RAIL-REORDER). Workspace-scoped (`WorkspaceSlot`); shown only when the
+    /// slot is not already last. Appended last in [`Self::ALL`]; carries no chord.
+    MoveWorkspaceDown,
     /// Bind the active workspace to a saved host (F6-W5 / ODP-6B). Content-grid
     /// workspace section, shown ONLY when the active workspace is unbound;
     /// activating it opens the shared host picker (ODP-1B) so New Tab there
@@ -359,6 +368,10 @@ impl ContextMenuItem {
         // DUPLICATE-TAB: appended last so every existing accelerator-array index
         // stays stable (its accelerator is filled from the flat table).
         Self::DuplicateTab,
+        // RAIL-REORDER: workspace move actions; appended last so every existing
+        // accelerator-array index stays stable (both carry no chord).
+        Self::MoveWorkspaceUp,
+        Self::MoveWorkspaceDown,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -386,6 +399,8 @@ impl ContextMenuItem {
             Self::NewWorkspace
             | Self::RenameWorkspace
             | Self::CloseWorkspace
+            | Self::MoveWorkspaceUp
+            | Self::MoveWorkspaceDown
             | Self::BindWorkspaceToHost
             | Self::UnbindWorkspace
             // LAYOUT-SURFACE: Save/Open Layout live in the workspace section.
@@ -434,6 +449,8 @@ impl ContextMenuItem {
             Self::NewWorkspace => "New Workspace",
             Self::RenameWorkspace => "Rename Workspace",
             Self::CloseWorkspace => "Close Workspace",
+            Self::MoveWorkspaceUp => "Move Up",
+            Self::MoveWorkspaceDown => "Move Down",
             Self::BindWorkspaceToHost => "Bind to Host\u{2026}",
             Self::UnbindWorkspace => "Unbind from Host",
             Self::SaveAllLayout => "Save as Layout\u{2026}",
@@ -518,6 +535,9 @@ impl ContextMenuItem {
             | Self::NewWorkspace
             | Self::RenameWorkspace
             | Self::CloseWorkspace
+            // RAIL-REORDER: reorder actions are menu-only; no chord.
+            | Self::MoveWorkspaceUp
+            | Self::MoveWorkspaceDown
             // Workspace host bind/unbind (ODP-6B); reached from the menu, no chord.
             | Self::BindWorkspaceToHost
             | Self::UnbindWorkspace
@@ -713,6 +733,10 @@ pub(super) struct ContextMenuSignature {
     /// `New Local Tab` escape row's visibility on the tab surface, so a
     /// bind/unbind must repaint the menu.
     pub(super) bound_workspace: bool,
+    /// The total workspace count at open time (RAIL-REORDER): drives the Move
+    /// Up/Down items' visibility on a `WorkspaceSlot` menu (a slot can move down
+    /// only when it is not last), so a workspace-count change must repaint.
+    pub(super) workspace_count: usize,
     /// The surface discriminant (F7): a surface change swaps the whole
     /// composition, so it must repaint.
     pub(super) surface: u8,
@@ -764,6 +788,12 @@ pub(super) struct ContextMenuUi {
     /// Whether the active workspace is bound to a host (F6-W5). Drives the
     /// `New Local Tab` escape row on the tab surface.
     bound_workspace: bool,
+    /// The total workspace count, snapshotted at open time (RAIL-REORDER). On a
+    /// `WorkspaceSlot(idx)` menu it decides whether the clicked slot can move
+    /// down (`idx + 1 < workspace_count`); `move up` keys off `idx > 0`. The App
+    /// sets it via [`Self::set_workspace_count`] right after opening a rail menu;
+    /// every other surface leaves it at `0` (no Move rows there anyway).
+    workspace_count: usize,
     /// Which surface the right-click landed on (F7). Selects the menu
     /// composition; defaults to [`ContextMenuSurface::Content`] (the historical
     /// single menu) so a bare `open` keeps today's behavior.
@@ -811,6 +841,7 @@ impl Default for ContextMenuUi {
             multi_tab: false,
             multi_workspace: false,
             bound_workspace: false,
+            workspace_count: 0,
             surface: ContextMenuSurface::Content,
             path_target: None,
             connection_target: None,
@@ -893,6 +924,9 @@ impl ContextMenuUi {
         self.multi_tab = multi_tab;
         self.multi_workspace = multi_workspace;
         self.bound_workspace = bound_workspace;
+        // RAIL-REORDER: reset to 0 on every open; the App sets the real count
+        // via `set_workspace_count` only for a rail-slot menu.
+        self.workspace_count = 0;
         self.surface = surface;
         self.path_target = path_target;
         // Cleared on every non-ConnectionRow open; the connection-row opener
@@ -934,6 +968,7 @@ impl ContextMenuUi {
         self.multi_tab = false;
         self.multi_workspace = false;
         self.bound_workspace = false;
+        self.workspace_count = 0;
         self.surface = ContextMenuSurface::ConnectionRow(row_index);
         self.path_target = None;
         self.connection_target = Some(Box::new(host));
@@ -953,6 +988,15 @@ impl ContextMenuUi {
     pub(super) fn set_rail_clearance(&mut self, left: usize, right: usize) {
         self.reserved_cols_left = left;
         self.reserved_cols_right = right;
+    }
+
+    /// Snapshot the total workspace count for a rail-slot menu (RAIL-REORDER).
+    /// Applied by the App immediately after opening a `WorkspaceSlot` menu so
+    /// the Move Up/Down rows can gate on the clicked slot's position (Move Down
+    /// hides on the last slot; Move Up hides on the first). Every non-rail menu
+    /// leaves it at `0`, where no Move rows are composed anyway.
+    pub(super) fn set_workspace_count(&mut self, count: usize) {
+        self.workspace_count = count;
     }
 
     /// The saved host snapshotted for a `ConnectionRow` menu (ODP-2C), if any.
@@ -1033,6 +1077,10 @@ impl ContextMenuUi {
             ContextMenuItem::NewWorkspace
             | ContextMenuItem::RenameWorkspace
             | ContextMenuItem::CloseWorkspace
+            // Move Up/Down are only pushed when the slot can move that way, so
+            // they are enabled whenever shown (the guard is at composition).
+            | ContextMenuItem::MoveWorkspaceUp
+            | ContextMenuItem::MoveWorkspaceDown
             // Bind/Unbind are only visible on the matching bind state, so they
             // are enabled whenever shown.
             | ContextMenuItem::BindWorkspaceToHost
@@ -1113,7 +1161,12 @@ impl ContextMenuUi {
             ContextMenuSurface::WorkspaceSlot(_) => match item {
                 // New/Rename group; Close in its own destructive group (one
                 // separator before it) — the TabSlot pattern one level up.
-                ContextMenuItem::NewWorkspace | ContextMenuItem::RenameWorkspace => 0,
+                ContextMenuItem::NewWorkspace
+                | ContextMenuItem::RenameWorkspace
+                // RAIL-REORDER: the reorder actions are non-destructive edits to
+                // the slot, so they group with New/Rename above the Close separator.
+                | ContextMenuItem::MoveWorkspaceUp
+                | ContextMenuItem::MoveWorkspaceDown => 0,
                 ContextMenuItem::CloseWorkspace => 1,
                 // RAIL-BIND: the host bind/unbind action sits in its own group
                 // below the destructive Close.
@@ -1198,12 +1251,22 @@ impl ContextMenuUi {
             // The workspace rail surfaces carry their own tight compositions
             // (§3.5): a slot offers New/Rename/Close Workspace; the empty rail
             // offers New Workspace only.
-            ContextMenuSurface::WorkspaceSlot(_) => {
+            ContextMenuSurface::WorkspaceSlot(idx) => {
                 let mut items = vec![
                     ContextMenuItem::NewWorkspace,
                     ContextMenuItem::RenameWorkspace,
-                    ContextMenuItem::CloseWorkspace,
                 ];
+                // RAIL-REORDER: the move rows gate on the clicked slot's
+                // position -- Move Up hides on the first slot, Move Down on the
+                // last (workspace_count is snapshotted at open by the App). With
+                // a single workspace neither appears.
+                if idx > 0 && idx < self.workspace_count {
+                    items.push(ContextMenuItem::MoveWorkspaceUp);
+                }
+                if idx + 1 < self.workspace_count {
+                    items.push(ContextMenuItem::MoveWorkspaceDown);
+                }
+                items.push(ContextMenuItem::CloseWorkspace);
                 // RAIL-BIND: exactly one of the host bind/unbind pair, keyed to
                 // whether the CLICKED workspace is bound (`bound_workspace` is set
                 // to the clicked slot's state for this surface). Bind opens the
@@ -1288,6 +1351,11 @@ impl ContextMenuUi {
                     item,
                     ContextMenuItem::CloseOtherTabs
                         | ContextMenuItem::MoveToWorkspace
+                        // RAIL-REORDER: the workspace move rows are
+                        // WorkspaceSlot-only (they need a clicked slot); the
+                        // content-grid workspace section acts on the active one.
+                        | ContextMenuItem::MoveWorkspaceUp
+                        | ContextMenuItem::MoveWorkspaceDown
                         // F6-W5: the New Local Tab escape is a bound-workspace
                         // tab-menu row only; never on the content surface.
                         | ContextMenuItem::NewLocalTab
@@ -1623,6 +1691,7 @@ impl ContextMenuUi {
             multi_tab: self.multi_tab,
             multi_workspace: self.multi_workspace,
             bound_workspace: self.bound_workspace,
+            workspace_count: self.workspace_count,
             surface: self.surface.discriminant(),
             has_path_target: self.path_target.is_some(),
             is_image_target: self.is_image_target(),
@@ -3027,6 +3096,63 @@ mod tests {
                 item("Save Workspace as Layout\u{2026}", false, true),
             ]
         );
+    }
+
+    #[test]
+    fn workspace_slot_menu_gates_move_rows_by_position() {
+        // RAIL-REORDER: the Move Up / Move Down rows appear between Rename and
+        // the Close separator, gated by the clicked slot's position within the
+        // total workspace count. First slot: Down only. Middle slot: both. Last
+        // slot: Up only. The count is snapshotted via `set_workspace_count`
+        // exactly as the App does on a rail right-click.
+        let has = |m: &ContextMenuUi, label: &str| {
+            m.rows()
+                .iter()
+                .any(|r| matches!(r, ContextMenuRow::Item { label: l, .. } if *l == label))
+        };
+
+        let mut first = open_surface(ContextMenuSurface::WorkspaceSlot(0), true);
+        first.set_workspace_count(3);
+        assert!(!has(&first, "Move Up"), "first slot cannot move up");
+        assert!(has(&first, "Move Down"), "first slot can move down");
+
+        let mut middle = open_surface(ContextMenuSurface::WorkspaceSlot(1), true);
+        middle.set_workspace_count(3);
+        assert!(has(&middle, "Move Up"), "middle slot can move up");
+        assert!(has(&middle, "Move Down"), "middle slot can move down");
+        // The move rows sit in the New/Rename group, above the first separator.
+        let rows = middle.rows();
+        let first_sep = rows
+            .iter()
+            .position(|r| matches!(r, ContextMenuRow::Separator))
+            .expect("a separator exists");
+        let up_at = rows
+            .iter()
+            .position(|r| {
+                matches!(
+                    r,
+                    ContextMenuRow::Item {
+                        label: "Move Up",
+                        ..
+                    }
+                )
+            })
+            .expect("Move Up present");
+        assert!(
+            up_at < first_sep,
+            "Move rows group above the Close separator"
+        );
+
+        let mut last = open_surface(ContextMenuSurface::WorkspaceSlot(2), true);
+        last.set_workspace_count(3);
+        assert!(has(&last, "Move Up"), "last slot can move up");
+        assert!(!has(&last, "Move Down"), "last slot cannot move down");
+
+        // A lone workspace (count 1) shows neither.
+        let mut lone = open_surface(ContextMenuSurface::WorkspaceSlot(0), true);
+        lone.set_workspace_count(1);
+        assert!(!has(&lone, "Move Up"));
+        assert!(!has(&lone, "Move Down"));
     }
 
     #[test]

@@ -1487,6 +1487,14 @@ impl App {
         self.sessions.active_workspace_index()
     }
 
+    /// Test seam (RAIL-REORDER): drive the App-side workspace reorder exactly as
+    /// a context-menu "Move Up"/"Move Down" activation would (via the same
+    /// `move_workspace_at` the interaction layer calls).
+    #[cfg(test)]
+    pub(in crate::native) fn move_workspace_at_for_test(&mut self, idx: usize, up: bool) {
+        self.move_workspace_at(idx, up);
+    }
+
     /// Test seam (WP1): capture the current window shape as a serializable
     /// snapshot, exercising the persistence capture path end-to-end against a
     /// headless multi-workspace / multi-pane `App`.
@@ -1657,6 +1665,27 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn new_tab_for_test(&mut self) {
         self.handle_new_tab();
+    }
+
+    /// Split the active pane into side-by-side columns (production path), so a
+    /// test can build a multi-pane tab (SHELL-EXIT-CLOSES granularity).
+    #[cfg(test)]
+    pub(in crate::native) fn split_active_columns_for_test(&mut self) {
+        self.split_active_pane(crate::native::layout::SplitAxis::Columns);
+    }
+
+    /// Set the exit-behavior setting to App mode (SHELL-EXIT-CLOSES): a shell
+    /// exit that would close a workspace quits OdyTTY instead.
+    #[cfg(test)]
+    pub(in crate::native) fn set_shell_exit_closes_app_for_test(&mut self) {
+        self.settings.shell_exit_closes = crate::settings::ShellExitCloses::App;
+    }
+
+    /// Toggle the running-job close confirmation (SHELL-EXIT-CLOSES tests set it
+    /// off to make the App-mode quit deterministic regardless of PTY job state).
+    #[cfg(test)]
+    pub(in crate::native) fn set_confirm_close_for_test(&mut self, on: bool) {
+        self.settings.confirm_close = on;
     }
 
     /// Move the tab holding `token` into the workspace at `dest_ws` (W4-v2),

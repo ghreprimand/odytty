@@ -18,8 +18,8 @@ use super::{
     OSC52_READ_ENV, PANE_PREFIX_ENV, PIXEL_SCROLL_ENV, RENDER_QUALITY_ENV, RESTORE_WORKSPACES_ENV,
     RETRO_ENV, SCROLL_DRAG_SPEED_ENV, SCROLL_GLIDE_ENV, SCROLL_PIXEL_SPEED_ENV,
     SCROLL_WHEEL_LINES_ENV, SCROLLBACK_LINES_ENV, SCROLLBAR_DRAG_ENV, SELECTION_DRAG_EXTEND_ENV,
-    SH_CLICK_ENV, SHELL_INTEGRATION_ENV, SMART_CTRL_C_ENV, STEM_DARKEN_ENV, SUBPIXEL_ENV,
-    SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV, SYMBOL_MAP_ENV, SYNTHETIC_STYLES_ENV,
+    SH_CLICK_ENV, SHELL_EXIT_CLOSES_ENV, SHELL_INTEGRATION_ENV, SMART_CTRL_C_ENV, STEM_DARKEN_ENV,
+    SUBPIXEL_ENV, SYMBOL_FALLBACK_ENV, SYMBOL_FONT_ENV, SYMBOL_MAP_ENV, SYNTHETIC_STYLES_ENV,
     TAB_BAR_PLACEMENT_ENV, TAB_PANEL_STRENGTH_ENV, TAB_RAIL_AUTOHIDE_ENV, TAB_RAIL_GAP_ENV,
     TAB_RAIL_MAX_WIDTH_ENV, TAB_RAIL_REVEAL_PX_ENV, TAB_RAIL_SLOT_ROWS_ENV, TAB_RAIL_WIDTH_ENV,
     TAB_SEAM_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV,
@@ -211,6 +211,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "confirmclose" | "closeconfirm" | "closeconfirmation" | "confirmonclose" => {
             Some(CONFIRM_CLOSE_ENV)
         }
+        "shellexitcloses" | "exitcloses" | "typingexitcloses" | "exitbehavior" => {
+            Some(SHELL_EXIT_CLOSES_ENV)
+        }
         "sshconfighosts" | "sshconfig" | "opensshhosts" | "sshhosts" => Some(SSH_CONFIG_HOSTS_ENV),
         "remoteintegration" | "sshintegration" | "remoteshellintegration" | "remoteosc133" => {
             Some(REMOTE_INTEGRATION_ENV)
@@ -329,6 +332,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         CVD_STRENGTH_ENV => Some("cvd_strength"),
         BELL_ENV => Some("bell"),
         CONFIRM_CLOSE_ENV => Some("confirm_close"),
+        SHELL_EXIT_CLOSES_ENV => Some("shell_exit_closes"),
         SSH_CONFIG_HOSTS_ENV => Some("ssh_config_hosts"),
         REMOTE_INTEGRATION_ENV => Some("remote_integration"),
         REMOTE_REUSE_ENV => Some("remote_reuse"),

@@ -173,6 +173,15 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.close_workspace_at(idx);
             }
+            // RAIL-REORDER: move the clicked workspace one slot in the rail.
+            OverlayOutcome::ContextMenuMoveWorkspaceUp(idx) => {
+                self.flush_pending_overlay_settings();
+                self.move_workspace_at(idx, true);
+            }
+            OverlayOutcome::ContextMenuMoveWorkspaceDown(idx) => {
+                self.flush_pending_overlay_settings();
+                self.move_workspace_at(idx, false);
+            }
             // Content-grid workspace section: Rename/Close target the active
             // workspace (no per-workspace click target on the grid).
             OverlayOutcome::ContextMenuRenameActiveWorkspace => {

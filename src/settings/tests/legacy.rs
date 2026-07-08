@@ -197,6 +197,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "remote_image_paste",
             "session_replay",
             "restore_workspaces",
+            "shell_exit_closes",
             "osc52_read",
             "copy_on_select",
             "smart_ctrl_c",

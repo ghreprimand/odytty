@@ -7,6 +7,58 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Workspace reorder, clearer new-slot affordances, and an exit-behavior setting
+
+Four workspace/chrome ergonomics land together.
+
+Workspace reorder. The workspace rail's right-click menu gains Move Up and Move
+Down rows on a slot, grouped with New/Rename above the destructive Close. The
+model reorders the workspace list by an adjacent swap and follows the active
+workspace by identity, so the focused workspace never changes under the reorder;
+the new order flows into the shape autosave and restores next launch. The rows
+gate on position (no Move Up on the first slot, no Move Down on the last) and are
+menu-only with no keybind. Platform-agnostic native chrome; identical on Linux,
+Windows, and macOS.
+
+Rail new-workspace affordance. The rail `+` sat immediately below the last
+workspace slot, so a click just past the list opened a new workspace by
+accident. A dead separator row now sits between the list and the `+`: a click
+there is inert, and the row carries a faint rule so the `+` reads as a deliberate
+add control set apart from the workspace list. The `+` shifts down onto the row
+the layout already reserved, so the rail height and overflow threshold are
+unchanged. Both the layout and hit-testing derive from one function, so
+rendering and pointer routing stay consistent.
+
+New-slot `+` visibility. Both the top tab bar `+` and the rail `+` previously
+rested at the dim inactive-label color, making them easy to miss. At rest they
+now lift toward the active label via a shared new-slot color so they read as
+intentional add controls, while still brightening to the full active label (and
+gaining a whisper fill) on hover, so hover stays clearly stronger than rest.
+
+Exit-behavior setting. A new `shell_exit_closes` setting (Sessions group,
+values Workspace/App; default Workspace) controls what typing `exit` (or Ctrl-D
+EOF) does when it would close a whole workspace. Workspace keeps the historical
+cascade: the shell exit closes just that workspace, and closing the last
+workspace still quits. App escalates a workspace-closing shell exit into an app
+quit even when other workspaces are open, taking the same set-pending-exit path
+the last-workspace exit already uses without reaping first, so the shutdown
+snapshot still captures every workspace (including the one where exit was typed)
+for layout restore. The setting governs only the shell-exit path: the rail close
+button and the close-tab / close-workspace / close-pane keybinds keep their
+per-surface meaning in both modes, and a shell exit with sibling tabs or panes
+still closes only that tab or pane. The App-mode quit reuses the window-close
+confirmation, so it cannot silently kill a live foreground job in another
+workspace. The ShellExited cascade and shape persistence are cross-platform, and
+the Windows ConPTY shell exit flows through the same event path, so App mode
+behaves identically on Windows.
+
+Verification: full non-GPU suite green; fmt, clippy (all-targets, deny) clean.
+The GPU offscreen renderer tests are CI-gated (they hang headless), so the rail
+separator/`+` colors are pinned by cell-level unit tests rather than composited
+pixels.
+
+---
+
 ## 2026-07-08 -- macOS default-terminal guidance and cask launcher note
 
 The install guide's Default Terminal section gains a macOS subsection: macOS

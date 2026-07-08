@@ -210,6 +210,12 @@ struct RailLayout {
     /// `(start_row, end_row)` of the `+` new-tab slot, or `None` when it doesn't
     /// fit (overflow, or a degenerate rail).
     new_tab_rows: Option<(usize, usize)>,
+    /// The dead separator row between the last workspace slot and the `+`
+    /// (RAIL-PLUS-GAP), or `None` when there is nothing to separate (empty rail
+    /// or overflow). This row is non-interactive -- a click on it maps to
+    /// [`TabHit::None`] -- and carries a faint rule so the `+` reads as a
+    /// deliberate "add" control set apart from the workspace list.
+    separator_row: Option<usize>,
     /// When some tabs are scrolled off the TOP: `Some(hidden_count)`. The `▲`
     /// indicator paints in row 0 and is informational-only in R1.
     overflow_above: Option<usize>,
@@ -360,15 +366,29 @@ impl TabRail {
             }
         }
 
-        // New-tab `+` slot — a lightweight 1-cell affordance: a centered dim `+`
-        // on the bare wallpaper at rest, brightening (and gaining a whisper fill)
-        // only when hovered, so it never competes with a real tab slot.
+        // New-tab `+` slot — a lightweight 1-cell affordance. RAIL-PLUS-GAP paints a faint separator rule
+        // apart from the workspace list above (that dead row is non-interactive;
+        // see `hit_test`), so the `+` reads as an add control set below the list.
+        if let Some(sep_row) = layout.separator_row.filter(|r| *r < grid_rows) {
+            let sep_fg = rgb(tab_chrome::scale_srgb(colors.inactive, 0.5));
+            let (c0, c1) = slot_fill_cols(rail_cols, None);
+            for col in c0..c1.min(rail_cols) {
+                let g = &mut cells[sep_row * rail_cols + col];
+                g.ch = '\u{2500}';
+                g.attrs.foreground = sep_fg;
+            }
+        }
+
+        // At rest the `+` reads as a deliberate "add" control: lifted out of the
+        // dim inactive floor via `new_slot_plus_rest` (RAIL-PLUS-GAP). It still
+        // brightens to the full active label (and gains a whisper fill) on hover,
+        // so hover stays clearly stronger than the resting state.
         if let Some((nt_start, nt_end)) = layout.new_tab_rows {
             let is_hovered = matches!(self.hover, Some(TabHit::NewTab));
             let (nt_bg, nt_fg) = if is_hovered {
                 (hover_fill, active_lbl)
             } else {
-                (panel_surface, dim_plus)
+                (panel_surface, rgb(tab_chrome::new_slot_plus_rest(colors)))
             };
             if is_hovered {
                 let (fill_c0, fill_c1) = slot_fill_cols(rail_cols, None);
@@ -522,11 +542,17 @@ fn compute_rail_layout(
         return layout;
     }
 
-    // Rows needed to show the top margin, every tab plus the `+` slot with no
-    // scroll. Each tab consumes `stride` (slot + trailing gap); the last
-    // trailing gap becomes the gap before the `+` slot, so the total is
-    // margin + tabs*stride + NEW_TAB_ROWS (R1.1 adds the leading top margin).
-    let total_needed = top_margin + tab_count * stride + NEW_TAB_ROWS;
+    // Rows needed to show the top margin, every tab, a dead separator gap, and
+    // the `+` slot with no scroll. Each tab consumes `slot_rows` plus an
+    // inter-slot `slot_gap`; below the last slot a guaranteed dead gap
+    // (`plus_gap`, at least one row) separates the list from the `+`, so the
+    // total is margin + tabs*slot_rows + (tabs-1)*slot_gap + plus_gap +
+    // NEW_TAB_ROWS. `plus_gap` == `slot_gap` for the default (>=1) geometry, so
+    // the reservation is unchanged there; it only widens if the gap knob is 0.
+    let plus_gap = geom.slot_gap.max(1);
+    let last_slot_end = top_margin + tab_count.saturating_sub(1) * stride + geom.slot_rows;
+    let nt_start = last_slot_end + plus_gap;
+    let total_needed = nt_start + NEW_TAB_ROWS;
 
     if total_needed <= grid_rows {
         for i in 0..tab_count {
@@ -535,17 +561,20 @@ fn compute_rail_layout(
                 .slots
                 .push(build_slot(source, i, start, rail_cols, geom));
         }
-        // F4-P1 floating-`+` fix: anchor the `+` `slot_gap` rows below the last
-        // slot's LABEL row rather than a full stride below its start, so a
-        // single-line label doesn't leave a trailing blank slot row + gap
-        // stranding the `+` far below. The label is one row (F4-P4), so this is
-        // `label_row + 1 + gap` (arithmetically identical to the old single-line
-        // case at slot_rows = 1).
+        // RAIL-PLUS-GAP: anchor the `+` a guaranteed dead gap below the last
+        // slot's END row (not its label row), so a 2-row padded slot no longer
+        // leaves the `+` flush against its breathing row. The first row of that
+        // gap is the separator; the `+` sits `plus_gap` rows below the slot box.
+        // For a 1-row slot with the default gap this is arithmetically identical
+        // to the previous `label_row + 1 + slot_gap` placement.
         let nt_start = layout
             .slots
             .last()
-            .map(|last| last.label_row + 1 + geom.slot_gap)
+            .map(|last| last.end_row + plus_gap)
             .unwrap_or(top_margin);
+        // The separator is the first dead row directly below the last slot box
+        // (only meaningful when a slot exists above the `+`).
+        layout.separator_row = layout.slots.last().map(|last| last.end_row);
         layout.new_tab_rows = Some((nt_start, nt_start + NEW_TAB_ROWS));
         return layout;
     }
@@ -953,21 +982,26 @@ mod tests {
             assert_eq!(slot.start_row, start, "slot {i} start row");
             assert_eq!(slot.end_row, start + SLOT_ROWS, "slot {i} end row");
         }
-        // F4-P1 floating-`+` fix: the `+` anchors one gap below the last slot's
-        // LABEL row (single-line, F4-P4), NOT a full stride below the slot start
-        // (which left a trailing blank slot row stranding it).
+        // RAIL-PLUS-GAP: the `+` anchors a guaranteed dead gap below the last
+        // slot's END row (not its label row), so a padded 2-row slot no longer
+        // leaves the `+` flush against its breathing row. The first dead row is
+        // the separator; the `+` sits `SLOT_GAP` rows below the slot box.
         let last = layout.slots.last().unwrap();
-        let nt_start = last.label_row + 1 + SLOT_GAP;
+        let nt_start = last.end_row + SLOT_GAP;
         assert_eq!(
             layout.new_tab_rows,
             Some((nt_start, nt_start + NEW_TAB_ROWS)),
-            "the + slot follows the last tab's label row"
+            "the + slot follows a dead gap below the last slot box"
         );
-        // Concretely, with single-line labels the `+` sits ABOVE the old
-        // stride-based position (removing the stranding blank row).
+        assert_eq!(
+            layout.separator_row,
+            Some(last.end_row),
+            "the separator is the dead row directly below the last slot box"
+        );
+        // The separator row sits strictly between the last slot and the `+`.
         assert!(
-            nt_start < RAIL_TOP_MARGIN_ROWS + 3 * SLOT_STRIDE,
-            "the + is pulled up to the label row"
+            last.end_row < nt_start,
+            "a dead row separates the list from the +"
         );
         assert!(layout.overflow_above.is_none() && layout.overflow_below.is_none());
     }
@@ -983,13 +1017,13 @@ mod tests {
             plus.col, SLOT_LABEL_START_COL,
             "the + is left-aligned at the label column, not centered"
         );
-        // And it sits immediately below the last label row + gap (no stranding).
+        // And it sits a dead gap below the last slot box (RAIL-PLUS-GAP).
         let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         let last = layout.slots.last().unwrap();
         assert_eq!(
             plus.row,
-            last.label_row + 1 + SLOT_GAP,
-            "the + row anchors one gap below the last label row"
+            last.end_row + SLOT_GAP,
+            "the + row anchors a dead gap below the last slot box"
         );
     }
 
@@ -1436,13 +1470,14 @@ mod tests {
     }
 
     #[test]
-    fn new_tab_plus_is_one_row_dim_at_rest_and_bright_on_hover() {
+    fn new_tab_plus_is_one_row_visible_at_rest_and_brighter_on_hover() {
         let src = MockSource::new(&["a", "b"], 0);
         let (nt_start, nt_end) = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM)
             .new_tab_rows
             .expect("new-tab slot present");
         assert_eq!(nt_end - nt_start, NEW_TAB_ROWS, "the + slot is 1 cell tall");
-        // At rest: dim + on bare wallpaper (no fill).
+        // At rest: a lifted + on bare wallpaper (no fill), brighter than an
+        // inactive label but subordinate to the active label (RAIL-PLUS-GAP).
         let out = render_default(&src);
         let wallpaper = rgb(tab_chrome::wallpaper_background(COLORS));
         let plus = out.glyphs.iter().find(|g| g.ch == '+').expect("+ glyph");
@@ -1450,10 +1485,14 @@ mod tests {
             plus.attrs.background, wallpaper,
             "+ sits on the bare wallpaper"
         );
-        assert_eq!(
-            plus.attrs.foreground,
-            rgb(COLORS.inactive),
-            "+ is dim at rest"
+        let rest_luma = luma(plus.attrs.foreground);
+        assert!(
+            rest_luma > luma(rgb(COLORS.inactive)),
+            "resting + is more visible than an inactive label"
+        );
+        assert!(
+            rest_luma < luma(rgb(tab_chrome::active_label(COLORS))),
+            "resting + stays subordinate to the active label"
         );
         // On hover: whisper fill + brighter +.
         let out = render_with(&hovered_rail(TabHit::NewTab), &src);
@@ -1464,8 +1503,8 @@ mod tests {
             "+ gains the whisper fill on hover"
         );
         assert!(
-            luma(plus.attrs.foreground) > luma(rgb(COLORS.inactive)),
-            "+ brightens on hover"
+            luma(plus.attrs.foreground) > rest_luma,
+            "+ brightens further on hover than at rest"
         );
     }
 
@@ -1525,6 +1564,77 @@ mod tests {
         let (s, _e) = layout.new_tab_rows.expect("new-tab slot present");
         let hit = hit_at(s, RAIL_COLS / 2, &src);
         assert_eq!(hit, TabHit::NewTab, "+ slot → NewTab");
+    }
+
+    #[test]
+    fn dead_gap_row_above_the_plus_is_not_a_hit() {
+        // RAIL-PLUS-GAP: the separator row between the last slot and the `+` is
+        // non-interactive. With the default 2-row slots this is the row that
+        // used to BE the `+` (immediately below the last slot box), so a click
+        // there no longer opens a new workspace by accident.
+        let src = MockSource::new(&["a"], 0);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
+        let last = layout.slots.last().expect("one slot");
+        let sep = layout
+            .separator_row
+            .expect("separator present with a slot + `+`");
+        assert_eq!(
+            sep, last.end_row,
+            "separator is the row below the last slot box"
+        );
+        assert_eq!(
+            hit_at(sep, RAIL_LABEL_PAD, &src),
+            TabHit::None,
+            "the dead separator row is not a hit"
+        );
+        // The old immediately-adjacent position (last slot end row) is exactly
+        // that dead separator now -- no longer NewTab.
+        assert_ne!(
+            hit_at(last.end_row, RAIL_LABEL_PAD, &src),
+            TabHit::NewTab,
+            "a click just below the last slot no longer triggers new-workspace"
+        );
+        // The `+` sits one row further down and still resolves to NewTab.
+        let (nt_start, _e) = layout.new_tab_rows.expect("+ present");
+        assert_eq!(nt_start, sep + 1, "the + follows the dead separator row");
+        assert_eq!(hit_at(nt_start, RAIL_LABEL_PAD, &src), TabHit::NewTab);
+    }
+
+    #[test]
+    fn separator_rule_is_painted_on_the_dead_gap_row() {
+        // RAIL-PLUS-GAP: the separator row carries a faint horizontal rule so
+        // the `+` reads as an add control set apart from the workspace list.
+        let src = MockSource::new(&["a"], 0);
+        let out = render_default(&src);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
+        let sep = layout.separator_row.expect("separator present");
+        let has_rule = (0..RAIL_COLS).any(|c| out.glyphs[sep * RAIL_COLS + c].ch == '\u{2500}');
+        assert!(has_rule, "a rule glyph is painted on the separator row");
+    }
+
+    #[test]
+    fn resting_plus_is_brighter_than_an_inactive_label() {
+        // RAIL-PLUS-GAP: the resting `+` is lifted out of the dim inactive floor
+        // (new_slot_plus_rest), so it reads as a deliberate add control, and it
+        // still brightens further on hover.
+        let src = MockSource::new(&["a"], 0);
+        let out = render_default(&src);
+        let plus = out.glyphs.iter().find(|g| g.ch == '+').expect("+ glyph");
+        assert!(
+            luma(plus.attrs.foreground) > luma(rgb(COLORS.inactive)),
+            "resting + is brighter than the inactive label floor"
+        );
+        // Hover brightens it further still (toward the active label).
+        let hovered = render_with(&hovered_rail(TabHit::NewTab), &src);
+        let hplus = hovered
+            .glyphs
+            .iter()
+            .find(|g| g.ch == '+')
+            .expect("+ glyph");
+        assert!(
+            luma(hplus.attrs.foreground) > luma(plus.attrs.foreground),
+            "+ brightens further on hover"
+        );
     }
 
     #[test]

@@ -474,3 +474,195 @@ fn open_layout_onto_real_state_raises_the_mode_prompt() {
         "prompt leaves the set intact"
     );
 }
+
+// --- SHELL-EXIT-CLOSES: the `shell_exit_closes` exit-behavior setting ---
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn app_mode_shell_exit_in_a_non_last_workspace_quits_without_reaping() {
+    // SHELL-EXIT-CLOSES: in App mode, a shell exit that would close a workspace
+    // sets pending_exit (quit) even though another workspace survives, and does
+    // NOT reap the workspace first -- the arena stays intact so the shutdown
+    // snapshot can capture every workspace for restore. Confirm-close off makes
+    // the quit deterministic regardless of the fixture shells' job state.
+    let (mut app, _event_loop) = app_or_skip!();
+    app.set_shell_exit_closes_app_for_test();
+    app.set_confirm_close_for_test(false);
+    app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
+    assert_eq!(app.workspace_count_for_test(), 2);
+    // Focus the FIRST (non-last) workspace and exit its sole shell.
+    app.dispatch_workspace_action_for_test(BindableAction::PrevWorkspace);
+    assert_eq!(app.active_workspace_index_for_test(), 0);
+    let session = app
+        .session_token_at_position_for_test(0)
+        .expect("active workspace session token");
+
+    let should_exit = app.dispatch_user_event_for_test(UserEvent::ShellExited { session });
+    assert!(
+        should_exit,
+        "App mode escalates the workspace-closing exit to a quit"
+    );
+    assert!(app.pending_exit_for_test(), "pending_exit is set");
+    assert_eq!(
+        app.workspace_count_for_test(),
+        2,
+        "the workspace is NOT reaped before teardown (snapshot stays whole)"
+    );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn workspace_mode_shell_exit_in_a_non_last_workspace_closes_only_it() {
+    // SHELL-EXIT-CLOSES: the default (Workspace) mode is byte-identical to the
+    // historical cascade -- a shell exit that empties a non-last workspace reaps
+    // just that workspace and the app stays open.
+    let (mut app, _event_loop) = app_or_skip!();
+    app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
+    assert_eq!(app.workspace_count_for_test(), 2);
+    app.dispatch_workspace_action_for_test(BindableAction::PrevWorkspace);
+    assert_eq!(app.active_workspace_index_for_test(), 0);
+    let session = app
+        .session_token_at_position_for_test(0)
+        .expect("active workspace session token");
+
+    let should_exit = app.dispatch_user_event_for_test(UserEvent::ShellExited { session });
+    assert!(
+        !should_exit,
+        "Workspace mode does not quit while another workspace remains"
+    );
+    assert!(!app.pending_exit_for_test());
+    assert_eq!(
+        app.workspace_count_for_test(),
+        1,
+        "only the emptied workspace was reaped"
+    );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn app_mode_shell_exit_with_a_sibling_tab_closes_only_the_tab() {
+    // SHELL-EXIT-CLOSES granularity: App mode changes ONLY the workspace-close
+    // decision. A shell exit in a tab that has a sibling tab closes just that
+    // tab; the workspace and the app both survive.
+    let (mut app, _event_loop) = app_or_skip!();
+    app.set_shell_exit_closes_app_for_test();
+    app.set_confirm_close_for_test(false);
+    // Single workspace, two tabs.
+    app.new_tab_for_test();
+    assert_eq!(app.workspace_count_for_test(), 1);
+    assert_eq!(app.active_workspace_tab_count_for_test(), 2);
+    let session = app
+        .session_token_at_position_for_test(0)
+        .expect("tab-0 session token");
+
+    let should_exit = app.dispatch_user_event_for_test(UserEvent::ShellExited { session });
+    assert!(!should_exit, "a sibling tab exit never quits in App mode");
+    assert!(!app.pending_exit_for_test());
+    assert_eq!(
+        app.active_workspace_tab_count_for_test(),
+        1,
+        "only the tab closed"
+    );
+    assert_eq!(app.workspace_count_for_test(), 1, "the workspace survives");
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn app_mode_shell_exit_with_a_sibling_pane_closes_only_the_pane() {
+    // SHELL-EXIT-CLOSES granularity: a shell exit in a pane that has a sibling
+    // pane closes just that pane -- the tab, workspace, and app all survive.
+    let (mut app, _event_loop) = app_or_skip!();
+    app.set_shell_exit_closes_app_for_test();
+    app.set_confirm_close_for_test(false);
+    app.split_active_columns_for_test();
+    assert_eq!(
+        app.active_pane_count_for_test(),
+        2,
+        "the tab is now multi-pane"
+    );
+    // The focused (right) pane's token sits at tab position 0's focused leaf; the
+    // just-exited LEFT pane is a sibling. Exit the focused pane's session.
+    let session = app
+        .session_token_at_position_for_test(0)
+        .expect("focused pane session token");
+
+    let should_exit = app.dispatch_user_event_for_test(UserEvent::ShellExited { session });
+    assert!(!should_exit, "a sibling pane exit never quits in App mode");
+    assert!(!app.pending_exit_for_test());
+    assert_eq!(
+        app.active_pane_count_for_test(),
+        1,
+        "the tab collapsed to one pane"
+    );
+    assert_eq!(app.workspace_count_for_test(), 1);
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn close_workspace_action_stays_single_workspace_scoped_in_app_mode() {
+    // SHELL-EXIT-CLOSES: the setting governs ONLY the shell-exit path. The
+    // explicit Close Workspace action (and the rail x, which routes through the
+    // same close_workspace path) still closes a single workspace in App mode.
+    let (mut app, _event_loop) = app_or_skip!();
+    app.set_shell_exit_closes_app_for_test();
+    app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
+    assert_eq!(app.workspace_count_for_test(), 2);
+
+    app.dispatch_workspace_action_for_test(BindableAction::CloseWorkspace);
+    assert_eq!(
+        app.workspace_count_for_test(),
+        1,
+        "Close Workspace reaps one workspace"
+    );
+    assert!(
+        !app.pending_exit_for_test(),
+        "closing a non-last workspace never quits, even in App mode"
+    );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn app_mode_exit_quit_snapshot_captures_every_workspace() {
+    // SHELL-EXIT-CLOSES persistence: when App mode escalates a workspace-closing
+    // shell exit into a quit, the arena is NOT reaped first, so a shape snapshot
+    // taken at that moment still contains every workspace -- including the one
+    // where exit was typed -- so layout restore reopens them all.
+    let (mut app, _event_loop) = app_or_skip!();
+    app.set_shell_exit_closes_app_for_test();
+    app.set_confirm_close_for_test(false);
+    app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
+    app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
+    assert_eq!(app.workspace_count_for_test(), 3);
+    // Exit the active (third, last) workspace's shell.
+    let session = app
+        .session_token_at_position_for_test(0)
+        .expect("active workspace session token");
+
+    let should_exit = app.dispatch_user_event_for_test(UserEvent::ShellExited { session });
+    assert!(should_exit && app.pending_exit_for_test());
+
+    let shape = app.capture_shape_for_test();
+    assert_eq!(
+        shape.workspaces.len(),
+        3,
+        "the shutdown snapshot captures all three workspaces (including the exited one)"
+    );
+}

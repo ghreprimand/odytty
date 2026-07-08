@@ -503,6 +503,13 @@ impl OverlayUi {
         self.context_menu.set_rail_clearance(left, right);
     }
 
+    /// Snapshot the total workspace count on the open context menu (RAIL-REORDER)
+    /// so a `WorkspaceSlot` menu can gate its Move Up/Down rows on the clicked
+    /// slot's position. The App calls this right after opening a rail-slot menu.
+    pub(super) fn set_context_menu_workspace_count(&mut self, count: usize) {
+        self.context_menu.set_workspace_count(count);
+    }
+
     /// Open the connection-row context menu (ODP-2C) at `spawn` for the row at
     /// filtered index `row_index`, snapshotting `host` so the menu can gate
     /// Edit/Remove (OdyTTY-owned only) and route each of the five actions. This
@@ -1260,6 +1267,20 @@ impl OverlayUi {
                         }
                         crate::native::context_menu_ui::ContextMenuSurface::Content => {
                             OverlayOutcome::ContextMenuCloseActiveWorkspace
+                        }
+                        _ => OverlayOutcome::Consumed,
+                    },
+                    // RAIL-REORDER: the move rows are WorkspaceSlot-only; they
+                    // carry the clicked slot's rail index.
+                    ContextMenuItem::MoveWorkspaceUp => match self.context_menu.surface() {
+                        crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(idx) => {
+                            OverlayOutcome::ContextMenuMoveWorkspaceUp(idx)
+                        }
+                        _ => OverlayOutcome::Consumed,
+                    },
+                    ContextMenuItem::MoveWorkspaceDown => match self.context_menu.surface() {
+                        crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(idx) => {
+                            OverlayOutcome::ContextMenuMoveWorkspaceDown(idx)
                         }
                         _ => OverlayOutcome::Consumed,
                     },
@@ -2689,6 +2710,13 @@ pub(super) enum OverlayOutcome {
     ContextMenuRenameWorkspace(usize),
     /// Close the workspace at rail index `usize` entirely (WorkspaceSlot).
     ContextMenuCloseWorkspace(usize),
+    /// Move the workspace at rail index `usize` one slot toward the front of the
+    /// rail (RAIL-REORDER, WorkspaceSlot). The App reorders and follows the
+    /// active workspace by identity.
+    ContextMenuMoveWorkspaceUp(usize),
+    /// Move the workspace at rail index `usize` one slot toward the back of the
+    /// rail (RAIL-REORDER, WorkspaceSlot).
+    ContextMenuMoveWorkspaceDown(usize),
     /// Rename the ACTIVE workspace (content-grid menu, which has no per-workspace
     /// click target). The App resolves the active index itself.
     ContextMenuRenameActiveWorkspace,

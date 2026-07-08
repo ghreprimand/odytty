@@ -253,7 +253,10 @@ impl TabBar {
         let active_lbl = rgb(tab_chrome::active_label(colors));
         let hover_fill = rgb(tab_chrome::hover_fill(colors));
         let hover_lbl = rgb(tab_chrome::hover_label(colors));
-        let dim_plus = rgb(colors.inactive);
+        // RAIL-PLUS-GAP / F4-PLUS: the resting `+` lifts out of the dim inactive
+        // floor so it reads as a deliberate "add" control; hover still goes full
+        // active-label bright on top of that.
+        let rest_plus = rgb(tab_chrome::new_slot_plus_rest(colors));
 
         // The whole row starts as the panel surface — inactive tabs and
         // inter-slot gaps recede into it (no per-tab geometry).
@@ -308,14 +311,15 @@ impl TabBar {
             }
         }
 
-        // New-tab `+` affordance: a dim glyph on the bare wallpaper at rest,
-        // brightening (and gaining a whisper fill) on hover.
+        // New-tab `+` affordance: a lifted glyph on the bare wallpaper at rest
+        // (brighter than an inactive tab label so it reads as an add control),
+        // brightening further (and gaining a whisper fill) on hover.
         if let Some(nt_col) = layout.new_tab_col {
             let is_hovered = matches!(self.hover, Some(TabHit::NewTab));
             let (nt_bg, nt_fg) = if is_hovered {
                 (hover_fill, active_lbl)
             } else {
-                (panel_surface, dim_plus)
+                (panel_surface, rest_plus)
             };
             for col in nt_col..(nt_col + NEW_TAB_COLS).min(row.len()) {
                 row[col].attrs.background = nt_bg;
@@ -1112,7 +1116,10 @@ mod tests {
     }
 
     #[test]
-    fn new_tab_plus_is_dim_at_rest_and_bright_on_hover() {
+    fn new_tab_plus_is_visible_at_rest_and_brighter_on_hover() {
+        // RAIL-PLUS-GAP / F4-PLUS: the resting `+` is lifted above the dim
+        // inactive-label floor so it reads as a deliberate add control, yet
+        // stays subordinate to the active label; hover brightens it further.
         let src = MockSource::new(&["a"], 0);
         let out = render_default(&src);
         let plus = out.glyphs.iter().find(|g| g.ch == '+').expect("+ glyph");
@@ -1121,10 +1128,14 @@ mod tests {
             rgb(tab_chrome::wallpaper_background(COLORS)),
             "+ sits on the bare wallpaper at rest"
         );
-        assert_eq!(
-            plus.attrs.foreground,
-            rgb(COLORS.inactive),
-            "+ is dim at rest"
+        let rest_luma = luma(plus.attrs.foreground);
+        assert!(
+            rest_luma > luma(rgb(COLORS.inactive)),
+            "resting + is more visible than an inactive tab label"
+        );
+        assert!(
+            rest_luma < luma(rgb(tab_chrome::active_label(COLORS))),
+            "resting + stays subordinate to the active label"
         );
         let out = render_with(&hovered_bar(TabHit::NewTab), &src);
         let plus = out.glyphs.iter().find(|g| g.ch == '+').expect("+ glyph");
@@ -1134,8 +1145,8 @@ mod tests {
             "+ gains the whisper fill on hover"
         );
         assert!(
-            luma(plus.attrs.foreground) > luma(rgb(COLORS.inactive)),
-            "+ brightens on hover"
+            luma(plus.attrs.foreground) > rest_luma,
+            "+ brightens further on hover than at rest"
         );
     }
 

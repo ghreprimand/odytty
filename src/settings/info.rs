@@ -1550,6 +1550,19 @@ impl Settings {
                 numeric: None,
             },
             SettingInfo {
+                group: "Sessions",
+                key: "shell_exit_closes",
+                env: SHELL_EXIT_CLOSES_ENV,
+                name: "Typing exit closes",
+                value: self.shell_exit_closes.as_str().to_owned(),
+                description: "What typing exit (or Ctrl-D on a live shell) does when it would close a whole workspace. Workspace (default) closes just that workspace, exactly as before; closing the last workspace still quits. Application quits OdyTTY instead whenever a shell exit would close a workspace, even if other workspaces are open \u{2014} it pairs with Restore workspaces so the same set reopens next launch. Either way the rail close button and the close-tab / close-workspace / close-pane keybinds still close a single surface, and exiting a shell that has sibling tabs or panes still closes only that tab or pane.",
+                kind: SettingKind::Enum,
+                range: None,
+                options: &["workspace", "app"],
+                reloadable: true,
+                numeric: None,
+            },
+            SettingInfo {
                 group: "Clipboard",
                 key: "osc52_read",
                 env: OSC52_READ_ENV,
@@ -1782,6 +1795,7 @@ impl Settings {
             "remote_image_paste" => self.remote_image_paste.as_str().to_owned(),
             "session_replay" => bool_display(self.session_replay).to_owned(),
             "restore_workspaces" => bool_display(self.restore_workspaces).to_owned(),
+            "shell_exit_closes" => self.shell_exit_closes.as_str().to_owned(),
             "interactive_urls" => bool_display(self.interactive_urls).to_owned(),
             "interactive_paths" => bool_display(self.interactive_paths).to_owned(),
             "interactive_paths_barewords" => {

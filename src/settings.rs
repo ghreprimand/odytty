@@ -1024,6 +1024,40 @@ impl BellMode {
     }
 }
 
+/// What typing `exit` (or Ctrl-D EOF on a live shell) does when it would close a
+/// whole workspace. Governs ONLY the shell-exit path -- the rail close button
+/// and the close-tab / close-workspace / close-pane keybinds keep their
+/// per-surface meaning in both modes. Presentation-independent behavior toggle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ShellExitCloses {
+    /// A shell exit that empties its workspace closes just that workspace (the
+    /// historical cascade). Closing the last workspace still exits the app.
+    #[default]
+    Workspace,
+    /// A shell exit that would close a workspace quits OdyTTY instead, even when
+    /// other workspaces exist -- pairs with layout restore so the whole set
+    /// reopens next launch. Exits with sibling tabs/panes still close only the
+    /// tab/pane; only the workspace-closing case escalates to an app quit.
+    App,
+}
+
+impl ShellExitCloses {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Workspace => "workspace",
+            Self::App => "app",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match normalize_name(value).as_str() {
+            "workspace" | "workspaceonly" | "closeworkspace" => Some(Self::Workspace),
+            "app" | "application" | "quit" | "closeapp" => Some(Self::App),
+            _ => None,
+        }
+    }
+}
+
 /// Typed runtime settings used by the native prototype.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
@@ -1365,6 +1399,9 @@ pub struct Settings {
     /// How the terminal reacts to BEL (`0x07`). Defaults to `Urgent` (window
     /// attention when unfocused, no flash). See [`BellMode`].
     pub bell: BellMode,
+    /// What typing `exit` does when it would close a whole workspace: close the
+    /// single workspace (default) or quit OdyTTY. See [`ShellExitCloses`].
+    pub shell_exit_closes: ShellExitCloses,
     /// Whether `ODYTTY_THEME=system` was set: a single-key alias that enables
     /// [`Settings::follow_os_theme`] with default dark/light theme mappings
     /// (OS-THEME alias). `false` (the default) means the authored
@@ -1553,6 +1590,7 @@ impl Default for Settings {
             cvd_mode: CvdMode::default(),
             cvd_strength: DEFAULT_CVD_STRENGTH,
             bell: BellMode::default(),
+            shell_exit_closes: ShellExitCloses::default(),
             theme_is_system: false,
             follow_os_theme: DEFAULT_FOLLOW_OS_THEME,
             os_theme_dark: None,
@@ -2214,6 +2252,8 @@ impl Settings {
         let cvd_mode = parse_cvd_mode(get(CVD_MODE_ENV).as_deref(), &mut warn);
         let cvd_strength = parse_cvd_strength(get(CVD_STRENGTH_ENV).as_deref(), &mut warn);
         let bell = parse_bell(get(BELL_ENV).as_deref(), &mut warn);
+        let shell_exit_closes =
+            parse_shell_exit_closes(get(SHELL_EXIT_CLOSES_ENV).as_deref(), &mut warn);
         // `theme = system` forces OS following on regardless of the explicit
         // `follow_os_theme` value, so the alias is self-sufficient. The explicit
         // setting still wins for display/writeback of that specific key.
@@ -2395,6 +2435,7 @@ impl Settings {
             cvd_mode,
             cvd_strength,
             bell,
+            shell_exit_closes,
             theme_is_system,
             follow_os_theme,
             os_theme_dark,
@@ -2629,6 +2670,10 @@ impl Settings {
         values.insert(CVD_MODE_ENV, self.cvd_mode.as_str().to_owned());
         values.insert(CVD_STRENGTH_ENV, format_float(self.cvd_strength));
         values.insert(BELL_ENV, self.bell.as_str().to_owned());
+        values.insert(
+            SHELL_EXIT_CLOSES_ENV,
+            self.shell_exit_closes.as_str().to_owned(),
+        );
         values.insert(
             FOLLOW_OS_THEME_ENV,
             bool_display(self.follow_os_theme).to_owned(),

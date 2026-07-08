@@ -603,6 +603,29 @@ pub(super) fn parse_bell(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> Be
     }
 }
 
+pub(super) fn parse_shell_exit_closes(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> ShellExitCloses {
+    let Some(raw) = raw else {
+        return ShellExitCloses::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return ShellExitCloses::default();
+    }
+    match ShellExitCloses::parse(trimmed) {
+        Some(mode) => mode,
+        None => {
+            warn(&format!(
+                "{SHELL_EXIT_CLOSES_ENV}={trimmed:?} is not workspace|app; using workspace"
+            ));
+            ShellExitCloses::default()
+        }
+    }
+}
+
 pub(super) fn parse_tab_bar_placement(
     raw: Option<&OsStr>,
     warn: &mut impl FnMut(&str),

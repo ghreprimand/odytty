@@ -2785,6 +2785,41 @@ impl WorkspaceSet {
         true
     }
 
+    /// Move the workspace at rail index `idx` one slot toward the front (`up`)
+    /// or the back of the rail (RAIL-REORDER). An adjacent swap: the ACTIVE
+    /// workspace follows by identity, so reordering never changes which
+    /// workspace is focused -- if the active slot is one of the two swapped, its
+    /// index moves with it. No-op (returns `false`) when the move would run off
+    /// either end (idx 0 up, last idx down) or `idx` is out of range; otherwise
+    /// returns `true`. The workspace list is a plain `Vec<Workspace>`, so the
+    /// swap carries each workspace's whole state (name, tabs, binding) with it,
+    /// and the shape snapshot captures the new order for restore.
+    pub(super) fn move_workspace(&mut self, idx: usize, up: bool) -> bool {
+        if idx >= self.workspaces.len() {
+            return false;
+        }
+        let target = if up {
+            if idx == 0 {
+                return false;
+            }
+            idx - 1
+        } else {
+            if idx + 1 >= self.workspaces.len() {
+                return false;
+            }
+            idx + 1
+        };
+        self.workspaces.swap(idx, target);
+        // Follow the active workspace by identity across the swap: only the two
+        // swapped slots change index, so at most one of them is the active one.
+        if self.active_ws == idx {
+            self.active_ws = target;
+        } else if self.active_ws == target {
+            self.active_ws = idx;
+        }
+        true
+    }
+
     /// Rename the workspace at rail index `idx`. Out-of-range requests are
     /// no-ops. Used by the "Rename Workspace" action / palette entry (targeting
     /// the active index) and, later, the rail's in-place rename.
@@ -2925,6 +2960,33 @@ impl WorkspaceSet {
                     .get(&leaf)
                     .is_some_and(Session::foreground_job_running)
             })
+    }
+
+    /// Whether a shell exit on `token` would close its ENTIRE workspace: the
+    /// session is the sole pane of the sole tab of its workspace, so reaping it
+    /// empties the workspace (SHELL-EXIT-CLOSES). Drives the App-mode exit
+    /// setting, which escalates a workspace-closing shell exit into an app quit.
+    /// `false` when the token is unknown, its tab has sibling panes, or its
+    /// workspace has sibling tabs -- those exits close only the pane or tab.
+    pub(super) fn shell_exit_closes_workspace(&self, token: SessionToken) -> bool {
+        let Some((ws_idx, tab_idx)) = self.locate_token(token) else {
+            return false;
+        };
+        let ws = &self.workspaces[ws_idx];
+        ws.tabs.len() == 1 && ws.tabs[tab_idx].layout.leaves().len() == 1
+    }
+
+    /// Whether any session OTHER than `token` has a running foreground job
+    /// (SHELL-EXIT-CLOSES). The App-mode exit quit reuses the window-close
+    /// confirmation when this is true, so quitting on a shell exit cannot
+    /// silently kill a live job in another workspace. The exiting session itself
+    /// is excluded because it has already ended. Attached sessions report
+    /// not-running (their job lives on the remote host), matching the
+    /// confirm-close semantics elsewhere.
+    pub(super) fn any_foreground_job_running_except(&self, token: SessionToken) -> bool {
+        self.sessions
+            .iter()
+            .any(|(id, session)| *id != token && session.foreground_job_running())
     }
 }
 
@@ -5040,6 +5102,169 @@ mod tests {
         assert!(set.switch_workspace(0));
         assert_eq!(set.tab_count(), 2);
         assert_eq!(set.active_id(), SessionToken(0));
+    }
+
+    #[test]
+    fn move_workspace_reorders_and_follows_the_active_by_identity() {
+        // Three workspaces (tokens 0/1/2), ws1 active.
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push_workspace(build_session_with_id(SessionToken(1)));
+        set.push_workspace(build_session_with_id(SessionToken(2)));
+        assert!(set.switch_workspace(1));
+        assert_eq!(
+            set.workspace_names(),
+            vec!["Workspace 1", "Workspace 2", "Workspace 3"]
+        );
+        assert_eq!(set.active_workspace_index(), 1);
+        assert_eq!(set.active_id(), SessionToken(1));
+
+        // Move the active workspace (idx 1) up: it swaps with idx 0, and the
+        // active index follows it to 0 -- same workspace stays focused.
+        assert!(set.move_workspace(1, true));
+        assert_eq!(
+            set.workspace_names(),
+            vec!["Workspace 2", "Workspace 1", "Workspace 3"]
+        );
+        assert_eq!(set.active_workspace_index(), 0);
+        assert_eq!(
+            set.active_id(),
+            SessionToken(1),
+            "active workspace unchanged by the move"
+        );
+
+        // Move a NON-active workspace (idx 2 = "Workspace 3") up: it swaps into
+        // idx 1, which does NOT touch the active slot (idx 0), so the active
+        // index is unchanged and still points at the same workspace.
+        assert!(set.move_workspace(2, true));
+        assert_eq!(
+            set.workspace_names(),
+            vec!["Workspace 2", "Workspace 3", "Workspace 1"]
+        );
+        assert_eq!(set.active_workspace_index(), 0);
+        assert_eq!(set.active_id(), SessionToken(1));
+
+        // The last slot (idx 2) cannot move down: a no-op past the end.
+        assert!(
+            !set.move_workspace(2, false),
+            "cannot move the last slot down"
+        );
+        assert_eq!(set.active_workspace_index(), 0);
+
+        // Reorder back to the original rail order via the down direction: move
+        // "Workspace 2" (the active, at idx 0) down twice.
+        assert!(set.move_workspace(0, false));
+        assert_eq!(
+            set.active_workspace_index(),
+            1,
+            "active follows its slot down"
+        );
+        assert!(set.move_workspace(1, false));
+        assert_eq!(set.active_workspace_index(), 2);
+        assert_eq!(
+            set.workspace_names(),
+            vec!["Workspace 3", "Workspace 1", "Workspace 2"]
+        );
+        assert_eq!(
+            set.active_id(),
+            SessionToken(1),
+            "same workspace focused throughout"
+        );
+    }
+
+    #[test]
+    fn move_workspace_guards_the_ends_and_bad_indices() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push_workspace(build_session_with_id(SessionToken(1)));
+        // Top guard: idx 0 cannot move up. Bottom guard: last idx cannot move down.
+        assert!(!set.move_workspace(0, true));
+        assert!(!set.move_workspace(1, false));
+        // Out-of-range index is a no-op.
+        assert!(!set.move_workspace(9, true));
+        assert!(!set.move_workspace(9, false));
+        // Order untouched by every rejected move.
+        assert_eq!(set.workspace_names(), vec!["Workspace 1", "Workspace 2"]);
+    }
+
+    #[test]
+    fn move_workspace_order_round_trips_through_the_shape_snapshot() {
+        // Reorder, then confirm the captured shape preserves the new rail order
+        // (the autosave/restore path serializes `workspaces` in this order).
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push_workspace(build_session_with_id(SessionToken(1)));
+        set.push_workspace(build_session_with_id(SessionToken(2)));
+        set.rename_workspace(0, "alpha".to_owned());
+        set.rename_workspace(1, "beta".to_owned());
+        set.rename_workspace(2, "gamma".to_owned());
+        assert!(set.switch_workspace(2)); // gamma active
+        // Move gamma (idx 2) up to the front.
+        assert!(set.move_workspace(2, true));
+        assert!(set.move_workspace(1, true));
+        assert_eq!(set.workspace_names(), vec!["gamma", "alpha", "beta"]);
+        assert_eq!(
+            set.active_workspace_index(),
+            0,
+            "gamma still active after the move"
+        );
+
+        let shape = set.capture_shape();
+        let order: Vec<&str> = shape.workspaces.iter().map(|w| w.name.as_str()).collect();
+        assert_eq!(
+            order,
+            vec!["gamma", "alpha", "beta"],
+            "snapshot preserves the reordered rail"
+        );
+        assert_eq!(
+            shape.active_workspace, 0,
+            "active index captured after the reorder"
+        );
+    }
+
+    #[test]
+    fn shell_exit_closes_workspace_only_for_a_sole_pane_sole_tab() {
+        // SHELL-EXIT-CLOSES: the predicate is true only when the exiting session
+        // is the sole pane of the sole tab of its workspace (reaping it empties
+        // the workspace). Sibling panes or tabs make it false -- those exits
+        // close only a pane or tab, never the workspace.
+        let mut set = WorkspaceSet::new(build_session(), None);
+        // ws0: one single-pane tab (token 0). The predicate holds.
+        assert!(set.shell_exit_closes_workspace(SessionToken(0)));
+
+        // Give ws0 a second tab (token 1): now token 0 has a sibling tab.
+        set.push(build_session_with_id(SessionToken(1)));
+        assert!(
+            !set.shell_exit_closes_workspace(SessionToken(0)),
+            "a sibling tab means the exit closes only the tab"
+        );
+        assert!(
+            !set.shell_exit_closes_workspace(SessionToken(1)),
+            "the sibling tab itself closes only the tab"
+        );
+
+        // A second workspace with a SPLIT tab (tokens 2 + 3 in one tab): a
+        // sibling pane means the exit closes only the pane.
+        set.push_workspace(build_session_with_id(SessionToken(2)));
+        assert!(set.switch_workspace(1));
+        set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(3)));
+        assert!(
+            !set.shell_exit_closes_workspace(SessionToken(2)),
+            "a sibling pane means the exit closes only the pane"
+        );
+        assert!(!set.shell_exit_closes_workspace(SessionToken(3)));
+
+        // An unknown token is never a workspace-closing exit.
+        assert!(!set.shell_exit_closes_workspace(SessionToken(999)));
+    }
+
+    #[test]
+    fn any_foreground_job_running_except_excludes_the_named_session() {
+        // SHELL-EXIT-CLOSES: the "except" scan skips the exiting session. With a
+        // lone workspace, excluding its only session leaves nothing to scan, so
+        // the result is false regardless of that session's (already-ended) job.
+        let set = WorkspaceSet::new(build_session(), None);
+        assert!(!set.any_foreground_job_running_except(SessionToken(0)));
+        // An unknown exclusion token scans every real session; the test shells
+        // are idle (`ForegroundJob::None`), so still false -- and never panics.
+        assert!(!set.any_foreground_job_running_except(SessionToken(999)));
     }
 
     #[test]

@@ -351,6 +351,7 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   standalone, no multiplexer required.
 - **Shipped — Close-confirmation prompt** when a child process or job is still
   running.
+- **Shipped — Exit-behavior setting (`shell_exit_closes`).** Choose what typing `exit` does when it would close a whole workspace: close just that workspace (default) or quit OdyTTY (pairs with layout restore so the same set reopens). Governs only the shell-exit path; the rail close button and the close-tab/close-workspace/close-pane keybinds keep their per-surface meaning, and the App-mode quit honors the running-job close-confirmation.
 - **Shipped — Window-decoration control.** Toggle client-side vs server-side
   decorations or borderless mode (compositor-dependent on Linux).
 - **Shipped — Bindable clear-input action** (low priority; the standard key
@@ -429,8 +430,10 @@ handful of deliberately-deferred niceties.
 - **Shipped — Tabs.** Multiple PTY/terminal sessions, tab switching, tab close,
   tab rename, new-tab affordance, and conventional tab keybindings.
 - **Shipped — Workspaces.** A layer above tabs: named workspaces each own their own tab strip, listed in a vertical rail that auto-appears once a second workspace exists (a single-workspace session is unchanged). Create/rename/close/cycle by keyboard or context menu, move a tab between workspaces from a named-destination picker, and bind a workspace to a remote host so its new tabs open there.
+- **Shipped — Workspace reorder.** The workspace rail's right-click menu moves a slot up or down; the reorder is an adjacent swap that follows the active workspace by identity (the focused workspace never changes) and is captured in the shape autosave so the order restores next launch.
 - **Shipped — Tab polish.** In-band image placements offset correctly while the
   tab bar is visible.
+- **Shipped — New-slot affordance clarity.** The tab bar and workspace-rail `+` rest at a lifted color (not the dim inactive floor) so they read as deliberate add controls, brightening further on hover. A dead separator row with a faint rule sits between the workspace list and the rail `+`, so a click just past the last workspace no longer opens one by accident.
 - **Shipped — A detachable-capable core.** Persistent sessions were architected
   with detaching designed in from the start rather than retrofitted, through an
   OdyTTY-owned, versioned terminal-state snapshot format.

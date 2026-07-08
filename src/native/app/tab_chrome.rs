@@ -69,6 +69,13 @@ pub(super) const HOVER_FILL_BLEND: f32 = 0.35;
 /// the active label color — "one tier" of lift, subordinate to the active label.
 pub(super) const HOVER_LABEL_LIFT: f32 = 0.40;
 
+/// How far the resting new-slot `+` affordance is lifted from the `inactive`
+/// role toward the active label so it reads as a deliberate "add" control at
+/// rest (F4-PLUS). A touch stronger than [`HOVER_LABEL_LIFT`] so the `+` clears
+/// the dim inactive-label floor it used to share; still well below the full
+/// active label, which the `+` reaches only on hover.
+pub(super) const NEW_SLOT_PLUS_REST_LIFT: f32 = 0.55;
+
 /// F4-P1 panel: base foreground-ward blend fraction of the theme `background`
 /// that forms the panel-tint cell surface at the default strength (0.5). A
 /// foreground-ward blend is direction-correct on every theme (lighter on dark
@@ -145,6 +152,20 @@ pub(super) fn inactive_label(colors: TabBarColors, distance: usize) -> Srgb {
 /// subordinate to the full active label.
 pub(super) fn hover_label(colors: TabBarColors) -> Srgb {
     blend_srgb(colors.inactive, active_label(colors), HOVER_LABEL_LIFT)
+}
+
+/// The resting new-slot `+` affordance color (F4-PLUS): the `inactive` role
+/// lifted toward the active label by [`NEW_SLOT_PLUS_REST_LIFT`], so the `+`
+/// reads as an intentional "add" button at rest -- brighter than any inactive
+/// tab/slot label, still subordinate to the active label (and to its own hover
+/// state, which goes full-active). Shared by the top tab bar and the workspace
+/// rail so both `+` affordances lift identically.
+pub(super) fn new_slot_plus_rest(colors: TabBarColors) -> Srgb {
+    blend_srgb(
+        colors.inactive,
+        active_label(colors),
+        NEW_SLOT_PLUS_REST_LIFT,
+    )
 }
 
 /// The HOVER fill color: the wallpaper-through background blended a whisper

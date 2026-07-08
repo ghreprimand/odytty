@@ -910,11 +910,17 @@ fn left_rail_hit_test_resolves_switch_close_and_new() {
         "slot 0 × → close"
     );
 
-    // F4-P1 floating-`+` fix: the `+` anchors one gap below tab 1's single label
-    // row (4 + 1 + gap 1 = row 6), NOT a full stride below (old row 7). Centre
-    // y = 6*16 + 8 = 104.
-    app.set_pointer_px_for_test(64.0, 104.0);
+    // RAIL-PLUS-GAP: the `+` anchors a dead gap below slot 1's end row (end 6 +
+    // gap 1 = row 7); row 6 is the dead separator. Centre y = 7*16 + 8 = 120.
+    app.set_pointer_px_for_test(64.0, 120.0);
     assert_eq!(app.tab_bar_hit_for_test(), Some("new"), "+ slot → new");
+    // The dead separator row (6, centre y = 104) is not a hit.
+    app.set_pointer_px_for_test(64.0, 104.0);
+    assert_eq!(
+        app.tab_bar_hit_for_test(),
+        None,
+        "the dead separator row above the + is inert"
+    );
 }
 
 #[test]
@@ -1615,6 +1621,42 @@ fn autohide_rail_stays_revealed_under_its_own_workspace_menu() {
         app.rail_overlay_visible_for_test(),
         "the rail stays revealed under its own context menu"
     );
+}
+
+#[test]
+fn move_workspace_at_reorders_the_rail_and_keeps_focus() {
+    // RAIL-REORDER: the App-side reorder (as a context-menu Move Up/Down would
+    // fire) swaps adjacent slots and follows the active workspace by identity,
+    // so the focused workspace never changes under the user.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    add_workspace(&mut app);
+    add_workspace(&mut app);
+    app.rename_workspace_for_test(0, "a");
+    app.rename_workspace_for_test(1, "b");
+    app.rename_workspace_for_test(2, "c");
+    // add_workspace switches to the newest, so ws2 ("c") is active.
+    assert_eq!(app.workspace_names_for_test(), vec!["a", "b", "c"]);
+    assert_eq!(app.active_workspace_index_for_test(), 2);
+
+    // Move the active workspace ("c", idx 2) up: it swaps with "b" and the
+    // active index follows to 1 -- still "c".
+    app.move_workspace_at_for_test(2, true);
+    assert_eq!(app.workspace_names_for_test(), vec!["a", "c", "b"]);
+    assert_eq!(app.active_workspace_index_for_test(), 1);
+
+    // Move a background workspace ("a", idx 0) down past the active: active
+    // shifts to 0 so it still points at "c".
+    app.move_workspace_at_for_test(0, false);
+    assert_eq!(app.workspace_names_for_test(), vec!["c", "a", "b"]);
+    assert_eq!(app.active_workspace_index_for_test(), 0);
+
+    // Guard: the first slot cannot move up -- order and focus unchanged.
+    app.move_workspace_at_for_test(0, true);
+    assert_eq!(app.workspace_names_for_test(), vec!["c", "a", "b"]);
+    assert_eq!(app.active_workspace_index_for_test(), 0);
 }
 
 #[test]
@@ -3800,9 +3842,10 @@ fn the_rail_plus_slot_resolves_to_a_new_workspace_hit() {
     app.rename_workspace_for_test(0, "a");
     app.rename_workspace_for_test(1, "b");
 
-    // The `+` anchors one gap below workspace 1's single label row (row 6 centre
-    // y = 6*16 + 8 = 104), mirroring the tab-rail `+` geometry.
-    app.set_pointer_px_for_test(64.0, 104.0);
+    // RAIL-PLUS-GAP: the `+` anchors a dead gap below workspace 1's end row
+    // (row 7 centre y = 7*16 + 8 = 120), with the dead separator on row 6,
+    // mirroring the tab-rail `+` geometry.
+    app.set_pointer_px_for_test(64.0, 120.0);
     assert_eq!(app.tab_bar_hit_for_test(), Some("new"), "+ slot → new");
     assert_eq!(
         app.chrome_hit_band_for_test(),
