@@ -549,7 +549,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         the conventional blinking terminal default because `winit` exposes no
         OS caret-blink preference; the settings help text now says this plainly.
 - [ ] Profiles and CLI config introspection.
-  - [x] `--list-themes`: enumerate the 100 built-in themes as
+  - [x] `--list-themes`: enumerate the 112 built-in themes as
         `name`/appearance/family rows.
   - [x] `--list-fonts`: enumerate discoverable font files (path, filename-stem
         name, monospace on/off) from the renderer's bounded search directories.
