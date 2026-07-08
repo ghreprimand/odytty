@@ -106,6 +106,8 @@ brew tap ghreprimand/odytty
 brew install --cask odytty
 ```
 
+Recent Homebrew versions require trusting a third-party tap before its cask will load. If the install stops with `Refusing to load cask ... from untrusted tap`, run `brew trust ghreprimand/odytty` (or `brew trust --cask ghreprimand/odytty/odytty` to trust just this cask) and re-run the install. It is a one-time per-machine trust.
+
 The **cask** installs the prebuilt, ad-hoc-signed `OdyTTY.app` into
 `/Applications`. Homebrew is Apple-independent, and `brew` strips the
 quarantine attribute on install, so the app launches with no "unidentified

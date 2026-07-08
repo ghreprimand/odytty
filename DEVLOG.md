@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Homebrew cask trust-gate note and cask deprecation fix
+
+Post-release documentation and packaging corrections for the macOS Homebrew
+channel.
+
+Recent Homebrew versions gate third-party casks behind a per-machine trust
+step, so a fresh macOS install following the tap-and-install commands could
+stop with `Refusing to load cask ... from untrusted tap`. The install docs
+(`docs/install.md`, `README.md`, `dist/homebrew/README.md`) now document the
+one-time `brew trust ghreprimand/odytty` remediation, framed so older Homebrew
+that lacks the command is unaffected.
+
+The cask template (`dist/homebrew/Casks/odytty.rb`) switches its macOS
+requirement from the deprecated string comparison `">= :big_sur"` to the bare
+`:big_sur` symbol, which already means at least Big Sur; this keeps future
+releases warning-free since the template is copied into the tap on each release.
+
+Docs and packaging template only; no behavior change.
+
 ## 2026-07-08 -- Release v0.8.2 — macOS app and Homebrew tap, split-pane scroll glide, workspace reorder, and exit control
 
 Packaging and workspace-ergonomics release.

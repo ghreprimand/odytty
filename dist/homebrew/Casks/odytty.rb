@@ -25,7 +25,7 @@ cask "odytty" do
   homepage "https://github.com/ghreprimand/odytty"
 
   depends_on arch: :arm64
-  depends_on macos: ">= :big_sur"
+  depends_on macos: :big_sur
 
   app "OdyTTY.app"
 end
