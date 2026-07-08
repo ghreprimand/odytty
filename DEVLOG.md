@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Default body-font size returns to 20px
+
+The fresh-install default body-font size is now 20px (was 21), returning to the
+pre-JetBrains-era 20px baseline. `DEFAULT_FONT_SIZE_PX` is the single source of
+truth: the settings panel's zoom bounds, the CLI default, and every derived
+default follow the constant automatically. Only the genuine default sites move —
+explicit font-size overrides in tests and the config-writeback path (which set a
+specific size independent of the default) are unchanged.
+
+The `--show-config` default dump reflects the new value automatically (it prints
+the constant), and the sample/knobs-table defaults in the runtime-knobs and
+config-example docs are updated to match. Platform-uniform: a shared constant
+with no `cfg` surface, identical on Linux, macOS, and Windows.
+
+---
+
 ## 2026-07-08 -- Split panes gain per-pane whole-row scroll glide
 
 The animated scroll glide (`scroll_glide`) previously engaged only on a

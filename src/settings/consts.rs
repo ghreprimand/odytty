@@ -211,7 +211,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
 /// Default body-font size on a fresh install. Tuned for the bundled default
 /// family (Victor Mono), which reads comfortably a notch smaller than the prior
 /// JetBrains-era default.
-pub const DEFAULT_FONT_SIZE_PX: f32 = 21.0;
+pub const DEFAULT_FONT_SIZE_PX: f32 = 20.0;
 pub const MIN_FONT_SIZE_PX: f32 = 6.0;
 pub const MAX_FONT_SIZE_PX: f32 = 72.0;
 pub const DEFAULT_THEME: Theme = Theme::ODYSSEY_DEFAULT;

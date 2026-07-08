@@ -23,7 +23,7 @@ valid rewrite appears.
 ```conf
 theme = odyssey-default
 font_family = Victor Mono
-font_size = 21.0
+font_size = 20.0
 render_quality = high
 min_contrast = 17.0
 ```
@@ -360,7 +360,7 @@ environment variable was not set at startup.
 | `font` | `ODYTTY_FONT` | `.ttf`, `.otf`, or `.ttc` path | unset |
 | `font_family` | `ODYTTY_FONT_FAMILY` | Monospace family name or font path | `Victor Mono` |
 | `font_weight` | `ODYTTY_FONT_WEIGHT` | Weight suffix such as `Light`, `Medium`, `SemiBold`, or empty | empty |
-| `font_size` | `ODYTTY_FONT_SIZE` | Float, `6.0..=72.0` px | `21.0` |
+| `font_size` | `ODYTTY_FONT_SIZE` | Float, `6.0..=72.0` px | `20.0` |
 | `line_height` | `ODYTTY_LINE_HEIGHT` | Float, `1.0..=2.0` | `1.0` |
 | `text_gamma` | `ODYTTY_TEXT_GAMMA` | Float, `0.5..=3.0` | `1.2` |
 | `stem_darken` | `ODYTTY_STEM_DARKEN` | Float, `0.0..=1.0` | `0.7` |
