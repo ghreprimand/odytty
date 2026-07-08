@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- PowerShell click-to-place append off-by-one correction
+
+Click-to-position on a live PowerShell prompt under Windows/ConPTY landed the
+caret one cell left of the clicked glyph, but only from the append origin — a
+click made while the line-editor caret sat one past the last input glyph.
+PSReadLine emits a terminal cursor one edit-position right of its true buffer
+caret at that append position, and the synthesized click-to-place travel is
+derived from that emitted cursor, so a left-travel from the append origin
+over-shot by exactly one press. The `Exact` input-region path (fish / OSC 133)
+validates its cursor against the live grid and was unaffected; the
+`RightEdgeUnknown` heuristic path (PowerShell, bash) has no such validation and
+trusted the emitted position, which is why the miss was PowerShell-only despite
+identical pixel and delta arithmetic across platforms.
+
+The travel model now pulls the source caret back one glyph at the append origin
+only — the caret at the region's end column on its last row — and only on the
+`RightEdgeUnknown` path. This is deliberately not a blanket shift: once the model
+re-syncs to the click column, a subsequent mid-line click carries the correct
+cursor and must not be corrected again, so the gate is strictly the append
+origin. The correction is Windows-scoped: Linux and macOS shells report an
+accurate cursor on this path, so applying it there would introduce an
+off-by-one where none exists. The `Exact` path stays byte-identical on every
+platform.
+
+New unit tests pin the trace geometry directly — the corrected 7-press travel on
+Windows, the uncorrected 8-press travel off Windows (proving the non-Windows
+path is untouched), a mid-line click that is never corrected on any platform,
+and an `Exact`-path append that stays byte-identical. The `ODYTTY_NF18_TRACE`
+diagnostic gate is retained for now: automated tests assert the model does what
+it is coded to do but cannot exercise the live ConPTY↔PSReadLine cursor
+behavior, so hands-on verification on the Windows binary remains the real
+acceptance check before the gate is removed. Non-GPU suite green; fmt and clippy
+clean.
+
 ## 2026-07-08 -- Default body-font size returns to 20px
 
 The fresh-install default body-font size is now 20px (was 21), returning to the
