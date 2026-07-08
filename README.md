@@ -1034,6 +1034,8 @@ analytics, no crash reporting, and no update pings.
 - [`docs/visual-architecture.md`](docs/visual-architecture.md) — renderer and
   visual-layer architecture.
 - [`docs/hidpi-validation.md`](docs/hidpi-validation.md) — manual HiDPI checks.
+- [`docs/diagnostics.md`](docs/diagnostics.md) — logging, crash reporting, and
+  the privacy floor.
 - [`docs/full-build-roadmap.md`](docs/full-build-roadmap.md) — long-range map.
 
 ## License

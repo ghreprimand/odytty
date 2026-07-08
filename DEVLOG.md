@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Diagnostics story documented; crash-and-logging currency
+
+A new `docs/diagnostics.md` documents the crash, freeze, and logging path end to
+end: the panic hook (message, location, thread, backtrace, then abort), the
+freeze watchdog, the GPU adapter startup diagnostics, and the rotated
+application log. It states the per-platform log locations — Linux
+`$XDG_STATE_HOME/odytty`, macOS `~/Library/Logs/odytty`, and Windows
+`%LOCALAPPDATA%\odytty` (persistent per-user storage, used deliberately because
+the earlier `%TEMP%` fallback is periodically cleaned) — the size bounds
+(`odytty.log` capped at 2 MiB with one rotated predecessor, `panic.log`
+intentionally uncapped because it is written only on a crash-to-abort), and the
+opt-in trace gates (`ODYTTY_REFLOW_TRACE`, `ODYTTY_NF18_TRACE`). It records
+`RUST_LOG` as a bare-level parser (`error`/`warn`/`info`/`debug`/`trace`, else
+`warn`), explicitly noting that per-target directive syntax is not supported.
+The reassuring core is stated plainly: no terminal content — PTY bytes,
+scrollback, input, titles, or cwd — ever reaches any log or crash file, and
+every sink is a local file (no telemetry, no network egress).
+
+The GPU adapter startup lines now route through the rotated log, so the doc's
+claim that adapter identity and the software-render warning appear in
+`odytty.log` is accurate on every platform, including the Windows GUI build
+where there is no visible stderr.
+
+Currency fixes fold in alongside: the roadmap's crash-and-logging item flips
+from "Next" to "Shipped" (the subsystem shipped in v0.7.5; this completes its
+documentation) and drops out of the near-term-focus list, and the Windows
+silent-degrades note in `SPEC.md` is corrected to say the panic and application
+logs land in `%LOCALAPPDATA%\odytty` rather than `%TEMP%`.
+
+---
+
 ## 2026-07-08 -- Theme library expanded with 12 original OdysseyOS palettes
 
 The built-in theme roster grows from 100 to 112 with a contrast-validated batch

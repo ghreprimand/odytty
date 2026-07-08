@@ -467,8 +467,10 @@ Making OdyTTY installable and maintainable outside the source tree.
   metadata, CI checks on every push, and semantic versioning with a running
   changelog (`DEVLOG.md`), so a user can install and update without building by
   hand.
-- **Next — Crash & logging story.** A predictable diagnostics path (bounded,
-  local, privacy-preserving) for when something does go wrong.
+- **Shipped — Crash & logging story.** A predictable diagnostics path (bounded,
+  local, privacy-preserving) for when something does go wrong; shipped in v0.7.5
+  (panic hook, freeze watchdog, rotated logging) and documented in
+  `docs/diagnostics.md`.
 - **Shipped — macOS release artifact.** The release workflow now emits an
   ad-hoc-signed `OdyTTY.app` bundle, zipped as `odytty-macos-arm64.zip`
   (Apple Silicon / arm64), from the macos-latest CI leg — checksummed in
@@ -555,9 +557,7 @@ the readability-safe background treatments, the interactive paths and image
 viewer, the session attach launcher, and the multi-context epic (panes,
 persistent sessions, command palette, and connection manager) all ship:
 
-1. **Crash & logging story** — a predictable, bounded, local, privacy-preserving
-   diagnostics path for when something does go wrong (see Track 10).
-2. **Effect default-tuning pass** — once a human-eye baseline exists, revisit the
+1. **Effect default-tuning pass** — once a human-eye baseline exists, revisit the
    conservative default strengths of stem darkening, standalone scanlines, and
    bloom (see Track 2).
 

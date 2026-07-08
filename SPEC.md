@@ -1079,7 +1079,8 @@ PowerShell/PSReadLine history in the command palette.
 
 **v1 Windows silent-degrades (compile-clean, intentionally inert):** hostname is
 always `None` (OSC 7 foreign-host resolution disabled), command-palette shell
-history is empty, and the panic log lands in `%TEMP%`.
+history is empty, and the panic and application logs land in
+`%LOCALAPPDATA%\odytty`.
 
 **Known follow-up.** On Windows a tab whose child exits *on its own* (rather than
 via an explicit `kill`) does not yet auto-close, because there is no POSIX
