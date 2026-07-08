@@ -300,8 +300,9 @@ manually on-device — CI proves the build compiles and its unit tests pass.
 macOS is experimental and not yet as battle-tested as Linux. OdyTTY is built
 from source: a binary you compile locally is never quarantined, so it launches
 with no Gatekeeper warning and needs no signing, notarization, or workaround.
-There is no prebuilt download — and that is deliberate, since an unsigned
-prebuilt would otherwise be blocked by Gatekeeper on first launch.
+The current published channel is this build-from-source path; a prebuilt,
+ad-hoc-signed `OdyTTY.app` zip and a Homebrew tap are landing with the next
+release, at which point `brew install` becomes the primary macOS path.
 
 Requires the Rust toolchain ([rustup](https://rustup.rs)) and the Xcode Command
 Line Tools. Both Apple Silicon and Intel are supported (whatever `cargo` targets
