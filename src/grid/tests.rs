@@ -1605,3 +1605,211 @@ mod chrome_pin {
         assert!((bg_top(&with_none, 1, 0) - (pad + cell_h)).abs() < 1e-3);
     }
 }
+
+/// PANE-SUBCELL-CLIP: pure vertex-clip math (headless — no GPU). Isolated so a
+/// red leg here points unambiguously at the sub-cell pane clip.
+mod pane_subcell_clip {
+    use super::*;
+
+    // --- VClip + clip_quads_vertical + first-row bg fill ---
+
+    /// Build a single mono quad `[x0, y0, x1, y1]` with UV `v` spanning
+    /// `[v_top, v_bottom]`, in the fixed `push_quad` vertex order.
+    fn one_quad(y0: f32, y1: f32, v_top: f32, v_bottom: f32) -> Vec<Vertex> {
+        let mut out = Vec::new();
+        push_quad(
+            &mut out,
+            [10.0, y0, 20.0, y1],
+            [0.0, v_top, 1.0, v_bottom],
+            [1.0, 1.0, 1.0, 1.0],
+            1.0,
+        );
+        out
+    }
+
+    fn quad_top(verts: &[Vertex]) -> f32 {
+        quad_rect(verts, 0)[1]
+    }
+    fn quad_bottom(verts: &[Vertex]) -> f32 {
+        quad_rect(verts, 0)[3]
+    }
+    /// The v (vertical UV) at the quad's top edge (vertex 0) and bottom (1).
+    fn quad_uv_top(verts: &[Vertex]) -> f32 {
+        verts[0].uv[1]
+    }
+    fn quad_uv_bottom(verts: &[Vertex]) -> f32 {
+        verts[1].uv[1]
+    }
+
+    #[test]
+    fn vclip_none_is_inert() {
+        assert!(!VClip::NONE.active());
+        let mut verts = one_quad(0.0, 10.0, 0.0, 1.0);
+        let before = verts.clone();
+        clip_quads_vertical(&mut verts, VClip::NONE);
+        assert_eq!(verts, before, "NONE must leave the geometry byte-identical");
+    }
+
+    #[test]
+    fn vclip_band_within_bounds_is_active_but_untouched_when_quad_fits() {
+        // A band wider than the quad is active yet clamps nothing.
+        let clip = VClip {
+            top_y: -5.0,
+            bottom_y: 100.0,
+        };
+        assert!(clip.active());
+        let mut verts = one_quad(0.0, 10.0, 0.0, 1.0);
+        let before = verts.clone();
+        clip_quads_vertical(&mut verts, clip);
+        assert_eq!(verts, before, "a fully-inside quad is not modified");
+    }
+
+    #[test]
+    fn clip_crops_bottom_overhang_with_uv() {
+        // Quad spans y 0..10, band bottom at 6: the lower 4px is cropped and the
+        // bottom UV advances proportionally (never a squash).
+        let clip = VClip {
+            top_y: f32::NEG_INFINITY,
+            bottom_y: 6.0,
+        };
+        let mut verts = one_quad(0.0, 10.0, 0.0, 1.0);
+        clip_quads_vertical(&mut verts, clip);
+        assert!((quad_top(&verts) - 0.0).abs() < 1e-4, "top edge unchanged");
+        assert!(
+            (quad_bottom(&verts) - 6.0).abs() < 1e-4,
+            "bottom cropped to band"
+        );
+        assert!((quad_uv_top(&verts) - 0.0).abs() < 1e-4, "top UV unchanged");
+        // 6/10 of the way down -> v = 0.6.
+        assert!(
+            (quad_uv_bottom(&verts) - 0.6).abs() < 1e-4,
+            "bottom UV cropped proportionally, not scaled"
+        );
+    }
+
+    #[test]
+    fn clip_crops_top_overhang_with_uv() {
+        // Quad spans y 0..10, band top at 4: the upper 4px is cropped and the
+        // top UV advances to 0.4.
+        let clip = VClip {
+            top_y: 4.0,
+            bottom_y: f32::INFINITY,
+        };
+        let mut verts = one_quad(0.0, 10.0, 0.0, 1.0);
+        clip_quads_vertical(&mut verts, clip);
+        assert!((quad_top(&verts) - 4.0).abs() < 1e-4, "top cropped to band");
+        assert!(
+            (quad_bottom(&verts) - 10.0).abs() < 1e-4,
+            "bottom unchanged"
+        );
+        assert!(
+            (quad_uv_top(&verts) - 0.4).abs() < 1e-4,
+            "top UV cropped proportionally"
+        );
+        assert!(
+            (quad_uv_bottom(&verts) - 1.0).abs() < 1e-4,
+            "bottom UV unchanged"
+        );
+    }
+
+    #[test]
+    fn clip_collapses_a_fully_below_quad_to_zero_height() {
+        // A quad entirely below the band collapses to zero height (emits no
+        // fragments) while preserving its 6-vertex count for the bg/glyph split.
+        let clip = VClip {
+            top_y: f32::NEG_INFINITY,
+            bottom_y: 5.0,
+        };
+        let mut verts = one_quad(8.0, 18.0, 0.0, 1.0);
+        clip_quads_vertical(&mut verts, clip);
+        assert_eq!(verts.len(), VERTS_PER_QUAD, "vertex count preserved");
+        assert!(
+            (quad_bottom(&verts) - quad_top(&verts)).abs() < 1e-4,
+            "fully-below quad has zero height"
+        );
+        assert!(
+            (quad_top(&verts) - 5.0).abs() < 1e-4,
+            "collapsed onto the band bottom"
+        );
+    }
+
+    #[test]
+    fn clip_collapses_a_fully_above_quad_to_zero_height() {
+        let clip = VClip {
+            top_y: 20.0,
+            bottom_y: f32::INFINITY,
+        };
+        let mut verts = one_quad(0.0, 10.0, 0.0, 1.0);
+        clip_quads_vertical(&mut verts, clip);
+        assert_eq!(verts.len(), VERTS_PER_QUAD, "vertex count preserved");
+        assert!(
+            (quad_bottom(&verts) - quad_top(&verts)).abs() < 1e-4,
+            "fully-above quad has zero height"
+        );
+        assert!(
+            (quad_top(&verts) - 20.0).abs() < 1e-4,
+            "collapsed onto the band top"
+        );
+    }
+
+    #[test]
+    fn extend_first_row_bg_pulls_only_the_first_rows_tops_up() {
+        // Two row-0 background quads shifted down by 3px, plus a row-1 quad that
+        // must NOT move. `extend_first_row_bg_to_top` pulls only the first row's
+        // tops up to the content top (0.0), filling the sub-cell gap.
+        let mut verts = Vec::new();
+        // row 0, col 0 and col 1 (shifted down by frac = 3)
+        push_quad(&mut verts, [0.0, 3.0, 10.0, 13.0], [0.0; 4], [0.0; 4], 0.0);
+        push_quad(&mut verts, [10.0, 3.0, 20.0, 13.0], [0.0; 4], [0.0; 4], 0.0);
+        // row 1 (also shifted; must be untouched by the first-row fill)
+        push_quad(&mut verts, [0.0, 13.0, 10.0, 23.0], [0.0; 4], [0.0; 4], 0.0);
+        extend_first_row_bg_to_top(&mut verts, 2, 0.0);
+        assert!(
+            (quad_rect(&verts, 0)[1] - 0.0).abs() < 1e-4,
+            "row0 col0 top pulled up"
+        );
+        assert!(
+            (quad_rect(&verts, 1)[1] - 0.0).abs() < 1e-4,
+            "row0 col1 top pulled up"
+        );
+        assert!(
+            (quad_rect(&verts, 2)[1] - 13.0).abs() < 1e-4,
+            "row1 top is NOT touched"
+        );
+        // Bottoms are all unchanged (extend only moves the top edge up).
+        assert!((quad_rect(&verts, 0)[3] - 13.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn extend_first_row_bg_never_pushes_a_top_down() {
+        // If a first-row quad already sits at or above the content top, it is
+        // left alone (the fill only extends upward, never crops).
+        let mut verts = Vec::new();
+        push_quad(&mut verts, [0.0, -2.0, 10.0, 8.0], [0.0; 4], [0.0; 4], 0.0);
+        let before = verts.clone();
+        extend_first_row_bg_to_top(&mut verts, 1, 0.0);
+        assert_eq!(verts, before, "a top already above the seam is untouched");
+    }
+
+    #[test]
+    fn color_glyph_quads_obey_the_same_clip() {
+        // The clip is generic over the colour-glyph vertex too: a bottom overhang
+        // is cropped with a proportional UV.
+        let mut verts = Vec::new();
+        push_color_glyph_quad(&mut verts, [10.0, 0.0, 20.0, 10.0], [0.0, 0.0, 1.0, 1.0]);
+        let clip = VClip {
+            top_y: f32::NEG_INFINITY,
+            bottom_y: 6.0,
+        };
+        clip_quads_vertical(&mut verts, clip);
+        let bottom = verts[1].pos[1];
+        assert!(
+            (bottom - 6.0).abs() < 1e-4,
+            "colour glyph bottom cropped to band"
+        );
+        assert!(
+            (verts[1].uv[1] - 0.6).abs() < 1e-4,
+            "colour glyph bottom UV cropped proportionally"
+        );
+    }
+}

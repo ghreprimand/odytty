@@ -485,6 +485,35 @@ pub(super) fn pane_grid_origin(
     [rect.x + off_x, rect.y + off_y]
 }
 
+/// PANE-SUBCELL-CLIP: resolve a gliding pane's RENDER origin and its vertical
+/// clip band from its at-rest `base_origin` (from [`pane_grid_origin`]) and the
+/// current sub-cell remainder `frac_px` (in `[0, cell_h)`, from the glide
+/// follower). A downward glide shifts the content origin down by `frac_px`
+/// (matching the single-pane `content_origin` shift) and clamps the pane's
+/// vertices to its at-rest grid rect `[base_y, base_y + rows·cell_h]`, so the
+/// partial bottom row the shift pushes out is cropped at the pane's own content
+/// bottom instead of smearing across the divider into the neighbour.
+///
+/// At rest (`frac_px == 0.0`) this returns the base origin and an inert
+/// [`VClip::NONE`], so the split-at-rest frame is byte-identical. Pure, so the
+/// per-pane frac accounting is unit-testable without a GPU.
+pub(super) fn pane_glide_origin_and_clip(
+    base_origin: [f32; 2],
+    frac_px: f32,
+    rows: usize,
+    cell_h: f32,
+) -> ([f32; 2], crate::grid::VClip) {
+    if frac_px == 0.0 {
+        return (base_origin, crate::grid::VClip::NONE);
+    }
+    let top_y = base_origin[1];
+    let bottom_y = top_y + rows as f32 * cell_h;
+    (
+        [base_origin[0], top_y + frac_px],
+        crate::grid::VClip { top_y, bottom_y },
+    )
+}
+
 /// Resolve directional focus movement: from the pane currently `focused`, pick
 /// the spatial neighbor in direction `dir`, or `None` when there is none.
 ///
@@ -1446,5 +1475,52 @@ mod tests {
         assert_eq!(pane_at_point(&rects, 399.0, 300.0), None);
         // Outside the content entirely.
         assert_eq!(pane_at_point(&rects, 5000.0, 300.0), None);
+    }
+
+    // ----- PANE-SUBCELL-CLIP: pane_glide_origin_and_clip (frac accounting) -----
+
+    #[test]
+    fn glide_at_rest_is_inert() {
+        // frac 0 ⇒ base origin unchanged and an inert clip, so a split at rest
+        // renders byte-identically.
+        let (origin, clip) = pane_glide_origin_and_clip([12.0, 40.0], 0.0, 24, 16.0);
+        assert_eq!(origin, [12.0, 40.0]);
+        assert_eq!(clip, crate::grid::VClip::NONE);
+        assert!(!clip.active());
+    }
+
+    #[test]
+    fn glide_shifts_origin_down_and_bands_the_grid_rect() {
+        // frac 5px into a 24-row pane of 16px cells at base y=40: origin shifts
+        // down by 5, and the clip band is exactly the at-rest grid rect
+        // [40, 40 + 24*16] = [40, 424].
+        let (origin, clip) = pane_glide_origin_and_clip([12.0, 40.0], 5.0, 24, 16.0);
+        assert_eq!(origin, [12.0, 45.0], "x unchanged, y shifted down by frac");
+        assert!(clip.active());
+        assert!(
+            (clip.top_y - 40.0).abs() < 1e-4,
+            "band top at the at-rest grid top"
+        );
+        assert!(
+            (clip.bottom_y - (40.0 + 24.0 * 16.0)).abs() < 1e-4,
+            "band bottom at the at-rest grid bottom, not the shifted bottom"
+        );
+    }
+
+    #[test]
+    fn glide_band_bottom_is_below_the_shifted_content_bottom_by_exactly_frac() {
+        // The shifted content bottom overhangs the band bottom by exactly frac —
+        // that overhang is the partial row `clip_quads_vertical` crops so it can
+        // never reach the divider.
+        let rows = 10usize;
+        let cell_h = 20.0_f32;
+        let frac = 7.0_f32;
+        let base_y = 100.0_f32;
+        let (origin, clip) = pane_glide_origin_and_clip([0.0, base_y], frac, rows, cell_h);
+        let shifted_content_bottom = origin[1] + rows as f32 * cell_h;
+        assert!(
+            (shifted_content_bottom - clip.bottom_y - frac).abs() < 1e-4,
+            "content overhangs the band by exactly the sub-cell remainder"
+        );
     }
 }

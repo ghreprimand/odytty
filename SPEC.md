@@ -790,9 +790,9 @@ its first stable layer.
   than eased, avoiding sawtoothing on high-resolution devices. `scroll_pixel_speed`
   (default `1.0`, range `0.25..=4.0`) tunes the sensitivity. Classic detented
   wheels emit line deltas and are unaffected, keeping `scroll_wheel_lines` as the
-  per-notch multiplier. Sub-row pixel-precise scroll is single-pane for now; in a
-  split, pixel input falls back to the notch path — which now eases as a per-pane
-  whole-row glide (see `scroll_glide`).
+  per-notch multiplier. The continuous direct-tracking pixel lane is single-pane
+  for now; in a split, pixel input falls back to the notch path — which now eases
+  as a per-pane glide with pixel-precise sub-cell smoothness (see `scroll_glide`).
 - Animated scroll glide (`scroll_glide`, on by default): discrete wheels emit
   whole notches with no sub-step data, so smoothness between notches can only
   come from animating them. When on, a notch moves the integer viewport offset
@@ -800,10 +800,10 @@ its first stable layer.
   the rendered view eases toward it with a forward-chase follower that only ever
   moves in the scroll direction, so continuous input cannot sawtooth. On by
   default; primary screen only. In a split each pane glides independently as an
-  eased whole-row follower — the pane under the pointer, without stealing focus —
-  strictly better than the old instant jump; the sub-cell smoothness between rows
-  remains single-pane pending per-pane clipping. High-resolution input uses
-  `pixel_scroll`.
+  eased follower with pixel-precise sub-cell smoothness — the pane under the
+  pointer, without stealing focus — its overflowing partial row clipped to the
+  pane so it never smears across the divider into a neighbour. High-resolution
+  direct-tracking input uses `pixel_scroll` (single-pane).
 - Wheel scroll amount (`scroll_wheel_lines`, default `6` rows per notch): sets
   how far one wheel notch moves local scrollback, and the same amount drives
   alternate-scroll (DECSET 1007) arrow emulation, so pagers like `less`, `man`,

@@ -73,6 +73,12 @@ pub(super) struct PaneRender<'a> {
     pub(super) overlays: &'a [SolidQuad],
     /// Background treatment params for this pane's cells.
     pub(super) treatment: grid::BackgroundTreatmentParams,
+    /// PANE-SUBCELL-CLIP: the vertical band this pane's vertices are clamped to,
+    /// so a sub-cell scroll glide baked into `origin[1]` cannot smear the partial
+    /// top/bottom row past the pane's content rect into a neighbour across the
+    /// divider. [`grid::VClip::NONE`] (chrome strips, single-pane, at-rest panes)
+    /// is inert, leaving the frame byte-identical.
+    pub(super) clip: grid::VClip,
 }
 
 /// A window-level overlay drawn **topmost** over a multi-pane composite
@@ -474,6 +480,23 @@ fn background_vertex_count(snapshot: &Snapshot) -> u32 {
         .filter(|cell| !cell.wide_continuation)
         .count();
     (cells * grid::VERTS_PER_QUAD) as u32
+}
+
+/// PANE-SUBCELL-CLIP: the number of background quads the snapshot's FIRST row
+/// contributes — the non-continuation cells in row 0. Background quads are
+/// emitted in row-major order, so these lead the background segment, and
+/// [`grid::extend_first_row_bg_to_top`] uses the count to flush exactly the top
+/// row's backgrounds into the sub-cell gap a downward glide opens. Wide
+/// continuation cells emit no quad (they are merged into their lead), matching
+/// [`background_vertex_count`]'s own filter.
+fn pane_row0_bg_quads(snapshot: &Snapshot) -> usize {
+    let cols = snapshot.dimensions.columns;
+    snapshot
+        .cells
+        .iter()
+        .take(cols)
+        .filter(|cell| !cell.wide_continuation)
+        .count()
 }
 
 fn linear_rgba(color: RgbColor, alpha: f32) -> [f32; 4] {
@@ -2019,13 +2042,28 @@ impl GpuState {
                 // Multi-pane panes never carry an overlay panel: it is composited
                 // as a separate opaque `OverlayTop` layer, so no cell is forced.
                 None,
-                // Multi-pane never glides sub-row (frac forced 0): pin inert.
+                // Sub-cell glide is expressed via `pane.origin[1]` + the vertical
+                // clip below, not the single-pane chrome-seam pin.
                 grid::ChromePin::NONE,
             );
             let bg = background_vertex_count(pane.snapshot).min(pane_buf.len() as u32) as usize;
+            // PANE-SUBCELL-CLIP: when this pane is mid sub-cell glide, its origin
+            // is shifted down by a fractional row. Fill the thin gap that opens
+            // at the pane's content top with the first row's own backgrounds
+            // (mirrors the single-pane chrome-seam first-row flush), then clamp
+            // every quad to the pane's content band so the partial bottom row
+            // cannot smear across the divider into the neighbour. Inert
+            // (`VClip::NONE`) at rest and for single-pane, so the split-at-rest
+            // frame is byte-identical.
+            if pane.clip.active() {
+                let row0_quads = pane_row0_bg_quads(pane.snapshot);
+                grid::extend_first_row_bg_to_top(&mut pane_buf[..bg], row0_quads, pane.clip.top_y);
+                grid::clip_quads_vertical(&mut pane_buf, pane.clip);
+            }
             self.vertices.extend_from_slice(&pane_buf[..bg]);
             glyph_segment.extend_from_slice(&pane_buf[bg..]);
 
+            let color_start = self.color_glyph_vertices.len();
             grid::build_color_glyph_vertices_with_origin_into(
                 &mut self.color_glyph_vertices,
                 pane.snapshot,
@@ -2034,7 +2072,11 @@ impl GpuState {
                 pane.origin,
                 grid::ChromePin::NONE,
             );
+            // Colour glyphs (emoji) obey the same per-pane clip so a gliding
+            // emoji's partial row is cropped, not smeared across the divider.
+            grid::clip_quads_vertical(&mut self.color_glyph_vertices[color_start..], pane.clip);
 
+            let tail_start = tail.len();
             tail.reserve(pane.overlays.len() * grid::VERTS_PER_QUAD);
             for &overlay in pane.overlays {
                 grid::push_solid_quad(&mut tail, overlay);
@@ -2049,6 +2091,10 @@ impl GpuState {
                     CursorRenderParams::default(),
                 );
             }
+            // The pane's own overlays (selection / search) and cursor ride its
+            // glide, so they clamp to the same band — a selection highlight or
+            // cursor on the partial edge row cannot bleed past the divider.
+            grid::clip_quads_vertical(&mut tail[tail_start..], pane.clip);
         }
 
         // NF11: wash the wallpaper wherever no pane grid covers it (padding

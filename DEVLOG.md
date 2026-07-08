@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Sub-cell scroll smoothness inside split panes
+
+Scrollback glide inside a split now eases with pixel-precise sub-cell
+smoothness, matching the single-pane feel. Previously a split stepped whole
+rows: the shared sub-row render offset was pinned to zero in the multi-pane path
+because baking a fractional offset into an interior pane's origin smears its
+partial bottom row — glyph descenders included — across the 1px divider into the
+neighbouring pane, and under a continuous follower that remainder persists, so
+the smear would be permanent.
+
+The fix is a per-pane vertical clip-rect applied to a pane's already-built
+vertices. Each gliding pane's sub-cell remainder is baked into its render origin
+(shifting the content down, exactly as the single-pane content origin does), and
+every quad the pane emits — cell backgrounds, coverage glyphs, colour glyphs,
+the cursor, and the pane's own selection/search overlays — is clamped to the
+pane's at-rest grid rect. A partial row overhanging the bottom is cropped there
+via a UV adjustment (never a squash), so it cannot reach the divider; the thin
+gap the downward shift opens at the pane's top is filled by pulling the first
+row's backgrounds up to the content top, mirroring the existing chrome-seam
+first-row flush. A quad entirely outside the band collapses to zero height
+rather than being removed, so the background/glyph vertex split stays valid. The
+clip is inert (an infinite band) at rest and for single-pane, so those frames
+are byte-identical.
+
+The clip math is a pure vertex operation, factored out and covered by headless
+unit tests (crop top/bottom with proportional UV, zero-height collapse,
+first-row gap fill, colour-glyph parity) plus pure per-pane frac-accounting
+tests (origin shift and clip-band derivation). The composited render itself is
+verified by the CI matrix render legs — GPU offscreen tests do not run in a
+headless agent shell, so the pixels are CI-gated, not locally validated.
+
+Render-only and viewport-keyed with no platform-specific code, so the behaviour
+is uniform across Linux, Windows (ConPTY), and macOS.
+
 ## 2026-07-08 -- Click-to-place snaps to the nearest character boundary
 
 Clicking in a live command line to reposition the shell cursor occasionally

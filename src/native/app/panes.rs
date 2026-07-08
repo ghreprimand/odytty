@@ -466,8 +466,13 @@ impl App {
         // outlive the render call). Each pane is snapshotted from its own
         // terminal at its own scrollback offset.
         let rects = self.sessions.active_pane_rects(content, PANE_DIVIDER_PX);
-        let mut panes_owned: Vec<(Snapshot, [f32; 2], bool, crate::core::CursorStyle)> =
-            Vec::with_capacity(rects.len());
+        let mut panes_owned: Vec<(
+            Snapshot,
+            [f32; 2],
+            bool,
+            crate::core::CursorStyle,
+            crate::grid::VClip,
+        )> = Vec::with_capacity(rects.len());
         // The focused pane's overlay inputs, captured while its terminal is
         // locked: (index into `panes_owned`, viewport offset, scrollback len).
         // Used after the loop to paint that pane's own selection + search
@@ -491,18 +496,29 @@ impl App {
             // of sliding under fresh output, and its baseline stays current so
             // collapsing the split back to a single pane applies no jump.
             let offset = session.anchor_viewport_for_render(scrollback_len);
-            // SCROLL-GLIDE (per-pane, whole-row): advance THIS pane's follower
-            // one frame toward its just-anchored offset and snapshot at the
-            // FLOORED follower row. The sub-row remainder is deliberately not
-            // rendered in the multipane path — the shared GPU `scroll_frac_offset`
-            // is pinned to 0 below — so a split eases row-by-row with no
-            // cross-divider bleed (sub-cell smoothness in splits is a separate
-            // renderer change). Inert at rest / when no glide is armed:
-            // `render_offset == offset`, so the frame is byte-identical to before.
-            // This runs on the `&mut session` borrow already held here (the
-            // terminal lock is on a cloned Arc, so the two do not alias).
+            // SCROLL-GLIDE (per-pane): advance THIS pane's follower one frame
+            // toward its just-anchored offset and snapshot at the FLOORED
+            // follower row. The sub-row remainder (`scroll_frac_offset`) is baked
+            // into the pane's render origin below and the overflowing partial row
+            // is clipped to the pane's content rect (PANE-SUBCELL-CLIP), so a
+            // split now eases with pixel-precise smoothness AND cannot smear
+            // across the divider. Inert at rest / when no glide is armed:
+            // `render_offset == offset` and `frac_px == 0.0`, so the frame is
+            // byte-identical to before. This runs on the `&mut session` borrow
+            // already held here (the terminal lock is on a cloned Arc, so the two
+            // do not alias).
             advance_session_glide(session, now, cell.height, offset);
             let render_offset = session_glide_render_offset(session, offset, scrollback_len);
+            // The sub-cell remainder to render this frame — non-zero only while a
+            // glide is in flight (`advance_session_glide` zeroes it on settle and
+            // never sets it when no glide is armed). The single-pane continuous
+            // pixel lane is disabled in a split, so a stale value from a prior
+            // single-pane scroll is gated out by `glide_active`.
+            let frac_px = if session.glide_active {
+                session.scroll_frac_offset
+            } else {
+                0.0
+            };
             let snapshot = terminal.snapshot_with_scrollback(render_offset);
             let cursor_style = terminal.cursor_style();
             let is_focused = *token == focused;
@@ -520,9 +536,19 @@ impl App {
             // zero offset, so the byte-identical path is unchanged). The divider
             // position itself is untouched — only the grid content shifts within
             // the pane — so smooth per-pixel divider drag is preserved.
-            let origin =
+            let base_origin =
                 crate::native::layout::pane_grid_origin(*rect, content, cell.width, cell.height);
-            panes_owned.push((snapshot, origin, is_focused, cursor_style));
+            // PANE-SUBCELL-CLIP: bake the sub-cell remainder into the pane's
+            // render origin and clamp its vertices to the at-rest grid rect so
+            // the partial row the shift pushes out cannot cross the divider.
+            // Inert (`frac_px == 0.0`) at rest ⇒ base origin + `VClip::NONE`.
+            let (origin, clip) = crate::native::layout::pane_glide_origin_and_clip(
+                base_origin,
+                frac_px,
+                snapshot.dimensions.rows,
+                cell.height as f32,
+            );
+            panes_owned.push((snapshot, origin, is_focused, cursor_style, clip));
         }
 
         // Paint the focused pane's selection + search highlights onto its own
@@ -530,7 +556,7 @@ impl App {
         // whole-window overlay_ctx). `self.selection` / `self.search` Deref to
         // the focused pane, so only the geometry inputs are pane-specific.
         if let Some((idx, viewport_offset, scrollback_len)) = focused_overlay
-            && let Some((snapshot, _, _, _)) = panes_owned.get_mut(idx)
+            && let Some((snapshot, _, _, _, _)) = panes_owned.get_mut(idx)
         {
             let pane_grid = snapshot.dimensions;
             self.paint_focused_pane_overlays(
@@ -611,6 +637,8 @@ impl App {
                 focus_dim: 0.0,
                 overlays: &[],
                 treatment,
+                // Chrome strips never glide sub-row.
+                clip: crate::grid::VClip::NONE,
             });
         }
         // Inactive-pane dimming: the focused pane is never dimmed (`0.0`), the
@@ -619,7 +647,7 @@ impl App {
         // every pane renders undimmed and the multi-pane frame stays
         // byte-identical to before this knob existed.
         let inactive_dim = self.settings.effective_inactive_pane_dim();
-        for (snapshot, origin, is_focused, cursor_style) in &panes_owned {
+        for (snapshot, origin, is_focused, cursor_style, clip) in &panes_owned {
             panes.push(PaneRender {
                 snapshot,
                 origin: *origin,
@@ -628,6 +656,7 @@ impl App {
                 focus_dim: pane_focus_dim(*is_focused, inactive_dim),
                 overlays: &[],
                 treatment,
+                clip: *clip,
             });
         }
 
