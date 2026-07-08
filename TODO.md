@@ -1174,11 +1174,14 @@ feature validates against.
 - [x] Basic mouse text selection.
 - [x] Copy from selection.
 - [x] Scrollback viewport navigation.
-  - [x] `scroll_wheel_lines` (1-10, default 3): configurable local wheel scroll
-        step, driven by the overlay slider. Only the local viewport path is
-        scaled; reported wheel events (TUI mouse mode on), overlay free-scroll,
-        and touchpad pixel deltas are unaffected. Default 3 is byte-identical to
-        the prior fixed step.
+  - [x] `scroll_wheel_lines` (float `1.0..=10.0`, default `6`): configurable
+        local wheel scroll step, driven by the overlay slider. Sets how many
+        rows one wheel notch advances local scrollback; the same amount also
+        drives alternate-scroll (DECSET 1007) arrow emulation, so classic pagers
+        (`less`, `man`, `git log`) scroll at the same rows-per-notch as the
+        viewport. Full mouse-reporting TUIs own the wheel (their report carries
+        direction, not magnitude), overlay free-scroll, and continuous touchpad
+        pixel deltas are unaffected.
   - [x] `copy_on_select` (default off): when on, finishing a selection also
         writes the clipboard (in addition to PRIMARY); off keeps the prior
         PRIMARY-only behavior byte-identical.
