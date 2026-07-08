@@ -1,0 +1,31 @@
+# OdyTTY theme
+# cool pale grey-white with crisp ink
+name = odyssey-quartz-light
+appearance = light
+
+foreground = #2a2e34
+background = #f2f4f7
+clear = #fafbfc
+
+cursor = #3a6ea8
+selection = #d4dde8
+search = #e8e0a8
+border = #d2d8e0
+inactive = #8a929c
+
+color0 = #e4e7ec
+color1 = #b83c48
+color2 = #1f8a5c
+color3 = #a67310
+color4 = #2f5fb0
+color5 = #8a44b0
+color6 = #0f7f96
+color7 = #3a3e44
+color8 = #c6ccd4
+color9 = #98202e
+color10 = #0e6c44
+color11 = #845806
+color12 = #204a92
+color13 = #6e2e94
+color14 = #0a6478
+color15 = #22262c

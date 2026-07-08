@@ -1,0 +1,31 @@
+# OdyTTY theme
+# dark forest teal, root-brown and leaf accents
+name = odyssey-mangrove
+appearance = dark
+
+foreground = #dae4dc
+background = #0b1512
+clear = #060e0b
+
+cursor = #5ad0a0
+selection = #1e302a
+search = #42421c
+border = #1a2824
+inactive = #5e7268
+
+color0 = #142020
+color1 = #e0767a
+color2 = #54c890
+color3 = #d6b45c
+color4 = #4fb2a0
+color5 = #a68cd0
+color6 = #48c8b4
+color7 = #bcc8c0
+color8 = #263632
+color9 = #f69296
+color10 = #72e0aa
+color11 = #f0d478
+color12 = #72cabc
+color13 = #c4a6ea
+color14 = #74e0cc
+color15 = #ecf2ec

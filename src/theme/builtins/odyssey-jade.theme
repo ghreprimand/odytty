@@ -1,0 +1,31 @@
+# OdyTTY theme
+# deep green mineral field, warm amber highlights
+name = odyssey-jade
+appearance = dark
+
+foreground = #dce8dc
+background = #0a140f
+clear = #060d0a
+
+cursor = #54d98c
+selection = #1c2e22
+search = #41421a
+border = #182620
+inactive = #5c766a
+
+color0 = #132018
+color1 = #e8707a
+color2 = #48cf82
+color3 = #e2bc58
+color4 = #5cb894
+color5 = #b28ce0
+color6 = #4fc9b0
+color7 = #c2ccc2
+color8 = #26362c
+color9 = #ff9098
+color10 = #6ee6a0
+color11 = #f6d878
+color12 = #82d6b2
+color13 = #cfa8f0
+color14 = #78e2d0
+color15 = #eef4ee

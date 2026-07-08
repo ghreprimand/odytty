@@ -125,7 +125,7 @@ focus (`odyssey-meridian`, `odyssey-graphite`, `odyssey-sepia`), vivid accents
 `odyssey-apricot-light`, `odyssey-butter-light`, `odyssey-sage-light`,
 `odyssey-slate-light`, `odyssey-seafoam-light`, `odyssey-citrus-light`,
 `odyssey-mauve-light`, `odyssey-clover-light`, `odyssey-sienna-light`,
-`odyssey-periwinkle-light`). These carry the strongest OdyTTY visual identity.
+`odyssey-periwinkle-light`), and extended originals spanning celestial phenomena, minerals, waters, and botanicals (`odyssey-eclipse`, `odyssey-comet`, `odyssey-nocturne`, `odyssey-obsidian`, `odyssey-basalt`, `odyssey-jade`, `odyssey-fjord`, `odyssey-mangrove`, `odyssey-quartz-light`, `odyssey-marble-light`, `odyssey-dune-light`, `odyssey-fern-light`). These carry the strongest OdyTTY visual identity.
 
 **Community** — themes ported from widely-used open-source color-scheme
 palettes. The dark side covers the original community batch (Solarized, Gruvbox,
@@ -214,6 +214,18 @@ OdyTTY has no affiliation with or endorsement from any of those vendors.
 | `odyssey-sienna-light` | light | OdyTTY original (warm sienna-cream daylight companion with terracotta accents) |
 | `odyssey-periwinkle-light` | light | OdyTTY original (cool blue-violet periwinkle daylight companion) |
 | `odyssey-pine` | dark | OdyTTY original (muted forest-pine dark with sage-green text) |
+| `odyssey-eclipse` | dark | OdyTTY original (umbral indigo with a corona-gold ring accent) |
+| `odyssey-comet` | dark | OdyTTY original (near-black void with an icy blue-white tail) |
+| `odyssey-obsidian` | dark | OdyTTY original (cool volcanic glass with teal and violet glints) |
+| `odyssey-jade` | dark | OdyTTY original (deep green mineral field with warm amber highlights) |
+| `odyssey-basalt` | dark | OdyTTY original (warm charcoal stone with ember-orange accents) |
+| `odyssey-fjord` | dark | OdyTTY original (deep blue-green inlet with cool crisp accents) |
+| `odyssey-mangrove` | dark | OdyTTY original (dark forest teal with root-brown and leaf accents) |
+| `odyssey-nocturne` | dark | OdyTTY original (deep blue-violet night with moonlit silver accents) |
+| `odyssey-quartz-light` | light | OdyTTY original (cool pale grey-white daylight with crisp ink) |
+| `odyssey-marble-light` | light | OdyTTY original (warm ivory daylight with terracotta and olive ink) |
+| `odyssey-dune-light` | light | OdyTTY original (sandy warm parchment with sun-baked accents) |
+| `odyssey-fern-light` | light | OdyTTY original (soft green-tinted daylight with woodland accents) |
 | `solarized-dark` | dark | Community |
 | `solarized-light` | light | Community |
 | `gruvbox-dark` | dark | Community |

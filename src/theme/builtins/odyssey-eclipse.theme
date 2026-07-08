@@ -1,0 +1,31 @@
+# OdyTTY theme
+# umbral indigo with a corona-gold ring accent
+name = odyssey-eclipse
+appearance = dark
+
+foreground = #e8e0d0
+background = #0d0b18
+clear = #08060f
+
+cursor = #f2b64c
+selection = #2a2440
+search = #4a3a16
+border = #221d38
+inactive = #6a6284
+
+color0 = #1c1830
+color1 = #e8607a
+color2 = #4fc9a6
+color3 = #f2b64c
+color4 = #7c8cf0
+color5 = #c07ae8
+color6 = #57c6d6
+color7 = #c8c0b4
+color8 = #3a3352
+color9 = #ff89a0
+color10 = #77e3c2
+color11 = #ffd27a
+color12 = #a0aeff
+color13 = #d99cf0
+color14 = #84dced
+color15 = #f4ecdc

@@ -1,0 +1,31 @@
+# OdyTTY theme
+# sandy warm parchment, sun-baked accents
+name = odyssey-dune-light
+appearance = light
+
+foreground = #3a3226
+background = #f4ecdc
+clear = #fbf6ea
+
+cursor = #c07020
+selection = #e6d8bc
+search = #ecdc98
+border = #ded0b4
+inactive = #988c72
+
+color0 = #e8dcc4
+color1 = #b8442e
+color2 = #5a8420
+color3 = #a06a0c
+color4 = #42629a
+color5 = #984c84
+color6 = #2c8064
+color7 = #4a4032
+color8 = #ccbe9e
+color9 = #982e1a
+color10 = #466812
+color11 = #7e5406
+color12 = #304c82
+color13 = #7c3268
+color14 = #1e644c
+color15 = #2a2418

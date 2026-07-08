@@ -1,0 +1,31 @@
+# OdyTTY theme
+# near-black void with an icy blue-white tail
+name = odyssey-comet
+appearance = dark
+
+foreground = #dce6f2
+background = #0a0f16
+clear = #060a10
+
+cursor = #7fd6ff
+selection = #1e2c3c
+search = #3d4218
+border = #1a2432
+inactive = #607488
+
+color0 = #14202c
+color1 = #f06d78
+color2 = #54cf9c
+color3 = #e6c15c
+color4 = #5fb4f2
+color5 = #9f8cf0
+color6 = #66d4e6
+color7 = #c2ccd8
+color8 = #2a3a4a
+color9 = #ff8f98
+color10 = #7ce6bc
+color11 = #ffd67e
+color12 = #8cc9ff
+color13 = #bda6ff
+color14 = #8fe4f2
+color15 = #eef4fa

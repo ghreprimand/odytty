@@ -1,0 +1,31 @@
+# OdyTTY theme
+# deep blue-green inlet, cool crisp accents
+name = odyssey-fjord
+appearance = dark
+
+foreground = #d6e2e6
+background = #091418
+clear = #050d10
+
+cursor = #48c8d0
+selection = #183038
+search = #3a421e
+border = #152830
+inactive = #587076
+
+color0 = #112028
+color1 = #e06e7c
+color2 = #40c8a8
+color3 = #dcbc5c
+color4 = #4fa8cc
+color5 = #9a8ce0
+color6 = #48c8cc
+color7 = #bcc8cc
+color8 = #22383e
+color9 = #f68e98
+color10 = #66e2c2
+color11 = #f2d67e
+color12 = #74c6e6
+color13 = #bca6f0
+color14 = #74e0e4
+color15 = #eaf2f4

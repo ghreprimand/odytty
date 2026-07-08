@@ -1,0 +1,31 @@
+# OdyTTY theme
+# cool volcanic glass, teal and violet glints
+name = odyssey-obsidian
+appearance = dark
+
+foreground = #dbe0e0
+background = #0c1012
+clear = #070a0b
+
+cursor = #3fd0c0
+selection = #203032
+search = #3f4018
+border = #1a2224
+inactive = #5e6c6e
+
+color0 = #151c1e
+color1 = #e86a72
+color2 = #3fc9b0
+color3 = #dcc058
+color4 = #5cb0c8
+color5 = #a889e0
+color6 = #4fccc4
+color7 = #c0c8c8
+color8 = #2a3436
+color9 = #ff8a90
+color10 = #69e4cc
+color11 = #f6d878
+color12 = #82cee2
+color13 = #c6a6f2
+color14 = #78e6de
+color15 = #eef2f2

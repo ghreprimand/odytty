@@ -66,7 +66,7 @@ Windows ships as an unsigned portable zip.
   CLI (`odytty new` / `list` / `attach`) plus an in-window Manage Sessions
   overlay to attach, rename, and kill them, a New-tab/Replace attach prompt, and
   detach-and-switch to hand the focused pane to a fresh managed session.
-- **Visual experience layer:** 100 built-in themes, user `.theme` files, live theme
+- **Visual experience layer:** 112 built-in themes, user `.theme` files, live theme
   picker, theme builder, semantic cursor/selection/search roles, optional
   bloom/CRT/retro effects, background treatments, cursor motion, focus dimming,
   new-output fade, window padding, window border, and optional window
@@ -408,7 +408,7 @@ The same introspection works from the source tree before installing:
 ./target/release/odytty --show-config
 ```
 
-`--list-themes` prints the 100 built-in themes as stable
+`--list-themes` prints the 112 built-in themes as stable
 `name`/`appearance`/`family` rows. `--list-fonts` prints discoverable system
 font files. `--show-config` prints the current stable config-dump subset (including
 `symbol_fallback` and `symbol_font_source`, which reports the resolved
@@ -977,7 +977,7 @@ tree carrying additional integration and smoke suites. See
 
 **Works today:** real shells, multi-session tabs, splits/panes with a
 configurable tmux-style prefix, scrollback, search, selection,
-copy/paste, font/theme/settings overlays, theme builder, 100 themes, color
+copy/paste, font/theme/settings overlays, theme builder, 112 themes, color
 emoji, Kitty graphics, Sixel, Kitty keyboard protocol, SGR-pixel mouse,
 clickable paths with an inline image viewer, detached and in-window managed
 sessions, a connection manager, command palette, session replay,

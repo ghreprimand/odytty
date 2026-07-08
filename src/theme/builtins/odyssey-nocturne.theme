@@ -1,0 +1,31 @@
+# OdyTTY theme
+# deep blue-violet night, moonlit silver accents
+name = odyssey-nocturne
+appearance = dark
+
+foreground = #dee0f0
+background = #0d0e1c
+clear = #080913
+
+cursor = #9aa6f0
+selection = #232848
+search = #3e3c1c
+border = #1e2038
+inactive = #666a90
+
+color0 = #181a30
+color1 = #e86e8c
+color2 = #4ec8b0
+color3 = #e0be5c
+color4 = #6c8cf2
+color5 = #a888ec
+color6 = #5cbce0
+color7 = #c4c6d8
+color8 = #2c3050
+color9 = #ff8ea6
+color10 = #6ce4cc
+color11 = #f6d67e
+color12 = #8ca4ff
+color13 = #c2a4f6
+color14 = #82d6f0
+color15 = #eef0fa

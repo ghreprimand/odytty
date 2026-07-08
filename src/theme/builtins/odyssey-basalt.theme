@@ -1,0 +1,31 @@
+# OdyTTY theme
+# warm charcoal stone, ember-orange accents
+name = odyssey-basalt
+appearance = dark
+
+foreground = #e6ded4
+background = #14100e
+clear = #0d0a08
+
+cursor = #e8964c
+selection = #302820
+search = #48401c
+border = #282018
+inactive = #726858
+
+color0 = #221c16
+color1 = #e2707a
+color2 = #8cb85c
+color3 = #e8a04c
+color4 = #c08a6a
+color5 = #c88ea0
+color6 = #6cbca0
+color7 = #ccc4b6
+color8 = #3a3026
+color9 = #f68e90
+color10 = #a8de78
+color11 = #f6c070
+color12 = #dcaa88
+color13 = #e2acc0
+color14 = #8ed6bc
+color15 = #f2ece0

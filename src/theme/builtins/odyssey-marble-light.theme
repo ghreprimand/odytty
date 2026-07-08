@@ -1,0 +1,31 @@
+# OdyTTY theme
+# warm ivory with terracotta and olive ink
+name = odyssey-marble-light
+appearance = light
+
+foreground = #33302a
+background = #f6f2ea
+clear = #fcfaf4
+
+cursor = #b06030
+selection = #e6dcc8
+search = #ece0a0
+border = #e0d8c8
+inactive = #948c7c
+
+color0 = #e8e2d4
+color1 = #b84032
+color2 = #4a8a2e
+color3 = #9c6a12
+color4 = #3a62a0
+color5 = #96448c
+color6 = #2a8478
+color7 = #443f36
+color8 = #ccc4b2
+color9 = #982c20
+color10 = #38701e
+color11 = #7c5208
+color12 = #284c86
+color13 = #7a2e72
+color14 = #1e6a5e
+color15 = #262420

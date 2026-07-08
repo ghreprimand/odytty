@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Theme library expanded with 12 original OdysseyOS palettes
+
+The built-in theme roster grows from 100 to 112 with a contrast-validated batch
+of 12 new OdyTTY-original palettes — 8 dark, 4 light — extending the celestial,
+mineral, water, and botanical identity idioms already in the family. The dark
+additions are `odyssey-eclipse` (umbral indigo with a corona-gold ring),
+`odyssey-comet` (near-black void with an icy blue-white tail), `odyssey-obsidian`
+(cool volcanic glass), `odyssey-jade` (deep green mineral field), `odyssey-basalt`
+(warm charcoal stone), `odyssey-fjord` (deep blue-green inlet), `odyssey-mangrove`
+(dark forest teal), and `odyssey-nocturne` (deep blue-violet night). The light
+additions are `odyssey-quartz-light`, `odyssey-marble-light`, `odyssey-dune-light`,
+and `odyssey-fern-light`.
+
+Every new palette clears the readability floor with wide margin: the smallest
+default foreground/background WCAG contrast across the batch is 10.7:1, far above
+the 4.0 minimum, and each appearance flag matches its background luminance. The
+themes are authored as `.theme` files loaded through the same parse path as user
+themes and registered in the built-in table; no bespoke construction. The roster
+count is updated in lockstep across the library assertion, README, SPEC, the
+theme reference, the roadmap, and the architecture/release docs. Data-only — no
+platform-specific behavior on any target.
+
+---
+
 ## 2026-07-08 -- GPU adapter startup diagnostics now reach the rotated log
 
 The startup GPU diagnostics — the selected-adapter summary, the

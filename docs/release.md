@@ -48,7 +48,7 @@ The current release ships:
   the `Ctrl-b` prefix model);
 - overlays for the command palette, connection manager, session replay, theme
   picker, and theme builder;
-- 100 built-in themes with a perceptual minimum-contrast floor and optional
+- 112 built-in themes with a perceptual minimum-contrast floor and optional
   color-vision-deficiency modes;
 - interactive/clickable paths (off by default) with `Ctrl+click`-to-open and an
   in-app image lightbox;

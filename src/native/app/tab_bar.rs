@@ -595,7 +595,7 @@ mod tests {
     /// panel tint to the theme background so the layout/treatment assertions
     /// stay expressed against `wallpaper_background`; the panel surface itself is
     /// covered by `resting_cells_paint_the_panel_tint_at_strength` + the
-    /// tab_chrome 100-theme guard.
+    /// tab_chrome full-roster theme guard.
     const PANEL_STRENGTH: f32 = 0.0;
 
     fn render_with(b: &TabBar, src: &dyn TabBarSource) -> TabBarOutput {

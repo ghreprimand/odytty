@@ -1,0 +1,31 @@
+# OdyTTY theme
+# soft green-tinted daylight, woodland accents
+name = odyssey-fern-light
+appearance = light
+
+foreground = #28302a
+background = #eef4ec
+clear = #f6faf4
+
+cursor = #3a8a58
+selection = #d6e4d4
+search = #e4e6a4
+border = #d2e0ce
+inactive = #849287
+
+color0 = #dfe8dc
+color1 = #b23c44
+color2 = #2c8a3c
+color3 = #8a7010
+color4 = #356aa0
+color5 = #8446a0
+color6 = #0e8274
+color7 = #384038
+color8 = #c4d2c0
+color9 = #902430
+color10 = #1c7028
+color11 = #6c5606
+color12 = #264e88
+color13 = #682e84
+color14 = #08685c
+color15 = #20281f
