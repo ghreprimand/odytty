@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Serialize test-harness pseudoconsole spawns
+
+The native test suite runs multi-threaded on Linux and Windows (only macOS is
+pinned to a single test thread). Opening a real pseudoconsole on Windows is
+sensitive to concurrent spawn and teardown: under parallelism two ConPTY starts
+occasionally collide and one child dies at startup ("the pseudoconsole could
+not start a usable shell"), an intermittent failure that could surface in any of
+the ~40 native test files that spawn a short-lived pause shell through the shared
+`spawn_test_pause_shell` helper. A single run showing a mix of passing and
+failing pseudoconsole tests — rather than a uniform failure — is the signature
+of spawn contention rather than a broken environment.
+
+The helper now serializes just the spawn window behind a process-global mutex:
+the guard is held only across the `spawn_shell_command` call and released before
+the test body's pause-shell wait, so concurrent spawns can no longer overlap
+while the rest of every test stays fully parallel and total suite time is
+unchanged. Serialization is deterministic by construction — serialized spawns
+cannot race — which is the correctness argument, since the failure reproduces
+only on Windows under parallelism and a single green run would not prove it
+fixed. Windows additionally retries a transient startup failure a small bounded
+number of times; the retry is expressed with a runtime `cfg!(windows)` attempt
+count rather than a `#[cfg]` block, so the exact loop that runs on Windows is
+compiled and lint-checked on every platform. The mutex tolerates a poisoned lock
+(it guards no data) rather than cascading a poison error into later spawns.
+
+Windows behavior: this changes test-harness shell spawning only. The production
+ConPTY spawn path (`src/pty/windows.rs`) is untouched; no runtime terminal
+behavior changes on any platform.
+
+State: full library test suite green (3366 tests), `cargo fmt --check` and
+`cargo clippy --all-targets` clean. The fix targets an intermittent
+Windows-only CI flake; the Windows CI leg is the authoritative verification.
+
+---
+
 ## 2026-07-08 -- PowerShell click-to-place append off-by-one correction
 
 Click-to-position on a live PowerShell prompt under Windows/ConPTY landed the
