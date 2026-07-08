@@ -29,7 +29,7 @@ fn sample_snapshot() -> ShapeSnapshot {
                     TabShape {
                         title: None,
                         focused_leaf: 0,
-                        layout: leaf(Some("/home/joel")),
+                        layout: leaf(Some("/home/tester")),
                     },
                     TabShape {
                         title: Some("build".to_owned()),
@@ -53,7 +53,7 @@ fn sample_snapshot() -> ShapeSnapshot {
                     layout: PaneShape::Split {
                         axis: SplitAxisShape::Rows,
                         ratio: 0.35,
-                        first: Box::new(leaf(Some(r"C:\Users\joel\project"))),
+                        first: Box::new(leaf(Some(r"C:\Users\Tester\project"))),
                         second: Box::new(PaneShape::Split {
                             axis: SplitAxisShape::Columns,
                             ratio: 0.6,
@@ -141,14 +141,14 @@ fn windows_drive_letter_cwd_round_trips_with_escaped_backslashes() {
             tabs: vec![TabShape {
                 title: None,
                 focused_leaf: 0,
-                layout: leaf(Some(r"C:\Users\joel\Documents")),
+                layout: leaf(Some(r"C:\Users\Tester\Documents")),
             }],
         }],
     };
     let text = snapshot.to_json_pretty();
     // Backslashes must be JSON-escaped on the wire.
     assert!(
-        text.contains(r#""cwd": "C:\\Users\\joel\\Documents""#),
+        text.contains(r#""cwd": "C:\\Users\\Tester\\Documents""#),
         "drive-letter path must serialize with escaped backslashes: {text}"
     );
     let parsed = ShapeSnapshot::from_json_str(&text).expect("round-trips");
@@ -498,7 +498,7 @@ fn layout_save_list_load_delete_round_trip() {
             tabs: vec![TabShape {
                 title: Some("build".to_owned()),
                 focused_leaf: 0,
-                layout: leaf(Some("/home/joel")),
+                layout: leaf(Some("/home/tester")),
             }],
         }],
     };

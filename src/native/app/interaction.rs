@@ -2280,7 +2280,7 @@ impl App {
             let scrollback_len = terminal.screen().scrollback_len();
             let cursor = terminal.screen().cursor();
             let snapshot = terminal.snapshot_with_scrollback(0);
-            let computed = click_travel_delta(
+            click_travel_delta(
                 &snapshot,
                 &region,
                 point,
@@ -2288,35 +2288,7 @@ impl App {
                 cursor,
                 scrollback_len,
                 self.grid.rows,
-            );
-            // NF18 diagnostic (temporary): geometry-only trace of the
-            // click-to-place inputs, gated behind the `ODYTTY_NF18_TRACE` env
-            // var so it is completely inert unless a Windows repro is running.
-            // It emits ONLY integers plus the certainty enum — never any
-            // PTY/grid/buffer text — so it satisfies the FREEZE-HARDEN
-            // no-terminal-content-in-logs rule by construction. Lands in the
-            // default-WARN `odytty.log` the operator already sends. Removed once
-            // the NF18 Windows off-by-one-left is fixed (no-orphan rule).
-            if std::env::var_os("ODYTTY_NF18_TRACE").is_some() {
-                tracing::warn!(
-                    target: "odytty::nf18",
-                    click_row = point.row,
-                    click_col = point.column,
-                    cursor_row = cursor.row,
-                    cursor_col = cursor.column,
-                    region_start_row = region.start_row,
-                    region_start_col = region.start_col,
-                    region_end_row = region.end_row,
-                    region_end_col = region.end_col,
-                    certainty = ?region.certainty,
-                    scrollback_len,
-                    grid_rows = self.grid.rows,
-                    delta = computed.unwrap_or(0),
-                    fired = computed.is_some(),
-                    "NF18 click-to-place geometry"
-                );
-            }
-            computed
+            )
         };
         let Some(delta) = delta else {
             return false;

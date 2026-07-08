@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Retire the click-to-place investigation trace
+
+The temporary `ODYTTY_NF18_TRACE` gate is removed. It instrumented the
+click-to-place geometry to chase the Windows one-cell-left symptom, and that
+issue is now closed: the cause was floor-rounding in click-target resolution,
+fixed uniformly by nearest-boundary caret targeting, and confirmed landing
+dead-on. The trace pointed at a ruled-out cursor-report theory, so it no longer
+instruments anything real and comes out under the no-orphan rule.
+
+The emit block in the click-to-place path and its diagnostic target
+(`odytty::nf18`) are gone; the documented diagnostics surface drops the gate's
+row and explanation, and a stale per-target `RUST_LOG` example that referenced
+the retired target is retargeted to a live one. The permanent
+`ODYTTY_REFLOW_TRACE` resize diagnostic is untouched.
+
+Windows behavior: this removes a diagnostic-only gate; no runtime terminal
+behavior changes on any platform, and the production click-to-place path is
+unaffected.
+
+State: full library test suite green, `cargo fmt --check` and `cargo clippy
+--all-targets` clean.
+
+---
+
 ## 2026-07-08 -- Windows click-to-place off-by-one was floor-rounding, not a cursor-report offset
 
 The Windows/ConPTY click-to-place symptom — the caret landing one cell left of
@@ -12332,7 +12356,7 @@ later phase closes them.
 
 The test asserts: the fixture is present, non-empty, and carries every expected
 section; it contains no private/local data (no `/home/`, `/Users/`, `/var/`,
-`/etc/`, `c:\`, no `@`, no `joel@`/`@odyssey`, no IPv4) — a public-repo guard;
+`/etc/`, `c:\`, no `@`, no personal `user@host` address, no IPv4) — a public-repo guard;
 every codepoint in an "advertised geometric" range actually satisfies
 `boxdraw::covers` and yields a coverage bitmap; and every documented hole range
 remains uncovered (so a silently-closed hole without a label update fails CI).

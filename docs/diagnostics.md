@@ -124,31 +124,24 @@ RUST_LOG=info odytty
 ```
 
 This is a bare-level parser, **not** the full `tracing_subscriber` per-target
-directive syntax. Per-target filters such as `RUST_LOG=odytty::nf18=warn` are
+directive syntax. Per-target filters such as `RUST_LOG=odytty::reflow=warn` are
 **not** supported — an unparseable value falls back to `warn` rather than
 silencing anything (a typo must never hide errors).
 
 ### Opt-in traces
 
-Two targeted trace gates exist. Both are inert unless explicitly set and are
-meant for reproducing a specific issue, not for everyday use.
+One targeted trace gate exists. It is inert unless explicitly set and is meant
+for reproducing a specific issue, not for everyday use.
 
 | Gate | Value | Destination | Purpose |
 |---|---|---|---|
 | `ODYTTY_REFLOW_TRACE` | `1` or `true` | `odytty-reflow-trace.log` in the OS temp dir | Permanent passive diagnostic: one geometry/cursor line per terminal resize. |
-| `ODYTTY_NF18_TRACE` | any value set | `odytty.log` (target `odytty::nf18`) | Temporary: captures integer coordinates for the Windows click-to-place investigation. |
 
 `ODYTTY_REFLOW_TRACE` costs a single atomic load when off and appends one line
 per resize when on; it records geometry and cursor coordinates only, never cell
 contents, paths, or environment values. It writes to the OS temp directory
 because the Windows GUI build has no visible stderr, so the file is retrieved
 afterward.
-
-`ODYTTY_NF18_TRACE` is completely inert unless set. When enabled it emits only
-integers (click and cursor row/column, scrollback length, grid rows, a delta)
-and a certainty enum — never PTY, grid, or buffer text — into the default
-`odytty.log` that a support request already includes. It is a temporary gate
-that will be removed once the underlying Windows click-to-place issue is closed.
 
 ## Retrieving logs for a support request
 
