@@ -26,7 +26,7 @@ OdyTTY is in active development. It is already a broad prototype: a native
 window opens real local shells, supports multiple sessions with a tab bar,
 splits each tab into panes, renders text and inline graphics on the GPU, and has
 a substantial compatibility and smoke-test suite. It is still Linux-first and
-pre-release; macOS is supported as an experimental build-from-source target, and
+pre-release; macOS is newly supported and in active development, and
 Windows ships as an unsigned portable zip.
 
 ## Highlights
@@ -91,8 +91,8 @@ Windows ships as an unsigned portable zip.
 
 ## Install And Run
 
-Linux is the primary, battle-tested target. macOS is an experimental
-build-from-source target (see [macOS](#macos-experimental) below). Windows ships
+Linux is the primary, battle-tested target. macOS is newly supported and in
+active development (see [macOS](#macos) below). Windows ships
 as an unsigned portable zip; Scoop is the recommended install path, or download
 the zip directly.
 
@@ -295,9 +295,10 @@ detached SSH (Unix-only), the headless `--interactive` mode, and the full
 history degrade to empty on Windows. Interactive Windows behaviour is verified
 manually on-device — CI proves the build compiles and its unit tests pass.
 
-### macOS (experimental)
+### macOS
 
-macOS is experimental and not yet as battle-tested as Linux. OdyTTY is built
+macOS support is newer and in active development — not yet as battle-tested as
+Linux. OdyTTY is built
 from source: a binary you compile locally is never quarantined, so it launches
 with no Gatekeeper warning and needs no signing, notarization, or workaround.
 The current published channel is this build-from-source path; a prebuilt,
@@ -985,8 +986,8 @@ OSC 8/52/133, dynamic colors, prompt navigation, command status gutter,
 readability and accessibility settings, bloom/CRT/retro effects, background
 treatments, and a large compatibility test surface.
 
-**Platforms:** Linux is the primary, battle-tested target. macOS is an
-experimental build-from-source target (see Install And Run). Windows is
+**Platforms:** Linux is the primary, battle-tested target. macOS is newly
+supported and in active development (see Install And Run). Windows is
 supported through ConPTY and ships as an unsigned portable zip. Linux, macOS,
 and Windows are all blocking CI legs.
 
