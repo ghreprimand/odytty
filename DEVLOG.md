@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Freeze watchdog no longer cries wolf for an idle or background window
+
+The freeze watchdog logged a stall whenever input or redraw work had been
+pending for ten seconds, without checking that a frame was actually owed. An
+idle or unfocused window, or a redraw requested for a non-visible pane in a
+background tab, latches that pending flag but never owes a present, so the
+watchdog fired at ten seconds and re-logged every minute. A real log showed a
+roughly half-hour run of these false positives on an unfocused window with no
+rebuild pending and a frozen-looking (but merely idle) frame counter. A safety
+watchdog that routinely cries wolf trains everyone to ignore it, so a genuine
+freeze record gets lost in the noise.
+
+The stall record now requires render work to be genuinely owed. The watchdog
+state gains a `render_owed` signal, computed from the multipane-aware
+`should_rebuild_frame()` (not the bare single-pane `needs_rebuild`) or a pending
+skipped-frame retry, and the monitor returns no stall when work is pending but
+no frame is owed. The genuine catch is unchanged: the v0.7.0 freeze signature
+(event loop alive, render path dead, redraws owed but never presented) still
+has a frame owed, so it still trips at ten seconds. The gate keys on owed render
+work, not on focus, so a focused-but-frozen window and an unfocused window that
+does owe a frame both remain catchable. The logged postmortem fields are
+unchanged; `render_owed` only decides whether a stall is real.
+
+The gating is identical on Windows and macOS: the same `render_owed` predicate,
+no platform-specific surface. Added tests cover both directions - an
+idle/unfocused window that owes no frame never stalls, and the redraws-owed
+freeze signature still logs - plus the unchanged timing boundary.
+
 ## 2026-07-09 -- macOS CI orphan sweep narrowed to the cargo test-binary name pattern
 
 The macOS Test step's between-attempts orphan sweep is narrowed to the cargo

@@ -92,10 +92,13 @@ to a crash.
   visibly instead of stranding a frozen, zero-CPU window, and so a debugger or
   coredump still sees the crash site.
 - **Freeze watchdog.** A lightweight monitor thread watches for the signature of
-  a hang: input or redraw work pending with no frame presented for about ten
-  seconds. When it fires it emits a single log record naming its internal latch
-  state — no dump, no signal, no process action — so the next freeze is
-  diagnosable from the log rather than requiring a live debugger. It is
+  a hang: a redraw genuinely owed yet no frame presented for about ten seconds.
+  Pending work on an idle or background window that owes no frame is not a hang
+  and is never logged, so the record is reserved for a real stall (the event
+  loop alive but the render path dead, redraws owed but never presented). When
+  it fires it emits a single log record naming its internal latch state — no
+  dump, no signal, no process action — so the next freeze is diagnosable from
+  the log rather than requiring a live debugger. It is
   rate-limited to at most one record per minute per stall, costs a few atomic
   stores per event on the healthy path, and re-arms as soon as a frame is
   presented.

@@ -64,6 +64,15 @@ pub(super) struct WatchdogAppState {
     /// Frames that reached `present()` since GPU init.
     pub(super) frames_presented: u64,
     pub(super) consecutive_skipped_frames: u32,
+    /// Whether the render path genuinely OWES a frame right now: a rebuild is
+    /// due (multipane-aware, not the bare `needs_rebuild` flag) or a skipped
+    /// frame is scheduled to retry. This is the gating discriminator for the
+    /// stall log (see `evaluate`) and is intentionally NOT part of the logged
+    /// postmortem record; it only decides whether a stall is real. An idle or
+    /// background window latches pending work without owing a frame, so gating
+    /// on this silences that false positive while the genuine
+    /// redraws-owed-but-not-presented freeze still trips.
+    pub(super) render_owed: bool,
 }
 
 /// Atomics shared between the wrapper (writer) and the monitor thread
@@ -87,6 +96,8 @@ pub(super) struct WatchdogShared {
     needs_rebuild: AtomicBool,
     frames_presented: AtomicU64,
     consecutive_skipped_frames: AtomicU64,
+    /// Whether a frame is genuinely owed (gates the stall log; not logged).
+    render_owed: AtomicBool,
 }
 
 impl WatchdogShared {
@@ -107,6 +118,7 @@ impl WatchdogShared {
             needs_rebuild: AtomicBool::new(false),
             frames_presented: AtomicU64::new(0),
             consecutive_skipped_frames: AtomicU64::new(0),
+            render_owed: AtomicBool::new(false),
         })
     }
 
@@ -125,6 +137,11 @@ impl WatchdogShared {
     fn note_present(&self) {
         self.pending.store(false, Ordering::Relaxed);
         self.logged.store(false, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    fn set_render_owed(&self, owed: bool) {
+        self.render_owed.store(owed, Ordering::Relaxed);
     }
 
     fn store_state(&self, state: &WatchdogAppState) {
@@ -147,6 +164,7 @@ impl WatchdogShared {
             u64::from(state.consecutive_skipped_frames),
             Ordering::Relaxed,
         );
+        self.render_owed.store(state.render_owed, Ordering::Relaxed);
     }
 
     fn snapshot(&self) -> WatchdogAppState {
@@ -164,6 +182,7 @@ impl WatchdogShared {
                 self.consecutive_skipped_frames.load(Ordering::Relaxed),
             )
             .unwrap_or(u32::MAX),
+            render_owed: self.render_owed.load(Ordering::Relaxed),
         }
     }
 
@@ -172,6 +191,15 @@ impl WatchdogShared {
     /// Pure decision logic, factored for the tests below.
     fn evaluate(&self, now_ms: u64) -> Option<String> {
         if !self.pending.load(Ordering::Relaxed) {
+            return None;
+        }
+        // Gate: pending work alone is not a stall. An idle or background
+        // window (unfocused, or a redraw requested for a non-visible pane)
+        // latches `pending` but owes no present, so it would otherwise cry
+        // wolf at STALL_AFTER and re-log every RELOG_EVERY. Only a genuinely
+        // owed-but-unpresented frame is the v0.7.0 freeze signature this
+        // module exists to catch, so require `render_owed` here.
+        if !self.render_owed.load(Ordering::Relaxed) {
             return None;
         }
         let pending_since = self.pending_since_ms.load(Ordering::Relaxed);
@@ -365,6 +393,7 @@ mod tests {
             needs_rebuild: true,
             frames_presented: 1234,
             consecutive_skipped_frames: 0,
+            render_owed: true,
         }
     }
 
@@ -421,6 +450,7 @@ mod tests {
         assert_eq!(shared.evaluate(1_000_000), None);
 
         shared.note_activity();
+        shared.set_render_owed(true);
         let since = shared.pending_since_ms.load(Ordering::Relaxed);
         // Inside the window: silent.
         assert_eq!(shared.evaluate(since + 9_999), None);
@@ -436,6 +466,7 @@ mod tests {
     fn presented_frame_rearms_the_watchdog() {
         let shared = WatchdogShared::new();
         shared.note_activity();
+        shared.set_render_owed(true);
         let since = shared.pending_since_ms.load(Ordering::Relaxed);
         assert!(shared.evaluate(since + 10_000).is_some());
 
@@ -468,8 +499,56 @@ mod tests {
             needs_rebuild: true,
             frames_presented: 987,
             consecutive_skipped_frames: 3,
+            render_owed: true,
         };
         shared.store_state(&state);
         assert_eq!(shared.snapshot(), state);
+    }
+
+    /// REGRESSION GUARD for the observed false positive: an idle or background
+    /// window latches pending work (a redraw request, a PTY wake) but owes no
+    /// frame. Even well past STALL_AFTER, `evaluate` must stay silent when
+    /// `render_owed` is false — this is the ~33-minute unfocused/no-owed noise
+    /// series from the real log that the gate removes.
+    #[test]
+    fn idle_window_with_no_owed_frame_never_stalls() {
+        let shared = WatchdogShared::new();
+        shared.note_activity();
+        // render_owed defaults to false; leave it so (nothing is owed).
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        assert_eq!(
+            shared.evaluate(since + 10_000),
+            None,
+            "pending without an owed frame is not a stall"
+        );
+        // …and it stays silent no matter how long it idles.
+        assert_eq!(shared.evaluate(since + 33 * 60_000), None);
+    }
+
+    /// The v0.7.0 freeze this module exists to catch MUST still fire: the event
+    /// loop is alive but the render path is dead, so redraws are genuinely owed
+    /// (`render_owed` true) and no frame presents. Gating on `render_owed` must
+    /// not weaken that catch.
+    #[test]
+    fn v070_freeze_signature_still_stalls() {
+        let shared = WatchdogShared::new();
+        shared.note_activity();
+        shared.set_render_owed(true);
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        assert!(
+            shared.evaluate(since + 10_000).is_some(),
+            "redraws owed but never presented is the freeze the watchdog must log"
+        );
+    }
+
+    /// Timing is unchanged by the gate: an owed frame within the stall window
+    /// is still not yet a stall.
+    #[test]
+    fn owed_frame_within_the_window_is_not_yet_a_stall() {
+        let shared = WatchdogShared::new();
+        shared.note_activity();
+        shared.set_render_owed(true);
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        assert_eq!(shared.evaluate(since + 9_999), None);
     }
 }

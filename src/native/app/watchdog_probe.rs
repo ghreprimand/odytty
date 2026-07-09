@@ -38,6 +38,13 @@ impl App {
                 .map(GpuState::frames_presented)
                 .unwrap_or(0),
             consecutive_skipped_frames: self.consecutive_skipped_frames,
+            // Gating discriminator for the stall log: is a frame genuinely
+            // owed right now? Use the multipane-aware `should_rebuild_frame()`
+            // (NOT the bare single-pane `needs_rebuild`, which is still
+            // exported above for the postmortem record) OR a pending
+            // skipped-frame retry. When this is false the watchdog treats
+            // latched-but-unpresented work as idle/background, not a freeze.
+            render_owed: self.should_rebuild_frame() || self.skipped_frame_retry_deadline.is_some(),
         }
     }
 }
