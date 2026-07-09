@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Auto-hide rail drag path covered end to end
+
+The workspace reorder gesture already routes a live `CursorMoved` event to its
+drag tracker before the auto-hide hover path, and an in-flight drag already
+pins the floating rail open. A new regression drives the full revealed-rail
+route: cursor move onto a workspace slot, left press, threshold-crossing cursor
+move, and release. It verifies the drag arms, reaches the append target, keeps
+the floating rail visible, reorders the workspaces, and releases the pin.
+
+No runtime behavior changed. The input and presentation path is shared across
+Linux, macOS, and Windows, with no PTY, path, environment, or shell surface
+change. The targeted drag regressions, `cargo fmt --check`, and `cargo clippy
+--all-targets --locked -- -D warnings` are clean. Visual confirmation remains
+before release.
+
+---
+
 ## 2026-07-09 -- Rail new-slot spacer no longer draws a horizontal rule
 
 The workspace rail retains its one-row, non-interactive spacer between the last

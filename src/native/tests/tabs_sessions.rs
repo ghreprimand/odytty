@@ -4491,6 +4491,43 @@ fn a_workspace_drag_holds_the_autohide_rail_open() {
 }
 
 #[test]
+fn an_autohide_workspace_drag_uses_cursor_moved_and_reorders() {
+    // Exercise the live route for the floating rail: CursorMoved first lands on
+    // a revealed workspace slot, MouseInput arms the gesture, and later
+    // CursorMoved must bypass auto-hide hover to advance the drag itself.
+    let Some(mut app) = rail_drag_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.set_tab_rail_autohide_for_test(true);
+    app.force_rail_reveal_for_test();
+
+    // Slot 0's label row in the floating left rail. This production move makes
+    // the overlay own the pointer before the production press starts the drag.
+    app.pointer_move_for_test(20.0, 24.0);
+    assert_eq!(app.chrome_hit_band_for_test(), Some("workspace"));
+    app.mouse_left_press_for_test();
+    assert_eq!(app.rail_ws_drag_for_test(), Some((false, 0)));
+    assert!(app.rail_pinned_open_for_test());
+
+    // The next real CursorMoved crosses the drag threshold and reaches the
+    // append drop target, rather than returning through the auto-hide hover
+    // path. The rail stays visible for the gesture.
+    app.pointer_move_for_test(20.0, 140.0);
+    assert_eq!(app.rail_ws_drag_for_test(), Some((true, 3)));
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::Grabbing
+    );
+    assert!(app.rail_overlay_visible_for_test());
+
+    app.mouse_left_release_for_test();
+    assert_eq!(app.workspace_names_for_test(), vec!["b", "c", "a"]);
+    assert!(!app.rail_pinned_open_for_test());
+}
+
+#[test]
 fn a_dragged_workspace_order_persists_through_the_shape_snapshot() {
     // The reorder rides the shape-snapshot autosave path (the same one the
     // context-menu Move Up/Down uses), so a dragged order survives a restart.
