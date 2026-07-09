@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Pre-release docs-currency audit
+
+Swept the public doc set against shipped reality ahead of the next release. The
+multipane completion work (inline graphics in splits, per-pane selection/search
+overlays, sub-cell pixel scroll in a focused pane), rail drag reorder, the
+Duplicate Workspace/Tab chords, adjustable tab-bar height, and the 136-theme
+roster were each checked to have an accurate mention where a reader would look,
+with every surviving single-pane caveat verified still true. One stale line
+remained: the pane fast-follow checklist item still claimed inline graphics
+rendered in single-pane tabs only, which the split-graphics work superseded; it
+is now recorded as shipped. No other drift found across README, SPEC, the docs
+set, or the keybinding tables. Docs only, no code or test changes.
+
+---
+
 ## 2026-07-09 -- Malformed-snapshot launch robustness locked by tests
 
 Startup workspace restore already degrades gracefully on a corrupt, truncated,

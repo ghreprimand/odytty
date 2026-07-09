@@ -1119,8 +1119,9 @@ feature validates against.
       selection or a search match shows in the correct pane regardless of which
       pane holds focus; the interactive search query bar stays on the focused
       pane. Painter routing only, inert and byte-identical on a single-pane tab.
-- [ ] Pane fast-follow: per-pane inline graphics (images render in single-pane
-      tabs only today).
+- [x] Per-pane inline graphics: Kitty and Sixel placements rasterize and clip to
+      each pane's sub-rect inside a split, so an image renders in the correct
+      pane without bleeding across a divider (single-pane rendering byte-identical).
 - [x] Public live reattach: `odytty attach <id>` routes through the native
       window attach seam, while `odytty attach --diagnostic <id>` remains the
       no-window script/CI form.
