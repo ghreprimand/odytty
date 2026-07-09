@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Drag-to-reorder workspaces in the rail
+
+Workspaces can now be reordered by dragging a rail slot, a direct-manipulation
+complement to the existing right-click Move Up / Move Down menu. Pressing a
+workspace slot arms a gesture; a small pointer-movement threshold disambiguates a
+click (which still switches to the workspace) from a drag. Once the threshold is
+crossed, a bright rule tracks the live drop target between slots, release commits
+the new order, and Escape cancels the gesture with the rail order untouched. A
+short press that never crosses the threshold is a plain click, so a click never
+reorders by accident.
+
+The commit reuses the existing single-step `move_workspace` engine rather than a
+bespoke splice: the drag walks the workspace from its origin to the drop index
+one adjacent swap at a time, so active-follow-by-identity (the focused workspace
+never changes under a reorder) and shape-autosave persistence (the new order
+restores next launch) are identical to the menu path. The drop-target index maps
+the pointer Y to an insertion slot by each slot's vertical midpoint, clamped at
+the top and bottom edges. When rail auto-hide is on, the rail is held revealed
+for the whole gesture so the drop target can never vanish mid-drag; the hold
+releases when the drag ends or cancels.
+
+Pointer input is the shared cross-platform path, so the gesture behaves
+identically on Linux, Windows, and macOS with no platform-specific surface. New
+tests cover the click-vs-drag threshold, the drop-target index math including the
+top and bottom edges, cancel-on-escape leaving the order untouched, the
+auto-hide hold, and the reordered order round-tripping through the shape
+snapshot; the drop-indicator paint has its own widget-level coverage. `cargo
+test` (full non-GPU suite, 3386 lib tests) and `cargo fmt --check` pass, and
+`cargo clippy --all-targets` is clean; offscreen GPU tests are excluded (no
+headless display) and left to CI.
+
 ## 2026-07-09 -- Freeze watchdog no longer cries wolf for an idle or background window
 
 The freeze watchdog logged a stall whenever input or redraw work had been

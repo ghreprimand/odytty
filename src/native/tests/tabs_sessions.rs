@@ -3797,8 +3797,11 @@ fn workspace_rail_always_shows_with_a_single_workspace() {
 
 #[test]
 fn clicking_a_workspace_rail_slot_switches_the_active_workspace() {
-    // ODP-10 / §7.1: a press on a rail slot dispatches to `switch_workspace`,
-    // not `switch_tab`; the band reports the WORKSPACE surface.
+    // ODP-10 / §7.1: a click on a rail slot dispatches to `switch_workspace`,
+    // not `switch_tab`; the band reports the WORKSPACE surface. RAIL-DRAG: a
+    // press now ARMS a drag-to-reorder gesture and the switch fires on release
+    // (a click that never crossed the movement threshold), so the click is a
+    // press+release pair with the pointer parked on the same slot.
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -3812,7 +3815,8 @@ fn clicking_a_workspace_rail_slot_switches_the_active_workspace() {
     assert_eq!(app.active_workspace_index_for_test(), 1);
 
     // Slot 0 body (top-margin row 1, label col) → the pointer is over the
-    // WORKSPACE band, and a press switches to workspace 0.
+    // WORKSPACE band, and a click (press+release, no drag) switches to
+    // workspace 0.
     app.set_pointer_px_for_test(12.0, 24.0);
     assert_eq!(
         app.chrome_hit_band_for_test(),
@@ -3822,8 +3826,186 @@ fn clicking_a_workspace_rail_slot_switches_the_active_workspace() {
     app.mouse_left_press_for_test();
     assert_eq!(
         app.active_workspace_index_for_test(),
+        1,
+        "a bare press only arms the gesture; the switch waits for release"
+    );
+    app.mouse_left_release_for_test();
+    assert_eq!(
+        app.active_workspace_index_for_test(),
         0,
-        "a rail slot press switches the active workspace"
+        "a rail slot click switches the active workspace on release"
+    );
+}
+
+/// RAIL-DRAG shared setup: a left-rail app with three named workspaces (a, b, c)
+/// and the active one at index 2 (c), the cell + rail geometry the drop-target
+/// math is expressed against. `None` when no PTY is available.
+#[cfg(test)]
+fn rail_drag_app() -> Option<App> {
+    let mut app = tab_bar_app()?;
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_workspace_rail_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    add_workspace(&mut app); // index 1
+    add_workspace(&mut app); // index 2 (active)
+    app.rename_workspace_for_test(0, "a");
+    app.rename_workspace_for_test(1, "b");
+    app.rename_workspace_for_test(2, "c");
+    assert_eq!(app.active_workspace_index_for_test(), 2);
+    assert_eq!(app.workspace_names_for_test(), vec!["a", "b", "c"]);
+    Some(app)
+}
+
+#[test]
+fn dragging_a_workspace_slot_reorders_it_and_follows_the_active_by_identity() {
+    // Press slot 0 (a), drag past every slot midpoint (cell 8x16 → midpoints at
+    // y = 32/80/128 px), and release: `a` lands at the end and the active
+    // workspace still follows its identity (c), reusing the shipped
+    // `move_workspace` engine for the commit.
+    let Some(mut app) = rail_drag_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Press on slot 0's label cell (row 1) — arms the gesture, no switch yet.
+    app.set_pointer_px_for_test(12.0, 24.0);
+    app.mouse_left_press_for_test();
+    assert_eq!(
+        app.rail_ws_drag_for_test(),
+        Some((false, 0)),
+        "a bare press arms but does not yet drag"
+    );
+    // Drag below the last midpoint → the drop target is the append slot (count).
+    app.pointer_move_for_test(12.0, 140.0);
+    assert_eq!(
+        app.rail_ws_drag_for_test(),
+        Some((true, 3)),
+        "past the threshold and every midpoint → armed, dropping at the end"
+    );
+    // Release commits the reorder.
+    app.mouse_left_release_for_test();
+    assert_eq!(
+        app.rail_ws_drag_for_test(),
+        None,
+        "the drag clears on release"
+    );
+    assert_eq!(
+        app.workspace_names_for_test(),
+        vec!["b", "c", "a"],
+        "the dragged workspace moved to the end"
+    );
+    assert_eq!(
+        app.active_workspace_index_for_test(),
+        1,
+        "the active workspace still follows c by identity"
+    );
+}
+
+#[test]
+fn a_sub_threshold_press_stays_a_click_and_does_not_reorder() {
+    // A tiny move under the movement threshold keeps the gesture a click: the
+    // slot activates on release and the rail order is untouched (no accidental
+    // reorder from click jitter).
+    let Some(mut app) = rail_drag_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_pointer_px_for_test(12.0, 24.0);
+    app.mouse_left_press_for_test();
+    // Move ~2.8px (< 5px threshold): never arms.
+    app.pointer_move_for_test(14.0, 26.0);
+    assert_eq!(
+        app.rail_ws_drag_for_test(),
+        Some((false, 0)),
+        "a sub-threshold move never arms the drag"
+    );
+    app.mouse_left_release_for_test();
+    assert_eq!(
+        app.workspace_names_for_test(),
+        vec!["a", "b", "c"],
+        "a click never reorders the rail"
+    );
+    assert_eq!(
+        app.active_workspace_index_for_test(),
+        0,
+        "the click activated the pressed workspace"
+    );
+}
+
+#[test]
+fn escape_cancels_a_workspace_drag_leaving_the_order_untouched() {
+    // Once armed, Escape aborts the gesture with the rail order unchanged and the
+    // drag state cleared — the cancel-on-escape ergonomic.
+    let Some(mut app) = rail_drag_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_pointer_px_for_test(12.0, 24.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(12.0, 140.0);
+    assert_eq!(app.rail_ws_drag_for_test(), Some((true, 3)), "armed drag");
+    app.drive_named_key_for_test(NamedKey::Escape);
+    assert_eq!(
+        app.rail_ws_drag_for_test(),
+        None,
+        "Escape clears the in-flight drag"
+    );
+    assert_eq!(
+        app.workspace_names_for_test(),
+        vec!["a", "b", "c"],
+        "a cancelled drag leaves the order untouched"
+    );
+    assert_eq!(
+        app.active_workspace_index_for_test(),
+        2,
+        "the active workspace is unchanged by a cancelled drag"
+    );
+}
+
+#[test]
+fn a_workspace_drag_holds_the_autohide_rail_open() {
+    // The rail must not vanish mid-gesture: an in-flight drag pins the auto-hide
+    // rail open (via `rail_pinned_open`), and the hold releases when the drag
+    // ends. Verified through the same predicate `rail_overlay_visible` consults.
+    let Some(mut app) = rail_drag_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    assert!(!app.rail_pinned_open_for_test(), "no hold before a drag");
+    app.set_pointer_px_for_test(12.0, 24.0);
+    app.mouse_left_press_for_test();
+    assert!(
+        app.rail_pinned_open_for_test(),
+        "an armed-or-pending drag holds the rail open"
+    );
+    app.mouse_left_release_for_test();
+    assert!(
+        !app.rail_pinned_open_for_test(),
+        "the hold releases when the drag ends"
+    );
+}
+
+#[test]
+fn a_dragged_workspace_order_persists_through_the_shape_snapshot() {
+    // The reorder rides the shape-snapshot autosave path (the same one the
+    // context-menu Move Up/Down uses), so a dragged order survives a restart.
+    let Some(mut app) = rail_drag_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_pointer_px_for_test(12.0, 24.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(12.0, 140.0);
+    app.mouse_left_release_for_test();
+    let shape = app.capture_shape_for_test();
+    let order: Vec<&str> = shape.workspaces.iter().map(|w| w.name.as_str()).collect();
+    assert_eq!(
+        order,
+        vec!["b", "c", "a"],
+        "the snapshot captures the dragged rail order"
+    );
+    assert_eq!(
+        shape.active_workspace, 1,
+        "the snapshot captures the active index after the reorder"
     );
 }
 

@@ -113,6 +113,7 @@ mod panes;
 pub(in crate::native) mod platform_opener;
 mod pointer;
 pub(super) use pointer::ChromeBand;
+pub(super) use pointer::RailWorkspaceDrag;
 mod prompt_jump;
 mod rail_autohide;
 mod replay_ui;
@@ -452,6 +453,13 @@ pub(super) struct App {
     /// pointer leaves the window (so a re-entry never fabricates a segment across
     /// the whole surface). Only meaningful while auto-hide is active.
     last_rail_pointer_px: Option<f64>,
+    /// RAIL-DRAG: the in-flight drag-to-reorder gesture on a workspace rail
+    /// slot, or `None` when no rail drag is active. Armed by a left press on a
+    /// workspace slot, tracked on pointer motion (drop-target index), committed
+    /// on release through the shipped `move_workspace` engine, and cancelled by
+    /// Escape. Holds the rail auto-hide open for its lifetime (see
+    /// `rail_pinned_open`).
+    rail_ws_drag: Option<RailWorkspaceDrag>,
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
@@ -681,6 +689,7 @@ impl App {
             rail_seam_clicks: ClickTracker::default(),
             rail_autohide: rail_autohide::RailAutohide::default(),
             last_rail_pointer_px: None,
+            rail_ws_drag: None,
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
             bell_flash_start: None,
@@ -1679,6 +1688,14 @@ impl App {
         let mods = self.modifiers;
         let key_modes = self.key_modes();
         if event_type != KeyEventType::Release {
+            // RAIL-DRAG: Escape cancels an in-flight workspace-rail drag with the
+            // order untouched, before any other key routing — the cancel-on-escape
+            // ergonomic. Consumes the key only when a drag was actually cancelled;
+            // otherwise Escape falls through to its normal meaning.
+            if matches!(logical, WinitKey::Named(NamedKey::Escape)) && self.cancel_workspace_drag()
+            {
+                return;
+            }
             // Multiplexer prefix engine (§7, K2). Runs first so that, once a
             // prefix is pending, the next chord resolves against the prefix
             // table before any global chord (Settings/Search/etc.) — tmux
@@ -2884,6 +2901,31 @@ impl App {
 
     /// The live rail slot geometry (F4-P1 knobs: `tab_rail_slot_rows`,
     /// `tab_rail_gap`), passed to the rail widget's render/hit-test.
+    /// RAIL-DRAG: overlay the live drop-target indicator onto a freshly
+    /// rendered rail glyph buffer when a workspace reorder drag is armed. A
+    /// no-op otherwise, so the non-drag rail render stays byte-identical. Called
+    /// by every rail render path (pinned strip, decorated single-pane snapshot,
+    /// floating auto-hide overlay) so the indicator shows in whichever mode is
+    /// live.
+    fn paint_rail_drag_indicator(
+        &self,
+        glyphs: &mut [tab_rail::TabRailGlyph],
+        cols: usize,
+        rows: usize,
+    ) {
+        if let Some(drag) = self.rail_ws_drag.filter(|d| d.armed) {
+            self.tab_rail.paint_drop_indicator(
+                glyphs,
+                drag.drop_idx,
+                &self.sessions.rail_source(),
+                cols,
+                rows,
+                self.rail_geom(),
+                self.tab_bar_colors(),
+            );
+        }
+    }
+
     fn rail_geom(&self) -> tab_rail::RailGeom {
         tab_rail::RailGeom {
             slot_rows: self.settings.rail_slot_rows(),
@@ -3500,7 +3542,11 @@ impl App {
     /// and non-rail overlays are excluded — only surfaces that target the rail
     /// pin it open.
     fn rail_pinned_open(&self) -> bool {
-        self.overlay.is_workspace_rail_context_menu()
+        // RAIL-DRAG: an in-flight workspace reorder drag is a rail-anchored
+        // gesture — hold the floating overlay open for its whole lifetime so the
+        // drop target never vanishes mid-drag (the auto-hide-hold requirement).
+        self.rail_ws_drag.is_some()
+            || self.overlay.is_workspace_rail_context_menu()
             || matches!(
                 self.rename_state.as_ref().map(|state| state.target),
                 Some(
@@ -3569,7 +3615,7 @@ impl App {
             .as_ref()
             .map(GpuState::window_padding)
             .unwrap_or(WindowPadding::ZERO);
-        let output = self.tab_rail.render(
+        let mut output = self.tab_rail.render(
             &self.sessions.rail_source(),
             cols,
             rows,
@@ -3581,6 +3627,7 @@ impl App {
             self.tab_panel_strength(),
             self.effective_theme.cursor,
         );
+        self.paint_rail_drag_indicator(&mut output.glyphs, cols, rows);
         let mut snapshot = Snapshot {
             dimensions: Dimensions::new(cols, rows),
             cursor: Position { row: 0, column: 0 },
@@ -3897,7 +3944,7 @@ impl App {
             .as_ref()
             .map(GpuState::window_padding)
             .unwrap_or(WindowPadding::ZERO);
-        let output = self.tab_rail.render(
+        let mut output = self.tab_rail.render(
             &self.sessions.rail_source(),
             rail_cols,
             rows,
@@ -3909,6 +3956,7 @@ impl App {
             self.tab_panel_strength(),
             self.effective_theme.cursor,
         );
+        self.paint_rail_drag_indicator(&mut output.glyphs, rail_cols, rows);
         for glyph in output.glyphs {
             let col = rail_col_start + glyph.col;
             if glyph.row < rows && col < new_cols {

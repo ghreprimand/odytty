@@ -509,6 +509,93 @@ impl TabRail {
 
         TabHit::None
     }
+
+    /// Map a physical-pixel pointer Y to a drag drop-target **insertion index**
+    /// (RAIL-DRAG), in source-tab-index space: `0` inserts before the first
+    /// visible slot, `count` appends after the last. The boundary is each slot's
+    /// vertical midpoint — the pointer above a slot's midpoint drops before it,
+    /// below drops after — so a slow drag flips the target exactly as the
+    /// pointer crosses the centre of the slot it is passing. Clamped to the
+    /// visible slot span: with the pointer above the first visible slot the
+    /// index is that slot's source index (a no-op when it is already first), and
+    /// below every midpoint it is one past the last visible slot. `None` when the
+    /// rail has no slots (nothing to reorder) or the geometry is degenerate.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn drop_index(
+        &self,
+        px_y: f64,
+        source: &dyn TabBarSource,
+        rail_cols: usize,
+        grid_rows: usize,
+        origin_px: [f32; 2],
+        cell: CellSize,
+        geom: RailGeom,
+    ) -> Option<usize> {
+        let ch = cell.height as f64;
+        if ch <= 0.0 || rail_cols == 0 || grid_rows == 0 {
+            return None;
+        }
+        let oy = origin_px[1] as f64;
+        let layout = compute_rail_layout(source, rail_cols, grid_rows, geom);
+        let last = layout.slots.last()?;
+        // Default: past every midpoint → append after the last visible slot.
+        let mut insert = last.idx + 1;
+        for slot in &layout.slots {
+            let span = (slot.end_row - slot.start_row) as f64;
+            let mid = oy + (slot.start_row as f64 + span / 2.0) * ch;
+            if px_y < mid {
+                insert = slot.idx;
+                break;
+            }
+        }
+        Some(insert)
+    }
+
+    /// Paint the live drop-target indicator (RAIL-DRAG): a bright heavy rule at
+    /// the boundary the workspace would land on for insertion index `drop_idx`
+    /// (0..=count, as [`Self::drop_index`] returns). Mutates the rendered
+    /// `glyphs` in place so the integration layer can overlay it after
+    /// [`Self::render`] without threading drag state through the render
+    /// signature. The rule sits in the gap row directly above the slot at
+    /// `drop_idx` (or below the last visible slot when appending), across the
+    /// slot fill columns, in the active-fill color so it reads over the panel
+    /// wash. Inert (no mutation) when the rail has no slots or the geometry is
+    /// degenerate.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn paint_drop_indicator(
+        &self,
+        glyphs: &mut [TabRailGlyph],
+        drop_idx: usize,
+        source: &dyn TabBarSource,
+        rail_cols: usize,
+        grid_rows: usize,
+        geom: RailGeom,
+        colors: TabBarColors,
+    ) {
+        if rail_cols == 0 || grid_rows == 0 || glyphs.len() < rail_cols * grid_rows {
+            return;
+        }
+        let layout = compute_rail_layout(source, rail_cols, grid_rows, geom);
+        let Some(last) = layout.slots.last() else {
+            return;
+        };
+        // Boundary row: the gap row just above the slot the drop lands before,
+        // or the row directly below the last slot when appending past the end.
+        let row = match layout.slots.iter().find(|s| s.idx == drop_idx) {
+            Some(slot) => slot.start_row.saturating_sub(1),
+            None => last.end_row.min(grid_rows - 1),
+        };
+        if row >= grid_rows {
+            return;
+        }
+        let accent = rgb(tab_chrome::active_fill(colors));
+        let (c0, c1) = slot_fill_cols(rail_cols, None);
+        for col in c0..c1.min(rail_cols) {
+            let g = &mut glyphs[row * rail_cols + col];
+            g.ch = '\u{2501}';
+            g.attrs.foreground = accent;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1786,5 +1873,93 @@ mod tests {
             rail_width_cols_from_pointer(RailSide::Right, 664.0, 8.0, cw, surface_w, 8, 32),
             16
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // RAIL-DRAG: drop-target index math + drop indicator paint
+    // -----------------------------------------------------------------------
+
+    // Default GEOM: slot_rows=2, slot_gap=1, top_margin=1, stride=3. For N
+    // slots, slot i spans rows [1+3i, 3+3i); its vertical midpoint row is
+    // 2+3i, i.e. midpoint_y = (2+3i)*CELL.height. CELL.height == 16, so the
+    // three-slot midpoints are y = 32, 80, 128 px.
+    fn drop_index_at(y: f64, src: &dyn TabBarSource) -> Option<usize> {
+        rail().drop_index(y, src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM)
+    }
+
+    #[test]
+    fn drop_index_maps_pointer_y_to_insertion_by_slot_midpoint() {
+        let src = MockSource::new(&["a", "b", "c"], 0);
+        // Above the first slot midpoint (32px) → insert before slot 0.
+        assert_eq!(drop_index_at(0.0, &src), Some(0));
+        assert_eq!(drop_index_at(31.0, &src), Some(0));
+        // Between slot 0 and slot 1 midpoints (32..80) → insert before slot 1.
+        assert_eq!(drop_index_at(32.0, &src), Some(1));
+        assert_eq!(drop_index_at(79.0, &src), Some(1));
+        // Between slot 1 and slot 2 midpoints (80..128) → insert before slot 2.
+        assert_eq!(drop_index_at(80.0, &src), Some(2));
+        assert_eq!(drop_index_at(127.0, &src), Some(2));
+    }
+
+    #[test]
+    fn drop_index_clamps_to_top_and_bottom_edges() {
+        let src = MockSource::new(&["a", "b", "c"], 0);
+        // Far above the rail → still the first insertion slot (a no-op move for
+        // an already-first item, never a negative / underflowed index).
+        assert_eq!(drop_index_at(-100.0, &src), Some(0));
+        // Below every midpoint → append after the last visible slot (count).
+        assert_eq!(drop_index_at(128.0, &src), Some(3));
+        assert_eq!(drop_index_at(10_000.0, &src), Some(3));
+    }
+
+    #[test]
+    fn drop_index_is_none_without_slots_or_degenerate_geometry() {
+        assert_eq!(drop_index_at(50.0, &MockSource::empty()), None);
+        let src = MockSource::new(&["a"], 0);
+        // Zero-height cell → degenerate, no index.
+        let zero = CellSize {
+            width: 8,
+            height: 0,
+            baseline: 0,
+        };
+        assert_eq!(
+            rail().drop_index(50.0, &src, RAIL_COLS, GRID_ROWS, ORIGIN, zero, GEOM),
+            None
+        );
+    }
+
+    #[test]
+    fn drop_indicator_paints_a_rule_at_the_insertion_boundary() {
+        let src = MockSource::new(&["a", "b", "c"], 0);
+        let out = render_default(&src);
+        // Insertion before slot 1 → the rule sits on the gap row above slot 1
+        // (slot 1 starts at row 4, so row 3). A fill-band column carries the
+        // heavy-rule glyph; the outer inset column (0) does not.
+        let mut glyphs = out.glyphs.clone();
+        rail().paint_drop_indicator(&mut glyphs, 1, &src, RAIL_COLS, GRID_ROWS, GEOM, COLORS);
+        assert_eq!(
+            glyphs[3 * RAIL_COLS + 2].ch,
+            '\u{2501}',
+            "rule on the gap row"
+        );
+        // Insertion before slot 0 → the gap row above slot 0 (row 0).
+        let mut glyphs0 = out.glyphs.clone();
+        rail().paint_drop_indicator(&mut glyphs0, 0, &src, RAIL_COLS, GRID_ROWS, GEOM, COLORS);
+        assert_eq!(glyphs0[2].ch, '\u{2501}');
+        // Append after the last slot (index == count) → the row below slot 2
+        // (which ends at row 9).
+        let mut glyphs_end = out.glyphs.clone();
+        rail().paint_drop_indicator(&mut glyphs_end, 3, &src, RAIL_COLS, GRID_ROWS, GEOM, COLORS);
+        assert_eq!(glyphs_end[9 * RAIL_COLS + 2].ch, '\u{2501}');
+    }
+
+    #[test]
+    fn drop_indicator_is_inert_without_slots() {
+        let src = MockSource::empty();
+        let out = render_default(&src);
+        let mut glyphs = out.glyphs.clone();
+        let before = glyphs.clone();
+        rail().paint_drop_indicator(&mut glyphs, 0, &src, RAIL_COLS, GRID_ROWS, GEOM, COLORS);
+        assert_eq!(glyphs, before, "no slots → nothing painted");
     }
 }

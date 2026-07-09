@@ -112,11 +112,20 @@ follows the `workspace_rail` setting: `auto` (default) reveals it once a second
 workspace exists, `always` pins it even with one, and `left` / `right` pin it to
 that side.
 
-Right-clicking a workspace (or the empty rail) offers New, Rename, and Close
-Workspace plus **Bind to Host…** / **Unbind from Host** for that slot. It also
-offers **Move Up** / **Move Down** to reorder the slot in the rail (menu-only,
-with no bindable chord); the move follows the active workspace by identity so
-the focused workspace never changes, and the new order persists across restart. Rename
+Workspaces can be reordered two ways. **Drag a rail slot** to a new position:
+press and drag a workspace up or down the rail, a bright rule marks where it will
+land, release to drop it (or press Escape to cancel with the order untouched). A
+short press that never crosses the drag threshold stays a plain click that
+switches to the workspace, so a click never reorders by accident. The rail also
+stays revealed for the whole drag when auto-hide is on, so the drop target never
+vanishes mid-gesture. Right-clicking a workspace (or the empty rail) offers the
+same reorder via **Move Up** / **Move Down** menu entries (a keyboard-free
+alternative with no bindable chord), alongside New, Rename, and Close Workspace
+plus **Bind to Host…** / **Unbind from Host** for that slot. Either path follows
+the active workspace by identity so the focused workspace never changes, and the
+new order persists across restart. Pointer drag reorder uses the shared
+cross-platform pointer path, so it behaves identically on Linux, Windows, and
+macOS. Rename
 edits the label in place, and Bind routes the clicked workspace's new tabs to a
 chosen saved host (existing tabs keep their shells). The terminal content menu
 carries the same New / Rename / Close Workspace and Bind/Unbind actions, acting

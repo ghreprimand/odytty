@@ -26,6 +26,64 @@ pub(in crate::native) enum ChromeBand {
     WorkspaceRail,
 }
 
+/// Physical-pixel movement threshold that promotes an armed workspace-rail
+/// press from a click to a drag (RAIL-DRAG). Below this, a press+release on a
+/// slot is a plain activate (or, on the `×`, a close); at or beyond it the
+/// gesture becomes a reorder drag. Kept small so a deliberate drag engages
+/// promptly, but above the incidental jitter of a click so a click never
+/// reorders by accident.
+pub(in crate::native) const RAIL_DRAG_THRESHOLD_PX: f64 = 5.0;
+
+/// In-flight drag-to-reorder gesture on a workspace rail slot (RAIL-DRAG). A
+/// left press on a workspace slot ARMS the gesture; pointer motion past
+/// [`RAIL_DRAG_THRESHOLD_PX`] promotes it to an active drag (`armed`); release
+/// commits the reorder through the shipped `move_workspace` engine, or — if the
+/// threshold was never crossed — falls through to a plain workspace activate;
+/// Escape cancels with the rail order untouched. The rail auto-hide is held
+/// open for the gesture's lifetime so the drop target never vanishes mid-drag.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(in crate::native) struct RailWorkspaceDrag {
+    /// Source workspace index the press landed on (the slot being moved).
+    pub(in crate::native) origin_idx: usize,
+    /// Physical-pixel X/Y of the initial press — the threshold origin.
+    press_x: f64,
+    press_y: f64,
+    /// `true` once motion crossed [`RAIL_DRAG_THRESHOLD_PX`]: the gesture is a
+    /// drag, so release commits a reorder rather than a click activate.
+    pub(in crate::native) armed: bool,
+    /// Live insertion index (0..=count) the current pointer maps to; only
+    /// meaningful once `armed`. Drives the drop-target indicator and the commit.
+    pub(in crate::native) drop_idx: usize,
+}
+
+impl RailWorkspaceDrag {
+    /// Arm a fresh gesture at the press position on workspace slot `idx`.
+    pub(in crate::native) fn new(idx: usize, press_x: f64, press_y: f64) -> Self {
+        Self {
+            origin_idx: idx,
+            press_x,
+            press_y,
+            armed: false,
+            drop_idx: idx,
+        }
+    }
+
+    /// Feed a fresh pointer position. Promotes to `armed` once the straight-line
+    /// distance from the press crosses [`RAIL_DRAG_THRESHOLD_PX`] (sticky — it
+    /// never disarms). Returns whether the gesture is armed (a drag) after this
+    /// sample, so the caller only tracks a drop target while dragging.
+    pub(in crate::native) fn update_arm(&mut self, x: f64, y: f64) -> bool {
+        if !self.armed {
+            let dx = x - self.press_x;
+            let dy = y - self.press_y;
+            if dx * dx + dy * dy >= RAIL_DRAG_THRESHOLD_PX * RAIL_DRAG_THRESHOLD_PX {
+                self.armed = true;
+            }
+        }
+        self.armed
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct EditableInputSelection {
     pub(super) text: String,
@@ -67,6 +125,20 @@ impl App {
         if self.modal_captures_pointer() {
             if self.rename_state.is_some() {
                 self.handle_rename_pointer_button(state, button);
+            }
+            return;
+        }
+        // RAIL-DRAG: an in-flight workspace-rail drag owns the left button for
+        // its whole lifetime — a release ends it (commit-on-drag / activate-on-
+        // click), swallowing the event wherever the pointer wandered (the drop
+        // may land far from the origin slot, off the rail band entirely, so this
+        // cannot rely on `current_chrome_hit`). Motion is handled in
+        // `update_pointer_cell`; Escape cancels via the key path. Placed above the
+        // seam/divider/tab-hit routing so a mid-drag release never leaks into
+        // those paths.
+        if self.rail_ws_drag.is_some() && button == WinitMouseButton::Left {
+            if state == ElementState::Released {
+                self.finish_workspace_drag();
             }
             return;
         }
@@ -235,7 +307,12 @@ impl App {
                     ElementState::Pressed,
                     Some((ChromeBand::WorkspaceRail, TabHit::Switch(idx))),
                 ) => {
-                    self.activate_workspace(idx);
+                    // RAIL-DRAG: arm a drag-to-reorder gesture rather than
+                    // activating immediately. A press+release without crossing
+                    // the movement threshold falls through to `activate_workspace`
+                    // in `finish_workspace_drag` (a plain click); motion past the
+                    // threshold turns it into a reorder.
+                    self.begin_workspace_drag(idx);
                     return;
                 }
                 (
@@ -955,6 +1032,159 @@ impl App {
             // advance a stale drag even if the Release event was lost.
             self.overlay_left_held = false;
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // RAIL-DRAG: drag-to-reorder workspaces in the rail
+    // -----------------------------------------------------------------------
+
+    /// Arm a drag-to-reorder gesture on the workspace slot at `idx` (RAIL-DRAG).
+    /// Records the press position as the threshold origin; the gesture stays a
+    /// click (no reorder) until motion crosses `RAIL_DRAG_THRESHOLD_PX`. Holds
+    /// the auto-hide rail open for the gesture (via `rail_pinned_open`) so the
+    /// drop target can never vanish mid-drag. If the press position is somehow
+    /// unknown, degrade to a plain activate so the slot is never left inert.
+    pub(super) fn begin_workspace_drag(&mut self, idx: usize) {
+        match self.pointer_px {
+            Some((x, y)) => {
+                self.rail_ws_drag = Some(RailWorkspaceDrag::new(idx, x, y));
+            }
+            None => self.activate_workspace(idx),
+        }
+    }
+
+    /// Track pointer motion during a workspace-rail drag (RAIL-DRAG): promote the
+    /// gesture to armed past the movement threshold, then recompute the live
+    /// drop-target insertion index from the pointer Y and repaint. A no-op when
+    /// no rail drag is in flight. Called from the pointer-move path before any
+    /// other hover / selection work so a drag owns the pointer.
+    pub(super) fn drag_workspace_to_pointer(&mut self, x_px: f64, y_px: f64, cell: CellSize) {
+        let Some(mut drag) = self.rail_ws_drag else {
+            return;
+        };
+        let armed = drag.update_arm(x_px, y_px);
+        let mut changed = false;
+        if armed && let Some(insert) = self.workspace_rail_drop_index(y_px, cell) {
+            if drag.drop_idx != insert {
+                changed = true;
+            }
+            drag.drop_idx = insert;
+        }
+        self.rail_ws_drag = Some(drag);
+        if armed {
+            // A grabbing cursor for the whole drag; the drop indicator repaints
+            // only when the target boundary actually moves.
+            self.apply_cursor_icon(CursorIcon::Grabbing);
+            if changed {
+                self.needs_rebuild = true;
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+            }
+        }
+    }
+
+    /// End a workspace-rail drag on button release (RAIL-DRAG). An armed gesture
+    /// commits the reorder (walking the shipped single-step `move_workspace`
+    /// engine so active-follow-by-identity and persisted order are reused
+    /// verbatim); an un-armed one is a plain click that activates the pressed
+    /// workspace. Always clears the drag state (releasing the auto-hide hold) and
+    /// repaints so the drop indicator disappears.
+    pub(super) fn finish_workspace_drag(&mut self) {
+        let Some(drag) = self.rail_ws_drag.take() else {
+            return;
+        };
+        if drag.armed {
+            self.commit_workspace_drag(drag.origin_idx, drag.drop_idx);
+        } else {
+            self.activate_workspace(drag.origin_idx);
+        }
+        self.needs_rebuild = true;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+
+    /// Cancel an in-flight workspace-rail drag (RAIL-DRAG) with the rail order
+    /// untouched — the Escape path. Returns `true` when a drag was actually
+    /// cancelled (so the key handler can consume the Escape), `false` when none
+    /// was in flight (the key falls through to its normal meaning). Releases the
+    /// auto-hide hold and repaints to drop the indicator.
+    pub(super) fn cancel_workspace_drag(&mut self) -> bool {
+        if self.rail_ws_drag.take().is_none() {
+            return false;
+        }
+        self.needs_rebuild = true;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+        true
+    }
+
+    /// Commit a rail drag: move the workspace at `from` to insertion index `to`
+    /// (0..=count, as `TabRail::drop_index` returns), by walking the shipped
+    /// single-step `move_workspace` one slot at a time. Reusing that engine — not
+    /// a bespoke splice — keeps the active-follow-by-identity and shape-snapshot
+    /// persistence semantics identical to the context-menu Move Up/Down path.
+    /// Flashes the rail and requests a redraw when the order actually changed.
+    fn commit_workspace_drag(&mut self, from: usize, to: usize) {
+        let count = self.sessions.workspace_count();
+        if from >= count {
+            return;
+        }
+        // An insertion index past `from` lands the item one slot lower than the
+        // gap index (the item vacates its own slot as it moves down).
+        let dest = if to > from { to - 1 } else { to };
+        let dest = dest.min(count.saturating_sub(1));
+        let mut cur = from;
+        let mut moved = false;
+        while cur > dest {
+            if !self.sessions.move_workspace(cur, true) {
+                break;
+            }
+            cur -= 1;
+            moved = true;
+        }
+        while cur < dest {
+            if !self.sessions.move_workspace(cur, false) {
+                break;
+            }
+            cur += 1;
+            moved = true;
+        }
+        if moved {
+            self.flash_rail_autohide();
+            self.request_selection_redraw();
+        }
+    }
+
+    /// The live drop-target insertion index for the current pointer Y during a
+    /// workspace-rail drag (RAIL-DRAG), resolved against whichever rail geometry
+    /// is live this frame: the floating overlay band under auto-hide, else the
+    /// pinned reservation. `None` off a rail / with no slots. Mirrors the mode
+    /// split in `current_chrome_hit` so the drop math matches the hit-test.
+    fn workspace_rail_drop_index(&self, y_px: f64, cell: CellSize) -> Option<usize> {
+        let source = self.sessions.rail_source();
+        let (cols, origin) = if self.rail_autohide_active() {
+            let side = self.rail_autohide_side()?;
+            (
+                self.rail_overlay_cols(),
+                self.rail_overlay_origin_px(cell, side),
+            )
+        } else if self.should_show_workspace_rail() {
+            (self.rail_cols(), self.rail_origin_px(cell))
+        } else {
+            return None;
+        };
+        self.tab_rail.drop_index(
+            y_px,
+            &source,
+            cols,
+            self.tab_rail_grid_rows(),
+            origin,
+            cell,
+            self.rail_geom(),
+        )
     }
 }
 

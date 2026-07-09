@@ -1585,6 +1585,15 @@ impl App {
             .map(GpuState::window_padding)
             .unwrap_or(WindowPadding::ZERO);
         self.pointer_px = Some((x_px, y_px));
+        // RAIL-DRAG: while a workspace-rail drag gesture is live, pointer motion
+        // arms it past the threshold and tracks the drop target, and nothing else
+        // — a drag owns the pointer for its lifetime. Placed before the auto-hide
+        // reveal feed and every hover/selection path so the gesture is not
+        // disturbed by them. Inert when no rail drag is in flight.
+        if self.rail_ws_drag.is_some() {
+            self.drag_workspace_to_pointer(x_px, y_px, cell);
+            return;
+        }
         // F4-P3 rail auto-hide: feed the live pointer to the reveal machine
         // (arms/holds/hides the floating overlay). While the rail is revealed and
         // the pointer is over its band, the overlay owns the pointer — do rail

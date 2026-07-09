@@ -1495,6 +1495,22 @@ impl App {
         self.move_workspace_at(idx, up);
     }
 
+    /// Test seam (RAIL-DRAG): the in-flight workspace-rail drag as
+    /// `(armed, drop_idx)`, or `None` when no drag is active. Lets a test assert
+    /// the click-vs-drag threshold and the live drop-target index.
+    #[cfg(test)]
+    pub(in crate::native) fn rail_ws_drag_for_test(&self) -> Option<(bool, usize)> {
+        self.rail_ws_drag.map(|d| (d.armed, d.drop_idx))
+    }
+
+    /// Test seam (RAIL-DRAG): whether a rail-anchored surface (a drag, menu, or
+    /// rename) is currently holding the auto-hide rail revealed — the
+    /// autohide-hold assertion for a workspace drag.
+    #[cfg(test)]
+    pub(in crate::native) fn rail_pinned_open_for_test(&self) -> bool {
+        self.rail_pinned_open()
+    }
+
     /// Test seam (WP1): capture the current window shape as a serializable
     /// snapshot, exercising the persistence capture path end-to-end against a
     /// headless multi-workspace / multi-pane `App`.
