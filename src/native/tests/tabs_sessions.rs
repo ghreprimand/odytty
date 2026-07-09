@@ -1269,6 +1269,49 @@ fn tab_bar_height_reservation_reduces_shell_rows_by_the_chosen_count() {
     );
 }
 
+/// FEEL-FIX (Bug 1): a multi-row top tab bar must float its label near the band
+/// centre, never pinned to the top row. Driven through the real
+/// `decorate_snapshot_with_tab_bar` decoration (the live frame path), not the
+/// pure placement helper — the shipped centering biased every even height
+/// upward (a two-row bar sat the label on row 0), which read as "hugging the
+/// top". Round-half-to-lower centering puts the label on `rows / 2`.
+#[test]
+fn tab_bar_label_is_vertically_centered_in_a_multi_row_band() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    // (height, expected label row): the nearest row to the geometric centre,
+    // rounding a half-row tie to the lower middle row. Height 1 keeps the
+    // classic single-row placement; heights 2 and 4 must NOT land on row 0.
+    for (height, expected_row) in [(1u16, 0usize), (2, 1), (3, 1), (4, 2), (5, 2)] {
+        app.set_tab_bar_height_manual_for_test(height);
+        let band = app
+            .tab_bar_band_text_for_test()
+            .expect("decorated top-tab-bar band");
+        assert_eq!(
+            band.len(),
+            height as usize,
+            "the band is {height} rows tall"
+        );
+        let label_row = band
+            .iter()
+            .position(|row| row.chars().any(|ch| !ch.is_whitespace()));
+        assert_eq!(
+            label_row,
+            Some(expected_row),
+            "a {height}-row tab bar must center its label on row {expected_row}",
+        );
+        if height > 1 {
+            assert!(
+                band[0].chars().all(char::is_whitespace),
+                "a multi-row tab bar must never pin its label to the top row",
+            );
+        }
+    }
+}
+
 // --- F4-P3: rail auto-hide (ODP-4) ---
 
 #[test]

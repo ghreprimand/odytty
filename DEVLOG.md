@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Tab label centers vertically in a taller tab bar
+
+The adjustable top tab bar reserves the requested number of text rows and floats
+its labels in the band. The centering rounded the half-row offset toward the top
+on every even-height bar, so a two-row bar pinned its label to the very top row
+and a four-row bar sat it one row above centre. Labels now land on the row
+nearest the band centre, resolving an even-height tie to the lower of the two
+middle rows, so a taller bar reads as one solid strip with the titles floating
+in its middle rather than clinging to the top edge. Single-row bars are
+unchanged. Unix and Windows share the placement path; no platform-specific
+surface. A regression test drives the real snapshot-decoration route (the same
+path the live frame paints) across bar heights one through five and pins each
+label row, so the prior top-bias cannot silently return.
+
+---
+
 ## 2026-07-09 -- Auto-hide rail drag path covered end to end
 
 The workspace reorder gesture already routes a live `CursorMoved` event to its
@@ -41,19 +57,16 @@ Visual confirmation remains before release.
 
 ## 2026-07-09 -- Tab-bar label centering locked through the input path
 
-The adjustable tab bar already fills the full manual-height band and places
-its label, close, and add glyphs on `(rows - 1) / 2`, but that decorated output
-had no integration coverage. A new regression drives the production seam-drag
-input route from one to three rows, then inspects the snapshot that the
-single-pane renderer consumes. It verifies that the outer rows are
-background-only and the tab label, close glyph, and add glyph occupy the
-center row.
+The adjustable tab bar fills the full manual-height band and places its label,
+close, and add glyphs on the centered row, but that decorated output had no
+integration coverage. A new regression drives the production seam-drag input
+route from one to three rows, then inspects the snapshot that the single-pane
+renderer consumes. It verifies that the outer rows are background-only and the
+tab label, close glyph, and add glyph occupy the center row.
 
 No runtime behavior changed. The snapshot layout and pointer routing are
 platform-neutral, so the coverage applies unchanged on Windows, macOS, and
-Linux. `cargo test --locked` (3440 passed, seven ignored in the library suite),
-`cargo fmt --check`, and `cargo clippy --all-targets --locked -- -D warnings`
-are clean. Visual confirmation of the taller tab bar remains before release.
+Linux.
 
 ---
 

@@ -921,6 +921,12 @@ impl App {
 /// labels floating in its middle. `rows` is clamped to at least one, so a
 /// classic single-row bar keeps its label on the only row (`band_top`),
 /// byte-identical to the pre-adjustable path.
+///
+/// The label row is `band_top + rows / 2` — the nearest row to the band's
+/// geometric centre, rounding a half-row tie to the lower of the two middle
+/// rows so an even-height band never pins the label to the top row. (A plain
+/// floor `(rows - 1) / 2` biased every even height upward: a two-row bar sat
+/// its label on the top row and a four-row bar one row above centre.)
 pub(super) fn place_tab_bar_glyphs(
     cells: &mut [crate::core::Cell],
     glyphs: Vec<super::tab_bar::TabBarGlyph>,
@@ -929,7 +935,7 @@ pub(super) fn place_tab_bar_glyphs(
     band_top: usize,
 ) {
     let rows = rows.max(1);
-    let center = band_top + (rows - 1) / 2;
+    let center = band_top + rows / 2;
     for glyph in glyphs {
         if glyph.col >= columns {
             continue;
