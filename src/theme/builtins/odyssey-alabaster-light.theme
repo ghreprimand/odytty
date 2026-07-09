@@ -1,0 +1,31 @@
+# OdyTTY theme
+# pale carved mineral white, soft warm-grey ink
+name = odyssey-alabaster-light
+appearance = light
+
+foreground = #332e2a
+background = #f8f4ec
+clear = #fdfbf6
+
+cursor = #8a6a48
+selection = #e6ded0
+search = #f0e6a8
+border = #e2dac8
+inactive = #948c7e
+
+color0 = #e8e0d2
+color1 = #b8422e
+color2 = #3c8850
+color3 = #9c7010
+color4 = #3860a4
+color5 = #8a4890
+color6 = #1c8280
+color7 = #443e36
+color8 = #ccc2b0
+color9 = #982c1c
+color10 = #2c6c3a
+color11 = #7a5606
+color12 = #264a86
+color13 = #6c3070
+color14 = #116866
+color15 = #242019

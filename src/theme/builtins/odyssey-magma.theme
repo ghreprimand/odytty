@@ -1,0 +1,31 @@
+# OdyTTY theme
+# molten volcanic rock, deep red-black with a bright glowing core
+name = odyssey-magma
+appearance = dark
+
+foreground = #f0ded0
+background = #1c0e08
+clear = #140804
+
+cursor = #f08040
+selection = #3a1c12
+search = #443a16
+border = #2c1a10
+inactive = #8a6a5a
+
+color0 = #28140c
+color1 = #e05a3c
+color2 = #7a9e56
+color3 = #e0983e
+color4 = #8c7ab0
+color5 = #c06888
+color6 = #96988c
+color7 = #d0bcae
+color8 = #40241a
+color9 = #f4785a
+color10 = #98be72
+color11 = #f4b458
+color12 = #a89ad0
+color13 = #dc84a4
+color14 = #b2b4a6
+color15 = #f8ece2

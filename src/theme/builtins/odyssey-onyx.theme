@@ -1,0 +1,31 @@
+# OdyTTY theme
+# polished black gem, faint cool glints under low light
+name = odyssey-onyx
+appearance = dark
+
+foreground = #d8dade
+background = #0a0a0c
+clear = #060607
+
+cursor = #8898a8
+selection = #202226
+search = #38381a
+border = #1a1c20
+inactive = #666a70
+
+color0 = #161719
+color1 = #c46a70
+color2 = #5a9c86
+color3 = #b89c58
+color4 = #5c88b0
+color5 = #8c84b8
+color6 = #569ca4
+color7 = #b4b6ba
+color8 = #2a2c30
+color9 = #e0868c
+color10 = #7ac0a8
+color11 = #dcbc78
+color12 = #7ca6d4
+color13 = #aca2d8
+color14 = #78c0c8
+color15 = #eceef0

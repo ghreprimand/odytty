@@ -1,0 +1,31 @@
+# OdyTTY theme
+# dense evergreen grove, deep needle-green with amber shafts
+name = odyssey-cypress
+appearance = dark
+
+foreground = #d8e4d8
+background = #0a1610
+clear = #060f0a
+
+cursor = #6cae5c
+selection = #1a2e1e
+search = #403c18
+border = #182a1e
+inactive = #607c62
+
+color0 = #12211a
+color1 = #c8684c
+color2 = #5a9c50
+color3 = #c8a24a
+color4 = #4c8ca4
+color5 = #928cc0
+color6 = #4ea888
+color7 = #b8c4b6
+color8 = #243a2c
+color9 = #e6886a
+color10 = #7cc46e
+color11 = #e6c268
+color12 = #72b0cc
+color13 = #b0a8e0
+color14 = #70caa8
+color15 = #eef4ec

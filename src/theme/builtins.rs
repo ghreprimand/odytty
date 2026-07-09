@@ -47,6 +47,13 @@
 //! `odyssey-marble-light` (light), `odyssey-dune-light` (light), and
 //! `odyssey-fern-light` (light).
 //!
+//! Further Odyssey originals (ash/gem/mineral, nautical, dusk/shadow,
+//! botanical): `odyssey-cinder`, `odyssey-umbra`, `odyssey-mariner`,
+//! `odyssey-onyx`, `odyssey-vesper`, `odyssey-cypress`, `odyssey-tungsten`,
+//! `odyssey-magma`, `odyssey-alabaster-light` (light),
+//! `odyssey-marigold-light` (light), `odyssey-willow-light` (light), and
+//! `odyssey-cerulean-light` (light).
+//!
 //! Community palettes (published values): `solarized-dark`, `gruvbox-dark`,
 //! `nord`, `dracula`, `tokyo-night`, `catppuccin-mocha`, `one-dark`, `monokai`,
 //! `everforest-dark`, `kanagawa`, `rose-pine`, `ayu-mirage`, `night-owl`,
@@ -352,6 +359,53 @@ const REGISTRY: &[(&str, &str)] = &[
         "odyssey-fern-light",
         include_str!("builtins/odyssey-fern-light.theme"),
     ),
+    // Further Odyssey originals (ash/gem/mineral, nautical, dusk/shadow,
+    // botanical).
+    (
+        "odyssey-cinder",
+        include_str!("builtins/odyssey-cinder.theme"),
+    ),
+    (
+        "odyssey-umbra",
+        include_str!("builtins/odyssey-umbra.theme"),
+    ),
+    (
+        "odyssey-mariner",
+        include_str!("builtins/odyssey-mariner.theme"),
+    ),
+    ("odyssey-onyx", include_str!("builtins/odyssey-onyx.theme")),
+    (
+        "odyssey-vesper",
+        include_str!("builtins/odyssey-vesper.theme"),
+    ),
+    (
+        "odyssey-cypress",
+        include_str!("builtins/odyssey-cypress.theme"),
+    ),
+    (
+        "odyssey-tungsten",
+        include_str!("builtins/odyssey-tungsten.theme"),
+    ),
+    (
+        "odyssey-magma",
+        include_str!("builtins/odyssey-magma.theme"),
+    ),
+    (
+        "odyssey-alabaster-light",
+        include_str!("builtins/odyssey-alabaster-light.theme"),
+    ),
+    (
+        "odyssey-marigold-light",
+        include_str!("builtins/odyssey-marigold-light.theme"),
+    ),
+    (
+        "odyssey-willow-light",
+        include_str!("builtins/odyssey-willow-light.theme"),
+    ),
+    (
+        "odyssey-cerulean-light",
+        include_str!("builtins/odyssey-cerulean-light.theme"),
+    ),
     // Community palettes (published values).
     (
         "solarized-dark",
@@ -483,7 +537,7 @@ mod tests {
     #[test]
     fn library_has_the_full_roster() {
         assert_eq!(all().len(), REGISTRY.len());
-        assert_eq!(all().len(), 112, "roster size changed — update docs + this");
+        assert_eq!(all().len(), 124, "roster size changed — update docs + this");
     }
 
     #[test]

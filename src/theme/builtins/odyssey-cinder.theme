@@ -1,0 +1,31 @@
+# OdyTTY theme
+# warm ash and ember, glowing orange over charcoal brown
+name = odyssey-cinder
+appearance = dark
+
+foreground = #e8dcd6
+background = #1a1210
+clear = #120c0a
+
+cursor = #e0703c
+selection = #362824
+search = #423a18
+border = #2a1e1a
+inactive = #7a6862
+
+color0 = #241a16
+color1 = #d85c48
+color2 = #7ea060
+color3 = #d0943c
+color4 = #8892c0
+color5 = #b87a94
+color6 = #94a89c
+color7 = #cabab2
+color8 = #3c2c26
+color9 = #f27a62
+color10 = #9cbc7a
+color11 = #f0b258
+color12 = #a4aede
+color13 = #d494ac
+color14 = #b0c4b8
+color15 = #f4ece6

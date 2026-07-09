@@ -1,0 +1,31 @@
+# OdyTTY theme
+# the evening star over deep dusk violet-blue
+name = odyssey-vesper
+appearance = dark
+
+foreground = #e0dcf0
+background = #100c1e
+clear = #0a0818
+
+cursor = #c890e8
+selection = #261e40
+search = #3e3a1c
+border = #201a38
+inactive = #726c98
+
+color0 = #1c1734
+color1 = #d0648c
+color2 = #54ac9c
+color3 = #d4a862
+color4 = #7482e4
+color5 = #b478e6
+color6 = #5cb0cc
+color7 = #bcb8d4
+color8 = #2e2854
+color9 = #e888ac
+color10 = #70e0c8
+color11 = #f0c87c
+color12 = #94a0fa
+color13 = #d09af4
+color14 = #7cd0e6
+color15 = #f2eefc

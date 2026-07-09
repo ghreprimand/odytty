@@ -1,0 +1,31 @@
+# OdyTTY theme
+# warm marigold petals over pale cream, sun-bright accents
+name = odyssey-marigold-light
+appearance = light
+
+foreground = #382c14
+background = #faecd0
+clear = #fdf6e6
+
+cursor = #c07018
+selection = #f0dca0
+search = #eede8c
+border = #e8d4a0
+inactive = #9c8258
+
+color0 = #f0e0ae
+color1 = #b8402a
+color2 = #4c8420
+color3 = #9c6a08
+color4 = #38609c
+color5 = #943e7c
+color6 = #127868
+color7 = #463a24
+color8 = #dcc48a
+color9 = #982c18
+color10 = #38680e
+color11 = #7a5204
+color12 = #284a7c
+color13 = #742a62
+color14 = #0c5c50
+color15 = #241a0c

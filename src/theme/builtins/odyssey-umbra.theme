@@ -1,0 +1,31 @@
+# OdyTTY theme
+# near-black violet shadow, a single cool eclipse accent
+name = odyssey-umbra
+appearance = dark
+
+foreground = #dcd8ec
+background = #0e0c1a
+clear = #090814
+
+cursor = #8a78e8
+selection = #241e3c
+search = #3c3a1a
+border = #1c1830
+inactive = #6c6690
+
+color0 = #1a1630
+color1 = #c85c78
+color2 = #5ca888
+color3 = #c8a860
+color4 = #7684e0
+color5 = #9a7ce8
+color6 = #6ca8c8
+color7 = #b8b4d0
+color8 = #2c2650
+color9 = #e08296
+color10 = #78cca8
+color11 = #e8c880
+color12 = #96a2f4
+color13 = #b89cf4
+color14 = #8ac6e6
+color15 = #eeecf8

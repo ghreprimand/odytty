@@ -62,7 +62,7 @@ Windows ships as an unsigned portable zip.
   lightbox, an "Open With…" picker, and keyboard quick-select hints.
 - **Detached and managed sessions:** sessions that outlive the window, driven
   from a local CLI and an in-window Manage Sessions overlay.
-- **Visual layer:** 112 built-in themes, user `.theme` files, theme builder,
+- **Visual layer:** 124 built-in themes, user `.theme` files, theme builder,
   bloom/CRT/retro effects, background treatments, and window transparency.
 - **Local configuration:** `odytty.conf`, live reload, in-app settings panel
   with preservation-first writeback, font picker, and keybinding editor.
@@ -450,7 +450,7 @@ The same introspection works from the source tree before installing:
 ./target/release/odytty --show-config
 ```
 
-`--list-themes` prints the 112 built-in themes as stable
+`--list-themes` prints the 124 built-in themes as stable
 `name`/`appearance`/`family` rows. `--list-fonts` prints discoverable system
 font files. `--show-config` prints the current stable config-dump subset (including
 `symbol_fallback` and `symbol_font_source`, which reports the resolved
@@ -498,7 +498,7 @@ reference.
 - **Shell integration and SSH:** OSC 133 prompt marks, click-to-place cursor,
   command palette, connection manager, and opt-in remote shell integration.
   → [reference](docs/features.md#shell-integration)
-- **Visual and config:** 112 built-in themes, theme builder, bloom/CRT/retro
+- **Visual and config:** 124 built-in themes, theme builder, bloom/CRT/retro
   effects, a bundled background image, window transparency, and a live settings
   panel. → [reference](docs/features.md#settings-and-themes),
   [`docs/themes.md`](docs/themes.md), [`docs/effects.md`](docs/effects.md),
@@ -560,7 +560,7 @@ tree carrying additional integration and smoke suites. See
 
 **Works today:** real shells, multi-session tabs, splits/panes with a
 configurable tmux-style prefix, scrollback, search, selection,
-copy/paste, font/theme/settings overlays, theme builder, 112 themes, color
+copy/paste, font/theme/settings overlays, theme builder, 124 themes, color
 emoji, Kitty graphics, Sixel, Kitty keyboard protocol, SGR-pixel mouse,
 clickable paths with an inline image viewer, detached and in-window managed
 sessions, a connection manager, command palette, session replay,

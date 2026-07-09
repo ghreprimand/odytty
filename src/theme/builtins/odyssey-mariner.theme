@@ -1,0 +1,31 @@
+# OdyTTY theme
+# deep navy voyage, brass and sea-glass accents
+name = odyssey-mariner
+appearance = dark
+
+foreground = #d8e2ec
+background = #081420
+clear = #050d16
+
+cursor = #5aa0d8
+selection = #122438
+search = #40401c
+border = #142838
+inactive = #5c7488
+
+color0 = #0f1e2c
+color1 = #d86858
+color2 = #4ca888
+color3 = #c8a248
+color4 = #4c8cd0
+color5 = #8888c8
+color6 = #4fb0c0
+color7 = #b6c4d0
+color8 = #20384a
+color9 = #f0887a
+color10 = #6cc8a4
+color11 = #e8c268
+color12 = #72aee8
+color13 = #a8a6e2
+color14 = #70d0e0
+color15 = #eef4f8

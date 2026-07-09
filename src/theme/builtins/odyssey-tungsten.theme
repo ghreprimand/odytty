@@ -1,0 +1,31 @@
+# OdyTTY theme
+# brushed steel-grey mineral, cool and desaturated
+name = odyssey-tungsten
+appearance = dark
+
+foreground = #dcdee2
+background = #141618
+clear = #0d0e10
+
+cursor = #7ea8c4
+selection = #282c30
+search = #3a3a1c
+border = #242628
+inactive = #767c82
+
+color0 = #202224
+color1 = #c06868
+color2 = #5a9a86
+color3 = #b89860
+color4 = #5c8ab4
+color5 = #8c86ae
+color6 = #54a0aa
+color7 = #bcc0c4
+color8 = #34383c
+color9 = #dc8686
+color10 = #7ac0a8
+color11 = #dcbc80
+color12 = #7eaad8
+color13 = #aca4c8
+color14 = #78c2cc
+color15 = #eef0f2

@@ -1,0 +1,31 @@
+# OdyTTY theme
+# pale willow leaves over soft chalk green, gentle botanical ink
+name = odyssey-willow-light
+appearance = light
+
+foreground = #243422
+background = #eef4e2
+clear = #f6faf0
+
+cursor = #5c8c3e
+selection = #dbe8c4
+search = #eee6a0
+border = #d4e2bc
+inactive = #7c9068
+
+color0 = #e0eccc
+color1 = #b8402e
+color2 = #428a34
+color3 = #8e7010
+color4 = #33629c
+color5 = #864a86
+color6 = #147a68
+color7 = #354a2e
+color8 = #c8dab0
+color9 = #982c1e
+color10 = #2e6c22
+color11 = #6e5406
+color12 = #254c80
+color13 = #663460
+color14 = #0d5e50
+color15 = #182410

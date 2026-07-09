@@ -1,0 +1,31 @@
+# OdyTTY theme
+# clear sky blue over pale mist, crisp maritime ink
+name = odyssey-cerulean-light
+appearance = light
+
+foreground = #1c2c3a
+background = #e4f0f8
+clear = #eef7fc
+
+cursor = #2a7cb0
+selection = #cfe2ee
+search = #eee4a0
+border = #c8dce8
+inactive = #6a8494
+
+color0 = #d4e6f0
+color1 = #b8402e
+color2 = #2e8858
+color3 = #966c10
+color4 = #2a68a8
+color5 = #824a94
+color6 = #0e7e8a
+color7 = #2c3e48
+color8 = #bcd6e4
+color9 = #982c1c
+color10 = #256e3e
+color11 = #755404
+color12 = #1e4e88
+color13 = #603076
+color14 = #08606a
+color15 = #12222e

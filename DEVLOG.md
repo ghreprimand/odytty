@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Theme library grows to 124 palettes
+
+Twelve new original OdysseyOS palettes join the built-in library, taking the
+roster from 112 to 124: eight dark palettes (ash and ember, violet shadow,
+deep navy, polished black gem, dusk violet-blue, evergreen grove, brushed
+steel-grey, volcanic rock) and four light palettes (pale mineral white, warm
+marigold, chalk-green willow, clear sky blue). Every palette is an original
+hue combination, not a clone of an existing named theme, and each clears the
+minimum default foreground/background contrast floor with comfortable margin.
+
+Each new theme is a `.theme` DSL file under `src/theme/builtins/`, registered
+in the `REGISTRY` table in `src/theme/builtins.rs` alongside the existing
+Odyssey family, in the same load path every built-in and user theme goes
+through. No new code paths; this is a data-only addition.
+
+The roster-count claim is updated everywhere it is asserted: the built-in
+library test, the visual-architecture and full-build-roadmap docs, the release
+notes, the README, and the theme-library TODO checklist item.
+
+`cargo test --lib` (full non-GPU suite, 3391 passed, 0 failed) including
+`every_builtin_meets_minimum_default_contrast` with all twelve new palettes
+registered, `cargo fmt --check`, and `cargo clippy --lib` all pass clean.
+Offscreen GPU tests are excluded (no headless display) per the standing
+convention.
+
 ## 2026-07-09 -- Per-pane selection and search overlays in splits
 
 Selection and search-match highlighting now render for **each pane** in a split
