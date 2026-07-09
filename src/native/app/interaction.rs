@@ -165,6 +165,13 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.handle_new_workspace();
             }
+            // Duplicate Workspace: a fresh workspace whose first shell opens in
+            // the active pane's cwd (F1 cwd inheritance), mirroring Duplicate Tab
+            // one level up — not a process fork.
+            OverlayOutcome::ContextMenuDuplicateWorkspace => {
+                self.flush_pending_overlay_settings();
+                self.handle_duplicate_workspace();
+            }
             OverlayOutcome::ContextMenuRenameWorkspace(idx) => {
                 self.flush_pending_overlay_settings();
                 self.enter_rename_workspace(idx);

@@ -47,6 +47,7 @@ These work anywhere in the window. They are all rebindable (see
 | `Shift+PageUp` | Scroll the viewport up one page | `scroll-up` |
 | `Shift+PageDown` | Scroll the viewport down one page | `scroll-down` |
 | `Ctrl+Shift+T` | New tab | `new-tab` |
+| `Ctrl+Shift+D` | Duplicate the active tab (fresh shell in the active pane's directory) | `duplicate-tab` |
 | `Ctrl+Shift+N` | New window (launch another OdyTTY instance) | `new-window` |
 | `Ctrl+Shift+W` | Close the active tab (and all of its panes) | `close-tab` |
 | `Ctrl+PageDown` | Next tab | `next-tab` |
@@ -276,7 +277,7 @@ These tokens are accepted on the right-hand side of `chord=action`:
 `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`,
 `hints`, `clear-input`, `command-palette`, `session-replay`,
 `connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`,
-`prev-tab`, `close-tab`, `duplicate-tab`, `new-workspace`, `close-workspace`, `rename-workspace`,
+`prev-tab`, `close-tab`, `duplicate-tab`, `new-workspace`, `duplicate-workspace`, `close-workspace`, `rename-workspace`,
 `next-workspace`, `prev-workspace`, `workspace-picker`, `split-columns`,
 `split-rows`, `focus-pane-left`,
 `focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`,
@@ -292,13 +293,14 @@ conveniences so the first split is always reachable.
 ## Workspaces
 
 A **workspace** groups a set of tabs; switching workspaces swaps the entire tab
-strip. Four chords are bound by default:
+strip. Five chords are bound by default:
 
 | Chord | Action | Token |
 | --- | --- | --- |
 | `Ctrl+Shift+PageDown` | Switch to the next workspace | `next-workspace` |
 | `Ctrl+Shift+PageUp` | Switch to the previous workspace | `prev-workspace` |
 | `Ctrl+Shift+Enter` | Create a new workspace | `new-workspace` |
+| `Ctrl+Shift+Alt+D` | Duplicate the active workspace (fresh workspace in the active pane's directory) | `duplicate-workspace` |
 | `Ctrl+Shift+G` | Open the workspace picker | `workspace-picker` |
 
 Renaming and closing a workspace are unbound by default — the rail's `+` slot,
@@ -306,7 +308,9 @@ the workspace right-click menu, and the command palette cover them — but each 
 a bindable action (`close-workspace`, `rename-workspace`) you can assign a chord
 in the settings key-remap editor or the `keybinds` config. The workspace
 right-click menu also offers **Move Up** / **Move Down** to reorder the rail
-order; these are menu-only and have no bindable chord. (Close stays unbound
+order (menu-only, no bindable chord) and **Duplicate Workspace**
+(`Ctrl+Shift+Alt+D`), which opens a fresh workspace whose first shell starts in
+the active pane's directory -- the workspace-level mirror of Duplicate Tab. (Close stays unbound
 because it is destructive; Rename follows the same precedent as Rename Tab.)
 Closing the last tab of a workspace closes that workspace; closing the last
 workspace quits OdyTTY. Typing `exit` or Ctrl-D is governed by the

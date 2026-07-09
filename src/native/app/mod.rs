@@ -1338,6 +1338,47 @@ impl App {
         self.on_active_session_changed();
     }
 
+    /// Duplicate the active workspace: create a fresh workspace whose single
+    /// shell spawns in the active pane's OSC 7 cwd (F1 cwd inheritance), then
+    /// switch to it. Mirrors [`Self::handle_new_workspace`] but threads the
+    /// captured cwd through the cwd-aware `new_workspace_in`, exactly as
+    /// Duplicate Tab reuses the cwd-aware local-tab spawn one level down. HONEST
+    /// framing: a fresh shell in the same directory, not a process fork —
+    /// scrollback and the running program are not copied. A pane with no tracked
+    /// cwd (`None`) spawns in the default directory, unchanged. Windows: the cwd
+    /// flows through the same spawn path New Tab's cwd inheritance uses, so
+    /// ConPTY honors it and drive-letter OSC 7 cwds are already normalized.
+    fn handle_duplicate_workspace(&mut self) {
+        let cwd = self.focused_pane_cwd().map(std::path::PathBuf::from);
+        let Ok(token) = self.sessions.new_workspace_in(self.grid, cwd) else {
+            return;
+        };
+        let effective_theme = self.effective_theme;
+        let themed_ui_roles = self.themed_ui_roles;
+        let osc52_read = self.settings.osc52_read;
+        let cursor_style = self.settings.cursor_style;
+        let cursor_blink = self.settings.cursor_blink;
+        let cell = self.gpu.as_ref().map(GpuState::cell);
+        let scrollback_limit = self.settings.scrollback_limit();
+        if let Some(session) = self.sessions.get_mut(token) {
+            Self::initialize_session_with(
+                session,
+                effective_theme,
+                themed_ui_roles,
+                osc52_read,
+                cursor_style,
+                cursor_blink,
+                cell,
+                scrollback_limit,
+            );
+        }
+        self.flash_rail_autohide();
+        // A new workspace can make the auto rail appear (>=2 workspaces), which
+        // changes the content reservation — reflow so the grid matches.
+        self.recompute_grid_for_tab_bar();
+        self.on_active_session_changed();
+    }
+
     /// Close the entire active workspace — every tab, every pane (ODP-3). Closing
     /// the last remaining workspace exits the app, exactly like closing the last
     /// tab of the last workspace: we guard on that case first and set
@@ -1919,6 +1960,14 @@ impl App {
                 }
                 Some(BindableAction::NewWorkspace) => {
                     self.handle_new_workspace();
+                    return;
+                }
+                Some(BindableAction::DuplicateWorkspace) => {
+                    // Duplicate = a fresh workspace whose first shell opens in the
+                    // active pane's cwd (F1 cwd inheritance), NOT a process fork:
+                    // scrollback and running programs are not copied. Mirrors
+                    // Duplicate Tab one level up.
+                    self.handle_duplicate_workspace();
                     return;
                 }
                 Some(BindableAction::CloseWorkspace) => {

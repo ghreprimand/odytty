@@ -1134,6 +1134,7 @@ impl Settings {
                     "close-tab",
                     "duplicate-tab",
                     "new-workspace",
+                    "duplicate-workspace",
                     "close-workspace",
                     "rename-workspace",
                     "next-workspace",

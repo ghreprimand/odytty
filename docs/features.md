@@ -120,8 +120,8 @@ switches to the workspace, so a click never reorders by accident. The rail also
 stays revealed for the whole drag when auto-hide is on, so the drop target never
 vanishes mid-gesture. Right-clicking a workspace (or the empty rail) offers the
 same reorder via **Move Up** / **Move Down** menu entries (a keyboard-free
-alternative with no bindable chord), alongside New, Rename, and Close Workspace
-plus **Bind to Host…** / **Unbind from Host** for that slot. Either path follows
+alternative with no bindable chord), alongside New, **Duplicate**, Rename, and
+Close Workspace plus **Bind to Host…** / **Unbind from Host** for that slot. Either path follows
 the active workspace by identity so the focused workspace never changes, and the
 new order persists across restart. Pointer drag reorder uses the shared
 cross-platform pointer path, so it behaves identically on Linux, Windows, and
@@ -130,6 +130,16 @@ edits the label in place, and Bind routes the clicked workspace's new tabs to a
 chosen saved host (existing tabs keep their shells). The terminal content menu
 carries the same New / Rename / Close Workspace and Bind/Unbind actions, acting
 on the active workspace.
+
+**Duplicate a workspace** to branch off from where you are: the workspace
+right-click menu's **Duplicate Workspace** (or `Ctrl+Shift+Alt+D`) opens a fresh
+workspace whose first shell starts in the active pane's working directory. It
+mirrors **Duplicate Tab** (`Ctrl+Shift+D`, on the tab right-click menu) one level
+up. Both are honest fresh shells at the same directory, not process forks:
+scrollback and the running program are not copied. A pane with no tracked
+directory opens in the default one. The cwd is inherited through the same path
+New Tab uses, so it behaves identically on Linux, Windows (ConPTY honors the
+working directory), and macOS.
 
 Closing the last tab in a workspace closes that workspace; closing the last
 workspace quits the app. Typing `exit` or Ctrl-D follows the
@@ -443,8 +453,8 @@ The `keybinds` config key can rebind local actions. The global actions are
 `hints`, `clear-input`, `command-palette`, `session-replay`,
 `connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`,
 `prev-tab`, `close-tab`, and `duplicate-tab`. The workspace actions are
-`new-workspace`, `close-workspace`, `rename-workspace`, `next-workspace`,
-`prev-workspace`, and `workspace-picker`. The pane actions (`split-columns`,
+`new-workspace`, `duplicate-workspace`, `close-workspace`, `rename-workspace`,
+`next-workspace`, `prev-workspace`, and `workspace-picker`. The pane actions (`split-columns`,
 `split-rows`, `focus-pane-left` / `-right` / `-up` / `-down`, `focus-pane-next`,
 `close-pane`, `zoom-pane`, `equalize-panes`) are rebindable too; the chord is the
 key pressed *after* the prefix, for example `keybinds = ctrl+f=zoom-pane`.

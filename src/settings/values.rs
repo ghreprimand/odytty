@@ -1366,6 +1366,7 @@ pub(super) fn bindable_action_name(action: BindableAction) -> &'static str {
         BindableAction::CloseTab => "close-tab",
         BindableAction::DuplicateTab => "duplicate-tab",
         BindableAction::NewWorkspace => "new-workspace",
+        BindableAction::DuplicateWorkspace => "duplicate-workspace",
         BindableAction::CloseWorkspace => "close-workspace",
         BindableAction::RenameWorkspace => "rename-workspace",
         BindableAction::NextWorkspace => "next-workspace",

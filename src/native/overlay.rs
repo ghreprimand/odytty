@@ -1239,6 +1239,9 @@ impl OverlayUi {
                     ContextMenuItem::NewTab => OverlayOutcome::ContextMenuNewTab,
                     ContextMenuItem::NewLocalTab => OverlayOutcome::ContextMenuNewLocalTab,
                     ContextMenuItem::DuplicateTab => OverlayOutcome::ContextMenuDuplicateTab,
+                    ContextMenuItem::DuplicateWorkspace => {
+                        OverlayOutcome::ContextMenuDuplicateWorkspace
+                    }
                     ContextMenuItem::NewWindow => OverlayOutcome::ContextMenuNewWindow,
                     ContextMenuItem::RenameTab => {
                         if let Some(target) = self.context_menu.rename_target() {
@@ -2705,6 +2708,12 @@ pub(super) enum OverlayOutcome {
     /// (§7.4). The overlay has closed itself; the App dispatches to
     /// `handle_new_workspace`.
     ContextMenuNewWorkspace,
+    /// Duplicate the right-clicked workspace (WorkspaceSlot): open a fresh
+    /// workspace whose first shell spawns in the active pane's cwd (F1 cwd
+    /// inheritance), not a process fork. The overlay has already closed itself;
+    /// the App dispatches this to `handle_duplicate_workspace`, the same effect
+    /// as the `duplicate-workspace` bindable action.
+    ContextMenuDuplicateWorkspace,
     /// Rename the workspace at rail index `usize` in place (WorkspaceSlot). The
     /// App opens the shared rename field targeting that workspace.
     ContextMenuRenameWorkspace(usize),
@@ -5517,6 +5526,37 @@ mod tests {
     }
 
     #[test]
+    fn workspace_slot_duplicate_workspace_emits_duplicate_outcome() {
+        // Duplicate Workspace sits right after New Workspace on the workspace-slot
+        // menu and emits the ContextMenuDuplicateWorkspace outcome (the App opens
+        // a fresh workspace whose shell spawns in the active pane's cwd). Focus
+        // order (a lone workspace, so the Move rows are hidden): New Workspace(0)
+        // Duplicate Workspace(1) Rename Workspace(2) ...
+        let mut overlay = OverlayUi::default();
+        overlay.open_context_menu_with_prompt_editing_hint(
+            CellPoint { row: 0, column: 0 },
+            false,
+            false,
+            false,
+            false,
+            false,
+            None,
+            false,
+            true,
+            false,
+            false,
+            crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(0),
+            None,
+            std::array::from_fn(|_| None),
+        );
+        overlay.handle_input(OverlayInput::Down);
+        assert_eq!(
+            overlay.handle_input(OverlayInput::Activate),
+            OverlayOutcome::ContextMenuDuplicateWorkspace
+        );
+    }
+
+    #[test]
     fn tab_slot_close_tab_emits_token_targeted_outcome() {
         // NF-F7-1: closing a tab from a specific tab slot targets THAT tab's
         // token, not the active tab. Body rows: New Tab(0) Duplicate Tab(1)
@@ -5858,7 +5898,7 @@ mod tests {
                 None,
                 std::array::from_fn(|_| None),
             );
-            for _ in 0..3 {
+            for _ in 0..4 {
                 overlay.handle_input(OverlayInput::Down);
             }
             overlay.handle_input(OverlayInput::Activate)
@@ -5873,7 +5913,7 @@ mod tests {
         // whole-app "Save as Layout…" (surface-independent → ContextMenuSaveAllLayout)
         // and the single-workspace "Save Workspace as Layout…" (targeting the
         // CLICKED slot → ContextMenuSaveLayoutAt). Unbound slot 2 menu:
-        // New(0) Rename(1) Close(2) Bind(3) SaveAll(4) SaveWorkspace(5).
+        // New(0) Duplicate(1) Rename(2) Close(3) Bind(4) SaveAll(5) SaveWorkspace(6).
         let open = |surface| {
             let mut overlay = OverlayUi::default();
             overlay.open_context_menu_with_prompt_editing_hint(
@@ -5896,9 +5936,9 @@ mod tests {
         };
         let surface = crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(2);
 
-        // Index 4 = whole-app save.
+        // Index 5 = whole-app save.
         let mut overlay = open(surface);
-        for _ in 0..4 {
+        for _ in 0..5 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(
@@ -5906,9 +5946,9 @@ mod tests {
             OverlayOutcome::ContextMenuSaveAllLayout
         );
 
-        // Index 5 = single-workspace save of the clicked slot.
+        // Index 6 = single-workspace save of the clicked slot.
         let mut overlay = open(surface);
-        for _ in 0..5 {
+        for _ in 0..6 {
             overlay.handle_input(OverlayInput::Down);
         }
         assert_eq!(

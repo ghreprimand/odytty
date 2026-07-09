@@ -220,9 +220,9 @@ labels, and visible font-load failure reporting all ship today.
   display sections, so no shipped knob is unreachable from the panel; a field
   audit confirmed every user-facing `Settings` field surfaces through a reachable
   `SettingInfo` row (`native_autoclose` included, via the Development → Advanced
-  section). The `keybinds` parser and the in-app key-remap editor cover all 39
+  section). The `keybinds` parser and the in-app key-remap editor cover all 40
   bindable actions — including the theme-builder, session-attach, and workspace
-  actions — and the panel's keybinds-row option hint now enumerates the same 39
+  actions — and the panel's keybinds-row option hint now enumerates the same 40
   in `BindableAction::ALL` order. See [keybindings.md](./keybindings.md) for the
   full keyboard reference.
 - **Someday — Profiles.** Named configuration profiles once the base config
@@ -365,10 +365,18 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   a missing cwd. Cross-platform (ConPTY honors the working directory; drive-letter
   OSC 7 cwds are normalized).
 - **Shipped — Duplicate Tab.** A tab context-menu entry (and the bindable
-  `duplicate-tab` action) opens a new local tab in the active pane's working
-  directory. Honest framing: this is a fresh shell in the same directory, not a
-  process fork — scrollback and the running program are not copied. Rides the new
-  tab / new window cwd inheritance above; brings the bindable-action count to 39.
+  `duplicate-tab` action, default chord `Ctrl+Shift+D`) opens a new local tab in
+  the active pane's working directory. Honest framing: this is a fresh shell in
+  the same directory, not a process fork — scrollback and the running program are
+  not copied. Rides the new tab / new window cwd inheritance above.
+- **Shipped — Duplicate Workspace.** The workspace-level mirror of Duplicate Tab:
+  a workspace context-menu entry (and the bindable `duplicate-workspace` action,
+  default chord `Ctrl+Shift+Alt+D` — the tab→workspace Alt escalation of Duplicate
+  Tab's chord) opens a fresh workspace whose first shell starts in the active
+  pane's working directory. Same honest framing: a fresh shell in the same
+  directory, not a process fork. Threads the cwd through the same spawn path New
+  Tab uses, so it is cross-platform (ConPTY honors the working directory). Brings
+  the bindable-action count to 40.
 - **Shipped — OSC 8 hyperlinks.** Explicit hyperlink escapes render as
   hover-affordanced links that open on modifier (`Ctrl`) click through the same
   argv-safe dispatch, gated to a `http`/`https`/`file`/`mailto` scheme allowlist

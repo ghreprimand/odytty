@@ -2743,7 +2743,23 @@ impl WorkspaceSet {
         &mut self,
         grid: crate::core::Dimensions,
     ) -> Result<SessionToken, std::io::Error> {
-        let token = self.insert_spawned_session(grid)?;
+        self.new_workspace_in(grid, None)
+    }
+
+    /// Create a fresh workspace whose first shell spawns in `cwd` (the cwd-aware
+    /// variant of [`Self::new_workspace`]). Threads the working directory into
+    /// the new workspace's single-pane shell exactly as [`Self::spawn`] does for
+    /// a new tab, so Duplicate Workspace opens where the active pane already is.
+    /// A `None` cwd spawns in the default directory, byte-identical to
+    /// `new_workspace`. Cross-platform: the cwd flows through the same
+    /// `insert_spawned_session_in` path the cwd-aware tab spawn uses, so ConPTY
+    /// honors it on Windows (drive-letter OSC 7 cwds are already normalized).
+    pub(super) fn new_workspace_in(
+        &mut self,
+        grid: crate::core::Dimensions,
+        cwd: Option<std::path::PathBuf>,
+    ) -> Result<SessionToken, std::io::Error> {
+        let token = self.insert_spawned_session_in(grid, cwd)?;
         let name = default_workspace_name(self.workspaces.len());
         self.workspaces.push(Workspace::single(name, token));
         self.active_ws = self.workspaces.len() - 1;
@@ -5406,6 +5422,36 @@ mod tests {
         let token = set.new_workspace(grid).expect("spawn new workspace");
         assert_eq!(set.workspace_count(), 2);
         // The new workspace is active and holds exactly one single-pane tab.
+        assert_eq!(set.active_workspace_index(), 1);
+        assert_eq!(set.tab_count(), 1);
+        assert!(set.active_is_single_pane());
+        assert_eq!(set.active_id(), token);
+        assert_eq!(set.workspace_name(1), Some("Workspace 2"));
+    }
+
+    #[cfg_attr(
+        target_os = "macos",
+        ignore = "winit EventLoop cannot be built off the main thread on macOS"
+    )]
+    #[test]
+    fn new_workspace_in_threads_cwd_and_appends_like_new_workspace() {
+        // Duplicate Workspace threads the active pane's cwd through the cwd-aware
+        // `new_workspace_in`, which spawns via the SAME `insert_spawned_session_in`
+        // path New Tab's cwd inheritance uses. A `Some(cwd)` still appends,
+        // switches to, and holds exactly one single-pane tab -- identical shape to
+        // the cwd-less `new_workspace`. (The spawn honors the directory the same
+        // way the tab path does; the pty's cwd is not observable here without
+        // shell integration, so this pins the workspace-level behavior.)
+        let Some((mut set, _event_loop)) = tabset_with_proxy_for_test() else {
+            return;
+        };
+        assert_eq!(set.workspace_count(), 1);
+        let grid = Dimensions::new(20, 8);
+        let cwd = Some(std::env::temp_dir());
+        let token = set
+            .new_workspace_in(grid, cwd)
+            .expect("spawn new workspace in cwd");
+        assert_eq!(set.workspace_count(), 2);
         assert_eq!(set.active_workspace_index(), 1);
         assert_eq!(set.tab_count(), 1);
         assert!(set.active_is_single_pane());

@@ -255,6 +255,13 @@ pub enum BindableAction {
     /// Create a fresh workspace (one single-pane tab) and switch to it. Unbound
     /// by default.
     NewWorkspace,
+    /// Duplicate the active workspace: open a fresh workspace whose first shell
+    /// spawns in the active pane's working directory -- a fresh shell where the
+    /// current one is, not a process fork (scrollback and running programs are
+    /// not duplicated). Reachable from the workspace context menu and bindable;
+    /// default chord `Ctrl+Shift+Alt+D` (the tab->workspace Alt escalation of
+    /// Duplicate Tab's `Ctrl+Shift+D`).
+    DuplicateWorkspace,
     /// Close the entire active workspace — every tab and pane. Closing the last
     /// workspace exits the app (last-tab-of-last-workspace exit semantics).
     /// Unbound by default.
@@ -304,7 +311,7 @@ impl BindableAction {
     /// coverage guard checks against, so a new variant cannot be silently
     /// omitted from the editor. Keep it exhaustive — the
     /// `all_bindable_actions_is_exhaustive` test pins it to the enum's size.
-    pub const ALL: [Self; 39] = [
+    pub const ALL: [Self; 40] = [
         // Core non-tab actions.
         Self::Search,
         Self::SettingsPanel,
@@ -333,6 +340,7 @@ impl BindableAction {
         Self::DuplicateTab,
         // Workspace actions.
         Self::NewWorkspace,
+        Self::DuplicateWorkspace,
         Self::CloseWorkspace,
         Self::RenameWorkspace,
         Self::NextWorkspace,
@@ -395,6 +403,7 @@ impl BindableAction {
             "closetab" | "tabclose" => Some(Self::CloseTab),
             "duplicatetab" | "tabduplicate" | "duplicate" => Some(Self::DuplicateTab),
             "newworkspace" | "workspacenew" => Some(Self::NewWorkspace),
+            "duplicateworkspace" | "workspaceduplicate" => Some(Self::DuplicateWorkspace),
             "closeworkspace" | "workspaceclose" => Some(Self::CloseWorkspace),
             "renameworkspace" | "workspacerename" => Some(Self::RenameWorkspace),
             "nextworkspace" | "workspacenext" => Some(Self::NextWorkspace),

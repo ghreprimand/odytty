@@ -528,6 +528,20 @@ fn default_key_bindings() -> Vec<(KeyChord, BindableAction)> {
             char_chord('w', true, true, false, false),
             BindableAction::CloseTab,
         ),
+        // Duplicate Tab / Duplicate Workspace open a fresh shell in the active
+        // pane's cwd (F1 cwd inheritance): `Ctrl+Shift+D` duplicates the tab,
+        // the `Ctrl+Shift+Alt+D` Alt escalation duplicates the whole workspace
+        // one level up -- the same tab->workspace escalation as the
+        // `Ctrl+PageDown` (tab) vs `Ctrl+Shift+PageDown` (workspace) pair. `d`
+        // was free in the letter space (verified against every other default).
+        (
+            char_chord('d', true, true, false, false),
+            BindableAction::DuplicateTab,
+        ),
+        (
+            char_chord('d', true, true, true, false),
+            BindableAction::DuplicateWorkspace,
+        ),
         (
             named_chord(KeyBindingNamedKey::PageDown, true, false, false, false),
             BindableAction::NextTab,
@@ -875,6 +889,38 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn duplicate_tab_and_workspace_have_default_chords() {
+        // Duplicate Tab and Duplicate Workspace gained default chords so both are
+        // discoverable (the menu now shows an accelerator). `Ctrl+Shift+D`
+        // duplicates the tab; the `Ctrl+Shift+Alt+D` Alt escalation duplicates
+        // the whole workspace one level up -- the same tab->workspace escalation
+        // shape as `Ctrl+PageDown` vs `Ctrl+Shift+PageDown`. `d` was free.
+        let bindings = KeyBindings::default();
+        assert_eq!(
+            bindings.action_for_chord(char_chord('d', true, true, false, false)),
+            Some(BindableAction::DuplicateTab),
+            "Ctrl+Shift+D duplicates the tab"
+        );
+        assert_eq!(
+            bindings.action_for_chord(char_chord('d', true, true, true, false)),
+            Some(BindableAction::DuplicateWorkspace),
+            "Ctrl+Shift+Alt+D duplicates the workspace"
+        );
+        // The two chords are distinct (Alt is the only differing modifier), so
+        // neither shadows the other and `no_duplicate_chords` stays green.
+        assert_ne!(
+            char_chord('d', true, true, false, false),
+            char_chord('d', true, true, true, false),
+        );
+        // Plain `Ctrl+D` (EOF) is untouched -- the chords require Shift.
+        assert_eq!(
+            bindings.action_for_chord(char_chord('d', true, false, false, false)),
+            None,
+            "plain Ctrl+D still reaches the shell as EOF"
+        );
     }
 
     #[test]

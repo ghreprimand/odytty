@@ -211,8 +211,8 @@ fn all_bindable_actions_is_exhaustive() {
             | JumpPromptPrev | JumpPromptNext | CopyMode | Hints | ClearInput => 0,
             CommandPalette | ConnectionManager | SessionReplay | ThemeBuilder | SessionAttach => 1,
             NewTab | NewWindow | NextTab | PrevTab | CloseTab | DuplicateTab => 2,
-            NewWorkspace | CloseWorkspace | RenameWorkspace | NextWorkspace | PrevWorkspace
-            | WorkspacePicker => 3,
+            NewWorkspace | DuplicateWorkspace | CloseWorkspace | RenameWorkspace
+            | NextWorkspace | PrevWorkspace | WorkspacePicker => 3,
             SplitColumns | SplitRows | FocusPaneLeft | FocusPaneRight | FocusPaneUp
             | FocusPaneDown | FocusPaneNext | ClosePane | ZoomPane | EqualizePanes => 4,
         }

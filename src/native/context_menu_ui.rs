@@ -70,7 +70,7 @@ use crate::settings::BindableAction;
 /// adds Close Pane for 24. The five
 /// ODP-2C connection-row actions (Open in New Tab / Open in New Workspace / Bind
 /// Current Workspace / Edit / Remove) show ONLY on the `ConnectionRow` surface.
-pub(super) const CONTEXT_MENU_ITEMS: usize = 46;
+pub(super) const CONTEXT_MENU_ITEMS: usize = 47;
 
 /// Body row index of the first visual separator in the single-pane content
 /// reference, between Select All and New Tab. The reference is the
@@ -268,6 +268,14 @@ pub(super) enum ContextMenuItem {
     /// [`BindableAction::DuplicateTab`]. Appended last in [`Self::ALL`] so the
     /// existing accelerator-array indices stay stable.
     DuplicateTab,
+    /// Duplicate the right-clicked workspace: open a fresh workspace whose
+    /// first shell spawns in the active pane's working directory (F1 cwd
+    /// inheritance). HONEST framing: a fresh shell in the same directory, not a
+    /// process/state fork -- scrollback and running programs are not copied.
+    /// Workspace-scoped (`WorkspaceSlot`); bindable via
+    /// [`BindableAction::DuplicateWorkspace`]. Appended last in [`Self::ALL`] so
+    /// the existing accelerator-array indices stay stable.
+    DuplicateWorkspace,
     /// Open a saved host in a NEW tab positioned right after the right-clicked
     /// tab (ODP-5D "Connect to host ▸"). Tab-scoped: shown only on the `TabSlot`
     /// surface. Activating it opens the shared host picker (ODP-1B) seeded with
@@ -372,6 +380,9 @@ impl ContextMenuItem {
         // accelerator-array index stays stable (both carry no chord).
         Self::MoveWorkspaceUp,
         Self::MoveWorkspaceDown,
+        // DUPLICATE-WORKSPACE: appended last so every existing accelerator-array
+        // index stays stable (its accelerator is filled from the flat table).
+        Self::DuplicateWorkspace,
     ];
 
     /// The visual section this item belongs to (0-based). A separator is drawn
@@ -397,6 +408,7 @@ impl ContextMenuItem {
             | Self::ReplaceTabWithHost => 1,
             Self::SplitColumns | Self::SplitRows | Self::ClosePane => 2,
             Self::NewWorkspace
+            | Self::DuplicateWorkspace
             | Self::RenameWorkspace
             | Self::CloseWorkspace
             | Self::MoveWorkspaceUp
@@ -447,6 +459,7 @@ impl ContextMenuItem {
             Self::CloseOtherTabs => "Close Other Tabs",
             Self::MoveToWorkspace => "Move to Workspace…",
             Self::NewWorkspace => "New Workspace",
+            Self::DuplicateWorkspace => "Duplicate Workspace",
             Self::RenameWorkspace => "Rename Workspace",
             Self::CloseWorkspace => "Close Workspace",
             Self::MoveWorkspaceUp => "Move Up",
@@ -497,6 +510,7 @@ impl ContextMenuItem {
             Self::NewWindow => Some(BindableAction::NewWindow),
             Self::CloseTab => Some(BindableAction::CloseTab),
             Self::DuplicateTab => Some(BindableAction::DuplicateTab),
+            Self::DuplicateWorkspace => Some(BindableAction::DuplicateWorkspace),
             Self::SplitColumns => Some(BindableAction::SplitColumns),
             Self::SplitRows => Some(BindableAction::SplitRows),
             Self::Settings => Some(BindableAction::SettingsPanel),
@@ -1075,6 +1089,7 @@ impl ContextMenuUi {
             ContextMenuItem::OpenWith => self.is_file_target(),
             // Workspace actions are always available on their surfaces.
             ContextMenuItem::NewWorkspace
+            | ContextMenuItem::DuplicateWorkspace
             | ContextMenuItem::RenameWorkspace
             | ContextMenuItem::CloseWorkspace
             // Move Up/Down are only pushed when the slot can move that way, so
@@ -1162,6 +1177,7 @@ impl ContextMenuUi {
                 // New/Rename group; Close in its own destructive group (one
                 // separator before it) — the TabSlot pattern one level up.
                 ContextMenuItem::NewWorkspace
+                | ContextMenuItem::DuplicateWorkspace
                 | ContextMenuItem::RenameWorkspace
                 // RAIL-REORDER: the reorder actions are non-destructive edits to
                 // the slot, so they group with New/Rename above the Close separator.
@@ -1254,6 +1270,9 @@ impl ContextMenuUi {
             ContextMenuSurface::WorkspaceSlot(idx) => {
                 let mut items = vec![
                     ContextMenuItem::NewWorkspace,
+                    // DUPLICATE-WORKSPACE rides beside New Workspace: a fresh
+                    // workspace whose shell opens in the active pane's cwd.
+                    ContextMenuItem::DuplicateWorkspace,
                     ContextMenuItem::RenameWorkspace,
                 ];
                 // RAIL-REORDER: the move rows gate on the clicked slot's
@@ -1361,6 +1380,10 @@ impl ContextMenuUi {
                         | ContextMenuItem::NewLocalTab
                         // DUPLICATE-TAB: a tab-menu row only; never on content.
                         | ContextMenuItem::DuplicateTab
+                        // DUPLICATE-WORKSPACE: a WorkspaceSlot-only row; never on
+                        // content (the content workspace section acts on the
+                        // active workspace, and New Workspace already covers it).
+                        | ContextMenuItem::DuplicateWorkspace
                         // ODP-5D: the tab host actions are TabSlot-only.
                         | ContextMenuItem::ConnectToHost
                         | ContextMenuItem::ReplaceTabWithHost
@@ -2819,6 +2842,52 @@ mod tests {
         );
     }
 
+    #[test]
+    fn duplicate_actions_render_their_default_accelerators() {
+        // Both Duplicate rows carry a bound chord now, so each renders its
+        // accelerator beside the label (keyed by ALL order, exactly as the App
+        // fills the array). Duplicate Tab -> Ctrl+Shift+D on the tab slot;
+        // Duplicate Workspace -> Ctrl+Shift+Alt+D on the workspace slot.
+        let accel_for = |item: ContextMenuItem, chord: &str| {
+            let idx = ContextMenuItem::ALL
+                .iter()
+                .position(|it| *it == item)
+                .expect("item is in ALL");
+            let mut accels: [Option<String>; CONTEXT_MENU_ITEMS] = std::array::from_fn(|_| None);
+            accels[idx] = Some(chord.to_owned());
+            accels
+        };
+        let rendered = |m: &ContextMenuUi, label: &str| -> Option<Option<String>> {
+            m.rows().into_iter().find_map(|r| match r {
+                ContextMenuRow::Item {
+                    label: l,
+                    accelerator,
+                    ..
+                } if l == label => Some(accelerator),
+                _ => None,
+            })
+        };
+
+        let mut tab = open_surface(ContextMenuSurface::TabSlot(SessionToken(1)), true);
+        tab.set_accelerators(accel_for(ContextMenuItem::DuplicateTab, "Ctrl+Shift+D"));
+        assert_eq!(
+            rendered(&tab, "Duplicate Tab"),
+            Some(Some("Ctrl+Shift+D".to_owned())),
+            "Duplicate Tab renders its accelerator"
+        );
+
+        let mut ws = open_surface(ContextMenuSurface::WorkspaceSlot(0), true);
+        ws.set_accelerators(accel_for(
+            ContextMenuItem::DuplicateWorkspace,
+            "Ctrl+Shift+Alt+D",
+        ));
+        assert_eq!(
+            rendered(&ws, "Duplicate Workspace"),
+            Some(Some("Ctrl+Shift+Alt+D".to_owned())),
+            "Duplicate Workspace renders its accelerator"
+        );
+    }
+
     /// Open a menu on a specific surface (F7) with the given tab-count state.
     /// Single-workspace (no `Move to Workspace` row); use
     /// [`open_surface_ws`] to exercise the multi-workspace composition.
@@ -3086,6 +3155,7 @@ mod tests {
             m.rows(),
             vec![
                 item("New Workspace", true, true),
+                item("Duplicate Workspace", false, true),
                 item("Rename Workspace", false, true),
                 ContextMenuRow::Separator,
                 item("Close Workspace", false, true),

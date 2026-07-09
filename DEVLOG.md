@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Duplicate Workspace, and default chords for both Duplicate actions
+
+New **Duplicate Workspace** action opens a fresh workspace whose first shell
+starts in the active pane's working directory, mirroring the existing Duplicate
+Tab one level up. It is reachable from the workspace right-click menu (beside New
+Workspace) and as the bindable `duplicate-workspace` action. Honest framing,
+identical to Duplicate Tab: this is a fresh shell in the same directory, not a
+process fork, so scrollback and the running program are not copied. A pane with
+no tracked directory opens in the default one.
+
+The cwd is inherited through the same spawn path New Tab already uses: a new
+cwd-aware `new_workspace_in` threads the captured directory into the workspace's
+first shell via the shared `insert_spawned_session_in`, so the working-directory
+handling is byte-identical to the proven tab path. Cross-platform as a result:
+ConPTY honors the working directory on Windows and drive-letter OSC 7 cwds are
+already normalized upstream, so Duplicate Workspace behaves the same on Linux,
+Windows, and macOS with no platform-specific surface.
+
+Both Duplicate actions gained default chords so they are discoverable (the menu
+now renders an accelerator): **Duplicate Tab** is `Ctrl+Shift+D` and **Duplicate
+Workspace** is `Ctrl+Shift+Alt+D` — the tab-to-workspace Alt escalation that
+mirrors the `Ctrl+PageDown` (tab) vs `Ctrl+Shift+PageDown` (workspace) pair. The
+letter `d` was free across every default binding, and both remain fully
+rebindable. The bindable-action count is now 40.
+
+New tests cover the workspace-menu Duplicate outcome, both default chords
+resolving to the right actions without colliding, the accelerator label
+rendering for each Duplicate row, and the cwd-aware `new_workspace_in` appending
+and switching like the cwd-less path. `cargo test` (full non-GPU suite, 3417 lib
+tests) and `cargo fmt --check` pass, and `cargo clippy --all-targets` is clean;
+offscreen GPU tests are excluded (no headless display) and left to CI.
+
+---
+
 ## 2026-07-09 -- Drag-to-reorder workspaces in the rail
 
 Workspaces can now be reordered by dragging a rail slot, a direct-manipulation
