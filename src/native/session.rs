@@ -6288,6 +6288,183 @@ mod tests {
         assert_eq!(set.len(), 1);
     }
 
+    /// H4: a snapshot that PARSES cleanly but carries semantically hostile
+    /// values — out-of-range active/focused indices reachable by hand-editing
+    /// `workspaces.json` — must never panic the launch-time rebuild. Every index
+    /// is clamped or falls back into range, so restore lands one valid, focused
+    /// workspace. Belt-and-suspenders over the audited guards
+    /// (`active_workspace.min(len-1)`, `active_tab.min(len-1)`, and the
+    /// `focused_leaf` first-leaf fallback). Platform-neutral: the rebuild is
+    /// index math with no OS surface.
+    #[test]
+    fn out_of_range_indices_in_a_snapshot_clamp_never_panic() {
+        use crate::native::persistence::{PaneShape, ShapeSnapshot, TabShape, WorkspaceShape};
+        let leaf = || PaneShape::Leaf {
+            cwd: None,
+            session_host_id: None,
+            remote_host: None,
+        };
+        let snapshot = ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            // Far past the (one) workspace, the (one) tab, and the (one) leaf.
+            active_workspace: 999,
+            workspaces: vec![WorkspaceShape {
+                name: "w".to_owned(),
+                default_profile: None,
+                active_tab: 999,
+                tabs: vec![TabShape {
+                    title: None,
+                    focused_leaf: 999,
+                    layout: leaf(),
+                }],
+            }],
+        };
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let mut handed = Vec::new();
+        let report = set.restore_from_snapshot_with(
+            &snapshot,
+            None,
+            fake_spawner(&mut handed),
+            no_remote_spawner(),
+        );
+        // One valid workspace restored; the runaway active index clamps to the
+        // last real workspace rather than panicking a bounds check.
+        assert!(matches!(
+            report,
+            RestoreReport::Restored {
+                workspaces: 1,
+                panes: 1,
+                ..
+            }
+        ));
+        assert_eq!(
+            set.active_workspace_index(),
+            0,
+            "active_workspace clamps to the last real index"
+        );
+    }
+
+    /// H4: a snapshot with nothing restorable — zero workspaces, or workspaces
+    /// that are all tab-less — must degrade to `Skipped` (the launch layout is
+    /// left untouched, so the caller keeps its fresh session) and never panic on
+    /// the empty vectors. Both are reachable by hand-editing the file.
+    #[test]
+    fn empty_and_tabless_snapshots_are_skipped_never_panic() {
+        use crate::native::persistence::{ShapeSnapshot, WorkspaceShape};
+
+        // (i) zero workspaces: nothing to build -> Skipped, layout intact.
+        let empty = ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            active_workspace: 0,
+            workspaces: vec![],
+        };
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let before = set.workspace_count();
+        let mut handed = Vec::new();
+        let report = set.restore_from_snapshot_with(
+            &empty,
+            None,
+            fake_spawner(&mut handed),
+            no_remote_spawner(),
+        );
+        assert_eq!(report, RestoreReport::Skipped);
+        assert_eq!(
+            set.workspace_count(),
+            before,
+            "a no-op restore leaves the live layout intact"
+        );
+
+        // (ii) every workspace has empty tabs: each is `continue`d, nothing is
+        // built -> Skipped, and no `active_tab.min(len-1)` underflow on len 0.
+        let tabless = ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            active_workspace: 0,
+            workspaces: vec![
+                WorkspaceShape {
+                    name: "a".to_owned(),
+                    default_profile: None,
+                    active_tab: 3,
+                    tabs: vec![],
+                },
+                WorkspaceShape {
+                    name: "b".to_owned(),
+                    default_profile: None,
+                    active_tab: 0,
+                    tabs: vec![],
+                },
+            ],
+        };
+        let mut set2 = WorkspaceSet::new(build_session(), None);
+        let mut handed2 = Vec::new();
+        let report2 = set2.restore_from_snapshot_with(
+            &tabless,
+            None,
+            fake_spawner(&mut handed2),
+            no_remote_spawner(),
+        );
+        assert_eq!(report2, RestoreReport::Skipped);
+    }
+
+    /// H4: absurd split ratios and a deep split spine must not panic the
+    /// recursive rebuild. Out-of-[0,1] ratios (negative, > 1, huge) are
+    /// reachable by hand-editing the file; NaN / infinity are not parser-
+    /// reachable (JSON has no such literals) but are constructed here to prove
+    /// the rebuild is total over any `f32` it is handed. The ratios are stored
+    /// verbatim into the layout tree; geometry that consumes them is a separate,
+    /// later concern — restore itself only builds the tree.
+    #[test]
+    fn absurd_ratios_and_deep_nesting_restore_without_panicking() {
+        use crate::native::persistence::{
+            PaneShape, ShapeSnapshot, SplitAxisShape, TabShape, WorkspaceShape,
+        };
+        let leaf = || PaneShape::Leaf {
+            cwd: None,
+            session_host_id: None,
+            remote_host: None,
+        };
+        // A right-leaning split spine 40 deep, each level carrying a
+        // pathological ratio. 40 added leaves + the original = 41 leaves.
+        let mut node = leaf();
+        for i in 0..40 {
+            let ratio = match i % 4 {
+                0 => f32::NAN,
+                1 => -3.0,
+                2 => 17.0,
+                _ => f32::INFINITY,
+            };
+            node = PaneShape::Split {
+                axis: SplitAxisShape::Columns,
+                ratio,
+                first: Box::new(leaf()),
+                second: Box::new(node),
+            };
+        }
+        let snapshot = ShapeSnapshot {
+            version: crate::native::persistence::SNAPSHOT_VERSION,
+            active_workspace: 0,
+            workspaces: vec![WorkspaceShape {
+                name: "deep".to_owned(),
+                default_profile: None,
+                active_tab: 0,
+                tabs: vec![TabShape {
+                    title: None,
+                    focused_leaf: 0,
+                    layout: node,
+                }],
+            }],
+        };
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let mut handed = Vec::new();
+        let report = set.restore_from_snapshot_with(
+            &snapshot,
+            None,
+            fake_spawner(&mut handed),
+            no_remote_spawner(),
+        );
+        // The whole spine spawned; the rebuild survived the ratios and depth.
+        assert!(matches!(report, RestoreReport::Restored { panes: 41, .. }));
+    }
+
     /// RESTORE-REMOTE: a leaf carrying a `remote_host` reconnects through the
     /// remote spawner (with the exact stored identity), while a local leaf beside
     /// it still routes to the local spawner. No pane falls back.

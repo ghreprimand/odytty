@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Malformed-snapshot launch robustness locked by tests
+
+Startup workspace restore already degrades gracefully on a corrupt, truncated,
+version-skewed, or garbage `workspaces.json`: the reader classifies anything but
+a clean parse into a non-fatal outcome and launch falls back to a fresh session
+rather than aborting. This adds regression coverage that pins that contract so a
+future change cannot silently reintroduce a launch-time panic, which would brick
+startup until the file was deleted by hand. No runtime behavior changed.
+
+Two layers are covered. At the classify boundary every launch funnels through:
+a valid serialization cut at every byte offset never panics and a mid-structure
+cut degrades to a soft parse error; well-formed JSON of the wrong shape (a
+non-numeric version, a non-array `workspaces`, a tab with no layout, a split
+missing a branch or carrying an unknown axis, a pane that is neither leaf nor
+split) is reported as malformed rather than half-parsed; older and newer schema
+versions are soft skews, never hard errors; and a file of outright non-UTF-8
+bytes, a truncated file, an empty file, or a version-skewed file all degrade to
+a soft on-disk outcome through the same read-then-classify path the launch
+reader uses. At the rebuild layer: a snapshot that parses cleanly but carries
+hostile values — out-of-range active-workspace / active-tab / focused-leaf
+indices, zero workspaces, all-tabless workspaces, absurd or non-finite split
+ratios, and a deep split spine — clamps or skips into a valid focused layout
+without panicking.
+
+State: `cargo test` green (3439 lib tests, seven new here), `cargo fmt --check`
+clean, `cargo clippy` clean. Test-only; no production code changed. The restore
+path is platform-neutral — the file path, read, and parse are identical on
+Windows (the state dir has a tested `%LOCALAPPDATA%` arm) — so this holds on all
+three platforms with no OS-specific surface.
+
+---
+
 ## 2026-07-09 -- Theme library grows to 136 palettes
 
 Twelve more original OdysseyOS palettes join the built-in library, taking the

@@ -564,3 +564,141 @@ fn layout_exists_matches_the_writer_stem() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---- H4: malformed-snapshot launch robustness (belt-and-suspenders) ----
+//
+// A corrupt / truncated / version-skewed / garbage `workspaces.json` must never
+// panic launch. The launch reader (`load_snapshot`) reads the file with
+// `read_to_string` then classifies via `ShapeSnapshot::from_json_str` into a
+// non-fatal `LoadOutcome`, so `restore_workspaces_on_launch` silently falls
+// back to a fresh session on anything but a clean parse. A launch-time panic
+// here would brick startup until the file was deleted by hand, so these lock
+// the degrade contract at the classify boundary every launch funnels through.
+// Platform-neutral: the path, read, and parse are byte-identical on Windows
+// (the state dir has a tested `%LOCALAPPDATA%` arm, §10.8) — no OS surface.
+
+#[test]
+fn truncated_snapshot_never_panics_and_degrades() {
+    // A write interrupted at any point (crash / power loss) leaves a partial
+    // file. Cutting a valid serialization at EVERY byte offset simulates that:
+    // none may panic, and a genuinely mid-structure cut classifies as Malformed
+    // (a cut that happens to drop only trailing whitespace still parses cleanly,
+    // which is equally fine — the contract is "never panic", not "always fail").
+    let full = sample_snapshot().to_json_pretty();
+    for cut in 0..=full.len() {
+        if !full.is_char_boundary(cut) {
+            continue;
+        }
+        // The call returning at all (rather than unwinding) is the invariant a
+        // panic would violate; the classification value is unused here.
+        let _ = ShapeSnapshot::from_json_str(&full[..cut]);
+    }
+    // A representative mid-structure truncation is explicitly a soft Malformed.
+    assert!(matches!(
+        ShapeSnapshot::from_json_str(&full[..full.len() / 2]),
+        Err(LoadError::Malformed(_))
+    ));
+}
+
+#[test]
+fn well_formed_json_of_the_wrong_shape_is_malformed_never_panics() {
+    // Valid JSON whose SHAPE violates the schema (wrong types, missing required
+    // structure) must classify as Malformed rather than parse to a half-built
+    // snapshot or panic. Only genuinely-required structure is asserted here:
+    // a missing `name`/`tabs`/`active_tab`/`ratio` is deliberately tolerated
+    // (forward-compat), so those are covered by the round-trip tests instead.
+    for text in [
+        // `version` present but not a number.
+        r#"{ "version": "one", "workspaces": [] }"#,
+        // `workspaces` is an object, not the required array.
+        r#"{ "version": 1, "workspaces": {} }"#,
+        // A tab with no `layout` at all.
+        r#"{ "version": 1, "workspaces": [ { "name": "w", "active_tab": 0,
+             "tabs": [ { "focused_leaf": 0 } ] } ] }"#,
+        // A split node missing its `second` branch.
+        r#"{ "version": 1, "workspaces": [ { "name": "w", "active_tab": 0,
+             "tabs": [ { "focused_leaf": 0, "layout": { "split": {
+               "axis": "columns", "ratio": 0.5, "first": { "leaf": {} } } } } ] } ] }"#,
+        // A split node with an unrecognized axis.
+        r#"{ "version": 1, "workspaces": [ { "name": "w", "active_tab": 0,
+             "tabs": [ { "focused_leaf": 0, "layout": { "split": {
+               "axis": "diagonal", "ratio": 0.5,
+               "first": { "leaf": {} }, "second": { "leaf": {} } } } } ] } ] }"#,
+        // A pane node that is neither a leaf nor a split.
+        r#"{ "version": 1, "workspaces": [ { "name": "w", "active_tab": 0,
+             "tabs": [ { "focused_leaf": 0, "layout": { "frobnicate": {} } } ] } ] }"#,
+    ] {
+        match ShapeSnapshot::from_json_str(text) {
+            Err(LoadError::Malformed(_)) => {}
+            other => panic!("wrong-shape input {text:?} must be Malformed, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn older_and_newer_schema_versions_are_soft_skew() {
+    // Any version this build does not speak — older OR newer — is a soft skew
+    // (ignore + fresh launch + notice), never a hard error or panic. The reader
+    // never best-effort-parses a foreign schema (§10.4, forward-compat by
+    // construction).
+    for v in [0u32, 2, 7, 999] {
+        let text = format!(r#"{{ "version": {v}, "active_workspace": 0, "workspaces": [] }}"#);
+        match ShapeSnapshot::from_json_str(&text) {
+            Err(LoadError::VersionSkew { found }) if found == v => {}
+            other => panic!("schema version {v} must be a soft skew, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn garbage_and_broken_files_on_disk_degrade_to_a_soft_outcome_never_panic() {
+    // The launch reader `load_snapshot` reads the on-disk file with
+    // `read_to_string` then classifies with `from_json_str`. `load_layout_in`
+    // shares that exact read -> classify path (it is also the named-layout parse
+    // path) but takes an injectable directory, so it exercises the identical
+    // file-level degradation without ever touching the real state dir. Every
+    // hostile file below must yield a soft `LoadOutcome` — never a panic.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir =
+        std::env::temp_dir().join(format!("odytty-h4-corrupt-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let name = "state";
+    let path = layout_path_in(&dir, name).expect("a plain name resolves to a path");
+
+    // (d) outright garbage / non-UTF-8 bytes: `read_to_string` fails -> Corrupt.
+    std::fs::write(
+        &path,
+        [0xff, 0xfe, 0x00, 0x01, 0x80, 0x9c, b'{', 0xc3, 0x28],
+    )
+    .expect("write garbage bytes");
+    assert!(
+        matches!(load_layout_in(&dir, name), LoadOutcome::Corrupt(_)),
+        "non-UTF-8 bytes must degrade to Corrupt, not panic"
+    );
+
+    // (a) valid UTF-8 but truncated JSON on disk -> Corrupt (malformed classify).
+    std::fs::write(&path, b"{ \"version\": 1, \"workspaces\": [ {").expect("write truncated");
+    assert!(matches!(
+        load_layout_in(&dir, name),
+        LoadOutcome::Corrupt(_)
+    ));
+
+    // A wholly empty (0-byte) file -> Corrupt, never a panic.
+    std::fs::write(&path, b"").expect("write empty");
+    assert!(matches!(
+        load_layout_in(&dir, name),
+        LoadOutcome::Corrupt(_)
+    ));
+
+    // (c) a version-skewed file on disk -> Skew (soft: fresh launch + notice).
+    std::fs::write(&path, br#"{ "version": 999, "workspaces": [] }"#).expect("write skew");
+    assert!(matches!(
+        load_layout_in(&dir, name),
+        LoadOutcome::Skew { found: 999 }
+    ));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
