@@ -4745,3 +4745,102 @@ fn shape_autosave_is_inert_on_a_non_primary_instance() {
     assert_eq!(app.autosave_saves_for_test(), 0);
     assert!(!app.autosave_pending_for_test());
 }
+
+/// FEEL-FIX (Bug 6): returning to a backgrounded tab must not strand the
+/// viewport near the top of scrollback with fresh output hidden below. A tab
+/// keeps producing output while backgrounded but is not rendered, so its
+/// scrollback-growth baseline freezes; without reconciling it on activation the
+/// first switch-back render treats all the backgrounded growth as one huge
+/// `added` and the "stay scrolled" anchor yanks a scrolled-up viewport to the
+/// top. Driven through the real switch (`on_active_session_changed`) + the real
+/// render anchor (`anchor_viewport_for_render`). Viewport/scroll is
+/// platform-neutral (Unix and Windows share this path).
+#[test]
+fn switching_back_to_a_scrolled_up_tab_does_not_strand_the_viewport() {
+    let Some((mut app, _fx)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    // Fill tab 0's scrollback past its 24-row screen, then baseline it with a
+    // render frame (as the live path would once it has been on screen).
+    let seed: Vec<u8> = (0..200)
+        .flat_map(|i| format!("line{i}\r\n").into_bytes())
+        .collect();
+    app.advance_session_bytes_for_test(0, &seed);
+    app.anchor_viewport_for_render_frame_for_test();
+    let baseline_scrollback = app.scrollback_len_for_test();
+    assert!(baseline_scrollback > 24, "scrollback exceeds the screen");
+
+    // The user scrolls up to read history, then switches to tab 1.
+    app.scroll_up_for_test(50);
+    assert_eq!(app.viewport_offset_for_test(), 50, "scrolled up 50 rows");
+    assert!(app.switch_to_session_for_test(1), "switch away to tab 1");
+
+    // Tab 0 keeps producing a large amount of output while backgrounded.
+    let background: Vec<u8> = (0..500)
+        .flat_map(|i| format!("bg{i}\r\n").into_bytes())
+        .collect();
+    app.advance_session_bytes_for_test(0, &background);
+
+    // Switch back. Activation must reconcile the frozen baseline so the
+    // backgrounded growth is treated as already-past, not a fresh jump.
+    assert!(app.switch_to_session_for_test(0), "switch back to tab 0");
+    assert_eq!(
+        app.last_scrollback_len_for_test(),
+        app.scrollback_len_for_test(),
+        "activation reconciles the scrollback baseline to the current length",
+    );
+
+    // The first render after switch-back must NOT yank the viewport toward the
+    // top: the scrolled-up offset is preserved relative to the now-current
+    // bottom (still 50), not pinned into deep history.
+    let offset = app.anchor_viewport_for_render_frame_for_test();
+    assert_eq!(
+        offset, 50,
+        "switch-back keeps the relative scroll position; it does not strand near the top",
+    );
+
+    // Typing still snaps to the live bottom so the prompt + new output show.
+    app.drive_text_key_for_test("l");
+    let after = app.anchor_viewport_for_render_frame_for_test();
+    assert_eq!(
+        after, 0,
+        "a keystroke returns the viewport to the live bottom"
+    );
+}
+
+/// FEEL-FIX (Bug 6) companion: a tab left at the live bottom (offset 0) stays
+/// live across a background switch — backgrounded growth must not push the view
+/// off the tail, and no reconcile can make it drift.
+#[test]
+fn switching_back_to_a_live_bottom_tab_stays_live() {
+    let Some((mut app, _fx)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    let seed: Vec<u8> = (0..200)
+        .flat_map(|i| format!("line{i}\r\n").into_bytes())
+        .collect();
+    app.advance_session_bytes_for_test(0, &seed);
+    app.anchor_viewport_for_render_frame_for_test();
+    assert_eq!(
+        app.viewport_offset_for_test(),
+        0,
+        "starts at the live bottom"
+    );
+
+    assert!(app.switch_to_session_for_test(1), "switch away");
+    let background: Vec<u8> = (0..500)
+        .flat_map(|i| format!("bg{i}\r\n").into_bytes())
+        .collect();
+    app.advance_session_bytes_for_test(0, &background);
+    assert!(app.switch_to_session_for_test(0), "switch back");
+
+    let offset = app.anchor_viewport_for_render_frame_for_test();
+    assert_eq!(
+        offset, 0,
+        "a live-bottom tab stays live across a background switch"
+    );
+}

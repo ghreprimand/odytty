@@ -1245,6 +1245,27 @@ impl App {
         self.viewport.offset()
     }
 
+    /// Test seam: run one active-pane render frame's viewport anchor exactly as
+    /// the single-pane RedrawRequested path does (read the active terminal's
+    /// scrollback length, then `anchor_viewport_for_render`), returning the
+    /// resolved offset. GPU-free slice of the real render loop, so a viewport
+    /// regression can drive the production anchor without a window.
+    #[cfg(test)]
+    pub(in crate::native) fn anchor_viewport_for_render_frame_for_test(&mut self) -> usize {
+        let scrollback_len = crate::native::lock_recover(&self.terminal)
+            .screen()
+            .scrollback_len();
+        self.anchor_viewport_for_render(scrollback_len)
+    }
+
+    /// Test seam: the active session's scrollback-growth baseline
+    /// (`last_scrollback_len`), so a regression can prove it is reconciled on
+    /// tab activation rather than left stale across a switch.
+    #[cfg(test)]
+    pub(in crate::native) fn last_scrollback_len_for_test(&self) -> usize {
+        self.last_scrollback_len
+    }
+
     /// Test seam (RC-16): viewport offset for a specific pane token, so a
     /// multi-pane wheel test can prove routing targets the pane under the
     /// pointer rather than the focused pane.

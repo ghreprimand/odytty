@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Returning to a backgrounded tab no longer strands the viewport
+
+Switching back to a tab that was scrolled up into history could leave it stuck
+near the top of scrollback, with fresh output hidden offscreen below — the tab
+looked frozen until it was closed and reopened. A tab keeps producing output
+while it is backgrounded, but it is not rendered, so the scrollback-growth
+baseline that drives the "stay scrolled" anchor froze at the length from its
+last on-screen frame. The first render after switching back then saw the entire
+backgrounded growth as one huge jump and the anchor yanked the scrolled-up
+viewport all the way to the top.
+
+Activation now reconciles every pane of the incoming tab to its current
+scrollback length, treating backgrounded growth as already-past rather than a
+fresh jump. A tab left at the live bottom stays live across the switch, and a
+scrolled-up tab keeps its offset relative to the now-current bottom instead of
+being thrown into deep history; a keystroke still snaps to the live bottom as
+before. This is the viewport analogue of the new-output-fade discontinuity the
+activation path already clears. Viewport and scrollback bookkeeping are
+platform-neutral, so the fix applies identically on Unix and Windows.
+
+Covered by regression tests that drive the real switch and render-anchor path:
+a scrolled-up tab survives a large background growth + switch-back without
+stranding, and a live-bottom tab stays live.
+
+---
+
 ## 2026-07-09 -- Clarify how the workspace-rail drag holds an auto-hide rail open
 
 Corrected a misleading doc comment on the rail drag-to-reorder entry point. It

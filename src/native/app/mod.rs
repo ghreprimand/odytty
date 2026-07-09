@@ -2796,6 +2796,20 @@ impl App {
         // rebuild re-baselines (snaps) instead of fading up to a full viewport.
         // No-op when `new_output_fade` is off (the tracker is already empty).
         self.row_fade_starts.clear();
+
+        // An activation is likewise a viewport-anchor discontinuity. A tab keeps
+        // producing output while backgrounded but is not rendered, so its
+        // scrollback-growth baseline (`last_scrollback_len`) freezes; without
+        // this reconcile the first render after switch-back would treat all the
+        // backgrounded growth as one huge `added` and `anchor_after_growth`
+        // would yank a scrolled-up viewport to the top of scrollback, leaving
+        // fresh output stranded offscreen below (the "returned to a tab stuck
+        // scrolled up, new output invisible" report). Re-baseline every pane of
+        // the incoming tab so backgrounded growth counts as already-past: a pane
+        // at the live bottom stays live and a scrolled-up pane keeps its offset
+        // relative to the current bottom. A no-op for a tab that was never
+        // backgrounded.
+        self.sessions.reconcile_active_tab_scroll_baselines();
         // SCROLL-GLIDE: a switch is a viewport discontinuity — settle the
         // incoming session's follower so it renders at its exact offset rather
         // than a stale lagging position.

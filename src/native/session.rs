@@ -1342,6 +1342,39 @@ impl WorkspaceSet {
         }
     }
 
+    /// Reconcile the scrollback-growth baseline (`last_scrollback_len`) of every
+    /// pane of the active tab to its terminal's current scrollback length,
+    /// WITHOUT anchoring the viewport. Called on activation (tab / workspace
+    /// switch): a tab keeps producing output while it is backgrounded, but it is
+    /// not rendered, so `anchor_viewport_for_render` never runs and its baseline
+    /// freezes at the length from its last on-screen frame. Without this, the
+    /// first render after switching back computes `added = current - stale`
+    /// (all the backgrounded growth at once) and `anchor_after_growth` yanks a
+    /// scrolled-up viewport toward the top of scrollback, stranding fresh output
+    /// offscreen below — the user returns to a tab "stuck scrolled up" with new
+    /// output invisible. Treating the backgrounded growth as already-past
+    /// preserves the pane's scroll position across the switch: a pane at the
+    /// live bottom (offset 0) stays live, and a scrolled-up pane keeps its
+    /// offset relative to the now-current bottom rather than jumping into deep
+    /// history. This is the viewport analogue of the new-output-fade
+    /// discontinuity the activation path already clears (NF21-12). A no-op for a
+    /// tab that was never backgrounded (its baseline already equals its current
+    /// length). Platform-neutral: viewport/scrollback bookkeeping is identical
+    /// on Unix and Windows.
+    pub(super) fn reconcile_active_tab_scroll_baselines(&mut self) {
+        let Some(tab) = self.active_tab_ref() else {
+            return;
+        };
+        for token in tab.layout.leaves() {
+            if let Some(session) = self.sessions.get_mut(&token) {
+                let len = crate::native::lock_recover(&session.terminal)
+                    .screen()
+                    .scrollback_len();
+                session.last_scrollback_len = len;
+            }
+        }
+    }
+
     /// The (token, pixel-rect) layout of the **active** tab's panes within
     /// `content`, for the multi-pane render dispatch. Single-pane tabs yield one
     /// entry spanning the whole content rect — identical geometry to the
