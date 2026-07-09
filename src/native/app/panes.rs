@@ -477,7 +477,11 @@ impl App {
         // locked: (index into `panes_owned`, viewport offset, scrollback len).
         // Used after the loop to paint that pane's own selection + search
         // highlights with a pane-scoped ctx (1c-3c).
-        let mut focused_overlay: Option<(usize, usize, usize)> = None;
+        // Per-pane overlay inputs, captured for EVERY pane (not just the
+        // focused one) so each pane paints its own selection + search-match
+        // highlights: (index in `panes_owned`, session token, render offset,
+        // scrollback length).
+        let mut pane_overlays: Vec<(usize, SessionToken, usize, usize)> = Vec::new();
         for (token, rect) in &rects {
             let Some(session) = self.sessions.get_mut(*token) else {
                 continue;
@@ -522,12 +526,12 @@ impl App {
             let snapshot = terminal.snapshot_with_scrollback(render_offset);
             let cursor_style = terminal.cursor_style();
             let is_focused = *token == focused;
-            if is_focused {
-                // Paint the focused pane's overlays at the RENDER offset so
-                // selection / search highlights stay aligned with the glide-
-                // floored content (identical to `offset` when no glide is armed).
-                focused_overlay = Some((panes_owned.len(), render_offset, scrollback_len));
-            }
+            // Capture this pane's overlay inputs at the RENDER offset so its
+            // selection / search highlights stay aligned with the glide-floored
+            // content (identical to `offset` when no glide is armed). Captured
+            // for every pane; `panes_owned.len()` is the index this pane is about
+            // to be pushed at, just below.
+            pane_overlays.push((panes_owned.len(), *token, render_offset, scrollback_len));
             drop(terminal);
             // Absorb each pane's sub-cell remainder onto its window-margin side
             // so the grid edge facing a divider sits flush to it: the visible
@@ -551,20 +555,31 @@ impl App {
             panes_owned.push((snapshot, origin, is_focused, cursor_style, clip));
         }
 
-        // Paint the focused pane's selection + search highlights onto its own
-        // snapshot, keyed to that pane's grid / scrollback / viewport (not the
-        // whole-window overlay_ctx). `self.selection` / `self.search` Deref to
-        // the focused pane, so only the geometry inputs are pane-specific.
-        if let Some((idx, viewport_offset, scrollback_len)) = focused_overlay
-            && let Some((snapshot, _, _, _, _)) = panes_owned.get_mut(idx)
-        {
+        // Paint EACH pane's own selection + search-match highlights onto its
+        // own snapshot, keyed to that pane's grid / scrollback / viewport (not
+        // the whole-window overlay_ctx). The selection + search state are read
+        // from each pane's own Session rather than Deref'd to the focused pane,
+        // so a selection or a search match shows in the correct pane regardless
+        // of which pane holds focus. Only the focused pane also paints the
+        // interactive search query bar (`is_focused`).
+        for &(idx, token, viewport_offset, scrollback_len) in &pane_overlays {
+            let Some((snapshot, _, is_focused, _, _)) = panes_owned.get_mut(idx) else {
+                continue;
+            };
+            let is_focused = *is_focused;
             let pane_grid = snapshot.dimensions;
-            self.paint_focused_pane_overlays(
+            let Some(session) = self.sessions.get(token) else {
+                continue;
+            };
+            self.paint_pane_overlays(
                 snapshot,
                 pane_grid,
                 viewport_offset,
                 scrollback_len,
-                cell,
+                &session.selection,
+                session.selection_block,
+                &session.search,
+                is_focused,
             );
         }
 

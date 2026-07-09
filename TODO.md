@@ -1114,8 +1114,13 @@ feature validates against.
       per-`PaneRender` `focus_dim` path. Default off and byte-identical; the
       focused pane is never dimmed, single-pane tabs are unaffected, and the
       plain renderer profile forces it off.
-- [ ] Pane fast-follows: per-pane inline graphics (images render in single-pane
-      tabs only today) and non-focused-pane interactive overlays.
+- [x] Per-pane interactive overlays: selection and search-match highlighting
+      render for each pane from its own state (not the focused pane only), so a
+      selection or a search match shows in the correct pane regardless of which
+      pane holds focus; the interactive search query bar stays on the focused
+      pane. Painter routing only, inert and byte-identical on a single-pane tab.
+- [ ] Pane fast-follow: per-pane inline graphics (images render in single-pane
+      tabs only today).
 - [x] Public live reattach: `odytty attach <id>` routes through the native
       window attach seam, while `odytty attach --diagnostic <id>` remains the
       no-window script/CI form.

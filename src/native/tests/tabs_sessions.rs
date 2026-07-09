@@ -2559,7 +2559,7 @@ fn close_all_sessions_empties_and_terminates() {
     assert_eq!(app.session_count_for_test(), 0);
 }
 
-// ----- focused-pane overlays in the multi-pane render path (1c-3c) -----
+// ----- per-pane overlays in the multi-pane render path (1c-3c / P3-CUT2) -----
 
 /// Count the cells that differ between two equal-shaped snapshots (the cells a
 /// paint mutated). Theme-agnostic: selection/search change cell attrs whether
@@ -2571,6 +2571,14 @@ fn changed_cells(before: &Snapshot, after: &Snapshot) -> usize {
         .zip(after.cells.iter())
         .filter(|(a, b)| a != b)
         .count()
+}
+
+/// Whether any cell in `row` (a `columns`-wide grid) differs between two
+/// equal-shaped snapshots — used to check whether a paint touched a specific
+/// row (e.g. the search bar's last row).
+fn row_changed(before: &Snapshot, after: &Snapshot, row: usize, columns: usize) -> bool {
+    let start = row * columns;
+    before.cells[start..start + columns] != after.cells[start..start + columns]
 }
 
 #[test]
@@ -2635,6 +2643,101 @@ fn focused_pane_overlay_paints_focused_pane_search_matches() {
     assert!(
         changed_cells(&before, &snap) > 0,
         "the focused pane's search match must highlight its own snapshot"
+    );
+}
+
+#[test]
+fn per_pane_overlay_paints_a_selection_even_for_a_background_pane() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // A wrapped selection on absolute row 0, columns 0..=70.
+    app.set_selection_range_for_test(0, 0, 0, 70);
+    let pane_grid = Dimensions::new(40, 4);
+    let mut snap = snapshot(&["", "", "", ""], 40);
+    let before = snap.clone();
+    // Paint as a BACKGROUND pane (`focused = false`): a pane's own selection is
+    // NOT gated on focus, so it still highlights. Reading the state by ref is
+    // exactly what the per-pane render loop does for each pane's Session.
+    app.paint_pane_overlays(
+        &mut snap,
+        pane_grid,
+        0,
+        0,
+        &app.selection,
+        app.selection_block,
+        &app.search,
+        false,
+    );
+    assert_eq!(
+        changed_cells(&before, &snap),
+        40,
+        "a background pane's selection clamps to and fills its 40-col row 0"
+    );
+}
+
+#[test]
+fn per_pane_overlay_gates_the_search_bar_to_the_focused_pane() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.advance_session_bytes_for_test(0, b"needle\r\n");
+    app.drive_search_for_test("needle");
+    if app.search_match_count_for_test() == 0 {
+        eprintln!("skipping: no search match registered");
+        return;
+    }
+    let sbl = app.scrollback_len_for_test();
+    let pane_grid = Dimensions::new(40, 4);
+    let last_row = pane_grid.rows - 1;
+
+    // Focused pane: match highlights AND the interactive query bar (last row).
+    let mut focused_snap = snapshot(&["needle", "", "", ""], 40);
+    let fb = focused_snap.clone();
+    app.paint_pane_overlays(
+        &mut focused_snap,
+        pane_grid,
+        0,
+        sbl,
+        &app.selection,
+        app.selection_block,
+        &app.search,
+        true,
+    );
+
+    // Background pane: the same match highlights, but NO query bar — the bar is
+    // keyboard-interactive and belongs to the focused pane only.
+    let mut bg_snap = snapshot(&["needle", "", "", ""], 40);
+    let bb = bg_snap.clone();
+    app.paint_pane_overlays(
+        &mut bg_snap,
+        pane_grid,
+        0,
+        sbl,
+        &app.selection,
+        app.selection_block,
+        &app.search,
+        false,
+    );
+
+    assert!(
+        row_changed(&fb, &focused_snap, last_row, 40),
+        "focused pane paints the search bar on its last row"
+    );
+    assert!(
+        !row_changed(&bb, &bg_snap, last_row, 40),
+        "background pane must not paint the search bar over its content"
+    );
+    // Both panes still highlight the on-screen match (row 0).
+    assert!(
+        row_changed(&fb, &focused_snap, 0, 40),
+        "focused pane highlights its match row"
+    );
+    assert!(
+        row_changed(&bb, &bg_snap, 0, 40),
+        "background pane highlights its own match row"
     );
 }
 

@@ -72,7 +72,7 @@ pub(super) use super::resize::{
     PendingResize, RESIZE_DEBOUNCE_INTERVAL, ResizeDebouncer, pending_resize_for_surface,
     scale_factor_changed,
 };
-use super::search_ui::{SearchStyle, apply_search_ui};
+use super::search_ui::{SearchStyle, apply_search_matches, apply_search_ui};
 use super::session::{Session, SessionToken, WorkspaceSet};
 use super::viewport::{
     OverlayWheelDamper, SELECTION_AUTOSCROLL_INTERVAL, WheelAccumulator, WindowPadding,

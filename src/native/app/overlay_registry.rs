@@ -150,48 +150,97 @@ impl App {
         );
     }
 
-    /// Paint the **focused pane's** selection + search highlights onto its own
-    /// snapshot, in the multi-pane render path (1c-3c). Unlike [`overlay_ctx`],
-    /// which keys to the whole-window `self.grid`, this builds a pane-scoped
-    /// [`OverlayCtx`] from the focused pane's own `grid` dimensions, scrollback
-    /// length, and viewport offset — so `apply_selection_highlight` /
-    /// `apply_search_ui` map highlights onto the correct cells inside the
-    /// smaller pane grid. `self.selection` / `self.search` already `Deref` to
-    /// the focused pane, so only these geometry inputs differ.
+    /// Paint ONE pane's own selection + search-match highlights onto its
+    /// snapshot, in the multi-pane render path (1c-3c / per-pane overlays).
+    /// Unlike the earlier focused-only painter, the selection + search state are
+    /// passed BY REF (read from that specific pane's [`Session`]) rather than
+    /// `Deref`-ing to the focused pane, so a NON-focused pane paints its own
+    /// overlays — a selection or a search match now shows in the correct pane
+    /// regardless of which pane holds keyboard focus. The geometry
+    /// (`pane_grid` / `viewport_offset` / `scrollback_len`) is this pane's, so
+    /// `apply_selection_highlight` / `apply_search_matches` map onto the correct
+    /// cells inside the smaller pane grid.
     ///
-    /// Multi-pane v1 cut: only selection + search are painted here (the two
-    /// per-pane overlays the render-box requires); the cursor-layer overlays
-    /// (glow/trail), hints, copy-mode, and non-focused-pane overlays are not.
-    /// The fields those paints would read (`cursor`, `now`, `clear_color`) are
-    /// set to inert defaults because selection/search never read them.
+    /// Themed styles ([`Self::themed_selection_style`] /
+    /// [`Self::themed_search_style`]) depend only on the active theme + settings,
+    /// not on the pane, so they resolve from `&self`. The interactive search
+    /// QUERY BAR paints only for the focused pane (`focused`): only it receives
+    /// search keystrokes, so a background pane shows its matches but not a stale
+    /// bar stamped over its last content row.
     ///
-    /// [`overlay_ctx`]: Self::overlay_ctx
+    /// Windows: pure cell-grid painting over the pane's own snapshot — no PTY,
+    /// path, env, or shell surface, so behavior is identical across platforms.
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::native) fn paint_pane_overlays(
+        &self,
+        snapshot: &mut Snapshot,
+        pane_grid: Dimensions,
+        viewport_offset: usize,
+        scrollback_len: usize,
+        selection: &crate::selection::AbsoluteSelectionState,
+        selection_block: bool,
+        search: &crate::native::search_ui::SearchUi,
+        focused: bool,
+    ) {
+        if let Some(range) = selection.range() {
+            selection::apply_selection_highlight(
+                snapshot,
+                range,
+                selection_block,
+                viewport_offset,
+                scrollback_len,
+                pane_grid,
+                self.themed_selection_style(),
+            );
+        }
+        if focused {
+            // Focused pane: full search UI (matches + interactive query bar),
+            // byte-identical to the historical single-focused-pane paint.
+            apply_search_ui(
+                snapshot,
+                search,
+                viewport_offset,
+                scrollback_len,
+                pane_grid,
+                self.themed_search_style(),
+            );
+        } else {
+            // Background pane: its own match highlights only, never the bar.
+            apply_search_matches(
+                snapshot,
+                search,
+                viewport_offset,
+                scrollback_len,
+                pane_grid,
+                self.themed_search_style(),
+            );
+        }
+    }
+
+    /// Test shim mirroring the historical focused-only signature. It paints the
+    /// FOCUSED pane's overlays by reading the active-session (`Deref`) selection
+    /// and search state, delegating to [`Self::paint_pane_overlays`] with the
+    /// focused flag set. The final argument is retained only for call-site
+    /// compatibility with the pre-per-pane tests; the paint no longer needs it.
+    #[cfg(test)]
     pub(in crate::native) fn paint_focused_pane_overlays(
         &self,
         snapshot: &mut Snapshot,
         pane_grid: Dimensions,
         viewport_offset: usize,
         scrollback_len: usize,
-        cell: CellSize,
+        _cell: CellSize,
     ) {
-        let ctx = OverlayCtx {
+        self.paint_pane_overlays(
+            snapshot,
+            pane_grid,
             viewport_offset,
             scrollback_len,
-            grid: pane_grid,
-            cell,
-            window_padding: self
-                .gpu
-                .as_ref()
-                .map(GpuState::window_padding)
-                .unwrap_or_default(),
-            cursor: Position { row: 0, column: 0 },
-            cursor_visible: false,
-            now: Instant::now(),
-            clear_color: [0.0; 4],
-            scale: self.gpu.as_ref().map(GpuState::scale).unwrap_or(1.0),
-        };
-        self.paint_selection_cells(snapshot, &ctx);
-        self.paint_search_cells(snapshot, &ctx);
+            &self.selection,
+            self.selection_block,
+            &self.search,
+            true,
+        );
     }
 
     /// Settings/theme overlay paint (relocated `apply_overlay`).

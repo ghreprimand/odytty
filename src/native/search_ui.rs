@@ -197,6 +197,36 @@ pub(super) fn apply_search_ui(
         return;
     }
 
+    apply_search_matches(
+        snapshot,
+        search,
+        viewport_offset,
+        scrollback_len,
+        dimensions,
+        themed,
+    );
+
+    apply_search_bar(snapshot, search);
+}
+
+/// Paint only the search MATCH highlights (no interactive query bar) for
+/// `search` onto `snapshot`. Split out from [`apply_search_ui`] so a
+/// non-focused pane in a split can show ITS OWN matches (per-pane search state)
+/// without also stamping the query bar over its last content row — the bar is
+/// keyboard-interactive and belongs to the focused pane, which still routes
+/// through the full [`apply_search_ui`]. A closed search paints nothing.
+pub(super) fn apply_search_matches(
+    snapshot: &mut Snapshot,
+    search: &SearchUi,
+    viewport_offset: usize,
+    scrollback_len: usize,
+    dimensions: Dimensions,
+    themed: Option<SearchStyle>,
+) {
+    if !search.open {
+        return;
+    }
+
     for search_match in &search.matches {
         if let Some(range) =
             visible_range_for_match(*search_match, viewport_offset, scrollback_len, dimensions)
@@ -209,8 +239,6 @@ pub(super) fn apply_search_ui(
             );
         }
     }
-
-    apply_search_bar(snapshot, search);
 }
 
 fn visible_range_for_match(

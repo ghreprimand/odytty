@@ -257,6 +257,13 @@ Sharp, stable, comfortable text is a primary product pillar.
   content rect, so the pixel-precise smoothness the single-pane path already had
   now works inside a split without a partial row bleeding across a divider. Inert
   at rest and single-pane, so those frames are byte-identical.
+- **Shipped — Per-pane selection and search overlays in splits.** Selection and
+  search-match highlighting render for each pane from its own state rather than
+  the focused pane only, so a selection or a search match shows in the correct
+  pane regardless of which pane holds keyboard focus; the interactive search
+  query bar stays on the focused pane. Painter routing only — no new GPU
+  plumbing — and inert / byte-identical on a single-pane tab. Cross-platform
+  cell paint, no platform-specific surface.
 - **Shipped — Stem-darkening default activation.** The rasterization machinery
   ships default-on at `0.5`, with `0.0` as the byte-identical opt-out.
 - **Someday — Legibility font features.** A narrow, charter-clean subset (such

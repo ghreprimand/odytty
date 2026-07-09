@@ -179,8 +179,8 @@ hover path makes zero scans and zero `stat` calls and stays byte-identical. The
 hovered span is deduped exactly like the OSC 8 hovered-link state, so an
 unchanged hover triggers no redraw. Hover detection operates on the **focused
 pane only** — a v1 bound inherited from the OSC 8 hyperlink hover path, which is
-likewise focused-pane-only; non-focused panes are not yet composited for
-per-pane interactive overlays.
+likewise focused-pane-only; non-focused panes do not yet run hover detection.
+Selection and search-match highlighting, by contrast, now render per pane.
 
 ---
 

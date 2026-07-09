@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Per-pane selection and search overlays in splits
+
+Selection and search-match highlighting now render for **each pane** in a split
+from that pane's own state, instead of only the focused pane. Previously a
+selection made in one pane, or a search opened in it, vanished from view the
+moment focus moved to a sibling pane, even though the state was retained; now the
+highlight stays painted in the pane it belongs to regardless of which pane holds
+keyboard focus. The interactive search query bar, being keyboard-driven, stays on
+the focused pane so a background pane shows its matches without a stale bar
+stamped over its last content row.
+
+The change is painter routing only — no new GPU plumbing. The per-pane render
+loop already builds each pane's own snapshot; it now captures every pane's
+overlay inputs (selection, block flag, search, geometry) rather than just the
+focused pane's, and paints each pane from its own `Session`. The selection and
+search painters were decoupled from the focused-pane `Deref` so they accept the
+state by reference, and the search-match highlighter was split out from the full
+search UI so a background pane can paint matches without the query bar. Themed
+selection/search styles depend only on the active theme and settings, not on the
+pane, so they resolve once. The path is inert and byte-identical on a single-pane
+tab (one pane, focused), where the loop paints exactly what it did before.
+
+Windows: pure cell-grid painting over each pane's own snapshot — no PTY, path,
+env, or shell surface — so behavior is identical across Linux, Windows, and
+macOS.
+
+New tests cover a background pane still painting its own selection, and the
+search query bar being gated to the focused pane while both panes highlight the
+on-screen match. `cargo test` (full non-GPU suite, 3418 lib tests plus the
+integration binaries) and `cargo fmt --check` pass, and `cargo clippy
+--all-targets` is clean; offscreen GPU tests are excluded (no headless display)
+and left to CI.
+
+---
+
 ## 2026-07-09 -- Duplicate Workspace, and default chords for both Duplicate actions
 
 New **Duplicate Workspace** action opens a fresh workspace whose first shell

@@ -844,8 +844,10 @@ its first stable layer.
   byte-identical to the pre-panes render path.
   Optional inactive-pane dimming is implemented by `inactive_pane_dim`, defaults
   off, is forced off in plain render quality, and leaves the no-dim path
-  byte-identical. Per-pane inline graphics and non-focused-pane interactive
-  overlays remain planned fast-follows (see the v1 limitation note under Inline
+  byte-identical. Interactive overlays (selection / search) render per pane, so
+  a selection or a search match shows in the correct pane regardless of focus
+  (the interactive search query bar stays on the focused pane). Per-pane inline
+  graphics remains a planned fast-follow (see the v1 limitation note under Inline
   Graphics).
 - Resumable-session substrate: a hidden root-level `session_host` module owns
   the first detached-host foundation outside `src/native/`. The internal
