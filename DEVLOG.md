@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- macOS CI test step self-heals the intermittent PTY-teardown deadlock
+
+The macOS CI leg intermittently deadlocked during PTY teardown in the
+single-threaded test sweep: the suite runs clean, then a silent multi-minute
+dead gap in a PTY-spawning region, then GitHub reaps the orphaned process at the
+step timeout and the leg goes red. It is a child-reap / PTY-teardown contention
+specific to the macOS runner, not a terminal regression - the Linux and Windows
+legs never hit it, and a plain re-run always cleared it.
+
+The macOS Test step now auto-retries once so that transient hang self-heals
+instead of needing a manual re-run. It runs the single-threaded macOS suite
+under a portable per-attempt timeout: a small perl wrapper forks the test into
+its own session and, on timeout, signals the whole process group (TERM, a short
+grace, then KILL) so a wedged PTY test tree is actually reaped rather than
+orphaned; the step then retries a second time. A genuine failure (assertion,
+compile error, real nonzero exit) fails both attempts and still turns the leg
+red, so nothing is masked; only a transient hang benefits. Between attempts any
+leftover child processes are force-killed so a wedged tree from the first
+attempt cannot taint the second.
+
+The Linux and Windows Test invocation is unchanged: a single parallel
+`cargo test --locked`. The macOS job timeout is widened to 40 minutes to fit a
+cold build plus two test attempts, while the other legs keep the tight 25-minute
+ceiling. Dependency-free - no third-party actions - implemented in the existing
+step with perl, since BSD userland has no GNU `timeout`.
+
+CI workflow only; no product code changed.
+
 ## 2026-07-09 -- Disclose the cask's automatic quarantine clearance at install time
 
 The Homebrew cask clears the `com.apple.quarantine` attribute from the installed

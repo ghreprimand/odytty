@@ -22,19 +22,19 @@ jobs:
   build-test:
     name: Build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # The macOS runner intermittently deadlocked (~1 in 4 runs) in tests that
-    # spawn real PTYs under parallel `cargo test` — a child-reap / PTY-teardown
-    # contention specific to macOS (Ubuntu was always green). Mitigation: the
-    # Test step runs single-threaded on macOS only (`--test-threads=1`), which
-    # serializes PTY spawn/teardown; Ubuntu stays parallel/fast. Since the
-    # `target` dir is no longer cached (see the Cache step), every run now does
-    # a cold build of the full dependency graph (release + debug), so a normal
-    # run is ~8-12 min rather than the ~3 min a warm cache gave. The 25-min
-    # timeout is the fail-fast tripwire: comfortably above a cold toolchain
-    # install + double-profile build, well below a hang, so any residual hang
-    # still surfaces as a clean, quick failure rather than spinning until
-    # GitHub's 6-hour default.
-    timeout-minutes: 25
+    # The macOS runner intermittently deadlocked in tests that spawn real PTYs —
+    # a child-reap / PTY-teardown contention specific to macOS (ubuntu + windows
+    # were always green). Mitigation is two-layered: the macOS Test step runs
+    # single-threaded (`--test-threads=1`) to serialize PTY spawn/teardown, and
+    # it auto-retries once under a per-attempt timeout so a transient hang
+    # self-heals instead of needing a manual re-run (see the macOS Test step
+    # below for the mechanism and why it cannot mask a real failure). Because two
+    # 12-min test attempts can stack on top of a cold release+debug build
+    # (~8-12 min; `target` is no longer cached — see the Cache step), the macOS
+    # job needs a wider ceiling: 40 min fits a cold build + clippy + two test
+    # attempts, while ubuntu/windows keep the tight 25-min fail-fast tripwire
+    # (single test attempt, comfortably above a cold build, well below a hang).
+    timeout-minutes: ${{ matrix.os == 'macos-latest' && 40 || 25 }}
     strategy:
       fail-fast: false
       matrix:
@@ -71,20 +71,99 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
 
-      # macOS runs single-threaded to serialize parallel-PTY child-reap
-      # contention (see the timeout-minutes note above); Ubuntu stays parallel.
-      #
+      # Linux/Windows: a single `cargo test --locked` attempt, parallel.
       # Step-level timeout: a wedged test must fail THIS step in ~15 min, not
-      # spin until the 25-min job backstop. Run 28609779371 (a P2-FIX resize
-      # pressure test that deadlocked on an undrained ConPTY pipe) ate 25m37s
-      # before reporting red — the job-level ceiling is too coarse to fail
-      # fast. Normal full-suite test steps finish in ~2-3 min across the matrix
-      # (windows ~153s is the slowest), so 15 min is ~6x headroom over green
-      # while still tripping quickly on a hang. The job-level 25 stays as the
-      # outer backstop for the whole build+clippy+test sequence.
-      - name: Test
+      # spin until the job backstop. Run 28609779371 (a P2-FIX resize pressure
+      # test that deadlocked on an undrained ConPTY pipe) ate 25m37s before
+      # reporting red — the job-level ceiling is too coarse to fail fast. Normal
+      # full-suite test steps finish in ~2-3 min here (windows ~153s is the
+      # slowest), so 15 min is ~6x headroom over green while tripping quickly on
+      # a hang. macOS is handled by the separate auto-retry step below.
+      - name: Test (Linux/Windows)
+        if: matrix.os != 'macos-latest'
         timeout-minutes: 15
-        run: cargo test --locked ${{ matrix.os == 'macos-latest' && '-- --test-threads=1' || '' }}
+        run: cargo test --locked
+
+      # macOS: the runner intermittently deadlocked (~1 in 6-7 runs) during
+      # PTY teardown in the single-threaded test sweep — the tests run clean,
+      # then a silent multi-minute dead gap in a PTY-spawning region, then
+      # GitHub reaps the orphaned process at the step timeout and the leg goes
+      # red. It is a child-reap / PTY-teardown contention specific to the macOS
+      # runner, not an OdyTTY regression (ubuntu + windows never hit it, and a
+      # plain re-run clears it every time). This step self-heals that transient
+      # hang: it runs the single-threaded macOS suite under a portable
+      # per-attempt timeout and retries once. A genuine failure (assertion,
+      # compile error, real nonzero exit) fails BOTH attempts and still reports
+      # red, so nothing is masked; only a transient hang benefits from the retry
+      # (two independent hangs is ~(1/6)^2 ~= 3%).
+      #
+      # Mechanism (dependency-free — no third-party actions; BSD userland has no
+      # GNU `timeout`): a small perl wrapper forks the test into its own session
+      # (POSIX::setsid, so its process-group id equals its pid), waits with an
+      # alarm, and on timeout signals the whole process GROUP (TERM, 5s grace,
+      # then KILL) so a wedged PTY test tree is actually reaped rather than
+      # orphaned. Between attempts, leftover `odytty` children are force-killed
+      # so a wedged tree from attempt 1 cannot taint attempt 2.
+      #
+      # Budget: per-attempt timeout 720s (12 min) — comfortable over a green
+      # single-threaded macOS run (~2-3 min), a quick trip on a hang. Two
+      # attempts cap the retried command near ~24 min; the 30-min step backstop
+      # sits above that so the per-attempt timeout is what trips first (a step
+      # timeout below 2x per-attempt would kill the loop mid-retry and defeat
+      # it). The macOS job ceiling (above) is 40 min to fit a cold build +
+      # clippy + two test attempts; ubuntu/windows keep the tight 25-min job
+      # ceiling.
+      - name: Test (macOS, auto-retry PTY-teardown deadlock)
+        if: matrix.os == 'macos-latest'
+        timeout-minutes: 30
+        run: |
+          attempt_timeout=720
+          max_attempts=2
+
+          run_with_timeout() {
+            local secs="$1"; shift
+            perl -e '
+              use POSIX qw(setsid);
+              my $timeout = shift @ARGV;
+              my $pid = fork();
+              defined($pid) or die "fork: $!\n";
+              if ($pid == 0) { POSIX::setsid(); exec @ARGV or die "exec: $!\n"; }
+              my $rc = 0;
+              eval {
+                local $SIG{ALRM} = sub { die "timeout\n"; };
+                alarm($timeout);
+                waitpid($pid, 0);
+                $rc = $?;
+                alarm(0);
+              };
+              if ($@) {
+                alarm(0);
+                kill("TERM", -$pid); sleep(5); kill("KILL", -$pid);
+                waitpid($pid, 0);
+                exit(124);
+              }
+              exit(($rc & 127) ? 128 + ($rc & 127) : ($rc >> 8));
+            ' "$secs" "$@"
+          }
+
+          rc=0
+          for attempt in $(seq 1 "$max_attempts"); do
+            echo "macOS test attempt ${attempt}/${max_attempts}"
+            rc=0
+            run_with_timeout "$attempt_timeout" cargo test --locked -- --test-threads=1 || rc=$?
+            if [ "$rc" -eq 0 ]; then
+              echo "Test attempt ${attempt} succeeded."
+              break
+            fi
+            echo "Test attempt ${attempt} exited ${rc}."
+            pkill -9 -x odytty || true
+            pkill -9 -f 'odytty-' || true
+            if [ "$attempt" -lt "$max_attempts" ]; then
+              echo "Retrying after PTY-teardown cleanup..."
+              sleep 3
+            fi
+          done
+          exit "$rc"
 
       # TEST-HANG regression guard (Linux only — the wedge is a unix-pipe
       # phenomenon): a `cargo test` whose stdout pipe closes early must
