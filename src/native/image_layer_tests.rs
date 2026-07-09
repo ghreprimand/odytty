@@ -2,6 +2,7 @@
 use std::collections::BTreeSet;
 
 use crate::atlas::CellSize;
+use crate::core::Terminal;
 use crate::graphics::{GraphicsProtocol, PlacementId, SourceRect, StoredImageId, VisiblePlacement};
 
 use super::app::TAB_BAR_ROWS;
@@ -31,6 +32,13 @@ fn placement(row: usize, column: usize, image_id: StoredImageId) -> VisiblePlace
         z_index: 0,
         generation: 1,
     }
+}
+
+/// A 16×6 solid red Sixel, large enough to occupy two default-width cells.
+fn solid_16x6_red() -> Vec<u8> {
+    let mut sequence = Vec::new();
+    sequence.extend_from_slice(b"\x1bP0;0q#0;2;100;0;0!16~\x1b\\");
+    sequence
 }
 
 #[test]
@@ -412,4 +420,60 @@ fn two_panes_same_origin_math_differ_only_by_origin() {
     assert_eq!(right.rect[0] - left.rect[0], 500.0);
     assert_eq!(right.rect[1], left.rect[1]);
     assert_eq!(right.uv, left.uv);
+}
+
+#[test]
+fn decoded_graphics_from_each_split_pane_keep_their_own_origin_and_id_namespace() {
+    // A split owns independent terminal models, whose image stores both start
+    // numbering at the same id. Drive real Sixel input through each model, then
+    // map the emitted visible placement at each pane's origin. The GPU path keys
+    // these equal ids by pane namespace before using this geometry.
+    let mut left_terminal = Terminal::new(80, 24);
+    let mut right_terminal = Terminal::new(80, 24);
+    left_terminal.advance(&solid_16x6_red());
+    right_terminal.advance(&solid_16x6_red());
+
+    let left = left_terminal.visible_graphics(0);
+    let right = right_terminal.visible_graphics(0);
+    assert_eq!(left.len(), 1, "left split pane emits one placement");
+    assert_eq!(right.len(), 1, "right split pane emits one placement");
+    assert_eq!(
+        left[0].image_id, right[0].image_id,
+        "per-terminal image ids deliberately collide"
+    );
+
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    };
+    let left_image = left_terminal
+        .graphics()
+        .store()
+        .get(left[0].image_id)
+        .expect("left image bytes");
+    let right_image = right_terminal
+        .graphics()
+        .store()
+        .get(right[0].image_id)
+        .expect("right image bytes");
+    let left_quad = placement_quad_with_origin(
+        &left[0],
+        left_image.width,
+        left_image.height,
+        cell,
+        [0.0, 0.0],
+    )
+    .expect("left pane quad");
+    let right_quad = placement_quad_with_origin(
+        &right[0],
+        right_image.width,
+        right_image.height,
+        cell,
+        [400.0, 0.0],
+    )
+    .expect("right pane quad");
+
+    assert_eq!(left_quad.rect, [0.0, 0.0, 16.0, 6.0]);
+    assert_eq!(right_quad.rect, [400.0, 0.0, 416.0, 6.0]);
 }

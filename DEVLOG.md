@@ -23,6 +23,22 @@ label row, so the prior top-bias cannot silently return.
 
 ---
 
+## 2026-07-09 -- Split-pane inline graphics handoff covered from parser to pane geometry
+
+The split renderer already collects visible graphics from every pane, keys
+same-numbered per-terminal image ids by pane namespace, and submits the
+per-pane geometry to the image layer. A regression now drives a Sixel stream
+through two independent terminal models, confirms their intentionally-colliding
+image ids, and verifies that each emitted placement maps to its own pane origin.
+
+No runtime behavior changed. This parser, placement, and GPU-input handoff is
+platform-neutral, with no PTY, path, environment, or shell surface change.
+`cargo test --lib native::image_layer_tests::`, `cargo fmt --check`, and `cargo
+clippy --all-targets --locked -- -D warnings` are clean. Visual confirmation
+remains before release.
+
+---
+
 ## 2026-07-09 -- Auto-hide rail drag path covered end to end
 
 The workspace reorder gesture already routes a live `CursorMoved` event to its
