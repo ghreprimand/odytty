@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Disclose the cask's automatic quarantine clearance at install time
+
+The Homebrew cask clears the `com.apple.quarantine` attribute from the installed
+app on the user's behalf, which removes a macOS Gatekeeper safeguard on an
+ad-hoc-signed, un-notarized app. That clearance is now disclosed where the user
+can see it.
+
+The cask template (`dist/homebrew/Casks/odytty.rb`) gains a `caveats` block, so
+`brew install` prints the disclosure in the terminal: it names the attribute
+removed, shows the equivalent manual `xattr -dr com.apple.quarantine` command,
+and notes that notarization would remove the need for it. The install docs
+(`docs/install.md`, `README.md`, `dist/homebrew/README.md`) are strengthened to
+state plainly that the cask automatically clears the security attribute during
+install, rather than only that the app launches cleanly.
+
+Docs and packaging template only; no behavior change to the terminal.
+
 ## 2026-07-08 -- Honest macOS Gatekeeper story and a quarantine-clearing cask postflight
 
 Corrects the macOS Homebrew install docs and hardens the cask template.

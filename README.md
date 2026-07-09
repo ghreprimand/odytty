@@ -221,9 +221,10 @@ Recent Homebrew versions require trusting a third-party tap before its cask will
 The cask installs the prebuilt, ad-hoc-signed `OdyTTY.app` into `/Applications`,
 so it appears in Launchpad and Spotlight and can be dragged to the Dock to pin
 it. The app is ad-hoc signed but not notarized, so macOS quarantines the
-download; the cask runs a postflight that clears the quarantine flag on install,
-so it launches cleanly with no manual step. Notarization (Apple Developer
-Program, deferred) is the only way to remove that need. `brew upgrade` picks up
+download; the cask automatically runs `xattr -dr com.apple.quarantine` on your
+behalf during install, clearing that security attribute so it launches cleanly
+(its install-time caveats disclose this in the terminal). Notarization (Apple
+Developer Program, deferred) is the only way to remove that need. `brew upgrade` picks up
 new releases automatically.
 
 To compile locally instead (Intel Macs, or to build from source), use the

@@ -111,10 +111,14 @@ Recent Homebrew versions require trusting a third-party tap before its cask will
 The **cask** installs the prebuilt, ad-hoc-signed `OdyTTY.app` into
 `/Applications`. The app is ad-hoc signed but not notarized, so macOS
 quarantines the download and Gatekeeper would otherwise block the first
-launch. The cask runs a postflight that clears the quarantine flag on the
-installed app, so `brew install --cask` and `brew upgrade` launch cleanly with
-no manual step. Notarization through the Apple Developer Program (deferred)
-is the only way to avoid needing that flag-clear at all. Because the app lands
+launch. To spare you a manual step, the cask automatically clears the
+`com.apple.quarantine` security attribute from the installed app during
+install (the same `xattr -dr com.apple.quarantine` you would otherwise run by
+hand), so `brew install --cask` and `brew upgrade` launch cleanly. Be aware
+that this removes a macOS Gatekeeper safeguard on an ad-hoc-signed,
+un-notarized app; the cask's install-time caveats disclose it in the terminal.
+Notarization through the Apple Developer Program (deferred) is the only way to
+avoid needing that flag-clear at all. Because the app lands
 in `/Applications`, it appears in Launchpad and Spotlight and can be dragged to
 the Dock to pin it, with no separate launcher step. (The source formula below
 installs only the `odytty` CLI on your PATH, with no GUI launcher.)

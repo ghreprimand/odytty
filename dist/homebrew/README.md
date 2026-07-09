@@ -11,9 +11,11 @@ The channel is **cask-primary with a source-formula fallback**:
 - **`Casks/odytty.rb`** — the advertised path. Installs the prebuilt,
   ad-hoc-signed `OdyTTY.app` (Apple Silicon / arm64) that the release workflow's
   macOS leg produces. The app is ad-hoc signed but not notarized, so macOS
-  quarantines the download; the cask's postflight clears the quarantine flag on
-  install so it launches cleanly with no manual step. Notarization (Apple
-  Developer Program) would remove the need for that flag-clear.
+  quarantines the download; the cask's postflight automatically clears the
+  `com.apple.quarantine` security attribute on the user's behalf at install
+  time, so it launches cleanly with no manual step, and the cask's caveats
+  surface that clearance in the terminal. Notarization (Apple Developer Program)
+  would remove the need for that flag-clear.
 
   ```sh
   brew tap ghreprimand/odytty
