@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Theme-seed append test now runs headlessly
+
+The regression test proving a layout-append session is re-seeded into the
+current theme (not left on the default palette) was previously wired through a
+real winit event loop, so it silently returned early wherever no display exists
+(CI, most headless shells) and asserted nothing. It also captured a pristine
+single-workspace shape and appended it, which the pristine-consume path REPLACES
+rather than appends — so once a display was present the index-1 lookup had
+nothing to read.
+
+Both halves are fixed. The pre-append state is made non-pristine (the initial
+workspace is renamed) so the append genuinely lands beside the live workspace at
+arena index 1, and the append now runs through a headless append seam that
+inserts a proxy-less session per leaf (mirroring the existing restore-test
+spawner) instead of the production spawner that needs an event-loop proxy. The
+seed is therefore exercised and asserted everywhere the suite runs, macOS
+included; the test no longer skips. No production change — the append-and-seed
+behavior it checks was already correct.
+
+`cargo test` (full non-GPU suite) and `cargo fmt --check` pass, and `cargo clippy
+--all-targets` is clean.
+
 ## 2026-07-09 -- Inline graphics in splits
 
 Kitty graphics and Sixel images now render inside split panes, closing the last

@@ -1619,23 +1619,24 @@ impl App {
         self.apply_model_state_to_all_sessions();
     }
 
-    /// Test seam (RESTORE-THEME): drive the production layout-append path against
-    /// a snapshot (skipping only the persistence-file load), so a test can prove
-    /// the appended sessions are seeded with the current theme exactly as
-    /// [`Self::open_layout`] does. Requires an event-loop proxy (real spawn).
-    #[cfg(all(test, not(target_os = "macos")))]
-    pub(in crate::native) fn append_snapshot_for_test(
+    /// Test seam (RESTORE-THEME): drive the layout-append-and-seed path with a
+    /// HEADLESS leaf spawner (no event-loop proxy), so CI EXERCISES the seed
+    /// instead of skipping. A proxy-backed variant would need a real winit
+    /// `EventLoop`, which cannot be
+    /// built where no display exists (CI, most agent shells) — there it returns
+    /// early and asserts nothing. This variant spawns each appended leaf through
+    /// the headless append seam, so the seed actually runs and is asserted
+    /// everywhere the suite runs, including macOS.
+    #[cfg(test)]
+    pub(in crate::native) fn append_snapshot_headless_for_test(
         &mut self,
         snapshot: &crate::native::persistence::ShapeSnapshot,
     ) -> crate::native::session::RestoreReport {
         use crate::native::persistence::restore_home_dir;
         let home = restore_home_dir();
-        let report = self.sessions.append_from_snapshot_remote(
-            snapshot,
-            self.grid,
-            home.as_deref(),
-            |_, _| None,
-        );
+        let report = self
+            .sessions
+            .append_from_snapshot_headless_for_test(snapshot, home.as_deref());
         if matches!(
             report,
             crate::native::session::RestoreReport::Restored { .. }

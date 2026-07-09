@@ -14,24 +14,14 @@
 //!
 //! Cross-platform: the restore/append spawn path and the seeding sweep are
 //! identical on Linux, macOS, and Windows; these tests are platform-neutral
-//! (the proxy-backed one is skipped where no PTY / off-main-thread winit
-//! `EventLoop` is available, as elsewhere in the suite).
+//! (both run headlessly through the model-state sweep and the layout-append
+//! seam — no off-main-thread winit `EventLoop` is needed, so CI exercises the
+//! seed rather than skipping it).
 
-#[cfg(not(target_os = "macos"))]
-use super::super::pty::UserEvent;
-#[cfg(not(target_os = "macos"))]
-use super::super::session::{RestoreReport, Session, SessionToken, WorkspaceSet};
+use super::super::session::RestoreReport;
 use super::*;
 use crate::core::RgbColor;
 use crate::theme::Theme;
-#[cfg(not(target_os = "macos"))]
-use winit::event_loop::EventLoop;
-#[cfg(target_os = "linux")]
-use winit::platform::wayland::EventLoopBuilderExtWayland;
-#[cfg(target_os = "windows")]
-use winit::platform::windows::EventLoopBuilderExtWindows;
-#[cfg(target_os = "linux")]
-use winit::platform::x11::EventLoopBuilderExtX11;
 
 // A theme whose default colors are nothing like `DynamicColors::default()`
 // (0xCCCCCC on 0x0B0C10), so "seeded from the theme" is unmistakable from
@@ -118,69 +108,45 @@ fn model_state_sweep_seeds_an_unseeded_session_with_the_theme() {
     );
 }
 
-#[cfg(not(target_os = "macos"))]
-fn proxy_app(theme: Theme) -> Option<(App, EventLoop<UserEvent>)> {
-    let dims = Dimensions::new(40, 8);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(session));
-    let mut builder = EventLoop::<UserEvent>::with_user_event();
-    #[cfg(target_os = "linux")]
-    {
-        EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
-        EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
-    }
-    #[cfg(target_os = "windows")]
-    {
-        EventLoopBuilderExtWindows::with_any_thread(&mut builder, true);
-    }
-    let event_loop = builder.build().ok()?;
-    let proxy = event_loop.create_proxy();
-    let sessions = WorkspaceSet::new(
-        Session::new(SessionToken(0), terminal, writer, pty, None),
-        Some(proxy),
-    );
-    let settings = Settings {
-        theme,
-        ..Default::default()
-    };
-    let app = App::new_with_sessions(
-        NativeOptions::default(),
-        sessions,
-        settings,
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
-    Some((app, event_loop))
-}
-
 /// The production layout-append path seeds the sessions it spawns. A layout
-/// instantiated into a themed window must render its new session in that theme,
-/// not the default palette — otherwise its menus/overlays diverge from the live
+/// appended into a themed window must render its new session in that theme, not
+/// the default palette — otherwise its menus/overlays diverge from the live
 /// workspaces beside it.
-#[cfg(not(target_os = "macos"))]
+///
+/// Runs headlessly through the layout-append seam (no event-loop proxy), so the
+/// seed is EXERCISED wherever the suite runs — including CI and macOS, where a
+/// real winit `EventLoop` cannot be built and the proxy-backed path would return
+/// early and assert nothing. The pre-append state is made NON-pristine (the
+/// initial workspace is renamed) so the append lands BESIDE the live workspace
+/// at arena index 1 rather than REPLACING the pristine one: pristine-consume
+/// reaps the lone pristine workspace's session, which would otherwise leave a
+/// single session at index 0 and make the index-1 assertion meaningless.
 #[test]
 fn appended_layout_session_is_seeded_with_the_theme() {
     let _guard = crate::test_lock::render_globals_lock();
-    let Some((mut app, _event_loop)) = proxy_app(distinctive_theme()) else {
+    let Some(mut app) = unseeded_app(distinctive_theme()) else {
         eprintln!("skipping: no PTY available");
         return;
     };
 
-    // Capture the current one-workspace shape, then append it as a new
-    // workspace through the production append path.
+    // Make the current state non-pristine so the append lands beside the live
+    // workspace (index 1) instead of consuming the pristine one.
+    app.rename_workspace_for_test(0, "live");
+
+    // Capture the current shape and append it through the headless append path.
     let snapshot = app.capture_shape_for_test();
-    let report = app.append_snapshot_for_test(&snapshot);
+    let report = app.append_snapshot_headless_for_test(&snapshot);
     assert!(
         matches!(report, RestoreReport::Restored { .. }),
-        "the layout must append (not skip)"
+        "the layout must append beside the live workspace (not skip or replace)"
     );
 
-    // The appended workspace's session is the newly-spawned one at the tail of
-    // the arena; it must carry the theme, not the default palette.
+    // The append landed BESIDE, so the arena now holds a second session at
+    // index 1 — the newly-spawned appended one (arena order is workspace ->
+    // tab -> leaf, so index 1 is deterministic, not HashMap order).
     let appended = app
         .session_dynamic_colors_for_test(1)
-        .expect("an appended session exists");
+        .expect("the appended session exists at arena index 1");
     assert_eq!(
         appended,
         (THEME_FG, THEME_BG),

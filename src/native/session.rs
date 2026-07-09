@@ -3402,6 +3402,41 @@ impl WorkspaceSet {
         }
     }
 
+    /// Test seam (RESTORE-THEME): append a snapshot through the production
+    /// append core ([`Self::append_from_snapshot_with`]) with a HEADLESS leaf
+    /// spawner. The real leaf spawner ([`Self::insert_restored_session`])
+    /// requires an event-loop proxy to wire each session's reader thread, so it
+    /// cannot run without a real winit `EventLoop`; this seam inserts a
+    /// proxy-less test session per leaf (exactly as the module's `fake_spawner`
+    /// does) so a headless test EXERCISES the append-and-seed path instead of
+    /// skipping the proxy-backed variant. Returns the same [`RestoreReport`] the
+    /// production path does, so replace-vs-append and pristine-consume behave
+    /// identically.
+    #[cfg(test)]
+    pub(in crate::native) fn append_from_snapshot_headless_for_test(
+        &mut self,
+        snapshot: &crate::native::persistence::ShapeSnapshot,
+        home: Option<&Path>,
+    ) -> RestoreReport {
+        self.append_from_snapshot_with(
+            snapshot,
+            home,
+            |set, _cwd| {
+                let dims = crate::core::Dimensions::new(20, 8);
+                let pty = crate::native::test_support::spawn_test_pause_shell(dims).ok()?;
+                let writer: PtyWriter = Arc::new(Mutex::new(pty.take_writer().ok()?));
+                let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+                let pty = Arc::new(Mutex::new(pty));
+                let token = SessionToken(set.next_token);
+                set.next_token = set.next_token.saturating_add(1);
+                set.sessions
+                    .insert(token, Session::new(token, terminal, writer, pty, None));
+                Some(token)
+            },
+            |_, _| None,
+        )
+    }
+
     /// Build the workspaces from a snapshot without deciding replace-vs-append:
     /// spawns (or 8h-reattaches) a session per leaf and assembles the tab trees,
     /// tracking the sessions spawned so a failed build can be reaped cleanly.
