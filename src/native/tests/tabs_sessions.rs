@@ -1132,6 +1132,44 @@ fn tab_bar_seam_drag_sets_and_persists_a_manual_height() {
 }
 
 #[test]
+fn tab_bar_height_drag_centers_labels_in_the_decorated_band() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+
+    // Drive the production pointer route from its default one-row seam to a
+    // three-row band. The renderer must put label, close, and add glyphs on the
+    // centered row rather than leaving them on the old top row.
+    app.set_pointer_px_for_test(40.0, 16.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(40.0, 48.0);
+    app.mouse_left_release_for_test();
+
+    let rows = app
+        .tab_bar_band_text_for_test()
+        .expect("decorated top-tab-bar band");
+    assert_eq!(rows.len(), 3, "the drag produces a three-row tab band");
+    assert!(
+        rows[0].chars().all(|ch| ch == ' '),
+        "the top row is background-only after centering"
+    );
+    assert!(rows[1].contains('×'), "the close glyph is centered");
+    assert!(rows[1].contains('+'), "the add glyph is centered");
+    assert!(
+        rows[1]
+            .chars()
+            .any(|ch| ch != ' ' && ch != '×' && ch != '+'),
+        "a tab label is centered"
+    );
+    assert!(
+        rows[2].chars().all(|ch| ch == ' '),
+        "the bottom row is background-only after centering"
+    );
+}
+
+#[test]
 fn double_click_tab_bar_seam_resets_to_auto_and_persists() {
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");

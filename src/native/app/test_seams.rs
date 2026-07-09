@@ -744,6 +744,29 @@ impl App {
         )
     }
 
+    /// Test seam: text in each row of the decorated top-tab-bar band. This
+    /// exercises the same snapshot decoration consumed by the single-pane
+    /// renderer after an input-path height change.
+    #[cfg(test)]
+    pub(in crate::native) fn tab_bar_band_text_for_test(&self) -> Option<Vec<String>> {
+        let cell = self.resolved_cell()?;
+        let snapshot = self
+            .terminal
+            .lock()
+            .ok()?
+            .snapshot_with_scrollback(self.viewport.offset());
+        let (decorated, _) =
+            self.decorate_snapshot_with_tab_bar(&snapshot, snapshot.cursor_visible, cell);
+        let columns = decorated.dimensions.columns;
+        let rows = self.tab_bar_rows();
+        Some(
+            decorated.cells[..columns * rows]
+                .chunks_exact(columns)
+                .map(|row| row.iter().map(|cell| cell.ch).collect())
+                .collect(),
+        )
+    }
+
     /// Test seam (F4-V2): set the tab-bar placement (`"top"`/`"left"`/`"right"`)
     /// and recompute the content grid, mirroring the live-toggle path.
     #[cfg(test)]
