@@ -1113,10 +1113,13 @@ impl App {
 
     /// Arm a drag-to-reorder gesture on the workspace slot at `idx` (RAIL-DRAG).
     /// Records the press position as the threshold origin; the gesture stays a
-    /// click (no reorder) until motion crosses `RAIL_DRAG_THRESHOLD_PX`. Holds
-    /// the auto-hide rail open for the gesture (via `rail_pinned_open`) so the
-    /// drop target can never vanish mid-drag. If the press position is somehow
-    /// unknown, degrade to a plain activate so the slot is never left inert.
+    /// click (no reorder) until motion crosses `RAIL_DRAG_THRESHOLD_PX`. Setting
+    /// `rail_ws_drag` is itself what holds an auto-hide rail open for the
+    /// gesture: `rail_pinned_open()` reads `rail_ws_drag.is_some()`, so the rail
+    /// stays revealed for the drag's whole lifetime and the drop target can
+    /// never vanish mid-drag — this method sets no separate pin flag, the live
+    /// drag IS the pin. If the press position is somehow unknown, degrade to a
+    /// plain activate so the slot is never left inert.
     pub(super) fn begin_workspace_drag(&mut self, idx: usize) {
         match self.pointer_px {
             Some((x, y)) => {

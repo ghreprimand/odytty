@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Clarify how the workspace-rail drag holds an auto-hide rail open
+
+Corrected a misleading doc comment on the rail drag-to-reorder entry point. It
+claimed the arm step "holds the auto-hide rail open (via rail_pinned_open)", as
+if it set a dedicated pin flag. It does not: the rail-open state is derived —
+rail_pinned_open() reads whether a drag is in flight, so simply having a live
+drag keeps an auto-hide rail revealed for the gesture's whole lifetime, with no
+separate flag to set or clear. The comment now states that the live drag itself
+is the pin. Comment-only; no code, test, or behavior change.
+
+---
+
 ## 2026-07-09 -- Split-pane close remains collapsed after PTY teardown
 
 Closing the focused pane through the standard multiplexer chord removes its
