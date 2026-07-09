@@ -476,7 +476,7 @@ handful of deliberately-deferred niceties.
 - **Shipped — Drag-to-reorder workspaces in the rail.** A press-drag-drop gesture on a rail slot, a feel-polish complement to the menu reorder: press a slot to arm, a small movement threshold disambiguates a click (switch) from a drag, a bright rule marks the live drop target, release commits and Escape cancels with the order untouched. Reuses the shipped `move_workspace` engine for the commit, so active-follow-by-identity and shape-autosave persistence are identical to the menu path; the auto-hide rail is held open for the whole gesture. Cross-platform pointer path, no platform-specific surface.
 - **Shipped — Tab polish.** In-band image placements offset correctly while the
   tab bar is visible.
-- **Shipped — New-slot affordance clarity.** The tab bar and workspace-rail `+` rest at a lifted color (not the dim inactive floor) so they read as deliberate add controls, brightening further on hover. A dead separator row with a faint rule sits between the workspace list and the rail `+`, so a click just past the last workspace no longer opens one by accident.
+- **Shipped — New-slot affordance clarity.** The tab bar and workspace-rail `+` rest at a lifted color (not the dim inactive floor) so they read as deliberate add controls, brightening further on hover. A blank, non-interactive spacer row sits between the workspace list and the rail `+`, so a click just past the last workspace no longer opens one by accident without a horizontal rule bleeding into the workspace area.
 - **Shipped — A detachable-capable core.** Persistent sessions were architected
   with detaching designed in from the start rather than retrofitted, through an
   OdyTTY-owned, versioned terminal-state snapshot format.

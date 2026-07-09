@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Rail new-slot spacer no longer draws a horizontal rule
+
+The workspace rail retains its one-row, non-interactive spacer between the last
+workspace and the `+` control, but the spacer is now blank. Removing the dim
+box-drawing glyphs prevents a rule from bleeding into the workspace area while
+preserving the gap, add-control placement, and click safety. The rail regression
+now asserts that the spacer contains no rule glyphs.
+
+The presentation and pointer behavior are platform-neutral, with no PTY, path,
+environment, or shell surface change. `cargo fmt --check`, the targeted rail
+tests, and `cargo clippy --all-targets --locked -- -D warnings` are clean.
+Visual confirmation remains before release.
+
+---
+
 ## 2026-07-09 -- Tab-bar label centering locked through the input path
 
 The adjustable tab bar already fills the full manual-height band and places
