@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-plasma
+appearance = dark
+
+foreground = #f3e2fb
+background = #14061a
+clear = #0c0310
+
+cursor = #d46ff0
+selection = #35164a
+search = #46341a
+border = #2c1638
+inactive = #7a5f8a
+
+color0 = #200d2c
+color1 = #f0688e
+color2 = #7ad89a
+color3 = #dfae5c
+color4 = #8a8ce8
+color5 = #d46ff0
+color6 = #6fc9e0
+color7 = #ddccec
+color8 = #3a2148
+color9 = #f78cae
+color10 = #a2ecba
+color11 = #efcd86
+color12 = #aaaef4
+color13 = #e498f6
+color14 = #97dcee
+color15 = #f7effb

@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-tempest
+appearance = dark
+
+foreground = #dce6f2
+background = #0c1622
+clear = #060d16
+
+cursor = #6fa8dc
+selection = #1c3550
+search = #453a12
+border = #1b2c40
+inactive = #5f748e
+
+color0 = #142132
+color1 = #e46a72
+color2 = #6fc99a
+color3 = #d9b45e
+color4 = #6fa8dc
+color5 = #a98ad4
+color6 = #58c4cf
+color7 = #c4d1e0
+color8 = #2c3d54
+color9 = #f28e94
+color10 = #93e0b8
+color11 = #f0d184
+color12 = #97c4ee
+color13 = #c6ace8
+color14 = #82dbe4
+color15 = #eef4fb

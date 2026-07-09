@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-borealis
+appearance = dark
+
+foreground = #dff5e6
+background = #07160f
+clear = #030d08
+
+cursor = #57e39a
+selection = #123a2a
+search = #3d3e10
+border = #14301f
+inactive = #557a66
+
+color0 = #0d2016
+color1 = #f0687e
+color2 = #57e39a
+color3 = #d7c95c
+color4 = #57bce3
+color5 = #b48ce0
+color6 = #4fd8c4
+color7 = #c2e6cd
+color8 = #23422f
+color9 = #f78c9c
+color10 = #86f0ba
+color11 = #ecdc86
+color12 = #86d4f0
+color13 = #d0b0ec
+color14 = #84ecdc
+color15 = #eefaf1

@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-cosmos
+appearance = dark
+
+foreground = #e4e2f6
+background = #0a0a1e
+clear = #050512
+
+cursor = #7f8cf0
+selection = #1e2050
+search = #3e3a16
+border = #1c1e42
+inactive = #64688e
+
+color0 = #131436
+color1 = #e46e8c
+color2 = #6fc9a0
+color3 = #d2b45e
+color4 = #7f8cf0
+color5 = #ac8ce4
+color6 = #5fbce0
+color7 = #cccce6
+color8 = #262a54
+color9 = #f090a8
+color10 = #90e6bc
+color11 = #e6d286
+color12 = #a2aef4
+color13 = #ccaeec
+color14 = #8ad4ec
+color15 = #f0eefb

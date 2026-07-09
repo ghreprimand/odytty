@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-copperhead
+appearance = dark
+
+foreground = #f4e6d6
+background = #17100a
+clear = #0e0805
+
+cursor = #e09a5c
+selection = #402a16
+search = #453c14
+border = #33261a
+inactive = #86705a
+
+color0 = #241a10
+color1 = #e07862
+color2 = #a6bc60
+color3 = #e0a24c
+color4 = #6fa8b4
+color5 = #c48ca0
+color6 = #5cb89c
+color7 = #ddccb8
+color8 = #453422
+color9 = #ee9880
+color10 = #c4d986
+color11 = #f0c274
+color12 = #92c8d2
+color13 = #e0acbe
+color14 = #86d6bc
+color15 = #faf0e4

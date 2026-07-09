@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-seaglass
+appearance = light
+
+foreground = #1e3a38
+background = #eef6f4
+clear = #f6fbfa
+
+cursor = #1f7a86
+selection = #d0e6e2
+search = #f0e4a4
+border = #d0e0dc
+inactive = #7a908c
+
+color0 = #1e3a38
+color1 = #b8465a
+color2 = #2e8a68
+color3 = #96701c
+color4 = #2a72a0
+color5 = #8a5296
+color6 = #128090
+color7 = #52706c
+color8 = #365450
+color9 = #c85266
+color10 = #349a74
+color11 = #a67e1e
+color12 = #3082b4
+color13 = #9a5ea6
+color14 = #1690a0
+color15 = #0c2422

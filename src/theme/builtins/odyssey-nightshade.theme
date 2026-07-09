@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-nightshade
+appearance = dark
+
+foreground = #ece0f5
+background = #120a1c
+clear = #0a0512
+
+cursor = #b98cf0
+selection = #2c1c42
+search = #423618
+border = #281a3a
+inactive = #6f6086
+
+color0 = #1c1230
+color1 = #e0708e
+color2 = #74cc9c
+color3 = #d2b25e
+color4 = #7f8ce0
+color5 = #b98cf0
+color6 = #64c4d8
+color7 = #d4cae4
+color8 = #322448
+color9 = #ee92ae
+color10 = #9ce6bc
+color11 = #e8d086
+color12 = #a2aeee
+color13 = #ceb0f2
+color14 = #8ed8e8
+color15 = #f4edfa

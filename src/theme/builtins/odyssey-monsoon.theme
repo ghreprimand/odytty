@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-monsoon
+appearance = dark
+
+foreground = #d8f0f2
+background = #04161a
+clear = #020d10
+
+cursor = #4fc9d4
+selection = #0f3540
+search = #3a3c12
+border = #123038
+inactive = #52787e
+
+color0 = #0a2026
+color1 = #e86f7c
+color2 = #5fcf9c
+color3 = #cfbc5e
+color4 = #58b4cf
+color5 = #a68cd0
+color6 = #4fc9d4
+color7 = #bfdcde
+color8 = #1e424a
+color9 = #f28e98
+color10 = #86e6ba
+color11 = #e6d484
+color12 = #86d0e6
+color13 = #c4ace8
+color14 = #82e0ec
+color15 = #edf8f9

@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-driftwood
+appearance = light
+
+foreground = #383026
+background = #f4f0e8
+clear = #faf7f0
+
+cursor = #8a6a3a
+selection = #e6ddc8
+search = #ecdc9a
+border = #ddd4c2
+inactive = #8e8470
+
+color0 = #383026
+color1 = #b45444
+color2 = #5c7e34
+color3 = #97701a
+color4 = #4a6e94
+color5 = #8a5680
+color6 = #3a7e70
+color7 = #6a6250
+color8 = #4e4636
+color9 = #c66452
+color10 = #6a8e40
+color11 = #a67e1e
+color12 = #567ca6
+color13 = #9a628e
+color14 = #468e7e
+color15 = #241d12

@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-spruce
+appearance = dark
+
+foreground = #dcecdc
+background = #0a140e
+clear = #050c08
+
+cursor = #66c78a
+selection = #163024
+search = #3a3a14
+border = #17301f
+inactive = #5c7466
+
+color0 = #12201a
+color1 = #d67078
+color2 = #66c78a
+color3 = #c6b45e
+color4 = #62a8b0
+color5 = #a690c0
+color6 = #58bca0
+color7 = #c2d4c4
+color8 = #26402f
+color9 = #e69098
+color10 = #8ce0ac
+color11 = #dccc84
+color12 = #8ccad0
+color13 = #c4b0dc
+color14 = #82d6c0
+color15 = #edf4ec

@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-crimson
+appearance = dark
+
+foreground = #f6dede
+background = #1a0808
+clear = #100404
+
+cursor = #e85c6a
+selection = #43181c
+search = #443410
+border = #361a1c
+inactive = #8a5f62
+
+color0 = #281012
+color1 = #ef6070
+color2 = #86c98c
+color3 = #d6ac5e
+color4 = #7ba8cc
+color5 = #cc86ac
+color6 = #66bcb4
+color7 = #e2c8c8
+color8 = #4a2426
+color9 = #f78894
+color10 = #a6e0aa
+color11 = #ecce86
+color12 = #a0c8e4
+color13 = #e4a6c6
+color14 = #8ed8d0
+color15 = #fceeee

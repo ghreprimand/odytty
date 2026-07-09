@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Theme library grows to 136 palettes
+
+Twelve more original OdysseyOS palettes join the built-in library, taking the
+roster from 124 to 136: nine dark palettes (stormy slate-blue, a green-toned
+aurora, plasma magenta, teal monsoon, aubergine nightshade, forest spruce,
+indigo cosmos, warm copper, and deep crimson) and three light palettes (a soft
+teal seaglass, a warm tan driftwood, and a cool grey-blue storm). Each is an
+original hue combination rather than a reskin of an existing named theme, and
+each clears the minimum default foreground/background contrast floor with
+comfortable margin.
+
+Every new theme is a `.theme` DSL file under `src/theme/builtins/`, registered
+in the `REGISTRY` table in `src/theme/builtins.rs`. The roster assertion and
+every count claim across the README, release notes, visual-architecture doc,
+TODO, and roadmap move to 136 in the same change. The Track 7 theming line stays
+Ongoing; the data-only expansion track remains open.
+
+State: `cargo test` green (theme parse, unique-name, and minimum-contrast gates
+included), `cargo fmt --check` clean, `cargo clippy` clean. No runtime code
+changed; this is data plus registration and doc currency, so there is no
+platform-specific surface (Windows, macOS, and Linux load the same built-in
+table).
+
+---
+
 ## 2026-07-09 -- Theme-seed append test now runs headlessly
 
 The regression test proving a layout-append session is re-seeded into the

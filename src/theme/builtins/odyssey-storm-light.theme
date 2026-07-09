@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-storm-light
+appearance = light
+
+foreground = #26303c
+background = #eef1f6
+clear = #f6f8fb
+
+cursor = #3a6aa0
+selection = #d6dee8
+search = #ecdc9a
+border = #d2dae4
+inactive = #7c8694
+
+color0 = #26303c
+color1 = #b44a5a
+color2 = #3a8058
+color3 = #8e6e1c
+color4 = #3468a4
+color5 = #825698
+color6 = #1a7e8e
+color7 = #5c6674
+color8 = #3a4552
+color9 = #c85668
+color10 = #429066
+color11 = #9e7c1e
+color12 = #3e78b6
+color13 = #92629e
+color14 = #1a8e9e
+color15 = #10161e
