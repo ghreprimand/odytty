@@ -982,6 +982,44 @@ impl TabRailWidth {
     }
 }
 
+/// Top tab-bar height mode: `Auto` is the classic single text row (the default);
+/// `Manual(rows)` pins an operator-chosen band height in text rows (clamped to
+/// `[MIN_TAB_BAR_ROWS, MAX_TAB_BAR_ROWS]`). A taller band is chrome around the
+/// one row of labels, which are centered vertically in it. Mirrors
+/// [`TabRailWidth`] one axis over: the draggable bottom seam and a numeric config
+/// value produce a `Manual` height, and the double-click-seam gesture resets to
+/// `Auto`. Persisted as `auto` or a plain integer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TabBarHeight {
+    /// The classic one-text-row bar (default).
+    #[default]
+    Auto,
+    /// A fixed bar height in text rows (clamped to the widget bounds on resolve).
+    Manual(u16),
+}
+
+impl TabBarHeight {
+    /// The config/`to_edit_values` string form: `"auto"` or the row count.
+    pub fn as_config_string(self) -> String {
+        match self {
+            Self::Auto => "auto".to_owned(),
+            Self::Manual(rows) => rows.to_string(),
+        }
+    }
+
+    /// The resolved band height in text rows: `Auto` is the default one row; a
+    /// `Manual` height clamps to `[MIN_TAB_BAR_ROWS, MAX_TAB_BAR_ROWS]`. Never
+    /// zero, so the reservation math always keeps at least one row of labels.
+    pub fn resolved_rows(self) -> usize {
+        match self {
+            Self::Auto => DEFAULT_TAB_BAR_ROWS as usize,
+            Self::Manual(rows) => {
+                (rows as usize).clamp(MIN_TAB_BAR_ROWS as usize, MAX_TAB_BAR_ROWS as usize)
+            }
+        }
+    }
+}
+
 /// How the terminal responds when the host writes BEL (`0x07`). Presentation-
 /// only — the core merely latches that a bell was requested (see
 /// [`crate::core::Terminal::take_bell`]); this setting decides what the native
@@ -1298,6 +1336,10 @@ pub struct Settings {
     /// tab title; `Manual(cols)` pins a fixed width. Resolved to a `usize` by
     /// [`Settings::rail_width_cols`]. Rail-only; the top bar ignores it.
     pub tab_rail_width: TabRailWidth,
+    /// Top tab-bar height mode: `Auto` (default) is one text row; `Manual(rows)`
+    /// pins a taller band. Resolved to a `usize` by
+    /// [`TabBarHeight::resolved_rows`]. Only affects the top bar.
+    pub tab_bar_height: TabBarHeight,
     /// Upper clamp (cells) for the `auto` rail width (F4-P4). Only consulted in
     /// `Auto` mode; a manual width clamps to the absolute widget max instead.
     /// Stored as `f32` for the shared numeric-setting model;
@@ -1578,6 +1620,7 @@ impl Default for Settings {
             tab_bar_placement: TabBarPlacement::default(),
             workspace_rail: WorkspaceRail::default(),
             tab_rail_width: TabRailWidth::default(),
+            tab_bar_height: TabBarHeight::default(),
             tab_rail_max_width: DEFAULT_TAB_RAIL_MAX_WIDTH,
             tab_rail_gap: DEFAULT_TAB_RAIL_GAP,
             tab_rail_slot_rows: DEFAULT_TAB_RAIL_SLOT_ROWS,
@@ -2194,6 +2237,7 @@ impl Settings {
             parse_tab_bar_placement(get(TAB_BAR_PLACEMENT_ENV).as_deref(), &mut warn);
         let workspace_rail = parse_workspace_rail(get(WORKSPACE_RAIL_ENV).as_deref(), &mut warn);
         let tab_rail_width = parse_tab_rail_width(get(TAB_RAIL_WIDTH_ENV).as_deref(), &mut warn);
+        let tab_bar_height = parse_tab_bar_height(get(TAB_BAR_HEIGHT_ENV).as_deref(), &mut warn);
         let tab_rail_max_width =
             parse_tab_rail_max_width(get(TAB_RAIL_MAX_WIDTH_ENV).as_deref(), &mut warn);
         let tab_rail_gap = parse_tab_rail_gap(get(TAB_RAIL_GAP_ENV).as_deref(), &mut warn);
@@ -2423,6 +2467,7 @@ impl Settings {
             tab_bar_placement,
             workspace_rail,
             tab_rail_width,
+            tab_bar_height,
             tab_rail_max_width,
             tab_rail_gap,
             tab_rail_slot_rows,
@@ -2622,6 +2667,7 @@ impl Settings {
         );
         values.insert(WORKSPACE_RAIL_ENV, self.workspace_rail.as_str().to_owned());
         values.insert(TAB_RAIL_WIDTH_ENV, self.tab_rail_width.as_config_string());
+        values.insert(TAB_BAR_HEIGHT_ENV, self.tab_bar_height.as_config_string());
         values.insert(
             TAB_RAIL_MAX_WIDTH_ENV,
             format_float(self.tab_rail_max_width),

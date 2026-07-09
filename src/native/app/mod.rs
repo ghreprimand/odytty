@@ -23,9 +23,10 @@ use crate::selection::{
     SelectionStyle,
 };
 use crate::settings::{
-    BindableAction, MAX_TAB_RAIL_WIDTH, MIN_TAB_RAIL_WIDTH, SettingEdit, Settings,
-    SettingsReloadOutcome, SettingsReloader, TAB_RAIL_WIDTH_ENV, THEME_ENV, TabBarPlacement,
-    apply_reloadable_values, ensure_config_file_exists_at, write_settings_changes_to_path,
+    BindableAction, MAX_TAB_BAR_ROWS, MAX_TAB_RAIL_WIDTH, MIN_TAB_BAR_ROWS, MIN_TAB_RAIL_WIDTH,
+    SettingEdit, Settings, SettingsReloadOutcome, SettingsReloader, TAB_BAR_HEIGHT_ENV,
+    TAB_RAIL_WIDTH_ENV, THEME_ENV, TabBarHeight, TabBarPlacement, apply_reloadable_values,
+    ensure_config_file_exists_at, write_settings_changes_to_path,
 };
 use crate::text::{self, CellSize};
 use crate::theme::{Theme, VisualEffect};
@@ -136,7 +137,9 @@ mod watchdog_probe;
 mod window_border;
 
 pub(in crate::native) use self::hints_ui::HintsUi;
-pub(in crate::native) use self::tab_bar::{TAB_BAR_ROWS, TabBarSource};
+#[cfg(test)]
+pub(in crate::native) use self::tab_bar::TAB_BAR_ROWS;
+pub(in crate::native) use self::tab_bar::TabBarSource;
 use self::tab_bar::{TabBar, TabHit};
 use self::tab_rail::{RailSide, TabRail};
 use super::context_menu_ui::ContextMenuSurface;
@@ -439,6 +442,16 @@ pub(super) struct App {
     /// click; reset on an actual drag move so a drag-then-grab is not misread as
     /// one. Separate from the grid/rename trackers.
     rail_seam_clicks: ClickTracker,
+    /// Seam drag for the top tab bar's bottom edge (adjustable height): `true`
+    /// while the left button is held after grabbing that edge. Pointer motion
+    /// then sets a manual height in rows; release persists it. Only ever `true`
+    /// while the top bar is shown, so the rail / no-chrome paths are unaffected.
+    tab_bar_seam_drag: bool,
+    /// Double-click detection for the tab-bar bottom seam (reset-to-auto),
+    /// mirroring `rail_seam_clicks` on the height axis. Keyed on a fixed
+    /// synthetic point so two quick seam presses register as a double-click;
+    /// reset on an actual drag move so a drag-then-grab is not misread as one.
+    tab_bar_seam_clicks: ClickTracker,
     /// F4-P3 rail auto-hide timing state machine (ODP-4). Inert unless
     /// `tab_rail_autohide` is on and the chrome is a side rail; when active it
     /// drives the reveal/hide of the floating rail overlay from the pointer edge
@@ -687,6 +700,8 @@ impl App {
             rail_reserved_cols: 0,
             rail_seam_drag: false,
             rail_seam_clicks: ClickTracker::default(),
+            tab_bar_seam_drag: false,
+            tab_bar_seam_clicks: ClickTracker::default(),
             rail_autohide: rail_autohide::RailAutohide::default(),
             last_rail_pointer_px: None,
             rail_ws_drag: None,
@@ -2914,7 +2929,7 @@ impl App {
     /// no-chrome case: a single workspace whose active tab needs no bar).
     fn tab_reserve(&self) -> panes::TabReserve {
         let top_rows = if self.should_show_tab_bar() {
-            TAB_BAR_ROWS as usize
+            self.tab_bar_rows()
         } else {
             0
         };
@@ -3062,7 +3077,7 @@ impl App {
         // paths use, so wash, seam, glyphs, and click targets agree to the pixel.
         let mut bands: Vec<(tab_panel::PanelAxis, usize, usize)> = Vec::new();
         if show_top {
-            bands.push((tab_panel::PanelAxis::Top, TAB_BAR_ROWS as usize, 0));
+            bands.push((tab_panel::PanelAxis::Top, self.tab_bar_rows(), 0));
         }
         if show_rail {
             match self.workspace_rail_side() {
@@ -3351,6 +3366,123 @@ impl App {
         self.settings.tab_rail_width = crate::settings::TabRailWidth::Auto;
         self.recompute_grid_for_tab_bar();
         self.persist_rail_width();
+        self.needs_rebuild = true;
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+
+    // --- adjustable top tab-bar height (draggable bottom seam) ---------------
+
+    /// The resolved top tab-bar height in text rows this frame. One row on the
+    /// classic (`Auto`) path; a `Manual` height clamps to the widget bounds. The
+    /// single source every tab-bar consumer reads (reservation, snapshot sizing,
+    /// hit-test Y band, panel wash), so they never drift.
+    fn tab_bar_rows(&self) -> usize {
+        self.settings.tab_bar_height.resolved_rows()
+    }
+
+    /// Physical-pixel Y of the top tab bar's bottom seam this frame — the band's
+    /// top (`pad`) plus its resolved height — or `None` when the top bar is not
+    /// shown. This is the horizontal edge the height drag grabs.
+    fn tab_bar_seam_y_px(&self, cell: CellSize) -> Option<f32> {
+        if !self.should_show_tab_bar() {
+            return None;
+        }
+        let top = self.top_bar_origin_px(cell)[1];
+        Some(top + self.tab_bar_rows() as f32 * cell.height as f32)
+    }
+
+    /// Whether the pointer at raw `(px_x, px_y)` is within the tab-bar bottom
+    /// seam grab band this frame and should start / show a height resize rather
+    /// than a tab hit. Requires the pointer to sit horizontally within the bar's
+    /// content-column span (beside any rail) so a drag only starts on the bar's
+    /// own edge, not out over the rail corner. `false` when no top bar is shown,
+    /// so the plain path never grabs.
+    fn pointer_over_tab_bar_seam(&self, px_x: f64, px_y: f64, cell: CellSize) -> bool {
+        let Some(seam_y) = self.tab_bar_seam_y_px(cell) else {
+            return false;
+        };
+        if (px_y as f32 - seam_y).abs() > DIVIDER_GRAB_PX {
+            return false;
+        }
+        // Horizontal span of the bar: it starts past a left rail band and runs
+        // for the content columns (`tab_bar_grid_cols`), matching the strip and
+        // its tab hit-test basis.
+        let origin_x = self.top_bar_origin_px(cell)[0];
+        let width = self.tab_bar_grid_cols() as f32 * cell.width as f32;
+        let x = px_x as f32;
+        x >= origin_x && x < origin_x + width
+    }
+
+    /// The manual bar height (rows) a seam-drag pointer at `px_y` maps to.
+    /// Gathers the window padding (0 default keeps it usable headlessly for
+    /// tests) and defers the pure snap/clamp math to [`tab_bar_rows_from_pointer`].
+    fn tab_bar_height_from_pointer(&self, px_y: f64, cell: CellSize) -> u16 {
+        let pad = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO)
+            .as_f32();
+        tab_bar_rows_from_pointer(
+            px_y as f32,
+            pad,
+            cell.height as f32,
+            MIN_TAB_BAR_ROWS as u16,
+            MAX_TAB_BAR_ROWS as u16,
+        )
+    }
+
+    /// Drive an in-progress tab-bar height drag to the pointer — set the manual
+    /// height the pointer maps to and reflow the content grid. Resets the seam
+    /// click tracker on an actual move so a drag-then-grab is never misread as a
+    /// double-click (reset-to-auto).
+    fn drag_tab_bar_seam_to_pointer(&mut self, px_y: f64) {
+        let Some(cell) = self.resolved_cell() else {
+            return;
+        };
+        let rows = self.tab_bar_height_from_pointer(px_y, cell);
+        let next = TabBarHeight::Manual(rows);
+        if self.settings.tab_bar_height != next {
+            self.settings.tab_bar_height = next;
+            self.tab_bar_seam_clicks = ClickTracker::default();
+            self.recompute_grid_for_tab_bar();
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+    }
+
+    /// Set the tab-bar height mode and persist it to `odytty.conf` (drag release
+    /// -> the dragged `Manual` height; double-click -> `Auto`). The live setting
+    /// is already applied, so this only writes it through so it survives a
+    /// restart; a missing config path or write error is logged, not fatal.
+    fn persist_tab_bar_height(&mut self) {
+        let value = self.settings.tab_bar_height.as_config_string();
+        let Some(path) = self.settings_reloader.config_path() else {
+            return;
+        };
+        let changes = [SettingEdit {
+            key: "tab_bar_height",
+            env: TAB_BAR_HEIGHT_ENV,
+            value,
+        }];
+        if let Err(error) = write_settings_changes_to_path(path, &changes) {
+            tracing::warn!(error = %error, "could not persist tab bar height");
+        }
+    }
+
+    /// Reset the tab bar to `Auto` height (double-click the seam), reflow, and
+    /// persist. A no-op when already `Auto`.
+    fn reset_tab_bar_height_to_auto(&mut self) {
+        if self.settings.tab_bar_height == TabBarHeight::Auto {
+            return;
+        }
+        self.settings.tab_bar_height = TabBarHeight::Auto;
+        self.recompute_grid_for_tab_bar();
+        self.persist_tab_bar_height();
         self.needs_rebuild = true;
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
@@ -3903,18 +4035,21 @@ impl App {
         cell: CellSize,
     ) -> (Snapshot, Vec<SolidQuad>) {
         let columns = snapshot.dimensions.columns;
-        let rows = snapshot.dimensions.rows + TAB_BAR_ROWS as usize;
+        // Adjustable height: reserve `bar_rows` off the top (one on the classic
+        // path) and shift the content + cursor down by that band.
+        let bar_rows = self.tab_bar_rows();
+        let rows = snapshot.dimensions.rows + bar_rows;
         let mut decorated = Snapshot {
             dimensions: Dimensions::new(columns, rows),
             cursor: Position {
-                row: snapshot.cursor.row + TAB_BAR_ROWS as usize,
+                row: snapshot.cursor.row + bar_rows,
                 column: snapshot.cursor.column,
             },
             cursor_visible,
             colors: snapshot.colors.clone(),
             cells: vec![crate::core::Cell::default(); columns * rows],
         };
-        let top = columns * TAB_BAR_ROWS as usize;
+        let top = columns * bar_rows;
         decorated.cells[top..top + snapshot.cells.len()].clone_from_slice(&snapshot.cells);
 
         let padding = self
@@ -3931,11 +4066,9 @@ impl App {
             self.tab_bar_colors(),
             self.tab_panel_strength(),
         );
-        for glyph in output.glyphs {
-            if glyph.col < columns {
-                decorated.cells[glyph.col] = crate::core::Cell::new(glyph.ch, glyph.attrs);
-            }
-        }
+        // Fill the reserved top band per column and center the label row (rows
+        // 0..bar_rows), leaving the shifted content untouched below.
+        panes::place_tab_bar_glyphs(&mut decorated.cells, output.glyphs, columns, bar_rows, 0);
         (decorated, output.quads)
     }
 
@@ -5752,6 +5885,15 @@ fn rail_width_cols_from_pointer(
         RailSide::Left => (px_x - pad) / cw,
         RailSide::Right => (surface_w - pad - px_x) / cw,
     };
+    raw.round().clamp(min as f32, max as f32) as u16
+}
+
+/// The manual tab-bar height in rows a seam-drag pointer at physical `px_y` maps
+/// to: the pointer distance below the bar top (`pad`) in cell-heights, snapped
+/// and clamped to `[min, max]`. Pure snap/clamp math, unit-tested without a GPU.
+fn tab_bar_rows_from_pointer(px_y: f32, pad: f32, cell_h: f32, min: u16, max: u16) -> u16 {
+    let ch = cell_h.max(1.0);
+    let raw = (px_y - pad) / ch;
     raw.round().clamp(min as f32, max as f32) as u16
 }
 

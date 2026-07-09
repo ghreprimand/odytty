@@ -58,7 +58,10 @@ use crate::theme::Srgb;
 // Public constants
 // ---------------------------------------------------------------------------
 
-/// Physical-pixel row count the tab bar occupies (one cell-height row).
+/// Physical-pixel row count of the classic single-row tab bar. Retained for
+/// the reservation/geometry tests that assert the one-row baseline; the live
+/// height is resolved from `tab_bar_height` (`App::tab_bar_rows`).
+#[cfg(test)]
 pub(in crate::native) const TAB_BAR_ROWS: u32 = 1;
 
 // ---------------------------------------------------------------------------
@@ -359,15 +362,18 @@ impl TabBar {
         y_offset_px: f32,
         cell: CellSize,
         padding: WindowPadding,
+        rows: usize,
     ) -> TabHit {
         let cw = cell.width as f32;
         let ch = cell.height as f32;
         if cw <= 0.0 || ch <= 0.0 {
             return TabHit::None;
         }
-        // Y check — pointer must be inside the tab bar row.
+        // Y check — pointer must be inside the tab bar BAND (its full resolved
+        // height, not just one row): a click anywhere in a taller band still
+        // hits the tab under its column. `rows` is >= 1.
         let y = px_y as f32;
-        if y < y_offset_px || y >= y_offset_px + ch {
+        if y < y_offset_px || y >= y_offset_px + ch * rows.max(1) as f32 {
             return TabHit::None;
         }
         // Map X to a column index.
@@ -641,6 +647,7 @@ mod tests {
             0.0,
             CELL,
             WindowPadding::ZERO,
+            1,
         )
     }
 
@@ -942,6 +949,7 @@ mod tests {
             0.0,
             CELL,
             WindowPadding::ZERO,
+            1,
         );
         assert_eq!(hit, TabHit::None, "above the bar → None");
     }
@@ -957,6 +965,7 @@ mod tests {
             0.0,
             CELL,
             WindowPadding::ZERO,
+            1,
         );
         assert_eq!(hit, TabHit::None, "below the bar → None");
     }
@@ -972,6 +981,7 @@ mod tests {
             0.0,
             CELL,
             WindowPadding::ZERO,
+            1,
         );
         assert_eq!(hit, TabHit::None, "beyond right edge → None");
     }

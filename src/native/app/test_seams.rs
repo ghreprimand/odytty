@@ -798,6 +798,32 @@ impl App {
         self.rail_seam_drag
     }
 
+    /// Test seam: force a manual tab-bar height in rows and reflow, so the
+    /// bottom-seam drag / reservation tests start from a deterministic band.
+    #[cfg(test)]
+    pub(in crate::native) fn set_tab_bar_height_manual_for_test(&mut self, rows: u16) {
+        self.settings.tab_bar_height = crate::settings::TabBarHeight::Manual(rows);
+        self.recompute_grid_for_tab_bar();
+    }
+
+    /// Test seam: the live tab-bar height mode.
+    #[cfg(test)]
+    pub(in crate::native) fn tab_bar_height_for_test(&self) -> crate::settings::TabBarHeight {
+        self.settings.tab_bar_height
+    }
+
+    /// Test seam: the resolved tab-bar height in rows this frame.
+    #[cfg(test)]
+    pub(in crate::native) fn tab_bar_rows_for_test(&self) -> usize {
+        self.tab_bar_rows()
+    }
+
+    /// Test seam: whether a tab-bar height seam drag is currently in progress.
+    #[cfg(test)]
+    pub(in crate::native) fn tab_bar_seam_dragging_for_test(&self) -> bool {
+        self.tab_bar_seam_drag
+    }
+
     // --- F4-P3 rail auto-hide seams ---
 
     /// Test seam (F4-P3): toggle rail auto-hide and reflow the grid (the single

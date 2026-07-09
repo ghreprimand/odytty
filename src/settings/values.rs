@@ -786,6 +786,43 @@ pub(super) fn parse_tab_rail_width(
     }
 }
 
+/// Parse the top tab-bar height mode (mirrors [`parse_tab_rail_width`] one axis
+/// over): `auto | <rows>`.
+///
+/// - absent / blank → the default (`Auto`, one text row);
+/// - `"auto"` (any case) → `Auto`;
+/// - a finite number → `Manual`, rounded and clamped to the absolute bounds
+///   `[MIN_TAB_BAR_ROWS, MAX_TAB_BAR_ROWS]`;
+/// - anything else → warn and fall back to `Auto`.
+pub(super) fn parse_tab_bar_height(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> TabBarHeight {
+    let Some(raw) = raw else {
+        return TabBarHeight::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return TabBarHeight::default();
+    }
+    if trimmed.eq_ignore_ascii_case("auto") {
+        return TabBarHeight::Auto;
+    }
+    match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => {
+            let rows = value.round().clamp(MIN_TAB_BAR_ROWS, MAX_TAB_BAR_ROWS) as u16;
+            TabBarHeight::Manual(rows)
+        }
+        _ => {
+            warn(&format!(
+                "{TAB_BAR_HEIGHT_ENV}={trimmed:?} is not auto or a row count; using auto"
+            ));
+            TabBarHeight::default()
+        }
+    }
+}
+
 /// Parse the `auto`-mode upper clamp in cells (F4-P4).
 pub(super) fn parse_tab_rail_max_width(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     parse_clamped_f32(

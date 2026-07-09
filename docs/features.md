@@ -89,7 +89,11 @@ line: inactive tabs are dimmed, and the active tab keeps a full-strength bold
 label plus an accent underline in the theme's cursor color, all opaque so they
 stay legible over background images and treatments. Inline graphics are offset
 by the same reserved tab-bar row as text, so Kitty/Sixel placements stay aligned
-with the visible grid while the bar is shown.
+with the visible grid while the bar is shown. The bar's height is adjustable the
+same way the workspace rail's width is: drag the bar's bottom edge down to make
+it taller (up to five text rows, with the labels centered vertically in the
+band), and double-click that edge to snap back to the default single row
+(`tab_bar_height`, `auto` by default).
 
 **Rename a tab** to organize your work: right-click the tab and
 choose **Rename Tab**, or run **Rename Tab** from the command palette. The

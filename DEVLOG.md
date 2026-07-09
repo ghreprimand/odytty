@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Adjustable tab bar height
+
+The top tab bar's height is now drag-adjustable, mirroring the workspace rail's
+existing drag-to-width one axis over. Drag the bar's bottom edge down to make it
+taller, up to a five-row cap; drag it back up or double-click the edge to return
+to the classic single row. A taller bar is chrome breathing room: the one row of
+tab labels is centered vertically in the band, and each tab's background fills
+the full band height so the active tab reads as a taller filled block. The height
+persists to `odytty.conf` as `tab_bar_height` (`auto` or a row count) and applies
+live; a numeric config value or the seam drag both pin a `Manual` height.
+
+The mechanic reuses the rail-width seam pattern verbatim on the height axis: a
+horizontal seam at the bar's bottom edge grabs on a left press within its thin
+band, pointer motion maps the pointer Y to a clamped row count, release persists,
+and a double-click resets to auto. A row-resize cursor shows on hover and through
+the drag. The single resolved height feeds every tab-bar consumer — the top
+reservation (so the shell grid reflows by the chosen rows), the snapshot sizing,
+the pointer hit-test band (a click anywhere in a taller bar still hits the tab
+under its column), and the panel wash — so they never drift. The classic one-row
+path is byte-identical: `auto` resolves to one row and the label sits on the only
+row exactly as before.
+
+The five-row cap keeps the bar from swallowing content; one text row is the hard
+floor. Windows: pure layout and pointer math, no PTY, path, env, or shell
+surface, so behavior is identical across Linux, Windows, and macOS.
+
+New tests cover the seam drag setting and persisting a manual height, the
+double-click reset to auto, the clamp holding at the one-row floor and the
+five-row cap, and the reservation reducing the shell rows by the chosen count.
+`cargo test` (full non-GPU suite, 3422 lib tests plus the integration binaries)
+and `cargo fmt --check` pass, and `cargo clippy --all-targets` is clean;
+offscreen GPU tests are excluded (no headless display) and left to CI.
+
+---
+
 ## 2026-07-09 -- Theme library grows to 124 palettes
 
 Twelve new original OdysseyOS palettes join the built-in library, taking the

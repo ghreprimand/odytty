@@ -138,7 +138,10 @@ Prefix behaviour:
 
 Drag a divider between panes to resize the panes on either side. Each pane owns
 an independent PTY, terminal model, scrollback, viewport, selection, search, and
-cursor.
+cursor. Drag the top tab bar's bottom edge to make the bar taller (up to five
+text rows) and the workspace rail's inner edge to set its width; double-click
+either edge to snap it back to the default (`tab_bar_height` / `tab_rail_width`,
+both `auto`).
 
 ## Copy mode
 

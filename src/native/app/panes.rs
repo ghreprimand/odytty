@@ -757,12 +757,17 @@ impl App {
         if columns == 0 {
             return None;
         }
+        // Adjustable height: the strip is `rows` tall (one row on the classic
+        // path). The label row is centered vertically in the band and each
+        // column's background fills the whole band, so a taller bar reads as one
+        // solid strip with the labels floating in its middle.
+        let rows = self.tab_bar_rows();
         let mut snapshot = Snapshot {
-            dimensions: Dimensions::new(columns, TAB_BAR_ROWS as usize),
+            dimensions: Dimensions::new(columns, rows),
             cursor: Position { row: 0, column: 0 },
             cursor_visible: false,
             colors: crate::core::DynamicColors::default(),
-            cells: vec![crate::core::Cell::default(); columns * TAB_BAR_ROWS as usize],
+            cells: vec![crate::core::Cell::default(); columns * rows],
         };
         let output = self.tab_bar.render(
             &self.sessions,
@@ -773,11 +778,7 @@ impl App {
             self.tab_bar_colors(),
             self.tab_panel_strength(),
         );
-        for glyph in output.glyphs {
-            if glyph.col < columns {
-                snapshot.cells[glyph.col] = crate::core::Cell::new(glyph.ch, glyph.attrs);
-            }
-        }
+        place_tab_bar_glyphs(&mut snapshot.cells, output.glyphs, columns, rows, 0);
         Some((snapshot, output.quads))
     }
 
@@ -829,6 +830,38 @@ impl App {
             }
         }
         Some((snapshot, output.quads))
+    }
+}
+
+/// Place a single-row tab-bar glyph output into a `rows`-tall band starting at
+/// `band_top`, filling every column's full-height background from its glyph and
+/// centering the one label row vertically in the band. The widget emits one
+/// glyph per column (covering the full width), so every column's background
+/// fills the whole band and a taller bar reads as one solid strip with the
+/// labels floating in its middle. `rows` is clamped to at least one, so a
+/// classic single-row bar keeps its label on the only row (`band_top`),
+/// byte-identical to the pre-adjustable path.
+pub(super) fn place_tab_bar_glyphs(
+    cells: &mut [crate::core::Cell],
+    glyphs: Vec<super::tab_bar::TabBarGlyph>,
+    columns: usize,
+    rows: usize,
+    band_top: usize,
+) {
+    let rows = rows.max(1);
+    let center = band_top + (rows - 1) / 2;
+    for glyph in glyphs {
+        if glyph.col >= columns {
+            continue;
+        }
+        for r in band_top..band_top + rows {
+            let idx = r * columns + glyph.col;
+            if idx >= cells.len() {
+                continue;
+            }
+            let ch = if r == center { glyph.ch } else { ' ' };
+            cells[idx] = crate::core::Cell::new(ch, glyph.attrs);
+        }
     }
 }
 

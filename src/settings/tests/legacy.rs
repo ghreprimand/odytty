@@ -135,6 +135,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "always_show_tab_bar",
             "tab_bar_placement",
             "workspace_rail",
+            "tab_bar_height",
             "tab_rail_width",
             "tab_rail_max_width",
             "tab_rail_gap",

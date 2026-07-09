@@ -151,6 +151,13 @@ impl App {
         if self.handle_rail_seam_button(state, button) {
             return;
         }
+        // Adjustable tab-bar height: the bottom-seam drag owns the left button
+        // the same way, on the horizontal edge. Placed beside the rail seam,
+        // before the pane/divider and tab-hit branches, so a height-seam press
+        // wins its thin band. Inert when no top bar is shown / on the plain path.
+        if self.handle_tab_bar_seam_button(state, button) {
+            return;
+        }
         // A left-release always ends an in-progress divider drag (design doc
         // §4.2), before any other press routing. `divider_drag` is only ever
         // `Some` inside a multi-pane tab, so the single-pane path is unaffected.
@@ -522,6 +529,60 @@ impl App {
         true
     }
 
+    /// Left-button handling for the adjustable tab-bar height seam, mirroring
+    /// [`Self::handle_rail_seam_button`] on the horizontal edge:
+    ///
+    /// - while a drag is in progress, a left release ends it and persists the
+    ///   dragged height, and any other left event is swallowed;
+    /// - a left press on the seam grab band arms a drag (motion sets the manual
+    ///   height) — unless it is the second press of a double-click, which resets
+    ///   the tab bar to auto height instead.
+    ///
+    /// Off the seam (`pointer_over_tab_bar_seam` is false) it consumes nothing,
+    /// so the historical press path is byte-identical.
+    fn handle_tab_bar_seam_button(
+        &mut self,
+        state: ElementState,
+        button: WinitMouseButton,
+    ) -> bool {
+        if button != WinitMouseButton::Left {
+            return false;
+        }
+        if self.tab_bar_seam_drag {
+            if state == ElementState::Released {
+                self.tab_bar_seam_drag = false;
+                self.persist_tab_bar_height();
+            }
+            return true;
+        }
+        if state != ElementState::Pressed {
+            return false;
+        }
+        let Some(cell) = self.resolved_cell() else {
+            return false;
+        };
+        let Some((px_x, px_y)) = self.pointer_px else {
+            return false;
+        };
+        if !self.pointer_over_tab_bar_seam(px_x, px_y, cell) {
+            return false;
+        }
+        // Double-click on the seam -> reset to auto. Keyed on a fixed synthetic
+        // point so two quick seam presses (anywhere on the band) count as a
+        // double-click; `drag_tab_bar_seam_to_pointer` resets this tracker on an
+        // actual move so a drag-then-grab is never misread as a reset.
+        let count = self
+            .tab_bar_seam_clicks
+            .register_click(CellPoint { row: 0, column: 0 }, std::time::Instant::now());
+        if count >= 2 {
+            self.reset_tab_bar_height_to_auto();
+            return true;
+        }
+        // First press: arm the drag; pointer motion sets the manual height.
+        self.tab_bar_seam_drag = true;
+        true
+    }
+
     /// Hit-test the last cached pointer position against the draggable scroll
     /// thumb (MOUSE-SCROLLBAR), returning the grab offset within the thumb when
     /// the press lands on the visible thumb's grab band, else `None`. The thumb
@@ -604,6 +665,7 @@ impl App {
                 padding.as_f32(),
                 cell,
                 padding,
+                self.tab_bar_rows(),
             );
             if hit != TabHit::None {
                 return Some((ChromeBand::TopBar, hit));

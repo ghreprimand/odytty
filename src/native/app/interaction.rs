@@ -1625,6 +1625,16 @@ impl App {
             self.apply_cursor_icon(CursorIcon::ColResize);
             return;
         }
+        // While the tab-bar bottom seam is grabbed, pointer motion resizes the
+        // bar height (sets the manual rows + reflows) and nothing else. The seam
+        // is a horizontal edge -> a row-resize cursor for the gesture. Held only
+        // while the top bar is shown, so the rail / single-pane path is
+        // unaffected.
+        if self.tab_bar_seam_drag {
+            self.drag_tab_bar_seam_to_pointer(y_px);
+            self.apply_cursor_icon(CursorIcon::RowResize);
+            return;
+        }
         // While a divider is grabbed, pointer motion reflows the split and
         // nothing else — no selection or hover work. `divider_drag` is only ever
         // `Some` in a multi-pane tab, so the single-pane motion path below is
@@ -1659,6 +1669,21 @@ impl App {
                 }
             }
             self.apply_cursor_icon(CursorIcon::ColResize);
+            return;
+        }
+        // Tab-bar bottom-seam hover — a row-resize cursor over the seam grab band
+        // so drag-to-resize the bar height is discoverable (the press path grabs
+        // the same band). Wins over tab-slot hover in its thin band; skipped
+        // while a selection is in progress. Clears any stale slot highlight
+        // beneath the resize cursor. Inert when no top bar is shown.
+        if !self.pointer_drag.is_selecting() && self.pointer_over_tab_bar_seam(x_px, y_px, cell) {
+            if self.tab_bar.hover.is_some() {
+                self.tab_bar.set_hover(None);
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+            }
+            self.apply_cursor_icon(CursorIcon::RowResize);
             return;
         }
         // Tab-chrome hover: a vertical rail hit-tests with its own row-major

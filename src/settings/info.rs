@@ -480,6 +480,22 @@ impl Settings {
             },
             SettingInfo {
                 group: "Tabs",
+                key: "tab_bar_height",
+                env: TAB_BAR_HEIGHT_ENV,
+                name: "Tab bar height",
+                value: self.tab_bar_height.as_config_string(),
+                description: "Top tab bar height: \"auto\" is one text row, or a fixed row count for a taller band with the labels centered vertically. Drag the tab bar's bottom edge to set a manual height; double-click it to return to auto. Top bar only. Applies live.",
+                kind: SettingKind::String,
+                range: Some(format!(
+                    "auto or {}-{} rows",
+                    MIN_TAB_BAR_ROWS as usize, MAX_TAB_BAR_ROWS as usize
+                )),
+                options: &[],
+                reloadable: true,
+                numeric: None,
+            },
+            SettingInfo {
+                group: "Tabs",
                 key: "tab_rail_width",
                 env: TAB_RAIL_WIDTH_ENV,
                 name: "Rail width",
@@ -1777,6 +1793,7 @@ impl Settings {
             "always_show_tab_bar" => bool_display(self.always_show_tab_bar).to_owned(),
             "tab_bar_placement" => self.tab_bar_placement.as_str().to_owned(),
             "workspace_rail" => self.workspace_rail.as_str().to_owned(),
+            "tab_bar_height" => self.tab_bar_height.as_config_string(),
             "tab_rail_width" => self.tab_rail_width.as_config_string(),
             "tab_rail_max_width" => format_float(self.tab_rail_max_width),
             "tab_rail_gap" => format_float(self.tab_rail_gap),

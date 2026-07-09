@@ -2,7 +2,7 @@
 //! Headless multi-session foundation tests for the tabs packet.
 
 use crate::core::Color;
-use crate::settings::TabRailWidth;
+use crate::settings::{TabBarHeight, TabRailWidth};
 
 use super::super::pty::UserEvent;
 use super::*;
@@ -1080,6 +1080,154 @@ fn rail_seam_hover_shows_a_resize_cursor_off_the_tab_slots() {
         app.cursor_icon_for_test(),
         winit::window::CursorIcon::ColResize,
         "a tab slot is not a resize target"
+    );
+}
+
+#[test]
+fn tab_bar_seam_drag_sets_and_persists_a_manual_height() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    // Default top-bar placement; two sessions => the bar shows. Start on the
+    // classic one-row bar, so its bottom seam sits at y = 1*16 = 16 (headless
+    // origin 0).
+    let conf = temp_rail_conf("tabbar-seam-drag");
+    app.set_config_path_for_test(conf.clone());
+
+    // A press ON the seam arms the drag; no height change yet.
+    app.set_pointer_px_for_test(40.0, 16.0);
+    app.mouse_left_press_for_test();
+    assert!(
+        app.tab_bar_seam_dragging_for_test(),
+        "a press on the seam arms a drag"
+    );
+    assert_eq!(app.tab_bar_height_for_test(), TabBarHeight::Auto);
+
+    // Motion sets the manual height the pointer maps to: 48px / 16 = 3 rows.
+    app.pointer_move_for_test(40.0, 48.0);
+    assert_eq!(app.tab_bar_height_for_test(), TabBarHeight::Manual(3));
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::RowResize,
+        "a row-resize cursor is shown during the drag"
+    );
+
+    // Release disarms and persists the dragged height to the temp config,
+    // non-destructively.
+    app.mouse_left_release_for_test();
+    assert!(
+        !app.tab_bar_seam_dragging_for_test(),
+        "release disarms the drag"
+    );
+    assert_eq!(app.tab_bar_height_for_test(), TabBarHeight::Manual(3));
+    let written = std::fs::read_to_string(&conf).unwrap();
+    assert!(written.contains("# kept"), "existing config preserved");
+    assert!(
+        written.contains("tab_bar_height = 3"),
+        "the dragged manual height persisted; got: {written:?}"
+    );
+    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
+}
+
+#[test]
+fn double_click_tab_bar_seam_resets_to_auto_and_persists() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    // Start from a manual height (seam at y = 3*16 = 48).
+    app.set_tab_bar_height_manual_for_test(3);
+    let conf = temp_rail_conf("tabbar-seam-dblclick");
+    app.set_config_path_for_test(conf.clone());
+    assert_eq!(app.tab_bar_height_for_test(), TabBarHeight::Manual(3));
+
+    // Two quick presses on the seam (a double-click) reset the bar to auto.
+    app.set_pointer_px_for_test(40.0, 48.0);
+    app.mouse_left_press_for_test();
+    app.mouse_left_release_for_test();
+    app.mouse_left_press_for_test();
+    assert_eq!(
+        app.tab_bar_height_for_test(),
+        TabBarHeight::Auto,
+        "double-click the seam resets to auto height"
+    );
+    assert!(
+        !app.tab_bar_seam_dragging_for_test(),
+        "the reset does not leave a drag armed"
+    );
+    let written = std::fs::read_to_string(&conf).unwrap();
+    assert!(
+        written.contains("tab_bar_height = auto"),
+        "the auto reset persisted; got: {written:?}"
+    );
+    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
+}
+
+#[test]
+fn tab_bar_seam_drag_clamps_to_min_and_max_rows() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    // Grab the classic one-row bar's seam (y = 16) and arm the drag.
+    app.set_pointer_px_for_test(40.0, 16.0);
+    app.mouse_left_press_for_test();
+    // Drag far below the cap: the height clamps to the max (5 rows).
+    app.pointer_move_for_test(40.0, 1000.0);
+    assert_eq!(
+        app.tab_bar_height_for_test(),
+        TabBarHeight::Manual(5),
+        "dragging past the cap clamps to the max height"
+    );
+    // Drag up above the bar top: the height clamps to the floor (1 row).
+    app.pointer_move_for_test(40.0, -100.0);
+    assert_eq!(
+        app.tab_bar_height_for_test(),
+        TabBarHeight::Manual(1),
+        "dragging above the top clamps to the one-row floor"
+    );
+    app.mouse_left_release_for_test();
+}
+
+#[test]
+fn tab_bar_height_reservation_reduces_shell_rows_by_the_chosen_count() {
+    let options = NativeOptions::default();
+    let dims = options.initial_grid;
+    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        options,
+        terminal.clone(),
+        writer,
+        pty,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    let cell = cell(8, 16);
+    // A second session makes the top bar visible.
+    let Some((terminal_b, writer_b, pty_b, _bytes_b)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.push_session_for_test(terminal_b, writer_b, pty_b);
+    // A 3-row bar reserves 3 rows off the top: 384/16 = 24 total rows, minus 3
+    // leaves 21 for the shell (the one-row bar leaves 23; see the sibling test).
+    app.set_tab_bar_height_manual_for_test(3);
+    assert!(app.resize_grid(cell, 640, 384));
+    assert_eq!(app.tab_bar_rows_for_test(), 3);
+    assert_eq!(
+        app.session_dimensions_for_test(0),
+        Some(Dimensions::new(80, 21))
+    );
+    assert_eq!(
+        app.session_dimensions_for_test(1),
+        Some(Dimensions::new(80, 21))
     );
 }
 

@@ -68,6 +68,7 @@ pub const WHEEL_ZOOM_ENV: &str = "ODYTTY_WHEEL_ZOOM";
 pub const COMMAND_STATUS_GUTTER_ENV: &str = "ODYTTY_COMMAND_STATUS_GUTTER";
 pub const ALWAYS_SHOW_TAB_BAR_ENV: &str = "ODYTTY_ALWAYS_SHOW_TAB_BAR";
 pub const TAB_BAR_PLACEMENT_ENV: &str = "ODYTTY_TAB_BAR_PLACEMENT";
+pub const TAB_BAR_HEIGHT_ENV: &str = "ODYTTY_TAB_BAR_HEIGHT";
 pub const WORKSPACE_RAIL_ENV: &str = "ODYTTY_WORKSPACE_RAIL";
 pub const TAB_RAIL_WIDTH_ENV: &str = "ODYTTY_TAB_RAIL_WIDTH";
 pub const TAB_RAIL_MAX_WIDTH_ENV: &str = "ODYTTY_TAB_RAIL_MAX_WIDTH";
@@ -174,6 +175,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     COMMAND_STATUS_GUTTER_ENV,
     ALWAYS_SHOW_TAB_BAR_ENV,
     TAB_BAR_PLACEMENT_ENV,
+    TAB_BAR_HEIGHT_ENV,
     WORKSPACE_RAIL_ENV,
     TAB_RAIL_WIDTH_ENV,
     TAB_RAIL_MAX_WIDTH_ENV,
@@ -636,6 +638,18 @@ pub const DEFAULT_COMMAND_STATUS_GUTTER: bool = false;
 /// (`title_override`) shows the bar regardless, so a named single "workflow"
 /// tab is never invisible (F4-NF1).
 pub const DEFAULT_ALWAYS_SHOW_TAB_BAR: bool = false;
+
+/// Top tab-bar height in text rows (`ODYTTY_TAB_BAR_HEIGHT`). The classic bar is
+/// one text row (`Auto` / the default); a taller bar adds chrome breathing room
+/// around that one row of labels, which are centered vertically in the band.
+/// Parsed as `auto | <rows>` ([`super::TabBarHeight`]) exactly like the rail
+/// width, so the draggable bottom seam and a numeric config both pin a `Manual`
+/// height clamped to `[MIN_TAB_BAR_ROWS, MAX_TAB_BAR_ROWS]`; double-clicking the
+/// seam resets to `Auto` (one row). `MIN` is the operator's hard floor of one
+/// text row; `MAX` caps the chrome so the bar cannot swallow the content.
+pub const DEFAULT_TAB_BAR_ROWS: f32 = 1.0;
+pub const MIN_TAB_BAR_ROWS: f32 = 1.0;
+pub const MAX_TAB_BAR_ROWS: f32 = 5.0;
 
 /// Vertical tab-rail band width in cells (`ODYTTY_TAB_RAIL_WIDTH`, F4-P1/P4).
 /// The rail widget's VISUAL width (the rail↔content wallpaper gap is reserved

@@ -384,6 +384,13 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   directory, not a process fork. Threads the cwd through the same spawn path New
   Tab uses, so it is cross-platform (ConPTY honors the working directory). Brings
   the bindable-action count to 40.
+- **Shipped — Adjustable tab bar height.** The top tab bar's height is
+  drag-adjustable the same way the workspace rail's width already is: drag the
+  bar's bottom edge to make it taller (up to five text rows, with the labels
+  centered vertically in the taller band), and double-click that edge to snap
+  back to the default single row. Persisted as `tab_bar_height` (`auto` or a row
+  count), reflowing the shell grid by the reserved rows. Pure layout + pointer
+  math, no platform-specific surface.
 - **Shipped — OSC 8 hyperlinks.** Explicit hyperlink escapes render as
   hover-affordanced links that open on modifier (`Ctrl`) click through the same
   argv-safe dispatch, gated to a `http`/`https`/`file`/`mailto` scheme allowlist
