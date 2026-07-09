@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Split-pane close remains collapsed after PTY teardown
+
+Closing the focused pane through the standard multiplexer chord removes its
+session and split-tree leaf before the PTY reaper can report its deferred shell
+exit. A regression drives that chord, delivers the delayed event, and verifies
+that the surviving pane remains the only pane without an application exit.
+
+No runtime behavior changed. The close and PTY event paths are platform-neutral,
+with no Windows-specific surface change. `cargo fmt --check`, the focused
+close/event/reflow regression tests, and `cargo clippy --all-targets --locked --
+-D warnings` pass.
+
+---
+
 ## 2026-07-09 -- Tab label centers vertically in a taller tab bar
 
 The adjustable top tab bar reserves the requested number of text rows and floats

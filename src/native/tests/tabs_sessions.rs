@@ -2707,6 +2707,40 @@ fn stale_shell_exit_for_closed_first_tab_is_a_no_op() {
 }
 
 #[test]
+fn stale_shell_exit_after_prefix_close_keeps_split_collapsed() {
+    let Some((mut app, _bytes)) = single_session_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal, writer, pty, _)) = recorded_session(NativeOptions::default().initial_grid)
+    else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    let closed = app.active_session_token_for_test();
+    assert_eq!(app.active_pane_count_for_test(), 2);
+
+    // Exercise the user-facing close chord. The focused second pane is removed
+    // before its PTY teardown can later emit ShellExited.
+    app.drive_char_with_mods_for_test('b', true, false);
+    app.drive_char_with_mods_for_test('x', false, false);
+    assert_eq!(app.active_pane_count_for_test(), 1);
+    assert_eq!(app.session_count_for_test(), 1);
+
+    // The deferred event must remain a no-op: it must not restore the removed
+    // leaf, create a replacement pane, or mark the application for exit.
+    let should_exit = app.dispatch_user_event_for_test(UserEvent::ShellExited { session: closed });
+
+    assert!(!should_exit);
+    assert_eq!(app.active_pane_count_for_test(), 1);
+    assert_eq!(app.session_count_for_test(), 1);
+    assert_ne!(app.active_session_token_for_test(), closed);
+    assert!(!app.pending_exit_for_test());
+}
+
+#[test]
 fn closing_middle_tab_preserves_remaining_session_tokens_and_active_session() {
     let options = NativeOptions::default();
     let dims = options.initial_grid;
