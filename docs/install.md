@@ -98,8 +98,8 @@ Developer identity. There is no `.dmg` and no Gatekeeper-approved signature yet.
 
 ### Homebrew (recommended)
 
-The Homebrew tap is the least-friction path and needs no manual quarantine
-handling. Add the tap and install the cask:
+The Homebrew tap is the least-friction path; the cask handles Gatekeeper
+approval for you (see below). Add the tap and install the cask:
 
 ```sh
 brew tap ghreprimand/odytty
@@ -109,12 +109,14 @@ brew install --cask odytty
 Recent Homebrew versions require trusting a third-party tap before its cask will load. If the install stops with `Refusing to load cask ... from untrusted tap`, run `brew trust ghreprimand/odytty` (or `brew trust --cask ghreprimand/odytty/odytty` to trust just this cask) and re-run the install. It is a one-time per-machine trust.
 
 The **cask** installs the prebuilt, ad-hoc-signed `OdyTTY.app` into
-`/Applications`. Homebrew is Apple-independent, and `brew` strips the
-quarantine attribute on install, so the app launches with no "unidentified
-developer" Gatekeeper warning even though it is not notarized. The cask
-recipe goes live with the release it points at. Because the app lands in
-`/Applications`, it appears in Launchpad and Spotlight and can be dragged to
-the Dock to pin it — no separate launcher step. (The source formula below
+`/Applications`. The app is ad-hoc signed but not notarized, so macOS
+quarantines the download and Gatekeeper would otherwise block the first
+launch. The cask runs a postflight that clears the quarantine flag on the
+installed app, so `brew install --cask` and `brew upgrade` launch cleanly with
+no manual step. Notarization through the Apple Developer Program (deferred)
+is the only way to avoid needing that flag-clear at all. Because the app lands
+in `/Applications`, it appears in Launchpad and Spotlight and can be dragged to
+the Dock to pin it, with no separate launcher step. (The source formula below
 installs only the `odytty` CLI on your PATH, with no GUI launcher.)
 
 Prefer to compile locally instead? Use the **source formula**, which builds
@@ -145,8 +147,9 @@ xattr -dr com.apple.quarantine /Applications/OdyTTY.app
 ```
 
 The `xattr -dr com.apple.quarantine` step is the one-time stopgap that lets an
-ad-hoc-signed app past Gatekeeper without notarization. Homebrew installs do
-this for you, so the step is only needed for a direct (non-brew) zip download.
+ad-hoc-signed app past Gatekeeper without notarization. The Homebrew cask runs
+the same quarantine-clearing step in its postflight, so this manual step is
+only needed for a direct (non-brew) zip download.
 
 ### Build from source
 

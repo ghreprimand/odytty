@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-08 -- Honest macOS Gatekeeper story and a quarantine-clearing cask postflight
+
+Corrects the macOS Homebrew install docs and hardens the cask template.
+
+The prebuilt `OdyTTY.app` is ad-hoc signed but not notarized, so macOS
+quarantines the download and Gatekeeper blocks the first launch. Earlier docs
+wrongly claimed a cask install strips the quarantine attribute and launches
+with no warning. The cask template (`dist/homebrew/Casks/odytty.rb`) now carries
+a postflight that clears `com.apple.quarantine` on the installed app (tolerating
+a non-zero exit so a reinstall never fails), and its header comment states the
+accurate signing/notarization story. The install docs (`docs/install.md`,
+`README.md`, `dist/homebrew/README.md`) are rewritten to describe the postflight
+that makes `brew install --cask` and `brew upgrade` launch cleanly, and note
+that notarization through the Apple Developer Program is the only way to remove
+the need for the flag-clear. The direct-zip download path keeps its manual
+`xattr -dr com.apple.quarantine` step, now clearly scoped to the non-brew case
+since no postflight runs there.
+
+Docs and packaging template only; no behavior change to the terminal.
+
 ## 2026-07-08 -- Homebrew cask trust-gate note and cask deprecation fix
 
 Post-release documentation and packaging corrections for the macOS Homebrew
