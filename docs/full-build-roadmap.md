@@ -264,6 +264,15 @@ Sharp, stable, comfortable text is a primary product pillar.
   query bar stays on the focused pane. Painter routing only — no new GPU
   plumbing — and inert / byte-identical on a single-pane tab. Cross-platform
   cell paint, no platform-specific surface.
+- **Shipped — Multipane pixel_scroll.** The continuous direct-tracking pixel
+  lane (`pixel_scroll`, high-resolution wheels and touchpads) now works inside a
+  split, not single-pane only. A pixel-delta glide drives the pane under the
+  pointer (not the focused pane, fixing the focus/pointer mismatch), and its
+  sub-cell remainder is baked into that pane's render origin and clipped to the
+  pane's content rect (the same PANE-SUBCELL-CLIP the glide lane uses), so the
+  shift never smears across a divider. Reuses the existing per-pane render — no
+  new GPU plumbing — and is inert / byte-identical on a single-pane tab.
+  Cross-platform pointer math, no platform-specific surface.
 - **Shipped — Stem-darkening default activation.** The rasterization machinery
   ships default-on at `0.5`, with `0.0` as the byte-identical opt-out.
 - **Someday — Legibility font features.** A narrow, charter-clean subset (such

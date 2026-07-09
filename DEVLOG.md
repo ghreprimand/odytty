@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Multipane pixel_scroll
+
+High-resolution direct-tracking scroll (`pixel_scroll` — touchpads and hi-res
+wheels that emit pixel deltas) now works inside a split, not single-pane tabs
+only. Previously a pixel-delta glide in a split fell back to whole-notch
+scrolling; now it eases with the same sub-cell smoothness the single-pane path
+always had.
+
+The continuous lane arms on the pane UNDER THE POINTER rather than the focused
+pane, matching the discrete notch lane and fixing a focus/pointer mismatch (a
+wheel over a background pane scrolled the focused one). Its sub-cell remainder is
+baked into that pane's render origin and clipped to the pane's own content rect —
+the same per-pane clip the glide lane already uses — so the fractional shift can
+never smear across a divider into a neighbour.
+
+No new render plumbing: the per-pane rebuild loop already carried a per-pane
+sub-cell offset for the glide lane; the eligibility gate was relaxed from a
+whole-tab single-pane check to a per-pane one (the pane's own screen and the
+knob), and the wheel handler now resolves the pane under the pointer for the
+continuous lane exactly as it does for notches. A single-pane tab is unchanged
+and byte-identical.
+
+Windows: pure pointer and layout math, no PTY, path, env, or shell surface, so
+behavior is identical across Linux, Windows, and macOS.
+
+New tests cover per-pane continuous-scroll eligibility in a split, a pixel wheel
+driving the pane under the pointer (and leaving the focused pane at rest), and
+sub-notch pixel travel producing pure sub-cell motion inside a split. `cargo
+test` (full non-GPU suite, 3425 lib tests plus the integration binaries) and
+`cargo fmt --check` pass, and `cargo clippy --all-targets` is clean; offscreen
+GPU tests are excluded (no headless display) and left to CI.
+
+---
+
 ## 2026-07-09 -- Adjustable tab bar height
 
 The top tab bar's height is now drag-adjustable, mirroring the workspace rail's

@@ -720,7 +720,10 @@ impl App {
         // gesture, so it is consumed here and never also scrolls scrollback
         // (the early return holds even at the clamp boundary, where the zoom is
         // a no-op).
-        let cell_height = self.gpu.as_ref().map_or(0, |gpu| gpu.cell().height);
+        // Use the resolved cell (GPU cell in production; the test override
+        // headlessly) so the continuous-lane pixel→row conversion and the notch
+        // coalescer read a real cell height off the GPU render path.
+        let cell_height = self.resolved_cell().map_or(0, |cell| cell.height);
         if self.settings.wheel_zoom && self.modifiers.ctrl {
             // WHEEL-SENS: coalesce the burst before mapping to a font step so
             // one physical notch is exactly one step (cap one per notch). The
@@ -741,11 +744,19 @@ impl App {
         // notch coalescer entirely. Discrete `LineDelta`, and every
         // ineligible case (pixel_scroll off, multipane, alt-screen, Ctrl-zoom,
         // selection-drag), fall through to the unchanged notch path below.
-        if let MouseScrollDelta::PixelDelta(pos) = delta
-            && self.continuous_scroll_eligible()
-        {
-            self.drive_continuous_scroll(self.sessions.active_id(), pos.y, cell_height);
-            return;
+        if let MouseScrollDelta::PixelDelta(pos) = delta {
+            // Drive the continuous lane on the pane UNDER THE POINTER (in a split;
+            // the active pane on a single-pane tab), not the focused/active pane —
+            // matching the discrete notch lane's `local_wheel_scroll_target` and
+            // fixing the focus/pointer mismatch. Eligibility is that pane's own
+            // (its screen, the knob, no Ctrl/selection). Ineligible cases
+            // (pixel_scroll off, alt-screen, Ctrl-zoom, selection-drag) fall
+            // through to the notch path below.
+            let target = self.local_wheel_scroll_target();
+            if self.continuous_scroll_eligible_of(target) {
+                self.drive_continuous_scroll(target, pos.y, cell_height);
+                return;
+            }
         }
 
         // WHEEL-SENS + MOUSE-WHEEL-SPEED: coalesce the burst into discrete

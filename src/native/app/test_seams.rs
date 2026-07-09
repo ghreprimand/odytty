@@ -337,6 +337,51 @@ impl App {
         self.handle_mouse_wheel(MouseScrollDelta::LineDelta(0.0, vertical_notches));
     }
 
+    /// Test seam (SCROLL-FEEL): drive a high-resolution `PixelDelta` wheel event
+    /// (a touchpad glide) of `pos_y` physical pixels through the production wheel
+    /// routing, so the continuous-lane pane resolution (pane under the pointer)
+    /// is pinned. Positive = scroll up toward history.
+    #[cfg(test)]
+    pub(in crate::native) fn dispatch_pixel_wheel_for_test(&mut self, pos_y: f64) {
+        self.handle_mouse_wheel(MouseScrollDelta::PixelDelta(
+            winit::dpi::PhysicalPosition::new(0.0, pos_y),
+        ));
+    }
+
+    /// Test seam (SCROLL-FEEL): the sub-cell pixel offset for a specific pane
+    /// token, so a split continuous-scroll test can prove the fractional lane
+    /// landed on the pane under the pointer (and left the others at rest).
+    #[cfg(test)]
+    pub(in crate::native) fn scroll_frac_offset_for_token_for_test(
+        &self,
+        token: usize,
+    ) -> Option<f32> {
+        self.sessions
+            .get(crate::native::session::SessionToken(token as u64))
+            .map(|session| session.scroll_frac_offset)
+    }
+
+    /// Test seam (SCROLL-FEEL): per-pane continuous-scroll eligibility for a
+    /// token, so a split test can prove the lane is no longer single-pane-gated.
+    #[cfg(test)]
+    pub(in crate::native) fn continuous_scroll_eligible_of_for_test(&self, token: usize) -> bool {
+        self.continuous_scroll_eligible_of(crate::native::session::SessionToken(token as u64))
+    }
+
+    /// Test seam: whether the active tab is a single pane (the byte-identical
+    /// fast path). Lets a split test assert its multipane precondition.
+    #[cfg(test)]
+    pub(in crate::native) fn active_is_single_pane_for_test(&self) -> bool {
+        self.sessions.active_is_single_pane()
+    }
+
+    /// Test seam (SCROLL-FEEL): toggle the `pixel_scroll` knob so a continuous-
+    /// lane eligibility test can prove the off path falls back to notches.
+    #[cfg(test)]
+    pub(in crate::native) fn set_pixel_scroll_for_test(&mut self, on: bool) {
+        self.settings.pixel_scroll = on;
+    }
+
     /// Test seam (UX4-P1): the held mouse-report button, if any.
     #[cfg(test)]
     pub(in crate::native) fn report_button_for_test(&self) -> Option<CoreMouseButton> {

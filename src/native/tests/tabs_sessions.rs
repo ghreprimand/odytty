@@ -3259,6 +3259,223 @@ fn wheel_scrolls_the_pane_under_the_cursor_not_the_focused_pane() {
 }
 
 #[test]
+fn continuous_scroll_eligible_of_is_per_pane_in_a_split() {
+    // Cut 3: the continuous (pixel_scroll) lane is no longer single-pane-only.
+    // Each pane of a split is independently eligible while it is on its primary
+    // screen and the knob is on — the gate reads the pane, not active_is_single_pane.
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let dims = Dimensions::new(COLS, ROWS);
+    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal_a,
+        writer_a,
+        pty_a,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    let pane_a = app.focused_pane_id_for_test();
+    let pane_b = app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b);
+    app.reflow_active_panes_for_test();
+    // Re-inject the cell + surface AFTER seeding the split (the seed path drops
+    // the test-cell override), so the wheel handler resolves a real cell height.
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    assert!(
+        !app.active_is_single_pane_for_test(),
+        "precondition: a split"
+    );
+
+    // Both panes are eligible on the primary screen with the knob on — the old
+    // single-pane restriction is gone.
+    assert!(
+        app.continuous_scroll_eligible_of_for_test(pane_a),
+        "pane A is eligible in a split"
+    );
+    assert!(
+        app.continuous_scroll_eligible_of_for_test(pane_b),
+        "pane B is eligible in a split"
+    );
+    // Turning the knob off makes every pane ineligible (falls back to notches).
+    app.set_pixel_scroll_for_test(false);
+    assert!(!app.continuous_scroll_eligible_of_for_test(pane_a));
+    assert!(!app.continuous_scroll_eligible_of_for_test(pane_b));
+}
+
+#[test]
+fn pixel_wheel_drives_the_continuous_lane_on_the_pane_under_the_pointer() {
+    // Cut 3 + smell P3-c: a high-resolution PixelDelta wheel over the NON-focused
+    // pane drives THAT pane's continuous (sub-cell) scroll, not the focused pane.
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let dims = Dimensions::new(COLS, ROWS);
+    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    {
+        let mut terminal = terminal_b.lock().expect("terminal b");
+        terminal.advance(&scrollback_bytes(80));
+    }
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal_a,
+        writer_a,
+        pty_a,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    let pane_a = app.focused_pane_id_for_test();
+    let pane_b = app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b);
+    app.reflow_active_panes_for_test();
+    // Re-inject the cell + surface AFTER seeding the split (the seed path drops
+    // the test-cell override), so the wheel handler resolves a real cell height.
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    // Move focus back to pane A so focus != the pointed pane (P3-c).
+    app.drive_char_with_mods_for_test('b', true, false);
+    app.drive_char_with_mods_for_test('o', false, false);
+    assert_eq!(
+        app.focused_pane_id_for_test(),
+        pane_a,
+        "precondition: focus is pane A while the pointer is over pane B"
+    );
+
+    // Pointer over pane B (right half of the column split); a 40px glide at a
+    // 16px cell = 2.5 rows: two whole rows into the offset, half a row (8px) of
+    // sub-cell remainder.
+    app.set_pointer_px_for_test(
+        (COLS as u32 * CW * 3 / 4) as f64,
+        (ROWS as u32 * CH / 2) as f64,
+    );
+    app.dispatch_pixel_wheel_for_test(40.0);
+
+    assert_eq!(
+        app.viewport_offset_for_token_for_test(pane_b),
+        Some(2),
+        "pane B (under the pointer) carried two whole rows"
+    );
+    assert_eq!(
+        app.scroll_frac_offset_for_token_for_test(pane_b),
+        Some(8.0),
+        "pane B holds the half-row sub-cell remainder the split render clips"
+    );
+    // The focused pane A never moved — routing followed the pointer, not focus.
+    assert_eq!(
+        app.viewport_offset_for_token_for_test(pane_a),
+        Some(0),
+        "focused pane A must not scroll when the pointer is over pane B"
+    );
+    assert_eq!(
+        app.scroll_frac_offset_for_token_for_test(pane_a),
+        Some(0.0),
+        "focused pane A has no sub-cell offset"
+    );
+}
+
+#[test]
+fn sub_notch_pixel_scroll_moves_only_the_sub_cell_offset_in_a_split() {
+    // Cut 3: sub-notch pixel travel (< one row) now produces pure sub-cell motion
+    // inside a split — previously the continuous lane was disabled in multipane,
+    // so a fractional glide was truncated to nothing. The offset stays put; only
+    // the clipped sub-cell remainder advances.
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let dims = Dimensions::new(COLS, ROWS);
+    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    {
+        let mut terminal = terminal_b.lock().expect("terminal b");
+        terminal.advance(&scrollback_bytes(80));
+    }
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal_a,
+        writer_a,
+        pty_a,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    let pane_b = app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b);
+    app.reflow_active_panes_for_test();
+    // Re-inject the cell + surface AFTER seeding the split (the seed path drops
+    // the test-cell override), so the wheel handler resolves a real cell height.
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(
+        COLS as u32 * CW,
+        ROWS as u32 * CH,
+        crate::native::WindowPadding::ZERO,
+    );
+    app.set_pointer_px_for_test(
+        (COLS as u32 * CW * 3 / 4) as f64,
+        (ROWS as u32 * CH / 2) as f64,
+    );
+    // 6px at a 16px cell = 0.375 row: no whole row carries, the sub-cell offset
+    // advances to exactly 6px. This is the motion that was truncated before.
+    app.dispatch_pixel_wheel_for_test(6.0);
+    assert_eq!(
+        app.viewport_offset_for_token_for_test(pane_b),
+        Some(0),
+        "sub-notch travel keeps the integer offset at the tail"
+    );
+    assert_eq!(
+        app.scroll_frac_offset_for_token_for_test(pane_b),
+        Some(6.0),
+        "the sub-cell remainder advanced by the pixel travel the split clips"
+    );
+}
+
+#[test]
 fn wheel_scroll_still_scrolls_the_lone_single_pane() {
     let Some((mut app, _bytes)) = single_session_app() else {
         eprintln!("skipping: no PTY available");

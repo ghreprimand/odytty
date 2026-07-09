@@ -513,16 +513,16 @@ impl App {
             // do not alias).
             advance_session_glide(session, now, cell.height, offset);
             let render_offset = session_glide_render_offset(session, offset, scrollback_len);
-            // The sub-cell remainder to render this frame — non-zero only while a
-            // glide is in flight (`advance_session_glide` zeroes it on settle and
-            // never sets it when no glide is armed). The single-pane continuous
-            // pixel lane is disabled in a split, so a stale value from a prior
-            // single-pane scroll is gated out by `glide_active`.
-            let frac_px = if session.glide_active {
-                session.scroll_frac_offset
-            } else {
-                0.0
-            };
+            // The sub-cell remainder to render this frame, read directly from
+            // the pane's own `scroll_frac_offset` (mirroring the single-pane
+            // render). It carries whichever sub-cell lane is live on this pane:
+            // the discrete glide follower's remainder while a glide is in flight,
+            // OR the continuous pixel lane's (`pixel_scroll`) sub-cell position
+            // when the wheel scrolled THIS pane. The field is zeroed at rest and
+            // on every viewport change (`clear_scroll_frac_of`) and left untouched
+            // by `advance_session_glide` when no glide is armed, so it is exactly
+            // 0.0 unless a lane is actively offsetting this pane — no stale leak.
+            let frac_px = session.scroll_frac_offset;
             let snapshot = terminal.snapshot_with_scrollback(render_offset);
             let cursor_style = terminal.cursor_style();
             let is_focused = *token == focused;

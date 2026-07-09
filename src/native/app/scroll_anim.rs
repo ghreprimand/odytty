@@ -77,10 +77,11 @@ fn glide_step(visual: f32, logical: f32, dt: Duration, tau: Duration) -> f32 {
 /// `App::sessions`. A no-op unless a glide is in flight. Snaps immediately when
 /// the target moved between frames (output growth re-anchored the offset) or
 /// once the follower settles within [`GLIDE_SETTLE_ROWS`] of the target. Sets
-/// the session's sub-row `scroll_frac_offset`; the single-pane render reads it,
-/// the multipane render deliberately ignores it (it pins the shared GPU offset
-/// to zero and snapshots at the FLOORED follower row instead), so a split glides
-/// whole-row with no cross-divider bleed.
+/// the session's sub-row `scroll_frac_offset`; both the single-pane render and
+/// the per-pane multipane loop read it, baking the sub-cell remainder into the
+/// pane's render origin and clipping the overflowing partial row to the pane's
+/// content rect (PANE-SUBCELL-CLIP) so a split eases with pixel precision and no
+/// cross-divider bleed.
 pub(super) fn advance_session_glide(
     session: &mut Session,
     now: Instant,
@@ -139,35 +140,35 @@ pub(super) fn session_glide_render_offset(
 }
 
 impl App {
-    /// Whether an eligible `PixelDelta` wheel event should drive the continuous
-    /// fractional scroll lane rather than the discrete notch lane. All must
-    /// hold: the `pixel_scroll` knob is on; the active tab is a single pane (the
-    /// multipane render path can't express per-pane sub-row offsets); the active
-    /// screen is the primary screen (the alternate screen has no scrollback to
-    /// render fractionally); Ctrl is not held (a zoom gesture); and the pointer
-    /// is not mid selection-drag (drag-autoscroll steps whole rows). The
+    /// Per-pane: whether an eligible `PixelDelta` wheel event should drive the
+    /// continuous fractional scroll lane on pane `token` rather than the discrete
+    /// notch lane. All must hold: the `pixel_scroll` knob is on; that pane is on
+    /// its primary screen (the alternate screen has no scrollback to render
+    /// fractionally); Ctrl is not held (a zoom gesture); and the pointer is not
+    /// mid selection-drag (drag-autoscroll steps whole rows). The multipane
+    /// render now expresses per-pane sub-cell offsets (PANE-SUBCELL-CLIP), so a
+    /// split is no longer excluded — the lane arms on the pane under the pointer,
+    /// which need not be the focused one (mirroring the discrete glide lane). The
     /// mouse-reporting and overlay-open cases are already excluded by earlier
     /// returns in `handle_mouse_wheel`.
-    pub(super) fn continuous_scroll_eligible(&self) -> bool {
+    pub(super) fn continuous_scroll_eligible_of(&self, token: SessionToken) -> bool {
         self.settings.pixel_scroll
-            && self.sessions.active_is_single_pane()
             && !self.modifiers.ctrl
             && !self.pointer_drag.is_selecting()
-            && self.on_primary_screen()
+            && self.on_primary_screen_of(token)
     }
 
-    /// Whether the active terminal is showing its primary screen (not an
-    /// alternate-screen application like a pager or full-screen TUI). Continuous
-    /// fractional scroll is meaningful only where there is scrollback to glide
-    /// through.
-    fn on_primary_screen(&self) -> bool {
-        self.terminal
-            .lock()
-            .map(|t| !t.on_alternate_screen())
-            .unwrap_or(true)
+    /// The active pane's continuous-scroll eligibility — the single-pane
+    /// decision, kept as a test seam. Delegates to
+    /// [`Self::continuous_scroll_eligible_of`] on the active pane, so a
+    /// single-pane tab is unchanged from before the per-pane split.
+    #[cfg(test)]
+    pub(super) fn continuous_scroll_eligible(&self) -> bool {
+        self.continuous_scroll_eligible_of(self.sessions.active_id())
     }
 
-    /// Per-pane variant of [`Self::on_primary_screen`] for `token` — the split
+    /// Whether the terminal of pane `token` is showing its primary screen (not
+    /// an alternate-screen application like a pager or full-screen TUI). The split
     /// glide arms on the pane under the pointer, which need not be the focused
     /// pane, so its eligibility must read its OWN screen (a background pane on an
     /// alternate screen has no scrollback to glide). Locks that session's
