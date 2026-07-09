@@ -102,8 +102,9 @@ jobs:
       # (POSIX::setsid, so its process-group id equals its pid), waits with an
       # alarm, and on timeout signals the whole process GROUP (TERM, 5s grace,
       # then KILL) so a wedged PTY test tree is actually reaped rather than
-      # orphaned. Between attempts, leftover `odytty` children are force-killed
-      # so a wedged tree from attempt 1 cannot taint attempt 2.
+      # orphaned. Between attempts, any stray cargo test binary (matched by the
+      # narrow `odytty-<hex>` name pattern, never a bare `odytty`) is
+      # force-killed so a wedged tree from attempt 1 cannot taint attempt 2.
       #
       # Budget: per-attempt timeout 720s (12 min) — comfortable over a green
       # single-threaded macOS run (~2-3 min), a quick trip on a hang. Two
@@ -156,8 +157,11 @@ jobs:
               break
             fi
             echo "Test attempt ${attempt} exited ${rc}."
-            pkill -9 -x odytty || true
-            pkill -9 -f 'odytty-' || true
+            # Narrow to the cargo test-binary name (odytty-<hex>, e.g.
+            # odytty-2cce29a4); this cannot match a bare `odytty` binary. The
+            # per-attempt process-group kill already reaps the test tree, so
+            # this is only a belt-and-braces sweep for a stray test binary.
+            pkill -9 -f 'odytty-[0-9a-f]' || true
             if [ "$attempt" -lt "$max_attempts" ]; then
               echo "Retrying after PTY-teardown cleanup..."
               sleep 3

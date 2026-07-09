@@ -7,6 +7,14 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- macOS CI orphan sweep narrowed to the cargo test-binary name pattern
+
+The macOS Test step's between-attempts orphan sweep is narrowed to the cargo
+test-binary name pattern (`odytty-<hex>`) so it can only ever match a stray test
+binary, never a bare `odytty`. The redundant bare-name kill is removed: the
+per-attempt process-group kill already reaps the whole test tree, so the sweep
+is only a belt-and-braces guard for a leftover test binary. CI workflow only.
+
 ## 2026-07-09 -- macOS CI test step self-heals the intermittent PTY-teardown deadlock
 
 The macOS CI leg intermittently deadlocked during PTY teardown in the
