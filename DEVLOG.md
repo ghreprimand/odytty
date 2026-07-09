@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Inline graphics in splits
+
+Kitty graphics and Sixel images now render inside split panes, closing the last
+documented multipane v1 cut. Previously image placements composited only in
+unsplit tabs; splitting a tab dropped the terminal graphics until the panes were
+collapsed back to one. Text, cursor, per-pane selection and search, dividers,
+resize, and smooth scroll already worked in splits — inline graphics were the
+remaining gap.
+
+Each visible pane now collects its own graphics under the same lock that reads
+its snapshot, at the pane's render offset, and hands them to the image layer
+positioned relative to the pane's origin. Because a stored image id is a
+per-terminal counter, two panes can hold the same numeric id for different
+images; the per-pane texture cache is therefore keyed by `(session, id)` so the
+two id spaces never collide.
+
+Clipping bounds BOTH axes. A vertical-only clip — the one the glyph glide lane
+uses — cannot stop an image bleeding sideways across a column split's vertical
+divider, so each pane's images draw under a per-pane scissor rect set to the
+pane's at-rest content rect. The scissor is reset to the full render target after
+the pane's image draws so the following glyph draws are never clipped. The
+single-pane image path and the multipane path are mutually exclusive per frame
+and each clears the other's draw list, so a single-pane tab issues no scissor
+calls and stays byte-identical; entering a split also clears any leftover
+single-pane placement so a stale image cannot linger at old coordinates.
+
+Windows: platform-neutral raster and placement math with ConPTY graphics parity;
+no PTY, path, env, or shell surface, so behavior is identical across Linux,
+Windows, and macOS.
+
+New tests cover per-pane placement geometry relative to a pane origin (including
+pixel offsets and that two panes differ only by their origin delta) and the
+per-pane scissor math — that it bounds the pane grid rect, clamps to the surface,
+and that adjacent column-split and row-split panes' scissors never overlap (the
+no-bleed guarantee). `cargo test` (full non-GPU suite, 3432 lib tests plus the
+integration binaries) and `cargo fmt --check` pass, and `cargo clippy
+--all-targets` is clean.
+
 ## 2026-07-09 -- Multipane pixel_scroll
 
 High-resolution direct-tracking scroll (`pixel_scroll` — touchpads and hi-res

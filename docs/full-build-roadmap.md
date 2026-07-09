@@ -273,6 +273,17 @@ Sharp, stable, comfortable text is a primary product pillar.
   shift never smears across a divider. Reuses the existing per-pane render — no
   new GPU plumbing — and is inert / byte-identical on a single-pane tab.
   Cross-platform pointer math, no platform-specific surface.
+- **Shipped — Inline graphics in splits.** Kitty graphics and Sixel placements
+  composite into the per-pane render path, closing the last multipane v1 cut.
+  Each pane collects its own visible placements under a session-token namespace
+  (so two panes' independent per-terminal image id spaces cannot collide in the
+  shared texture cache) and draws them relative to the pane's glide-shifted
+  origin, clipped by a per-pane scissor rect that bounds BOTH axes — a
+  vertical-only clip could not stop an image bleeding horizontally across a
+  column divider. Mutually exclusive with the single-pane image path per frame,
+  so single-pane frames are byte-identical (they never touch scissor state).
+  Cross-platform raster + placement math, ConPTY graphics parity, no
+  platform-specific surface.
 - **Shipped — Stem-darkening default activation.** The rasterization machinery
   ships default-on at `0.5`, with `0.0` as the byte-identical opt-out.
 - **Someday — Legibility font features.** A narrow, charter-clean subset (such

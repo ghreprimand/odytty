@@ -248,7 +248,9 @@ default input path. Set `pane_prefix=off` to disable the pane prefix entirely
 and free the chord in multi-pane tabs too. Interactive overlays (selection /
 search) render per pane, so a selection or a search match shows in the correct
 pane regardless of which pane holds focus; the search query bar stays on the
-focused pane. v1 cut: inline graphics render in single-pane tabs only. Optional
+focused pane. Inline graphics (Kitty/Sixel) render per pane as well, each
+placement clipped to its pane's sub-rect so an image never bleeds across a
+divider. Optional
 inactive-pane dimming is
 implemented via `inactive_pane_dim`; it defaults to `0.0`, is disabled on
 `render_quality=plain`, and leaves the no-dim pane frame byte-identical.

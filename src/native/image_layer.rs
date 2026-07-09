@@ -189,6 +189,75 @@ pub(super) fn placement_quad_with_padding_and_row_offset(
     })
 }
 
+/// MULTIPANE placement-quad math: like
+/// [`placement_quad_with_padding_and_row_offset`] but positions the quad
+/// relative to a pane's pixel `origin` (top-left of the pane's grid, col 0 /
+/// row 0) instead of window padding + a tab-bar row/col offset. The pane origin
+/// already folds in padding, the pane's layout rect, and its scroll-glide y
+/// shift, so a placement lands at
+/// `origin + (column, row) * cell + pixel_offset`. Source-rect clamping and UV
+/// derivation are identical to the single-pane path; only the destination
+/// origin differs. Kept a separate function (rather than refactoring the
+/// single-pane one) so the single-pane float arithmetic stays byte-identical.
+pub(super) fn placement_quad_with_origin(
+    placement: &VisiblePlacement,
+    image_width: u32,
+    image_height: u32,
+    cell: CellSize,
+    origin: [f32; 2],
+) -> Option<ImageQuad> {
+    if image_width == 0 || image_height == 0 || placement.display_columns == 0 {
+        return None;
+    }
+    if placement.display_rows == 0 {
+        return None;
+    }
+
+    let source_x = placement.source.x.min(image_width);
+    let source_y = placement.source.y.min(image_height);
+    let max_source_w = image_width.saturating_sub(source_x);
+    let max_source_h = image_height.saturating_sub(source_y);
+    if max_source_w == 0 || max_source_h == 0 {
+        return None;
+    }
+
+    let requested_source_w = if placement.source.width == 0 {
+        max_source_w
+    } else {
+        placement.source.width.min(max_source_w)
+    };
+    let requested_source_h = if placement.source.height == 0 {
+        max_source_h
+    } else {
+        placement.source.height.min(max_source_h)
+    };
+
+    let cell_extent_w = (placement.display_columns as u32).saturating_mul(cell.width);
+    let cell_extent_h = (placement.display_rows as u32).saturating_mul(cell.height);
+    let visible_w = requested_source_w.min(cell_extent_w);
+    let visible_h = requested_source_h.min(cell_extent_h);
+    if visible_w == 0 || visible_h == 0 {
+        return None;
+    }
+
+    let x0 =
+        origin[0] + placement.column as f32 * cell.width as f32 + placement.pixel_offset_x as f32;
+    let y0 =
+        origin[1] + placement.row as f32 * cell.height as f32 + placement.pixel_offset_y as f32;
+    let x1 = x0 + visible_w as f32;
+    let y1 = y0 + visible_h as f32;
+
+    let u0 = source_x as f32 / image_width as f32;
+    let v0 = source_y as f32 / image_height as f32;
+    let u1 = (source_x + visible_w) as f32 / image_width as f32;
+    let v1 = (source_y + visible_h) as f32 / image_height as f32;
+
+    Some(ImageQuad {
+        rect: [x0, y0, x1, y1],
+        uv: [u0, v0, u1, v1],
+    })
+}
+
 fn push_quad(out: &mut Vec<ImageVertex>, quad: ImageQuad) {
     let [x0, y0, x1, y1] = quad.rect;
     let [u0, v0, u1, v1] = quad.uv;
@@ -212,6 +281,40 @@ struct ImageDraw {
     first_vertex: u32,
     vertex_count: u32,
     z_index: i32,
+}
+
+/// A single per-pane image placement draw for a split tab. Like [`ImageDraw`]
+/// but keyed by the composite `(namespace, id)` cache key and carrying the
+/// pane's scissor rect (physical px `[x, y, w, h]`) so the draw is clipped to
+/// the pane's sub-rect on BOTH axes — a vertical divider between column-split
+/// panes cannot be crossed by an image bleeding horizontally (the reason a
+/// vertical-only clip could not be reused here).
+struct PaneImageDraw {
+    key: (u64, StoredImageId),
+    first_vertex: u32,
+    vertex_count: u32,
+    z_index: i32,
+    scissor: [u32; 4],
+}
+
+/// One pane's graphics input for the multipane image path. `namespace` is the
+/// pane's session token (disambiguating per-terminal `StoredImageId`s across
+/// panes); `origin` is the pane's top-left in physical px (already carrying the
+/// pane's scroll-glide y shift, mirroring [`PaneRender::origin`]); `scissor` is
+/// the pane's at-rest content rect in physical px (`[x, y, w, h]`) the images
+/// are clipped to.
+pub(in crate::native) struct PaneImageInput<'a> {
+    pub(in crate::native) namespace: u64,
+    pub(in crate::native) placements: &'a [VisiblePlacement],
+    pub(in crate::native) origin: [f32; 2],
+    pub(in crate::native) scissor: [u32; 4],
+}
+
+/// One pane's decoded image byte payload for upload, tagged with the pane's
+/// `namespace` so the composite cache key matches the placement's key.
+pub(in crate::native) struct PaneImageUpload {
+    pub(in crate::native) namespace: u64,
+    pub(in crate::native) upload: ImageUpload,
 }
 
 /// The C4 viewer's free-floating overlay image: one texture + bind group and a
@@ -254,6 +357,26 @@ pub(super) struct ImageLayer {
     vertex_capacity_bytes: u64,
     vertices: Vec<ImageVertex>,
     draws: Vec<ImageDraw>,
+    /// MULTIPANE placement cache/geometry, kept SEPARATE from the single-pane
+    /// `textures`/`vertices`/`draws` above. A split tab renders each pane's
+    /// graphics into its own sub-rect, and `StoredImageId` is a PER-TERMINAL
+    /// counter (each pane's terminal has its own id space), so two panes can
+    /// hold the same numeric id for different images. The cache is therefore
+    /// keyed by `(namespace, id)` where `namespace` is the pane's session token,
+    /// preventing a cross-pane id collision. Single-pane frames leave these
+    /// empty (cleared by `update_with_padding`) and multipane frames clear the
+    /// single-pane `draws` — the two modes are mutually exclusive per frame, so
+    /// only one of the two draw lists is ever non-empty.
+    pane_textures: HashMap<(u64, StoredImageId), CachedImage>,
+    pane_vertices: Vec<ImageVertex>,
+    pane_vertex_buf: wgpu::Buffer,
+    pane_vertex_capacity_bytes: u64,
+    pane_draws: Vec<PaneImageDraw>,
+    /// The scene render-target size in physical pixels, captured at the last
+    /// `update_panes`. Used to reset the scissor rect back to the full target
+    /// after a scissored per-pane image draw, so following glyph draws are not
+    /// clipped to the last pane's rect.
+    pane_viewport: [u32; 2],
     /// The C4 viewer overlay image, if any (drawn last, over the panel/scrim).
     overlay_image: Option<OverlayImage>,
     /// A fixed 6-vertex buffer holding the overlay image's fit-quad. Allocated
@@ -338,6 +461,7 @@ impl ImageLayer {
 
         let vertex_capacity_bytes = std::mem::size_of::<ImageVertex>() as u64;
         let vertex_buf = create_vertex_buffer(device, vertex_capacity_bytes);
+        let pane_vertex_buf = create_vertex_buffer(device, vertex_capacity_bytes);
         // The overlay quad is always exactly 6 vertices; size the buffer for it
         // up front so `set_overlay_image` only ever writes, never reallocates.
         let overlay_vertex_buf =
@@ -359,6 +483,12 @@ impl ImageLayer {
             vertex_capacity_bytes,
             vertices: Vec::new(),
             draws: Vec::new(),
+            pane_textures: HashMap::new(),
+            pane_vertices: Vec::new(),
+            pane_vertex_buf,
+            pane_vertex_capacity_bytes: vertex_capacity_bytes,
+            pane_draws: Vec::new(),
+            pane_viewport: [1, 1],
             overlay_image: None,
             overlay_vertex_buf,
             scrim_vertex_buf,
@@ -488,6 +618,118 @@ impl ImageLayer {
         self.textures.keys().copied().collect()
     }
 
+    /// The multipane image cache keys currently resident, as `(namespace, id)`.
+    /// The multipane render path passes each pane's already-cached subset to the
+    /// upload collector so bytes are not re-fetched for images already on the
+    /// GPU.
+    pub(super) fn cached_pane_ids(&self) -> BTreeSet<(u64, StoredImageId)> {
+        self.pane_textures.keys().copied().collect()
+    }
+
+    /// MULTIPANE image update: sync the per-pane texture cache against every
+    /// visible pane's placements and rebuild the per-pane draw geometry. Each
+    /// pane's images are positioned relative to its own pixel `origin` and
+    /// tagged with its `scissor` rect so [`draw_below`]/[`draw_above`] clip them
+    /// to the pane's sub-rect on both axes (no bleed across a divider). The
+    /// composite `(namespace, id)` key keeps two panes' identically-numbered
+    /// `StoredImageId`s distinct. Clears the single-pane `draws` so a stale
+    /// single-pane image never renders over a split frame.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn update_panes(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        viewport_buf: &wgpu::Buffer,
+        panes: &[PaneImageInput],
+        uploads: &[PaneImageUpload],
+        cell: CellSize,
+        viewport: [u32; 2],
+    ) {
+        self.pane_viewport = [viewport[0].max(1), viewport[1].max(1)];
+        // Multipane frame owns the layer: drop any single-pane placement
+        // geometry so it cannot draw over the split. (Textures kept cached.)
+        self.draws.clear();
+        self.vertices.clear();
+
+        // Combined visible set across all panes, keyed by `(namespace, id)`.
+        let visible: BTreeSet<(u64, StoredImageId)> = panes
+            .iter()
+            .flat_map(|pane| {
+                pane.placements
+                    .iter()
+                    .map(move |placement| (pane.namespace, placement.image_id))
+            })
+            .collect();
+        let cached: BTreeSet<(u64, StoredImageId)> = self.pane_textures.keys().copied().collect();
+
+        // Evict cached textures no pane shows any more.
+        for key in cached.difference(&visible) {
+            self.pane_textures.remove(key);
+        }
+
+        // Upload textures newly visible this frame that carry byte payloads.
+        let uploads_by_key: BTreeMap<(u64, StoredImageId), &ImageUpload> = uploads
+            .iter()
+            .map(|entry| ((entry.namespace, entry.upload.id), &entry.upload))
+            .collect();
+        for key in visible.difference(&cached) {
+            if let Some(upload) = uploads_by_key.get(key) {
+                let cached_image = upload_image(
+                    device,
+                    queue,
+                    &self.bind_group_layout,
+                    &self.sampler,
+                    viewport_buf,
+                    upload,
+                );
+                self.pane_textures.insert(*key, cached_image);
+            }
+        }
+
+        // Rebuild per-pane draw geometry.
+        self.pane_vertices.clear();
+        self.pane_draws.clear();
+        for pane in panes {
+            for placement in pane.placements {
+                let key = (pane.namespace, placement.image_id);
+                let Some(cached_image) = self.pane_textures.get(&key) else {
+                    continue;
+                };
+                let Some(quad) = placement_quad_with_origin(
+                    placement,
+                    cached_image.width,
+                    cached_image.height,
+                    cell,
+                    pane.origin,
+                ) else {
+                    continue;
+                };
+                let first_vertex = self.pane_vertices.len() as u32;
+                push_quad(&mut self.pane_vertices, quad);
+                self.pane_draws.push(PaneImageDraw {
+                    key,
+                    first_vertex,
+                    vertex_count: 6,
+                    z_index: placement.z_index,
+                    scissor: pane.scissor,
+                });
+            }
+        }
+
+        let needed = std::mem::size_of_val(self.pane_vertices.as_slice()) as u64;
+        if needed > self.pane_vertex_capacity_bytes {
+            self.pane_vertex_capacity_bytes = needed.next_power_of_two();
+            self.pane_vertex_buf = create_vertex_buffer(device, self.pane_vertex_capacity_bytes);
+        }
+        if !self.pane_vertices.is_empty() {
+            queue.write_buffer(
+                &self.pane_vertex_buf,
+                0,
+                bytemuck::cast_slice(&self.pane_vertices),
+            );
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn update_with_padding(
         &mut self,
@@ -501,6 +743,12 @@ impl ImageLayer {
         row_offset: usize,
         col_offset: usize,
     ) {
+        // Single-pane frame: it owns the image layer, so drop any multipane
+        // placement geometry left over from a prior split frame. The pane
+        // textures are left cached (cheap to keep; re-synced on the next split)
+        // but MUST NOT draw over a single-pane tab.
+        self.pane_draws.clear();
+        self.pane_vertices.clear();
         let cached = self.cached_ids();
         let plan = cache_sync_plan(&cached, placements, uploads);
         for id in plan.evict {
@@ -591,11 +839,13 @@ impl ImageLayer {
     /// order, which the core already sorts by `(z_index, generation)`.
     pub(super) fn draw_below<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
         self.draw_filtered(pass, |z| z < 0);
+        self.draw_pane_filtered(pass, |z| z < 0);
     }
 
     /// Draw placements with zero or positive z-index (above text).
     pub(super) fn draw_above<'pass>(&'pass self, pass: &mut wgpu::RenderPass<'pass>) {
         self.draw_filtered(pass, |z| z >= 0);
+        self.draw_pane_filtered(pass, |z| z >= 0);
     }
 
     fn draw_filtered<'pass>(
@@ -625,6 +875,56 @@ impl ImageLayer {
                 draw.first_vertex..draw.first_vertex + draw.vertex_count,
                 0..1,
             );
+        }
+    }
+
+    /// MULTIPANE image draw: like [`draw_filtered`] but each pane's images are
+    /// clipped to that pane's scissor rect (both axes) before drawing, so an
+    /// image cannot bleed across a divider into a neighbour. The scissor is
+    /// reset to the full render target afterwards so the following glyph draws
+    /// (issued by `gpu.rs` between `draw_below` and `draw_above`, and after
+    /// `draw_above`) are not clipped. A no-op with an empty pane draw list, so
+    /// single-pane frames never touch scissor state — their command stream is
+    /// byte-identical.
+    fn draw_pane_filtered<'pass>(
+        &'pass self,
+        pass: &mut wgpu::RenderPass<'pass>,
+        keep: impl Fn(i32) -> bool,
+    ) {
+        if self.pane_draws.is_empty() {
+            return;
+        }
+        let mut pipeline_bound = false;
+        let mut scissored = false;
+        for draw in &self.pane_draws {
+            if !keep(draw.z_index) {
+                continue;
+            }
+            let [sx, sy, sw, sh] = draw.scissor;
+            if sw == 0 || sh == 0 {
+                continue;
+            }
+            let Some(cached) = self.pane_textures.get(&draw.key) else {
+                continue;
+            };
+            let _ = cached.generation;
+            if !pipeline_bound {
+                pass.set_pipeline(&self.pipeline);
+                pass.set_vertex_buffer(0, self.pane_vertex_buf.slice(..));
+                pipeline_bound = true;
+            }
+            pass.set_scissor_rect(sx, sy, sw, sh);
+            scissored = true;
+            pass.set_bind_group(0, &cached.bind_group, &[]);
+            pass.draw(
+                draw.first_vertex..draw.first_vertex + draw.vertex_count,
+                0..1,
+            );
+        }
+        if scissored {
+            // Restore the full-target scissor so later glyph/overlay draws in
+            // this pass are not clipped to the last pane's rect.
+            pass.set_scissor_rect(0, 0, self.pane_viewport[0], self.pane_viewport[1]);
         }
     }
 }

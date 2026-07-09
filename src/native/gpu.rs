@@ -16,7 +16,7 @@ use crate::theme::{Theme, VisualEffect};
 
 use winit::window::Window;
 
-use super::image_layer::{ImageLayer, ImageUpload};
+use super::image_layer::{ImageLayer, ImageUpload, PaneImageInput, PaneImageUpload};
 use super::options::{NativeError, NativeOptions};
 use super::viewport::WindowPadding;
 
@@ -2244,6 +2244,32 @@ impl GpuState {
             self.window_padding,
             row_offset,
             col_offset,
+        );
+    }
+
+    /// The multipane image cache keys currently resident, as `(namespace, id)`.
+    /// The split render path passes each pane's cached subset to the upload
+    /// collector so already-resident image bytes are not re-fetched per frame.
+    pub(super) fn cached_pane_image_ids(&self) -> BTreeSet<(u64, StoredImageId)> {
+        self.image_layer.cached_pane_ids()
+    }
+
+    /// MULTIPANE image update: render each visible pane's graphics into its own
+    /// sub-rect, clipped by a per-pane scissor so nothing bleeds across a
+    /// divider. See [`ImageLayer::update_panes`].
+    pub(super) fn update_pane_image_layers(
+        &mut self,
+        panes: &[PaneImageInput],
+        uploads: &[PaneImageUpload],
+    ) {
+        self.image_layer.update_panes(
+            &self.device,
+            &self.queue,
+            &self.viewport_buf,
+            panes,
+            uploads,
+            self.atlas.cell,
+            [self.config.width, self.config.height],
         );
     }
 

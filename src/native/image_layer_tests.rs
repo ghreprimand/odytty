@@ -6,8 +6,8 @@ use crate::graphics::{GraphicsProtocol, PlacementId, SourceRect, StoredImageId, 
 
 use super::app::TAB_BAR_ROWS;
 use super::image_layer::{
-    ImageUpload, cache_sync_plan, overlay_fit_quad, placement_quad, placement_quad_with_padding,
-    placement_quad_with_padding_and_row_offset, visible_image_ids,
+    ImageUpload, cache_sync_plan, overlay_fit_quad, placement_quad, placement_quad_with_origin,
+    placement_quad_with_padding, placement_quad_with_padding_and_row_offset, visible_image_ids,
 };
 use super::viewport::WindowPadding;
 
@@ -348,4 +348,68 @@ fn overlay_fit_constraining_axis_is_ninety_percent_and_centered() {
         (top - bottom).abs() < 1e-3,
         "T/B margins equal: {top} vs {bottom}"
     );
+}
+
+// ----- Cut 1: per-pane placement geometry (inline graphics in splits) -----
+
+#[test]
+fn placement_with_origin_positions_relative_to_pane() {
+    // An image at cell (row 2, col 3), 4x2 cells of an 8x16 cell, inside a pane
+    // whose top-left is at (100, 50) px. The quad lands at
+    // origin + (col, row)*cell, sized to the covered cells.
+    let placement = placement(2, 3, StoredImageId(7));
+    let quad = placement_quad_with_origin(
+        &placement,
+        64,
+        48,
+        CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        },
+        [100.0, 50.0],
+    )
+    .expect("quad");
+    // x0 = 100 + 3*8 = 124; y0 = 50 + 2*16 = 82; w = 4*8 = 32; h = 2*16 = 32.
+    assert_eq!(quad.rect, [124.0, 82.0, 156.0, 114.0]);
+}
+
+#[test]
+fn placement_with_origin_carries_pixel_offsets() {
+    let mut placement = placement(1, 1, StoredImageId(2));
+    placement.pixel_offset_x = 3;
+    placement.pixel_offset_y = -4;
+    let quad = placement_quad_with_origin(
+        &placement,
+        64,
+        48,
+        CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        },
+        [200.0, 300.0],
+    )
+    .expect("quad");
+    // x0 = 200 + 1*8 + 3 = 211; y0 = 300 + 1*16 - 4 = 312.
+    assert_eq!(quad.rect[0], 211.0);
+    assert_eq!(quad.rect[1], 312.0);
+}
+
+#[test]
+fn two_panes_same_origin_math_differ_only_by_origin() {
+    // The SAME placement rendered in two panes with different origins produces
+    // quads that differ only by the origin delta — the per-pane path never mixes
+    // one pane's placement into another's coordinate space.
+    let placement = placement(0, 0, StoredImageId(9));
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    };
+    let left = placement_quad_with_origin(&placement, 64, 48, cell, [0.0, 0.0]).expect("left");
+    let right = placement_quad_with_origin(&placement, 64, 48, cell, [500.0, 0.0]).expect("right");
+    assert_eq!(right.rect[0] - left.rect[0], 500.0);
+    assert_eq!(right.rect[1], left.rect[1]);
+    assert_eq!(right.uv, left.uv);
 }

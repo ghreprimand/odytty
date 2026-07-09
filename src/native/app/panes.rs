@@ -22,9 +22,25 @@
 
 use super::scroll_anim::{advance_session_glide, session_glide_render_offset};
 use super::*;
+use crate::graphics::StoredImageId;
+
+/// Collected inline-graphics inputs for one pane in a split (Cut 1): the pane's
+/// session-token `namespace` (disambiguating per-terminal `StoredImageId`s),
+/// its visible `placements`, its glide-shifted render `origin`, and its at-rest
+/// `scissor` rect (physical px) the images are clipped to.
+struct PaneGraphics {
+    namespace: u64,
+    placements: Vec<VisiblePlacement>,
+    origin: [f32; 2],
+    scissor: [u32; 4],
+}
+use crate::graphics::VisiblePlacement;
 use crate::native::gpu::{OverlayTop, PaneRender, RailOverlay};
+use crate::native::image_layer::{PaneImageInput, PaneImageUpload};
 use crate::native::layout::{PaneRect, divider_rects, grid_dims_for_rect};
 use crate::native::overlay::{apply_overlay, overlay_rect};
+use crate::native::render_helpers::image_uploads_for_visible;
+use std::collections::BTreeSet;
 
 /// Width of the divider gap between panes, in physical pixels. A crisp hairline
 /// matching the §8 pixel-smoke invariants.
@@ -443,11 +459,14 @@ impl App {
     /// single-pane rebuild's GPU hand-off but assembles one [`PaneRender`] per
     /// visible pane and calls [`GpuState::update_from_panes`].
     pub(super) fn rebuild_multipane(&mut self) {
-        let Some((cell, padding, surface)) = self
-            .gpu
-            .as_ref()
-            .map(|gpu| (gpu.cell(), gpu.window_padding(), gpu.surface_size()))
-        else {
+        let Some((cell, padding, surface, cached_pane_ids)) = self.gpu.as_ref().map(|gpu| {
+            (
+                gpu.cell(),
+                gpu.window_padding(),
+                gpu.surface_size(),
+                gpu.cached_pane_image_ids(),
+            )
+        }) else {
             return;
         };
         let (surface_w, surface_h) = surface;
@@ -482,6 +501,16 @@ impl App {
         // highlights: (index in `panes_owned`, session token, render offset,
         // scrollback length).
         let mut pane_overlays: Vec<(usize, SessionToken, usize, usize)> = Vec::new();
+        // Cut 1: per-pane inline graphics. Each pane's visible placements +
+        // upload payloads are collected under the pane's session-token namespace
+        // (StoredImageId is a per-terminal counter, so panes can share a numeric
+        // id for different images — the namespace disambiguates). `origin` is the
+        // pane's glide-shifted render origin (images ride the scroll like glyphs);
+        // `scissor` is the pane's at-rest content rect so an image cannot bleed
+        // across a divider on either axis. Empty on panes with no graphics, so a
+        // graphics-free split incurs no image work.
+        let mut pane_graphics: Vec<PaneGraphics> = Vec::new();
+        let mut pane_uploads: Vec<PaneImageUpload> = Vec::new();
         for (token, rect) in &rects {
             let Some(session) = self.sessions.get_mut(*token) else {
                 continue;
@@ -532,6 +561,19 @@ impl App {
             // for every pane; `panes_owned.len()` is the index this pane is about
             // to be pushed at, just below.
             pane_overlays.push((panes_owned.len(), *token, render_offset, scrollback_len));
+            // Cut 1: read this pane's visible graphics + upload payloads under
+            // the same lock, at the pane's render offset (so placements track the
+            // glide-floored content). `cached_for_pane` is this pane's already
+            // resident texture ids (namespaced), so bytes for images already on
+            // the GPU are not re-fetched.
+            let namespace = token.0;
+            let visible = terminal.visible_graphics(render_offset);
+            let cached_for_pane: BTreeSet<StoredImageId> = cached_pane_ids
+                .iter()
+                .filter(|(ns, _)| *ns == namespace)
+                .map(|(_, id)| *id)
+                .collect();
+            let uploads = image_uploads_for_visible(&terminal, &visible, &cached_for_pane);
             drop(terminal);
             // Absorb each pane's sub-cell remainder onto its window-margin side
             // so the grid edge facing a divider sits flush to it: the visible
@@ -552,6 +594,30 @@ impl App {
                 snapshot.dimensions.rows,
                 cell.height as f32,
             );
+            // Cut 1: the pane's scissor rect = its at-rest grid rect (base
+            // origin + grid extent), clamped to the surface. Images are clipped
+            // to this on both axes; a gliding image's partial edge row is cropped
+            // at the pane's own content bottom, never crossing the divider.
+            if !visible.is_empty() {
+                let scissor = crate::native::layout::pane_image_scissor(
+                    base_origin,
+                    snapshot.dimensions.columns,
+                    snapshot.dimensions.rows,
+                    cell.width as f32,
+                    cell.height as f32,
+                    surface_w as f32,
+                    surface_h as f32,
+                );
+                pane_graphics.push(PaneGraphics {
+                    namespace,
+                    placements: visible,
+                    origin,
+                    scissor,
+                });
+                for upload in uploads {
+                    pane_uploads.push(PaneImageUpload { namespace, upload });
+                }
+            }
             panes_owned.push((snapshot, origin, is_focused, cursor_style, clip));
         }
 
@@ -732,6 +798,20 @@ impl App {
                 seam: data.seam,
             });
             gpu.update_from_panes(&panes, &frame_quads, overlay, &tab_bg_quads, rail_overlay);
+            // Cut 1: hand each pane's collected graphics to the image layer,
+            // clipped per pane. Empty (no split graphics) leaves the layer's
+            // pane draws cleared, so a graphics-free multipane frame issues no
+            // image draws.
+            let pane_images: Vec<PaneImageInput> = pane_graphics
+                .iter()
+                .map(|graphics| PaneImageInput {
+                    namespace: graphics.namespace,
+                    placements: &graphics.placements,
+                    origin: graphics.origin,
+                    scissor: graphics.scissor,
+                })
+                .collect();
+            gpu.update_pane_image_layers(&pane_images, &pane_uploads);
         }
         // Multi-pane v1 does not participate in the single-pane render-signature
         // cache; it rebuilds whenever a visible pane requests a redraw. Reset
