@@ -1652,6 +1652,12 @@ impl App {
         self.rail_ws_drag.map(|d| (d.armed, d.drop_idx))
     }
 
+    /// Test seam (TOP-TAB-DRAG): armed state and live insertion index.
+    #[cfg(test)]
+    pub(in crate::native) fn top_tab_drag_for_test(&self) -> Option<(bool, usize)> {
+        self.top_tab_drag.map(|drag| (drag.armed, drag.drop_idx))
+    }
+
     /// Test seam (RAIL-DRAG): whether a rail-anchored surface (a drag, menu, or
     /// rename) is currently holding the auto-hide rail revealed — the
     /// autohide-hold assertion for a workspace drag.

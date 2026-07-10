@@ -882,7 +882,7 @@ impl App {
             colors: crate::core::DynamicColors::default(),
             cells: vec![crate::core::Cell::default(); columns * rows],
         };
-        let output = self.tab_bar.render(
+        let mut output = self.tab_bar.render(
             &self.sessions,
             columns,
             padding.as_f32(),
@@ -891,6 +891,7 @@ impl App {
             self.tab_bar_colors(),
             self.tab_panel_strength(),
         );
+        self.paint_tab_drag_overlay(&mut output.glyphs, columns, cell, padding);
         place_tab_bar_glyphs(&mut snapshot.cells, output.glyphs, columns, rows, 0);
         Some((snapshot, output.quads))
     }

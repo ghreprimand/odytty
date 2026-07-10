@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Top-strip tabs can be reordered by dragging
+
+Tabs within the active workspace can now be reordered directly in the top
+strip. Pressing a tab lifts it immediately; movement past the shared five-pixel
+chrome threshold recesses the source and raises a bright proxy that follows the
+pointer horizontally, with a heavy insertion marker at the live drop boundary.
+Release splices the tab into the chosen position and repaints immediately, while
+Escape cancels without changing the strip.
+
+Click behavior is preserved. A press and release below the movement threshold
+switches to the pressed tab, so incidental pointer jitter cannot reorder it.
+The tab value moves inside the active workspace while active focus follows the
+tab by identity, preserving the focused session and pane. The existing workspace
+shape fingerprint observes the changed tab order and schedules its normal
+debounced persistence.
+
+The horizontal gesture reuses the workspace drag's retained-frame invalidation
+and visual language, and both the single-pane and multipane chrome composition
+paths apply the same proxy. Headless coverage drives the production
+press, cursor-move, and release route; verifies sub-threshold switching, drop
+index midpoint geometry, proxy movement, insertion semantics, and active-tab
+identity. This is pure render, pointer, and in-memory tab ordering with no PTY,
+spawn, path, environment, shell, or platform-specific surface; Windows, macOS,
+and Linux share the same path. GPU pixels remain covered by CI.
+
+Verified: complete `cargo test` suite green (3471 library tests passed, 7
+ignored, plus all integration binaries); `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-10 -- Workspace dragging gains direct manipulation feedback
 
 Workspace reordering now reads as a direct manipulation gesture. Pressing a

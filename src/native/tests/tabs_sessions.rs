@@ -790,6 +790,66 @@ fn tab_bar_hit_test_reports_switch_close_and_new_actions() {
     assert_eq!(app.tab_bar_hit_for_test(), Some("new"));
 }
 
+#[test]
+fn top_tab_drag_real_route_reorders_and_preserves_active_identity() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    let first = app
+        .session_token_at_position_for_test(0)
+        .expect("first tab token");
+    let second = app
+        .session_token_at_position_for_test(1)
+        .expect("second tab token");
+    assert_eq!(app.active_session_token_for_test(), first);
+
+    app.set_pointer_px_for_test(12.0, 8.0);
+    app.mouse_left_press_for_test();
+    assert_eq!(app.top_tab_drag_for_test(), Some((false, 0)));
+    app.pointer_move_for_test(500.0, 8.0);
+    assert_eq!(app.top_tab_drag_for_test(), Some((true, 2)));
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::Grabbing
+    );
+    app.mouse_left_release_for_test();
+
+    assert_eq!(app.top_tab_drag_for_test(), None);
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::Default
+    );
+    assert_eq!(app.session_token_at_position_for_test(0), Some(second));
+    assert_eq!(app.session_token_at_position_for_test(1), Some(first));
+    assert_eq!(app.active_session_token_for_test(), first);
+}
+
+#[test]
+fn sub_threshold_top_tab_press_stays_a_switch_click() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    let first = app.active_session_token_for_test();
+    let second = app
+        .session_token_at_position_for_test(1)
+        .expect("second tab token");
+
+    app.set_pointer_px_for_test(200.0, 8.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(202.0, 10.0);
+    assert_eq!(app.top_tab_drag_for_test(), Some((false, 1)));
+    app.mouse_left_release_for_test();
+
+    assert_eq!(app.active_session_token_for_test(), second);
+    assert_ne!(app.active_session_token_for_test(), first);
+    assert_eq!(app.session_token_at_position_for_test(0), Some(first));
+    assert_eq!(app.session_token_at_position_for_test(1), Some(second));
+}
+
 // --- F4-V2 R1: vertical tab rail integration ---
 
 #[test]

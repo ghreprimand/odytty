@@ -114,7 +114,7 @@ mod panes;
 pub(in crate::native) mod platform_opener;
 mod pointer;
 pub(super) use pointer::ChromeBand;
-pub(super) use pointer::RailWorkspaceDrag;
+pub(super) use pointer::{RailWorkspaceDrag, TopTabDrag};
 mod prompt_jump;
 mod rail_autohide;
 mod replay_ui;
@@ -479,6 +479,8 @@ pub(super) struct App {
     /// Escape. Holds the rail auto-hide open for its lifetime (see
     /// `rail_pinned_open`).
     rail_ws_drag: Option<RailWorkspaceDrag>,
+    /// TOP-TAB-DRAG: the in-flight top-strip tab reorder gesture.
+    top_tab_drag: Option<TopTabDrag>,
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
@@ -724,6 +726,7 @@ impl App {
             rail_autohide: rail_autohide::RailAutohide::default(),
             last_rail_pointer_px: None,
             rail_ws_drag: None,
+            top_tab_drag: None,
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
             context_menu_opened_at: None,
@@ -1770,7 +1773,8 @@ impl App {
             // order untouched, before any other key routing — the cancel-on-escape
             // ergonomic. Consumes the key only when a drag was actually cancelled;
             // otherwise Escape falls through to its normal meaning.
-            if matches!(logical, WinitKey::Named(NamedKey::Escape)) && self.cancel_workspace_drag()
+            if matches!(logical, WinitKey::Named(NamedKey::Escape))
+                && (self.cancel_workspace_drag() || self.cancel_top_tab_drag())
             {
                 return;
             }
@@ -3075,6 +3079,32 @@ impl App {
         }
     }
 
+    fn paint_tab_drag_overlay(
+        &self,
+        glyphs: &mut [tab_bar::TabBarGlyph],
+        cols: usize,
+        cell: CellSize,
+        padding: WindowPadding,
+    ) {
+        if let Some(drag) = self.top_tab_drag {
+            let colors = self.tab_bar_colors();
+            let panel = tab_chrome::panel_tint(colors, self.tab_panel_strength());
+            self.tab_bar.paint_drag_overlay(
+                glyphs,
+                drag.origin_idx,
+                drag.drop_idx,
+                drag.armed,
+                drag.pointer_x,
+                &self.sessions,
+                cols,
+                cell,
+                padding,
+                colors,
+                panel,
+            );
+        }
+    }
+
     fn rail_geom(&self) -> tab_rail::RailGeom {
         tab_rail::RailGeom {
             slot_rows: self.settings.rail_slot_rows(),
@@ -4142,7 +4172,7 @@ impl App {
             .as_ref()
             .map(GpuState::window_padding)
             .unwrap_or(WindowPadding::ZERO);
-        let output = self.tab_bar.render(
+        let mut output = self.tab_bar.render(
             &self.sessions,
             columns,
             padding.as_f32(),
@@ -4151,6 +4181,7 @@ impl App {
             self.tab_bar_colors(),
             self.tab_panel_strength(),
         );
+        self.paint_tab_drag_overlay(&mut output.glyphs, columns, cell, padding);
         // Fill the reserved top band per column and center the label row (rows
         // 0..bar_rows), leaving the shifted content untouched below.
         panes::place_tab_bar_glyphs(&mut decorated.cells, output.glyphs, columns, bar_rows, 0);

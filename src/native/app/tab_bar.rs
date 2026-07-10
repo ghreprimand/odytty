@@ -415,6 +415,111 @@ impl TabBar {
 
         TabHit::None
     }
+
+    /// Map a physical pointer X to a tab insertion index. Each slot flips at
+    /// its horizontal midpoint, matching the rail's vertical drop policy.
+    pub(super) fn drop_index(
+        &self,
+        px_x: f64,
+        source: &dyn TabBarSource,
+        grid_cols: usize,
+        cell: CellSize,
+        padding: WindowPadding,
+    ) -> Option<usize> {
+        if cell.width == 0 || grid_cols == 0 {
+            return None;
+        }
+        let layout = compute_layout(source, grid_cols);
+        let last = layout.slots.last()?;
+        let local_x = px_x - f64::from(padding.as_f32());
+        let mut insert = last.idx + 1;
+        for slot in &layout.slots {
+            let midpoint = (slot.start_col + slot.end_col) as f64 * f64::from(cell.width) / 2.0;
+            if local_x < midpoint {
+                insert = slot.idx;
+                break;
+            }
+        }
+        Some(insert)
+    }
+
+    /// Paint top-strip grab feedback, a live horizontal proxy, and the drop
+    /// boundary over an already-rendered bar.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn paint_drag_overlay(
+        &self,
+        glyphs: &mut [TabBarGlyph],
+        origin_idx: usize,
+        drop_idx: usize,
+        armed: bool,
+        pointer_x_px: f64,
+        source: &dyn TabBarSource,
+        grid_cols: usize,
+        cell: CellSize,
+        padding: WindowPadding,
+        colors: TabBarColors,
+        panel_surface: Srgb,
+    ) {
+        if grid_cols == 0 || glyphs.len() < grid_cols || cell.width == 0 {
+            return;
+        }
+        let layout = compute_layout(source, grid_cols);
+        let Some(slot) = layout.slots.iter().find(|slot| slot.idx == origin_idx) else {
+            return;
+        };
+        let span = slot.end_col.saturating_sub(slot.start_col);
+        if span == 0 {
+            return;
+        }
+        let lifted_fill = rgb(tab_chrome::active_fill(colors, panel_surface));
+        let lifted_label = rgb(tab_chrome::active_label(colors));
+        let recessed_label = rgb(tab_chrome::inactive_label(colors, 1));
+        let panel = rgb(panel_surface);
+        let source_cells = glyphs[slot.start_col..slot.end_col.min(grid_cols)].to_vec();
+
+        for glyph in &mut glyphs[slot.start_col..slot.end_col.min(grid_cols)] {
+            glyph.attrs.background = if armed { panel } else { lifted_fill };
+            if glyph.ch != ' ' {
+                glyph.attrs.foreground = if armed { recessed_label } else { lifted_label };
+                glyph.attrs.set_bold(!armed);
+            }
+        }
+
+        if armed {
+            let pointer_col = ((pointer_x_px - f64::from(padding.as_f32())) / f64::from(cell.width))
+                .floor() as isize;
+            let proxy_start = pointer_col
+                .saturating_sub((span / 2) as isize)
+                .clamp(0, grid_cols.saturating_sub(span) as isize)
+                as usize;
+            for (offset, source_glyph) in source_cells.into_iter().enumerate() {
+                let mut proxy = source_glyph;
+                proxy.col = proxy_start + offset;
+                proxy.attrs.background = lifted_fill;
+                if proxy.ch != ' ' {
+                    proxy.attrs.foreground = lifted_label;
+                    proxy.attrs.set_bold(true);
+                }
+                glyphs[proxy.col] = proxy;
+            }
+        }
+
+        if armed {
+            let boundary = layout
+                .slots
+                .iter()
+                .find(|slot| slot.idx == drop_idx)
+                .map_or_else(
+                    || layout.slots.last().map_or(0, |slot| slot.end_col),
+                    |slot| slot.start_col,
+                )
+                .min(grid_cols - 1);
+            glyphs[boundary].ch = '\u{2503}';
+            glyphs[boundary].attrs.foreground = lifted_label;
+            glyphs[boundary].attrs.background = lifted_fill;
+            glyphs[boundary].attrs.set_bold(true);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -788,6 +893,74 @@ mod tests {
         let src = MockSource::new(&["a", "b", "c"], 0);
         let layout = compute_layout(&src, GRID_COLS);
         assert_eq!(layout.slots.len(), 3, "three tabs → three layout slots");
+    }
+
+    #[test]
+    fn tab_drop_index_flips_at_each_slot_midpoint() {
+        let src = MockSource::new(&["a", "b", "c"], 0);
+        let layout = compute_layout(&src, GRID_COLS);
+        for slot in &layout.slots {
+            let midpoint_cols = (slot.start_col + slot.end_col) as f64 / 2.0;
+            let midpoint_px = midpoint_cols * f64::from(CELL.width);
+            assert_eq!(
+                bar().drop_index(
+                    midpoint_px - 0.1,
+                    &src,
+                    GRID_COLS,
+                    CELL,
+                    WindowPadding::ZERO
+                ),
+                Some(slot.idx)
+            );
+        }
+        assert_eq!(
+            bar().drop_index(10_000.0, &src, GRID_COLS, CELL, WindowPadding::ZERO),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn tab_drag_lifts_then_tracks_a_horizontal_proxy() {
+        let src = MockSource::new(&["alpha", "beta", "gamma"], 2);
+        let panel = tab_chrome::panel_tint(COLORS, PANEL_STRENGTH);
+        let layout = compute_layout(&src, GRID_COLS);
+        let source = &layout.slots[0];
+        let mut pending = render_default(&src).glyphs;
+        let before = pending[source.label_col].attrs.background;
+        bar().paint_drag_overlay(
+            &mut pending,
+            0,
+            0,
+            false,
+            8.0,
+            &src,
+            GRID_COLS,
+            CELL,
+            WindowPadding::ZERO,
+            COLORS,
+            panel,
+        );
+        assert_ne!(pending[source.label_col].attrs.background, before);
+        assert!(pending[source.label_col].attrs.bold());
+
+        let mut dragged = render_default(&src).glyphs;
+        let pointer_x = 50.0 * f64::from(CELL.width);
+        bar().paint_drag_overlay(
+            &mut dragged,
+            0,
+            2,
+            true,
+            pointer_x,
+            &src,
+            GRID_COLS,
+            CELL,
+            WindowPadding::ZERO,
+            COLORS,
+            panel,
+        );
+        let proxy_start = 50usize.saturating_sub((source.end_col - source.start_col) / 2);
+        assert_eq!(dragged[proxy_start + TAB_PADDING].ch, 'a');
+        assert!(!dragged[source.label_col].attrs.bold());
     }
 
     #[test]

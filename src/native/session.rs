@@ -2878,6 +2878,30 @@ impl WorkspaceSet {
         true
     }
 
+    /// Move a tab in the active workspace from strip index `from` to insertion
+    /// index `to` (`0..=tab_count`). The active tab follows its `Tab` identity,
+    /// so reordering never changes the focused session or pane. Returns `false`
+    /// for invalid indices and no-op drops.
+    pub(super) fn reorder_tab(&mut self, from: usize, to: usize) -> bool {
+        let ws = self.active_workspace_mut();
+        if from >= ws.tabs.len() || to > ws.tabs.len() {
+            return false;
+        }
+        let dest = if to > from { to - 1 } else { to };
+        if dest == from {
+            return false;
+        }
+        let active_token = ws.tabs.get(ws.active_tab).map(|tab| tab.focused);
+        let tab = ws.tabs.remove(from);
+        ws.tabs.insert(dest, tab);
+        if let Some(token) = active_token
+            && let Some(active) = ws.tabs.iter().position(|tab| tab.focused == token)
+        {
+            ws.active_tab = active;
+        }
+        true
+    }
+
     /// Rename the workspace at rail index `idx`. Out-of-range requests are
     /// no-ops. Used by the "Rename Workspace" action / palette entry (targeting
     /// the active index) and, later, the rail's in-place rename.
@@ -5628,6 +5652,24 @@ mod tests {
         assert_eq!(set.token_at_position(3), Some(SessionToken(2)));
         // The moved tab stays active/focused at its new index.
         assert_eq!(set.active_id(), SessionToken(3));
+    }
+
+    #[test]
+    fn reorder_tab_splices_with_insertion_semantics_and_preserves_active_identity() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        set.push(build_session_with_id(SessionToken(1)));
+        set.push(build_session_with_id(SessionToken(2)));
+        assert!(set.switch(SessionToken(1)));
+
+        assert!(set.reorder_tab(0, 3));
+        assert_eq!(set.token_at_position(0), Some(SessionToken(1)));
+        assert_eq!(set.token_at_position(1), Some(SessionToken(2)));
+        assert_eq!(set.token_at_position(2), Some(SessionToken(0)));
+        assert_eq!(set.active_id(), SessionToken(1));
+
+        assert!(!set.reorder_tab(2, 3), "drop after itself is a no-op");
+        assert!(!set.reorder_tab(9, 0), "invalid source is a no-op");
+        assert!(!set.reorder_tab(0, 9), "invalid insertion is a no-op");
     }
 
     #[test]

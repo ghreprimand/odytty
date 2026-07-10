@@ -683,16 +683,18 @@ impl TabRail {
             }
         }
 
-        self.paint_drop_indicator(
-            glyphs,
-            drop_idx,
-            source,
-            rail_cols,
-            grid_rows,
-            geom,
-            colors,
-            panel_surface,
-        );
+        if armed {
+            self.paint_drop_indicator(
+                glyphs,
+                drop_idx,
+                source,
+                rail_cols,
+                grid_rows,
+                geom,
+                colors,
+                panel_surface,
+            );
+        }
     }
 }
 

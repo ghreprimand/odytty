@@ -26,17 +26,49 @@ pub(in crate::native) enum ChromeBand {
     WorkspaceRail,
 }
 
-/// Physical-pixel movement threshold that promotes an armed workspace-rail
-/// press from a click to a drag (RAIL-DRAG). Below this, a press+release on a
-/// slot is a plain activate (or, on the `×`, a close); at or beyond it the
-/// gesture becomes a reorder drag. Kept small so a deliberate drag engages
-/// promptly, but above the incidental jitter of a click so a click never
-/// reorders by accident.
-pub(in crate::native) const RAIL_DRAG_THRESHOLD_PX: f64 = 5.0;
+/// Physical-pixel movement threshold shared by workspace-rail and top-tab
+/// reorder gestures. Below this, press+release remains a plain activation.
+pub(in crate::native) const CHROME_DRAG_THRESHOLD_PX: f64 = 5.0;
+
+/// In-flight drag-to-reorder gesture in the horizontal top tab strip.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(in crate::native) struct TopTabDrag {
+    pub(in crate::native) origin_idx: usize,
+    press_x: f64,
+    press_y: f64,
+    pub(in crate::native) pointer_x: f64,
+    pub(in crate::native) armed: bool,
+    pub(in crate::native) drop_idx: usize,
+}
+
+impl TopTabDrag {
+    pub(in crate::native) fn new(idx: usize, press_x: f64, press_y: f64) -> Self {
+        Self {
+            origin_idx: idx,
+            press_x,
+            press_y,
+            pointer_x: press_x,
+            armed: false,
+            drop_idx: idx,
+        }
+    }
+
+    pub(in crate::native) fn update_arm(&mut self, x: f64, y: f64) -> bool {
+        self.pointer_x = x;
+        if !self.armed {
+            let dx = x - self.press_x;
+            let dy = y - self.press_y;
+            if dx * dx + dy * dy >= CHROME_DRAG_THRESHOLD_PX * CHROME_DRAG_THRESHOLD_PX {
+                self.armed = true;
+            }
+        }
+        self.armed
+    }
+}
 
 /// In-flight drag-to-reorder gesture on a workspace rail slot (RAIL-DRAG). A
 /// left press on a workspace slot ARMS the gesture; pointer motion past
-/// [`RAIL_DRAG_THRESHOLD_PX`] promotes it to an active drag (`armed`); release
+/// [`CHROME_DRAG_THRESHOLD_PX`] promotes it to an active drag (`armed`); release
 /// commits the reorder through the shipped `move_workspace` engine, or — if the
 /// threshold was never crossed — falls through to a plain workspace activate;
 /// Escape cancels with the rail order untouched. The rail auto-hide is held
@@ -51,7 +83,7 @@ pub(in crate::native) struct RailWorkspaceDrag {
     /// Latest physical-pixel Y. The render layer maps this to the floating
     /// proxy's top row, keeping the grabbed slot under the pointer.
     pub(in crate::native) pointer_y: f64,
-    /// `true` once motion crossed [`RAIL_DRAG_THRESHOLD_PX`]: the gesture is a
+    /// `true` once motion crossed [`CHROME_DRAG_THRESHOLD_PX`]: the gesture is a
     /// drag, so release commits a reorder rather than a click activate.
     pub(in crate::native) armed: bool,
     /// Live insertion index (0..=count) the current pointer maps to; only
@@ -73,7 +105,7 @@ impl RailWorkspaceDrag {
     }
 
     /// Feed a fresh pointer position. Promotes to `armed` once the straight-line
-    /// distance from the press crosses [`RAIL_DRAG_THRESHOLD_PX`] (sticky — it
+    /// distance from the press crosses [`CHROME_DRAG_THRESHOLD_PX`] (sticky — it
     /// never disarms). Returns whether the gesture is armed (a drag) after this
     /// sample, so the caller only tracks a drop target while dragging.
     pub(in crate::native) fn update_arm(&mut self, x: f64, y: f64) -> bool {
@@ -81,7 +113,7 @@ impl RailWorkspaceDrag {
         if !self.armed {
             let dx = x - self.press_x;
             let dy = y - self.press_y;
-            if dx * dx + dy * dy >= RAIL_DRAG_THRESHOLD_PX * RAIL_DRAG_THRESHOLD_PX {
+            if dx * dx + dy * dy >= CHROME_DRAG_THRESHOLD_PX * CHROME_DRAG_THRESHOLD_PX {
                 self.armed = true;
             }
         }
@@ -144,6 +176,14 @@ impl App {
         if self.rail_ws_drag.is_some() && button == WinitMouseButton::Left {
             if state == ElementState::Released {
                 self.finish_workspace_drag();
+            }
+            return;
+        }
+        // TOP-TAB-DRAG: like the rail gesture, an in-flight tab press owns the
+        // left button until release, even when the pointer leaves the strip.
+        if self.top_tab_drag.is_some() && button == WinitMouseButton::Left {
+            if state == ElementState::Released {
+                self.finish_top_tab_drag();
             }
             return;
         }
@@ -303,12 +343,7 @@ impl App {
                     ElementState::Pressed,
                     Some((ChromeBand::TopBar, TabHit::Switch(idx))),
                 ) => {
-                    let Some(token) = self.sessions.token_at_position(idx) else {
-                        return;
-                    };
-                    if self.sessions.switch(token) {
-                        self.on_active_session_changed();
-                    }
+                    self.begin_top_tab_drag(idx);
                     return;
                 }
                 (
@@ -1199,12 +1234,83 @@ impl App {
     }
 
     // -----------------------------------------------------------------------
+    // TOP-TAB-DRAG: drag-to-reorder tabs in the horizontal strip
+    // -----------------------------------------------------------------------
+
+    pub(super) fn begin_top_tab_drag(&mut self, idx: usize) {
+        match self.pointer_px {
+            Some((x, y)) => {
+                self.top_tab_drag = Some(TopTabDrag::new(idx, x, y));
+                self.invalidate_chrome_drag_frame();
+            }
+            None => self.activate_tab(idx),
+        }
+    }
+
+    pub(super) fn drag_top_tab_to_pointer(&mut self, x_px: f64, y_px: f64, cell: CellSize) {
+        let Some(mut drag) = self.top_tab_drag else {
+            return;
+        };
+        let armed = drag.update_arm(x_px, y_px);
+        if armed
+            && let Some(insert) = self.tab_bar.drop_index(
+                x_px,
+                &self.sessions,
+                self.tab_bar_grid_cols(),
+                cell,
+                self.gpu
+                    .as_ref()
+                    .map(GpuState::window_padding)
+                    .unwrap_or(WindowPadding::ZERO),
+            )
+        {
+            drag.drop_idx = insert;
+        }
+        self.top_tab_drag = Some(drag);
+        if armed {
+            self.apply_cursor_icon(CursorIcon::Grabbing);
+            self.invalidate_chrome_drag_frame();
+        }
+    }
+
+    pub(super) fn finish_top_tab_drag(&mut self) {
+        let Some(drag) = self.top_tab_drag.take() else {
+            return;
+        };
+        if drag.armed {
+            let _ = self.sessions.reorder_tab(drag.origin_idx, drag.drop_idx);
+        } else {
+            self.activate_tab(drag.origin_idx);
+        }
+        self.apply_cursor_icon(CursorIcon::Default);
+        self.invalidate_chrome_drag_frame();
+    }
+
+    pub(super) fn cancel_top_tab_drag(&mut self) -> bool {
+        if self.top_tab_drag.take().is_none() {
+            return false;
+        }
+        self.apply_cursor_icon(CursorIcon::Default);
+        self.invalidate_chrome_drag_frame();
+        true
+    }
+
+    fn activate_tab(&mut self, idx: usize) {
+        let Some(token) = self.sessions.token_at_position(idx) else {
+            return;
+        };
+        if self.sessions.switch(token) {
+            self.on_active_session_changed();
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // RAIL-DRAG: drag-to-reorder workspaces in the rail
     // -----------------------------------------------------------------------
 
     /// Arm a drag-to-reorder gesture on the workspace slot at `idx` (RAIL-DRAG).
     /// Records the press position as the threshold origin; the gesture stays a
-    /// click (no reorder) until motion crosses `RAIL_DRAG_THRESHOLD_PX`. Setting
+    /// click (no reorder) until motion crosses `CHROME_DRAG_THRESHOLD_PX`. Setting
     /// `rail_ws_drag` is itself what holds an auto-hide rail open for the
     /// gesture: `rail_pinned_open()` reads `rail_ws_drag.is_some()`, so the rail
     /// stays revealed for the drag's whole lifetime and the drop target can
@@ -1215,7 +1321,7 @@ impl App {
         match self.pointer_px {
             Some((x, y)) => {
                 self.rail_ws_drag = Some(RailWorkspaceDrag::new(idx, x, y));
-                self.invalidate_workspace_drag_frame();
+                self.invalidate_chrome_drag_frame();
             }
             None => self.activate_workspace(idx),
         }
@@ -1240,7 +1346,7 @@ impl App {
             // follows every pointer sample, even while its insertion boundary
             // remains unchanged.
             self.apply_cursor_icon(CursorIcon::Grabbing);
-            self.invalidate_workspace_drag_frame();
+            self.invalidate_chrome_drag_frame();
         }
     }
 
@@ -1259,7 +1365,8 @@ impl App {
         } else {
             self.activate_workspace(drag.origin_idx);
         }
-        self.invalidate_workspace_drag_frame();
+        self.apply_cursor_icon(CursorIcon::Default);
+        self.invalidate_chrome_drag_frame();
     }
 
     /// Cancel an in-flight workspace-rail drag (RAIL-DRAG) with the rail order
@@ -1271,7 +1378,8 @@ impl App {
         if self.rail_ws_drag.take().is_none() {
             return false;
         }
-        self.invalidate_workspace_drag_frame();
+        self.apply_cursor_icon(CursorIcon::Default);
+        self.invalidate_chrome_drag_frame();
         true
     }
 
@@ -1280,7 +1388,7 @@ impl App {
     /// pinned rail chrome are not terminal revisions, so the renderer can
     /// otherwise classify the rebuilt snapshot as retained and re-present the
     /// previous GPU geometry until an unrelated presentation epoch changes.
-    fn invalidate_workspace_drag_frame(&mut self) {
+    fn invalidate_chrome_drag_frame(&mut self) {
         self.needs_rebuild = true;
         self.presentation_epoch = self.presentation_epoch.wrapping_add(1);
         if let Some(window) = self.window.as_ref() {

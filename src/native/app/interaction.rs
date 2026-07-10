@@ -1616,6 +1616,10 @@ impl App {
             self.drag_workspace_to_pointer(x_px, y_px, cell);
             return;
         }
+        if self.top_tab_drag.is_some() {
+            self.drag_top_tab_to_pointer(x_px, y_px, cell);
+            return;
+        }
         // F4-P3 rail auto-hide: feed the live pointer to the reveal machine
         // (arms/holds/hides the floating overlay). While the rail is revealed and
         // the pointer is over its band, the overlay owns the pointer — do rail
