@@ -813,7 +813,7 @@ impl App {
         Some((x_px as f32 - body_left_px) / cell.width.max(1) as f32)
     }
 
-    fn update_hover_hyperlink(&mut self) {
+    pub(super) fn update_hover_hyperlink(&mut self) {
         let hovered = self
             .pointer_cell
             .and_then(|point| self.visible_cell_hyperlink(point));
@@ -835,7 +835,7 @@ impl App {
     /// so the default hover path never scans and produces byte-identical frames.
     /// When on, it dedupes exactly like [`Self::update_hover_hyperlink`]: the
     /// rebuild flag/redraw fire only when the resolved span actually changes.
-    fn update_hover_path(&mut self) {
+    pub(super) fn update_hover_path(&mut self) {
         if !self.settings.interactive_paths {
             // Clear a stale span if the setting was toggled off live while one
             // was hovered; otherwise nothing to do — the scanner never runs.
@@ -884,7 +884,7 @@ impl App {
     /// scan, so the default hover path is a single bool test and byte-identical.
     /// When on, it latches the openable URL under the pointer (if any) and fires
     /// a redraw only when the resolved URL or its span actually changes.
-    fn update_hover_url(&mut self) {
+    pub(super) fn update_hover_url(&mut self) {
         if !self.settings.interactive_urls {
             if self.hovered_url.is_some() || self.hovered_url_cells.is_some() {
                 self.hovered_url = None;

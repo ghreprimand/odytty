@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Rail interactions and Ctrl+click open work on split tabs
+
+Two pointer-routing fixes for tabs that are split into panes. Both were masked by
+the multipane left-press branch, which intercepts presses inside the content
+rect; its guard checked only the vertical bound, so it caught and mis-handled
+presses that belonged elsewhere.
+
+- Workspace-rail left interactions were dead whenever the active tab was split.
+  With a side rail a rail-slot press sits at `x` outside the content rect but `y`
+  inside it, so the y-only guard matched, resolved to no pane, and a bare return
+  swallowed the press before chrome routing ran. The result: switch-click, drag,
+  slot close, and the rail `+` all stopped working on a split tab (hover still
+  lit, so the rail looked live but ignored clicks). Adding the horizontal content
+  bound lets a press outside the content rect fall through to chrome routing, so
+  drag-to-reorder arms and advances and a plain click switches workspace again.
+  Pure hit-test geometry; no Windows surface.
+
+- Ctrl+click open helpers (OSC 8 hyperlink, interactive path incl. the inline
+  image viewer, bare URL) never fired in a split. The single-pane press path
+  tries those helpers before starting a selection, but the split branch began a
+  selection directly. It now mirrors the single-pane ladder. Hover resolution is
+  suppressed over a non-focused pane, so the branch re-resolves the hover span
+  against the just-focused pane before the ladder reads it; only when no helper
+  fires does the press begin a selection. Pure pointer routing; no Windows
+  surface.
+
+Real-route regression tests cover both on a split active tab: a rail-slot press
+arms and commits a reorder (and a plain click switches workspace), and a
+Ctrl+click on a resolved path consumes the press without selecting while a plain
+click still begins a selection. These exercise the real `handle_mouse_input`
+route with a split tab, which the shipped tests missed by driving only
+single-pane tabs. `cargo test --lib`, `cargo fmt --check`, and `cargo clippy
+--all-targets -- -D warnings` pass (3454 tests).
+
+---
+
 ## 2026-07-10 -- Right-click context menu no longer blocks the event loop
 
 Opening a context menu could freeze the whole window for seconds. `open_context_menu`

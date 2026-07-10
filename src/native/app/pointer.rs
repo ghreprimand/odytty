@@ -209,17 +209,26 @@ impl App {
         // tab, so this whole branch is skipped there and the press path stays
         // byte-identical.
         //
-        // Gated on the press landing *inside* the content rect (`y >= content.y`):
-        // the tab strip sits above the content rect (`content.y == pad + tab_h`),
-        // so a click on the tab bar fails this guard and falls through to the
-        // tab-bar handling below instead of being swallowed by an unconditional
-        // `return` here — otherwise tabs can't be switched/closed once a tab is
-        // split (the press matches neither a divider nor a pane and returns).
+        // Gated on the press landing *inside* the content rect on BOTH axes:
+        // the tab strip sits above the content rect (`content.y == pad + tab_h`)
+        // and a side workspace rail sits beside it (`content.x` is the rail's
+        // inner edge), so a click on either chrome band fails this guard and
+        // falls through to the chrome routing below instead of being swallowed by
+        // an unconditional `return` here. The y-bound alone shipped first and the
+        // SIDE band was forgotten: with a left/right rail a rail-slot press has
+        // `y >= content.y` but `x` outside the content rect, so it matched here,
+        // resolved to no pane, and the bare `return` killed every rail
+        // left-interaction (switch/drag/close/+) whenever the active tab was
+        // split. The x-bound restores chrome routing for those presses; a
+        // divider-gap press inside the content rect still resolves to no pane and
+        // returns as before.
         if button == WinitMouseButton::Left
             && state == ElementState::Pressed
             && let Some((content, _cell)) = self.multipane_geometry()
             && let Some((x_px, y_px)) = self.pointer_px
             && y_px as f32 >= content.y
+            && x_px as f32 >= content.x
+            && (x_px as f32) < content.x + content.w
         {
             let (x, y) = (x_px as f32, y_px as f32);
             if let Some(idx) = self.sessions.active_divider_at_point(
@@ -256,7 +265,28 @@ impl App {
                 if let Some(point) = self.active_pane_pointer_cell_at(x_px, y_px) {
                     self.pointer_cell = Some(point);
                 }
-                self.begin_selection();
+                // Bug 4 (Ctrl+click in a split): the single-pane press path tries
+                // the open helpers (OSC 8 hyperlink, interactive path incl. the
+                // inline image viewer, bare URL) BEFORE selection; this branch
+                // historically began a selection directly, so Ctrl+click never
+                // reached `open_image_view` in a split. Mirror the single-pane
+                // ladder here. Hover resolution is suppressed while the pointer is
+                // over a NON-focused pane, so the latched hover spans would be
+                // stale (or `None`) for a pane that was not focused when the
+                // pointer moved over it. The clicked pane is now the focused pane
+                // and `pointer_cell` was recomputed against its grid, so
+                // re-resolving the hover spans here latches them exactly as a
+                // single-pane focused hover would before the ladder reads them.
+                self.update_hover_hyperlink();
+                self.update_hover_path();
+                self.update_hover_url();
+                if !self.try_open_hovered_hyperlink()
+                    && !self.try_open_hovered_path()
+                    && !self.try_open_hovered_url()
+                {
+                    self.note_possible_path_misclick();
+                    self.begin_selection();
+                }
             }
             return;
         }

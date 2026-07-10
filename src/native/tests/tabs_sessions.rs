@@ -2,6 +2,8 @@
 //! Headless multi-session foundation tests for the tabs packet.
 
 use crate::core::Color;
+use crate::native::app::interactive_paths::MapProbe;
+use crate::paths::FsKind;
 use crate::settings::{TabBarHeight, TabRailWidth};
 
 use super::super::pty::UserEvent;
@@ -3154,6 +3156,131 @@ fn prefix_focus_next_cycles_panes() {
     );
 }
 
+/// FIX-C (Bug 4): the Ctrl+click open ladder now runs inside a split. Builds a
+/// two-pane columns split whose ORIGINAL (left) pane -- deliberately NOT the
+/// focused pane after the split -- holds a resolvable `:line` file path, so the
+/// scenario exercises hover recompute after the focus switch (hover resolution
+/// is suppressed over a non-focused pane, so the latched span is stale/None until
+/// the click focuses the pane). A bogus editor override keeps the open a no-op
+/// (Command spawn fails NotFound before any process starts), so the test never
+/// spawns a real opener on the shared box. Returns the app + the left pane's id.
+#[cfg(test)]
+fn split_app_with_path_in_left_pane() -> Option<(App, usize)> {
+    let cols = 40usize;
+    let rows = 20usize;
+    let cw = 8u32;
+    let ch = 16u32;
+    let dims = Dimensions::new(cols, rows);
+    // The left/original pane holds the path.
+    let (t_left, w_left, p_left, _b_left) = recorded_session(dims)?;
+    t_left
+        .lock()
+        .expect("left terminal")
+        .advance(b"/proj/src/main.rs:42");
+    let left_id = 0usize; // the first session's token id
+    let mut app = App::new(
+        NativeOptions::default(),
+        t_left,
+        w_left,
+        p_left,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    // `test_cell` / `test_surface` / `test_path_probe` are per-session; set them on
+    // the left pane now (while it is active) so its geometry AND path stat-gate
+    // resolve after a focus switch back to it, then again on the right pane below.
+    app.set_test_cell_for_test(cell(cw, ch));
+    app.set_test_surface_for_test(cols as u32 * cw, rows as u32 * ch, WindowPadding::ZERO);
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
+    // Split along columns; focus lands on the NEW (right) pane, so the left pane
+    // with the path is the non-focused one.
+    let (t_right, w_right, p_right, _b_right) = recorded_session(dims)?;
+    let right_id = app.seed_split_pane_for_test(true, t_right, w_right, p_right);
+    assert_ne!(right_id, left_id, "focus is on the new right pane");
+    app.set_test_cell_for_test(cell(cw, ch));
+    app.set_test_surface_for_test(cols as u32 * cw, rows as u32 * ch, WindowPadding::ZERO);
+    app.set_test_path_probe_for_test(MapProbe::new([("/proj/src/main.rs", FsKind::File)]));
+    // interactive_paths + the editor override are App-level settings (one set).
+    app.set_interactive_paths_for_test(true);
+    // A guaranteed-absent opener: the `:line` file routes through the editor
+    // matrix, so this argv[0] is what Command tries to spawn -> NotFound, no
+    // process, and the ladder still reports the path handled.
+    app.set_interactive_paths_editor_for_test("odytty_test_no_such_opener");
+    Some((app, left_id))
+}
+
+/// The host open modifier: Cmd (super) on macOS, Ctrl on Linux/Windows.
+#[cfg(test)]
+fn hold_open_modifier(app: &mut App, held: bool) {
+    if cfg!(target_os = "macos") {
+        app.set_super_key_for_test(held);
+    } else {
+        app.set_ctrl_modifier_for_test(held);
+    }
+}
+
+#[test]
+fn ctrl_click_in_a_split_runs_the_open_ladder_instead_of_selecting() {
+    // Bug 4: the single-pane press path tries the Ctrl+click open helpers (OSC 8
+    // hyperlink, interactive path incl. the inline image viewer, bare URL) before
+    // beginning a selection; the multipane branch used to begin a selection
+    // directly, so Ctrl+click never reached the ladder in a split. With the fix,
+    // a Ctrl+click on a resolved path in a split focuses the pane, re-resolves the
+    // hover span against it, and runs the ladder -- consuming the press so NO
+    // selection begins.
+    let Some((mut app, left_id)) = split_app_with_path_in_left_pane() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Hover col ~5 of the path at row 0 of the LEFT pane (x well inside the left
+    // half). The left pane is not focused, so hover resolution is suppressed and
+    // the span does not latch yet.
+    app.pointer_move_for_test(8.0 * 5.5, 16.0 * 0.5);
+    assert!(
+        app.hovered_path_for_test().is_none(),
+        "hover is suppressed over the non-focused pane, so nothing latches yet"
+    );
+    // Ctrl+press: the branch focuses the left pane, re-resolves the hover span
+    // there, and the ladder fires -- no selection begins.
+    hold_open_modifier(&mut app, true);
+    app.mouse_left_press_for_test();
+    assert_eq!(
+        app.focused_pane_id_for_test(),
+        left_id,
+        "the press focused the clicked (left) pane"
+    );
+    assert!(
+        !app.selecting_for_test(),
+        "the open ladder consumed the Ctrl+press, so no selection began"
+    );
+    hold_open_modifier(&mut app, false);
+    app.mouse_left_release_for_test();
+}
+
+#[test]
+fn a_plain_click_in_a_split_still_begins_a_selection() {
+    // The modifier-gated control: WITHOUT the open modifier, the ladder no-ops and
+    // the split branch falls through to begin a selection exactly as before, so
+    // plain click-drag selection in a split is unchanged.
+    let Some((mut app, left_id)) = split_app_with_path_in_left_pane() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.pointer_move_for_test(8.0 * 5.5, 16.0 * 0.5);
+    // No modifier held.
+    app.mouse_left_press_for_test();
+    assert_eq!(
+        app.focused_pane_id_for_test(),
+        left_id,
+        "the plain press still focuses the clicked pane"
+    );
+    assert!(
+        app.selecting_for_test(),
+        "a plain press over the path begins a selection (ladder is modifier-gated)"
+    );
+    app.mouse_left_release_for_test();
+}
+
 #[test]
 fn prefix_close_pane_collapses_the_split() {
     let Some((mut app, _fixtures)) = app_with_two_sessions() else {
@@ -4626,6 +4753,93 @@ fn a_dragged_workspace_order_persists_through_the_shape_snapshot() {
     assert_eq!(
         shape.active_workspace, 1,
         "the snapshot captures the active index after the reorder"
+    );
+}
+
+/// RAIL-DRAG (Bug 3 / split): `rail_drag_app` whose ACTIVE workspace tab is a
+/// two-pane split, plus a headless surface so `multipane_geometry` resolves.
+/// This is the case the shipped drag tests missed -- they only drove a
+/// single-pane active tab, so the multipane left-press branch (which swallowed
+/// every rail press once the active tab was split) was never on the path.
+#[cfg(test)]
+fn rail_drag_split_app() -> Option<App> {
+    let mut app = rail_drag_app()?;
+    let dims = NativeOptions::default().initial_grid;
+    let (terminal, writer, pty, _bytes) = recorded_session(dims)?;
+    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    // `test_cell` / `test_surface` are per-session (reached via Deref to the
+    // active pane); the split focused a fresh pane, so re-apply them there. A
+    // window wide enough that the reserved left rail leaves a real content region
+    // beside it, so a rail-slot press sits at x < content.x.
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    assert_eq!(
+        app.active_pane_count_for_test(),
+        2,
+        "the active workspace tab is a two-pane split"
+    );
+    Some(app)
+}
+
+#[test]
+fn a_rail_drag_reorders_even_when_the_active_tab_is_split() {
+    // Bug 3: with a LEFT rail and a split active tab, the multipane left-press
+    // branch used to swallow the rail-slot press -- its guard checked only the
+    // y-bound, so a press with x in the rail but y in the content matched, found
+    // no pane, and the bare return killed the gesture. The added x-bound restores
+    // chrome routing: the press arms the drag, motion advances it, and release
+    // commits the reorder, exactly as on a single-pane tab.
+    let Some(mut app) = rail_drag_split_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Press rail slot 0 (a): with the split active tab this must still ARM the
+    // gesture rather than being swallowed by the multipane branch.
+    app.set_pointer_px_for_test(12.0, 24.0);
+    assert_eq!(
+        app.chrome_hit_band_for_test(),
+        Some("workspace"),
+        "the pointer is over a rail slot"
+    );
+    app.mouse_left_press_for_test();
+    assert_eq!(
+        app.rail_ws_drag_for_test(),
+        Some((false, 0)),
+        "the rail press arms the gesture even with a split active tab"
+    );
+    // Drag past every slot midpoint -> the append drop slot.
+    app.pointer_move_for_test(12.0, 140.0);
+    assert_eq!(
+        app.rail_ws_drag_for_test(),
+        Some((true, 3)),
+        "motion advances the drag across a split active tab"
+    );
+    app.mouse_left_release_for_test();
+    assert_eq!(app.rail_ws_drag_for_test(), None, "release clears the drag");
+    assert_eq!(
+        app.workspace_names_for_test(),
+        vec!["b", "c", "a"],
+        "the release committed the reorder"
+    );
+}
+
+#[test]
+fn a_plain_rail_click_switches_workspace_when_the_active_tab_is_split() {
+    // The click sibling of the drag: a press+release (no motion) on a rail slot
+    // switches the active workspace even with a split active tab -- direct proof
+    // the rail press is no longer swallowed by the multipane branch.
+    let Some(mut app) = rail_drag_split_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Active starts at c (index 2). Click rail slot 0 (a).
+    app.set_pointer_px_for_test(12.0, 24.0);
+    app.mouse_left_press_for_test();
+    app.mouse_left_release_for_test();
+    assert_eq!(
+        app.active_workspace_index_for_test(),
+        0,
+        "a rail click switches the active workspace across a split active tab"
     );
 }
 
