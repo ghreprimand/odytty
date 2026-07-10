@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-09 -- Regression guard for inline images in split panes
+
+The multipane image path (inline graphics inside a split) now has a real-GPU
+render proof. A synthetic two-pane vertical split places a solid image in the
+left pane spanning wider than that pane's content rect, renders the layer's
+below-text and above-text placement passes, and reads the framebuffer back. It
+asserts the image color appears inside the pane, is clipped to the pane's
+scissor at the divider (no bleed across the split), stops at the pane origin
+below its rows, and never appears in the empty neighbour pane. The existing
+placement-geometry tests only exercised the pixel math; this covers the actual
+`update_panes` to `draw_below`/`draw_above` render route on a real device. It is
+GPU-gated, so it runs on CI's GPU and skips where no adapter is present (the
+agent shells, headless). Test-only; no runtime behavior changed. Rendering is
+platform-neutral wgpu, identical on Unix and Windows.
+
+---
+
 ## 2026-07-09 -- Returning to a backgrounded tab no longer strands the viewport
 
 Switching back to a tab that was scrolled up into history could leave it stuck

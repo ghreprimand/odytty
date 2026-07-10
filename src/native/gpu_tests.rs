@@ -1085,6 +1085,253 @@ fn overlay_uses_linear_sampling_for_scaled_images() {
     device.poll(wgpu::PollType::wait_indefinitely()).ok();
 }
 
+/// Bug 4 regression (Phase 3 Cut 1, `bd84d3f`): an inline image placed in a
+/// split pane must actually reach the framebuffer, clipped to that pane's
+/// sub-rect. The unit geometry tests exercise `placement_quad_with_origin`, but
+/// only a real-GPU render of the `update_panes` -> `draw_below`/`draw_above`
+/// path proves an image renders in a split at all -- the feel-test symptom was
+/// "inline images do not show in splits". Mirrors the single-pane overlay
+/// render+readback proof (`overlay_draws_image_over_backing_onto_swapchain`);
+/// the only added variable is the two-pane split.
+///
+/// Geometry: a 64x48 surface split vertically into a left pane (content rect
+/// `[0,0,24,48]`) and a right pane (`[24,0,40,48]`). A 32x32 solid-blue image is
+/// placed at row 0 / col 0 of the LEFT pane, spanning 4x4 cells (32x32 px) --
+/// wider than the 24 px pane, so the per-pane scissor MUST clip its right edge
+/// at the divider. The right pane holds no image. The scene is cleared to green
+/// (stands in for the panes' own background/glyph fill).
+///
+/// Asserts:
+/// - inside the left pane's image region -> the image color (the split path
+///   renders -- exactly what Bug 4 said was missing),
+/// - past the divider (inside the image's raw 32 px geometry but outside the
+///   left pane's 24 px scissor) -> the scene color, not the image (per-pane
+///   clip holds; no bleed across the divider),
+/// - below the image inside the left pane -> the scene color (pane origin is
+///   respected; the image is not stretched to fill the pane),
+/// - deep in the right pane -> the scene color (no cross-pane bleed).
+///
+/// GPU-gated (skips when no adapter is available); runs on CI's real GPU.
+#[test]
+fn split_pane_inline_image_renders_clipped_to_its_pane() {
+    use crate::graphics::{
+        GraphicsProtocol, PlacementId, SourceRect, StoredImageId, VisiblePlacement,
+    };
+
+    let Some((device, queue)) = test_device_with_hdr() else {
+        return;
+    };
+    const W: u32 = 64;
+    const H: u32 = 48;
+    let mut layer =
+        super::image_layer::ImageLayer::new(&device, TEST_SURFACE_FORMAT, TEST_SURFACE_FORMAT);
+    let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("test-split-image-viewport"),
+        contents: bytemuck::bytes_of(&ViewportUniform {
+            size: [W as f32, H as f32],
+            effect: [0.0, 1.0],
+            text: [1.0, 0.0, 0.0, 0.0],
+        }),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+
+    // A 32x32 fully-opaque blue image (0,0,255,255).
+    let img: Vec<u8> = std::iter::repeat_n([0u8, 0, 255, 255], 32 * 32)
+        .flatten()
+        .collect();
+    let cell = CellSize {
+        width: 8,
+        height: 8,
+        baseline: 6,
+    };
+
+    // One placement at row 0 / col 0 spanning 4x4 cells -> 32x32 px, wider than
+    // the left pane's 24 px content rect.
+    let placement = VisiblePlacement {
+        id: PlacementId(1),
+        image_id: StoredImageId(1),
+        protocol: GraphicsProtocol::Sixel,
+        row: 0,
+        column: 0,
+        source: SourceRect {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        },
+        display_columns: 4,
+        display_rows: 4,
+        pixel_offset_x: 0,
+        pixel_offset_y: 0,
+        z_index: 0,
+        generation: 1,
+    };
+
+    // LEFT pane holds the image; RIGHT pane is empty. Namespaces disambiguate
+    // per-terminal image ids across panes (unused here, but the real path keys
+    // on them).
+    let left_pane = super::image_layer::PaneImageInput {
+        namespace: 1,
+        placements: std::slice::from_ref(&placement),
+        origin: [0.0, 0.0],
+        scissor: [0, 0, 24, 48],
+    };
+    let right_pane = super::image_layer::PaneImageInput {
+        namespace: 2,
+        placements: &[],
+        origin: [24.0, 0.0],
+        scissor: [24, 0, 40, 48],
+    };
+    let upload = super::image_layer::PaneImageUpload {
+        namespace: 1,
+        upload: super::image_layer::ImageUpload {
+            id: StoredImageId(1),
+            width: 32,
+            height: 32,
+            generation: 1,
+            rgba: img,
+        },
+    };
+    layer.update_panes(
+        &device,
+        &queue,
+        &viewport_buf,
+        &[left_pane, right_pane],
+        std::slice::from_ref(&upload),
+        cell,
+        [W, H],
+    );
+
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("test-split-image-target"),
+        size: wgpu::Extent3d {
+            width: W,
+            height: H,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TEST_SURFACE_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("test-split-image-encoder"),
+    });
+    // Single scene pass: clear to green (the panes' stand-in background), then
+    // draw the image layer exactly as `render` does (below-text then
+    // above-text placements). z_index 0 draws in the `draw_above` half.
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("test-split-image-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        layer.draw_below(&mut pass);
+        layer.draw_above(&mut pass);
+    }
+
+    let bpr = {
+        let unpadded = W * 4;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        unpadded.div_ceil(align) * align
+    };
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("test-split-image-readback"),
+        size: bpr as u64 * H as u64,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &target,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bpr),
+                rows_per_image: Some(H),
+            },
+        },
+        wgpu::Extent3d {
+            width: W,
+            height: H,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(std::iter::once(encoder.finish()));
+
+    let slice = readback.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| {
+        tx.send(r).ok();
+    });
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("device poll");
+    rx.recv().expect("map cb").expect("map readback");
+    let mapped = slice.get_mapped_range();
+    let mut pixels = Vec::with_capacity((W * H * 4) as usize);
+    for row in mapped.chunks(bpr as usize).take(H as usize) {
+        pixels.extend_from_slice(&row[..(W * 4) as usize]);
+    }
+    drop(mapped);
+    readback.unmap();
+
+    let at = |x: u32, y: u32| {
+        let i = ((y * W + x) * 4) as usize;
+        [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]]
+    };
+
+    // Inside the left pane's image region -> blue. This is the Bug 4 core proof:
+    // an image placed in a split pane actually renders.
+    let inside = at(4, 4);
+    assert!(
+        inside[2] >= 180 && inside[0] <= 40 && inside[1] <= 40,
+        "an image placed in a split pane must render its color, got {inside:?}"
+    );
+    // Past the divider (x=28): inside the image's raw 32 px geometry but outside
+    // the left pane's 24 px scissor -> clipped to the scene color, never blue.
+    let clipped = at(28, 4);
+    assert!(
+        clipped[1] >= 150 && clipped[2] <= 40,
+        "the per-pane scissor must clip the image at the divider, got {clipped:?}"
+    );
+    // Below the image inside the left pane (y=40 >= 32) -> scene color; the image
+    // is anchored at the pane origin and not stretched to fill the pane.
+    let below = at(12, 40);
+    assert!(
+        below[1] >= 150 && below[2] <= 40,
+        "the image must not fill the pane below its rows, got {below:?}"
+    );
+    // Deep in the right pane -> scene color; no cross-pane bleed.
+    let right = at(50, 24);
+    assert!(
+        right[1] >= 150 && right[2] <= 40,
+        "the right pane holds no image and must stay the scene color, got {right:?}"
+    );
+
+    device.poll(wgpu::PollType::wait_indefinitely()).ok();
+}
+
 fn test_device_with_hdr() -> Option<(wgpu::Device, wgpu::Queue)> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
