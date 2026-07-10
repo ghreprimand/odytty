@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-citadel
+appearance = dark
+
+foreground = #e9eef3
+background = #18202b
+clear = #111820
+
+cursor = #9fc1e8
+selection = #30465e
+search = #51431d
+border = #36495c
+inactive = #8090a1
+
+color0 = #222e3c
+color1 = #d97786
+color2 = #87c69b
+color3 = #d7b76f
+color4 = #88acd6
+color5 = #b096c7
+color6 = #7fc4c5
+color7 = #cbd3dc
+color8 = #455466
+color9 = #ee9aa6
+color10 = #a9d6b5
+color11 = #e8ce92
+color12 = #abc8e8
+color13 = #c8b3db
+color14 = #a1dddd
+color15 = #f7f9fb

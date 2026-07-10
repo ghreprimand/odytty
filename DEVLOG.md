@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Theme library grows to 142 palettes
+
+Six original OdysseyOS palettes expand the built-in library from 136 to 142:
+four dark palettes named Inkwell, Citadel, Verdigris, and Wildfire, plus the
+Moonstone and Primrose light palettes. Each is a complete `.theme` definition
+loaded through the existing registry and parser path, with no runtime code-path
+change.
+
+The library assertion and public count claims now match the 142-theme roster.
+The existing contrast, appearance, parse, bright-row, and uniqueness coverage
+validates the new files across Unix and Windows without a platform-specific
+surface. `cargo test --lib theme`, `cargo fmt --check`, and `cargo clippy
+--all-targets -- -D warnings` pass; no remaining gaps are known for this
+data-only batch.
+
+---
+
 ## 2026-07-09 -- Regression guard for inline images in split panes
 
 The multipane image path (inline graphics inside a split) now has a real-GPU
@@ -160,7 +177,7 @@ Linux.
 Swept the public doc set against shipped reality ahead of the next release. The
 multipane completion work (inline graphics in splits, per-pane selection/search
 overlays, sub-cell pixel scroll in a focused pane), rail drag reorder, the
-Duplicate Workspace/Tab chords, adjustable tab-bar height, and the 136-theme
+Duplicate Workspace/Tab chords, adjustable tab-bar height, and the 142-theme
 roster were each checked to have an accurate mention where a reader would look,
 with every surviving single-pane caveat verified still true. One stale line
 remained: the pane fast-follow checklist item still claimed inline graphics

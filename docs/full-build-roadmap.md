@@ -120,7 +120,7 @@ overlay framework; an in-app settings panel where every setting is editable,
 live-applied, and written back to the config file; a live theme picker; an
 in-app custom theme builder (clone, tweak, live preview, save); and CLI config
 introspection. A dependency-free `.theme` format, a full 16-color + bright ANSI
-palette plus semantic roles, and a curated 136-theme built-in library (dark and
+palette plus semantic roles, and a curated 142-theme built-in library (dark and
 light, all contrast-validated).
 
 **The visual engine.** A perceptual color pipeline (OKLab/OKLCH) with linear-
@@ -451,7 +451,7 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   popular community palettes under their real names only where the upstream license
   permits redistribution and brand guidelines are followed and attributed,
   without implying endorsement.
-- **Ongoing — Theme-library expansion** past 100 (data-only). Roster now 136 after a further contrast-validated batch of 12 original OdysseyOS palettes (9 dark + 3 light: stormy slate-blue, green aurora, plasma magenta, teal monsoon, aubergine, forest spruce, indigo cosmos, copper, and crimson darks plus seaglass, driftwood, and cool-grey lights), following earlier batches that brought it to 112 then 124; the track stays open.
+- **Ongoing — Theme-library expansion** past 100 (data-only). Roster now 142 after a further contrast-validated batch of six original OdysseyOS palettes (4 dark + 2 light: inkwell navy, citadel slate, verdigris teal, and wildfire ember darks plus moonstone and primrose lights), following earlier batches that brought it to 112, 124, then 136; the track stays open.
 
 ## Track 8 — Positioning & performance posture
 

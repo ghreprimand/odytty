@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-moonstone-light
+appearance = light
+
+foreground = #25354b
+background = #eff5fc
+clear = #ffffff
+
+cursor = #346fae
+selection = #c9ddf2
+search = #f4dea4
+border = #aebfd3
+inactive = #687a91
+
+color0 = #52657a
+color1 = #b34d5b
+color2 = #397b5d
+color3 = #8b6418
+color4 = #356ba8
+color5 = #805299
+color6 = #277e86
+color7 = #dbe4ef
+color8 = #7f91a5
+color9 = #d26876
+color10 = #559876
+color11 = #ad842b
+color12 = #548aca
+color13 = #a572ba
+color14 = #439da4
+color15 = #ffffff

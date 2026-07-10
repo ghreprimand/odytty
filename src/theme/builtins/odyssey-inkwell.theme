@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-inkwell
+appearance = dark
+
+foreground = #e6edf7
+background = #0c1422
+clear = #070d17
+
+cursor = #78b7ff
+selection = #1a3658
+search = #4f3e16
+border = #1d2d45
+inactive = #687a93
+
+color0 = #142238
+color1 = #f06f85
+color2 = #73d7a7
+color3 = #e8c56a
+color4 = #78b7ff
+color5 = #b798ed
+color6 = #73d6e6
+color7 = #c9d4e3
+color8 = #30445f
+color9 = #ff98a9
+color10 = #9ce9bf
+color11 = #f4d88b
+color12 = #a4d0ff
+color13 = #d0b7ff
+color14 = #9ae8f2
+color15 = #f7faff

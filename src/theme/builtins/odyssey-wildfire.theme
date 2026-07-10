@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-wildfire
+appearance = dark
+
+foreground = #f4e7dc
+background = #271512
+clear = #190d0b
+
+cursor = #ffad62
+selection = #5a2c20
+search = #624216
+border = #5c3026
+inactive = #a18073
+
+color0 = #3b211e
+color1 = #ef7565
+color2 = #adcb77
+color3 = #e4bd65
+color4 = #8eafe5
+color5 = #d396c4
+color6 = #7fc9c2
+color7 = #ddc9bb
+color8 = #684037
+color9 = #ff9c89
+color10 = #c6e199
+color11 = #f4d889
+color12 = #b1caf5
+color13 = #e9b3d8
+color14 = #a3e1d8
+color15 = #fff8f0

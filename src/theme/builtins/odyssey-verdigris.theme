@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-verdigris
+appearance = dark
+
+foreground = #e2f0ea
+background = #0d211f
+clear = #071714
+
+cursor = #63d4bd
+selection = #17423d
+search = #4c4016
+border = #1d4a43
+inactive = #6f9288
+
+color0 = #14312e
+color1 = #e67876
+color2 = #71cf99
+color3 = #d6bd68
+color4 = #6db9da
+color5 = #bc98d7
+color6 = #61cdbd
+color7 = #c5d9d1
+color8 = #31544f
+color9 = #f19b96
+color10 = #99e0b3
+color11 = #ead589
+color12 = #94d5ee
+color13 = #d1b5ec
+color14 = #8ce1d2
+color15 = #f2fbf6

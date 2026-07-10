@@ -1,0 +1,30 @@
+# OdyTTY theme
+name = odyssey-primrose-light
+appearance = light
+
+foreground = #3b3025
+background = #fff7e8
+clear = #fffdf8
+
+cursor = #a76022
+selection = #f0d8b2
+search = #f2db82
+border = #d9bf93
+inactive = #83705d
+
+color0 = #6a5a4b
+color1 = #ae4e4a
+color2 = #4d7d4c
+color3 = #8d6416
+color4 = #4e6f9e
+color5 = #8b5982
+color6 = #3e7f78
+color7 = #eadbc8
+color8 = #968372
+color9 = #cf6b65
+color10 = #6f9e68
+color11 = #ae8428
+color12 = #7292c0
+color13 = #ab779f
+color14 = #5b9e95
+color15 = #ffffff

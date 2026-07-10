@@ -532,6 +532,30 @@ const REGISTRY: &[(&str, &str)] = &[
         "odyssey-storm-light",
         include_str!("builtins/odyssey-storm-light.theme"),
     ),
+    (
+        "odyssey-inkwell",
+        include_str!("builtins/odyssey-inkwell.theme"),
+    ),
+    (
+        "odyssey-citadel",
+        include_str!("builtins/odyssey-citadel.theme"),
+    ),
+    (
+        "odyssey-verdigris",
+        include_str!("builtins/odyssey-verdigris.theme"),
+    ),
+    (
+        "odyssey-wildfire",
+        include_str!("builtins/odyssey-wildfire.theme"),
+    ),
+    (
+        "odyssey-moonstone-light",
+        include_str!("builtins/odyssey-moonstone-light.theme"),
+    ),
+    (
+        "odyssey-primrose-light",
+        include_str!("builtins/odyssey-primrose-light.theme"),
+    ),
 ];
 
 static LIBRARY: OnceLock<Vec<Theme>> = OnceLock::new();
@@ -585,7 +609,7 @@ mod tests {
     #[test]
     fn library_has_the_full_roster() {
         assert_eq!(all().len(), REGISTRY.len());
-        assert_eq!(all().len(), 136, "roster size changed — update docs + this");
+        assert_eq!(all().len(), 142, "roster size changed — update docs + this");
     }
 
     #[test]
