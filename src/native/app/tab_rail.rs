@@ -274,10 +274,14 @@ impl TabRail {
         // + seam quads are added separately in the background segment by the
         // integration layer. `panel_strength = 0` collapses the tint to the raw
         // background (the pre-panel bare-labels look).
-        let panel_surface = rgb(tab_chrome::panel_tint(colors, panel_strength));
-        let active_fill = rgb(tab_chrome::active_fill(colors));
+        let panel_srgb = tab_chrome::panel_tint(colors, panel_strength);
+        let panel_surface = rgb(panel_srgb);
+        // ACTIVE-FILL: lift the `selection` slab against THIS panel surface (see
+        // tab_bar) so the active workspace slot reads on every theme; hover
+        // re-bases on the panel toward that guaranteed fill.
+        let active_fill = rgb(tab_chrome::active_fill(colors, panel_srgb));
         let active_lbl = rgb(tab_chrome::active_label(colors));
-        let hover_fill = rgb(tab_chrome::hover_fill(colors));
+        let hover_fill = rgb(tab_chrome::hover_fill(colors, panel_srgb));
         let hover_lbl = rgb(tab_chrome::hover_label(colors));
         let dim_plus = rgb(colors.inactive);
 
@@ -560,6 +564,7 @@ impl TabRail {
         grid_rows: usize,
         geom: RailGeom,
         colors: TabBarColors,
+        panel_surface: Srgb,
     ) {
         if rail_cols == 0 || grid_rows == 0 || glyphs.len() < rail_cols * grid_rows {
             return;
@@ -577,7 +582,7 @@ impl TabRail {
         if row >= grid_rows {
             return;
         }
-        let accent = rgb(tab_chrome::active_fill(colors));
+        let accent = rgb(tab_chrome::active_fill(colors, panel_surface));
         let (c0, c1) = slot_fill_cols(rail_cols, None);
         for col in c0..c1.min(rail_cols) {
             let g = &mut glyphs[row * rail_cols + col];
@@ -1461,7 +1466,10 @@ mod tests {
         let src = MockSource::new(&["aaa", "bbb"], 0);
         let out = render_default(&src);
         let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
-        let active_fill = rgb(tab_chrome::active_fill(COLORS));
+        let active_fill = rgb(tab_chrome::active_fill(
+            COLORS,
+            tab_chrome::panel_tint(COLORS, PANEL_STRENGTH),
+        ));
         let active = &layout.slots[0];
         // Label cell + the content-seam cell (last col) both carry the fill.
         assert_eq!(
@@ -1490,7 +1498,10 @@ mod tests {
         let out = render_with(&hovered_rail(TabHit::Switch(hovered.idx)), &src);
         assert_eq!(
             bg_at(&out, hovered.start_row, SLOT_LABEL_START_COL),
-            rgb(tab_chrome::hover_fill(COLORS)),
+            rgb(tab_chrome::hover_fill(
+                COLORS,
+                tab_chrome::panel_tint(COLORS, PANEL_STRENGTH)
+            )),
             "hovered slot gains the whisper fill"
         );
         let hover_luma = luma(bg_label_fg(&out, hovered.start_row));
@@ -1503,7 +1514,10 @@ mod tests {
         );
         assert_ne!(
             bg_at(&out, hovered.start_row, SLOT_LABEL_START_COL),
-            rgb(tab_chrome::active_fill(COLORS)),
+            rgb(tab_chrome::active_fill(
+                COLORS,
+                tab_chrome::panel_tint(COLORS, PANEL_STRENGTH)
+            )),
             "hover fill is a whisper, not the active fill"
         );
     }
@@ -1575,7 +1589,10 @@ mod tests {
         let plus = out.glyphs.iter().find(|g| g.ch == '+').expect("+ glyph");
         assert_eq!(
             plus.attrs.background,
-            rgb(tab_chrome::hover_fill(COLORS)),
+            rgb(tab_chrome::hover_fill(
+                COLORS,
+                tab_chrome::panel_tint(COLORS, PANEL_STRENGTH)
+            )),
             "+ gains the whisper fill on hover"
         );
         assert!(
@@ -1925,7 +1942,16 @@ mod tests {
         // (slot 1 starts at row 4, so row 3). A fill-band column carries the
         // heavy-rule glyph; the outer inset column (0) does not.
         let mut glyphs = out.glyphs.clone();
-        rail().paint_drop_indicator(&mut glyphs, 1, &src, RAIL_COLS, GRID_ROWS, GEOM, COLORS);
+        rail().paint_drop_indicator(
+            &mut glyphs,
+            1,
+            &src,
+            RAIL_COLS,
+            GRID_ROWS,
+            GEOM,
+            COLORS,
+            tab_chrome::panel_tint(COLORS, PANEL_STRENGTH),
+        );
         assert_eq!(
             glyphs[3 * RAIL_COLS + 2].ch,
             '\u{2501}',
@@ -1933,12 +1959,30 @@ mod tests {
         );
         // Insertion before slot 0 → the gap row above slot 0 (row 0).
         let mut glyphs0 = out.glyphs.clone();
-        rail().paint_drop_indicator(&mut glyphs0, 0, &src, RAIL_COLS, GRID_ROWS, GEOM, COLORS);
+        rail().paint_drop_indicator(
+            &mut glyphs0,
+            0,
+            &src,
+            RAIL_COLS,
+            GRID_ROWS,
+            GEOM,
+            COLORS,
+            tab_chrome::panel_tint(COLORS, PANEL_STRENGTH),
+        );
         assert_eq!(glyphs0[2].ch, '\u{2501}');
         // Append after the last slot (index == count) → the row below slot 2
         // (which ends at row 9).
         let mut glyphs_end = out.glyphs.clone();
-        rail().paint_drop_indicator(&mut glyphs_end, 3, &src, RAIL_COLS, GRID_ROWS, GEOM, COLORS);
+        rail().paint_drop_indicator(
+            &mut glyphs_end,
+            3,
+            &src,
+            RAIL_COLS,
+            GRID_ROWS,
+            GEOM,
+            COLORS,
+            tab_chrome::panel_tint(COLORS, PANEL_STRENGTH),
+        );
         assert_eq!(glyphs_end[9 * RAIL_COLS + 2].ch, '\u{2501}');
     }
 
@@ -1948,7 +1992,16 @@ mod tests {
         let out = render_default(&src);
         let mut glyphs = out.glyphs.clone();
         let before = glyphs.clone();
-        rail().paint_drop_indicator(&mut glyphs, 0, &src, RAIL_COLS, GRID_ROWS, GEOM, COLORS);
+        rail().paint_drop_indicator(
+            &mut glyphs,
+            0,
+            &src,
+            RAIL_COLS,
+            GRID_ROWS,
+            GEOM,
+            COLORS,
+            tab_chrome::panel_tint(COLORS, PANEL_STRENGTH),
+        );
         assert_eq!(glyphs, before, "no slots → nothing painted");
     }
 }

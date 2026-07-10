@@ -99,24 +99,71 @@ pub(super) const SEAM_MAX_LUMA: f64 = 0.60;
 /// guard the old `border`-role incident lacked.
 pub(super) const SEAM_MIN_PANEL_DELTA: f64 = 0.02;
 
+/// ACTIVE-FILL legibility floor: the minimum WCAG contrast RATIO the active-slot
+/// fill guarantees against the panel surface it rests on. The raw `selection`
+/// role is often only ~1.05:1 against the panel tint on a dark theme (the fill
+/// reads as invisible; only the bold label signals active), so the fill is
+/// lifted until it clears this ratio — a clearly visible warm slab that still
+/// keeps the theme hue. Kept modest (a slab, not a glow) and capped at
+/// [`SEAM_MAX_LUMA`] so the fill never crosses the bloom threshold.
+pub(super) const ACTIVE_FILL_MIN_PANEL_RATIO: f64 = 1.35;
+
 // ---------------------------------------------------------------------------
 // Treatment functions (theme roles → sRGB)
 // ---------------------------------------------------------------------------
 
-/// The wallpaper-through background for inactive slots, inter-slot gaps, and the
-/// bar band: the theme `background`, painted explicitly so both render paths
-/// agree. Composites through `cell_bg_opacity` exactly like an empty terminal
-/// cell, so inactive tabs recede into the wallpaper.
+/// The wallpaper-through background: the theme `background`. Now only a test
+/// reference for "the raw wallpaper" (the resting cells paint the panel tint,
+/// and the hover fill re-bases on that panel), so it is compiled only under
+/// `cfg(test)` -- production reads `colors.background` / `panel_tint` directly.
+#[cfg(test)]
 pub(super) fn wallpaper_background(colors: TabBarColors) -> Srgb {
     colors.background
 }
 
-/// The ACTIVE-slot fill — the `selection` role. This is the **bloom-off
-/// fallback**: it is always emitted, so the active tab reads as a warm anchor
-/// even when CRT/bloom is disabled (the auto-glow is a bonus on top, not the
-/// only signal).
-pub(super) fn active_fill(colors: TabBarColors) -> Srgb {
-    colors.active_bg
+/// The ACTIVE-slot fill — the `selection` role, LIFTED away from the panel
+/// surface until it clears [`ACTIVE_FILL_MIN_PANEL_RATIO`] (WCAG contrast). This
+/// is the **bloom-off fallback**: always emitted, so the active tab reads as a
+/// warm anchor even when CRT/bloom is disabled. The raw `selection` role is often
+/// nearly panel-colored on a dark theme (~1.05:1), so the fill would be invisible
+/// with only the bold label to signal active; the lift restores a clearly visible
+/// slab. Mirrors [`seam_color`]'s guaranteed-delta bisection, but toward a WCAG
+/// RATIO floor: start from `selection` (its own luma first capped so the slab
+/// never blooms), and if it is too close to the panel, bisect toward a
+/// bloom-capped `foreground` (direction-correct on every theme — lighter on dark,
+/// darker on light) for the minimal lift that clears the floor. The result luma
+/// is capped at [`SEAM_MAX_LUMA`], so the fill never haloes.
+pub(super) fn active_fill(colors: TabBarColors, panel_surface: Srgb) -> Srgb {
+    // The slab itself must never bloom: cap its own luminance like the seam.
+    let mut fill = colors.active_bg;
+    if relative_luminance(fill) > SEAM_MAX_LUMA {
+        fill = dim_to_luma(fill, SEAM_MAX_LUMA);
+    }
+    let ratio = |s: Srgb| crate::theme::contrast_ratio(s, panel_surface);
+    if ratio(fill) >= ACTIVE_FILL_MIN_PANEL_RATIO {
+        return fill;
+    }
+    // Too close to the panel — lift toward the (bloom-capped) foreground until
+    // the ratio clears the floor. Bisection on the blend fraction; the predicate
+    // is a clean false->true step (the blended luma moves monotonically away
+    // from the panel toward the higher-contrast target), so this converges to the
+    // minimal lift.
+    let target = if relative_luminance(colors.foreground) > SEAM_MAX_LUMA {
+        dim_to_luma(colors.foreground, SEAM_MAX_LUMA)
+    } else {
+        colors.foreground
+    };
+    let mut lo = 0.0f32;
+    let mut hi = 1.0f32;
+    for _ in 0..24 {
+        let mid = 0.5 * (lo + hi);
+        if ratio(blend_srgb(fill, target, mid)) >= ACTIVE_FILL_MIN_PANEL_RATIO {
+            hi = mid;
+        } else {
+            lo = mid;
+        }
+    }
+    blend_srgb(fill, target, hi)
 }
 
 /// The ACTIVE-slot label color. On a dark fill (the phosphor/dark-theme case)
@@ -168,12 +215,16 @@ pub(super) fn new_slot_plus_rest(colors: TabBarColors) -> Srgb {
     )
 }
 
-/// The HOVER fill color: the wallpaper-through background blended a whisper
-/// toward the `selection` role — subordinate to the active fill.
-pub(super) fn hover_fill(colors: TabBarColors) -> Srgb {
+/// The HOVER fill color: the PANEL surface blended a whisper toward the
+/// guaranteed active fill — subordinate to the active fill, above the resting
+/// panel. Re-basing on the panel (not the raw `background`) fixes the inversion
+/// where a hovered slot dimmed BELOW its resting panel surface: because the
+/// resting cell IS the panel, blending from the panel toward the (lifted) active
+/// fill makes rest < hover < active hold by construction on every theme.
+pub(super) fn hover_fill(colors: TabBarColors, panel_surface: Srgb) -> Srgb {
     blend_srgb(
-        wallpaper_background(colors),
-        colors.active_bg,
+        panel_surface,
+        active_fill(colors, panel_surface),
         HOVER_FILL_BLEND,
     )
 }
@@ -424,8 +475,32 @@ mod tests {
     }
 
     #[test]
-    fn active_fill_is_the_selection_role() {
-        assert_eq!(active_fill(COLORS), COLORS.active_bg);
+    fn active_fill_lifts_a_panel_colored_selection_to_clear_the_ratio() {
+        // A `selection` role sitting right on the panel (an invisible slab) is
+        // lifted until it clears the legibility ratio floor; the lift never
+        // blooms. A selection already clear of the panel is returned unchanged.
+        let panel = panel_tint(COLORS, 0.5);
+        let flat = TabBarColors {
+            active_bg: panel,
+            ..COLORS
+        };
+        let lifted = active_fill(flat, panel);
+        assert!(
+            crate::theme::contrast_ratio(lifted, panel) >= ACTIVE_FILL_MIN_PANEL_RATIO - 1e-6,
+            "a panel-colored selection must lift to clear the ratio floor, got {:.3}",
+            crate::theme::contrast_ratio(lifted, panel),
+        );
+        assert!(
+            relative_luminance(lifted) <= SEAM_MAX_LUMA + 1e-6,
+            "the lifted fill must not bloom",
+        );
+        if crate::theme::contrast_ratio(COLORS.active_bg, panel) >= ACTIVE_FILL_MIN_PANEL_RATIO {
+            assert_eq!(
+                active_fill(COLORS, panel),
+                COLORS.active_bg,
+                "an already-legible selection is returned unchanged",
+            );
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -566,26 +641,41 @@ mod tests {
             let hover_lbl = relative_luminance(hover_label(colors));
             let floor_lbl = relative_luminance(scale_srgb(colors.inactive, RAMP_FLOOR));
 
+            // (4) The active fill clears the legibility RATIO floor against the
+            // panel it rests on -- the core fix. Opacity-independent (a raw color
+            // relationship), so asserted once. Fails-before on themes whose raw
+            // `selection` sits ~1.05:1 on the panel (e.g. odyssey-default): that
+            // is the built-in evidence this guard is real.
+            let fill = active_fill(colors, panel);
+            let fill_ratio = crate::theme::contrast_ratio(fill, panel);
+            assert!(
+                fill_ratio >= ACTIVE_FILL_MIN_PANEL_RATIO - 1e-6,
+                "{}: active fill vs panel ratio {fill_ratio:.3} < {ACTIVE_FILL_MIN_PANEL_RATIO}",
+                theme.name,
+            );
+            // ...and the lifted slab never crosses the bloom threshold.
+            assert!(
+                relative_luminance(fill) <= SEAM_MAX_LUMA + 1e-6,
+                "{}: active fill blooms",
+                theme.name,
+            );
+            // Fills ladder: rest (the panel itself) < hover < active in distance
+            // from the panel, so a hover lifts a slot TOWARD active rather than
+            // dimming it below the panel (the pre-fix hover inversion).
+            let hover_f = hover_fill(colors, panel);
+            let fdist = |c: Srgb| (relative_luminance(c) - panel_luma).abs();
+            assert!(
+                fdist(hover_f) > 0.0 && fdist(hover_f) <= fdist(fill) + 1e-9,
+                "{}: hover fill dist {:.4} not between panel and active fill dist {:.4}",
+                theme.name,
+                fdist(hover_f),
+                fdist(fill),
+            );
+
             for opacity in [1.0f32, 0.5f32] {
                 let p = panel_wash_alpha(STRENGTH, opacity);
-                let veiled_fill = blend_srgb(active_fill(colors), panel, p);
-                let veiled_fill_luma = relative_luminance(veiled_fill);
-
-                // (4) Active fill (after veil) locatable vs the panel. The wash
-                // shrinks the raw fill-vs-panel delta by ~`(1 − p)`, so the floor
-                // tracks the same factor — the invariant is that the *raw* fill
-                // clears `MIN_ACTIVE_FILL_PANEL_DELTA`, which the veiled floor
-                // enforces at every regime. (Even when the veiled fill is nearly
-                // panel-colored on a monochrome theme, the active tab stays
-                // locatable via the bold bright label — invariant 5 — and bloom.)
-                let veiled_floor = MIN_ACTIVE_FILL_PANEL_DELTA * (1.0 - p as f64);
-                assert!(
-                    (veiled_fill_luma - panel_luma).abs() >= veiled_floor - 1e-9,
-                    "{}: veiled active fill vs panel delta {:.4} < {veiled_floor:.4} (opacity {opacity})",
-                    theme.name,
-                    (veiled_fill_luma - panel_luma).abs()
-                );
-                // (5) Active label pops off the veiled fill.
+                let veiled_fill_luma = relative_luminance(blend_srgb(fill, panel, p));
+                // (5) Active label pops off the veiled fill in every regime.
                 assert!(
                     (active_lbl - veiled_fill_luma).abs() >= MIN_ACTIVE_LABEL_FILL_DELTA,
                     "{}: active label vs veiled fill delta {:.4} < {MIN_ACTIVE_LABEL_FILL_DELTA} (opacity {opacity})",
@@ -655,7 +745,7 @@ mod tests {
             let reveal_panel = blend_srgb(MID_GRAY, panel, p_reveal);
             let reveal_panel_luma = relative_luminance(reveal_panel);
             // The active fill cell veiled by the near-opaque panel wash.
-            let veiled_fill = blend_srgb(active_fill(colors), panel, p_reveal);
+            let veiled_fill = blend_srgb(active_fill(colors, panel), panel, p_reveal);
             let veiled_fill_luma = relative_luminance(veiled_fill);
             let active_lbl = relative_luminance(active_label(colors));
             let inactive_lbl = relative_luminance(inactive_label(colors, 1));

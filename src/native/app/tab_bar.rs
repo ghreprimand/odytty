@@ -251,10 +251,14 @@ impl TabBar {
         // the raw background, so the bar reads as one quiet surface even at
         // `cell_bg_opacity = 1`; `panel_strength = 0` collapses it to the theme
         // background (the pre-panel bare-labels look).
-        let panel_surface = rgb(tab_chrome::panel_tint(colors, panel_strength));
-        let active_fill = rgb(tab_chrome::active_fill(colors));
+        let panel_srgb = tab_chrome::panel_tint(colors, panel_strength);
+        let panel_surface = rgb(panel_srgb);
+        // ACTIVE-FILL: lift the `selection` slab against THIS panel surface so it
+        // clears the legibility ratio floor; hover re-bases on the panel toward
+        // that guaranteed fill (rest < hover < active).
+        let active_fill = rgb(tab_chrome::active_fill(colors, panel_srgb));
         let active_lbl = rgb(tab_chrome::active_label(colors));
-        let hover_fill = rgb(tab_chrome::hover_fill(colors));
+        let hover_fill = rgb(tab_chrome::hover_fill(colors, panel_srgb));
         let hover_lbl = rgb(tab_chrome::hover_label(colors));
         // RAIL-PLUS-GAP / F4-PLUS: the resting `+` lifts out of the dim inactive
         // floor so it reads as a deliberate "add" control; hover still goes full
@@ -1033,7 +1037,10 @@ mod tests {
         let src = MockSource::new(&["aaa", "bbb"], 0);
         let out = render_default(&src);
         let layout = compute_layout(&src, GRID_COLS);
-        let active_fill = rgb(tab_chrome::active_fill(COLORS));
+        let active_fill = rgb(tab_chrome::active_fill(
+            COLORS,
+            tab_chrome::panel_tint(COLORS, PANEL_STRENGTH),
+        ));
         let wallpaper = rgb(tab_chrome::wallpaper_background(COLORS));
         assert_eq!(
             out.glyphs[layout.slots[0].label_col].attrs.background, active_fill,
@@ -1104,7 +1111,10 @@ mod tests {
         let out = render_with(&hovered_bar(TabHit::Switch(hovered.idx)), &src);
         assert_eq!(
             out.glyphs[hovered.label_col].attrs.background,
-            rgb(tab_chrome::hover_fill(COLORS)),
+            rgb(tab_chrome::hover_fill(
+                COLORS,
+                tab_chrome::panel_tint(COLORS, PANEL_STRENGTH)
+            )),
             "hovered tab gains the whisper fill"
         );
         let hover_luma = luma(out.glyphs[hovered.label_col].attrs.foreground);
@@ -1120,7 +1130,10 @@ mod tests {
         );
         assert_ne!(
             out.glyphs[hovered.label_col].attrs.background,
-            rgb(tab_chrome::active_fill(COLORS)),
+            rgb(tab_chrome::active_fill(
+                COLORS,
+                tab_chrome::panel_tint(COLORS, PANEL_STRENGTH)
+            )),
             "hover fill is a whisper, not the active fill"
         );
     }
@@ -1151,7 +1164,10 @@ mod tests {
         let plus = out.glyphs.iter().find(|g| g.ch == '+').expect("+ glyph");
         assert_eq!(
             plus.attrs.background,
-            rgb(tab_chrome::hover_fill(COLORS)),
+            rgb(tab_chrome::hover_fill(
+                COLORS,
+                tab_chrome::panel_tint(COLORS, PANEL_STRENGTH)
+            )),
             "+ gains the whisper fill on hover"
         );
         assert!(

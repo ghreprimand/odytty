@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Active tab and workspace slot read clearly against the panel
+
+The active tab and active workspace slot were hard to tell apart from the
+inactive ones. Both share one treatment: the active slot fills with the raw
+`selection` role. Against the panel-tint surface the slots rest on, that role is
+often nearly panel-colored on a dark theme (as little as ~1.05:1 WCAG contrast),
+so the fill read as invisible and only the bold label signalled which slot was
+active. A second defect compounded it: the hover fill blended from the raw theme
+background, which predates the panel tint, so hovering a slot could darken it
+BELOW its resting panel surface -- an inverted, dimmer-on-hover response.
+
+The active fill now lifts the `selection` role away from the panel until it
+clears a legibility contrast ratio, using the same guaranteed-delta bisection the
+panel seam uses: start from `selection` (its own luminance first capped so the
+slab never blooms), and if it sits too close to the panel, bisect toward a
+bloom-capped `foreground` for the minimal lift that clears the floor. The lift is
+direction-correct on every theme (lighter on dark themes, darker on light) and
+its luminance is capped below the bloom threshold, so the slab never haloes. The
+theme files are untouched -- `selection` stays subtle as the text-selection
+background; only the chrome treatment lifts it. The hover fill is re-based on the
+panel surface toward that guaranteed fill, so rest (the panel) < hover < active
+holds by construction and hovering always lifts a slot toward active. Both the
+top tab bar and the workspace rail inherit the shared treatment, and the rail
+drop-target rule uses the same lifted fill so it reads over the wash.
+
+The per-theme guard is retargeted from a tiny luminance delta to the contrast
+RATIO floor across all built-in themes and both opacity regimes, with a new
+fills-ladder check that rest < hover < active in distance from the panel. The
+ratio floor fails-before on the built-in evidence (a theme whose raw selection
+sat just under the floor) and passes after the lift. Pure color; no
+platform-specific surface. `cargo test --lib` (3457 tests), `cargo fmt --check`,
+and `cargo clippy --all-targets -- -D warnings` pass.
+
+---
+
 ## 2026-07-10 -- Tab-bar and rail labels center on the true band pixel center
 
 A multi-row tab bar sat its label low, and a workspace-rail slot label sat high.

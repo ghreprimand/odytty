@@ -3044,6 +3044,10 @@ impl App {
         rows: usize,
     ) {
         if let Some(drag) = self.rail_ws_drag.filter(|d| d.armed) {
+            let colors = self.tab_bar_colors();
+            // ACTIVE-FILL: the drop rule uses the same lifted active fill the
+            // slots do, so it reads over the panel wash on every theme.
+            let panel_srgb = tab_chrome::panel_tint(colors, self.tab_panel_strength());
             self.tab_rail.paint_drop_indicator(
                 glyphs,
                 drag.drop_idx,
@@ -3051,7 +3055,8 @@ impl App {
                 cols,
                 rows,
                 self.rail_geom(),
-                self.tab_bar_colors(),
+                colors,
+                panel_srgb,
             );
         }
     }
