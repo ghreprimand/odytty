@@ -669,14 +669,40 @@ impl App {
         // (drawn below as the overlay), so it contributes no pinned strip.
         let show_top = show_tab_bar;
         let show_rail = self.should_show_workspace_rail() && !self.rail_autohide_active();
-        let mut chrome_strips: Vec<(Snapshot, [f32; 2], Vec<SolidQuad>)> = Vec::new();
+        // Each chrome strip carries its own TAB-LABEL-CENTERING sub-row label
+        // offset: the top-bar band centers its label row (biased low by the
+        // `rows / 2` snap on even heights) and the rail centers its slot label
+        // (biased high by the `(slot_rows - 1) / 2` snap). The strip snapshot IS
+        // the band, so the offset applies across the whole strip.
+        let mut chrome_strips: Vec<ChromeStrip> = Vec::new();
         if show_top && let Some((snapshot, quads)) = self.tab_bar_strip(cell, padding) {
-            chrome_strips.push((snapshot, self.top_bar_origin_px(cell), quads));
+            let band_dy = crate::grid::band_label_center_dy_rows(
+                snapshot.dimensions.rows,
+                snapshot.dimensions.rows / 2,
+            );
+            chrome_strips.push(ChromeStrip {
+                snapshot,
+                origin: self.top_bar_origin_px(cell),
+                quads,
+                band_glyph_dy_rows: band_dy,
+                rail_glyph_dy_rows: 0.0,
+            });
         }
         if show_rail {
             let side = self.workspace_rail_side();
             if let Some((snapshot, quads)) = self.tab_rail_strip(cell, padding, surface_h, side) {
-                chrome_strips.push((snapshot, self.rail_origin_px(cell), quads));
+                let slot_rows = self.rail_geom().slot_rows;
+                let rail_dy = crate::grid::band_label_center_dy_rows(
+                    slot_rows,
+                    slot_rows.saturating_sub(1) / 2,
+                );
+                chrome_strips.push(ChromeStrip {
+                    snapshot,
+                    origin: self.rail_origin_px(cell),
+                    quads,
+                    band_glyph_dy_rows: 0.0,
+                    rail_glyph_dy_rows: rail_dy,
+                });
             }
         }
 
@@ -709,10 +735,10 @@ impl App {
         // Each chrome strip renders from its own origin: the top bar past a left
         // rail, the rail at the window edge (right rail: far side). They never
         // overlap the content rect (reserved out of it above).
-        for (snapshot, origin, _) in &chrome_strips {
+        for strip in &chrome_strips {
             panes.push(PaneRender {
-                snapshot,
-                origin: *origin,
+                snapshot: &strip.snapshot,
+                origin: strip.origin,
                 focused: false,
                 cursor_style: crate::core::CursorStyle::default(),
                 focus_dim: 0.0,
@@ -720,6 +746,10 @@ impl App {
                 treatment,
                 // Chrome strips never glide sub-row.
                 clip: crate::grid::VClip::NONE,
+                // TAB-LABEL-CENTERING: this strip's own label offset (one axis is
+                // always 0.0 — a strip is either the top bar or the rail).
+                band_glyph_dy_rows: strip.band_glyph_dy_rows,
+                rail_glyph_dy_rows: strip.rail_glyph_dy_rows,
             });
         }
         // Inactive-pane dimming: the focused pane is never dimmed (`0.0`), the
@@ -738,6 +768,9 @@ impl App {
                 overlays: &[],
                 treatment,
                 clip: *clip,
+                // Content panes carry no chrome label; the offsets are inert.
+                band_glyph_dy_rows: 0.0,
+                rail_glyph_dy_rows: 0.0,
             });
         }
 
@@ -756,8 +789,8 @@ impl App {
         // overlap. Empty when the strip is hidden / no outline is emitted, so
         // the zoomed and single-tab multi-pane frames are unchanged.
         let mut frame_quads = divider_quads;
-        for (_, _, strip_quads) in &chrome_strips {
-            frame_quads.extend_from_slice(strip_quads);
+        for strip in &chrome_strips {
+            frame_quads.extend_from_slice(&strip.quads);
         }
         // F4-P1 unified tab panel + seam: background-segment quads behind the tab
         // chrome (same layer as the NF11 edge wash). Empty when the bar is hidden
@@ -911,6 +944,19 @@ impl App {
         }
         Some((snapshot, output.quads))
     }
+}
+
+/// One composited chrome strip (the top tab bar or the workspace rail) for the
+/// multi-pane render: its own snapshot, physical-pixel origin, solid quads
+/// (active-tab outline / rail drop indicator), and TAB-LABEL-CENTERING sub-row
+/// label offsets (exactly one axis is non-zero -- a strip is either the top bar
+/// or the rail).
+struct ChromeStrip {
+    snapshot: Snapshot,
+    origin: [f32; 2],
+    quads: Vec<SolidQuad>,
+    band_glyph_dy_rows: f32,
+    rail_glyph_dy_rows: f32,
 }
 
 /// Place a single-row tab-bar glyph output into a `rows`-tall band starting at

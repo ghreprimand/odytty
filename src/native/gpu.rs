@@ -38,11 +38,19 @@ use post::{PostProcessOptions, PostProcessResources};
 /// each single-pane frame so [`GpuState::chrome_pin`] can hold the tab bar / rail
 /// still while the terminal content glides. Column indices are in the decorated
 /// snapshot's coordinate space (post tab-chrome decoration).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ChromePinGeom {
     pub(super) top_rows: usize,
     pub(super) rail_col_start: usize,
     pub(super) rail_col_end: usize,
+    /// TAB-LABEL-CENTERING: sub-row glyph shift (cell-height units) for the top
+    /// tab band's label row; `0.0` on a single-row / odd-height bar. Computed by
+    /// the App layer (which knows the bar height + label convention) and copied
+    /// straight into [`grid::ChromePin`].
+    pub(super) band_glyph_dy_rows: f32,
+    /// TAB-LABEL-CENTERING: the rail analog for the side workspace rail's slot
+    /// label; `0.0` on a single-row / odd-height slot.
+    pub(super) rail_glyph_dy_rows: f32,
 }
 
 /// One pane's render inputs for [`GpuState::update_from_panes`] (design doc
@@ -79,6 +87,13 @@ pub(super) struct PaneRender<'a> {
     /// divider. [`grid::VClip::NONE`] (chrome strips, single-pane, at-rest panes)
     /// is inert, leaving the frame byte-identical.
     pub(super) clip: grid::VClip,
+    /// TAB-LABEL-CENTERING: sub-row glyph shift (cell-height units) for a top
+    /// tab-bar chrome strip, recentering its label row on the band's true center.
+    /// `0.0` (every content pane and the rail strip) is inert.
+    pub(super) band_glyph_dy_rows: f32,
+    /// TAB-LABEL-CENTERING: sub-row glyph shift for a workspace-rail chrome strip.
+    /// `0.0` (every content pane and the top-bar strip) is inert.
+    pub(super) rail_glyph_dy_rows: f32,
 }
 
 /// A window-level overlay drawn **topmost** over a multi-pane composite
@@ -122,6 +137,36 @@ pub(super) struct RailOverlay<'a> {
     pub(super) wash: Option<SolidQuad>,
     /// Content-facing seam quad drawn over the strip, or `None`.
     pub(super) seam: Option<SolidQuad>,
+}
+
+/// TAB-LABEL-CENTERING: the [`grid::ChromePin`] for one multi-pane render input.
+/// A content pane (and a chrome strip with no label offset) yields
+/// `ChromePin::NONE` — byte-identical to the pre-feature split path. A top tab
+/// bar or workspace-rail chrome strip yields a pin carrying only its sub-row
+/// label offset: the strip snapshot IS the band, so the whole snapshot's rows
+/// (top bar) or columns (rail) are the band the offset applies to. Sub-cell
+/// scroll glide on a chrome strip is never in play (`scroll_offset_y == 0`), so
+/// the scroll-pin branches stay inert; only the label offset fires.
+fn pane_chrome_pin(pane: &PaneRender) -> grid::ChromePin {
+    if pane.band_glyph_dy_rows == 0.0 && pane.rail_glyph_dy_rows == 0.0 {
+        return grid::ChromePin::NONE;
+    }
+    grid::ChromePin {
+        scroll_offset_y: 0.0,
+        top_rows: if pane.band_glyph_dy_rows != 0.0 {
+            pane.snapshot.dimensions.rows
+        } else {
+            0
+        },
+        rail_col_start: 0,
+        rail_col_end: if pane.rail_glyph_dy_rows != 0.0 {
+            pane.snapshot.dimensions.columns
+        } else {
+            0
+        },
+        band_glyph_dy_rows: pane.band_glyph_dy_rows,
+        rail_glyph_dy_rows: pane.rail_glyph_dy_rows,
+    }
 }
 
 pub(super) fn theme_clear_color(theme: &Theme) -> wgpu::Color {
@@ -1599,14 +1644,27 @@ impl GpuState {
     /// no chrome to pin or no glide is in flight, so the plain / at-rest path
     /// stays byte-identical.
     fn chrome_pin(&self) -> grid::ChromePin {
-        match self.chrome_pin_geom {
-            Some(geom) if self.scroll_frac_offset != 0.0 => grid::ChromePin {
-                scroll_offset_y: self.scroll_frac_offset,
-                top_rows: geom.top_rows,
-                rail_col_start: geom.rail_col_start,
-                rail_col_end: geom.rail_col_end,
-            },
-            _ => grid::ChromePin::NONE,
+        let Some(geom) = self.chrome_pin_geom else {
+            return grid::ChromePin::NONE;
+        };
+        // TAB-LABEL-CENTERING: the sub-row label offsets apply even at rest, so
+        // the pin is live whenever a glide is running OR a band carries a
+        // centering offset. A pin with no glide and no offsets is byte-identical
+        // to NONE (every gated branch is inert), so the plain single-row-chrome
+        // frame is unchanged.
+        if self.scroll_frac_offset == 0.0
+            && geom.band_glyph_dy_rows == 0.0
+            && geom.rail_glyph_dy_rows == 0.0
+        {
+            return grid::ChromePin::NONE;
+        }
+        grid::ChromePin {
+            scroll_offset_y: self.scroll_frac_offset,
+            top_rows: geom.top_rows,
+            rail_col_start: geom.rail_col_start,
+            rail_col_end: geom.rail_col_end,
+            band_glyph_dy_rows: geom.band_glyph_dy_rows,
+            rail_glyph_dy_rows: geom.rail_glyph_dy_rows,
         }
     }
 
@@ -2043,8 +2101,11 @@ impl GpuState {
                 // as a separate opaque `OverlayTop` layer, so no cell is forced.
                 None,
                 // Sub-cell glide is expressed via `pane.origin[1]` + the vertical
-                // clip below, not the single-pane chrome-seam pin.
-                grid::ChromePin::NONE,
+                // clip below, not the single-pane chrome-seam pin. TAB-LABEL-
+                // CENTERING: a chrome strip carries a band/rail label offset here
+                // (0.0 on every content pane, so this is `ChromePin::NONE` for
+                // them and the split content frame is byte-identical).
+                pane_chrome_pin(pane),
             );
             let bg = background_vertex_count(pane.snapshot).min(pane_buf.len() as u32) as usize;
             // PANE-SUBCELL-CLIP: when this pane is mid sub-cell glide, its origin
@@ -2070,7 +2131,9 @@ impl GpuState {
                 &self.color_glyph_atlas,
                 runs,
                 pane.origin,
-                grid::ChromePin::NONE,
+                // TAB-LABEL-CENTERING: a chrome strip's emoji label centers with
+                // the same offset as its mono glyphs; `ChromePin::NONE` for panes.
+                pane_chrome_pin(pane),
             );
             // Colour glyphs (emoji) obey the same per-pane clip so a gliding
             // emoji's partial row is cropped, not smeared across the divider.

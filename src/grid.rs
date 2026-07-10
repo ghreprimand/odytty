@@ -261,9 +261,13 @@ pub fn build_color_glyph_vertices_with_origin_into(
                 chrome_seam_y,
             );
         } else {
+            // TAB-LABEL-CENTERING: an emoji tab/rail label rides the same sub-cell
+            // shift the mono path uses, so a color label centers identically.
+            // `0.0` (content, single-row / odd-height bands) is byte-identical.
+            let glyph_y0 = y0 + chrome_pin.glyph_center_dy(run.row, run.column, cell_h);
             push_color_glyph_quad(
                 out,
-                [x0, y0, x1, y0 + bounds.pixel_height as f32],
+                [x0, glyph_y0, x1, glyph_y0 + bounds.pixel_height as f32],
                 bounds.uv,
             );
         }
@@ -583,6 +587,25 @@ impl CellRegion {
     }
 }
 
+/// TAB-LABEL-CENTERING: the sub-row vertical offset (in cell-height units) that
+/// recenters a single label line placed at integer `label_row` within a
+/// `band_rows`-tall band onto the band's true geometric center. Multiply by the
+/// cell height for the pixel shift (see [`ChromePin::band_glyph_dy_rows`]).
+///
+/// Returns `0.0` for a one-row band and whenever the label already sits on the
+/// exact center (odd bands under either placement convention), so it is inert on
+/// the classic single-row chrome and every odd height. A row-snapped label can
+/// never be pixel-centered on an EVEN band (no integer row is the center), which
+/// is exactly the residual this offset removes: e.g. a 4-row top bar snaps its
+/// label to row 2 (center of {0,1,2,3} is 1.5), leaving it half a cell low; this
+/// returns `-0.5` to lift it back.
+pub fn band_label_center_dy_rows(band_rows: usize, label_row: usize) -> f32 {
+    if band_rows <= 1 {
+        return 0.0;
+    }
+    band_rows as f32 / 2.0 - label_row as f32 - 0.5
+}
+
 /// SCROLL-CHROME-BOUNCE: pins composited chrome (the top tab-bar band and any
 /// side rail band) against the sub-row smooth-scroll offset that `content_origin`
 /// folds into the vertex Y. Without it the whole decorated single-pane snapshot
@@ -605,6 +628,19 @@ pub struct ChromePin {
     pub rail_col_start: usize,
     /// End (exclusive) of the pinned rail column band.
     pub rail_col_end: usize,
+    /// TAB-LABEL-CENTERING: sub-row glyph shift (in cell-height units) applied to
+    /// glyph quads in the top tab band (rows `< top_rows`), recentering a
+    /// multi-row bar's single label row onto the band's true pixel center.
+    /// Backgrounds are unaffected, so the full-height active fill and gap-free
+    /// band are intact. `0.0` (single-row / odd-height bands, and every content
+    /// build) is inert. Independent of the scroll glide: it applies even at rest.
+    pub band_glyph_dy_rows: f32,
+    /// TAB-LABEL-CENTERING: the rail analog of `band_glyph_dy_rows`, applied to
+    /// glyph quads in the rail column band (`rail_col_start..rail_col_end`). The
+    /// rail places its slot label at `(slot_rows - 1) / 2`, biased HIGH on even
+    /// slots, so this offset is the opposite sign of the top band's. `0.0` is
+    /// inert.
+    pub rail_glyph_dy_rows: f32,
 }
 
 impl ChromePin {
@@ -616,6 +652,8 @@ impl ChromePin {
         top_rows: 0,
         rail_col_start: 0,
         rail_col_end: 0,
+        band_glyph_dy_rows: 0.0,
+        rail_glyph_dy_rows: 0.0,
     };
 
     /// Whether the pin is doing anything this frame (a glide is in flight).
@@ -646,6 +684,24 @@ impl ChromePin {
             (shifted_origin_y - self.scroll_offset_y) + row as f32 * cell_h
         } else {
             shifted_origin_y + row as f32 * cell_h
+        }
+    }
+
+    /// TAB-LABEL-CENTERING: the sub-cell glyph Y shift (pixels) for a chrome
+    /// label cell, recentering a multi-row band's single label row on the band's
+    /// true center. The rail column band takes precedence over the top band in
+    /// the shared top-left corner, matching the chrome hit-test (which resolves
+    /// the rail first). `0.0` for every content cell and every inert (single-row
+    /// / odd-height) band, so the plain and single-row-chrome paths stay
+    /// byte-identical.
+    #[inline]
+    fn glyph_center_dy(&self, row: usize, col: usize, cell_h: f32) -> f32 {
+        if self.rail_glyph_dy_rows != 0.0 && col >= self.rail_col_start && col < self.rail_col_end {
+            self.rail_glyph_dy_rows * cell_h
+        } else if self.band_glyph_dy_rows != 0.0 && row < self.top_rows {
+            self.band_glyph_dy_rows * cell_h
+        } else {
+            0.0
         }
     }
 }
@@ -835,7 +891,13 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
                 {
                     push_glyph_quad_clipped_top(out, x0, y0, bounds, fg, chrome_seam_y);
                 } else {
-                    push_glyph_quad(out, x0, y0, bounds, fg);
+                    // TAB-LABEL-CENTERING: a chrome band label rides a sub-cell Y
+                    // shift so a multi-row bar's/slot's single label line lands on
+                    // the band's true pixel center. `0.0` (content cells, single-
+                    // row / odd-height bands) leaves the glyph exactly where the
+                    // row-snap placed it, so the plain path is byte-identical.
+                    let glyph_y0 = y0 + chrome_pin.glyph_center_dy(row, col, cell_h);
+                    push_glyph_quad(out, x0, glyph_y0, bounds, fg);
                 }
             }
 

@@ -4252,10 +4252,28 @@ impl App {
         if top_rows == 0 && rail_col_start == rail_col_end {
             None
         } else {
+            // TAB-LABEL-CENTERING: recenter each band's single label line on its
+            // true pixel center. The top bar places its label at `rows / 2`
+            // (biased low on even heights); the rail slot at `(slot_rows - 1) / 2`
+            // (biased high on even heights). The shared helper yields the exact
+            // sub-row correction for each convention (0.0 on single-row / odd).
+            let band_glyph_dy_rows = if top_rows > 0 {
+                crate::grid::band_label_center_dy_rows(top_rows, top_rows / 2)
+            } else {
+                0.0
+            };
+            let rail_glyph_dy_rows = if rail_col_start != rail_col_end {
+                let slot_rows = self.rail_geom().slot_rows;
+                crate::grid::band_label_center_dy_rows(slot_rows, slot_rows.saturating_sub(1) / 2)
+            } else {
+                0.0
+            };
             Some(ChromePinGeom {
                 top_rows,
                 rail_col_start,
                 rail_col_end,
+                band_glyph_dy_rows,
+                rail_glyph_dy_rows,
             })
         }
     }

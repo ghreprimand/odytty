@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Tab-bar and rail labels center on the true band pixel center
+
+A multi-row tab bar sat its label low, and a workspace-rail slot label sat high.
+Both come from placing the single label line on a discrete cell row: the top bar
+snaps its label to `rows / 2` and the rail to `(slot_rows - 1) / 2`. On an EVEN
+band no integer row is the geometric center, so a row-snapped label is always
+half a cell off -- low for the top bar (row 2 of a 4-row band whose center is
+1.5), high for the rail (row 0 of a 2-row slot whose center is 1.0). Re-snapping
+to a different row cannot fix this; no row is the center.
+
+The label keeps its cell row, and its glyph quads now ride a sub-cell vertical
+offset so the label's pixel center lands exactly on the band center
+(`pad + rows * cell_height / 2`). The offset is applied only to the glyph quads;
+backgrounds stay put, so the full-height active fill and the gap-free band are
+intact. Both render routes converge on the one cell-vertex builder, which already
+places glyphs at per-cell float Y: the single-pane decorated snapshot carries the
+offset through the existing chrome-pin, and each multi-pane chrome strip carries
+its own offset field (inert, an exact identity, for every content pane). The two
+conventions get opposite-signed offsets from one shared helper, so the top bar
+lifts and the rail drops, each onto its true center. The offset is zero for a
+one-row bar and every odd height, so the classic single-row chrome and every odd
+band render byte-identically.
+
+Real-route coverage pins the pixel center rather than the row: across heights
+1..=5, on both the multi-pane strip and the single-pane band-plus-content
+snapshot, the label glyph's cell center equals `pad + rows * cell_height / 2`,
+a content glyph below the band never shifts, and the rail slot label centers with
+the opposite sign. A row-snapped render fails these on every even height, which
+is the residual the offset removes. `cargo test --lib` (3457 tests),
+`cargo fmt --check`, and `cargo clippy --all-targets -- -D warnings` pass.
+
+---
+
 ## 2026-07-10 -- Rail interactions and Ctrl+click open work on split tabs
 
 Two pointer-routing fixes for tabs that are split into panes. Both were masked by

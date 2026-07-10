@@ -1516,6 +1516,8 @@ mod chrome_pin {
             top_rows: 1,
             rail_col_start: 0,
             rail_col_end: 0,
+            band_glyph_dy_rows: 0.0,
+            rail_glyph_dy_rows: 0.0,
         };
         let verts = build(&snapshot, &atlas, origin, pin);
 
@@ -1560,6 +1562,8 @@ mod chrome_pin {
             top_rows: 0,
             rail_col_start: 0,
             rail_col_end: 1,
+            band_glyph_dy_rows: 0.0,
+            rail_glyph_dy_rows: 0.0,
         };
         let verts = build(&snapshot, &atlas, origin, pin);
 
@@ -1592,6 +1596,8 @@ mod chrome_pin {
             top_rows: 1,
             rail_col_start: 0,
             rail_col_end: 1,
+            band_glyph_dy_rows: 0.0,
+            rail_glyph_dy_rows: 0.0,
         };
         let with_inert = build(&snapshot, &atlas, origin, inert);
         let with_none = build(&snapshot, &atlas, origin, ChromePin::NONE);
@@ -1603,6 +1609,192 @@ mod chrome_pin {
         let cell_h = atlas.cell.height as f32;
         assert!((bg_top(&with_none, 0, 0) - pad).abs() < 1e-3);
         assert!((bg_top(&with_none, 1, 0) - (pad + cell_h)).abs() < 1e-3);
+    }
+
+    // TAB-LABEL-CENTERING ---------------------------------------------------
+
+    /// A 1-column x `rows`-row snapshot with an `X` on each row in `ink_rows`
+    /// (cursor hidden), so pass 1 emits `rows` background quads and pass 2 emits
+    /// one glyph quad per inked row, in ascending row order, right after them.
+    fn snapshot_with_ink(rows: usize, ink_rows: &[usize]) -> Snapshot {
+        let mut term = Terminal::new(1, rows);
+        term.advance(b"\x1b[?25l");
+        for &r in ink_rows {
+            term.advance(format!("\x1b[{};1H", r + 1).as_bytes());
+            term.advance(b"X");
+        }
+        term.snapshot()
+    }
+
+    /// The glyph quad top-Y for the inked cell whose glyph quad is the `nth`
+    /// emitted (0-based), given `bg_quads` background quads precede them.
+    fn glyph_top(verts: &[Vertex], bg_quads: usize, nth: usize) -> f32 {
+        quad_rect(verts, bg_quads + nth)[1]
+    }
+
+    /// The top tab bar recenters its single label row (placed at `rows / 2`) on
+    /// the band's TRUE pixel center across heights 1..=5, on both the multipane
+    /// (strip snapshot IS the band) and single-pane (band + content) routes. The
+    /// prior row-snap render can only land the label on an integer row, which is
+    /// half a cell low on every even height; this asserts the sub-row shift puts
+    /// the glyph cell's center exactly on `pad + rows*cell_h/2`, and that the
+    /// row-snap build (dy 0) fails that on even heights.
+    #[test]
+    fn multi_row_tab_band_label_is_pixel_centered() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let cell_h = atlas.cell.height as f32;
+        let pad = 8.0_f32;
+        let origin = [pad, pad];
+
+        // The glyph's intra-cell bearing, from a 1-row snapshot at the pad origin
+        // with no chrome offset: its glyph quad top is `pad + bearing`.
+        let ref_snap = snapshot_with_ink(1, &[0]);
+        let ref_verts = build(&ref_snap, &atlas, origin, ChromePin::NONE);
+        let ref_top = glyph_top(&ref_verts, 1, 0);
+
+        for rows in 1..=5usize {
+            let label_row = rows / 2; // the top-bar placement convention
+            let dy_rows = band_label_center_dy_rows(rows, label_row);
+            // The centered target: the glyph cell's center on the band center,
+            // i.e. its top shifted from the reference by (rows - 1)/2 cells.
+            let expected = ref_top + (rows as f32 - 1.0) / 2.0 * cell_h;
+
+            // (A) Multipane style: the strip snapshot IS the band (top_rows = rows).
+            let band = snapshot_with_ink(rows, &[label_row]);
+            let pin = ChromePin {
+                scroll_offset_y: 0.0,
+                top_rows: rows,
+                rail_col_start: 0,
+                rail_col_end: 0,
+                band_glyph_dy_rows: dy_rows,
+                rail_glyph_dy_rows: 0.0,
+            };
+            let verts = build(&band, &atlas, origin, pin);
+            let got = glyph_top(&verts, rows, 0);
+            assert!(
+                (got - expected).abs() < 1e-3,
+                "height {rows} multipane: glyph top {got} != band-center {expected}",
+            );
+
+            // Row-snap (dy 0) is only centered on odd heights; even heights miss
+            // by exactly half a cell -- the residual this fix removes.
+            let snap_pin = ChromePin {
+                band_glyph_dy_rows: 0.0,
+                ..pin
+            };
+            let snap_top = glyph_top(&build(&band, &atlas, origin, snap_pin), rows, 0);
+            if rows % 2 == 0 {
+                assert!(
+                    (snap_top - expected).abs() > cell_h / 2.0 - 1e-3,
+                    "height {rows}: row-snap must miss the pixel center by ~half a cell",
+                );
+            } else {
+                assert!(
+                    (snap_top - expected).abs() < 1e-3,
+                    "odd height {rows}: the label already sits on the center row",
+                );
+            }
+
+            // (B) Single-pane style: band + content below (top_rows = rows). The
+            // band label centers; a content glyph one row below must NOT shift.
+            let total = rows + 2;
+            let content_row = rows; // first content row, just below the band
+            let deco = snapshot_with_ink(total, &[label_row, content_row]);
+            let pin2 = ChromePin {
+                scroll_offset_y: 0.0,
+                top_rows: rows,
+                rail_col_start: 0,
+                rail_col_end: 0,
+                band_glyph_dy_rows: dy_rows,
+                rail_glyph_dy_rows: 0.0,
+            };
+            let verts2 = build(&deco, &atlas, origin, pin2);
+            let band_glyph = glyph_top(&verts2, total, 0);
+            let content_glyph = glyph_top(&verts2, total, 1);
+            assert!(
+                (band_glyph - expected).abs() < 1e-3,
+                "height {rows} single-pane: band glyph not centered",
+            );
+            assert!(
+                (content_glyph - (ref_top + content_row as f32 * cell_h)).abs() < 1e-3,
+                "height {rows}: content glyph below the band must not shift",
+            );
+        }
+    }
+
+    /// The workspace-rail sibling: the rail places its slot label at
+    /// `(slot_rows - 1)/2`, biased HIGH on even slots, so its centering offset is
+    /// the OPPOSITE sign of the top bar's. A rail-column band glyph shifts DOWN by
+    /// half a cell on a 2-row slot, landing on the slot center.
+    #[test]
+    fn rail_slot_label_centers_with_the_opposite_sign() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let cell_h = atlas.cell.height as f32;
+        let pad = 8.0_f32;
+        let origin = [pad, pad];
+
+        // Reference bearing from a 1-row snapshot with the glyph at the origin.
+        let ref_top = glyph_top(
+            &build(&snapshot_with_ink(1, &[0]), &atlas, origin, ChromePin::NONE),
+            1,
+            0,
+        );
+
+        // A 2-row slot places its label on row 0; centering shifts it DOWN by
+        // half a cell to the slot center. Model the rail column band as column 0
+        // over a 2-row snapshot, label on row 0.
+        let slot_rows = 2usize;
+        let label_row = slot_rows.saturating_sub(1) / 2; // == 0
+        let rail_dy = band_label_center_dy_rows(slot_rows, label_row);
+        assert!(
+            rail_dy > 0.0,
+            "rail slot label is biased high -> shift down"
+        );
+        let band = snapshot_with_ink(slot_rows, &[label_row]);
+        let pin = ChromePin {
+            scroll_offset_y: 0.0,
+            top_rows: 0,
+            rail_col_start: 0,
+            rail_col_end: 1,
+            band_glyph_dy_rows: 0.0,
+            rail_glyph_dy_rows: rail_dy,
+        };
+        let got = glyph_top(&build(&band, &atlas, origin, pin), slot_rows, 0);
+        // Label was on row 0 (top ref_top); shifted down to the slot center means
+        // its cell center is at pad + slot_rows*cell_h/2 = pad + cell_h.
+        let expected = ref_top + cell_h / 2.0;
+        assert!(
+            (got - expected).abs() < 1e-3,
+            "rail slot label must center: got {got}, expected {expected}",
+        );
+    }
+
+    /// The centering offsets are exact half-cell values with the right signs for
+    /// both placement conventions across heights 1..=5.
+    #[test]
+    fn center_offset_rows_are_exact_halves() {
+        // Top bar: label at `rows / 2`; even heights biased low -> -0.5.
+        for (rows, want) in [(1usize, 0.0f32), (2, -0.5), (3, 0.0), (4, -0.5), (5, 0.0)] {
+            assert_eq!(
+                band_label_center_dy_rows(rows, rows / 2),
+                want,
+                "top bar h{rows}"
+            );
+        }
+        // Rail: label at `(rows - 1)/2`; even heights biased high -> +0.5.
+        for (rows, want) in [(1usize, 0.0f32), (2, 0.5), (3, 0.0), (4, 0.5), (5, 0.0)] {
+            assert_eq!(
+                band_label_center_dy_rows(rows, rows.saturating_sub(1) / 2),
+                want,
+                "rail h{rows}",
+            );
+        }
     }
 }
 
