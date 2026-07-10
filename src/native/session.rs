@@ -316,6 +316,13 @@ pub(super) struct Session {
     pub(super) clicks: ClickTracker,
     pub(super) last_selection_autoscroll: Option<Instant>,
     pub(super) report_button: Option<crate::core::MouseButton>,
+    /// CTRL-CLICK-OPEN latch: `true` while the left button is held after a
+    /// Ctrl/Cmd+click over a resolved span was intercepted and opened. The
+    /// paired left release is then swallowed so a mouse-reporting app sees
+    /// neither the press nor the release for that gesture (matching
+    /// kitty/iTerm2/GNOME Terminal). Cleared at the start of every fresh left
+    /// press, so a release lost to focus change never swallows a later click.
+    pub(super) swallow_open_left_release: bool,
     pub(super) viewport: Viewport,
     pub(super) search: SearchUi,
     pub(super) hints: Option<HintsUi>,
@@ -517,6 +524,7 @@ impl Session {
             clicks: ClickTracker::default(),
             last_selection_autoscroll: None,
             report_button: None,
+            swallow_open_left_release: false,
             viewport: Viewport::default(),
             search: SearchUi::default(),
             hints: None,
@@ -630,6 +638,7 @@ impl Session {
         self.drag_anchor_unit = None;
         self.last_selection_autoscroll = None;
         self.report_button = None;
+        self.swallow_open_left_release = false;
         self.pointer_cell = None;
         self.pointer_px = None;
         self.hovered_hyperlink = None;

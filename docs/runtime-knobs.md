@@ -825,8 +825,11 @@ hyperlink hover).
 
 **Opening a path (Ctrl+click + context menu).** With the feature on, **Ctrl+click**
 on a resolved span opens it (the same gate as OSC 8 hyperlinks — Ctrl is
-required, and the action is suppressed while a TUI owns the mouse unless Shift
-overrides). A right-click over a resolved span adds a **file section** to the
+required; Cmd on macOS). This works even while a full mouse-tracking TUI (vim,
+tmux, Claude Code) has mouse reporting on: a Ctrl+click that lands on a resolved
+span opens it, while a Ctrl+click anywhere else still reports to the app, so the
+program keeps its clicks — matching kitty/iTerm2/GNOME Terminal, no extra Shift
+needed. A right-click over a resolved span adds a **file section** to the
 context menu — Open, Open With…, Copy Path, Copy File, Reveal in File Manager
 ("Open With…" appears only on a regular file, not a directory). Every open is
 an **argv vector**, never a shell string, so a path containing spaces, `;`,

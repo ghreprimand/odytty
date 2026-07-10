@@ -1035,7 +1035,6 @@ impl App {
         if hyperlink_action_allowed(
             self.modifiers,
             self.super_key,
-            self.mouse_reporting_enabled(),
             super::platform_opener::OpenerOs::host(),
         ) {
             return;
@@ -1119,7 +1118,6 @@ impl App {
         if !hyperlink_action_allowed(
             self.modifiers,
             self.super_key,
-            self.mouse_reporting_enabled(),
             super::platform_opener::OpenerOs::host(),
         ) {
             return false;
@@ -1168,7 +1166,6 @@ impl App {
         if !hyperlink_action_allowed(
             self.modifiers,
             self.super_key,
-            self.mouse_reporting_enabled(),
             super::platform_opener::OpenerOs::host(),
         ) {
             return false;
@@ -1209,7 +1206,6 @@ impl App {
         if !hyperlink_action_allowed(
             self.modifiers,
             self.super_key,
-            self.mouse_reporting_enabled(),
             super::platform_opener::OpenerOs::host(),
         ) {
             return false;

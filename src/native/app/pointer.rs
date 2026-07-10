@@ -461,6 +461,58 @@ impl App {
             return;
         }
 
+        // CTRL-CLICK-OPEN (matches kitty/iTerm2/GNOME Terminal): a left press
+        // over a resolved OSC 8 hyperlink, interactive path, or bare URL, with
+        // the platform open modifier held (Ctrl on Linux/Windows, Cmd on macOS),
+        // opens the target even while a mouse-tracking TUI has mouse reporting
+        // enabled. Placed BEFORE the report gate so the open wins over the PTY
+        // report for this exact gesture. Every other press — a plain click, or
+        // an open-modifier click NOT over a resolved span — fails this guard and
+        // falls through to the report gate byte-identically, so a reporting app
+        // still receives all of its clicks. With reporting off the open would
+        // fire in the left-press arm below anyway; this only moves it one step
+        // earlier with the same effect. Pure modifier/hover-state logic, so it
+        // is identical on every platform (no PTY/path/spawn surface beyond the
+        // existing open ladder).
+        //
+        // A fresh left press first clears any pending swallow latch: if an
+        // earlier open's release was lost (focus change), it must not swallow
+        // THIS gesture's release. The latch is re-armed only when this press
+        // actually opens a target.
+        if button == WinitMouseButton::Left && state == ElementState::Pressed {
+            self.swallow_open_left_release = false;
+            if open_modifier_held(
+                self.modifiers,
+                self.super_key,
+                super::platform_opener::OpenerOs::host(),
+            ) && (self.hovered_hyperlink.is_some()
+                || self.hovered_path.is_some()
+                || self.hovered_url.is_some())
+                && (self.try_open_hovered_hyperlink()
+                    || self.try_open_hovered_path()
+                    || self.try_open_hovered_url())
+            {
+                // The press opened a target: swallow its paired release too, so
+                // the reporting app sees neither half of the gesture.
+                self.swallow_open_left_release = true;
+                return;
+            }
+        }
+
+        // Swallow the left release paired with a Ctrl+click that opened a
+        // target. Without this the release would fall through to the report gate
+        // below (its press did not, so `report_button` is `None` but
+        // `should_report_mouse_to_pty` is true) and leak an unpaired release to
+        // the app. Off the open path the latch is always `false`, so every other
+        // release routes byte-identically.
+        if button == WinitMouseButton::Left
+            && state == ElementState::Released
+            && self.swallow_open_left_release
+        {
+            self.swallow_open_left_release = false;
+            return;
+        }
+
         if (self.should_report_mouse_to_pty() || self.report_button.is_some())
             && let Some(button) = map_winit_mouse_button(button)
         {
@@ -1108,6 +1160,10 @@ impl App {
         self.drag_anchor_unit = None;
         self.last_selection_autoscroll = None;
         self.report_button = None;
+        // An open target's press may open an overlay (the image lightbox); the
+        // paired release is then consumed by the overlay, so drop the swallow
+        // latch here too and never carry it past the overlay.
+        self.swallow_open_left_release = false;
         // WHEEL-SENS (T-reset): clear the wheel carry on overlay entry so a
         // partial grid-scroll notch does not bleed into the overlay list scroll
         // (and vice-versa) once the overlay captures the wheel.

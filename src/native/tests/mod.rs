@@ -80,6 +80,7 @@ mod clipboard_paste;
 mod close_confirm;
 mod command_palette;
 mod context_menu;
+mod ctrl_click_open;
 mod cursor_icon;
 mod cvd_wiring;
 mod font_save;

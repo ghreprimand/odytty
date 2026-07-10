@@ -67,19 +67,19 @@ pub(super) fn open_modifier_held(mods: Modifiers, super_key: bool, os: OpenerOs)
     }
 }
 
-/// Whether a click/hover should trigger the open/armed-underline path: the
-/// platform open modifier ([`open_modifier_held`]) is held, and either mouse
-/// reporting is off or Shift overrides it (the TUI mouse-reporting escape
-/// hatch). All three open behaviors — OSC 8 hyperlink open, interactive-path
-/// open, and the armed-underline hover decoration — funnel through this one
-/// predicate so the open gesture is consistent and platform-aware everywhere.
-pub(super) fn hyperlink_action_allowed(
-    mods: Modifiers,
-    super_key: bool,
-    mouse_reporting_enabled: bool,
-    os: OpenerOs,
-) -> bool {
-    open_modifier_held(mods, super_key, os) && (!mouse_reporting_enabled || mods.shift)
+/// Whether a left click should trigger the open path: the platform open
+/// modifier ([`open_modifier_held`]) is held (Ctrl on Linux/Windows, Cmd on
+/// macOS). This deliberately does NOT depend on mouse reporting — a plain
+/// open-modifier click over a resolved span opens even inside a mouse-tracking
+/// TUI (Claude Code, vim, tmux), matching the kitty/iTerm2/GNOME Terminal
+/// convention. The report-vs-open decision under mouse reporting is made
+/// upstream in the press router (`handle_mouse_input`): it intercepts an
+/// open-modifier left press ONLY when it lands on a resolved span, and lets
+/// every other press report to the PTY, so a reporting app still receives its
+/// clicks. Both the open helpers and the mis-click check funnel through this one
+/// predicate so the open gesture stays consistent and platform-aware everywhere.
+pub(super) fn hyperlink_action_allowed(mods: Modifiers, super_key: bool, os: OpenerOs) -> bool {
+    open_modifier_held(mods, super_key, os)
 }
 
 pub(super) fn openable_hyperlink_uri(uri: &str) -> bool {

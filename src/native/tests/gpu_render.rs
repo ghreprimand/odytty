@@ -498,20 +498,17 @@ fn render_signature_update_matrix_covers_pixel_invalidators() {
 }
 
 #[test]
-fn hyperlink_click_policy_respects_mouse_tracking_escape_hatch() {
-    // Linux arm: Ctrl (no super) opens; mouse-reporting suppresses unless Shift.
+fn hyperlink_click_policy_authorizes_on_open_modifier_alone() {
+    // Linux arm: Ctrl+click authorizes the open on its own, whether or not a TUI
+    // has mouse reporting enabled (kitty/iTerm2/GNOME Terminal convention). The
+    // report-vs-open decision under reporting now lives in the press router, so
+    // this predicate no longer takes a reporting flag and never demands Shift.
     assert!(hyperlink_action_allowed(
         Modifiers::CTRL,
         false,
-        false,
         OpenerOs::Linux
     ));
-    assert!(!hyperlink_action_allowed(
-        Modifiers::CTRL,
-        false,
-        true,
-        OpenerOs::Linux
-    ));
+    // Ctrl+Shift still authorizes — Shift is no longer required, just harmless.
     assert!(hyperlink_action_allowed(
         Modifiers {
             ctrl: true,
@@ -519,12 +516,21 @@ fn hyperlink_click_policy_respects_mouse_tracking_escape_hatch() {
             alt: false,
         },
         false,
-        true,
         OpenerOs::Linux
     ));
+    // No open modifier never opens.
     assert!(!hyperlink_action_allowed(
         Modifiers::default(),
         false,
+        OpenerOs::Linux
+    ));
+    // Shift alone (no Ctrl) never opens.
+    assert!(!hyperlink_action_allowed(
+        Modifiers {
+            ctrl: false,
+            shift: true,
+            alt: false,
+        },
         false,
         OpenerOs::Linux
     ));
@@ -578,20 +584,15 @@ fn open_modifier_is_platform_aware_ctrl_on_linux_cmd_on_macos() {
 }
 
 #[test]
-fn hyperlink_action_macos_uses_cmd_and_keeps_shift_escape_hatch() {
-    // macOS: Cmd opens; Cmd under mouse-reporting still needs Shift.
+fn hyperlink_action_macos_uses_cmd_open_modifier() {
+    // macOS: Cmd (super) is the open modifier and authorizes on its own,
+    // including while a TUI has mouse reporting enabled.
     assert!(hyperlink_action_allowed(
         Modifiers::default(),
         true,
-        false,
         OpenerOs::Macos
     ));
-    assert!(!hyperlink_action_allowed(
-        Modifiers::default(),
-        true,
-        true,
-        OpenerOs::Macos
-    ));
+    // Cmd+Shift also authorizes — Shift is not required.
     assert!(hyperlink_action_allowed(
         Modifiers {
             ctrl: false,
@@ -599,13 +600,18 @@ fn hyperlink_action_macos_uses_cmd_and_keeps_shift_escape_hatch() {
             alt: false,
         },
         true,
-        true,
         OpenerOs::Macos
     ));
-    // Ctrl (no Cmd) never opens on macOS, even with mouse-reporting off.
+    // Ctrl (no Cmd) never opens on macOS: the OS turns Ctrl+left-click into a
+    // secondary click that never reaches the open path.
     assert!(!hyperlink_action_allowed(
         Modifiers::CTRL,
         false,
+        OpenerOs::Macos
+    ));
+    // No open modifier never opens.
+    assert!(!hyperlink_action_allowed(
+        Modifiers::default(),
         false,
         OpenerOs::Macos
     ));

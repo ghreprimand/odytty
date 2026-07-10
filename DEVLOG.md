@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Ctrl+click opens paths and links even inside a mouse-tracking TUI
+
+Ctrl+click (Cmd+click on macOS) opens a resolved file path, bare URL, or OSC 8
+hyperlink even while a full mouse-tracking program (vim with mouse, tmux, Claude
+Code) has mouse reporting enabled. Previously the open gate demanded the modifier
+click AND, under mouse reporting, an extra Shift -- so inside a reporting TUI the
+gesture was Ctrl+Shift+click, out of step with kitty, iTerm2, and GNOME Terminal,
+where the plain modifier click opens.
+
+The click policy no longer consults mouse reporting: the open is authorized on
+the platform open modifier alone (Ctrl on Linux/Windows, Cmd on macOS). The
+report-vs-open decision now lives in the press router. A left press intercepts
+and opens ONLY when the open modifier is held AND the pointer sits over a
+resolved span; the paired left release is swallowed so the reporting program sees
+neither half of that gesture. Every other press routes exactly as before: a plain
+click, or an open-modifier click that is NOT over a resolved span, still reports
+to the program, so a mouse-driven TUI keeps all of its clicks. Hover detection
+already ran under reporting (the hand cursor and armed underline appear on a
+plain Ctrl-hover in a TUI), so only the press-time gate needed to change.
+
+The interception is pure modifier and hover-state logic with no PTY, spawn, path,
+or environment surface beyond the existing open ladder, so it is identical on
+every platform including Windows (open modifier is Ctrl there). The one new piece
+of state is a per-gesture latch that swallows the release paired with an open;
+it is cleared at the start of every fresh left press and alongside the existing
+pointer resets, so a release lost to a focus change can never swallow a later
+click.
+
+A real-route regression suite drives the production `handle_mouse_input` press
+path under mouse reporting: a Ctrl+click over a resolved path opens and emits no
+mouse report to the program, a Ctrl+click off any span still reports, and a plain
+click still reports. The open dispatch is proven without launching an opener by
+pointing the editor override at a sentinel program that cannot exist, so the
+argv-only spawn fails cleanly and no process is ever started. The shipped policy
+unit tests were rewritten to the open-modifier-alone rule. `docs/runtime-knobs.md`
+is corrected: the Ctrl+click section no longer claims the action is suppressed
+under mouse reporting.
+
+`cargo test --lib` (3460 tests), `cargo fmt --check`, and `cargo clippy
+--all-targets` (deny gate) are green. Feel to confirm on the running build:
+Ctrl+click a path or link inside Claude Code opens it, and clicks elsewhere still
+reach the app.
+
 ## 2026-07-10 -- Active tab and workspace slot read clearly against the panel
 
 The active tab and active workspace slot were hard to tell apart from the
