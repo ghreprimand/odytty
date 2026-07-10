@@ -590,6 +590,110 @@ impl TabRail {
             g.attrs.foreground = accent;
         }
     }
+
+    /// Paint the complete workspace-drag treatment over a rendered rail.
+    /// A pending (sub-threshold) press lifts the source slot immediately. Once
+    /// armed, the source becomes a recessed placeholder and a bright copy of
+    /// the grabbed slot follows the physical pointer Y, clamped inside the
+    /// rail. The insertion rule remains on top of both treatments.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn paint_drag_overlay(
+        &self,
+        glyphs: &mut [TabRailGlyph],
+        origin_idx: usize,
+        drop_idx: usize,
+        armed: bool,
+        pointer_y_px: f64,
+        source: &dyn TabBarSource,
+        rail_cols: usize,
+        grid_rows: usize,
+        origin_y_px: f32,
+        cell: CellSize,
+        geom: RailGeom,
+        colors: TabBarColors,
+        panel_surface: Srgb,
+    ) {
+        if rail_cols == 0
+            || grid_rows == 0
+            || glyphs.len() < rail_cols * grid_rows
+            || cell.height == 0
+        {
+            return;
+        }
+        let layout = compute_rail_layout(source, rail_cols, grid_rows, geom);
+        let Some(slot) = layout.slots.iter().find(|slot| slot.idx == origin_idx) else {
+            return;
+        };
+        let span = slot.end_row.saturating_sub(slot.start_row);
+        if span == 0 {
+            return;
+        }
+
+        let lifted_fill = rgb(tab_chrome::active_fill(colors, panel_surface));
+        let lifted_label = rgb(tab_chrome::active_label(colors));
+        let recessed_label = rgb(tab_chrome::inactive_label(colors, 1));
+        let panel = rgb(panel_surface);
+        let (fill_c0, fill_c1) = slot_fill_cols(rail_cols, None);
+
+        // Capture before changing the source, so the proxy preserves its title,
+        // close glyph, bound marker, and theme-authored details.
+        let source_rows: Vec<TabRailGlyph> =
+            glyphs[slot.start_row * rail_cols..slot.end_row.min(grid_rows) * rail_cols].to_vec();
+
+        for row in slot.start_row..slot.end_row.min(grid_rows) {
+            for col in fill_c0..fill_c1.min(rail_cols) {
+                glyphs[row * rail_cols + col].attrs.background =
+                    if armed { panel } else { lifted_fill };
+            }
+            for col in 0..rail_cols {
+                let glyph = &mut glyphs[row * rail_cols + col];
+                if glyph.ch != ' ' {
+                    glyph.attrs.foreground = if armed { recessed_label } else { lifted_label };
+                    glyph.attrs.set_bold(!armed);
+                    if !armed {
+                        glyph.attrs.background = lifted_fill;
+                    }
+                }
+            }
+        }
+
+        if armed {
+            let pointer_row =
+                ((pointer_y_px - f64::from(origin_y_px)) / f64::from(cell.height)).floor() as isize;
+            let max_top = grid_rows.saturating_sub(span);
+            let proxy_top = pointer_row
+                .saturating_sub((span / 2) as isize)
+                .clamp(0, max_top as isize) as usize;
+            for local_row in 0..span.min(source_rows.len() / rail_cols) {
+                let target_row = proxy_top + local_row;
+                let source_start = local_row * rail_cols;
+                for col in 0..rail_cols {
+                    let mut proxy = source_rows[source_start + col];
+                    proxy.row = target_row;
+                    if (fill_c0..fill_c1.min(rail_cols)).contains(&col) {
+                        proxy.attrs.background = lifted_fill;
+                    }
+                    if proxy.ch != ' ' {
+                        proxy.attrs.foreground = lifted_label;
+                        proxy.attrs.background = lifted_fill;
+                        proxy.attrs.set_bold(true);
+                    }
+                    glyphs[target_row * rail_cols + col] = proxy;
+                }
+            }
+        }
+
+        self.paint_drop_indicator(
+            glyphs,
+            drop_idx,
+            source,
+            rail_cols,
+            grid_rows,
+            geom,
+            colors,
+            panel_surface,
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1984,6 +2088,65 @@ mod tests {
             tab_chrome::panel_tint(COLORS, PANEL_STRENGTH),
         );
         assert_eq!(glyphs_end[9 * RAIL_COLS + 2].ch, '\u{2501}');
+    }
+
+    #[test]
+    fn pending_drag_lifts_the_grabbed_slot_before_the_threshold() {
+        let src = MockSource::new(&["a", "b", "c"], 0);
+        let mut glyphs = render_default(&src).glyphs;
+        let panel = tab_chrome::panel_tint(COLORS, PANEL_STRENGTH);
+        let before = glyphs[4 * RAIL_COLS + 2].attrs.background;
+        rail().paint_drag_overlay(
+            &mut glyphs,
+            1,
+            1,
+            false,
+            72.0,
+            &src,
+            RAIL_COLS,
+            GRID_ROWS,
+            ORIGIN[1],
+            CELL,
+            GEOM,
+            COLORS,
+            panel,
+        );
+        let grabbed = glyphs[4 * RAIL_COLS + 2];
+        assert_eq!(grabbed.ch, 'b');
+        assert_ne!(grabbed.attrs.background, before, "press lifts the slot");
+        assert!(grabbed.attrs.bold(), "grabbed label is emphasized");
+    }
+
+    #[test]
+    fn armed_drag_proxy_tracks_pointer_y_and_keeps_the_source_recessed() {
+        let src = MockSource::new(&["a", "b", "c"], 2);
+        let panel = tab_chrome::panel_tint(COLORS, PANEL_STRENGTH);
+        let mut first = render_default(&src).glyphs;
+        rail().paint_drag_overlay(
+            &mut first, 0, 1, true, 112.0, &src, RAIL_COLS, GRID_ROWS, ORIGIN[1], CELL, GEOM,
+            COLORS, panel,
+        );
+        assert_eq!(first[6 * RAIL_COLS + 2].ch, 'a', "proxy follows row 6");
+        assert!(!first[RAIL_COLS + 2].attrs.bold(), "source is recessed");
+
+        let mut second = render_default(&src).glyphs;
+        rail().paint_drag_overlay(
+            &mut second,
+            0,
+            1,
+            true,
+            144.0,
+            &src,
+            RAIL_COLS,
+            GRID_ROWS,
+            ORIGIN[1],
+            CELL,
+            GEOM,
+            COLORS,
+            panel,
+        );
+        assert_eq!(second[8 * RAIL_COLS + 2].ch, 'a', "proxy follows row 8");
+        assert_ne!(first, second, "pointer motion changes proxy geometry");
     }
 
     #[test]

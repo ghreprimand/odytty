@@ -4611,6 +4611,38 @@ fn dragging_a_workspace_slot_reorders_it_and_follows_the_active_by_identity() {
 }
 
 #[test]
+fn workspace_drag_invalidates_retained_chrome_on_arm_move_and_release() {
+    // The rail is chrome, not terminal content. Every gesture phase must bump
+    // the presentation epoch or the render cache can retain the prior frame
+    // until an unrelated timer or terminal update changes its signature.
+    let Some(mut app) = rail_drag_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_pointer_px_for_test(12.0, 24.0);
+    let before_arm = app.presentation_epoch_for_test();
+    app.mouse_left_press_for_test();
+    let after_arm = app.presentation_epoch_for_test();
+    assert!(after_arm > before_arm, "press feedback invalidates chrome");
+
+    app.pointer_move_for_test(12.0, 140.0);
+    let after_move = app.presentation_epoch_for_test();
+    assert!(after_move > after_arm, "live proxy invalidates chrome");
+
+    app.clear_needs_rebuild_for_test();
+    app.mouse_left_release_for_test();
+    assert!(
+        app.presentation_epoch_for_test() > after_move,
+        "release invalidates retained geometry immediately"
+    );
+    assert!(
+        app.needs_rebuild_for_test(),
+        "release opens the frame rebuild gate"
+    );
+    assert_eq!(app.workspace_names_for_test(), vec!["b", "c", "a"]);
+}
+
+#[test]
 fn a_sub_threshold_press_stays_a_click_and_does_not_reorder() {
     // A tiny move under the movement threshold keeps the gesture a click: the
     // slot activates on release and the rail order is untouched (no accidental

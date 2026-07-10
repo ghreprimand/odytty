@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Workspace dragging gains direct manipulation feedback
+
+Workspace reordering now reads as a direct manipulation gesture. Pressing a
+workspace slot lifts it immediately, crossing the movement threshold turns the
+source into a recessed placeholder, and a bright proxy of the grabbed slot
+follows the pointer through the rail while the insertion rule marks the drop
+boundary. The treatment is composited by the shared rail renderer, so pinned and
+auto-hidden rails on either side use the same geometry and visual state.
+
+Release now presents the reordered rail without waiting for later terminal
+output or a maintenance timer. The delay came from retained-frame
+classification, not from the workspace reorder or autosave: the synchronous
+move dirtied the frame, but pinned workspace chrome was absent from the render
+signature, allowing the previous GPU geometry to be retained. Drag arm, motion,
+release, and cancellation now advance the presentation epoch as well as opening
+the rebuild gate, forcing the chrome snapshot into the immediate frame.
+
+Headless coverage proves that a pending press lifts the source, the armed proxy
+tracks pointer geometry while the source remains recessed, the production
+press/move/release route advances the presentation epoch at every phase, and the
+new order is committed on release. This is pure render and pointer behavior with
+no PTY, spawn, path, environment, shell, or platform-specific surface; Windows,
+macOS, and Linux share the same path. GPU pixels remain covered by CI.
+
+Verified: complete `cargo test` suite green (3466 library tests passed, 7
+ignored, plus all integration binaries); `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-10 -- Scrollback fills under a top-anchored scroll region (full-screen TUIs)
 
 Wheel-up now reveals history in full-screen programs that reserve a bottom input

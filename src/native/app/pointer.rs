@@ -48,6 +48,9 @@ pub(in crate::native) struct RailWorkspaceDrag {
     /// Physical-pixel X/Y of the initial press — the threshold origin.
     press_x: f64,
     press_y: f64,
+    /// Latest physical-pixel Y. The render layer maps this to the floating
+    /// proxy's top row, keeping the grabbed slot under the pointer.
+    pub(in crate::native) pointer_y: f64,
     /// `true` once motion crossed [`RAIL_DRAG_THRESHOLD_PX`]: the gesture is a
     /// drag, so release commits a reorder rather than a click activate.
     pub(in crate::native) armed: bool,
@@ -63,6 +66,7 @@ impl RailWorkspaceDrag {
             origin_idx: idx,
             press_x,
             press_y,
+            pointer_y: press_y,
             armed: false,
             drop_idx: idx,
         }
@@ -73,6 +77,7 @@ impl RailWorkspaceDrag {
     /// never disarms). Returns whether the gesture is armed (a drag) after this
     /// sample, so the caller only tracks a drop target while dragging.
     pub(in crate::native) fn update_arm(&mut self, x: f64, y: f64) -> bool {
+        self.pointer_y = y;
         if !self.armed {
             let dx = x - self.press_x;
             let dy = y - self.press_y;
@@ -1210,6 +1215,7 @@ impl App {
         match self.pointer_px {
             Some((x, y)) => {
                 self.rail_ws_drag = Some(RailWorkspaceDrag::new(idx, x, y));
+                self.invalidate_workspace_drag_frame();
             }
             None => self.activate_workspace(idx),
         }
@@ -1225,24 +1231,16 @@ impl App {
             return;
         };
         let armed = drag.update_arm(x_px, y_px);
-        let mut changed = false;
         if armed && let Some(insert) = self.workspace_rail_drop_index(y_px, cell) {
-            if drag.drop_idx != insert {
-                changed = true;
-            }
             drag.drop_idx = insert;
         }
         self.rail_ws_drag = Some(drag);
         if armed {
-            // A grabbing cursor for the whole drag; the drop indicator repaints
-            // only when the target boundary actually moves.
+            // A grabbing cursor and a fresh frame for the whole drag. The proxy
+            // follows every pointer sample, even while its insertion boundary
+            // remains unchanged.
             self.apply_cursor_icon(CursorIcon::Grabbing);
-            if changed {
-                self.needs_rebuild = true;
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                }
-            }
+            self.invalidate_workspace_drag_frame();
         }
     }
 
@@ -1261,10 +1259,7 @@ impl App {
         } else {
             self.activate_workspace(drag.origin_idx);
         }
-        self.needs_rebuild = true;
-        if let Some(window) = self.window.as_ref() {
-            window.request_redraw();
-        }
+        self.invalidate_workspace_drag_frame();
     }
 
     /// Cancel an in-flight workspace-rail drag (RAIL-DRAG) with the rail order
@@ -1276,11 +1271,21 @@ impl App {
         if self.rail_ws_drag.take().is_none() {
             return false;
         }
+        self.invalidate_workspace_drag_frame();
+        true
+    }
+
+    /// Dirty both the frame gate and the retained-geometry signature for rail
+    /// drag visuals. `needs_rebuild` alone is insufficient: workspace order and
+    /// pinned rail chrome are not terminal revisions, so the renderer can
+    /// otherwise classify the rebuilt snapshot as retained and re-present the
+    /// previous GPU geometry until an unrelated presentation epoch changes.
+    fn invalidate_workspace_drag_frame(&mut self) {
         self.needs_rebuild = true;
+        self.presentation_epoch = self.presentation_epoch.wrapping_add(1);
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
-        true
     }
 
     /// Commit a rail drag: move the workspace at `from` to insertion index `to`

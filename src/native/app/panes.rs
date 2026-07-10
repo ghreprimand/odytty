@@ -935,7 +935,7 @@ impl App {
             self.tab_panel_strength(),
             self.effective_theme.cursor,
         );
-        self.paint_rail_drag_indicator(&mut output.glyphs, rail_cols, grid_rows);
+        self.paint_rail_drag_overlay(&mut output.glyphs, rail_cols, grid_rows, cell);
         for glyph in output.glyphs {
             if glyph.row < grid_rows && glyph.col < rail_cols {
                 let idx = glyph.row * rail_cols + glyph.col;

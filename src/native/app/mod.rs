@@ -3031,29 +3031,43 @@ impl App {
 
     /// The live rail slot geometry (F4-P1 knobs: `tab_rail_slot_rows`,
     /// `tab_rail_gap`), passed to the rail widget's render/hit-test.
-    /// RAIL-DRAG: overlay the live drop-target indicator onto a freshly
+    /// RAIL-DRAG: overlay the grabbed-slot feedback, live proxy, and drop target
+    /// onto a freshly
     /// rendered rail glyph buffer when a workspace reorder drag is armed. A
     /// no-op otherwise, so the non-drag rail render stays byte-identical. Called
     /// by every rail render path (pinned strip, decorated single-pane snapshot,
     /// floating auto-hide overlay) so the indicator shows in whichever mode is
     /// live.
-    fn paint_rail_drag_indicator(
+    fn paint_rail_drag_overlay(
         &self,
         glyphs: &mut [tab_rail::TabRailGlyph],
         cols: usize,
         rows: usize,
+        cell: CellSize,
     ) {
-        if let Some(drag) = self.rail_ws_drag.filter(|d| d.armed) {
+        if let Some(drag) = self.rail_ws_drag {
             let colors = self.tab_bar_colors();
             // ACTIVE-FILL: the drop rule uses the same lifted active fill the
             // slots do, so it reads over the panel wash on every theme.
             let panel_srgb = tab_chrome::panel_tint(colors, self.tab_panel_strength());
-            self.tab_rail.paint_drop_indicator(
+            let origin_y = if self.rail_autohide_active() {
+                self.rail_autohide_side()
+                    .map(|side| self.rail_overlay_origin_px(cell, side)[1])
+                    .unwrap_or(0.0)
+            } else {
+                self.rail_origin_px(cell)[1]
+            };
+            self.tab_rail.paint_drag_overlay(
                 glyphs,
+                drag.origin_idx,
                 drag.drop_idx,
+                drag.armed,
+                drag.pointer_y,
                 &self.sessions.rail_source(),
                 cols,
                 rows,
+                origin_y,
+                cell,
                 self.rail_geom(),
                 colors,
                 panel_srgb,
@@ -3879,7 +3893,7 @@ impl App {
             self.tab_panel_strength(),
             self.effective_theme.cursor,
         );
-        self.paint_rail_drag_indicator(&mut output.glyphs, cols, rows);
+        self.paint_rail_drag_overlay(&mut output.glyphs, cols, rows, cell);
         let mut snapshot = Snapshot {
             dimensions: Dimensions::new(cols, rows),
             cursor: Position { row: 0, column: 0 },
@@ -4209,7 +4223,7 @@ impl App {
             self.tab_panel_strength(),
             self.effective_theme.cursor,
         );
-        self.paint_rail_drag_indicator(&mut output.glyphs, rail_cols, rows);
+        self.paint_rail_drag_overlay(&mut output.glyphs, rail_cols, rows, cell);
         for glyph in output.glyphs {
             let col = rail_col_start + glyph.col;
             if glyph.row < rows && col < new_cols {

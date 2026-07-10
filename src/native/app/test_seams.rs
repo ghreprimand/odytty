@@ -925,6 +925,13 @@ impl App {
         self.needs_rebuild = false;
     }
 
+    /// Test seam (RAIL-DRAG): presentation-cache generation used to prove that
+    /// drag arm/move/release invalidate retained chrome geometry immediately.
+    #[cfg(test)]
+    pub(in crate::native) fn presentation_epoch_for_test(&self) -> u64 {
+        self.presentation_epoch
+    }
+
     /// Test seam (F4-P3): force the revealed phase so overlay geometry / hit
     /// routing can be asserted without simulating the debounce clock.
     #[cfg(test)]
