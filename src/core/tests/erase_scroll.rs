@@ -42,6 +42,89 @@ fn partial_scroll_region_does_not_feed_scrollback() {
 }
 
 #[test]
+fn top_anchored_partial_region_feeds_scrollback_and_preserves_footer() {
+    // A TOP-ANCHORED partial region (top margin at row 0, a footer reserved
+    // below the bottom margin) is what a full-screen TUI sets when it keeps a
+    // bottom input composer, e.g. ratatui's `ESC[1;<rows-1>r`. The content
+    // above the margin is real history: linefeed-at-region-bottom must feed it
+    // into scrollback so wheel-up can reveal it, while the footer rows below
+    // the margin stay fixed. This is the Codex/ratatui "scroll-up is dead"
+    // regression: before the fix the scrolled-off rows were discarded and
+    // scrollback stayed empty.
+    let mut terminal = Terminal::new(6, 6);
+    // Region rows 1..=4 (1-based) -> top row index 0, bottom row index 3.
+    // Rows 4 and 5 (0-based) are the reserved footer.
+    terminal.advance(b"\x1b[1;4r");
+    // Paint the footer, then return the cursor into the region.
+    terminal.advance(b"\x1b[5;1HFOOTA");
+    terminal.advance(b"\x1b[6;1HFOOTB");
+    terminal.advance(b"\x1b[1;1H");
+    // Six lines into a four-row region: L0..L2 must scroll off into scrollback.
+    for i in 0..6 {
+        terminal.advance(format!("L{i}\r\n").as_bytes());
+    }
+    // Scrollback grew from 0 (reproduces the dead-scroll bug when it stays 0).
+    assert_eq!(
+        terminal.screen().scrollback_len(),
+        3,
+        "top-anchored region must feed scrollback, got {}",
+        terminal.screen().scrollback_len()
+    );
+    // The footer rows below the margin are untouched.
+    let footer_a: String = (0..5)
+        .map(|c| terminal.screen().cell(4, c).unwrap().ch)
+        .collect();
+    let footer_b: String = (0..5)
+        .map(|c| terminal.screen().cell(5, c).unwrap().ch)
+        .collect();
+    assert_eq!(footer_a, "FOOTA", "footer row preserved");
+    assert_eq!(footer_b, "FOOTB", "footer row preserved");
+    // The correct rows entered scrollback, oldest first, wrap chain intact.
+    let paged = snapshot_rows(&terminal.snapshot_with_scrollback(3));
+    assert_eq!(
+        &paged[0..3],
+        ["L0", "L1", "L2"],
+        "scrollback holds the history"
+    );
+}
+
+#[test]
+fn explicit_su_at_top_zero_region_does_not_feed_scrollback() {
+    // Contrast to the linefeed path: explicit SU (CSI S) is an application
+    // scroll and keeps its documented no-pollution discard even when the region
+    // is anchored at row 0. Only the natural linefeed/index path feeds history.
+    let mut terminal = Terminal::new(4, 4);
+    // Top-anchored partial region rows 1..=3 (top index 0, bottom index 2).
+    terminal.advance(b"\x1b[1;3r");
+    terminal.advance(b"\x1b[1;1Hr0\r\nr1\r\nr2");
+    terminal.advance(b"\x1b[S");
+    assert_eq!(
+        terminal.screen().scrollback_len(),
+        0,
+        "explicit SU at top==0 must not feed scrollback"
+    );
+}
+
+#[test]
+fn alt_screen_top_anchored_region_never_feeds_scrollback() {
+    // The scrollback-feeding path is primary-screen only. On the alternate
+    // screen a top-anchored partial region still discards off the top; the alt
+    // buffer never accumulates scrollback.
+    let mut terminal = Terminal::new(4, 4);
+    terminal.advance(b"\x1b[?1049h");
+    terminal.advance(b"\x1b[1;3r");
+    terminal.advance(b"\x1b[1;1H");
+    for i in 0..5 {
+        terminal.advance(format!("a{i}\r\n").as_bytes());
+    }
+    assert_eq!(
+        terminal.screen().scrollback_len(),
+        0,
+        "alternate screen never feeds scrollback"
+    );
+}
+
+#[test]
 fn background_color_erase_applies_to_ed_el_and_ech() {
     let mut terminal = Terminal::new(6, 3);
     let red = Color::Indexed(1);

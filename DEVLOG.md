@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Scrollback fills under a top-anchored scroll region (full-screen TUIs)
+
+Wheel-up now reveals history in full-screen programs that reserve a bottom input
+composer, such as ratatui-based TUIs. Previously, scrolling back was dead in
+these programs: the local scrollback stayed empty no matter how much output
+streamed by, so there was nothing for a wheel-up to show.
+
+The cause was in the linefeed-at-region-bottom scroll path. A program that keeps
+a fixed footer sets a TOP-ANCHORED partial scroll region with `ESC[1;<rows-1>r`
+(top margin at row 0, one or more rows reserved below the bottom margin). When
+the cursor linefeeds at the region bottom, the row leaving the top of the region
+is real, scrolled-off history -- but that case was routed through the region
+scroll, which discards the top row and never feeds scrollback. Only a
+full-screen region (`ESC[1;<rows>r`) fed scrollback; a top-anchored partial
+region silently dropped everything.
+
+The fix adds a dedicated path for a top-anchored partial region on the primary
+screen: the row leaving the top is pushed to scrollback exactly as the
+full-screen scroll does (preserving the soft-wrap continuity so reflow still
+rejoins wrapped lines), while the footer rows below the bottom margin stay fixed
+(as a region scroll does). This is a general terminal-correctness alignment with
+kitty and wezterm, which feed scrollback from a top-anchored region regardless of
+the bottom margin -- not a per-application patch. Explicit application scrolls
+(SU/SD, `CSI S`/`CSI T`) keep their documented no-pollution discard even when the
+region is anchored at row 0, and the alternate screen never accumulates
+scrollback. Image placements scrolling off the top of such a region are retained
+into scrollback and evicted only past the history bound, mirroring the
+full-screen path; footer placements are untouched.
+
+Pure core-screen logic with no PTY, spawn, path, environment, or shell surface;
+behavior is identical on Unix and Windows. Real-route regression coverage drives
+the parser: a top-anchored region emitting linefeeds at its bottom now grows
+scrollback from zero and preserves the footer rows, the scrolled-off rows are
+verified present in scrollback in order, an explicit `CSI S` at a row-0 region
+still feeds nothing, and the alternate screen still never accumulates history.
+The existing full-screen-region scrollback test stays green.
+
+Verified: full non-GPU suite green (`cargo test --lib`, 3463 tests) plus the
+core protocol integration binaries; `cargo clippy` clean under the deny gate;
+`cargo fmt --check` clean.
+
+---
+
 ## 2026-07-10 -- Ctrl+click opens paths and links even inside a mouse-tracking TUI
 
 Ctrl+click (Cmd+click on macOS) opens a resolved file path, bare URL, or OSC 8

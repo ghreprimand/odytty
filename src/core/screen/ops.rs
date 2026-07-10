@@ -88,6 +88,44 @@ impl Screen {
         }
     }
 
+    /// Linefeed-at-region-bottom scroll for a TOP-ANCHORED partial region
+    /// (`region.top == 0`, a footer preserved below `region.bottom`) on the
+    /// PRIMARY screen. Unlike [`Self::scroll_up_region`], the row leaving the
+    /// top of the region is pushed to scrollback, so a full-screen TUI that
+    /// reserves a bottom input composer (e.g. `ESC[1;<rows-1>r`) still
+    /// accumulates history for wheel-up instead of silently discarding it. The
+    /// footer rows below the bottom margin are untouched. Only the natural
+    /// linefeed / index (IND, NEL) path routes here; explicit SU/SD keep their
+    /// no-pollution discard. Feeding the removed top row into scrollback mirrors
+    /// [`Self::scroll_up_full`] — including its preserved soft-wrap continuity,
+    /// so no top seam is severed here.
+    pub(super) fn scroll_up_region_into_scrollback(&mut self) {
+        if let Some(region) = self.scroll_region {
+            let background = self.current_attrs.background;
+            let removed = self.rows.remove(region.top);
+            // Primary screen only (guarded by the caller); the row is real
+            // history leaving the top, so push it to scrollback exactly as the
+            // full-screen path does. `push_row` preserves the soft-wrap chain,
+            // so — unlike the discard path — nothing is severed.
+            self.scrollback.push_row(removed);
+            self.rows.insert(
+                region.bottom,
+                blank_row_with_bg(self.dimensions.columns, background),
+            );
+            // Graphics: rows [0, region.bottom] shift up one; the placement
+            // leaving the top feeds scrollback (mirrors `scroll_full_up`),
+            // while footer placements below the region stay fixed.
+            let scrollback_rows = if self.graphics.placements().is_empty() {
+                0
+            } else {
+                self.scrollback.physical_len(self.dimensions.columns)
+            };
+            self.graphics
+                .scroll_region_up_into_scrollback(region.bottom, 1, scrollback_rows);
+            self.mark_dirty();
+        }
+    }
+
     /// SU (CSI Ps S): scroll the active region up by `count` lines, discarding
     /// lines off the top of the region and filling at the bottom with BCE-aware
     /// blank rows. Falls back to the full screen when no DECSTBM region is set.

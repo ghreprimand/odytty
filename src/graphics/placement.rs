@@ -451,6 +451,24 @@ impl ImageScene {
         self.drop_outside_region(top as isize, bottom as isize);
     }
 
+    /// Scroll a TOP-ANCHORED region (top row 0) up by `count`, feeding the rows
+    /// that leave the top into scrollback exactly as [`Self::scroll_full_up`]
+    /// does, while leaving the footer below `bottom` fixed as
+    /// [`Self::scroll_region_up`] would. Used by the linefeed-at-region-bottom
+    /// path when a full-screen TUI reserves a bottom input composer via a
+    /// top-anchored DECSTBM region: the content above the margin is real
+    /// history, so placements scrolling off the top are retained into
+    /// scrollback rather than dropped.
+    pub fn scroll_region_up_into_scrollback(
+        &mut self,
+        bottom: usize,
+        count: usize,
+        scrollback_rows: usize,
+    ) {
+        self.shift_rows(0, Some(bottom as isize), -(count as isize), true);
+        self.evict_above_scrollback(scrollback_rows);
+    }
+
     pub fn scroll_region_down(&mut self, top: usize, bottom: usize, count: usize) {
         self.shift_rows(top as isize, Some(bottom as isize), count as isize, false);
         self.drop_outside_region(top as isize, bottom as isize);
