@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Right-click context menu no longer blocks the event loop
+
+Opening a context menu could freeze the whole window for seconds. `open_context_menu`
+ran two pieces of unbounded, synchronous I/O on the winit event-loop thread on
+every open:
+
+- A clipboard read (`get_text`) to gate the Paste item. On Wayland this reads a
+  pipe served by the clipboard owner with no timeout, so a slow or unresponsive
+  owner stalls the loop. The Paste item is now shown optimistically enabled; the
+  Paste action already no-ops on an empty clipboard, so nothing is lost. On
+  Windows the Win32 clipboard read does not block indefinitely, so this is a
+  no-behavior-change simplification there.
+- An interactive-path scan (`resolved_hovered_path`) that stat-probes candidate
+  path spans and can hang on a stalled mount. A right-click on chrome (a tab
+  slot, the workspace rail, an empty strip) can never sit over a content path, so
+  the scan is now restricted to the terminal content surface. The scan is
+  filesystem path resolution (Unix path semantics; drive-letter cwds via OSC 7 on
+  Windows); only WHEN it runs changed, not its cross-platform behavior.
+
+Two smaller clipboard corrections ride along: an empty clipboard reports
+`ContentNotAvailable`, which is routine on Wayland, so the cached clipboard
+handle is no longer dropped for it (dropping it forced a fresh compositor
+connection on the next read) and it is logged at debug instead of spamming a
+warning; genuine backend errors still warn and invalidate the handle.
+
+A press that lands on a freshly-opened workspace-rail menu within a short debounce
+window is now swallowed, so a burst of stale queued clicks replaying after a
+stall can no longer activate a create/close-workspace item ("phantom New
+Workspace"); Content and tab menus are unaffected.
+
+Real-route regression coverage: a rail right-press opens the menu with zero
+clipboard probes; a chrome right-click skips the path scan while a content
+right-click still runs it; and a stale press burst into a fresh rail menu mutates
+no workspaces. `cargo test --lib`, `cargo fmt --check`, and `cargo clippy
+--all-targets -- -D warnings` pass (3454 tests).
+
+---
+
 ## 2026-07-10 -- Theme library grows to 142 palettes
 
 Six original OdysseyOS palettes expand the built-in library from 136 to 142:

@@ -75,6 +75,12 @@ pub(super) struct NativeClipboard {
     /// clipboard image without a live system clipboard.
     #[cfg(test)]
     pub(super) injected_clipboard_image: Option<Vec<u8>>,
+    /// Test-only: counts calls to `read_text`. A regression test uses it to prove
+    /// that opening the context menu no longer probes the clipboard synchronously
+    /// on the winit event-loop thread (the root of the ~12s Wayland right-click
+    /// freeze).
+    #[cfg(test)]
+    pub(super) read_text_calls: usize,
 }
 
 pub(super) trait ClipboardSelectionIo {
@@ -108,6 +114,17 @@ impl ClipboardSelectionIo for NativeClipboard {
 
             match clipboard.get_text() {
                 Ok(text) => Some(text),
+                // An empty clipboard reports `ContentNotAvailable`, which is
+                // routine on Wayland: `get_text` runs on real paste, middle-click
+                // primary paste, AND (historically) every context-menu open. Do
+                // NOT clear the cached handle for it -- dropping the handle forces
+                // a fresh compositor connection on the next read -- and log it at
+                // debug so an empty clipboard never spams WARN. Only a genuine
+                // backend error invalidates the handle and warrants a warning.
+                Err(arboard::Error::ContentNotAvailable) => {
+                    tracing::debug!("clipboard empty on paste read");
+                    None
+                }
                 Err(err) => {
                     tracing::warn!("clipboard paste failed: {err}");
                     self.slot.clear();
@@ -225,6 +242,10 @@ impl ClipboardSelectionIo for NativeClipboard {
 
 impl NativeClipboard {
     pub(super) fn read_text(&mut self) -> Option<String> {
+        #[cfg(test)]
+        {
+            self.read_text_calls += 1;
+        }
         self.read_clipboard_text()
     }
 

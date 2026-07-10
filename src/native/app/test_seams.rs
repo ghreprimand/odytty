@@ -1339,6 +1339,33 @@ impl App {
         self.overlay.is_context_menu()
     }
 
+    /// Test seam (FIX-A): number of synchronous clipboard `read_text` probes.
+    /// A menu-open regression test asserts this stays 0 across a context-menu
+    /// open, proving the open path no longer blocks the event-loop thread on a
+    /// clipboard read (the ~12s Wayland right-click freeze).
+    #[cfg(test)]
+    pub(in crate::native) fn clipboard_read_text_calls_for_test(&self) -> usize {
+        self.clipboard.read_text_calls
+    }
+
+    /// Test seam (FIX-A): backdate the context-menu open instant so the input
+    /// debounce window has elapsed. Lets a test prove that presses route to the
+    /// menu again after the debounce, without a real sleep.
+    #[cfg(test)]
+    pub(in crate::native) fn expire_context_menu_debounce_for_test(&mut self) {
+        self.context_menu_opened_at =
+            Some(std::time::Instant::now() - std::time::Duration::from_secs(3600));
+    }
+
+    /// Test seam (FIX-A): whether the last `open_context_menu` ran the
+    /// interactive-path scan (the PATH-GATE decision). `false` proves a chrome
+    /// (rail/tab) right-click skipped the stat-probing scan that could block on a
+    /// hung mount.
+    #[cfg(test)]
+    pub(in crate::native) fn last_menu_path_scan_for_test(&self) -> bool {
+        self.last_menu_path_scan_for_test
+    }
+
     /// Test seam (IN2): force a non-empty absolute selection so the menu's Copy
     /// gating (selection present ⇒ enabled) can be exercised deterministically.
     #[cfg(test)]

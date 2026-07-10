@@ -1864,3 +1864,137 @@ fn editable_input_selection_survives_a_width_change_resize() {
         "select+Delete must still engage on the prompt input after a width-change resize"
     );
 }
+
+// ── FIX-A: right-click freeze (no blocking clipboard/stat on the loop thread) ──
+
+/// FIX-A helper: a left-rail App with two workspaces, so a right-press on rail
+/// slot 0 opens the `WorkspaceSlot` context menu through the real
+/// `handle_mouse_input` route. `None` when no PTY fixture is available.
+fn rail_two_workspace_app() -> Option<App> {
+    let (mut app, _terminal) = app_for_test()?;
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_workspace_rail_for_test("left");
+    // A second workspace so the rail has a real slot 0 to right-click.
+    let dims = Dimensions::new(80, 24);
+    let session = spawn_test_pause_shell(dims).ok()?;
+    let _ = session.take_writer().ok()?;
+    let recorder = RecordingWriter::default();
+    let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
+    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let pty = Arc::new(Mutex::new(session));
+    app.push_workspace_for_test(terminal, writer, pty);
+    Some(app)
+}
+
+#[test]
+fn opening_a_rail_context_menu_never_probes_the_clipboard() {
+    // The ~12s Wayland right-click freeze: `open_context_menu` synchronously read
+    // the clipboard (`get_text`, a no-timeout pipe read on Wayland) on EVERY menu
+    // open, blocking the winit event-loop thread. The Paste item is now shown
+    // optimistically, so the open path must not touch the clipboard at all. Drive
+    // the real right-press route on a rail slot and assert zero clipboard reads.
+    let Some(mut app) = rail_two_workspace_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    assert_eq!(
+        app.clipboard_read_text_calls_for_test(),
+        0,
+        "no clipboard read before the menu opens"
+    );
+    // Right-press on rail slot 0 (a workspace surface) via the real route.
+    app.pointer_move_for_test(12.0, 24.0);
+    assert_eq!(
+        app.chrome_hit_band_for_test(),
+        Some("workspace"),
+        "the pointer is over a rail slot"
+    );
+    app.mouse_right_press_for_test();
+    assert!(
+        app.context_menu_open_for_test(),
+        "the rail right-press opened the context menu"
+    );
+    assert_eq!(
+        app.clipboard_read_text_calls_for_test(),
+        0,
+        "opening the menu must not synchronously probe the clipboard"
+    );
+}
+
+#[test]
+fn a_chrome_right_click_skips_the_interactive_path_scan() {
+    // The second blocking site: `resolved_hovered_path` stat-probes path spans
+    // and can hang on a stalled mount. A right-click on chrome (a rail slot) can
+    // never sit over a content path, so the scan is skipped there even with
+    // `interactive_paths` on -- while a content right-click still runs it.
+    let Some(mut app) = rail_two_workspace_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_interactive_paths_for_test(true);
+
+    // Rail slot right-click: chrome surface, scan skipped.
+    app.pointer_move_for_test(12.0, 24.0);
+    app.mouse_right_press_for_test();
+    assert!(app.context_menu_open_for_test());
+    assert!(
+        !app.last_menu_path_scan_for_test(),
+        "a rail (chrome) right-click must skip the interactive-path scan"
+    );
+    app.close_overlay_for_test();
+
+    // Content right-click (well past the rail band): the scan runs as before.
+    app.pointer_move_for_test(400.0, 200.0);
+    app.mouse_right_press_for_test();
+    assert!(app.context_menu_open_for_test());
+    assert!(
+        app.last_menu_path_scan_for_test(),
+        "a content right-click still runs the interactive-path scan"
+    );
+}
+
+#[test]
+fn a_stale_press_burst_into_a_fresh_workspace_menu_activates_nothing() {
+    // The "phantom New Workspace": while the loop was frozen, queued clicks piled
+    // up and replayed into the just-opened WorkspaceSlot menu, activating an
+    // unintended item. A press landing on a workspace-rail menu within its open
+    // debounce window is now swallowed. Open the rail menu, then fire a burst of
+    // presses onto the menu body: the workspace count must not change.
+    let Some(mut app) = rail_two_workspace_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.pointer_move_for_test(12.0, 24.0);
+    app.mouse_right_press_for_test();
+    assert!(app.context_menu_open_for_test());
+    let before = app.workspace_count_for_test();
+
+    // A stale burst: several press/release pairs onto the menu body (where the
+    // "New Workspace" row could sit), all within the debounce window (elapsed
+    // ~0 in a test). Every one is swallowed, so no item activates.
+    let rect = app.overlay_rect_for_test().expect("rail menu open");
+    app.set_pointer_cell_for_test(rect.body_top, rect.body_left);
+    for _ in 0..4 {
+        app.mouse_left_press_for_test();
+        app.mouse_left_release_for_test();
+    }
+    assert_eq!(
+        app.workspace_count_for_test(),
+        before,
+        "a stale press burst into a fresh menu must not mutate workspaces"
+    );
+    assert!(
+        app.context_menu_open_for_test(),
+        "the swallowed presses leave the menu open"
+    );
+
+    // Once the debounce window has elapsed, presses route to the menu again: a
+    // click-away press dismisses it (routing is only deferred, not broken).
+    app.expire_context_menu_debounce_for_test();
+    app.pointer_move_for_test(600.0, 360.0);
+    app.mouse_left_press_for_test();
+    assert!(
+        !app.context_menu_open_for_test(),
+        "after the debounce elapses, a routed click-away dismisses the menu"
+    );
+}

@@ -655,6 +655,25 @@ impl App {
             }
             return;
         };
+        // MENU-DEBOUNCE: swallow a press that lands on a freshly-opened workspace
+        // RAIL menu within `CONTEXT_MENU_INPUT_DEBOUNCE` of it opening. Such a
+        // press can only be a stale queued click replaying into the just-opened
+        // menu -- a human needs longer to see the menu, move to an item, and
+        // click -- and letting one through is how a burst of queued presses could
+        // activate a workspace-mutating item ("phantom New Workspace"). Scoped to
+        // the workspace-rail surfaces (the only ones carrying create/close
+        // workspace items, and the exact surface of the observed phantom); Content
+        // and tab menus route normally so their open-then-click paths are
+        // unchanged. Only presses are gated, so the opening right-click's own
+        // release and hover-to-focus moves route normally.
+        if state == ElementState::Pressed
+            && self.overlay.is_workspace_rail_context_menu()
+            && self
+                .context_menu_opened_at
+                .is_some_and(|opened| opened.elapsed() < super::CONTEXT_MENU_INPUT_DEBOUNCE)
+        {
+            return;
+        }
         let x_in_body = self.pointer_x_in_body(&rect);
         let pointer = match state {
             ElementState::Pressed => OverlayPointer::Press {

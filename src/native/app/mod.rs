@@ -160,6 +160,12 @@ pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(1
 /// most a couple of seconds of shape change.
 const SHAPE_AUTOSAVE_DEBOUNCE: Duration = Duration::from_millis(1500);
 
+/// A press landing on the context menu within this window of it opening is
+/// treated as a stale queued click and swallowed (see `context_menu_opened_at`).
+/// Comfortably longer than the sub-frame burst of replayed events, far shorter
+/// than the time a human takes to read the menu, move to an item, and click.
+const CONTEXT_MENU_INPUT_DEBOUNCE: Duration = Duration::from_millis(120);
+
 /// SECONDARY-INSTANCE-NOTICE banner text. A named constant so the test pins the
 /// exact wording the operator reads and no edit can drift it silently.
 const SECONDARY_INSTANCE_NOTICE: &str = "Another OdyTTY window owns session restore — this window won't restore or autosave workspaces.";
@@ -476,6 +482,19 @@ pub(super) struct App {
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
+    /// Instant the context menu was last opened. A press that lands on the menu
+    /// within [`CONTEXT_MENU_INPUT_DEBOUNCE`] of opening is swallowed: it can
+    /// only be a stale queued click replaying (a human needs longer to see the
+    /// menu, move to an item, and click). This hardens against the "phantom
+    /// menu-item activation" seen when a burst of queued presses flushed into a
+    /// freshly opened menu. `None` while no context menu is open.
+    context_menu_opened_at: Option<Instant>,
+    /// Test-only: whether the last `open_context_menu` decided to run the
+    /// interactive-path scan. Records the PATH-GATE decision at its exact site so
+    /// a test can assert a chrome (rail/tab) right-click skips the stat-probing
+    /// scan while a content right-click still runs it.
+    #[cfg(test)]
+    last_menu_path_scan_for_test: bool,
     /// BELL visual-flash start instant, set when a bell is drained while the
     /// bell mode wants a visual flash. `None` when no flash is in flight (the
     /// off / urgent-only path), so the default render path emits no flash quad.
@@ -707,6 +726,9 @@ impl App {
             rail_ws_drag: None,
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
+            context_menu_opened_at: None,
+            #[cfg(test)]
+            last_menu_path_scan_for_test: false,
             bell_flash_start: None,
             bell_flash_epoch: 0,
             open_notice: None,
@@ -2545,7 +2567,17 @@ impl App {
         let editable_selection = self.editable_input_selection_for_context_menu();
         let prompt_editing_hint =
             editable_selection.is_none() && self.prompt_input_mark_missing_for_context_menu();
-        let paste_enabled = self.clipboard.read_text().is_some();
+        // PASTE-GATE: do NOT probe the clipboard synchronously here. On Wayland
+        // `get_text` reads a pipe served by the clipboard OWNER with no timeout,
+        // so a slow or unresponsive owner blocks the winit event-loop thread --
+        // and this ran on EVERY menu open, freezing the whole UI for seconds. The
+        // Paste action itself (`handle_paste_shortcut`) already no-ops gracefully
+        // on an empty clipboard, so the item is shown optimistically enabled;
+        // activating it with nothing to paste simply does nothing. Windows: the
+        // Win32 clipboard read does not block indefinitely, so this is a
+        // no-behavior-change simplification there (the item is always enabled and
+        // the action still no-ops on empty).
+        let paste_enabled = true;
         // Part C: each item's *effective* keybind, derived from the live
         // `KeyBindings` (reverse action→chord lookup) so it reflects user
         // rebinds. Items with no bound chord get `None` (rendered blank). Reuses
@@ -2587,7 +2619,22 @@ impl App {
         // hover snapshot — a right-click may not pass through the hover path).
         // Gated on the setting so the default (feature-off) menu never scans and
         // is byte-identical. `None` hides the file section entirely.
-        let path_target = if self.settings.interactive_paths {
+        // PATH-GATE: `resolved_hovered_path` stat-probes candidate path spans,
+        // which can block arbitrarily on a hung mount. A right-click on chrome (a
+        // tab slot, the workspace rail, an empty strip) can never sit over a
+        // content path, so restrict the scan to the terminal content surface --
+        // that alone removes the stat site from every rail/tab right-click. Only
+        // the content grid can host a hovered path. Windows: the scan is
+        // filesystem path resolution (Unix path semantics; drive-letter cwds via
+        // OSC 7 on Windows); this gate only narrows WHEN it runs and does not
+        // change its cross-platform behavior.
+        let scan_hovered_path =
+            self.settings.interactive_paths && matches!(surface, ContextMenuSurface::Content);
+        #[cfg(test)]
+        {
+            self.last_menu_path_scan_for_test = scan_hovered_path;
+        }
+        let path_target = if scan_hovered_path {
             self.resolved_hovered_path()
         } else {
             None
@@ -2608,6 +2655,11 @@ impl App {
             path_target,
             accelerators,
         );
+        // MENU-DEBOUNCE: stamp the open instant so a stale queued press flushed
+        // into the just-opened menu is swallowed rather than activating an item
+        // (the "phantom New Workspace" replay). Cleared implicitly -- the check
+        // in `handle_overlay_pointer_button` also requires the menu to be open.
+        self.context_menu_opened_at = Some(Instant::now());
         // RAIL-REORDER: a WorkspaceSlot menu needs the total workspace count to
         // gate its Move Up/Down rows (Move Down hides on the last slot). Set it
         // only for that surface; every other menu leaves the count at 0.
