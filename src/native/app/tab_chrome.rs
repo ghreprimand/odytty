@@ -106,7 +106,7 @@ pub(super) const SEAM_MIN_PANEL_DELTA: f64 = 0.02;
 /// lifted until it clears this ratio — a clearly visible warm slab that still
 /// keeps the theme hue. Kept modest (a slab, not a glow) and capped at
 /// [`SEAM_MAX_LUMA`] so the fill never crosses the bloom threshold.
-pub(super) const ACTIVE_FILL_MIN_PANEL_RATIO: f64 = 1.35;
+pub(super) const ACTIVE_FILL_MIN_PANEL_RATIO: f64 = 1.55;
 
 // ---------------------------------------------------------------------------
 // Treatment functions (theme roles → sRGB)

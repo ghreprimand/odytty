@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Active chrome uses stronger directional markers
+
+Active workspaces now carry a three-pixel, full-slot-height accent stripe on
+the rail's leading edge. Active top tabs use a four-pixel bottom accent bar.
+Both markers remain full-alpha solid quads, providing a primary active signal
+that stays distinct when window transparency is high.
+
+The active-slot fill contrast floor also increases from 1.35:1 to 1.55:1 while
+remaining below the bloom threshold. Geometry coverage pins the rail stripe and
+top bar across every supported chrome height. The platform-neutral chrome
+render change has no Windows-specific surface.
+
+Verified: full non-GPU `cargo test --lib -- --skip native::gpu_tests` suite
+green; `cargo clippy --all-targets` clean under the deny gate; `cargo fmt
+--check` clean.
+
+---
+
 ## 2026-07-11 -- Workspace labels clear the rail slot edge
 
 Workspace-rail labels now reserve two physical pixels below their glyph ink,

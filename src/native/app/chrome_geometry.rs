@@ -356,14 +356,25 @@ impl ChromeSlotGeom {
 
     pub(super) fn active_marker(&self, active_idx: usize, color: [f32; 4]) -> Option<SolidQuad> {
         let rect = self.slots.iter().find(|slot| slot.idx == active_idx)?.rect;
-        let bottom = rect.y + rect.height;
-        Some(SolidQuad {
-            rect: [
+        let marker = match self.axis {
+            Axis::Horizontal => {
+                let bottom = rect.y + rect.height;
+                [
+                    rect.x as f32,
+                    (bottom - 4.0).max(rect.y) as f32,
+                    (rect.x + rect.width) as f32,
+                    bottom as f32,
+                ]
+            }
+            Axis::Vertical => [
                 rect.x as f32,
-                (bottom - 2.0).max(rect.y) as f32,
-                (rect.x + rect.width) as f32,
-                bottom as f32,
+                rect.y as f32,
+                (rect.x + 3.0_f64.min(rect.width)) as f32,
+                (rect.y + rect.height) as f32,
             ],
+        };
+        Some(SolidQuad {
+            rect: marker,
             color,
         })
     }
@@ -545,9 +556,11 @@ mod tests {
             let marker = geometry.active_marker(0, color).expect("top marker");
             assert_eq!(
                 marker.rect[1],
-                (slot.rect.y + slot.rect.height - 2.0) as f32
+                (slot.rect.y + slot.rect.height - 4.0).max(slot.rect.y) as f32
             );
             assert_eq!(marker.rect[3], (slot.rect.y + slot.rect.height) as f32);
+            assert_eq!(marker.rect[0], slot.rect.x as f32);
+            assert_eq!(marker.rect[2], (slot.rect.x + slot.rect.width) as f32);
             assert_eq!(marker.color, color);
         }
         for slot_rows in [1, 2] {
@@ -564,11 +577,11 @@ mod tests {
             );
             let slot = geometry.slots.iter().find(|slot| slot.idx == 0).unwrap();
             let marker = geometry.active_marker(0, color).expect("rail marker");
-            assert_eq!(
-                marker.rect[1],
-                (slot.rect.y + slot.rect.height - 2.0) as f32
-            );
+            assert_eq!(marker.rect[0], slot.rect.x as f32);
+            assert_eq!(marker.rect[2], (slot.rect.x + 3.0) as f32);
+            assert_eq!(marker.rect[1], slot.rect.y as f32);
             assert_eq!(marker.rect[3], (slot.rect.y + slot.rect.height) as f32);
+            assert_eq!(marker.color, color);
         }
     }
 
