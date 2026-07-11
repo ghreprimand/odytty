@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Graphics allocations respect joint device limits
+
+Image placements, the image viewer, and background images now preserve their
+aspect ratio while downscaling any texture that exceeds the active GPU's
+two-dimensional limit. Monochrome and color glyph atlases derive their growth
+ceiling from the same device limit and fall back cleanly when no complete atlas
+growth page remains. Every production texture allocation passes through a
+shared extent guard, and uncaptured GPU validation errors are logged instead of
+aborting the window.
+
+Sixel decoding now validates both the physical canvas and the final drawn
+extent as joint dimensions. A narrow tall band following a wide band is
+rejected before either the retained stride or the final image can cross the
+pixel budget.
+
+Boundary tests cover image, background, atlas, error-handler, and sixel paths.
+No Windows-specific surface is involved; wgpu limits apply on all backends.
+
+Verified: `cargo build` clean; targeted boundary regressions green; full
+non-GPU `cargo test --lib -- --skip native::gpu_tests` suite green; `cargo
+clippy --all-targets` clean under the deny gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-11 -- Persistence hardening: JSON nesting cap and snapshot string bounds
 
 Two persistence-layer defects that could brick launch or a reattach are closed.

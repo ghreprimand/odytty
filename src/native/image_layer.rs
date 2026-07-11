@@ -524,7 +524,7 @@ impl ImageLayer {
         }
         // The viewer overlay uses the LINEAR `overlay_sampler` so a scaled photo
         // is smoothly interpolated; placements keep the NEAREST `sampler`.
-        let (texture, bind_group) = create_image_texture(
+        let Some((texture, bind_group)) = create_image_texture(
             device,
             queue,
             &self.bind_group_layout,
@@ -533,7 +533,10 @@ impl ImageLayer {
             width,
             height,
             rgba,
-        );
+        ) else {
+            self.overlay_image = None;
+            return;
+        };
         let quad = overlay_fit_quad(width, height, viewport_w, viewport_h);
         let fit_rect = quad.rect;
         let mut verts = Vec::with_capacity(6);
@@ -674,14 +677,16 @@ impl ImageLayer {
             .collect();
         for key in visible.difference(&cached) {
             if let Some(upload) = uploads_by_key.get(key) {
-                let cached_image = upload_image(
+                let Some(cached_image) = upload_image(
                     device,
                     queue,
                     &self.bind_group_layout,
                     &self.sampler,
                     viewport_buf,
                     upload,
-                );
+                ) else {
+                    continue;
+                };
                 self.pane_textures.insert(*key, cached_image);
             }
         }
@@ -761,14 +766,16 @@ impl ImageLayer {
             .collect::<BTreeMap<_, _>>();
         for id in plan.upload {
             if let Some(upload) = uploads_by_id.get(&id) {
-                let cached = upload_image(
+                let Some(cached) = upload_image(
                     device,
                     queue,
                     &self.bind_group_layout,
                     &self.sampler,
                     viewport_buf,
                     upload,
-                );
+                ) else {
+                    continue;
+                };
                 self.textures.insert(id, cached);
             }
         }
@@ -1006,14 +1013,18 @@ fn create_image_texture(
     width: u32,
     height: u32,
     rgba: &[u8],
-) -> (wgpu::Texture, wgpu::BindGroup) {
+) -> Option<(wgpu::Texture, wgpu::BindGroup)> {
+    let limit = device.limits().max_texture_dimension_2d;
+    let (pixels, texture_width, texture_height) = fit_image_rgba(rgba, width, height, limit)?;
+    if (texture_width, texture_height) != (width, height) {
+        tracing::warn!(
+            "image texture {width}x{height} exceeds the GPU limit {limit}; downscaled to {texture_width}x{texture_height}"
+        );
+    }
+    let extent = super::texture_limits::extent_2d(device, texture_width, texture_height);
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("odytty-image-texture"),
-        size: wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
+        size: extent,
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -1028,17 +1039,13 @@ fn create_image_texture(
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        rgba,
+        pixels.as_ref(),
         wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(width * 4),
-            rows_per_image: Some(height),
+            bytes_per_row: Some(texture_width * 4),
+            rows_per_image: Some(texture_height),
         },
-        wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        },
+        extent,
     );
 
     let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -1060,7 +1067,16 @@ fn create_image_texture(
             },
         ],
     });
-    (texture, bind_group)
+    Some((texture, bind_group))
+}
+
+pub(super) fn fit_image_rgba(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    limit: u32,
+) -> Option<(std::borrow::Cow<'_, [u8]>, u32, u32)> {
+    super::texture_limits::fit_rgba8(rgba, width, height, limit)
 }
 
 fn upload_image(
@@ -1070,7 +1086,7 @@ fn upload_image(
     sampler: &wgpu::Sampler,
     viewport_buf: &wgpu::Buffer,
     upload: &ImageUpload,
-) -> CachedImage {
+) -> Option<CachedImage> {
     let (texture, bind_group) = create_image_texture(
         device,
         queue,
@@ -1080,14 +1096,14 @@ fn upload_image(
         upload.width,
         upload.height,
         &upload.rgba,
-    );
-    CachedImage {
+    )?;
+    Some(CachedImage {
         width: upload.width,
         height: upload.height,
         generation: upload.generation,
         _texture: texture,
         bind_group,
-    }
+    })
 }
 
 /// Compute the centered, aspect-preserved pixel rect for an overlay image of

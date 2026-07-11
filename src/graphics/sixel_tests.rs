@@ -305,6 +305,24 @@ fn error_too_large_raster_attrs() {
     ));
 }
 
+/// A narrow tall band after a wide band must be checked against the earlier
+/// width. Per-band dimensions are individually valid, but their joint physical
+/// and final extent exceeds the pixel budget.
+#[test]
+fn wide_then_tall_stream_respects_joint_pixel_budget() {
+    let mut payload = b"!10000~".to_vec();
+    payload.extend(std::iter::repeat_n(b'-', 1665));
+    payload.push(b'~');
+    assert!(payload.len() < 2_000);
+    assert!(matches!(
+        decode_sixel(&payload, SixelBackground::default()),
+        Err(SixelError::TooLarge {
+            width: 10_000,
+            height: 9_996
+        })
+    ));
+}
+
 // ---------------------------------------------------------------------------
 // SX4: lazy canvas sizing + geometric growth (memory-behavior hardening)
 // ---------------------------------------------------------------------------

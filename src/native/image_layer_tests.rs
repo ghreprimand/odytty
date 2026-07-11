@@ -7,8 +7,9 @@ use crate::graphics::{GraphicsProtocol, PlacementId, SourceRect, StoredImageId, 
 
 use super::app::TAB_BAR_ROWS;
 use super::image_layer::{
-    ImageUpload, cache_sync_plan, overlay_fit_quad, placement_quad, placement_quad_with_origin,
-    placement_quad_with_padding, placement_quad_with_padding_and_row_offset, visible_image_ids,
+    ImageUpload, cache_sync_plan, fit_image_rgba, overlay_fit_quad, placement_quad,
+    placement_quad_with_origin, placement_quad_with_padding,
+    placement_quad_with_padding_and_row_offset, visible_image_ids,
 };
 use super::viewport::WindowPadding;
 
@@ -39,6 +40,14 @@ fn solid_16x6_red() -> Vec<u8> {
     let mut sequence = Vec::new();
     sequence.extend_from_slice(b"\x1bP0;0q#0;2;100;0;0!16~\x1b\\");
     sequence
+}
+
+#[test]
+fn oversized_image_upload_is_downscaled_at_device_boundary() {
+    let rgba = vec![0x80; 8_193 * 4];
+    let (pixels, width, height) = fit_image_rgba(&rgba, 8_193, 1, 8_192).expect("valid RGBA");
+    assert_eq!((width, height), (8_192, 1));
+    assert_eq!(pixels.len(), 8_192 * 4);
 }
 
 #[test]

@@ -88,6 +88,7 @@ mod search_ui;
 mod session;
 mod session_attach_overlay;
 mod settings_panel;
+mod texture_limits;
 mod theme_builder;
 mod theme_picker;
 mod viewport;

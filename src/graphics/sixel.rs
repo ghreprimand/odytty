@@ -249,6 +249,17 @@ impl Decoder {
                 new_cap_h = need_h;
             }
         }
+        // Capacity cannot discard an earlier wide band to make room for a
+        // later tall one. Validate the physical stride and height jointly
+        // before resizing, including already-resident dimensions.
+        let physical_w = new_cap_w.max(self.cap_w);
+        let physical_h = new_cap_h.max(self.cap_h);
+        if u64::from(physical_w) * u64::from(physical_h) > MAX_PIXELS {
+            return Err(SixelError::TooLarge {
+                width: physical_w,
+                height: physical_h,
+            });
+        }
 
         if self.cap_w == 0 || self.cap_h == 0 {
             // First allocation.
@@ -277,7 +288,8 @@ impl Decoder {
         } else if new_cap_h > self.cap_h {
             // Stride unchanged — appending zero rows needs no row movement.
             self.rgba
-                .resize((self.cap_w as usize) * (new_cap_h as usize) * 4, 0);
+                .resize((new_cap_w as usize) * (new_cap_h as usize) * 4, 0);
+            self.cap_w = new_cap_w;
             self.cap_h = new_cap_h;
         }
         Ok(())
@@ -397,6 +409,7 @@ impl Decoder {
         if final_w == 0 || final_h == 0 {
             return Err(SixelError::Empty);
         }
+        Self::check_caps(final_w, final_h)?;
 
         let fw = final_w as usize;
         let fh = final_h as usize;

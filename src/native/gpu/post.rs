@@ -363,13 +363,11 @@ fn create_offscreen(
     config: &wgpu::SurfaceConfiguration,
     format: wgpu::TextureFormat,
 ) -> (wgpu::Texture, wgpu::TextureView) {
+    let extent =
+        super::super::texture_limits::extent_2d(device, config.width.max(1), config.height.max(1));
     let offscreen = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("odytty-post-offscreen"),
-        size: wgpu::Extent3d {
-            width: config.width.max(1),
-            height: config.height.max(1),
-            depth_or_array_layers: 1,
-        },
+        size: extent,
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -387,13 +385,14 @@ fn create_half_res_texture(
     format: wgpu::TextureFormat,
     label: &'static str,
 ) -> (wgpu::Texture, wgpu::TextureView) {
+    let extent = super::super::texture_limits::extent_2d(
+        device,
+        (config.width / 2).max(1),
+        (config.height / 2).max(1),
+    );
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some(label),
-        size: wgpu::Extent3d {
-            width: (config.width / 2).max(1),
-            height: (config.height / 2).max(1),
-            depth_or_array_layers: 1,
-        },
+        size: extent,
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,

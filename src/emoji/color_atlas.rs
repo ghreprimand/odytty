@@ -84,6 +84,7 @@ pub struct ColorGlyphAtlas {
     cols: u32,
     capacity_rows: u32,
     next_slot: u32,
+    max_slots: u32,
     slots: HashMap<ColorGlyphKey, ColorGlyphSlot>,
     revision: u64,
     dirty: bool,
@@ -101,6 +102,7 @@ impl ColorGlyphAtlas {
             cols: ATLAS_COLS,
             capacity_rows: ATLAS_GROW_ROWS,
             next_slot: 0,
+            max_slots: MAX_COLOR_GLYPH_SLOTS,
             slots: HashMap::new(),
             revision: 0,
             dirty: false,
@@ -115,6 +117,19 @@ impl ColorGlyphAtlas {
         let dirty = self.dirty;
         self.dirty = false;
         dirty
+    }
+
+    /// Bind growth to the active device's maximum 2D texture height. Inserts
+    /// return [`ColorGlyphAtlasError::Full`] once the final complete growth
+    /// page is full.
+    pub fn set_texture_dimension_limit(&mut self, max_dimension: u32) {
+        let rows = max_dimension / self.cell.height.max(1);
+        let reachable_rows = self.capacity_rows
+            + rows.saturating_sub(self.capacity_rows) / ATLAS_GROW_ROWS * ATLAS_GROW_ROWS;
+        self.max_slots = reachable_rows
+            .saturating_mul(self.cols)
+            .min(MAX_COLOR_GLYPH_SLOTS)
+            .max(self.next_slot);
     }
 
     pub fn lookup(&self, key: ColorGlyphKey) -> Option<ColorGlyphBounds> {
@@ -148,7 +163,7 @@ impl ColorGlyphAtlas {
             });
         }
         validate_premultiplied(rgba)?;
-        if self.next_slot >= MAX_COLOR_GLYPH_SLOTS {
+        if self.next_slot >= self.max_slots {
             return Err(ColorGlyphAtlasError::Full);
         }
 
@@ -351,5 +366,24 @@ mod tests {
         assert_eq!(atlas.next_slot, MAX_COLOR_GLYPH_SLOTS);
         assert_eq!(atlas.revision(), u64::from(MAX_COLOR_GLYPH_SLOTS));
         assert!(!atlas.take_dirty());
+    }
+
+    #[test]
+    fn device_height_limit_stops_before_an_oversized_growth_page() {
+        let mut atlas = ColorGlyphAtlas::new(cell());
+        let initial_height = atlas.height;
+        atlas.set_texture_dimension_limit(initial_height);
+        let slots_in_page = ATLAS_COLS * ATLAS_GROW_ROWS;
+        for id in 0..slots_in_page {
+            atlas
+                .insert_premultiplied(cluster_key(id), 1, &rgba(1, [1, 2, 3, 255]))
+                .expect("slot within device limit");
+        }
+        assert_eq!(atlas.height, initial_height);
+        assert_eq!(
+            atlas.insert_premultiplied(cluster_key(slots_in_page), 1, &rgba(1, [1, 2, 3, 255]),),
+            Err(ColorGlyphAtlasError::Full)
+        );
+        assert_eq!(atlas.height, initial_height);
     }
 }

@@ -727,6 +727,9 @@ pub struct GlyphAtlas {
     capacity_rows: u32,
     /// Next free slot for dynamic insertion; also the current slot count.
     next_slot: u32,
+    /// Effective slot ceiling imposed by the active GPU texture-height limit.
+    /// Headless callers retain [`MAX_ATLAS_SLOTS`].
+    max_slots: u32,
     /// Resident non-ASCII `(style, codepoint)` → slot index. A codepoint the
     /// font lacks is cached pointing at [`FALLBACK_SLOT`] so the decision is made
     /// once. Keyed by style so bold/italic variants get distinct slots; the live
@@ -929,6 +932,7 @@ impl GlyphAtlas {
             cols,
             capacity_rows,
             next_slot: base_slots,
+            max_slots: MAX_ATLAS_SLOTS,
             dynamic: HashMap::new(),
             px,
             revision: 0,
@@ -1218,7 +1222,7 @@ impl GlyphAtlas {
         if span > 1 && self.next_slot % self.cols + span > self.cols {
             self.push_placeholder_slot(1)?;
         }
-        if self.next_slot + span > MAX_ATLAS_SLOTS {
+        if self.next_slot + span > self.max_slots {
             return None;
         }
         let lead = self.next_slot;
@@ -1237,7 +1241,7 @@ impl GlyphAtlas {
     /// filler slot that a wide allocation burns to avoid a row wrap). Returns
     /// `None` at the hard cap.
     fn push_placeholder_slot(&mut self, span: u8) -> Option<()> {
-        if self.next_slot + 1 > MAX_ATLAS_SLOTS {
+        if self.next_slot + 1 > self.max_slots {
             return None;
         }
         self.grow_to_fit(self.next_slot);
@@ -1349,6 +1353,19 @@ impl GlyphAtlas {
     /// changes, so cached slots never mix faces.
     pub fn set_symbol_map_fonts(&mut self, fonts: Vec<(u32, u32, Arc<FontVec>)>) {
         self.symbol_map_fonts = fonts;
+    }
+
+    /// Bind dynamic growth to the active device's maximum 2D texture height.
+    /// Existing base glyphs stay resident; new glyphs use the fallback once
+    /// another complete atlas row would cross `max_dimension`.
+    pub fn set_texture_dimension_limit(&mut self, max_dimension: u32) {
+        let rows = max_dimension / slot_h(self.cell);
+        let reachable_rows = self.capacity_rows
+            + rows.saturating_sub(self.capacity_rows) / ATLAS_GROW_ROWS * ATLAS_GROW_ROWS;
+        self.max_slots = reachable_rows
+            .saturating_mul(self.cols)
+            .min(MAX_ATLAS_SLOTS)
+            .max(self.next_slot);
     }
 
     /// Install (or clear) the runtime per-codepoint glyph fallback resolver

@@ -169,6 +169,27 @@ fn ensure_rasterizes_real_glyph_and_flags_dirty() {
 }
 
 #[test]
+fn device_height_limit_falls_back_before_atlas_growth() {
+    let Some(font) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let Some(ch) = glyph_bearing_non_ascii(&font) else {
+        eprintln!("skipping: font has no non-ASCII glyph");
+        return;
+    };
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    let initial_height = atlas.height;
+    let initial_slots = atlas.slot_count();
+    let fallback = atlas.slot_uv(FALLBACK_SLOT);
+    atlas.set_texture_dimension_limit(initial_height);
+
+    assert_eq!(atlas.ensure(&font, ch), Some(fallback));
+    assert_eq!(atlas.height, initial_height);
+    assert_eq!(atlas.slot_count(), initial_slots);
+}
+
+#[test]
 fn ensure_missing_glyph_uses_fallback_without_a_slot() {
     let Some(font) = test_font() else {
         eprintln!("skipping: no system font available");

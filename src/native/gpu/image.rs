@@ -22,9 +22,18 @@ use crate::settings::{MAX_BACKGROUND_BLUR_RADIUS, MAX_CELL_BG_OPACITY, MIN_CELL_
 use crate::text;
 use crate::theme::Theme;
 
-/// Maximum image edge (px). Larger images skip the blur with a warning; the
-/// image itself still loads (the GPU texture handles arbitrary sizes).
+/// Maximum image edge (px) for CPU blur. Larger images skip the blur with a
+/// warning; texture upload independently downscales to the device limit.
 const MAX_BG_IMAGE_DIM: u32 = 4096;
+
+fn fit_background_rgba(
+    rgba: &[u8],
+    width: u32,
+    height: u32,
+    limit: u32,
+) -> Option<(std::borrow::Cow<'_, [u8]>, u32, u32)> {
+    super::super::texture_limits::fit_rgba8(rgba, width, height, limit)
+}
 
 /// The theme-background luminance boundary between dark and light themes, shared
 /// with the CVD polarity heuristic so the project stays consistent.
@@ -108,7 +117,7 @@ impl BgImageGpu {
         } else {
             super::super::image_decode::decode_image_rgba(path)
         };
-        let (mut rgba, width, height) = match decoded {
+        let (mut rgba, mut width, mut height) = match decoded {
             Some(decoded) => decoded,
             None => {
                 tracing::warn!("background_image: cannot load {}; no image", path.display());
@@ -128,13 +137,30 @@ impl BgImageGpu {
         }
         let (l_treat_max, l_treat_min) = worst_case_luminances(&rgba);
 
+        let limit = device.limits().max_texture_dimension_2d;
+        let fitted = super::super::texture_limits::fit_dimensions(width, height, limit);
+        if fitted != (width, height) {
+            let Some((pixels, fitted_width, fitted_height)) =
+                fit_background_rgba(&rgba, width, height, limit)
+            else {
+                tracing::warn!(
+                    "background_image: invalid decoded buffer for {}; no image",
+                    path.display()
+                );
+                return None;
+            };
+            tracing::warn!(
+                "background_image: {width}x{height} exceeds the GPU limit {limit}; downscaled to {fitted_width}x{fitted_height}"
+            );
+            rgba = pixels.into_owned();
+            width = fitted_width;
+            height = fitted_height;
+        }
+
+        let extent = super::super::texture_limits::extent_2d(device, width, height);
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("odytty-bg-image-texture"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
+            size: extent,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -155,11 +181,7 @@ impl BgImageGpu {
                 bytes_per_row: Some(width * 4),
                 rows_per_image: Some(height),
             },
-            wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
+            extent,
         );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -554,6 +576,15 @@ fn create_pipeline(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn oversized_background_is_downscaled_at_device_boundary() {
+        let rgba = vec![0x80; 8_193 * 4];
+        let (pixels, width, height) =
+            fit_background_rgba(&rgba, 8_193, 1, 8_192).expect("valid RGBA");
+        assert_eq!((width, height), (8_192, 1));
+        assert_eq!(pixels.len(), 8_192 * 4);
+    }
 
     fn dark_theme() -> Theme {
         let mut t = Theme::PLAIN;

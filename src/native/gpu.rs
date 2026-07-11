@@ -34,6 +34,32 @@ use image::BgImageGpu;
 pub(super) use post::{BloomOptions, CrtOptions};
 use post::{PostProcessOptions, PostProcessResources};
 
+fn report_uncaptured_gpu_error(error: wgpu::Error) {
+    tracing::error!("uncaptured GPU error: {error}");
+}
+
+fn uncaptured_error_handler() -> Arc<dyn wgpu::UncapturedErrorHandler> {
+    Arc::new(report_uncaptured_gpu_error)
+}
+
+fn install_uncaptured_error_handler(device: &wgpu::Device) {
+    device.on_uncaptured_error(uncaptured_error_handler());
+}
+
+#[cfg(test)]
+mod availability_tests {
+    use super::*;
+
+    #[test]
+    fn uncaptured_validation_error_is_reported_without_panicking() {
+        let error = wgpu::Error::Validation {
+            source: Box::new(std::io::Error::other("test validation source")),
+            description: "test validation error".to_owned(),
+        };
+        uncaptured_error_handler()(error);
+    }
+}
+
 /// SCROLL-CHROME-BOUNCE: the composited-chrome geometry the App hands the GPU
 /// each single-pane frame so [`GpuState::chrome_pin`] can hold the tab bar / rail
 /// still while the terminal content glides. Column indices are in the decorated
@@ -271,13 +297,11 @@ fn create_atlas_texture(
         SubpixelMode::Off => wgpu::TextureFormat::R8Unorm,
         SubpixelMode::Rgb | SubpixelMode::Bgr => wgpu::TextureFormat::Rgba8Unorm,
     };
+    let extent = super::texture_limits::extent_2d(device, atlas.width, atlas.height);
+    debug_assert_eq!((extent.width, extent.height), (atlas.width, atlas.height));
     let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("odytty-atlas"),
-        size: wgpu::Extent3d {
-            width: atlas.width,
-            height: atlas.height,
-            depth_or_array_layers: 1,
-        },
+        size: extent,
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -298,11 +322,7 @@ fn create_atlas_texture(
             bytes_per_row: Some(atlas.bytes_per_row()),
             rows_per_image: Some(atlas.height),
         },
-        wgpu::Extent3d {
-            width: atlas.width,
-            height: atlas.height,
-            depth_or_array_layers: 1,
-        },
+        extent,
     );
     atlas_texture
 }
@@ -312,13 +332,11 @@ fn create_color_atlas_texture(
     queue: &wgpu::Queue,
     atlas: &ColorGlyphAtlas,
 ) -> wgpu::Texture {
+    let extent = super::texture_limits::extent_2d(device, atlas.width, atlas.height);
+    debug_assert_eq!((extent.width, extent.height), (atlas.width, atlas.height));
     let atlas_texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("odytty-color-glyph-atlas"),
-        size: wgpu::Extent3d {
-            width: atlas.width,
-            height: atlas.height,
-            depth_or_array_layers: 1,
-        },
+        size: extent,
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -339,11 +357,7 @@ fn create_color_atlas_texture(
             bytes_per_row: Some(atlas.width * 4),
             rows_per_image: Some(atlas.height),
         },
-        wgpu::Extent3d {
-            width: atlas.width,
-            height: atlas.height,
-            depth_or_array_layers: 1,
-        },
+        extent,
     );
     atlas_texture
 }
@@ -1137,6 +1151,7 @@ impl GpuState {
             trace: wgpu::Trace::Off,
         }))
         .map_err(|err| NativeError::DeviceRequest(err.to_string()))?;
+        install_uncaptured_error_handler(&device);
 
         let caps = surface.get_capabilities(&adapter);
         let (format, surface_is_srgb) = choose_surface_format(&caps.formats);
@@ -1146,11 +1161,16 @@ impl GpuState {
             );
         }
 
+        let (surface_width, surface_height) = super::texture_limits::clamp_dimensions(
+            size.width,
+            size.height,
+            device.limits().max_texture_dimension_2d,
+        );
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
-            width: size.width.max(1),
-            height: size.height.max(1),
+            width: surface_width,
+            height: surface_height,
             // Fifo (vsync) is universally supported and avoids tearing; the
             // present mode can become a setting once frames carry real content.
             present_mode: wgpu::PresentMode::Fifo,
@@ -1174,6 +1194,7 @@ impl GpuState {
             subpixel,
             line_height,
         );
+        atlas.set_texture_dimension_limit(device.limits().max_texture_dimension_2d);
         let synthetic_enabled = crate::settings::synthetic_styles_enabled();
         let (synth_bold, synth_italic, synth_bold_italic) =
             masked_synthetic(&fonts, synthetic_enabled);
@@ -1256,6 +1277,7 @@ impl GpuState {
             &atlas_sampler,
         );
         let mut color_glyph_atlas = ColorGlyphAtlas::new(atlas.cell);
+        color_glyph_atlas.set_texture_dimension_limit(device.limits().max_texture_dimension_2d);
         let mut emoji_rasterizer = EmojiRasterizer::discover();
         let initial_color_glyph_runs =
             emoji_rasterizer.build_color_glyph_runs(initial_snapshot, &mut color_glyph_atlas);
@@ -1496,6 +1518,7 @@ impl GpuState {
             self.subpixel,
             self.line_height,
         );
+        atlas.set_texture_dimension_limit(self.device.limits().max_texture_dimension_2d);
         let (synth_bold, synth_italic, synth_bold_italic) =
             masked_synthetic(&self.fonts, self.synthetic_enabled);
         atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);
@@ -1507,6 +1530,8 @@ impl GpuState {
         self.atlas = atlas;
         self.refresh_atlas_texture();
         self.color_glyph_atlas = ColorGlyphAtlas::new(self.atlas.cell);
+        self.color_glyph_atlas
+            .set_texture_dimension_limit(self.device.limits().max_texture_dimension_2d);
         self.refresh_color_glyph_atlas_texture();
     }
 
@@ -2643,6 +2668,11 @@ impl GpuState {
         if width == 0 || height == 0 {
             return;
         }
+        let (width, height) = super::texture_limits::clamp_dimensions(
+            width,
+            height,
+            self.device.limits().max_texture_dimension_2d,
+        );
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
