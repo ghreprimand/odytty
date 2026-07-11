@@ -758,6 +758,10 @@ impl Screen {
     pub fn resize(&mut self, columns: usize, rows: usize) {
         let dimensions = Dimensions::new(columns, rows);
         let width_unchanged = dimensions.columns == self.dimensions.columns;
+        // DECSTBM margins are absolute row indices in the old grid. A row-count
+        // change invalidates them on both the active and stored-primary screen;
+        // a width-only reflow leaves them meaningful.
+        let rows_changed = dimensions.rows != self.dimensions.rows;
         // A resize re-wraps/re-anchors marks, so absolute-row mark positions can
         // shift; flag the change for the poll API (only when marks exist).
         let had_prompt_marks = self.has_any_prompt_mark();
@@ -807,7 +811,9 @@ impl Screen {
                 );
                 primary.cursor = result.cursor;
                 primary.pending_wrap = result.pending_wrap;
-                primary.scroll_region = clamp_scroll_region(primary.scroll_region, dimensions);
+                if rows_changed {
+                    primary.scroll_region = None;
+                }
                 self.primary_screen = Some(primary);
             }
         } else {
@@ -894,7 +900,9 @@ impl Screen {
         // (the no-repaint case that would otherwise ratchet the cursor).
         self.output_since_last_resize = false;
         self.resize_tab_stops(dimensions.columns);
-        self.scroll_region = clamp_scroll_region(self.scroll_region, dimensions);
+        if rows_changed {
+            self.scroll_region = None;
+        }
         self.graphics
             .resize(self.dimensions.rows, self.dimensions.columns);
         self.prompt_marks_changed |= had_prompt_marks;
@@ -1471,6 +1479,16 @@ impl Screen {
             Some(b'A') => {
                 self.active_prompt_input_start = None;
                 self.active_edit_region = None;
+                // A primary-screen prompt boundary means no TUI still owns a
+                // partial DECSTBM region. Clear leaked margins here while
+                // preserving full-screen and alternate-screen application state.
+                if self.primary_screen.is_none()
+                    && self.scroll_region.is_some_and(|region| {
+                        region.top != 0 || region.bottom != self.dimensions.rows - 1
+                    })
+                {
+                    self.scroll_region = None;
+                }
             }
             _ => {}
         }
@@ -2495,16 +2513,6 @@ fn sanitize_wide_row(row: &mut [Cell], blank: Cell) {
             }
         }
     }
-}
-fn clamp_scroll_region(
-    region: Option<ScrollRegion>,
-    dimensions: Dimensions,
-) -> Option<ScrollRegion> {
-    region.and_then(|region| {
-        let top = region.top.min(dimensions.rows - 1);
-        let bottom = region.bottom.min(dimensions.rows - 1);
-        (top < bottom).then_some(ScrollRegion { top, bottom })
-    })
 }
 fn param_or(params: &Params, index: usize, default: usize) -> usize {
     params

@@ -13,6 +13,7 @@ mod kitty_keyboard;
 mod osc_clipboard_colors;
 mod osc_cwd;
 mod osc_prompt;
+mod output_stranding;
 mod rect;
 mod repeat_tab_reflow;
 mod reporting;

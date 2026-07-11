@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Stale scroll regions recover at shell boundaries
+
+A row-count resize now clears DECSTBM margins on both the active screen and a
+stored primary screen. The margins use absolute row indices from the old grid,
+so clamping them into a differently sized grid could preserve a stale partial
+region and leave subsequent output pinned to the last row. Column-only resizes
+retain the valid region.
+
+An OSC 133 prompt-start mark now clears a lingering partial region on the
+primary screen. Full-screen regions and alternate-screen state remain intact,
+so a shell boundary repairs state leaked by an interrupted TUI without changing
+the terminal behavior of a live full-screen application.
+
+Headless regressions preserve the VT-compatible stranding behavior before a
+recovery boundary, prove active and stored-primary row resizes clear stale
+regions, retain regions on column-only resize, cover prompt-start positive and
+negative cases, and pin alternate-screen isolation. This is a platform-neutral
+terminal-model change with no Windows-specific surface. Runtime recovery feel
+confirmation requires a rebuilt interactive session.
+
 ## 2026-07-11 -- Image viewer uses available GPU texture headroom
 
 GPU device creation now requests the adapter's reported
