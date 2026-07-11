@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Armed chrome drags keep the grabbed label visible
+
+Armed tab and workspace drags now render the grabbed label in the destination
+slot of the shared preview order. The label follows the cell-quantized drop
+position with the same bright, bold, lifted treatment as the initial press,
+instead of disappearing when the gesture crosses its drag threshold.
+
+Frame-level coverage drives the armed application render route for both the
+top strip and workspace rail, then verifies that the grabbed label remains in
+the rendered glyph buffer with lifted emphasis. The platform-neutral chrome
+render change has no Windows-specific surface.
+
+Verified: full non-GPU `cargo test --lib -- --skip native::gpu_tests` suite
+green; `cargo clippy --all-targets` clean under the deny gate; `cargo fmt
+--check` clean.
+
+---
+
 ## 2026-07-10 -- Chrome markers render as solid quads
 
 Active tabs and workspaces now carry a two-pixel, full-alpha accent quad pinned

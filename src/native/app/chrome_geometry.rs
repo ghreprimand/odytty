@@ -35,6 +35,7 @@ pub(super) fn preview_order(count: usize, origin: usize, drop_idx: usize) -> Vec
 pub(super) struct PreviewSource<'a> {
     source: &'a dyn TabBarSource,
     order: Vec<PreviewSlot>,
+    origin: usize,
 }
 
 impl<'a> PreviewSource<'a> {
@@ -42,7 +43,12 @@ impl<'a> PreviewSource<'a> {
         Self {
             order: preview_order(source.tab_count(), origin, drop_idx),
             source,
+            origin,
         }
+    }
+
+    pub(super) fn gap_idx(&self) -> Option<usize> {
+        self.order.iter().position(|slot| *slot == PreviewSlot::Gap)
     }
 }
 
@@ -54,7 +60,7 @@ impl TabBarSource for PreviewSource<'_> {
     fn tab_title(&self, idx: usize) -> &str {
         match self.order[idx] {
             PreviewSlot::Tab(source_idx) => self.source.tab_title(source_idx),
-            PreviewSlot::Gap => "",
+            PreviewSlot::Gap => self.source.tab_title(self.origin),
         }
     }
 
@@ -62,14 +68,17 @@ impl TabBarSource for PreviewSource<'_> {
         let active = self.source.active_tab();
         self.order
             .iter()
-            .position(|slot| *slot == PreviewSlot::Tab(active))
+            .position(|slot| match slot {
+                PreviewSlot::Tab(source_idx) => *source_idx == active,
+                PreviewSlot::Gap => self.origin == active,
+            })
             .unwrap_or(usize::MAX)
     }
 
     fn tab_bound(&self, idx: usize) -> bool {
         match self.order[idx] {
             PreviewSlot::Tab(source_idx) => self.source.tab_bound(source_idx),
-            PreviewSlot::Gap => false,
+            PreviewSlot::Gap => self.source.tab_bound(self.origin),
         }
     }
 }
@@ -495,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn preview_source_has_one_gap_and_each_retained_title_exactly_once() {
+    fn preview_source_places_each_title_exactly_once() {
         let source = Source {
             titles: (0..6).map(|idx| format!("title-{idx}")).collect(),
         };
@@ -505,15 +514,14 @@ mod tests {
                 let titles: Vec<_> = (0..preview.tab_count())
                     .map(|idx| preview.tab_title(idx))
                     .collect();
-                assert_eq!(titles.iter().filter(|title| title.is_empty()).count(), 1);
+                assert!(preview.gap_idx().is_some());
                 for retained in 0..source.tab_count() {
-                    let expected = usize::from(retained != origin);
                     assert_eq!(
                         titles
                             .iter()
                             .filter(|title| **title == source.tab_title(retained))
                             .count(),
-                        expected
+                        1
                     );
                 }
             }
@@ -565,7 +573,7 @@ mod tests {
     }
 
     #[test]
-    fn rendered_drag_preview_never_overwrites_a_retained_glyph() {
+    fn rendered_drag_preview_keeps_every_label_and_uses_no_indicator_glyph() {
         let source = Source {
             titles: vec!["A".into(), "B".into(), "C".into()],
         };
@@ -591,7 +599,7 @@ mod tests {
         );
         assert_eq!(
             output.glyphs.iter().filter(|glyph| glyph.ch == 'A').count(),
-            0
+            1
         );
         assert_eq!(
             output.glyphs.iter().filter(|glyph| glyph.ch == 'B').count(),

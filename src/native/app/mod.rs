@@ -3054,10 +3054,13 @@ impl App {
         let source: &dyn TabBarSource = preview
             .as_ref()
             .map_or(&self.sessions, |preview| preview as &dyn TabBarSource);
-        let pressed = self
-            .top_tab_drag
-            .filter(|drag| !drag.armed)
-            .map(|drag| drag.origin_idx);
+        let pressed = self.top_tab_drag.and_then(|drag| {
+            if drag.armed {
+                preview.as_ref().and_then(PreviewSource::gap_idx)
+            } else {
+                Some(drag.origin_idx)
+            }
+        });
         let mut output = self.tab_bar.render_with_pressed(
             source,
             pressed,
@@ -3108,10 +3111,13 @@ impl App {
         let source: &dyn TabBarSource = preview
             .as_ref()
             .map_or(&rail_source, |preview| preview as &dyn TabBarSource);
-        let pressed = self
-            .rail_ws_drag
-            .filter(|drag| !drag.armed)
-            .map(|drag| drag.origin_idx);
+        let pressed = self.rail_ws_drag.and_then(|drag| {
+            if drag.armed {
+                preview.as_ref().and_then(PreviewSource::gap_idx)
+            } else {
+                Some(drag.origin_idx)
+            }
+        });
         let mut output = self.tab_rail.render_with_pressed(
             source,
             pressed,
@@ -6450,6 +6456,79 @@ mod tests {
             Settings::default(),
             crate::settings::SettingsReloader::for_current_process(Instant::now()),
         ))
+    }
+
+    #[test]
+    fn armed_top_drag_keeps_the_grabbed_label_in_the_rendered_frame() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        app.set_session_tab_title_for_test(0, "GrabbedTop");
+        let mut drag = TopTabDrag::new(0, 0.0, 0.0);
+        assert!(drag.update_arm(pointer::CHROME_DRAG_THRESHOLD_PX + 1.0, 0.0));
+        drag.drop_idx = 1;
+        app.top_tab_drag = Some(drag);
+
+        let output = app.render_top_bar_widget(
+            80,
+            0.0,
+            CellSize {
+                width: 8,
+                height: 16,
+                baseline: 12,
+            },
+            WindowPadding::ZERO,
+        );
+        let rendered: String = output.glyphs.iter().map(|glyph| glyph.ch).collect();
+        assert!(rendered.contains("GrabbedTop"));
+        assert!(
+            output
+                .glyphs
+                .iter()
+                .filter(|glyph| "GrabbedTop".contains(glyph.ch))
+                .any(|glyph| glyph.attrs.bold()),
+            "armed proxy label must retain lifted emphasis"
+        );
+    }
+
+    #[test]
+    fn armed_rail_drag_keeps_the_grabbed_label_in_the_rendered_frame() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        app.rename_workspace_for_test(0, "GrabbedRail");
+        let mut drag = RailWorkspaceDrag::new(0, 0.0, 0.0);
+        assert!(drag.update_arm(0.0, pointer::CHROME_DRAG_THRESHOLD_PX + 1.0));
+        drag.drop_idx = 1;
+        app.rail_ws_drag = Some(drag);
+
+        let cols = 16;
+        let output = app.render_rail_widget(
+            cols,
+            24,
+            [0.0, 0.0],
+            CellSize {
+                width: 8,
+                height: 16,
+                baseline: 12,
+            },
+            RailSide::Left,
+        );
+        let label_row = output.glyphs.chunks(cols).any(|row| {
+            row.iter()
+                .map(|glyph| glyph.ch)
+                .collect::<String>()
+                .contains("GrabbedRail")
+        });
+        assert!(label_row);
+        assert!(
+            output
+                .glyphs
+                .iter()
+                .filter(|glyph| "GrabbedRail".contains(glyph.ch))
+                .any(|glyph| glyph.attrs.bold()),
+            "armed proxy label must retain lifted emphasis"
+        );
     }
 
     /// Regression guard for the focus-gated config-reload poll. On a fresh,
