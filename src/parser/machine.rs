@@ -36,7 +36,7 @@
 //!
 //! ## C1-via-UTF-8 policy
 //!
-//! Per the operator-approved divergence ledger, a validly-decoded C1 scalar
+//! Per the accepted divergence ledger, a validly-decoded C1 scalar
 //! (`U+0080..=U+009F` via `0xC2 0x8x`) **executes uniformly**, regardless of
 //! how its bytes are split across `advance()` calls. This is enforced in Layer
 //! 1 (the segmenter), not here — by the time bytes reach this machine, they

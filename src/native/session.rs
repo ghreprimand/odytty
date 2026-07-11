@@ -2371,7 +2371,7 @@ impl WorkspaceSet {
 
     /// Close the **entire active tab** — reap every leaf session in its layout
     /// tree and remove the tab from the strip — regardless of how many panes it
-    /// holds. This is the "Close Tab" semantics (Director, explicit): closing a
+    /// holds. This is the deliberate "Close Tab" semantics: closing a
     /// tab closes the tab you are in even when it holds multiple panes, and it
     /// must not behave like "Close Pane".
     ///

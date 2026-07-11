@@ -1164,7 +1164,7 @@ impl App {
         // "Close Tab" reaps the ENTIRE active tab — every leaf session in its
         // layout tree — and removes the tab, regardless of pane count. This is
         // distinct from "Close Pane" (`close_focused_pane`), which collapses a
-        // single leaf and keeps a multi-pane tab alive (Director, explicit).
+        // single leaf and deliberately keeps a multi-pane tab alive.
         //
         // Exit keys on the last tab of the LAST workspace, never on the last
         // pane: closing the sole tab of the sole workspace — even a multi-pane

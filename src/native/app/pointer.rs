@@ -1008,7 +1008,7 @@ impl App {
         if region.certainty == InputCertainty::Unknown {
             return SelectionDeleteOutcome::NoOpWithHint;
         }
-        // R3, NF14-R (operator-ruled Option R): a SINGLE-ROW RightEdgeUnknown
+        // R3, NF14-R, Option R: a SINGLE-ROW RightEdgeUnknown
         // region falls through to the R4 clamp below using the core-computed
         // heuristic right edge (last non-blank cell) — the shipped pre-B2
         // behavior. This deliberately re-accepts the bounded risk that a

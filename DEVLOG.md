@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Source comments use engineering-record voice
+
+Chrome, parser, interaction, and session module comments now state their design
+decisions directly without workflow attribution. A tab-chrome comment also
+describes panel tint at the configured strength instead of naming the former
+default value. Runtime behavior is unchanged.
+
+Verified: `cargo build` clean; full non-GPU `cargo test --lib -- --skip
+native::gpu_tests` suite green; `cargo clippy --all-targets` clean under the deny
+gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-11 -- Tab-panel default strength raised to full
 
 The tab bar and workspace rail now render their unified translucent panel at

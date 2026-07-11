@@ -11,12 +11,12 @@
 //! terminal state, PTY, or settings — the integration layer composites the
 //! returned region + quads into the frame.
 //!
-//! ## Visual language — "Phosphor Flat" (F4-RESKIN, operator-ruled A+C)
+//! ## Visual language: "Phosphor Flat" (F4-RESKIN)
 //! Identical treatment to the horizontal [`super::tab_bar`], sharing the same
 //! [`super::tab_chrome`] color module (F4V2-NF2 — the "promote shared treatment
 //! fns to a shared chrome location" follow-up is now done). The old outlined-box
 //! language (per-slot rings, the rail↔content divider) was **deleted, not
-//! bypassed** — the operator rejected it as "hacked together / cheap". The rail
+//! bypassed** because it read as hacked-together and cheap. The rail
 //! is now an invisible container; only the active slot is a drawn object, and
 //! hierarchy comes from luminance:
 //! - **ACTIVE** — a warm `selection` fill (the bloom-off fallback) that bleeds to

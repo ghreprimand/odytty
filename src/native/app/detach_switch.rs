@@ -7,8 +7,8 @@
 //! pty fds and reaps it), so it cannot be losslessly handed to a survivable
 //! session-host. Instead we spawn a FRESH managed shell in the SAME working
 //! directory — the same `spawn_host_on_demand` path `odytty new` uses — attach
-//! to it in a new tab, and switch. The operator explicitly approved this
-//! framing; the dialog copy says so.
+//! to it in a new tab, and switch. This framing is a deliberate design decision;
+//! the dialog copy says so.
 //!
 //! UNIT = the focused pane (one session). A host serves exactly one shell, so a
 //! multi-pane tab cannot "become a session"; only the focused pane is affected,

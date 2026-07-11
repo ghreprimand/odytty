@@ -1034,7 +1034,7 @@ fn mid_input_cursor_reconciles_and_deletes_exactly() {
     );
 }
 
-/// NF14-R (operator-ruled Option R, replacing the B2/T14 ODP-3 pin): input
+/// NF14-R (Option R, replacing the B2/T14 ODP-3 pin): input
 /// with a `133;B` mark but NO edit-region report — bash always, PowerShell,
 /// zsh/fish before their snippets update — is a single-row `RightEdgeUnknown`
 /// region, and Delete falls back to the pre-B2 heuristic delete (last
@@ -1130,7 +1130,7 @@ fn multi_row_input_without_report_stays_a_hinted_no_op() {
     );
 }
 
-/// NF14-R accepted-risk documentation (operator-ruled): WITHOUT an edit-region
+/// NF14-R accepted-risk documentation: WITHOUT an edit-region
 /// report, a right-aligned decoration on the input row is indistinguishable
 /// from input, so the restored heuristic treats it as deletable — selecting
 /// the decoration and pressing Delete sends motion+delete bytes for it. This

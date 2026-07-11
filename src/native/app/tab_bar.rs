@@ -18,13 +18,13 @@
 //! [`super::chrome_geometry`] on move and press, storing the result through
 //! [`TabBar::set_hover`].
 //!
-//! ## Visual treatment — "Phosphor Flat" (F4-RESKIN, operator-ruled A+C)
+//! ## Visual treatment: "Phosphor Flat" (F4-RESKIN)
 //! All color comes from the shared [`super::tab_chrome`] module (theme roles
 //! only — no hardcoded colors, so every theme and the CVD modes stay correct);
 //! this widget owns layout, `tab_chrome` owns the treatment. The old
 //! outlined-box language (per-slot rings, the band↔body separator, the accent
-//! underline) was **deleted, not bypassed** — the operator rejected it as
-//! "hacked together / cheap". The container is now invisible; only the active
+//! underline) was **deleted, not bypassed** because it read as hacked-together
+//! and cheap. The container is now invisible; only the active
 //! tab is a drawn object, and hierarchy comes from luminance:
 //!
 //! - **ACTIVE** — a warm `selection` fill (the bloom-off fallback) plus a bright,

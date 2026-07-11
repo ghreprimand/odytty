@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Shared tab-chrome treatment — the **"Phosphor Flat"** visual language
-//! (F4-RESKIN, operator-ruled A+C 2026-07-03) used by BOTH the horizontal
+//! Shared tab-chrome treatment: the **"Phosphor Flat"** visual language
+//! (F4-RESKIN) used by BOTH the horizontal
 //! [`super::tab_bar`] and the vertical [`super::tab_rail`] widgets.
 //!
 //! This module owns **color**; the widgets own **layout**. Every function here
@@ -11,8 +11,8 @@
 //!
 //! ## Phosphor Flat, precisely
 //! The redesign dropped the whole outlined-box language (rings, underlines,
-//! separators — deleted, not bypassed) after the operator rejected it as
-//! "hacked together / cheap". The survey's unanimous law: **the container is
+//! separators, deleted rather than bypassed) because it read as hacked-together
+//! and cheap. The survey's unanimous law: **the container is
 //! invisible; only the active tab is a drawn object.** Hierarchy comes from
 //! luminance, not geometry.
 //!
@@ -77,7 +77,7 @@ pub(super) const HOVER_LABEL_LIFT: f32 = 0.40;
 pub(super) const NEW_SLOT_PLUS_REST_LIFT: f32 = 0.55;
 
 /// F4-P1 panel: base foreground-ward blend fraction of the theme `background`
-/// that forms the panel-tint cell surface at the default strength (0.5). A
+/// that forms the panel-tint cell surface at the configured strength. A
 /// foreground-ward blend is direction-correct on every theme (lighter on dark
 /// themes, darker on light) and can never crush to zero on a near-black theme.
 pub(super) const PANEL_TINT_LIFT: f32 = 0.05;

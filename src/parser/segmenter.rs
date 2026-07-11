@@ -257,7 +257,7 @@ fn dispatch_run<D: VtDispatch>(sink: &mut D, text: &str) {
 /// Implements the OdyTTY codepoint dispatch policy:
 /// - **C0** (`U+0000..=U+001F`, ESC excluded by upstream segmentation) and
 ///   **C1** (`U+0080..=U+009F`) execute as the corresponding raw control byte.
-///   The C1 branch is the operator-approved uniform-execute divergence — it
+///   The C1 branch is the accepted uniform-execute divergence — it
 ///   applies to both whole-buffer and partial-completion arrival paths.
 /// - Everything else prints.
 #[inline]
