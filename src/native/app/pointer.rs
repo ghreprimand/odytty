@@ -639,7 +639,7 @@ impl App {
         let Some(cell) = self.resolved_cell() else {
             return false;
         };
-        let Some((px_x, _)) = self.pointer_px else {
+        let Some((px_x, _)) = self.window_pointer_px else {
             return false;
         };
         if !self.pointer_over_rail_seam(px_x, cell) {
@@ -693,7 +693,7 @@ impl App {
         let Some(cell) = self.resolved_cell() else {
             return false;
         };
-        let Some((px_x, px_y)) = self.pointer_px else {
+        let Some((px_x, px_y)) = self.window_pointer_px else {
             return false;
         };
         if !self.pointer_over_tab_bar_seam(px_x, px_y, cell) {
@@ -756,7 +756,7 @@ impl App {
         if !self.any_chrome_shown() {
             return None;
         }
-        let (x_px, y_px) = self.pointer_px?;
+        let (x_px, y_px) = self.window_pointer_px?;
         let cell = self.resolved_cell()?;
         // F4-P3: under rail auto-hide the rail floats, so it is hit-tested against
         // its overlay geometry and only while actually revealed.
@@ -1248,7 +1248,7 @@ impl App {
     // -----------------------------------------------------------------------
 
     pub(super) fn begin_top_tab_drag(&mut self, idx: usize) {
-        match self.pointer_px {
+        match self.window_pointer_px {
             Some((x, y)) => {
                 self.top_tab_drag = Some(TopTabDrag::new(idx, x, y));
                 self.invalidate_chrome_drag_frame();
@@ -1345,7 +1345,7 @@ impl App {
     /// drag IS the pin. If the press position is somehow unknown, degrade to a
     /// plain activate so the slot is never left inert.
     pub(super) fn begin_workspace_drag(&mut self, idx: usize) {
-        match self.pointer_px {
+        match self.window_pointer_px {
             Some((x, y)) => {
                 self.rail_ws_drag = Some(RailWorkspaceDrag::new(idx, x, y));
                 self.invalidate_chrome_drag_frame();

@@ -4678,6 +4678,30 @@ fn clicking_a_workspace_rail_slot_switches_the_active_workspace() {
     );
 }
 
+#[test]
+fn workspace_drag_rearms_after_activation_without_pointer_motion() {
+    let Some(mut app) = rail_drag_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    // Drive the real CursorMoved + MouseInput route once, then activate a
+    // different workspace on release. Activation clears every session's
+    // terminal-content pointer cache. A second press at the unchanged window
+    // position must still resolve the same chrome slot and arm its drag.
+    app.pointer_move_for_test(12.0, 24.0);
+    app.mouse_left_press_for_test();
+    app.mouse_left_release_for_test();
+    assert_eq!(app.active_workspace_index_for_test(), 0);
+
+    app.mouse_left_press_for_test();
+    assert_eq!(
+        app.rail_ws_drag_for_test(),
+        Some((false, 0)),
+        "the unchanged window pointer re-arms the activated workspace slot"
+    );
+}
+
 /// RAIL-DRAG shared setup: a left-rail app with three named workspaces (a, b, c)
 /// and the active one at index 2 (c), the cell + rail geometry the drop-target
 /// math is expressed against. `None` when no PTY is available.

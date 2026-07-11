@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Chrome pointer position survives session activation
+
+Tab-strip and workspace-rail hit testing now reads a window-level pointer
+position that remains valid when activating another session clears its
+terminal-content input latches. Pressing an inactive chrome slot and pressing
+again without moving the pointer now arms the correct drag instead of leaking
+past chrome routing.
+
+The window pointer cache is cleared when the cursor leaves the window or the
+window loses focus. Per-session pointer state remains unchanged for terminal
+selection, hover, and mouse reporting. A production-route regression test
+drives pointer motion and both button presses across workspace activation. The
+shared pointer change has no platform-specific surface on Windows, macOS, or
+Linux.
+
+Verified: complete `cargo test` suite green; `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-10 -- Active chrome labels no longer carry a crossing line
 
 Active tab and workspace labels retain their bright foreground and bold weight,

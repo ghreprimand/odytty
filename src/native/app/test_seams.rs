@@ -660,6 +660,7 @@ impl App {
     /// button handlers hit-test against (button events carry no coordinates).
     #[cfg(test)]
     pub(in crate::native) fn set_pointer_px_for_test(&mut self, x: f64, y: f64) {
+        self.window_pointer_px = Some((x, y));
         self.pointer_px = Some((x, y));
     }
 

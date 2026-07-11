@@ -1427,6 +1427,7 @@ impl App {
             // minimized, so the ordinary focus-gain path is unchanged.
             self.restore_from_minimized();
         } else {
+            self.window_pointer_px = None;
             self.cancel_overlay_drag_on_focus_loss();
             // NF21-8: an alt-tab can deliver the button release to another
             // window, stranding the grid selection's held flag. Drop it so a
@@ -1598,6 +1599,7 @@ impl App {
     }
 
     pub(super) fn update_pointer_cell(&mut self, x_px: f64, y_px: f64) {
+        self.window_pointer_px = Some((x_px, y_px));
         let Some(cell) = self.resolved_cell() else {
             return;
         };

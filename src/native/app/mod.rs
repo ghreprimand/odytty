@@ -358,6 +358,10 @@ pub(super) struct App {
     /// change (winit issues a platform request each call). Starts at the winit
     /// default (`Default` arrow) which matches a freshly created window.
     cursor_icon: CursorIcon,
+    /// Last pointer position in window physical pixels. Chrome is window-level
+    /// UI, so its hit testing must survive active-session changes that clear the
+    /// per-session pointer cache used by terminal-content interactions.
+    window_pointer_px: Option<(f64, f64)>,
     sessions: WorkspaceSet,
     /// Native presentation epoch for pixel-affecting state outside the terminal
     /// core revision: theme/default-color changes, atlas/font changes, and
@@ -699,6 +703,7 @@ impl App {
             window: None,
             gpu: None,
             cursor_icon: CursorIcon::Default,
+            window_pointer_px: None,
             sessions,
             presentation_epoch: 0,
             prompt_marks_epoch: 0,
@@ -3299,7 +3304,7 @@ impl App {
         if !self.should_show_tab_bar() {
             return false;
         }
-        let Some((x_px, y_px)) = self.pointer_px else {
+        let Some((x_px, y_px)) = self.window_pointer_px else {
             return false;
         };
         let Some(cell) = self.resolved_cell() else {
@@ -3323,7 +3328,7 @@ impl App {
         if !self.should_show_workspace_rail() {
             return false;
         }
-        let Some((x_px, _y_px)) = self.pointer_px else {
+        let Some((x_px, _y_px)) = self.window_pointer_px else {
             return false;
         };
         let Some(cell) = self.resolved_cell() else {
@@ -4062,7 +4067,7 @@ impl App {
         if !self.rail_overlay_visible() {
             return None;
         }
-        let (x_px, y_px) = self.pointer_px?;
+        let (x_px, y_px) = self.window_pointer_px?;
         let cell = self.resolved_cell()?;
         if !self.pointer_in_reveal_band(x_px, cell, side) {
             return None;
@@ -5914,6 +5919,7 @@ impl ApplicationHandler<UserEvent> for App {
                 self.update_pointer_cell(position.x, position.y);
             }
             WindowEvent::CursorLeft { .. } => {
+                self.window_pointer_px = None;
                 // F4-P3: the pointer left the window — feed the auto-hide machine
                 // an empty sample so a rail revealed at the edge starts its hide
                 // grace (no `CursorMoved` fires once the pointer is gone). Inert
