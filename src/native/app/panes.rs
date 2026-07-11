@@ -691,7 +691,7 @@ impl App {
         }
         if show_rail {
             let side = self.workspace_rail_side();
-            if let Some((snapshot, quads)) = self.tab_rail_strip(cell, padding, surface_h, side) {
+            if let Some((snapshot, quads)) = self.tab_rail_strip(cell, padding, side) {
                 let slot_rows = self.rail_geom().slot_rows;
                 let rail_dy = crate::grid::band_label_descender_safe_dy_rows(
                     slot_rows,
@@ -909,13 +909,13 @@ impl App {
         &self,
         cell: CellSize,
         padding: WindowPadding,
-        surface_h: u32,
         side: RailSide,
     ) -> Option<(Snapshot, Vec<SolidQuad>)> {
-        let pad = padding.physical_px();
         let rail_cols = self.rail_cols();
-        let grid_rows =
-            (surface_h.saturating_sub(pad.saturating_mul(2)) / cell.height.max(1)) as usize;
+        // Share the exact window-row basis used by pointer geometry. Deriving
+        // this independently from surface remainders could shift overflow
+        // slots by one row relative to hit testing.
+        let grid_rows = self.tab_rail_grid_rows();
         if rail_cols == 0 || grid_rows == 0 {
             return None;
         }

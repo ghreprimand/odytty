@@ -74,7 +74,7 @@ const BOUND_BADGE: char = '\u{21c4}';
 
 /// Runtime rail slot geometry (F4-P1 knobs): how many rows each slot occupies
 /// and the inter-slot gap. Threaded through [`TabRail::render`] /
-/// [`TabRail::hit_test`] so the operator can tune them live; the widget owns no
+/// the shared chrome geometry so the settings can tune them live; the widget owns no
 /// settings, the integration layer resolves these from `Settings`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct RailGeom {
@@ -117,7 +117,7 @@ const RAIL_LABEL_PAD: usize = 1;
 
 /// First content column of a slot's label (inside the inset box + the label
 /// padding).
-const SLOT_LABEL_START_COL: usize = SLOT_INSET_COLS + RAIL_LABEL_PAD;
+pub(super) const SLOT_LABEL_START_COL: usize = SLOT_INSET_COLS + RAIL_LABEL_PAD;
 
 /// Non-label columns a slot reserves around its title (F4-P4): the left label
 /// start (`SLOT_LABEL_START_COL`) plus the right inset column and the close-`×`
@@ -182,34 +182,34 @@ pub(super) struct TabRail {
 
 /// Computed geometry for one rendered tab slot in the rail.
 #[derive(Debug, Clone)]
-struct RailSlot {
+pub(super) struct RailSlot {
     /// Tab index in the source.
-    idx: usize,
+    pub(super) idx: usize,
     /// First row of the slot (inclusive).
-    start_row: usize,
+    pub(super) start_row: usize,
     /// One-past-last row of the slot (exclusive).
-    end_row: usize,
+    pub(super) end_row: usize,
     /// The row the single-line label (and its `×`) sits on — the slot's
     /// vertically-centered row (F4-P4). For the default 2-row slot the centre
     /// rounds to the slot's first row, leaving the trailing row as breathing
     /// space; taller slots centre exactly.
-    label_row: usize,
+    pub(super) label_row: usize,
     /// The single-line label, already truncated with `…` to the inner column
     /// budget (F4-P4 — the rail never wraps to a second line).
-    label: String,
+    pub(super) label: String,
     /// `(row, col)` of the `×` close glyph (on the label row, at the slot's
     /// inset top-right), or `None` when the rail is too narrow.
-    close_cell: Option<(usize, usize)>,
+    pub(super) close_cell: Option<(usize, usize)>,
 }
 
 /// Full rail layout for one rendering pass.
 #[derive(Debug, Default)]
-struct RailLayout {
+pub(super) struct RailLayout {
     /// Visible tab slots (row coordinates absolute within the rail region).
-    slots: Vec<RailSlot>,
+    pub(super) slots: Vec<RailSlot>,
     /// `(start_row, end_row)` of the `+` new-tab slot, or `None` when it doesn't
     /// fit (overflow, or a degenerate rail).
-    new_tab_rows: Option<(usize, usize)>,
+    pub(super) new_tab_rows: Option<(usize, usize)>,
     /// The dead spacer row between the last workspace slot and the `+`
     /// (RAIL-PLUS-GAP), or `None` when there is nothing to separate (empty rail
     /// or overflow). This blank row is non-interactive -- a click on it maps to
@@ -432,154 +432,9 @@ impl TabRail {
         }
     }
 
-    /// Map a physical-pixel pointer position to a [`TabHit`] against the rail.
-    ///
-    /// Row-major: an X-band gate (`origin_x <= px_x < origin_x + rail_w`), then
-    /// `row = (px_y - origin_y) / cell.height`, then the slot whose row range
-    /// contains it. Overflow-indicator rows are informational → [`TabHit::None`].
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn hit_test(
-        &self,
-        px_x: f64,
-        px_y: f64,
-        source: &dyn TabBarSource,
-        rail_cols: usize,
-        grid_rows: usize,
-        origin_px: [f32; 2],
-        cell: CellSize,
-        geom: RailGeom,
-    ) -> TabHit {
-        let cw = cell.width as f64;
-        let ch = cell.height as f64;
-        if cw <= 0.0 || ch <= 0.0 || rail_cols == 0 || grid_rows == 0 {
-            return TabHit::None;
-        }
-        let ox = origin_px[0] as f64;
-        let oy = origin_px[1] as f64;
-        // X-band gate.
-        let x = px_x - ox;
-        if x < 0.0 || x >= rail_cols as f64 * cw {
-            return TabHit::None;
-        }
-        let y = px_y - oy;
-        if y < 0.0 {
-            return TabHit::None;
-        }
-        let row = (y / ch) as usize;
-        if row >= grid_rows {
-            return TabHit::None;
-        }
-        let col = (x / cw) as usize;
-
-        let layout = compute_rail_layout(source, rail_cols, grid_rows, geom);
-
-        // Overflow-indicator rows are informational-only.
-        if layout.overflow_above.is_some() && row == 0 {
-            return TabHit::None;
-        }
-        if layout.overflow_below.is_some() && row == grid_rows - 1 {
-            return TabHit::None;
-        }
-
-        // New-tab `+` slot.
-        if let Some((s, e)) = layout.new_tab_rows
-            && row >= s
-            && row < e
-        {
-            return TabHit::NewTab;
-        }
-
-        // Tab slots.
-        for slot in &layout.slots {
-            if row < slot.start_row || row >= slot.end_row {
-                continue;
-            }
-            if slot.close_cell == Some((row, col)) {
-                return TabHit::Close(slot.idx);
-            }
-            return TabHit::Switch(slot.idx);
-        }
-
-        TabHit::None
-    }
-
-    /// Map a physical-pixel pointer Y to a drag drop-target **insertion index**
-    /// (RAIL-DRAG), excluding the lifted origin before midpoint testing. In
-    /// source-tab-index space, `0` inserts before the first
-    /// visible slot, `count` appends after the last. The boundary is each slot's
-    /// vertical midpoint — the pointer above a slot's midpoint drops before it,
-    /// below drops after — so a slow drag flips the target exactly as the
-    /// pointer crosses the centre of the slot it is passing. Clamped to the
-    /// visible slot span: with the pointer above the first visible slot the
-    /// index is that slot's source index (a no-op when it is already first), and
-    /// below every midpoint it is one past the last visible slot. `None` when the
-    /// rail has no slots (nothing to reorder) or the geometry is degenerate.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn drop_index(
-        &self,
-        px_y: f64,
-        origin_idx: usize,
-        source: &dyn TabBarSource,
-        rail_cols: usize,
-        grid_rows: usize,
-        origin_px: [f32; 2],
-        cell: CellSize,
-        geom: RailGeom,
-    ) -> Option<usize> {
-        let ch = cell.height as f64;
-        if ch <= 0.0 || rail_cols == 0 || grid_rows == 0 {
-            return None;
-        }
-        let oy = origin_px[1] as f64;
-        let layout = compute_rail_layout(source, rail_cols, grid_rows, geom);
-        layout.slots.iter().find(|slot| slot.idx == origin_idx)?;
-        let retained: Vec<_> = layout
-            .slots
-            .iter()
-            .filter(|slot| slot.idx != origin_idx)
-            .collect();
-        // Resolve against the origin-excluded neighbor list, but keep every
-        // midpoint in real pointer space so left/up and right/down crossings
-        // use identical physical thresholds.
-        let mut insert = retained.last()?.idx + 1;
-        for slot in retained {
-            let span = (slot.end_row - slot.start_row) as f64;
-            let mid = oy + (slot.start_row as f64 + span / 2.0) * ch;
-            if px_y < mid {
-                insert = slot.idx;
-                break;
-            }
-        }
-        Some(insert)
-    }
-
-    /// Return `(grab_offset, slot_span)` in physical pixels for a pressed rail
-    /// slot, measured from its top edge.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn drag_metrics(
-        &self,
-        press_y: f64,
-        origin_idx: usize,
-        source: &dyn TabBarSource,
-        rail_cols: usize,
-        grid_rows: usize,
-        origin_px: [f32; 2],
-        cell: CellSize,
-        geom: RailGeom,
-    ) -> Option<(f64, f64)> {
-        if cell.height == 0 || rail_cols == 0 || grid_rows == 0 {
-            return None;
-        }
-        let layout = compute_rail_layout(source, rail_cols, grid_rows, geom);
-        let slot = layout.slots.iter().find(|slot| slot.idx == origin_idx)?;
-        let top = f64::from(origin_px[1]) + slot.start_row as f64 * f64::from(cell.height);
-        let span = (slot.end_row - slot.start_row) as f64 * f64::from(cell.height);
-        Some(((press_y - top).clamp(0.0, span), span))
-    }
-
     /// Paint the live drop-target indicator (RAIL-DRAG): a bright heavy rule at
     /// the boundary the workspace would land on for insertion index `drop_idx`
-    /// (0..=count, as [`Self::drop_index`] returns). Mutates the rendered
+    /// (0..=count, as the shared chrome geometry returns). Mutates the rendered
     /// `glyphs` in place so the integration layer can overlay it after
     /// [`Self::render`] without threading drag state through the render
     /// signature. The rule sits in the gap row directly above the slot at
@@ -794,12 +649,12 @@ impl TabRail {
 
 /// Build the row-stacked slot layout for the current tab set.
 ///
-/// Pure: no mutable state, so `render` and `hit_test` call it independently.
+/// Pure: no mutable state, shared by rendering and window-pixel geometry.
 /// When every tab plus the `+` slot fits, all are laid out top-down with no
 /// scroll. Otherwise the view scrolls to keep the active tab visible and emits
 /// informational `▲/▼` overflow counts; the `+` slot is dropped when the rail
 /// is full (new tabs remain reachable via the menu/keyboard).
-fn compute_rail_layout(
+pub(super) fn compute_rail_layout(
     source: &dyn TabBarSource,
     rail_cols: usize,
     grid_rows: usize,
@@ -1137,7 +992,8 @@ mod tests {
 
     fn hit_at(row: usize, col: usize, src: &dyn TabBarSource) -> TabHit {
         let (x, y) = cell_centre_px(row, col);
-        rail().hit_test(x, y, src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM)
+        super::chrome_geometry::ChromeSlotGeom::rail(src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM)
+            .hit(super::chrome_geometry::PxPoint::new(x, y))
     }
 
     /// Background of a region cell.
@@ -1954,7 +1810,10 @@ mod tests {
     #[test]
     fn hit_left_of_rail_is_none() {
         let src = MockSource::new(&["a"], 0);
-        let hit = rail().hit_test(-1.0, 8.0, &src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM);
+        let hit = super::chrome_geometry::ChromeSlotGeom::rail(
+            &src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM,
+        )
+        .hit(super::chrome_geometry::PxPoint::new(-1.0, 8.0));
         assert_eq!(hit, TabHit::None, "left of the rail → None");
     }
 
@@ -1962,7 +1821,10 @@ mod tests {
     fn hit_right_of_rail_band_is_none() {
         let src = MockSource::new(&["a"], 0);
         let x = RAIL_COLS as f64 * CELL.width as f64 + 1.0;
-        let hit = rail().hit_test(x, 8.0, &src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM);
+        let hit = super::chrome_geometry::ChromeSlotGeom::rail(
+            &src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM,
+        )
+        .hit(super::chrome_geometry::PxPoint::new(x, 8.0));
         assert_eq!(hit, TabHit::None, "right of the rail band → None");
     }
 
@@ -2112,7 +1974,8 @@ mod tests {
     // With origin slot 1 excluded, retained neighbors keep their real-space
     // midpoints y = 32 and 128 px.
     fn drop_index_at(y: f64, src: &dyn TabBarSource) -> Option<usize> {
-        rail().drop_index(y, 1, src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM)
+        super::chrome_geometry::ChromeSlotGeom::rail(src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM)
+            .drop_index(y, 1)
     }
 
     #[test]
@@ -2151,7 +2014,10 @@ mod tests {
             baseline: 0,
         };
         assert_eq!(
-            rail().drop_index(50.0, 0, &src, RAIL_COLS, GRID_ROWS, ORIGIN, zero, GEOM),
+            super::chrome_geometry::ChromeSlotGeom::rail(
+                &src, RAIL_COLS, GRID_ROWS, ORIGIN, zero, GEOM,
+            )
+            .drop_index(50.0, 0),
             None
         );
     }

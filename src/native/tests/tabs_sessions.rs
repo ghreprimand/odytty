@@ -827,6 +827,43 @@ fn top_tab_drag_real_route_reorders_and_preserves_active_identity() {
 }
 
 #[test]
+fn top_chrome_geometry_agrees_in_window_space_with_a_wide_left_rail() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let cell = cell(8, 16);
+    let padding = WindowPadding::from_logical(4.0, 1.0);
+    app.set_test_cell_for_test(cell);
+    app.set_test_surface_for_test(900, 400, padding);
+    app.set_workspace_rail_for_test("left");
+    app.set_tab_rail_width_manual_for_test(32);
+    add_workspace(&mut app);
+    let dims = NativeOptions::default().initial_grid;
+    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.push_session_for_test(terminal, writer, pty);
+    app.set_test_cell_for_test(cell);
+    app.set_test_surface_for_test(900, 400, padding);
+
+    // The top strip begins at pad + 32 rail columns = 260px. With two tabs,
+    // slot 1 begins 24 columns later at 452px. A pointer just inside that slot
+    // must hit slot 1, resolve a drag of slot 0 before slot 1, and report the
+    // same 452px insertion boundary. This failed when drag math interpreted
+    // raw window X as bar-local X.
+    let pointer_x = 453.0;
+    let (hit_idx, drop_idx, boundary, slot_start) = app
+        .top_chrome_geometry_probe_for_test(pointer_x, 12.0, 0)
+        .expect("pointer resolves inside the shifted top strip");
+    assert_eq!(hit_idx, 1);
+    assert_eq!(drop_idx, 1);
+    assert_eq!(boundary, 452.0);
+    assert_eq!(boundary, slot_start);
+}
+
+#[test]
 fn top_tab_drag_real_route_commits_a_neighbour_drop() {
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");

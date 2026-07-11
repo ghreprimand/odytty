@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Chrome drag geometry uses one window-pixel frame
+
+Tab-strip and workspace-rail presses, hover, drag grab offsets, and drop targets
+now consume one shared slot geometry expressed in window physical pixels. A
+left workspace rail and window padding are baked into the strip origin once, so
+raw pointer coordinates cannot be misread as strip-local coordinates or bias a
+tab drop toward append.
+
+The rail renderer now uses the same full-window row basis as rail pointer
+geometry, removing a separate surface-remainder calculation that could drift in
+overflow layouts. Widget-local hit, drop, and grab calculations were removed.
+A frame-level regression test combines four pixels of padding with a
+32-column left rail and proves that hit selection, drop selection, and the
+insertion boundary agree in window space. The pure geometry change has no
+platform-specific surface on Windows, macOS, or Linux.
+
+Verified: complete `cargo test` suite green; `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-10 -- Chrome pointer position survives session activation
 
 Tab-strip and workspace-rail hit testing now reads a window-level pointer

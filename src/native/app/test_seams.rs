@@ -1659,6 +1659,31 @@ impl App {
         self.top_tab_drag.map(|drag| (drag.armed, drag.drop_idx))
     }
 
+    /// Frame-level top-strip geometry probe. Returns the hit slot, drop index,
+    /// insertion boundary, and hit-slot start in window pixels.
+    #[cfg(test)]
+    pub(in crate::native) fn top_chrome_geometry_probe_for_test(
+        &self,
+        x: f64,
+        y: f64,
+        drag_origin: usize,
+    ) -> Option<(usize, usize, f64, f64)> {
+        let geometry = self.top_strip_geom(self.resolved_cell()?)?;
+        let hit_idx = match geometry.hit(PxPoint::new(x, y)) {
+            TabHit::Switch(idx) | TabHit::Close(idx) => idx,
+            TabHit::NewTab | TabHit::None => return None,
+        };
+        let drop_idx = geometry.drop_index(x, drag_origin)?;
+        let boundary = geometry.insertion_boundary_px(drop_idx, drag_origin);
+        let slot_start = geometry
+            .slots
+            .iter()
+            .find(|slot| slot.idx == hit_idx)?
+            .rect
+            .x;
+        Some((hit_idx, drop_idx, boundary, slot_start))
+    }
+
     /// Test seam (RAIL-DRAG): whether a rail-anchored surface (a drag, menu, or
     /// rename) is currently holding the auto-hide rail revealed — the
     /// autohide-hold assertion for a workspace drag.

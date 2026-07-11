@@ -758,47 +758,15 @@ impl App {
         }
         let (x_px, y_px) = self.window_pointer_px?;
         let cell = self.resolved_cell()?;
-        // F4-P3: under rail auto-hide the rail floats, so it is hit-tested against
-        // its overlay geometry and only while actually revealed.
-        if self.rail_autohide_active() {
-            if let Some(hit) = self.rail_overlay_hit() {
-                return Some((ChromeBand::WorkspaceRail, hit));
-            }
-        } else if self.should_show_workspace_rail() {
-            let hit = self.tab_rail.hit_test(
-                x_px,
-                y_px,
-                &self.sessions.rail_source(),
-                self.rail_cols(),
-                self.tab_rail_grid_rows(),
-                self.rail_origin_px(cell),
-                cell,
-                self.rail_geom(),
-            );
+        let point = PxPoint::new(x_px, y_px);
+        if let Some(geometry) = self.rail_geom_px(cell) {
+            let hit = geometry.hit(point);
             if hit != TabHit::None {
                 return Some((ChromeBand::WorkspaceRail, hit));
             }
         }
-        if self.should_show_tab_bar() {
-            let padding = self
-                .gpu
-                .as_ref()
-                .map(GpuState::window_padding)
-                .unwrap_or(WindowPadding::ZERO);
-            // Map the pointer into the bar's own X space: a left rail reserves the
-            // left columns, shifting the bar right by that band (0 for a right
-            // rail / no rail / floating rail, so the top-only path is unchanged).
-            let left_off = self.tab_reserve().left_reserved_cols() as f64 * cell.width as f64;
-            let hit = self.tab_bar.hit_test(
-                x_px - left_off,
-                y_px,
-                &self.sessions,
-                self.tab_bar_grid_cols(),
-                padding.as_f32(),
-                cell,
-                padding,
-                self.tab_bar_rows(),
-            );
+        if let Some(geometry) = self.top_strip_geom(cell) {
+            let hit = geometry.hit(point);
             if hit != TabHit::None {
                 return Some((ChromeBand::TopBar, hit));
             }
@@ -1261,20 +1229,11 @@ impl App {
         let Some(mut drag) = self.top_tab_drag else {
             return;
         };
-        let padding = self
-            .gpu
-            .as_ref()
-            .map(GpuState::window_padding)
-            .unwrap_or(WindowPadding::ZERO);
+        let geometry = self.top_strip_geom(cell);
         if drag.slot_span_px == 0.0
-            && let Some((offset, span)) = self.tab_bar.drag_metrics(
-                drag.press_x,
-                drag.origin_idx,
-                &self.sessions,
-                self.tab_bar_grid_cols(),
-                cell,
-                padding,
-            )
+            && let Some((offset, span)) = geometry.as_ref().and_then(|geometry| {
+                geometry.grab_metrics(PxPoint::new(drag.press_x, drag.press_y), drag.origin_idx)
+            })
         {
             drag.grab_offset_x = offset;
             drag.slot_span_px = span;
@@ -1282,14 +1241,9 @@ impl App {
         let armed = drag.update_arm(x_px, y_px);
         let proxy_center_x = x_px - drag.grab_offset_x + drag.slot_span_px / 2.0;
         if armed
-            && let Some(insert) = self.tab_bar.drop_index(
-                proxy_center_x,
-                drag.origin_idx,
-                &self.sessions,
-                self.tab_bar_grid_cols(),
-                cell,
-                padding,
-            )
+            && let Some(insert) = geometry
+                .as_ref()
+                .and_then(|geometry| geometry.drop_index(proxy_center_x, drag.origin_idx))
         {
             drag.drop_idx = insert;
         }
@@ -1435,7 +1389,7 @@ impl App {
     }
 
     /// Commit a rail drag: move the workspace at `from` to insertion index `to`
-    /// (0..=count, as `TabRail::drop_index` returns), by walking the shipped
+    /// (0..=count, as the shared chrome geometry returns), by walking the shipped
     /// single-step `move_workspace` one slot at a time. Reusing that engine — not
     /// a bespoke splice — keeps the active-follow-by-identity and shape-snapshot
     /// persistence semantics identical to the context-menu Move Up/Down path.
@@ -1482,28 +1436,7 @@ impl App {
         origin_idx: usize,
         cell: CellSize,
     ) -> Option<usize> {
-        let source = self.sessions.rail_source();
-        let (cols, origin) = if self.rail_autohide_active() {
-            let side = self.rail_autohide_side()?;
-            (
-                self.rail_overlay_cols(),
-                self.rail_overlay_origin_px(cell, side),
-            )
-        } else if self.should_show_workspace_rail() {
-            (self.rail_cols(), self.rail_origin_px(cell))
-        } else {
-            return None;
-        };
-        self.tab_rail.drop_index(
-            y_px,
-            origin_idx,
-            &source,
-            cols,
-            self.tab_rail_grid_rows(),
-            origin,
-            cell,
-            self.rail_geom(),
-        )
+        self.rail_geom_px(cell)?.drop_index(y_px, origin_idx)
     }
 
     fn workspace_rail_drag_metrics(
@@ -1512,28 +1445,8 @@ impl App {
         origin_idx: usize,
         cell: CellSize,
     ) -> Option<(f64, f64)> {
-        let source = self.sessions.rail_source();
-        let (cols, origin) = if self.rail_autohide_active() {
-            let side = self.rail_autohide_side()?;
-            (
-                self.rail_overlay_cols(),
-                self.rail_overlay_origin_px(cell, side),
-            )
-        } else if self.should_show_workspace_rail() {
-            (self.rail_cols(), self.rail_origin_px(cell))
-        } else {
-            return None;
-        };
-        self.tab_rail.drag_metrics(
-            press_y,
-            origin_idx,
-            &source,
-            cols,
-            self.tab_rail_grid_rows(),
-            origin,
-            cell,
-            self.rail_geom(),
-        )
+        let point = PxPoint::new(self.window_pointer_px?.0, press_y);
+        self.rail_geom_px(cell)?.grab_metrics(point, origin_idx)
     }
 }
 

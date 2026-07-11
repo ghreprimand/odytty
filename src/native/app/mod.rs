@@ -84,6 +84,7 @@ use super::viewport::{
 
 mod background_ui;
 mod bell;
+mod chrome_geometry;
 pub(in crate::native) mod click_hint;
 mod connection_probe;
 mod connections_ui;
@@ -136,6 +137,7 @@ mod theme_roles;
 mod watchdog_probe;
 mod window_border;
 
+use self::chrome_geometry::PxPoint;
 pub(in crate::native) use self::hints_ui::HintsUi;
 #[cfg(test)]
 pub(in crate::native) use self::tab_bar::TAB_BAR_ROWS;
@@ -3373,9 +3375,8 @@ impl App {
     /// top-only strip.
     fn top_bar_origin_px(&self, cell: CellSize) -> [f32; 2] {
         let pad = self
-            .gpu
-            .as_ref()
-            .map(GpuState::window_padding)
+            .resolved_surface()
+            .map(|(_, _, padding)| padding)
             .unwrap_or(WindowPadding::ZERO)
             .as_f32();
         let left_off = self.tab_reserve().left_reserved_cols() as f32 * cell.width as f32;
@@ -3391,9 +3392,8 @@ impl App {
     /// rail's glyphs, seam, and click targets stay pixel-aligned (F4-P2).
     fn rail_origin_px(&self, cell: CellSize) -> [f32; 2] {
         let pad = self
-            .gpu
-            .as_ref()
-            .map(GpuState::window_padding)
+            .resolved_surface()
+            .map(|(_, _, padding)| padding)
             .unwrap_or(WindowPadding::ZERO)
             .as_f32();
         let x = match self.rail_side() {
@@ -3894,16 +3894,10 @@ impl App {
     /// reservation (which is `NONE` under autohide). Clears any stale top-bar
     /// hover and keeps the default cursor over the band.
     fn update_rail_overlay_hover(&mut self, x_px: f64, y_px: f64, cell: CellSize, side: RailSide) {
-        let hit = self.tab_rail.hit_test(
-            x_px,
-            y_px,
-            &self.sessions.rail_source(),
-            self.rail_overlay_cols(),
-            self.tab_rail_grid_rows(),
-            self.rail_overlay_origin_px(cell, side),
-            cell,
-            self.rail_geom(),
-        );
+        let _ = side;
+        let hit = self.rail_geom_px(cell).map_or(TabHit::None, |geometry| {
+            geometry.hit(PxPoint::new(x_px, y_px))
+        });
         let hover = (hit != TabHit::None).then_some(hit);
         let mut redraw = false;
         if self.tab_rail.hover != hover {
@@ -4055,35 +4049,6 @@ impl App {
             cols,
             origin_bits: [origin[0].to_bits(), origin[1].to_bits()],
             content_hash: hasher.finish(),
-        }
-    }
-
-    /// The rail hit under the pointer via the **revealed overlay** geometry, or
-    /// `None` when the overlay is not currently revealed / the pointer is off the
-    /// band. Lets the press dispatch route clicks on the floating rail to
-    /// switch/close/new-tab without any reservation (F4-P3).
-    fn rail_overlay_hit(&self) -> Option<TabHit> {
-        let side = self.rail_autohide_side()?;
-        if !self.rail_overlay_visible() {
-            return None;
-        }
-        let (x_px, y_px) = self.window_pointer_px?;
-        let cell = self.resolved_cell()?;
-        if !self.pointer_in_reveal_band(x_px, cell, side) {
-            return None;
-        }
-        match self.tab_rail.hit_test(
-            x_px,
-            y_px,
-            &self.sessions.rail_source(),
-            self.rail_overlay_cols(),
-            self.tab_rail_grid_rows(),
-            self.rail_overlay_origin_px(cell, side),
-            cell,
-            self.rail_geom(),
-        ) {
-            TabHit::None => None,
-            hit => Some(hit),
         }
     }
 

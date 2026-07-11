@@ -14,8 +14,9 @@
 //! frame, push the returned quads into the overlay quad list, and paint each
 //! glyph into the reserved tab-bar snapshot row
 //! (`snapshot.cells[glyph.col] = Cell::new(glyph.ch, glyph.attrs)`);
-//! `App` pointer handling calls [`TabBar::hit_test`] on move (stored via
-//! [`TabBar::set_hover`]) and again on press to resolve the action.
+//! `App` pointer handling consumes the shared window-pixel geometry in
+//! [`super::chrome_geometry`] on move and press, storing the result through
+//! [`TabBar::set_hover`].
 //!
 //! ## Visual treatment — "Phosphor Flat" (F4-RESKIN, operator-ruled A+C)
 //! All color comes from the shared [`super::tab_chrome`] module (theme roles
@@ -178,27 +179,27 @@ pub(super) struct TabBarColors {
 
 /// Computed geometry for one rendered tab slot.
 #[derive(Debug)]
-struct TabSlot {
+pub(super) struct TabSlot {
     /// Tab index in the source.
-    idx: usize,
+    pub(super) idx: usize,
     /// First column of this slot (inclusive).
-    start_col: usize,
+    pub(super) start_col: usize,
     /// One-past-last column of this slot (exclusive).
-    end_col: usize,
+    pub(super) end_col: usize,
     /// Column of the `×` close glyph, or `None` when the slot is too narrow.
-    close_col: Option<usize>,
+    pub(super) close_col: Option<usize>,
     /// The (possibly truncated) label string.
-    label: String,
+    pub(super) label: String,
     /// First column of the label text (after left padding).
-    label_col: usize,
+    pub(super) label_col: usize,
 }
 
 /// Full tab bar column layout for one rendering pass.
-struct TabLayout {
-    slots: Vec<TabSlot>,
+pub(super) struct TabLayout {
+    pub(super) slots: Vec<TabSlot>,
     /// First column of the ` + ` new-tab affordance block, or `None` when the
     /// grid is narrower than `NEW_TAB_COLS`.
-    new_tab_col: Option<usize>,
+    pub(super) new_tab_col: Option<usize>,
 }
 
 // ---------------------------------------------------------------------------
@@ -349,127 +350,6 @@ impl TabBar {
         }
     }
 
-    /// Map a physical-pixel pointer position to a [`TabHit`].
-    ///
-    /// - `(px_x, px_y)` — pointer in physical pixels (winit `CursorMoved`).
-    /// - `y_offset_px` — physical-pixel Y of the top of the tab bar row.
-    ///
-    /// Returns [`TabHit::None`] when the pointer is outside the tab bar row or
-    /// outside all interactive regions.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn hit_test(
-        &self,
-        px_x: f64,
-        px_y: f64,
-        source: &dyn TabBarSource,
-        grid_cols: usize,
-        y_offset_px: f32,
-        cell: CellSize,
-        padding: WindowPadding,
-        rows: usize,
-    ) -> TabHit {
-        let cw = cell.width as f32;
-        let ch = cell.height as f32;
-        if cw <= 0.0 || ch <= 0.0 {
-            return TabHit::None;
-        }
-        // Y check — pointer must be inside the tab bar BAND (its full resolved
-        // height, not just one row): a click anywhere in a taller band still
-        // hits the tab under its column. `rows` is >= 1.
-        let y = px_y as f32;
-        if y < y_offset_px || y >= y_offset_px + ch * rows.max(1) as f32 {
-            return TabHit::None;
-        }
-        // Map X to a column index.
-        let pad = padding.as_f32();
-        let x = px_x as f32 - pad;
-        if x < 0.0 {
-            return TabHit::None;
-        }
-        let col = (x / cw) as usize;
-        if col >= grid_cols {
-            return TabHit::None;
-        }
-
-        let layout = compute_layout(source, grid_cols);
-
-        // New-tab affordance (rightmost block).
-        if layout
-            .new_tab_col
-            .is_some_and(|nt| col >= nt && col < nt + NEW_TAB_COLS)
-        {
-            return TabHit::NewTab;
-        }
-
-        // Tab slots — iterate in reverse so the rightmost slot at a shared
-        // boundary resolves first (slots never overlap in practice).
-        for slot in layout.slots.iter().rev() {
-            if col < slot.start_col || col >= slot.end_col {
-                continue;
-            }
-            if slot.close_col.is_some_and(|cc| col == cc) {
-                return TabHit::Close(slot.idx);
-            }
-            return TabHit::Switch(slot.idx);
-        }
-
-        TabHit::None
-    }
-
-    /// Map a physical pointer X to a tab insertion index. The lifted origin is
-    /// excluded and later slots compact by its width before midpoint testing,
-    /// so its stale home slot cannot absorb a genuine neighbour drop.
-    pub(super) fn drop_index(
-        &self,
-        px_x: f64,
-        origin_idx: usize,
-        source: &dyn TabBarSource,
-        grid_cols: usize,
-        cell: CellSize,
-        padding: WindowPadding,
-    ) -> Option<usize> {
-        if cell.width == 0 || grid_cols == 0 {
-            return None;
-        }
-        let layout = compute_layout(source, grid_cols);
-        layout.slots.iter().find(|slot| slot.idx == origin_idx)?;
-        let local_x = px_x - f64::from(padding.as_f32());
-        let retained: Vec<_> = layout
-            .slots
-            .iter()
-            .filter(|slot| slot.idx != origin_idx)
-            .collect();
-        let mut insert = retained.last()?.idx + 1;
-        for slot in retained {
-            let midpoint = (slot.start_col + slot.end_col) as f64 * f64::from(cell.width) / 2.0;
-            if local_x < midpoint {
-                insert = slot.idx;
-                break;
-            }
-        }
-        Some(insert)
-    }
-
-    /// Return `(grab_offset, slot_span)` in physical pixels for a pressed tab.
-    pub(super) fn drag_metrics(
-        &self,
-        press_x: f64,
-        origin_idx: usize,
-        source: &dyn TabBarSource,
-        grid_cols: usize,
-        cell: CellSize,
-        padding: WindowPadding,
-    ) -> Option<(f64, f64)> {
-        if cell.width == 0 || grid_cols == 0 {
-            return None;
-        }
-        let layout = compute_layout(source, grid_cols);
-        let slot = layout.slots.iter().find(|slot| slot.idx == origin_idx)?;
-        let left = f64::from(padding.as_f32()) + slot.start_col as f64 * f64::from(cell.width);
-        let span = (slot.end_col - slot.start_col) as f64 * f64::from(cell.width);
-        Some(((press_x - left).clamp(0.0, span), span))
-    }
-
     /// Paint top-strip grab feedback, a destination-gap proxy, and the drop
     /// boundary over an already-rendered bar.
     #[allow(clippy::too_many_arguments)]
@@ -617,9 +497,8 @@ impl TabBar {
 
 /// Build the column-slot layout for the current tab set.
 ///
-/// Pure function: takes no mutable state so both `render` and `hit_test` can
-/// call it independently without caching concerns.
-fn compute_layout(source: &dyn TabBarSource, grid_cols: usize) -> TabLayout {
+/// Pure function shared by rendering and the window-pixel geometry builder.
+pub(super) fn compute_layout(source: &dyn TabBarSource, grid_cols: usize) -> TabLayout {
     let tab_count = source.tab_count();
 
     // Grid too narrow for the new-tab button, or no tabs at all.
@@ -837,15 +716,8 @@ mod tests {
     }
 
     fn hit_at_col(col: usize, src: &dyn TabBarSource) -> TabHit {
-        bar().hit_test(
-            col_centre_px(col),
-            8.0, // y inside the 16px-tall row
-            src,
-            GRID_COLS,
-            0.0,
-            CELL,
-            WindowPadding::ZERO,
-            1,
+        super::chrome_geometry::ChromeSlotGeom::top(src, GRID_COLS, 1, [0.0, 0.0], CELL).hit(
+            super::chrome_geometry::PxPoint::new(col_centre_px(col), 8.0),
         )
     }
 
@@ -1014,19 +886,14 @@ mod tests {
             let midpoint_cols = (slot.start_col + slot.end_col) as f64 / 2.0;
             let midpoint_px = midpoint_cols * f64::from(CELL.width);
             assert_eq!(
-                bar().drop_index(
-                    midpoint_px - 0.1,
-                    1,
-                    &src,
-                    GRID_COLS,
-                    CELL,
-                    WindowPadding::ZERO
-                ),
+                super::chrome_geometry::ChromeSlotGeom::top(&src, GRID_COLS, 1, [0.0, 0.0], CELL,)
+                    .drop_index(midpoint_px - 0.1, 1),
                 Some(slot.idx)
             );
         }
         assert_eq!(
-            bar().drop_index(10_000.0, 1, &src, GRID_COLS, CELL, WindowPadding::ZERO),
+            super::chrome_geometry::ChromeSlotGeom::top(&src, GRID_COLS, 1, [0.0, 0.0], CELL,)
+                .drop_index(10_000.0, 1),
             Some(3)
         );
     }
@@ -1254,48 +1121,31 @@ mod tests {
     #[test]
     fn hit_test_above_bar_row_is_none() {
         let src = MockSource::new(&["a"], 0);
-        let hit = bar().hit_test(
-            CELL.width as f64,
-            -1.0,
-            &src,
-            GRID_COLS,
-            0.0,
-            CELL,
-            WindowPadding::ZERO,
-            1,
-        );
+        let hit =
+            super::chrome_geometry::ChromeSlotGeom::top(&src, GRID_COLS, 1, [0.0, 0.0], CELL).hit(
+                super::chrome_geometry::PxPoint::new(CELL.width as f64, -1.0),
+            );
         assert_eq!(hit, TabHit::None, "above the bar → None");
     }
 
     #[test]
     fn hit_test_below_bar_row_is_none() {
         let src = MockSource::new(&["a"], 0);
-        let hit = bar().hit_test(
-            CELL.width as f64,
-            CELL.height as f64 + 1.0,
-            &src,
-            GRID_COLS,
-            0.0,
-            CELL,
-            WindowPadding::ZERO,
-            1,
-        );
+        let hit =
+            super::chrome_geometry::ChromeSlotGeom::top(&src, GRID_COLS, 1, [0.0, 0.0], CELL).hit(
+                super::chrome_geometry::PxPoint::new(CELL.width as f64, CELL.height as f64 + 1.0),
+            );
         assert_eq!(hit, TabHit::None, "below the bar → None");
     }
 
     #[test]
     fn hit_test_beyond_right_edge_is_none() {
         let src = MockSource::new(&["a"], 0);
-        let hit = bar().hit_test(
-            (GRID_COLS + 5) as f64 * CELL.width as f64,
-            8.0,
-            &src,
-            GRID_COLS,
-            0.0,
-            CELL,
-            WindowPadding::ZERO,
-            1,
-        );
+        let hit = super::chrome_geometry::ChromeSlotGeom::top(&src, GRID_COLS, 1, [0.0, 0.0], CELL)
+            .hit(super::chrome_geometry::PxPoint::new(
+                (GRID_COLS + 5) as f64 * CELL.width as f64,
+                8.0,
+            ));
         assert_eq!(hit, TabHit::None, "beyond right edge → None");
     }
 
