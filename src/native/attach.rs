@@ -10,7 +10,7 @@
 //! read/write across threads.
 //!
 //! Flow:
-//! 1. [`AttachClient::connect`] performs the handshake, reads exactly one initial
+//! 1. [`AttachClient::connect_within`] performs the handshake, reads exactly one initial
 //!    [`HostFrame::Snapshot`], decodes it under bounded caps, and restores a live
 //!    [`Terminal`] — the "close window, reopen, full scrollback intact" step.
 //! 2. The connected `UnixStream` is `try_clone`d: the original is the write side
@@ -52,10 +52,10 @@ use crate::session_host::{existing_runtime_dir, session_socket_path, validate_so
 use super::pty::{PtyWriter, UserEvent};
 use super::session::SessionToken;
 
-/// How long [`AttachClient::connect`] waits for the host's initial snapshot
+/// How long an interactive [`AttachClient::connect_within`] waits for the host's initial snapshot
 /// frame before giving up. Bounded so a stalled or misbehaving host cannot hang
 /// window startup forever.
-const SNAPSHOT_DEADLINE: Duration = Duration::from_secs(5);
+pub(super) const SNAPSHOT_DEADLINE: Duration = Duration::from_secs(5);
 
 /// Per-read timeout while waiting for the initial snapshot, so the deadline loop
 /// can poll without blocking indefinitely on a single read.
@@ -94,20 +94,25 @@ pub(super) struct AttachClient {
 
 impl AttachClient {
     /// Connect to a hosted session by socket path and id, complete the handshake,
-    /// receive and decode the initial snapshot, and restore a mirror terminal.
+    /// receive and decode the initial snapshot, and restore a mirror terminal,
+    /// bounding the wait for the host's initial snapshot by `deadline`.
     ///
     /// Returns the write-side client, the read-side reader (hand to
     /// [`spawn_attach_pump`]), and the restored [`Terminal`]. The hosted session
-    /// is never mutated by a rejected attach (the host guarantees this).
-    pub(super) fn connect(
+    /// is never mutated by a rejected attach (the host guarantees this). The
+    /// restore/reattach batch passes whatever remains of its aggregate budget so
+    /// K panes cannot each cost the full [`SNAPSHOT_DEADLINE`] (a `K * 5s` UI
+    /// freeze); an interactive single attach passes [`SNAPSHOT_DEADLINE`].
+    pub(super) fn connect_within(
         socket_path: &Path,
         session_id: &str,
+        deadline: Duration,
     ) -> Result<(Self, AttachReader, Terminal)> {
         Self::connect_with(
             socket_path,
             session_id,
             SnapshotEnvelopeCaps::default(),
-            SNAPSHOT_DEADLINE,
+            deadline,
         )
     }
 
@@ -231,11 +236,12 @@ impl Write for AttachInputWriter {
 pub(super) fn attach_input_writer(
     client: Arc<Mutex<AttachClient>>,
     session: SessionToken,
-) -> PtyWriter {
-    Arc::new(Mutex::new(super::pty_writer::writer_shim(
+) -> std::io::Result<PtyWriter> {
+    let boxed = super::pty_writer::writer_shim(
         Box::new(AttachInputWriter { client }) as Box<dyn Write + Send>,
         session,
-    )))
+    )?;
+    Ok(Arc::new(Mutex::new(boxed)))
 }
 
 /// Resolve a hosted session id to its per-user socket path, mirroring the CLI's

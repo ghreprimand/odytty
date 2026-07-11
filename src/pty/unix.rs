@@ -10,15 +10,16 @@ use std::env;
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
+use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, ExitStatus, Stdio};
 
 use anyhow::{Context, Result, bail};
 use rustix::fd::AsFd;
-use rustix::process::RawPid;
 #[cfg(target_os = "linux")]
+use rustix::pipe::{PipeFlags, pipe_with};
+use rustix::process::RawPid;
 use rustix::pty::ioctl_tiocgptpeer;
 use rustix::pty::{OpenptFlags, grantpt, openpt, unlockpt};
 use rustix::termios::{Winsize, tcgetpgrp, tcsetwinsize};
@@ -44,6 +45,15 @@ fn classify_foreground<Fd: AsFd>(fd: Fd, shell_pgid: RawPid) -> ForegroundJob {
 pub struct PtySession {
     master: File,
     child: Child,
+    /// Write end of a self-pipe that force-wakes every live [`PtyReader`]. A
+    /// blocking master read cannot be interrupted once a `setsid`'d grandchild
+    /// (e.g. an `ssh` ControlPersist master) keeps the slave open so the master
+    /// never sees EOF; writing one byte here makes the reader's `poll` return so
+    /// [`Self::force_reader_eof`] can release a wedged close. See that method.
+    reader_wake_write: OwnedFd,
+    /// Read end of the reader-wake self-pipe. Each [`Self::try_clone_reader`]
+    /// hands the reader a `dup` of this so all readers share one wake signal.
+    reader_wake_read: OwnedFd,
     /// Live cell pixel metrics packed as `(width_px << 32) | height_px`, used to
     /// fill `ws_xpixel`/`ws_ypixel` on every TIOCSWINSZ so pixel-aware programs
     /// (image protocols, some TUIs) see a real geometry instead of zero. Seeded
@@ -170,9 +180,16 @@ impl PtySession {
 
         let child = command.spawn().context("spawn pty command")?;
 
+        // Self-pipe for forcing a wedged reader to EOF at close. CLOEXEC so the
+        // shell child never inherits either end.
+        let (reader_wake_read, reader_wake_write) =
+            pipe_with(PipeFlags::CLOEXEC).context("create pty reader wake pipe")?;
+
         Ok(Self {
             master,
             child,
+            reader_wake_write,
+            reader_wake_read,
             cell_metrics: std::sync::atomic::AtomicU64::new(pack_cell_metrics(
                 CellMetrics::DEFAULT,
             )),
@@ -219,7 +236,23 @@ impl PtySession {
     pub fn try_clone_reader(&self) -> Result<Box<dyn Read + Send>> {
         Ok(Box::new(PtyReader {
             file: self.master.try_clone().context("clone pty reader")?,
+            wake: self
+                .reader_wake_read
+                .try_clone()
+                .context("clone pty reader wake")?,
         }))
+    }
+
+    /// Force every live reader on this PTY to observe EOF, unblocking a reader
+    /// parked on the master because a `setsid`'d grandchild in a foreign process
+    /// group still holds the slave open (so `kill` on the child's group cannot
+    /// reach it and the master never reports EOF on its own). One byte in the
+    /// self-pipe is level-triggered, so the reader's `poll` stays readable and it
+    /// returns `Ok(0)`. Idempotent and best-effort: the session close path calls
+    /// this after a bounded join deadline so neither the reaper nor the pump
+    /// thread (and their fds) can leak on the ControlPersist case.
+    pub fn force_reader_eof(&self) {
+        let _ = rustix::io::write(&self.reader_wake_write, &[1]);
     }
 
     pub fn take_writer(&self) -> Result<Box<dyn Write + Send>> {
@@ -339,13 +372,53 @@ impl PtySession {
 
 struct PtyReader {
     file: File,
+    /// Read end of the session's reader-wake self-pipe. When it becomes readable
+    /// (a close forced teardown via [`PtySession::force_reader_eof`]), the reader
+    /// reports EOF instead of blocking on a master a grandchild keeps open.
+    wake: OwnedFd,
 }
 
 impl Read for PtyReader {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        match self.file.read(buf) {
-            Err(error) if error.raw_os_error() == Some(libc::EIO) => Ok(0),
-            result => result,
+        loop {
+            // Wait for either real PTY output or a forced-teardown wake. The
+            // master fd stays blocking, but we only read after `poll` reports it
+            // readable, so a healthy session is byte-identical to a direct read.
+            let mut fds = [
+                libc::pollfd {
+                    fd: self.wake.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+                libc::pollfd {
+                    fd: self.file.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
+            ];
+            // SAFETY: both fds are live for the duration of the call; `poll` only
+            // reads/writes the two `pollfd` entries in `fds`.
+            let rc = unsafe { libc::poll(fds.as_mut_ptr(), 2, -1) };
+            if rc < 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    continue;
+                }
+                return Err(error);
+            }
+            if fds[0].revents != 0 {
+                // Forced teardown: report EOF so the output pump exits promptly.
+                return Ok(0);
+            }
+            if fds[1].revents != 0 {
+                return match self.file.read(buf) {
+                    // A closed slave surfaces as EIO on the master; treat it as a
+                    // clean EOF, exactly as the pre-poll reader did.
+                    Err(error) if error.raw_os_error() == Some(libc::EIO) => Ok(0),
+                    result => result,
+                };
+            }
+            // Spurious wakeup with nothing ready: poll again.
         }
     }
 }
@@ -447,6 +520,57 @@ mod tests {
         rows: 24,
         columns: 80,
     };
+
+    #[test]
+    fn force_reader_eof_unblocks_a_reader_the_slave_keeps_open() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::Instant;
+
+        // A child that produces no output keeps its slave open, so the master
+        // never reports EOF on its own and the pump reader blocks indefinitely —
+        // the shape of the CLOSE-HANG-2 leak (a `setsid`'d grandchild holding the
+        // slave). `force_reader_eof` must make the reader return EOF so a bounded
+        // close join can complete instead of leaking the reader thread + fds.
+        let session = PtySession::spawn_shell_command(TEST_DIMENSIONS, "exec sleep 30")
+            .expect("spawn quiet shell");
+        let mut reader = session.try_clone_reader().expect("clone reader");
+
+        let done = Arc::new(AtomicBool::new(false));
+        let done_thread = done.clone();
+        let handle = std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,    // EOF (forced or natural)
+                    Ok(_) => continue, // drain any startup bytes
+                    Err(_) => break,
+                }
+            }
+            done_thread.store(true, Ordering::SeqCst);
+        });
+
+        // The reader drains any initial bytes then blocks: the quiet child holds
+        // the slave, so no EOF arrives on its own.
+        sleep(Duration::from_millis(150));
+        assert!(
+            !done.load(Ordering::SeqCst),
+            "reader must still be blocked while the slave is held open"
+        );
+
+        // Force EOF: the reader must return promptly.
+        session.force_reader_eof();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !done.load(Ordering::SeqCst) {
+            assert!(
+                Instant::now() < deadline,
+                "force_reader_eof did not unblock the reader within the deadline"
+            );
+            sleep(Duration::from_millis(20));
+        }
+        handle.join().expect("reader thread joins after forced EOF");
+        // Dropping the session SIGKILLs the quiet child on the way out.
+    }
 
     /// Look up the last value set for `key` in a builder's env list (later
     /// pushes win, matching the `into_command` apply order).

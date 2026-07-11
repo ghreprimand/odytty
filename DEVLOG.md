@@ -7,6 +7,53 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Session and PTY lifecycle hardening
+
+Five reliability defects across the session-close, PTY, recorder, and ConPTY
+paths are closed; each gains the regression test the shipped suite lacked.
+
+Closing a local tab could leak threads and file descriptors. The output pump
+reads the PTY master, which reports EOF only once every slave is closed, but
+`kill` reaches only the child's process group — a `setsid`'d grandchild (an
+`ssh` ControlMaster/ControlPersist mux, or a disowned daemon) that inherited the
+slave keeps it open, so the reader, the reaper joining it, the writer thread, and
+the master descriptors would block forever. The Unix reader now waits on both the
+master and a per-session wake pipe; the close path joins the pump under a bounded
+deadline and, if it is still wedged, forces the reader to EOF through that pipe,
+so nothing leaks even on the grandchild case. Healthy closes are unchanged.
+
+Restore no longer freezes startup on slow reattach. Rebuilding a saved layout
+attached to detached session hosts ran each pane's snapshot handshake inline with
+its own multi-second deadline, so K reattaching panes could freeze the window for
+K times that budget. The whole reattach batch now shares one aggregate budget;
+once it is spent, remaining panes fall through to fresh shells instead of each
+blocking for the full per-connection deadline.
+
+A PTY writer- or output-pump-thread spawn failure (only reachable at the thread
+ceiling) aborted the whole process through the panic hook; both now return a
+recoverable per-session error along the existing result path, so one failed
+session no longer takes down the window.
+
+The opt-in output recorder had a check-then-act race: a frame captured just as
+recording was disabled could land in the just-cleared ring and survive into the
+next session. The recorder now re-checks the enabled flag under the ring lock, so
+whichever of record/clear wins the lock the ring ends empty.
+
+On Windows, a ConPTY child that genuinely exits with code 259 collided with the
+`STILL_ACTIVE` sentinel and was polled as still running; a zero-timeout wait on
+the process object now disambiguates a real exit from a live child. This path is
+Windows-only and is exercised by a `cfg(windows)` test on the windows-latest CI
+leg. The thread/descriptor, restore-batch, writer-spawn, and recorder fixes are
+Unix session/PTY lifecycle logic (the session-host close path is `cfg(unix)`);
+ConPTY teardown already forces reader EOF by closing the pseudoconsole.
+
+Verified: `cargo build` clean; full non-GPU `cargo test --lib -- --skip
+native::gpu_tests` suite green (3482 passed); `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean. The ConPTY exit-code test runs on
+the windows-latest leg (no local Windows machine).
+
+---
+
 ## 2026-07-11 -- Graphics decoder and search bounds hardened
 
 Kitty display-only commands now retain at most 64 live image placements per

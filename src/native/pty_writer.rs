@@ -279,19 +279,19 @@ fn run_writer(shared: Arc<OutboundShared>, mut fd: Box<dyn Write + Send>) {
 pub(super) fn writer_shim(
     fd: Box<dyn Write + Send>,
     session: SessionToken,
-) -> Box<dyn Write + Send> {
+) -> io::Result<Box<dyn Write + Send>> {
     let shared = Arc::new(OutboundShared::new(session));
     register(&shared);
     let thread_shared = shared.clone();
-    // A failed writer-thread spawn would strand the session's entire input path;
-    // surfacing it through the panic hook (which logs + aborts visibly) beats
-    // silently swallowing every keystroke, and matches the output pump's own
-    // spawn contract.
+    // A writer-thread spawn only fails under resource exhaustion (the thread
+    // ceiling / address-space limits), which is a per-session condition. Return
+    // it as a recoverable error so the caller reports one failed session rather
+    // than aborting the whole process through the panic hook. The registry
+    // `Weak` for `shared` expires on its own when `shared` drops here.
     std::thread::Builder::new()
         .name(format!("odytty-pty-writer-{}", session.0))
-        .spawn(move || run_writer(thread_shared, fd))
-        .expect("spawn odytty pty writer thread");
-    Box::new(OutboundShim { shared })
+        .spawn(move || run_writer(thread_shared, fd))?;
+    Ok(Box::new(OutboundShim { shared }))
 }
 
 /// Registry of live per-session outbound handles, polled by the single monitor
@@ -591,6 +591,38 @@ mod tests {
             join_with_timeout(handle, Duration::from_secs(2)),
             "writer thread did not exit after close during a stall",
         );
+    }
+
+    #[test]
+    fn writer_shim_is_fallible_and_the_happy_path_enqueues_through_the_thread() {
+        // F18 regression: `writer_shim` returns a `Result` instead of aborting
+        // the whole process when its writer thread cannot spawn. On the normal
+        // path it returns `Ok`, and bytes written to the returned shim reach the
+        // fd via the spawned writer thread. (A real spawn failure only occurs
+        // under thread-ceiling exhaustion, which is not reproduced here.)
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let gate = new_gate();
+        open_gate(&gate); // fd never blocks
+        let fd = BlockingWriter {
+            gate: gate.clone(),
+            started: Arc::new(AtomicUsize::new(0)),
+            written: written.clone(),
+            error_on_release: false,
+        };
+
+        let mut shim = writer_shim(Box::new(fd), SessionToken(42)).expect("writer thread spawns");
+        shim.write_all(b"hello").expect("enqueue");
+        shim.flush().expect("flush");
+        // Dropping the shim signals the writer thread to drain and exit.
+        drop(shim);
+
+        wait_until(|| {
+            written
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_slice()
+                == b"hello"
+        });
     }
 
     #[test]

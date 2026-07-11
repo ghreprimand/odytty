@@ -154,7 +154,8 @@ fn try_attach_matching(
     id: &str,
     accept: impl Fn(&Terminal) -> bool,
 ) -> Option<Terminal> {
-    let (client, reader, terminal) = AttachClient::connect(socket, id).ok()?;
+    let (client, reader, terminal) =
+        AttachClient::connect_within(socket, id, Duration::from_secs(5)).ok()?;
     let matched = accept(&terminal);
     // Clean detach: the host keeps the session alive for the next attach.
     drop(client);
@@ -227,7 +228,8 @@ fn real_host_survives_detach_and_reattach_restores_scrollback() {
     //     the host receives the keystrokes before the detach; the echo folding
     //     into the model is async and is awaited by the reattach poll below. ---
     let (mut client1, reader1, _term1live) =
-        AttachClient::connect(&socket, id).expect("second attach connects for mid-attach input");
+        AttachClient::connect_within(&socket, id, Duration::from_secs(5))
+            .expect("second attach connects for mid-attach input");
     client1
         .send_input(b"MIDLINE\n")
         .expect("send mid-attach input");
@@ -282,7 +284,8 @@ fn real_host_survives_detach_and_reattach_restores_scrollback() {
     // --- End the child: EOF to `cat` -> child exits -> host reaps + exits. A
     //     fresh client sends the EOF (the poll above already detached). ---
     let (mut client3, reader3, _term3) =
-        AttachClient::connect(&socket, id).expect("attach connects to send EOF");
+        AttachClient::connect_within(&socket, id, Duration::from_secs(5))
+            .expect("attach connects to send EOF");
     client3
         .send_input(&[0x04])
         .expect("send EOF to the hosted child");

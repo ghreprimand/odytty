@@ -230,12 +230,15 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         .map_err(|err| NativeError::Pty(err.to_string()))?;
     // One writer, shared: the pump thread sends host responses through it, and
     // the App sends encoded keystrokes through its clone.
-    let writer: PtyWriter = Arc::new(Mutex::new(pty_writer::writer_shim(
-        session
-            .take_writer()
-            .map_err(|err| NativeError::Pty(err.to_string()))?,
-        SessionToken(0),
-    )));
+    let writer: PtyWriter = Arc::new(Mutex::new(
+        pty_writer::writer_shim(
+            session
+                .take_writer()
+                .map_err(|err| NativeError::Pty(err.to_string()))?,
+            SessionToken(0),
+        )
+        .map_err(|err| NativeError::Pty(err.to_string()))?,
+    ));
 
     // Windows only: a child that dies during its own initialization makes the
     // spawn return `Ok` yet would leave the pane blank (the failure is a
@@ -260,7 +263,8 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
         SessionToken(0),
         recorder.clone(),
         diagnostic,
-    );
+    )
+    .map_err(|err| NativeError::Pty(err.to_string()))?;
 
     // Share the session: the App pushes window-size changes to it on resize,
     // and this function reaps the child on the way out.

@@ -52,7 +52,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 
 use windows::Win32::Foundation::{
-    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE, WAIT_FAILED,
+    CloseHandle, DUPLICATE_SAME_ACCESS, DuplicateHandle, HANDLE, WAIT_FAILED, WAIT_TIMEOUT,
 };
 use windows::Win32::System::Console::{
     COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole,
@@ -435,6 +435,16 @@ impl PtySession {
         Ok(Box::new(PtyReader { file }))
     }
 
+    /// Force the output reader to observe EOF. Closing the pseudoconsole releases
+    /// conhost's copy of the output pipe's write end, so a blocked reader
+    /// completes. Idempotent (matches the close performed by [`Self::kill`]); the
+    /// cross-platform session-close path calls this after a bounded join deadline
+    /// for parity with the Unix backend, where a `setsid`'d grandchild can pin a
+    /// blocking reader.
+    pub fn force_reader_eof(&self) {
+        self.pcon.close_once();
+    }
+
     pub fn take_writer(&self) -> Result<Box<dyn Write + Send>> {
         let file = duplicate(&self.input_write).context("clone pty writer")?;
         Ok(Box::new(PtyWriter { file }))
@@ -454,10 +464,23 @@ impl PtySession {
             GetExitCodeProcess(self.process_handle(), &mut code).context("poll child")?;
         }
         if code == STILL_ACTIVE_CODE {
-            Ok(None)
-        } else {
-            Ok(Some(ExitStatus::from_raw(code)))
+            // 259 is the `STILL_ACTIVE` sentinel AND a legitimate process exit
+            // code, so `GetExitCodeProcess` alone cannot tell a live child from
+            // one that genuinely exited 259. Confirm liveness directly against
+            // the process object: a zero-timeout wait times out only while the
+            // process is actually still running; a signaled object means it has
+            // exited (with the real code 259).
+            // SAFETY: live owned process handle; a 0ms wait returns immediately.
+            let status = unsafe { WaitForSingleObject(self.process_handle(), 0) };
+            if status == WAIT_FAILED {
+                return Err(io::Error::last_os_error()).context("poll child liveness");
+            }
+            if status == WAIT_TIMEOUT {
+                return Ok(None);
+            }
+            return Ok(Some(ExitStatus::from_raw(code)));
         }
+        Ok(Some(ExitStatus::from_raw(code)))
     }
 
     pub fn wait(&mut self) -> Result<ExitStatus> {
@@ -1296,6 +1319,42 @@ mod tests {
             );
             std::thread::sleep(Duration::from_millis(50));
         }
+    }
+
+    #[test]
+    fn try_wait_reports_a_genuine_exit_code_259_not_still_running() {
+        // F22 regression: exit code 259 collides with the `STILL_ACTIVE`
+        // sentinel, so `GetExitCodeProcess` alone cannot distinguish a child
+        // that really exited 259 from a live one. Pre-fix `try_wait` reported
+        // such a child as still running (`Ok(None)`) forever. A child that
+        // exits 259 must be observed as exited with code 259.
+        let mut session = PtySession::spawn_shell_command(
+            Dimensions {
+                rows: 24,
+                columns: 80,
+            },
+            "exit 259",
+        )
+        .expect("spawn shell that exits 259");
+
+        let deadline = Instant::now() + Duration::from_secs(15);
+        let status = loop {
+            match session.try_wait().expect("poll child") {
+                Some(status) => break status,
+                None => {
+                    assert!(
+                        Instant::now() < deadline,
+                        "try_wait never observed the exit-259 child terminating"
+                    );
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
+        };
+        assert_eq!(
+            status.code(),
+            Some(259),
+            "a child that exits 259 must report exit code 259, not be treated as still running"
+        );
     }
 
     #[test]

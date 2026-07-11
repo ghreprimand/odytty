@@ -151,6 +151,15 @@ impl RecorderHandle {
             return;
         }
         if let Ok(mut inner) = self.inner.lock() {
+            // Re-check UNDER the lock. `set_enabled(false)` swaps the atomic
+            // false BEFORE it locks + clears, so a disable that races between the
+            // pre-lock check above and this acquisition would otherwise leave one
+            // stale frame in a just-cleared ring (it would survive into the next
+            // session, whose re-enable skips the clear). Re-reading the flag here
+            // means whichever of record/clear wins the lock, the ring ends empty.
+            if !self.is_enabled() {
+                return;
+            }
             inner.record(snapshot);
         }
     }
@@ -220,6 +229,39 @@ mod tests {
         assert_eq!(handle.len(), 1);
         handle.set_enabled(false);
         assert_eq!(handle.len(), 0, "turning recording off frees the ring");
+    }
+
+    #[test]
+    fn record_racing_a_disable_does_not_repopulate_the_cleared_ring() {
+        // TOCTOU regression: `record` checks `is_enabled` once before locking,
+        // and `set_enabled(false)` swaps the flag false BEFORE it locks + clears.
+        // A `record` that passed its pre-lock gate but is still blocked on the
+        // ring lock when the disable+clear runs must NOT push its frame — a
+        // survivor would leak into the next session (whose re-enable skips the
+        // clear). The under-lock re-check guarantees the ring ends empty.
+        let handle = RecorderHandle::new();
+        handle.set_enabled(true);
+
+        // Hold the ring lock so a concurrent `record` blocks AFTER its pre-lock
+        // `is_enabled()` gate (still true) and BEFORE it can push.
+        let guard = handle.inner.lock().expect("lock ring");
+        let racer = handle.clone();
+        let joiner = std::thread::spawn(move || {
+            racer.record(frame(8, 2, 'z'));
+        });
+        // Let the racer pass the gate and park on the lock.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        // Emulate `set_enabled(false)`: swap the flag false (the ring is already
+        // empty, so there is nothing to clear) while still holding the lock.
+        handle.enabled.store(false, Ordering::Relaxed);
+        drop(guard);
+
+        joiner.join().expect("racer thread");
+        assert_eq!(
+            handle.len(),
+            0,
+            "a frame recorded across a disable must not survive"
+        );
     }
 
     #[test]

@@ -230,6 +230,78 @@ pub(super) fn classify_remote_exit(code: Option<i32>) -> ExitDisposition {
 /// still-orphaned child once the process exits.
 pub(super) const SHUTDOWN_REAP_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Grace before a single-session close forces its output reader to EOF. A
+/// healthy session's reader EOFs the instant its slave closes (well inside
+/// this), so the forced path only fires when a `setsid`'d grandchild keeps the
+/// slave open.
+const CLOSE_READER_JOIN_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+/// Poll interval while a close reaper waits for its pump join to complete.
+const CLOSE_JOIN_POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
+/// Per-connection snapshot budget for one pane in a restore batch: whatever of
+/// the shared `batch_deadline` remains at `now`, capped at `cap`. `None` once the
+/// batch budget is spent, so the caller skips the handshake and falls through to
+/// a fresh shell instead of blocking the UI for the full per-connection deadline.
+fn per_connection_attach_budget(
+    batch_deadline: Instant,
+    now: Instant,
+    cap: std::time::Duration,
+) -> Option<std::time::Duration> {
+    let remaining = batch_deadline.saturating_duration_since(now);
+    if remaining.is_zero() {
+        None
+    } else {
+        Some(remaining.min(cap))
+    }
+}
+
+/// Join a local session's output pump under a bounded deadline, forcing the PTY
+/// reader to EOF if it is wedged.
+///
+/// The pump reader blocks on the PTY master, which reports EOF only once every
+/// slave fd is closed. `kill` SIGKILLs the child's process group, but a
+/// `setsid`'d grandchild in a foreign group (e.g. an `ssh` ControlMaster /
+/// ControlPersist mux, or a disowned daemon) that inherited the slave is out of
+/// reach, so the master never EOFs and a plain `join` — plus this reaper, the
+/// pump thread, the writer thread, and the master fds — would block forever.
+/// After [`CLOSE_READER_JOIN_GRACE`] the reader is forced to EOF through the
+/// session's wake pipe, so the pump exits and the join completes; nothing leaks
+/// even on the grandchild-holds-the-slave case.
+fn bounded_pump_join(pump: JoinHandle<()>, pty: Arc<Mutex<PtySession>>) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let done = Arc::new(AtomicBool::new(false));
+    let done_signal = done.clone();
+    let joiner = std::thread::Builder::new()
+        .name("odytty-pump-join".to_owned())
+        .spawn(move || {
+            let _ = pump.join();
+            done_signal.store(true, Ordering::Release);
+        });
+    let Ok(joiner) = joiner else {
+        // Could not spawn the joiner (resource exhaustion): best-effort force the
+        // reader to EOF and abandon rather than block the reaper.
+        if let Ok(guard) = pty.lock() {
+            guard.force_reader_eof();
+        }
+        return;
+    };
+
+    let deadline = Instant::now() + CLOSE_READER_JOIN_GRACE;
+    while Instant::now() < deadline {
+        if done.load(Ordering::Acquire) {
+            let _ = joiner.join();
+            return;
+        }
+        std::thread::sleep(CLOSE_JOIN_POLL);
+    }
+    // Still wedged after the grace: force the reader to EOF so the pump exits.
+    if let Ok(guard) = pty.lock() {
+        guard.force_reader_eof();
+    }
+    let _ = joiner.join();
+}
+
 const RECONNECT_BANNER: &str =
     "\r\n\x1b[1;33m connection dropped \x1b[0m  Enter: reconnect · Esc: close\r\n";
 
@@ -764,13 +836,15 @@ impl Session {
                     let _ = guard.kill();
                 }
                 // Defer the blocking reap (`wait`) + reader join to a detached
-                // thread. CLOSE-HANG-2: a ControlPersist mux master can hold the
-                // PTY slave open after the client is killed, so the reader never
-                // sees EOF and its join would block the calling thread — freezing
-                // an interactive tab/workspace close, and compounding across
-                // rapid successive closes. The reaper reaps the zombie and joins
-                // the reader on its own, then exits: no zombie, no thread leak,
-                // and the close returns to the event loop immediately.
+                // thread. CLOSE-HANG-2: a ControlPersist mux master (or any
+                // `setsid`'d grandchild in a foreign process group) can hold the
+                // PTY slave open after the child is killed, so the reader never
+                // sees EOF on its own and a plain join would block forever —
+                // leaking this reaper, the pump thread, the writer thread, and
+                // the master fds. `bounded_pump_join` bounds the join and, if the
+                // reader is still wedged after the grace, forces it to EOF via the
+                // session's wake pipe so the pump exits and everything is
+                // released. The close itself returns to the event loop at once.
                 let _ = std::thread::Builder::new()
                     .name("odytty-session-close".to_owned())
                     .spawn(move || {
@@ -778,7 +852,7 @@ impl Session {
                             let _ = guard.wait();
                         }
                         if let Some(thread) = pump_thread {
-                            let _ = thread.join();
+                            bounded_pump_join(thread, pty);
                         }
                     });
             }
@@ -812,11 +886,15 @@ impl Session {
                 let _ = std::thread::Builder::new()
                     .name("odytty-session-close".to_owned())
                     .spawn(move || {
-                        if let Ok(mut pty) = pty.lock() {
-                            let _ = pty.try_wait();
+                        if let Ok(mut guard) = pty.lock() {
+                            let _ = guard.try_wait();
                         }
+                        // Even after the shell self-exits, a `setsid`'d
+                        // grandchild can keep the slave open, so bound the pump
+                        // join and force the reader to EOF if it is wedged rather
+                        // than leak the pump/writer threads and the master fds.
                         if let Some(thread) = pump_thread {
-                            let _ = thread.join();
+                            bounded_pump_join(thread, pty);
                         }
                     });
             }
@@ -1833,7 +1911,7 @@ impl WorkspaceSet {
         let writer: PtyWriter = Arc::new(Mutex::new(super::pty_writer::writer_shim(
             session.take_writer().map_err(std::io::Error::other)?,
             session_id,
-        )));
+        )?));
         let mut model = Terminal::new(grid.columns, grid.rows);
         model.set_local_hostname(self.local_hostname.clone());
         seed_initial_working_directory(&mut model, seed_cwd.as_deref());
@@ -1858,7 +1936,7 @@ impl WorkspaceSet {
             session_id,
             recorder.clone(),
             diagnostic,
-        );
+        )?;
         let pty = Arc::new(Mutex::new(session));
         self.sessions.insert(
             session_id,
@@ -2007,7 +2085,14 @@ impl WorkspaceSet {
         session_id: &str,
         sink: impl super::attach::AttachEventSink,
     ) -> Result<SessionToken, std::io::Error> {
-        let token = self.insert_attached_session_arena(socket, session_id, sink)?;
+        // Interactive single attach: the user is waiting on exactly one handshake,
+        // so it gets the full per-connection snapshot deadline.
+        let token = self.insert_attached_session_arena(
+            socket,
+            session_id,
+            sink,
+            super::attach::SNAPSHOT_DEADLINE,
+        )?;
         self.active_workspace_mut().tabs.push(Tab::single(token));
         Ok(token)
     }
@@ -2024,9 +2109,11 @@ impl WorkspaceSet {
         socket: &Path,
         session_id: &str,
         sink: impl super::attach::AttachEventSink,
+        snapshot_deadline: std::time::Duration,
     ) -> Result<SessionToken, std::io::Error> {
         let (client, reader, terminal) =
-            AttachClient::connect(socket, session_id).map_err(std::io::Error::other)?;
+            AttachClient::connect_within(socket, session_id, snapshot_deadline)
+                .map_err(std::io::Error::other)?;
 
         let token = SessionToken(self.next_token);
         self.next_token = self.next_token.saturating_add(1);
@@ -2035,7 +2122,7 @@ impl WorkspaceSet {
         terminal.set_local_hostname(self.local_hostname.clone());
         let terminal = Arc::new(Mutex::new(terminal));
         let client = Arc::new(Mutex::new(client));
-        let writer = attach_input_writer(client.clone(), token);
+        let writer = attach_input_writer(client.clone(), token)?;
         let pump_thread = spawn_attach_pump(reader, terminal.clone(), sink, token);
         self.sessions.insert(
             token,
@@ -2060,18 +2147,36 @@ impl WorkspaceSet {
     /// on any other platform this always returns `None`, so a snapshot copied
     /// from a Unix box degrades cleanly to all-fresh.
     #[cfg(unix)]
-    fn reattach_restored_session(&mut self, session_id: &str) -> Option<SessionToken> {
+    fn reattach_restored_session(
+        &mut self,
+        session_id: &str,
+        attach_batch_deadline: Instant,
+    ) -> Option<SessionToken> {
         if self.find_attached_tab(session_id).is_some() {
             return None;
         }
+        // Bound each pane's handshake by whatever remains of the aggregate
+        // restore budget. Once the batch budget is spent, further reattaches
+        // fast-fail here (returning None) and fall through to a fresh shell,
+        // instead of each pane blocking the UI for the full per-connection
+        // deadline (K panes -> up to K * 5s of frozen startup).
+        let per_connection = per_connection_attach_budget(
+            attach_batch_deadline,
+            Instant::now(),
+            super::attach::SNAPSHOT_DEADLINE,
+        )?;
         let proxy = self.proxy.clone()?;
         let socket = resolve_session_socket(None, session_id).ok()?;
-        self.insert_attached_session_arena(&socket, session_id, proxy)
+        self.insert_attached_session_arena(&socket, session_id, proxy, per_connection)
             .ok()
     }
 
     #[cfg(not(unix))]
-    fn reattach_restored_session(&mut self, _session_id: &str) -> Option<SessionToken> {
+    fn reattach_restored_session(
+        &mut self,
+        _session_id: &str,
+        _attach_batch_deadline: Instant,
+    ) -> Option<SessionToken> {
         None
     }
 
@@ -2333,9 +2438,10 @@ impl WorkspaceSet {
         let Ok(raw_writer) = spawned.take_writer() else {
             return false;
         };
-        let writer: PtyWriter = Arc::new(Mutex::new(super::pty_writer::writer_shim(
-            raw_writer, token,
-        )));
+        let Ok(boxed_writer) = super::pty_writer::writer_shim(raw_writer, token) else {
+            return false;
+        };
+        let writer: PtyWriter = Arc::new(Mutex::new(boxed_writer));
         let diagnostic = spawned.pending_diagnostic_slot();
         // Respawning into a FRESH remote login shell: the terminal model is
         // reused to preserve scrollback, but the dropped session's latched
@@ -2345,7 +2451,7 @@ impl WorkspaceSet {
         // literally into the command line. The reconnected shell re-emits
         // whatever modes it wants at its first prompt.
         crate::native::lock_recover(&terminal).reset_input_reporting_modes();
-        let pump_thread = spawn_pty_pump(
+        let Ok(pump_thread) = spawn_pty_pump(
             reader,
             writer.clone(),
             terminal,
@@ -2353,7 +2459,9 @@ impl WorkspaceSet {
             token,
             recorder,
             diagnostic,
-        );
+        ) else {
+            return false;
+        };
         let pty = Arc::new(Mutex::new(spawned));
         let Some(session) = self.sessions.get_mut(&token) else {
             return false;
@@ -3217,6 +3325,10 @@ struct SnapshotBuild {
     reattach_attempted: usize,
     remote_fallback: usize,
     aborted: bool,
+    /// Wall-clock deadline for the ENTIRE reattach batch. The first slow host may
+    /// consume it; remaining panes then fast-fail to fresh shells rather than
+    /// each blocking the UI for the full per-connection snapshot deadline.
+    attach_deadline: Option<Instant>,
 }
 
 /// Hash the STRUCTURE of a pane subtree (split axis + ratio bits + shape), with
@@ -3515,7 +3627,13 @@ impl WorkspaceSet {
         mut spawn_leaf: impl FnMut(&mut Self, Option<std::path::PathBuf>) -> Option<SessionToken>,
         mut spawn_remote: impl FnMut(&mut Self, &str) -> Option<SessionToken>,
     ) -> SnapshotBuild {
-        let mut build = SnapshotBuild::default();
+        // Aggregate budget for the entire reattach batch: the first slow host can
+        // consume it, after which remaining panes fast-fail to fresh shells rather
+        // than each blocking startup for the full per-connection deadline.
+        let mut build = SnapshotBuild {
+            attach_deadline: Some(Instant::now() + super::attach::SNAPSHOT_DEADLINE),
+            ..SnapshotBuild::default()
+        };
 
         'workspaces: for ws in &snapshot.workspaces {
             if ws.tabs.is_empty() {
@@ -3587,7 +3705,8 @@ impl WorkspaceSet {
                 // to a fresh shell at the captured cwd — silently, per the design.
                 if let Some(id) = session_host_id.as_deref() {
                     build.reattach_attempted += 1;
-                    if let Some(token) = self.reattach_restored_session(id) {
+                    let attach_batch_deadline = build.attach_deadline.unwrap_or_else(Instant::now);
+                    if let Some(token) = self.reattach_restored_session(id, attach_batch_deadline) {
                         build.reattached += 1;
                         build.spawned.push(token);
                         leaves.push(token);
@@ -3779,6 +3898,29 @@ mod tests {
     use winit::platform::windows::EventLoopBuilderExtWindows;
     #[cfg(target_os = "linux")]
     use winit::platform::x11::EventLoopBuilderExtX11;
+
+    #[test]
+    fn per_connection_attach_budget_bounds_the_whole_restore_batch() {
+        use std::time::Duration;
+        let cap = Duration::from_secs(5);
+        let now = Instant::now();
+
+        // Budget remaining and under the cap: the pane gets what is left, so a
+        // batch of K slow panes shares one 5s budget instead of K * 5s.
+        let mid_batch = now + Duration::from_millis(1500);
+        let budget =
+            per_connection_attach_budget(mid_batch, now, cap).expect("budget available mid-batch");
+        assert!(budget <= cap && budget > Duration::from_millis(1400));
+
+        // Plenty of budget: capped at the per-connection maximum.
+        let fresh = now + Duration::from_secs(30);
+        assert_eq!(per_connection_attach_budget(fresh, now, cap), Some(cap));
+
+        // Batch budget spent: no handshake attempted (fast-fail to a fresh shell).
+        let spent = now - Duration::from_millis(1);
+        assert_eq!(per_connection_attach_budget(spent, now, cap), None);
+        assert_eq!(per_connection_attach_budget(now, now, cap), None);
+    }
 
     fn build_session_with_id(id: SessionToken) -> Session {
         let dims = Dimensions::new(20, 8);
