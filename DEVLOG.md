@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Top tab seam stops at the content edge
+
+The top panel wash and bottom seam now use the same horizontal content span as
+the tab strip. A pinned left or right workspace rail clips the top treatment at
+its reserved content edge, preventing the line from crossing the rail. A
+revealed auto-hidden rail applies the same clip while it overlays either side.
+Frames without a side rail retain the previous full-window top geometry.
+
+Pure geometry coverage verifies that a left rail moves the top wash and seam
+start away from zero to the rail content edge. The render-only change has no
+platform-specific surface on Windows, macOS, or Linux.
+
+Verified: complete `cargo test` suite green (3479 library tests passed, 7
+ignored, plus all integration binaries); `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-10 -- Chrome labels retain descender clearance
 
 Top-strip and workspace-rail label quads now reserve one physical pixel beneath

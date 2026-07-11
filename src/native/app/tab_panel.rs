@@ -49,6 +49,9 @@ pub(super) struct PanelQuadSpec {
     pub(super) cell: [f32; 2],
     /// Rail band width in cells (`Left`/`Right`) or bar height in rows (`Top`).
     pub(super) band_cells: usize,
+    /// Optional horizontal clip `[left, right]` for the top panel. `None`
+    /// preserves the legacy full-window top span. Ignored for side rails.
+    pub(super) top_span: Option<[f32; 2]>,
     /// For `Right` only: cells occupied to the LEFT of the rail band — the
     /// content columns plus the rail↔content wallpaper gap. The seam sits at the
     /// rail's grid-aligned content edge (`pad_x + lead_cells·cell_w`) so the
@@ -123,9 +126,12 @@ pub(super) fn panel_quads(spec: &PanelQuadSpec) -> Vec<SolidQuad> {
     let (panel_rect, seam_rect): ([f32; 4], [f32; 4]) = match spec.axis {
         PanelAxis::Top => {
             let bottom = seam_x_or_y.clamp(0.0, surface_h);
+            let [left, right] = spec.top_span.unwrap_or([0.0, surface_w]);
+            let left = left.clamp(0.0, surface_w);
+            let right = right.clamp(left, surface_w);
             (
-                [0.0, 0.0, surface_w, bottom],
-                [0.0, (bottom - seam_w).max(0.0), surface_w, bottom],
+                [left, 0.0, right, bottom],
+                [left, (bottom - seam_w).max(0.0), right, bottom],
             )
         }
         PanelAxis::Left => {
@@ -237,6 +243,7 @@ mod tests {
             } else {
                 16
             },
+            top_span: None,
             // Right-rail lead: content + gap columns to the left of the band. In
             // this fixture the surface is exactly `pad + (lead + band)·cell + pad`
             // (800 = 4 + (83 + 16)·8 + 4), so the grid-aligned right seam lands at
@@ -308,6 +315,17 @@ mod tests {
         let bottom = 4.0 + 1.0 * 16.0; // pad_y + bar_rows*cell_h = 20
         assert_eq!(quads[0].rect, [0.0, 0.0, 800.0, bottom]);
         assert_eq!(quads[1].rect, [0.0, bottom - 1.0, 800.0, bottom]);
+    }
+
+    #[test]
+    fn top_bar_with_left_rail_starts_at_the_content_edge() {
+        let mut spec = base(PanelAxis::Top);
+        let content_left = 4.0 + 16.0 * 8.0;
+        spec.top_span = Some([content_left, 800.0]);
+        let quads = panel_quads(&spec);
+        let bottom = 4.0 + 16.0;
+        assert_eq!(quads[0].rect, [content_left, 0.0, 800.0, bottom]);
+        assert_eq!(quads[1].rect, [content_left, bottom - 1.0, 800.0, bottom]);
     }
 
     #[test]

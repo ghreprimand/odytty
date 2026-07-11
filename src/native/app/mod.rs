@@ -3188,6 +3188,30 @@ impl App {
         let wash_alpha = tab_chrome::panel_wash_alpha(strength, self.settings.cell_bg_opacity);
         let seam = (self.settings.tab_seam && strength > 0.0)
             .then(|| tab_chrome::seam_color(colors, panel_color));
+        let reserve = self.tab_reserve();
+        let top_span = if show_top {
+            let mut left = 0.0;
+            let mut right = surface_w as f32;
+            if reserve.left_reserved_cols() > 0 {
+                left = padding.as_f32() + reserve.left_reserved_cols() as f32 * cell.width as f32;
+            } else if self.rail_autohide_active()
+                && self.rail_overlay_visible()
+                && self.rail_autohide_side() == Some(RailSide::Left)
+            {
+                left = padding.as_f32() + self.rail_overlay_cols() as f32 * cell.width as f32;
+            }
+            if reserve.right_reserved_cols() > 0 {
+                right = padding.as_f32() + self.tab_bar_grid_cols() as f32 * cell.width as f32;
+            } else if self.rail_autohide_active()
+                && self.rail_overlay_visible()
+                && self.rail_autohide_side() == Some(RailSide::Right)
+            {
+                right = self.rail_overlay_origin_px(cell, RailSide::Right)[0];
+            }
+            ((left > 0.0) || (right < surface_w as f32)).then_some([left, right])
+        } else {
+            None
+        };
         // Emit a panel band per shown chrome element (design doc §7: the top bar
         // and the workspace rail are independent bands that can coexist). Each
         // band is grid-aligned to the SAME basis the reserve/decorate/hit-test
@@ -3220,6 +3244,11 @@ impl App {
                 pad: [padding.as_f32(), padding.as_f32()],
                 cell: [cell.width as f32, cell.height as f32],
                 band_cells,
+                top_span: if matches!(axis, tab_panel::PanelAxis::Top) {
+                    top_span
+                } else {
+                    None
+                },
                 lead_cells,
                 scale_factor: gpu.scale(),
                 panel_color,
