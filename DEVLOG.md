@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Image viewer uses available GPU texture headroom
+
+GPU device creation now requests the adapter's reported
+`max_texture_dimension_2d` while leaving every other required limit at the
+portable default. Mainstream desktop adapters expose a 16,384-pixel texture
+limit, which keeps every image accepted by the viewer's 12,000-pixel decode
+ceiling on the direct upload path instead of synchronously resampling it on the
+window thread. The existing dynamic clamps remain active for dimensions beyond
+the real device limit.
+
+Inline-image viewer loading now emits a debug timing with image dimensions and
+separate decode and upload durations. This makes a GPU-enabled build identify
+whether a slow open is in file decoding or texture preparation without logging
+terminal content.
+
+A headless regression proves a 12,000 by 9,000 RGBA image remains borrowed and
+unchanged under a 16,384-pixel limit; the existing over-limit regression still
+proves resampling occurs when hardware requires it. Adapters genuinely limited
+to 8,192 pixels retain the synchronous fallback for larger viewer images; moving
+that uncommon fallback off the window thread remains a possible follow-up.
+There is no Windows-specific surface; the adapter-reported limit applies across
+Vulkan, Metal, and DX12 backends.
+
+Verified: `cargo build` clean; full non-GPU `cargo test --lib -- --skip
+native::gpu_tests` suite green (3494 passed); `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean. GPU-enabled timing and feel
+confirmation require a running hardware-backed build.
+
 ## 2026-07-11 -- Window input and clipboard request state hardened
 
 Losing window focus now cancels every in-flight scrollbar, divider, rail seam,

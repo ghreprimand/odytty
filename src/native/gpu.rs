@@ -1142,10 +1142,14 @@ impl GpuState {
             );
         }
 
+        let required_limits = wgpu::Limits {
+            max_texture_dimension_2d: adapter.limits().max_texture_dimension_2d,
+            ..wgpu::Limits::default()
+        };
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("odytty-device"),
             required_features: enabled_features,
-            required_limits: wgpu::Limits::default(),
+            required_limits,
             experimental_features: wgpu::ExperimentalFeatures::disabled(),
             memory_hints: wgpu::MemoryHints::default(),
             trace: wgpu::Trace::Off,

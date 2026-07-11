@@ -1255,17 +1255,28 @@ impl App {
         if resolved.kind != crate::paths::FsKind::File {
             return false;
         }
+        let decode_started = Instant::now();
         let Some((rgba, width, height)) =
             crate::native::image_decode::decode_image_rgba(std::path::Path::new(&resolved.abs))
         else {
             return false;
         };
+        let decode_elapsed = decode_started.elapsed();
         let Some(gpu) = self.gpu.as_mut() else {
             return false;
         };
         // Hand the pixels to the GPU overlay slot (centered fit computed there),
         // then open the presentation-only overlay with the filename caption.
+        let upload_started = Instant::now();
         gpu.set_overlay_image(Some((rgba.as_slice(), width, height)));
+        let upload_elapsed = upload_started.elapsed();
+        tracing::debug!(
+            width,
+            height,
+            decode_ms = decode_elapsed.as_millis(),
+            upload_ms = upload_elapsed.as_millis(),
+            "inline image viewer loaded"
+        );
         let caption = resolved
             .abs
             .rsplit('/')

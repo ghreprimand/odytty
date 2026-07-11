@@ -92,4 +92,17 @@ mod tests {
         assert_eq!(pixels.len(), 8 * 2 * 4);
         assert!(matches!(pixels, Cow::Owned(_)));
     }
+
+    #[test]
+    fn largest_viewer_image_stays_borrowed_at_desktop_device_limit() {
+        const WIDTH: u32 = 12_000;
+        const HEIGHT: u32 = 9_000;
+        let rgba = vec![0_u8; WIDTH as usize * HEIGHT as usize * 4];
+
+        let (pixels, width, height) = fit_rgba8(&rgba, WIDTH, HEIGHT, 16_384).expect("valid RGBA");
+
+        assert_eq!((width, height), (WIDTH, HEIGHT));
+        assert!(matches!(pixels, Cow::Borrowed(_)));
+        assert_eq!(pixels.as_ptr(), rgba.as_ptr());
+    }
 }
