@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Chrome labels retain descender clearance
+
+Top-strip and workspace-rail label quads now reserve one physical pixel beneath
+centered text. The label row remains geometrically centered, while the
+bearing-aware glyph ink shifts upward enough to keep descenders clear of the
+band or slot edge at every configured height.
+
+Headless vertex coverage verifies the guard at one-row and multi-row heights
+and proves the resulting glyph shift is exactly one physical pixel. The shared
+render geometry has no platform-specific surface on Windows, macOS, or Linux.
+
+Verified: complete `cargo test` suite green (3478 library tests passed, 7
+ignored, plus all integration binaries); `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-10 -- Active chrome remains legible through transparency
 
 Active tab and workspace labels now carry a bright foreground underline in

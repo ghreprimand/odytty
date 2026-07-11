@@ -606,6 +606,22 @@ pub fn band_label_center_dy_rows(band_rows: usize, label_row: usize) -> f32 {
     band_rows as f32 / 2.0 - label_row as f32 - 0.5
 }
 
+/// Center a chrome label while reserving one physical pixel beneath its ink
+/// for font descenders. The row-level placement stays unchanged; only the
+/// bearing-aware glyph quad moves upward by the guard amount.
+pub fn band_label_descender_safe_dy_rows(
+    band_rows: usize,
+    label_row: usize,
+    cell_height_px: u32,
+) -> f32 {
+    let centered = band_label_center_dy_rows(band_rows, label_row);
+    if cell_height_px == 0 {
+        centered
+    } else {
+        centered - 1.0 / cell_height_px as f32
+    }
+}
+
 /// SCROLL-CHROME-BOUNCE: pins composited chrome (the top tab-bar band and any
 /// side rail band) against the sub-row smooth-scroll offset that `content_origin`
 /// folds into the vertex Y. Without it the whole decorated single-pane snapshot

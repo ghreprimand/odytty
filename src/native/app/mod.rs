@@ -4310,13 +4310,21 @@ impl App {
             // (biased high on even heights). The shared helper yields the exact
             // sub-row correction for each convention (0.0 on single-row / odd).
             let band_glyph_dy_rows = if top_rows > 0 {
-                crate::grid::band_label_center_dy_rows(top_rows, top_rows / 2)
+                crate::grid::band_label_descender_safe_dy_rows(
+                    top_rows,
+                    top_rows / 2,
+                    self.resolved_cell().map_or(1, |cell| cell.height),
+                )
             } else {
                 0.0
             };
             let rail_glyph_dy_rows = if rail_col_start != rail_col_end {
                 let slot_rows = self.rail_geom().slot_rows;
-                crate::grid::band_label_center_dy_rows(slot_rows, slot_rows.saturating_sub(1) / 2)
+                crate::grid::band_label_descender_safe_dy_rows(
+                    slot_rows,
+                    slot_rows.saturating_sub(1) / 2,
+                    self.resolved_cell().map_or(1, |cell| cell.height),
+                )
             } else {
                 0.0
             };

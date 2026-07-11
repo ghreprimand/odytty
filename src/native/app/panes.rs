@@ -676,9 +676,10 @@ impl App {
         // the band, so the offset applies across the whole strip.
         let mut chrome_strips: Vec<ChromeStrip> = Vec::new();
         if show_top && let Some((snapshot, quads)) = self.tab_bar_strip(cell, padding) {
-            let band_dy = crate::grid::band_label_center_dy_rows(
+            let band_dy = crate::grid::band_label_descender_safe_dy_rows(
                 snapshot.dimensions.rows,
                 snapshot.dimensions.rows / 2,
+                cell.height,
             );
             chrome_strips.push(ChromeStrip {
                 snapshot,
@@ -692,9 +693,10 @@ impl App {
             let side = self.workspace_rail_side();
             if let Some((snapshot, quads)) = self.tab_rail_strip(cell, padding, surface_h, side) {
                 let slot_rows = self.rail_geom().slot_rows;
-                let rail_dy = crate::grid::band_label_center_dy_rows(
+                let rail_dy = crate::grid::band_label_descender_safe_dy_rows(
                     slot_rows,
                     slot_rows.saturating_sub(1) / 2,
+                    cell.height,
                 );
                 chrome_strips.push(ChromeStrip {
                     snapshot,

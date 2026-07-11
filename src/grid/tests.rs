@@ -1796,6 +1796,45 @@ mod chrome_pin {
             );
         }
     }
+
+    #[test]
+    fn descender_safe_offset_lifts_centered_chrome_by_one_physical_pixel() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let cell_h = atlas.cell.height;
+        for (rows, label_row) in [(1usize, 0usize), (2, 1), (2, 0), (5, 2)] {
+            let centered = band_label_center_dy_rows(rows, label_row);
+            let safe = band_label_descender_safe_dy_rows(rows, label_row, cell_h);
+            assert!(
+                ((centered - safe) * cell_h as f32 - 1.0).abs() < 1e-3,
+                "h{rows} row {label_row}: descender guard must be exactly one pixel"
+            );
+        }
+
+        let safe = band_label_descender_safe_dy_rows(1, 0, cell_h);
+        let snap = snapshot_with_ink(1, &[0]);
+        let centered_top = glyph_top(&build(&snap, &atlas, [8.0, 8.0], ChromePin::NONE), 1, 0);
+        let guarded_top = glyph_top(
+            &build(
+                &snap,
+                &atlas,
+                [8.0, 8.0],
+                ChromePin {
+                    scroll_offset_y: 0.0,
+                    top_rows: 1,
+                    rail_col_start: 0,
+                    rail_col_end: 0,
+                    band_glyph_dy_rows: safe,
+                    rail_glyph_dy_rows: 0.0,
+                },
+            ),
+            1,
+            0,
+        );
+        assert!((centered_top - guarded_top - 1.0).abs() < 1e-3);
+    }
 }
 
 /// PANE-SUBCELL-CLIP: pure vertex-clip math (headless — no GPU). Isolated so a
