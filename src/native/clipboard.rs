@@ -68,6 +68,11 @@ pub(super) struct NativeClipboard {
     /// reaches the clipboard while a non-focused one is discarded before it does.
     #[cfg(test)]
     pub(super) last_clipboard_write: Option<String>,
+    /// Test-only text returned by clipboard reads. Production tests inject it
+    /// so OSC 52 read policy can be exercised without touching the live system
+    /// clipboard.
+    #[cfg(test)]
+    pub(super) injected_clipboard_text: Option<String>,
     /// Test-only: PNG bytes `read_image_png` returns instead of touching the real
     /// clipboard. The real image read (`arboard::Clipboard::get_image`) is
     /// compiled out under `cfg(test)` for the same reasons text I/O is — so the
@@ -100,7 +105,8 @@ impl ClipboardSelectionIo for NativeClipboard {
         // through `ClipboardSelectionIo`. Production (`not(test)`) is unchanged.
         #[cfg(test)]
         {
-            None
+            self.read_text_calls += 1;
+            self.injected_clipboard_text.clone()
         }
         #[cfg(not(test))]
         {
@@ -242,10 +248,6 @@ impl ClipboardSelectionIo for NativeClipboard {
 
 impl NativeClipboard {
     pub(super) fn read_text(&mut self) -> Option<String> {
-        #[cfg(test)]
-        {
-            self.read_text_calls += 1;
-        }
         self.read_clipboard_text()
     }
 

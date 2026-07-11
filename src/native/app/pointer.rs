@@ -156,6 +156,9 @@ impl App {
     /// first, then an in-progress local selection drag, then TUI mouse
     /// reporting, then local selection / hyperlink-open / middle-click paste.
     pub(super) fn handle_mouse_input(&mut self, state: ElementState, button: WinitMouseButton) {
+        if button == WinitMouseButton::Left {
+            self.pointer_left_held = state == ElementState::Pressed;
+        }
         // UX4-P1: an open overlay captures the pointer before any
         // selection / PTY-report / hyperlink logic — the mouse analogue
         // of the keyboard `if self.overlay.is_open()` guard. Shift and

@@ -188,6 +188,46 @@ fn button_held_guard_allows_extend_while_held() {
     ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
 )]
 #[test]
+fn focus_loss_cancels_scrollbar_drag_before_buttonless_motion() {
+    let (mut app, _event_loop) = app_or_skip!();
+    app.begin_scrollbar_drag_for_test();
+    assert!(
+        app.scrollbar_dragging_for_test(),
+        "precondition: scrollbar drag is armed"
+    );
+
+    app.on_window_focus_changed_for_test(false);
+    assert!(
+        !app.scrollbar_dragging_for_test(),
+        "focus loss cancels the scrollbar latch"
+    );
+
+    // A later buttonless cursor move follows the ordinary hover path instead
+    // of reviving the cancelled scrub.
+    app.grid_pointer_moved_for_test(400.0, 200.0);
+    assert!(!app.scrollbar_dragging_for_test());
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn focus_loss_clears_pressed_mouse_report_button() {
+    let (mut app, _event_loop) = app_or_skip!();
+    app.enable_mouse_reporting_for_test();
+    assert_eq!(app.left_button_outcome_for_test(true), "report");
+    assert!(app.report_button_for_test().is_some());
+
+    app.on_window_focus_changed_for_test(false);
+    assert_eq!(app.report_button_for_test(), None);
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
 fn tab_switch_clears_stale_pointer_cell() {
     let (mut app, _event_loop) = app_or_skip!();
     app.new_tab_for_test();

@@ -69,6 +69,7 @@ macro_rules! app_or_skip {
 const OSC11_QUERY: &[u8] = b"\x1b]11;?\x1b\\";
 // OSC 52 clipboard write of "hi" (base64 "aGk=").
 const OSC52_WRITE_HI: &[u8] = b"\x1b]52;c;aGk=\x1b\\";
+const OSC52_READ: &[u8] = b"\x1b]52;c;?\x1b\\";
 
 #[cfg_attr(
     target_os = "macos",
@@ -160,4 +161,29 @@ fn focused_osc52_write_reaches_clipboard() {
         Some("hi"),
         "the focused session's OSC 52 write reaches the clipboard"
     );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn background_osc52_read_never_reaches_clipboard() {
+    let (mut app, _event_loop) = app_or_skip!();
+    app.new_tab_for_test(); // tab 1 focused; tab 0 is background.
+    app.enable_osc52_read_for_test("private text");
+
+    app.advance_session_bytes_for_test(0, OSC52_READ);
+    app.drain_clipboard_requests_for_test();
+    assert_eq!(
+        app.clipboard_read_text_calls_for_test(),
+        0,
+        "a background OSC 52 read must not inspect the clipboard"
+    );
+
+    // Positive control: the same request from the focused session reaches the
+    // clipboard policy after the opt-in gate.
+    app.advance_session_bytes_for_test(1, OSC52_READ);
+    app.drain_clipboard_requests_for_test();
+    assert_eq!(app.clipboard_read_text_calls_for_test(), 1);
 }

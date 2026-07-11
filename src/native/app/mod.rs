@@ -599,6 +599,12 @@ pub(super) struct App {
     /// somehow stale. `CursorMoved` carries no button state, so this flag is the
     /// reliable held-button seam for the settings-slider path (D-SLIDER-GUARD).
     overlay_left_held: bool,
+    /// Window-wide left-button state for chrome, divider, and scrollbar drag
+    /// motion. Every left-button edge updates it before pointer routing, and
+    /// focus loss clears it when the release may have landed in another window.
+    /// `CursorMoved` carries no button state, so each non-grid drag checks this
+    /// flag before advancing an in-flight latch.
+    pointer_left_held: bool,
     /// NF21-8 grid analogue of `overlay_left_held`: whether the left button is
     /// currently held during a terminal-grid text selection. Set when
     /// [`Self::begin_selection`] arms a drag, cleared on
@@ -767,6 +773,7 @@ impl App {
             rename_clicks: ClickTracker::default(),
             rename_dragging: false,
             overlay_left_held: false,
+            pointer_left_held: false,
             grid_left_held: false,
             home_dir: std::env::var_os("HOME").and_then(|h| h.into_string().ok()),
             image_overlay: None,
@@ -2761,9 +2768,11 @@ impl App {
         // until switch-back and then silently replace the system clipboard —
         // minutes-stale, from a program the user is not looking at. Policy: a
         // WRITE from a non-focused session is DISCARDED (a backgrounded program
-        // must not hijack the clipboard); a READ keeps the existing live
-        // `osc52_read` gate. Every session is drained each pass so nothing queues
-        // indefinitely and a discarded write is never applied on switch-back.
+        // must not hijack the clipboard); a READ requires both the existing live
+        // `osc52_read` gate and session focus, so a background program cannot
+        // exfiltrate clipboard contents. Every session is drained each pass so
+        // nothing queues indefinitely and a discarded request is never applied
+        // on switch-back.
         let focused = self.sessions.active_id();
         for session in self.sessions.iter() {
             let is_focused = session.id == focused;
@@ -2788,7 +2797,7 @@ impl App {
                         }
                     }
                     ClipboardRequest::Read { selection } => {
-                        if !self.settings.osc52_read {
+                        if !self.settings.osc52_read || !is_focused {
                             continue;
                         }
                         let Some(text) = read_clipboard_selection(&mut self.clipboard, selection)
@@ -5192,7 +5201,7 @@ impl ApplicationHandler<UserEvent> for App {
 
         // Seed the first buffer from the current shared-terminal snapshot (any
         // PTY output already pumped is picked up by the first redraw below).
-        let initial_snapshot = self.terminal.lock().expect("terminal mutex").snapshot();
+        let initial_snapshot = crate::native::lock_recover(&self.terminal).snapshot();
         match GpuState::new(
             window.clone(),
             &self.options,
@@ -6398,6 +6407,32 @@ mod tests {
             should_schedule_skipped_retry(app.window_minimized, app.consecutive_skipped_frames),
             "after restore the bounded retry-wake must no longer be vetoed"
         );
+    }
+
+    #[test]
+    fn focus_loss_clears_every_window_pointer_latch() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        app.pointer_left_held = true;
+        app.pointer_drag = PointerDrag::Scrollbar { grab_dy: 1.0 };
+        app.divider_drag = Some(0);
+        app.rail_seam_drag = true;
+        app.tab_bar_seam_drag = true;
+        app.rail_ws_drag = Some(RailWorkspaceDrag::new(0, 4.0, 8.0));
+        app.top_tab_drag = Some(TopTabDrag::new(0, 4.0, 8.0));
+        app.report_button = Some(CoreMouseButton::Left);
+
+        app.on_window_focus_changed(false);
+
+        assert!(!app.pointer_left_held);
+        assert_eq!(app.pointer_drag, PointerDrag::None);
+        assert_eq!(app.divider_drag, None);
+        assert!(!app.rail_seam_drag);
+        assert!(!app.tab_bar_seam_drag);
+        assert_eq!(app.rail_ws_drag, None);
+        assert_eq!(app.top_tab_drag, None);
+        assert_eq!(app.report_button, None);
     }
 
     /// Same residual via the other Windows restore signal: `Occluded(false)`

@@ -1429,6 +1429,14 @@ impl App {
         } else {
             self.window_pointer_px = None;
             self.cancel_overlay_drag_on_focus_loss();
+            self.pointer_left_held = false;
+            self.pointer_drag = PointerDrag::None;
+            self.divider_drag = None;
+            self.rail_seam_drag = false;
+            self.tab_bar_seam_drag = false;
+            self.rail_ws_drag = None;
+            self.top_tab_drag = None;
+            self.report_button = None;
             // NF21-8: an alt-tab can deliver the button release to another
             // window, stranding the grid selection's held flag. Drop it so a
             // `CursorMoved` on focus regain cannot resume a buttonless drag.
@@ -1614,11 +1622,11 @@ impl App {
         // — a drag owns the pointer for its lifetime. Placed before the auto-hide
         // reveal feed and every hover/selection path so the gesture is not
         // disturbed by them. Inert when no rail drag is in flight.
-        if self.rail_ws_drag.is_some() {
+        if self.pointer_left_held && self.rail_ws_drag.is_some() {
             self.drag_workspace_to_pointer(x_px, y_px, cell);
             return;
         }
-        if self.top_tab_drag.is_some() {
+        if self.pointer_left_held && self.top_tab_drag.is_some() {
             self.drag_top_tab_to_pointer(x_px, y_px, cell);
             return;
         }
@@ -1641,7 +1649,7 @@ impl App {
         // (sets the manual width + reflows) and nothing else. Held only while a
         // rail is shown, so the top-bar / single-pane motion path is unaffected.
         // The seam is a vertical edge → a column-resize cursor for the gesture.
-        if self.rail_seam_drag {
+        if self.pointer_left_held && self.rail_seam_drag {
             self.drag_rail_seam_to_pointer(x_px);
             self.apply_cursor_icon(CursorIcon::ColResize);
             return;
@@ -1651,7 +1659,7 @@ impl App {
         // is a horizontal edge -> a row-resize cursor for the gesture. Held only
         // while the top bar is shown, so the rail / single-pane path is
         // unaffected.
-        if self.tab_bar_seam_drag {
+        if self.pointer_left_held && self.tab_bar_seam_drag {
             self.drag_tab_bar_seam_to_pointer(y_px);
             self.apply_cursor_icon(CursorIcon::RowResize);
             return;
@@ -1663,7 +1671,7 @@ impl App {
         // dragged divider's axis even as the pointer strays off the hairline, so
         // the affordance is stable through the whole gesture; fall back to the
         // arrow only if the divider can't be resolved.
-        if let Some(idx) = self.divider_drag {
+        if let Some(idx) = self.divider_drag.filter(|_| self.pointer_left_held) {
             self.drag_divider_to_pointer();
             let icon = self
                 .multipane_geometry()
@@ -1819,7 +1827,11 @@ impl App {
         // hover, extend a selection, or emit PTY motion. Mutually exclusive with
         // selection (one `pointer_drag` enum); the grab decision already ran at
         // press time.
-        if let Some(grab_dy) = self.pointer_drag.scrollbar_grab() {
+        if let Some(grab_dy) = self
+            .pointer_drag
+            .scrollbar_grab()
+            .filter(|_| self.pointer_left_held)
+        {
             self.apply_cursor_icon(CursorIcon::Default);
             self.drag_scrollbar_to(y_px, grab_dy, cell, padding);
             return;

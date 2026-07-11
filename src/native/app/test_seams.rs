@@ -592,6 +592,12 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn begin_scrollbar_drag_for_test(&mut self) {
         self.pointer_drag = crate::selection::PointerDrag::Scrollbar { grab_dy: 0.0 };
+        self.pointer_left_held = true;
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn scrollbar_dragging_for_test(&self) -> bool {
+        self.pointer_drag.scrollbar_grab().is_some()
     }
 
     /// Test seam (INTERACTIVE-PATHS): toggle the `interactive_paths` setting so
@@ -2441,6 +2447,20 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn reset_last_clipboard_write_for_test(&mut self) {
         self.clipboard.last_clipboard_write = None;
+    }
+
+    /// Enable the production OSC 52 read policy for every live session and
+    /// inject hermetic clipboard text for request-drain tests.
+    #[cfg(test)]
+    pub(in crate::native) fn enable_osc52_read_for_test(&mut self, text: &str) {
+        self.settings.osc52_read = true;
+        self.clipboard.injected_clipboard_text = Some(text.to_owned());
+        self.clipboard.read_text_calls = 0;
+        for session in self.sessions.iter() {
+            if let Ok(mut terminal) = session.terminal.lock() {
+                terminal.set_osc52_read_enabled(true);
+            }
+        }
     }
 
     #[cfg(test)]

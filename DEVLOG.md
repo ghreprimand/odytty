@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Window input and clipboard request state hardened
+
+Losing window focus now cancels every in-flight scrollbar, divider, rail seam,
+tab-bar seam, workspace-reorder, and tab-reorder drag, along with the pressed
+mouse-report button. Non-grid drag motion also checks a window-wide physical
+left-button flag before advancing, so a stale latch cannot react to a bare
+cursor move after a release lands in another window.
+
+OSC 52 clipboard reads now require the emitting session to be focused as well
+as the existing explicit read opt-in. Requests from background tabs and panes
+are drained without inspecting or returning the system clipboard, matching the
+existing focus policy for OSC 52 writes.
+
+Initial window creation now recovers a poisoned terminal mutex when taking the
+first snapshot, consistent with the other shared-terminal lock sites, instead
+of aborting the event loop through a hard expectation.
+
+Regression tests cover complete focus-loss latch cleanup, buttonless motion
+after a cancelled scrollbar drag, pressed mouse-report cleanup, and focused
+versus background OSC 52 reads with a hermetic clipboard. These input,
+clipboard, and mutex paths are platform-agnostic and have no Windows-specific
+surface.
+
+Verified: `cargo build` clean; full non-GPU `cargo test --lib -- --skip
+native::gpu_tests` suite green (3493 passed); `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
 ## 2026-07-11 -- Settings reload, desktop-id, and snapshot durability hardening
 
 Three lower-severity reliability and safety defects are closed, each with a
