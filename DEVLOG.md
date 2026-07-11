@@ -7,6 +7,47 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Session-host IPC hardening: handshake, reader, and resize bounds
+
+Three denial-of-service paths in the detached session host are closed. The
+session host serves a socket reachable by any process of the same user, and the
+module already documents that peer as untrusted; these changes give the run loop
+and per-client reader the time and resource bounds that threat model requires.
+
+The attach handshake ran inline in the single host loop guarded only by a
+per-read socket timeout, which `read_exact` restarts on every partial read. A
+peer dribbling one byte per timeout could keep the handshake alive indefinitely,
+freezing output broadcast, input, and shutdown for every already-attached
+client. The hello read is now wrapped in a single wall-clock deadline that
+shrinks the socket read budget to the time remaining, so the whole handshake is
+bounded regardless of drip rate.
+
+The post-handshake per-client reader blocked with no timeout and read a frame
+body sized to the declared length. A peer could send a frame header announcing a
+large payload and then withhold the body, pinning the reader thread and its
+client slot forever — repeatable up to the client cap to wedge every slot. The
+reader now polls with a bounded timeout and a resumable frame decoder that tells
+idle-between-frames (legitimate; a user not typing is never detached) apart from
+a stalled mid-frame body (bounded, then the slot is reclaimed). Frame payloads
+grow incrementally as bytes arrive rather than being allocated up front.
+
+Client resize frames drove a synchronous grid reflow with no coalescing, so a
+flood of column-changing resizes delayed PTY I/O for other clients. Each drain
+now applies only the last resize from a still-attached client, collapsing a
+burst into a single reflow per loop tick; untrusted dimensions are still clamped
+before the model resize allocates.
+
+Regression tests cover each path: a stalled hello is abandoned near its
+deadline; a withheld frame body surfaces as a mid-frame timeout and later
+resumes to completion; a burst of resizes coalesces to the final dimensions and
+a departed client's resize is dropped. Unix-only: the session-host loop and its
+Unix-domain-socket transport are `cfg(unix)`-gated, so there is no Windows
+surface (the wire protocol types stay platform-agnostic).
+
+Verified: `cargo build` clean; full non-GPU `cargo test --lib -- --skip
+native::gpu_tests` suite green (3469 passed); `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
 ## 2026-07-11 -- Graphics allocations respect joint device limits
 
 Image placements, the image viewer, and background images now preserve their
@@ -28,6 +69,8 @@ No Windows-specific surface is involved; wgpu limits apply on all backends.
 Verified: `cargo build` clean; targeted boundary regressions green; full
 non-GPU `cargo test --lib -- --skip native::gpu_tests` suite green; `cargo
 clippy --all-targets` clean under the deny gate; `cargo fmt --check` clean.
+
+---
 
 ---
 

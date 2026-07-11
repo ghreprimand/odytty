@@ -313,6 +313,12 @@ pub fn write_client_frame(
 
 pub fn read_client_frame(reader: &mut impl Read) -> Result<ClientFrame, ProtocolError> {
     let (kind, payload) = read_frame(reader)?;
+    decode_client_frame(kind, payload)
+}
+
+/// Interpret a raw `(kind, payload)` pair as a [`ClientFrame`]. Shared by the
+/// blocking [`read_client_frame`] and the poll-with-timeout [`ClientFrameReader`].
+fn decode_client_frame(kind: u8, payload: Vec<u8>) -> Result<ClientFrame, ProtocolError> {
     match kind {
         101 => Ok(ClientFrame::Input(payload)),
         102 => {
@@ -443,6 +449,122 @@ impl HostFrameReader {
         self.header_filled = 0;
         self.payload = Vec::new();
         self.payload_filled = 0;
+    }
+}
+
+/// Largest payload slice grown per read by [`ClientFrameReader`]. The declared
+/// frame length is honoured incrementally in chunks of this size, so a client
+/// that announces a near-`MAX_FRAME_LEN` payload but withholds the body never
+/// forces a large up-front allocation.
+const CLIENT_PAYLOAD_GROWTH_CHUNK: usize = 64 * 1024;
+
+/// Outcome of a single non-blocking client-frame read.
+#[derive(Debug)]
+pub enum ClientFramePoll {
+    /// A whole frame was received and decoded.
+    Frame(ClientFrame),
+    /// The read timed out (or would block) while a frame was only partially
+    /// received. The caller may bound how long a frame is allowed to stay in
+    /// this state before reclaiming the connection.
+    PartialTimeout,
+    /// The read timed out (or would block) with no frame in progress — the peer
+    /// is simply idle between frames, which is legitimate and must not detach.
+    IdleTimeout,
+}
+
+/// Stateful, resumable **client**-frame reader for poll-with-timeout callers.
+///
+/// The per-client host reader must stay attached through arbitrary idle periods
+/// (a user who is not typing) yet must not let a peer that starts a frame and
+/// then withholds the rest wedge the reader thread and its slot forever. This
+/// reader distinguishes the two: a timeout with no bytes buffered reports
+/// [`ClientFramePoll::IdleTimeout`] (keep waiting), while a timeout mid-frame
+/// reports [`ClientFramePoll::PartialTimeout`] (a stall the host can bound).
+/// Partial progress is retained across calls exactly like [`HostFrameReader`],
+/// so a `WouldBlock`/`TimedOut` never desyncs the stream.
+#[derive(Debug, Default)]
+pub struct ClientFrameReader {
+    header: [u8; FRAME_HEADER_LEN],
+    header_filled: usize,
+    header_complete: bool,
+    declared_len: usize,
+    payload: Vec<u8>,
+}
+
+impl ClientFrameReader {
+    /// Read (or resume reading) one client frame. Returns a decoded frame, or a
+    /// timeout variant that tells the caller whether a frame is mid-flight.
+    pub fn read(&mut self, reader: &mut impl Read) -> Result<ClientFramePoll, ProtocolError> {
+        match self.read_raw(reader) {
+            Ok((kind, payload)) => decode_client_frame(kind, payload).map(ClientFramePoll::Frame),
+            Err(ProtocolError::Io(error))
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
+                if self.in_progress() {
+                    Ok(ClientFramePoll::PartialTimeout)
+                } else {
+                    Ok(ClientFramePoll::IdleTimeout)
+                }
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Whether any bytes of a frame are currently buffered.
+    fn in_progress(&self) -> bool {
+        self.header_filled > 0 || self.header_complete
+    }
+
+    fn read_raw(&mut self, reader: &mut impl Read) -> Result<(u8, Vec<u8>), ProtocolError> {
+        while self.header_filled < FRAME_HEADER_LEN {
+            let count = read_nonzero(reader, &mut self.header[self.header_filled..])?;
+            self.header_filled += count;
+            if self.header_filled == FRAME_HEADER_LEN {
+                let len =
+                    u32::from_be_bytes(self.header[1..5].try_into().expect("header is 5 bytes"))
+                        as usize;
+                if len > MAX_FRAME_LEN {
+                    self.reset();
+                    return Err(ProtocolError::FrameTooLarge {
+                        len,
+                        max: MAX_FRAME_LEN,
+                    });
+                }
+                self.declared_len = len;
+                self.header_complete = true;
+                self.payload = Vec::new();
+            }
+        }
+        // Grow the payload only as bytes actually arrive (capped per read), so a
+        // withheld body never reserves the whole declared length up front.
+        while self.payload.len() < self.declared_len {
+            let start = self.payload.len();
+            let want = (self.declared_len - start).min(CLIENT_PAYLOAD_GROWTH_CHUNK);
+            self.payload.resize(start + want, 0);
+            match read_nonzero(reader, &mut self.payload[start..start + want]) {
+                Ok(count) => self.payload.truncate(start + count),
+                Err(error) => {
+                    // Keep only the bytes genuinely read; drop this chunk's
+                    // speculative tail so resume state stays exact.
+                    self.payload.truncate(start);
+                    return Err(error);
+                }
+            }
+        }
+        let kind = self.header[0];
+        let payload = std::mem::take(&mut self.payload);
+        self.reset();
+        Ok((kind, payload))
+    }
+
+    fn reset(&mut self) {
+        self.header_filled = 0;
+        self.header_complete = false;
+        self.declared_len = 0;
+        self.payload = Vec::new();
     }
 }
 

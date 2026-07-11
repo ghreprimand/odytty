@@ -20,7 +20,8 @@ use crate::core::{
 use crate::pty::PtySession;
 
 use super::protocol::{
-    ClientFrame, HostFrame, versions_compatible, write_host_frame, write_host_hello,
+    ClientFrame, ClientFramePoll, ClientFrameReader, HostFrame, versions_compatible,
+    write_host_frame, write_host_hello,
 };
 use super::socket::{RuntimePaths, bind_listener, runtime_paths, validate_socket_parent};
 
@@ -41,6 +42,16 @@ const HOST_LOOP_SLEEP: Duration = Duration::from_millis(10);
 const CHILD_EXIT_DRAIN_GRACE: Duration = Duration::from_secs(2);
 const ATTACH_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(2);
 const ATTACH_WRITE_TIMEOUT: Duration = Duration::from_millis(500);
+/// Poll granularity for the post-handshake per-client reader. The reader wakes
+/// this often to check whether an in-flight frame has stalled; between whole
+/// frames a timeout is ignored, so an attached-but-idle client (a user simply
+/// not typing) is never detached.
+const CLIENT_READ_POLL_TIMEOUT: Duration = Duration::from_secs(2);
+/// Maximum time a single client frame may remain partially received before the
+/// host reclaims the connection. A same-user peer can send a frame header and
+/// withhold the body to pin a reader thread and its client slot indefinitely;
+/// bounding the mid-frame stall releases the slot instead of wedging it.
+const CLIENT_FRAME_STALL_DEADLINE: Duration = Duration::from_secs(10);
 const STARTUP_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 /// Upper bound on client-supplied resize dimensions. The wire protocol carries
 /// raw `u32` columns/rows and the socket is reachable by any same-user process,
@@ -422,6 +433,34 @@ fn accept_pending_clients(
     }
 }
 
+/// A [`Read`] adapter that enforces a single wall-clock deadline across an
+/// entire multi-read handshake. Before each underlying read it shrinks the
+/// socket's `SO_RCVTIMEO` to the remaining budget, so a peer that dribbles bytes
+/// to keep resetting the per-read timeout still hits a hard total cap; once the
+/// deadline passes, reads fail immediately.
+struct HandshakeDeadlineReader<'a> {
+    stream: &'a UnixStream,
+    deadline: Instant,
+}
+
+impl Read for HandshakeDeadlineReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let now = Instant::now();
+        if now >= self.deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "session-host attach handshake exceeded its total deadline",
+            ));
+        }
+        // Bound this read by the remaining total budget. Best-effort: on a dead
+        // peer macOS can reject `SO_RCVTIMEO` with `EINVAL`, in which case the
+        // read simply keeps the previously-set per-recv timeout.
+        let _ = self.stream.set_read_timeout(Some(self.deadline - now));
+        let mut source = self.stream;
+        source.read(buf)
+    }
+}
+
 fn handle_attach(
     stream: &mut UnixStream,
     clients: &mut Vec<ClientConnection>,
@@ -462,7 +501,21 @@ fn handle_attach(
         return Ok(());
     }
 
-    let hello = match super::protocol::read_client_hello(stream) {
+    // Guard the whole hello read with a single wall-clock deadline. The
+    // per-recv `SO_RCVTIMEO` above bounds one `read`, but `read_exact` restarts
+    // it on every partial read, so a peer returning one byte per timeout could
+    // otherwise keep the handshake — which runs inline in the single host loop —
+    // alive forever, freezing broadcast, input, and shutdown for every attached
+    // client. The deadline caps the total handshake regardless of drip rate.
+    let handshake_deadline = Instant::now() + ATTACH_HANDSHAKE_TIMEOUT;
+    let hello_result = {
+        let mut guarded = HandshakeDeadlineReader {
+            stream,
+            deadline: handshake_deadline,
+        };
+        super::protocol::read_client_hello(&mut guarded)
+    };
+    let hello = match hello_result {
         Ok(hello) => hello,
         Err(error) => {
             let _ = write_host_hello(
@@ -592,49 +645,80 @@ fn drain_client_events(
     terminal: &mut Terminal,
     session: &mut PtySession,
 ) -> Result<bool> {
-    let mut shutdown_requested = false;
+    // Drain the whole pending batch first, then act. Input is applied in order,
+    // but resizes are coalesced: only the last resize from a still-attached
+    // client is applied per drain, so a peer flooding column-changing resizes
+    // (each of which drives a synchronous reflow) costs a single reflow per host
+    // loop tick instead of one per frame.
+    let mut batch = Vec::new();
     while let Ok(event) = client_rx.try_recv() {
+        batch.push(event);
+    }
+
+    let mut shutdown_requested = false;
+    for event in &batch {
         match event {
             ClientEvent::Frame(id, ClientFrame::Input(bytes)) => {
-                if has_client(clients, id) {
+                if has_client(clients, *id) {
                     pty_writer
-                        .write_all(&bytes)
+                        .write_all(bytes)
                         .context("write attach-client input to pty")?;
                     pty_writer.flush().context("flush attach-client input")?;
                 }
             }
-            ClientEvent::Frame(id, ClientFrame::Resize { columns, rows }) => {
-                if has_client(clients, id) {
-                    // Clamp untrusted wire dimensions BEFORE the terminal-model
-                    // resize allocates the grid (the PTY winsize u16 clamp in
-                    // `session.resize` runs too late to protect it).
-                    let dimensions = Dimensions::new(
-                        (columns as usize).min(MAX_CLIENT_RESIZE_DIM),
-                        (rows as usize).min(MAX_CLIENT_RESIZE_DIM),
-                    );
-                    terminal.resize(dimensions.columns, dimensions.rows);
-                    session.resize(dimensions)?;
-                    broadcast(
-                        clients,
-                        &HostFrame::Invalidate {
-                            render_revision: terminal.render_revision(),
-                        },
-                    );
-                }
-            }
+            // Resizes are deferred and coalesced after the drain.
+            ClientEvent::Frame(_, ClientFrame::Resize { .. }) => {}
             ClientEvent::Frame(_, ClientFrame::Shutdown) => {
-                // Whole-session kill. Keep draining so already-queued frames are
-                // processed, but flag the loop to tear down after this batch.
+                // Whole-session kill. Keep processing so already-queued frames
+                // are handled, but flag the loop to tear down after this batch.
                 shutdown_requested = true;
             }
             ClientEvent::Frame(id, ClientFrame::Detach)
             | ClientEvent::Disconnected(id)
             | ClientEvent::Error(id) => {
-                clients.retain(|client| client.id != id);
+                clients.retain(|client| client.id != *id);
             }
         }
     }
+
+    if let Some(dimensions) = latest_resize_in(&batch, clients) {
+        // Clamp happens in `latest_resize_in`, BEFORE the terminal-model resize
+        // allocates the grid (the PTY winsize u16 clamp in `session.resize` runs
+        // too late to protect it).
+        terminal.resize(dimensions.columns, dimensions.rows);
+        session.resize(dimensions)?;
+        broadcast(
+            clients,
+            &HostFrame::Invalidate {
+                render_revision: terminal.render_revision(),
+            },
+        );
+    }
     Ok(shutdown_requested)
+}
+
+/// Clamp untrusted wire dimensions to the model bound. The socket is reachable
+/// by any same-user process, so raw `u32` columns/rows must be bounded before a
+/// resize allocates the grid.
+fn clamp_client_dimensions(columns: u32, rows: u32) -> Dimensions {
+    Dimensions::new(
+        (columns as usize).min(MAX_CLIENT_RESIZE_DIM),
+        (rows as usize).min(MAX_CLIENT_RESIZE_DIM),
+    )
+}
+
+/// Select the final resize in a drained batch whose client is still attached,
+/// clamped to the model bound. Only this one dimension is applied, collapsing a
+/// burst of resize frames into a single reflow.
+fn latest_resize_in(batch: &[ClientEvent], clients: &[ClientConnection]) -> Option<Dimensions> {
+    batch.iter().rev().find_map(|event| match event {
+        ClientEvent::Frame(id, ClientFrame::Resize { columns, rows })
+            if has_client(clients, *id) =>
+        {
+            Some(clamp_client_dimensions(*columns, *rows))
+        }
+        _ => None,
+    })
 }
 
 fn broadcast(clients: &mut Vec<ClientConnection>, frame: &HostFrame) {
@@ -670,15 +754,39 @@ fn spawn_pty_reader(mut reader: Box<dyn Read + Send>, tx: Sender<PtyEvent>) {
 
 fn spawn_client_reader(id: u64, mut stream: UnixStream, tx: Sender<ClientEvent>) {
     thread::spawn(move || {
+        // Poll with a bounded read timeout instead of blocking forever. A client
+        // that sends a frame header and then withholds the body would otherwise
+        // pin this thread and its client slot indefinitely (repeatable to the
+        // client cap to wedge every slot). Idle time BETWEEN frames stays
+        // legitimate: a timeout with no partial frame is ignored, so a quiet
+        // attached client is never detached. Best-effort: if the socket rejects
+        // the timeout the reader falls back to blocking (the prior behavior).
+        let _ = stream.set_read_timeout(Some(CLIENT_READ_POLL_TIMEOUT));
+        let mut reader = ClientFrameReader::default();
+        let mut frame_started: Option<Instant> = None;
         loop {
-            match super::protocol::read_client_frame(&mut stream) {
-                Ok(frame) => {
+            match reader.read(&mut stream) {
+                Ok(ClientFramePoll::Frame(frame)) => {
+                    frame_started = None;
                     // Both Detach and Shutdown are terminal for this reader: the
                     // client is going away (detach) or the whole host is (kill).
                     let last = matches!(frame, ClientFrame::Detach | ClientFrame::Shutdown);
                     if tx.send(ClientEvent::Frame(id, frame)).is_err() || last {
                         break;
                     }
+                }
+                Ok(ClientFramePoll::PartialTimeout) => {
+                    // A frame is half-received. Start (or continue) the stall
+                    // clock; reclaim the slot if the body stays withheld too long.
+                    let started = *frame_started.get_or_insert_with(Instant::now);
+                    if started.elapsed() >= CLIENT_FRAME_STALL_DEADLINE {
+                        let _ = tx.send(ClientEvent::Error(id));
+                        break;
+                    }
+                }
+                Ok(ClientFramePoll::IdleTimeout) => {
+                    // Idle between frames: keep waiting, do not detach.
+                    frame_started = None;
                 }
                 Err(error) if error.is_disconnect() => {
                     let _ = tx.send(ClientEvent::Disconnected(id));
@@ -864,4 +972,176 @@ enum ClientEvent {
     Frame(u64, ClientFrame),
     Disconnected(u64),
     Error(u64),
+}
+
+#[cfg(test)]
+mod hardening_tests {
+    use super::super::protocol::{HOST_PROTOCOL_MAGIC, read_client_hello};
+    use super::*;
+    use std::os::unix::net::UnixStream;
+
+    // ---- helpers ----
+
+    /// Build a `ClientConnection` with the given id backed by a live socket pair.
+    /// The returned peer end must be kept alive for the connection to stay open.
+    fn client_connection(id: u64) -> (ClientConnection, UnixStream) {
+        let (peer, near) = UnixStream::pair().expect("socketpair");
+        (ClientConnection { id, stream: near }, peer)
+    }
+
+    // ---- F20: resize coalescing ----
+
+    #[test]
+    fn resize_burst_coalesces_to_the_latest_dimensions() {
+        let (client, _peer) = client_connection(7);
+        let clients = vec![client];
+        let batch = vec![
+            ClientEvent::Frame(
+                7,
+                ClientFrame::Resize {
+                    columns: 80,
+                    rows: 24,
+                },
+            ),
+            ClientEvent::Frame(7, ClientFrame::Input(b"typed".to_vec())),
+            ClientEvent::Frame(
+                7,
+                ClientFrame::Resize {
+                    columns: 100,
+                    rows: 30,
+                },
+            ),
+            ClientEvent::Frame(
+                7,
+                ClientFrame::Resize {
+                    columns: 120,
+                    rows: 40,
+                },
+            ),
+        ];
+        // A burst of three resizes collapses to a single applied dimension: the
+        // last one from a still-attached client.
+        assert_eq!(
+            latest_resize_in(&batch, &clients),
+            Some(Dimensions::new(120, 40))
+        );
+    }
+
+    #[test]
+    fn resize_from_a_departed_client_is_not_applied() {
+        // No attached clients: a resize left in the batch by a client that has
+        // since detached must be dropped.
+        let clients: Vec<ClientConnection> = Vec::new();
+        let batch = vec![ClientEvent::Frame(
+            7,
+            ClientFrame::Resize {
+                columns: 120,
+                rows: 40,
+            },
+        )];
+        assert_eq!(latest_resize_in(&batch, &clients), None);
+    }
+
+    #[test]
+    fn client_resize_dimensions_are_clamped_to_the_model_bound() {
+        assert_eq!(
+            clamp_client_dimensions(u32::MAX, u32::MAX),
+            Dimensions::new(MAX_CLIENT_RESIZE_DIM, MAX_CLIENT_RESIZE_DIM)
+        );
+        assert_eq!(clamp_client_dimensions(100, 40), Dimensions::new(100, 40));
+    }
+
+    // ---- F9: total-handshake deadline ----
+
+    #[test]
+    fn slow_handshake_hello_is_abandoned_at_the_total_deadline() {
+        let (client, server) = UnixStream::pair().expect("socketpair");
+        server
+            .set_read_timeout(Some(ATTACH_HANDSHAKE_TIMEOUT))
+            .expect("set handshake recv timeout");
+
+        // Send only part of the protocol magic, then stall well past the
+        // deadline while keeping the connection open (so this tests the deadline,
+        // not a clean EOF).
+        let writer = thread::spawn(move || {
+            let mut client = client;
+            let _ = client.write_all(&HOST_PROTOCOL_MAGIC[..2]);
+            let _ = client.flush();
+            thread::sleep(Duration::from_millis(500));
+            drop(client);
+        });
+
+        let deadline = Instant::now() + Duration::from_millis(120);
+        let mut guarded = HandshakeDeadlineReader {
+            stream: &server,
+            deadline,
+        };
+        let start = Instant::now();
+        let result = read_client_hello(&mut guarded);
+        let elapsed = start.elapsed();
+
+        assert!(result.is_err(), "a stalled hello must be abandoned");
+        assert!(
+            elapsed < Duration::from_millis(400),
+            "handshake must give up near its deadline, not block for the full stall: {elapsed:?}"
+        );
+        writer.join().expect("writer thread");
+    }
+
+    // ---- F19: post-handshake reader timeout ----
+
+    #[test]
+    fn withheld_frame_payload_surfaces_as_a_partial_timeout() {
+        let (client, server) = UnixStream::pair().expect("socketpair");
+        server
+            .set_read_timeout(Some(Duration::from_millis(40)))
+            .expect("set poll timeout");
+        let mut server = server;
+        let mut reader = ClientFrameReader::default();
+
+        // (a) No bytes yet: idle between frames must not detach.
+        match reader.read(&mut server).expect("idle read") {
+            ClientFramePoll::IdleTimeout => {}
+            other => panic!("expected IdleTimeout with no data, got {other:?}"),
+        }
+
+        // (b) Send a frame header claiming a large payload, then withhold it.
+        let mut client = client;
+        client.write_all(&[101]).expect("kind"); // Input frame
+        client
+            .write_all(&1000u32.to_be_bytes())
+            .expect("declared length");
+        client.flush().expect("flush header");
+
+        let mut saw_partial = false;
+        for _ in 0..8 {
+            match reader.read(&mut server).expect("partial read") {
+                ClientFramePoll::PartialTimeout => {
+                    saw_partial = true;
+                    break;
+                }
+                ClientFramePoll::IdleTimeout => {}
+                other => panic!("unexpected poll while withheld: {other:?}"),
+            }
+        }
+        assert!(
+            saw_partial,
+            "a received header with a withheld body must report PartialTimeout"
+        );
+
+        // (c) Deliver the body: the frame now completes, proving the reader
+        // resumed the partial frame rather than desyncing.
+        client.write_all(&vec![b'x'; 1000]).expect("body");
+        client.flush().expect("flush body");
+        loop {
+            match reader.read(&mut server).expect("complete read") {
+                ClientFramePoll::Frame(ClientFrame::Input(bytes)) => {
+                    assert_eq!(bytes.len(), 1000);
+                    break;
+                }
+                ClientFramePoll::PartialTimeout | ClientFramePoll::IdleTimeout => {}
+                other => panic!("unexpected poll while completing: {other:?}"),
+            }
+        }
+    }
 }
