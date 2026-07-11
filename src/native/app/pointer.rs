@@ -1255,6 +1255,7 @@ impl App {
         if armed
             && let Some(insert) = self.tab_bar.drop_index(
                 x_px,
+                drag.origin_idx,
                 &self.sessions,
                 self.tab_bar_grid_cols(),
                 cell,
@@ -1337,7 +1338,7 @@ impl App {
             return;
         };
         let armed = drag.update_arm(x_px, y_px);
-        if armed && let Some(insert) = self.workspace_rail_drop_index(y_px, cell) {
+        if armed && let Some(insert) = self.workspace_rail_drop_index(y_px, drag.origin_idx, cell) {
             drag.drop_idx = insert;
         }
         self.rail_ws_drag = Some(drag);
@@ -1438,7 +1439,12 @@ impl App {
     /// is live this frame: the floating overlay band under auto-hide, else the
     /// pinned reservation. `None` off a rail / with no slots. Mirrors the mode
     /// split in `current_chrome_hit` so the drop math matches the hit-test.
-    fn workspace_rail_drop_index(&self, y_px: f64, cell: CellSize) -> Option<usize> {
+    fn workspace_rail_drop_index(
+        &self,
+        y_px: f64,
+        origin_idx: usize,
+        cell: CellSize,
+    ) -> Option<usize> {
         let source = self.sessions.rail_source();
         let (cols, origin) = if self.rail_autohide_active() {
             let side = self.rail_autohide_side()?;
@@ -1453,6 +1459,7 @@ impl App {
         };
         self.tab_rail.drop_index(
             y_px,
+            origin_idx,
             &source,
             cols,
             self.tab_rail_grid_rows(),

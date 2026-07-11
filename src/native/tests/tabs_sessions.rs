@@ -827,6 +827,40 @@ fn top_tab_drag_real_route_reorders_and_preserves_active_identity() {
 }
 
 #[test]
+fn top_tab_drag_real_route_commits_a_neighbour_drop() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let dims = NativeOptions::default().initial_grid;
+    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.push_session_for_test(terminal, writer, pty);
+    app.set_test_cell_for_test(cell(8, 16));
+    let before: Vec<_> = (0..3)
+        .map(|idx| {
+            app.session_token_at_position_for_test(idx)
+                .expect("tab token")
+        })
+        .collect();
+
+    // Press the third slot and hover the compacted second slot's upper half.
+    // The origin-excluded drop layout must resolve this as insertion before tab
+    // 1, not as the lifted tab's stale home index.
+    app.set_pointer_px_for_test(400.0, 8.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(220.0, 8.0);
+    assert_eq!(app.top_tab_drag_for_test(), Some((true, 1)));
+    app.mouse_left_release_for_test();
+
+    assert_eq!(app.session_token_at_position_for_test(0), Some(before[0]));
+    assert_eq!(app.session_token_at_position_for_test(1), Some(before[2]));
+    assert_eq!(app.session_token_at_position_for_test(2), Some(before[1]));
+}
+
+#[test]
 fn sub_threshold_top_tab_press_stays_a_switch_click() {
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
@@ -4668,6 +4702,25 @@ fn dragging_a_workspace_slot_reorders_it_and_follows_the_active_by_identity() {
         1,
         "the active workspace still follows c by identity"
     );
+}
+
+#[test]
+fn workspace_drag_real_route_commits_a_neighbour_drop() {
+    let Some(mut app) = rail_drag_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+
+    // Lift c from slot 2 and hover the compacted b slot. This is the adjacent
+    // route that previously resolved back to origin_idx and silently reverted.
+    app.set_pointer_px_for_test(12.0, 120.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(12.0, 60.0);
+    assert_eq!(app.rail_ws_drag_for_test(), Some((true, 1)));
+    app.mouse_left_release_for_test();
+
+    assert_eq!(app.workspace_names_for_test(), vec!["a", "c", "b"]);
+    assert_eq!(app.active_workspace_index_for_test(), 1);
 }
 
 #[test]

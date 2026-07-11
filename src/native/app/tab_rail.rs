@@ -504,7 +504,8 @@ impl TabRail {
     }
 
     /// Map a physical-pixel pointer Y to a drag drop-target **insertion index**
-    /// (RAIL-DRAG), in source-tab-index space: `0` inserts before the first
+    /// (RAIL-DRAG), excluding the lifted origin before midpoint testing. In
+    /// source-tab-index space, `0` inserts before the first
     /// visible slot, `count` appends after the last. The boundary is each slot's
     /// vertical midpoint — the pointer above a slot's midpoint drops before it,
     /// below drops after — so a slow drag flips the target exactly as the
@@ -517,6 +518,7 @@ impl TabRail {
     pub(super) fn drop_index(
         &self,
         px_y: f64,
+        origin_idx: usize,
         source: &dyn TabBarSource,
         rail_cols: usize,
         grid_rows: usize,
@@ -530,12 +532,22 @@ impl TabRail {
         }
         let oy = origin_px[1] as f64;
         let layout = compute_rail_layout(source, rail_cols, grid_rows, geom);
-        let last = layout.slots.last()?;
-        // Default: past every midpoint → append after the last visible slot.
-        let mut insert = last.idx + 1;
-        for slot in &layout.slots {
-            let span = (slot.end_row - slot.start_row) as f64;
-            let mid = oy + (slot.start_row as f64 + span / 2.0) * ch;
+        let origin = layout.slots.iter().find(|slot| slot.idx == origin_idx)?;
+        let origin_stride = geom.stride();
+        let retained: Vec<_> = layout
+            .slots
+            .iter()
+            .filter(|slot| slot.idx != origin_idx)
+            .collect();
+        // Resolve against the compacted list: slots below the lifted origin
+        // move up by one complete stride before midpoint testing.
+        let mut insert = retained.last()?.idx + 1;
+        for slot in retained {
+            let shift = usize::from(slot.start_row > origin.start_row) * origin_stride;
+            let start = slot.start_row.saturating_sub(shift);
+            let end = slot.end_row.saturating_sub(shift);
+            let span = (end - start) as f64;
+            let mid = oy + (start as f64 + span / 2.0) * ch;
             if px_y < mid {
                 insert = slot.idx;
                 break;
@@ -593,9 +605,9 @@ impl TabRail {
 
     /// Paint the complete workspace-drag treatment over a rendered rail.
     /// A pending (sub-threshold) press lifts the source slot immediately. Once
-    /// armed, the source becomes a recessed placeholder and a bright copy of
-    /// the grabbed slot follows the physical pointer Y, clamped inside the
-    /// rail. The insertion rule remains on top of both treatments.
+    /// armed, resting slots part around the live destination and a bright copy
+    /// of the grabbed slot occupies that empty gap. The insertion rule remains
+    /// on top of both treatments.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn paint_drag_overlay(
         &self,
@@ -603,11 +615,11 @@ impl TabRail {
         origin_idx: usize,
         drop_idx: usize,
         armed: bool,
-        pointer_y_px: f64,
+        _pointer_y_px: f64,
         source: &dyn TabBarSource,
         rail_cols: usize,
         grid_rows: usize,
-        origin_y_px: f32,
+        _origin_y_px: f32,
         cell: CellSize,
         geom: RailGeom,
         colors: TabBarColors,
@@ -637,8 +649,9 @@ impl TabRail {
 
         // Capture before changing the source, so the proxy preserves its title,
         // close glyph, bound marker, and theme-authored details.
+        let original = glyphs.to_vec();
         let source_rows: Vec<TabRailGlyph> =
-            glyphs[slot.start_row * rail_cols..slot.end_row.min(grid_rows) * rail_cols].to_vec();
+            original[slot.start_row * rail_cols..slot.end_row.min(grid_rows) * rail_cols].to_vec();
 
         for row in slot.start_row..slot.end_row.min(grid_rows) {
             for col in fill_c0..fill_c1.min(rail_cols) {
@@ -658,12 +671,64 @@ impl TabRail {
         }
 
         if armed {
-            let pointer_row =
-                ((pointer_y_px - f64::from(origin_y_px)) / f64::from(cell.height)).floor() as isize;
-            let max_top = grid_rows.saturating_sub(span);
-            let proxy_top = pointer_row
-                .saturating_sub((span / 2) as isize)
-                .clamp(0, max_top as isize) as usize;
+            let dest_idx = if drop_idx > origin_idx {
+                drop_idx - 1
+            } else {
+                drop_idx
+            };
+            let origin_pos = layout
+                .slots
+                .iter()
+                .position(|candidate| candidate.idx == origin_idx)
+                .expect("drag origin remains visible");
+            let dest = layout
+                .slots
+                .iter()
+                .position(|candidate| candidate.idx == dest_idx)
+                .unwrap_or_else(|| {
+                    usize::from(dest_idx > layout.slots[0].idx)
+                        * layout.slots.len().saturating_sub(1)
+                });
+
+            // Repaint the resting workspace slots in preview order and leave
+            // the destination slot blank. This opens a real insertion gap, so
+            // the lifted label never stamps over or truncates a neighbour.
+            for target in &layout.slots {
+                for row in target.start_row..target.end_row.min(grid_rows) {
+                    for col in 0..rail_cols {
+                        let glyph = &mut glyphs[row * rail_cols + col];
+                        glyph.ch = ' ';
+                        glyph.attrs.background = panel;
+                        glyph.attrs.set_bold(false);
+                    }
+                }
+            }
+            for (source_pos, source_slot) in layout.slots.iter().enumerate() {
+                if source_slot.idx == origin_idx {
+                    continue;
+                }
+                let target_pos = if dest < origin_pos && (dest..origin_pos).contains(&source_pos) {
+                    source_pos + 1
+                } else if dest > origin_pos && (origin_pos + 1..=dest).contains(&source_pos) {
+                    source_pos - 1
+                } else {
+                    source_pos
+                };
+                let target = &layout.slots[target_pos];
+                let copy_rows = (source_slot.end_row - source_slot.start_row)
+                    .min(target.end_row - target.start_row);
+                for local_row in 0..copy_rows {
+                    let src_row = source_slot.start_row + local_row;
+                    let dst_row = target.start_row + local_row;
+                    for col in 0..rail_cols {
+                        let mut resting = original[src_row * rail_cols + col];
+                        resting.row = dst_row;
+                        glyphs[dst_row * rail_cols + col] = resting;
+                    }
+                }
+            }
+
+            let proxy_top = layout.slots[dest].start_row;
             for local_row in 0..span.min(source_rows.len() / rail_cols) {
                 let target_row = proxy_top + local_row;
                 let source_start = local_row * rail_cols;
@@ -1994,9 +2059,10 @@ mod tests {
     // Default GEOM: slot_rows=2, slot_gap=1, top_margin=1, stride=3. For N
     // slots, slot i spans rows [1+3i, 3+3i); its vertical midpoint row is
     // 2+3i, i.e. midpoint_y = (2+3i)*CELL.height. CELL.height == 16, so the
-    // three-slot midpoints are y = 32, 80, 128 px.
+    // With origin slot 1 excluded, retained slots 0 and 2 compact to midpoints
+    // y = 32 and 80 px.
     fn drop_index_at(y: f64, src: &dyn TabBarSource) -> Option<usize> {
-        rail().drop_index(y, src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM)
+        rail().drop_index(y, 1, src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM)
     }
 
     #[test]
@@ -2005,12 +2071,13 @@ mod tests {
         // Above the first slot midpoint (32px) → insert before slot 0.
         assert_eq!(drop_index_at(0.0, &src), Some(0));
         assert_eq!(drop_index_at(31.0, &src), Some(0));
-        // Between slot 0 and slot 1 midpoints (32..80) → insert before slot 1.
-        assert_eq!(drop_index_at(32.0, &src), Some(1));
-        assert_eq!(drop_index_at(79.0, &src), Some(1));
-        // Between slot 1 and slot 2 midpoints (80..128) → insert before slot 2.
-        assert_eq!(drop_index_at(80.0, &src), Some(2));
-        assert_eq!(drop_index_at(127.0, &src), Some(2));
+        // Between retained slot 0 and compacted slot 2 (32..80) → insert
+        // before original slot 2 (the lifted origin's resting gap).
+        assert_eq!(drop_index_at(32.0, &src), Some(2));
+        assert_eq!(drop_index_at(79.0, &src), Some(2));
+        // Below the last retained midpoint → append.
+        assert_eq!(drop_index_at(80.0, &src), Some(3));
+        assert_eq!(drop_index_at(127.0, &src), Some(3));
     }
 
     #[test]
@@ -2020,7 +2087,7 @@ mod tests {
         // an already-first item, never a negative / underflowed index).
         assert_eq!(drop_index_at(-100.0, &src), Some(0));
         // Below every midpoint → append after the last visible slot (count).
-        assert_eq!(drop_index_at(128.0, &src), Some(3));
+        assert_eq!(drop_index_at(80.0, &src), Some(3));
         assert_eq!(drop_index_at(10_000.0, &src), Some(3));
     }
 
@@ -2035,7 +2102,7 @@ mod tests {
             baseline: 0,
         };
         assert_eq!(
-            rail().drop_index(50.0, &src, RAIL_COLS, GRID_ROWS, ORIGIN, zero, GEOM),
+            rail().drop_index(50.0, 0, &src, RAIL_COLS, GRID_ROWS, ORIGIN, zero, GEOM),
             None
         );
     }
@@ -2120,22 +2187,28 @@ mod tests {
     }
 
     #[test]
-    fn armed_drag_proxy_tracks_pointer_y_and_keeps_the_source_recessed() {
+    fn armed_drag_opens_a_gap_without_duplicating_or_clobbering_labels() {
         let src = MockSource::new(&["a", "b", "c"], 2);
         let panel = tab_chrome::panel_tint(COLORS, PANEL_STRENGTH);
         let mut first = render_default(&src).glyphs;
         rail().paint_drag_overlay(
-            &mut first, 0, 1, true, 112.0, &src, RAIL_COLS, GRID_ROWS, ORIGIN[1], CELL, GEOM,
+            &mut first, 0, 3, true, 112.0, &src, RAIL_COLS, GRID_ROWS, ORIGIN[1], CELL, GEOM,
             COLORS, panel,
         );
-        assert_eq!(first[6 * RAIL_COLS + 2].ch, 'a', "proxy follows row 6");
-        assert!(!first[RAIL_COLS + 2].attrs.bold(), "source is recessed");
+        assert_eq!(first[7 * RAIL_COLS + 2].ch, 'a', "proxy occupies the gap");
+        assert_eq!(first[RAIL_COLS + 2].ch, 'b', "b parts into slot 0");
+        assert_eq!(first[4 * RAIL_COLS + 2].ch, 'c', "c parts into slot 1");
+        assert_eq!(
+            first.iter().filter(|glyph| glyph.ch == 'a').count(),
+            1,
+            "the lifted label is not duplicated at its origin"
+        );
 
         let mut second = render_default(&src).glyphs;
         rail().paint_drag_overlay(
             &mut second,
             0,
-            1,
+            3,
             true,
             144.0,
             &src,
@@ -2147,8 +2220,8 @@ mod tests {
             COLORS,
             panel,
         );
-        assert_eq!(second[8 * RAIL_COLS + 2].ch, 'a', "proxy follows row 8");
-        assert_ne!(first, second, "pointer motion changes proxy geometry");
+        assert_eq!(second[7 * RAIL_COLS + 2].ch, 'a');
+        assert_eq!(first, second, "the proxy stays inside the opened slot gap");
     }
 
     #[test]

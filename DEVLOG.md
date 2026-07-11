@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Drag previews reserve their destination slots
+
+Workspace-rail and top-strip drag targeting now evaluates the compacted slot
+layout with the lifted item excluded. Neighbor drops therefore resolve to a
+real destination instead of being mistaken for the source item's stale home
+index and reverting on release.
+
+Armed drag rendering now previews the resting order around an empty destination
+slot. The lifted label occupies that reserved gap, so it no longer duplicates
+at the origin, overwrites a neighboring label, or clips text against a
+differently sized slot. Appending a top-strip tab uses a thin caret at the real
+right edge rather than painting a full phantom tab beyond the strip.
+
+Headless production-route regressions drag both a tab and a workspace onto an
+adjacent slot and assert that release changes the order. Widget coverage also
+asserts that each lifted label appears once and that neighboring labels remain
+intact in their preview positions. The correction remains in the shared
+render, pointer, and in-memory ordering paths used on Windows, macOS, and Linux.
+
+Verified: complete `cargo test` suite green (3473 library tests passed, 7
+ignored, plus all integration binaries); `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-10 -- Top-strip tabs can be reordered by dragging
 
 Tabs within the active workspace can now be reordered directly in the top

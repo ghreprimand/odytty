@@ -416,11 +416,13 @@ impl TabBar {
         TabHit::None
     }
 
-    /// Map a physical pointer X to a tab insertion index. Each slot flips at
-    /// its horizontal midpoint, matching the rail's vertical drop policy.
+    /// Map a physical pointer X to a tab insertion index. The lifted origin is
+    /// excluded and later slots compact by its width before midpoint testing,
+    /// so its stale home slot cannot absorb a genuine neighbour drop.
     pub(super) fn drop_index(
         &self,
         px_x: f64,
+        origin_idx: usize,
         source: &dyn TabBarSource,
         grid_cols: usize,
         cell: CellSize,
@@ -430,11 +432,20 @@ impl TabBar {
             return None;
         }
         let layout = compute_layout(source, grid_cols);
-        let last = layout.slots.last()?;
+        let origin = layout.slots.iter().find(|slot| slot.idx == origin_idx)?;
+        let origin_span = origin.end_col.saturating_sub(origin.start_col);
         let local_x = px_x - f64::from(padding.as_f32());
-        let mut insert = last.idx + 1;
-        for slot in &layout.slots {
-            let midpoint = (slot.start_col + slot.end_col) as f64 * f64::from(cell.width) / 2.0;
+        let retained: Vec<_> = layout
+            .slots
+            .iter()
+            .filter(|slot| slot.idx != origin_idx)
+            .collect();
+        let mut insert = retained.last()?.idx + 1;
+        for slot in retained {
+            let shift = usize::from(slot.start_col > origin.start_col) * origin_span;
+            let start = slot.start_col.saturating_sub(shift);
+            let end = slot.end_col.saturating_sub(shift);
+            let midpoint = (start + end) as f64 * f64::from(cell.width) / 2.0;
             if local_x < midpoint {
                 insert = slot.idx;
                 break;
@@ -443,7 +454,7 @@ impl TabBar {
         Some(insert)
     }
 
-    /// Paint top-strip grab feedback, a live horizontal proxy, and the drop
+    /// Paint top-strip grab feedback, a destination-gap proxy, and the drop
     /// boundary over an already-rendered bar.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn paint_drag_overlay(
@@ -452,11 +463,11 @@ impl TabBar {
         origin_idx: usize,
         drop_idx: usize,
         armed: bool,
-        pointer_x_px: f64,
+        _pointer_x_px: f64,
         source: &dyn TabBarSource,
         grid_cols: usize,
         cell: CellSize,
-        padding: WindowPadding,
+        _padding: WindowPadding,
         colors: TabBarColors,
         panel_surface: Srgb,
     ) {
@@ -475,7 +486,8 @@ impl TabBar {
         let lifted_label = rgb(tab_chrome::active_label(colors));
         let recessed_label = rgb(tab_chrome::inactive_label(colors, 1));
         let panel = rgb(panel_surface);
-        let source_cells = glyphs[slot.start_col..slot.end_col.min(grid_cols)].to_vec();
+        let original = glyphs.to_vec();
+        let source_cells = original[slot.start_col..slot.end_col.min(grid_cols)].to_vec();
 
         for glyph in &mut glyphs[slot.start_col..slot.end_col.min(grid_cols)] {
             glyph.attrs.background = if armed { panel } else { lifted_fill };
@@ -486,15 +498,61 @@ impl TabBar {
         }
 
         if armed {
-            let pointer_col = ((pointer_x_px - f64::from(padding.as_f32())) / f64::from(cell.width))
-                .floor() as isize;
-            let proxy_start = pointer_col
-                .saturating_sub((span / 2) as isize)
-                .clamp(0, grid_cols.saturating_sub(span) as isize)
-                as usize;
-            for (offset, source_glyph) in source_cells.into_iter().enumerate() {
+            let dest_idx = if drop_idx > origin_idx {
+                drop_idx - 1
+            } else {
+                drop_idx
+            };
+            let origin_pos = layout
+                .slots
+                .iter()
+                .position(|candidate| candidate.idx == origin_idx)
+                .expect("drag origin remains visible");
+            let dest = layout
+                .slots
+                .iter()
+                .position(|candidate| candidate.idx == dest_idx)
+                .unwrap_or_else(|| {
+                    usize::from(dest_idx > layout.slots[0].idx)
+                        * layout.slots.len().saturating_sub(1)
+                });
+
+            // Paint the resting tabs in their preview positions, leaving the
+            // destination slot empty. The proxy therefore occupies real visual
+            // space instead of overwriting another tab's label.
+            for target in &layout.slots {
+                for glyph in &mut glyphs[target.start_col..target.end_col.min(grid_cols)] {
+                    glyph.ch = ' ';
+                    glyph.attrs.background = panel;
+                    glyph.attrs.set_bold(false);
+                }
+            }
+            for (source_pos, source_slot) in layout.slots.iter().enumerate() {
+                if source_slot.idx == origin_idx {
+                    continue;
+                }
+                let target_pos = if dest < origin_pos && (dest..origin_pos).contains(&source_pos) {
+                    source_pos + 1
+                } else if dest > origin_pos && (origin_pos + 1..=dest).contains(&source_pos) {
+                    source_pos - 1
+                } else {
+                    source_pos
+                };
+                let target = &layout.slots[target_pos];
+                let copy_len = (source_slot.end_col - source_slot.start_col)
+                    .min(target.end_col - target.start_col);
+                for offset in 0..copy_len {
+                    let mut resting = original[source_slot.start_col + offset];
+                    resting.col = target.start_col + offset;
+                    glyphs[resting.col] = resting;
+                }
+            }
+
+            let gap = &layout.slots[dest];
+            let proxy_len = source_cells.len().min(gap.end_col - gap.start_col);
+            for (offset, source_glyph) in source_cells.into_iter().take(proxy_len).enumerate() {
                 let mut proxy = source_glyph;
-                proxy.col = proxy_start + offset;
+                proxy.col = gap.start_col + offset;
                 proxy.attrs.background = lifted_fill;
                 if proxy.ch != ' ' {
                     proxy.attrs.foreground = lifted_label;
@@ -505,15 +563,21 @@ impl TabBar {
         }
 
         if armed {
-            let boundary = layout
-                .slots
-                .iter()
-                .find(|slot| slot.idx == drop_idx)
-                .map_or_else(
-                    || layout.slots.last().map_or(0, |slot| slot.end_col),
-                    |slot| slot.start_col,
-                )
-                .min(grid_cols - 1);
+            let dest = if drop_idx > origin_idx {
+                drop_idx - 1
+            } else {
+                drop_idx
+            }
+            .min(layout.slots.len().saturating_sub(1));
+            let gap = &layout.slots[dest];
+            // Appending uses a thin caret at the real strip edge; it never
+            // paints a full phantom slot beyond the rightmost tab.
+            let boundary = if drop_idx == source.tab_count() {
+                gap.end_col.saturating_sub(1)
+            } else {
+                gap.start_col
+            }
+            .min(grid_cols - 1);
             glyphs[boundary].ch = '\u{2503}';
             glyphs[boundary].attrs.foreground = lifted_label;
             glyphs[boundary].attrs.background = lifted_fill;
@@ -899,12 +963,16 @@ mod tests {
     fn tab_drop_index_flips_at_each_slot_midpoint() {
         let src = MockSource::new(&["a", "b", "c"], 0);
         let layout = compute_layout(&src, GRID_COLS);
-        for slot in &layout.slots {
-            let midpoint_cols = (slot.start_col + slot.end_col) as f64 / 2.0;
+        let origin = &layout.slots[1];
+        let origin_span = origin.end_col - origin.start_col;
+        for slot in layout.slots.iter().filter(|slot| slot.idx != 1) {
+            let shift = usize::from(slot.idx > 1) * origin_span;
+            let midpoint_cols = (slot.start_col + slot.end_col - 2 * shift) as f64 / 2.0;
             let midpoint_px = midpoint_cols * f64::from(CELL.width);
             assert_eq!(
                 bar().drop_index(
                     midpoint_px - 0.1,
+                    1,
                     &src,
                     GRID_COLS,
                     CELL,
@@ -914,14 +982,14 @@ mod tests {
             );
         }
         assert_eq!(
-            bar().drop_index(10_000.0, &src, GRID_COLS, CELL, WindowPadding::ZERO),
+            bar().drop_index(10_000.0, 1, &src, GRID_COLS, CELL, WindowPadding::ZERO),
             Some(3)
         );
     }
 
     #[test]
-    fn tab_drag_lifts_then_tracks_a_horizontal_proxy() {
-        let src = MockSource::new(&["alpha", "beta", "gamma"], 2);
+    fn tab_drag_lifts_then_opens_a_label_safe_destination_gap() {
+        let src = MockSource::new(&["A", "B", "C"], 2);
         let panel = tab_chrome::panel_tint(COLORS, PANEL_STRENGTH);
         let layout = compute_layout(&src, GRID_COLS);
         let source = &layout.slots[0];
@@ -958,9 +1026,14 @@ mod tests {
             COLORS,
             panel,
         );
-        let proxy_start = 50usize.saturating_sub((source.end_col - source.start_col) / 2);
-        assert_eq!(dragged[proxy_start + TAB_PADDING].ch, 'a');
-        assert!(!dragged[source.label_col].attrs.bold());
+        let gap = &layout.slots[1];
+        assert_eq!(dragged[gap.start_col + TAB_PADDING].ch, 'A');
+        assert_eq!(dragged[layout.slots[0].label_col].ch, 'B');
+        assert_eq!(
+            dragged.iter().filter(|glyph| glyph.ch == 'A').count(),
+            1,
+            "the lifted label appears only in the destination gap"
+        );
     }
 
     #[test]
