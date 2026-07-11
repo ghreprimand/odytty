@@ -7,6 +7,7 @@
 use super::*;
 // Used by the shm-segment test helpers below.
 use std::ffi::CString;
+use std::os::fd::AsRawFd;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -310,6 +311,23 @@ fn shm_transport_rgba_2x2() {
         cleanup_shm(name);
         panic!("shm segment should have been unlinked");
     }
+}
+
+#[test]
+fn shm_reader_rejects_segment_shrunk_after_initial_size_check() {
+    let path = std::env::temp_dir().join("odytty_shm_shrink_regression.dat");
+    let file = std::fs::File::create(&path).unwrap();
+    file.set_len(16).unwrap();
+    let expected = super::kitty_transport::checked_shm_size(file.as_raw_fd(), 32).unwrap();
+    file.set_len(8).unwrap();
+
+    let result = super::kitty_transport::read_shm_fd_at_size(file.as_raw_fd(), expected, 32);
+    assert!(matches!(
+        result,
+        Err(super::kitty_transport::TransportError::ShmError(_))
+    ));
+    drop(file);
+    std::fs::remove_file(path).ok();
 }
 
 #[test]

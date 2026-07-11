@@ -678,6 +678,19 @@ fn kitty_display_existing_image_with_a_p() {
 }
 
 #[test]
+fn kitty_unnumbered_a_p_spam_stays_within_placement_cap() {
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=32,a=t,t=d,s=2,v=1,i=9", &rgba_2x1()));
+
+    let cap = crate::graphics::placement::MAX_IMAGE_PLACEMENTS_PER_BUFFER;
+    for _ in 0..=cap {
+        t.advance(b"\x1b_Ga=p,i=9\x1b\\");
+    }
+
+    assert_eq!(t.graphics().placements().len(), cap);
+}
+
+#[test]
 fn kitty_display_unknown_image_with_a_p_errors() {
     let mut t = Terminal::new(20, 4);
     t.advance(b"\x1b_Ga=p,i=404,p=1\x1b\\");

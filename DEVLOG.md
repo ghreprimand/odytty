@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Graphics decoder and search bounds hardened
+
+Kitty display-only commands now retain at most 64 live image placements per
+screen buffer. When an unnumbered `a=p` command reaches the cap, the oldest
+placement in the active buffer is evicted; numbered replacement semantics and
+the other screen buffer remain independent.
+
+POSIX shared-memory image transport no longer copies from a mapping in the
+terminal process. Linux and other Unix targets use bounded positional reads,
+with size validation before and after the copy, so a concurrently truncated
+segment returns a transport error instead of raising `SIGBUS`. macOS keeps its
+mmap-only shared-memory support by performing the mapping and copy in a
+short-lived child; a truncation fault is contained there and becomes the same
+transport error in the parent. This path is Unix-only, with no Windows surface.
+
+Search match projection now preserves inclusive one-cell ranges instead of
+passing them through selection normalization, where identical endpoints mean
+an empty interactive selection. Single-character matches and viewport-clipped
+one-cell matches therefore receive the same highlight treatment as wider
+matches.
+
+Regression tests cover protocol-routed unnumbered `a=p` flooding, per-buffer
+placement eviction, a shared-memory fd that shrinks after its initial size
+check, and a visible single-cell search match. Placement and search behavior is
+platform-agnostic.
+
+Verified: `cargo build` clean; full non-GPU `cargo test --lib -- --skip
+native::gpu_tests` suite green (3482 passed); `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
 ## 2026-07-11 -- Session-host IPC hardening: handshake, reader, and resize bounds
 
 Three denial-of-service paths in the detached session host are closed. The

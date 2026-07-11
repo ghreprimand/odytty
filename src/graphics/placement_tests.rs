@@ -35,6 +35,43 @@ fn places_images_and_projects_visible_placements() {
 }
 
 #[test]
+fn unnumbered_placements_evict_oldest_at_per_buffer_cap() {
+    let (mut scene, image_id) = scene_with_image();
+    let first = scene
+        .place(PlacementRequest::new(
+            image_id,
+            GraphicsProtocol::Kitty,
+            0,
+            0,
+            1,
+            1,
+        ))
+        .unwrap();
+
+    for column in 1..=MAX_IMAGE_PLACEMENTS_PER_BUFFER {
+        scene
+            .place(PlacementRequest::new(
+                image_id,
+                GraphicsProtocol::Kitty,
+                0,
+                column,
+                1,
+                1,
+            ))
+            .unwrap();
+    }
+
+    assert_eq!(scene.placements().len(), MAX_IMAGE_PLACEMENTS_PER_BUFFER);
+    assert!(
+        scene
+            .placements()
+            .iter()
+            .all(|placement| placement.id != first)
+    );
+    assert_eq!(scene.placements()[0].anchor.column, 1);
+}
+
+#[test]
 fn clipped_top_placement_advances_source_by_clipped_rows() {
     // C21: a placement scrolled partially above the viewport top must show
     // its LOWER portion at row 0 — source.y advances by the clipped pixel

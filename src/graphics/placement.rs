@@ -13,6 +13,7 @@ use super::store::{ImageInsert, ImageStore, ImageStoreError, ImageStoreLimits, S
 
 pub const MAX_RAW_GRAPHICS_COMMANDS: usize = 64;
 pub const MAX_RAW_GRAPHICS_BYTES: usize = 1024 * 1024;
+pub const MAX_IMAGE_PLACEMENTS_PER_BUFFER: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PlacementId(pub u64);
@@ -241,6 +242,23 @@ impl ImageScene {
                     && placement.protocol_placement_id == Some(placement_id)
                     && placement.protocol_image_id == image_id)
             });
+        }
+
+        // Bound un-numbered `a=p` display commands as well as numbered ones.
+        // The two screen buffers have independent lifetimes, so evict only the
+        // oldest placement in the active buffer when its live cap is full.
+        if self
+            .placements
+            .iter()
+            .filter(|placement| placement.buffer == self.active)
+            .count()
+            >= MAX_IMAGE_PLACEMENTS_PER_BUFFER
+            && let Some(oldest) = self
+                .placements
+                .iter()
+                .position(|placement| placement.buffer == self.active)
+        {
+            self.placements.remove(oldest);
         }
 
         self.store.touch(request.image_id);

@@ -42,7 +42,7 @@
 //!   This matches Kitty's documented "terminal should delete" semantics
 //!   and is strictly safer.
 //!
-//! - t=s calls `shm_unlink` immediately after mapping, before reading.
+//! - t=s calls `shm_unlink` immediately after opening, before reading.
 //!   The shared memory segment ceases to be addressable by name as soon
 //!   as possible.
 
@@ -235,13 +235,12 @@ pub(super) fn read_shm_transport(
         libc::shm_unlink(c_name.as_ptr());
     }
 
-    // Map the data via the fd, capped. POSIX shm objects are mmap-only on
-    // macOS (read() returns ENXIO, "Device not configured"); mmap is equally
-    // valid on Linux, so this is one portable path rather than per-OS branches.
-    let result = read_fd_via_mmap(fd, max_read);
+    // Copy through a fault-contained reader. Positional reads avoid mappings
+    // on platforms that support them; macOS isolates its mmap-only shm access
+    // in a child so a concurrent truncate cannot deliver SIGBUS to OdyTTY.
+    let result = read_shm_fd(fd, max_read);
 
-    // Close the fd regardless. The mapping made above (if any) survives the
-    // close until it is munmap'd inside `read_fd_via_mmap`.
+    // Close the fd regardless.
     unsafe {
         libc::close(fd);
     }
@@ -326,18 +325,15 @@ fn read_regular_file(path: &Path, max_read: usize) -> Result<Vec<u8>, TransportE
     Ok(buf)
 }
 
-/// Copy the contents of a (shm) fd into an owned buffer via `mmap`.
-///
-/// `read()`/`write()` are not valid on POSIX shm objects on macOS — only
-/// `mmap` is — so this is the portable way to pull bytes out of a `t=s`
-/// segment. The DoS byte cap is enforced *before* mapping: a segment larger
-/// than the cap is rejected outright, so we never map (or copy) more than the
-/// cap's worth of bytes.
 #[cfg(unix)]
-fn read_fd_via_mmap(fd: i32, max_read: usize) -> Result<Vec<u8>, TransportError> {
+fn read_shm_fd(fd: i32, max_read: usize) -> Result<Vec<u8>, TransportError> {
     let cap = max_read.min(MAX_TRANSPORT_READ_BYTES);
+    let size = checked_shm_size(fd, cap)?;
+    read_shm_fd_at_size(fd, size, cap)
+}
 
-    // Get the size via fstat.
+#[cfg(unix)]
+pub(super) fn checked_shm_size(fd: i32, cap: usize) -> Result<usize, TransportError> {
     let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
     let rc = unsafe { libc::fstat(fd, stat.as_mut_ptr()) };
     if rc < 0 {
@@ -353,13 +349,80 @@ fn read_fd_via_mmap(fd: i32, max_read: usize) -> Result<Vec<u8>, TransportError>
     if size > cap {
         return Err(TransportError::TooLarge);
     }
+    Ok(size)
+}
 
-    // Map read-only. MAP_SHARED is the conventional way to view a shm object;
-    // PROT_READ keeps the mapping immutable.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(super) fn read_shm_fd_at_size(
+    fd: i32,
+    expected_size: usize,
+    cap: usize,
+) -> Result<Vec<u8>, TransportError> {
+    // A second size check catches a shrink after the admission check. The
+    // positional read itself remains fault-tolerant if truncation races later:
+    // it returns EOF/error rather than touching an invalid mapped page.
+    if checked_shm_size(fd, cap)? != expected_size {
+        return Err(TransportError::ShmError(
+            "shm segment changed size before read".into(),
+        ));
+    }
+
+    let mut buf = vec![0_u8; expected_size];
+    let mut offset = 0;
+    while offset < expected_size {
+        let read = unsafe {
+            libc::pread(
+                fd,
+                buf[offset..].as_mut_ptr().cast(),
+                expected_size - offset,
+                offset as libc::off_t,
+            )
+        };
+        if read > 0 {
+            offset += read as usize;
+            continue;
+        }
+        if read < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+            continue;
+        }
+        let detail = if read == 0 {
+            "shm segment shrank during read".into()
+        } else {
+            format!("pread: {}", std::io::Error::last_os_error())
+        };
+        return Err(TransportError::ShmError(detail));
+    }
+
+    if checked_shm_size(fd, cap)? != expected_size {
+        return Err(TransportError::ShmError(
+            "shm segment changed size during read".into(),
+        ));
+    }
+    Ok(buf)
+}
+
+/// macOS POSIX shm descriptors are mmap-only. The mapping and copy run in a
+/// short-lived child process, using only async-signal-safe libc operations
+/// after `fork`. A concurrent truncate may SIGBUS that child, but the parent
+/// observes an incomplete pipe copy/non-zero wait status and returns an error.
+#[cfg(target_os = "macos")]
+pub(super) fn read_shm_fd_at_size(
+    fd: i32,
+    expected_size: usize,
+    cap: usize,
+) -> Result<Vec<u8>, TransportError> {
+    if checked_shm_size(fd, cap)? != expected_size {
+        return Err(TransportError::ShmError(
+            "shm segment changed size before read".into(),
+        ));
+    }
+
+    // Establish the mapping in the parent without touching its pages. Only the
+    // child dereferences it; the parent can always munmap safely after reaping.
     let addr = unsafe {
         libc::mmap(
             std::ptr::null_mut(),
-            size,
+            expected_size,
             libc::PROT_READ,
             libc::MAP_SHARED,
             fd,
@@ -367,22 +430,84 @@ fn read_fd_via_mmap(fd: i32, max_read: usize) -> Result<Vec<u8>, TransportError>
         )
     };
     if addr == libc::MAP_FAILED {
-        let err = std::io::Error::last_os_error();
-        return Err(TransportError::ShmError(format!("mmap: {err}")));
+        return Err(TransportError::ShmError(format!(
+            "mmap: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    let mut pipe_fds = [0_i32; 2];
+    if unsafe { libc::pipe(pipe_fds.as_mut_ptr()) } < 0 {
+        unsafe { libc::munmap(addr, expected_size) };
+        return Err(TransportError::ShmError(format!(
+            "pipe: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    let pid = unsafe { libc::fork() };
+    if pid < 0 {
+        unsafe {
+            libc::close(pipe_fds[0]);
+            libc::close(pipe_fds[1]);
+            libc::munmap(addr, expected_size);
+        }
+        return Err(TransportError::ShmError(format!(
+            "fork: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    if pid == 0 {
+        unsafe {
+            libc::close(pipe_fds[0]);
+            let mut written = 0_usize;
+            while written < expected_size {
+                let count = libc::write(
+                    pipe_fds[1],
+                    (addr as *const u8).add(written).cast(),
+                    expected_size - written,
+                );
+                if count > 0 {
+                    written += count as usize;
+                } else if count < 0 && *libc::__error() == libc::EINTR {
+                    continue;
+                } else {
+                    libc::_exit(3);
+                }
+            }
+            libc::munmap(addr, expected_size);
+            libc::close(pipe_fds[1]);
+            libc::_exit(0);
+        }
     }
 
-    // Copy out of the mapping into an owned buffer. `size` is already ≤ cap,
-    // so this copies no more than the cap permits.
-    //
-    // SAFETY: `mmap` returned a valid mapping of exactly `size` bytes that we
-    // own until the `munmap` below; the region is readable (PROT_READ) and not
-    // aliased mutably here.
-    let buf = unsafe { std::slice::from_raw_parts(addr as *const u8, size).to_vec() };
-
-    // Unmap regardless of outcome.
-    unsafe {
-        libc::munmap(addr, size);
+    unsafe { libc::close(pipe_fds[1]) };
+    let mut buf = vec![0_u8; expected_size];
+    let mut offset = 0_usize;
+    while offset < expected_size {
+        let read = unsafe {
+            libc::read(
+                pipe_fds[0],
+                buf[offset..].as_mut_ptr().cast(),
+                expected_size - offset,
+            )
+        };
+        if read > 0 {
+            offset += read as usize;
+        } else if read < 0
+            && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+        {
+            continue;
+        } else {
+            break;
+        }
     }
-
+    unsafe { libc::close(pipe_fds[0]) };
+    let mut status = 0_i32;
+    let waited = unsafe { libc::waitpid(pid, &mut status, 0) };
+    unsafe { libc::munmap(addr, expected_size) };
+    if waited != pid || status != 0 || offset != expected_size {
+        return Err(TransportError::ShmError(
+            "shm segment changed or failed during isolated copy".into(),
+        ));
+    }
     Ok(buf)
 }

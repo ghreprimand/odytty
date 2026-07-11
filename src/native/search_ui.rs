@@ -247,21 +247,46 @@ fn visible_range_for_match(
     scrollback_len: usize,
     dimensions: Dimensions,
 ) -> Option<SelectionRange> {
-    selection::visible_range_from_absolute(
-        AbsoluteSelectionRange {
-            start: AbsoluteCellPoint {
-                row: search_match.start.row,
-                column: search_match.start.column,
-            },
-            end: AbsoluteCellPoint {
-                row: search_match.end.row,
-                column: search_match.end.column,
+    if dimensions.rows == 0 || dimensions.columns == 0 {
+        return None;
+    }
+
+    let range = AbsoluteSelectionRange {
+        start: AbsoluteCellPoint {
+            row: search_match.start.row,
+            column: search_match.start.column,
+        },
+        end: AbsoluteCellPoint {
+            row: search_match.end.row,
+            column: search_match.end.column,
+        },
+    };
+    let top = selection::viewport_top_absolute_row(viewport_offset, scrollback_len);
+    let bottom = top.saturating_add(dimensions.rows - 1);
+    if range.end.row < top || range.start.row > bottom {
+        return None;
+    }
+
+    // Search ranges are inclusive. Unlike an interactive selection, a range
+    // containing one cell is meaningful and must remain visible.
+    Some(SelectionRange {
+        start: selection::CellPoint {
+            row: range.start.row.max(top) - top,
+            column: if range.start.row < top {
+                0
+            } else {
+                range.start.column.min(dimensions.columns - 1)
             },
         },
-        viewport_offset,
-        scrollback_len,
-        dimensions,
-    )
+        end: selection::CellPoint {
+            row: range.end.row.min(bottom) - top,
+            column: if range.end.row > bottom {
+                dimensions.columns - 1
+            } else {
+                range.end.column.min(dimensions.columns - 1)
+            },
+        },
+    })
 }
 
 fn apply_match_highlight(
@@ -537,6 +562,23 @@ mod tests {
             snapshot.cells[3].attrs.foreground,
             Color::Rgb(0xF0, 0xEC, 0xD8)
         );
+    }
+
+    #[test]
+    fn single_cell_search_match_is_highlighted() {
+        let mut terminal = Terminal::new(4, 2);
+        terminal.advance(b"x");
+        let mut snapshot = terminal.snapshot();
+
+        let mut ui = SearchUi::default();
+        ui.open();
+        ui.push_char('x');
+        ui.refresh(&terminal);
+        apply_search_ui(&mut snapshot, &ui, 0, 0, Dimensions::new(4, 2), None);
+
+        assert_eq!(ui.match_count(), 1);
+        assert_eq!(snapshot.cells[0].attrs.foreground, Color::Indexed(0));
+        assert_eq!(snapshot.cells[0].attrs.background, Color::Indexed(11));
     }
 
     #[test]
