@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Active chrome remains legible through transparency
+
+Active tab and workspace labels now carry a bright foreground underline in
+addition to the existing bold label and lifted background fill. Foreground text
+decorations are rendered independently from cell background opacity, preserving
+an explicit active marker when window transparency reduces the fill contrast.
+
+Widget coverage verifies that the bold underline and its active-label color are
+unchanged at both panel-strength extremes. Existing theme contrast guards remain
+in force. The render-only change has no platform-specific surface on Windows,
+macOS, or Linux.
+
+Verified: complete `cargo test` suite green (3477 library tests passed, 7
+ignored, plus all integration binaries); `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-10 -- Drag thresholds use real neighbor geometry
 
 Tab and workspace drag thresholds now compare the lifted proxy center with each

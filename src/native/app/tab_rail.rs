@@ -329,6 +329,10 @@ impl TabRail {
             la.background = slot_bg;
             if bold {
                 la.set_bold(true);
+                // Keep an opacity-independent active marker in the foreground;
+                // the background fill alone can wash into transparent windows.
+                la.set_underline(true);
+                la.underline_color = Some(active_lbl);
             }
             let row = slot.label_row;
             if row < slot.end_row && row < grid_rows {
@@ -1174,6 +1178,33 @@ mod tests {
                 out.quads.is_empty(),
                 "no chrome quads (got {})",
                 out.quads.len()
+            );
+        }
+    }
+
+    #[test]
+    fn active_workspace_marker_is_foreground_stable_across_panel_extremes() {
+        let src = MockSource::new(&["inactive", "active"], 1);
+        let slot = &compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM).slots[1];
+        for strength in [0.0, 1.0] {
+            let out = rail().render(
+                &src,
+                RAIL_COLS,
+                GRID_ROWS,
+                ORIGIN,
+                CELL,
+                RailSide::Left,
+                COLORS,
+                GEOM,
+                strength,
+                ACCENT,
+            );
+            let marker = out.glyphs[slot.label_row * RAIL_COLS + SLOT_LABEL_START_COL].attrs;
+            assert!(marker.bold());
+            assert!(marker.underline());
+            assert_eq!(
+                marker.underline_color,
+                Some(rgb(tab_chrome::active_label(COLORS)))
             );
         }
     }
