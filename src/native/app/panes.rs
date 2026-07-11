@@ -691,7 +691,7 @@ impl App {
         }
         if show_rail {
             let side = self.workspace_rail_side();
-            if let Some((snapshot, quads)) = self.tab_rail_strip(cell, padding, side) {
+            if let Some((snapshot, quads)) = self.tab_rail_strip(cell, side) {
                 let slot_rows = self.rail_geom().slot_rows;
                 let rail_dy = crate::grid::band_label_descender_safe_dy_rows(
                     slot_rows,
@@ -884,16 +884,7 @@ impl App {
             colors: crate::core::DynamicColors::default(),
             cells: vec![crate::core::Cell::default(); columns * rows],
         };
-        let mut output = self.tab_bar.render(
-            &self.sessions,
-            columns,
-            padding.as_f32(),
-            cell,
-            padding,
-            self.tab_bar_colors(),
-            self.tab_panel_strength(),
-        );
-        self.paint_tab_drag_overlay(&mut output.glyphs, columns, cell, padding);
+        let output = self.render_top_bar_widget(columns, padding.as_f32(), cell, padding);
         place_tab_bar_glyphs(&mut snapshot.cells, output.glyphs, columns, rows, 0);
         Some((snapshot, output.quads))
     }
@@ -905,12 +896,7 @@ impl App {
     /// the content rect. Returns the snapshot plus the rail widget's overlay
     /// quads (empty under Phosphor Flat — the F4-P1 panel wash + seam are
     /// separate background-segment quads built by `tab_panel_bg_quads`).
-    fn tab_rail_strip(
-        &self,
-        cell: CellSize,
-        padding: WindowPadding,
-        side: RailSide,
-    ) -> Option<(Snapshot, Vec<SolidQuad>)> {
+    fn tab_rail_strip(&self, cell: CellSize, side: RailSide) -> Option<(Snapshot, Vec<SolidQuad>)> {
         let rail_cols = self.rail_cols();
         // Share the exact window-row basis used by pointer geometry. Deriving
         // this independently from surface remainders could shift overflow
@@ -926,19 +912,8 @@ impl App {
             colors: crate::core::DynamicColors::default(),
             cells: vec![crate::core::Cell::default(); rail_cols * grid_rows],
         };
-        let mut output = self.tab_rail.render(
-            &self.sessions.rail_source(),
-            rail_cols,
-            grid_rows,
-            [padding.as_f32(), padding.as_f32()],
-            cell,
-            side,
-            self.tab_bar_colors(),
-            self.rail_geom(),
-            self.tab_panel_strength(),
-            self.effective_theme.cursor,
-        );
-        self.paint_rail_drag_overlay(&mut output.glyphs, rail_cols, grid_rows, cell);
+        let output =
+            self.render_rail_widget(rail_cols, grid_rows, self.rail_origin_px(cell), cell, side);
         for glyph in output.glyphs {
             if glyph.row < grid_rows && glyph.col < rail_cols {
                 let idx = glyph.row * rail_cols + glyph.col;

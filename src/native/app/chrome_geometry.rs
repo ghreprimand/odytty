@@ -5,6 +5,74 @@ use super::tab_bar::{self, TabBarSource, TabHit};
 use super::tab_rail;
 use super::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum PreviewSlot {
+    Tab(usize),
+    Gap,
+}
+
+/// Render order for an armed drag. The origin is removed and one gap is
+/// inserted at the position the commit engine would place it.
+pub(super) fn preview_order(count: usize, origin: usize, drop_idx: usize) -> Vec<PreviewSlot> {
+    if count == 0 || origin >= count {
+        return (0..count).map(PreviewSlot::Tab).collect();
+    }
+    let mut order: Vec<_> = (0..count)
+        .filter(|idx| *idx != origin)
+        .map(PreviewSlot::Tab)
+        .collect();
+    let destination = if drop_idx > origin {
+        drop_idx - 1
+    } else {
+        drop_idx
+    }
+    .min(order.len());
+    order.insert(destination, PreviewSlot::Gap);
+    order
+}
+
+pub(super) struct PreviewSource<'a> {
+    source: &'a dyn TabBarSource,
+    order: Vec<PreviewSlot>,
+}
+
+impl<'a> PreviewSource<'a> {
+    pub(super) fn new(source: &'a dyn TabBarSource, origin: usize, drop_idx: usize) -> Self {
+        Self {
+            order: preview_order(source.tab_count(), origin, drop_idx),
+            source,
+        }
+    }
+}
+
+impl TabBarSource for PreviewSource<'_> {
+    fn tab_count(&self) -> usize {
+        self.order.len()
+    }
+
+    fn tab_title(&self, idx: usize) -> &str {
+        match self.order[idx] {
+            PreviewSlot::Tab(source_idx) => self.source.tab_title(source_idx),
+            PreviewSlot::Gap => "",
+        }
+    }
+
+    fn active_tab(&self) -> usize {
+        let active = self.source.active_tab();
+        self.order
+            .iter()
+            .position(|slot| *slot == PreviewSlot::Tab(active))
+            .unwrap_or(usize::MAX)
+    }
+
+    fn tab_bound(&self, idx: usize) -> bool {
+        match self.order[idx] {
+            PreviewSlot::Tab(source_idx) => self.source.tab_bound(source_idx),
+            PreviewSlot::Gap => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct PxPoint {
     pub(super) x: f64,
@@ -314,5 +382,93 @@ impl App {
             cell,
             self.rail_geom(),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Source {
+        titles: Vec<String>,
+    }
+
+    impl TabBarSource for Source {
+        fn tab_count(&self) -> usize {
+            self.titles.len()
+        }
+
+        fn tab_title(&self, idx: usize) -> &str {
+            &self.titles[idx]
+        }
+
+        fn active_tab(&self) -> usize {
+            0
+        }
+    }
+
+    fn committed_order(count: usize, origin: usize, drop_idx: usize) -> Vec<usize> {
+        let mut order: Vec<_> = (0..count).collect();
+        let moved = order.remove(origin);
+        let destination = if drop_idx > origin {
+            drop_idx - 1
+        } else {
+            drop_idx
+        }
+        .min(order.len());
+        order.insert(destination, moved);
+        order
+    }
+
+    #[test]
+    fn preview_gap_replacement_equals_commit_for_every_drag_position() {
+        for count in 1..=7 {
+            for origin in 0..count {
+                for drop_idx in 0..=count {
+                    let preview = preview_order(count, origin, drop_idx);
+                    assert_eq!(
+                        preview
+                            .iter()
+                            .filter(|slot| **slot == PreviewSlot::Gap)
+                            .count(),
+                        1
+                    );
+                    let applied: Vec<_> = preview
+                        .iter()
+                        .map(|slot| match slot {
+                            PreviewSlot::Tab(idx) => *idx,
+                            PreviewSlot::Gap => origin,
+                        })
+                        .collect();
+                    assert_eq!(applied, committed_order(count, origin, drop_idx));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn preview_source_has_one_gap_and_each_retained_title_exactly_once() {
+        let source = Source {
+            titles: (0..6).map(|idx| format!("title-{idx}")).collect(),
+        };
+        for origin in 0..source.tab_count() {
+            for drop_idx in 0..=source.tab_count() {
+                let preview = PreviewSource::new(&source, origin, drop_idx);
+                let titles: Vec<_> = (0..preview.tab_count())
+                    .map(|idx| preview.tab_title(idx))
+                    .collect();
+                assert_eq!(titles.iter().filter(|title| title.is_empty()).count(), 1);
+                for retained in 0..source.tab_count() {
+                    let expected = usize::from(retained != origin);
+                    assert_eq!(
+                        titles
+                            .iter()
+                            .filter(|title| **title == source.tab_title(retained))
+                            .count(),
+                        expected
+                    );
+                }
+            }
+        }
     }
 }

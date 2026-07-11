@@ -230,9 +230,34 @@ impl TabBar {
     /// inactive slots recede into the wallpaper-through background with a
     /// distance-ramped dim label, and hover warms one tier.
     #[allow(clippy::too_many_arguments)]
+    #[cfg(test)]
     pub(super) fn render(
         &self,
         source: &dyn TabBarSource,
+        grid_cols: usize,
+        y_offset_px: f32,
+        cell: CellSize,
+        padding: WindowPadding,
+        colors: TabBarColors,
+        panel_strength: f32,
+    ) -> TabBarOutput {
+        self.render_with_pressed(
+            source,
+            None,
+            grid_cols,
+            y_offset_px,
+            cell,
+            padding,
+            colors,
+            panel_strength,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn render_with_pressed(
+        &self,
+        source: &dyn TabBarSource,
+        pressed_idx: Option<usize>,
         grid_cols: usize,
         y_offset_px: f32,
         cell: CellSize,
@@ -276,10 +301,11 @@ impl TabBar {
         for slot in &layout.slots {
             let is_active = slot.idx == active_idx;
             let is_hovered = is_slot_hovered(self.hover, slot.idx);
+            let is_pressed = pressed_idx == Some(slot.idx);
             // Active: warm `selection` fill + bright bold label. Hovered inactive:
             // whisper fill + one-tier-warmer label. Otherwise: no fill, a label
             // dimmed along the phosphor ramp by its distance from the active tab.
-            let (slot_bg, label_fg, bold) = if is_active {
+            let (slot_bg, label_fg, bold) = if is_active || is_pressed {
                 (active_fill, active_lbl, true)
             } else if is_hovered {
                 (hover_fill, hover_lbl, false)
@@ -347,146 +373,6 @@ impl TabBar {
         TabBarOutput {
             quads: Vec::new(),
             glyphs: row,
-        }
-    }
-
-    /// Paint top-strip grab feedback, a destination-gap proxy, and the drop
-    /// boundary over an already-rendered bar.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn paint_drag_overlay(
-        &self,
-        glyphs: &mut [TabBarGlyph],
-        origin_idx: usize,
-        drop_idx: usize,
-        armed: bool,
-        pointer_x_px: f64,
-        grab_offset_x: f64,
-        source: &dyn TabBarSource,
-        grid_cols: usize,
-        cell: CellSize,
-        padding: WindowPadding,
-        colors: TabBarColors,
-        panel_surface: Srgb,
-    ) {
-        if grid_cols == 0 || glyphs.len() < grid_cols || cell.width == 0 {
-            return;
-        }
-        let layout = compute_layout(source, grid_cols);
-        let Some(slot) = layout.slots.iter().find(|slot| slot.idx == origin_idx) else {
-            return;
-        };
-        let span = slot.end_col.saturating_sub(slot.start_col);
-        if span == 0 {
-            return;
-        }
-        let lifted_fill = rgb(tab_chrome::active_fill(colors, panel_surface));
-        let lifted_label = rgb(tab_chrome::active_label(colors));
-        let recessed_label = rgb(tab_chrome::inactive_label(colors, 1));
-        let panel = rgb(panel_surface);
-        let original = glyphs.to_vec();
-        let source_cells = original[slot.start_col..slot.end_col.min(grid_cols)].to_vec();
-
-        for glyph in &mut glyphs[slot.start_col..slot.end_col.min(grid_cols)] {
-            glyph.attrs.background = if armed { panel } else { lifted_fill };
-            if glyph.ch != ' ' {
-                glyph.attrs.foreground = if armed { recessed_label } else { lifted_label };
-                glyph.attrs.set_bold(!armed);
-            }
-        }
-
-        if armed {
-            let dest_idx = if drop_idx > origin_idx {
-                drop_idx - 1
-            } else {
-                drop_idx
-            };
-            let origin_pos = layout
-                .slots
-                .iter()
-                .position(|candidate| candidate.idx == origin_idx)
-                .expect("drag origin remains visible");
-            let dest = layout
-                .slots
-                .iter()
-                .position(|candidate| candidate.idx == dest_idx)
-                .unwrap_or_else(|| {
-                    usize::from(dest_idx > layout.slots[0].idx)
-                        * layout.slots.len().saturating_sub(1)
-                });
-
-            // Paint the resting tabs in their preview positions, leaving the
-            // destination slot empty. The proxy therefore occupies real visual
-            // space instead of overwriting another tab's label.
-            for target in &layout.slots {
-                for glyph in &mut glyphs[target.start_col..target.end_col.min(grid_cols)] {
-                    glyph.ch = ' ';
-                    glyph.attrs.background = panel;
-                    glyph.attrs.set_bold(false);
-                }
-            }
-            for (source_pos, source_slot) in layout.slots.iter().enumerate() {
-                if source_slot.idx == origin_idx {
-                    continue;
-                }
-                let target_pos = if dest < origin_pos && (dest..origin_pos).contains(&source_pos) {
-                    source_pos + 1
-                } else if dest > origin_pos && (origin_pos + 1..=dest).contains(&source_pos) {
-                    source_pos - 1
-                } else {
-                    source_pos
-                };
-                let target = &layout.slots[target_pos];
-                let copy_len = (source_slot.end_col - source_slot.start_col)
-                    .min(target.end_col - target.start_col);
-                for offset in 0..copy_len {
-                    let mut resting = original[source_slot.start_col + offset];
-                    resting.col = target.start_col + offset;
-                    glyphs[resting.col] = resting;
-                }
-            }
-
-            let gap = &layout.slots[dest];
-            let pointer_col = ((pointer_x_px - grab_offset_x - f64::from(padding.as_f32()))
-                / f64::from(cell.width))
-            .floor() as isize;
-            let proxy_start =
-                pointer_col.clamp(0, grid_cols.saturating_sub(span) as isize) as usize;
-            let proxy_len = source_cells
-                .len()
-                .min(gap.end_col - gap.start_col)
-                .min(grid_cols - proxy_start);
-            for (offset, source_glyph) in source_cells.into_iter().take(proxy_len).enumerate() {
-                let mut proxy = source_glyph;
-                proxy.col = proxy_start + offset;
-                proxy.attrs.background = lifted_fill;
-                if proxy.ch != ' ' {
-                    proxy.attrs.foreground = lifted_label;
-                    proxy.attrs.set_bold(true);
-                }
-                glyphs[proxy.col] = proxy;
-            }
-        }
-
-        if armed {
-            let dest = if drop_idx > origin_idx {
-                drop_idx - 1
-            } else {
-                drop_idx
-            }
-            .min(layout.slots.len().saturating_sub(1));
-            let gap = &layout.slots[dest];
-            // Appending uses a thin caret at the real strip edge; it never
-            // paints a full phantom slot beyond the rightmost tab.
-            let boundary = if drop_idx == source.tab_count() {
-                gap.end_col.saturating_sub(1)
-            } else {
-                gap.start_col
-            }
-            .min(grid_cols - 1);
-            glyphs[boundary].ch = '\u{2503}';
-            glyphs[boundary].attrs.foreground = lifted_label;
-            glyphs[boundary].attrs.background = lifted_fill;
-            glyphs[boundary].attrs.set_bold(true);
         }
     }
 }
@@ -899,71 +785,27 @@ mod tests {
     }
 
     #[test]
-    fn tab_drag_lifts_then_opens_a_label_safe_destination_gap() {
+    fn pending_tab_press_is_rendered_without_a_post_paint_pass() {
         let src = MockSource::new(&["A", "B", "C"], 2);
-        let panel = tab_chrome::panel_tint(COLORS, PANEL_STRENGTH);
         let layout = compute_layout(&src, GRID_COLS);
         let source = &layout.slots[0];
-        let mut pending = render_default(&src).glyphs;
-        let before = pending[source.label_col].attrs.background;
-        bar().paint_drag_overlay(
-            &mut pending,
-            0,
-            0,
-            false,
-            8.0,
-            8.0,
-            &src,
-            GRID_COLS,
-            CELL,
-            WindowPadding::ZERO,
-            COLORS,
-            panel,
-        );
+        let before = render_default(&src).glyphs[source.label_col]
+            .attrs
+            .background;
+        let pending = bar()
+            .render_with_pressed(
+                &src,
+                Some(0),
+                GRID_COLS,
+                0.0,
+                CELL,
+                WindowPadding::ZERO,
+                COLORS,
+                PANEL_STRENGTH,
+            )
+            .glyphs;
         assert_ne!(pending[source.label_col].attrs.background, before);
         assert!(pending[source.label_col].attrs.bold());
-
-        let mut dragged = render_default(&src).glyphs;
-        let pointer_x = 25.0 * f64::from(CELL.width);
-        bar().paint_drag_overlay(
-            &mut dragged,
-            0,
-            2,
-            true,
-            pointer_x,
-            8.0,
-            &src,
-            GRID_COLS,
-            CELL,
-            WindowPadding::ZERO,
-            COLORS,
-            panel,
-        );
-        let gap = &layout.slots[1];
-        assert_eq!(dragged[gap.start_col + TAB_PADDING].ch, 'A');
-        assert_eq!(dragged[layout.slots[0].label_col].ch, 'B');
-        assert_eq!(
-            dragged.iter().filter(|glyph| glyph.ch == 'A').count(),
-            1,
-            "the lifted label appears only in the destination gap"
-        );
-
-        let mut followed = render_default(&src).glyphs;
-        bar().paint_drag_overlay(
-            &mut followed,
-            0,
-            2,
-            true,
-            pointer_x + 2.0 * f64::from(CELL.width),
-            8.0,
-            &src,
-            GRID_COLS,
-            CELL,
-            WindowPadding::ZERO,
-            COLORS,
-            panel,
-        );
-        assert_ne!(dragged, followed, "pointer motion moves the lifted proxy");
     }
 
     #[test]

@@ -249,9 +249,40 @@ impl TabRail {
     /// empty quad list — the whole Phosphor Flat treatment is cell backgrounds +
     /// label attributes (shared [`super::tab_chrome`]).
     #[allow(clippy::too_many_arguments)]
+    #[cfg(test)]
     pub(super) fn render(
         &self,
         source: &dyn TabBarSource,
+        rail_cols: usize,
+        grid_rows: usize,
+        origin_px: [f32; 2],
+        cell: CellSize,
+        placement: RailSide,
+        colors: TabBarColors,
+        geom: RailGeom,
+        panel_strength: f32,
+        bound_accent: Srgb,
+    ) -> TabRailOutput {
+        self.render_with_pressed(
+            source,
+            None,
+            rail_cols,
+            grid_rows,
+            origin_px,
+            cell,
+            placement,
+            colors,
+            geom,
+            panel_strength,
+            bound_accent,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn render_with_pressed(
+        &self,
+        source: &dyn TabBarSource,
+        pressed_idx: Option<usize>,
         rail_cols: usize,
         grid_rows: usize,
         origin_px: [f32; 2],
@@ -297,7 +328,8 @@ impl TabRail {
         for slot in &layout.slots {
             let is_active = slot.idx == active_idx;
             let is_hovered = is_slot_hovered(self.hover, slot.idx);
-            let (slot_bg, label_fg, bold) = if is_active {
+            let is_pressed = pressed_idx == Some(slot.idx);
+            let (slot_bg, label_fg, bold) = if is_active || is_pressed {
                 (active_fill, active_lbl, true)
             } else if is_hovered {
                 (hover_fill, hover_lbl, false)
@@ -313,8 +345,12 @@ impl TabRail {
             // wallpaper-through (the region default). The active fill bleeds to
             // the content seam so it reads as fused to the body; hover insets on
             // both sides (subordinate).
-            if is_active || is_hovered {
-                let slot_seam = if is_active { Some(placement) } else { None };
+            if is_active || is_hovered || is_pressed {
+                let slot_seam = if is_active || is_pressed {
+                    Some(placement)
+                } else {
+                    None
+                };
                 let (fill_c0, fill_c1) = slot_fill_cols(rail_cols, slot_seam);
                 for row in slot.start_row..slot.end_row.min(grid_rows) {
                     for col in fill_c0..fill_c1.min(rail_cols) {
@@ -342,7 +378,9 @@ impl TabRail {
                 }
             }
             // Close `×` glyph — only for the active or hovered slot.
-            if let Some((crow, ccol)) = slot.close_cell.filter(|_| is_active || is_hovered)
+            if let Some((crow, ccol)) = slot
+                .close_cell
+                .filter(|_| is_active || is_hovered || is_pressed)
                 && crow < grid_rows
                 && ccol < rail_cols
             {
@@ -429,216 +467,6 @@ impl TabRail {
         TabRailOutput {
             quads: Vec::new(),
             glyphs: cells,
-        }
-    }
-
-    /// Paint the live drop-target indicator (RAIL-DRAG): a bright heavy rule at
-    /// the boundary the workspace would land on for insertion index `drop_idx`
-    /// (0..=count, as the shared chrome geometry returns). Mutates the rendered
-    /// `glyphs` in place so the integration layer can overlay it after
-    /// [`Self::render`] without threading drag state through the render
-    /// signature. The rule sits in the gap row directly above the slot at
-    /// `drop_idx` (or below the last visible slot when appending), across the
-    /// slot fill columns, in the active-fill color so it reads over the panel
-    /// wash. Inert (no mutation) when the rail has no slots or the geometry is
-    /// degenerate.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn paint_drop_indicator(
-        &self,
-        glyphs: &mut [TabRailGlyph],
-        drop_idx: usize,
-        source: &dyn TabBarSource,
-        rail_cols: usize,
-        grid_rows: usize,
-        geom: RailGeom,
-        colors: TabBarColors,
-        panel_surface: Srgb,
-    ) {
-        if rail_cols == 0 || grid_rows == 0 || glyphs.len() < rail_cols * grid_rows {
-            return;
-        }
-        let layout = compute_rail_layout(source, rail_cols, grid_rows, geom);
-        let Some(last) = layout.slots.last() else {
-            return;
-        };
-        // Boundary row: the gap row just above the slot the drop lands before,
-        // or the row directly below the last slot when appending past the end.
-        let row = match layout.slots.iter().find(|s| s.idx == drop_idx) {
-            Some(slot) => slot.start_row.saturating_sub(1),
-            None => last.end_row.min(grid_rows - 1),
-        };
-        if row >= grid_rows {
-            return;
-        }
-        let accent = rgb(tab_chrome::active_fill(colors, panel_surface));
-        let (c0, c1) = slot_fill_cols(rail_cols, None);
-        for col in c0..c1.min(rail_cols) {
-            let g = &mut glyphs[row * rail_cols + col];
-            g.ch = '\u{2501}';
-            g.attrs.foreground = accent;
-        }
-    }
-
-    /// Paint the complete workspace-drag treatment over a rendered rail.
-    /// A pending (sub-threshold) press lifts the source slot immediately. Once
-    /// armed, resting slots part around the live destination and a bright copy
-    /// of the grabbed slot occupies that empty gap. The insertion rule remains
-    /// on top of both treatments.
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn paint_drag_overlay(
-        &self,
-        glyphs: &mut [TabRailGlyph],
-        origin_idx: usize,
-        drop_idx: usize,
-        armed: bool,
-        pointer_y_px: f64,
-        grab_offset_y: f64,
-        source: &dyn TabBarSource,
-        rail_cols: usize,
-        grid_rows: usize,
-        origin_y_px: f32,
-        cell: CellSize,
-        geom: RailGeom,
-        colors: TabBarColors,
-        panel_surface: Srgb,
-    ) {
-        if rail_cols == 0
-            || grid_rows == 0
-            || glyphs.len() < rail_cols * grid_rows
-            || cell.height == 0
-        {
-            return;
-        }
-        let layout = compute_rail_layout(source, rail_cols, grid_rows, geom);
-        let Some(slot) = layout.slots.iter().find(|slot| slot.idx == origin_idx) else {
-            return;
-        };
-        let span = slot.end_row.saturating_sub(slot.start_row);
-        if span == 0 {
-            return;
-        }
-
-        let lifted_fill = rgb(tab_chrome::active_fill(colors, panel_surface));
-        let lifted_label = rgb(tab_chrome::active_label(colors));
-        let recessed_label = rgb(tab_chrome::inactive_label(colors, 1));
-        let panel = rgb(panel_surface);
-        let (fill_c0, fill_c1) = slot_fill_cols(rail_cols, None);
-
-        // Capture before changing the source, so the proxy preserves its title,
-        // close glyph, bound marker, and theme-authored details.
-        let original = glyphs.to_vec();
-        let source_rows: Vec<TabRailGlyph> =
-            original[slot.start_row * rail_cols..slot.end_row.min(grid_rows) * rail_cols].to_vec();
-
-        for row in slot.start_row..slot.end_row.min(grid_rows) {
-            for col in fill_c0..fill_c1.min(rail_cols) {
-                glyphs[row * rail_cols + col].attrs.background =
-                    if armed { panel } else { lifted_fill };
-            }
-            for col in 0..rail_cols {
-                let glyph = &mut glyphs[row * rail_cols + col];
-                if glyph.ch != ' ' {
-                    glyph.attrs.foreground = if armed { recessed_label } else { lifted_label };
-                    glyph.attrs.set_bold(!armed);
-                    if !armed {
-                        glyph.attrs.background = lifted_fill;
-                    }
-                }
-            }
-        }
-
-        if armed {
-            let dest_idx = if drop_idx > origin_idx {
-                drop_idx - 1
-            } else {
-                drop_idx
-            };
-            let origin_pos = layout
-                .slots
-                .iter()
-                .position(|candidate| candidate.idx == origin_idx)
-                .expect("drag origin remains visible");
-            let dest = layout
-                .slots
-                .iter()
-                .position(|candidate| candidate.idx == dest_idx)
-                .unwrap_or_else(|| {
-                    usize::from(dest_idx > layout.slots[0].idx)
-                        * layout.slots.len().saturating_sub(1)
-                });
-
-            // Repaint the resting workspace slots in preview order and leave
-            // the destination slot blank. This opens a real insertion gap, so
-            // the lifted label never stamps over or truncates a neighbour.
-            for target in &layout.slots {
-                for row in target.start_row..target.end_row.min(grid_rows) {
-                    for col in 0..rail_cols {
-                        let glyph = &mut glyphs[row * rail_cols + col];
-                        glyph.ch = ' ';
-                        glyph.attrs.background = panel;
-                        glyph.attrs.set_bold(false);
-                    }
-                }
-            }
-            for (source_pos, source_slot) in layout.slots.iter().enumerate() {
-                if source_slot.idx == origin_idx {
-                    continue;
-                }
-                let target_pos = if dest < origin_pos && (dest..origin_pos).contains(&source_pos) {
-                    source_pos + 1
-                } else if dest > origin_pos && (origin_pos + 1..=dest).contains(&source_pos) {
-                    source_pos - 1
-                } else {
-                    source_pos
-                };
-                let target = &layout.slots[target_pos];
-                let copy_rows = (source_slot.end_row - source_slot.start_row)
-                    .min(target.end_row - target.start_row);
-                for local_row in 0..copy_rows {
-                    let src_row = source_slot.start_row + local_row;
-                    let dst_row = target.start_row + local_row;
-                    for col in 0..rail_cols {
-                        let mut resting = original[src_row * rail_cols + col];
-                        resting.row = dst_row;
-                        glyphs[dst_row * rail_cols + col] = resting;
-                    }
-                }
-            }
-
-            let pointer_row = ((pointer_y_px - grab_offset_y - f64::from(origin_y_px))
-                / f64::from(cell.height))
-            .floor() as isize;
-            let proxy_top = pointer_row.clamp(0, grid_rows.saturating_sub(span) as isize) as usize;
-            for local_row in 0..span.min(source_rows.len() / rail_cols) {
-                let target_row = proxy_top + local_row;
-                let source_start = local_row * rail_cols;
-                for col in 0..rail_cols {
-                    let mut proxy = source_rows[source_start + col];
-                    proxy.row = target_row;
-                    if (fill_c0..fill_c1.min(rail_cols)).contains(&col) {
-                        proxy.attrs.background = lifted_fill;
-                    }
-                    if proxy.ch != ' ' {
-                        proxy.attrs.foreground = lifted_label;
-                        proxy.attrs.background = lifted_fill;
-                        proxy.attrs.set_bold(true);
-                    }
-                    glyphs[target_row * rail_cols + col] = proxy;
-                }
-            }
-        }
-
-        if armed {
-            self.paint_drop_indicator(
-                glyphs,
-                drop_idx,
-                source,
-                rail_cols,
-                grid_rows,
-                geom,
-                colors,
-                panel_surface,
-            );
         }
     }
 }
@@ -2023,140 +1851,29 @@ mod tests {
     }
 
     #[test]
-    fn drop_indicator_paints_a_rule_at_the_insertion_boundary() {
+    fn pending_drag_lifts_the_grabbed_slot_during_render() {
         let src = MockSource::new(&["a", "b", "c"], 0);
-        let out = render_default(&src);
-        // Insertion before slot 1 → the rule sits on the gap row above slot 1
-        // (slot 1 starts at row 4, so row 3). A fill-band column carries the
-        // heavy-rule glyph; the outer inset column (0) does not.
-        let mut glyphs = out.glyphs.clone();
-        rail().paint_drop_indicator(
-            &mut glyphs,
-            1,
-            &src,
-            RAIL_COLS,
-            GRID_ROWS,
-            GEOM,
-            COLORS,
-            tab_chrome::panel_tint(COLORS, PANEL_STRENGTH),
-        );
-        assert_eq!(
-            glyphs[3 * RAIL_COLS + 2].ch,
-            '\u{2501}',
-            "rule on the gap row"
-        );
-        // Insertion before slot 0 → the gap row above slot 0 (row 0).
-        let mut glyphs0 = out.glyphs.clone();
-        rail().paint_drop_indicator(
-            &mut glyphs0,
-            0,
-            &src,
-            RAIL_COLS,
-            GRID_ROWS,
-            GEOM,
-            COLORS,
-            tab_chrome::panel_tint(COLORS, PANEL_STRENGTH),
-        );
-        assert_eq!(glyphs0[2].ch, '\u{2501}');
-        // Append after the last slot (index == count) → the row below slot 2
-        // (which ends at row 9).
-        let mut glyphs_end = out.glyphs.clone();
-        rail().paint_drop_indicator(
-            &mut glyphs_end,
-            3,
-            &src,
-            RAIL_COLS,
-            GRID_ROWS,
-            GEOM,
-            COLORS,
-            tab_chrome::panel_tint(COLORS, PANEL_STRENGTH),
-        );
-        assert_eq!(glyphs_end[9 * RAIL_COLS + 2].ch, '\u{2501}');
-    }
-
-    #[test]
-    fn pending_drag_lifts_the_grabbed_slot_before_the_threshold() {
-        let src = MockSource::new(&["a", "b", "c"], 0);
-        let mut glyphs = render_default(&src).glyphs;
-        let panel = tab_chrome::panel_tint(COLORS, PANEL_STRENGTH);
-        let before = glyphs[4 * RAIL_COLS + 2].attrs.background;
-        rail().paint_drag_overlay(
-            &mut glyphs,
-            1,
-            1,
-            false,
-            72.0,
-            8.0,
-            &src,
-            RAIL_COLS,
-            GRID_ROWS,
-            ORIGIN[1],
-            CELL,
-            GEOM,
-            COLORS,
-            panel,
-        );
+        let before = render_default(&src).glyphs[4 * RAIL_COLS + 2]
+            .attrs
+            .background;
+        let glyphs = rail()
+            .render_with_pressed(
+                &src,
+                Some(1),
+                RAIL_COLS,
+                GRID_ROWS,
+                ORIGIN,
+                CELL,
+                RailSide::Left,
+                COLORS,
+                GEOM,
+                PANEL_STRENGTH,
+                ACCENT,
+            )
+            .glyphs;
         let grabbed = glyphs[4 * RAIL_COLS + 2];
         assert_eq!(grabbed.ch, 'b');
         assert_ne!(grabbed.attrs.background, before, "press lifts the slot");
         assert!(grabbed.attrs.bold(), "grabbed label is emphasized");
-    }
-
-    #[test]
-    fn armed_drag_opens_a_gap_without_duplicating_or_clobbering_labels() {
-        let src = MockSource::new(&["a", "b", "c"], 2);
-        let panel = tab_chrome::panel_tint(COLORS, PANEL_STRENGTH);
-        let mut first = render_default(&src).glyphs;
-        rail().paint_drag_overlay(
-            &mut first, 0, 3, true, 120.0, 8.0, &src, RAIL_COLS, GRID_ROWS, ORIGIN[1], CELL, GEOM,
-            COLORS, panel,
-        );
-        assert_eq!(first[7 * RAIL_COLS + 2].ch, 'a', "proxy occupies the gap");
-        assert_eq!(first[RAIL_COLS + 2].ch, 'b', "b parts into slot 0");
-        assert_eq!(first[4 * RAIL_COLS + 2].ch, 'c', "c parts into slot 1");
-        assert_eq!(
-            first.iter().filter(|glyph| glyph.ch == 'a').count(),
-            1,
-            "the lifted label is not duplicated at its origin"
-        );
-
-        let mut second = render_default(&src).glyphs;
-        rail().paint_drag_overlay(
-            &mut second,
-            0,
-            3,
-            true,
-            136.0,
-            8.0,
-            &src,
-            RAIL_COLS,
-            GRID_ROWS,
-            ORIGIN[1],
-            CELL,
-            GEOM,
-            COLORS,
-            panel,
-        );
-        assert_eq!(second[8 * RAIL_COLS + 2].ch, 'a');
-        assert_ne!(first, second, "pointer motion moves the lifted proxy");
-    }
-
-    #[test]
-    fn drop_indicator_is_inert_without_slots() {
-        let src = MockSource::empty();
-        let out = render_default(&src);
-        let mut glyphs = out.glyphs.clone();
-        let before = glyphs.clone();
-        rail().paint_drop_indicator(
-            &mut glyphs,
-            0,
-            &src,
-            RAIL_COLS,
-            GRID_ROWS,
-            GEOM,
-            COLORS,
-            tab_chrome::panel_tint(COLORS, PANEL_STRENGTH),
-        );
-        assert_eq!(glyphs, before, "no slots → nothing painted");
     }
 }

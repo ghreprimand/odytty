@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Chrome drag previews render from a pure order
+
+Armed tab and workspace drags now render the strip once from a pure preview
+order containing every retained item and exactly one destination gap. The
+preview uses the same remove-and-insert semantics as the commit engines, so the
+visible destination cannot diverge from the released order.
+
+The prior post-render mutation passes were removed. They blanked and re-stamped
+slot buffers with a different quantization from pointer targeting, allowing a
+proxy to cover a retained neighbor while another slot remained empty. Pending
+press feedback is now an ordinary widget render input. Exhaustive preview tests
+cover every origin and drop position through seven slots, prove gap replacement
+equals the committed order, and prove every retained title appears exactly
+once. The render-only change has no platform-specific surface on Windows,
+macOS, or Linux.
+
+Verified: complete `cargo test` suite green; `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-10 -- Chrome drag geometry uses one window-pixel frame
 
 Tab-strip and workspace-rail presses, hover, drag grab offsets, and drop targets

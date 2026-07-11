@@ -137,7 +137,7 @@ mod theme_roles;
 mod watchdog_probe;
 mod window_border;
 
-use self::chrome_geometry::PxPoint;
+use self::chrome_geometry::{PreviewSource, PxPoint};
 pub(in crate::native) use self::hints_ui::HintsUi;
 #[cfg(test)]
 pub(in crate::native) use self::tab_bar::TAB_BAR_ROWS;
@@ -3040,78 +3040,70 @@ impl App {
         }
     }
 
-    /// The live rail slot geometry (F4-P1 knobs: `tab_rail_slot_rows`,
-    /// `tab_rail_gap`), passed to the rail widget's render/hit-test.
-    /// RAIL-DRAG: overlay the grabbed-slot feedback, live proxy, and drop target
-    /// onto a freshly
-    /// rendered rail glyph buffer when a workspace reorder drag is armed. A
-    /// no-op otherwise, so the non-drag rail render stays byte-identical. Called
-    /// by every rail render path (pinned strip, decorated single-pane snapshot,
-    /// floating auto-hide overlay) so the indicator shows in whichever mode is
-    /// live.
-    fn paint_rail_drag_overlay(
+    fn render_top_bar_widget(
         &self,
-        glyphs: &mut [tab_rail::TabRailGlyph],
-        cols: usize,
-        rows: usize,
-        cell: CellSize,
-    ) {
-        if let Some(drag) = self.rail_ws_drag {
-            let colors = self.tab_bar_colors();
-            // ACTIVE-FILL: the drop rule uses the same lifted active fill the
-            // slots do, so it reads over the panel wash on every theme.
-            let panel_srgb = tab_chrome::panel_tint(colors, self.tab_panel_strength());
-            let origin_y = if self.rail_autohide_active() {
-                self.rail_autohide_side()
-                    .map(|side| self.rail_overlay_origin_px(cell, side)[1])
-                    .unwrap_or(0.0)
-            } else {
-                self.rail_origin_px(cell)[1]
-            };
-            self.tab_rail.paint_drag_overlay(
-                glyphs,
-                drag.origin_idx,
-                drag.drop_idx,
-                drag.armed,
-                drag.pointer_y,
-                drag.grab_offset_y,
-                &self.sessions.rail_source(),
-                cols,
-                rows,
-                origin_y,
-                cell,
-                self.rail_geom(),
-                colors,
-                panel_srgb,
-            );
-        }
-    }
-
-    fn paint_tab_drag_overlay(
-        &self,
-        glyphs: &mut [tab_bar::TabBarGlyph],
-        cols: usize,
+        columns: usize,
+        y_offset_px: f32,
         cell: CellSize,
         padding: WindowPadding,
-    ) {
-        if let Some(drag) = self.top_tab_drag {
-            let colors = self.tab_bar_colors();
-            let panel = tab_chrome::panel_tint(colors, self.tab_panel_strength());
-            self.tab_bar.paint_drag_overlay(
-                glyphs,
-                drag.origin_idx,
-                drag.drop_idx,
-                drag.armed,
-                drag.pointer_x,
-                drag.grab_offset_x,
-                &self.sessions,
-                cols,
-                cell,
-                padding,
-                colors,
-                panel,
-            );
-        }
+    ) -> tab_bar::TabBarOutput {
+        let preview = self
+            .top_tab_drag
+            .filter(|drag| drag.armed)
+            .map(|drag| PreviewSource::new(&self.sessions, drag.origin_idx, drag.drop_idx));
+        let source: &dyn TabBarSource = preview
+            .as_ref()
+            .map_or(&self.sessions, |preview| preview as &dyn TabBarSource);
+        let pressed = self
+            .top_tab_drag
+            .filter(|drag| !drag.armed)
+            .map(|drag| drag.origin_idx);
+        self.tab_bar.render_with_pressed(
+            source,
+            pressed,
+            columns,
+            y_offset_px,
+            cell,
+            padding,
+            self.tab_bar_colors(),
+            self.tab_panel_strength(),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_rail_widget(
+        &self,
+        cols: usize,
+        rows: usize,
+        origin: [f32; 2],
+        cell: CellSize,
+        side: RailSide,
+    ) -> tab_rail::TabRailOutput {
+        let rail_source = self.sessions.rail_source();
+        let preview = self
+            .rail_ws_drag
+            .filter(|drag| drag.armed)
+            .map(|drag| PreviewSource::new(&rail_source, drag.origin_idx, drag.drop_idx));
+        let source: &dyn TabBarSource = preview
+            .as_ref()
+            .map_or(&rail_source, |preview| preview as &dyn TabBarSource);
+        let pressed = self
+            .rail_ws_drag
+            .filter(|drag| !drag.armed)
+            .map(|drag| drag.origin_idx);
+        self.tab_rail.render_with_pressed(
+            source,
+            pressed,
+            cols,
+            rows,
+            origin,
+            cell,
+            side,
+            self.tab_bar_colors(),
+            self.rail_geom(),
+            self.tab_panel_strength(),
+            self.effective_theme.cursor,
+        )
     }
 
     fn rail_geom(&self) -> tab_rail::RailGeom {
@@ -3936,24 +3928,7 @@ impl App {
             return None;
         }
         let origin = self.rail_overlay_origin_px(cell, side);
-        let padding = self
-            .gpu
-            .as_ref()
-            .map(GpuState::window_padding)
-            .unwrap_or(WindowPadding::ZERO);
-        let mut output = self.tab_rail.render(
-            &self.sessions.rail_source(),
-            cols,
-            rows,
-            [padding.as_f32(), padding.as_f32()],
-            cell,
-            side,
-            self.tab_bar_colors(),
-            self.rail_geom(),
-            self.tab_panel_strength(),
-            self.effective_theme.cursor,
-        );
-        self.paint_rail_drag_overlay(&mut output.glyphs, cols, rows, cell);
+        let output = self.render_rail_widget(cols, rows, origin, cell, side);
         let mut snapshot = Snapshot {
             dimensions: Dimensions::new(cols, rows),
             cursor: Position { row: 0, column: 0 },
@@ -4173,16 +4148,7 @@ impl App {
             .as_ref()
             .map(GpuState::window_padding)
             .unwrap_or(WindowPadding::ZERO);
-        let mut output = self.tab_bar.render(
-            &self.sessions,
-            columns,
-            padding.as_f32(),
-            cell,
-            padding,
-            self.tab_bar_colors(),
-            self.tab_panel_strength(),
-        );
-        self.paint_tab_drag_overlay(&mut output.glyphs, columns, cell, padding);
+        let output = self.render_top_bar_widget(columns, padding.as_f32(), cell, padding);
         // Fill the reserved top band per column and center the label row (rows
         // 0..bar_rows), leaving the shifted content untouched below.
         panes::place_tab_bar_glyphs(&mut decorated.cells, output.glyphs, columns, bar_rows, 0);
@@ -4238,24 +4204,8 @@ impl App {
             decorated.cells[dst_start..dst_start + old_cols].clone_from_slice(src);
         }
 
-        let padding = self
-            .gpu
-            .as_ref()
-            .map(GpuState::window_padding)
-            .unwrap_or(WindowPadding::ZERO);
-        let mut output = self.tab_rail.render(
-            &self.sessions.rail_source(),
-            rail_cols,
-            rows,
-            [padding.as_f32(), padding.as_f32()],
-            cell,
-            side,
-            self.tab_bar_colors(),
-            self.rail_geom(),
-            self.tab_panel_strength(),
-            self.effective_theme.cursor,
-        );
-        self.paint_rail_drag_overlay(&mut output.glyphs, rail_cols, rows, cell);
+        let output =
+            self.render_rail_widget(rail_cols, rows, self.rail_origin_px(cell), cell, side);
         for glyph in output.glyphs {
             let col = rail_col_start + glyph.col;
             if glyph.row < rows && col < new_cols {
