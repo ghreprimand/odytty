@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Active chrome labels no longer carry a crossing line
+
+Active tab and workspace labels retain their bright foreground and bold weight,
+but no longer use the terminal-cell underline decoration as an active marker.
+At taller chrome heights that decoration could raster through the glyph body
+after vertical centering, reading as a strikethrough instead of an underline.
+
+Widget coverage verifies that active labels remain bold and bright at both
+panel-strength extremes while carrying no underline style or color. The
+render-only change has no platform-specific surface on Windows, macOS, or
+Linux.
+
+Verified: complete `cargo test` suite green; `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-10 -- Top tab seam stops at the content edge
 
 The top panel wash and bottom seam now use the same horizontal content span as
@@ -44,15 +61,15 @@ under the deny gate; `cargo fmt --check` clean.
 
 ## 2026-07-10 -- Active chrome remains legible through transparency
 
-Active tab and workspace labels now carry a bright foreground underline in
-addition to the existing bold label and lifted background fill. Foreground text
-decorations are rendered independently from cell background opacity, preserving
-an explicit active marker when window transparency reduces the fill contrast.
+Active tab and workspace labels now carry a bright foreground in addition to
+the existing bold label and lifted background fill. Foreground text remains
+independent from cell background opacity, preserving label contrast when window
+transparency reduces the fill contrast.
 
-Widget coverage verifies that the bold underline and its active-label color are
-unchanged at both panel-strength extremes. Existing theme contrast guards remain
-in force. The render-only change has no platform-specific surface on Windows,
-macOS, or Linux.
+Widget coverage verifies that the bold label and its active-label color are
+unchanged at both panel-strength extremes. Existing theme contrast guards
+remain in force. The render-only change has no platform-specific surface on
+Windows, macOS, or Linux.
 
 Verified: complete `cargo test` suite green (3477 library tests passed, 7
 ignored, plus all integration binaries); `cargo clippy --all-targets` clean

@@ -300,11 +300,6 @@ impl TabBar {
             la.background = slot_bg;
             if bold {
                 la.set_bold(true);
-                // Foreground decoration stays opaque when cell backgrounds are
-                // composited through window transparency, so the active tab
-                // remains identifiable even when its fill washes out.
-                la.set_underline(true);
-                la.underline_color = Some(active_lbl);
             }
             for (i, ch_char) in slot.label.chars().enumerate() {
                 let col = slot.label_col + i;
@@ -878,7 +873,7 @@ mod tests {
     }
 
     #[test]
-    fn active_label_marker_is_foreground_stable_across_panel_extremes() {
+    fn active_label_is_bold_and_bright_across_panel_extremes() {
         let src = MockSource::new(&["inactive", "active"], 1);
         let slot = &compute_layout(&src, GRID_COLS).slots[1];
         for strength in [0.0, 1.0] {
@@ -893,11 +888,9 @@ mod tests {
             );
             let marker = out.glyphs[slot.label_col].attrs;
             assert!(marker.bold());
-            assert!(marker.underline());
-            assert_eq!(
-                marker.underline_color,
-                Some(rgb(tab_chrome::active_label(COLORS)))
-            );
+            assert_eq!(marker.foreground, rgb(tab_chrome::active_label(COLORS)));
+            assert!(!marker.underline());
+            assert_eq!(marker.underline_color, None);
         }
     }
 

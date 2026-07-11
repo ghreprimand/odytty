@@ -329,10 +329,6 @@ impl TabRail {
             la.background = slot_bg;
             if bold {
                 la.set_bold(true);
-                // Keep an opacity-independent active marker in the foreground;
-                // the background fill alone can wash into transparent windows.
-                la.set_underline(true);
-                la.underline_color = Some(active_lbl);
             }
             let row = slot.label_row;
             if row < slot.end_row && row < grid_rows {
@@ -1201,11 +1197,9 @@ mod tests {
             );
             let marker = out.glyphs[slot.label_row * RAIL_COLS + SLOT_LABEL_START_COL].attrs;
             assert!(marker.bold());
-            assert!(marker.underline());
-            assert_eq!(
-                marker.underline_color,
-                Some(rgb(tab_chrome::active_label(COLORS)))
-            );
+            assert_eq!(marker.foreground, rgb(tab_chrome::active_label(COLORS)));
+            assert!(!marker.underline());
+            assert_eq!(marker.underline_color, None);
         }
     }
 
