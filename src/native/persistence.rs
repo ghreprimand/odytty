@@ -396,24 +396,40 @@ pub(crate) fn layouts_dir() -> PathBuf {
 }
 
 /// Atomically write `contents` to `path`: write a uniquely-named sibling temp
-/// file, flush, then rename it over the target. A crash mid-write can only ever
-/// leave the temp file behind (cleaned up on the error path), never a
-/// half-written snapshot (design §10.4 / sub-ODP 8c). The rename is atomic and
-/// replaces an existing target on both Unix and Windows. Creates the parent
-/// directory if absent.
+/// file, flush it to disk, then rename it over the target. A crash mid-write can
+/// only ever leave the temp file behind (cleaned up on the error path), never a
+/// half-written snapshot (design §10.4 / sub-ODP 8c). The temp file's data is
+/// `sync_all`'d and the parent directory is fsync'd before returning, so the
+/// rename is durable across a power loss — parity with the settings writeback
+/// path. The rename is atomic and replaces an existing target on both Unix and
+/// Windows. Creates the parent directory if absent.
 pub(crate) fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
+    use std::io::Write as _;
+
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     let tmp = temp_sibling(path);
-    std::fs::write(&tmp, contents)?;
-    match std::fs::rename(&tmp, path) {
-        Ok(()) => Ok(()),
-        Err(err) => {
-            let _ = std::fs::remove_file(&tmp);
-            Err(err)
+    let write_result = (|| -> io::Result<()> {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(contents.as_bytes())?;
+        // Flush the temp file's data to disk BEFORE the rename, so a crash right
+        // after the rename cannot expose a renamed-but-empty file.
+        file.sync_all()?;
+        std::fs::rename(&tmp, path)?;
+        // fsync the parent directory so the rename itself survives a crash.
+        if let Some(parent) = path.parent()
+            && let Ok(dir) = std::fs::File::open(parent)
+        {
+            let _ = dir.sync_all();
         }
+        Ok(())
+    })();
+    if let Err(err) = write_result {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(err);
     }
+    Ok(())
 }
 
 fn temp_sibling(path: &Path) -> PathBuf {

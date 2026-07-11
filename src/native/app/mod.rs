@@ -4467,11 +4467,14 @@ impl App {
     fn poll_config_reload(&mut self, now: Instant) {
         match self.settings_reloader.poll(now) {
             SettingsReloadOutcome::Unchanged | SettingsReloadOutcome::Deleted => {}
-            SettingsReloadOutcome::Reloaded(settings) => self.apply_reloaded_settings(settings),
-            SettingsReloadOutcome::Invalid { warnings } => {
+            SettingsReloadOutcome::Reloaded { settings, warnings } => {
+                // Non-fatal parse notices (unknown/typo'd keys, clamped values)
+                // are surfaced but never block the reload: apply the usable
+                // settings, consistent with the startup path.
                 for warning in warnings {
-                    tracing::warn!(warning = %warning, "config reload ignored");
+                    tracing::warn!(warning = %warning, "config reload notice");
                 }
+                self.apply_reloaded_settings(settings);
             }
             SettingsReloadOutcome::Unreadable { message } => {
                 tracing::warn!(message = %message, "config reload ignored");

@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Settings reload, desktop-id, and snapshot durability hardening
+
+Three lower-severity reliability and safety defects are closed, each with a
+regression test.
+
+Live configuration reload no longer discards a valid edit over a single parse
+notice. The reloader treated any warning — including the deliberately tolerated
+"unknown key; skipping" that keeps configs forward-compatible — as grounds to
+drop the whole reparsed config, so one typo'd or future key silently blocked
+every live edit until restart. Reload now applies the usable values and surfaces
+warnings as non-fatal notices, matching the startup path, which has always
+applied partial configs and printed the same notices.
+
+The "Open With" desktop-id resolver now rejects a traversal id. A desktop id is
+a bare name whose dashes encode subdirectories under `applications/`, but the
+resolver joined the raw id without normalization, so an id carrying a path
+separator, a `..` component, or an absolute path (e.g. a hostile `mimeapps.list`
+entry) could resolve — and, if launched, run — a file outside the applications
+tree. Such ids are now rejected before resolution. This is Linux desktop
+integration; there is no Windows path.
+
+Atomic snapshot and layout writes are now crash-durable as documented. The
+writer wrote the temp file and renamed it without flushing, so a power loss just
+after the rename could expose a renamed-but-empty file — weaker than the
+docstring's promise and inconsistent with the settings writeback path. The temp
+file is now `sync_all`'d before the rename and the parent directory is fsync'd
+after, matching writeback. This is cross-platform (`sync_all` is portable).
+
+Verified: `cargo build` clean; full non-GPU `cargo test --lib -- --skip
+native::gpu_tests` suite green (3489 passed); `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
 ## 2026-07-11 -- Session and PTY lifecycle hardening
 
 Five reliability defects across the session-close, PTY, recorder, and ConPTY

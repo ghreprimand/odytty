@@ -107,9 +107,18 @@ impl ConfigReloadPoller {
 pub enum SettingsReloadOutcome {
     Unchanged,
     Deleted,
-    Reloaded(Settings),
-    Invalid { warnings: Vec<String> },
-    Unreadable { message: String },
+    /// The config was re-read and produced usable settings. `warnings` carries
+    /// any non-fatal parse notices (unknown/typo'd keys, out-of-range values that
+    /// fell back) — surfaced but NOT a reason to discard the applied settings, so
+    /// live reload matches the startup path (which applies partial configs and
+    /// prints the same notices).
+    Reloaded {
+        settings: Settings,
+        warnings: Vec<String>,
+    },
+    Unreadable {
+        message: String,
+    },
 }
 
 /// Runtime config reloader that preserves startup env precedence exactly.
@@ -190,11 +199,11 @@ impl SettingsReloader {
                 warnings.push(message)
             });
 
-        if warnings.is_empty() {
-            SettingsReloadOutcome::Reloaded(settings)
-        } else {
-            SettingsReloadOutcome::Invalid { warnings }
-        }
+        // Parsing is tolerant: unknown keys are skipped and out-of-range values
+        // fall back, so a changed file always yields usable settings. Apply them
+        // and surface any warnings non-fatally, mirroring startup — a single
+        // typo'd or future key must not silently block a live edit until restart.
+        SettingsReloadOutcome::Reloaded { settings, warnings }
     }
 }
 

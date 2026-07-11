@@ -191,6 +191,15 @@ pub fn enumerate_open_with(
 /// Tries the literal `applications/<id>` first, then the subdir form for a
 /// dash-prefixed id (`kde-foo.desktop` → `applications/kde/foo.desktop`).
 fn read_desktop_file(env: &dyn DesktopEnv, data_dirs: &[PathBuf], id: &str) -> Option<String> {
+    // F17: a desktop id is a BARE name (dashes encode subdirectories); it must
+    // never resolve outside `applications/`. `Path::join` does not normalize, so
+    // an id carrying a separator, a `..` component, or an absolute path (e.g. a
+    // hostile `mimeapps.list` entry `image/png=../../../../tmp/evil.desktop`)
+    // would otherwise read — and, if launched, run — an arbitrary out-of-tree
+    // file. Reject any such id before it reaches the data ladder.
+    if !is_safe_desktop_id(id) {
+        return None;
+    }
     for dir in data_dirs {
         let apps = dir.join("applications");
         for rel in desktop_relpaths(id) {
@@ -200,6 +209,19 @@ fn read_desktop_file(env: &dyn DesktopEnv, data_dirs: &[PathBuf], id: &str) -> O
         }
     }
     None
+}
+
+/// Whether a desktop id is safe to resolve under `applications/`: a non-empty
+/// bare name with no path separator, no `..` component, no NUL, and not
+/// absolute. Dashes (which the resolver expands to subdirectories) are fine.
+fn is_safe_desktop_id(id: &str) -> bool {
+    !id.is_empty()
+        && !id.contains('/')
+        && !id.contains('\\')
+        && !id.contains('\0')
+        && id != ".."
+        && id != "."
+        && !Path::new(id).is_absolute()
 }
 
 /// Candidate relative paths (under `applications/`) for a desktop id: the
@@ -309,6 +331,48 @@ mod tests {
         assert_eq!(apps[0].name, "Image Viewer");
         assert_eq!(apps[0].argv, vec!["eog".to_owned(), "/x/a.png".to_owned()]);
         assert_eq!(apps[1].name, "GIMP");
+    }
+
+    #[test]
+    fn desktop_id_path_traversal_is_rejected() {
+        // F17: guard predicate — bare names (dashes ok) pass; anything that could
+        // escape `applications/` is rejected.
+        assert!(is_safe_desktop_id("firefox.desktop"));
+        assert!(is_safe_desktop_id("org-gnome-eog.desktop"));
+        assert!(!is_safe_desktop_id("../evil.desktop"));
+        assert!(!is_safe_desktop_id("../../tmp/evil.desktop"));
+        assert!(!is_safe_desktop_id(".."));
+        assert!(!is_safe_desktop_id("a/b.desktop"));
+        assert!(!is_safe_desktop_id("/etc/passwd"));
+        assert!(!is_safe_desktop_id(""));
+
+        // Behavioral: a hostile file planted where a naive `join` with a
+        // traversal id would land is NOT read, because the id is rejected before
+        // it reaches the data ladder; a legitimate id still resolves.
+        let apps = PathBuf::from("/data/applications");
+        let mut files = HashMap::new();
+        files.insert(
+            apps.join("../../tmp/evil.desktop"),
+            desktop("Evil", "/bin/evil %f"),
+        );
+        files.insert(
+            apps.join("firefox.desktop"),
+            desktop("Firefox", "firefox %U"),
+        );
+        let env = MapEnv {
+            config_dirs: vec![],
+            data_dirs: vec![PathBuf::from("/data")],
+            files,
+        };
+        let data_dirs = env.data_dirs();
+        assert!(
+            read_desktop_file(&env, &data_dirs, "../../tmp/evil.desktop").is_none(),
+            "a traversal desktop id must be rejected"
+        );
+        assert!(
+            read_desktop_file(&env, &data_dirs, "firefox.desktop").is_some(),
+            "a legitimate desktop id still resolves"
+        );
     }
 
     #[test]

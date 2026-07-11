@@ -225,6 +225,42 @@ fn missing_version_is_malformed() {
 }
 
 #[test]
+fn atomic_write_syncs_and_round_trips_a_multi_kib_payload() {
+    // F23: write_atomic now sync_all's the temp file and fsyncs the parent dir
+    // before returning (parity with the settings writeback path). The durable
+    // path must still round-trip exactly and leave no temp sibling — a crash can
+    // only ever leave the temp behind, never a renamed-but-empty target.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("odytty-f23-sync-{}-{nanos}", std::process::id()));
+    let path = dir.join("nested").join("workspaces.json");
+
+    // A multi-KiB payload exercises the explicit write_all + sync_all path, and a
+    // not-yet-existing nested parent exercises create_dir_all + the dir fsync.
+    let payload = "line\n".repeat(4096);
+    write_atomic(&path, &payload).expect("durable write");
+    assert_eq!(std::fs::read_to_string(&path).expect("read"), payload);
+
+    // Overwrite in place, then confirm no `.tmp` sibling remains.
+    write_atomic(&path, "small\n").expect("overwrite");
+    assert_eq!(std::fs::read_to_string(&path).expect("read"), "small\n");
+    let leftovers: Vec<String> = std::fs::read_dir(path.parent().unwrap())
+        .expect("read dir")
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(
+        leftovers,
+        vec!["workspaces.json".to_owned()],
+        "no temp leftovers"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn atomic_write_replaces_target_and_leaves_no_temp_file() {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

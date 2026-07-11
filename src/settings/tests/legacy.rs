@@ -541,9 +541,10 @@ fn config_reload_preserves_startup_env_precedence() {
 
     fs::write(&path, "font_size = 32\ntheme = odyssey\n").unwrap();
     let outcome = reloader.poll(t0 + CONFIG_RELOAD_INTERVAL);
-    let SettingsReloadOutcome::Reloaded(settings) = outcome else {
+    let SettingsReloadOutcome::Reloaded { settings, warnings } = outcome else {
         panic!("expected reload, got {outcome:?}");
     };
+    assert!(warnings.is_empty(), "a clean rewrite carries no warnings");
     assert_eq!(settings.font_size_px, 21.0);
     assert_eq!(settings.theme, Theme::ODYSSEY);
 
@@ -552,7 +553,10 @@ fn config_reload_preserves_startup_env_precedence() {
 }
 
 #[test]
-fn config_reload_rejects_bad_rewrite_without_candidate_settings() {
+fn config_reload_applies_usable_values_and_surfaces_warnings() {
+    // F13: a rewrite with an out-of-range value must not discard the whole
+    // reload. The bad value falls back (matching the startup path) and the
+    // warning is surfaced rather than blocking the live reload.
     let dir = std::env::temp_dir().join(format!("odytty-cf2-bad-{}", std::process::id()));
     fs::create_dir_all(&dir).unwrap();
     let path = dir.join("reload.conf");
@@ -562,11 +566,40 @@ fn config_reload_rejects_bad_rewrite_without_candidate_settings() {
 
     fs::write(&path, "font_size = massive\n").unwrap();
     let outcome = reloader.poll(t0 + CONFIG_RELOAD_INTERVAL);
-    let SettingsReloadOutcome::Invalid { warnings } = outcome else {
-        panic!("expected invalid rewrite, got {outcome:?}");
+    let SettingsReloadOutcome::Reloaded { settings, warnings } = outcome else {
+        panic!("expected reload with warnings, got {outcome:?}");
     };
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains(FONT_SIZE_ENV));
+    // The unusable value fell back to the default rather than discarding.
+    assert_eq!(settings.font_size_px, Settings::default().font_size_px);
+
+    let _ = fs::remove_file(path);
+    let _ = fs::remove_dir(dir);
+}
+
+#[test]
+fn config_reload_applies_a_real_edit_despite_an_unknown_key() {
+    // F13 canonical case: an unknown/future/typo'd key must not block a live
+    // edit to a real setting. The real value reloads; the unknown key is a
+    // surfaced-but-non-fatal notice.
+    let dir = std::env::temp_dir().join(format!("odytty-cf2-unknown-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("reload.conf");
+    fs::write(&path, "font_size = 16\n").unwrap();
+    let t0 = Instant::now();
+    let mut reloader = SettingsReloader::new(Some(path.clone()), HashMap::new(), t0);
+
+    fs::write(&path, "font_size = 28\nnot_a_real_key = whatever\n").unwrap();
+    let outcome = reloader.poll(t0 + CONFIG_RELOAD_INTERVAL);
+    let SettingsReloadOutcome::Reloaded { settings, warnings } = outcome else {
+        panic!("expected reload despite an unknown key, got {outcome:?}");
+    };
+    assert_eq!(settings.font_size_px, 28.0, "the real edit is applied live");
+    assert!(
+        warnings.iter().any(|w| w.contains("not_a_real_key")),
+        "the unknown key is surfaced as a non-fatal notice"
+    );
 
     let _ = fs::remove_file(path);
     let _ = fs::remove_dir(dir);
