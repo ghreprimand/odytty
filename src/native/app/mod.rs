@@ -137,7 +137,7 @@ mod theme_roles;
 mod watchdog_probe;
 mod window_border;
 
-use self::chrome_geometry::{PreviewSource, PxPoint};
+use self::chrome_geometry::{ChromeSlotGeom, PreviewSource, PxPoint, chrome_accent_color};
 pub(in crate::native) use self::hints_ui::HintsUi;
 #[cfg(test)]
 pub(in crate::native) use self::tab_bar::TAB_BAR_ROWS;
@@ -3058,7 +3058,7 @@ impl App {
             .top_tab_drag
             .filter(|drag| !drag.armed)
             .map(|drag| drag.origin_idx);
-        self.tab_bar.render_with_pressed(
+        let mut output = self.tab_bar.render_with_pressed(
             source,
             pressed,
             columns,
@@ -3067,7 +3067,28 @@ impl App {
             padding,
             self.tab_bar_colors(),
             self.tab_panel_strength(),
-        )
+        );
+        let colors = self.tab_bar_colors();
+        let panel = tab_chrome::panel_tint(colors, self.tab_panel_strength());
+        let accent = chrome_accent_color(tab_chrome::active_fill(colors, panel));
+        let rendered_geometry = ChromeSlotGeom::top(
+            source,
+            columns,
+            self.tab_bar_rows(),
+            self.top_bar_origin_px(cell),
+            cell,
+        );
+        if let Some(marker) = rendered_geometry.active_marker(source.active_tab(), accent) {
+            output.quads.push(marker);
+        }
+        if let Some(drag) = self.top_tab_drag.filter(|drag| drag.armed)
+            && let Some(geometry) = self.top_strip_geom(cell)
+        {
+            output
+                .quads
+                .push(geometry.insertion_indicator(drag.drop_idx, drag.origin_idx, accent));
+        }
+        output
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3091,7 +3112,7 @@ impl App {
             .rail_ws_drag
             .filter(|drag| !drag.armed)
             .map(|drag| drag.origin_idx);
-        self.tab_rail.render_with_pressed(
+        let mut output = self.tab_rail.render_with_pressed(
             source,
             pressed,
             cols,
@@ -3103,7 +3124,25 @@ impl App {
             self.rail_geom(),
             self.tab_panel_strength(),
             self.effective_theme.cursor,
-        )
+        );
+        let colors = self.tab_bar_colors();
+        let panel = tab_chrome::panel_tint(colors, self.tab_panel_strength());
+        let accent = chrome_accent_color(tab_chrome::active_fill(colors, panel));
+        let rendered_geometry =
+            ChromeSlotGeom::rail(source, cols, rows, origin, cell, self.rail_geom());
+        if let Some(marker) = rendered_geometry.active_marker(source.active_tab(), accent) {
+            output.quads.push(marker);
+        }
+        if let Some(drag) = self.rail_ws_drag.filter(|drag| drag.armed) {
+            let committed_geometry =
+                ChromeSlotGeom::rail(&rail_source, cols, rows, origin, cell, self.rail_geom());
+            output.quads.push(committed_geometry.insertion_indicator(
+                drag.drop_idx,
+                drag.origin_idx,
+                accent,
+            ));
+        }
+        output
     }
 
     fn rail_geom(&self) -> tab_rail::RailGeom {

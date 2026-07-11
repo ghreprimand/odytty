@@ -893,6 +893,7 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
             let span = span_of(row, col);
             let x0 = origin[0] + col as f32 * cell_w;
             let y0 = chrome_pin.cell_top_y(origin[1], cell_h, row, col);
+            let decoration_y0 = y0 + chrome_pin.glyph_center_dy(row, col, cell_h);
 
             if !cell.attrs.hidden()
                 && cell.ch != ' '
@@ -912,8 +913,7 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
                     // the band's true pixel center. `0.0` (content cells, single-
                     // row / odd-height bands) leaves the glyph exactly where the
                     // row-snap placed it, so the plain path is byte-identical.
-                    let glyph_y0 = y0 + chrome_pin.glyph_center_dy(row, col, cell_h);
-                    push_glyph_quad(out, x0, glyph_y0, bounds, fg);
+                    push_glyph_quad(out, x0, decoration_y0, bounds, fg);
                 }
             }
 
@@ -932,7 +932,7 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
                     out,
                     underline_style,
                     x0,
-                    y0,
+                    decoration_y0,
                     cell_w * span,
                     cell_h,
                     baseline,

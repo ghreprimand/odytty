@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Chrome markers render as solid quads
+
+Active tabs and workspaces now carry a two-pixel, full-alpha accent quad pinned
+to the bottom edge of the active slot. Armed drag insertion boundaries use a
+separate two-pixel quad perpendicular to the drag axis. Neither marker writes a
+terminal glyph or cell attribute, so zero-gap rails cannot acquire moving rule
+characters and variable-height labels cannot acquire crossing decoration lines.
+
+Multi-row top-bar filler cells now copy only the source background instead of
+replicating label decoration attributes. Real underline decorations also use
+the same vertical chrome offset as their glyph quad, keeping terminal underline
+ink attached when a glyph is centered within a taller band.
+
+Geometry and render coverage verifies active markers across top-bar heights one
+through five and rail slot heights one and two, retained drag-preview glyphs are
+never overwritten by indicator characters, filler rows carry no label
+decorations, and a two-row rail emits no underline attributes. The render-only
+change has no platform-specific surface on Windows, macOS, or Linux.
+
+Verified: complete `cargo test` suite green; `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-10 -- Chrome drag previews render from a pure order
 
 Armed tab and workspace drags now render the strip once from a pure preview

@@ -969,8 +969,16 @@ pub(super) fn place_tab_bar_glyphs(
             if idx >= cells.len() {
                 continue;
             }
-            let ch = if r == center { glyph.ch } else { ' ' };
-            cells[idx] = crate::core::Cell::new(ch, glyph.attrs);
+            if r == center {
+                cells[idx] = crate::core::Cell::new(glyph.ch, glyph.attrs);
+            } else {
+                // Filler rows extend only the slot background. Copying the full
+                // label attrs would replicate underline/strikethrough/bold
+                // decorations into every row of a taller chrome band.
+                let mut background_only = crate::core::Attrs::default();
+                background_only.background = glyph.attrs.background;
+                cells[idx] = crate::core::Cell::new(' ', background_only);
+            }
         }
     }
 }
@@ -987,6 +995,34 @@ mod tests {
             width: 10,
             height: 20,
             baseline: 0,
+        }
+    }
+
+    #[test]
+    fn tab_bar_filler_rows_copy_only_background_attributes() {
+        let mut attrs = crate::core::Attrs::default();
+        attrs.background = crate::core::Color::Rgb(10, 20, 30);
+        attrs.foreground = crate::core::Color::Rgb(220, 230, 240);
+        attrs.set_bold(true);
+        attrs.set_underline(true);
+        attrs.set_strikethrough(true);
+        let glyph = super::super::tab_bar::TabBarGlyph {
+            col: 0,
+            ch: 'g',
+            attrs,
+        };
+        let mut cells = vec![crate::core::Cell::default(); 3];
+        place_tab_bar_glyphs(&mut cells, vec![glyph], 1, 3, 0);
+
+        assert_eq!(cells[1].ch, 'g');
+        assert!(cells[1].attrs.underline());
+        assert!(cells[1].attrs.strikethrough());
+        for filler in [&cells[0], &cells[2]] {
+            assert_eq!(filler.ch, ' ');
+            assert_eq!(filler.attrs.background, attrs.background);
+            assert!(!filler.attrs.bold());
+            assert!(!filler.attrs.underline());
+            assert!(!filler.attrs.strikethrough());
         }
     }
 

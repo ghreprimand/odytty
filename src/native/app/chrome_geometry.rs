@@ -4,6 +4,7 @@
 use super::tab_bar::{self, TabBarSource, TabHit};
 use super::tab_rail;
 use super::*;
+use crate::theme::Srgb;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PreviewSlot {
@@ -323,7 +324,6 @@ impl ChromeSlotGeom {
         Some(((position - start).clamp(0.0, span), span))
     }
 
-    #[allow(dead_code)] // consumed by the quad indicator in Phase A commit 4
     pub(super) fn insertion_boundary_px(&self, drop_idx: usize, origin: usize) -> f64 {
         let retained: Vec<_> = self
             .slots
@@ -344,6 +344,54 @@ impl ChromeSlotGeom {
                 |slot| slot.rect.main_start(self.axis),
             )
     }
+
+    pub(super) fn active_marker(&self, active_idx: usize, color: [f32; 4]) -> Option<SolidQuad> {
+        let rect = self.slots.iter().find(|slot| slot.idx == active_idx)?.rect;
+        let bottom = rect.y + rect.height;
+        Some(SolidQuad {
+            rect: [
+                rect.x as f32,
+                (bottom - 2.0).max(rect.y) as f32,
+                (rect.x + rect.width) as f32,
+                bottom as f32,
+            ],
+            color,
+        })
+    }
+
+    pub(super) fn insertion_indicator(
+        &self,
+        drop_idx: usize,
+        origin: usize,
+        color: [f32; 4],
+    ) -> SolidQuad {
+        let boundary = self.insertion_boundary_px(drop_idx, origin);
+        let cross_inset = 2.0;
+        let rect = match self.axis {
+            Axis::Horizontal => [
+                (boundary - 1.0) as f32,
+                (self.band.y + cross_inset) as f32,
+                (boundary + 1.0) as f32,
+                (self.band.y + self.band.height - cross_inset) as f32,
+            ],
+            Axis::Vertical => [
+                (self.band.x + cross_inset) as f32,
+                (boundary - 1.0) as f32,
+                (self.band.x + self.band.width - cross_inset) as f32,
+                (boundary + 1.0) as f32,
+            ],
+        };
+        SolidQuad { rect, color }
+    }
+}
+
+pub(super) fn chrome_accent_color(color: Srgb) -> [f32; 4] {
+    [
+        text::srgb_to_linear(color.0),
+        text::srgb_to_linear(color.1),
+        text::srgb_to_linear(color.2),
+        1.0,
+    ]
 }
 
 impl App {
@@ -470,5 +518,95 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn active_marker_is_present_at_every_supported_chrome_height() {
+        let source = Source {
+            titles: vec!["active".into(), "other".into()],
+        };
+        let cell = CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        };
+        let color = [0.2, 0.4, 0.6, 1.0];
+        for rows in 1..=5 {
+            let geometry = ChromeSlotGeom::top(&source, 80, rows, [4.0, 6.0], cell);
+            let slot = geometry.slots.iter().find(|slot| slot.idx == 0).unwrap();
+            let marker = geometry.active_marker(0, color).expect("top marker");
+            assert_eq!(
+                marker.rect[1],
+                (slot.rect.y + slot.rect.height - 2.0) as f32
+            );
+            assert_eq!(marker.rect[3], (slot.rect.y + slot.rect.height) as f32);
+            assert_eq!(marker.color, color);
+        }
+        for slot_rows in [1, 2] {
+            let geometry = ChromeSlotGeom::rail(
+                &source,
+                16,
+                20,
+                [4.0, 6.0],
+                cell,
+                tab_rail::RailGeom {
+                    slot_rows,
+                    slot_gap: 0,
+                },
+            );
+            let slot = geometry.slots.iter().find(|slot| slot.idx == 0).unwrap();
+            let marker = geometry.active_marker(0, color).expect("rail marker");
+            assert_eq!(
+                marker.rect[1],
+                (slot.rect.y + slot.rect.height - 2.0) as f32
+            );
+            assert_eq!(marker.rect[3], (slot.rect.y + slot.rect.height) as f32);
+        }
+    }
+
+    #[test]
+    fn rendered_drag_preview_never_overwrites_a_retained_glyph() {
+        let source = Source {
+            titles: vec!["A".into(), "B".into(), "C".into()],
+        };
+        let preview = PreviewSource::new(&source, 0, 3);
+        let cell = CellSize {
+            width: 8,
+            height: 16,
+            baseline: 12,
+        };
+        let output = tab_bar::TabBar::default().render(
+            &preview,
+            80,
+            0.0,
+            cell,
+            WindowPadding::ZERO,
+            tab_bar::TabBarColors {
+                foreground: (240, 240, 240),
+                background: (10, 10, 10),
+                inactive: (120, 120, 120),
+                active_bg: (40, 60, 80),
+            },
+            0.0,
+        );
+        assert_eq!(
+            output.glyphs.iter().filter(|glyph| glyph.ch == 'A').count(),
+            0
+        );
+        assert_eq!(
+            output.glyphs.iter().filter(|glyph| glyph.ch == 'B').count(),
+            1
+        );
+        assert_eq!(
+            output.glyphs.iter().filter(|glyph| glyph.ch == 'C').count(),
+            1
+        );
+        assert!(
+            output
+                .glyphs
+                .iter()
+                .all(|glyph| !matches!(glyph.ch, '\u{2501}' | '\u{2503}')),
+            "drag feedback never overwrites cells with indicator glyphs"
+        );
     }
 }

@@ -161,10 +161,8 @@ pub(super) struct TabRailGlyph {
 /// (currently always empty) chrome-quad list.
 #[derive(Debug, Default)]
 pub(super) struct TabRailOutput {
-    /// Solid pixel-space quads. Phosphor Flat draws no chrome quads (rings and
-    /// the divider were deleted), so this is emitted **empty**; the channel is
-    /// retained so a future rail↔content divider could be re-added without
-    /// changing the integration signature.
+    /// Solid pixel-space quads. The widget render starts this empty; App
+    /// integration adds active and insertion markers in window-pixel geometry.
     pub(super) quads: Vec<SolidQuad>,
     /// One glyph per cell of the `rail_cols × grid_rows` region.
     pub(super) glyphs: Vec<TabRailGlyph>,
@@ -1875,5 +1873,26 @@ mod tests {
         assert_eq!(grabbed.ch, 'b');
         assert_ne!(grabbed.attrs.background, before, "press lifts the slot");
         assert!(grabbed.attrs.bold(), "grabbed label is emphasized");
+    }
+
+    #[test]
+    fn two_row_rail_emits_no_underline_attributes() {
+        let src = MockSource::new(&["active", "inactive"], 0);
+        let output = rail().render(
+            &src,
+            RAIL_COLS,
+            GRID_ROWS,
+            ORIGIN,
+            CELL,
+            RailSide::Left,
+            COLORS,
+            RailGeom {
+                slot_rows: 2,
+                slot_gap: 0,
+            },
+            PANEL_STRENGTH,
+            ACCENT,
+        );
+        assert!(output.glyphs.iter().all(|glyph| !glyph.attrs.underline()));
     }
 }

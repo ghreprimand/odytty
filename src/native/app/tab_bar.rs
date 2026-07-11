@@ -38,9 +38,9 @@
 //! - `×` shows on the active/hovered tab only; `+` is a dim glyph that brightens
 //!   on hover.
 //!
-//! There are **no chrome quads in this widget** — the label/fill treatment is
-//! entirely cell backgrounds + label attributes, so [`TabBarOutput::quads`] is
-//! emitted empty. The F4-P1 unified panel + seam are separate background-segment
+//! Resting label/fill treatment is entirely cell backgrounds + label
+//! attributes. The App integration adds full-alpha active and insertion marker
+//! quads to [`TabBarOutput::quads`]. The F4-P1 unified panel + seam are separate background-segment
 //! quads built by [`super::tab_panel`] and spliced in by the integration layer;
 //! the widget only paints the resting-cell **panel tint** (Layer 1) so the
 //! surface reads even at `cell_bg_opacity = 1`. Cells use an explicit
@@ -144,10 +144,8 @@ pub(super) struct TabBarGlyph {
 #[derive(Debug, Default)]
 pub(super) struct TabBarOutput {
     /// Solid pixel-space quads the integration layer composites over the row.
-    /// Phosphor Flat draws no chrome quads (the whole treatment is cell
-    /// backgrounds + label attributes), so this is emitted **empty**; the
-    /// channel is retained so a future bar↔body divider could be added back
-    /// without changing the integration signature.
+    /// The widget render starts this empty; App integration adds the active and
+    /// insertion marker quads in window-pixel geometry.
     pub(super) quads: Vec<SolidQuad>,
     /// One glyph per column to composite into the reserved tab bar row.
     pub(super) glyphs: Vec<TabBarGlyph>,
