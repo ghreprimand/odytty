@@ -1353,8 +1353,8 @@ pub struct Settings {
     /// default. Stored as `f32`; [`Settings::rail_slot_rows`] rounds and clamps
     /// it to `{1, 2}`.
     pub tab_rail_slot_rows: f32,
-    /// Unified tab-panel strength (F4-P1): `0.0` = panel off, `0.5` default,
-    /// `1.0` strongest. Drives both the panel tint lift and the panel-wash quad
+    /// Unified tab-panel strength (F4-P1): `0.0` = panel off, `1.0` default
+    /// and strongest. Drives both the panel tint lift and the panel-wash quad
     /// alpha. Both axes.
     pub tab_panel_strength: f32,
     /// Tab-panel seam line (F4-P1): one content-boundary hairline on both axes.

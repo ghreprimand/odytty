@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Tab-panel default strength raised to full
+
+The tab bar and workspace rail now render their unified translucent panel at
+maximum strength by default. `tab_panel_strength` (`ODYTTY_TAB_PANEL_STRENGTH`)
+default changes from `0.5` to `1.0`, so tabs and workspaces present as solid,
+prominent surfaces out of the box rather than a quiet WezTerm-style wash. The
+knob range is unchanged (`0.0..=1.0`); `0.0` still turns the panel off, and any
+value remains available via config or env override.
+
+Documentation and the settings doc comments were updated to carry the new
+default. No Windows-specific surface: this is a settings default plus the
+existing render path, identical across platforms.
+
+Verified: full non-GPU `cargo test --lib -- --skip native::gpu_tests` suite
+green; `cargo clippy --all-targets` clean under the deny gate; `cargo fmt
+--check` clean.
+
+---
+
 ## 2026-07-11 -- Windows timing seams avoid underflow and clock races
 
 The context-menu debounce test seam now uses checked monotonic subtraction, so
@@ -23,7 +42,6 @@ Verified: `cargo build` clean; full non-GPU `cargo test --lib -- --skip
 native::gpu_tests` suite green; `cargo clippy --all-targets` clean under the deny
 gate; `cargo fmt --check` clean. Windows-latest CI remains the authoritative
 platform verification.
-
 ---
 
 ## 2026-07-11 -- Active chrome uses stronger directional markers
