@@ -622,6 +622,14 @@ impl App {
     ///
     /// Off a rail (`pointer_over_rail_seam` is false) it consumes nothing, so
     /// the historical press path is byte-identical.
+    fn seam_click_instant(&mut self) -> Instant {
+        #[cfg(test)]
+        if let Some(at) = self.seam_click_at_for_test.take() {
+            return at;
+        }
+        Instant::now()
+    }
+
     fn handle_rail_seam_button(&mut self, state: ElementState, button: WinitMouseButton) -> bool {
         if button != WinitMouseButton::Left {
             return false;
@@ -649,9 +657,10 @@ impl App {
         // point so two quick seam presses (anywhere on the band) count as a
         // double-click; `drag_rail_seam_to_pointer` resets this tracker on an
         // actual move so a drag-then-grab is never misread as a reset.
+        let at = self.seam_click_instant();
         let count = self
             .rail_seam_clicks
-            .register_click(CellPoint { row: 0, column: 0 }, std::time::Instant::now());
+            .register_click(CellPoint { row: 0, column: 0 }, at);
         if count >= 2 {
             self.reset_rail_width_to_auto();
             return true;
@@ -703,9 +712,10 @@ impl App {
         // point so two quick seam presses (anywhere on the band) count as a
         // double-click; `drag_tab_bar_seam_to_pointer` resets this tracker on an
         // actual move so a drag-then-grab is never misread as a reset.
+        let at = self.seam_click_instant();
         let count = self
             .tab_bar_seam_clicks
-            .register_click(CellPoint { row: 0, column: 0 }, std::time::Instant::now());
+            .register_click(CellPoint { row: 0, column: 0 }, at);
         if count >= 2 {
             self.reset_tab_bar_height_to_auto();
             return true;

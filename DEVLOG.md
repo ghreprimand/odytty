@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Windows timing seams avoid underflow and clock races
+
+The context-menu debounce test seam now uses checked monotonic subtraction, so
+an early-process Windows clock cannot underflow while constructing an expired
+timestamp. A failed subtraction represents an inactive debounce, matching the
+test's intended expired state.
+
+Rail-width and tab-height seam double-click tests now inject controlled press
+timestamps through the production dispatch path. Production continues to read
+the monotonic clock directly, while the tests deterministically keep their two
+presses inside the click-count timeout on loaded Windows runners.
+
+Verified: `cargo build` clean; full non-GPU `cargo test --lib -- --skip
+native::gpu_tests` suite green; `cargo clippy --all-targets` clean under the deny
+gate; `cargo fmt --check` clean. Windows-latest CI remains the authoritative
+platform verification.
+
+---
+
 ## 2026-07-11 -- Active chrome uses stronger directional markers
 
 Active workspaces now carry a three-pixel, full-slot-height accent stripe on

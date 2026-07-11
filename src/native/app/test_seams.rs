@@ -1019,6 +1019,14 @@ impl App {
         self.handle_mouse_input(ElementState::Pressed, WinitMouseButton::Left);
     }
 
+    /// Route a seam press through the real dispatch with a controlled monotonic
+    /// timestamp for deterministic double-click detection.
+    #[cfg(test)]
+    pub(in crate::native) fn mouse_left_press_at_for_test(&mut self, at: std::time::Instant) {
+        self.seam_click_at_for_test = Some(at);
+        self.mouse_left_press_for_test();
+    }
+
     /// Test seam (F4-P4): the left release that ends a seam drag, routed through
     /// the real `handle_mouse_input` dispatch.
     #[cfg(test)]
@@ -1362,7 +1370,7 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn expire_context_menu_debounce_for_test(&mut self) {
         self.context_menu_opened_at =
-            Some(std::time::Instant::now() - std::time::Duration::from_secs(3600));
+            std::time::Instant::now().checked_sub(std::time::Duration::from_secs(3600));
     }
 
     /// Test seam (FIX-A): whether the last `open_context_menu` ran the

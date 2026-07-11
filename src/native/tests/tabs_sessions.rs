@@ -1204,9 +1204,10 @@ fn double_click_rail_seam_resets_to_auto_and_persists() {
 
     // Two quick presses on the seam (a double-click) reset the rail to auto.
     app.set_pointer_px_for_test(160.0, 100.0);
-    app.mouse_left_press_for_test();
+    let t0 = std::time::Instant::now();
+    app.mouse_left_press_at_for_test(t0);
     app.mouse_left_release_for_test();
-    app.mouse_left_press_for_test();
+    app.mouse_left_press_at_for_test(t0 + std::time::Duration::from_millis(50));
     assert_eq!(
         app.tab_rail_width_for_test(),
         TabRailWidth::Auto,
@@ -1354,9 +1355,10 @@ fn double_click_tab_bar_seam_resets_to_auto_and_persists() {
 
     // Two quick presses on the seam (a double-click) reset the bar to auto.
     app.set_pointer_px_for_test(40.0, 48.0);
-    app.mouse_left_press_for_test();
+    let t0 = std::time::Instant::now();
+    app.mouse_left_press_at_for_test(t0);
     app.mouse_left_release_for_test();
-    app.mouse_left_press_for_test();
+    app.mouse_left_press_at_for_test(t0 + std::time::Duration::from_millis(50));
     assert_eq!(
         app.tab_bar_height_for_test(),
         TabBarHeight::Auto,

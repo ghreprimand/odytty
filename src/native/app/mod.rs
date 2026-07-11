@@ -464,6 +464,11 @@ pub(super) struct App {
     /// synthetic point so two quick seam presses register as a double-click;
     /// reset on an actual drag move so a drag-then-grab is not misread as one.
     tab_bar_seam_clicks: ClickTracker,
+    /// Test-only clock injection for the next seam press. Production always
+    /// reads the monotonic clock directly; deterministic tests consume this
+    /// value once through `seam_click_instant`.
+    #[cfg(test)]
+    seam_click_at_for_test: Option<Instant>,
     /// F4-P3 rail auto-hide timing state machine (ODP-4). Inert unless
     /// `tab_rail_autohide` is on and the chrome is a side rail; when active it
     /// drives the reveal/hide of the floating rail overlay from the pointer edge
@@ -730,6 +735,8 @@ impl App {
             rail_seam_clicks: ClickTracker::default(),
             tab_bar_seam_drag: false,
             tab_bar_seam_clicks: ClickTracker::default(),
+            #[cfg(test)]
+            seam_click_at_for_test: None,
             rail_autohide: rail_autohide::RailAutohide::default(),
             last_rail_pointer_px: None,
             rail_ws_drag: None,
