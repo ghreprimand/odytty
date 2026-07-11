@@ -1835,6 +1835,35 @@ mod chrome_pin {
         );
         assert!((centered_top - guarded_top - 1.0).abs() < 1e-3);
     }
+
+    #[test]
+    fn rail_descender_offset_lifts_labels_by_two_physical_pixels() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let cell_h = atlas.cell.height;
+        for slot_rows in [1usize, 2, 3, 4, 5] {
+            let label_row = slot_rows.saturating_sub(1) / 2;
+            let centered = band_label_center_dy_rows(slot_rows, label_row);
+            let safe = rail_label_descender_safe_dy_rows(slot_rows, label_row, cell_h);
+            assert!(
+                ((centered - safe) * cell_h as f32 - 2.0).abs() < 1e-3,
+                "h{slot_rows}: rail descender guard must be exactly two pixels"
+            );
+        }
+
+        let top = band_label_descender_safe_dy_rows(2, 1, cell_h);
+        let rail = rail_label_descender_safe_dy_rows(2, 0, cell_h);
+        assert!(
+            ((band_label_center_dy_rows(2, 1) - top) * cell_h as f32 - 1.0).abs() < 1e-3,
+            "top chrome keeps its existing one-pixel guard"
+        );
+        assert!(
+            ((band_label_center_dy_rows(2, 0) - rail) * cell_h as f32 - 2.0).abs() < 1e-3,
+            "rail chrome receives the stronger guard"
+        );
+    }
 }
 
 /// PANE-SUBCELL-CLIP: pure vertex-clip math (headless — no GPU). Isolated so a

@@ -622,6 +622,22 @@ pub fn band_label_descender_safe_dy_rows(
     }
 }
 
+/// Rail labels need a second physical pixel of descender clearance because the
+/// rail's slot clip ends at the band edge. Top chrome keeps the one-pixel guard
+/// above; this rail-only offset preserves its placement.
+pub fn rail_label_descender_safe_dy_rows(
+    band_rows: usize,
+    label_row: usize,
+    cell_height_px: u32,
+) -> f32 {
+    let centered = band_label_center_dy_rows(band_rows, label_row);
+    if cell_height_px == 0 {
+        centered
+    } else {
+        centered - 2.0 / cell_height_px as f32
+    }
+}
+
 /// SCROLL-CHROME-BOUNCE: pins composited chrome (the top tab-bar band and any
 /// side rail band) against the sub-row smooth-scroll offset that `content_origin`
 /// folds into the vertex Y. Without it the whole decorated single-pane snapshot

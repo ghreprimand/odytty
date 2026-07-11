@@ -693,7 +693,7 @@ impl App {
             let side = self.workspace_rail_side();
             if let Some((snapshot, quads)) = self.tab_rail_strip(cell, side) {
                 let slot_rows = self.rail_geom().slot_rows;
-                let rail_dy = crate::grid::band_label_descender_safe_dy_rows(
+                let rail_dy = crate::grid::rail_label_descender_safe_dy_rows(
                     slot_rows,
                     slot_rows.saturating_sub(1) / 2,
                     cell.height,

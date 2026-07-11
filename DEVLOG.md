@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Workspace labels clear the rail slot edge
+
+Workspace-rail labels now reserve two physical pixels below their glyph ink,
+lifting the centered label slightly so descenders remain inside the rail slot.
+The top tab strip retains its existing one-pixel guard and its established
+vertical placement.
+
+Geometry coverage verifies the rail offset across slot heights one through
+five and separately pins the unchanged top-strip guard. The platform-neutral
+glyph placement change has no Windows-specific surface.
+
+Verified: full non-GPU `cargo test --lib -- --skip native::gpu_tests` suite
+green; `cargo clippy --all-targets` clean under the deny gate; `cargo fmt
+--check` clean.
+
+---
+
 ## 2026-07-11 -- Armed chrome drags keep the grabbed label visible
 
 Armed tab and workspace drags now render the grabbed label in the destination
