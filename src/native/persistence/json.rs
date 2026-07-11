@@ -177,10 +177,19 @@ fn write_string(out: &mut String, s: &str) {
 }
 
 /// Parse JSON text into a [`Json`] value, or an error message.
+/// Maximum object/array nesting depth accepted by [`parse`]. A hand-editable
+/// workspace snapshot is only a few levels deep; this bound is far above any
+/// real layout yet well below the ~thousands of frames that would exhaust the
+/// thread stack. A file nested past this returns an `Err` (classified as a
+/// malformed snapshot, degrading to a fresh launch) instead of aborting the
+/// process via a stack overflow.
+const MAX_PARSE_DEPTH: usize = 128;
+
 pub(super) fn parse(input: &str) -> Result<Json, String> {
     let mut parser = Parser {
         chars: input.chars().collect(),
         pos: 0,
+        depth: 0,
     };
     parser.skip_ws();
     let value = parser.parse_value()?;
@@ -194,6 +203,9 @@ pub(super) fn parse(input: &str) -> Result<Json, String> {
 struct Parser {
     chars: Vec<char>,
     pos: usize,
+    /// Current object/array nesting depth, bounded by [`MAX_PARSE_DEPTH`] to
+    /// keep a pathological deeply-nested input from overflowing the stack.
+    depth: usize,
 }
 
 impl Parser {
@@ -225,6 +237,21 @@ impl Parser {
     }
 
     fn parse_value(&mut self) -> Result<Json, String> {
+        // Only object/array descent deepens the parse; guard here so every
+        // recursive re-entry is counted regardless of the value kind.
+        self.depth += 1;
+        if self.depth > MAX_PARSE_DEPTH {
+            return Err(format!(
+                "maximum nesting depth {MAX_PARSE_DEPTH} exceeded at position {}",
+                self.pos
+            ));
+        }
+        let value = self.parse_value_inner();
+        self.depth -= 1;
+        value
+    }
+
+    fn parse_value_inner(&mut self) -> Result<Json, String> {
         self.skip_ws();
         match self.peek() {
             Some('{') => self.parse_object(),

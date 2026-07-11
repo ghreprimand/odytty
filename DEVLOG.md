@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-11 -- Persistence hardening: JSON nesting cap and snapshot string bounds
+
+Two persistence-layer defects that could brick launch or a reattach are closed.
+
+The hand-written workspace-snapshot JSON reader recursed through nested objects
+and arrays with no depth counter, so a pathological file (a long run of opening
+brackets) overflowed the thread stack and aborted the process before the
+existing malformed-file degrade path could run — leaving a snapshot that failed
+every launch. Parsing now tracks nesting depth and rejects input past a fixed
+bound (128, far deeper than any real layout), classifying it as malformed so
+load falls back to a fresh launch instead of crashing.
+
+The session snapshot envelope wrote the terminal title and working directory
+with no length bound, but the decoder rejects any string longer than its 4096-
+byte cap, and that failure aborted the whole envelope — dropping grid,
+scrollback, and modes on reattach over an oversized OSC 2 title or OSC 7 cwd.
+Capture now bounds both strings to the decoder's cap on a UTF-8 char boundary,
+so the encoder never emits a string its own default decoder would reject; a
+truncated title is preferred over a failed reattach. The shared cap is now a
+single named constant used by both the decoder defaults and the capture path.
+
+Both fixes have regression tests: a deeply-nested input returns an error without
+crashing while a moderately-nested layout still parses; an oversized title/cwd
+round-trips and decodes truncated with the grid intact. No Windows-specific
+surface; the parser and snapshot logic are platform-agnostic.
+
+Verified: `cargo build` clean; full non-GPU `cargo test --lib -- --skip
+native::gpu_tests` suite green (3464 passed); `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-11 -- Source comments use engineering-record voice
 
 Chrome, parser, interaction, and session module comments now state their design

@@ -42,6 +42,14 @@ impl Default for SnapshotCaptureLimits {
     }
 }
 
+/// Default per-string byte cap shared by the decoder and the capture path. The
+/// decoder rejects any string longer than [`SnapshotEnvelopeCaps::max_string_bytes`];
+/// capture bounds `title`/`working_directory` to this same value so the encoder
+/// never emits a string its own default decoder would reject (a reattach that
+/// dropped the whole grid over an oversized title would be far worse than a
+/// truncated title). It also keeps each length within the `u16` on-wire prefix.
+pub const DEFAULT_MAX_STRING_BYTES: usize = 4096;
+
 /// Decode-side resource caps. These are separate from capture limits so an
 /// attaching client can reject untrusted or future-expanded files before
 /// allocating large buffers.
@@ -67,7 +75,7 @@ impl Default for SnapshotEnvelopeCaps {
             max_rows: 4096,
             max_scrollback_rows: 100_000,
             max_cells: 4_000_000,
-            max_string_bytes: 4096,
+            max_string_bytes: DEFAULT_MAX_STRING_BYTES,
         }
     }
 }
@@ -244,9 +252,17 @@ pub struct SnapshotMetadata {
 
 impl SnapshotMetadata {
     pub fn from_terminal(terminal: &Terminal) -> Self {
+        // Bound each string to the decoder's default cap at capture time. An
+        // unbounded OSC 2 title or OSC 7 cwd would otherwise encode a string the
+        // default decoder rejects, aborting the whole envelope (grid, scrollback
+        // and modes) on reattach rather than just shortening the title.
         Self {
-            title: terminal.title().map(str::to_owned),
-            working_directory: terminal.current_working_directory().map(str::to_owned),
+            title: terminal
+                .title()
+                .map(|title| truncate_to_char_boundary(title, DEFAULT_MAX_STRING_BYTES)),
+            working_directory: terminal
+                .current_working_directory()
+                .map(|cwd| truncate_to_char_boundary(cwd, DEFAULT_MAX_STRING_BYTES)),
         }
     }
 
@@ -1073,6 +1089,20 @@ fn write_u64(out: &mut Vec<u8>, value: u64) {
     out.extend_from_slice(&value.to_le_bytes());
 }
 
+/// Return `value` shortened to at most `max` bytes, cut on a UTF-8 char
+/// boundary (never mid-codepoint). Used to keep captured strings within the
+/// decoder's per-string cap.
+fn truncate_to_char_boundary(value: &str, max: usize) -> String {
+    if value.len() <= max {
+        return value.to_owned();
+    }
+    let mut end = max;
+    while end > 0 && !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value[..end].to_owned()
+}
+
 fn write_string(out: &mut Vec<u8>, value: &str) {
     write_u16(out, value.len() as u16);
     out.extend_from_slice(value.as_bytes());
@@ -1319,6 +1349,58 @@ mod tests {
         terminal.advance(b"\x1b[2;3r\x1b[9G\x1b[0g");
         terminal.advance("wide \u{1f680}\ncomb e\u{301}".as_bytes());
         terminal
+    }
+
+    #[test]
+    fn oversized_title_and_cwd_are_bounded_at_capture_so_reattach_succeeds() {
+        // An OSC 2 title / OSC 7 cwd longer than the decoder's per-string cap
+        // must not brick reattach: capture bounds each to the cap so the whole
+        // envelope (grid, scrollback, modes) still decodes, with the strings
+        // truncated rather than the file rejected.
+        let mut terminal = Terminal::new(16, 3);
+        let long_title = "T".repeat(5000);
+        let long_cwd = format!("/tmp/{}", "d".repeat(5000));
+        terminal.advance(format!("\x1b]2;{long_title}\x1b\\").as_bytes());
+        terminal.advance(format!("\x1b]7;file://localhost{long_cwd}\x1b\\").as_bytes());
+        terminal.advance(b"grid stays intact\n");
+
+        let envelope = SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default());
+        let bytes = envelope.encode();
+        let decoded = SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default())
+            .expect("an oversized title/cwd must still decode, truncated");
+
+        let title = decoded.metadata.title.expect("title present");
+        assert!(
+            title.len() <= DEFAULT_MAX_STRING_BYTES,
+            "title bounded to the decode cap"
+        );
+        assert!(
+            title.starts_with('T'),
+            "title content preserved (truncated)"
+        );
+        let cwd = decoded
+            .metadata
+            .working_directory
+            .expect("working directory present");
+        assert!(
+            cwd.len() <= DEFAULT_MAX_STRING_BYTES,
+            "cwd bounded to the decode cap"
+        );
+        // The grid content survives the reattach that the unbounded string
+        // would otherwise have aborted.
+        assert_eq!(decoded.terminal.dimensions, Dimensions::new(16, 3));
+    }
+
+    #[test]
+    fn truncate_to_char_boundary_never_splits_a_codepoint() {
+        // A multibyte codepoint straddling the cut point is dropped whole, so
+        // the result is always valid UTF-8 and within the byte bound.
+        let value = "a".repeat(4095) + "\u{1f680}"; // 4-byte emoji crosses 4096
+        let cut = truncate_to_char_boundary(&value, DEFAULT_MAX_STRING_BYTES);
+        assert!(cut.len() <= DEFAULT_MAX_STRING_BYTES);
+        assert_eq!(cut.len(), 4095, "the straddling emoji is dropped whole");
+        // A string already within the bound is returned unchanged.
+        assert_eq!(truncate_to_char_boundary("short", 4096), "short");
     }
 
     #[test]

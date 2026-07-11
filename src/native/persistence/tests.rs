@@ -265,6 +265,39 @@ fn json_escapes_round_trip_through_the_parser() {
     );
 }
 
+#[test]
+fn deeply_nested_json_returns_an_error_instead_of_overflowing_the_stack() {
+    // A pathological run of opening brackets (far past any real layout depth)
+    // must be rejected as malformed, not abort the process via stack overflow.
+    // This routes the file to the Corrupt -> fresh-launch degrade path.
+    let bomb = "[".repeat(10_000);
+    let parsed = json::parse(&bomb);
+    assert!(
+        parsed.is_err(),
+        "deeply-nested input must return Err, not crash"
+    );
+
+    // The same input at the snapshot layer classifies as Malformed (soft), so
+    // load degrades to a fresh launch rather than re-aborting every launch.
+    assert!(matches!(
+        ShapeSnapshot::from_json_str(&bomb),
+        Err(LoadError::Malformed(_))
+    ));
+}
+
+#[test]
+fn nesting_just_within_the_cap_still_parses() {
+    // A structure nested to a normal-but-non-trivial depth (well inside the
+    // 128-frame cap) must still parse cleanly; the guard must not reject real,
+    // moderately-nested layouts.
+    let depth = 32;
+    let text = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+    assert!(
+        json::parse(&text).is_ok(),
+        "a moderately-nested array must still parse"
+    );
+}
+
 // ---- WP2: cwd resolution for restore (design §10.5, sub-ODP 8f) ----
 
 #[test]
