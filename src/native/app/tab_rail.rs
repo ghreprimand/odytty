@@ -532,28 +532,49 @@ impl TabRail {
         }
         let oy = origin_px[1] as f64;
         let layout = compute_rail_layout(source, rail_cols, grid_rows, geom);
-        let origin = layout.slots.iter().find(|slot| slot.idx == origin_idx)?;
-        let origin_stride = geom.stride();
+        layout.slots.iter().find(|slot| slot.idx == origin_idx)?;
         let retained: Vec<_> = layout
             .slots
             .iter()
             .filter(|slot| slot.idx != origin_idx)
             .collect();
-        // Resolve against the compacted list: slots below the lifted origin
-        // move up by one complete stride before midpoint testing.
+        // Resolve against the origin-excluded neighbor list, but keep every
+        // midpoint in real pointer space so left/up and right/down crossings
+        // use identical physical thresholds.
         let mut insert = retained.last()?.idx + 1;
         for slot in retained {
-            let shift = usize::from(slot.start_row > origin.start_row) * origin_stride;
-            let start = slot.start_row.saturating_sub(shift);
-            let end = slot.end_row.saturating_sub(shift);
-            let span = (end - start) as f64;
-            let mid = oy + (start as f64 + span / 2.0) * ch;
+            let span = (slot.end_row - slot.start_row) as f64;
+            let mid = oy + (slot.start_row as f64 + span / 2.0) * ch;
             if px_y < mid {
                 insert = slot.idx;
                 break;
             }
         }
         Some(insert)
+    }
+
+    /// Return `(grab_offset, slot_span)` in physical pixels for a pressed rail
+    /// slot, measured from its top edge.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn drag_metrics(
+        &self,
+        press_y: f64,
+        origin_idx: usize,
+        source: &dyn TabBarSource,
+        rail_cols: usize,
+        grid_rows: usize,
+        origin_px: [f32; 2],
+        cell: CellSize,
+        geom: RailGeom,
+    ) -> Option<(f64, f64)> {
+        if cell.height == 0 || rail_cols == 0 || grid_rows == 0 {
+            return None;
+        }
+        let layout = compute_rail_layout(source, rail_cols, grid_rows, geom);
+        let slot = layout.slots.iter().find(|slot| slot.idx == origin_idx)?;
+        let top = f64::from(origin_px[1]) + slot.start_row as f64 * f64::from(cell.height);
+        let span = (slot.end_row - slot.start_row) as f64 * f64::from(cell.height);
+        Some(((press_y - top).clamp(0.0, span), span))
     }
 
     /// Paint the live drop-target indicator (RAIL-DRAG): a bright heavy rule at
@@ -615,11 +636,12 @@ impl TabRail {
         origin_idx: usize,
         drop_idx: usize,
         armed: bool,
-        _pointer_y_px: f64,
+        pointer_y_px: f64,
+        grab_offset_y: f64,
         source: &dyn TabBarSource,
         rail_cols: usize,
         grid_rows: usize,
-        _origin_y_px: f32,
+        origin_y_px: f32,
         cell: CellSize,
         geom: RailGeom,
         colors: TabBarColors,
@@ -728,7 +750,10 @@ impl TabRail {
                 }
             }
 
-            let proxy_top = layout.slots[dest].start_row;
+            let pointer_row = ((pointer_y_px - grab_offset_y - f64::from(origin_y_px))
+                / f64::from(cell.height))
+            .floor() as isize;
+            let proxy_top = pointer_row.clamp(0, grid_rows.saturating_sub(span) as isize) as usize;
             for local_row in 0..span.min(source_rows.len() / rail_cols) {
                 let target_row = proxy_top + local_row;
                 let source_start = local_row * rail_cols;
@@ -2059,8 +2084,8 @@ mod tests {
     // Default GEOM: slot_rows=2, slot_gap=1, top_margin=1, stride=3. For N
     // slots, slot i spans rows [1+3i, 3+3i); its vertical midpoint row is
     // 2+3i, i.e. midpoint_y = (2+3i)*CELL.height. CELL.height == 16, so the
-    // With origin slot 1 excluded, retained slots 0 and 2 compact to midpoints
-    // y = 32 and 80 px.
+    // With origin slot 1 excluded, retained neighbors keep their real-space
+    // midpoints y = 32 and 128 px.
     fn drop_index_at(y: f64, src: &dyn TabBarSource) -> Option<usize> {
         rail().drop_index(y, 1, src, RAIL_COLS, GRID_ROWS, ORIGIN, CELL, GEOM)
     }
@@ -2071,13 +2096,12 @@ mod tests {
         // Above the first slot midpoint (32px) → insert before slot 0.
         assert_eq!(drop_index_at(0.0, &src), Some(0));
         assert_eq!(drop_index_at(31.0, &src), Some(0));
-        // Between retained slot 0 and compacted slot 2 (32..80) → insert
+        // Between retained slot 0 and slot 2 (32..128) → insert
         // before original slot 2 (the lifted origin's resting gap).
         assert_eq!(drop_index_at(32.0, &src), Some(2));
-        assert_eq!(drop_index_at(79.0, &src), Some(2));
+        assert_eq!(drop_index_at(127.0, &src), Some(2));
         // Below the last retained midpoint → append.
-        assert_eq!(drop_index_at(80.0, &src), Some(3));
-        assert_eq!(drop_index_at(127.0, &src), Some(3));
+        assert_eq!(drop_index_at(128.0, &src), Some(3));
     }
 
     #[test]
@@ -2087,7 +2111,7 @@ mod tests {
         // an already-first item, never a negative / underflowed index).
         assert_eq!(drop_index_at(-100.0, &src), Some(0));
         // Below every midpoint → append after the last visible slot (count).
-        assert_eq!(drop_index_at(80.0, &src), Some(3));
+        assert_eq!(drop_index_at(128.0, &src), Some(3));
         assert_eq!(drop_index_at(10_000.0, &src), Some(3));
     }
 
@@ -2171,6 +2195,7 @@ mod tests {
             1,
             false,
             72.0,
+            8.0,
             &src,
             RAIL_COLS,
             GRID_ROWS,
@@ -2192,7 +2217,7 @@ mod tests {
         let panel = tab_chrome::panel_tint(COLORS, PANEL_STRENGTH);
         let mut first = render_default(&src).glyphs;
         rail().paint_drag_overlay(
-            &mut first, 0, 3, true, 112.0, &src, RAIL_COLS, GRID_ROWS, ORIGIN[1], CELL, GEOM,
+            &mut first, 0, 3, true, 120.0, 8.0, &src, RAIL_COLS, GRID_ROWS, ORIGIN[1], CELL, GEOM,
             COLORS, panel,
         );
         assert_eq!(first[7 * RAIL_COLS + 2].ch, 'a', "proxy occupies the gap");
@@ -2210,7 +2235,8 @@ mod tests {
             0,
             3,
             true,
-            144.0,
+            136.0,
+            8.0,
             &src,
             RAIL_COLS,
             GRID_ROWS,
@@ -2220,8 +2246,8 @@ mod tests {
             COLORS,
             panel,
         );
-        assert_eq!(second[7 * RAIL_COLS + 2].ch, 'a');
-        assert_eq!(first, second, "the proxy stays inside the opened slot gap");
+        assert_eq!(second[8 * RAIL_COLS + 2].ch, 'a');
+        assert_ne!(first, second, "pointer motion moves the lifted proxy");
     }
 
     #[test]

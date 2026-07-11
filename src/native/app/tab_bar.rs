@@ -432,8 +432,7 @@ impl TabBar {
             return None;
         }
         let layout = compute_layout(source, grid_cols);
-        let origin = layout.slots.iter().find(|slot| slot.idx == origin_idx)?;
-        let origin_span = origin.end_col.saturating_sub(origin.start_col);
+        layout.slots.iter().find(|slot| slot.idx == origin_idx)?;
         let local_x = px_x - f64::from(padding.as_f32());
         let retained: Vec<_> = layout
             .slots
@@ -442,16 +441,33 @@ impl TabBar {
             .collect();
         let mut insert = retained.last()?.idx + 1;
         for slot in retained {
-            let shift = usize::from(slot.start_col > origin.start_col) * origin_span;
-            let start = slot.start_col.saturating_sub(shift);
-            let end = slot.end_col.saturating_sub(shift);
-            let midpoint = (start + end) as f64 * f64::from(cell.width) / 2.0;
+            let midpoint = (slot.start_col + slot.end_col) as f64 * f64::from(cell.width) / 2.0;
             if local_x < midpoint {
                 insert = slot.idx;
                 break;
             }
         }
         Some(insert)
+    }
+
+    /// Return `(grab_offset, slot_span)` in physical pixels for a pressed tab.
+    pub(super) fn drag_metrics(
+        &self,
+        press_x: f64,
+        origin_idx: usize,
+        source: &dyn TabBarSource,
+        grid_cols: usize,
+        cell: CellSize,
+        padding: WindowPadding,
+    ) -> Option<(f64, f64)> {
+        if cell.width == 0 || grid_cols == 0 {
+            return None;
+        }
+        let layout = compute_layout(source, grid_cols);
+        let slot = layout.slots.iter().find(|slot| slot.idx == origin_idx)?;
+        let left = f64::from(padding.as_f32()) + slot.start_col as f64 * f64::from(cell.width);
+        let span = (slot.end_col - slot.start_col) as f64 * f64::from(cell.width);
+        Some(((press_x - left).clamp(0.0, span), span))
     }
 
     /// Paint top-strip grab feedback, a destination-gap proxy, and the drop
@@ -463,11 +479,12 @@ impl TabBar {
         origin_idx: usize,
         drop_idx: usize,
         armed: bool,
-        _pointer_x_px: f64,
+        pointer_x_px: f64,
+        grab_offset_x: f64,
         source: &dyn TabBarSource,
         grid_cols: usize,
         cell: CellSize,
-        _padding: WindowPadding,
+        padding: WindowPadding,
         colors: TabBarColors,
         panel_surface: Srgb,
     ) {
@@ -549,10 +566,18 @@ impl TabBar {
             }
 
             let gap = &layout.slots[dest];
-            let proxy_len = source_cells.len().min(gap.end_col - gap.start_col);
+            let pointer_col = ((pointer_x_px - grab_offset_x - f64::from(padding.as_f32()))
+                / f64::from(cell.width))
+            .floor() as isize;
+            let proxy_start =
+                pointer_col.clamp(0, grid_cols.saturating_sub(span) as isize) as usize;
+            let proxy_len = source_cells
+                .len()
+                .min(gap.end_col - gap.start_col)
+                .min(grid_cols - proxy_start);
             for (offset, source_glyph) in source_cells.into_iter().take(proxy_len).enumerate() {
                 let mut proxy = source_glyph;
-                proxy.col = gap.start_col + offset;
+                proxy.col = proxy_start + offset;
                 proxy.attrs.background = lifted_fill;
                 if proxy.ch != ' ' {
                     proxy.attrs.foreground = lifted_label;
@@ -963,11 +988,8 @@ mod tests {
     fn tab_drop_index_flips_at_each_slot_midpoint() {
         let src = MockSource::new(&["a", "b", "c"], 0);
         let layout = compute_layout(&src, GRID_COLS);
-        let origin = &layout.slots[1];
-        let origin_span = origin.end_col - origin.start_col;
         for slot in layout.slots.iter().filter(|slot| slot.idx != 1) {
-            let shift = usize::from(slot.idx > 1) * origin_span;
-            let midpoint_cols = (slot.start_col + slot.end_col - 2 * shift) as f64 / 2.0;
+            let midpoint_cols = (slot.start_col + slot.end_col) as f64 / 2.0;
             let midpoint_px = midpoint_cols * f64::from(CELL.width);
             assert_eq!(
                 bar().drop_index(
@@ -1001,6 +1023,7 @@ mod tests {
             0,
             false,
             8.0,
+            8.0,
             &src,
             GRID_COLS,
             CELL,
@@ -1012,13 +1035,14 @@ mod tests {
         assert!(pending[source.label_col].attrs.bold());
 
         let mut dragged = render_default(&src).glyphs;
-        let pointer_x = 50.0 * f64::from(CELL.width);
+        let pointer_x = 25.0 * f64::from(CELL.width);
         bar().paint_drag_overlay(
             &mut dragged,
             0,
             2,
             true,
             pointer_x,
+            8.0,
             &src,
             GRID_COLS,
             CELL,
@@ -1034,6 +1058,23 @@ mod tests {
             1,
             "the lifted label appears only in the destination gap"
         );
+
+        let mut followed = render_default(&src).glyphs;
+        bar().paint_drag_overlay(
+            &mut followed,
+            0,
+            2,
+            true,
+            pointer_x + 2.0 * f64::from(CELL.width),
+            8.0,
+            &src,
+            GRID_COLS,
+            CELL,
+            WindowPadding::ZERO,
+            COLORS,
+            panel,
+        );
+        assert_ne!(dragged, followed, "pointer motion moves the lifted proxy");
     }
 
     #[test]

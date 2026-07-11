@@ -851,13 +851,50 @@ fn top_tab_drag_real_route_commits_a_neighbour_drop() {
     // 1, not as the lifted tab's stale home index.
     app.set_pointer_px_for_test(400.0, 8.0);
     app.mouse_left_press_for_test();
-    app.pointer_move_for_test(220.0, 8.0);
+    app.pointer_move_for_test(200.0, 8.0);
     assert_eq!(app.top_tab_drag_for_test(), Some((true, 1)));
     app.mouse_left_release_for_test();
 
     assert_eq!(app.session_token_at_position_for_test(0), Some(before[0]));
     assert_eq!(app.session_token_at_position_for_test(1), Some(before[2]));
     assert_eq!(app.session_token_at_position_for_test(2), Some(before[1]));
+}
+
+#[test]
+fn top_tab_drag_threshold_is_symmetric_across_real_neighbour_midpoints() {
+    fn three_tab_app() -> Option<App> {
+        let mut app = tab_bar_app()?;
+        let dims = NativeOptions::default().initial_grid;
+        let (terminal, writer, pty, _bytes) = recorded_session(dims)?;
+        app.push_session_for_test(terminal, writer, pty);
+        app.set_test_cell_for_test(cell(8, 16));
+        Some(app)
+    }
+
+    let Some(mut left) = three_tab_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Three 24-column slots have real midpoints at x=96, 288, 480. Grab the
+    // middle tab at its center. One pixel before the left neighbor midpoint is
+    // still the no-op insertion; one pixel beyond crosses it.
+    left.set_pointer_px_for_test(288.0, 8.0);
+    left.mouse_left_press_for_test();
+    left.pointer_move_for_test(97.0, 8.0);
+    assert_eq!(left.top_tab_drag_for_test(), Some((true, 2)));
+    left.pointer_move_for_test(95.0, 8.0);
+    assert_eq!(left.top_tab_drag_for_test(), Some((true, 0)));
+
+    let Some(mut right) = three_tab_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    right.set_pointer_px_for_test(288.0, 8.0);
+    right.mouse_left_press_for_test();
+    right.pointer_move_for_test(479.0, 8.0);
+    assert_eq!(right.top_tab_drag_for_test(), Some((true, 2)));
+    right.pointer_move_for_test(481.0, 8.0);
+    assert_eq!(right.top_tab_drag_for_test(), Some((true, 3)));
 }
 
 #[test]
@@ -4721,6 +4758,34 @@ fn workspace_drag_real_route_commits_a_neighbour_drop() {
 
     assert_eq!(app.workspace_names_for_test(), vec!["a", "c", "b"]);
     assert_eq!(app.active_workspace_index_for_test(), 1);
+}
+
+#[test]
+fn workspace_drag_threshold_is_symmetric_across_real_neighbour_midpoints() {
+    let Some(mut up) = rail_drag_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Slot midpoints are y=32, 80, 128. Grab the middle slot at its center;
+    // both directions remain no-op until the proxy center crosses the adjacent
+    // slot's real midpoint.
+    up.set_pointer_px_for_test(12.0, 80.0);
+    up.mouse_left_press_for_test();
+    up.pointer_move_for_test(12.0, 33.0);
+    assert_eq!(up.rail_ws_drag_for_test(), Some((true, 2)));
+    up.pointer_move_for_test(12.0, 31.0);
+    assert_eq!(up.rail_ws_drag_for_test(), Some((true, 0)));
+
+    let Some(mut down) = rail_drag_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    down.set_pointer_px_for_test(12.0, 80.0);
+    down.mouse_left_press_for_test();
+    down.pointer_move_for_test(12.0, 127.0);
+    assert_eq!(down.rail_ws_drag_for_test(), Some((true, 2)));
+    down.pointer_move_for_test(12.0, 129.0);
+    assert_eq!(down.rail_ws_drag_for_test(), Some((true, 3)));
 }
 
 #[test]

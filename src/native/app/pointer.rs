@@ -36,6 +36,9 @@ pub(in crate::native) struct TopTabDrag {
     pub(in crate::native) origin_idx: usize,
     press_x: f64,
     press_y: f64,
+    /// Pointer distance from the grabbed slot's leading edge, in pixels.
+    pub(in crate::native) grab_offset_x: f64,
+    slot_span_px: f64,
     pub(in crate::native) pointer_x: f64,
     pub(in crate::native) armed: bool,
     pub(in crate::native) drop_idx: usize,
@@ -47,6 +50,8 @@ impl TopTabDrag {
             origin_idx: idx,
             press_x,
             press_y,
+            grab_offset_x: 0.0,
+            slot_span_px: 0.0,
             pointer_x: press_x,
             armed: false,
             drop_idx: idx,
@@ -80,6 +85,9 @@ pub(in crate::native) struct RailWorkspaceDrag {
     /// Physical-pixel X/Y of the initial press — the threshold origin.
     press_x: f64,
     press_y: f64,
+    /// Pointer distance from the grabbed slot's top edge, in pixels.
+    pub(in crate::native) grab_offset_y: f64,
+    slot_span_px: f64,
     /// Latest physical-pixel Y. The render layer maps this to the floating
     /// proxy's top row, keeping the grabbed slot under the pointer.
     pub(in crate::native) pointer_y: f64,
@@ -98,6 +106,8 @@ impl RailWorkspaceDrag {
             origin_idx: idx,
             press_x,
             press_y,
+            grab_offset_y: 0.0,
+            slot_span_px: 0.0,
             pointer_y: press_y,
             armed: false,
             drop_idx: idx,
@@ -1251,18 +1261,34 @@ impl App {
         let Some(mut drag) = self.top_tab_drag else {
             return;
         };
-        let armed = drag.update_arm(x_px, y_px);
-        if armed
-            && let Some(insert) = self.tab_bar.drop_index(
-                x_px,
+        let padding = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO);
+        if drag.slot_span_px == 0.0
+            && let Some((offset, span)) = self.tab_bar.drag_metrics(
+                drag.press_x,
                 drag.origin_idx,
                 &self.sessions,
                 self.tab_bar_grid_cols(),
                 cell,
-                self.gpu
-                    .as_ref()
-                    .map(GpuState::window_padding)
-                    .unwrap_or(WindowPadding::ZERO),
+                padding,
+            )
+        {
+            drag.grab_offset_x = offset;
+            drag.slot_span_px = span;
+        }
+        let armed = drag.update_arm(x_px, y_px);
+        let proxy_center_x = x_px - drag.grab_offset_x + drag.slot_span_px / 2.0;
+        if armed
+            && let Some(insert) = self.tab_bar.drop_index(
+                proxy_center_x,
+                drag.origin_idx,
+                &self.sessions,
+                self.tab_bar_grid_cols(),
+                cell,
+                padding,
             )
         {
             drag.drop_idx = insert;
@@ -1337,8 +1363,19 @@ impl App {
         let Some(mut drag) = self.rail_ws_drag else {
             return;
         };
+        if drag.slot_span_px == 0.0
+            && let Some((offset, span)) =
+                self.workspace_rail_drag_metrics(drag.press_y, drag.origin_idx, cell)
+        {
+            drag.grab_offset_y = offset;
+            drag.slot_span_px = span;
+        }
         let armed = drag.update_arm(x_px, y_px);
-        if armed && let Some(insert) = self.workspace_rail_drop_index(y_px, drag.origin_idx, cell) {
+        let proxy_center_y = y_px - drag.grab_offset_y + drag.slot_span_px / 2.0;
+        if armed
+            && let Some(insert) =
+                self.workspace_rail_drop_index(proxy_center_y, drag.origin_idx, cell)
+        {
             drag.drop_idx = insert;
         }
         self.rail_ws_drag = Some(drag);
@@ -1459,6 +1496,36 @@ impl App {
         };
         self.tab_rail.drop_index(
             y_px,
+            origin_idx,
+            &source,
+            cols,
+            self.tab_rail_grid_rows(),
+            origin,
+            cell,
+            self.rail_geom(),
+        )
+    }
+
+    fn workspace_rail_drag_metrics(
+        &self,
+        press_y: f64,
+        origin_idx: usize,
+        cell: CellSize,
+    ) -> Option<(f64, f64)> {
+        let source = self.sessions.rail_source();
+        let (cols, origin) = if self.rail_autohide_active() {
+            let side = self.rail_autohide_side()?;
+            (
+                self.rail_overlay_cols(),
+                self.rail_overlay_origin_px(cell, side),
+            )
+        } else if self.should_show_workspace_rail() {
+            (self.rail_cols(), self.rail_origin_px(cell))
+        } else {
+            return None;
+        };
+        self.tab_rail.drag_metrics(
+            press_y,
             origin_idx,
             &source,
             cols,

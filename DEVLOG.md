@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-10 -- Drag thresholds use real neighbor geometry
+
+Tab and workspace drag thresholds now compare the lifted proxy center with each
+neighbor's real, unshifted midpoint. The grab offset within the source slot is
+preserved, so dragging from an edge uses the same physical crossing threshold
+as dragging from the center. Left and right tab moves and upward and downward
+workspace moves now transition symmetrically without early swaps.
+
+The top-strip proxy now follows pointer movement while the destination gap
+continues to part the resting tabs. The workspace proxy uses the same stored
+grab offset, keeping the grabbed point under the pointer in pinned and
+auto-hidden rails on either side.
+
+Production-route coverage crosses both neighbors from a centered grab and
+asserts identical real-midpoint thresholds in both directions. Widget coverage
+confirms that pointer movement advances each lifted proxy. The shared render and
+pointer implementation has no platform-specific surface on Windows, macOS, or
+Linux.
+
+Verified: complete `cargo test` suite green (3475 library tests passed, 7
+ignored, plus all integration binaries); `cargo clippy --all-targets` clean
+under the deny gate; `cargo fmt --check` clean.
+
+---
+
 ## 2026-07-10 -- Drag previews reserve their destination slots
 
 Workspace-rail and top-strip drag targeting now evaluates the compacted slot
