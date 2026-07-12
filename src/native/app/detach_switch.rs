@@ -61,6 +61,23 @@ impl App {
             .and_then(|terminal| terminal.current_working_directory().map(str::to_owned))
     }
 
+    /// The focused pane's OSC 7 cwd, VALIDATED for seeding a spawn (audit D-1).
+    /// The tracked cwd is attacker-influenceable (any process' output can emit
+    /// OSC 7) and the Windows PowerShell integration can manufacture
+    /// non-filesystem paths (UNC `//srv/share`, PSDrive `/HKLM:/...`); handing
+    /// such a path to New Tab / Duplicate / New Window makes `CreateProcessW`
+    /// receive a bogus `lpCurrentDirectory` (the spawn fails and a new window
+    /// dies with stdio nulled), or silently starts a shell in the wrong dir on
+    /// Unix. Mirror the restore path's discipline
+    /// (`persistence::validate_interactive_cwd`): an existing dir is used as-is,
+    /// a bogus one falls back to home, an unknown cwd stays `None` (default dir,
+    /// unchanged). Windows: `%USERPROFILE%` is the home fallback.
+    pub(in crate::native) fn validated_spawn_cwd(&self) -> Option<std::path::PathBuf> {
+        let captured = self.focused_pane_cwd();
+        let home = crate::native::persistence::restore_home_dir();
+        crate::native::persistence::validate_interactive_cwd(captured.as_deref(), home.as_deref())
+    }
+
     /// "Swap": spawn a managed session in `cwd`, attach + focus it, then close
     /// the original focused pane. Emitted by the dialog's `[S]` choice.
     /// Unix-only orchestration; on Windows it raises a "not supported" notice.

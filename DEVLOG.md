@@ -7,6 +7,62 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Attach mirror sync, attached-resize write safety, and spawn-cwd validation
+
+Correctness and robustness fixes for multi-client attached sessions, the
+attach socket write path, and the working directory that seeds new shells.
+
+Attached clients now stay in sync when one of them resizes. A resize applied by
+the host previously broadcast only a repaint signal, so every OTHER client
+attached to the same session kept advancing its mirror terminal at the old
+width against output the host had reformatted for the new width -- wrong
+wrapping, a misplaced cursor, and scrollback that stayed permanently mis-wrapped
+until that client resized (which then garbled the first). The host now
+broadcasts the applied grid dimensions in a dedicated resize frame; each client
+resizes its mirror before repainting. The frame is a new wire kind, so a host
+built before it simply never emits it (older clients unaffected) and the
+requesting client's own mirror echo is guarded to a no-op when the dimensions
+have not changed. Session-host attach is a Unix-only feature; no Windows
+surface.
+
+The attach socket now bounds every write. A window resize is issued from the
+main thread and input flows on a writer thread, both through one shared client
+behind a mutex; with no send timeout a stopped host (paused, paging) could fill
+the socket buffer and park the main thread in the resize write, or park it
+behind the mutex the writer thread was already holding, freezing the UI for as
+long as the host stayed stopped. A bounded send timeout degrades a wedged host
+to a dropped frame -- the mirror has already resized locally and input to a
+wedged shell is moot -- instead of an unbounded freeze. Unix-only, alongside the
+attach feature.
+
+New Tab, Duplicate, and New Window now validate the working directory before it
+seeds a spawn. The directory comes from OSC 7 tracking, which any program's
+output can set, and the PowerShell integration could manufacture non-filesystem
+locations (a UNC share or a registry/cert PSDrive) that are not valid spawn
+directories. Passing one through handed the child process a bogus working
+directory: on Windows the spawn fails and a new window dies with its output
+discarded; on other platforms a shell silently starts in the wrong place. The
+tracked directory is now checked against the filesystem the same way the restore
+path already validates a saved directory -- an existing directory is used as-is,
+a missing or non-filesystem one falls back to the user's home, and an unknown
+directory leaves the spawn in its default location unchanged. A genuine spawn
+failure now surfaces a notice instead of being swallowed. On the emitter side,
+the PowerShell profile reports a working directory only when the current
+location is a real filesystem path, and uses the native filesystem form rather
+than the provider-qualified one. This applies on all platforms; the spawn
+directory the tracking feeds is now validated everywhere.
+
+Interactive-path `~` expansion now resolves the home directory through the
+shared helper that reads `%USERPROFILE%` on Windows, matching the connection
+import and path-picker fallback. Reading only `HOME` left `~` expansion silently
+dead on Windows, where that variable is normally unset. `$HOME` still takes
+precedence on other platforms, unchanged.
+
+Tests: added a resize frame wire round-trip and older-decoder rejection, a
+two-client mirror convergence test, working-directory validation cases
+(existing, bogus UNC/PSDrive fallback, unknown, no-home), and a PowerShell
+provider-gate assertion. Full library suite green (3562), clippy and fmt clean.
+
 ## 2026-07-12 -- Workspace prompt targets remain stable across reaping
 
 Workspace rename and per-workspace layout-save prompts now capture a stable

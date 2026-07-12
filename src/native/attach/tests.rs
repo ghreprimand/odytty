@@ -248,6 +248,55 @@ fn live_output_incremental_repaint() {
 }
 
 #[test]
+fn resized_frame_syncs_the_mirror_dimensions() {
+    // C-3: the mirror starts at the host's snapshot dims (20x4). A `Resized`
+    // frame from the host -- as broadcast when ANOTHER client resizes the shared
+    // session -- must resize this client's mirror so it stops advancing at the
+    // stale width, even though this client never resized its own window.
+    let (socket_path, handle) =
+        spawn_fake_host(snapshot_bytes(&sample_host_terminal()), |mut stream| {
+            write_host_frame(
+                &mut stream,
+                &HostFrame::Resized {
+                    columns: 80,
+                    rows: 10,
+                    render_revision: 42,
+                },
+            )
+            .expect("write resized");
+            drop(stream);
+        });
+
+    let (_client, reader, terminal) =
+        AttachClient::connect_with(&socket_path, "resize-sync", test_caps(), test_deadline())
+            .expect("attach connects");
+    // Mirror starts at the snapshot dimensions.
+    assert_eq!(terminal.screen().dimensions().columns, 20);
+    assert_eq!(terminal.screen().dimensions().rows, 4);
+
+    let terminal = Arc::new(Mutex::new(terminal));
+    let (tx, rx) = mpsc::channel();
+    let token = SessionToken(11);
+    let pump_terminal = terminal.clone();
+    let pump = std::thread::spawn(move || {
+        run_attach_pump(reader, pump_terminal, ChannelSink(tx), token);
+    });
+    join_within(pump, "attach pump");
+
+    // The mirror converged to the peer-applied dimensions.
+    let dims = terminal.lock().unwrap().screen().dimensions();
+    assert_eq!(dims.columns, 80, "mirror must adopt the host's new width");
+    assert_eq!(dims.rows, 10, "mirror must adopt the host's new height");
+
+    let events: Vec<Ev> = rx.try_iter().collect();
+    assert!(
+        events.contains(&Ev::Redraw(token)),
+        "a resize must trigger a redraw: {events:?}"
+    );
+    join_within(handle, "fake host thread");
+}
+
+#[test]
 fn session_exit_is_handled() {
     let (socket_path, handle) =
         spawn_fake_host(snapshot_bytes(&sample_host_terminal()), |mut stream| {

@@ -58,6 +58,21 @@ use super::session::SessionToken;
 /// can poll without blocking indefinitely on a single read.
 const SNAPSHOT_POLL: Duration = Duration::from_millis(50);
 
+/// Bounded write timeout on the attach socket (audit C-4). Every write to the
+/// host -- input, resize, detach -- goes through this stream; a resize is issued
+/// from the MAIN thread (`resize_all_panes_impl`) while input flows on the pump's
+/// writer thread, and both take the shared `AttachClient` mutex. If the host is
+/// stopped (SIGSTOP / paging / D-state) the socket send buffer fills and an
+/// untimed `sendmsg` parks forever: the main thread then freezes on a window
+/// resize, or behind the mutex the writer thread is holding while parked. A send
+/// timeout bounds every write so a wedged host degrades to a dropped frame (the
+/// mirror already resized locally; input to a wedged shell is moot) instead of an
+/// unbounded UI freeze. Generous enough that ordinary backpressure never trips
+/// it. `SO_SNDTIMEO` is a socket-level option shared across the `try_clone`d fds,
+/// but only the write half ever writes, so setting it on the write stream is
+/// sufficient and leaves the pump's independent `SO_RCVTIMEO` untouched.
+const ATTACH_WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// A sink the attach pump uses to wake the UI when a frame lands. Implemented for
 /// winit's [`EventLoopProxy`] in production and for an `mpsc` sender in tests, so
 /// the whole pump is exercisable without a running event loop.
@@ -157,6 +172,12 @@ impl AttachClient {
         // nothing is lost. On Linux the call succeeds and ignoring success is a
         // no-op → byte-identical.
         let _ = read_stream.set_read_timeout(None);
+        // C-4: bound every write to the host so a stopped host can never park the
+        // main thread (resize) or the mutex-holding writer thread indefinitely.
+        // Best-effort, like the read-timeout clear above: on macOS setting a
+        // timeout on a `try_clone`d peer-closed socket can return EINVAL, which
+        // must not fail an otherwise-good attach.
+        let _ = stream.set_write_timeout(Some(ATTACH_WRITE_TIMEOUT));
         Ok((
             Self {
                 stream,
@@ -301,7 +322,9 @@ fn read_initial_snapshot(stream: &mut UnixStream, deadline: Duration) -> Result<
     while start.elapsed() < deadline {
         match frame_reader.read(stream) {
             Ok(HostFrame::Snapshot(bytes)) => return Ok(bytes),
-            Ok(HostFrame::Output(_)) | Ok(HostFrame::Invalidate { .. }) => {}
+            Ok(HostFrame::Output(_))
+            | Ok(HostFrame::Invalidate { .. })
+            | Ok(HostFrame::Resized { .. }) => {}
             Ok(HostFrame::SessionExit { .. }) => bail!("session exited before snapshot"),
             Ok(HostFrame::Error(message)) => {
                 bail!("session-host error before snapshot: {message}")
@@ -353,6 +376,27 @@ fn run_attach_pump(
                 sink.redraw(session);
             }
             Ok(HostFrame::Invalidate { .. }) => sink.redraw(session),
+            Ok(HostFrame::Resized { columns, rows, .. }) => {
+                // C-3: a peer (or this client) resized the shared session; sync
+                // this mirror's grid to the host's authoritative dimensions so it
+                // stops advancing at a stale width. Guarded on a genuine change:
+                // the client that requested the resize already applied it to its
+                // own mirror locally, so echoing identical dimensions here would
+                // re-drive the column reflow (whose trailing-blank trim can nudge
+                // the cursor) for no reason. Zero dimensions are ignored.
+                if columns != 0
+                    && rows != 0
+                    && let Ok(mut term) = terminal.lock()
+                {
+                    let current = term.screen().dimensions();
+                    let cols = columns as usize;
+                    let target_rows = rows as usize;
+                    if current.columns != cols || current.rows != target_rows {
+                        term.resize(cols, target_rows);
+                    }
+                }
+                sink.redraw(session);
+            }
             Ok(HostFrame::Snapshot(bytes)) => {
                 // Per the contract only one snapshot is sent (at attach), but if
                 // the host ever re-snapshots mid-stream, restore from it rather

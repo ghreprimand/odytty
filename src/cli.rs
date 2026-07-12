@@ -418,7 +418,8 @@ fn read_attach_snapshot(client: &mut SessionHostClient) -> AnyResult<Vec<u8>> {
                 HostFrame::Snapshot(bytes) => return Ok(bytes),
                 HostFrame::SessionExit { .. } => bail!("session exited before snapshot"),
                 HostFrame::Error(message) => bail!("session-host error before snapshot: {message}"),
-                HostFrame::Output(_) | HostFrame::Invalidate { .. } => {}
+                HostFrame::Output(_) | HostFrame::Invalidate { .. } | HostFrame::Resized { .. } => {
+                }
             }
         }
     }

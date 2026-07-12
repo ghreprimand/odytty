@@ -380,6 +380,53 @@ fn resolve_cwd_without_a_home_spawns_in_place() {
     assert!(resolved.stale);
 }
 
+#[test]
+fn validate_interactive_cwd_keeps_an_existing_directory() {
+    // D-1: a tracked cwd that exists on disk seeds the spawn as-is.
+    let existing = std::env::temp_dir();
+    let home = PathBuf::from("/some/home");
+    let cwd = validate_interactive_cwd(existing.to_str(), Some(&home));
+    assert_eq!(cwd.as_deref(), Some(existing.as_path()));
+}
+
+#[test]
+fn validate_interactive_cwd_rejects_a_bogus_path_and_falls_back_to_home() {
+    // D-1: a non-existent / non-filesystem cwd (the UNC `//srv/share` and PSDrive
+    // `/HKLM:/...` forms the Windows PowerShell integration can manufacture, or a
+    // hostile OSC 7 from ordinary output) must NOT reach the spawn; it falls back
+    // to home so `CreateProcessW` / `posix_spawn` never gets a bogus directory.
+    let home = std::env::temp_dir();
+    for bogus in [
+        "/HKLM:/SOFTWARE",
+        "//srv/share/nope-odytty-d1",
+        "///srv/share",
+    ] {
+        let cwd = validate_interactive_cwd(Some(bogus), Some(&home));
+        assert_eq!(
+            cwd.as_deref(),
+            Some(home.as_path()),
+            "bogus cwd {bogus:?} must fall back to home"
+        );
+    }
+}
+
+#[test]
+fn validate_interactive_cwd_unknown_stays_none_for_the_default_dir() {
+    // D-1: unlike the restore path, an unknown interactive cwd is left as None so
+    // New Tab / Duplicate / New Window spawn in the default directory unchanged,
+    // NOT forced into home.
+    let home = std::env::temp_dir();
+    assert_eq!(validate_interactive_cwd(None, Some(&home)), None);
+}
+
+#[test]
+fn validate_interactive_cwd_without_a_home_drops_a_bogus_cwd() {
+    // With no home to fall back to, a bogus cwd yields None (spawn in place)
+    // rather than passing the bogus path through.
+    let bogus = "/definitely/not/a/real/directory/odytty-d1-marker";
+    assert_eq!(validate_interactive_cwd(Some(bogus), None), None);
+}
+
 /// F6-W5: a workspace's bound host alias round-trips through the snapshot and
 /// serializes under the stable `default_profile` key.
 #[test]

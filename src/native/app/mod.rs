@@ -792,7 +792,12 @@ impl App {
             overlay_left_held: false,
             pointer_left_held: false,
             grid_left_held: false,
-            home_dir: std::env::var_os("HOME").and_then(|h| h.into_string().ok()),
+            // D-10: resolve the interactive-paths `~` home through the shared
+            // `restore_home_dir` helper so it uses `%USERPROFILE%` on Windows,
+            // not a `HOME` that is normally unset there (which left `~`
+            // expansion silently dead). `$HOME` still wins on Unix, unchanged.
+            home_dir: crate::native::persistence::restore_home_dir()
+                .and_then(|home| home.into_os_string().into_string().ok()),
             image_overlay: None,
             autosave_is_primary: false,
             autosave_deadline: None,
@@ -980,29 +985,46 @@ impl App {
         // tracked cwd (None) spawns in the default directory, unchanged. Works on
         // Windows too — ConPTY honors the working directory and drive-letter OSC 7
         // cwds are already normalized.
-        let cwd = self.focused_pane_cwd().map(std::path::PathBuf::from);
-        if let Ok(session_id) = self.sessions.spawn(self.grid, cwd) {
-            let effective_theme = self.effective_theme;
-            let themed_ui_roles = self.themed_ui_roles;
-            let osc52_read = self.settings.osc52_read;
-            let cursor_style = self.settings.cursor_style;
-            let cursor_blink = self.settings.cursor_blink;
-            let cell = self.gpu.as_ref().map(GpuState::cell);
-            let scrollback_limit = self.settings.scrollback_limit();
-            if let Some(session) = self.sessions.get_mut(session_id) {
-                Self::initialize_session_with(
-                    session,
-                    effective_theme,
-                    themed_ui_roles,
-                    osc52_read,
-                    cursor_style,
-                    cursor_blink,
-                    cell,
-                    scrollback_limit,
-                );
+        // D-1: validate the tracked cwd (stat + home fallback) before it seeds
+        // the spawn, so a bogus / non-filesystem OSC 7 cwd can never reach the
+        // PTY spawn's working directory.
+        let cwd = self.validated_spawn_cwd();
+        match self.sessions.spawn(self.grid, cwd) {
+            Ok(session_id) => {
+                let effective_theme = self.effective_theme;
+                let themed_ui_roles = self.themed_ui_roles;
+                let osc52_read = self.settings.osc52_read;
+                let cursor_style = self.settings.cursor_style;
+                let cursor_blink = self.settings.cursor_blink;
+                let cell = self.gpu.as_ref().map(GpuState::cell);
+                let scrollback_limit = self.settings.scrollback_limit();
+                if let Some(session) = self.sessions.get_mut(session_id) {
+                    Self::initialize_session_with(
+                        session,
+                        effective_theme,
+                        themed_ui_roles,
+                        osc52_read,
+                        cursor_style,
+                        cursor_blink,
+                        cell,
+                        scrollback_limit,
+                    );
+                }
+                let _ = self.sessions.switch(session_id);
+                self.on_active_session_changed();
             }
-            let _ = self.sessions.switch(session_id);
-            self.on_active_session_changed();
+            Err(err) => {
+                // D-1: surface a spawn failure instead of swallowing it (the old
+                // `if let Ok(..)` silently no-oped). A validated cwd makes a
+                // bogus-directory failure unreachable, but a genuine spawn error
+                // (exhausted PTYs, missing shell) now leaves a visible notice.
+                // Don't clobber a more specific notice a caller already raised
+                // (e.g. the stale-host-binding local fallback), which explains
+                // the same failed open in user terms.
+                if self.open_notice.is_none() {
+                    self.raise_open_notice(format!("Could not open a new tab: {err}"));
+                }
+            }
         }
     }
 
@@ -1020,7 +1042,12 @@ impl App {
     /// unchanged. Cross-platform — `--working-directory` is honored on Windows,
     /// and drive-letter OSC 7 cwds are already normalized upstream.
     pub(in crate::native) fn handle_new_window(&mut self) {
-        let cwd = self.focused_pane_cwd();
+        // D-1: validate the tracked cwd before threading it into
+        // `--working-directory`, so a bogus / non-filesystem OSC 7 cwd cannot make
+        // the new window die with `CreateProcessW` rejecting `lpCurrentDirectory`.
+        let cwd = self
+            .validated_spawn_cwd()
+            .and_then(|dir| dir.into_os_string().into_string().ok());
         let Some(argv) = Self::new_window_argv(cwd.as_deref()) else {
             tracing::warn!(
                 "new-window: could not resolve the current executable; not launching a window"
@@ -1037,7 +1064,11 @@ impl App {
         #[cfg(not(test))]
         {
             if let Err(err) = interactive_paths::spawn_detached(&argv) {
+                // D-1: a new-window spawn failure is surfaced, not just logged --
+                // otherwise the window silently never appears. Still non-fatal:
+                // a failed new-window request must never crash the running window.
                 tracing::warn!(error = %err, "new-window: failed to launch a new OdyTTY window");
+                self.raise_open_notice(format!("Could not open a new window: {err}"));
             }
         }
     }
@@ -1419,7 +1450,9 @@ impl App {
     /// flows through the same spawn path New Tab's cwd inheritance uses, so
     /// ConPTY honors it and drive-letter OSC 7 cwds are already normalized.
     fn handle_duplicate_workspace(&mut self) {
-        let cwd = self.focused_pane_cwd().map(std::path::PathBuf::from);
+        // D-1: validate the tracked cwd (stat + home fallback) before it seeds
+        // the duplicated workspace's shell spawn.
+        let cwd = self.validated_spawn_cwd();
         let Ok(token) = self.sessions.new_workspace_in(self.grid, cwd) else {
             return;
         };

@@ -765,9 +765,19 @@ fn drain_client_events(
         // too late to protect it).
         terminal.resize(dimensions.columns, dimensions.rows);
         session.resize(dimensions)?;
+        // C-3: broadcast the applied dimensions to EVERY client, not just the one
+        // that requested the resize. A bare `Invalidate` only triggers a repaint;
+        // the peers' mirrors would keep advancing at their old width against
+        // output the host now formats for `dimensions`. `Resized` carries the new
+        // grid so each mirror resizes before it repaints (and carries the same
+        // render revision an `Invalidate` would, so it doubles as the repaint
+        // signal). The requesting client already resized its own mirror locally;
+        // its pump guards the echo to a no-op when the dimensions are unchanged.
         broadcast(
             clients,
-            &HostFrame::Invalidate {
+            &HostFrame::Resized {
+                columns: dimensions.columns as u32,
+                rows: dimensions.rows as u32,
                 render_revision: terminal.render_revision(),
             },
         );

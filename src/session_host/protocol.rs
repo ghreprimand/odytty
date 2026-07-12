@@ -219,8 +219,32 @@ pub fn read_host_hello(reader: &mut impl Read) -> Result<HostHello, ProtocolErro
 pub enum HostFrame {
     Snapshot(Vec<u8>),
     Output(Vec<u8>),
-    Invalidate { render_revision: u64 },
-    SessionExit { exit_code: Option<i32> },
+    Invalidate {
+        render_revision: u64,
+    },
+    /// The host applied a resize (its own TIOCSWINSZ + model reflow) and the new
+    /// grid dimensions must propagate to EVERY attached client, not just the one
+    /// that requested it (audit C-3). Without this a peer's resize silently
+    /// garbles the other clients' mirrors, which keep advancing at their old
+    /// width against output the host formatted for the new width. Carries the
+    /// post-resize dimensions plus the same `render_revision` an `Invalidate`
+    /// would, so a client both resizes its mirror and repaints from one frame.
+    ///
+    /// Wire kind 6. A host built before this frame never emits it, so an older
+    /// client attached to an older host is unaffected; a newer client attached
+    /// to an older host simply never receives it (the mirror stays as-is, the
+    /// pre-fix behavior). The only skew that drops a client is a newer host
+    /// emitting kind 6 to an older client (a binary downgrade with a live host),
+    /// which decodes as `InvalidFrameKind` -- the same accepted degradation the
+    /// `ClientFrame::Shutdown` frame documents.
+    Resized {
+        columns: u32,
+        rows: u32,
+        render_revision: u64,
+    },
+    SessionExit {
+        exit_code: Option<i32>,
+    },
     Error(String),
 }
 
@@ -247,6 +271,17 @@ pub fn write_host_frame(writer: &mut impl Write, frame: &HostFrame) -> Result<()
         HostFrame::Output(bytes) => write_frame(writer, 2, bytes),
         HostFrame::Invalidate { render_revision } => {
             write_frame(writer, 3, &render_revision.to_be_bytes())
+        }
+        HostFrame::Resized {
+            columns,
+            rows,
+            render_revision,
+        } => {
+            let mut payload = Vec::with_capacity(16);
+            payload.extend_from_slice(&columns.to_be_bytes());
+            payload.extend_from_slice(&rows.to_be_bytes());
+            payload.extend_from_slice(&render_revision.to_be_bytes());
+            write_frame(writer, 6, &payload)
         }
         HostFrame::SessionExit { exit_code } => {
             let mut payload = Vec::with_capacity(5);
@@ -278,6 +313,20 @@ fn decode_host_frame(kind: u8, payload: Vec<u8>) -> Result<HostFrame, ProtocolEr
             }
             Ok(HostFrame::Invalidate {
                 render_revision: u64::from_be_bytes(payload.try_into().expect("len checked")),
+            })
+        }
+        6 => {
+            if payload.len() != 16 {
+                return Err(ProtocolError::InvalidPayload("resized"));
+            }
+            let columns = u32::from_be_bytes(payload[0..4].try_into().expect("len checked"));
+            let rows = u32::from_be_bytes(payload[4..8].try_into().expect("len checked"));
+            let render_revision =
+                u64::from_be_bytes(payload[8..16].try_into().expect("len checked"));
+            Ok(HostFrame::Resized {
+                columns,
+                rows,
+                render_revision,
             })
         }
         4 => match payload.as_slice() {
@@ -716,6 +765,38 @@ mod tests {
 
     fn is_would_block(err: &ProtocolError) -> bool {
         matches!(err, ProtocolError::Io(error) if error.kind() == io::ErrorKind::WouldBlock)
+    }
+
+    /// Regression: audit C-3 -- the `Resized` host frame round-trips its
+    /// dimensions and render revision through the wire codec, and an older
+    /// client (one that predates kind 6) rejects it as an unknown frame kind
+    /// rather than misdecoding it as another frame.
+    #[test]
+    fn resized_host_frame_round_trips_and_is_rejected_by_older_decoders() {
+        let frame = HostFrame::Resized {
+            columns: 120,
+            rows: 40,
+            render_revision: 987_654_321,
+        };
+        let bytes = encoded_host_frame(&frame);
+        let mut cursor = io::Cursor::new(bytes.clone());
+        assert_eq!(read_host_frame(&mut cursor).expect("decode resized"), frame);
+        // Wire kind 6, 16-byte payload (u32 columns + u32 rows + u64 revision).
+        assert_eq!(bytes[0], 6, "resized frame is wire kind 6");
+        // A wrong-length payload is a hard decode error, never a silent partial.
+        assert!(matches!(
+            decode_host_frame(6, vec![0u8; 15]),
+            Err(ProtocolError::InvalidPayload("resized"))
+        ));
+        // An older decoder with no arm for kind 6 rejects it as an unknown kind
+        // rather than misreading it (models a binary-downgrade skew).
+        let mut unknown = bytes.clone();
+        unknown[0] = 200;
+        let mut cursor = io::Cursor::new(unknown);
+        assert!(matches!(
+            read_host_frame(&mut cursor),
+            Err(ProtocolError::InvalidFrameKind(200))
+        ));
     }
 
     /// Regression: audit P1 — a read timeout firing mid-frame must not desync

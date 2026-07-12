@@ -405,6 +405,12 @@ end
 // `prompt` emits `133;D` (previous command's `$LASTEXITCODE`) then
 // `133;A;click_events=1` then the user's prompt then `133;B`, and the PSReadLine
 // Enter handler emits `133;C` just before the command runs. The OSC 7 path is
+// emitted only when the current location is on a `FileSystem` provider, and it
+// carries `$PWD.ProviderPath` (the native filesystem path) rather than
+// `$PWD.Path`: on a non-FileSystem PSDrive (registry `HKLM:`, cert, env) there
+// is no filesystem cwd, so emitting one manufactured a bogus directory
+// (`/HKLM:/SOFTWARE`) that later seeded a broken spawn (audit D-1); gating on the
+// provider leaves cwd tracking untouched there instead. The path is
 // percent-encoded (`%` -> `%25`) so a directory whose name contains `%` cannot
 // produce a malformed escape that the parser would reject, freezing cwd
 // tracking. `133;D` is gated on a per-command flag the Enter handler sets, so
@@ -429,13 +435,15 @@ const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
         if ($null -eq $__odytty_exit) { $__odytty_exit = 0 }
         $esc = [char]27
         $bel = [char]7
-        $p = $PWD.Path -replace '%','%25' -replace '\\','/'
         $out = ""
         if ($global:__odytty_command_started) {
             $out += "$esc]133;D;$__odytty_exit$bel"
             $global:__odytty_command_started = $false
         }
-        $out += "$esc]7;file:///$p$bel"
+        if ($PWD.Provider.Name -eq 'FileSystem') {
+            $p = $PWD.ProviderPath -replace '%','%25' -replace '\\','/'
+            $out += "$esc]7;file:///$p$bel"
+        }
         $out += "$esc]133;A;click_events=1$bel"
         $out += & $global:__odytty_original_prompt
         $out += "$esc]133;B$bel"
@@ -653,6 +661,29 @@ mod tests {
         assert!(
             ps.contains("-replace '%','%25'"),
             "powershell must percent-encode % in the OSC 7 cwd"
+        );
+    }
+
+    #[test]
+    fn powershell_snippet_gates_osc7_on_the_filesystem_provider() {
+        // D-1 fails-before/passes-after: OSC 7 must be emitted only when the
+        // current location is on the FileSystem provider, and it must carry
+        // `$PWD.ProviderPath` (the native filesystem path), not `$PWD.Path`.
+        // The old snippet emitted `file:///$($PWD.Path ...)` unconditionally, so
+        // a non-FileSystem PSDrive (registry `HKLM:`, cert, env) manufactured a
+        // bogus cwd (`/HKLM:/SOFTWARE`) that later seeded a broken spawn.
+        let ps = snippet(ShellKind::PowerShell);
+        assert!(
+            ps.contains("if ($PWD.Provider.Name -eq 'FileSystem') {"),
+            "OSC 7 emission must be gated on the FileSystem provider"
+        );
+        assert!(
+            ps.contains("$PWD.ProviderPath -replace '%','%25'"),
+            "OSC 7 must use ProviderPath (native filesystem path), not Path"
+        );
+        assert!(
+            !ps.contains("$PWD.Path -replace"),
+            "OSC 7 must not derive the cwd from $PWD.Path (provider-qualified)"
         );
     }
 
