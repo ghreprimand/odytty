@@ -21,6 +21,7 @@ use crate::theme::{Theme, ThemeSpec, VisualEffect};
 mod config;
 mod consts;
 mod descriptions;
+mod fs_read;
 mod info;
 mod reload;
 mod values;
@@ -1890,22 +1891,25 @@ impl Settings {
 
     fn from_env_and_optional_config(config_path: Option<PathBuf>) -> Self {
         let mut warnings = Vec::new();
+        let mut suppressed = 0usize;
         let config = config_path
             .as_deref()
-            .and_then(
-                |path| match ConfigValues::read(path, |message| warnings.push(message)) {
+            .and_then(|path| {
+                let mut warn = fs_read::bounded_warn(&mut warnings, &mut suppressed);
+                match ConfigValues::read(path, &mut warn) {
                     Ok(values) => Some(values),
                     Err(error) if error.kind() == io::ErrorKind::NotFound => None,
                     Err(error) => {
-                        warnings.push(format!(
+                        warn(format!(
                             "could not read config file {}: {error}",
                             path.display()
                         ));
                         None
                     }
-                },
-            )
+                }
+            })
             .unwrap_or_default();
+        fs_read::note_suppressed(&mut warnings, suppressed);
 
         for warning in warnings {
             eprintln!("odytty: {warning}");
@@ -3152,15 +3156,15 @@ pub fn theme_dir_path() -> Option<PathBuf> {
 /// must never abort startup.
 fn resolve_theme_file(value: &str, theme_dir: Option<&Path>) -> Option<String> {
     let looks_like_path = value.contains('/') || value.ends_with(".theme");
-    if looks_like_path && let Ok(contents) = std::fs::read_to_string(Path::new(value)) {
+    if looks_like_path && let Ok(contents) = fs_read::read_capped(Path::new(value)) {
         return Some(contents);
     }
     let dir = theme_dir?;
     let named = dir.join(format!("{value}.theme"));
-    if let Ok(contents) = std::fs::read_to_string(&named) {
+    if let Ok(contents) = fs_read::read_capped(&named) {
         return Some(contents);
     }
-    std::fs::read_to_string(dir.join(value)).ok()
+    fs_read::read_capped(&dir.join(value)).ok()
 }
 
 pub(super) fn normalize_name(raw: &str) -> String {

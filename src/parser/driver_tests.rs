@@ -405,3 +405,96 @@ fn invalid_utf8_emits_fffd() {
         vec![Action::Print('\u{FFFD}'), Action::Print('A')]
     );
 }
+
+/// I-6: the OSC dispatch path must not heap-allocate per terminated OSC. Shell
+/// integration emits several OSC 133/7 per prompt; the previous code built a
+/// `Vec<&[u8]>` on every dispatch. A process-wide counting allocator (active
+/// only while a per-thread guard is set) proves a warmed parser dispatches a
+/// realistic prompt corpus with zero allocations.
+mod alloc_probe {
+    use super::super::VtDispatch;
+    use super::super::driver::OdyParser;
+    use super::super::params::Params;
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    thread_local! {
+        static RECORDING: Cell<bool> = const { Cell::new(false) };
+        static ALLOC_COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    struct CountingAllocator;
+
+    // SAFETY: every method forwards to the System allocator; the only added work
+    // is reading/incrementing const-initialized thread-locals, which never
+    // allocate, so the allocator stays re-entrancy-safe.
+    unsafe impl GlobalAlloc for CountingAllocator {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            if RECORDING.with(Cell::get) {
+                ALLOC_COUNT.with(|c| c.set(c.get() + 1));
+            }
+            unsafe { System.alloc(layout) }
+        }
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            unsafe { System.dealloc(ptr, layout) }
+        }
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            if RECORDING.with(Cell::get) {
+                ALLOC_COUNT.with(|c| c.set(c.get() + 1));
+            }
+            unsafe { System.realloc(ptr, layout, new_size) }
+        }
+    }
+
+    #[global_allocator]
+    static GLOBAL: CountingAllocator = CountingAllocator;
+
+    fn count_allocs(f: impl FnOnce()) -> usize {
+        ALLOC_COUNT.with(|c| c.set(0));
+        RECORDING.with(|c| c.set(true));
+        f();
+        RECORDING.with(|c| c.set(false));
+        ALLOC_COUNT.with(Cell::get)
+    }
+
+    /// A sink that records nothing, so the only allocations the probe can observe
+    /// are the parser's own.
+    struct NullSink;
+
+    impl VtDispatch for NullSink {
+        fn print(&mut self, _c: char) {}
+        fn execute(&mut self, _byte: u8) {}
+        fn csi_dispatch(&mut self, _p: &Params, _i: &[u8], _ig: bool, _a: char) {}
+        fn esc_dispatch(&mut self, _i: &[u8], _ig: bool, _b: u8) {}
+        fn osc_dispatch(&mut self, _params: &[&[u8]], _bell: bool) {}
+        fn hook(&mut self, _p: &Params, _i: &[u8], _ig: bool, _a: char) {}
+        fn put(&mut self, _byte: u8) {}
+        fn unhook(&mut self) {}
+        fn apc_dispatch(&mut self, _data: &[u8]) {}
+    }
+
+    #[test]
+    fn osc_dispatch_is_allocation_free_after_warmup() {
+        // A full integrated prompt: OSC 133;A/B, OSC 7 cwd, OSC 133;C, OSC 133;D.
+        const PROMPT: &[u8] = b"\x1b]133;A\x07\x1b]133;B\x07\x1b]7;file://host/home/user/project\x07\x1b]133;C\x07output\r\n\x1b]133;D;0\x07";
+
+        let mut parser = OdyParser::new();
+        let mut sink = NullSink;
+        // Warm up: grow the parser's reused OSC buffer to its steady capacity so
+        // later dispatches never realloc it.
+        for _ in 0..8 {
+            parser.advance(&mut sink, PROMPT);
+        }
+
+        let allocs = count_allocs(|| {
+            for _ in 0..256 {
+                parser.advance(&mut sink, PROMPT);
+            }
+        });
+
+        assert_eq!(
+            allocs, 0,
+            "warmed OSC dispatch must not heap-allocate per prompt (got {allocs} allocations over 256 prompts)"
+        );
+    }
+}

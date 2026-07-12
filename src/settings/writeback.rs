@@ -78,7 +78,7 @@ pub fn write_settings_changes_to_path(
         });
     }
 
-    let existing = match fs::read_to_string(path) {
+    let existing = match super::fs_read::read_capped(path) {
         Ok(contents) => contents,
         Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
         Err(error) => {

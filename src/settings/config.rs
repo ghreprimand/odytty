@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use std::collections::HashMap;
 use std::ffi::OsString;
-use std::fs;
 use std::io;
 use std::path::Path;
 
@@ -40,7 +39,7 @@ pub(super) struct ConfigValues {
 
 impl ConfigValues {
     pub(super) fn read(path: &Path, mut warn: impl FnMut(String)) -> io::Result<Self> {
-        let contents = fs::read_to_string(path)?;
+        let contents = super::fs_read::read_capped(path)?;
         Ok(Self::parse(&contents, |message| {
             warn(format!("{}: {message}", path.display()));
         }))

@@ -5,7 +5,7 @@
 //! never opens links from OSC input; native applies a scheme allowlist before a
 //! deliberate Ctrl+click action.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroU32;
 
 use super::types::LinkId;
@@ -13,6 +13,22 @@ use super::types::LinkId;
 /// Conservative URI payload cap for OSC 8. Longer URIs are ignored so an
 /// untrusted process cannot grow the link table with arbitrarily large strings.
 pub const MAX_URI_BYTES: usize = 2083;
+
+/// Aggregate byte budget for all interned hyperlink payloads (URI plus any
+/// explicit `id=` field). Interning bounds duplicate URIs, but a remote peer can
+/// emit unlimited *distinct* OSC 8 URIs while overwriting a single cell; without
+/// an aggregate ceiling the table would grow until RIS or memory exhaustion.
+/// Once the budget is reached the oldest interned links are evicted first.
+const MAX_TABLE_BYTES: usize = 4 * 1024 * 1024;
+
+/// Hard ceiling on the count of distinct interned links, independent of the byte
+/// budget, so a flood of tiny distinct URIs still cannot grow the table without
+/// bound.
+const MAX_LINK_ENTRIES: usize = 8192;
+
+/// Fixed per-entry accounting overhead added to each payload length so the byte
+/// budget reflects map and struct bookkeeping, not just the raw string bytes.
+const ENTRY_OVERHEAD_BYTES: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Hyperlink {
@@ -23,9 +39,12 @@ pub struct Hyperlink {
 
 #[derive(Debug, Clone, Default)]
 pub(in crate::core) struct HyperlinkTable {
-    links: Vec<Hyperlink>,
+    entries: HashMap<LinkId, Hyperlink>,
     by_key: HashMap<HyperlinkKey, LinkId>,
-    by_id: HashMap<LinkId, usize>,
+    /// Interned link ids in insertion order; the front is the oldest link and is
+    /// evicted first when the byte budget or the entry ceiling is exceeded.
+    order: VecDeque<LinkId>,
+    total_bytes: usize,
     next_id: u32,
 }
 
@@ -59,27 +78,57 @@ impl HyperlinkTable {
         let next = self.next_id.checked_add(1).unwrap_or(1).max(1);
         self.next_id = next;
         let id = LinkId::new(NonZeroU32::new(next).expect("next hyperlink id is nonzero"));
-        let index = self.links.len();
-        self.links.push(Hyperlink { id, uri, osc_id });
+        let link = Hyperlink { id, uri, osc_id };
+        self.total_bytes = self.total_bytes.saturating_add(Self::entry_cost(&link));
+        self.entries.insert(id, link);
         self.by_key.insert(key, id);
-        self.by_id.insert(id, index);
+        self.order.push_back(id);
+        // Bound total growth: a distinct-URI flood evicts the oldest links, whose
+        // ids then resolve to `None` (callers already tolerate a missing lookup).
+        // The just-inserted link sits at the back and is never the eviction
+        // target because a single payload cannot exceed the budget on its own.
+        self.evict_to_fit();
         Some(id)
     }
 
     pub(in crate::core) fn get(&self, id: LinkId) -> Option<&Hyperlink> {
-        self.by_id.get(&id).and_then(|&index| self.links.get(index))
+        self.entries.get(&id)
     }
 
     pub(in crate::core) fn clear(&mut self) {
-        self.links.clear();
+        self.entries.clear();
         self.by_key.clear();
-        self.by_id.clear();
+        self.order.clear();
+        self.total_bytes = 0;
         self.next_id = 0;
+    }
+
+    fn entry_cost(link: &Hyperlink) -> usize {
+        link.uri
+            .len()
+            .saturating_add(link.osc_id.as_ref().map_or(0, String::len))
+            .saturating_add(ENTRY_OVERHEAD_BYTES)
+    }
+
+    fn evict_to_fit(&mut self) {
+        while self.entries.len() > MAX_LINK_ENTRIES || self.total_bytes > MAX_TABLE_BYTES {
+            let Some(evicted) = self.order.pop_front() else {
+                break;
+            };
+            if let Some(link) = self.entries.remove(&evicted) {
+                self.total_bytes = self.total_bytes.saturating_sub(Self::entry_cost(&link));
+                let key = HyperlinkKey {
+                    uri: link.uri,
+                    osc_id: link.osc_id,
+                };
+                self.by_key.remove(&key);
+            }
+        }
     }
 
     #[cfg(test)]
     pub(in crate::core) fn len(&self) -> usize {
-        self.links.len()
+        self.entries.len()
     }
 }
 
@@ -156,7 +205,7 @@ mod tests {
         }
 
         assert_eq!(
-            table.links.len(),
+            table.entries.len(),
             1,
             "identical anonymous OSC 8 repaint loops must not grow the table"
         );
@@ -169,7 +218,7 @@ mod tests {
         let second = table.open(b"", &[b"https://example.com/b"]).unwrap();
 
         assert_ne!(first, second);
-        assert_eq!(table.links.len(), 2);
+        assert_eq!(table.entries.len(), 2);
     }
 
     #[test]
@@ -177,6 +226,70 @@ mod tests {
         let mut table = HyperlinkTable::default();
         let uri = vec![b'a'; MAX_URI_BYTES + 1];
         assert_eq!(table.open(b"", &[uri.as_slice()]), None);
+    }
+
+    #[test]
+    fn distinct_uri_flood_is_bounded_by_entry_ceiling() {
+        let mut table = HyperlinkTable::default();
+        let flood = MAX_LINK_ENTRIES + 500;
+        let mut ids = Vec::with_capacity(flood);
+        for n in 0..flood {
+            let uri = format!("https://example.com/{n}");
+            let id = table.open(b"", &[uri.as_bytes()]).unwrap();
+            ids.push(id);
+        }
+
+        assert!(
+            table.entries.len() <= MAX_LINK_ENTRIES,
+            "distinct-URI flood must not exceed the entry ceiling"
+        );
+        assert!(
+            table.total_bytes <= MAX_TABLE_BYTES,
+            "aggregate byte budget must hold under a distinct-URI flood"
+        );
+
+        // The most recently interned link must still resolve to its URI.
+        let last = *ids.last().unwrap();
+        let recent = table.get(last).expect("recent link must remain interned");
+        assert_eq!(recent.uri, format!("https://example.com/{}", flood - 1));
+
+        // An early link must have been evicted and now resolve to None (never a
+        // wrong URI). Cells that still carry the stale id tolerate a None lookup.
+        let earliest = ids[0];
+        assert!(
+            table.get(earliest).is_none(),
+            "an evicted link id must resolve to None, not a wrong URI"
+        );
+    }
+
+    #[test]
+    fn explicit_id_flood_is_bounded_and_evicts_oldest() {
+        let mut table = HyperlinkTable::default();
+        let flood = MAX_LINK_ENTRIES + 200;
+        let first = table
+            .open(b"id=first", &[b"https://example.com/first".as_slice()])
+            .unwrap();
+        for n in 0..flood {
+            let params = format!("id=link{n}");
+            let uri = format!("https://example.com/{n}");
+            table.open(params.as_bytes(), &[uri.as_bytes()]).unwrap();
+        }
+
+        assert!(table.entries.len() <= MAX_LINK_ENTRIES);
+        assert!(
+            table.get(first).is_none(),
+            "the oldest explicit-id link must be evicted under a flood"
+        );
+    }
+
+    #[test]
+    fn clear_resets_byte_accounting() {
+        let mut table = HyperlinkTable::default();
+        table.open(b"", &[b"https://example.com/a"]).unwrap();
+        table.open(b"", &[b"https://example.com/b"]).unwrap();
+        table.clear();
+        assert_eq!(table.entries.len(), 0);
+        assert_eq!(table.total_bytes, 0);
     }
 
     #[test]

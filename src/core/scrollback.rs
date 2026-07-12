@@ -48,6 +48,7 @@
 //! usage.
 
 use std::cell::{Ref, RefCell};
+use std::collections::VecDeque;
 
 use unicode_width::UnicodeWidthChar;
 
@@ -111,7 +112,7 @@ const MAX_LOGICAL_LINE_CELLS: usize = 1 << 20;
 /// Logical-line scrollback with a lazily-(re)built physical projection.
 #[derive(Debug, Clone)]
 pub(in crate::core) struct Scrollback {
-    lines: Vec<LogicalLine>,
+    lines: VecDeque<LogicalLine>,
     cache: RefCell<Projection>,
     /// Maximum retained logical lines; oldest are evicted past this in
     /// [`Scrollback::push_row`]. `0` means unbounded (history is never trimmed).
@@ -147,7 +148,7 @@ pub(in crate::core) struct ResizeResult {
 impl Scrollback {
     pub(in crate::core) fn new() -> Self {
         Self {
-            lines: Vec::new(),
+            lines: VecDeque::new(),
             cache: RefCell::new(Projection::empty()),
             limit: DEFAULT_SCROLLBACK_LIMIT,
             trim_epoch: 0,
@@ -157,7 +158,7 @@ impl Scrollback {
     /// Build a store with an explicit logical-line limit (`0` = unbounded).
     pub(in crate::core) fn with_limit(limit: usize) -> Self {
         Self {
-            lines: Vec::new(),
+            lines: VecDeque::new(),
             cache: RefCell::new(Projection::empty()),
             limit,
             trim_epoch: 0,
@@ -170,7 +171,7 @@ impl Scrollback {
     /// while keeping the normal default cap for future output when the snapshot
     /// contains less history than the default.
     pub(in crate::core) fn from_physical_rows(rows: &[Line]) -> Self {
-        let lines = logical_from_physical(rows);
+        let lines: VecDeque<LogicalLine> = logical_from_physical(rows).into();
         let limit = DEFAULT_SCROLLBACK_LIMIT.max(lines.len());
         Self {
             lines,
@@ -200,7 +201,7 @@ impl Scrollback {
     #[cfg(test)]
     pub(in crate::core) fn from_physical(rows: &[Line]) -> Self {
         Self {
-            lines: logical_from_physical(rows),
+            lines: logical_from_physical(rows).into(),
             cache: RefCell::new(Projection::empty()),
             limit: 0,
             trim_epoch: 0,
@@ -235,7 +236,7 @@ impl Scrollback {
     /// otherwise starts a new logical line.
     pub(in crate::core) fn push_row(&mut self, row: Line) {
         let wrapped = row.wrapped;
-        if let Some(last) = self.lines.last_mut()
+        if let Some(last) = self.lines.back_mut()
             && last.open
         {
             // Continuation of an open logical line: extend cells. A continuation
@@ -249,7 +250,7 @@ impl Scrollback {
                 last.prompt_mark = row.prompt_mark;
             }
         } else {
-            self.lines.push(LogicalLine {
+            self.lines.push_back(LogicalLine {
                 cells: row.cells,
                 open: wrapped,
                 prompt_mark: row.prompt_mark,
@@ -267,8 +268,14 @@ impl Scrollback {
         let mut trimmed = false;
 
         if self.limit != 0 && self.lines.len() > self.limit {
+            // VecDeque front eviction: each `pop_front` is O(1) (no memmove of the
+            // retained tail), so steady-state eviction under sustained output is
+            // O(1) per scrolled line instead of the O(limit) front-shift a
+            // `Vec::drain(0..excess)` performed once at the cap.
             let excess = self.lines.len() - self.limit;
-            self.lines.drain(0..excess);
+            for _ in 0..excess {
+                self.lines.pop_front();
+            }
             trimmed = true;
         }
 
@@ -291,7 +298,7 @@ impl Scrollback {
         // push. Peak length stays ≤ MAX + (one over-ceiling push), so the
         // per-line ceiling and memory bound are preserved.
         const SLACK: usize = MAX_LOGICAL_LINE_CELLS / 2;
-        if let Some(last) = self.lines.last_mut()
+        if let Some(last) = self.lines.back_mut()
             && last.cells.len() > MAX_LOGICAL_LINE_CELLS
         {
             let drop = last.cells.len() - (MAX_LOGICAL_LINE_CELLS - SLACK);
@@ -323,7 +330,7 @@ impl Scrollback {
     /// history with UNRELATED fresh content. No-op when the store is empty or
     /// the tail is already hard-terminated.
     pub(in crate::core) fn sever_trailing_wrap(&mut self) {
-        if let Some(last) = self.lines.last_mut()
+        if let Some(last) = self.lines.back_mut()
             && last.open
         {
             last.open = false;
@@ -419,11 +426,11 @@ pub(in crate::core) fn resize_lazy_with_options(
     loop {
         let need_more = pulled_rows < new_rows;
         let extend_blank =
-            pulled_rows >= new_rows && sb.lines.last().is_some_and(|l| cells_all_blank(&l.cells));
+            pulled_rows >= new_rows && sb.lines.back().is_some_and(|l| cells_all_blank(&l.cells));
         if !(need_more || extend_blank) {
             break;
         }
-        match sb.lines.pop() {
+        match sb.lines.pop_back() {
             Some(line) => {
                 pulled_rows += count_projected_rows(&line.cells, new_width, line.open);
                 pulled.push(line);
@@ -617,7 +624,10 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
 }
 
 /// Project logical lines to physical rows at `width`.
-pub(in crate::core) fn project_logical(lines: &[LogicalLine], width: usize) -> Vec<Line> {
+pub(in crate::core) fn project_logical<'a, I>(lines: I, width: usize) -> Vec<Line>
+where
+    I: IntoIterator<Item = &'a LogicalLine>,
+{
     let mut out = Vec::new();
     for line in lines {
         project_line_into(&line.cells, width, line.open, line.prompt_mark, &mut out);

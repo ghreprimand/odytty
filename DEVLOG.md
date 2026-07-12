@@ -7,6 +7,56 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Bound hyperlink and config growth, O(1) scrollback eviction, alloc-free OSC dispatch
+
+Hardening and hot-path fixes across the terminal core, the settings loader, and
+the escape-sequence parser. Each closes an unbounded-growth or per-operation
+allocation path that a remote peer or a corrupt file could exploit or that
+showed up under sustained output.
+
+The OSC 8 hyperlink table is now bounded. Interning collapsed duplicate URIs,
+but every DISTINCT link still grew the table with no ceiling, so a remote peer
+emitting unique short links at wire speed while overwriting a single cell could
+grow it until a full reset or memory exhaustion. The table now enforces an
+aggregate byte budget and an entry ceiling, evicting the oldest links first when
+either is reached. An evicted link id resolves to nothing (callers already
+tolerate a missing lookup), and ids are never reused while an old cell might
+still carry one, so an evicted id can never resolve to the wrong URI. Recent
+links stay openable. Identical on all platforms.
+
+Scrollback eviction is now O(1) per line. The logical-line store trimmed history
+with a front drain over a Vec, which shifted the whole retained tail on every
+eviction -- once at the line cap, sustained output made trimming O(cap) per
+scrolled line and a long run O(n^2). The store is now a VecDeque whose front
+eviction is a constant-time pop, and the lazy projection iterates the deque
+directly. The exact cap and the trim-epoch signal that selection and search
+coordinates depend on are unchanged. Shared Unix/Windows model path.
+
+Config and theme file reads are now bounded, and reload warnings are capped.
+Reads went through an unbounded read-to-string, so a huge or corrupt config or
+theme file could pull gigabytes into memory, and on the settings-reload event
+thread a file with millions of unrecognized lines allocated one warning string
+per line and then logged them synchronously, freezing the window. Every user
+config/theme read now goes through a shared helper that reads at most a
+generous 1 MiB ceiling (rejecting an over-limit file rather than loading it),
+rejects a non-regular path such as a directory or FIFO, and requires UTF-8. The
+previous live config is preserved when a reload is rejected. Warning
+accumulation is capped with a single "N further warnings suppressed" record.
+The cap is a byte count and the regular-file check uses portable std metadata,
+so behavior is identical on Linux, macOS, and Windows; the regular-file arm is
+covered by a platform-agnostic test that runs on the Windows leg too.
+
+OSC dispatch no longer allocates. Each terminated OSC built a fresh heap vector
+of parameter slices before dispatch; shell integration emits several OSC 133/7
+per prompt, so this was a real per-prompt parse cost. The parameter count is
+bounded at compile time, so the slices now fill a fixed stack array dispatched
+by range. A counting-allocator test proves a warmed parser dispatches a
+realistic integrated-prompt corpus with zero allocations. Identical on all
+platforms.
+
+Verified: cargo build, cargo test (full lib suite, 3575 pass), cargo fmt
+--check, and cargo clippy --all-targets --locked -- -D warnings all clean.
+
 ## 2026-07-12 -- GPU recovery and text hot-path hardening
 
 GPU presentation now distinguishes an outdated surface, a lost surface, and a

@@ -213,11 +213,16 @@ impl OdyParser {
         // and the terminator).
         self.osc_snapshot_param();
         let count = self.osc_num_params as usize;
-        let mut slices: Vec<&[u8]> = Vec::with_capacity(count);
-        for &(start, end) in self.osc_params.iter().take(count) {
-            slices.push(&self.osc_raw[start..end]);
+        // `osc_snapshot_param` caps `osc_num_params` at `MAX_OSC_PARAMS`, so the
+        // param slices always fit a fixed stack array. Filling it in place avoids
+        // a heap `Vec` allocation on every terminated OSC — shell integration
+        // emits several OSC 133/7 per prompt, so this is a real parse-path cost.
+        let empty: &[u8] = &[];
+        let mut slices: [&[u8]; MAX_OSC_PARAMS] = [empty; MAX_OSC_PARAMS];
+        for (slot, &(start, end)) in slices.iter_mut().zip(self.osc_params.iter()).take(count) {
+            *slot = &self.osc_raw[start..end];
         }
-        sink.osc_dispatch(&slices, bell);
+        sink.osc_dispatch(&slices[..count], bell);
         self.osc_raw.clear();
         self.osc_num_params = 0;
     }

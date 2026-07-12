@@ -180,7 +180,12 @@ impl SettingsReloader {
         };
 
         let mut warnings = Vec::new();
-        let contents = match fs::read_to_string(path) {
+        let mut suppressed = 0usize;
+        // Bound the read: a huge/corrupt config file must not read gigabytes into
+        // memory on the reload event thread. `read_capped` also rejects a
+        // directory/FIFO and a too-large file (InvalidData); a deleted file still
+        // surfaces as NotFound. Portable across Linux/macOS/Windows.
+        let contents = match super::fs_read::read_capped(path) {
             Ok(contents) => contents,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 return SettingsReloadOutcome::Deleted;
@@ -191,13 +196,17 @@ impl SettingsReloader {
                 };
             }
         };
-        let config = ConfigValues::parse(&contents, |message| {
-            warnings.push(format!("{}: {message}", path.display()));
-        });
-        let settings =
-            Settings::from_env_snapshot_and_config(&self.env_values, &config, |message| {
-                warnings.push(message)
+        // Bound warning accumulation: a pathological file (every line unknown)
+        // must not allocate one owned String per line and then synchronously log
+        // millions of them, freezing the window.
+        let settings = {
+            let mut warn = super::fs_read::bounded_warn(&mut warnings, &mut suppressed);
+            let config = ConfigValues::parse(&contents, |message| {
+                warn(format!("{}: {message}", path.display()));
             });
+            Settings::from_env_snapshot_and_config(&self.env_values, &config, &mut warn)
+        };
+        super::fs_read::note_suppressed(&mut warnings, suppressed);
 
         // Parsing is tolerant: unknown keys are skipped and out-of-range values
         // fall back, so a changed file always yields usable settings. Apply them

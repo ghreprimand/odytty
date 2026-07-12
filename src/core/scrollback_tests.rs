@@ -531,6 +531,36 @@ fn default_limit_is_the_documented_cap() {
 }
 
 #[test]
+fn steady_state_front_eviction_stays_bounded_and_ordered() {
+    // I-3: once the store is at its line-count cap, sustained one-row output must
+    // evict the oldest logical line per push with O(1) work (VecDeque pop_front,
+    // no limit-sized memmove). A Vec front-drain shifted the whole retained tail
+    // on every eviction, making a long output run O(n^2) — this exercises an
+    // append run far past the cap that would be pathologically slow under that
+    // shape and asserts the retained window is content-exact and steady.
+    const LIMIT: usize = 10_000;
+    let mut sb = Scrollback::with_limit(LIMIT);
+    for i in 0..LIMIT {
+        sb.push_row(content(&(i % 10).to_string()));
+    }
+    assert_eq!(sb.physical_len(W), LIMIT);
+
+    let extra = 100_000usize;
+    for i in 0..extra {
+        sb.push_row(content(&(i % 10).to_string()));
+    }
+
+    // Steady state: the window never exceeds the cap.
+    assert_eq!(sb.physical_len(W), LIMIT);
+    let rows = sb.physical(W);
+    assert_eq!(rows.len(), LIMIT);
+    // The newest line is the last one pushed; the oldest retained is exactly
+    // LIMIT lines back, proving front eviction kept insertion order intact.
+    assert_eq!(rows[LIMIT - 1], content(&((extra - 1) % 10).to_string()));
+    assert_eq!(rows[0], content(&((extra - LIMIT) % 10).to_string()));
+}
+
+#[test]
 fn open_logical_line_is_bounded_without_a_terminator() {
     // A never-terminated (always-wrapped) stream is one open logical line. The
     // per-line cell ceiling keeps it bounded even though the line count is 1.
