@@ -6,6 +6,10 @@ AGENTS.md
 CLAUDE.md
 GEMINI.md
 
+# Local-only audit / findings reports (never publish to the public repo)
+AUDIT_old.md
+AUDIT.md
+
 # Local/private configuration
 .env
 .env.*
