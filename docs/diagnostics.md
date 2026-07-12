@@ -146,6 +146,16 @@ contents, paths, or environment values. It writes to the OS temp directory
 because the Windows GUI build has no visible stderr, so the file is retrieved
 afterward.
 
+## Recovery behavior
+
+- A config or theme file larger than 1 MiB, or a path that is not a regular
+  file, is rejected on load and reload; the previously loaded configuration
+  stays active, and reload warnings are capped so a single suppressed-count
+  record replaces any flood.
+- A lost GPU surface is recreated automatically. If the GPU device itself is
+  lost, rendering pauses and a clear error is logged (rendering resumes when
+  the window is restarted) rather than the window crashing.
+
 ## Retrieving logs for a support request
 
 Send `odytty.log` (and `odytty.log.1` if present) from the log directory for

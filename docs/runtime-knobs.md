@@ -462,6 +462,12 @@ environment variable was not set at startup.
 - `theme = system` is a convenience alias. It enables OS dark/light following
   and maps dark to `odyssey`, light to `odyssey-light`, unless explicit
   `os_theme_dark` / `os_theme_light` values are set.
+- `ODYTTY_APPEARANCE=dark|light` seeds the initial appearance for OS-theme
+  following on X11, where the compositor never delivers a live light/dark
+  signal. It is read directly from the environment rather than through the
+  config file, so it is not a settings knob and has no `odytty.conf` key. Only
+  `dark` and `light` are recognized; any other value is ignored and following
+  falls back to its default seed.
 - `visual = ambient` (the default) and `visual = scanlines` are back-compat
   aliases for OdyTTY's scanline look, which is produced by the CRT post-process
   (`crt` / `crt_scanline_*`) — the legacy per-cell ambient wash was retired and
