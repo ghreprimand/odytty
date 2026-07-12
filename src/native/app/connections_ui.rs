@@ -13,7 +13,7 @@
 //! only and nothing under `~/.ssh` is read. Import, when enabled, is name-only
 //! through the bounded parser in the data layer; no key material is ever read.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use super::*;
 use crate::connection_hosts::{
@@ -46,9 +46,9 @@ impl App {
         else {
             return Vec::new();
         };
-        let home = std::env::var_os("HOME")
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from);
+        // Route through `restore_home_dir` so the OpenSSH-config import finds
+        // `%USERPROFILE%\\.ssh\\config` on Windows, not a never-set `$HOME`.
+        let home = crate::native::persistence::restore_home_dir();
         let paths =
             resolve_connection_paths(&config_dir, self.settings.ssh_config_hosts, home.as_deref());
         load_connection_hosts(&self.settings, &paths)
@@ -82,6 +82,7 @@ mod tests {
     use super::*;
     use crate::connection_hosts::CONNECTION_HOSTS_FILE_NAME;
     use std::fs;
+    use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir(prefix: &str) -> PathBuf {

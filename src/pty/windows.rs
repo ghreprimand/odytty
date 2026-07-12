@@ -44,7 +44,7 @@ use std::process::ExitStatus;
 // old `hpcon_closed: AtomicBool` became the mutex-guarded flag in
 // [`PconShared`]).
 #[cfg(test)]
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -497,6 +497,10 @@ impl PtySession {
     }
 
     pub fn kill(&mut self) -> Result<()> {
+        // D-5: signal deliberate teardown BEFORE terminating so the child-waiter
+        // thread does not misreport the forced-termination exit code as a
+        // startup failure (e.g. closing a fresh tab within the startup window).
+        self.pcon.request_teardown();
         // Terminate the child if it is still running. Unlike POSIX `kill` (which
         // signals the process group, after which the master read returns
         // EIO→EOF once the slave closes), a ConPTY child's death does NOT close
@@ -619,6 +623,13 @@ struct PconShared {
     /// critical sections span the `ResizePseudoConsole`/`ClosePseudoConsole`
     /// calls (see the type docs for why a bare atomic is not enough).
     closed: Mutex<bool>,
+    /// D-5: set once the session is being torn down deliberately (explicit
+    /// `kill` or `Drop`). The child-waiter thread reads it to avoid misreporting
+    /// the forced-termination exit code as a startup failure when a fresh tab is
+    /// closed within [`STARTUP_FAILURE_WINDOW`]. A plain latch (never cleared),
+    /// so a bare atomic is sufficient — it needs none of the resize/close
+    /// serialization the `closed` mutex provides.
+    teardown_requested: AtomicBool,
     /// Test-only counter of `ResizePseudoConsole` calls that actually reached
     /// the kernel (i.e. were NOT skipped by the closed fast-path). Lets the
     /// resize-after-close regression test assert the skip structurally.
@@ -631,6 +642,7 @@ impl PconShared {
         Self {
             hpcon,
             closed: Mutex::new(false),
+            teardown_requested: AtomicBool::new(false),
             #[cfg(test)]
             kernel_resizes: AtomicUsize::new(0),
         }
@@ -644,6 +656,20 @@ impl PconShared {
         self.closed
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    /// D-5: mark that this session is being torn down deliberately (explicit
+    /// `kill`/`Drop`), so the child-waiter thread suppresses the startup-failure
+    /// diagnostic for the resulting forced-termination exit code. Latches; never
+    /// cleared.
+    fn request_teardown(&self) {
+        self.teardown_requested.store(true, Ordering::SeqCst);
+    }
+
+    /// Whether a deliberate teardown has been requested (see
+    /// [`request_teardown`]).
+    fn is_teardown_requested(&self) -> bool {
+        self.teardown_requested.load(Ordering::SeqCst)
     }
 
     /// Resize the pseudoconsole, or no-op `Ok(())` if it has been closed.
@@ -718,6 +744,20 @@ fn create_kill_on_close_job() -> Option<OwnedHandle> {
 /// a generous bound that still excludes any genuine interactive session.
 const STARTUP_FAILURE_WINDOW: Duration = Duration::from_millis(500);
 
+/// D-5: decide whether an abnormal child exit should surface as a startup
+/// failure. A deliberate teardown (`kill`/`Drop` force-terminates the child
+/// with [`KILL_EXIT_CODE`]) must NOT be reported — closing a fresh tab within
+/// [`STARTUP_FAILURE_WINDOW`], or a legitimate fast one-shot the caller tore
+/// down, would otherwise trip the "could not start a usable shell" diagnostic.
+/// Only a non-zero, non-`STILL_ACTIVE` exit within the window that the session
+/// did NOT request is a genuine loader/DLL-init failure worth surfacing.
+fn should_report_startup_failure(code: u32, elapsed: Duration, teardown_requested: bool) -> bool {
+    !teardown_requested
+        && code != 0
+        && code != STILL_ACTIVE_CODE
+        && elapsed < STARTUP_FAILURE_WINDOW
+}
+
 /// Spawn the child-waiter thread for a freshly created session.
 ///
 /// It owns a *duplicated* process handle (so it never races `try_wait`/`wait`/
@@ -757,10 +797,9 @@ fn spawn_child_waiter(
             let elapsed = started.elapsed();
             let mut code: u32 = 0;
             // SAFETY: live owned process handle; the child has exited.
-            if unsafe { GetExitCodeProcess(handle, &mut code) }.is_ok()
-                && code != 0
-                && code != STILL_ACTIVE_CODE
-                && elapsed < STARTUP_FAILURE_WINDOW
+            let got_code = unsafe { GetExitCodeProcess(handle, &mut code) }.is_ok();
+            if got_code
+                && should_report_startup_failure(code, elapsed, pcon.is_teardown_requested())
             {
                 let line = describe_immediate_exit(code);
                 // stderr (routed to the launching console via AttachConsole) is
@@ -963,13 +1002,23 @@ fn resolve_windows_powershell() -> Option<OsString> {
     candidate.is_file().then(|| candidate.into_os_string())
 }
 
-/// Search `%PATH%` for `exe`, returning its full path if a file by that name
-/// exists in one of the entries.
+/// Search `%PATH%` for `exe`, returning its full path if an *absolute* file by
+/// that name exists in one of the entries.
 fn find_on_path(exe: &str) -> Option<OsString> {
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
+    find_exe_in_dirs(std::env::split_paths(&path), exe)
+}
+
+/// D-6: resolve `exe` against each `dir`, accepting only an ABSOLUTE existing
+/// file. Empty `%PATH%` segments (`;;`, a trailing `;`) and any relative entry
+/// (`.`, a bare name) are skipped so a `pwsh.exe` planted in the process
+/// working directory can never be resolved and handed to `CreateProcessW`
+/// (a binary-planting shape). Pure over the supplied iterator.
+fn find_exe_in_dirs<I: IntoIterator<Item = PathBuf>>(dirs: I, exe: &str) -> Option<OsString> {
+    dirs.into_iter()
+        .filter(|dir| !dir.as_os_str().is_empty())
         .map(|dir| dir.join(exe))
-        .find(|candidate| candidate.is_file())
+        .find(|candidate| candidate.is_absolute() && candidate.is_file())
         .map(PathBuf::into_os_string)
 }
 
@@ -1099,15 +1148,36 @@ fn build_command_line(command: &CommandBuilder) -> Vec<u16> {
 }
 
 /// Append a single argument to a command line, quoting per the standard MSVC
-/// `CommandLineToArgvW` backslash/quote escaping rules. The argument is always
-/// surrounded by double quotes so embedded spaces and tabs are preserved.
+/// `CommandLineToArgvW` backslash/quote escaping rules. The argument is
+/// surrounded by double quotes only when it needs them — it is empty, or it
+/// contains a space, tab, or double quote. A separator-free token (a switch
+/// like `/C`, a path with no spaces) is emitted bare.
+///
+/// D-8: bare emission matters for the `%ComSpec%` / `cmd.exe` fallback, whose
+/// parser does NOT follow the `CommandLineToArgvW` quoting rules — it must
+/// receive `/C` verbatim, not `"/C"`. `CommandLineToArgvW` (the PowerShell
+/// path) parses the bare and quoted forms of a separator-free token
+/// identically, so conditional quoting is safe for every consumer while
+/// fixing the cmd.exe switch.
 fn append_arg(line: &mut Vec<u16>, arg: &OsStr) {
     const QUOTE: u16 = b'"' as u16;
     const BACKSLASH: u16 = b'\\' as u16;
+    const SPACE: u16 = b' ' as u16;
+    const TAB: u16 = b'\t' as u16;
+
+    let units: Vec<u16> = arg.encode_wide().collect();
+    let needs_quotes = units.is_empty()
+        || units
+            .iter()
+            .any(|&unit| unit == SPACE || unit == TAB || unit == QUOTE);
+    if !needs_quotes {
+        line.extend_from_slice(&units);
+        return;
+    }
 
     line.push(QUOTE);
     let mut backslashes: usize = 0;
-    for unit in arg.encode_wide() {
+    for unit in units {
         if unit == BACKSLASH {
             backslashes += 1;
         } else {
@@ -1150,7 +1220,9 @@ fn build_env_block(overrides: &[(OsString, OsString)]) -> Vec<u16> {
         .map(|(key, _)| key.encode_wide().collect())
         .collect();
 
-    let mut block: Vec<u16> = Vec::new();
+    // Collect the final `KEY=VALUE` entries: base entries whose key is not
+    // shadowed by an override, plus one entry per override.
+    let mut entries: Vec<Vec<u16>> = Vec::new();
     for entry in current_process_env() {
         let key = env_entry_key(&entry);
         if override_keys
@@ -1159,13 +1231,27 @@ fn build_env_block(overrides: &[(OsString, OsString)]) -> Vec<u16> {
         {
             continue;
         }
-        block.extend_from_slice(&entry);
-        block.push(0);
+        entries.push(entry);
     }
     for (key, value) in overrides {
-        block.extend(key.encode_wide());
-        block.push(b'=' as u16);
-        block.extend(value.encode_wide());
+        let mut entry: Vec<u16> = key.encode_wide().collect();
+        entry.push(b'=' as u16);
+        entry.extend(value.encode_wide());
+        entries.push(entry);
+    }
+
+    // D-7: `CreateProcessW` with `CREATE_UNICODE_ENVIRONMENT` requires the block
+    // to be sorted case-insensitively by variable name (Unicode order,
+    // locale-independent). `GetEnvironmentStringsW` returns the base already
+    // sorted, but appending the TERM* overrides at the end broke that order —
+    // re-sort by key so each override lands in its correct position. The hidden
+    // `=`-prefixed per-drive variables sort ahead of ordinary names (their keys
+    // begin with `=`), matching how Windows itself orders them.
+    entries.sort_by(|a, b| utf16_cmp_ignore_ascii_case(env_entry_key(a), env_entry_key(b)));
+
+    let mut block: Vec<u16> = Vec::new();
+    for entry in entries {
+        block.extend_from_slice(&entry);
         block.push(0);
     }
     // Terminating NUL for the block. OdyTTY always sets the four terminal vars,
@@ -1225,6 +1311,19 @@ fn utf16_eq_ignore_ascii_case(a: &[u16], b: &[u16]) -> bool {
         && a.iter()
             .zip(b)
             .all(|(&x, &y)| ascii_lower_u16(x) == ascii_lower_u16(y))
+}
+
+/// ASCII-case-insensitive ordering of two UTF-16 slices, for the case-
+/// insensitive sort `lpEnvironment` requires (see [`build_env_block`]). Folds
+/// only ASCII `A`–`Z`; other units compare by their raw value.
+fn utf16_cmp_ignore_ascii_case(a: &[u16], b: &[u16]) -> std::cmp::Ordering {
+    for (&x, &y) in a.iter().zip(b) {
+        let ord = ascii_lower_u16(x).cmp(&ascii_lower_u16(y));
+        if ord != std::cmp::Ordering::Equal {
+            return ord;
+        }
+    }
+    a.len().cmp(&b.len())
 }
 
 /// Lowercase a UTF-16 code unit if it is an ASCII `A`–`Z`, else return it
@@ -1473,24 +1572,42 @@ mod tests {
     }
 
     #[test]
-    fn append_arg_quotes_and_escapes() {
-        let mut out = Vec::new();
-        append_arg(&mut out, OsStr::new("simple"));
-        assert_eq!(decode(&out), "\"simple\"");
+    fn append_arg_quotes_only_when_needed() {
+        // D-8: a separator-free token is emitted bare (so cmd.exe receives `/C`
+        // verbatim), while tokens with spaces/tabs/quotes are quoted per the
+        // CommandLineToArgvW rules.
+        let mut simple = Vec::new();
+        append_arg(&mut simple, OsStr::new("simple"));
+        assert_eq!(decode(&simple), "simple");
+
+        let mut switch = Vec::new();
+        append_arg(&mut switch, OsStr::new("/C"));
+        assert_eq!(decode(&switch), "/C");
 
         let mut spaced = Vec::new();
         append_arg(&mut spaced, OsStr::new("a b"));
         assert_eq!(decode(&spaced), "\"a b\"");
 
-        // An embedded quote is escaped with a backslash.
+        // An embedded quote forces quoting and is escaped with a backslash.
         let mut quoted = Vec::new();
         append_arg(&mut quoted, OsStr::new("a\"b"));
         assert_eq!(decode(&quoted), "\"a\\\"b\"");
 
-        // A trailing backslash run is doubled before the closing quote.
+        // A separator-free path (even one ending in a backslash) is bare.
+        let mut path = Vec::new();
+        append_arg(&mut path, OsStr::new("C:\\Windows\\System32\\cmd.exe"));
+        assert_eq!(decode(&path), "C:\\Windows\\System32\\cmd.exe");
+
+        // An empty argument is still quoted so it is not swallowed.
+        let mut empty = Vec::new();
+        append_arg(&mut empty, OsStr::new(""));
+        assert_eq!(decode(&empty), "\"\"");
+
+        // A trailing backslash run inside a quoted arg is doubled before the
+        // closing quote.
         let mut trailing = Vec::new();
-        append_arg(&mut trailing, OsStr::new("path\\"));
-        assert_eq!(decode(&trailing), "\"path\\\\\"");
+        append_arg(&mut trailing, OsStr::new("a b\\"));
+        assert_eq!(decode(&trailing), "\"a b\\\\\"");
     }
 
     #[test]
@@ -1502,7 +1619,9 @@ mod tests {
         // NUL-terminated; strip it for the comparison.
         assert_eq!(line.last(), Some(&0));
         let text = decode(&line[..line.len() - 1]);
-        assert_eq!(text, "\"cmd.exe\" \"/C\" \"echo hi\"");
+        // D-8: program and the `/C` switch are bare; only the space-bearing
+        // command string is quoted.
+        assert_eq!(text, "cmd.exe /C \"echo hi\"");
     }
 
     #[test]
@@ -1599,5 +1718,109 @@ mod tests {
             "TERM override must appear exactly once"
         );
         assert!(term_entries[0].eq_ignore_ascii_case("TERM=xterm-256color"));
+    }
+
+    #[test]
+    fn build_env_block_is_case_insensitively_sorted() {
+        // D-7 fails-before/passes-after: the block `CreateProcessW` receives
+        // must be sorted case-insensitively by name. Appending the TERM*
+        // overrides at the end (the old behavior) left the block unsorted; every
+        // adjacent pair must now be in non-decreasing key order.
+        let overrides = vec![
+            (OsString::from("TERM"), OsString::from("xterm-256color")),
+            (OsString::from("COLORTERM"), OsString::from("truecolor")),
+            (OsString::from("ZZZ_ODYTTY_SORT"), OsString::from("1")),
+            (OsString::from("AAA_ODYTTY_SORT"), OsString::from("1")),
+        ];
+        let block = build_env_block(&overrides);
+
+        // Split the double-NUL-terminated block into raw key slices.
+        let mut keys: Vec<Vec<u16>> = Vec::new();
+        let mut current: Vec<u16> = Vec::new();
+        for &unit in &block {
+            if unit == 0 {
+                if current.is_empty() {
+                    break;
+                }
+                keys.push(env_entry_key(&current).to_vec());
+                current.clear();
+            } else {
+                current.push(unit);
+            }
+        }
+
+        // Every adjacent pair is in non-decreasing case-insensitive order.
+        for pair in keys.windows(2) {
+            assert_ne!(
+                utf16_cmp_ignore_ascii_case(&pair[0], &pair[1]),
+                std::cmp::Ordering::Greater,
+                "env block is not case-insensitively sorted"
+            );
+        }
+
+        // The sentinel overrides landed in position (AAA before ZZZ), proving
+        // they were inserted in sorted order, not appended.
+        let lower = |k: &[u16]| String::from_utf16_lossy(k).to_ascii_lowercase();
+        let aaa = keys.iter().position(|k| lower(k) == "aaa_odytty_sort");
+        let zzz = keys.iter().position(|k| lower(k) == "zzz_odytty_sort");
+        assert!(aaa.is_some() && zzz.is_some(), "overrides must be present");
+        assert!(aaa < zzz, "AAA override must sort before ZZZ override");
+    }
+
+    #[test]
+    fn find_exe_in_dirs_requires_absolute_existing_file() {
+        // D-6 fails-before/passes-after: an empty PATH segment and any relative
+        // entry must be skipped so a `pwsh.exe` planted in the process working
+        // directory cannot be resolved. Only an absolute existing file matches.
+        let tmp = std::env::temp_dir().join(format!("odytty-d6-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&tmp);
+        let exe = "odytty_d6_probe.exe";
+        std::fs::write(tmp.join(exe), b"x").expect("write probe");
+
+        // An empty segment (skipped) followed by the real absolute dir resolves
+        // to the absolute file.
+        let dirs = vec![PathBuf::new(), tmp.clone()];
+        let found = find_exe_in_dirs(dirs, exe);
+        assert_eq!(found.as_deref(), Some(tmp.join(exe).as_os_str()));
+
+        // A relative directory entry is rejected even if a same-named file
+        // exists under it, because the joined candidate is not absolute.
+        let rel = PathBuf::from("some_relative_dir");
+        assert!(find_exe_in_dirs(vec![rel], exe).is_none());
+
+        // A lone empty segment resolves nothing.
+        assert!(find_exe_in_dirs(vec![PathBuf::new()], exe).is_none());
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn startup_failure_reported_only_for_unrequested_abnormal_immediate_exit() {
+        // D-5 fails-before/passes-after: a genuine loader/DLL-init failure
+        // (abnormal, immediate, not requested) is reported; a deliberate
+        // teardown (kill/Drop force-terminates with KILL_EXIT_CODE) within the
+        // window is NOT — closing a fresh tab must not trip the "could not start
+        // a usable shell" diagnostic.
+        let quick = Duration::from_millis(10);
+        let late = STARTUP_FAILURE_WINDOW + Duration::from_millis(1);
+        assert!(should_report_startup_failure(0xC000_0142, quick, false));
+        assert!(!should_report_startup_failure(0xC000_0142, quick, true));
+        assert!(!should_report_startup_failure(KILL_EXIT_CODE, quick, true));
+        assert!(!should_report_startup_failure(0, quick, false));
+        assert!(!should_report_startup_failure(
+            STILL_ACTIVE_CODE,
+            quick,
+            false
+        ));
+        assert!(!should_report_startup_failure(1, late, false));
+    }
+
+    #[test]
+    fn pcon_teardown_flag_defaults_false_and_latches() {
+        // D-5: the teardown latch starts clear and stays set once requested.
+        let pcon = PconShared::new(0);
+        assert!(!pcon.is_teardown_requested());
+        pcon.request_teardown();
+        assert!(pcon.is_teardown_requested());
     }
 }

@@ -522,9 +522,9 @@ pub(super) fn resolve_start_dir(current_value: &str) -> PathBuf {
     if p.is_dir() {
         return p.to_path_buf();
     }
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/"))
+    // Route through `restore_home_dir` so the picker opens at `%USERPROFILE%`
+    // on Windows instead of a never-set `$HOME`.
+    crate::native::persistence::restore_home_dir().unwrap_or_else(|| PathBuf::from("/"))
 }
 
 #[cfg(test)]

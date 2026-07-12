@@ -55,6 +55,18 @@ pub(super) fn write_chunks_blocking(writer: &PtyWriter, chunks: &[Vec<u8>]) -> s
     writer.flush()
 }
 
+/// Drain the one-shot startup-failure diagnostic slot exactly once, returning
+/// the recorded message (and leaving the slot empty) or `None` when there is no
+/// slot, no message, or the lock is poisoned. Windows-only: only the ConPTY
+/// backend records a startup diagnostic (see [`crate::pty`]); the Unix pump
+/// never sets one, so this seam is never compiled there.
+#[cfg(windows)]
+fn take_pending_diagnostic(slot: &Option<Arc<Mutex<Option<String>>>>) -> Option<String> {
+    slot.as_ref()
+        .and_then(|slot| slot.lock().ok())
+        .and_then(|mut guard| guard.take())
+}
+
 pub(super) fn spawn_pty_pump(
     mut reader: Box<dyn Read + Send>,
     writer: PtyWriter,
@@ -84,10 +96,7 @@ pub(super) fn spawn_pty_pump(
                 match reader.read(&mut buffer) {
                     Ok(0) => {
                         #[cfg(windows)]
-                        if let Some(slot) = diagnostic.as_ref()
-                            && let Ok(mut guard) = slot.lock()
-                            && let Some(message) = guard.take()
-                        {
+                        if let Some(message) = take_pending_diagnostic(&diagnostic) {
                             super::lock_recover(&terminal).advance(message.as_bytes());
                         }
                         let _ = proxy.send_event(UserEvent::ShellExited { session });
@@ -131,4 +140,26 @@ pub(super) fn spawn_pty_pump(
                 }
             }
         })
+}
+
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn take_pending_diagnostic_drains_once() {
+        // D-12: the ConPTY startup-failure slot is drained exactly once on EOF
+        // so a recorded loader/DLL-init message reaches the pane and is not
+        // replayed. Runs on the windows-latest leg.
+        let slot: Option<Arc<Mutex<Option<String>>>> =
+            Some(Arc::new(Mutex::new(Some("startup boom".to_string()))));
+        assert_eq!(
+            take_pending_diagnostic(&slot).as_deref(),
+            Some("startup boom")
+        );
+        // Drained: a second take yields nothing.
+        assert_eq!(take_pending_diagnostic(&slot), None);
+        // A missing slot is safe.
+        assert_eq!(take_pending_diagnostic(&None), None);
+    }
 }

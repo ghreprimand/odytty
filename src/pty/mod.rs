@@ -96,10 +96,14 @@ impl CommandBuilder {
         self
     }
 
-    // Inspected only by the Unix shell-integration injection tests, so these
-    // are `cfg(all(test, unix))` — on Windows there is no spawn-time injection
-    // to assert against, so the seams would be unused.
-    #[cfg(all(test, unix))]
+    // Inspected by the shell-integration injection tests. `args_for_test` is
+    // used on BOTH platforms (Unix asserts the rcfile/env args; Windows asserts
+    // the PowerShell `-NoExit -Command <snippet>` injection -- there IS Windows
+    // spawn-time injection), so it is `cfg(test)`. `env_for_test` is only read
+    // by the Unix rcfile tests (ZDOTDIR/XDG_DATA_DIRS wiring), so it stays
+    // `cfg(all(test, unix))` -- widening it would make it dead code on the
+    // Windows test target under the `-D warnings` gate.
+    #[cfg(test)]
     pub(crate) fn args_for_test(&self) -> &[OsString] {
         &self.args
     }

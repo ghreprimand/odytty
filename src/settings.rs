@@ -3091,58 +3091,52 @@ fn parse_font_weight_variant(raw: &str) -> String {
 }
 
 pub fn config_file_path() -> Option<PathBuf> {
+    config_base_dir_from_env(
+        std::env::var_os("APPDATA"),
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("HOME"),
+    )
+    .map(|dir| dir.join(CONFIG_FILE_NAME))
+}
+
+/// Resolve the OdyTTY config directory (`<base>/odytty`) from the relevant
+/// environment values, following the platform base rules: on Windows
+/// `%APPDATA%\\odytty` when APPDATA is set (falling through when it is not),
+/// then `$XDG_CONFIG_HOME/odytty`, then `$HOME/.config/odytty`. Pure and
+/// testable; the public wrappers pass the live process env and append the
+/// file/dir leaf. `None` when nothing resolves.
+fn config_base_dir_from_env(
+    appdata: Option<OsString>,
+    xdg_config_home: Option<OsString>,
+    home: Option<OsString>,
+) -> Option<PathBuf> {
+    let non_empty = |value: OsString| (!value.is_empty()).then(|| PathBuf::from(value));
+
     #[cfg(windows)]
-    if let Some(base) = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-    {
-        return Some(base.join(CONFIG_DIR_NAME).join(CONFIG_FILE_NAME));
+    if let Some(base) = appdata.and_then(non_empty) {
+        return Some(base.join(CONFIG_DIR_NAME));
+    }
+    #[cfg(not(windows))]
+    let _ = &appdata;
+
+    if let Some(base) = xdg_config_home.and_then(non_empty) {
+        return Some(base.join(CONFIG_DIR_NAME));
     }
 
-    if let Some(base) = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-    {
-        return Some(base.join(CONFIG_DIR_NAME).join(CONFIG_FILE_NAME));
-    }
-
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .map(|home| {
-            home.join(".config")
-                .join(CONFIG_DIR_NAME)
-                .join(CONFIG_FILE_NAME)
-        })
+    home.and_then(non_empty)
+        .map(|home| home.join(".config").join(CONFIG_DIR_NAME))
 }
 
 /// Resolved user theme directory (`<config-dir>/odytty/themes`), mirroring
 /// [`config_file_path`]'s base-directory rules. `ODYTTY_THEME` values that are
 /// not built-in names are looked up here (by `<name>.theme` or `<name>`).
 pub fn theme_dir_path() -> Option<PathBuf> {
-    #[cfg(windows)]
-    if let Some(base) = std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-    {
-        return Some(base.join(CONFIG_DIR_NAME).join(THEME_DIR_NAME));
-    }
-
-    if let Some(base) = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-    {
-        return Some(base.join(CONFIG_DIR_NAME).join(THEME_DIR_NAME));
-    }
-
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .map(|home| {
-            home.join(".config")
-                .join(CONFIG_DIR_NAME)
-                .join(THEME_DIR_NAME)
-        })
+    config_base_dir_from_env(
+        std::env::var_os("APPDATA"),
+        std::env::var_os("XDG_CONFIG_HOME"),
+        std::env::var_os("HOME"),
+    )
+    .map(|dir| dir.join(THEME_DIR_NAME))
 }
 
 /// Read a user theme file for an `ODYTTY_THEME` value that is not a built-in

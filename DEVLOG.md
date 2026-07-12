@@ -7,6 +7,68 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Windows shell integration, path, and environment correctness
+
+A batch of correctness fixes across the shell-integration snippets, the ConPTY
+spawn path, and the path/environment helpers. Several are Windows-only; each
+states its cross-platform behavior below.
+
+Working-directory reporting (OSC 7) now percent-encodes the reported path in
+every emitter (bash, zsh, fish, PowerShell). A directory whose name contains a
+literal `%` previously reached the parser as a malformed escape, which the
+robustness policy drops whole, silently freezing cwd tracking at the previous
+value so new tabs inherited a stale directory. Encoding `%` to `%25` at the
+source makes the wire form a valid escape that round-trips back to the literal
+character. This applies on all platforms.
+
+The PowerShell profile no longer stamps a phantom command-finished mark before
+the first command. It emitted `133;D;0` unconditionally at the top of every
+prompt, including the first, recording a spurious zero-exit CommandEnd at the
+top of every pane; the mark is now gated on a per-command flag the Enter handler
+sets, mirroring the Unix snippets' existing guard. The Enter handler also emits
+the command-executed mark only when the buffer parses as complete: on an
+incomplete multiline continuation it inserts a newline instead of a spurious
+OutputStart. These are Windows-only (the PowerShell profile is injected only on
+Windows).
+
+The ConPTY startup-failure diagnostic no longer fires on a deliberate teardown.
+Any abnormal child exit within the first 500 ms was reported as "could not start
+a usable shell", but a force-terminated child also exits abnormally, so closing
+a fresh tab within that window (or tearing down a fast one-shot) tripped the
+message. Teardown is now signalled before termination and suppresses the
+diagnostic, so only a genuine loader/DLL-init failure surfaces. Windows-only.
+
+PowerShell discovery on `%PATH%` now accepts only absolute existing files, so an
+empty PATH segment or a relative entry can no longer resolve a `pwsh.exe` planted
+in the process working directory. The per-child environment block is rebuilt in
+case-insensitive sorted order rather than appending the terminal-identification
+overrides after the sorted base block, matching the ordering `CreateProcessW`
+documents for `CREATE_UNICODE_ENVIRONMENT`. Command-line arguments are quoted
+only when they need it (empty, or containing a space, tab, or quote), so the
+`cmd.exe` `/C` switch on the `%ComSpec%` fallback is passed verbatim rather than
+wrapped in quotes that cmd.exe would mis-parse. All Windows-only.
+
+The "Copy File" URI is now well-formed on Windows: a `C:\dirile` path renders
+as `file:///C:/dir/file` (drive in the path, not the URL authority) with
+backslashes converted and unsafe bytes percent-encoded, instead of the previous
+`file://C:/...` that read the drive letter as a host. Unix paths are unchanged.
+OSC 7 URLs whose authority is this machine's name are now accepted on Windows via
+a `GetComputerNameExW` hostname lookup, so third-party prompts (oh-my-posh,
+starship) that emit `file://<COMPUTERNAME>/...` update the cwd instead of being
+dropped. The OpenSSH-config import and the settings path picker now resolve the
+home directory through the shared helper (`%USERPROFILE%` on Windows), where they
+previously read only `$HOME` and were inert on Windows.
+
+Every fix ships with the regression test the suite lacked. Windows-specific code
+is covered by `cfg(windows)` tests that run on the windows-latest CI leg
+(PowerShell classification and injection, the environment-block sort, absolute
+PATH resolution, the startup-failure decision, the config-directory `%APPDATA%`
+resolution, the ConPTY diagnostic drain, and the hostname lookup); the OSC 7
+percent-encoding is additionally exercised end to end by running the real bash
+snippet on the Unix legs. The stale "no Windows injection" note on the
+command-builder test seams was corrected, as there is Windows spawn-time
+injection.
+
 ## 2026-07-12 -- Selection origins and session-switch input state hardened
 
 Scrollback front eviction now advances a monotonic origin epoch for both the

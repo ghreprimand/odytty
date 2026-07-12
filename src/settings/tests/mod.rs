@@ -87,3 +87,84 @@ fn setting_env_keys_lists_every_declared_env_const() {
         "SETTING_ENV_KEYS entries with no declaring const: {stray:?}"
     );
 }
+
+#[cfg(not(windows))]
+#[test]
+fn config_base_dir_resolves_xdg_then_home() {
+    // D-12 refactor guard on the unix legs: XDG_CONFIG_HOME wins, else
+    // $HOME/.config, else nothing. (APPDATA is ignored off Windows.)
+    let via_xdg = config_base_dir_from_env(
+        None,
+        Some(OsString::from("/xdg")),
+        Some(OsString::from("/home/tester")),
+    );
+    assert_eq!(via_xdg, Some(PathBuf::from("/xdg").join(CONFIG_DIR_NAME)));
+
+    let via_home = config_base_dir_from_env(None, None, Some(OsString::from("/home/tester")));
+    assert_eq!(
+        via_home,
+        Some(
+            PathBuf::from("/home/tester")
+                .join(".config")
+                .join(CONFIG_DIR_NAME)
+        )
+    );
+
+    // An empty XDG value falls through to HOME.
+    let empty_xdg = config_base_dir_from_env(
+        None,
+        Some(OsString::from("")),
+        Some(OsString::from("/home/tester")),
+    );
+    assert_eq!(
+        empty_xdg,
+        Some(
+            PathBuf::from("/home/tester")
+                .join(".config")
+                .join(CONFIG_DIR_NAME)
+        )
+    );
+
+    assert_eq!(config_base_dir_from_env(None, None, None), None);
+}
+
+#[cfg(windows)]
+#[test]
+fn config_base_dir_prefers_appdata_on_windows() {
+    // D-12: on Windows the config base resolves under %APPDATA%\odytty; an
+    // empty/unset APPDATA falls through to XDG_CONFIG_HOME then HOME. Runs on
+    // the windows-latest leg.
+    let via_appdata = config_base_dir_from_env(
+        Some(OsString::from("C:\\Users\\tester\\AppData\\Roaming")),
+        None,
+        None,
+    )
+    .expect("appdata base");
+    assert_eq!(
+        via_appdata,
+        PathBuf::from("C:\\Users\\tester\\AppData\\Roaming").join(CONFIG_DIR_NAME)
+    );
+
+    // Empty APPDATA falls through to XDG, then HOME.
+    let via_xdg = config_base_dir_from_env(
+        Some(OsString::from("")),
+        Some(OsString::from("D:\\xdg")),
+        None,
+    );
+    assert_eq!(
+        via_xdg,
+        Some(PathBuf::from("D:\\xdg").join(CONFIG_DIR_NAME))
+    );
+
+    let via_home = config_base_dir_from_env(None, None, Some(OsString::from("C:\\Users\\tester")));
+    assert_eq!(
+        via_home,
+        Some(
+            PathBuf::from("C:\\Users\\tester")
+                .join(".config")
+                .join(CONFIG_DIR_NAME)
+        )
+    );
+
+    assert_eq!(config_base_dir_from_env(None, None, None), None);
+}

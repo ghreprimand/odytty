@@ -1411,7 +1411,10 @@ impl OverlayUi {
                     },
                     ContextMenuItem::CopyFile => match self.context_menu.path_target() {
                         Some(resolved) => OverlayOutcome::ContextMenuCopyFile(
-                            super::app::interactive_paths::file_uri(&resolved.abs),
+                            super::app::interactive_paths::file_uri(
+                                &resolved.abs,
+                                super::app::platform_opener::OpenerOs::host(),
+                            ),
                         ),
                         None => OverlayOutcome::Consumed,
                     },

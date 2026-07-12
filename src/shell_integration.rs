@@ -257,7 +257,7 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
       printf '\e]133;D;%s\a' "$__odytty_status"
       unset __ODYTTY_COMMAND_STARTED
     fi
-    printf '\e]7;file://%s\a' "$PWD"
+    printf '\e]7;file://%s\a' "${PWD//\%/%25}"
     printf '\e]133;A;click_events=1\a'
     unset __ODYTTY_PROMPT_EXECUTING
   }
@@ -309,7 +309,7 @@ const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" ]; then
       printf '\e]133;D;%s\a' "$__odytty_status"
       unset __ODYTTY_COMMAND_STARTED
     fi
-    printf '\e]7;file://%s\a' "$PWD"
+    printf '\e]7;file://%s\a' "${PWD//\%/%25}"
     printf '\e]133;A;click_events=1\a'
   }
 
@@ -381,7 +381,7 @@ const FISH_SNIPPET: &str = r#"if not set -q ODYTTY_SHELL_INTEGRATION
     end
 
     function fish_prompt
-        printf '\e]7;file://%s\a' "$PWD"
+        printf '\e]7;file://%s\a' (string replace -a '%' '%25' -- "$PWD")
         printf '\e]133;A;click_events=1\a'
         __odytty_original_fish_prompt
         printf '\e]133;B\a'
@@ -404,10 +404,17 @@ end
 // `ODYTTY_SHELL_INTEGRATION` guard mirrors the unix snippets, the wrapped
 // `prompt` emits `133;D` (previous command's `$LASTEXITCODE`) then
 // `133;A;click_events=1` then the user's prompt then `133;B`, and the PSReadLine
-// Enter handler emits `133;C` just before the command runs. `click_events=1`
-// matches the unix snippets; the click-to-position action stays consumer-gated
-// by `sh_click` (default off). cmd.exe has no equivalent hook surface and is
-// deliberately unsupported.
+// Enter handler emits `133;C` just before the command runs. The OSC 7 path is
+// percent-encoded (`%` -> `%25`) so a directory whose name contains `%` cannot
+// produce a malformed escape that the parser would reject, freezing cwd
+// tracking. `133;D` is gated on a per-command flag the Enter handler sets, so
+// no phantom `CommandEnd{exit:0}` is stamped before the first command (mirrors
+// the unix `__ODYTTY_COMMAND_STARTED` guard). The Enter handler emits `133;C`
+// only when the buffer parses as complete; on an incomplete multiline
+// continuation it inserts a newline (`AddLine`) without a spurious OutputStart.
+// `click_events=1` matches the unix snippets; the click-to-position action
+// stays consumer-gated by `sh_click` (default off). cmd.exe has no equivalent
+// hook surface and is deliberately unsupported.
 const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
     $env:ODYTTY_SHELL_INTEGRATION = "1"
 
@@ -422,8 +429,12 @@ const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
         if ($null -eq $__odytty_exit) { $__odytty_exit = 0 }
         $esc = [char]27
         $bel = [char]7
-        $p = $PWD.Path -replace '\\','/'
-        $out = "$esc]133;D;$__odytty_exit$bel"
+        $p = $PWD.Path -replace '%','%25' -replace '\\','/'
+        $out = ""
+        if ($global:__odytty_command_started) {
+            $out += "$esc]133;D;$__odytty_exit$bel"
+            $global:__odytty_command_started = $false
+        }
         $out += "$esc]7;file:///$p$bel"
         $out += "$esc]133;A;click_events=1$bel"
         $out += & $global:__odytty_original_prompt
@@ -434,8 +445,20 @@ const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
     if (Get-Module -ListAvailable -Name PSReadLine) {
         Import-Module PSReadLine -ErrorAction SilentlyContinue
         Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {
-            [Console]::Write("$([char]27)]133;C$([char]7)")
-            [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+            $line = $null
+            $cursor = $null
+            [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
+            $errs = $null
+            [System.Management.Automation.Language.Parser]::ParseInput($line, [ref]$null, [ref]$errs) | Out-Null
+            $incomplete = $false
+            foreach ($e in $errs) { if ($e.IncompleteInput) { $incomplete = $true; break } }
+            if ($incomplete) {
+                [Microsoft.PowerShell.PSConsoleReadLine]::AddLine()
+            } else {
+                [Console]::Write("$([char]27)]133;C$([char]7)")
+                $global:__odytty_command_started = $true
+                [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
+            }
         }
     }
 }
@@ -601,6 +624,99 @@ mod tests {
         // Also reachable through the cross-platform CLI classifier.
         assert_eq!(ShellKind::parse("powershell"), Some(ShellKind::PowerShell));
         assert_eq!(ShellKind::parse("pwsh"), Some(ShellKind::PowerShell));
+    }
+
+    #[test]
+    fn snippets_percent_encode_osc7_cwd() {
+        // D-2 fails-before/passes-after: every emitter must percent-encode `%`
+        // in the reported cwd. The OSC 7 parser treats a `%` not followed by
+        // two hex digits as a malformed escape and drops the whole sequence, so
+        // a raw `%` in a directory name would silently freeze cwd tracking at
+        // the previous value. Encoding `%` -> `%25` at the source makes the
+        // wire form a valid escape that round-trips back to the literal `%`.
+        let bash = snippet(ShellKind::Bash);
+        assert!(
+            bash.contains("${PWD//\\%/%25}"),
+            "bash must percent-encode % in the OSC 7 cwd"
+        );
+        let zsh = snippet(ShellKind::Zsh);
+        assert!(
+            zsh.contains("${PWD//\\%/%25}"),
+            "zsh must percent-encode % in the OSC 7 cwd"
+        );
+        let fish = snippet(ShellKind::Fish);
+        assert!(
+            fish.contains("string replace -a '%' '%25'"),
+            "fish must percent-encode % in the OSC 7 cwd"
+        );
+        let ps = snippet(ShellKind::PowerShell);
+        assert!(
+            ps.contains("-replace '%','%25'"),
+            "powershell must percent-encode % in the OSC 7 cwd"
+        );
+    }
+
+    #[test]
+    fn powershell_snippet_gates_command_end_and_gates_output_start() {
+        // D-3 fails-before/passes-after: `133;D` must be gated on a per-command
+        // flag so no phantom `CommandEnd{exit:0}` is stamped before the first
+        // command runs (mirrors the unix `__ODYTTY_COMMAND_STARTED` guard). The
+        // old snippet emitted `133;D` unconditionally at the top of every
+        // prompt, including the very first.
+        let ps = snippet(ShellKind::PowerShell);
+        assert!(
+            ps.contains("if ($global:__odytty_command_started) {"),
+            "133;D emission must be conditional on a command-started flag"
+        );
+        assert!(
+            ps.contains("$global:__odytty_command_started = $true"),
+            "the Enter handler must set the command-started flag on accept"
+        );
+        // D-4 fails-before/passes-after: `133;C` (OutputStart) must be emitted
+        // only when the buffer parses as complete; an incomplete multiline
+        // continuation must insert a newline instead of a spurious OutputStart.
+        assert!(
+            ps.contains("IncompleteInput"),
+            "the Enter handler must detect incomplete (multiline) input"
+        );
+        assert!(
+            ps.contains("AddLine()"),
+            "incomplete input must continue the line, not accept it"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_percent_encodes_osc7_cwd_end_to_end() {
+        // D-2 end-to-end on the Linux/macOS legs: run bash with the real
+        // snippet, cd into a directory whose name contains `%`, and confirm the
+        // emitted OSC 7 payload carries the encoded `%25` form (fails-before:
+        // the old snippet emitted the raw `%`, which the parser would drop).
+        let Some(bash) = find_bash() else {
+            return;
+        };
+        let base = temp_integration_dir("bash-pct");
+        let pct_dir = base.join("50%off");
+        fs::create_dir_all(&pct_dir).expect("mkdir");
+        let rc = base.join("rc.bash");
+        fs::write(&rc, format!("PS1='P\\$ '\n{BASH_SNIPPET}")).expect("write rc");
+
+        let input = format!("cd '{}'\nexit\n", pct_dir.display());
+        let out = run_bash_rc(&bash, &rc, &input);
+        if !out.contains("\x1b]133;A") {
+            // Interactive integration did not engage in this environment.
+            let _ = fs::remove_dir_all(&base);
+            return;
+        }
+        assert!(
+            out.contains("50%25off"),
+            "cwd with % must be percent-encoded in the OSC 7 payload: {out:?}"
+        );
+        assert!(
+            !out.contains("file://") || !out.contains("/50%off\x07"),
+            "the raw unencoded % form must not reach the wire: {out:?}"
+        );
+        let _ = fs::remove_dir_all(base);
     }
 
     #[cfg(unix)]
@@ -813,5 +929,58 @@ mod tests {
         assert!(conf.contains("--on-event fish_postexec"));
         assert!(conf.contains("133;D"));
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_shell_kind_detects_powershell_programs() {
+        // D-12: the Windows `from_program` arm classifies the PowerShell family
+        // (by basename, case-insensitively) and rejects cmd.exe, which has no
+        // OSC 133 hook surface. Runs on the windows-latest leg.
+        assert_eq!(
+            ShellKind::from_program(OsStr::new("pwsh.exe")),
+            Some(ShellKind::PowerShell)
+        );
+        assert_eq!(
+            ShellKind::from_program(OsStr::new("C:\\Program Files\\PowerShell\\7\\pwsh.exe")),
+            Some(ShellKind::PowerShell)
+        );
+        assert_eq!(
+            ShellKind::from_program(OsStr::new("powershell.exe")),
+            Some(ShellKind::PowerShell)
+        );
+        assert_eq!(
+            ShellKind::from_program(OsStr::new("PowerShell.EXE")),
+            Some(ShellKind::PowerShell)
+        );
+        assert!(ShellKind::from_program(OsStr::new("cmd.exe")).is_none());
+        assert!(ShellKind::from_program(OsStr::new("C:\\Windows\\System32\\cmd.exe")).is_none());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_apply_spawn_integration_injects_powershell_snippet() {
+        // D-12: spawning a PowerShell attaches `-NoExit -Command <snippet>` with
+        // the profile that installs the OSC 133 hooks. There IS Windows
+        // spawn-time injection (the old "no Windows injection" seam comment was
+        // stale).
+        let mut command = CommandBuilder::new("pwsh.exe");
+        apply_spawn_integration(&mut command);
+        let args = command.args_for_test();
+        assert_eq!(args.len(), 3);
+        assert_eq!(args[0], std::ffi::OsString::from("-NoExit"));
+        assert_eq!(args[1], std::ffi::OsString::from("-Command"));
+        let snippet = args[2].to_string_lossy();
+        assert!(snippet.contains("ODYTTY_SHELL_INTEGRATION"));
+        assert!(snippet.contains("133;A;click_events=1"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_apply_spawn_integration_skips_cmd() {
+        // D-12: cmd.exe is unsupported, so no integration args are attached.
+        let mut command = CommandBuilder::new("cmd.exe");
+        apply_spawn_integration(&mut command);
+        assert!(command.args_for_test().is_empty());
     }
 }

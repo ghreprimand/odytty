@@ -153,8 +153,42 @@ pub(crate) fn path_open_argv(
 /// The `file://<abs>` URI for the "Copy File" menu item. The clipboard is
 /// text-only, so "Copy File" copies this URI string; it pastes into desktop
 /// file managers as a file reference. Pure.
-pub(crate) fn file_uri(abs: &str) -> String {
-    format!("file://{abs}")
+///
+/// On Unix an absolute path already begins with `/`, so `file://` + the path
+/// yields the correct three-slash `file:///…` form. On Windows the path is a
+/// `C:\dir\file` form: backslashes become forward slashes, a leading slash is
+/// inserted before the drive letter so the drive is part of the path and not
+/// parsed as the URL authority (`file://C:/…` would read `C:` as the host), and
+/// bytes unsafe in a URI path (spaces, `%`, non-ASCII) are percent-encoded.
+pub(crate) fn file_uri(abs: &str, os: OpenerOs) -> String {
+    match os {
+        OpenerOs::Windows => {
+            let slashed = abs.replace('\\', "/");
+            let rooted = if slashed.starts_with('/') {
+                slashed
+            } else {
+                format!("/{slashed}")
+            };
+            format!("file://{}", percent_encode_uri_path(&rooted))
+        }
+        OpenerOs::Linux | OpenerOs::Macos => format!("file://{abs}"),
+    }
+}
+
+/// Percent-encode the bytes of a URI path, preserving the RFC 3986 unreserved
+/// set plus the path/drive separators `/` and `:`. Every other byte (space,
+/// `%`, control, non-ASCII UTF-8) is emitted as `%XX`. Pure.
+fn percent_encode_uri_path(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    for &byte in path.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 /// The argv vector to open `abs` at `line`(`:col`) with the given editor `spec`
@@ -575,7 +609,31 @@ mod dispatch_tests {
 
     #[test]
     fn file_uri_prefixes_scheme() {
-        assert_eq!(file_uri("/proj/a.rs"), "file:///proj/a.rs");
+        assert_eq!(file_uri("/proj/a.rs", OpenerOs::Linux), "file:///proj/a.rs");
+        assert_eq!(file_uri("/proj/a.rs", OpenerOs::Macos), "file:///proj/a.rs");
+    }
+
+    #[test]
+    fn file_uri_windows_roots_drive_and_encodes() {
+        // D-9 fails-before/passes-after: a Windows absolute path must render as
+        // `file:///C:/…` (three slashes, drive in the path not the authority)
+        // with backslashes converted and unsafe bytes percent-encoded. The old
+        // `format!("file://{abs}")` produced `file://C:/…`, reading `C:` as the
+        // URL host.
+        assert_eq!(
+            file_uri("C:\\proj\\a.rs", OpenerOs::Windows),
+            "file:///C:/proj/a.rs"
+        );
+        // A space (and other unsafe bytes) must be percent-encoded.
+        assert_eq!(
+            file_uri("C:\\my dir\\a b.rs", OpenerOs::Windows),
+            "file:///C:/my%20dir/a%20b.rs"
+        );
+        // A literal `%` in a name must be encoded so the URI stays well-formed.
+        assert_eq!(
+            file_uri("C:\\50%off\\x.txt", OpenerOs::Windows),
+            "file:///C:/50%25off/x.txt"
+        );
     }
 
     // Reveal argv (parent dir on Linux, `open -R <file>` on macOS) now lives in
