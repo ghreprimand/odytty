@@ -1734,18 +1734,16 @@ impl App {
         // X-band and tracks hover on `tab_rail`; the top bar keeps the
         // column-major test on `tab_bar` (F4-V2). Whichever is inactive has its
         // hover cleared so a stale highlight can't linger after a placement flip.
-        // F4-P3: under rail auto-hide the pinned chrome hover is skipped entirely
-        // — the revealed-band hover returned early above, and a hidden rail has
-        // no chrome to hover, so this must NOT fall through to the top-bar
-        // hit-test (which would falsely register hits along the content's top).
         // Tab-chrome hover (dual band). `current_chrome_hit` resolves the rail
         // first (full-height sidebar) then the top bar; whichever the pointer is
-        // over gets its widget hover set and the other cleared. Under rail
-        // auto-hide the pinned hover is skipped — the revealed-band hover is
-        // handled earlier, and a hidden rail has no pinned chrome to hover.
-        let chrome_hit = (!self.rail_autohide_active())
-            .then(|| self.current_chrome_hit())
-            .flatten();
+        // over gets its widget hover set and the other cleared. Under workspace-
+        // rail auto-hide, only the pinned-rail lookup is skipped: the floating
+        // rail is handled earlier, while the top strip remains hoverable.
+        let chrome_hit = if self.rail_autohide_active() {
+            self.current_top_bar_hit()
+        } else {
+            self.current_chrome_hit()
+        };
         let (tab_bar_hit, hit_is_rail) = match chrome_hit {
             Some((ChromeBand::WorkspaceRail, hit)) => {
                 let hover = Some(hit);

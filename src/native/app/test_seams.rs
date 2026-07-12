@@ -527,6 +527,13 @@ impl App {
         self.cursor_icon
     }
 
+    /// Whether the top tab widget currently carries a hover hit selected by the
+    /// production pointer route.
+    #[cfg(test)]
+    pub(in crate::native) fn top_tab_hovered_for_test(&self) -> bool {
+        self.tab_bar.hover.is_some()
+    }
+
     /// Test seam (INTERACTIVE-PATHS): the resolved path span currently under the
     /// pointer, so a test can assert the gate keeps it `None` when the feature is
     /// off and that an unresolved span never latches.

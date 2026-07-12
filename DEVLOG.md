@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Keep the pointer arrow over auto-hide top tabs
+
+The top tab bar now retains its pointer-arrow hover feedback while the workspace
+rail is configured to auto-hide. Auto-hide continues to exclude the hidden
+pinned-rail geometry, while the revealed floating rail keeps its separate hover
+path. Seam resize cursors and terminal-content I-beam behavior are unchanged.
+Pointer geometry is identical on Linux, macOS, and Windows.
+
+Verified: auto-hide and pinned top-tab hover routes, hidden-rail exclusion,
+cargo build, cargo test (full lib suite), cargo fmt --check, and cargo clippy
+--all-targets --locked -- -D warnings all clean. Final cursor appearance remains
+part of the release-build visual check.
+
 ## 2026-07-12 -- Resize revealed auto-hide workspace rails
 
 The floating auto-hide workspace rail now exposes its content-facing seam as a

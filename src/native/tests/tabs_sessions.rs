@@ -1990,6 +1990,77 @@ fn autohide_seam_resizes_only_while_the_floating_rail_is_revealed() {
 }
 
 #[test]
+fn top_tab_hover_keeps_the_arrow_while_the_workspace_rail_is_autohidden() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.set_tab_bar_placement_for_test("left");
+    app.set_workspace_rail_for_test("always");
+    app.set_tab_rail_width_manual_for_test(16);
+    app.set_tab_rail_autohide_for_test(true);
+    assert!(app.rail_autohide_active_for_test());
+    assert!(!app.rail_overlay_visible_for_test());
+
+    app.pointer_move_for_test(12.0, 8.0);
+    assert_eq!(app.chrome_hit_band_for_test(), Some("tab"));
+    assert!(app.top_tab_hovered_for_test());
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::Default,
+        "the pinned top strip keeps the arrow while the rail is auto-hidden"
+    );
+}
+
+#[test]
+fn hidden_autohide_rail_columns_do_not_create_a_phantom_chrome_hover() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.set_tab_bar_placement_for_test("left");
+    app.set_workspace_rail_for_test("always");
+    app.set_tab_rail_width_manual_for_test(16);
+    app.set_tab_rail_autohide_for_test(true);
+
+    app.pointer_move_for_test(12.0, 24.0);
+    assert_eq!(app.chrome_hit_band_for_test(), None);
+    assert!(!app.top_tab_hovered_for_test());
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::Text,
+        "hidden rail columns remain terminal content"
+    );
+}
+
+#[test]
+fn pinned_rail_keeps_the_existing_top_tab_hover_route() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.set_tab_bar_placement_for_test("left");
+    app.set_workspace_rail_for_test("always");
+    app.set_tab_rail_width_manual_for_test(16);
+    app.set_tab_rail_autohide_for_test(false);
+
+    // The pinned left rail reserves 128 px, so the top strip starts there.
+    app.pointer_move_for_test(140.0, 8.0);
+    assert_eq!(app.chrome_hit_band_for_test(), Some("tab"));
+    assert!(app.top_tab_hovered_for_test());
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::Default
+    );
+}
+
+#[test]
 fn revealed_right_autohide_seam_uses_right_edge_width_mapping() {
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");

@@ -784,6 +784,16 @@ impl App {
                 return Some((ChromeBand::WorkspaceRail, hit));
             }
         }
+        self.current_top_bar_hit()
+    }
+
+    /// The top-bar-only hit under the pointer. Auto-hidden workspace rails use
+    /// this for hover so the floating rail remains owned by its reveal-aware
+    /// path without suppressing the always-pinned top strip.
+    pub(in crate::native) fn current_top_bar_hit(&self) -> Option<(ChromeBand, TabHit)> {
+        let (x_px, y_px) = self.window_pointer_px?;
+        let cell = self.resolved_cell()?;
+        let point = PxPoint::new(x_px, y_px);
         if let Some(geometry) = self.top_strip_geom(cell) {
             let hit = geometry.hit(point);
             if hit != TabHit::None {
