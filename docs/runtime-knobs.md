@@ -375,8 +375,8 @@ environment variable was not set at startup.
 | `window_opacity` | `ODYTTY_WINDOW_OPACITY` | Percent, `20..=100` (step 5) — background opacity when `window_transparency` is on; `100` is fully opaque. Only the background scales — text and overlays never fade | `85` |
 | `always_show_tab_bar` | `ODYTTY_ALWAYS_SHOW_TAB_BAR` | `on`, `off` | `off` |
 | `tab_bar_height` | `ODYTTY_TAB_BAR_HEIGHT` | `auto` (one text row) or a fixed row count `1..=5` — a taller top bar with the labels centered vertically in the band. Drag the tab bar's bottom edge for a manual height; double-click it to reset to `auto` (top bar only) | `auto` |
-| `tab_bar_placement` | `ODYTTY_TAB_BAR_PLACEMENT` | `top`, `left`, `right` — the side the **workspace rail** sits on (tabs always render on the top bar now). `top` puts the rail on the left when it appears | `top` |
-| `workspace_rail` | `ODYTTY_WORKSPACE_RAIL` | `auto` (rail appears once a second workspace exists), `always` (pinned even with one), or `left`/`right` (pinned to that side). `auto`/`always` inherit the side from `tab_bar_placement` | `auto` |
+| `workspace_rail_side` | `ODYTTY_WORKSPACE_RAIL_SIDE` | `left`, `right` — which side the **workspace rail** sits on (tabs always render on the top bar). Legacy alias: `tab_bar_placement` / `ODYTTY_TAB_BAR_PLACEMENT` (`top`, `left`, `right`; `top` folds to `left`), accepted with no warning; the canonical `workspace_rail_side` wins when both are set | `left` |
+| `workspace_rail` | `ODYTTY_WORKSPACE_RAIL` | `auto` (rail appears once a second workspace exists) or `always` (pinned even with one); the side comes from `workspace_rail_side`. Legacy `left`/`right` still parse: each folds to `always` pinned to that side | `auto` |
 | `workspace_rail_width` | `ODYTTY_WORKSPACE_RAIL_WIDTH` | `auto` (size to the longest workspace name) or fixed cells `8..=32` (rail only). Drag the rail's inner edge for a manual width; double-click it to reset to `auto`. Legacy alias: `tab_rail_width` / `ODYTTY_TAB_RAIL_WIDTH` | `auto` |
 | `workspace_rail_max_width` | `ODYTTY_WORKSPACE_RAIL_MAX_WIDTH` | Integer cells, `8..=32` — cap for the `auto` width before workspace names ellipsize (rail only). Legacy alias: `tab_rail_max_width` / `ODYTTY_TAB_RAIL_MAX_WIDTH` | `24` |
 | `workspace_rail_gap` | `ODYTTY_WORKSPACE_RAIL_GAP` | Integer rows, `0..=3` (rail only). Legacy alias: `tab_rail_gap` / `ODYTTY_TAB_RAIL_GAP` | `1` |
@@ -472,6 +472,15 @@ environment variable was not set at startup.
   range. When both a `workspace_rail_*` name and its `tab_rail_*` twin are set
   for the same field, the canonical `workspace_rail_*` value wins. The master
   toggle `workspace_rail` / `ODYTTY_WORKSPACE_RAIL` is unchanged.
+- Rail side and visibility are separate settings. `workspace_rail_side`
+  (`ODYTTY_WORKSPACE_RAIL_SIDE`, `left`|`right`) selects which side the rail
+  sits on; `workspace_rail` (`auto`|`always`) selects whether it shows. For the
+  side, when more than one source is set the precedence is canonical
+  `workspace_rail_side` > legacy `workspace_rail=left|right` > `tab_bar_placement`,
+  so the canonical key wins. A legacy `workspace_rail=left|right` both pins the
+  rail (visibility `always`) and supplies the side when `workspace_rail_side` is
+  absent. The default side resolves to the left. All legacy forms stay accepted
+  with no warning.
 - `ODYTTY_APPEARANCE=dark|light` seeds the initial appearance for OS-theme
   following on X11, where the compositor never delivers a live light/dark
   signal. It is read directly from the environment rather than through the
