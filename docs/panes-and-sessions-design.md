@@ -185,7 +185,7 @@ tabs, **not** panes). Panes within a tab do not add tab-strip entries. So:
 
 ### 2.5 The `Deref → active session` landmine + explicit tab-level audit list
 
-This is the **single biggest refactor** and the Director's required deliverable.
+This is the **single biggest refactor** and the core structural deliverable of Phase 1.
 Two transparent `Deref`/`DerefMut` impls today make hundreds of `self.<field>`
 accesses silently mean "the active session":
 
@@ -478,9 +478,9 @@ Guarantees Phase 1 will uphold:
 Phase 1 will **not** design the daemon, socket, or snapshot format — only keep the
 above invariants so Phase 2 has a clean seam.
 
-### 6.1 Phase 2 — Resumable Sessions (ratified)
+### 6.1 Phase 2 — Resumable Sessions (settled)
 
-**Decision status: OPERATOR-RATIFIED (2026-06-21).** Phase 2 uses an
+**Decision status: settled (2026-06-21).** Phase 2 uses an
 OdyTTY-owned detached session-host process. The session-host owns live PTYs and
 terminal models while no window is attached; a later GUI process reconnects by
 session id and repaints from a versioned OdyTTY snapshot.
@@ -667,12 +667,12 @@ peer's surface). The in-window attach client is complete and tested.
 
 ## 7. Phase 0 decision record — tmux-compatibility keybinding stance
 
-**Decision status: OPERATOR-RATIFIED (2026-06-21).** The operator reviewed the
-trade-off below and chose **to build a true tmux prefix-key input mode** with
-tmux-matching pane defaults, so muscle memory transfers directly. This section
-records that decision and the K1/K2/K3 implementation breakdown. (An earlier draft
-recommended native direct-chords *to avoid* a new input mode; the operator
-override supersedes it — the answer to the `Ctrl-b` collision is **configurable
+**Decision status: settled (2026-06-21).** The trade-off below is resolved in
+favor of **building a true tmux prefix-key input mode** with tmux-matching pane
+defaults, so muscle memory transfers directly. This section records that
+decision and the K1/K2/K3 implementation breakdown. (An earlier draft
+recommended native direct-chords *to avoid* a new input mode; that decision
+supersedes it — the answer to the `Ctrl-b` collision is **configurable
 prefix + doubled-prefix passthrough**, not avoidance.)
 
 ### 7.1 The problem
@@ -692,7 +692,7 @@ panes. Two distinct muscle-memory camps exist:
 OdyTTY's binding engine (`bindings.rs`) is **single-chord only**: a `KeyChord` is
 one modifier-set + one key. It has **no prefix-key (two-step) concept** today.
 A true tmux prefix model therefore requires a new, additive two-chord path in the
-engine (K1 below). This is accepted scope per the operator decision.
+engine (K1 below). This is accepted scope per this decision.
 
 The `Ctrl-b` collision is real: **globally capturing `Ctrl-b` clashes with tmux
 running *inside* OdyTTY**, since `Ctrl-b` is tmux's own prefix, and tmux users very
@@ -892,7 +892,7 @@ prefix, rebinding individual pane actions) are documented as opt-in in
   themed `SolidQuad`; single pane never touches it.
 - **Input** routes to `focused`; focus-follows-click; pure `focus_move`; divider
   drag through the existing debounced resize → `TIOCSWINSZ` → core reflow.
-- **Keybindings (operator-ratified) — "two standards, by domain":** existing
+- **Keybindings (settled) — "two standards, by domain":** existing
   GUI direct-chords stay **exactly as today** (not one changes); the tmux **prefix
   standard** applies to the **new multiplexer actions only** (default prefix
   `Ctrl-b`, configurable; doubled-prefix `Ctrl-b Ctrl-b` passthrough for nested

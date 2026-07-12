@@ -658,7 +658,7 @@ a floor; surpassing it is the standing ambition.
       Invariants: no panic, store caps held, parser never wedges, text stays
       coherent. Smoke tier in default `cargo test`; `#[ignore]` deep tier at
       `ODYTTY_FUZZ_ITERS=40000` ran clean (120k+ iters, no defects). Two
-      bounded performance observations on `decode_sixel` routed to the director
+      bounded performance observations on `decode_sixel` recorded as follow-ups
       (eager raster-canvas alloc; O(area) incremental-width re-layout) — both
       cap-bounded, not panics.
   - [x] Sixel memory-behavior hardening (follow-up fixes from the graphics-surface fuzzing audit):
