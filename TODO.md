@@ -301,6 +301,16 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         rewrite only the bounded cursor/overlay tail. Region-level row
         granularity remains deferred until evidence justifies the added
         complexity.
+  - [ ] Instanced cell geometry: the grid renderer expands each cell to
+        six vertices and re-uploads the full visible geometry on every
+        content change (~4.6 MiB on a dense 160x50 grid). Moving
+        quad-corner expansion into the vertex shader and uploading one
+        compact instance per primitive would cut CPU fill and upload
+        bandwidth substantially. Held until the change can be visually
+        verified across the Vulkan, Metal, and DX12 backends, since it
+        is shader-side and the automated suite does not compare rendered
+        pixels. Row-granular dirty regions (today mark_dirty always
+        promotes to a full rebuild) are a separate follow-on.
 - [x] Add visual regression screenshots or pixel-level smoke checks where
       practical.
   - [x] V1: `tests/pixel_smoke.rs` — a headless CPU compositor rasterizes the
