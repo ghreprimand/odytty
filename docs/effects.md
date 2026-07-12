@@ -175,7 +175,7 @@ overlay take effect on the next frame without restarting.
 | `crt` | `ODYTTY_CRT` | `on` / `off` | `on` | — |
 | `crt_scanline_intensity` | `ODYTTY_CRT_SCANLINE_INTENSITY` | float | `0.17` | `0.0–0.35` |
 | `crt_scanline_period` | `ODYTTY_CRT_SCANLINE_PERIOD` | float | `7.0` | `2.0–12.0` |
-| `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | float | `0.10` | `0.0–0.45` |
+| `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | float | `0.45` | `0.0–0.45` |
 | `crt_curvature` | `ODYTTY_CRT_CURVATURE` | float | `0.0` | `0.0–0.12` |
 
 **`crt`** — master switch. `on` enables the scanline/vignette profile; `off`
@@ -205,7 +205,7 @@ and pixel-identical to the no-curvature path. The cap is intentionally low
 crt = on
 crt_scanline_intensity = 0.17
 crt_scanline_period = 7.0
-crt_vignette_strength = 0.10
+crt_vignette_strength = 0.45
 crt_curvature = 0.0
 ```
 

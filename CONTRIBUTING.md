@@ -301,7 +301,7 @@ references.
 
 ## Adding a built-in theme
 
-All 100 built-in themes live in `src/theme/builtins/` as `.theme` files.
+All 142 built-in themes live in `src/theme/builtins/` as `.theme` files.
 The `REGISTRY` slice in `src/theme/builtins.rs` maps names to
 `include_str!`-embedded sources. Adding a new built-in is four steps:
 
