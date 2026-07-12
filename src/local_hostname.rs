@@ -46,7 +46,7 @@ fn get_impl() -> Option<String> {
     // SAFETY: a null buffer with `size` = 0 asks only for the needed length;
     // the API writes it into `size` and returns an error we ignore here.
     unsafe {
-        let _ = GetComputerNameExW(ComputerNameDnsHostname, PWSTR::null(), &mut size);
+        let _ = GetComputerNameExW(ComputerNameDnsHostname, None, &mut size);
     }
     if size == 0 {
         return None;
@@ -55,7 +55,12 @@ fn get_impl() -> Option<String> {
     // SAFETY: `buf` holds `size` WCHARs; on success `size` is updated to the
     // count actually written (excluding the NUL).
     let ok = unsafe {
-        GetComputerNameExW(ComputerNameDnsHostname, PWSTR(buf.as_mut_ptr()), &mut size).is_ok()
+        GetComputerNameExW(
+            ComputerNameDnsHostname,
+            Some(PWSTR(buf.as_mut_ptr())),
+            &mut size,
+        )
+        .is_ok()
     };
     if !ok {
         return None;

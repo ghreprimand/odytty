@@ -37,14 +37,15 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle, RawHandle};
 use std::os::windows::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
-// `AtomicUsize`/`Ordering` back the test-only `resize_calls` /
-// `kernel_resizes` counters, so they are unused in a non-test Windows build —
-// gate the imports to match (Standing rule C: a Windows-only file's lints are
-// invisible to the Linux gate). P2-FIX removed the last non-test atomic (the
-// old `hpcon_closed: AtomicBool` became the mutex-guarded flag in
-// [`PconShared`]).
+// `AtomicBool`/`Ordering` back the D-5 `teardown_requested` latch on
+// `PconShared`, which is live in every Windows build. `AtomicUsize` backs only
+// the test-only `resize_calls` / `kernel_resizes` counters, so it stays gated
+// to `cfg(test)` to avoid an unused-import warning under the `-D warnings` gate
+// on a non-test Windows build (Standing rule C: a Windows-only file's lints are
+// invisible to the Linux gate).
 #[cfg(test)]
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};

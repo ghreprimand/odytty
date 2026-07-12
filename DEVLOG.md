@@ -67,7 +67,10 @@ resolution, the ConPTY diagnostic drain, and the hostname lookup); the OSC 7
 percent-encoding is additionally exercised end to end by running the real bash
 snippet on the Unix legs. The stale "no Windows injection" note on the
 command-builder test seams was corrected, as there is Windows spawn-time
-injection.
+injection. The Windows-only paths bring their own imports into scope
+(`std::sync::atomic::{AtomicBool, Ordering}` for the ConPTY teardown latch) and
+pass the `windows` 0.62 `GetComputerNameExW` buffer as `Option<PWSTR>`, matching
+that release's signature.
 
 ## 2026-07-12 -- Selection origins and session-switch input state hardened
 
