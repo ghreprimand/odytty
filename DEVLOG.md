@@ -44,7 +44,9 @@ previous live config is preserved when a reload is rejected. Warning
 accumulation is capped with a single "N further warnings suppressed" record.
 The cap is a byte count and the regular-file check uses portable std metadata,
 so behavior is identical on Linux, macOS, and Windows; the regular-file arm is
-covered by a platform-agnostic test that runs on the Windows leg too.
+covered by a platform-agnostic test that runs on the Windows leg too. The
+regular-file check stats the path before opening it, because opening a directory
+on Windows fails with a permission error before any file-type check would run.
 
 OSC dispatch no longer allocates. Each terminated OSC built a fresh heap vector
 of parameter slices before dispatch; shell integration emits several OSC 133/7

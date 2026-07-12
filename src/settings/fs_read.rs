@@ -40,11 +40,15 @@ pub(super) const MAX_WARNINGS: usize = 100;
 /// - Non-UTF-8 content returns [`io::ErrorKind::InvalidData`] (config/theme
 ///   files are UTF-8 text).
 pub(super) fn read_capped(path: &Path) -> io::Result<String> {
-    let file = File::open(path)?;
-    // Reject non-regular files portably: `FileType::is_file` is defined on every
-    // platform, so a directory or FIFO fails the same way on Windows and Unix
-    // instead of blocking in a device read or succeeding on a directory handle.
-    let metadata = file.metadata()?;
+    // Reject non-regular files by stat-ing the path BEFORE opening it, so the
+    // rejection is identical on every platform. On Windows `File::open` on a
+    // directory fails with PermissionDenied (a directory handle needs
+    // FILE_FLAG_BACKUP_SEMANTICS), which would short-circuit before any
+    // `is_file` check; stat-first sidesteps that ordering. `std::fs::metadata`
+    // follows symlinks, so a symlink to a regular file is accepted while a
+    // symlink to a directory or FIFO resolves to non-regular and is rejected. A
+    // missing path returns NotFound here, matching the open-based behavior.
+    let metadata = std::fs::metadata(path)?;
     if !metadata.is_file() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -52,6 +56,7 @@ pub(super) fn read_capped(path: &Path) -> io::Result<String> {
         ));
     }
 
+    let file = File::open(path)?;
     // Read at most one byte past the ceiling so an over-limit file is detected
     // without materializing its full contents.
     let mut buf = Vec::new();
