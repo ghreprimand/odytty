@@ -377,14 +377,14 @@ environment variable was not set at startup.
 | `tab_bar_height` | `ODYTTY_TAB_BAR_HEIGHT` | `auto` (one text row) or a fixed row count `1..=5` — a taller top bar with the labels centered vertically in the band. Drag the tab bar's bottom edge for a manual height; double-click it to reset to `auto` (top bar only) | `auto` |
 | `tab_bar_placement` | `ODYTTY_TAB_BAR_PLACEMENT` | `top`, `left`, `right` — the side the **workspace rail** sits on (tabs always render on the top bar now). `top` puts the rail on the left when it appears | `top` |
 | `workspace_rail` | `ODYTTY_WORKSPACE_RAIL` | `auto` (rail appears once a second workspace exists), `always` (pinned even with one), or `left`/`right` (pinned to that side). `auto`/`always` inherit the side from `tab_bar_placement` | `auto` |
-| `tab_rail_width` | `ODYTTY_TAB_RAIL_WIDTH` | `auto` (size to the longest tab title) or fixed cells `8..=32` (rail only). Drag the rail's inner edge for a manual width; double-click it to reset to `auto` | `auto` |
-| `tab_rail_max_width` | `ODYTTY_TAB_RAIL_MAX_WIDTH` | Integer cells, `8..=32` — cap for the `auto` width before titles ellipsize (rail only) | `24` |
-| `tab_rail_gap` | `ODYTTY_TAB_RAIL_GAP` | Integer rows, `0..=3` (rail only) | `1` |
-| `tab_rail_slot_rows` | `ODYTTY_TAB_RAIL_SLOT_ROWS` | `1` (compact) or `2` (padded — single centered label + a breathing row) (rail only) | `2` |
+| `workspace_rail_width` | `ODYTTY_WORKSPACE_RAIL_WIDTH` | `auto` (size to the longest workspace name) or fixed cells `8..=32` (rail only). Drag the rail's inner edge for a manual width; double-click it to reset to `auto`. Legacy alias: `tab_rail_width` / `ODYTTY_TAB_RAIL_WIDTH` | `auto` |
+| `workspace_rail_max_width` | `ODYTTY_WORKSPACE_RAIL_MAX_WIDTH` | Integer cells, `8..=32` — cap for the `auto` width before workspace names ellipsize (rail only). Legacy alias: `tab_rail_max_width` / `ODYTTY_TAB_RAIL_MAX_WIDTH` | `24` |
+| `workspace_rail_gap` | `ODYTTY_WORKSPACE_RAIL_GAP` | Integer rows, `0..=3` (rail only). Legacy alias: `tab_rail_gap` / `ODYTTY_TAB_RAIL_GAP` | `1` |
+| `workspace_rail_slot_rows` | `ODYTTY_WORKSPACE_RAIL_SLOT_ROWS` | `1` (compact) or `2` (padded — single centered label + a breathing row) (rail only). Legacy alias: `tab_rail_slot_rows` / `ODYTTY_TAB_RAIL_SLOT_ROWS` | `2` |
 | `tab_panel_strength` | `ODYTTY_TAB_PANEL_STRENGTH` | Float, `0.0..=1.0` (`0` = panel off) | `1.0` |
 | `tab_seam` | `ODYTTY_TAB_SEAM` | `on`, `off` | `on` |
-| `tab_rail_autohide` | `ODYTTY_TAB_RAIL_AUTOHIDE` | `on`, `off` (rail only) — hide the rail until the pointer reaches its window edge, then reveal it as a floating overlay (no content reflow); a tab-switch/new/close chord flashes it briefly | `off` |
-| `tab_rail_reveal_px` | `ODYTTY_TAB_RAIL_REVEAL_PX` | Logical px, `1..=32` (rail only) — width of the window-edge zone that triggers the auto-hide reveal; scaled for HiDPI displays | `16` |
+| `workspace_rail_autohide` | `ODYTTY_WORKSPACE_RAIL_AUTOHIDE` | `on`, `off` (rail only) — hide the rail until the pointer reaches its window edge, then reveal it as a floating overlay (no content reflow); a workspace-switch/new/close chord flashes it briefly. Legacy alias: `tab_rail_autohide` / `ODYTTY_TAB_RAIL_AUTOHIDE` | `off` |
+| `workspace_rail_reveal_px` | `ODYTTY_WORKSPACE_RAIL_REVEAL_PX` | Logical px, `1..=32` (rail only) — width of the window-edge zone that triggers the auto-hide reveal; scaled for HiDPI displays. Legacy alias: `tab_rail_reveal_px` / `ODYTTY_TAB_RAIL_REVEAL_PX` | `16` |
 | `background_treatment` | `ODYTTY_BACKGROUND_TREATMENT` | `off`/`color`, `gradient`, `vignette`, `image` | `image` |
 | `background_image` | `ODYTTY_BACKGROUND_IMAGE` | PNG/JPEG/WebP path, `default` (bundled), or `none` | `default` (bundled) |
 | `cell_bg_opacity` | `ODYTTY_CELL_BG_OPACITY` | Float, `0.0..=1.0` | `0.8` |
@@ -462,6 +462,16 @@ environment variable was not set at startup.
 - `theme = system` is a convenience alias. It enables OS dark/light following
   and maps dark to `odyssey`, light to `odyssey-light`, unless explicit
   `os_theme_dark` / `os_theme_light` values are set.
+- The vertical rail's geometry knobs carry a canonical `workspace_rail_*`
+  family (`workspace_rail_width`, `_max_width`, `_gap`, `_slot_rows`,
+  `_autohide`, `_reveal_px`) and matching `ODYTTY_WORKSPACE_RAIL_*` environment
+  variables, since the rail lists workspaces rather than tabs. The older
+  `tab_rail_*` config keys and `ODYTTY_TAB_RAIL_*` variables remain fully
+  accepted as legacy aliases onto the same settings, so existing configs keep
+  working unchanged. Each name is a pure alias — no separate field, default, or
+  range. When both a `workspace_rail_*` name and its `tab_rail_*` twin are set
+  for the same field, the canonical `workspace_rail_*` value wins. The master
+  toggle `workspace_rail` / `ODYTTY_WORKSPACE_RAIL` is unchanged.
 - `ODYTTY_APPEARANCE=dark|light` seeds the initial appearance for OS-theme
   following on X11, where the compositor never delivers a live light/dark
   signal. It is read directly from the environment rather than through the
