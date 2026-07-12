@@ -62,6 +62,11 @@ impl App {
         self.toggle_settings_overlay();
     }
 
+    #[cfg(test)]
+    pub(in crate::native) fn settings_active_section_for_test(&self) -> Option<&'static str> {
+        self.overlay.settings_active_section_for_test()
+    }
+
     /// Test seam (UX4-P1): close the overlay (Esc-equivalent), without a
     /// window/GPU.
     #[cfg(test)]
@@ -1998,6 +2003,11 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn open_workspace_rail_menu_for_test(&mut self, idx: usize) {
         self.open_context_menu(super::ContextMenuSurface::WorkspaceSlot(idx));
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn open_empty_tab_strip_menu_for_test(&mut self) {
+        self.open_context_menu(super::ContextMenuSurface::TabStripEmpty);
     }
 
     #[cfg(test)]

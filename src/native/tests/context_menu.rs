@@ -1568,6 +1568,49 @@ fn clicking_settings_opens_settings_panel_and_closes_menu() {
         OverlayMode::Settings,
         "Settings item opens the settings panel"
     );
+    assert_eq!(
+        app.settings_active_section_for_test(),
+        None,
+        "content-menu Settings keeps the generic section list"
+    );
+}
+
+#[test]
+fn tab_strip_menu_settings_opens_tabs_and_panes() {
+    let Some((mut app, _terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_pointer_cell_for_test(5, 10);
+    app.open_empty_tab_strip_menu_for_test();
+    click_menu_item(&mut app, "Settings");
+    assert_eq!(app.settings_active_section_for_test(), Some("Tabs & Panes"));
+}
+
+#[test]
+fn workspace_menu_settings_opens_tabs_and_panes() {
+    let Some((mut app, _terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_pointer_cell_for_test(5, 10);
+    app.open_workspace_rail_menu_for_test(0);
+    // Settings is the eighth selectable row: New, Duplicate, Rename, Close,
+    // Bind, the two layout rows, then Settings in its trailing group.
+    for _ in 0..7 {
+        app.drive_overlay_key_for_test(
+            winit::keyboard::Key::Named(winit::keyboard::NamedKey::ArrowDown),
+            false,
+            false,
+        );
+    }
+    app.drive_overlay_key_for_test(
+        winit::keyboard::Key::Named(winit::keyboard::NamedKey::Enter),
+        false,
+        false,
+    );
+    assert_eq!(app.overlay_signature_for_test().mode, OverlayMode::Settings);
+    assert_eq!(app.settings_active_section_for_test(), Some("Tabs & Panes"));
 }
 
 /// D-IN2-SETTINGS: clicking either separator row is inert — the separator is

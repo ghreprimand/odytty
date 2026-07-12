@@ -2280,6 +2280,21 @@ impl App {
         self.request_selection_redraw();
     }
 
+    fn open_settings_overlay_target(&mut self, target: crate::native::overlay::SettingsTarget) {
+        if self.search.is_open() {
+            self.close_search(true);
+        }
+        self.reset_pointer_state_for_overlay();
+        let adapter = self
+            .gpu
+            .as_ref()
+            .map(|gpu| gpu.adapter_diagnostics().clone());
+        self.overlay
+            .set_about_info(crate::native::about::AboutInfo::collect(adapter));
+        self.overlay.open_settings_target(target);
+        self.request_selection_redraw();
+    }
+
     fn open_theme_picker_overlay(&mut self) {
         if self.search.is_open() {
             self.close_search(true);

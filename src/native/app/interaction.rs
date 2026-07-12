@@ -371,11 +371,11 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.apply_pane_action(crate::settings::BindableAction::ClosePane);
             }
-            // D-IN2-SETTINGS: the context menu closed itself; open the settings
-            // panel through the existing toggle path (same destination as
-            // Ctrl+Shift+,). No extra state: the toggle path handles open/close.
-            OverlayOutcome::ContextMenuSettings => {
-                self.toggle_settings_overlay();
+            // The context menu closed itself; open the settings panel at the
+            // target selected from the clicked surface. Content remains at the
+            // generic root while tab/workspace chrome enters Tabs & Panes.
+            OverlayOutcome::ContextMenuSettings(target) => {
+                self.open_settings_overlay_target(target);
             }
             // v0.3.1 launcher section: the context menu closed itself; open each
             // overlay through the same entry the discoverability chords fire.

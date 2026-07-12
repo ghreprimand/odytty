@@ -796,6 +796,31 @@ impl SettingsPanel {
         self.clamp();
     }
 
+    /// Open directly inside the named Level-1 section. Context-menu launchers
+    /// use this to preserve the panel's normal two-level navigation while
+    /// landing on the settings related to the clicked chrome surface.
+    pub(super) fn open_section(&mut self, name: &str) {
+        let Some(section_index) = SECTIONS.iter().position(|section| section.name == name) else {
+            return;
+        };
+        self.query.clear();
+        self.search_active = false;
+        self.section_selected = section_index;
+        self.section_scroll = section_index.min(SECTIONS.len().saturating_sub(1));
+        self.pending_close_prompt = false;
+        self.drill_into_section(section_index);
+    }
+
+    #[cfg(test)]
+    pub(super) fn active_section_name_for_test(&self) -> Option<&'static str> {
+        match self.level {
+            SettingsLevel::SectionDetail { section_index } => {
+                SECTIONS.get(section_index).map(|section| section.name)
+            }
+            SettingsLevel::SectionList | SettingsLevel::About => None,
+        }
+    }
+
     fn move_section_selection(&mut self, delta: isize) {
         // +1 for the synthetic "About" row appended after SECTIONS.
         let n = (SECTIONS.len() + 1) as isize;

@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Deep-link chrome settings menus to Tabs & Panes
+
+Workspace-slot and empty-workspace-rail context menus now include Settings in a
+separate trailing group. Settings launched from tab-strip or workspace surfaces
+opens directly inside the existing Tabs & Panes section, while the terminal
+content menu and keyboard shortcut retain the generic settings entry point. The
+target is carried explicitly through the context-menu outcome, keeping the
+shared panel navigation path and avoiding surface inference after the menu has
+closed. Behavior is identical on Linux, macOS, and Windows.
+
+Verified: context-menu composition and row grouping, tab/workspace deep-link
+routing, generic content routing, cargo build, cargo test (full lib suite),
+cargo fmt --check, and cargo clippy --all-targets --locked -- -D warnings all
+clean.
+
 ## 2026-07-12 -- Restore floating workspace-rail clicks over split panes
 
 Left presses on a revealed auto-hide workspace rail now bypass split-pane focus

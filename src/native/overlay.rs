@@ -220,6 +220,18 @@ impl OverlayUi {
         self.mode = OverlayMode::Settings;
     }
 
+    pub(super) fn open_settings_target(&mut self, target: SettingsTarget) {
+        self.open_settings();
+        if target == SettingsTarget::TabsAndPanes {
+            self.panel.open_section("Tabs & Panes");
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn settings_active_section_for_test(&self) -> Option<&'static str> {
+        self.panel.active_section_name_for_test()
+    }
+
     /// Refresh the read-only About data on the settings panel (ABOUT). Called by
     /// the App when toggling the settings overlay so the About view reflects the
     /// live GPU adapter (available once the renderer is up).
@@ -1229,6 +1241,7 @@ impl OverlayUi {
                 ) {
                     return self.apply_connection_row_menu_item(item);
                 }
+                let surface = self.context_menu.surface();
                 self.close();
                 match item {
                     ContextMenuItem::Copy => OverlayOutcome::ContextMenuCopy,
@@ -1366,7 +1379,18 @@ impl OverlayUi {
                     ContextMenuItem::SplitColumns => OverlayOutcome::ContextMenuSplitColumns,
                     ContextMenuItem::SplitRows => OverlayOutcome::ContextMenuSplitRows,
                     ContextMenuItem::ClosePane => OverlayOutcome::ContextMenuClosePane,
-                    ContextMenuItem::Settings => OverlayOutcome::ContextMenuSettings,
+                    ContextMenuItem::Settings => {
+                        let target = match surface {
+                            crate::native::context_menu_ui::ContextMenuSurface::TabSlot(_)
+                            | crate::native::context_menu_ui::ContextMenuSurface::TabStripEmpty
+                            | crate::native::context_menu_ui::ContextMenuSurface::WorkspaceSlot(_)
+                            | crate::native::context_menu_ui::ContextMenuSurface::WorkspaceRailEmpty => {
+                                SettingsTarget::TabsAndPanes
+                            }
+                            _ => SettingsTarget::Root,
+                        };
+                        OverlayOutcome::ContextMenuSettings(target)
+                    }
                     // F3: reuse the fully-wired OpenKeyBindings outcome (the
                     // settings panel's "keybinds" row emits the same one); the
                     // App handler flushes pending overlay settings and opens the
@@ -2661,6 +2685,12 @@ pub(super) enum LayoutSaveKind {
     Workspace(usize),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SettingsTarget {
+    Root,
+    TabsAndPanes,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum OverlayOutcome {
     Consumed,
@@ -2872,9 +2902,9 @@ pub(super) enum OverlayOutcome {
     /// `apply_pane_action(ClosePane)` the tmux `Ctrl-b x` prefix / palette fire.
     ContextMenuClosePane,
     /// Open the settings panel from the context menu (D-IN2-SETTINGS). The
-    /// overlay has already closed itself; the App opens the settings panel
-    /// through the existing toggle path.
-    ContextMenuSettings,
+    /// overlay has already closed itself; the target distinguishes generic
+    /// content entry from tab/workspace entry into Tabs & Panes.
+    ContextMenuSettings(SettingsTarget),
     /// Open the connection manager / command palette / session replay overlays
     /// from the context menu's launcher section (v0.3.1 discoverability). The
     /// menu has already closed itself; the App opens each through the same entry

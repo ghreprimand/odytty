@@ -1190,7 +1190,8 @@ impl ContextMenuUi {
                 // LAYOUT-SURFACE + RAIL-SAVE-ALL: both save actions share a
                 // trailing group of their own (one separator above them).
                 ContextMenuItem::SaveAllLayout | ContextMenuItem::SaveAsLayout => 3,
-                _ => 3,
+                ContextMenuItem::Settings => 4,
+                _ => 4,
             },
             ContextMenuSurface::ConnectionRow(_) => match item {
                 // Open/Bind group; Edit/Remove in their own group (a separator
@@ -1205,7 +1206,9 @@ impl ContextMenuUi {
             // Layout below a separator.
             ContextMenuSurface::WorkspaceRailEmpty => match item {
                 ContextMenuItem::NewWorkspace => 0,
-                _ => 1,
+                ContextMenuItem::SaveAllLayout | ContextMenuItem::OpenLayout => 1,
+                ContextMenuItem::Settings => 2,
+                _ => 2,
             },
             _ => item.section(),
         }
@@ -1300,6 +1303,7 @@ impl ContextMenuUi {
                 // save of the CLICKED slot — same order as the content menu.
                 items.push(ContextMenuItem::SaveAllLayout);
                 items.push(ContextMenuItem::SaveAsLayout);
+                items.push(ContextMenuItem::Settings);
                 return items;
             }
             ContextMenuSurface::WorkspaceRailEmpty => {
@@ -1310,6 +1314,7 @@ impl ContextMenuUi {
                     ContextMenuItem::NewWorkspace,
                     ContextMenuItem::SaveAllLayout,
                     ContextMenuItem::OpenLayout,
+                    ContextMenuItem::Settings,
                 ];
             }
             // ODP-2C: a connection-manager row offers Open in New Tab / Open in
@@ -3164,6 +3169,8 @@ mod tests {
                 ContextMenuRow::Separator,
                 item("Save as Layout\u{2026}", false, true),
                 item("Save Workspace as Layout\u{2026}", false, true),
+                ContextMenuRow::Separator,
+                item("Settings", false, true),
             ]
         );
     }
@@ -3277,6 +3284,8 @@ mod tests {
                 ContextMenuRow::Separator,
                 item("Save as Layout\u{2026}", false, true),
                 item("Open Layout\u{2026}", false, true),
+                ContextMenuRow::Separator,
+                item("Settings", false, true),
             ]
         );
     }
