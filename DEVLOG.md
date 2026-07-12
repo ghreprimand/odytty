@@ -7,6 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Keep generic Settings navigation at the section-list top
+
+Chrome context menus still open directly inside the relevant Tabs & Panes
+settings, but that deep link no longer changes the shared Level-1 list scroll.
+Returning to the section list, or opening Settings generically afterward, now
+shows Themes, Fonts, and Rendering from the top while retaining Tabs & Panes as
+the selected row. The behavior is identical on Linux, macOS, and Windows.
+
+Verified: targeted settings-panel tests, cargo build, cargo test (full lib
+suite), cargo fmt --check, and cargo clippy --all-targets --locked -- -D
+warnings all clean. Final interaction remains part of the release-build visual
+check.
+
 ## 2026-07-12 -- Preserve chrome-label descenders at band edges
 
 Default-height tab labels now retain a two-physical-pixel descender margin,

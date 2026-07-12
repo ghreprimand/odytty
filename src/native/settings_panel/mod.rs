@@ -806,7 +806,10 @@ impl SettingsPanel {
         self.query.clear();
         self.search_active = false;
         self.section_selected = section_index;
-        self.section_scroll = section_index.min(SECTIONS.len().saturating_sub(1));
+        // Preserve the target as the Level-1 selection without pinning it to
+        // the first visible row. The panel is long-lived, so a non-zero scroll
+        // here would leak into the next generic open after back navigation.
+        self.section_scroll = 0;
         self.pending_close_prompt = false;
         self.drill_into_section(section_index);
     }
@@ -2425,6 +2428,39 @@ mod tests {
         assert_eq!(
             sig.section_selected, l1_selected,
             "Level 1 selection is restored"
+        );
+    }
+
+    #[test]
+    fn section_deep_link_keeps_the_level_one_list_at_the_top() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        panel.update_body_height(40);
+        panel.update_body_width(80);
+
+        panel.open_section("Tabs & Panes");
+        assert_eq!(
+            panel.active_section_name_for_test(),
+            Some("Tabs & Panes"),
+            "deep link still enters the requested section"
+        );
+        assert_eq!(
+            panel.section_selected, 3,
+            "back navigation preserves the deep-link target as the selection"
+        );
+        assert_eq!(
+            panel.section_scroll, 0,
+            "deep linking must not persist a scrolled Level-1 list"
+        );
+
+        let _ = panel.handle_input(OverlayInput::Close);
+        let listing = body_text(&panel);
+        assert!(
+            listing.contains("Themes"),
+            "a subsequent generic section list starts at the top: {listing}"
+        );
+        assert!(
+            listing.contains("Tabs & Panes"),
+            "the selected target remains visible in the full section list: {listing}"
         );
     }
 
