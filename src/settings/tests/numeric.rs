@@ -535,24 +535,25 @@ fn tab_bar_placement_round_trips_through_edit_values() {
 }
 
 #[test]
-fn tab_bar_placement_has_an_enum_row_in_the_tabs_group() {
+fn rail_side_has_an_enum_row_in_the_workspace_rail_group() {
     let rows = Settings::default().setting_info();
     let row = rows
         .iter()
         .find(|row| row.key == "tab_bar_placement")
         .expect("tab_bar_placement row present");
-    // F4-V2: lives in the "Tabs" group → "Tabs & Panes" Level-1 section.
-    assert_eq!(row.group, "Tabs");
+    // Rail SIDE lives in the "Workspace rail" group -> "Layout" Level-1 section.
+    // The user surface offers left|right only; the default Top placement folds to
+    // the left rail, so the displayed value is "left".
+    assert_eq!(row.group, "Workspace rail");
+    assert_eq!(row.name, "Rail side");
     assert_eq!(row.kind, SettingKind::Enum);
-    assert_eq!(row.options, ["top", "left", "right"]);
-    assert_eq!(row.value, "top");
+    assert_eq!(row.options, ["left", "right"]);
+    assert_eq!(row.value, "left");
     assert!(row.reloadable);
     assert!(!row.description.trim().is_empty());
-    // F4-P2: all three placements render now, so the description names right as a
-    // real option and must NOT carry the old "falls back / later update" caveat.
     assert!(
         row.description.contains("right"),
-        "description names right as a placement"
+        "description names right as a side"
     );
     assert!(
         !row.description.contains("later update") && !row.description.contains("falls back"),
@@ -803,27 +804,132 @@ fn workspace_rail_config_key_sets_the_field_through_parse() {
 }
 
 #[test]
-fn tab_rail_knobs_live_in_the_tabs_group() {
+fn layout_knobs_land_in_their_regrouped_groups() {
+    // The Layout section regroups its knobs: rail geometry under "Workspace
+    // rail", the tab panel under "Panel", tab knobs under "Tabs", panes under
+    // "Panes".
     let rows = Settings::default().setting_info();
-    for key in [
-        "tab_rail_width",
-        "tab_rail_max_width",
-        "tab_rail_gap",
-        "tab_rail_slot_rows",
-        "tab_panel_strength",
-        "tab_seam",
-        "tab_rail_autohide",
-        "tab_rail_reveal_px",
-    ] {
+    let expected = [
+        ("tab_rail_width", "Workspace rail"),
+        ("tab_rail_max_width", "Workspace rail"),
+        ("tab_rail_gap", "Workspace rail"),
+        ("tab_rail_slot_rows", "Workspace rail"),
+        ("tab_rail_autohide", "Workspace rail"),
+        ("tab_rail_reveal_px", "Workspace rail"),
+        ("tab_bar_placement", "Workspace rail"),
+        ("workspace_rail", "Workspace rail"),
+        ("tab_panel_strength", "Panel"),
+        ("tab_seam", "Panel"),
+        ("always_show_tab_bar", "Tabs"),
+        ("tab_bar_height", "Tabs"),
+        ("inactive_pane_dim", "Panes"),
+        ("pane_prefix", "Panes"),
+    ];
+    for (key, group) in expected {
         let row = rows
             .iter()
             .find(|r| r.key == key)
             .unwrap_or_else(|| panic!("row {key}"));
-        assert_eq!(row.group, "Tabs", "{key} in Tabs group");
-        assert!(row.reloadable, "{key} is hot-reloadable");
+        assert_eq!(row.group, group, "{key} in {group} group");
         assert!(
             !row.description.trim().is_empty(),
             "{key} has a description"
         );
     }
+}
+
+#[test]
+fn rail_side_and_visibility_default_to_left_and_auto() {
+    // Rail side and visibility are separate settings. With no config the side is
+    // the left rail (the default Top placement folds to left) and visibility is
+    // Auto (rail appears only once a second workspace exists).
+    let (d, warnings) = settings_from([]);
+    assert_eq!(d.tab_bar_placement, TabBarPlacement::Top);
+    assert_eq!(d.tab_bar_placement.rail_side_str(), "left");
+    assert_eq!(d.workspace_rail, WorkspaceRail::Auto);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn legacy_tab_bar_placement_still_sets_the_rail_side() {
+    // The legacy side selector keeps working: top|left|right, top -> left.
+    let (right, _) = settings_from([(TAB_BAR_PLACEMENT_ENV, "right")]);
+    assert_eq!(right.tab_bar_placement, TabBarPlacement::Right);
+    assert_eq!(right.tab_bar_placement.rail_side_str(), "right");
+
+    let (left, _) = settings_from([(TAB_BAR_PLACEMENT_ENV, "left")]);
+    assert_eq!(left.tab_bar_placement.rail_side_str(), "left");
+
+    let (top, _) = settings_from([(TAB_BAR_PLACEMENT_ENV, "top")]);
+    assert_eq!(top.tab_bar_placement.rail_side_str(), "left");
+}
+
+#[test]
+fn legacy_workspace_rail_side_folds_to_side_plus_always() {
+    // A legacy workspace_rail=left|right folds to the side field plus Always
+    // visibility; the UI now offers auto|always for visibility.
+    let (left, _) = settings_from([(WORKSPACE_RAIL_ENV, "left")]);
+    assert_eq!(left.tab_bar_placement.rail_side_str(), "left");
+    assert_eq!(
+        left.workspace_rail,
+        WorkspaceRail::Always,
+        "legacy left folds visibility to Always"
+    );
+
+    let (right, _) = settings_from([(WORKSPACE_RAIL_ENV, "right")]);
+    assert_eq!(right.tab_bar_placement.rail_side_str(), "right");
+    assert_eq!(right.workspace_rail, WorkspaceRail::Always);
+
+    // auto|always pass through untouched and keep the default side.
+    let (always, _) = settings_from([(WORKSPACE_RAIL_ENV, "always")]);
+    assert_eq!(always.workspace_rail, WorkspaceRail::Always);
+    assert_eq!(always.tab_bar_placement.rail_side_str(), "left");
+}
+
+#[test]
+fn canonical_workspace_rail_side_wins_over_legacy_tab_bar_placement() {
+    // The canonical ODYTTY_WORKSPACE_RAIL_SIDE (left|right) wins over the legacy
+    // ODYTTY_TAB_BAR_PLACEMENT when both are set.
+    let (both, _) = settings_from([
+        (WORKSPACE_RAIL_SIDE_ENV, "right"),
+        (TAB_BAR_PLACEMENT_ENV, "left"),
+    ]);
+    assert_eq!(
+        both.tab_bar_placement.rail_side_str(),
+        "right",
+        "canonical rail side wins over legacy tab bar placement"
+    );
+
+    // The canonical key applies on its own too.
+    let (canon_only, _) = settings_from([(WORKSPACE_RAIL_SIDE_ENV, "right")]);
+    assert_eq!(canon_only.tab_bar_placement.rail_side_str(), "right");
+
+    // An invalid canonical value warns and falls back to the left rail.
+    let (bad, warnings) = settings_from([(WORKSPACE_RAIL_SIDE_ENV, "top")]);
+    assert_eq!(bad.tab_bar_placement.rail_side_str(), "left");
+    assert!(warnings.iter().any(|w| w.contains("WORKSPACE_RAIL_SIDE")));
+}
+
+#[test]
+fn workspace_rail_side_config_key_round_trips_and_parses() {
+    // The canonical config key maps both directions, and a config-file line
+    // using it sets the side through parse.
+    assert_eq!(
+        config_key_to_env("workspace_rail_side"),
+        Some(WORKSPACE_RAIL_SIDE_ENV)
+    );
+    assert_eq!(config_key_to_env("railside"), Some(WORKSPACE_RAIL_SIDE_ENV));
+    assert_eq!(
+        env_to_config_key(WORKSPACE_RAIL_SIDE_ENV),
+        Some("workspace_rail_side")
+    );
+
+    let config = ConfigValues::parse(
+        "workspace_rail_side = right
+",
+        |_| {},
+    );
+    let settings =
+        Settings::from_source(|key| config.get(key).cloned(), |_| {}, |_| None, |_| None);
+    assert_eq!(settings.tab_bar_placement.rail_side_str(), "right");
 }

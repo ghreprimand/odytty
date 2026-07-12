@@ -1584,7 +1584,7 @@ fn tab_strip_menu_settings_opens_tabs_and_panes() {
     app.set_pointer_cell_for_test(5, 10);
     app.open_empty_tab_strip_menu_for_test();
     click_menu_item(&mut app, "Settings");
-    assert_eq!(app.settings_active_section_for_test(), Some("Tabs & Panes"));
+    assert_eq!(app.settings_active_section_for_test(), Some("Layout"));
 }
 
 #[test]
@@ -1610,7 +1610,7 @@ fn workspace_menu_settings_opens_tabs_and_panes() {
         false,
     );
     assert_eq!(app.overlay_signature_for_test().mode, OverlayMode::Settings);
-    assert_eq!(app.settings_active_section_for_test(), Some("Tabs & Panes"));
+    assert_eq!(app.settings_active_section_for_test(), Some("Layout"));
 }
 
 /// D-IN2-SETTINGS: clicking either separator row is inert — the separator is

@@ -15,7 +15,7 @@ pub(super) struct Section {
     pub(super) groups: &'static [&'static str],
 }
 
-/// Compile-time section table. Maps 13 raw groups → 10 display sections.
+/// Compile-time section table. Maps 15 raw groups → 10 display sections.
 /// Both the Level-1 section list and the Level-2 entry filter are derived
 /// from this table; filter logic is never duplicated per section.
 pub(super) const SECTIONS: &[Section] = &[
@@ -31,12 +31,13 @@ pub(super) const SECTIONS: &[Section] = &[
         name: "Rendering",
         groups: &["Rendering"],
     },
-    // F4-V2 + F4-SETTINGS: tab knobs (group "Tabs": tab_bar_placement,
-    // always_show_tab_bar) and pane knobs (group "Panes": inactive_pane_dim,
-    // pane_prefix) share this one discoverable section.
+    // Tabs, the workspace rail, the tab panel, and panes share this one
+    // discoverable "Layout" section. The group order here matches the group rank
+    // in `setting_group_rank` so the Level-2 rows read Tabs, Workspace rail,
+    // Panel, Panes top to bottom.
     Section {
-        name: "Tabs & Panes",
-        groups: &["Tabs", "Panes"],
+        name: "Layout",
+        groups: &["Tabs", "Workspace rail", "Panel", "Panes"],
     },
     Section {
         name: "Effects",

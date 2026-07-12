@@ -223,7 +223,7 @@ impl OverlayUi {
     pub(super) fn open_settings_target(&mut self, target: SettingsTarget) {
         self.open_settings();
         if target == SettingsTarget::TabsAndPanes {
-            self.panel.open_section("Tabs & Panes");
+            self.panel.open_section("Layout");
         }
     }
 
@@ -2903,7 +2903,7 @@ pub(super) enum OverlayOutcome {
     ContextMenuClosePane,
     /// Open the settings panel from the context menu (D-IN2-SETTINGS). The
     /// overlay has already closed itself; the target distinguishes generic
-    /// content entry from tab/workspace entry into Tabs & Panes.
+    /// content entry from tab/workspace entry into the Layout section.
     ContextMenuSettings(SettingsTarget),
     /// Open the connection manager / command palette / session replay overlays
     /// from the context menu's launcher section (v0.3.1 discoverability). The

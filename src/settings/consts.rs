@@ -88,6 +88,10 @@ pub const WORKSPACE_RAIL_GAP_ENV: &str = "ODYTTY_WORKSPACE_RAIL_GAP";
 pub const WORKSPACE_RAIL_SLOT_ROWS_ENV: &str = "ODYTTY_WORKSPACE_RAIL_SLOT_ROWS";
 pub const WORKSPACE_RAIL_AUTOHIDE_ENV: &str = "ODYTTY_WORKSPACE_RAIL_AUTOHIDE";
 pub const WORKSPACE_RAIL_REVEAL_PX_ENV: &str = "ODYTTY_WORKSPACE_RAIL_REVEAL_PX";
+// Canonical rail-side name (the vertical rail shows workspaces). Aliases the
+// legacy `ODYTTY_TAB_BAR_PLACEMENT` side selector; accepts left|right and wins
+// over the legacy key when both are set.
+pub const WORKSPACE_RAIL_SIDE_ENV: &str = "ODYTTY_WORKSPACE_RAIL_SIDE";
 pub const SH_CLICK_ENV: &str = "ODYTTY_SH_CLICK";
 pub const SHELL_INTEGRATION_ENV: &str = "ODYTTY_SHELL_INTEGRATION";
 pub const RESTORE_WORKSPACES_ENV: &str = "ODYTTY_RESTORE_WORKSPACES";
@@ -201,6 +205,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     WORKSPACE_RAIL_SLOT_ROWS_ENV,
     WORKSPACE_RAIL_AUTOHIDE_ENV,
     WORKSPACE_RAIL_REVEAL_PX_ENV,
+    WORKSPACE_RAIL_SIDE_ENV,
     SH_CLICK_ENV,
     SHELL_INTEGRATION_ENV,
     RESTORE_WORKSPACES_ENV,

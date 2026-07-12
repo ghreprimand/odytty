@@ -649,6 +649,32 @@ pub(super) fn parse_tab_bar_placement(
     }
 }
 
+pub(super) fn parse_workspace_rail_side(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> TabBarPlacement {
+    let Some(raw) = raw else {
+        return TabBarPlacement::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return TabBarPlacement::default();
+    }
+    match TabBarPlacement::parse(trimmed) {
+        Some(TabBarPlacement::Left) => TabBarPlacement::Left,
+        Some(TabBarPlacement::Right) => TabBarPlacement::Right,
+        // `top` and unparseable values are not valid rail sides: fall back to the
+        // left rail and warn (the canonical key only offers left|right).
+        _ => {
+            warn(&format!(
+                "{WORKSPACE_RAIL_SIDE_ENV}={trimmed:?} is not left|right; using left"
+            ));
+            TabBarPlacement::Left
+        }
+    }
+}
+
 pub(super) fn parse_remote_image_paste(
     raw: Option<&OsStr>,
     warn: &mut impl FnMut(&str),

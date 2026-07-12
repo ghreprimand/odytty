@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Separate rail side and visibility, rename settings section to Layout
+
+The workspace-rail settings no longer conflate side with visibility, and the
+vestigial "Tab bar placement" control is retired from the settings surface.
+Rail side is now its own left|right setting, and the rail visibility control
+offers auto|always. Tabs always render on the top bar; the old placement value
+never moved them, so removing it from the surface is a presentation cleanup with
+no behavior change.
+
+Old configuration keeps working with no warnings. The legacy tab_bar_placement
+key and ODYTTY_TAB_BAR_PLACEMENT env var still parse (top|left|right, top maps
+to the left rail), a new canonical workspace_rail_side key and
+ODYTTY_WORKSPACE_RAIL_SIDE env var (left|right) alias the same field and win when
+both are set, and a legacy workspace_rail=left|right still parses by folding to
+that side plus always-on visibility.
+
+The settings panel section "Tabs & Panes" is renamed "Layout" and regrouped into
+Tabs, Workspace rail, Panel, and Panes so related knobs sit together. The
+chrome-context-menu deep link now lands on the Layout section. Settings are
+platform-agnostic; behavior is identical on Linux, macOS, and Windows.
+
+Verified: default side left and visibility auto, legacy and canonical side
+resolution, canonical-wins precedence, legacy visibility fold, config-key
+round-trips, section regrouping and deep link, cargo build, cargo test (full lib
+suite), cargo fmt --check, and cargo clippy --all-targets --locked -- -D warnings
+all clean.
+
 ## 2026-07-12 -- Keep the pointer arrow over auto-hide top tabs
 
 The top tab bar now retains its pointer-arrow hover feedback while the workspace

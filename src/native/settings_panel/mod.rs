@@ -1507,21 +1507,22 @@ mod tests {
     }
 
     #[test]
-    fn tab_and_pane_settings_gather_under_the_tabs_and_panes_section() {
-        // F4-SETTINGS: the four scattered tab/pane knobs now resolve into the
-        // single "Tabs & Panes" Level-1 section (tab_bar_placement +
-        // always_show_tab_bar via group "Tabs"; inactive_pane_dim + pane_prefix
-        // via group "Panes"), so a user hunting tab/pane settings finds them in
-        // one discoverable place instead of scattered across Rendering/Input.
+    fn tab_and_pane_settings_gather_under_the_layout_section() {
+        // The tab, rail, panel, and pane knobs all resolve into the single
+        // "Layout" Level-1 section (groups Tabs, Workspace rail, Panel, Panes),
+        // so a user hunting any layout setting finds them in one discoverable
+        // place instead of scattered across Rendering/Input.
         let settings = Settings::default();
         let entries = settings.setting_info();
         let section_index = SECTIONS
             .iter()
-            .position(|s| s.name == "Tabs & Panes")
-            .expect("Tabs & Panes section present");
+            .position(|s| s.name == "Layout")
+            .expect("Layout section present");
         for key in [
             "tab_bar_placement",
             "always_show_tab_bar",
+            "tab_rail_width",
+            "tab_panel_strength",
             "inactive_pane_dim",
             "pane_prefix",
         ] {
@@ -1536,7 +1537,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("group {group:?} maps to a section"));
             assert_eq!(
                 resolved, section_index,
-                "{key} (group {group:?}) must land in the Tabs & Panes section"
+                "{key} (group {group:?}) must land in the Layout section"
             );
         }
     }
@@ -2437,10 +2438,10 @@ mod tests {
         panel.update_body_height(40);
         panel.update_body_width(80);
 
-        panel.open_section("Tabs & Panes");
+        panel.open_section("Layout");
         assert_eq!(
             panel.active_section_name_for_test(),
-            Some("Tabs & Panes"),
+            Some("Layout"),
             "deep link still enters the requested section"
         );
         assert_eq!(
@@ -2459,7 +2460,7 @@ mod tests {
             "a subsequent generic section list starts at the top: {listing}"
         );
         assert!(
-            listing.contains("Tabs & Panes"),
+            listing.contains("Layout"),
             "the selected target remains visible in the full section list: {listing}"
         );
     }

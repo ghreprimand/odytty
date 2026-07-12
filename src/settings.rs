@@ -795,6 +795,17 @@ impl TabBarPlacement {
         matches!(self, Self::Left | Self::Right)
     }
 
+    /// The rail-side label this placement maps to: `Right` -> "right", every
+    /// other placement (including the vestigial `Top`) -> "left". The settings
+    /// surface presents rail SIDE as left|right only; `Top` is retained for
+    /// back-compat parsing and folds to the left rail.
+    pub fn rail_side_str(self) -> &'static str {
+        match self {
+            Self::Right => "right",
+            Self::Top | Self::Left => "left",
+        }
+    }
+
     /// The placement actually honored by the current render path. All three
     /// placements now render (F4-P2 landed the `Right` rail), so this is an
     /// identity. It is retained as the single choke point the render/reserve
@@ -2252,9 +2263,28 @@ impl Settings {
             DEFAULT_ALWAYS_SHOW_TAB_BAR,
             &mut warn,
         );
-        let tab_bar_placement =
-            parse_tab_bar_placement(get(TAB_BAR_PLACEMENT_ENV).as_deref(), &mut warn);
-        let workspace_rail = parse_workspace_rail(get(WORKSPACE_RAIL_ENV).as_deref(), &mut warn);
+        // Rail side and visibility are separate settings. The side-of-record is
+        // the `tab_bar_placement` field (kept so `workspace_rail_side()` is
+        // unchanged); the canonical `ODYTTY_WORKSPACE_RAIL_SIDE` (left|right)
+        // wins over the legacy `ODYTTY_TAB_BAR_PLACEMENT` (top|left|right,
+        // top->left) when both are set. A legacy `workspace_rail=left|right`
+        // still parses: it folds to visibility Always and supplies the side when
+        // the canonical side key is absent. Precedence (side): canonical
+        // WORKSPACE_RAIL_SIDE > legacy workspace_rail=left|right > tab_bar_placement.
+        let workspace_rail_side_raw = get(WORKSPACE_RAIL_SIDE_ENV);
+        let mut workspace_rail =
+            parse_workspace_rail(get(WORKSPACE_RAIL_ENV).as_deref(), &mut warn);
+        let folded_side = workspace_rail.forced_side();
+        if folded_side.is_some() {
+            workspace_rail = WorkspaceRail::Always;
+        }
+        let tab_bar_placement = if workspace_rail_side_raw.is_some() {
+            parse_workspace_rail_side(workspace_rail_side_raw.as_deref(), &mut warn)
+        } else if let Some(side) = folded_side {
+            side
+        } else {
+            parse_tab_bar_placement(get(TAB_BAR_PLACEMENT_ENV).as_deref(), &mut warn)
+        };
         let tab_rail_width = parse_tab_rail_width(
             rail_get!(WORKSPACE_RAIL_WIDTH_ENV, TAB_RAIL_WIDTH_ENV).as_deref(),
             &mut warn,

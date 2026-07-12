@@ -25,7 +25,8 @@ use super::{
     WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV, WINDOW_DECORATIONS_ENV, WINDOW_OPACITY_ENV,
     WINDOW_PADDING_ENV, WINDOW_TRANSPARENCY_ENV, WORKSPACE_RAIL_AUTOHIDE_ENV, WORKSPACE_RAIL_ENV,
     WORKSPACE_RAIL_GAP_ENV, WORKSPACE_RAIL_MAX_WIDTH_ENV, WORKSPACE_RAIL_REVEAL_PX_ENV,
-    WORKSPACE_RAIL_SLOT_ROWS_ENV, WORKSPACE_RAIL_WIDTH_ENV, normalize_name,
+    WORKSPACE_RAIL_SIDE_ENV, WORKSPACE_RAIL_SLOT_ROWS_ENV, WORKSPACE_RAIL_WIDTH_ENV,
+    normalize_name,
 };
 use super::{
     BOX_THICKNESS_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV, INTERACTIVE_PATHS_CLICK_HINT_ENV,
@@ -187,6 +188,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "workspacerail" | "workspacesidebar" | "workspacebar" | "railmode" => {
             Some(WORKSPACE_RAIL_ENV)
         }
+        "workspacerailside" | "railside" => Some(WORKSPACE_RAIL_SIDE_ENV),
         "tabbarheight" | "barheight" | "tabheight" => Some(TAB_BAR_HEIGHT_ENV),
         // Canonical workspace-rail names (the rail shows workspaces). Each maps to
         // its own env alias; the read path prefers it over the legacy TAB_RAIL_*
@@ -321,6 +323,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         TAB_BAR_PLACEMENT_ENV => Some("tab_bar_placement"),
         TAB_BAR_HEIGHT_ENV => Some("tab_bar_height"),
         WORKSPACE_RAIL_ENV => Some("workspace_rail"),
+        WORKSPACE_RAIL_SIDE_ENV => Some("workspace_rail_side"),
         TAB_RAIL_WIDTH_ENV => Some("tab_rail_width"),
         TAB_RAIL_MAX_WIDTH_ENV => Some("tab_rail_max_width"),
         TAB_RAIL_GAP_ENV => Some("tab_rail_gap"),
