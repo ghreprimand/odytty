@@ -59,6 +59,16 @@ impl EmojiRasterizer {
         build_color_glyph_runs(self, snapshot, atlas)
     }
 
+    pub(crate) fn build_color_glyph_runs_into(
+        &mut self,
+        snapshot: &Snapshot,
+        atlas: &mut ColorGlyphAtlas,
+        runs: &mut Vec<ColorGlyphRun>,
+    ) {
+        runs.clear();
+        append_color_glyph_runs(self, snapshot, atlas, runs);
+    }
+
     fn render_text(
         &mut self,
         text: &str,
@@ -126,9 +136,19 @@ pub fn build_color_glyph_runs(
     snapshot: &Snapshot,
     atlas: &mut ColorGlyphAtlas,
 ) -> Vec<ColorGlyphRun> {
+    let mut runs = Vec::new();
+    append_color_glyph_runs(rasterizer, snapshot, atlas, &mut runs);
+    runs
+}
+
+fn append_color_glyph_runs(
+    rasterizer: &mut EmojiRasterizer,
+    snapshot: &Snapshot,
+    atlas: &mut ColorGlyphAtlas,
+    runs: &mut Vec<ColorGlyphRun>,
+) {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
-    let mut runs = Vec::new();
 
     for row in 0..rows {
         let mut column = 0;
@@ -136,6 +156,14 @@ pub fn build_color_glyph_runs(
             let idx = row * cols + column;
             let cell = &snapshot.cells[idx];
             if cell.wide_continuation || cell.attrs.hidden() {
+                column += 1;
+                continue;
+            }
+
+            // Almost every terminal cell is ASCII. Reject that path without
+            // constructing a grapheme String; only scalars that can enter a
+            // color-emoji route need cluster assembly.
+            if !cell_may_use_color_route(cell) {
                 column += 1;
                 continue;
             }
@@ -179,8 +207,14 @@ pub fn build_color_glyph_runs(
             column += width_cells as usize;
         }
     }
+}
 
-    runs
+fn cell_may_use_color_route(cell: &crate::core::Cell) -> bool {
+    is_default_emoji_presentation(cell.ch)
+        || is_regional_indicator(cell.ch)
+        || cell.combining().iter().copied().any(|mark| {
+            is_emoji_variation_selector(mark) || mark == '\u{200D}' || mark == '\u{20E3}'
+        })
 }
 
 pub fn emoji_presentation(text: &str) -> EmojiPresentation {
@@ -492,4 +526,20 @@ fn is_default_emoji_presentation(ch: char) -> bool {
             | 0x2B50
             | 0x2B55
     )
+}
+
+#[cfg(test)]
+mod hot_path_tests {
+    use super::*;
+    use crate::core::{Attrs, Cell};
+
+    #[test]
+    fn ascii_cells_bypass_grapheme_assembly() {
+        assert!(!cell_may_use_color_route(&Cell::new('A', Attrs::default())));
+
+        let mut keycap = Cell::new('1', Attrs::default());
+        assert!(keycap.push_combining('\u{FE0F}'));
+        assert!(keycap.push_combining('\u{20E3}'));
+        assert!(cell_may_use_color_route(&keycap));
+    }
 }

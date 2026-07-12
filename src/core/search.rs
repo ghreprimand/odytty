@@ -100,6 +100,13 @@ struct Unit {
     row: usize,
     start_col: usize,
     end_col: usize,
+    cell: Cell,
+}
+
+#[derive(Default)]
+struct SearchScratch {
+    folded: Vec<char>,
+    owners: Vec<usize>,
 }
 
 /// Per-`char` simple lowercase fold (first scalar of `to_lowercase`). Kept 1:1
@@ -128,7 +135,7 @@ pub fn search_rows(
     };
 
     let mut units: Vec<Unit> = Vec::new();
-    let mut unit_text: Vec<String> = Vec::new();
+    let mut scratch = SearchScratch::default();
 
     for (abs_row, row) in rows.iter().enumerate() {
         let cells = row.cells;
@@ -146,30 +153,29 @@ pub fn search_rows(
                 row: abs_row,
                 start_col: col,
                 end_col,
+                cell: *cell,
             });
-            unit_text.push(cell.grapheme());
             col += if wide { 2 } else { 1 };
         }
 
         if !row.wrapped {
             flush_line(
                 &units,
-                &unit_text,
                 &query_chars,
                 options.case_sensitive,
+                &mut scratch,
                 &mut matches,
             );
             units.clear();
-            unit_text.clear();
         }
     }
     // A trailing logical line whose last row was still marked wrapped.
     if !units.is_empty() {
         flush_line(
             &units,
-            &unit_text,
             &query_chars,
             options.case_sensitive,
+            &mut scratch,
             &mut matches,
         );
     }
@@ -180,14 +186,15 @@ pub fn search_rows(
 /// Match `query_chars` within one assembled logical line and push results.
 fn flush_line(
     units: &[Unit],
-    unit_text: &[String],
     query_chars: &[char],
     case_sensitive: bool,
+    scratch: &mut SearchScratch,
     out: &mut Vec<SearchMatch>,
 ) {
     // Trim trailing blank cells (row padding); interior blanks are preserved.
     let mut keep = units.len();
-    while keep > 0 && unit_text[keep - 1] == " " {
+    while keep > 0 && units[keep - 1].cell.ch == ' ' && units[keep - 1].cell.combining().is_empty()
+    {
         keep -= 1;
     }
     if keep == 0 {
@@ -196,25 +203,27 @@ fn flush_line(
 
     // Flatten kept units into a char sequence, remembering each char's owning
     // unit so a match's char offsets map back to exact cells.
-    let mut folded: Vec<char> = Vec::new();
-    let mut owners: Vec<usize> = Vec::new();
-    for (unit_index, text) in unit_text[..keep].iter().enumerate() {
-        for ch in text.chars() {
-            folded.push(if case_sensitive { ch } else { fold_char(ch) });
-            owners.push(unit_index);
+    scratch.folded.clear();
+    scratch.owners.clear();
+    for (unit_index, unit) in units[..keep].iter().enumerate() {
+        for ch in std::iter::once(unit.cell.ch).chain(unit.cell.combining().iter().copied()) {
+            scratch
+                .folded
+                .push(if case_sensitive { ch } else { fold_char(ch) });
+            scratch.owners.push(unit_index);
         }
     }
 
     let qlen = query_chars.len();
-    if folded.len() < qlen {
+    if scratch.folded.len() < qlen {
         return;
     }
 
     let mut i = 0;
-    while i + qlen <= folded.len() {
-        if folded[i..i + qlen] == *query_chars {
-            let start_unit = &units[owners[i]];
-            let end_unit = &units[owners[i + qlen - 1]];
+    while i + qlen <= scratch.folded.len() {
+        if scratch.folded[i..i + qlen] == *query_chars {
+            let start_unit = &units[scratch.owners[i]];
+            let end_unit = &units[scratch.owners[i + qlen - 1]];
             out.push(SearchMatch {
                 start: AbsolutePoint {
                     row: start_unit.row,

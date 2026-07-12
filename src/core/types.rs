@@ -421,9 +421,11 @@ impl LinkId {
         self.0.get()
     }
 }
-/// Maximum zero-width combining marks stored per cell. Marks beyond this are
-/// dropped — a bounded limitation; common diacritics use one or two marks.
-pub(crate) const MAX_COMBINING: usize = 2;
+/// Maximum zero-width combining marks stored per cell. The first two cover the
+/// common path; two bounded spill slots preserve deeper clusters without making
+/// `Cell` heap-owning or non-`Copy`.
+pub(crate) const MAX_COMBINING: usize = 4;
+const INLINE_COMBINING: usize = 2;
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Cell {
     /// Base character of the cell's grapheme cluster. Width 1, or width 2 for a
@@ -451,9 +453,15 @@ impl std::fmt::Debug for Cell {
             cell.field("protected", &self.protected);
         }
         cell.field("wide_continuation", &self.wide_continuation)
-            .field("combining", &self.combining)
-            .field("combining_len", &self.combining_len)
-            .finish()
+            .field("combining", &&self.combining[..INLINE_COMBINING])
+            .field("combining_len", &self.combining_len);
+        if self.combining_len as usize > INLINE_COMBINING {
+            cell.field(
+                "combining_spill",
+                &&self.combining[INLINE_COMBINING..self.combining_len as usize],
+            );
+        }
+        cell.finish()
     }
 }
 impl Cell {

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Core behavioral tests (M4 mechanical split from core/tests.rs).
 
-use super::super::types::MAX_COMBINING;
 use super::*;
 
 // ICH (CSI Ps @) / DCH (CSI Ps P): row-local insert/delete of cells. Baseline
@@ -388,15 +387,30 @@ fn combining_mark_at_line_start_is_noop() {
 }
 
 #[test]
-fn combining_marks_clamp_to_capacity_without_panicking() {
+fn combining_marks_preserve_bounded_spill_without_panicking() {
     let mut terminal = Terminal::new(6, 1);
-    // Three combining marks on one base; only MAX_COMBINING are retained.
+    // Three combining marks on one base cross the two-mark inline threshold.
     terminal.advance("e\u{0301}\u{0302}\u{0303}".as_bytes());
 
     let cell = terminal.screen().cell(0, 0).unwrap();
     assert_eq!(cell.ch, 'e');
-    assert_eq!(cell.combining().len(), MAX_COMBINING);
-    assert_eq!(cell.combining(), &['\u{0301}', '\u{0302}']);
+    assert_eq!(cell.combining(), &['\u{0301}', '\u{0302}', '\u{0303}']);
+    assert_eq!(cell.grapheme(), "e\u{0301}\u{0302}\u{0303}");
+    assert_eq!(terminal.screen().plain_text(), "e\u{0301}\u{0302}\u{0303}");
+    assert_eq!(
+        terminal
+            .search(
+                "e\u{0301}\u{0302}\u{0303}",
+                crate::core::SearchOptions::case_sensitive()
+            )
+            .len(),
+        1
+    );
+
+    let copied = cell;
+    assert_eq!(copied.grapheme(), "e\u{0301}\u{0302}\u{0303}");
+    let restored = crate::core::SnapshotCell::from(copied).to_cell();
+    assert_eq!(restored.grapheme(), "e\u{0301}\u{0302}\u{0303}");
 }
 
 #[test]

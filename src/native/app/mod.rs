@@ -5315,6 +5315,8 @@ impl ApplicationHandler<UserEvent> for App {
             self.settings.effective_stem_darken(),
             bloom_options(&self.settings),
             crt_options(&self.settings),
+            self.sessions.event_proxy(),
+            self.sessions.active_id(),
         ) {
             Ok(mut gpu) => {
                 // Push live cell pixel metrics to the terminal core so graphics
@@ -5903,15 +5905,27 @@ impl ApplicationHandler<UserEvent> for App {
                     };
                     let outcome = gpu.render();
                     let action = after_frame(outcome);
-                    // Surface lost/outdated/validation (e.g. after a resize,
-                    // compositor change, or a Windows DX12 surface going Lost on
-                    // idle-minimize): reconfigure here, then request a redraw
-                    // below so the recovered surface is actually painted. Under
-                    // `ControlFlow::Wait` there is no automatic next frame, so a
-                    // reconfigure without a follow-up redraw leaves the surface
-                    // valid-but-unpainted (black) until an unrelated event.
-                    if matches!(action, FrameAction::ReconfigureThenRedraw) {
-                        gpu.reconfigure();
+                    // Recover outdated surfaces by reconfiguring and lost
+                    // surfaces by recreating them. Both request a redraw below;
+                    // under `ControlFlow::Wait` there is no automatic next frame.
+                    match action {
+                        FrameAction::ReconfigureThenRedraw => gpu.reconfigure(),
+                        FrameAction::RecreateSurfaceThenRedraw => {
+                            if let Err(err) = gpu.recreate_surface() {
+                                tracing::error!("failed to recreate GPU surface: {err}");
+                                return;
+                            }
+                        }
+                        FrameAction::DeviceLost => {
+                            // The callback only signals this event-loop thread.
+                            // Rebuilding every GPU-owned atlas, texture, and
+                            // pipeline needs an explicit state reconstruction;
+                            // stop cleanly instead of spinning on a dead device.
+                            tracing::error!(
+                                "GPU device was lost; rendering is paused until the window is restarted"
+                            );
+                        }
+                        FrameAction::Idle | FrameAction::RetryAfter(_) => {}
                     }
                     action
                 };
@@ -5932,6 +5946,17 @@ impl ApplicationHandler<UserEvent> for App {
                         if let Some(window) = self.window.as_ref() {
                             window.request_redraw();
                         }
+                    }
+                    FrameAction::RecreateSurfaceThenRedraw => {
+                        self.consecutive_skipped_frames = 0;
+                        self.skipped_frame_retry_deadline = None;
+                        if let Some(window) = self.window.as_ref() {
+                            window.request_redraw();
+                        }
+                    }
+                    FrameAction::DeviceLost => {
+                        self.consecutive_skipped_frames = 0;
+                        self.skipped_frame_retry_deadline = None;
                     }
                     FrameAction::RetryAfter(delay) => {
                         // BLACK-SCREEN-ON-RESTORE: a transiently-skipped frame
@@ -6250,9 +6275,13 @@ enum FrameAction {
     /// The frame presented; nothing extra to schedule (rest at the normal
     /// event-driven wake deadline). The default, byte-identical idle path.
     Idle,
-    /// The surface was lost/outdated/validation-failed: reconfigure it, then
+    /// The surface was outdated or validation failed: reconfigure it, then
     /// request a redraw so the recovered surface is actually painted.
     ReconfigureThenRedraw,
+    /// Recreate the platform surface before repainting it.
+    RecreateSurfaceThenRedraw,
+    /// Stop presenting after a device loss until full GPU state can be rebuilt.
+    DeviceLost,
     /// The frame was transiently skipped (`get_current_texture` returned
     /// Timeout/Occluded — e.g. the first frame as a Windows DX12 surface
     /// recovers on restore). Retry the frame after a bounded delay rather than
@@ -6287,14 +6316,16 @@ const MAX_SKIPPED_RETRIES: u32 = 8;
 
 /// Pure post-frame decision (see [`FrameAction`]). Split out so the
 /// black-screen-on-restore recovery policy is unit-testable with zero GPU/winit:
-/// `NeedsReconfigure` must reconfigure AND repaint (or the recovered surface
+/// `Reconfigure` must reconfigure AND repaint (or the recovered surface
 /// stays black under `ControlFlow::Wait`), `Skipped` must schedule a bounded
 /// retry (or a surface that came back Timeout/Occluded on restore never gets a
 /// second chance and stays black), and `Presented` settles.
 fn after_frame(outcome: FrameOutcome) -> FrameAction {
     match outcome {
         FrameOutcome::Presented => FrameAction::Idle,
-        FrameOutcome::NeedsReconfigure => FrameAction::ReconfigureThenRedraw,
+        FrameOutcome::Reconfigure => FrameAction::ReconfigureThenRedraw,
+        FrameOutcome::RecreateSurface => FrameAction::RecreateSurfaceThenRedraw,
+        FrameOutcome::RecreateDevice => FrameAction::DeviceLost,
         FrameOutcome::Skipped => FrameAction::RetryAfter(SKIPPED_FRAME_RETRY),
     }
 }
@@ -6366,7 +6397,7 @@ mod tests {
     /// Pins the black-screen-on-restore recovery policy at the pure seam, with
     /// zero GPU/winit. Two failure modes are guarded:
     ///
-    /// - `NeedsReconfigure` ⇒ reconfigure AND repaint (a lost/outdated surface,
+    /// - `Reconfigure` ⇒ reconfigure AND repaint (an outdated surface,
     ///   e.g. Windows DX12 on idle-minimize; without the follow-up redraw the
     ///   recovered surface stays black under `ControlFlow::Wait`).
     /// - `Skipped` ⇒ a BOUNDED retry (a surface that came back Timeout/Occluded
@@ -6378,9 +6409,19 @@ mod tests {
     #[test]
     fn after_frame_maps_outcomes_to_recovery_actions() {
         assert_eq!(
-            after_frame(FrameOutcome::NeedsReconfigure),
+            after_frame(FrameOutcome::Reconfigure),
             FrameAction::ReconfigureThenRedraw,
-            "a lost/outdated surface must reconfigure and request a redraw"
+            "an outdated surface must reconfigure and request a redraw"
+        );
+        assert_eq!(
+            after_frame(FrameOutcome::RecreateSurface),
+            FrameAction::RecreateSurfaceThenRedraw,
+            "a lost surface must be recreated and request a redraw"
+        );
+        assert_eq!(
+            after_frame(FrameOutcome::RecreateDevice),
+            FrameAction::DeviceLost,
+            "a device loss must not be treated as a surface reconfigure"
         );
         assert_eq!(
             after_frame(FrameOutcome::Presented),

@@ -33,6 +33,10 @@ pub(super) struct SearchUi {
     matches: Vec<SearchMatch>,
     current: Option<SearchMatch>,
     options: SearchOptions,
+    query_generation: u64,
+    refreshed_generation: Option<(u64, u64)>,
+    #[cfg(test)]
+    refresh_scans: usize,
 }
 
 impl Default for SearchUi {
@@ -43,6 +47,10 @@ impl Default for SearchUi {
             matches: Vec::new(),
             current: None,
             options: SearchOptions::case_insensitive(),
+            query_generation: 0,
+            refreshed_generation: None,
+            #[cfg(test)]
+            refresh_scans: 0,
         }
     }
 }
@@ -68,6 +76,8 @@ impl SearchUi {
         self.query.clear();
         self.matches.clear();
         self.current = None;
+        self.query_generation = self.query_generation.wrapping_add(1);
+        self.refreshed_generation = None;
     }
 
     pub(super) fn reset_for_reflow(&mut self) {
@@ -77,14 +87,26 @@ impl SearchUi {
     pub(super) fn push_char(&mut self, ch: char) {
         if !ch.is_control() {
             self.query.push(ch);
+            self.query_generation = self.query_generation.wrapping_add(1);
         }
     }
 
     pub(super) fn backspace(&mut self) {
-        self.query.pop();
+        if self.query.pop().is_some() {
+            self.query_generation = self.query_generation.wrapping_add(1);
+        }
     }
 
     pub(super) fn refresh(&mut self, terminal: &Terminal) {
+        let generation = (self.query_generation, terminal.render_revision());
+        if self.refreshed_generation == Some(generation) {
+            return;
+        }
+        self.refreshed_generation = Some(generation);
+        #[cfg(test)]
+        {
+            self.refresh_scans += 1;
+        }
         if self.query.is_empty() {
             self.matches.clear();
             self.current = None;
@@ -443,6 +465,33 @@ mod tests {
 
         assert_eq!(ui.matches.len(), 1);
         assert_eq!(ui.current.unwrap().start, point(0, 0));
+    }
+
+    #[test]
+    fn unchanged_redraws_do_not_rescan_open_search() {
+        let mut terminal = Terminal::new(80, 24);
+        for row in 0..10_000 {
+            terminal.advance(format!("search corpus row {row}\r\n").as_bytes());
+        }
+
+        let mut ui = SearchUi::default();
+        ui.open();
+        for ch in "corpus".chars() {
+            ui.push_char(ch);
+        }
+        ui.refresh(&terminal);
+        for _ in 0..100 {
+            ui.refresh(&terminal);
+        }
+        assert_eq!(ui.refresh_scans, 1);
+
+        ui.push_char('x');
+        ui.refresh(&terminal);
+        assert_eq!(ui.refresh_scans, 2);
+
+        terminal.advance(b"new searchable content");
+        ui.refresh(&terminal);
+        assert_eq!(ui.refresh_scans, 3);
     }
 
     #[test]

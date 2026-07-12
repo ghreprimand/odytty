@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- GPU recovery and text hot-path hardening
+
+GPU presentation now distinguishes an outdated surface, a lost surface, and a
+lost device. Outdated surfaces retain the inexpensive reconfigure-and-redraw
+path. A lost Vulkan, Metal, or DX12 surface is recreated from the retained
+instance and window, checked against the selected adapter, configured, and
+repainted. The device-lost callback records the failure and wakes the event loop
+through its existing proxy; the event-loop thread stops presentation with a
+clear error instead of rebuilding GPU state on the backend callback thread or
+looping on a dead device. Complete live device reconstruction remains outside
+this recovery seam because atlases, textures, pipelines, and application render
+options must be rebuilt together. Surface recovery is shared across Linux,
+macOS, and Windows; backend-specific loss triggers still require on-device
+validation.
+
+An open search now rescans only when its query or the terminal render revision
+changes. Cursor-blink and other presentation-only redraws reuse the previous
+matches. The search scanner no longer allocates a `String` for every searchable
+cell and reuses its folded-text and ownership buffers between logical lines.
+
+Color-emoji discovery now rejects ordinary ASCII cells before grapheme
+construction and reuses the single-pane color-run buffer across rebuilds.
+Emoji-capable bases, variation selectors, ZWJ sequences, keycaps, and regional
+indicators retain the color route.
+
+Terminal cells preserve up to four combining marks while remaining `Copy` and
+heap-free. The two extra bounded slots cover deeper clusters that previously
+dropped the third mark, and the full cluster now survives plain-text extraction,
+search, snapshot persistence, and cell copies.
+
+Tests: the full library suite is green (3567 passed, 7 ignored), including new
+coverage for unchanged-search redraws over a 10,000-line corpus, query and
+content invalidation, ASCII emoji bypass, three-mark combining round-trips, and
+the distinct GPU recovery decisions. Build, clippy with warnings denied, and
+format checks are clean.
+
 ## 2026-07-12 -- Attach mirror sync, attached-resize write safety, and spawn-cwd validation
 
 Correctness and robustness fixes for multi-client attached sessions, the

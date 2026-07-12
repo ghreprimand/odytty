@@ -2,6 +2,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use ab_glyph::FontVec;
 use wgpu::util::DeviceExt;
@@ -18,6 +19,8 @@ use winit::window::Window;
 
 use super::image_layer::{ImageLayer, ImageUpload, PaneImageInput, PaneImageUpload};
 use super::options::{NativeError, NativeOptions};
+use super::pty::UserEvent;
+use super::session::SessionToken;
 use super::viewport::WindowPadding;
 
 pub(super) mod default_background;
@@ -42,8 +45,20 @@ fn uncaptured_error_handler() -> Arc<dyn wgpu::UncapturedErrorHandler> {
     Arc::new(report_uncaptured_gpu_error)
 }
 
-fn install_uncaptured_error_handler(device: &wgpu::Device) {
+fn install_gpu_error_handlers(
+    device: &wgpu::Device,
+    device_lost: Arc<AtomicBool>,
+    event_proxy: Option<winit::event_loop::EventLoopProxy<UserEvent>>,
+    session: SessionToken,
+) {
     device.on_uncaptured_error(uncaptured_error_handler());
+    device.set_device_lost_callback(move |reason, message| {
+        tracing::error!("GPU device lost ({reason:?}): {message}");
+        device_lost.store(true, Ordering::Release);
+        if let Some(proxy) = event_proxy.as_ref() {
+            let _ = proxy.send_event(UserEvent::Redraw { session });
+        }
+    });
 }
 
 #[cfg(test)]
@@ -896,8 +911,12 @@ impl AdapterDiagnostics {
 }
 
 pub(super) struct GpuState {
+    instance: wgpu::Instance,
+    window: Arc<Window>,
+    adapter: wgpu::Adapter,
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
+    device_lost: Arc<AtomicBool>,
     queue: wgpu::Queue,
     /// Owned adapter info for the About panel's renderer diagnostics. Captured
     /// once at init; read-only thereafter. Not used by any render path.
@@ -923,6 +942,7 @@ pub(super) struct GpuState {
     vertices: Vec<Vertex>,
     cursor_vertices: Vec<Vertex>,
     color_glyph_vertices: Vec<ColorGlyphVertex>,
+    color_glyph_runs: Vec<ColorGlyphRun>,
     vertex_count: u32,
     cell_vertex_count: u32,
     background_vertex_count: u32,
@@ -1081,6 +1101,8 @@ impl GpuState {
         stem_darken: f32,
         bloom: BloomOptions,
         crt: CrtOptions,
+        event_proxy: Option<winit::event_loop::EventLoopProxy<UserEvent>>,
+        session: SessionToken,
     ) -> Result<Self, NativeError> {
         let effect = effect_params(visual);
         let text = text_params(options.text_gamma);
@@ -1092,7 +1114,7 @@ impl GpuState {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
 
         let surface = instance
-            .create_surface(window)
+            .create_surface(window.clone())
             .map_err(|err| NativeError::SurfaceCreation(err.to_string()))?;
 
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -1155,7 +1177,8 @@ impl GpuState {
             trace: wgpu::Trace::Off,
         }))
         .map_err(|err| NativeError::DeviceRequest(err.to_string()))?;
-        install_uncaptured_error_handler(&device);
+        let device_lost = Arc::new(AtomicBool::new(false));
+        install_gpu_error_handlers(&device, Arc::clone(&device_lost), event_proxy, session);
 
         let caps = surface.get_capabilities(&adapter);
         let (format, surface_is_srgb) = choose_surface_format(&caps.formats);
@@ -1417,8 +1440,12 @@ impl GpuState {
         }
 
         Ok(Self {
+            instance,
+            window,
+            adapter,
             surface,
             device,
+            device_lost,
             queue,
             adapter_diagnostics,
             enabled_features,
@@ -1442,6 +1469,7 @@ impl GpuState {
             vertices,
             cursor_vertices: Vec::new(),
             color_glyph_vertices,
+            color_glyph_runs: initial_color_glyph_runs,
             vertex_count,
             cell_vertex_count,
             background_vertex_count,
@@ -2404,9 +2432,12 @@ impl GpuState {
         bg_quads: &[SolidQuad],
         rail_overlay: Option<RailOverlay>,
     ) {
-        let color_glyph_runs = self
-            .emoji_rasterizer
-            .build_color_glyph_runs(snapshot, &mut self.color_glyph_atlas);
+        let mut color_glyph_runs = std::mem::take(&mut self.color_glyph_runs);
+        self.emoji_rasterizer.build_color_glyph_runs_into(
+            snapshot,
+            &mut self.color_glyph_atlas,
+            &mut color_glyph_runs,
+        );
         ensure_snapshot_glyphs_excluding_color_runs(
             &mut self.atlas,
             &self.fonts,
@@ -2443,6 +2474,7 @@ impl GpuState {
             self.overlay_opaque_region,
             chrome_pin,
         );
+        self.color_glyph_runs = color_glyph_runs;
         let background_vertices = background_vertex_count(snapshot).min(self.vertices.len() as u32);
         if self.needs_edge_wash() {
             let edge_quads = wallpaper_edge_wash_quads(
@@ -2690,10 +2722,38 @@ impl GpuState {
         }
     }
 
-    /// Reapply the current configuration, used to recover a lost/outdated
-    /// surface before the next frame.
+    /// Reapply the current configuration for an outdated surface.
     pub(super) fn reconfigure(&self) {
         self.surface.configure(&self.device, &self.config);
+    }
+
+    /// Recreate a backend surface after `CurrentSurfaceTexture::Lost`.
+    ///
+    /// Vulkan, Metal, and DX12 can invalidate the platform surface independently
+    /// of the logical window. Reconfiguring the invalid surface is insufficient;
+    /// a fresh surface must be created from the retained instance and window.
+    pub(super) fn recreate_surface(&mut self) -> Result<(), NativeError> {
+        let surface = self
+            .instance
+            .create_surface(Arc::clone(&self.window))
+            .map_err(|err| NativeError::SurfaceCreation(err.to_string()))?;
+        let caps = surface.get_capabilities(&self.adapter);
+        if !caps.formats.contains(&self.config.format) {
+            return Err(NativeError::SurfaceCreation(format!(
+                "recreated GPU surface no longer supports {:?}",
+                self.config.format
+            )));
+        }
+        if !caps.alpha_modes.contains(&self.config.alpha_mode) {
+            self.config.alpha_mode = caps
+                .alpha_modes
+                .first()
+                .copied()
+                .unwrap_or(wgpu::CompositeAlphaMode::Opaque);
+        }
+        surface.configure(&self.device, &self.config);
+        self.surface = surface;
+        Ok(())
     }
 
     fn post_active(&self) -> bool {
@@ -2829,16 +2889,20 @@ impl GpuState {
     /// acquisition status through [`wgpu::CurrentSurfaceTexture`] rather than a
     /// `Result`, so there is no fatal out-of-memory path here.
     pub(super) fn render(&mut self) -> FrameOutcome {
+        if self.device_lost.swap(false, Ordering::AcqRel) {
+            return FrameOutcome::RecreateDevice;
+        }
         self.ensure_scene_target_format();
         let (frame, suboptimal) = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => (frame, false),
             // Acquired, but the surface no longer matches: draw this frame, then
             // reconfigure for the next one.
             wgpu::CurrentSurfaceTexture::Suboptimal(frame) => (frame, true),
-            // Surface changed/lost or a validation error: reconfigure and retry.
-            wgpu::CurrentSurfaceTexture::Outdated
-            | wgpu::CurrentSurfaceTexture::Lost
-            | wgpu::CurrentSurfaceTexture::Validation => return FrameOutcome::NeedsReconfigure,
+            // An outdated surface or validation error can reuse the surface.
+            wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Validation => {
+                return FrameOutcome::Reconfigure;
+            }
+            wgpu::CurrentSurfaceTexture::Lost => return FrameOutcome::RecreateSurface,
             // Transient: drop this frame and try again later.
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
                 return FrameOutcome::Skipped;
@@ -2886,7 +2950,7 @@ impl GpuState {
         self.frames_presented = self.frames_presented.wrapping_add(1);
 
         if suboptimal {
-            FrameOutcome::NeedsReconfigure
+            FrameOutcome::Reconfigure
         } else {
             FrameOutcome::Presented
         }
@@ -2941,7 +3005,11 @@ pub(super) enum FrameOutcome {
     /// A frame was presented successfully.
     Presented,
     /// The surface needs reconfiguring before the next frame.
-    NeedsReconfigure,
+    Reconfigure,
+    /// The platform surface was invalidated and must be recreated.
+    RecreateSurface,
+    /// The device-lost callback signalled the event-loop thread.
+    RecreateDevice,
     /// The frame was intentionally skipped (transient surface state).
     Skipped,
 }
