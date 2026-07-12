@@ -412,6 +412,10 @@ pub(super) struct Session {
     pub(super) copy_mode: Option<CopyModeState>,
     pub(super) search_restore_viewport: Option<usize>,
     pub(super) last_scrollback_len: usize,
+    /// Last scrollback front-trim epoch reconciled into absolute-coordinate UI
+    /// state. A mismatch means row zero moved and stale selections cannot be
+    /// trusted to name the same bytes.
+    pub(super) last_scrollback_trim_epoch: u64,
     pub(super) cursor_blink: CursorBlinkState,
     pub(super) cursor_anim_alpha: f32,
     pub(super) cursor_ease_deadline: Option<Instant>,
@@ -570,6 +574,10 @@ impl Session {
             .and_then(|terminal| terminal.title().map(ToOwned::to_owned))
             .filter(|title| !title.is_empty())
             .unwrap_or_else(|| "odytty".to_owned());
+        let last_scrollback_trim_epoch = terminal
+            .lock()
+            .map(|terminal| terminal.scrollback_trim_epoch())
+            .unwrap_or(0);
         Self {
             id,
             terminal,
@@ -614,6 +622,7 @@ impl Session {
             copy_mode: None,
             search_restore_viewport: None,
             last_scrollback_len: 0,
+            last_scrollback_trim_epoch,
             cursor_blink: CursorBlinkState::new(super::app::CURSOR_BLINK_INTERVAL),
             cursor_anim_alpha: 1.0,
             cursor_ease_deadline: None,
@@ -765,6 +774,7 @@ impl Session {
         self.pointer_drag = PointerDrag::None;
         self.pointer_cell = None;
         self.pointer_px = None;
+        self.report_button = None;
     }
 
     /// The local PTY backing this session, or `None` for an attached session.
@@ -1381,21 +1391,6 @@ impl WorkspaceSet {
         }
     }
 
-    /// Invalidate the layout-dependent UI state of EVERY session after a resize
-    /// reflow (NF21-3). [`Self::resize_all_panes`] reflows all tabs' panes, so
-    /// all their stale row/scrollback-coordinate state must be cleared too — the
-    /// active-only clear in `App::apply_grid_resize` left background tabs with a
-    /// selection / search / hints / copy-mode caret mapped to the pre-reflow
-    /// layout, whose worst case is a silent wrong-bytes copy on switch-back.
-    /// Mirrors [`Self::park_background_timers`]' all-session fan-out; unlike it,
-    /// the active pane is included (its clear was the byte-identical old
-    /// behavior, now sourced from the shared per-session helper).
-    pub(super) fn invalidate_all_layout_dependent_state(&mut self) {
-        for session in self.sessions.values_mut() {
-            session.invalidate_layout_dependent_state();
-        }
-    }
-
     /// Clear the pointer-input latches on EVERY session in the arena (NF21-8 /
     /// NF21-9). Called from the active-session-change seam, which fires on both
     /// tab and workspace switches post-W1: sweeping the flat arena covers the
@@ -1406,6 +1401,19 @@ impl WorkspaceSet {
     pub(super) fn clear_all_input_latches(&mut self) {
         for session in self.sessions.values_mut() {
             session.clear_input_latches();
+        }
+    }
+
+    /// Clear stale absolute-coordinate state after scrollback front eviction.
+    /// The terminal pump mutates the model asynchronously, so the app calls
+    /// this at the start of each redraw before clipboard requests or painting.
+    pub(super) fn reconcile_scrollback_trims(&mut self) {
+        for session in self.sessions.values_mut() {
+            let epoch = crate::native::lock_recover(&session.terminal).scrollback_trim_epoch();
+            if epoch != session.last_scrollback_trim_epoch {
+                session.invalidate_layout_dependent_state();
+                session.last_scrollback_trim_epoch = epoch;
+            }
         }
     }
 
@@ -1677,9 +1685,10 @@ impl WorkspaceSet {
                     rect
                 };
                 let (cols, rows) = grid_dims_for_rect(rect, cell_w, cell_h);
-                let Some(session) = self.sessions.get(&token) else {
+                let Some(session) = self.sessions.get_mut(&token) else {
                     continue;
                 };
+                let mut dimensions_changed = false;
                 if let Ok(mut terminal) = session.terminal.lock() {
                     // A resize to identical grid dimensions MUST be a model
                     // no-op. `resize_all_panes` runs on every structural change
@@ -1699,8 +1708,12 @@ impl WorkspaceSet {
                     let current = terminal.screen().dimensions();
                     if current.columns != cols || current.rows != rows {
                         terminal.resize(cols, rows);
+                        dimensions_changed = true;
                     }
                     terminal.set_cell_metrics(cell_w, cell_h);
+                }
+                if dimensions_changed {
+                    session.invalidate_layout_dependent_state();
                 }
                 // Route the kernel-side resize to whichever source backs the
                 // session: a local PTY gets TIOCSWINSZ (byte-identical to before
@@ -3940,6 +3953,39 @@ mod tests {
         build_session_with_id(SessionToken(0))
     }
 
+    fn test_selection() -> AbsoluteSelectionRange {
+        AbsoluteSelectionRange {
+            start: crate::selection::AbsoluteCellPoint { row: 0, column: 0 },
+            end: crate::selection::AbsoluteCellPoint { row: 0, column: 1 },
+        }
+    }
+
+    #[test]
+    fn scrollback_front_trim_clears_absolute_coordinate_state() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        {
+            let mut terminal = set.active().terminal.lock().expect("terminal lock");
+            terminal.set_scrollback_limit(2);
+            terminal.advance(b"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nh\r\ni\r\nj\r\n");
+        }
+        // Reconcile output that arrived before the selection was made.
+        set.reconcile_scrollback_trims();
+        set.active_mut().selection.set_range(test_selection());
+        assert!(set.active().selection.range().is_some());
+
+        set.active()
+            .terminal
+            .lock()
+            .expect("terminal lock")
+            .advance(b"k\r\nl\r\nm\r\n");
+        set.reconcile_scrollback_trims();
+
+        assert!(
+            set.active().selection.range().is_none(),
+            "front eviction must clear rather than silently retarget a selection"
+        );
+    }
+
     /// Build a session whose pump (reader) thread is PARKED and will not exit on
     /// its own for `park` — the shape a wedged remote leaves behind (the ssh
     /// child never delivers EOF, so the reader never returns). Used to prove the
@@ -5018,6 +5064,43 @@ mod tests {
         // The background pane keeps its split sub-rect (40 cols) so un-zoom is
         // instantly correct.
         assert_eq!(pane_dims(&set, SessionToken(0)), (40, 20));
+    }
+
+    #[test]
+    fn zoom_resize_invalidates_only_the_pane_that_reflows() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let focused =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        let content = PaneRect::new(0.0, 0.0, 801.0, 400.0);
+        set.resize_all_panes(content, 10, 20, 1.0);
+        set.get_mut(SessionToken(0))
+            .expect("background pane")
+            .selection
+            .set_range(test_selection());
+        set.get_mut(focused)
+            .expect("focused pane")
+            .selection
+            .set_range(test_selection());
+
+        assert!(set.toggle_active_zoom());
+        set.resize_all_panes(content, 10, 20, 1.0);
+
+        assert!(
+            set.get(focused)
+                .expect("focused pane")
+                .selection
+                .range()
+                .is_none(),
+            "zoom reflow clears the focused pane's stale selection"
+        );
+        assert!(
+            set.get(SessionToken(0))
+                .expect("unchanged background pane")
+                .selection
+                .range()
+                .is_some(),
+            "a pane whose grid dimensions did not change keeps its selection"
+        );
     }
 
     #[test]

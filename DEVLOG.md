@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Selection origins and session-switch input state hardened
+
+Scrollback front eviction now advances a monotonic origin epoch for both the
+logical-line retention cap and the oversized open-line safety trim. The native
+session layer observes that epoch before painting or servicing clipboard
+requests and clears selection, search, hints, and copy-mode coordinates rather
+than allowing them to silently name different bytes. Pane-structural resizing
+now performs the same invalidation at each pane's actual dimension-change guard,
+so zoom, split, close, equalize, and divider reflow cannot retain stale absolute
+coordinates while unchanged panes keep valid selections.
+
+Active-session changes now cancel pending image uploads and multiplexer prefixes,
+clear held mouse-report and window drag latches, bind IME commits to the session
+that began composition, and route DEC focus loss/gain reports to the outgoing and
+incoming sessions. A background OSC 52 read still cannot inspect the clipboard,
+but receives an empty response instead of waiting for its own timeout.
+
+These are platform-neutral model and native-UI corrections with no
+Windows-specific behavior change. The locked build, 3,530-test non-GPU library
+suite (3,523 passed, 7 ignored, 27 GPU tests filtered), formatting check, and
+all-target Clippy deny gate pass.
+
 ## 2026-07-12 -- Session host no longer wedges on a non-reading job or a stalled peer
 
 Hardening for the detached session host and its attach clients. This surface is

@@ -477,6 +477,7 @@ fn resize_parity_repeated() {
 #[test]
 fn push_row_evicts_oldest_past_the_limit() {
     let mut sb = Scrollback::with_limit(3);
+    let epoch = sb.trim_epoch();
     for i in 0..3 {
         sb.push_row(content(&i.to_string()));
     }
@@ -487,6 +488,11 @@ fn push_row_evicts_oldest_past_the_limit() {
     assert_eq!(rows.len(), 3);
     assert_eq!(rows[0], content("1"));
     assert_eq!(rows[2], content("3"));
+    assert_ne!(
+        sb.trim_epoch(),
+        epoch,
+        "front eviction advances the origin epoch"
+    );
 }
 
 #[test]
@@ -529,6 +535,7 @@ fn open_logical_line_is_bounded_without_a_terminator() {
     // A never-terminated (always-wrapped) stream is one open logical line. The
     // per-line cell ceiling keeps it bounded even though the line count is 1.
     let mut sb = Scrollback::with_limit(10_000);
+    let epoch = sb.trim_epoch();
     // 200k wrapped rows of width W → 1.6M cells in a single open line, above the
     // 1<<20 (1.05M) cell ceiling, so the front is trimmed.
     for _ in 0..200_000 {
@@ -538,6 +545,11 @@ fn open_logical_line_is_bounded_without_a_terminator() {
     assert!(
         total_cells <= (1 << 20) + W,
         "open line must stay bounded, got {total_cells} cells"
+    );
+    assert_ne!(
+        sb.trim_epoch(),
+        epoch,
+        "oversized open-line front drain advances the origin epoch"
     );
 }
 

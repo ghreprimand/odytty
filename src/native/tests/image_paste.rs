@@ -216,6 +216,33 @@ fn image_paste_cancel_sends_nothing() {
     ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
 )]
 #[test]
+fn switching_tabs_cancels_a_pending_image_upload() {
+    let (mut app, _event_loop) = app_or_skip!();
+    app.new_tab_for_test();
+    app.set_active_remote_upload_for_test("deploy@web1.example.invalid");
+    app.set_remote_image_paste_enabled_for_test(true);
+    app.set_clipboard_image_for_test(Some(tiny_png()));
+    app.handle_paste_shortcut_for_test();
+    assert!(app.image_paste_pending_for_test());
+
+    app.switch_to_next_tab_for_test();
+
+    assert!(
+        !app.image_paste_pending_for_test(),
+        "the hidden confirmation cannot survive activation"
+    );
+    assert_eq!(
+        app.confirm_image_paste_for_test(),
+        None,
+        "Enter in the new tab cannot authorize the old tab's upload"
+    );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
 fn image_paste_disabled_setting_is_a_no_op() {
     let (mut app, _event_loop) = app_or_skip!();
     app.set_active_remote_upload_for_test("deploy@web1.example.invalid");

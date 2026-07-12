@@ -394,6 +394,9 @@ pub(super) struct App {
     /// no prefix is pending (or the prefix is `off`), it leaves the input path
     /// byte-identical.
     prefix_engine: PrefixEngine,
+    /// Session that owned keyboard focus before the most recent activation.
+    /// Used to route DEC focus reports to both sides of a tab/workspace switch.
+    last_active_session: SessionToken,
     settings: Settings,
     settings_reloader: SettingsReloader,
     /// Latest settings produced by a high-frequency overlay interaction
@@ -534,6 +537,13 @@ pub(super) struct App {
     /// `Ime::Preedit`. Empty when no composition is in progress. Rendered inline
     /// at the terminal cursor; never sent to the PTY until the IME commits.
     ime_preedit: String,
+    /// Session that began the current IME composition. A delayed commit after
+    /// activation must never be written to the newly focused PTY.
+    ime_session: Option<SessionToken>,
+    #[cfg(test)]
+    focus_reports_for_test: Vec<(SessionToken, bool)>,
+    #[cfg(test)]
+    osc52_background_empty_replies_for_test: usize,
     autoclose: Option<Duration>,
     deadline: Option<Instant>,
     /// OS-THEME: last known OS dark/light appearance preference, or `None` until
@@ -704,6 +714,7 @@ impl App {
         let autoclose = settings.native_autoclose;
         let themed_ui_roles = settings.themed_ui_roles;
         let overlay = OverlayUi::new(&settings);
+        let last_active_session = sessions.active_id();
         // `mut` is consumed only by the `cfg(not(test))` onboarding block below;
         // test builds compile that out, so silence the unused_mut there.
         #[cfg_attr(test, allow(unused_mut))]
@@ -725,6 +736,7 @@ impl App {
             super_key: false,
             key_bindings,
             prefix_engine,
+            last_active_session,
             settings,
             settings_reloader,
             pending_overlay_settings: None,
@@ -757,6 +769,11 @@ impl App {
             open_notice: None,
             click_hint: click_hint::ClickHintState::default(),
             ime_preedit: String::new(),
+            ime_session: None,
+            #[cfg(test)]
+            focus_reports_for_test: Vec::new(),
+            #[cfg(test)]
+            osc52_background_empty_replies_for_test: 0,
             autoclose,
             deadline: None,
             os_theme: None,
@@ -868,17 +885,9 @@ impl App {
             resize.width_px,
             resize.height_px,
         ) {
-            // NF21-3: `resize_grid_with_padding` -> `resize_all_panes` reflows
-            // EVERY session of every tab, so the stale-layout invalidation must
-            // reach every session too — not only the active one via `Deref`. A
-            // background tab that crossed the reflow keeping its old absolute-row
-            // selection / search / hints / copy-mode coordinates would, on
-            // switch-back, highlight the wrong text and copy the wrong bytes.
-            // The per-session helper clears the exact same field set in the same
-            // order as the old active-only block, so the active tab stays
-            // byte-identical; `clamp()` in the rebuild still guards viewport
-            // bounds regardless.
-            self.sessions.invalidate_all_layout_dependent_state();
+            // `resize_all_panes` invalidates each session at the exact
+            // dimension-change guard that performs its model reflow. Panes whose
+            // grid did not change retain their coordinate-bound UI state.
             self.needs_rebuild = true;
         }
     }
@@ -2797,7 +2806,32 @@ impl App {
                         }
                     }
                     ClipboardRequest::Read { selection } => {
-                        if !self.settings.osc52_read || !is_focused {
+                        if !is_focused {
+                            // A background requester must not learn clipboard
+                            // contents, but an explicit empty reply lets it
+                            // finish immediately instead of hanging to its own
+                            // timeout.
+                            let host_output = session
+                                .terminal
+                                .lock()
+                                .map(|mut terminal| {
+                                    terminal.answer_clipboard_read(selection, "");
+                                    terminal.take_host_output()
+                                })
+                                .unwrap_or_default();
+                            #[cfg(test)]
+                            {
+                                self.osc52_background_empty_replies_for_test += 1;
+                            }
+                            if !host_output.is_empty()
+                                && let Ok(mut writer) = session.writer.lock()
+                            {
+                                let _ = writer.write_all(&host_output);
+                                let _ = writer.flush();
+                            }
+                            continue;
+                        }
+                        if !self.settings.osc52_read {
                             continue;
                         }
                         let Some(text) = read_clipboard_selection(&mut self.clipboard, selection)
@@ -2854,6 +2888,14 @@ impl App {
     }
 
     fn on_active_session_changed(&mut self) {
+        let outgoing = self.last_active_session;
+        let incoming = self.sessions.active_id();
+        if self.focused && outgoing != incoming {
+            self.send_focus_report_to(outgoing, false);
+            self.send_focus_report_to(incoming, true);
+        }
+        self.last_active_session = incoming;
+
         // NF21-8/9/11: an active-session change (tab OR workspace switch post-W1)
         // must not carry window/session input latches across the boundary. Drop
         // the pointer drag + hover cell on every session so the outgoing one
@@ -2864,6 +2906,15 @@ impl App {
         // one. Selection/viewport state is deliberately preserved.
         self.sessions.clear_all_input_latches();
         self.grid_left_held = false;
+        self.divider_drag = None;
+        self.rail_seam_drag = false;
+        self.tab_bar_seam_drag = false;
+        self.rail_ws_drag = None;
+        self.top_tab_drag = None;
+        self.prefix_engine.cancel();
+        // The confirmation prompt belongs to the old pane. Switching away is
+        // an implicit cancel so Enter in the new pane cannot authorize upload.
+        self.pending_image_paste = None;
         // Drop any in-flight IME preedit directly (the field is repainted via the
         // `needs_rebuild` set below); a composition begun on the previous surface
         // must not paint at, or commit into, the new one.
@@ -2900,6 +2951,26 @@ impl App {
         self.sync_active_window_title();
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
+        }
+    }
+
+    fn send_focus_report_to(&mut self, token: SessionToken, focused: bool) {
+        let Some(session) = self.sessions.get(token) else {
+            return;
+        };
+        let Some(bytes) = session
+            .terminal
+            .lock()
+            .ok()
+            .and_then(|terminal| encode_native_focus_report(&terminal, focused))
+        else {
+            return;
+        };
+        #[cfg(test)]
+        self.focus_reports_for_test.push((token, focused));
+        if let Ok(mut writer) = session.writer.lock() {
+            let _ = writer.write_all(&bytes);
+            let _ = writer.flush();
         }
     }
 
@@ -5368,6 +5439,7 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::RedrawRequested => {
                 self.flush_pending_overlay_settings();
+                self.sessions.reconcile_scrollback_trims();
                 self.handle_terminal_clipboard_requests();
                 self.update_window_title();
                 // F4-P4: reflow the content grid if auto-sizing (or a max-width
@@ -6433,6 +6505,55 @@ mod tests {
         assert_eq!(app.rail_ws_drag, None);
         assert_eq!(app.top_tab_drag, None);
         assert_eq!(app.report_button, None);
+    }
+
+    #[test]
+    fn active_session_change_clears_window_latches_prefix_and_pending_upload() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        app.divider_drag = Some(0);
+        app.rail_seam_drag = true;
+        app.tab_bar_seam_drag = true;
+        app.rail_ws_drag = Some(RailWorkspaceDrag::new(0, 4.0, 8.0));
+        app.top_tab_drag = Some(TopTabDrag::new(0, 4.0, 8.0));
+        app.pending_image_paste = Some(PendingImagePaste {
+            session: app.sessions.active_id(),
+            png: vec![1, 2, 3],
+        });
+        let prefix = app.prefix_engine.prefix().expect("default prefix enabled");
+        app.prefix_engine.on_chord(prefix, Instant::now());
+        assert!(app.prefix_engine.is_pending());
+
+        app.on_active_session_changed();
+
+        assert_eq!(app.divider_drag, None);
+        assert!(!app.rail_seam_drag);
+        assert!(!app.tab_bar_seam_drag);
+        assert_eq!(app.rail_ws_drag, None);
+        assert_eq!(app.top_tab_drag, None);
+        assert!(!app.prefix_engine.is_pending());
+        assert!(app.pending_image_paste.is_none());
+    }
+
+    #[test]
+    fn overlay_entry_clears_every_window_drag_latch() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        app.divider_drag = Some(0);
+        app.rail_seam_drag = true;
+        app.tab_bar_seam_drag = true;
+        app.rail_ws_drag = Some(RailWorkspaceDrag::new(0, 4.0, 8.0));
+        app.top_tab_drag = Some(TopTabDrag::new(0, 4.0, 8.0));
+
+        app.reset_pointer_state_for_overlay();
+
+        assert_eq!(app.divider_drag, None);
+        assert!(!app.rail_seam_drag);
+        assert!(!app.tab_bar_seam_drag);
+        assert_eq!(app.rail_ws_drag, None);
+        assert_eq!(app.top_tab_drag, None);
     }
 
     /// Same residual via the other Windows restore signal: `Occluded(false)`

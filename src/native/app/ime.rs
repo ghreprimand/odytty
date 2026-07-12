@@ -29,15 +29,24 @@ impl App {
     pub(in crate::native) fn handle_ime(&mut self, ime: Ime) {
         match ime {
             Ime::Enabled | Ime::Disabled => {
+                self.ime_session = None;
                 self.set_ime_preedit(String::new());
             }
             Ime::Preedit(text, _cursor) => {
+                if text.is_empty() {
+                    self.ime_session = None;
+                } else if self.ime_session.is_none() {
+                    self.ime_session = Some(self.sessions.active_id());
+                }
                 self.set_ime_preedit(text);
                 self.update_ime_cursor_area();
             }
             Ime::Commit(text) => {
+                let origin = self.ime_session.take();
                 self.set_ime_preedit(String::new());
-                self.commit_ime_text(&text);
+                if origin.is_none() || origin == Some(self.sessions.active_id()) {
+                    self.commit_ime_text(&text);
+                }
             }
         }
     }

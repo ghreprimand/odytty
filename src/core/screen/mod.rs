@@ -739,6 +739,17 @@ impl Screen {
         self.scrollback.physical_len(self.dimensions.columns)
     }
 
+    /// Monotonic notice that the absolute-row origin moved because retained
+    /// history was removed from the front. Include an off-screen stored primary
+    /// buffer so trimming it while the alternate screen is active is observed.
+    pub fn scrollback_trim_epoch(&self) -> u64 {
+        let stored = self
+            .primary_screen
+            .as_ref()
+            .map_or(0, |primary| primary.scrollback.trim_epoch());
+        self.scrollback.trim_epoch().wrapping_add(stored)
+    }
+
     pub fn cell(&self, row: usize, column: usize) -> Option<Cell> {
         self.rows
             .get(row)
@@ -2082,6 +2093,10 @@ impl Terminal {
     /// [`Screen::set_scrollback_limit`].
     pub fn set_scrollback_limit(&mut self, limit: usize) {
         self.screen.set_scrollback_limit(limit);
+    }
+
+    pub fn scrollback_trim_epoch(&self) -> u64 {
+        self.screen.scrollback_trim_epoch()
     }
 
     pub fn answer_clipboard_read(&mut self, selection: ClipboardSelection, text: &str) {

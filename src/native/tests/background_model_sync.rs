@@ -180,6 +180,11 @@ fn background_osc52_read_never_reaches_clipboard() {
         0,
         "a background OSC 52 read must not inspect the clipboard"
     );
+    assert_eq!(
+        app.osc52_background_empty_replies_for_test(),
+        1,
+        "a background requester receives an empty reply instead of timing out"
+    );
 
     // Positive control: the same request from the focused session reaches the
     // clipboard policy after the opt-in gate.

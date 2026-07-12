@@ -116,6 +116,10 @@ pub(in crate::core) struct Scrollback {
     /// Maximum retained logical lines; oldest are evicted past this in
     /// [`Scrollback::push_row`]. `0` means unbounded (history is never trimmed).
     limit: usize,
+    /// Monotonic notice that absolute row zero moved because history was
+    /// removed from the front. Native selection/search/copy-mode coordinates
+    /// use that origin and must be invalidated when this changes.
+    trim_epoch: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -146,6 +150,7 @@ impl Scrollback {
             lines: Vec::new(),
             cache: RefCell::new(Projection::empty()),
             limit: DEFAULT_SCROLLBACK_LIMIT,
+            trim_epoch: 0,
         }
     }
 
@@ -155,6 +160,7 @@ impl Scrollback {
             lines: Vec::new(),
             cache: RefCell::new(Projection::empty()),
             limit,
+            trim_epoch: 0,
         }
     }
 
@@ -170,6 +176,7 @@ impl Scrollback {
             lines,
             cache: RefCell::new(Projection::empty()),
             limit,
+            trim_epoch: 0,
         }
     }
 
@@ -196,6 +203,7 @@ impl Scrollback {
             lines: logical_from_physical(rows),
             cache: RefCell::new(Projection::empty()),
             limit: 0,
+            trim_epoch: 0,
         }
     }
 
@@ -203,6 +211,10 @@ impl Scrollback {
     pub(in crate::core) fn physical_len(&self, width: usize) -> usize {
         self.ensure_cache(width);
         self.cache.borrow().rows.len()
+    }
+
+    pub(in crate::core) fn trim_epoch(&self) -> u64 {
+        self.trim_epoch
     }
 
     #[cfg(test)]
@@ -287,11 +299,17 @@ impl Scrollback {
             trimmed = true;
         }
 
+        if trimmed {
+            self.trim_epoch = self.trim_epoch.wrapping_add(1);
+        }
         trimmed
     }
 
     /// Clear all scrollback.
     pub(in crate::core) fn clear(&mut self) {
+        if !self.lines.is_empty() {
+            self.trim_epoch = self.trim_epoch.wrapping_add(1);
+        }
         self.lines.clear();
         self.invalidate();
     }

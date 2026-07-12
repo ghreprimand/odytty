@@ -1191,6 +1191,11 @@ impl App {
         self.drag_anchor_unit = None;
         self.last_selection_autoscroll = None;
         self.report_button = None;
+        self.divider_drag = None;
+        self.rail_seam_drag = false;
+        self.tab_bar_seam_drag = false;
+        self.rail_ws_drag = None;
+        self.top_tab_drag = None;
         // An open target's press may open an overlay (the image lightbox); the
         // paired release is then consumed by the overlay, so drop the swallow
         // latch here too and never carry it past the overlay.

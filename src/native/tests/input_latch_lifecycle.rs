@@ -15,6 +15,7 @@ use super::super::pty::UserEvent;
 use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
 use crate::settings::BindableAction;
+use winit::event::Ime;
 use winit::event_loop::EventLoop;
 #[cfg(target_os = "linux")]
 use winit::platform::wayland::EventLoopBuilderExtWayland;
@@ -228,6 +229,27 @@ fn focus_loss_clears_pressed_mouse_report_button() {
     ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
 )]
 #[test]
+fn tab_switch_clears_pressed_mouse_report_button() {
+    let (mut app, _event_loop) = app_or_skip!();
+    app.new_tab_for_test();
+    app.enable_mouse_reporting_for_test();
+    assert_eq!(app.left_button_outcome_for_test(true), "report");
+    assert!(app.report_button_for_test().is_some());
+
+    app.switch_to_next_tab_for_test();
+    app.switch_to_next_tab_for_test();
+    assert_eq!(
+        app.report_button_for_test(),
+        None,
+        "the outgoing session cannot resume a phantom held-button drag"
+    );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
 fn tab_switch_clears_stale_pointer_cell() {
     let (mut app, _event_loop) = app_or_skip!();
     app.new_tab_for_test();
@@ -257,5 +279,47 @@ fn switch_drops_in_flight_ime_preedit() {
         app.ime_preedit_for_test(),
         "",
         "an in-flight composition does not survive a switch to the new surface"
+    );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn delayed_ime_commit_is_not_delivered_to_the_new_session() {
+    let (mut app, _event_loop) = app_or_skip!();
+    app.new_tab_for_test();
+    app.handle_ime(Ime::Preedit("中".to_owned(), None));
+    app.switch_to_next_tab_for_test();
+    app.open_search_for_test();
+
+    app.handle_ime(Ime::Commit("中".to_owned()));
+
+    assert_eq!(
+        app.search_query_for_test(),
+        "",
+        "a commit latched to the old session is dropped after activation"
+    );
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn tab_switch_reports_focus_loss_and_gain_to_the_correct_sessions() {
+    let (mut app, _event_loop) = app_or_skip!();
+    app.enable_focus_reporting_for_test(); // tab 0
+    app.new_tab_for_test();
+    app.enable_focus_reporting_for_test(); // tab 1
+    let _ = app.take_focus_reports_for_test();
+
+    app.switch_to_next_tab_for_test(); // tab 1 -> tab 0
+
+    assert_eq!(
+        app.take_focus_reports_for_test(),
+        vec![(SessionToken(1), false), (SessionToken(0), true)],
+        "1004 focus reports must be routed to outgoing then incoming PTYs"
     );
 }

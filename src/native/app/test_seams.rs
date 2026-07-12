@@ -2436,6 +2436,11 @@ impl App {
         self.handle_terminal_clipboard_requests();
     }
 
+    #[cfg(test)]
+    pub(in crate::native) fn osc52_background_empty_replies_for_test(&self) -> usize {
+        self.osc52_background_empty_replies_for_test
+    }
+
     /// Test seam (NF21-5): the last text a clipboard write path handed to the
     /// (test-stubbed) system clipboard, and a reset so a test can distinguish a
     /// focused write (records) from a discarded non-focused write (does not).
@@ -2673,6 +2678,18 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn image_paste_pending_for_test(&self) -> bool {
         self.pending_image_paste.is_some()
+    }
+
+    /// Enable DEC focus reporting in the active terminal and drain the routed
+    /// session-transition observations recorded by the test build.
+    #[cfg(test)]
+    pub(in crate::native) fn enable_focus_reporting_for_test(&mut self) {
+        crate::native::lock_recover(&self.terminal).advance(b"\x1b[?1004h");
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn take_focus_reports_for_test(&mut self) -> Vec<(SessionToken, bool)> {
+        std::mem::take(&mut self.focus_reports_for_test)
     }
 
     /// Confirm the pending image paste (Enter), returning what the upload worker
