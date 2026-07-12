@@ -697,6 +697,112 @@ fn tab_rail_knobs_round_trip_through_config_keys() {
 }
 
 #[test]
+fn workspace_rail_env_aliases_hit_the_same_field_as_tab_rail() {
+    // The vertical rail shows workspaces, so WORKSPACE_RAIL_* is the canonical
+    // family. Each alias must set the identical Settings field as its legacy
+    // TAB_RAIL_* twin. Settings are platform-agnostic: same on all three
+    // platforms (Linux, macOS, Windows).
+    let (legacy_gap, _) = settings_from([(TAB_RAIL_GAP_ENV, "3")]);
+    let (canon_gap, _) = settings_from([(WORKSPACE_RAIL_GAP_ENV, "3")]);
+    assert_eq!(canon_gap.tab_rail_gap, legacy_gap.tab_rail_gap);
+    assert_eq!(canon_gap.tab_rail_gap, 3.0);
+
+    let (legacy_rows, _) = settings_from([(TAB_RAIL_SLOT_ROWS_ENV, "1")]);
+    let (canon_rows, _) = settings_from([(WORKSPACE_RAIL_SLOT_ROWS_ENV, "1")]);
+    assert_eq!(
+        canon_rows.tab_rail_slot_rows,
+        legacy_rows.tab_rail_slot_rows
+    );
+    assert_eq!(canon_rows.tab_rail_slot_rows, 1.0);
+
+    let (legacy_reveal, _) = settings_from([(TAB_RAIL_REVEAL_PX_ENV, "20")]);
+    let (canon_reveal, _) = settings_from([(WORKSPACE_RAIL_REVEAL_PX_ENV, "20")]);
+    assert_eq!(
+        canon_reveal.tab_rail_reveal_px,
+        legacy_reveal.tab_rail_reveal_px
+    );
+    assert_eq!(canon_reveal.tab_rail_reveal_px, 20.0);
+
+    let (legacy_auto, _) = settings_from([(TAB_RAIL_AUTOHIDE_ENV, "on")]);
+    let (canon_auto, _) = settings_from([(WORKSPACE_RAIL_AUTOHIDE_ENV, "on")]);
+    assert_eq!(canon_auto.tab_rail_autohide, legacy_auto.tab_rail_autohide);
+    assert!(canon_auto.tab_rail_autohide);
+
+    let (legacy_max, _) = settings_from([(TAB_RAIL_MAX_WIDTH_ENV, "30")]);
+    let (canon_max, _) = settings_from([(WORKSPACE_RAIL_MAX_WIDTH_ENV, "30")]);
+    assert_eq!(
+        canon_max.rail_max_width_cols(),
+        legacy_max.rail_max_width_cols()
+    );
+
+    let (legacy_width, _) = settings_from([(TAB_RAIL_WIDTH_ENV, "28")]);
+    let (canon_width, _) = settings_from([(WORKSPACE_RAIL_WIDTH_ENV, "28")]);
+    assert_eq!(
+        canon_width.rail_width_cols(3),
+        legacy_width.rail_width_cols(3)
+    );
+    assert_eq!(canon_width.rail_width_cols(3), 28);
+}
+
+#[test]
+fn workspace_rail_wins_over_tab_rail_when_both_are_set() {
+    // Deterministic precedence rule: the canonical WORKSPACE_RAIL_* value wins
+    // over the legacy TAB_RAIL_* twin when both are set for the same field.
+    let (both_gap, _) = settings_from([(WORKSPACE_RAIL_GAP_ENV, "3"), (TAB_RAIL_GAP_ENV, "1")]);
+    assert_eq!(
+        both_gap.tab_rail_gap, 3.0,
+        "workspace rail gap must win over the legacy tab rail gap"
+    );
+
+    let (both_auto, _) = settings_from([
+        (WORKSPACE_RAIL_AUTOHIDE_ENV, "on"),
+        (TAB_RAIL_AUTOHIDE_ENV, "off"),
+    ]);
+    assert!(
+        both_auto.tab_rail_autohide,
+        "workspace rail autohide must win over the legacy tab rail autohide"
+    );
+
+    // And the legacy name still applies on its own when the canonical is absent.
+    let (legacy_only, _) = settings_from([(TAB_RAIL_GAP_ENV, "2")]);
+    assert_eq!(legacy_only.tab_rail_gap, 2.0);
+}
+
+#[test]
+fn workspace_rail_config_keys_canonicalize_and_round_trip() {
+    // Each workspace_rail_* config key maps to its WORKSPACE_RAIL_* env alias in
+    // both directions, and the legacy tab_rail_* keys keep working unchanged.
+    for (key, env) in [
+        ("workspace_rail_width", WORKSPACE_RAIL_WIDTH_ENV),
+        ("workspace_rail_max_width", WORKSPACE_RAIL_MAX_WIDTH_ENV),
+        ("workspace_rail_gap", WORKSPACE_RAIL_GAP_ENV),
+        ("workspace_rail_slot_rows", WORKSPACE_RAIL_SLOT_ROWS_ENV),
+        ("workspace_rail_autohide", WORKSPACE_RAIL_AUTOHIDE_ENV),
+        ("workspace_rail_reveal_px", WORKSPACE_RAIL_REVEAL_PX_ENV),
+    ] {
+        assert_eq!(config_key_to_env(key), Some(env), "{key} → env");
+        assert_eq!(env_to_config_key(env), Some(key), "{env} → key");
+    }
+    // Legacy tab_rail_* config keys stay fully accepted (no removal).
+    assert_eq!(config_key_to_env("tab_rail_gap"), Some(TAB_RAIL_GAP_ENV));
+    assert_eq!(config_key_to_env("railgap"), Some(TAB_RAIL_GAP_ENV));
+}
+
+#[test]
+fn workspace_rail_config_key_sets_the_field_through_parse() {
+    // A config-file line using the canonical workspace_rail_* key parses through
+    // to the same field, proving the config path (not just env) honors it.
+    let config = ConfigValues::parse(
+        "workspace_rail_gap = 3
+",
+        |_| {},
+    );
+    let settings =
+        Settings::from_source(|key| config.get(key).cloned(), |_| {}, |_| None, |_| None);
+    assert_eq!(settings.tab_rail_gap, 3.0);
+}
+
+#[test]
 fn tab_rail_knobs_live_in_the_tabs_group() {
     let rows = Settings::default().setting_info();
     for key in [

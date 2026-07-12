@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Workspace-rail geometry knobs gain WORKSPACE_RAIL names
+
+The vertical rail shows workspaces (tabs are top-only), so its geometry settings
+now accept a canonical WORKSPACE_RAIL family alongside the original TAB_RAIL
+names. ODYTTY_WORKSPACE_RAIL_WIDTH, _MAX_WIDTH, _GAP, _SLOT_ROWS, _AUTOHIDE, and
+_REVEAL_PX each resolve to the same setting as their TAB_RAIL twin, and the
+matching config-file keys (workspace_rail_width and the rest) do the same. The
+master toggle ODYTTY_WORKSPACE_RAIL already used the workspace name; the family
+is now consistent.
+
+The legacy TAB_RAIL names and their config keys stay fully accepted with no
+deprecation warning, so existing configurations keep working unchanged. When
+both a WORKSPACE_RAIL name and its TAB_RAIL twin are set for the same field, the
+canonical WORKSPACE_RAIL value wins, a deterministic rule covered by a test. The
+settings-panel descriptions for these knobs now read in workspace terms
+(workspace name, workspace rail) rather than tab terms. These are pure aliases
+onto existing fields with no new settings and no render change, identical on
+Linux, macOS, and Windows.
+
+Verified: cargo build, cargo test (full lib suite, 3584 pass), cargo fmt
+--check, and cargo clippy --all-targets --locked -- -D warnings all clean.
+
 ## 2026-07-12 -- Deep-link chrome settings menus to Tabs & Panes
 
 Workspace-slot and empty-workspace-rail context menus now include Settings in a

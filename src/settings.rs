@@ -1968,6 +1968,21 @@ impl Settings {
         // [`Settings::resolve_active_theme`] and writeback can honor it. The
         // individual `os_theme_dark`/`os_theme_light` overrides remain
         // available for custom mappings.
+        // Workspace-rail geometry accepts two env/config families for each field:
+        // the canonical `WORKSPACE_RAIL_*` name (the rail shows workspaces) and
+        // the legacy `TAB_RAIL_*` twin, both mapping to the same Settings field.
+        // Precedence is deterministic: the canonical `WORKSPACE_RAIL_*` value
+        // wins when both are set. The two `get` calls run sequentially (not a
+        // nested closure) so the single `FnMut` source is borrowed once at a
+        // time. Same on all three platforms; settings are platform-agnostic.
+        macro_rules! rail_get {
+            ($canonical:expr, $legacy:expr) => {
+                match get($canonical) {
+                    Some(value) => Some(value),
+                    None => get($legacy),
+                }
+            };
+        }
         let mut theme_is_system = false;
         let theme = match get(THEME_ENV)
             .and_then(|value| value.into_string().ok())
@@ -2240,13 +2255,23 @@ impl Settings {
         let tab_bar_placement =
             parse_tab_bar_placement(get(TAB_BAR_PLACEMENT_ENV).as_deref(), &mut warn);
         let workspace_rail = parse_workspace_rail(get(WORKSPACE_RAIL_ENV).as_deref(), &mut warn);
-        let tab_rail_width = parse_tab_rail_width(get(TAB_RAIL_WIDTH_ENV).as_deref(), &mut warn);
+        let tab_rail_width = parse_tab_rail_width(
+            rail_get!(WORKSPACE_RAIL_WIDTH_ENV, TAB_RAIL_WIDTH_ENV).as_deref(),
+            &mut warn,
+        );
         let tab_bar_height = parse_tab_bar_height(get(TAB_BAR_HEIGHT_ENV).as_deref(), &mut warn);
-        let tab_rail_max_width =
-            parse_tab_rail_max_width(get(TAB_RAIL_MAX_WIDTH_ENV).as_deref(), &mut warn);
-        let tab_rail_gap = parse_tab_rail_gap(get(TAB_RAIL_GAP_ENV).as_deref(), &mut warn);
-        let tab_rail_slot_rows =
-            parse_tab_rail_slot_rows(get(TAB_RAIL_SLOT_ROWS_ENV).as_deref(), &mut warn);
+        let tab_rail_max_width = parse_tab_rail_max_width(
+            rail_get!(WORKSPACE_RAIL_MAX_WIDTH_ENV, TAB_RAIL_MAX_WIDTH_ENV).as_deref(),
+            &mut warn,
+        );
+        let tab_rail_gap = parse_tab_rail_gap(
+            rail_get!(WORKSPACE_RAIL_GAP_ENV, TAB_RAIL_GAP_ENV).as_deref(),
+            &mut warn,
+        );
+        let tab_rail_slot_rows = parse_tab_rail_slot_rows(
+            rail_get!(WORKSPACE_RAIL_SLOT_ROWS_ENV, TAB_RAIL_SLOT_ROWS_ENV).as_deref(),
+            &mut warn,
+        );
         let tab_panel_strength =
             parse_tab_panel_strength(get(TAB_PANEL_STRENGTH_ENV).as_deref(), &mut warn);
         let tab_seam = parse_bool_setting(
@@ -2256,13 +2281,15 @@ impl Settings {
             &mut warn,
         );
         let tab_rail_autohide = parse_bool_setting(
-            get(TAB_RAIL_AUTOHIDE_ENV).as_deref(),
+            rail_get!(WORKSPACE_RAIL_AUTOHIDE_ENV, TAB_RAIL_AUTOHIDE_ENV).as_deref(),
             TAB_RAIL_AUTOHIDE_ENV,
             DEFAULT_TAB_RAIL_AUTOHIDE,
             &mut warn,
         );
-        let tab_rail_reveal_px =
-            parse_tab_rail_reveal_px(get(TAB_RAIL_REVEAL_PX_ENV).as_deref(), &mut warn);
+        let tab_rail_reveal_px = parse_tab_rail_reveal_px(
+            rail_get!(WORKSPACE_RAIL_REVEAL_PX_ENV, TAB_RAIL_REVEAL_PX_ENV).as_deref(),
+            &mut warn,
+        );
         let sh_click = parse_bool_setting(
             get(SH_CLICK_ENV).as_deref(),
             SH_CLICK_ENV,

@@ -23,7 +23,9 @@ use super::{
     TAB_RAIL_GAP_ENV, TAB_RAIL_MAX_WIDTH_ENV, TAB_RAIL_REVEAL_PX_ENV, TAB_RAIL_SLOT_ROWS_ENV,
     TAB_RAIL_WIDTH_ENV, TAB_SEAM_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV,
     WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV, WINDOW_DECORATIONS_ENV, WINDOW_OPACITY_ENV,
-    WINDOW_PADDING_ENV, WINDOW_TRANSPARENCY_ENV, WORKSPACE_RAIL_ENV, normalize_name,
+    WINDOW_PADDING_ENV, WINDOW_TRANSPARENCY_ENV, WORKSPACE_RAIL_AUTOHIDE_ENV, WORKSPACE_RAIL_ENV,
+    WORKSPACE_RAIL_GAP_ENV, WORKSPACE_RAIL_MAX_WIDTH_ENV, WORKSPACE_RAIL_REVEAL_PX_ENV,
+    WORKSPACE_RAIL_SLOT_ROWS_ENV, WORKSPACE_RAIL_WIDTH_ENV, normalize_name,
 };
 use super::{
     BOX_THICKNESS_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV, INTERACTIVE_PATHS_CLICK_HINT_ENV,
@@ -186,6 +188,15 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
             Some(WORKSPACE_RAIL_ENV)
         }
         "tabbarheight" | "barheight" | "tabheight" => Some(TAB_BAR_HEIGHT_ENV),
+        // Canonical workspace-rail names (the rail shows workspaces). Each maps to
+        // its own env alias; the read path prefers it over the legacy TAB_RAIL_*
+        // twin when both are set.
+        "workspacerailwidth" => Some(WORKSPACE_RAIL_WIDTH_ENV),
+        "workspacerailmaxwidth" => Some(WORKSPACE_RAIL_MAX_WIDTH_ENV),
+        "workspacerailgap" => Some(WORKSPACE_RAIL_GAP_ENV),
+        "workspacerailslotrows" => Some(WORKSPACE_RAIL_SLOT_ROWS_ENV),
+        "workspacerailautohide" => Some(WORKSPACE_RAIL_AUTOHIDE_ENV),
+        "workspacerailrevealpx" => Some(WORKSPACE_RAIL_REVEAL_PX_ENV),
         "tabrailwidth" | "railwidth" => Some(TAB_RAIL_WIDTH_ENV),
         "tabrailmaxwidth" | "railmaxwidth" | "maxrailwidth" => Some(TAB_RAIL_MAX_WIDTH_ENV),
         "tabrailgap" | "railgap" | "slotgap" => Some(TAB_RAIL_GAP_ENV),
@@ -314,6 +325,12 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         TAB_RAIL_MAX_WIDTH_ENV => Some("tab_rail_max_width"),
         TAB_RAIL_GAP_ENV => Some("tab_rail_gap"),
         TAB_RAIL_SLOT_ROWS_ENV => Some("tab_rail_slot_rows"),
+        WORKSPACE_RAIL_WIDTH_ENV => Some("workspace_rail_width"),
+        WORKSPACE_RAIL_MAX_WIDTH_ENV => Some("workspace_rail_max_width"),
+        WORKSPACE_RAIL_GAP_ENV => Some("workspace_rail_gap"),
+        WORKSPACE_RAIL_SLOT_ROWS_ENV => Some("workspace_rail_slot_rows"),
+        WORKSPACE_RAIL_AUTOHIDE_ENV => Some("workspace_rail_autohide"),
+        WORKSPACE_RAIL_REVEAL_PX_ENV => Some("workspace_rail_reveal_px"),
         TAB_PANEL_STRENGTH_ENV => Some("tab_panel_strength"),
         TAB_SEAM_ENV => Some("tab_seam"),
         TAB_RAIL_AUTOHIDE_ENV => Some("tab_rail_autohide"),
