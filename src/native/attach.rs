@@ -52,11 +52,6 @@ use crate::session_host::{existing_runtime_dir, session_socket_path, validate_so
 use super::pty::{PtyWriter, UserEvent};
 use super::session::SessionToken;
 
-/// How long an interactive [`AttachClient::connect_within`] waits for the host's initial snapshot
-/// frame before giving up. Bounded so a stalled or misbehaving host cannot hang
-/// window startup forever.
-pub(super) const SNAPSHOT_DEADLINE: Duration = Duration::from_secs(5);
-
 /// Per-read timeout while waiting for the initial snapshot, so the deadline loop
 /// can poll without blocking indefinitely on a single read.
 const SNAPSHOT_POLL: Duration = Duration::from_millis(50);
@@ -101,8 +96,8 @@ impl AttachClient {
     /// [`spawn_attach_pump`]), and the restored [`Terminal`]. The hosted session
     /// is never mutated by a rejected attach (the host guarantees this). The
     /// restore/reattach batch passes whatever remains of its aggregate budget so
-    /// K panes cannot each cost the full [`SNAPSHOT_DEADLINE`] (a `K * 5s` UI
-    /// freeze); an interactive single attach passes [`SNAPSHOT_DEADLINE`].
+    /// K panes cannot each cost the full [`super::session::SNAPSHOT_DEADLINE`] (a `K * 5s` UI
+    /// freeze); an interactive single attach passes [`super::session::SNAPSHOT_DEADLINE`].
     pub(super) fn connect_within(
         socket_path: &Path,
         session_id: &str,

@@ -230,6 +230,13 @@ pub(super) fn classify_remote_exit(code: Option<i32>) -> ExitDisposition {
 /// still-orphaned child once the process exits.
 pub(super) const SHUTDOWN_REAP_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// How long an interactive attach waits for the host's initial snapshot frame,
+/// and the aggregate ceiling for a whole reattach batch, before giving up.
+/// Bounded so a stalled or misbehaving host cannot hang window startup forever.
+/// Defined here (cross-platform) because the restore path is compiled on every
+/// platform; the Unix-only attach transport re-exports it for its own use.
+pub(super) const SNAPSHOT_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Grace before a single-session close forces its output reader to EOF. A
 /// healthy session's reader EOFs the instant its slave closes (well inside
 /// this), so the forced path only fires when a `setsid`'d grandchild keeps the
@@ -2087,12 +2094,8 @@ impl WorkspaceSet {
     ) -> Result<SessionToken, std::io::Error> {
         // Interactive single attach: the user is waiting on exactly one handshake,
         // so it gets the full per-connection snapshot deadline.
-        let token = self.insert_attached_session_arena(
-            socket,
-            session_id,
-            sink,
-            super::attach::SNAPSHOT_DEADLINE,
-        )?;
+        let token =
+            self.insert_attached_session_arena(socket, session_id, sink, SNAPSHOT_DEADLINE)?;
         self.active_workspace_mut().tabs.push(Tab::single(token));
         Ok(token)
     }
@@ -2160,11 +2163,8 @@ impl WorkspaceSet {
         // fast-fail here (returning None) and fall through to a fresh shell,
         // instead of each pane blocking the UI for the full per-connection
         // deadline (K panes -> up to K * 5s of frozen startup).
-        let per_connection = per_connection_attach_budget(
-            attach_batch_deadline,
-            Instant::now(),
-            super::attach::SNAPSHOT_DEADLINE,
-        )?;
+        let per_connection =
+            per_connection_attach_budget(attach_batch_deadline, Instant::now(), SNAPSHOT_DEADLINE)?;
         let proxy = self.proxy.clone()?;
         let socket = resolve_session_socket(None, session_id).ok()?;
         self.insert_attached_session_arena(&socket, session_id, proxy, per_connection)
@@ -3631,7 +3631,7 @@ impl WorkspaceSet {
         // consume it, after which remaining panes fast-fail to fresh shells rather
         // than each blocking startup for the full per-connection deadline.
         let mut build = SnapshotBuild {
-            attach_deadline: Some(Instant::now() + super::attach::SNAPSHOT_DEADLINE),
+            attach_deadline: Some(Instant::now() + SNAPSHOT_DEADLINE),
             ..SnapshotBuild::default()
         };
 

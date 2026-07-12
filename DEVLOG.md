@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Restore-deadline and PTY self-pipe made portable across platforms
+
+The reattach batch deadline constant now lives in the cross-platform session
+module and is shared by both the interactive attach path and the batch restore
+path. It previously sat in the Unix-only attach module, so the restore builder,
+which compiles on every platform, referenced a symbol absent on Windows. The
+value and the per-connection budget semantics are unchanged on Unix; Windows
+compiles the same restore builder and never exercises the Unix-domain-socket
+attach transport.
+
+The close-time reader wake pipe is now created through a portable helper. Linux
+keeps the atomic close-on-exec pipe via `pipe2`; macOS and the BSDs, which lack
+`pipe2`, create a plain pipe and mark each end close-on-exec with `fcntl`
+immediately after, mirroring the master-fd fallback already used off Linux. The
+`TIOCGPTPEER` slave-open import is now gated to Linux, matching its only caller.
+The wake behavior that forces a wedged output reader to EOF at close is identical
+on every Unix platform.
+
+---
+
 ## 2026-07-11 -- Stale scroll regions recover at shell boundaries
 
 A row-count resize now clears DECSTBM margins on both the active screen and a

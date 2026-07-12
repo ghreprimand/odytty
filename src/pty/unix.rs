@@ -20,6 +20,7 @@ use rustix::fd::AsFd;
 #[cfg(target_os = "linux")]
 use rustix::pipe::{PipeFlags, pipe_with};
 use rustix::process::RawPid;
+#[cfg(target_os = "linux")]
 use rustix::pty::ioctl_tiocgptpeer;
 use rustix::pty::{OpenptFlags, grantpt, openpt, unlockpt};
 use rustix::termios::{Winsize, tcgetpgrp, tcsetwinsize};
@@ -182,8 +183,7 @@ impl PtySession {
 
         // Self-pipe for forcing a wedged reader to EOF at close. CLOEXEC so the
         // shell child never inherits either end.
-        let (reader_wake_read, reader_wake_write) =
-            pipe_with(PipeFlags::CLOEXEC).context("create pty reader wake pipe")?;
+        let (reader_wake_read, reader_wake_write) = make_reader_wake_pipe()?;
 
         Ok(Self {
             master,
@@ -462,6 +462,28 @@ pub(crate) fn open_pty_pair(dimensions: Dimensions) -> Result<(File, File)> {
     let master = unsafe { File::from_raw_fd(master.into_raw_fd()) };
     let slave = unsafe { File::from_raw_fd(slave.into_raw_fd()) };
     Ok((master, slave))
+}
+
+/// Create the close-time self-pipe used to force a wedged output reader to EOF.
+///
+/// Both ends must be close-on-exec so a spawned shell never inherits them. Linux
+/// sets that atomically through `pipe2` (`PipeFlags::CLOEXEC`); macOS and the
+/// BSDs lack `pipe2`, so a plain `pipe` is created and each end is marked
+/// close-on-exec with `fcntl` immediately after (the same fallback the master fd
+/// uses off Linux). The wake behavior is identical on every platform.
+#[cfg(target_os = "linux")]
+fn make_reader_wake_pipe() -> Result<(rustix::fd::OwnedFd, rustix::fd::OwnedFd)> {
+    pipe_with(PipeFlags::CLOEXEC).context("create pty reader wake pipe")
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn make_reader_wake_pipe() -> Result<(rustix::fd::OwnedFd, rustix::fd::OwnedFd)> {
+    let (read_end, write_end) = rustix::pipe::pipe().context("create pty reader wake pipe")?;
+    rustix::io::fcntl_setfd(&read_end, rustix::io::FdFlags::CLOEXEC)
+        .context("set cloexec on pty reader wake pipe read end")?;
+    rustix::io::fcntl_setfd(&write_end, rustix::io::FdFlags::CLOEXEC)
+        .context("set cloexec on pty reader wake pipe write end")?;
+    Ok((read_end, write_end))
 }
 
 /// Open the slave (user) side of a freshly created, granted, and unlocked PTY
