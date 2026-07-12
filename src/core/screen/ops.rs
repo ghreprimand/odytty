@@ -711,9 +711,9 @@ impl Screen {
                 80 => {
                     self.sixel_display_mode = action == 'h';
                 }
-                // Alternate-screen modes per xterm ctlseqs:
-                // 47: plain switch (no cursor save, no clear on enter or leave).
-                // 1047: switch; clear alt on leave (not on enter).
+                // Alternate-screen modes. The text model does not persist an
+                // inactive alternate buffer, so 47/1047 both start with a fresh
+                // blank grid on each transition (an intentional xterm divergence).
                 // 1048: DECSC/DECRC only (cursor save/restore, no switch).
                 // 1049: DECSC + switch + clear on enter / switch + DECRC on
                 //        leave. Equivalent to 1048h + 1047h on set, and
@@ -722,14 +722,14 @@ impl Screen {
                     if action == 'h' {
                         self.enter_alternate_screen(false);
                     } else {
-                        self.leave_alternate_screen(false, false);
+                        self.leave_alternate_screen(false);
                     }
                 }
                 1047 => {
                     if action == 'h' {
                         self.enter_alternate_screen(false);
                     } else {
-                        self.leave_alternate_screen(false, true);
+                        self.leave_alternate_screen(false);
                     }
                 }
                 1048 => {
@@ -744,7 +744,7 @@ impl Screen {
                         self.save_cursor();
                         self.enter_alternate_screen(true);
                     } else {
-                        self.leave_alternate_screen(true, false);
+                        self.leave_alternate_screen(true);
                         self.restore_cursor();
                     }
                 }
@@ -998,6 +998,11 @@ impl Screen {
         self.saved_cursor = Some(SavedCursor {
             position: self.cursor,
             pending_wrap: self.pending_wrap,
+            attrs: self.current_attrs,
+            origin_mode: self.origin_mode,
+            auto_wrap: self.auto_wrap,
+            protected: self.current_protected,
+            active_hyperlink: self.active_hyperlink,
         });
     }
 
@@ -1011,17 +1016,24 @@ impl Screen {
                     .min(self.dimensions.columns - 1),
             };
             self.pending_wrap = saved_cursor.pending_wrap;
+            self.current_attrs = saved_cursor.attrs;
+            self.origin_mode = saved_cursor.origin_mode;
+            self.auto_wrap = saved_cursor.auto_wrap;
+            self.current_protected = saved_cursor.protected;
+            self.active_hyperlink = saved_cursor.active_hyperlink;
             self.mark_dirty();
         }
     }
 
     /// Enter the alternate screen buffer.
     ///
-    /// `clear_alt`: when true (mode 1049), the new alt buffer starts blank and
-    ///   the cursor homes to (0,0). When false (modes 47/1047), the alt buffer
-    ///   starts blank on first entry but its content persists across re-entries
-    ///   (only mode 47 — 1047 clears on *leave*; the re-entry path is a no-op
-    ///   regardless).
+    /// The text model has no inactive alternate-buffer store, so every entry
+    /// starts with a blank grid. This intentionally diverges from xterm mode 47,
+    /// which preserves alternate-buffer content across transitions.
+    ///
+    /// `clear_alt`: when true (mode 1049), the cursor also homes to (0,0) and
+    /// pending wrap clears. When false (modes 47/1047), cursor and wrap state
+    /// carry into the fresh grid.
     pub(super) fn enter_alternate_screen(&mut self, clear_alt: bool) {
         if self.primary_screen.is_some() {
             return;
@@ -1031,8 +1043,8 @@ impl Screen {
         // buffer, so visible marks vanish; flag the poll API if any existed.
         self.prompt_marks_changed |= self.has_any_prompt_mark();
 
-        // The alt buffer always starts blank; `clear_alt` only governs whether
-        // the *old* alt content is wiped on a later re-entry, handled elsewhere.
+        // There is no inactive alternate-buffer store: every transition starts
+        // with a fresh text grid, independently of the cursor-reset policy.
         let alt_rows = vec![blank_row(self.dimensions.columns); self.dimensions.rows];
 
         // The alternate screen keeps no scrollback, but carry the configured
@@ -1082,11 +1094,7 @@ impl Screen {
     ///   at enter time is restored. When false (modes 47/1047), the cursor
     ///   retains its current position (clamped to screen bounds).
     ///
-    /// `clear_alt`: when true (mode 1047), the alt buffer is cleared before
-    ///   restoring primary (so stale alt content cannot leak if re-entered via
-    ///   mode 47). When false (modes 47/1049), no extra clear is performed
-    ///   (1049 already cleared on enter; 47 intentionally preserves content).
-    pub(super) fn leave_alternate_screen(&mut self, restore_cursor: bool, _clear_alt: bool) {
+    pub(super) fn leave_alternate_screen(&mut self, restore_cursor: bool) {
         if let Some(primary_screen) = self.primary_screen.take() {
             // Leaving swaps the alt buffer out for the restored primary, so
             // marks change if either the outgoing alt OR the incoming primary
@@ -1114,6 +1122,9 @@ impl Screen {
                 // Modes 47/1047: cursor stays where it is (clamped).
                 self.cursor.row = self.cursor.row.min(self.dimensions.rows - 1);
                 self.cursor.column = self.cursor.column.min(self.dimensions.columns - 1);
+                // Pending wrap belongs to the buffer even when cursor position
+                // intentionally follows the alternate screen.
+                self.pending_wrap = primary_screen.pending_wrap;
                 // Still restore visibility and attrs since those are screen-level
                 // state that belongs to the primary, not the alt-screen app.
                 self.cursor_visible = primary_screen.cursor_visible;
@@ -1143,9 +1154,14 @@ impl Screen {
 
     pub(super) fn set_scroll_region(&mut self, params: &Params) {
         let top = param_or(params, 0, 1).saturating_sub(1);
-        let bottom = param_or(params, 1, self.dimensions.rows).saturating_sub(1);
+        let bottom_param = param_or(params, 1, self.dimensions.rows);
+        let bottom = if bottom_param == 0 {
+            self.dimensions.rows - 1
+        } else {
+            bottom_param.saturating_sub(1).min(self.dimensions.rows - 1)
+        };
 
-        self.scroll_region = if top < bottom && bottom < self.dimensions.rows {
+        self.scroll_region = if top < bottom {
             Some(ScrollRegion { top, bottom })
         } else {
             None
@@ -1285,4 +1301,74 @@ impl Screen {
 
 fn mode_status(set: bool) -> u8 {
     if set { 1 } else { 2 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decsc_decrc_restores_rendition_modes_protection_and_hyperlink() {
+        let mut terminal = Terminal::new(10, 10);
+        terminal.advance(
+            b"\x1b[3;8r\x1b[?6h\x1b[?7l\x1b[32m\x1b[1\"q\x1b]8;;https://example.invalid\x07\x1b7",
+        );
+
+        terminal.advance(b"\x1b[?6l\x1b[?7h\x1b[0m\x1b[0\"q\x1b]8;;\x07\x1b8X");
+
+        assert!(terminal.screen.origin_mode);
+        assert!(!terminal.screen.auto_wrap);
+        let cell = terminal.screen.cell(2, 0).expect("restored cursor cell");
+        assert_eq!(cell.ch, 'X');
+        assert_eq!(cell.attrs.foreground, Color::Indexed(2));
+        assert!(cell.protected);
+        assert!(cell.attrs.hyperlink.is_some());
+    }
+
+    #[test]
+    fn mode_1049_round_trip_still_restores_rendition_and_origin_mode() {
+        let mut terminal = Terminal::new(10, 10);
+        terminal.advance(b"\x1b[3;8r\x1b[?6h\x1b[32m\x1b[?1049h");
+        terminal.advance(b"\x1b[?6l\x1b[31malt\x1b[?1049lX");
+
+        assert!(terminal.screen.origin_mode);
+        let cell = terminal.screen.cell(2, 0).expect("restored primary cell");
+        assert_eq!(cell.ch, 'X');
+        assert_eq!(cell.attrs.foreground, Color::Indexed(2));
+    }
+
+    #[test]
+    fn oversized_decstbm_bottom_clamps_and_keeps_top_margin() {
+        let mut terminal = Terminal::new(10, 10);
+        terminal.advance(b"TOP\x1b[5;999r\x1b[10;1H\n");
+
+        assert_eq!(terminal.screen.cell(0, 0).map(|cell| cell.ch), Some('T'));
+        assert_eq!(terminal.screen.scrollback_len(), 0);
+        assert_eq!(
+            terminal.screen.scroll_region,
+            Some(ScrollRegion { top: 4, bottom: 9 })
+        );
+    }
+
+    #[test]
+    fn mode_47_reentry_uses_a_fresh_blank_alternate_grid() {
+        let mut terminal = Terminal::new(10, 3);
+        terminal.advance(b"primary\x1b[?47halt text\x1b[?47l\x1b[?47h");
+
+        assert_eq!(terminal.screen.plain_text(), "\n\n");
+    }
+
+    #[test]
+    fn mode_47_leave_restores_primary_pending_wrap() {
+        let mut terminal = Terminal::new(4, 2);
+        terminal.advance(b"P\x1b[?47h\x1b[1;1HABCD");
+        assert!(terminal.screen.pending_wrap);
+
+        terminal.advance(b"\x1b[?47l");
+
+        assert!(!terminal.screen.pending_wrap);
+        terminal.advance(b"Q");
+        assert_eq!(terminal.screen.cell(0, 3).map(|cell| cell.ch), Some('Q'));
+        assert_eq!(terminal.screen.cell(1, 0).map(|cell| cell.ch), Some(' '));
+    }
 }

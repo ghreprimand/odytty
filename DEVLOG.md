@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- VT cursor and screen-state transitions corrected
+
+DECSC and DECRC now save and restore graphic rendition, origin and auto-wrap
+modes, character protection, and the active hyperlink together with cursor
+position and pending wrap. The same state primitive backs the CSI and DECSET
+1048 aliases, while mode 1049 continues to round-trip primary-screen state.
+
+DECSTBM now treats a zero or omitted lower margin as the screen bottom and
+clamps oversized lower margins before validating the region. Alternate-screen
+transitions now restore the primary buffer's pending-wrap state for modes 47 and
+1047. The text model's always-blank alternate grid on a later mode-47 entry is
+documented and regression-tested as an intentional xterm divergence.
+
+These are platform-neutral terminal-model changes with no Windows-specific
+surface. Headless regressions cover saved rendition and modes, mode-1049 state,
+oversized margins, blank alternate re-entry, and pending-wrap isolation.
+
 ## 2026-07-12 -- Restore-deadline and PTY self-pipe made portable across platforms
 
 The reattach batch deadline constant now lives in the cross-platform session

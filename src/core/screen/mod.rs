@@ -315,6 +315,11 @@ struct StoredScreen {
 struct SavedCursor {
     position: Position,
     pending_wrap: bool,
+    attrs: Attrs,
+    origin_mode: bool,
+    auto_wrap: bool,
+    protected: bool,
+    active_hyperlink: Option<LinkId>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ScrollRegion {
