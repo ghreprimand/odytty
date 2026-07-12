@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Session host no longer wedges on a non-reading job or a stalled peer
+
+Hardening for the detached session host and its attach clients. This surface is
+Unix-only (the host, its Unix-domain-socket transport, and the attach client are
+all `cfg(unix)`); Windows has no detached-session host, so there is no Windows
+behavior change.
+
+The host loop performed PTY-master writes inline on its single thread against a
+raw blocking fd. A hosted foreground job that stopped reading its stdin (a
+stopped job, a pager at rest, `sleep`) let the slave input queue fill, so that
+write parked the whole loop: it stopped broadcasting output, accepting clients,
+and draining the "kill session" request, leaving the session unkillable through
+the product while the reader threads grew memory without bound. PTY-master
+writes now run on a dedicated writer thread fed by a byte-bounded queue, so the
+loop only ever enqueues and can never be stalled by a wedged slave; the queue
+drops oldest under its cap rather than propagating backpressure into the loop.
+
+Client-side host-hello reads were unbounded blocking reads with no timeout. A
+connection to a host that is bound but not servicing its accept backlog succeeds
+(the connect lands in the backlog and the hello write buffers), after which the
+read blocked the calling thread forever. Because those reads run on the main
+thread when opening the session manager, killing a session, and restoring
+sessions at launch, a stalled host could freeze startup so the window never
+appeared. Both clients now bound the hello read with a wall-clock deadline that
+shrinks the socket receive timeout toward it, mirroring the host-side handshake
+deadline, and fail the attach instead of hanging.
+
+The host also unlinks its session socket on every exit through a drop guard, not
+only the normal teardown paths, so an error or panic exit no longer leaves a
+stale socket that misreports the session as present on the next connect. And the
+post-EOF child reap is now bounded: PTY-master EOF means the slave fds closed,
+not necessarily that the child exited, so a process that closes its controlling
+tty and lingers no longer parks the loop in an unbounded wait; the reap polls for
+a grace, then reports session exit and tears down regardless.
+
 ## 2026-07-12 -- VT cursor and screen-state transitions corrected
 
 DECSC and DECRC now save and restore graphic rendition, origin and auto-wrap

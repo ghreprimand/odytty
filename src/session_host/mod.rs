@@ -15,6 +15,8 @@ mod client;
 mod host;
 pub mod protocol;
 #[cfg(unix)]
+mod pty_writer;
+#[cfg(unix)]
 mod registry;
 #[cfg(unix)]
 mod socket;
@@ -37,6 +39,8 @@ pub use registry::{
     SessionMetadata, kill_session, list_live_sessions, now_unix_ms, read_session_metadata,
     write_session_metadata,
 };
+#[cfg(unix)]
+pub(crate) use socket::SocketReadDeadline;
 #[cfg(unix)]
 pub use socket::{
     RuntimePaths, StartupLock, cleanup_stale_socket, existing_runtime_dir, prepare_runtime_dir,

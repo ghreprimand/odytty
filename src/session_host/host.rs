@@ -3,7 +3,7 @@
 
 use std::env;
 use std::ffi::OsString;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::{Child, Command};
@@ -18,6 +18,8 @@ use crate::core::{
     SnapshotEnvelope, Terminal,
 };
 use crate::pty::PtySession;
+
+use super::pty_writer::HostPtyWriter;
 
 use super::protocol::{
     ClientFrame, ClientFramePoll, ClientFrameReader, HostFrame, versions_compatible,
@@ -256,6 +258,21 @@ pub fn run_internal_host_from_args(args: &[String]) -> Result<()> {
     run_host(config).map(|_| ())
 }
 
+/// Unlinks the session socket on ANY exit from [`run_host`] — including the `?`
+/// error paths and a panic — so a stale `<id>.sock` never lingers to confuse
+/// `resolve_session_socket` into a misleading connect error (audit C-5). The
+/// four normal `Ok` exits also unlink explicitly (harmlessly redundant with this
+/// guard); this catches the error and panic exits that previously leaked it.
+struct SocketUnlinkGuard {
+    socket: PathBuf,
+}
+
+impl Drop for SocketUnlinkGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.socket);
+    }
+}
+
 pub fn run_host(config: HostConfig) -> Result<HostExit> {
     if config.max_sessions == 0 || config.max_sessions > MAX_HOST_SESSIONS {
         bail!(
@@ -270,11 +287,20 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
 
     let paths = config.runtime_paths()?;
     let (listener, _lock) = bind_listener(&paths.socket, &paths.lock)?;
+    // C-5: guarantee the socket is unlinked on every exit, including the `?`
+    // error paths and a panic, not only the four explicit `Ok` teardowns.
+    let _socket_guard = SocketUnlinkGuard {
+        socket: paths.socket.clone(),
+    };
     let mut terminal = Terminal::new(config.dimensions.columns, config.dimensions.rows);
     terminal.set_local_hostname(crate::local_hostname::get());
     terminal.set_scrollback_limit(config.snapshot_limits.max_scrollback_rows);
     let mut session = config.command.spawn(config.dimensions)?;
-    let mut pty_writer = session.take_writer()?;
+    // C-1: the raw master fd is a BLOCKING writer. Writing to it inline from the
+    // single host loop lets a hosted job that stopped reading its stdin wedge the
+    // whole host (no broadcast, no accept, no Shutdown drain). Route every
+    // PTY-master write through a bounded writer thread so the loop only enqueues.
+    let pty_writer = HostPtyWriter::spawn(session.take_writer()?);
 
     let (pty_tx, pty_rx) = mpsc::channel();
     spawn_pty_reader(session.try_clone_reader()?, pty_tx);
@@ -304,7 +330,7 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
         drain_pty_events(
             &pty_rx,
             &mut terminal,
-            &mut pty_writer,
+            &pty_writer,
             &mut clients,
             &mut session,
             &mut session_alive,
@@ -360,7 +386,7 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
         let shutdown_requested = drain_client_events(
             &client_rx,
             &mut clients,
-            &mut pty_writer,
+            &pty_writer,
             &mut terminal,
             &mut session,
         )?;
@@ -583,10 +609,62 @@ fn handle_attach(
     Ok(())
 }
 
+/// The observable state of the hosted child while reaping it after PTY EOF.
+enum ChildWaitState {
+    /// The child has been reaped; carries its exit code (may be `None`).
+    Exited(Option<i32>),
+    /// The child is still running (a process that closed its tty but lingers).
+    Alive,
+    /// `try_wait` itself failed; treat as terminal so the host stops waiting.
+    Errored,
+}
+
+/// Poll `probe` until it reports the child gone or `grace` elapses, sleeping
+/// `step` between polls. Returns the exit code on exit, or `None` on timeout /
+/// error. Split out from [`bounded_child_wait`] so the timeout path is unit
+/// testable without a real PTY child.
+fn poll_child_exit<F>(mut probe: F, grace: Duration, step: Duration) -> Option<i32>
+where
+    F: FnMut() -> ChildWaitState,
+{
+    let deadline = Instant::now() + grace;
+    loop {
+        match probe() {
+            ChildWaitState::Exited(code) => return code,
+            ChildWaitState::Errored => return None,
+            ChildWaitState::Alive => {
+                if Instant::now() >= deadline {
+                    return None;
+                }
+                thread::sleep(step);
+            }
+        }
+    }
+}
+
+/// Reap the hosted child within a bounded grace after PTY-master EOF (audit C-6).
+///
+/// EOF means all slave fds closed, which is normally the child exiting but can
+/// also be a process that closed its controlling tty and lingers. Poll
+/// `try_wait` up to [`CHILD_EXIT_DRAIN_GRACE`] rather than blocking forever in
+/// `wait`; return the child's exit code if it goes, or `None` on timeout so the
+/// host still broadcasts `SessionExit` and tears down instead of wedging.
+fn bounded_child_wait(session: &mut PtySession) -> Option<i32> {
+    poll_child_exit(
+        || match session.try_wait() {
+            Ok(Some(status)) => ChildWaitState::Exited(status.code()),
+            Ok(None) => ChildWaitState::Alive,
+            Err(_) => ChildWaitState::Errored,
+        },
+        CHILD_EXIT_DRAIN_GRACE,
+        HOST_LOOP_SLEEP,
+    )
+}
+
 fn drain_pty_events(
     pty_rx: &Receiver<PtyEvent>,
     terminal: &mut Terminal,
-    pty_writer: &mut Box<dyn Write + Send>,
+    pty_writer: &HostPtyWriter,
     clients: &mut Vec<ClientConnection>,
     session: &mut PtySession,
     session_alive: &mut bool,
@@ -598,12 +676,8 @@ fn drain_pty_events(
                 terminal.advance(&bytes);
                 let host_output = terminal.take_host_output();
                 if !host_output.is_empty() {
-                    pty_writer
-                        .write_all(&host_output)
-                        .context("write terminal response to hosted pty")?;
-                    pty_writer
-                        .flush()
-                        .context("flush terminal response to hosted pty")?;
+                    // Non-blocking enqueue (C-1): never park the host loop on the fd.
+                    pty_writer.write(&host_output);
                 }
                 broadcast(clients, &HostFrame::Output(bytes));
                 broadcast(
@@ -615,9 +689,14 @@ fn drain_pty_events(
             }
             PtyEvent::Eof => {
                 if *session_alive {
-                    let status = session.wait().context("wait hosted pty child")?;
+                    // C-6: master EOF means every slave fd closed, NOT necessarily
+                    // that the child exited. A process that closes its controlling
+                    // tty and lingers (a daemonizing wrapper) delivers EOF while it
+                    // stays alive, so an unbounded `wait()` here would park the whole
+                    // host loop forever. Bound the reap: poll `try_wait` up to the
+                    // drain grace, then report exit regardless so clients are freed.
+                    *exit_code = bounded_child_wait(session);
                     *session_alive = false;
-                    *exit_code = status.code();
                     broadcast(
                         clients,
                         &HostFrame::SessionExit {
@@ -641,7 +720,7 @@ fn drain_pty_events(
 fn drain_client_events(
     client_rx: &Receiver<ClientEvent>,
     clients: &mut Vec<ClientConnection>,
-    pty_writer: &mut Box<dyn Write + Send>,
+    pty_writer: &HostPtyWriter,
     terminal: &mut Terminal,
     session: &mut PtySession,
 ) -> Result<bool> {
@@ -660,10 +739,9 @@ fn drain_client_events(
         match event {
             ClientEvent::Frame(id, ClientFrame::Input(bytes)) => {
                 if has_client(clients, *id) {
-                    pty_writer
-                        .write_all(bytes)
-                        .context("write attach-client input to pty")?;
-                    pty_writer.flush().context("flush attach-client input")?;
+                    // Non-blocking enqueue (C-1): a client flooding input at a job
+                    // that stopped reading stdin can no longer wedge the loop.
+                    pty_writer.write(bytes);
                 }
             }
             // Resizes are deferred and coalesced after the drain.
@@ -978,6 +1056,7 @@ enum ClientEvent {
 mod hardening_tests {
     use super::super::protocol::{HOST_PROTOCOL_MAGIC, read_client_hello};
     use super::*;
+    use std::io::Write;
     use std::os::unix::net::UnixStream;
 
     // ---- helpers ----
@@ -987,6 +1066,89 @@ mod hardening_tests {
     fn client_connection(id: u64) -> (ClientConnection, UnixStream) {
         let (peer, near) = UnixStream::pair().expect("socketpair");
         (ClientConnection { id, stream: near }, peer)
+    }
+
+    // ---- C-5: socket unlink guard ----
+
+    #[test]
+    fn socket_unlink_guard_removes_the_socket_on_drop() {
+        // The guard must unlink the socket on ANY exit, so a stale <id>.sock never
+        // lingers after an error/panic exit to confuse the next connect (C-5).
+        let dir = std::env::temp_dir().join(format!(
+            "odytty-c5-{}-{}",
+            std::process::id(),
+            Instant::now().elapsed().as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let socket = dir.join("session-guard.sock");
+        std::fs::write(&socket, b"").expect("create fake socket file");
+        assert!(socket.exists(), "precondition: socket file exists");
+        {
+            let _guard = SocketUnlinkGuard {
+                socket: socket.clone(),
+            };
+        }
+        assert!(
+            !socket.exists(),
+            "SocketUnlinkGuard did not unlink the socket on drop"
+        );
+        // Dropping a guard for an already-absent socket must not panic.
+        {
+            let _guard = SocketUnlinkGuard {
+                socket: socket.clone(),
+            };
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- C-6: bounded child wait on PTY EOF ----
+
+    #[test]
+    fn poll_child_exit_returns_the_code_once_the_child_is_gone() {
+        // A child that exits after a couple of polls yields its code promptly.
+        let mut polls = 0;
+        let code = poll_child_exit(
+            || {
+                polls += 1;
+                if polls >= 2 {
+                    ChildWaitState::Exited(Some(7))
+                } else {
+                    ChildWaitState::Alive
+                }
+            },
+            Duration::from_secs(5),
+            Duration::from_millis(1),
+        );
+        assert_eq!(code, Some(7));
+    }
+
+    #[test]
+    fn poll_child_exit_times_out_on_a_lingering_child_instead_of_hanging() {
+        // A process that closed its controlling tty but stays alive delivers EOF
+        // while `try_wait` keeps reporting Alive; the poll must return None within
+        // the grace rather than blocking the host loop forever (C-6).
+        let start = Instant::now();
+        let code = poll_child_exit(
+            || ChildWaitState::Alive,
+            Duration::from_millis(120),
+            Duration::from_millis(5),
+        );
+        assert_eq!(code, None, "a lingering child must time out to None");
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "poll_child_exit exceeded its grace: {:?}",
+            start.elapsed()
+        );
+    }
+
+    #[test]
+    fn poll_child_exit_treats_a_wait_error_as_terminal() {
+        let code = poll_child_exit(
+            || ChildWaitState::Errored,
+            Duration::from_secs(5),
+            Duration::from_millis(1),
+        );
+        assert_eq!(code, None);
     }
 
     // ---- F20: resize coalescing ----

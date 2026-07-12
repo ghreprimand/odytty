@@ -3,12 +3,13 @@
 
 use std::env;
 use std::fs::{self, File, OpenOptions};
-use std::io;
+use std::io::{self, Read};
 use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 
@@ -293,6 +294,54 @@ fn safe_session_id(session_id: &str) -> Result<&str> {
         bail!("session id cannot be . or ..");
     }
     Ok(session_id)
+}
+
+/// Deadline for the client-side read of the host's hello frame (audit C-2).
+///
+/// `UnixStream::connect` succeeds against a wedged host via the listen backlog
+/// even though the host never `accept()`s, and the client's hello write lands in
+/// the socket buffer; without a timeout the subsequent hello read blocks the
+/// calling thread forever. This is the interactive-attach counterpart to the
+/// host-side `ATTACH_HANDSHAKE_TIMEOUT`; kept generous for a local socket.
+pub(crate) const HELLO_READ_DEADLINE: Duration = Duration::from_secs(2);
+
+/// A [`Read`] adapter that enforces one wall-clock deadline across an entire
+/// multi-read exchange on a Unix-domain socket. Before each underlying read it
+/// shrinks the socket's `SO_RCVTIMEO` to the remaining budget, so a peer that
+/// dribbles bytes to keep resetting the per-read timeout still hits a hard total
+/// cap; once the deadline passes, reads fail immediately with `TimedOut`.
+///
+/// The client handshake wraps its hello read in this so a wedged host — one that
+/// accepted the connection into its backlog but never services it — cannot
+/// freeze the caller's thread (the main thread, at launch restore). It mirrors
+/// the host-side `HandshakeDeadlineReader`.
+pub(crate) struct SocketReadDeadline<'a> {
+    stream: &'a UnixStream,
+    deadline: Instant,
+}
+
+impl<'a> SocketReadDeadline<'a> {
+    pub(crate) fn new(stream: &'a UnixStream, deadline: Instant) -> Self {
+        Self { stream, deadline }
+    }
+}
+
+impl Read for SocketReadDeadline<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let now = Instant::now();
+        if now >= self.deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "session-host hello read exceeded its deadline",
+            ));
+        }
+        // Bound this read by the remaining total budget. Best-effort: on a dead
+        // peer macOS can reject `SO_RCVTIMEO` with `EINVAL`, in which case the
+        // read simply keeps any previously-set per-recv timeout.
+        let _ = self.stream.set_read_timeout(Some(self.deadline - now));
+        let mut source = self.stream;
+        source.read(buf)
+    }
 }
 
 #[cfg(test)]

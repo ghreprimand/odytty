@@ -377,6 +377,34 @@ fn rejected_attach_errors_without_terminal() {
 }
 
 #[test]
+fn wedged_host_that_never_accepts_fails_within_the_deadline() {
+    // C-2 regression: `UnixStream::connect` succeeds against a host that is bound
+    // but never `accept()`s (the listen backlog absorbs the connection), and the
+    // client hello lands in the socket buffer. Before the fix, the subsequent
+    // `read_host_hello` had no timeout and blocked the calling thread — the MAIN
+    // thread, including launch restore — forever. The bounded hello read must now
+    // surface an error within the attach deadline instead of hanging.
+    let dir = unique_runtime_dir();
+    let socket_path = dir.join("attach.sock");
+    // Bind but NEVER accept: the listener sits idle for the whole test.
+    let _listener = UnixListener::bind(&socket_path).expect("bind wedged host");
+
+    let short_deadline = Duration::from_millis(300);
+    let start = Instant::now();
+    let result = AttachClient::connect_with(&socket_path, "wedged", test_caps(), short_deadline);
+    let elapsed = start.elapsed();
+
+    assert!(
+        result.is_err(),
+        "attach to a wedged (never-accepting) host must error, not hang"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "attach to a wedged host took {elapsed:?}; the hello read was not bounded"
+    );
+}
+
+#[test]
 fn resize_rejects_zero_dimensions() {
     let (socket_path, handle) =
         spawn_fake_host(snapshot_bytes(&sample_host_terminal()), |stream| {

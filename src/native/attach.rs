@@ -47,7 +47,9 @@ use crate::session_host::protocol::{
     ClientFrame, ClientHello, HostFrame, HostFrameReader, ProtocolError, read_host_frame,
     read_host_hello, write_client_frame, write_client_hello,
 };
-use crate::session_host::{existing_runtime_dir, session_socket_path, validate_socket_parent};
+use crate::session_host::{
+    SocketReadDeadline, existing_runtime_dir, session_socket_path, validate_socket_parent,
+};
 
 use super::pty::{PtyWriter, UserEvent};
 use super::session::SessionToken;
@@ -124,10 +126,18 @@ impl AttachClient {
             .with_context(|| format!("connect session-host {}", socket_path.display()))?;
         write_client_hello(&mut stream, &ClientHello::current(session_id))
             .context("write session-host client hello")?;
-        read_host_hello(&mut stream)
-            .context("read session-host hello")?
-            .into_result()
-            .context("session-host attach rejected")?;
+        // C-2: bound the hello read by the attach budget. `connect` succeeds
+        // against a wedged host via the listen backlog even though the host never
+        // `accept()`s, so an unbounded read here freezes the MAIN THREAD forever
+        // (session manager, kill-session, and launch restore all attach on it).
+        // Scope the deadline reader so its borrow ends before the snapshot read.
+        {
+            let mut guarded = SocketReadDeadline::new(&stream, Instant::now() + deadline);
+            read_host_hello(&mut guarded)
+        }
+        .context("read session-host hello")?
+        .into_result()
+        .context("session-host attach rejected")?;
 
         let snapshot = read_initial_snapshot(&mut stream, deadline)?;
         let envelope =

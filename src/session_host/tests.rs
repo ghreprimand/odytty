@@ -106,6 +106,37 @@ fn protocol_handshake_rejects_version_mismatch() {
 }
 
 #[test]
+fn connect_to_a_wedged_host_that_never_accepts_fails_within_the_deadline() {
+    // C-2 regression: `UnixStream::connect` succeeds against a bound host that
+    // never `accept()`s (the listen backlog absorbs the connection); the client
+    // hello lands in the socket buffer. Before the fix, `read_host_hello` had no
+    // timeout and blocked the caller forever. The bounded hello read must now
+    // surface an error within the deadline.
+    let temp = TempDir::new("sh-wedged");
+    let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
+    let socket_path = session_socket_path(&runtime_dir, "wedged").expect("socket path");
+    // Bind but NEVER accept: the listener sits idle for the whole test.
+    let _listener = UnixListener::bind(&socket_path).expect("bind wedged host");
+
+    let start = Instant::now();
+    let result = SessionHostClient::connect_within_deadline(
+        &socket_path,
+        "wedged",
+        Duration::from_millis(300),
+    );
+    let elapsed = start.elapsed();
+
+    assert!(
+        result.is_err(),
+        "connect to a wedged (never-accepting) host must error, not hang"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "connect to a wedged host took {elapsed:?}; the hello read was not bounded"
+    );
+}
+
+#[test]
 fn runtime_dir_validation_requires_owner_private_mode() {
     let temp = TempDir::new("sh-perm");
     let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");

@@ -4,7 +4,7 @@
 use std::io;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 
@@ -12,7 +12,7 @@ use super::protocol::{
     ClientFrame, ClientHello, HostFrame, HostFrameReader, ProtocolError, read_host_hello,
     write_client_frame, write_client_hello,
 };
-use super::socket::validate_socket_parent;
+use super::socket::{HELLO_READ_DEADLINE, SocketReadDeadline, validate_socket_parent};
 
 #[derive(Debug)]
 pub struct SessionHostClient {
@@ -26,15 +26,31 @@ pub struct SessionHostClient {
 
 impl SessionHostClient {
     pub fn connect(socket_path: &Path, session_id: &str) -> Result<Self> {
+        Self::connect_within_deadline(socket_path, session_id, HELLO_READ_DEADLINE)
+    }
+
+    /// [`Self::connect`] with an explicit hello-read deadline, for tests.
+    pub(super) fn connect_within_deadline(
+        socket_path: &Path,
+        session_id: &str,
+        hello_deadline: Duration,
+    ) -> Result<Self> {
         validate_socket_parent(socket_path)?;
         let mut stream = UnixStream::connect(socket_path)
             .with_context(|| format!("connect session-host {}", socket_path.display()))?;
         write_client_hello(&mut stream, &ClientHello::current(session_id))
             .context("write session-host client hello")?;
-        read_host_hello(&mut stream)
-            .context("read session-host hello")?
-            .into_result()
-            .context("session-host attach rejected")?;
+        // C-2: bound the hello read. `connect` succeeds against a wedged host via
+        // the listen backlog even though the host never `accept()`s, so an
+        // unbounded read here would freeze the calling thread forever. Scope the
+        // deadline reader so the borrow ends before the stream is stored.
+        {
+            let mut guarded = SocketReadDeadline::new(&stream, Instant::now() + hello_deadline);
+            read_host_hello(&mut guarded)
+        }
+        .context("read session-host hello")?
+        .into_result()
+        .context("session-host attach rejected")?;
         Ok(Self {
             stream,
             frame_reader: HostFrameReader::default(),
