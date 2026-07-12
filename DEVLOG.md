@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Recover skipped surfaces immediately on window return
+
+Transient surface-acquire skips are now tracked as one bounded diagnostic
+episode rather than inferred from the retry-budget counter. A successful
+present emits at most one state-only record with the duration, skip count,
+focus state, and minimized state. Episodes under ten seconds remain debug-only;
+self-healed episodes of at least ten seconds emit one warning aligned with the
+existing freeze threshold. No terminal content, title, or PTY data is recorded.
+
+Focus gain or un-occlusion during an active episode now schedules one deferred
+surface reconfigure immediately before the next render. This retires a starved
+Wayland swapchain on workspace return, gives Windows DX12 restores the existing
+surface-recovery primitive without waiting for a Suboptimal round trip, and is
+normally inert on macOS where Metal rarely reports acquire timeouts. The flag is
+consumed before rendering, so an unsuccessful recovery falls through to the
+unchanged skipped-frame retry and slow anti-freeze keep-alive. The implementation
+has no platform-specific branches and remains harmless without a GPU.
+
+Verified: skip-episode duration/count and single-record bounds, state-only
+record formatting, ten-second log escalation, focus and un-occlude recovery,
+ordinary focus-path identity, one-shot reconfigure consumption, cargo build,
+cargo test, cargo fmt --check, and cargo clippy --all-targets --locked -- -D
+warnings all clean.
+
 ## 2026-07-12 -- Separate rail side and visibility, rename settings section to Layout
 
 The workspace-rail settings no longer conflate side with visibility, and the

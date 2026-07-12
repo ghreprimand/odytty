@@ -1433,6 +1433,11 @@ impl App {
     pub(super) fn on_window_focus_changed(&mut self, focused: bool) {
         self.focused = focused;
         if focused {
+            // Read the reset-immune episode before restore clears the bounded
+            // retry counter. A fresh focus gain remains byte-identical.
+            if self.skip_episode.is_active() {
+                self.pending_surface_reconfigure = true;
+            }
             // A restore may deliver `Focused(true)` before (or without) a
             // non-zero `Resized`; recover the paint here. No-op when not
             // minimized, so the ordinary focus-gain path is unchanged.
@@ -1495,10 +1500,23 @@ impl App {
     /// of a merely-covered window. `restore_from_minimized` is a no-op unless a
     /// minimized state is actually pending, so this is harmless on Linux/macOS
     /// where un-minimize goes through `Resized`.
-    pub(super) fn on_window_occluded(&mut self, occluded: bool) {
+    pub(super) fn on_window_occluded(&mut self, occluded: bool) -> bool {
         if !occluded {
+            // Wayland workspace return is commonly not a minimize, so restore
+            // cannot be relied on to request the redraw that consumes this flag.
+            let recovering_skip_episode = self.skip_episode.is_active();
+            if recovering_skip_episode {
+                self.pending_surface_reconfigure = true;
+            }
             self.restore_from_minimized();
+            if recovering_skip_episode {
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+                return true;
+            }
         }
+        false
     }
 
     pub(super) fn handle_reported_mouse_input(

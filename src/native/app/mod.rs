@@ -427,6 +427,15 @@ pub(super) struct App {
     /// presents. `None` on the steady-state path, so the idle wake set is
     /// unchanged when nothing is skipping.
     skipped_frame_retry_deadline: Option<Instant>,
+    /// A complete run of transiently skipped presents. This is independent of
+    /// the bounded retry counter because restore and surface recovery reset that
+    /// counter before the eventual successful present. The episode therefore
+    /// retains the true duration and skip total for one end-of-episode record.
+    skip_episode: SkipEpisode,
+    /// A restore signal arrived while a skip episode was active. Consumed once
+    /// immediately before the next render to retire the starved swapchain using
+    /// the same non-blocking reconfigure primitive as surface recovery.
+    pending_surface_reconfigure: bool,
     /// BLACK-SCREEN-ON-RESTORE: count of consecutive `Skipped` frames with no
     /// successful present in between. Caps the bounded retry (see
     /// [`MAX_SKIPPED_RETRIES`]) so a persistently-unavailable surface can't
@@ -747,6 +756,8 @@ impl App {
             clipboard: NativeClipboard::default(),
             resize_debounce: ResizeDebouncer::new(RESIZE_DEBOUNCE_INTERVAL),
             skipped_frame_retry_deadline: None,
+            skip_episode: SkipEpisode::default(),
+            pending_surface_reconfigure: false,
             consecutive_skipped_frames: 0,
             window_minimized: false,
             divider_drag: None,
@@ -5942,6 +5953,9 @@ impl ApplicationHandler<UserEvent> for App {
                     let Some(gpu) = self.gpu.as_mut() else {
                         return;
                     };
+                    if take_pending_reconfigure(&mut self.pending_surface_reconfigure) {
+                        gpu.reconfigure();
+                    }
                     let outcome = gpu.render();
                     let action = after_frame(outcome);
                     // Recover outdated surfaces by reconfiguring and lost
@@ -5972,6 +5986,16 @@ impl ApplicationHandler<UserEvent> for App {
                 // fields, but `self.gpu.as_mut()` borrows all of `self`).
                 match action {
                     FrameAction::Idle => {
+                        if let Some((duration, skips)) =
+                            self.skip_episode.note_presented(Instant::now())
+                        {
+                            emit_skip_episode_record(
+                                duration,
+                                skips,
+                                self.focused,
+                                self.window_minimized,
+                            );
+                        }
                         // A present resets the skipped-frame retry budget so a
                         // future transient skip gets a fresh set of retries.
                         self.consecutive_skipped_frames = 0;
@@ -5994,10 +6018,16 @@ impl ApplicationHandler<UserEvent> for App {
                         }
                     }
                     FrameAction::DeviceLost => {
+                        // No later present can close the episode after rendering
+                        // pauses, so discard it without reporting a false
+                        // self-heal and drop any deferred surface work.
+                        self.skip_episode = SkipEpisode::default();
+                        self.pending_surface_reconfigure = false;
                         self.consecutive_skipped_frames = 0;
                         self.skipped_frame_retry_deadline = None;
                     }
                     FrameAction::RetryAfter(delay) => {
+                        self.skip_episode.note_skipped(Instant::now());
                         // BLACK-SCREEN-ON-RESTORE: a transiently-skipped frame
                         // (Timeout/Occluded). Schedule ONE bounded timed retry —
                         // folded into the `WaitUntil` wake set. The delay is
@@ -6061,7 +6091,7 @@ impl ApplicationHandler<UserEvent> for App {
             // there. Only the un-occlude direction is handled (see the method
             // doc) — occlusion is not treated as minimize.
             WindowEvent::Occluded(occluded) => {
-                self.on_window_occluded(occluded);
+                let _ = self.on_window_occluded(occluded);
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.update_pointer_cell(position.x, position.y);
@@ -6328,6 +6358,73 @@ enum FrameAction {
     RetryAfter(Duration),
 }
 
+/// One complete run of transient surface-acquire skips. The start timestamp is
+/// set once and taken only after a frame presents, bounding diagnostics to one
+/// record per episode regardless of the retry cadence.
+#[derive(Default)]
+struct SkipEpisode {
+    started: Option<Instant>,
+    skips: u32,
+}
+
+impl SkipEpisode {
+    fn note_skipped(&mut self, now: Instant) {
+        self.started.get_or_insert(now);
+        self.skips = self.skips.saturating_add(1);
+    }
+
+    fn note_presented(&mut self, now: Instant) -> Option<(Duration, u32)> {
+        self.started.take().map(|started| {
+            (
+                now.saturating_duration_since(started),
+                std::mem::take(&mut self.skips),
+            )
+        })
+    }
+
+    fn is_active(&self) -> bool {
+        self.started.is_some()
+    }
+}
+
+fn episode_log_level(duration: Duration) -> tracing::Level {
+    if duration >= Duration::from_secs(10) {
+        tracing::Level::WARN
+    } else {
+        tracing::Level::DEBUG
+    }
+}
+
+fn emit_skip_episode_record(duration: Duration, skips: u32, focused: bool, minimized: bool) {
+    let duration_ms = duration.as_millis();
+    if episode_log_level(duration) == tracing::Level::WARN {
+        let record = format_skip_episode_record(duration_ms, skips, focused, minimized);
+        tracing::warn!("{record}");
+    } else if tracing::enabled!(tracing::Level::DEBUG) {
+        // Avoid even the bounded record allocation under the stock WARN filter.
+        let record = format_skip_episode_record(duration_ms, skips, focused, minimized);
+        tracing::debug!("{record}");
+    }
+}
+
+fn format_skip_episode_record(
+    duration_ms: u128,
+    skips: u32,
+    focused: bool,
+    minimized: bool,
+) -> String {
+    format!(
+        "skip_episode_end duration_ms={duration_ms} skips={skips} focused={focused} minimized={minimized}"
+    )
+}
+
+/// Consume the deferred reconfigure before attempting the next render. Taking
+/// the flag first guarantees a failed recovery falls through to the existing
+/// skipped-frame retry path instead of creating a reconfigure loop.
+fn take_pending_reconfigure(pending: &mut bool) -> bool {
+    std::mem::take(pending)
+}
+
 /// Bounded delay before retrying a transiently-skipped frame. ~16ms ≈ one 60Hz
 /// frame, so a recovering surface repaints within a frame without busy-spinning.
 /// This is a real timed wake folded into the existing `WaitUntil` model, NOT a
@@ -6413,6 +6510,64 @@ mod tests {
 
     fn blink() -> CursorBlinkState {
         CursorBlinkState::new(Duration::from_millis(500))
+    }
+
+    #[test]
+    fn skip_episode_starts_once_and_emits_once_with_true_totals() {
+        let start = Instant::now();
+        let mut episode = SkipEpisode::default();
+        assert_eq!(episode.note_presented(start), None);
+
+        episode.note_skipped(start);
+        episode.note_skipped(start + Duration::from_millis(7));
+        assert!(episode.is_active());
+
+        assert_eq!(
+            episode.note_presented(start + Duration::from_millis(23)),
+            Some((Duration::from_millis(23), 2))
+        );
+        assert!(!episode.is_active());
+        assert_eq!(episode.note_presented(start + Duration::from_secs(1)), None);
+    }
+
+    #[test]
+    fn skip_episode_log_level_escalates_at_freeze_threshold() {
+        assert_eq!(
+            episode_log_level(Duration::from_millis(9_999)),
+            tracing::Level::DEBUG
+        );
+        assert_eq!(
+            episode_log_level(Duration::from_secs(10)),
+            tracing::Level::WARN
+        );
+    }
+
+    #[test]
+    fn skip_episode_record_is_state_only() {
+        let record = format_skip_episode_record(4_321, 7, true, false);
+        assert!(record.starts_with("skip_episode_end "), "got: {record}");
+        let body = &record["skip_episode_end ".len()..];
+        for token in body.split_whitespace() {
+            let (key, value) = token.split_once('=').expect("key=value tokens only");
+            assert!(
+                key.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
+                "unexpected key charset: {key}"
+            );
+            assert!(
+                value
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'),
+                "unexpected value charset: {value} (free-form strings are banned here)"
+            );
+        }
+    }
+
+    #[test]
+    fn pending_surface_reconfigure_is_consumed_once() {
+        let mut pending = true;
+        assert!(take_pending_reconfigure(&mut pending));
+        assert!(!pending);
+        assert!(!take_pending_reconfigure(&mut pending));
     }
 
     /// TRANSPARENCY: the pure window-background-alpha decision. Opaque (`1.0`)
@@ -6572,6 +6727,7 @@ mod tests {
         // so the retry budget is partially spent and the spin guard is vetoing.
         app.window_minimized = true;
         app.consecutive_skipped_frames = 3;
+        app.skip_episode.note_skipped(Instant::now());
         assert!(
             !should_schedule_skipped_retry(app.window_minimized, app.consecutive_skipped_frames),
             "precondition: while minimized the skipped-frame retry is vetoed (black screen)"
@@ -6591,6 +6747,25 @@ mod tests {
         assert!(
             should_schedule_skipped_retry(app.window_minimized, app.consecutive_skipped_frames),
             "after restore the bounded retry-wake must no longer be vetoed"
+        );
+        assert!(
+            app.pending_surface_reconfigure,
+            "the active episode must be observed before restore resets the retry budget"
+        );
+    }
+
+    #[test]
+    fn focus_gain_without_skips_does_not_request_reconfigure() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        assert!(!app.skip_episode.is_active());
+
+        app.on_window_focus_changed(true);
+
+        assert!(
+            !app.pending_surface_reconfigure,
+            "the ordinary focus path must not add surface work"
         );
     }
 
@@ -6680,8 +6855,12 @@ mod tests {
         };
         app.window_minimized = true;
         app.consecutive_skipped_frames = 2;
+        app.skip_episode.note_skipped(Instant::now());
 
-        app.on_window_occluded(false);
+        assert!(
+            app.on_window_occluded(false),
+            "active skip recovery must request an immediate redraw"
+        );
         assert!(
             !app.window_minimized,
             "Occluded(false) restore must clear the minimized flag"
@@ -6690,10 +6869,14 @@ mod tests {
             app.consecutive_skipped_frames, 0,
             "Occluded(false) restore must reset the skipped-frame retry budget"
         );
+        assert!(
+            app.pending_surface_reconfigure,
+            "un-occlude must defer one surface reconfigure"
+        );
 
         // Occlude (covered by another window) is NOT minimize: the flag must
         // stay false so a merely-covered window keeps repainting.
-        app.on_window_occluded(true);
+        assert!(!app.on_window_occluded(true));
         assert!(
             !app.window_minimized,
             "Occluded(true) must not be treated as minimize"
