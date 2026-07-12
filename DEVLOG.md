@@ -23,7 +23,9 @@ keeps the atomic close-on-exec pipe via `pipe2`; macOS and the BSDs, which lack
 immediately after, mirroring the master-fd fallback already used off Linux. The
 `TIOCGPTPEER` slave-open import is now gated to Linux, matching its only caller.
 The wake behavior that forces a wedged output reader to EOF at close is identical
-on every Unix platform.
+on every Unix platform. The rustix `pipe` Cargo feature is now declared explicitly so the
+self-pipe module resolves on macOS rather than depending on transitive feature
+unification that only held on Linux.
 
 ---
 

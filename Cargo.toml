@@ -55,10 +55,12 @@ winit = "0.30.13"
 # (`src/pty/unix.rs`) and the POSIX shared-memory Kitty transport; both are
 # gated `#[cfg(unix)]` in source, so they are pulled only on Unix targets and a
 # Windows build never sees them. Keep entries here in lockstep with the
-# `#[cfg(unix)]` gating that makes them reachable.
+# `#[cfg(unix)]` gating that makes them reachable. The `pipe` feature is
+# declared explicitly (not left to transitive feature unification) so the PTY
+# reader-wake self-pipe compiles on macOS as well as Linux.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.178"
-rustix = { version = "1.1.4", features = ["pty", "termios", "process"] }
+rustix = { version = "1.1.4", features = ["pipe", "pty", "termios", "process"] }
 
 # Windows-only: the ConPTY PTY backend (`src/pty/windows.rs`). Pinned to the
 # `windows` 0.62 stack `wgpu` already locks transitively (Cargo.lock has
