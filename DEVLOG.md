@@ -25,7 +25,9 @@ immediately after, mirroring the master-fd fallback already used off Linux. The
 The wake behavior that forces a wedged output reader to EOF at close is identical
 on every Unix platform. The rustix `pipe` Cargo feature is now declared explicitly so the
 self-pipe module resolves on macOS rather than depending on transitive feature
-unification that only held on Linux.
+unification that only held on Linux. The per-connection restore-budget helper and its test are
+gated to Unix to match their only call site, so the Windows lib target does not
+flag them as unused.
 
 ---
 

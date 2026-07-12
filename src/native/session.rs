@@ -249,6 +249,10 @@ const CLOSE_JOIN_POLL: std::time::Duration = std::time::Duration::from_millis(10
 /// the shared `batch_deadline` remains at `now`, capped at `cap`. `None` once the
 /// batch budget is spent, so the caller skips the handshake and falls through to
 /// a fresh shell instead of blocking the UI for the full per-connection deadline.
+///
+/// The sole call site is the Unix-only reattach path, so the helper is gated to
+/// Unix; the Windows lib target compiles that path out.
+#[cfg(unix)]
 fn per_connection_attach_budget(
     batch_deadline: Instant,
     now: Instant,
@@ -3899,6 +3903,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     use winit::platform::x11::EventLoopBuilderExtX11;
 
+    #[cfg(unix)]
     #[test]
     fn per_connection_attach_budget_bounds_the_whole_restore_batch() {
         use std::time::Duration;
