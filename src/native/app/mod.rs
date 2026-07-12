@@ -279,11 +279,13 @@ thread_local! {
 
 /// Owned inputs for the F4-P3 revealed rail overlay, built once per frame by
 /// [`App::build_rail_overlay`]. Holds the strip snapshot by value (the GPU call
-/// borrows it) plus the pre-resolved origin and wash/seam quads; the render path
+/// borrows it) plus the pre-resolved origin, label offset, and wash/seam quads;
+/// the render path
 /// lends a [`gpu::RailOverlay`] from it at the update call.
 struct RailOverlayData {
     snapshot: Snapshot,
     origin: [f32; 2],
+    rail_glyph_dy_rows: f32,
     wash: Option<SolidQuad>,
     seam: Option<SolidQuad>,
 }
@@ -4123,9 +4125,15 @@ impl App {
             }
         }
         let (wash, seam) = self.build_rail_overlay_quads(cell, side);
+        let slot_rows = self.rail_geom().slot_rows;
         Some(RailOverlayData {
             snapshot,
             origin,
+            rail_glyph_dy_rows: crate::grid::rail_label_descender_safe_dy_rows(
+                slot_rows,
+                slot_rows.saturating_sub(1) / 2,
+                cell.height,
+            ),
             wash,
             seam,
         })
@@ -5855,6 +5863,7 @@ impl ApplicationHandler<UserEvent> for App {
                                 snapshot: &data.snapshot,
                                 origin: data.origin,
                                 treatment: background_treatment,
+                                rail_glyph_dy_rows: data.rail_glyph_dy_rows,
                                 wash: data.wash,
                                 seam: data.seam,
                             });

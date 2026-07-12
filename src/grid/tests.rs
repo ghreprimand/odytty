@@ -1798,7 +1798,7 @@ mod chrome_pin {
     }
 
     #[test]
-    fn descender_safe_offset_lifts_centered_chrome_by_one_physical_pixel() {
+    fn descender_safe_offset_lifts_centered_chrome_by_two_physical_pixels() {
         let Some(atlas) = atlas() else {
             eprintln!("skipping: no system font available");
             return;
@@ -1808,8 +1808,8 @@ mod chrome_pin {
             let centered = band_label_center_dy_rows(rows, label_row);
             let safe = band_label_descender_safe_dy_rows(rows, label_row, cell_h);
             assert!(
-                ((centered - safe) * cell_h as f32 - 1.0).abs() < 1e-3,
-                "h{rows} row {label_row}: descender guard must be exactly one pixel"
+                ((centered - safe) * cell_h as f32 - 2.0).abs() < 1e-3,
+                "h{rows} row {label_row}: descender guard must be exactly two pixels"
             );
         }
 
@@ -1833,7 +1833,7 @@ mod chrome_pin {
             1,
             0,
         );
-        assert!((centered_top - guarded_top - 1.0).abs() < 1e-3);
+        assert!((centered_top - guarded_top - 2.0).abs() < 1e-3);
     }
 
     #[test]
@@ -1856,8 +1856,8 @@ mod chrome_pin {
         let top = band_label_descender_safe_dy_rows(2, 1, cell_h);
         let rail = rail_label_descender_safe_dy_rows(2, 0, cell_h);
         assert!(
-            ((band_label_center_dy_rows(2, 1) - top) * cell_h as f32 - 1.0).abs() < 1e-3,
-            "top chrome keeps its existing one-pixel guard"
+            ((band_label_center_dy_rows(2, 1) - top) * cell_h as f32 - 2.0).abs() < 1e-3,
+            "top chrome keeps a full two-pixel guard"
         );
         assert!(
             ((band_label_center_dy_rows(2, 0) - rail) * cell_h as f32 - 2.0).abs() < 1e-3,

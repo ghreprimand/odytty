@@ -3,8 +3,8 @@ use super::gpu::{
     BloomOptions, CrtOptions, ViewportUniform, choose_surface_format, content_build_opacity,
     create_atlas_bind_group, create_cell_pipeline, create_color_atlas_bind_group,
     create_color_glyph_pipeline, image::BgImageGpu, multi_pane_wallpaper_edge_wash_quads,
-    physical_font_px, post, scene_clear_color, scene_target_format, select_alpha_mode,
-    wallpaper_edge_wash_quads,
+    physical_font_px, post, rail_overlay_chrome_pin, scene_clear_color, scene_target_format,
+    select_alpha_mode, wallpaper_edge_wash_quads,
 };
 use crate::atlas::CellSize;
 use crate::core::Terminal;
@@ -14,6 +14,19 @@ use crate::text::SubpixelMode;
 use wgpu::util::DeviceExt;
 
 const TEST_SURFACE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+#[test]
+fn floating_rail_carries_its_descender_safe_offset() {
+    let pin = rail_overlay_chrome_pin(16, 0.375);
+    assert_eq!(pin.top_rows, 0);
+    assert_eq!((pin.rail_col_start, pin.rail_col_end), (0, 16));
+    assert_eq!(pin.band_glyph_dy_rows, 0.0);
+    assert_eq!(pin.rail_glyph_dy_rows, 0.375);
+    assert_eq!(
+        rail_overlay_chrome_pin(16, 0.0),
+        crate::grid::ChromePin::NONE
+    );
+}
 
 /// At 1x scale the physical size equals the logical font size exactly:
 /// today's non-HiDPI output is unchanged.

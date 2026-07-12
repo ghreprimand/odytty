@@ -829,6 +829,7 @@ impl App {
                 snapshot: &data.snapshot,
                 origin: data.origin,
                 treatment: treatment_for_overlay,
+                rail_glyph_dy_rows: data.rail_glyph_dy_rows,
                 wash: data.wash,
                 seam: data.seam,
             });

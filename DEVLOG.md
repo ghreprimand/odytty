@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Preserve chrome-label descenders at band edges
+
+Default-height tab labels now retain a two-physical-pixel descender margin,
+which keeps the final ink sample clear when the chrome origin lands between
+physical pixels. Floating auto-hide workspace rails now carry the same slot
+centering and descender-safe offset as pinned rails; the overlay path previously
+rendered with an inert chrome transform and skipped that correction entirely.
+Background fills and seam geometry are unchanged. The vertex geometry is shared
+across Linux, macOS, and Windows.
+
+Verified: top-band clearance, pinned-rail clearance, floating-rail transform,
+cargo build, cargo test (full lib suite), cargo fmt --check, and cargo clippy
+--all-targets --locked -- -D warnings all clean. Final appearance requires the
+release-build visual check.
+
 ## 2026-07-12 -- Workspace-rail geometry knobs gain WORKSPACE_RAIL names
 
 The vertical rail shows workspaces (tabs are top-only), so its geometry settings

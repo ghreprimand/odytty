@@ -85,12 +85,12 @@ pub(super) struct ChromePinGeom {
     pub(super) rail_col_start: usize,
     pub(super) rail_col_end: usize,
     /// TAB-LABEL-CENTERING: sub-row glyph shift (cell-height units) for the top
-    /// tab band's label row; `0.0` on a single-row / odd-height bar. Computed by
+    /// tab band's label row, including its descender guard. Computed by
     /// the App layer (which knows the bar height + label convention) and copied
     /// straight into [`grid::ChromePin`].
     pub(super) band_glyph_dy_rows: f32,
     /// TAB-LABEL-CENTERING: the rail analog for the side workspace rail's slot
-    /// label; `0.0` on a single-row / odd-height slot.
+    /// label, including its descender guard.
     pub(super) rail_glyph_dy_rows: f32,
 }
 
@@ -174,6 +174,8 @@ pub(super) struct RailOverlay<'a> {
     pub(super) origin: [f32; 2],
     /// Background treatment params (matches the frame).
     pub(super) treatment: grid::BackgroundTreatmentParams,
+    /// Descender-safe slot-centering offset shared with pinned rail strips.
+    pub(super) rail_glyph_dy_rows: f32,
     /// Occluding wash quad drawn under the strip, or `None`.
     pub(super) wash: Option<SolidQuad>,
     /// Content-facing seam quad drawn over the strip, or `None`.
@@ -207,6 +209,20 @@ fn pane_chrome_pin(pane: &PaneRender) -> grid::ChromePin {
         },
         band_glyph_dy_rows: pane.band_glyph_dy_rows,
         rail_glyph_dy_rows: pane.rail_glyph_dy_rows,
+    }
+}
+
+pub(super) fn rail_overlay_chrome_pin(columns: usize, rail_glyph_dy_rows: f32) -> grid::ChromePin {
+    if rail_glyph_dy_rows == 0.0 {
+        return grid::ChromePin::NONE;
+    }
+    grid::ChromePin {
+        scroll_offset_y: 0.0,
+        top_rows: 0,
+        rail_col_start: 0,
+        rail_col_end: columns,
+        band_glyph_dy_rows: 0.0,
+        rail_glyph_dy_rows,
     }
 }
 
@@ -2586,7 +2602,7 @@ impl GpuState {
             self.cell_bg_opacity,
             // The rail strip is its own opaque overlay; no merged panel to force.
             None,
-            grid::ChromePin::NONE,
+            rail_overlay_chrome_pin(rail.snapshot.dimensions.columns, rail.rail_glyph_dy_rows),
         );
         self.vertices.extend_from_slice(&strip);
         if let Some(seam) = rail.seam {

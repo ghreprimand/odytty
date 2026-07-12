@@ -606,9 +606,10 @@ pub fn band_label_center_dy_rows(band_rows: usize, label_row: usize) -> f32 {
     band_rows as f32 / 2.0 - label_row as f32 - 0.5
 }
 
-/// Center a chrome label while reserving one physical pixel beneath its ink
+/// Center a chrome label while reserving two physical pixels beneath its ink
 /// for font descenders. The row-level placement stays unchanged; only the
-/// bearing-aware glyph quad moves upward by the guard amount.
+/// bearing-aware glyph quad moves upward by the guard amount. Two pixels keep a
+/// full clear sample at fractional physical origins on the single-row bar.
 pub fn band_label_descender_safe_dy_rows(
     band_rows: usize,
     label_row: usize,
@@ -618,13 +619,12 @@ pub fn band_label_descender_safe_dy_rows(
     if cell_height_px == 0 {
         centered
     } else {
-        centered - 1.0 / cell_height_px as f32
+        centered - 2.0 / cell_height_px as f32
     }
 }
 
-/// Rail labels need a second physical pixel of descender clearance because the
-/// rail's slot clip ends at the band edge. Top chrome keeps the one-pixel guard
-/// above; this rail-only offset preserves its placement.
+/// Rail labels use the same two-pixel descender clearance. Their even-height
+/// slot centering additionally moves the label into the breathing row below.
 pub fn rail_label_descender_safe_dy_rows(
     band_rows: usize,
     label_row: usize,
@@ -661,11 +661,11 @@ pub struct ChromePin {
     /// End (exclusive) of the pinned rail column band.
     pub rail_col_end: usize,
     /// TAB-LABEL-CENTERING: sub-row glyph shift (in cell-height units) applied to
-    /// glyph quads in the top tab band (rows `< top_rows`), recentering a
-    /// multi-row bar's single label row onto the band's true pixel center.
+    /// glyph quads in the top tab band (rows `< top_rows`), recentering its
+    /// single label row onto the band's true pixel center with descender space.
     /// Backgrounds are unaffected, so the full-height active fill and gap-free
-    /// band are intact. `0.0` (single-row / odd-height bands, and every content
-    /// build) is inert. Independent of the scroll glide: it applies even at rest.
+    /// band are intact. `0.0` on content builds is inert. Independent of the
+    /// scroll glide: it applies even at rest.
     pub band_glyph_dy_rows: f32,
     /// TAB-LABEL-CENTERING: the rail analog of `band_glyph_dy_rows`, applied to
     /// glyph quads in the rail column band (`rail_col_start..rail_col_end`). The
