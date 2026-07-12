@@ -3585,31 +3585,28 @@ impl App {
     /// the LEFT edge of its band (`origin_x`). This is the edge the drag-resize
     /// grabs and the resize cursor tracks.
     fn rail_seam_x_px(&self, cell: CellSize) -> Option<f32> {
+        let side = self.effective_rail_seam_side()?;
+        if self.rail_autohide_active() {
+            return Some(self.rail_overlay_seam_x(cell, side));
+        }
         let origin_x = self.rail_origin_px(cell)[0];
-        match self.rail_side()? {
+        match side {
             RailSide::Left => Some(origin_x + self.rail_cols() as f32 * cell.width as f32),
             RailSide::Right => Some(origin_x),
         }
     }
 
     /// The manual rail width (cells) a seam-drag pointer at `px_x` maps to
-    /// (F4-P4). Gathers the pixel geometry (padding, surface width) from the GPU
-    /// where present — 0 defaults keep the left rail (which needs neither) usable
-    /// headlessly for tests — and defers the pure snap/clamp math to
+    /// (F4-P4). Gathers the pixel geometry (padding, surface width) from the
+    /// resolved live or injected surface — 0 defaults keep the left rail (which
+    /// needs neither) usable before either exists — and defers the snap/clamp math to
     /// [`rail_width_cols_from_pointer`].
     fn rail_width_from_pointer(&self, px_x: f64, cell: CellSize) -> Option<u16> {
-        let side = self.rail_side()?;
-        let pad = self
-            .gpu
-            .as_ref()
-            .map(GpuState::window_padding)
-            .unwrap_or(WindowPadding::ZERO)
-            .as_f32();
-        let surface_w = self
-            .gpu
-            .as_ref()
-            .map(|gpu| gpu.surface_size().0 as f32)
-            .unwrap_or(0.0);
+        let side = self.effective_rail_seam_side()?;
+        let (surface_w, pad) = self
+            .resolved_surface()
+            .map(|(width, _height, padding)| (width as f32, padding.as_f32()))
+            .unwrap_or((0.0, 0.0));
         Some(rail_width_cols_from_pointer(
             side,
             px_x as f32,
@@ -3626,7 +3623,9 @@ impl App {
     /// Yields to a live scroll thumb (ODP-5 right-rail rule) so a scrollbar drag
     /// wins the shared edge. `false` off a rail, so the plain path never grabs.
     fn pointer_over_rail_seam(&self, px_x: f64, cell: CellSize) -> bool {
-        if self.rail_side().is_none() || !self.should_show_tab_bar() {
+        if (!self.rail_autohide_active() && !self.should_show_tab_bar())
+            || self.effective_rail_seam_side().is_none()
+        {
             return false;
         }
         let Some(seam_x) = self.rail_seam_x_px(cell) else {
@@ -3835,6 +3834,21 @@ impl App {
     fn rail_autohide_side(&self) -> Option<RailSide> {
         self.rail_autohide_active()
             .then(|| self.workspace_rail_side())
+    }
+
+    /// The side whose width seam is interactive this frame. A pinned rail uses
+    /// its reserved side. An auto-hidden rail has no reservation, so its seam
+    /// exists only while the floating overlay is revealed.
+    fn effective_rail_seam_side(&self) -> Option<RailSide> {
+        if self.rail_autohide_active() {
+            if self.rail_overlay_visible() {
+                self.rail_autohide_side()
+            } else {
+                None
+            }
+        } else {
+            self.rail_side()
+        }
     }
 
     /// The width (cells) of the auto-hidden rail overlay band — the same width
@@ -4048,10 +4062,11 @@ impl App {
     /// and non-rail overlays are excluded — only surfaces that target the rail
     /// pin it open.
     fn rail_pinned_open(&self) -> bool {
-        // RAIL-DRAG: an in-flight workspace reorder drag is a rail-anchored
-        // gesture — hold the floating overlay open for its whole lifetime so the
-        // drop target never vanishes mid-drag (the auto-hide-hold requirement).
+        // RAIL-DRAG: in-flight workspace reorder and seam-resize drags are
+        // rail-anchored gestures — hold the floating overlay open for their
+        // whole lifetime so the drop target or resize edge never vanishes.
         self.rail_ws_drag.is_some()
+            || self.rail_seam_drag
             || self.overlay.is_workspace_rail_context_menu()
             || matches!(
                 self.rename_state.as_ref().map(|state| state.target),

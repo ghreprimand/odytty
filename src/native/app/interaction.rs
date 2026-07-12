@@ -1641,6 +1641,14 @@ impl App {
             self.drag_top_tab_to_pointer(x_px, y_px, cell);
             return;
         }
+        // A grabbed floating-rail seam owns pointer motion before the auto-hide
+        // band hover path. The pointer remains inside that band while shrinking
+        // the rail, so handling hover first would swallow the resize motion.
+        if self.pointer_left_held && self.rail_seam_drag {
+            self.drag_rail_seam_to_pointer(x_px);
+            self.apply_cursor_icon(CursorIcon::ColResize);
+            return;
+        }
         // F4-P3 rail auto-hide: feed the live pointer to the reveal machine
         // (arms/holds/hides the floating overlay). While the rail is revealed and
         // the pointer is over its band, the overlay owns the pointer — do rail
@@ -1652,18 +1660,14 @@ impl App {
                 && self.rail_overlay_visible()
                 && self.pointer_in_reveal_band(x_px, cell, side)
             {
-                self.update_rail_overlay_hover(x_px, y_px, cell, side);
-                return;
+                // The content-facing seam is part of the floating band, but it
+                // owns that thin grab region so the resize cursor remains
+                // discoverable. All other band motion stays rail-only.
+                if !self.pointer_over_rail_seam(x_px, cell) {
+                    self.update_rail_overlay_hover(x_px, y_px, cell, side);
+                    return;
+                }
             }
-        }
-        // F4-P4: while the rail seam is grabbed, pointer motion resizes the rail
-        // (sets the manual width + reflows) and nothing else. Held only while a
-        // rail is shown, so the top-bar / single-pane motion path is unaffected.
-        // The seam is a vertical edge → a column-resize cursor for the gesture.
-        if self.pointer_left_held && self.rail_seam_drag {
-            self.drag_rail_seam_to_pointer(x_px);
-            self.apply_cursor_icon(CursorIcon::ColResize);
-            return;
         }
         // While the tab-bar bottom seam is grabbed, pointer motion resizes the
         // bar height (sets the manual rows + reflows) and nothing else. The seam

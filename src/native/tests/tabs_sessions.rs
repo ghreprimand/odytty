@@ -1924,30 +1924,90 @@ fn reveal_yields_to_an_active_scrollbar_drag() {
 }
 
 #[test]
-fn autohide_disables_the_seam_resize_leaving_reveal_the_only_edge_gesture() {
-    // Seam-drag vs reveal-zone PRECEDENCE (documented): under auto-hide the rail
-    // is a floating overlay that is not seam-resized, so the F4-P4 seam grab band
-    // is inert — the reveal trigger is the only edge interaction, and the two
-    // never conflict. A press at the (pinned) seam x therefore starts no drag.
+fn autohide_seam_resizes_only_while_the_floating_rail_is_revealed() {
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");
         return;
     };
     app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
     app.set_tab_bar_placement_for_test("left");
-    app.set_tab_rail_width_manual_for_test(16); // pinned seam would be at x=128
+    app.set_workspace_rail_for_test("always");
+    app.set_tab_rail_width_manual_for_test(16); // floating seam at x=128
     app.set_tab_rail_autohide_for_test(true);
+    let conf = temp_rail_conf("autohide-seam-drag");
+    app.set_config_path_for_test(conf.clone());
 
     assert_eq!(
         app.pointer_over_rail_seam_for_test(128.0),
         Some(false),
-        "the seam grab band is inert under auto-hide"
+        "a hidden floating rail exposes no resize seam"
     );
+    app.force_rail_reveal_for_test();
+    assert_eq!(app.pointer_over_rail_seam_for_test(128.0), Some(true));
+    assert_eq!(app.pointer_over_rail_seam_for_test(144.0), Some(false));
+    assert_eq!(app.rail_width_from_pointer_for_test(80.0), Some(10));
+    app.pointer_move_for_test(128.0, 100.0);
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::ColResize,
+        "the revealed floating seam advertises its resize affordance"
+    );
+
     app.set_pointer_px_for_test(128.0, 100.0);
     app.mouse_left_press_for_test();
     assert!(
-        !app.rail_seam_dragging_for_test(),
-        "no seam drag arms under auto-hide"
+        app.rail_seam_dragging_for_test(),
+        "the revealed floating seam arms a resize drag"
+    );
+    assert!(app.rail_pinned_open_for_test());
+
+    // Leaving the band and advancing beyond any hide grace cannot dismiss the
+    // overlay while the seam gesture owns it.
+    let outside = std::time::Instant::now();
+    app.feed_rail_pointer_for_test(400.0, outside);
+    app.poll_rail_autohide_for_test(outside + std::time::Duration::from_secs(10));
+    assert!(app.rail_overlay_visible_for_test());
+
+    app.pointer_move_for_test(80.0, 100.0);
+    assert_eq!(app.tab_rail_width_for_test(), TabRailWidth::Manual(10));
+    assert!(
+        app.rail_overlay_visible_for_test(),
+        "an in-flight seam drag holds the floating rail revealed"
+    );
+    app.mouse_left_release_for_test();
+    assert!(!app.rail_seam_dragging_for_test());
+    assert!(!app.rail_pinned_open_for_test());
+
+    // The revealed floating seam retains the pinned rail's double-click reset.
+    let t0 = std::time::Instant::now();
+    app.mouse_left_press_at_for_test(t0);
+    app.mouse_left_release_for_test();
+    app.mouse_left_press_at_for_test(t0 + std::time::Duration::from_millis(50));
+    assert_eq!(app.tab_rail_width_for_test(), TabRailWidth::Auto);
+    assert!(!app.rail_seam_dragging_for_test());
+    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
+}
+
+#[test]
+fn revealed_right_autohide_seam_uses_right_edge_width_mapping() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.set_tab_bar_placement_for_test("right");
+    app.set_workspace_rail_for_test("always");
+    app.set_tab_rail_width_manual_for_test(16); // band [672, 800), seam at 672
+    app.set_tab_rail_autohide_for_test(true);
+    app.force_rail_reveal_for_test();
+
+    assert_eq!(app.pointer_over_rail_seam_for_test(672.0), Some(true));
+    assert_eq!(
+        app.rail_width_from_pointer_for_test(720.0),
+        Some(10),
+        "right-side width measures from the pointer to the surface edge"
     );
 }
 

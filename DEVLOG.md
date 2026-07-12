@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Resize revealed auto-hide workspace rails
+
+The floating auto-hide workspace rail now exposes its content-facing seam as a
+column-resize handle while the rail is revealed. The same manual-width mapping
+and double-click reset path used by a pinned rail applies on both window sides,
+and a live seam drag holds the floating rail visible until release. Hidden rails
+still expose no resize target. Pointer geometry is identical on Linux, macOS,
+and Windows.
+
+Verified: revealed and pinned seam geometry, left/right width mapping, drag
+hold, cargo build, cargo test (full lib suite), cargo fmt --check, and cargo
+clippy --all-targets --locked -- -D warnings all clean. Final interaction
+remains part of the release-build visual check.
+
 ## 2026-07-12 -- Keep generic Settings navigation at the section-list top
 
 Chrome context menus still open directly inside the relevant Tabs & Panes

@@ -878,6 +878,13 @@ impl App {
         self.rail_seam_drag
     }
 
+    /// Test seam: map a physical pointer x through the live reveal-aware rail
+    /// width geometry.
+    #[cfg(test)]
+    pub(in crate::native) fn rail_width_from_pointer_for_test(&self, x: f64) -> Option<u16> {
+        self.rail_width_from_pointer(x, self.resolved_cell()?)
+    }
+
     /// Test seam: force a manual tab-bar height in rows and reflow, so the
     /// bottom-seam drag / reservation tests start from a deterministic band.
     #[cfg(test)]
@@ -1013,9 +1020,8 @@ impl App {
         self.rail_autohide.is_visible(now)
     }
 
-    /// Test seam (F4-P3): whether the pointer x is over the seam grab band (the
-    /// F4-P4 resize handle). Under auto-hide this is inert (the floating overlay
-    /// is not seam-resized), so it documents the seam-vs-reveal precedence.
+    /// Test seam (F4-P3): whether the pointer x is over the active seam grab
+    /// band. For auto-hide this resolves only while the floating rail is visible.
     #[cfg(test)]
     pub(in crate::native) fn pointer_over_rail_seam_for_test(&self, x: f64) -> Option<bool> {
         let cell = self.resolved_cell()?;
