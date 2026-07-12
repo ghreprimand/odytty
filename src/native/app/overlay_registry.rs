@@ -451,7 +451,10 @@ impl App {
             return;
         };
         let seed = name.to_owned();
-        self.begin_rename(RenameTarget::Workspace(idx), seed);
+        let Some(anchor) = self.workspace_prompt_anchor(idx) else {
+            return;
+        };
+        self.begin_rename(RenameTarget::Workspace(anchor), seed);
     }
 
     /// Open the "Save as Layout" name prompt for the workspace at rail index
@@ -464,7 +467,10 @@ impl App {
             return;
         };
         let seed = name.to_owned();
-        self.begin_rename(RenameTarget::SaveLayout(idx), seed);
+        let Some(anchor) = self.workspace_prompt_anchor(idx) else {
+            return;
+        };
+        self.begin_rename(RenameTarget::SaveLayout(anchor), seed);
     }
 
     /// Open the "Save as Layout" name prompt for the WHOLE application
@@ -488,9 +494,59 @@ impl App {
     pub(super) fn reopen_layout_name_prompt(&mut self, kind: LayoutSaveKind, seed: String) {
         let target = match kind {
             LayoutSaveKind::WholeApp => RenameTarget::SaveAllLayout,
-            LayoutSaveKind::Workspace(idx) => RenameTarget::SaveLayout(idx),
+            LayoutSaveKind::Workspace(idx) => {
+                let Some(anchor) = self.workspace_prompt_anchor(idx) else {
+                    return;
+                };
+                RenameTarget::SaveLayout(anchor)
+            }
         };
         self.begin_rename(target, seed);
+    }
+
+    /// Capture a stable member token for the workspace at `idx`. The rename
+    /// target's integer payload carries this token while the modal is open, so
+    /// removing an earlier workspace cannot silently retarget the commit.
+    ///
+    /// `WorkspaceSet` exposes tab tokens only for its active workspace. This
+    /// temporarily selects the requested workspace and restores the original
+    /// selection before returning; no App-level session-change seam runs during
+    /// either model-only switch.
+    fn workspace_prompt_anchor(&mut self, idx: usize) -> Option<usize> {
+        let original = self.sessions.active_workspace_index();
+        if idx != original && !self.sessions.switch_workspace(idx) {
+            return None;
+        }
+        let anchor = self
+            .sessions
+            .token_at_position(0)
+            .and_then(|token| usize::try_from(token.0).ok());
+        if idx != original {
+            let _ = self.sessions.switch_workspace(original);
+        }
+        anchor
+    }
+
+    /// Re-resolve a workspace prompt's stable member token to its current rail
+    /// index. Every workspace owns at least one tab while it is live. If the
+    /// anchored session was reaped, the prompt target is treated as gone and
+    /// commit becomes a no-op instead of touching the workspace now occupying
+    /// the old index.
+    fn workspace_index_for_prompt_anchor(&mut self, anchor: usize) -> Option<usize> {
+        let token = SessionToken(u64::try_from(anchor).ok()?);
+        let original = self.sessions.active_workspace_index();
+        let count = self.sessions.workspace_count();
+        let mut found = None;
+        for idx in 0..count {
+            let _ = self.sessions.switch_workspace(idx);
+            if self.sessions.position_of_token(token).is_some() {
+                found = Some(idx);
+                break;
+            }
+        }
+        let restore = original.min(self.sessions.workspace_count().saturating_sub(1));
+        let _ = self.sessions.switch_workspace(restore);
+        found
     }
 
     /// Shared setup for the rename overlay: seed the field with `text`, park the
@@ -599,19 +655,23 @@ impl App {
                 let override_name = (!text.is_empty()).then_some(text);
                 self.sessions.set_title_override(token, override_name);
             }
-            RenameTarget::Workspace(idx) => {
+            RenameTarget::Workspace(anchor) => {
                 // A workspace always keeps a name: an empty field leaves the
                 // existing label unchanged (unlike a tab, which clears back to
                 // its live title).
-                if !text.is_empty() {
+                if !text.is_empty()
+                    && let Some(idx) = self.workspace_index_for_prompt_anchor(anchor)
+                {
                     self.sessions.rename_workspace(idx, text);
                 }
             }
-            RenameTarget::SaveLayout(idx) => {
+            RenameTarget::SaveLayout(anchor) => {
                 // LAYOUT-SURFACE: an empty name cancels the save (never writes an
                 // unnamed layout file); otherwise capture the workspace at `idx`
                 // under the typed name via the shared WP3 save path.
-                if !text.is_empty() {
+                if !text.is_empty()
+                    && let Some(idx) = self.workspace_index_for_prompt_anchor(anchor)
+                {
                     self.save_workspace_as_layout(idx, Some(&text));
                 }
             }
@@ -1148,6 +1208,121 @@ fn rename_write_cell(snapshot: &mut Snapshot, row: usize, column: usize, ch: cha
         return;
     }
     snapshot.cells[row * snapshot.dimensions.columns + column] = Cell::new(ch, attrs);
+}
+
+#[cfg(test)]
+mod workspace_prompt_identity_tests {
+    use super::*;
+    use crate::native::test_support::spawn_test_pause_shell;
+
+    fn session(id: u64, dimensions: Dimensions) -> Option<Session> {
+        let pty = spawn_test_pause_shell(dimensions).ok()?;
+        let writer: PtyWriter = Arc::new(Mutex::new(pty.take_writer().ok()?));
+        let terminal = Arc::new(Mutex::new(Terminal::new(
+            dimensions.columns,
+            dimensions.rows,
+        )));
+        Some(Session::new(
+            SessionToken(id),
+            terminal,
+            writer,
+            Arc::new(Mutex::new(pty)),
+            None,
+        ))
+    }
+
+    fn app_with_three_workspaces() -> Option<App> {
+        let dimensions = Dimensions::new(80, 24);
+        let sessions = WorkspaceSet::new(session(0, dimensions)?, None);
+        let mut app = App::new_with_sessions(
+            NativeOptions::default(),
+            sessions,
+            Settings::default(),
+            crate::settings::SettingsReloader::for_current_process(Instant::now()),
+        );
+        app.sessions.push_workspace(session(1, dimensions)?);
+        app.sessions.push_workspace(session(2, dimensions)?);
+        app.sessions.rename_workspace(0, "first".to_owned());
+        app.sessions.rename_workspace(1, "middle".to_owned());
+        app.sessions.rename_workspace(2, "target".to_owned());
+        Some(app)
+    }
+
+    #[test]
+    fn workspace_rename_commit_follows_identity_after_an_earlier_reap() {
+        let Some(mut app) = app_with_three_workspaces() else {
+            eprintln!("skipping: no PTY available");
+            return;
+        };
+        app.enter_rename_workspace(2);
+
+        let first = app
+            .sessions
+            .token_at_position(0)
+            .expect("first workspace has a tab");
+        assert!(!app.sessions.close_shell_exited(first));
+        assert_eq!(app.sessions.workspace_names(), ["middle", "target"]);
+
+        let state = app
+            .rename_state
+            .as_mut()
+            .expect("rename prompt remains open");
+        state.text = "renamed target".to_owned();
+        state.cursor = state.text.chars().count();
+        app.commit_rename();
+
+        assert_eq!(
+            app.sessions.workspace_names(),
+            ["middle", "renamed target"],
+            "the shifted target is renamed instead of the old rail index"
+        );
+    }
+
+    #[test]
+    fn workspace_prompt_commit_is_a_noop_after_its_target_is_reaped() {
+        let Some(mut app) = app_with_three_workspaces() else {
+            eprintln!("skipping: no PTY available");
+            return;
+        };
+        app.enter_rename_workspace(1);
+        assert!(app.sessions.switch_workspace(1));
+        let target = app
+            .sessions
+            .token_at_position(0)
+            .expect("target workspace has a tab");
+        assert!(!app.sessions.close_shell_exited(target));
+
+        let state = app
+            .rename_state
+            .as_mut()
+            .expect("rename prompt remains open");
+        state.text = "must not land".to_owned();
+        state.cursor = state.text.chars().count();
+        app.commit_rename();
+
+        assert_eq!(app.sessions.workspace_names(), ["first", "target"]);
+    }
+
+    #[test]
+    fn save_layout_prompt_re_resolves_the_same_workspace_after_a_rail_shift() {
+        let Some(mut app) = app_with_three_workspaces() else {
+            eprintln!("skipping: no PTY available");
+            return;
+        };
+        app.enter_save_layout_prompt(2);
+        let anchor = match app.rename_state.as_ref().map(|state| state.target) {
+            Some(RenameTarget::SaveLayout(anchor)) => anchor,
+            other => panic!("unexpected prompt target: {other:?}"),
+        };
+
+        let first = app
+            .sessions
+            .token_at_position(0)
+            .expect("first workspace has a tab");
+        assert!(!app.sessions.close_shell_exited(first));
+        assert_eq!(app.workspace_index_for_prompt_anchor(anchor), Some(1));
+        assert_eq!(app.sessions.workspace_name(1), Some("target"));
+    }
 }
 
 #[cfg(test)]

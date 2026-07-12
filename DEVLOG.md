@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Workspace prompt targets remain stable across reaping
+
+Workspace rename and per-workspace layout-save prompts now capture a stable
+session token when opened and resolve its current workspace index when Enter is
+pressed. If another workspace closes while the prompt is open, an index shift
+can no longer rename or save the workspace that moved into the old rail slot;
+the intended workspace is found at its new position, while a reaped target
+makes the commit a no-op. The same identity conversion applies when reopening a
+layout-name prompt after an overwrite collision.
+
+Regression coverage removes an earlier workspace while rename and layout-save
+prompts remain open, verifies that the shifted target is resolved by identity,
+and verifies that a vanished target is not redirected. The behavior is
+platform-neutral and changes no shell, PTY, path, or environment handling.
+
 ## 2026-07-12 -- Windows shell integration, path, and environment correctness
 
 A batch of correctness fixes across the shell-integration snippets, the ConPTY
