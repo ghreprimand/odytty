@@ -467,7 +467,7 @@ The `keybinds` config key can rebind local actions. The global actions are
 `close-pane`, `zoom-pane`, `equalize-panes`) are rebindable too; the chord is the
 key pressed *after* the prefix, for example `keybinds = ctrl+f=zoom-pane`.
 `ODYTTY_KEYBINDS` provides the same syntax as a session-scoped override. See
-[`docs/keybindings.md`](docs/keybindings.md) for the complete keyboard reference:
+[`docs/keybindings.md`](keybindings.md) for the complete keyboard reference:
 every default chord, the pane prefix, copy mode, hints, and rebinding.
 
 ## Settings And Themes
@@ -500,7 +500,7 @@ under the `odyssey-jungle` alias), and an original "Dark Waves" background image
 is **bundled into the binary and shown by default** behind the grid. The image
 is embedded at build time, so it works identically on every install (source
 build, AppImage, and distro package) with no external file to manage. It carries
-the repository license (see [`assets/backgrounds/LICENSE`](assets/backgrounds/LICENSE)).
+the repository license (see [`assets/backgrounds/LICENSE`](../assets/backgrounds/LICENSE)).
 
 To turn the background **off**, set either key in `odytty.conf`:
 
@@ -550,13 +550,13 @@ sealing the window opaque where the image draws.
 
 See:
 
-- [`docs/runtime-knobs.md`](docs/runtime-knobs.md) for every config key,
+- [`docs/runtime-knobs.md`](runtime-knobs.md) for every config key,
   environment variable, range, default, and reload behavior.
-- [`docs/odytty.conf.example`](docs/odytty.conf.example) for an annotated config.
-- [`docs/themes.md`](docs/themes.md) for the theme format and built-in roster.
-- [`docs/effects.md`](docs/effects.md) for bloom, CRT, retro, background, and
+- [`docs/odytty.conf.example`](odytty.conf.example) for an annotated config.
+- [`docs/themes.md`](themes.md) for the theme format and built-in roster.
+- [`docs/effects.md`](effects.md) for bloom, CRT, retro, background, and
   motion effects.
-- [`docs/keybindings.md`](docs/keybindings.md) for the complete keyboard
+- [`docs/keybindings.md`](keybindings.md) for the complete keyboard
   reference and rebinding.
-- [`docs/accessibility.md`](docs/accessibility.md) for the minimum-contrast
+- [`docs/accessibility.md`](accessibility.md) for the minimum-contrast
   floor, color-vision modes, dimming, and the bell.
