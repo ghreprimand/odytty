@@ -279,9 +279,15 @@ impl App {
         // left-interaction (switch/drag/close/+) whenever the active tab was
         // split. The x-bound restores chrome routing for those presses; a
         // divider-gap press inside the content rect still resolves to no pane and
-        // returns as before.
+        // returns as before. Under rail auto-hide the floating rail reserves no
+        // columns, so its revealed overlay lies inside the content rect. Exclude
+        // that visible overlay band here as well, allowing the existing chrome
+        // routing below to handle the workspace press. The helper is reveal-state
+        // aware, so a press in the same columns while the rail is hidden still
+        // focuses the underlying pane.
         if button == WinitMouseButton::Left
             && state == ElementState::Pressed
+            && !self.pointer_in_workspace_rail_band()
             && let Some((content, _cell)) = self.multipane_geometry()
             && let Some((x_px, y_px)) = self.pointer_px
             && y_px as f32 >= content.y

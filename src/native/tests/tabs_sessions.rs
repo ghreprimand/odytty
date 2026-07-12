@@ -5117,6 +5117,77 @@ fn a_plain_rail_click_switches_workspace_when_the_active_tab_is_split() {
 }
 
 #[test]
+fn a_revealed_autohide_rail_click_switches_workspace_over_a_split_tab() {
+    // With auto-hide the floating rail reserves no columns, so its overlay sits
+    // inside the split content rect. A revealed rail press must bypass pane focus
+    // and reach the workspace chrome route.
+    let Some(mut app) = rail_drag_split_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_tab_rail_autohide_for_test(true);
+    app.force_rail_reveal_for_test();
+    app.set_pointer_px_for_test(12.0, 24.0);
+    assert!(app.rail_overlay_visible_for_test());
+    assert_eq!(app.chrome_hit_band_for_test(), Some("workspace"));
+
+    app.mouse_left_press_for_test();
+    app.mouse_left_release_for_test();
+
+    assert_eq!(
+        app.active_workspace_index_for_test(),
+        0,
+        "a floating rail click switches workspace instead of focusing a pane"
+    );
+}
+
+#[test]
+fn a_hidden_autohide_rail_does_not_steal_a_split_pane_press() {
+    // The same x coordinate belongs to terminal content while the floating rail
+    // is hidden. It must keep the existing focus-follows-click behavior.
+    let Some(mut app) = rail_drag_split_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_tab_rail_autohide_for_test(true);
+    app.set_pointer_px_for_test(12.0, 24.0);
+    assert!(!app.rail_overlay_visible_for_test());
+    assert_eq!(app.chrome_hit_band_for_test(), None);
+    let initially_focused = app.focused_pane_id_for_test();
+
+    app.mouse_left_press_for_test();
+
+    assert_ne!(
+        app.focused_pane_id_for_test(),
+        initially_focused,
+        "the hidden overlay leaves its columns available for pane focus"
+    );
+    assert_eq!(
+        app.active_workspace_index_for_test(),
+        2,
+        "a hidden rail press does not switch workspace"
+    );
+}
+
+#[test]
+fn a_revealed_autohide_rail_click_keeps_the_single_pane_route() {
+    // The multipane guard is absent on a single-pane tab, so the established
+    // workspace chrome route remains unchanged.
+    let Some(mut app) = rail_drag_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_tab_rail_autohide_for_test(true);
+    app.force_rail_reveal_for_test();
+    app.set_pointer_px_for_test(12.0, 24.0);
+
+    app.mouse_left_press_for_test();
+    app.mouse_left_release_for_test();
+
+    assert_eq!(app.active_workspace_index_for_test(), 0);
+}
+
+#[test]
 fn the_rail_plus_slot_resolves_to_a_new_workspace_hit() {
     // §7.4: the rail `+` slot is New Workspace — it resolves to a `NewTab` hit on
     // the WORKSPACE band (dispatched to `handle_new_workspace`).

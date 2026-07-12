@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Restore floating workspace-rail clicks over split panes
+
+Left presses on a revealed auto-hide workspace rail now bypass split-pane focus
+routing and reach the existing workspace chrome handlers. The floating rail
+reserves no content columns, so its overlay previously fell inside the split
+content rectangle and the multipane press branch consumed workspace switches.
+The exclusion uses the reveal-aware rail-band predicate: when the overlay is
+hidden, the same columns remain terminal content and continue to focus the
+underlying pane. Reserved rails and single-pane tabs keep their existing routes.
+Pointer routing is identical on Linux, macOS, and Windows.
+
+Verified: focused floating, hidden, reserved, and single-pane pointer-routing
+regressions, cargo build, cargo test (full lib suite), cargo fmt --check, and
+cargo clippy --all-targets --locked -- -D warnings all clean.
+
 ## 2026-07-12 -- Bound hyperlink and config growth, O(1) scrollback eviction, alloc-free OSC dispatch
 
 Hardening and hot-path fixes across the terminal core, the settings loader, and
