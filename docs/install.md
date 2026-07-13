@@ -17,12 +17,30 @@ macOS, AppImage for a no-install single-file Linux run, the AUR package on
 Arch-family systems, and a pacman-tracked source package on Odyssey itself so
 the install is versioned, owned, removable, and visible to Odyssey-Mon.
 
+## Release Artifact Names And Checksums
+
+Packaged downloads are published under a stable always-latest alias and a
+version-pinned copy:
+
+| Always-latest alias | Version-pinned copy |
+| --- | --- |
+| `odytty-x86_64.AppImage` | `odytty-<version>-x86_64.AppImage` |
+| `odytty-macos-arm64.zip` | `odytty-<version>-macos-arm64.zip` |
+| `odytty-windows-x86_64.zip` | `odytty-<version>-windows-x86_64.zip` |
+| `odytty.tar.gz` | `odytty-<version>.tar.gz` |
+
+Each alias and its version-pinned twin are byte-identical and therefore have
+matching hashes in `SHA256SUMS`. Durable links should use the aliases under
+`releases/latest/download/`; pinned names are for selecting one specific
+release.
+
 ## Windows
 
 Windows support is new and still maturing — it builds and runs the full
 terminal and is exercised on a Windows CI leg every push, but the polish bar is
-behind Linux. Bug reports for the Windows build are especially welcome; open an
-issue with your Windows version and a short repro.
+behind Linux. Bug reports for the Windows build are especially welcome;
+[open an issue](https://github.com/ghreprimand/odytty/issues) with your Windows
+version and a short repro.
 
 The Windows release is an unsigned portable `odytty.exe` inside
 `odytty-windows-x86_64.zip`. There is no installer, and nothing is written
@@ -87,6 +105,22 @@ the Windows default-terminal handoff protocol, which OdyTTY doesn't implement
 yet. Launch it directly instead: from the Start menu, by typing `odytty`, or
 from a pinned shortcut. Detached/resumable session hosting is Unix-only in this
 release; the Windows build opens local ConPTY-backed tabs and panes.
+
+### Windows scope
+
+The Windows build carries the full rendering, theme, effect, and inline-graphics
+stack. It opens local ConPTY-backed tabs and panes, stores persistent
+configuration under `%APPDATA%\odytty\`, discovers host fonts in
+`C:\Windows\Fonts`, recognizes clickable drive-letter and UNC paths, opens
+or reveals files through `cmd` and Explorer, and runs SSH connections inside
+local pseudoconsole-backed tabs.
+
+Detached and resumable session hosting, detached SSH, and headless
+`--interactive` mode remain Unix-only. The full Open With application list is
+not available on Windows, and the hostname field and command-palette shell
+history currently degrade to empty. Interactive behavior is verified manually
+on Windows devices; the blocking Windows CI leg proves the build compiles and
+its unit tests pass.
 
 ### Updating
 
@@ -180,14 +214,37 @@ only needed for a direct (non-brew) zip download.
 
 ### Build from source
 
-A source build works today on macOS with the standard Rust toolchain:
+A source build works with the standard Rust toolchain
+([rustup](https://rustup.rs)) and the Xcode Command Line Tools. Both Apple
+Silicon and Intel are supported through the target Cargo selects natively:
 
 ```sh
-cargo build --release
+xcode-select --install   # once, if the Command Line Tools are not installed
+cargo build --release --locked
+./target/release/odytty
 ```
 
-The resulting binary runs directly; the `.app` bundle and ad-hoc signature are
-only assembled for the packaged release artifact.
+A locally compiled binary is not quarantined. To assemble a double-clickable
+`OdyTTY.app`, run:
+
+```sh
+version=$(./target/release/odytty --version | awk '{print $2}')
+mkdir -p dist/build
+cp target/release/odytty dist/build/odytty
+bash dist/macos/make-app.sh "$version"
+cp -R dist/build/OdyTTY.app /Applications/
+```
+
+To run the source build as `odytty` from any shell:
+
+```sh
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$PWD/target/release/odytty" "$HOME/.local/bin/odytty"
+```
+
+Make sure `$HOME/.local/bin` is on `PATH`. The packaged release workflow also
+ad-hoc signs its app bundle; a local source build does not need that packaging
+step to run.
 
 ### Signed / notarized builds
 
@@ -198,14 +255,25 @@ signature plus Homebrew's quarantine strip is the account-free path.
 
 ## AppImage (x86_64)
 
-Download `odytty-<version>-x86_64.AppImage` from the GitHub Release, verify it
-against `SHA256SUMS`, mark it executable, and run it:
+Linux is the primary display target. Wayland is the primary window-system path;
+X11 works through the current `winit` and GPU stack, with some
+window-manager-dependent behavior for borderless windows and OS theme
+detection.
+
+Download the always-latest AppImage alias and checksum file, verify it, mark it
+executable, and run it:
 
 ```sh
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
-chmod +x odytty-*-x86_64.AppImage
-./odytty-*-x86_64.AppImage
+chmod +x odytty-x86_64.AppImage
+./odytty-x86_64.AppImage
 ```
+
+The executable bit is required because browsers normally omit it. Without
+`chmod +x`, the file may open in an archive viewer or fail with
+"permission denied".
 
 The AppImage bundles OdyTTY's own dependencies but **not** the graphics driver:
 it uses the host's Vulkan ICD (Mesa or a vendor driver), so the machine needs a
@@ -254,12 +322,33 @@ desktop entry, AppStream metadata, and icons under pacman ownership. The
 first install compiles from source (pulling in `cargo`/`rust`), so it takes a
 few minutes. The AUR package is community-maintained and tracks the published
 GitHub releases; it usually updates shortly after a release, though timing
-depends on its maintainer. To pick up the very latest immediately regardless of
-the AUR package's state, build from the release source tarball directly (the
-PKGBUILD template and its publish runbook live in `dist/aur/`), or use the
-always-latest download links below.
+depends on its maintainer. It is not an official project release channel, and
+AUR packages are not vetted by Arch. Review the PKGBUILD before installing; AUR
+helpers show it by default.
+
+To pick up the very latest immediately regardless of the AUR package's state,
+build from the release source tarball directly (the PKGBUILD template and its
+publish runbook live in `dist/aur/`), or use the always-latest download links
+below.
 
 ## Build From Source
+
+From outside a source checkout, download and verify the always-latest release
+archive first:
+
+```sh
+workdir=$(mktemp -d "${TMPDIR:-/tmp}/odytty-install.XXXXXX")
+cd "$workdir"
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty.tar.gz
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+grep " odytty.tar.gz$" SHA256SUMS | sha256sum -c -
+tar -xf odytty.tar.gz
+cd odytty-*/
+```
+
+On macOS, use
+`grep " odytty.tar.gz$" SHA256SUMS | shasum -a 256 -c -` for the verification
+line.
 
 Build the release binary:
 
@@ -310,10 +399,17 @@ odytty --show-config    # print the effective configuration
 odytty --core-smoke     # print a parser/core smoke transcript
 ```
 
+`--list-themes` prints the 142 built-in themes as stable
+`name`/`appearance`/`family` rows. `--list-fonts` prints discoverable
+system font files. `--show-config` prints the stable effective-config subset,
+including `symbol_fallback` and the resolved `symbol_font_source` fallback
+chain. See [the settings authority](runtime-knobs.md) for every key, default,
+range, and environment variable.
+
 OdyTTY also hosts detached sessions that outlive the window:
 
 ```sh
-odytty new -e btop                # start a detached session, prints id=<id>
+odytty new --detached -e btop     # start a detached session, prints id=<id>
 odytty list                       # list live detached sessions
 odytty attach                     # reattach the only live session (or list choices)
 odytty attach <id>                # reattach a specific session in a native window
@@ -322,7 +418,10 @@ odytty attach --diagnostic <id>   # print one status line without attaching
 
 On non-macOS systems, detached sessions require `XDG_RUNTIME_DIR` to be set;
 their owner-private sockets live under `$XDG_RUNTIME_DIR/odytty/`. macOS falls
-back to the system temporary directory.
+back to the system temporary directory. The
+[detached-session CLI reference](runtime-knobs.md#detached-session-cli) covers
+metadata-only listings, reattachment, snapshot streaming, failure behavior,
+bounded scrollback, socket privacy, and the idle timeout.
 
 ## Configuration Files
 
