@@ -5,17 +5,17 @@ OdyTTY ships as a versioned release. Each release provides:
 - a git tag (`vX.Y.Z`) and source tarball;
 - a GitHub Release entry with `SHA256SUMS` for every artifact;
 - a best-effort x86_64 **AppImage** (one download for most Linux distributions);
-- an unsigned Windows x86_64 portable **zip**;
-- a prebuilt **macOS** `.app` zip for Apple Silicon (ad-hoc signed) plus a Homebrew tap;
 - an **AUR** package (`odytty`) for Arch-family systems;
+- a prebuilt **macOS** `.app` zip for Apple Silicon (ad-hoc signed) plus a Homebrew tap;
+- an unsigned Windows x86_64 portable **zip**;
 - source-build instructions for Odyssey/LFS and other developer systems;
 - a desktop entry, AppStream metadata, and icon installed into Freedesktop
   locations.
 
-Pick by system: Scoop (or a direct zip download) on Windows, Homebrew on
-macOS, AppImage for a no-install single-file Linux run, the AUR package on
-Arch-family systems, and a pacman-tracked source package on Odyssey itself so
-the install is versioned, owned, removable, and visible to Odyssey-Mon.
+Pick by system: AppImage for a no-install single-file Linux run, the AUR package
+on Arch-family systems, Homebrew on macOS, Scoop (or a direct zip download) on
+Windows, and a pacman-tracked source package on Odyssey itself so the install is
+versioned, owned, removable, and visible to Odyssey-Mon.
 
 ## Release Artifact Names And Checksums
 
@@ -34,110 +34,92 @@ matching hashes in `SHA256SUMS`. Durable links should use the aliases under
 `releases/latest/download/`; pinned names are for selecting one specific
 release.
 
-## Windows
+## Linux
 
-Windows support is new and still maturing — it builds and runs the full
-terminal and is exercised on a Windows CI leg every push, but the polish bar is
-behind Linux. Bug reports for the Windows build are especially welcome;
-[open an issue](https://github.com/ghreprimand/odytty/issues) with your Windows
-version and a short repro.
+Linux is the primary and most battle-tested platform, and it needs a
+Vulkan-capable GPU. Wayland is the primary display target. X11 works through
+the current `winit` and GPU stack, with some window-manager-dependent behavior
+for borderless windows and OS theme detection.
 
-The Windows release is an unsigned portable `odytty.exe` inside
-`odytty-windows-x86_64.zip`. There is no installer, and nothing is written
-outside your profile — configuration lives under `%APPDATA%\odytty\`. Scoop is
-the recommended install path because it puts `odytty` on your PATH, adds a
-Start-menu entry, and verifies the download checksum; you can also download the
-zip directly.
+### AppImage (x86_64)
 
-### Scoop
+Download the always-latest AppImage alias and checksum file, verify it, mark it
+executable, and run it:
 
-[Scoop](https://scoop.sh) is a per-user package manager for Windows (no admin
-rights). If you don't already have it, install it once in PowerShell:
-
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
+```sh
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+chmod +x odytty-x86_64.AppImage
+./odytty-x86_64.AppImage
 ```
 
-Then add the in-repo bucket and install:
+The executable bit is required because browsers normally omit it. Without
+`chmod +x`, the file may open in an archive viewer or fail with
+"permission denied".
 
-```powershell
-scoop bucket add odytty https://github.com/ghreprimand/odytty
-scoop install odytty
+The AppImage bundles OdyTTY's own dependencies but **not** the graphics driver:
+it uses the host's Vulkan ICD (Mesa or a vendor driver), so the machine needs a
+working Vulkan setup - the same requirement as a source build. It is built on
+the oldest supported Ubuntu LTS for a wide glibc floor. This is a best-effort
+artifact; if Vulkan initialization fails on your host, build from source.
+
+To integrate it into menus, tools like [Gear Lever][gearlever] or
+`appimaged` register the bundled desktop entry and icon. The AppImage can be
+built locally with `dist/appimage/build-appimage.sh`.
+
+[gearlever]: https://github.com/mijorus/gearlever
+
+### Arch Linux (AUR)
+
+Install the `odytty` package with an AUR helper:
+
+```sh
+paru -S odytty      # or: yay -S odytty
 ```
 
-Scoop creates a shim under `~\scoop\shims` (on your PATH) so `odytty` launches
-from any shell, and adds an **OdyTTY** Start-menu entry. The bucket manifest is
-`bucket/odytty.json`: it pins the release URL and hash, which is what
-`scoop update odytty` reads. From your side there is nothing to do per release —
-CI bumps the manifest to each new version automatically shortly after the
-release publishes, so `scoop update odytty` picks up new versions on its own once
-that bump lands.
+Or install manually:
 
-### Portable zip
-
-Download the always-latest zip alias and checksum file, verify the hash, and
-run the executable:
-
-```powershell
-Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/odytty-windows-x86_64.zip -OutFile odytty-windows-x86_64.zip
-Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS -OutFile SHA256SUMS
-Get-FileHash odytty-windows-x86_64.zip -Algorithm SHA256
-Expand-Archive odytty-windows-x86_64.zip -DestinationPath .\odytty
-.\odytty\odytty.exe
+```sh
+git clone https://aur.archlinux.org/odytty.git
+cd odytty
+makepkg -si
 ```
 
-Compare the hash with the `odytty-windows-x86_64.zip` row in `SHA256SUMS`; they
-must match before you run the binary.
+The package builds from the release source tarball and installs the binary,
+desktop entry, AppStream metadata, and icons under pacman ownership. The
+first install compiles from source (pulling in `cargo`/`rust`), so it takes a
+few minutes. The AUR package is community-maintained and tracks the published
+GitHub releases; it usually updates shortly after a release, though timing
+depends on its maintainer. It is not an official project release channel, and
+AUR packages are not vetted by Arch. Review the PKGBUILD before installing; AUR
+helpers show it by default.
 
-Because OdyTTY is not code-signed yet, launching it for the first time may
-raise a blue "Windows protected your PC" SmartScreen dialog naming an unknown
-publisher. This is expected for unsigned open-source software and can appear
-however you install it — a package manager removes the browser-download friction
-but does not, on its own, guarantee the first-run prompt won't show. Click
-**More info**, then **Run anyway**. To clear the "downloaded from the internet"
-mark up front instead, run `Unblock-File .\odytty\odytty.exe` before launching.
-Code-signed Windows binaries are a planned improvement.
-
-OdyTTY can't yet be set as the Windows *default terminal* (the app Windows hands
-console programs to when launched from Explorer or another program) — that needs
-the Windows default-terminal handoff protocol, which OdyTTY doesn't implement
-yet. Launch it directly instead: from the Start menu, by typing `odytty`, or
-from a pinned shortcut. Detached/resumable session hosting is Unix-only in this
-release; the Windows build opens local ConPTY-backed tabs and panes.
-
-### Windows scope
-
-The Windows build carries the full rendering, theme, effect, and inline-graphics
-stack. It opens local ConPTY-backed tabs and panes, stores persistent
-configuration under `%APPDATA%\odytty\`, discovers host fonts in
-`C:\Windows\Fonts`, recognizes clickable drive-letter and UNC paths, opens
-or reveals files through `cmd` and Explorer, and runs SSH connections inside
-local pseudoconsole-backed tabs.
-
-Detached and resumable session hosting, detached SSH, and headless
-`--interactive` mode remain Unix-only. The full Open With application list is
-not available on Windows, and the hostname field and command-palette shell
-history currently degrade to empty. Interactive behavior is verified manually
-on Windows devices; the blocking Windows CI leg proves the build compiles and
-its unit tests pass.
+To pick up the very latest immediately regardless of the AUR package's state,
+build from the release source tarball directly (the PKGBUILD template and its
+publish runbook live in `dist/aur/`), or use the always-latest download links
+below.
 
 ### Updating
 
-**Scoop (recommended):** refresh to the newest release:
+The AppImage has no package manager, so an update is a re-download of the
+always-latest alias (it resolves to the newest release):
 
-```powershell
-scoop update odytty
+```sh
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+chmod +x odytty-x86_64.AppImage
 ```
 
-- **Portable zip:** re-download the always-latest `odytty-windows-x86_64.zip`, re-verify the hash against `SHA256SUMS`, and replace the old `odytty.exe`.
+The AUR package updates with a normal `paru -Syu` / `yay -Syu`.
 
 ## macOS (Apple Silicon)
 
 macOS builds and passes the full test suite on every push, and the release
 ships a prebuilt `OdyTTY.app` for Apple Silicon (arm64). The binary is
 **ad-hoc code-signed** in CI (`codesign -s -`), which needs no Apple Developer
-account and no notarization — enough for the app to launch, but not an Apple
+account and no notarization - enough for the app to launch, but not an Apple
 Developer identity. There is no `.dmg` and no Gatekeeper-approved signature yet.
 
 ### Homebrew (recommended)
@@ -253,83 +235,103 @@ download path) requires enrollment in the Apple Developer Program. That is
 deferred to if/when the project opts into that program; until then the ad-hoc
 signature plus Homebrew's quarantine strip is the account-free path.
 
-## AppImage (x86_64)
+## Windows
 
-Linux is the primary display target. Wayland is the primary window-system path;
-X11 works through the current `winit` and GPU stack, with some
-window-manager-dependent behavior for borderless windows and OS theme
-detection.
+Windows support is new and still maturing - it builds and runs the full
+terminal and is exercised on a Windows CI leg every push, but the polish bar is
+behind Linux. Bug reports for the Windows build are especially welcome;
+[open an issue](https://github.com/ghreprimand/odytty/issues) with your Windows
+version and a short repro.
 
-Download the always-latest AppImage alias and checksum file, verify it, mark it
-executable, and run it:
+The Windows release is an unsigned portable `odytty.exe` inside
+`odytty-windows-x86_64.zip`. There is no installer, and nothing is written
+outside your profile - configuration lives under `%APPDATA%\odytty\`. Scoop is
+the recommended install path because it puts `odytty` on your PATH, adds a
+Start-menu entry, and verifies the download checksum; you can also download the
+zip directly.
 
-```sh
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
-chmod +x odytty-x86_64.AppImage
-./odytty-x86_64.AppImage
+### Scoop
+
+[Scoop](https://scoop.sh) is a per-user package manager for Windows (no admin
+rights). If you don't already have it, install it once in PowerShell:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
 ```
 
-The executable bit is required because browsers normally omit it. Without
-`chmod +x`, the file may open in an archive viewer or fail with
-"permission denied".
+Then add the in-repo bucket and install:
 
-The AppImage bundles OdyTTY's own dependencies but **not** the graphics driver:
-it uses the host's Vulkan ICD (Mesa or a vendor driver), so the machine needs a
-working Vulkan setup — the same requirement as a source build. It is built on
-the oldest supported Ubuntu LTS for a wide glibc floor. This is a best-effort
-artifact; if Vulkan initialization fails on your host, build from source.
+```powershell
+scoop bucket add odytty https://github.com/ghreprimand/odytty
+scoop install odytty
+```
 
-To integrate it into menus, tools like [Gear Lever][gearlever] or
-`appimaged` register the bundled desktop entry and icon. The AppImage can be
-built locally with `dist/appimage/build-appimage.sh`.
+Scoop creates a shim under `~\scoop\shims` (on your PATH) so `odytty` launches
+from any shell, and adds an **OdyTTY** Start-menu entry. The bucket manifest is
+`bucket/odytty.json`: it pins the release URL and hash, which is what
+`scoop update odytty` reads. From your side there is nothing to do per release -
+CI bumps the manifest to each new version automatically shortly after the
+release publishes, so `scoop update odytty` picks up new versions on its own once
+that bump lands.
+
+### Portable zip
+
+Download the always-latest zip alias and checksum file, verify the hash, and
+run the executable:
+
+```powershell
+Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/odytty-windows-x86_64.zip -OutFile odytty-windows-x86_64.zip
+Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS -OutFile SHA256SUMS
+Get-FileHash odytty-windows-x86_64.zip -Algorithm SHA256
+Expand-Archive odytty-windows-x86_64.zip -DestinationPath .\odytty
+.\odytty\odytty.exe
+```
+
+Compare the hash with the `odytty-windows-x86_64.zip` row in `SHA256SUMS`; they
+must match before you run the binary.
+
+Because OdyTTY is not code-signed yet, launching it for the first time may
+raise a blue "Windows protected your PC" SmartScreen dialog naming an unknown
+publisher. This is expected for unsigned open-source software and can appear
+however you install it - a package manager removes the browser-download friction
+but does not, on its own, guarantee the first-run prompt won't show. Click
+**More info**, then **Run anyway**. To clear the "downloaded from the internet"
+mark up front instead, run `Unblock-File .\odytty\odytty.exe` before launching.
+Code-signed Windows binaries are a planned improvement.
+
+OdyTTY can't yet be set as the Windows *default terminal* (the app Windows hands
+console programs to when launched from Explorer or another program) - that needs
+the Windows default-terminal handoff protocol, which OdyTTY doesn't implement
+yet. Launch it directly instead: from the Start menu, by typing `odytty`, or
+from a pinned shortcut. Detached/resumable session hosting is Unix-only in this
+release; the Windows build opens local ConPTY-backed tabs and panes.
+
+### Windows scope
+
+The Windows build carries the full rendering, theme, effect, and inline-graphics
+stack. It opens local ConPTY-backed tabs and panes, stores persistent
+configuration under `%APPDATA%\odytty\`, discovers host fonts in
+`C:\Windows\Fonts`, recognizes clickable drive-letter and UNC paths, opens
+or reveals files through `cmd` and Explorer, and runs SSH connections inside
+local pseudoconsole-backed tabs.
+
+Detached and resumable session hosting, detached SSH, and headless
+`--interactive` mode remain Unix-only. The full Open With application list is
+not available on Windows, and the hostname field and command-palette shell
+history currently degrade to empty. Interactive behavior is verified manually
+on Windows devices; the blocking Windows CI leg proves the build compiles and
+its unit tests pass.
 
 ### Updating
 
-The AppImage has no package manager, so an update is a re-download of the
-always-latest alias (it resolves to the newest release):
+**Scoop (recommended):** refresh to the newest release:
 
-```sh
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
-chmod +x odytty-x86_64.AppImage
+```powershell
+scoop update odytty
 ```
 
-The AUR package (below) updates with a normal `paru -Syu` / `yay -Syu`.
-
-[gearlever]: https://github.com/mijorus/gearlever
-
-## Arch Linux (AUR)
-
-Install the `odytty` package with an AUR helper:
-
-```sh
-paru -S odytty      # or: yay -S odytty
-```
-
-…or manually:
-
-```sh
-git clone https://aur.archlinux.org/odytty.git
-cd odytty
-makepkg -si
-```
-
-The package builds from the release source tarball and installs the binary,
-desktop entry, AppStream metadata, and icons under pacman ownership. The
-first install compiles from source (pulling in `cargo`/`rust`), so it takes a
-few minutes. The AUR package is community-maintained and tracks the published
-GitHub releases; it usually updates shortly after a release, though timing
-depends on its maintainer. It is not an official project release channel, and
-AUR packages are not vetted by Arch. Review the PKGBUILD before installing; AUR
-helpers show it by default.
-
-To pick up the very latest immediately regardless of the AUR package's state,
-build from the release source tarball directly (the PKGBUILD template and its
-publish runbook live in `dist/aur/`), or use the always-latest download links
-below.
+- **Portable zip:** re-download the always-latest `odytty-windows-x86_64.zip`, re-verify the hash against `SHA256SUMS`, and replace the old `odytty.exe`.
 
 ## Build From Source
 
@@ -388,7 +390,7 @@ odytty --title Monitor -e btop
 Theming, fonts, and configuration are primarily driven by OdyTTY's in-app menus
 (the settings panel, theme/font pickers, and the `Ctrl+Shift+P` command palette),
 which change things live with a preview. These introspection commands are the
-scriptable alternative — they print a snapshot and exit, which is handy for
+scriptable alternative - they print a snapshot and exit, which is handy for
 verifying an install, automation, or wiring launchers:
 
 ```sh
@@ -686,12 +688,12 @@ the distribution or local system owner installs it.
 macOS has no OS-level "default terminal" setting. Unlike the default browser
 or mail app, macOS exposes no system preference to replace Terminal.app as the
 terminal other applications hand console programs off to; Terminal.app remains
-the system default. Launch OdyTTY directly instead — from **Launchpad**, from
+the system default. Launch OdyTTY directly instead - from **Launchpad**, from
 **Spotlight** (⌘-Space, type "OdyTTY"), or from a **Dock** icon. A Homebrew
 cask install places `OdyTTY.app` in `/Applications`, so it appears in Launchpad
 and Spotlight automatically and can be dragged to the Dock to pin it.
 
-Windows likewise cannot yet be set as the system default terminal — the
+Windows likewise cannot yet be set as the system default terminal - the
 Windows section above explains why (the default-terminal handoff protocol is
 not implemented). Launch it directly there too.
 
@@ -719,7 +721,7 @@ GPU adapter was available and the graphics stack silently fell back to a
 (Mesa's software renderers), **SwiftShader** (Google's software renderer), or a
 device class of **Cpu** indicate CPU-only rendering. On Windows, **Microsoft
 Basic Render Driver** (WARP) is the equivalent software fallback. Software
-rendering works correctly but is far slower than a real GPU — especially on
+rendering works correctly but is far slower than a real GPU - especially on
 older hardware.
 
 **Common fixes.**
@@ -727,7 +729,7 @@ older hardware.
 - **Linux:** install the Vulkan driver for your GPU. On Debian/Ubuntu that is
   `mesa-vulkan-drivers` (plus `vulkan-tools` for `vulkaninfo`); on Arch it is
   `vulkan-icd-loader` together with the vendor package (`vulkan-radeon`,
-  `vulkan-intel`, or `nvidia-utils`). Verify with `vulkaninfo | head` — if it
+  `vulkan-intel`, or `nvidia-utils`). Verify with `vulkaninfo | head` - if it
   reports only llvmpipe, the hardware ICD is still missing. Over remote/SSH or
   in a VM without GPU passthrough, software rendering may be the only option.
 - **Windows:** install the latest GPU vendor driver (NVIDIA/AMD/Intel). WARP is

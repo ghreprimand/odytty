@@ -49,7 +49,7 @@ chmod +x odytty-x86_64.AppImage
 ```
 
 Wayland is the primary display target. X11 works through the current windowing
-and GPU stack. See the [Linux install notes](docs/install.md#appimage-x86_64)
+and GPU stack. See the [Linux install notes](docs/install.md#linux)
 for driver and desktop-integration details.
 
 ### macOS
