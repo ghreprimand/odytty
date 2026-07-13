@@ -1879,7 +1879,7 @@ mod tests {
     fn themes_section_has_open_theme_builder_action_entry() {
         // v0.3.1 discoverability: the Themes Level-2 list ends with a selectable
         // "Open Theme Builder" action row that emits OpenThemeBuilder on Enter —
-        // no `b` press, no row edit (the operator couldn't find the builder).
+        // no `b` press, no row edit (the Theme Builder was hard to discover).
         let mut panel = SettingsPanel::new(&Settings::default());
         let themes = SECTIONS
             .iter()
@@ -2968,7 +2968,7 @@ mod tests {
     /// Bug B + Bug C: a live apply (the OverlayEdit round-trip seam) while
     /// drilled into a section must PRESERVE the section filter (Bug B) and the
     /// current level (Bug C), and must not clobber pending dirty edits. This is
-    /// the bloom-threshold "multi-line slider row" shape the operator hit.
+    /// the bloom-threshold "multi-line slider row" shape.
     #[test]
     fn live_apply_preserves_section_filter_level_and_dirty_state() {
         let mut panel = SettingsPanel::new(&Settings::default());

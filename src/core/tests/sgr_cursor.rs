@@ -431,7 +431,7 @@ fn completion_pager_redraw_clears_stale_rows() {
     // ED-to-end-of-screen (ESC [ J) to wipe the old candidate rows. If the
     // bare CUU is a no-op the cursor never returns to the command line, so
     // ESC [ J clears from the wrong row and the candidates linger. This is
-    // the operator-reported "stale completion text" regression.
+    // the reported "stale completion text" regression.
     let mut terminal = Terminal::new(40, 6);
 
     // Command line on row 0, then candidates on row 1.

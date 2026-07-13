@@ -1123,7 +1123,7 @@ mod tests {
         assert_eq!(pane_grid_origin(content, content, 8, 16), [7.0, 13.0]);
     }
 
-    /// Regression guard for the operator-reported non-uniform gap: at a
+    /// Regression guard for the reported non-uniform gap: at a
     /// non-cell-aligned ratio, the gap between the two panes' grid edges must be
     /// exactly `divider_px` on a COLUMN split (vertical divider).
     #[test]

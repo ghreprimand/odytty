@@ -4856,7 +4856,7 @@ mod tests {
     #[test]
     fn close_active_tab_differs_from_close_pane_on_a_multi_pane_tab() {
         // Two structurally identical multi-pane sets; one gets Close Tab, the
-        // other Close Pane. Prove the outcomes differ (the operator's core bug:
+        // other Close Pane. Prove the outcomes differ (the core bug:
         // Close Tab must not behave like Close Pane).
         let build = || {
             let mut set = WorkspaceSet::new(build_session(), None);

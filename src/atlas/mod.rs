@@ -1590,7 +1590,7 @@ fn apply_stem_darken(value: u8, strength: f32) -> u8 {
 /// **Primary size knob.** Fraction of cell HEIGHT a fitted symbol/icon glyph
 /// fills. The glyph is scaled so its ink height is `SYMBOL_CELL_FILL *
 /// cell.height` (then width-capped so it can never clip), and centered on the
-/// cell. Operator-tuned against ghostty on a dev build: ~0.82 matches; full
+/// cell. Tuned against ghostty on a dev build: ~0.82 matches; full
 /// height (~0.95) reads too big, the old width-fit (~0.6 em cell width) too
 /// small. Tune here during the dev-build eyeball.
 const SYMBOL_CELL_FILL: f32 = 0.82;

@@ -325,7 +325,7 @@ fn visible_text(terminal: &Terminal) -> String {
 
 #[test]
 fn reflow_shrink_then_grow_recovers_wide_line() {
-    // Operator bug: text that disappears into a narrowed window must
+    // Regression: text that disappears into a narrowed window must
     // reappear when widened again. A 30-char line on a 20-wide grid wraps;
     // shrinking to 10 re-wraps it; widening to 40 must rejoin it intact.
     let mut terminal = Terminal::new(20, 3);

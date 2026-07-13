@@ -15,7 +15,7 @@
 //! - It is NOT the per-state-method decomposition of inline-callback parsers
 //!   (each state a separate `advance_<state>` function with its own per-byte
 //!   match) — the first-generation OdyTTY core followed that shape and the
-//!   operator ruled it too derivative. Here, transitions are one flat table.
+//!   considered too derivative. Here, transitions are one flat table.
 //! - It is NOT the Williams `[state][256]` data table either. Our match has
 //!   ~13 byte-class columns, not 256; the action vocabulary is OdyTTY-designed
 //!   ([`Action`]); and the state machine is byte-only — UTF-8 lives in Layer 1.

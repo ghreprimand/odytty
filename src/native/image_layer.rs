@@ -1134,7 +1134,7 @@ pub(super) fn overlay_fit_quad(img_w: u32, img_h: u32, vp_w: f32, vp_h: f32) -> 
 
 /// Alpha of the full-viewport lightbox scrim that the viewer draws behind the
 /// image to dim the whole post-processed terminal. Higher = darker surround.
-/// Dev-build tunable (the operator dials dimness on re-test); has no
+/// Dev-build tunable (dial dimness on re-test); has no
 /// portable-correct value. Drawn alpha-blended, so the terminal shows through at
 /// `1.0 - SCRIM_ALPHA`.
 pub(in crate::native) const SCRIM_ALPHA: f32 = 0.72;

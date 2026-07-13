@@ -408,7 +408,7 @@ pub(super) struct App {
     /// ID1: when set, the authored theme `cursor`/`selection`/`search` roles
     /// drive cursor color and selection/search highlight fills (with
     /// RV1-floored foregrounds) instead of the historical inverse / hardcoded
-    /// treatments. Default-on by operator decision; `themed_ui_roles = off`
+    /// treatments. Default-on by design; `themed_ui_roles = off`
     /// restores the legacy rendering path.
     themed_ui_roles: bool,
     /// Native in-window overlay state. It is presentation-only: widgets
@@ -7276,7 +7276,7 @@ mod tests {
     /// between consecutive samples — not just the current point.
     #[test]
     fn reveal_edge_segment_crosses_a_fast_sweep_over_the_point_zone() {
-        let reach = 29.0; // ≈ the operator trace's reach
+        let reach = 29.0; // ≈ the reference trace's reach
         let surface_w = 1000.0;
 
         // LEFT: the trace's dominant case — a move from x=60 to x=−5 has NEITHER

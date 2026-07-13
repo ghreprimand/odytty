@@ -86,7 +86,7 @@ fn unset_font_file_value_is_empty_not_a_human_sentence() {
         "the legacy human-sentence placeholder must not leak into the value"
     );
     // The default hint moved into the description, which must read as an
-    // advanced explicit-file override (the operator found the old wording
+    // advanced explicit-file override (the old wording was
     // confusing).
     assert!(
         font.description.to_lowercase().contains("advanced"),

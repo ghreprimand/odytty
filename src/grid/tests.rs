@@ -1243,11 +1243,11 @@ fn closure_sgr_dim_equals_naive_half_brightness() {
     let rendered = build_vertices(&snapshot, &atlas)[VERTS_PER_QUAD].color;
 
     let undimmed = text::foreground_linear(Color::Rgb(220, 90, 20));
-    // The rendered fg is the perceptual operator output …
+    // The rendered fg is the perceptual dim output …
     assert_eq!(
         rendered,
         dim_color(undimmed),
-        "rendered dim fg must be the perceptual operator output"
+        "rendered dim fg must be the perceptual dim output"
     );
     // … which equals a naive linear ×0.5 halving within round-trip error.
     let naive_half = [

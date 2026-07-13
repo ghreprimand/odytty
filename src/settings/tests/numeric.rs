@@ -276,7 +276,7 @@ fn smart_ctrl_c_defaults_on_and_parses() {
 
 #[test]
 fn interactive_urls_defaults_on_and_round_trips_through_config_key() {
-    // Absent → on (operator decision: printed URLs are clickable out of the box).
+    // Absent → on (default: printed URLs are clickable out of the box).
     let (settings, warnings) = settings_from([]);
     assert!(settings.interactive_urls);
     assert!(warnings.is_empty());
@@ -419,7 +419,7 @@ fn shell_integration_defaults_off_and_round_trips_through_config_key() {
 
 #[test]
 fn selection_drag_extend_defaults_on_and_parses() {
-    // Absent → on (operator default; drag-extend + Shift+click extend active).
+    // Absent → on (default; drag-extend + Shift+click extend active).
     let (settings, warnings) = settings_from([]);
     assert!(settings.selection_drag_extend);
     assert!(warnings.is_empty());

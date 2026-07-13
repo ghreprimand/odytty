@@ -712,7 +712,7 @@ impl ThemeBuilder {
         };
         // D-U2-2: mandatory save-time backstop — snap every floored role to AA so
         // the written .theme clears the authoring floor by construction, even if
-        // the operator never pressed F. The count is reported in save_succeeded.
+        // F was never pressed. The count is reported in save_succeeded.
         self.save_snap_count = self.auto_snap_floored();
         let spec = self.spec.clone();
         ThemeBuilderOutcome::Save(ThemeBuilderSaveRequest { name, spec })

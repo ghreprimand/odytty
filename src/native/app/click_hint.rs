@@ -523,7 +523,7 @@ mod tests {
 
     #[test]
     fn feel_constants_are_conservative() {
-        // Sanity bounds (the operator tunes in the dev build).
+        // Sanity bounds (tuned in the dev build).
         assert!(CLICK_HINT_MISCLICK_WINDOW >= Duration::from_millis(500));
         assert!(CLICK_HINT_MISCLICK_WINDOW <= Duration::from_secs(3));
         assert!(CLICK_HINT_DURATION >= Duration::from_secs(2));

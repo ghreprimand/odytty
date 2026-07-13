@@ -1687,7 +1687,7 @@ fn reveal_zone_is_logical_px_scaled_for_hidpi() {
 
 #[test]
 fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
-    // NF20-B live-wiring regression: the operator reported (scale ~1.5, real
+    // NF20-B live-wiring regression: reported (scale ~1.5, real
     // window padding) that the reveal only triggered at the very window edge and
     // would not stay up with the pointer over the band. This exercises the FULL
     // live path — `update_rail_autohide_pointer` (real contact geometry) + the
@@ -1764,8 +1764,8 @@ fn reveal_wiring_reaches_interior_and_holds_at_scale_1_5_with_padding() {
 
 #[test]
 fn reveal_visibility_flip_marks_the_frame_for_rebuild() {
-    // Live-trace regression (the operator's "the state says visible at +27px but
-    // I don't see the rail until I cross off the window edge"). The reveal state
+    // Live-trace regression: state reported visible at +27px but the rail was
+    // not painted until crossing off the window edge. The reveal state
     // machine was already correct — the trace showed `visible=true` on-window —
     // but the paint never landed. Root cause: the rail overlay is assembled ONLY
     // inside the `should_rebuild_frame` gate (`build_rail_overlay`), and that gate
@@ -1795,7 +1795,7 @@ fn reveal_visibility_flip_marks_the_frame_for_rebuild() {
 
     let t0 = std::time::Instant::now();
 
-    // (A) MAINTENANCE-POLL FLIP — the operator's exact scenario. Arm at the edge,
+    // (A) MAINTENANCE-POLL FLIP: the exact reported scenario. Arm at the edge,
     // then STOP moving the pointer; the show-debounce elapses while the loop is
     // parked, so the flip to Revealed happens in the about-to-wait maintenance
     // poll, not in a pointer event. Clear the rebuild flag right after arming so

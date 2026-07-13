@@ -307,9 +307,9 @@ pub const DEFAULT_SESSION_REPLAY: bool = false;
 /// focused pane only (v1 bound, shared with OSC 8 hyperlink hover).
 pub const DEFAULT_INTERACTIVE_PATHS: bool = false;
 
-/// Interactive bare URLs (`ODYTTY_INTERACTIVE_URLS`). On by default (operator
-/// decision — match the common terminal expectation that printed URLs are
-/// clickable out of the box). When on, hovering a bare `http(s)://…` (or other
+/// Interactive bare URLs (`ODYTTY_INTERACTIVE_URLS`). On by default (matches the
+/// common terminal expectation that printed URLs are clickable out of the
+/// box). When on, hovering a bare `http(s)://…` (or other
 /// allowlisted-scheme) URL that an application printed without an OSC 8 escape
 /// shows the pointer (hand) cursor and a Ctrl+hover armed underline, and
 /// Ctrl+click opens it through the same argv-only, scheme-allowlisted dispatch
@@ -620,7 +620,7 @@ pub const DEFAULT_CONFIRM_CLOSE: bool = true;
 /// Drag-to-extend selection (`ODYTTY_SELECTION_DRAG_EXTEND`, MOUSE-EXTEND): when
 /// on, a double-click-then-drag grows the selection by whole words, a
 /// triple-click-then-drag by whole lines, and Shift+click extends the current
-/// selection to the click. On by default (operator decision) — it only gives
+/// selection to the click. On by default; it only gives
 /// meaning to gestures that did nothing before. Off restores the historical
 /// behavior where a double/triple-click finalizes and the follow-on drag does
 /// not extend. Local selection only; never affects TUI mouse reporting.
