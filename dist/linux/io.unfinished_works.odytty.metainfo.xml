@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.8.6" date="2026-07-13">
+      <description>
+        <p>Reliability patch. Attaching a detached session now reconciles its terminal to the current window as soon as it is attached, so the grid and the right-click menu render at full opacity and respond to input without a manual resize. Previously an attached session stayed sized to its originating host until the next window resize; with window transparency enabled that mismatch left the context menu washed out and unresponsive. Windows and macOS ship from the same verified build matrix.</p>
+      </description>
+    </release>
     <release version="0.8.5" date="2026-07-13">
       <description>
         <p>Reliability and interaction release. Three audit passes hardened the parser, GPU surface handling, session host, and settings model: OSC 8 hyperlink interning gains a bounded, least-recently-used table; scrollback eviction is constant-time; combining marks beyond the cell store spill into a bounded side table; GPU surface loss recovers automatically; and search, emoji, and OSC dispatch drop their per-frame allocations. A stall where the first keypress after a long idle took several seconds to present is fixed by accelerating swapchain recovery on window focus and restore. The workspace rail behaves correctly when set to auto-hide: clicking a workspace switches it while panes are split, the floating rail can be width-dragged and holds open under its resize cursor, and the top tab bar keeps the arrow cursor. Settings are reorganized into a Layout section with separate Rail side and Rail visibility controls, tab-bar height is editable by stepper, typing, or dragging, and saving a rail setting no longer reverts to a shadowed value. Chrome labels no longer clip their descenders on the default one-row bar. Earlier feel fixes remove a right-click freeze, make split-pane tab drag-reorder and inline images work, open Ctrl+clicked paths and links even inside mouse-tracking programs, and restore scrollback in inline TUIs. Windows and macOS ship from the same verified build matrix.</p>

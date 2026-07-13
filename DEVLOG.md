@@ -7,7 +7,7 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-07-13 -- Reconcile attached sessions with the window grid
+## 2026-07-13 -- Release v0.8.6 — attached sessions reconcile to the window grid on attach
 
 A newly attached session now reflows from the host snapshot dimensions to the
 current window content grid immediately, even when the window itself has not
