@@ -258,14 +258,14 @@ configuration. If anything looks ambiguous, stop and confirm before committing.
 
 ## Commit, push, and devlog cadence
 
-- Commit at noteworthy milestones: a passing work packet, a docs/process
+- Commit at noteworthy milestones: a completed change, a docs/process
   checkpoint, or a prototype slice. Avoid noisy partial commits, but do not let
   finished work sit uncommitted.
-- Update `DEVLOG.md` as part of each work packet (what landed, verified
+- Update `DEVLOG.md` as part of each change (what landed, verified
   `cargo test` / `cargo fmt --check` status, remaining gaps) so the running
   record stays in lockstep with the code.
 - Write clear commit messages describing what changed and why.
-- Push after each completed packet, once the tree is clean, `cargo test` and
+- Push after each completed change, once the tree is clean, `cargo test` and
   `cargo fmt --check` pass, public docs and `DEVLOG.md` match the state of the
   project, and tracked/staged content has been scanned for secrets or local-only
   data. Frequent pushed commits are preferred so the public history is a living

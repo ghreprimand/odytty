@@ -19,8 +19,8 @@ menu offers Open / Open With / Copy / Reveal, and `path:line:col` jumps an
 editor to the exact spot. All of this is **default-off**, **local-only**, and
 spawned **argv-only** (no shell interpolation).
 
-The work splits into a pure, owned, fully-tested **spine** (this packet:
-detection + resolution logic, no I/O, no UI) and later **wiring** packets that
+The work splits into a pure, owned, fully-tested **spine** (this module:
+detection + resolution logic, no I/O, no UI) and later **wiring** stages that
 hang hover/click/menu/viewer off the spine.
 
 ---
@@ -141,7 +141,7 @@ enum FsKind { File, Dir }
 - Probe returns `None` → span is **dead**; `resolve` returns `None`. The UI
   never decorates or opens a dead span.
 
-The production probe (added in a wiring packet) is a thin `std::fs::symlink_metadata`
+The production probe (added in a later change) is a thin `std::fs::symlink_metadata`
 wrapper. **Tests inject a `HashMap<String, FsKind>` synthetic fs** and never
 touch the real filesystem — this is enforced structurally: `src/paths/` has no
 `std::fs` import at all; the only stat happens inside the caller-supplied probe.
@@ -283,10 +283,10 @@ src/paths/
 - `src/paths/` is now **wired live** into the input/render path through
   `src/native/app/interaction.rs` (hover detection, `Ctrl`+click open, and the
   image viewer). The pure spine stays I/O-free and std-only; only the caller in
-  `interaction.rs` runs the stat probe and spawns. (The original C0 packet
+  `interaction.rs` runs the stat probe and spawns. (The original C0 stage
   landed the module unreferenced and additive — that "adds zero runtime
   behavior" framing, still echoed in the `src/paths/mod.rs` docstring, describes
-  only that first packet, not the current wired state.)
+  only that first stage, not the current wired state.)
 
 ---
 

@@ -35,7 +35,7 @@ a config file is a fallback, never a requirement.
 The forward work is organized by **theme** (the tracks below), and each item
 carries a **horizon tag** so the relative sequencing is clear:
 
-- **Now** — actively in progress or the immediate next packet.
+- **Now** — actively in progress or the immediate next increment.
 - **Next** — near-term; queued and shovel-ready.
 - **Later** — wanted, but waiting on a foundation or an evidence baseline.
 - **Someday** — acknowledged demand, deliberately deferred; recorded so it is

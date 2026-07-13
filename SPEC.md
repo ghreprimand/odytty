@@ -1298,7 +1298,7 @@ are deferred but architecturally permitted; the boundary rule (rasterization
 external, placement owned) applies to those paths as well. The delivery ladder
 is tracked in `TODO.md`.
 
-**First increment (delivered).** The first `src/emoji/` packet was a renderer-free probe
+**First increment (delivered).** The first `src/emoji/` increment was a renderer-free probe
 module: no atlas, GPU, shader, or core terminal code. Discovery runs in two
 stages. First, `fc-match -f '%{file}\n%{family}' 'Noto Color Emoji'` is invoked
 directly; the returned path and family string are checked against a strict

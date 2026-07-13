@@ -180,8 +180,8 @@ tabs, **not** panes). Panes within a tab do not add tab-strip entries. So:
 - the Phase 0 tab-rename warm-up moves from `Session::title_override` to
   `Tab::title_override` (a tab's title is no longer 1:1 with a session once it can
   hold multiple panes — recommend showing the focused pane's title, overridable
-  per tab). **GPT's warm-up packet landed `title_override` on `Session`
-  (verified/pushed); moving it to `Tab` is a tracked Phase 1 sub-task (§9.5).**
+  per tab). **An earlier change landed `title_override` on `Session`;
+  moving it to `Tab` is a tracked Phase 1 sub-task (§9.5).**
 
 ### 2.5 The `Deref → active session` landmine + explicit tab-level audit list
 
@@ -517,7 +517,7 @@ CLI surface status:
 - `odytty attach <id>` is diagnostic-only in this slice. It validates the id,
   connects to the host, receives and decodes the current `SnapshotEnvelope`,
   prints `id`, `state=attached`, `mode=diagnostic`, `columns`, `rows`, and
-  `panes`, then detaches. Native window-as-client rendering is a later packet.
+  `panes`, then detaches. Native window-as-client rendering is a later stage.
 
 Smallest viable ordering:
 
@@ -568,7 +568,7 @@ Session-host foundation status:
   without an attached window. Host shutdown drains PTY EOF into the terminal
   model before returning `SessionExited`; idle timeout kills and reaps the child.
 - Public CLI wiring exists for detached create/list/diagnostic attach. Native
-  window-as-client attach wiring remains a later packet. The hidden
+  window-as-client attach wiring remains a later stage. The hidden
   `odytty session-host ...` process mode remains internal substrate.
 - **Restore path** applies a decoded envelope into a live core model through
   `Screen::restore_from_envelope`, `Terminal::restore_from_envelope`, or
@@ -659,7 +659,7 @@ input code and the local path are untouched.
   `TIOCSWINSZ` to the concrete PTY (`local_session_resize_routes_to_pty_unchanged`),
   alongside the `gpu_composite_smoke` pixel guard.
 
-Still out of this packet (Phase 2 remainder): output replay/scrubbing and the
+Still out of this stage (Phase 2 remainder): output replay/scrubbing and the
 detach/reattach *daemon* survival across a full window close (the session-host
 peer's surface). The in-window attach client is complete and tested.
 
@@ -758,7 +758,7 @@ Rationale:
 
 ### 7.4 Implementation breakdown (K1 / K2 / K3)
 
-This lands as the keybinding/action-wiring packet **after** the pure `layout.rs`
+This lands as the keybinding/action-wiring stage **after** the pure `layout.rs`
 core and the arena/`TabSet` refactor (both keybinding-independent). It does not
 block Phase 1's structural work.
 
@@ -871,8 +871,8 @@ prefix, rebinding individual pane actions) are documented as opt-in in
 
 **Tracked Phase 1 sub-tasks (decided, not open):**
 
-- **9.5 Move `title_override` from `Session` to `Tab`.** GPT's warm-up packet
-  shipped custom tab renaming with `title_override` on `Session` (verified/pushed).
+- **9.5 Move `title_override` from `Session` to `Tab`.** An earlier change
+  shipped custom tab renaming with `title_override` on `Session`.
   Once a tab can hold multiple panes, the tab name is no longer 1:1 with a session,
   so the override field moves to `Tab`; the displayed title defaults to the focused
   pane's title when unset. Carry the existing rename UI/tests across to the new

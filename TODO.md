@@ -122,7 +122,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         `take_working_directory_changed` poll flag, and survive RIS. Malformed
         URLs / truncated escapes / `%00` / oversized payloads are ignored
         non-panicking; OSC 7 emits no response and never leaks into the grid.
-        OSC 6 accepted-and-ignored. Native consumer is a follow-up packet.
+        OSC 6 accepted-and-ignored. Native consumer is follow-up work.
 - [x] Add mouse reporting modes required by real TUIs.
   - [x] Core: DECSET/DECRST tracking (9/1000/1002/1003) and encoding
         (1005/1006/1015) state plus pure report encoders.
@@ -131,7 +131,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         set/reset, and a pure `encode_mouse_event_pixel` seam emits
         `CSI < Cb ; Px ; Py M|m` from caller-owned 1-based pixel coordinates
         (core never derives pixels from cells; the native pixel seam is a
-        follow-up packet).
+        follow-up work).
   - [x] MS2: SGR-pixel mode 1016 native pixel seam — the native mouse handler
         routes true 1-based physical pixel coordinates (floored from the winit
         cursor position, clamped to the grid pixel extent) to the core pixel
@@ -169,7 +169,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         width stays narrow (future setting).
   - [x] Core: zero-width combining marks attach to the preceding cell's grapheme
         (inline per-cell buffer, cap 2); safe no-op at line start. Renderer
-        composition of marks is a later packet.
+        composition of marks is later work.
 - [x] Grow PTY-backed smoke coverage without making default tests flaky or slow.
 
 ## Stage 3: High-Quality Text And Rendering
@@ -233,7 +233,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
   - [x] Geometric Symbols for Legacy Computing: sextants, octants,
         triangles, eighth strips/ladders, L-combo eighth blocks
         (`U+1FB7C..1FB81`), and segmented digits (`U+1FBF0..1FBF9`) render from
-        cell geometry. Deferred (Packet B, post-v0.1.6): diagonal-edged blocks
+        cell geometry. Deferred (post-v0.1.6): diagonal-edged blocks
         `U+1FB3C..1FB67` and negative diagonals `U+1FBBD..1FBBF` (need a general
         antialiased polygon filler).
 - [ ] Decide the shaping strategy for ligatures/stylistic sets behind settings
@@ -575,7 +575,7 @@ a floor; surpassing it is the standing ambition.
 - [ ] Add color emoji rendering.
   - [x] Decision spike: selected `swash`, a separate premultiplied-RGBA
         emoji atlas/draw segment, Linux Noto Color Emoji CBDT/CBLC first,
-        VS15/VS16 + degradation in the first implementation packet, and
+        VS15/VS16 + degradation in the first implementation increment, and
         deferred-not-blocked COLR v1 / SVG-in-OT support.
   - [x] Emoji font discovery and swash proof module: `src/emoji/` discovers
         Noto Color Emoji via fontconfig or bounded
@@ -587,7 +587,7 @@ a floor; surpassing it is the standing ambition.
         `ColorGlyphAtlas` stores premultiplied synthetic RGBA glyphs keyed by
         shaped font/glyph-or-cluster identity, and native now has a dedicated
         color-glyph pass ordered after coverage glyphs/decorations and before
-        cursor/overlays. Real color font decoding is a follow-up packet.
+        cursor/overlays. Real color font decoding is follow-up work.
   - [x] Noto Color Emoji CBDT/CBLC rendering with VS15/VS16 policy:
         `EmojiRasterizer` shapes eligible cell graphemes with `swash`, renders
         color bitmaps into the premultiplied atlas, drives live color-glyph
