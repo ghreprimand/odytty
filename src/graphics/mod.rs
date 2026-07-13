@@ -7,7 +7,7 @@
 //!   scene consumed by both the Kitty graphics protocol and Sixel.
 //!
 //! Nothing in this module touches the GPU; rendering integration is a later
-//! packet (G2.3).
+//! stage (G2.3).
 
 pub mod placement;
 pub mod sixel;

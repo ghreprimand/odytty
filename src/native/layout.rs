@@ -16,7 +16,7 @@
 
 // Phase-1a scaffold: these items are consumed by the Phase-1b arena/WorkspaceSet
 // refactor. Suppress dead_code so the warning baseline is unchanged while the
-// pure core lands first as an independently testable packet.
+// pure core lands first as an independently testable unit.
 #![allow(dead_code)]
 
 use super::session::SessionToken;

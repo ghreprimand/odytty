@@ -585,7 +585,7 @@ fn glyph_coverage_decision(ch: char, has_cmap: bool, has_inked_outline: bool) ->
 
 /// Font style variant for a glyph slot. Groundwork: keys the dynamic region by
 /// `(FontStyle, char)` so bold/italic glyphs can coexist with regular ones. The
-/// live render path resolves `Regular` only today; a future grid/gpu packet will
+/// live render path resolves `Regular` only today; a future change will
 /// call the `_styled` variants with the matching style font, purely additively.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum FontStyle {
@@ -1075,7 +1075,7 @@ impl GlyphAtlas {
     ///
     /// A non-`Regular` style rasterizes `ch` from the supplied `font` into a
     /// slot keyed by `(style, ch)`, so styled glyphs never collide with regular
-    /// ones. Until a future packet supplies a true bold/italic face, callers
+    /// ones. Until a future change supplies a true bold/italic face, callers
     /// pass the regular font, so a styled slot holds the regular outline; the
     /// keying is what matters for groundwork. Growth, fallback, and the hard
     /// slot cap behave exactly as in [`Self::ensure`].

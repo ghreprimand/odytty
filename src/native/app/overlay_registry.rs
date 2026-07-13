@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Render-overlay registry + modal-input gate — the `app/mod.rs` chokepoint
-//! dissolver (Wave-15 foundation).
+//! dissolver (foundation).
 //!
 //! Two registries built on the same dissolving pattern: `app/mod.rs` holds one
 //! *stable* call site, and the per-feature logic lives behind `pub(in
@@ -12,7 +12,7 @@
 //!   four existing paints (selection → search → overlay → hyperlink) and the two
 //!   existing quad sources (scroll-indicator, status gutter) are relocated
 //!   behind wrappers here; the new contributor slots (hints / copy-mode /
-//!   cursor-trail / background) are no-ops until their feature packet fills in
+//!   cursor-trail / background) are no-ops until their feature fills in
 //!   the body in its own submodule.
 //! - **Modal-input gate** — [`ActiveModal`] plus [`App::active_modal`],
 //!   [`App::route_modal_key`], and [`App::modal_captures_pointer`]. Today every
@@ -354,7 +354,7 @@ impl App {
     }
 
     /// ID3/U5 background-treatment quads — no-op slot (foundation). Filled by
-    /// the background-treatment feature packet.
+    /// the background-treatment feature.
     pub(in crate::native) fn paint_background_quads(
         &self,
         _ctx: &OverlayCtx,
@@ -841,7 +841,7 @@ impl App {
         rename_band_box(self.grid.columns, self.grid.rows)
     }
 
-    // --- cursor render-params aggregator (Wave-15b foundation) ---------------
+    // --- cursor render-params aggregator (foundation) ---------------
 
     /// Fold the per-feature cursor render parameters into one [`CursorRenderParams`].
     /// Each field is filled by exactly one Phase-4 feature's contributor stub —
@@ -851,7 +851,7 @@ impl App {
     /// `CursorRenderParams::default()` and the cursor renders byte-identically.
     ///
     /// This aggregator dissolves the `push_cursor` collision: ID1 and VE4 each
-    /// own one field, so neither edits the other's file in Wave 16.
+    /// own one field, so neither edits the other's file.
     pub(in crate::native) fn cursor_render_params(&self) -> CursorRenderParams {
         CursorRenderParams {
             offset: self.cursor_motion_offset(),

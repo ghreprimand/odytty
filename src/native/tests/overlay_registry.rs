@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Wave-15 foundation tests: the render-overlay registry + modal-input gate.
+//! Foundation tests: the render-overlay registry + modal-input gate.
 //!
 //! These prove the foundation's correctness contract — the *bypass*, not a
 //! config key:
@@ -349,7 +349,7 @@ fn contributor_change_forces_full_rebuild() {
     );
 }
 
-/// Wave-15b R1/R2: the cursor render-params aggregator returns the identity on
+/// R1/R2: the cursor render-params aggregator returns the identity on
 /// the default path — `offset == [0.0, 0.0]` (no slide) and `alpha == 1.0`
 /// (fully opaque, NOT `0.0` which would make the cursor invisible). This is the
 /// byte-identity gate: a default `CursorRenderParams` threads through
@@ -372,7 +372,7 @@ fn cursor_render_params_is_identity_by_default() {
     );
 }
 
-/// Wave-15b R4: with no cursor animation active, the aggregated animation
+/// R4: with no cursor animation active, the aggregated animation
 /// deadline is `None`, so an idle terminal schedules zero extra wakeups — the
 /// `update_control_flow_deadline` collector's min is unperturbed.
 #[test]
@@ -387,7 +387,7 @@ fn animation_deadline_is_none_at_rest() {
     );
 }
 
-// --- ID1 easing + VE4 slide (Wave-16): observability + default-identity ------
+// --- ID1 easing + VE4 slide: observability + default-identity ------
 
 /// Trap #1 (kill-shot): the quantized `anim` key MUST equal the identity bucket
 /// when both features are off. The pure mapping (`from_params(default)`) and the

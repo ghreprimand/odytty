@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! ID1 cursor blink-fade easing for the native app.
 //!
-//! Home for the cursor blink-fade easing feature (ID1). The Wave-15b foundation
-//! landed only the two contributor stubs the [`App::cursor_render_params`] and
+//! Home for the cursor blink-fade easing feature (ID1). The cursor render-params
+//! foundation landed only the two contributor stubs the [`App::cursor_render_params`] and
 //! [`App::animation_deadline`] aggregators fold in; this module fills the live
 //! easing body. The aggregators read the precomputed [`App::cursor_anim_alpha`]
 //! / [`App::cursor_ease_deadline`] fields, which [`App::update_cursor_easing`]

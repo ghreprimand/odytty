@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! "Detach & switch": convert the focused pane into a fresh managed session
-//! (Packet 2 / UX-E).
+//! (UX-E).
 //!
 //! HONEST FRAMING: this is a SPAWN, not a live-process migration. The shell
 //! running in the focused pane is the window's own child (this process owns its
@@ -35,7 +35,7 @@ use crate::session_host::{
 use super::App;
 
 impl App {
-    /// Open the Detach & switch choice dialog over the focused pane (Packet 2).
+    /// Open the Detach & switch choice dialog over the focused pane.
     /// Reads the focused pane's cwd (the App owns the terminal lock; the overlay
     /// cannot) and hands it to the dialog. An unknown cwd is carried as an empty
     /// string → the spawn falls back to the default directory.
@@ -117,7 +117,7 @@ impl App {
         });
     }
 
-    /// Spawn-seam orchestration (Packet 2). Captures the original focused token
+    /// Spawn-seam orchestration. Captures the original focused token
     /// BEFORE spawning, spawns the managed session via `spawner`, attaches +
     /// focuses it, and — for `swap` only — closes the original focused pane via
     /// the existing close path (single-pane tab → close tab; multi-pane → close

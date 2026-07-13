@@ -167,7 +167,7 @@ impl App {
             self.handle_overlay_pointer_button(state, button);
             return;
         }
-        // Modal pointer capture (Wave-15 foundation): a mouse-owning modal
+        // Modal pointer capture (foundation): a mouse-owning modal
         // swallows the press beneath the overlay guard, suppressing both local
         // selection and PTY reporting. The tab-rename modal additionally routes
         // the button to its caret/selection handler (F4-RENAME-MOUSE); copy-mode
@@ -826,7 +826,7 @@ impl App {
             self.handle_overlay_pointer_wheel(delta);
             return;
         }
-        // Modal pointer capture (Wave-15 foundation): a mouse-owning modal
+        // Modal pointer capture (foundation): a mouse-owning modal
         // swallows the wheel beneath the overlay guard. `false` today ⇒ dead
         // code ⇒ the wheel path is unchanged.
         if self.modal_captures_pointer() {

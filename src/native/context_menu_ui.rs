@@ -199,7 +199,7 @@ pub(super) enum ContextMenuItem {
     /// Reveal the resolved path in the desktop file manager (C3).
     RevealPath,
     /// Convert the focused pane into a fresh **managed** session in the same cwd
-    /// and switch to it (Packet 2 / Detach & switch). Always available (there is
+    /// and switch to it (Detach & switch). Always available (there is
     /// always a focused pane). HONEST framing: this is a SPAWN of a new shell in
     /// the same directory, not a live-process migration — the running shell is
     /// the window's child and cannot be losslessly handed to a survivable host.
@@ -1982,7 +1982,7 @@ mod tests {
 
         // A press on the visible row holding the last item activates it. The
         // last visible single-pane item is now Detach & switch (appended to the
-        // launcher section after Manage Sessions in Packet 2).
+        // launcher section after Manage Sessions).
         let visible_row = last_body_row - scroll;
         assert_eq!(
             m.handle_press(visible_row, body_height, PointerButton::Left),

@@ -14,7 +14,7 @@
 //! ([`normalize_absolute_range`], [`viewport_top_absolute_row`]) and the
 //! word-character predicate ([`is_selection_word_char`]). It defines its own
 //! state here and **edits nothing** in `selection.rs`. The host (a later wiring
-//! packet) is the only thing that turns a derived range into a painted
+//! stage) is the only thing that turns a derived range into a painted
 //! selection (`AbsoluteSelectionState::set_range`) or a clipboard write.
 //!
 //! ## Coordinate space
@@ -67,7 +67,7 @@ pub enum SelectKind {
     Char,
     Line,
     /// Reserved column/rectangular selection (MOUSE-RECT). Not constructed in
-    /// v1 core; range derivation returns `None` for it until the block packet.
+    /// v1 core; range derivation returns `None` for it until block selection is wired.
     Block,
 }
 
@@ -79,7 +79,7 @@ pub enum Pending {
     G,
 }
 
-/// A normalized copy-mode key. The host (wiring packet) maps raw winit key
+/// A normalized copy-mode key. The host (wiring layer) maps raw winit key
 /// events to these; the pure model only ever sees the semantic key, so its
 /// behavior is testable headless.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

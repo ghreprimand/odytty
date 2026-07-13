@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-13 -- Finish clearing work-cycle vocabulary from source comments
+
+A follow-up sweep removes the remaining internal work-cycle codenames from
+tracked source comments so every `//`, `///`, and `//!` note describes the code
+or the feature rather than the schedule that produced it. Feature identifiers
+that had leaked into comments now read as the features they name: the
+detach-and-switch dialog, the font picker, right-side tab placement, block
+copy-mode selection, rail autohide, and the overlay-registry and cursor
+render-params foundations. Test section headers and doc comments were reworded
+in kind. Comment-only, no behavior change; the full suite, clippy, and
+formatting are unchanged.
+
 ## 2026-07-13 -- Clear development-cycle vocabulary from source comments
 
 A further pass over the tracked source removes the remaining internal

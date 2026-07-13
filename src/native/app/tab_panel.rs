@@ -20,7 +20,7 @@
 //!    live panel).
 //!
 //! Pure and GPU-device-free: unit-tested without a window. Handles all three
-//! axes (`Top`, `Left`, `Right`) so the P-RIGHT packet rides this unchanged.
+//! axes (`Top`, `Left`, `Right`) so right-side tab placement rides this unchanged.
 
 use super::*;
 use crate::theme::Srgb;

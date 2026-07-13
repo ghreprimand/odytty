@@ -7,7 +7,7 @@
 //! signature consumer) so the integration touches `app/mod.rs` for exactly ONE line:
 //! the `copy_mode: Option<CopyModeState>` field + its `None` initializer.
 //!
-//! COPYMODE rides the Wave-15 overlay-registry + modal-input foundation:
+//! COPYMODE rides the overlay-registry + modal-input foundation:
 //!
 //! - **`ActiveModal` input gate (YES, and pointer-owning).** While active the
 //!   modal captures EVERY key beneath the overlay/search guards
@@ -304,7 +304,7 @@ impl App {
         }
     }
 
-    // --- overlay-registry / modal-gate contributor slots (Wave-15) ---
+    // --- overlay-registry / modal-gate contributor slots ---
 
     /// Paint the copy-mode selection band + caret onto the snapshot cells (the
     /// cell-mutation lane). No-op when copy mode is inactive, so the default

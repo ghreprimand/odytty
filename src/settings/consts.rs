@@ -732,8 +732,8 @@ pub const MAX_TAB_PANEL_STRENGTH: f32 = 1.0;
 /// removes the line only (the panel stays). Both axes, hot-reloadable.
 pub const DEFAULT_TAB_SEAM: bool = true;
 
-/// Rail auto-hide (`ODYTTY_TAB_RAIL_AUTOHIDE`, F4-P1/P3): parsed and stored now;
-/// the reveal/hide behavior lands in the P-AUTOHIDE packet. Off by default,
+/// Rail auto-hide (`ODYTTY_TAB_RAIL_AUTOHIDE`, F4-P1/P3): the reveal/hide
+/// behavior is provided by rail autohide. Off by default,
 /// rail-only.
 pub const DEFAULT_TAB_RAIL_AUTOHIDE: bool = false;
 

@@ -1787,7 +1787,7 @@ fn clicking_attach_session_opens_the_session_attach_overlay() {
     );
 }
 
-/// Packet 2: clicking the "Detach & switch" menu item closes the menu and opens
+/// Clicking the "Detach & switch" menu item closes the menu and opens
 /// the 3-way choice dialog. The test terminal has no OSC 7 cwd, so the dialog
 /// names the default directory — the assertion is on the overlay mode switch.
 #[test]
@@ -1808,7 +1808,7 @@ fn clicking_detach_switch_opens_the_choice_dialog() {
     );
 }
 
-/// Packet 2 failure guard: a spawn failure during Detach & switch surfaces a
+/// Failure guard: a spawn failure during Detach & switch surfaces a
 /// transient notice and leaves the original pane untouched — never close the
 /// original before the new managed session is confirmed live.
 #[test]

@@ -553,14 +553,14 @@ impl App {
                 let _ = &id;
                 self.open_session_attach_overlay();
             }
-            // Packet 2: "Detach & switch" was chosen on the focused pane. The
+            // "Detach & switch" was chosen on the focused pane. The
             // menu closed itself; read the focused pane's cwd and open the 3-way
             // choice dialog.
             OverlayOutcome::ContextMenuDetachSwitch => {
                 self.flush_pending_overlay_settings();
                 self.open_detach_switch_choice();
             }
-            // Packet 2: the Detach & switch dialog closed itself before emitting
+            // The Detach & switch dialog closed itself before emitting
             // these; run the chosen orchestration. Swap = spawn + attach + close
             // the original pane; Keep both = spawn + attach, original untouched.
             // A spawn/attach failure surfaces a transient notice and leaves the

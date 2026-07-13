@@ -146,13 +146,13 @@ impl RenderSignature {
 ///
 /// Foundation note: every variant except `Inert` is currently unconstructed in
 /// production (the contributor `*_overlay_signature()` methods all return
-/// `Inert`); the variants land here so the Wave N+1 feature packets fill in
-/// only their own submodule body without re-editing this enum.
+/// `Inert`); the variants land here so later feature work fills in
+/// only its own submodule body without re-editing this enum.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 // Foundation scaffolding: every variant except `Inert` is intentionally
-// unconstructed in production until its Wave N+1 feature packet fills in the
+// unconstructed in production until its later feature work fills in the
 // corresponding `*_overlay_signature()` body. Landing the variants now is the
-// whole point of the dissolver — feature packets edit only their own submodule,
+// whole point of the dissolver: feature work edits only its own submodule,
 // never this enum.
 #[allow(dead_code)]
 pub(super) enum OverlayFragment {

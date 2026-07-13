@@ -8,7 +8,7 @@
 //! re-lifts the foreground. Readability is therefore preserved by construction,
 //! per cell, and the effect needs no separate quad contributor.
 //!
-//! Foundation lanes (Wave-15) this rides:
+//! Foundation lanes this rides:
 //!
 //! - **`OverlayCompositeSignature.background` fragment (YES).** When a treatment
 //!   is active the cache key becomes [`OverlayFragment::Background`] (quantized

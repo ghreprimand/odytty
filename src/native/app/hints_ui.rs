@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! HINTS: keyboard pattern-select (URLs / paths / SHAs → label → copy).
 //!
-//! Rebased onto the Wave-15 overlay-registry + modal-input foundation. HINTS
+//! Rebased onto the overlay-registry + modal-input foundation. HINTS
 //! rides exactly two of the foundation's three lanes and explicitly NOT the
 //! third (D-HNF-1):
 //!
@@ -151,7 +151,7 @@ impl App {
         true
     }
 
-    // --- overlay-registry / modal-gate contributor slots (Wave-15) ---
+    // --- overlay-registry / modal-gate contributor slots ---
 
     /// Paint the live label badges onto the snapshot cells (the cell-mutation
     /// lane — badges are glyphs, never quads; D-HNF-1). No-op when hints are

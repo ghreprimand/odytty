@@ -12,8 +12,8 @@ use super::session::SessionToken;
 
 /// Events the PTY pump thread sends to wake the `winit` event loop.
 ///
-/// The loop otherwise sleeps (`ControlFlow::Wait`) with no input wired this
-/// packet, so these proxy events are what drive redraws as shell output
+/// The loop otherwise sleeps (`ControlFlow::Wait`) with no input wired
+/// yet, so these proxy events are what drive redraws as shell output
 /// arrives and what signals a clean exit when the shell ends.
 // Not `Copy`: the `ImageUploaded` variant carries an owned `String`. Every
 // send/handle site constructs a fresh event and moves it once, so dropping

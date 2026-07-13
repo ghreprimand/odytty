@@ -711,7 +711,7 @@ fn attach_replace_detaches_hosted_current_host_survives() {
     join_within(host_new, "replace-hosted new host");
 }
 
-// --- Packet 2: Detach & switch orchestration (WorkspaceSet level) ---
+// --- Detach & switch orchestration (WorkspaceSet level) ---
 //
 // The App reads the focused pane's cwd, spawns a FRESH managed session in it,
 // attaches + focuses it, then (Swap only) closes the ORIGINAL focused pane via

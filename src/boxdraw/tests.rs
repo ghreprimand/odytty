@@ -585,7 +585,7 @@ fn half_shade_inks_one_half_at_partial_coverage() {
     assert!(0 < at(&right, W - 1, H / 2) && at(&right, W - 1, H / 2) < 255);
 }
 
-// --- Packet A: L-combo eighth blocks + segmented digits (Legacy Computing) ---
+// --- Group A: L-combo eighth blocks + segmented digits (Legacy Computing) ---
 
 #[test]
 fn lcombo_eighth_blocks_and_segmented_digits_cover_and_render() {

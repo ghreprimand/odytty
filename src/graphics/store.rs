@@ -2,7 +2,7 @@
 //! CPU-side RGBA image storage shared by terminal graphics protocols.
 //!
 //! The store is renderer-independent: decoded Kitty/Sixel images land here as
-//! normalized RGBA8 pixels, and a later GPU packet can lazily upload the image
+//! normalized RGBA8 pixels, and later GPU work can lazily upload the image
 //! records referenced by visible placements. The store enforces hard decoded
 //! byte and image-count caps so protocol decoders cannot grow memory without
 //! bound.

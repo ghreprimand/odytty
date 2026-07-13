@@ -994,7 +994,7 @@ impl Session {
 /// [`PaneNode`]) and tracks which pane within the tab is focused. A fresh tab
 /// is a single [`PaneNode::Leaf`], which the render/resize paths treat
 /// byte-identically to today's single-session window (design doc §2.3). Pane
-/// splitting is wired in a later Phase-1 packet; for now every tab is a single
+/// splitting is wired in later work; for now every tab is a single
 /// leaf, so `tabs.len()` equals the session count and behaviour is unchanged.
 pub(super) struct Tab {
     pub(super) layout: PaneNode,
@@ -1018,8 +1018,8 @@ pub(super) struct Tab {
     /// of the active workspace). Tab granularity is the finest useful rollup
     /// unit; workspace-level activity is DERIVED from its tabs
     /// ([`WorkspaceSet::workspace_has_activity`]) rather than stored twice. The
-    /// rollup UI that renders this flag is deferred to a later cycle; this
-    /// packet only lands and maintains the signal, so it has no reader yet.
+    /// rollup UI that renders this flag is deferred to a later cycle; for now
+    /// only the signal is landed and maintained, so it has no reader yet.
     #[allow(dead_code)]
     pub(super) activity: bool,
 }
@@ -2690,8 +2690,8 @@ impl WorkspaceSet {
 
 /// Pane-management operations for the active tab (design doc §4–§5). These are
 /// the geometry-free half of splits/panes: tree mutation and tree-order focus.
-/// They are driven by the keybinding layer (a later packet) and, in this
-/// packet, by `#[cfg(test)]` seams + the multi-pane render dispatch (1c). The
+/// They are driven by the keybinding layer (later work) and, for
+/// now, by `#[cfg(test)]` seams + the multi-pane render dispatch (1c). The
 /// `allow(dead_code)` is scaffolding parity with `layout.rs`: it comes off as
 /// the render path (`active_layout`/`active_pane_count`/`active_is_single_pane`)
 /// and the keybinding ops wire these in. Single-pane tabs never reach the

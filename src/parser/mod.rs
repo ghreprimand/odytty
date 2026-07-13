@@ -144,6 +144,6 @@ pub trait VtDispatch {
     /// An Application Program Command (`ESC _ … ST`) payload was received.
     ///
     /// The terminal core ignores it today; the graphics-protocol work (Kitty)
-    /// consumes it on owned plumbing in a later packet.
+    /// consumes it on owned plumbing in later work.
     fn apc_dispatch(&mut self, _data: &[u8]) {}
 }

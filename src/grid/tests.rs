@@ -944,7 +944,7 @@ fn cursor_render_params_default_is_byte_identical() {
         eprintln!("skipping: no system font available");
         return;
     };
-    // Wave-15b R1: a default `CursorRenderParams` threaded through the
+    // R1: a default `CursorRenderParams` threaded through the
     // with-origin/with-params path produces vertices byte-identical to the
     // legacy origin-only path, for every cursor style.
     let term = Terminal::new(3, 2);
@@ -971,7 +971,7 @@ fn cursor_render_params_offset_and_alpha_are_live() {
         eprintln!("skipping: no system font available");
         return;
     };
-    // Wave-15b R1 (inverse): the threading must actually apply — a guard
+    // R1 (inverse): the threading must actually apply, a guard
     // against a future edit silently dropping `params` (which would leave the
     // default-identity test green while the feature is dead). A blank cell emits
     // exactly one block quad, so vertex 0 is the cursor block.

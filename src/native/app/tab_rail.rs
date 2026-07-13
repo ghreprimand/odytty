@@ -37,7 +37,7 @@
 //!
 //! ## Scope
 //! `left` placement is live; `right` is wired but gated behind
-//! [`crate::settings::TabBarPlacement::effective`] until the P-RIGHT packet. The
+//! [`crate::settings::TabBarPlacement::effective`] until right-side placement is wired. The
 //! band width, slot height, and inter-slot gap are the live
 //! `ODYTTY_TAB_RAIL_WIDTH` / `ODYTTY_TAB_RAIL_SLOT_ROWS` / `ODYTTY_TAB_RAIL_GAP`
 //! knobs (resolved by the integration layer into [`RailGeom`] + `rail_cols`);

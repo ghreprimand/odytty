@@ -151,7 +151,7 @@ pub(super) enum SettingsPanelOutcome {
     OpenKeyBindings,
     /// Open the font-family picker (FONT-PICKER). Emitted from the Fonts
     /// section's `font_family` row. The picker overlay
-    /// is sequenced in the FONT-PICKER packet; the variant is wired here.
+    /// is sequenced in the font picker; the variant is wired here.
     OpenFontPicker,
     /// Save all pending changes and close the overlay.
     SaveAndClose(Vec<SettingEdit>),

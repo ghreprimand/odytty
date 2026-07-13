@@ -88,7 +88,7 @@ pub(super) struct OverlayUi {
     /// so the carried id never needs to gate the cache (same trick as
     /// `attach_choice_session_id`).
     confirm_kill_session_id: String,
-    /// The focused pane's cwd carried by the Detach & switch dialog (Packet 2).
+    /// The focused pane's cwd carried by the Detach & switch dialog.
     /// Set when the dialog opens; the Swap / Keep-both arms emit it back to the
     /// App, which spawns a managed session in it. Empty = unknown cwd (spawn in
     /// the default directory). Operator-controlled text (an OSC 7 path), so the
@@ -1118,7 +1118,7 @@ impl OverlayUi {
         self.open && self.mode == OverlayMode::ConfirmOpenLayout
     }
 
-    /// Open the Detach & switch choice dialog (Packet 2) for the focused pane's
+    /// Open the Detach & switch choice dialog for the focused pane's
     /// `cwd` (empty = unknown → spawn in the default directory). Called by the
     /// App after it reads the focused pane's cwd (the overlay cannot read the
     /// terminal). Idempotent: starts with `close()` so a repeated open cannot
@@ -1131,7 +1131,7 @@ impl OverlayUi {
         self.open = true;
     }
 
-    /// Keyboard contract for the Detach & switch dialog (Packet 2). `S` swaps
+    /// Keyboard contract for the Detach & switch dialog. `S` swaps
     /// (spawn + close this pane); `K` keeps both (spawn + leave this pane); Esc
     /// cancels; every other key — INCLUDING Enter — is swallowed. There is no
     /// Enter default on purpose: Swap is destructive (it closes the focused
@@ -1188,7 +1188,7 @@ impl OverlayUi {
         }
     }
 
-    /// Whether the Detach & switch dialog is the active overlay mode (Packet 2).
+    /// Whether the Detach & switch dialog is the active overlay mode.
     /// Used by the App's test seam to assert the dialog opened.
     #[cfg(test)]
     pub(super) fn is_detach_switch_choice(&self) -> bool {
@@ -1457,7 +1457,7 @@ impl OverlayUi {
                         }
                         None => OverlayOutcome::Consumed,
                     },
-                    // Packet 2: the menu closed itself; the App reads the focused
+                    // The menu closed itself; the App reads the focused
                     // pane's cwd (it owns the terminal lock) and opens the 3-way
                     // Detach & switch choice dialog. The overlay cannot read the
                     // terminal, so the cwd is resolved App-side, not here.
@@ -2714,7 +2714,7 @@ pub(super) enum OverlayOutcome {
     OpenKeyBindings,
     /// Open the font-family picker (FONT-PICKER). Emitted from the Fonts
     /// section's `font_family` row. The picker overlay is sequenced in the
-    /// FONT-PICKER packet; for now `apply_overlay_outcome` handles it as a stub.
+    /// the font picker; for now `apply_overlay_outcome` handles it as a stub.
     OpenFontPicker,
     /// Boxed because `Settings` is by far the largest payload across this
     /// short-lived outcome enum; boxing keeps the enum small to move and clears
@@ -3003,18 +3003,18 @@ pub(super) enum OverlayOutcome {
     /// itself; the App calls `session_host::kill_session` and refreshes the
     /// manager so the row disappears.
     KillSessionConfirmed(String),
-    /// The user chose "Detach & switch" on the focused pane (Packet 2). The menu
+    /// The user chose "Detach & switch" on the focused pane. The menu
     /// has already closed itself; the App reads the focused pane's cwd and opens
     /// the [`OverlayMode::DetachSwitchChoice`] dialog.
     ContextMenuDetachSwitch,
-    /// The user chose "Swap (close this)" in the Detach & switch dialog (Packet
-    /// 2): spawn a fresh managed session in the carried cwd, attach + focus it,
+    /// The user chose "Swap (close this)" in the Detach & switch dialog:
+    /// spawn a fresh managed session in the carried cwd, attach + focus it,
     /// then close the original focused pane. The overlay has already closed
     /// itself. Empty string = unknown cwd (spawn in the default directory). The
     /// cwd is display+spawn-config only — it flows into the same
     /// `working_directory` `odytty new` uses, never a raw shell arg.
     DetachSwitchSwap(String),
-    /// The user chose "Keep both" in the Detach & switch dialog (Packet 2):
+    /// The user chose "Keep both" in the Detach & switch dialog:
     /// spawn a fresh managed session in the carried cwd, attach + focus it, and
     /// leave the original pane untouched. The overlay has already closed itself.
     /// Empty string = unknown cwd (spawn in the default directory).
@@ -3143,7 +3143,7 @@ pub(super) enum OverlayMode {
     /// [`OverlayOutcome::KillSessionConfirmed`]), `[Esc / N]` cancels. Modeled
     /// on `ConfirmClose`; the pending host session-id is carried on the overlay.
     ConfirmKillSession,
-    /// Detach & switch choice dialog (Packet 2). A centered, static 3-way modal
+    /// Detach & switch choice dialog. A centered, static 3-way modal
     /// shown when the user picks "Detach & switch" on the focused pane: `[S]`
     /// swaps (spawn a managed session + close this pane), `[K]` keeps both
     /// (spawn + leave this pane), `[Esc]` cancels. Honest framing: a SPAWN of a
@@ -3374,7 +3374,7 @@ const CONFIRM_KILL_SESSION_WIDTH: usize = 52;
 /// bracket tokens anchor the Kill / Cancel regions.
 const CONFIRM_KILL_SESSION_ACTION_LINE: &str = "Kill it?   [Enter / Y] Kill     [Esc / N] Cancel";
 
-/// Fixed body width (cells) for the Detach & switch dialog (Packet 2). Sized for
+/// Fixed body width (cells) for the Detach & switch dialog. Sized for
 /// the action line plus the panel border inset; the `.max(36)` floor in
 /// [`overlay_rect`] keeps small grids sane.
 const DETACH_SWITCH_WIDTH: usize = 64;
@@ -3482,7 +3482,7 @@ pub(super) fn overlay_rect(
         OverlayMode::AttachChoice => ATTACH_CHOICE_WIDTH,
         // Static kill-confirmation dialog (Manage Sessions); same treatment.
         OverlayMode::ConfirmKillSession => CONFIRM_KILL_SESSION_WIDTH,
-        // Static Detach & switch choice dialog (Packet 2); same treatment.
+        // Static Detach & switch choice dialog; same treatment.
         OverlayMode::DetachSwitchChoice => DETACH_SWITCH_WIDTH,
         // Static replace-tab confirm dialog (ODP-5D); same treatment.
         OverlayMode::ConfirmReplaceTab => CONFIRM_REPLACE_TAB_WIDTH,
@@ -3922,7 +3922,7 @@ impl OverlayUi {
                     },
                 ]
             }
-            // Static Detach & switch copy (Packet 2). Row 0 names the cwd, row 1
+            // Static Detach & switch copy. Row 0 names the cwd, row 1
             // is the honest data-loss warning, row 2 blank, row 3 the action
             // line — the action row index (3) matches `ACTION_ROW` in
             // `detach_switch_click`. The cwd is operator-controlled text, so it
@@ -7382,7 +7382,7 @@ mod tests {
         );
     }
 
-    // --- Packet 2: Detach & switch choice dialog (open / key / click parity) ---
+    // --- Detach & switch choice dialog (open / key / click parity) ---
 
     #[test]
     fn detach_switch_opens_in_detach_switch_mode_and_names_cwd() {

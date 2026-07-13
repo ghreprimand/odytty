@@ -1313,7 +1313,7 @@ impl App {
 
     /// Create a fresh workspace — its own single-pane tab — and switch to it.
     /// Driven by the rail `+` slot, the "New Workspace" context-menu item, and
-    /// (a later packet) the keyboard action. The new session is initialized
+    /// (later work) the keyboard action. The new session is initialized
     /// exactly like New Tab (theme / cursor / scrollback), and the switch may
     /// make the rail auto-appear, so the content grid is reflowed and the
     /// auto-hidden rail is flashed to confirm the change.
@@ -1759,7 +1759,7 @@ impl App {
             // active pane; background panes are parked, so an active-only source
             // matches the consumer and cannot strand a stale hold in the wake set.
             self.synchronized_output_hold.deadline(),
-            // Wave-15b cursor-animation wake source, ACTIVE pane only (NF20-B).
+            // Cursor-animation wake source, ACTIVE pane only (NF20-B).
             // `None` at rest (both fields `None`). Sourcing all panes stranded a
             // backgrounded mid-animation deadline with no consumer; the active
             // pane's ease/slide are advanced by the frame path, background panes
@@ -5177,7 +5177,7 @@ impl App {
         // latches its tab's activity flag (the rollup input, ODP-6 v2 — the flag
         // is landed and maintained here, but no rollup UI reads it yet). Kept in
         // maintenance, NOT in `rebuild_multipane`, to avoid colliding with the
-        // multipane viewport-bookkeeping packet.
+        // multipane viewport-bookkeeping work.
         let bell_sweep = self
             .sessions
             .drain_bells(self.settings.command_status_gutter);

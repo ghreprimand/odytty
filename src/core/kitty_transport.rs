@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Kitty graphics protocol file-based transports (t=f, t=t, t=s).
 //!
-//! SECURITY PACKET — these transports read host filesystem state driven by
+//! SECURITY-CRITICAL: these transports read host filesystem state driven by
 //! bytes arriving over the PTY (potentially from a remote SSH session).
 //! Every path is validated before any I/O:
 //!

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Headless multi-session foundation tests for the tabs packet.
+//! Headless foundation tests for the multi-session tabs feature.
 
 use crate::core::Color;
 use crate::native::app::interactive_paths::MapProbe;
