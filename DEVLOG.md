@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-13 -- Slim prebuilt Linux distribution: binary tarball, .deb, .rpm, and a one-line installer
+
+Linux gains three prebuilt install paths alongside the portable AppImage, all
+x86_64 and built on the ubuntu-22.04 release runner (glibc 2.35 floor):
+
+- A standalone binary tarball, `odytty-linux-x86_64.tar.gz`, carrying the
+  release binary, the desktop launcher, AppStream metainfo, the full hicolor
+  icon set, and a small local `install.sh` that copies everything into a prefix
+  (defaults to ~/.local for a no-root install, /usr/local with sudo).
+- A native Debian package, `odytty-amd64.deb`, via cargo-deb. Runtime
+  dependencies combine the automatically derived shared-library deps (glibc and
+  libgcc with version floors) with the font, Vulkan, and xkbcommon libraries
+  that winit and wgpu load at runtime.
+- A best-effort RPM, `odytty-x86_64.rpm`, via cargo-generate-rpm. Like the
+  AppImage it is cross-built on Ubuntu and cannot be runtime-tested on the CI
+  matrix, only metadata-validated; the Fedora-named runtime dependencies are
+  declared explicitly.
+
+A hosted one-line installer, `dist/install.sh`, detects the package manager and
+installs the matching artifact from the latest release, always verifying the
+download against the published SHA256SUMS first. On macOS it prints the Homebrew
+command and on Windows the Scoop command; other architectures are pointed at a
+source build or the AppImage. It supports `--dry-run` for offline smoke tests.
+
+The release workflow gains linux-tarball, deb, and rpm producer jobs and now
+accepts a manual dispatch: a non-tag run builds and uploads every artifact
+while the publish, Scoop, Homebrew, and AUR steps stay guarded to tag refs, so
+the new jobs can be validated before a version is cut. CI shellchecks both
+scripts and runs the installer dry-run. macOS and Windows keep their existing
+Homebrew and Scoop channels with no change. Flatpak remains out of scope.
+
+Verified: cargo build, cargo test, cargo fmt --check, and cargo clippy
+--all-targets --locked -- -D warnings are clean; both shell scripts pass a
+syntax check and the installer dry-run; the deb and rpm package metadata is
+authored against the cargo-deb and cargo-generate-rpm schemas and validated in
+CI. No version bump; the 0.8.7 cut is a later step.
+
 ## 2026-07-13 -- Release v0.8.6 — attached sessions reconcile to the window grid on attach
 
 A newly attached session now reflows from the host snapshot dimensions to the

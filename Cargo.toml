@@ -103,3 +103,69 @@ objc2-app-kit = { version = "0.2.2", features = ["NSWorkspace"] }
 [[bench]]
 name = "perf"
 harness = false
+
+# Debian package metadata (cargo-deb). Produces a native .deb for the prebuilt
+# Linux x86_64 release binary as a slim alternative to the portable AppImage.
+# The release CI builds on ubuntu-22.04, so the glibc floor is 2.35; `$auto`
+# expands (via dpkg-shlibdeps) to the exact ldd-linked runtime deps with their
+# version floors (libc6, libgcc-s1, libm). The font/Vulkan/xkbcommon libraries
+# are dlopen'd at runtime by winit/wgpu (they never appear in `ldd`), so they
+# are declared explicitly here, mirroring the AUR runtime set mapped to Debian
+# package names. libwayland-client0 is intentionally omitted: winit dlopens it
+# only on a Wayland session and falls back to X11 otherwise, and it is not in
+# the reference AUR depends.
+[package.metadata.deb]
+maintainer = "Unfinished Works <maintainers@odytty.unfinished-works.com>"
+copyright = "2025 Unfinished Works"
+license-file = ["LICENSE", "0"]
+section = "utils"
+priority = "optional"
+extended-description = """\
+GPU-rendered Rust terminal emulator with an Odyssey visual identity. Owns the \
+terminal byte path from PTY allocation through escape parsing, terminal state, \
+render geometry, and GPU presentation. The host must provide a working Vulkan \
+driver (Mesa or a vendor ICD)."""
+depends = "$auto, libfontconfig1, libfreetype6, libvulkan1, libxkbcommon0, hicolor-icon-theme"
+assets = [
+    ["target/release/odytty", "usr/bin/", "755"],
+    ["dist/linux/io.unfinished_works.odytty.desktop", "usr/share/applications/", "644"],
+    ["dist/linux/io.unfinished_works.odytty.metainfo.xml", "usr/share/metainfo/", "644"],
+    ["dist/icons/hicolor/48x48/apps/io.unfinished_works.odytty.png", "usr/share/icons/hicolor/48x48/apps/", "644"],
+    ["dist/icons/hicolor/64x64/apps/io.unfinished_works.odytty.png", "usr/share/icons/hicolor/64x64/apps/", "644"],
+    ["dist/icons/hicolor/128x128/apps/io.unfinished_works.odytty.png", "usr/share/icons/hicolor/128x128/apps/", "644"],
+    ["dist/icons/hicolor/256x256/apps/io.unfinished_works.odytty.png", "usr/share/icons/hicolor/256x256/apps/", "644"],
+    ["dist/icons/hicolor/scalable/apps/io.unfinished_works.odytty.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["README.md", "usr/share/doc/odytty/README.md", "644"],
+    ["NOTICE", "usr/share/doc/odytty/NOTICE", "644"],
+]
+
+# RPM package metadata (cargo-generate-rpm). Best-effort like the AppImage: the
+# .rpm is cross-built on the ubuntu-22.04 release runner and cannot be runtime
+# tested on the base CI matrix, only metadata-validated (`rpm -qip`). auto-req
+# is disabled because ELF auto-requires generated on Ubuntu are not a reliable
+# cross-distro signal; the meaningful runtime deps are declared explicitly with
+# Fedora package names (glibc/libgcc are present on every Fedora host). Same
+# asset layout as the .deb.
+[package.metadata.generate-rpm]
+summary = "GPU-rendered Rust terminal emulator with an Odyssey visual identity"
+auto-req = "no"
+assets = [
+    { source = "target/release/odytty", dest = "/usr/bin/odytty", mode = "755" },
+    { source = "dist/linux/io.unfinished_works.odytty.desktop", dest = "/usr/share/applications/io.unfinished_works.odytty.desktop", mode = "644" },
+    { source = "dist/linux/io.unfinished_works.odytty.metainfo.xml", dest = "/usr/share/metainfo/io.unfinished_works.odytty.metainfo.xml", mode = "644" },
+    { source = "dist/icons/hicolor/48x48/apps/io.unfinished_works.odytty.png", dest = "/usr/share/icons/hicolor/48x48/apps/io.unfinished_works.odytty.png", mode = "644" },
+    { source = "dist/icons/hicolor/64x64/apps/io.unfinished_works.odytty.png", dest = "/usr/share/icons/hicolor/64x64/apps/io.unfinished_works.odytty.png", mode = "644" },
+    { source = "dist/icons/hicolor/128x128/apps/io.unfinished_works.odytty.png", dest = "/usr/share/icons/hicolor/128x128/apps/io.unfinished_works.odytty.png", mode = "644" },
+    { source = "dist/icons/hicolor/256x256/apps/io.unfinished_works.odytty.png", dest = "/usr/share/icons/hicolor/256x256/apps/io.unfinished_works.odytty.png", mode = "644" },
+    { source = "dist/icons/hicolor/scalable/apps/io.unfinished_works.odytty.svg", dest = "/usr/share/icons/hicolor/scalable/apps/io.unfinished_works.odytty.svg", mode = "644" },
+    { source = "README.md", dest = "/usr/share/doc/odytty/README.md", mode = "644" },
+    { source = "NOTICE", dest = "/usr/share/doc/odytty/NOTICE", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/licenses/odytty/LICENSE", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+fontconfig = "*"
+freetype = "*"
+vulkan-loader = "*"
+libxkbcommon = "*"
+hicolor-icon-theme = "*"
