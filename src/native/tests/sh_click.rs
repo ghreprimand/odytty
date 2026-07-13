@@ -418,7 +418,7 @@ fn heuristic_soft_wrap_multi_row_click_travels() {
     // F2 multi-row heuristic (fails-before): same geometry WITHOUT the private
     // signal (bash/PowerShell tier). The wrapped rows are known from the core
     // wrap flags; the grapheme-cell heuristic still travels across the wrap
-    // (operator-approved: motion is non-destructive, a mis-land is click-again).
+    // (by design: motion is non-destructive, a mis-land is click-again).
     let mut content = Vec::new();
     content.extend_from_slice(b"\x1b]133;A;click_events=1\x07$ \x1b]133;B\x07");
     content.extend_from_slice(&[b'a'; 78]);

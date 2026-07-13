@@ -755,7 +755,7 @@ pub const MAX_TAB_RAIL_REVEAL_PX: f32 = 32.0;
 /// left click on the live shell input moves the shell's cursor to the clicked
 /// position by emitting the matching number of Left/Right cursor keys —
 /// the click slice of OSC 133 `click_events`, never a shell-input takeover.
-/// ON by default since F2 (operator-approved): it stays inert unless a
+/// ON by default since F2: it stays inert unless a
 /// cooperating shell has advertised `click_events=1` on its prompt, so a
 /// non-integrated shell never triggers it — the blast radius of the default is
 /// exactly the shells whose integration opted in. While off (or without an

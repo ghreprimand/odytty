@@ -2631,7 +2631,7 @@ impl App {
 /// no travel: the click was off the region, on the prompt side of the input
 /// start, on an untrustworthy geometry, or on the cursor's own position.
 ///
-/// Certainty ladder (F2 §3, operator-approved):
+/// Certainty ladder (F2 §3):
 /// - `Unknown` (stale mark, or a hard-newline multi-logical-line buffer per
 ///   the signal's `nl=` offsets) → `None`. Left/Right DO cross hard newlines
 ///   in every editor, but the continuation-prompt geometry (PS2 / `>>` /

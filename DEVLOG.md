@@ -7,6 +7,13 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-13 -- Reword source comments to design voice
+
+Three code comments that recorded who approved a decision now state the design
+intent instead. The certainty ladder for opening paths under mouse tracking, the
+non-destructive click-again note in its test, and the click-hint default gate all
+keep their meaning while dropping the process attribution. No behavior change.
+
 ## 2026-07-13 -- Reconcile rail alias writeback and make hyperlink eviction truly LRU
 
 Saving a rail setting from the panel or a mouse resize now reconciles the
