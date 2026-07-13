@@ -162,9 +162,10 @@ each new version automatically shortly after the release publishes, so
 
 ### Updating
 
-**Cask (recommended):** refresh to the newest release:
+**Cask (recommended):** refresh to the newest release. `brew update` refreshes the tap first so a just-published version is visible:
 
 ```sh
+brew update
 brew upgrade --cask odytty
 ```
 
@@ -325,9 +326,10 @@ its unit tests pass.
 
 ### Updating
 
-**Scoop (recommended):** refresh to the newest release:
+**Scoop (recommended):** refresh to the newest release. `scoop update` refreshes the bucket first so a just-published version is visible:
 
 ```powershell
+scoop update
 scoop update odytty
 ```
 

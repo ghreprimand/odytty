@@ -109,12 +109,14 @@ chmod +x odytty-x86_64.AppImage
 **macOS Homebrew cask**
 
 ```sh
+brew update
 brew upgrade --cask odytty
 ```
 
 **Windows Scoop**
 
 ```powershell
+scoop update
 scoop update odytty
 ```
 
