@@ -18,7 +18,7 @@ session model, see `docs/keybindings.md`.
 
 ## 0. Constraints this design must satisfy
 
-These come straight from the cluster plan's standing rules and CLAUDE.md:
+These reflect the project's standing engineering rules:
 
 1. **Single-pane tab must be byte-identical to today's single-session path.** A
    tab containing exactly one pane must produce the same `Snapshot`, the same GPU
@@ -177,7 +177,7 @@ tabs, **not** panes). Panes within a tab do not add tab-strip entries. So:
 
 - one tab, one pane → `tab_count() == 1` → no tab bar → byte-identical to today;
 - the existing rule "show tab bar when `tab_count() >= 2`" is unchanged;
-- the Phase 0 tab-rename warm-up moves from `Session::title_override` to
+- the Phase 0 tab-rename change moves from `Session::title_override` to
   `Tab::title_override` (a tab's title is no longer 1:1 with a session once it can
   hold multiple panes — recommend showing the focused pane's title, overridable
   per tab). **An earlier change landed `title_override` on `Session`;
@@ -864,7 +864,7 @@ prefix, rebinding individual pane actions) are documented as opt-in in
 1. **Non-active-tab resize policy** — eager (recommended) vs. lazy.
 2. **Unfocused-pane cursor rendering** — hollow vs. dimmed-block; pick during impl.
 3. **Tab title when multi-pane** — show focused pane's title vs. a tab name; tie
-   in with the Phase 0 tab-rename warm-up (`Tab::title_override`).
+   in with the Phase 0 tab-rename change (`Tab::title_override`).
 4. **Per-pane image-layer clipping** — confirm whether per-pane image placements
    need a scissor/clip rect when an image overflows its pane rect (§3.2);
    default is exact-geometry, add clip only if bleed observed.
