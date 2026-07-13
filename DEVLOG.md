@@ -7,7 +7,7 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-07-13 -- Slim prebuilt Linux distribution: binary tarball, .deb, .rpm, and a one-line installer
+## 2026-07-13 -- Release v0.8.7 — slim prebuilt Linux distribution: binary tarball, .deb, .rpm, and a one-line installer
 
 Linux gains three prebuilt install paths alongside the portable AppImage, all
 x86_64 and built on the ubuntu-22.04 release runner (glibc 2.35 floor):

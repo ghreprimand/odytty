@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.8.7" date="2026-07-13">
+      <description>
+        <p>Packaging release. Linux gains three prebuilt install paths alongside the portable AppImage: a standalone binary tarball, a native Debian package, and a best-effort RPM, all x86_64. A hosted one-line installer detects the system package manager and installs the matching artifact from the latest release, verifying its checksum against the published SHA256SUMS first. macOS and Windows keep their existing Homebrew and Scoop channels with no change.</p>
+      </description>
+    </release>
     <release version="0.8.6" date="2026-07-13">
       <description>
         <p>Reliability patch. Attaching a detached session now reconciles its terminal to the current window as soon as it is attached, so the grid and the right-click menu render at full opacity and respond to input without a manual resize. Previously an attached session stayed sized to its originating host until the next window resize; with window transparency enabled that mismatch left the context menu washed out and unresponsive. Windows and macOS ship from the same verified build matrix.</p>
