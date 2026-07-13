@@ -9,6 +9,12 @@ on:
   push:
     tags:
       - "v*.*.*"
+  # Manual runs build and upload every artifact (including the new Linux
+  # packages) WITHOUT publishing: the release/scoop/homebrew/aur jobs are guarded
+  # to tag refs, so a workflow_dispatch validates the producer jobs before a tag
+  # is cut. On a non-tag run the version is read from Cargo.toml instead of the
+  # tag name.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -21,9 +27,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Derive version from tag
+      - name: Derive version
         id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Create source archive
         run: |
@@ -49,9 +61,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Derive version from tag
+      - name: Derive version
         id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Install build dependencies
         run: |
@@ -91,9 +109,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Derive version from tag
+      - name: Derive version
         id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Build release binary
         run: cargo build --release --locked
@@ -139,9 +163,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Derive version from tag
+      - name: Derive version
         id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Build release binary
         run: cargo build --release --locked
@@ -176,9 +206,194 @@ jobs:
           name: macos
           path: dist/build/*.zip
 
+  linux-tarball:
+    name: Linux binary tarball (x86_64)
+    # A standalone prebuilt binary plus its desktop-integration files, a slim
+    # alternative to the AppImage. Built on the oldest supported Ubuntu LTS
+    # (ubuntu-22.04, glibc 2.35) so it runs on a wide range of distros; like the
+    # AppImage, the host must provide a working Vulkan driver (Mesa or a vendor
+    # ICD). The archive carries a tiny local install.sh (copies the binary and
+    # desktop files into a prefix, no download).
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version
+        id: ver
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libfreetype6-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Assemble tarball
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          stage="odytty-${version}-linux-x86_64"
+          mkdir -p "dist/build/${stage}/share/applications" \
+                   "dist/build/${stage}/share/metainfo" \
+                   "dist/build/${stage}/share/icons/hicolor"
+          cp target/release/odytty "dist/build/${stage}/odytty"
+          cp dist/linux/tarball-install.sh "dist/build/${stage}/install.sh"
+          chmod +x "dist/build/${stage}/install.sh"
+          cp README.md LICENSE NOTICE "dist/build/${stage}/"
+          cp dist/linux/io.unfinished_works.odytty.desktop \
+             "dist/build/${stage}/share/applications/"
+          cp dist/linux/io.unfinished_works.odytty.metainfo.xml \
+             "dist/build/${stage}/share/metainfo/"
+          cp -a dist/icons/hicolor/. "dist/build/${stage}/share/icons/hicolor/"
+          tar -C dist/build -czf "dist/build/${stage}.tar.gz" "${stage}"
+          ls -l "dist/build/${stage}.tar.gz"
+
+      - name: Smoke test the packaged binary
+        # --version exits before any GPU/window init, so it runs headlessly.
+        run: ./dist/build/odytty-${{ steps.ver.outputs.version }}-linux-x86_64/odytty --version
+
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-tarball
+          path: dist/build/odytty-*-linux-x86_64.tar.gz
+
+  deb:
+    name: Debian package (amd64)
+    # Native .deb via cargo-deb, packaging the same ubuntu-22.04 release binary.
+    # depends is $auto (dpkg-shlibdeps: the ldd-linked glibc/libgcc with version
+    # floors) plus the dlopen'd font/Vulkan/xkbcommon libraries declared in
+    # Cargo.toml.
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version
+        id: ver
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libfreetype6-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Install cargo-deb
+        # Build the tool with the default stable toolchain (RUSTUP_TOOLCHAIN
+        # overrides the repo's pinned 1.96) so the tool's own newer MSRV is not a
+        # constraint; the project itself is still built at the pinned 1.96 above.
+        run: RUSTUP_TOOLCHAIN=stable cargo install cargo-deb --version 3.7.0 --locked
+
+      - name: Build .deb
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          # Reuse the already-built release binary (--no-build); cargo-deb strips
+          # it and derives $auto shared-lib deps from it.
+          cargo deb --no-build
+          deb="$(find target/debian -maxdepth 1 -name '*.deb' | head -n1)"
+          test -n "$deb" || { echo "::error::no .deb produced"; exit 1; }
+          mkdir -p dist/build
+          cp "$deb" "dist/build/odytty-${version}-amd64.deb"
+
+      - name: Validate .deb metadata
+        run: |
+          pkg="$(ls dist/build/odytty-*-amd64.deb | head -n1)"
+          dpkg-deb -I "$pkg"
+          echo "--- contents ---"
+          dpkg-deb -c "$pkg" | head -40
+
+      - name: Upload deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: dist/build/*.deb
+
+  rpm:
+    name: RPM package (x86_64, best-effort)
+    # Native .rpm via cargo-generate-rpm. Best-effort like the AppImage: the rpm
+    # is cross-built on Ubuntu and cannot be runtime-tested on the base matrix,
+    # only metadata-validated with `rpm -qip`. auto-req is disabled in Cargo.toml
+    # and the Fedora-named runtime deps are declared explicitly.
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Derive version
+        id: ver
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config libfontconfig1-dev libfreetype6-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Install cargo-generate-rpm
+        run: RUSTUP_TOOLCHAIN=stable cargo install cargo-generate-rpm --version 0.18.1 --locked
+
+      - name: Build .rpm
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          # cargo-generate-rpm does not strip; do it first so the payload is slim.
+          strip -s target/release/odytty
+          cargo generate-rpm
+          rpm_file="$(find target/generate-rpm -maxdepth 1 -name '*.rpm' | head -n1)"
+          test -n "$rpm_file" || { echo "::error::no .rpm produced"; exit 1; }
+          mkdir -p dist/build
+          cp "$rpm_file" "dist/build/odytty-${version}-x86_64.rpm"
+
+      - name: Validate .rpm metadata
+        run: |
+          sudo apt-get install -y --no-install-recommends rpm
+          pkg="$(ls dist/build/odytty-*-x86_64.rpm | head -n1)"
+          rpm -qip "$pkg"
+          echo "--- contents ---"
+          rpm -qlp "$pkg" | head -40
+
+      - name: Upload rpm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: dist/build/*.rpm
+
   release:
     name: Publish release
-    needs: [source, appimage, windows, macos]
+    # Publishes only for a real tag push; a workflow_dispatch validation run
+    # builds the producer jobs but never reaches here.
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [source, appimage, linux-tarball, deb, rpm, windows, macos]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
@@ -186,15 +401,22 @@ jobs:
         with:
           path: artifacts
 
-      - name: Derive version from tag
+      - name: Derive version
         id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Collect artifacts and checksum
         run: |
           mkdir -p out
           find artifacts -type f \
-            \( -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.zip' \) -exec cp {} out/ \;
+            \( -name '*.tar.gz' -o -name '*.AppImage' -o -name '*.zip' \
+               -o -name '*.deb' -o -name '*.rpm' \) -exec cp {} out/ \;
           cd out
           # Version-less aliases so `releases/latest/download/<name>` resolves a
           # stable URL the README can use without ever naming a version. These
@@ -205,6 +427,9 @@ jobs:
           cp "odytty-${version}-x86_64.AppImage" "odytty-x86_64.AppImage"
           cp "odytty-${version}-windows-x86_64.zip" "odytty-windows-x86_64.zip"
           cp "odytty-${version}-macos-arm64.zip" "odytty-macos-arm64.zip"
+          cp "odytty-${version}-linux-x86_64.tar.gz" "odytty-linux-x86_64.tar.gz"
+          cp "odytty-${version}-amd64.deb" "odytty-amd64.deb"
+          cp "odytty-${version}-x86_64.rpm" "odytty-x86_64.rpm"
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
 
@@ -215,16 +440,27 @@ jobs:
             out/*.tar.gz
             out/*.AppImage
             out/*.zip
+            out/*.deb
+            out/*.rpm
             out/SHA256SUMS
           # Static preamble above the auto-generated notes, clarifying that the
           # version-less and version-pinned downloads are identical copies.
           body: |
             ### Downloads
 
-            `odytty-x86_64.AppImage`, `odytty-windows-x86_64.zip`,
-            `odytty-macos-arm64.zip`, and `odytty.tar.gz` are the
-            **always-latest** names — use these for a stable URL that resolves
-            to the newest release. The
+            **Linux** ships four choices: the portable `odytty-x86_64.AppImage`,
+            a prebuilt binary tarball `odytty-linux-x86_64.tar.gz`, a native
+            `odytty-amd64.deb` (apt/dpkg), and a best-effort `odytty-x86_64.rpm`
+            (dnf/rpm). A one-line installer picks the right one automatically:
+            `curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash`.
+            **Windows** is `odytty-windows-x86_64.zip` (Scoop); **macOS** is
+            `odytty-macos-arm64.zip` (Homebrew cask).
+
+            `odytty-x86_64.AppImage`, `odytty-linux-x86_64.tar.gz`,
+            `odytty-amd64.deb`, `odytty-x86_64.rpm`,
+            `odytty-windows-x86_64.zip`, `odytty-macos-arm64.zip`, and
+            `odytty.tar.gz` are the **always-latest** names — use these for a
+            stable URL that resolves to the newest release. The
             `…-${{ steps.ver.outputs.version }}-…` files are the **identical**
             version-pinned copies (same bytes), for when you want to pin a
             specific version. Every file is checksummed in `SHA256SUMS`; each
@@ -245,6 +481,7 @@ jobs:
     # (checkver/Excavator) and does NOT keep installed clients current on its
     # own, so this per-release bump is required.
     needs: [release]
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -255,9 +492,15 @@ jobs:
           ref: master
           fetch-depth: 0
 
-      - name: Derive version from tag
+      - name: Derive version
         id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Download SHA256SUMS from the published release
         env:
@@ -337,6 +580,7 @@ jobs:
     # and adding the deploy-key secret. Runs AFTER `release` so the macOS zip, the
     # source tarball, and SHA256SUMS all exist.
     needs: [release]
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -347,9 +591,15 @@ jobs:
           ref: master
           fetch-depth: 0
 
-      - name: Derive version from tag
+      - name: Derive version
         id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Download SHA256SUMS from the published release
         env:
@@ -462,6 +712,7 @@ jobs:
     # activates automatically. This job runs AFTER `release` has published the
     # GitHub release, so nothing already published depends on it.
     needs: [release]
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     container: archlinux:base-devel
     permissions:
@@ -476,9 +727,15 @@ jobs:
           ref: master
           fetch-depth: 0
 
-      - name: Derive version from tag
+      - name: Derive version
         id: ver
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Stamp PKGBUILD, fill checksum, regenerate .SRCINFO, lint
         run: |

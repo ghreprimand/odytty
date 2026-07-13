@@ -181,3 +181,21 @@ jobs:
         timeout-minutes: 5
         run: bash scripts/piped-test-guard.sh
 
+
+  # Lint + smoke-test the shipped shell scripts (the hosted install.sh one-liner
+  # and the tarball's local installer). shellcheck is preinstalled on the ubuntu
+  # runner. The --dry-run smoke exercises the installer's OS/arch/manager
+  # detection and planning without downloading or installing anything.
+  shell-scripts:
+    name: Shell scripts (shellcheck + install smoke)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: shellcheck dist/install.sh dist/linux/tarball-install.sh
+
+      - name: install.sh dry-run smoke
+        run: bash dist/install.sh --dry-run
