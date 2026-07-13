@@ -212,6 +212,15 @@ impl OverlayUi {
         }
     }
 
+    /// Adopt a setting changed by native chrome rather than by the panel. The
+    /// panel rebase preserves unrelated pending edits and navigation while
+    /// making the external value the clean baseline, so Save cannot write a
+    /// stale snapshot back over a seam resize.
+    pub(super) fn rebase_settings_panel_onto_external(&mut self, settings: &Settings) {
+        self.settings = settings.clone();
+        self.panel.rebase_onto_external(settings);
+    }
+
     pub(super) fn open_settings(&mut self) {
         // Defensive no-op for settings steppers; kept with the
         // shared close/switch cleanup path.

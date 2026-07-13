@@ -484,15 +484,20 @@ impl Settings {
                 env: TAB_BAR_HEIGHT_ENV,
                 name: "Tab bar height",
                 value: self.tab_bar_height.as_config_string(),
-                description: "Top tab bar height: \"auto\" is one text row, or a fixed row count for a taller band with the labels centered vertically. Drag the tab bar's bottom edge to set a manual height; double-click it to return to auto. Top bar only. Applies live.",
-                kind: SettingKind::String,
+                description: "Top tab bar height: \"auto\" is one text row, or a fixed row count for a taller band with the labels centered vertically. Adjust with the stepper or arrow keys; stepping below the minimum returns to auto. Drag the tab bar's bottom edge to set a manual height; double-click it to return to auto. Top bar only. Applies live.",
+                kind: SettingKind::Number,
                 range: Some(format!(
                     "auto or {}-{} rows",
                     MIN_TAB_BAR_ROWS as usize, MAX_TAB_BAR_ROWS as usize
                 )),
                 options: &[],
                 reloadable: true,
-                numeric: None,
+                numeric: Some(NumericSpec {
+                    min: MIN_TAB_BAR_ROWS,
+                    max: MAX_TAB_BAR_ROWS,
+                    step: 1.0,
+                    unit: "rows",
+                }),
             },
             SettingInfo {
                 group: "Workspace rail",

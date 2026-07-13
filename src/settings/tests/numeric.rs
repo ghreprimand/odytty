@@ -135,6 +135,10 @@ fn numeric_range_label_is_derived_and_keeps_its_unit() {
                 .range
                 .as_deref()
                 .unwrap_or_else(|| panic!("derived range for {}", row.key));
+            if row.key == "tab_bar_height" {
+                assert_eq!(range, "auto or 1-5 rows");
+                continue;
+            }
             assert!(range.contains("..="), "range is a bound pair: {range}");
             if !spec.unit.is_empty() {
                 assert!(

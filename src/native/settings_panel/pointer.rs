@@ -804,6 +804,10 @@ impl SettingsPanel {
         let Some(entry) = self.entries.get(entry_index).cloned() else {
             return SettingsPanelOutcome::Consumed;
         };
+        if entry.key == "tab_bar_height" {
+            let next = super::stepped_tab_bar_height(&entry.value, direction);
+            return self.commit_value(entry.key, &next);
+        }
         let Some(spec) = entry.numeric else {
             return SettingsPanelOutcome::Consumed;
         };
@@ -840,9 +844,7 @@ impl SettingsPanel {
         let Some(entry) = self.entries.get(entry_index) else {
             return SettingsPanelOutcome::Consumed;
         };
-        let key = entry.key;
-        let value = entry.value.clone();
-        self.editing = Some(RowEdit { key, buffer: value });
+        self.editing = Some(RowEdit::for_entry(entry));
         self.message = Some("Editing: type a value, Enter applies, Esc cancels.".to_owned());
         SettingsPanelOutcome::Consumed
     }
@@ -907,10 +909,7 @@ impl SettingsPanel {
                 SettingsPanelOutcome::OpenKeyBindings
             }
             SettingKind::Number | SettingKind::String | SettingKind::List => {
-                self.editing = Some(RowEdit {
-                    key: entry.key,
-                    buffer: entry.value,
-                });
+                self.editing = Some(RowEdit::for_entry(&entry));
                 self.message =
                     Some("Editing: type a value, Enter applies, Esc cancels.".to_owned());
                 SettingsPanelOutcome::Consumed
@@ -1413,6 +1412,39 @@ mod tests {
             stepped.font_size_px,
             crate::settings::DEFAULT_FONT_SIZE_PX + 1.0
         );
+    }
+
+    #[test]
+    fn tab_bar_height_stepper_crosses_auto_boundary() {
+        use crate::settings::TabBarHeight;
+
+        let mut p = panel();
+        let (row, zone) = stepper_row(&p, "tab_bar_height");
+        let RowZone::Stepper { up_x0, .. } = zone else {
+            unreachable!()
+        };
+        let line = &p.build_visible_rows(W, H)[row].0.text;
+        assert!(line.contains("[<]"), "down button visible: {line:?}");
+        assert!(line.contains("auto"), "auto sentinel visible: {line:?}");
+        assert!(line.contains("[>]"), "up button visible: {line:?}");
+
+        let SettingsPanelOutcome::Apply(settings) =
+            p.handle_pointer_press(W, H, row, up_x0, PointerButton::Left, None)
+        else {
+            panic!("up from auto applies the minimum height");
+        };
+        assert_eq!(settings.tab_bar_height, TabBarHeight::Manual(1));
+
+        let (row, zone) = stepper_row(&p, "tab_bar_height");
+        let RowZone::Stepper { down_x0, .. } = zone else {
+            unreachable!()
+        };
+        let SettingsPanelOutcome::Apply(settings) =
+            p.handle_pointer_press(W, H, row, down_x0, PointerButton::Left, None)
+        else {
+            panic!("down below the minimum returns to auto");
+        };
+        assert_eq!(settings.tab_bar_height, TabBarHeight::Auto);
     }
 
     #[test]

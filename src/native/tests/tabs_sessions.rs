@@ -1303,6 +1303,78 @@ fn tab_bar_seam_drag_sets_and_persists_a_manual_height() {
 }
 
 #[test]
+fn tab_bar_seam_drag_rebases_the_settings_panel_snapshot() {
+    use winit::keyboard::Key as WinitKey;
+
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    let conf = temp_rail_conf("tabbar-panel-rebase");
+    app.set_config_path_for_test(conf.clone());
+
+    // Resize through the production seam path before opening Settings.
+    app.set_pointer_px_for_test(40.0, 16.0);
+    app.mouse_left_press_for_test();
+    app.pointer_move_for_test(40.0, 48.0);
+    app.mouse_left_release_for_test();
+    assert_eq!(app.tab_bar_height_for_test(), TabBarHeight::Manual(3));
+
+    app.open_settings_overlay_for_test();
+    let signature = app.overlay_signature_for_test();
+    let tab_height = signature
+        .panel
+        .entries
+        .iter()
+        .find(|entry| entry.key == "tab_bar_height")
+        .expect("tab height row");
+    assert_eq!(tab_height.value, "3");
+    assert_eq!(
+        signature.panel.changed_count, 0,
+        "the mouse-set height is the clean panel baseline"
+    );
+
+    // Saving with no panel edit must not write the pre-drag snapshot back.
+    app.drive_overlay_key_for_test(WinitKey::Character("s".into()), true, false);
+    assert_eq!(app.tab_bar_height_for_test(), TabBarHeight::Manual(3));
+
+    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
+}
+
+#[test]
+fn tab_bar_height_typing_commits_through_the_production_overlay_key_route() {
+    use winit::keyboard::{Key as WinitKey, NamedKey};
+
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.open_layout_settings_overlay_for_test();
+    let signature = app.overlay_signature_for_test();
+    let target = signature
+        .panel
+        .entries
+        .iter()
+        .position(|entry| entry.key == "tab_bar_height")
+        .expect("tab height row in Layout");
+    for _ in signature.panel.selected..target {
+        app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::ArrowDown), false, false);
+    }
+
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
+    assert_eq!(
+        app.overlay_signature_for_test().panel.editing_key,
+        Some("tab_bar_height")
+    );
+    app.drive_overlay_key_for_test(WinitKey::Character("3".into()), false, false);
+    app.drive_overlay_key_for_test(WinitKey::Named(NamedKey::Enter), false, false);
+
+    assert_eq!(app.tab_bar_height_for_test(), TabBarHeight::Manual(3));
+    assert_eq!(app.overlay_signature_for_test().panel.editing_key, None);
+}
+
+#[test]
 fn tab_bar_height_drag_centers_labels_in_the_decorated_band() {
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");

@@ -3781,6 +3781,8 @@ impl App {
         let next = TabBarHeight::Manual(rows);
         if self.settings.tab_bar_height != next {
             self.settings.tab_bar_height = next;
+            self.overlay
+                .rebase_settings_panel_onto_external(&self.settings);
             self.tab_bar_seam_clicks = ClickTracker::default();
             self.recompute_grid_for_tab_bar();
             self.needs_rebuild = true;
@@ -3816,6 +3818,8 @@ impl App {
             return;
         }
         self.settings.tab_bar_height = TabBarHeight::Auto;
+        self.overlay
+            .rebase_settings_panel_onto_external(&self.settings);
         self.recompute_grid_for_tab_bar();
         self.persist_tab_bar_height();
         self.needs_rebuild = true;

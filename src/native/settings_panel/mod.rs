@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use crate::settings::{
-    DEFAULT_CELL_BG_OPACITY, SettingEdit, SettingInfo, SettingKind, Settings, SettingsEditOverlay,
+    DEFAULT_CELL_BG_OPACITY, MAX_TAB_BAR_ROWS, MIN_TAB_BAR_ROWS, SettingEdit, SettingInfo,
+    SettingKind, Settings, SettingsEditOverlay, TabBarHeight,
 };
 
 use super::about::{ABOUT_LINKS, AboutInfo};
@@ -171,6 +172,39 @@ pub(super) enum SettingsPanelOutcome {
 struct RowEdit {
     key: &'static str,
     buffer: String,
+    /// Replace the displayed `auto` sentinel on the first typed character.
+    replace_on_char: bool,
+}
+
+impl RowEdit {
+    fn for_entry(entry: &SettingInfo) -> Self {
+        Self {
+            key: entry.key,
+            buffer: entry.value.clone(),
+            replace_on_char: entry.key == "tab_bar_height",
+        }
+    }
+}
+
+fn stepped_tab_bar_height(value: &str, direction: isize) -> String {
+    let min = MIN_TAB_BAR_ROWS as u16;
+    let max = MAX_TAB_BAR_ROWS as u16;
+    let manual = value
+        .trim()
+        .parse::<u16>()
+        .ok()
+        .map(|rows| rows.clamp(min, max));
+    let next = match (manual, direction.cmp(&0)) {
+        (None, std::cmp::Ordering::Greater) => TabBarHeight::Manual(min),
+        (None, _) => TabBarHeight::Auto,
+        (Some(rows), std::cmp::Ordering::Less) if rows <= min => TabBarHeight::Auto,
+        (Some(rows), std::cmp::Ordering::Less) => TabBarHeight::Manual(rows - 1),
+        (Some(rows), std::cmp::Ordering::Greater) => {
+            TabBarHeight::Manual(rows.saturating_add(1).min(max))
+        }
+        (Some(rows), std::cmp::Ordering::Equal) => TabBarHeight::Manual(rows),
+    };
+    next.as_config_string()
 }
 
 impl SettingsPanel {
@@ -996,10 +1030,7 @@ impl SettingsPanel {
                 SettingsPanelOutcome::Consumed
             }
             SettingKind::Number | SettingKind::String | SettingKind::List => {
-                self.editing = Some(RowEdit {
-                    key: entry.key,
-                    buffer: entry.value,
-                });
+                self.editing = Some(RowEdit::for_entry(&entry));
                 self.message =
                     Some("Editing: type a value, Enter applies, Esc cancels.".to_owned());
                 SettingsPanelOutcome::Consumed
@@ -1025,12 +1056,21 @@ impl SettingsPanel {
             }
             OverlayInput::Backspace => {
                 if let Some(edit) = self.editing.as_mut() {
-                    edit.buffer.pop();
+                    if edit.replace_on_char {
+                        edit.buffer.clear();
+                        edit.replace_on_char = false;
+                    } else {
+                        edit.buffer.pop();
+                    }
                 }
                 SettingsPanelOutcome::Consumed
             }
             OverlayInput::Char(ch) if !ch.is_control() => {
                 if let Some(edit) = self.editing.as_mut() {
+                    if edit.replace_on_char {
+                        edit.buffer.clear();
+                        edit.replace_on_char = false;
+                    }
                     edit.buffer.push(ch);
                 }
                 SettingsPanelOutcome::Consumed
@@ -1043,6 +1083,10 @@ impl SettingsPanel {
         let Some(entry) = self.selected_entry().cloned() else {
             return SettingsPanelOutcome::Consumed;
         };
+        if entry.key == "tab_bar_height" {
+            let next = stepped_tab_bar_height(&entry.value, direction);
+            return self.commit_value(entry.key, &next);
+        }
         if entry.key == "background_image_scrim" {
             let parsed =
                 entry
@@ -1593,6 +1637,72 @@ mod tests {
             font_size_line.text
         );
         assert!(text.contains(FONT_SIZE_ENV));
+    }
+
+    #[test]
+    fn tab_bar_height_arrows_cross_the_auto_boundary() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "tab_bar_height");
+
+        let entry = panel.selected_entry().expect("tab height selected");
+        assert_eq!(entry.kind, SettingKind::Number);
+        assert_eq!(entry.numeric.expect("stepper spec").step, 1.0);
+
+        let SettingsPanelOutcome::Apply(settings) = panel.handle_input(OverlayInput::Right) else {
+            panic!("right from auto applies the minimum manual height");
+        };
+        assert_eq!(settings.tab_bar_height, TabBarHeight::Manual(1));
+
+        let SettingsPanelOutcome::Apply(settings) = panel.handle_input(OverlayInput::Left) else {
+            panic!("left below the minimum returns to auto");
+        };
+        assert_eq!(settings.tab_bar_height, TabBarHeight::Auto);
+    }
+
+    #[test]
+    fn tab_bar_height_edit_replaces_auto_and_commits_typed_digits() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "tab_bar_height");
+        assert_eq!(
+            panel.handle_input(OverlayInput::Activate),
+            SettingsPanelOutcome::Consumed
+        );
+        assert_eq!(
+            panel.editing.as_ref().map(|edit| edit.buffer.as_str()),
+            Some("auto")
+        );
+
+        assert_eq!(
+            panel.handle_input(OverlayInput::Char('3')),
+            SettingsPanelOutcome::Consumed
+        );
+        assert_eq!(
+            panel.editing.as_ref().map(|edit| edit.buffer.as_str()),
+            Some("3"),
+            "the first digit replaces the auto sentinel instead of appending to it"
+        );
+
+        let SettingsPanelOutcome::Apply(settings) = panel.handle_input(OverlayInput::Activate)
+        else {
+            panic!("Enter commits the typed height");
+        };
+        assert_eq!(settings.tab_bar_height, TabBarHeight::Manual(3));
+        assert!(panel.editing.is_none());
+
+        let mut panel = SettingsPanel::new(&Settings {
+            tab_bar_height: TabBarHeight::Manual(3),
+            ..Settings::default()
+        });
+        select_key(&mut panel, "tab_bar_height");
+        let _ = panel.handle_input(OverlayInput::Activate);
+        for ch in "auto".chars() {
+            let _ = panel.handle_input(OverlayInput::Char(ch));
+        }
+        let SettingsPanelOutcome::Apply(settings) = panel.handle_input(OverlayInput::Activate)
+        else {
+            panic!("Enter commits the typed auto sentinel");
+        };
+        assert_eq!(settings.tab_bar_height, TabBarHeight::Auto);
     }
 
     #[test]

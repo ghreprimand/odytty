@@ -62,6 +62,13 @@ impl App {
         self.toggle_settings_overlay();
     }
 
+    /// Test seam: open the production Layout settings target so keyboard edits
+    /// can exercise the same deep-link and input route as chrome Settings.
+    #[cfg(test)]
+    pub(in crate::native) fn open_layout_settings_overlay_for_test(&mut self) {
+        self.open_settings_overlay_target(crate::native::overlay::SettingsTarget::TabsAndPanes);
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn settings_active_section_for_test(&self) -> Option<&'static str> {
         self.overlay.settings_active_section_for_test()

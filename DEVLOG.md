@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Make tab bar height editing consistent
+
+The Layout panel now presents Tab bar height as a numeric stepper with an
+`auto` sentinel. Right from auto selects the minimum manual row count, each
+arrow or stepper button changes the height by one row within its bounds, and
+left below the minimum returns to auto. The readout remains click-to-type, and
+Enter still opens a text edit that accepts either a row count or `auto`.
+
+Typing now replaces the existing tab-height readout on the first character.
+Previously the edit buffer began with `auto`, so typing `3` produced the invalid
+value `auto3` and Enter appeared to do nothing. The same production overlay-key
+route now commits typed digits and the sentinel reliably.
+
+Mouse seam resizing and double-click reset now rebase the settings panel onto
+the live height as a clean external value while preserving unrelated pending
+panel edits and navigation. Opening or saving Settings after a mouse resize can
+therefore no longer write a stale height back over the live value. This is pure
+settings-model and input routing shared by Linux, macOS, and Windows, with no
+platform-specific surface.
+
+Verified: keyboard and pointer stepping across the auto boundary, typed digit
+and auto commits, production overlay-key routing, mouse-resize panel rebasing,
+save-without-clobber behavior, cargo build, cargo test, cargo fmt --check, and
+cargo clippy --all-targets --locked -- -D warnings all clean. Final Layout-row
+appearance remains part of the release-build visual check.
+
 ## 2026-07-12 -- Recover skipped surfaces immediately on window return
 
 Transient surface-acquire skips are now tracked as one bounded diagnostic
