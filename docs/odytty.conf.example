@@ -52,39 +52,43 @@ window_opacity = 85
 # hides the bar). A single tab you have renamed always shows the bar regardless.
 always_show_tab_bar = off
 
-# Tabs always render on the top bar. `tab_bar_placement` now selects which side
-# the WORKSPACE rail sits on when it is shown: top (rail defaults to the left),
-# left, or right. Existing left/right vertical-tab configs are honored as the
-# workspace-rail side.
-tab_bar_placement = top
+# Tabs always render on the top bar. `workspace_rail_side` selects which side the
+# WORKSPACE rail sits on when it is shown: left (default) or right. The legacy
+# `tab_bar_placement` key (top|left|right, top folds to left) is still accepted;
+# when both are set, `workspace_rail_side` wins.
+workspace_rail_side = left
+# tab_bar_placement = top          # legacy alias, still honored
 
-# Workspace rail (the sidebar listing workspaces): auto (default, appears once a
-# second workspace exists — a single-workspace session shows no rail), always
-# (pinned even with one workspace), or left/right (pinned to that side). auto and
-# always inherit the side from tab_bar_placement. Hot-reloadable.
+# Workspace rail visibility (the sidebar listing workspaces): auto (default,
+# appears once a second workspace exists — a single-workspace session shows no
+# rail) or always (pinned even with one workspace). The side comes from
+# `workspace_rail_side` above. A legacy `workspace_rail = left|right` still parses
+# and folds to `always` pinned to that side. Hot-reloadable.
 workspace_rail = auto
 
-# Vertical-rail geometry (only affects left/right placements). Width in cells
-# (8-32), inter-slot gap in rows (0-3), and slot height (1 = compact list that
-# truncates long titles, 2 = padded rows that can wrap). All hot-reloadable.
-tab_rail_width = 16
-tab_rail_gap = 1
-tab_rail_slot_rows = 2
+# Vertical-rail geometry. Width in cells (8-32), inter-slot gap in rows (0-3), and
+# slot height (1 = compact list that truncates long titles, 2 = padded rows that
+# can wrap). The legacy `tab_rail_*` names are still accepted as aliases onto the
+# same settings. All hot-reloadable.
+workspace_rail_width = 16
+workspace_rail_gap = 1
+workspace_rail_slot_rows = 2
 
 # Tab panel: a quiet translucent surface behind the tab bar/rail so labels read
 # against it. Strength 0 turns the panel off (bare labels over the wallpaper);
 # higher values mute the wallpaper more. The seam is the thin hairline between
 # the panel and the terminal content.
-tab_panel_strength = 0.5
+tab_panel_strength = 1.0
 tab_seam = on
 
 # Rail auto-hide: hide the vertical rail until the pointer reaches its window
 # edge, then reveal it as a floating overlay (content never reflows on reveal).
-# A tab-switch / new-tab / close chord flashes it briefly. `tab_rail_reveal_px`
-# is the width (logical px, scaled for HiDPI) of the window-edge zone that
-# triggers the reveal. Off by default.
-tab_rail_autohide = off
-tab_rail_reveal_px = 16
+# A workspace-switch / new / close chord flashes it briefly.
+# `workspace_rail_reveal_px` is the width (logical px, scaled for HiDPI) of the
+# window-edge zone that triggers the reveal. The legacy `tab_rail_autohide` /
+# `tab_rail_reveal_px` names are still accepted. Off by default.
+workspace_rail_autohide = off
+workspace_rail_reveal_px = 16
 
 # Background treatments. OdyTTY ships with the bundled "Dark Waves" background
 # on by default. To turn it OFF, use `background_treatment = color` (theme

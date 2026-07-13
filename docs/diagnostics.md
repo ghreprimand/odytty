@@ -155,6 +155,13 @@ afterward.
 - A lost GPU surface is recreated automatically. If the GPU device itself is
   lost, rendering pauses and a clear error is logged (rendering resumes when
   the window is restarted) rather than the window crashing.
+- After the window sits idle, the first frame on return can briefly stall while
+  a starved compositor swapchain releases buffers. The surface is reconfigured
+  on window focus/restore to shorten that recovery. Each run of skipped frames
+  is summarized in a single state-only record — its duration, the skip count,
+  and whether the window was focused or minimized, never any terminal content —
+  logged at `debug` level, escalating to `warn` once an episode reaches ten
+  seconds. Under the default `warn` log level these records are silent.
 
 ## Retrieving logs for a support request
 
