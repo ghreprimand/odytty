@@ -33,13 +33,13 @@
 //! - **Event loop** — `winit` owns the OS window, input events, and resize.
 //!   *(done)*
 //! - **GPU surface/device** — `wgpu` owns the surface, device, queue, and swap
-//!   chain, presenting frames to the window. *(this packet: solid clear only)*
+//!   chain, presenting frames to the window. *(initial: solid clear only)*
 //! - **Glyph atlas / text renderer** — a CPU-rasterized monospace glyph atlas
 //!   (`crate::text`) uploaded to a `wgpu` texture; cells drawn as textured
-//!   quads. *(this packet)*
+//!   quads. *(initial)*
 //! - **Grid presentation** — maps an owned-core `Snapshot` to positioned cell
 //!   quads via `crate::grid`, with no terminal semantics in the renderer.
-//!   *(this packet)*
+//!   *(initial)*
 //!
 //! ## Linux / Wayland
 //!

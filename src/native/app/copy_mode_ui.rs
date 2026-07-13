@@ -4,7 +4,7 @@
 //! This is the native wiring around the banked pure-core [`crate::native::copy_mode`]
 //! model. All feature logic lives in this file; the foundation pre-wired every
 //! seam (dispatch arm, modal gate, key route, pointer capture, render hook,
-//! signature consumer) so this packet touches `app/mod.rs` for exactly ONE line:
+//! signature consumer) so the integration touches `app/mod.rs` for exactly ONE line:
 //! the `copy_mode: Option<CopyModeState>` field + its `None` initializer.
 //!
 //! COPYMODE rides the Wave-15 overlay-registry + modal-input foundation:

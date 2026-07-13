@@ -7,6 +7,15 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-13 -- Clear development-cycle vocabulary from source comments
+
+A further pass over the tracked source removes the remaining internal
+work-cycle phrasing from code comments, so they describe the code rather than
+the process that produced it. The copy-mode module, the GPU return-recovery
+notes, the render-pipeline overview, the paths module header, and a handful of
+inline notes now read in the project's own voice. Comment-only, no behavior
+change.
+
 ## 2026-07-13 -- Release v0.8.5 — reliability, rail interactions, and idle recovery
 
 Release v0.8.5. The arc since v0.8.2 is a reliability and interaction pass built

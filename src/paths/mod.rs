@@ -19,7 +19,7 @@
 //! filesystem. See `docs/interactive-paths-design.md` for the full design,
 //! security argument, open-action dispatch table, and editor invocation matrix.
 //!
-//! This packet (C0/C1) builds the spine only — it is intentionally **not**
+//! This module (C0/C1) builds the spine only — it is intentionally **not**
 //! referenced by any render/input/settings path yet, so it adds zero runtime
 //! behavior. Phases 7–9 wire hover/click/menu/viewer onto it.
 

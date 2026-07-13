@@ -109,7 +109,7 @@ pub(super) struct PaneRender<'a> {
     /// Pane top-left in physical px, with this pane's scroll glide folded into y.
     pub(super) origin: [f32; 2],
     /// Whether this pane has keyboard focus — only the focused pane draws a
-    /// live cursor (unfocused panes draw none this packet; hollow/dim is a
+    /// live cursor (unfocused panes draw none yet; hollow/dim is a
     /// later refinement per §3.3).
     pub(super) focused: bool,
     /// Cursor style for the focused pane (ignored when `focused` is false).

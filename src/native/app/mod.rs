@@ -6604,7 +6604,7 @@ mod tests {
     ///   recovered surface stays black under `ControlFlow::Wait`).
     /// - `Skipped` ⇒ a BOUNDED retry (a surface that came back Timeout/Occluded
     ///   on restore; the OLD policy did nothing here, so it stayed black until
-    ///   an unrelated event — this is the residual the packet fixes).
+    ///   an unrelated event — this is the residual fixed here).
     ///
     /// `Presented` settles. The GPU triggers themselves are on-device-only;
     /// this pins the decision deterministically.
@@ -6630,7 +6630,7 @@ mod tests {
             FrameAction::Idle,
             "a presented frame must settle (no extra paint scheduled)"
         );
-        // The load-bearing assertion for THIS packet: a skipped frame must
+        // The load-bearing assertion here: a skipped frame must
         // schedule a bounded retry, not dead-end (the black-screen residual).
         match after_frame(FrameOutcome::Skipped) {
             FrameAction::RetryAfter(delay) => {
@@ -7464,7 +7464,7 @@ mod tests {
     }
 
     /// Driving the real settings-reload seam OFF->ON while a live session
-    /// exists must surface the transient notice — the wiring this packet adds.
+    /// exists must surface the transient notice — the wiring added here.
     #[test]
     fn off_to_on_reload_raises_new_shells_notice() {
         // The reload seam republishes process-global render state (default

@@ -27,15 +27,15 @@
 //!
 //! ## Scope (v1 core)
 //!
-//! This wave is **core only**: the model + motions + range derivation, wired to
+//! This module is **core only**: the model + motions + range derivation, wired to
 //! nothing. Activation (a bindable action, key routing, mutual exclusion with
 //! search/overlay), the cursor render, and the yank-to-clipboard hand-off are a
-//! separate later native packet. Numeric motion counts (`3w`) and `Ctrl-v`
+//! separate later native change. Numeric motion counts (`3w`) and `Ctrl-v`
 //! block selection are deferred (the latter shares one implementation with the
 //! mouse MOUSE-RECT item); a clean [`SelectKind::Block`] seam is left for it.
 //!
-//! The public surface here is **wired to nothing this wave** (core-only
-//! packet); the later activation + key-routing packet is its first consumer.
+//! The public surface here is **wired to nothing yet** (core-only);
+//! the later activation + key-routing layer is its first consumer.
 //! Until then these items are unreferenced from non-test code, so the module
 //! opts out of `dead_code` — the allow becomes a no-op once wiring lands.
 #![allow(dead_code)]
@@ -59,7 +59,7 @@ pub const LINE_END_COLUMN: usize = usize::MAX;
 /// character-wise range from the anchor; `Line` spans full rows. `Block` is the
 /// reserved MOUSE-RECT seam — column/rectangular selection lands later with the
 /// mouse block-select item so a single block-range implementation serves both;
-/// it is intentionally never constructed in this wave.
+/// it is intentionally not constructed yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SelectKind {
     #[default]
