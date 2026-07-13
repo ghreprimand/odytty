@@ -14,7 +14,7 @@
 
 OdyTTY owns the terminal path from the PTY through escape parsing, terminal
 state, text layout, and shaders. It pairs that foundation with fast readable
-text, tabs and panes, inline media, rich local configuration, and visual effects
+text, tabs and panes, inline media, menu-driven in-app configuration, and visual effects
 that stay behind performance and readability boundaries.
 
 The project is Linux-first and in active development, with packaged releases
@@ -91,8 +91,9 @@ odytty
 odytty -e btop
 ```
 
-Most customization happens inside OdyTTY through the settings panel, theme and
-font pickers, and the `Ctrl+Shift+P` command palette.
+Most customization happens inside OdyTTY: open the settings panel with
+`Ctrl+Shift+,`, pick themes and fonts from their pickers, and run actions from
+the `Ctrl+Shift+P` command palette. No config file needed.
 
 <details>
 <summary><strong>Updating</strong></summary>
@@ -150,6 +151,13 @@ formula, portable zip, and source-build paths.
   list and can opt into name-only OpenSSH host import, remote shell integration,
   connection reuse, and `tmux` persistence. Every layer degrades to plain
   `ssh`. [See shell integration](docs/features.md#shell-integration).
+- **Configure inside the app, no config file required.** A live settings panel
+  (`Ctrl+Shift+,`) edits themes, fonts, rendering, and the Layout section for
+  tabs, rail, and panes, with a theme picker (`Ctrl+Shift+H`), font picker, and
+  `Ctrl+Shift+P` command palette putting most customization one keystroke away.
+  Unlike config-file-only terminals, hand-editing is optional: the
+  `~/.config/odytty` file with hot reload stays for anyone who wants it.
+  [Explore settings and themes](docs/features.md#settings-and-themes).
 - **A visual layer with an off switch.** OdyTTY ships 142 built-in themes, user
   themes, a theme builder, background treatments, transparency, bloom, CRT, and
   retro effects. The live settings panel preserves hand-written config while

@@ -1030,6 +1030,7 @@ its first stable layer.
 - Plugin systems, AI features, rich dashboards, or nonstandard terminal
   semantics
 - Heavy animation or effects that compromise readability or latency
+- Flatpak packaging; the AppImage is the portable single-file Linux option
 
 ## Cross-Platform Architecture
 
