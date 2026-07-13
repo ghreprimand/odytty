@@ -41,8 +41,11 @@ pub struct Hyperlink {
 pub(in crate::core) struct HyperlinkTable {
     entries: HashMap<LinkId, Hyperlink>,
     by_key: HashMap<HyperlinkKey, LinkId>,
-    /// Interned link ids in insertion order; the front is the oldest link and is
-    /// evicted first when the byte budget or the entry ceiling is exceeded.
+    /// Interned link ids in least-recently-used order; the front is the coldest
+    /// link and is evicted first when the byte budget or the entry ceiling is
+    /// exceeded. A re-interned link (the same OSC 8 URI re-emitted while its cell
+    /// is still on screen) is moved to the back so an actively repainted link
+    /// outlives a distinct-URI flood and only genuinely cold links are dropped.
     order: VecDeque<LinkId>,
     total_bytes: usize,
     next_id: u32,
@@ -72,6 +75,9 @@ impl HyperlinkTable {
             osc_id: osc_id.clone(),
         };
         if let Some(&id) = self.by_key.get(&key) {
+            // Re-emitting an already-interned link marks it most-recently-used so
+            // eviction favours genuinely cold links over ones a TUI still repaints.
+            self.touch(id);
             return Some(id);
         }
 
@@ -108,6 +114,20 @@ impl HyperlinkTable {
             .len()
             .saturating_add(link.osc_id.as_ref().map_or(0, String::len))
             .saturating_add(ENTRY_OVERHEAD_BYTES)
+    }
+
+    /// Move an interned link to the most-recently-used end of `order`. The scan
+    /// is linear in the live entry count, which is bounded by `MAX_LINK_ENTRIES`
+    /// and in practice tiny (the on-screen link working set), so an O(n) reorder
+    /// is acceptable and keeps the recency bookkeeping allocation-free.
+    fn touch(&mut self, id: LinkId) {
+        if self.order.back() == Some(&id) {
+            return;
+        }
+        if let Some(pos) = self.order.iter().position(|&existing| existing == id) {
+            self.order.remove(pos);
+            self.order.push_back(id);
+        }
     }
 
     fn evict_to_fit(&mut self) {
@@ -280,6 +300,75 @@ mod tests {
             table.get(first).is_none(),
             "the oldest explicit-id link must be evicted under a flood"
         );
+    }
+
+    #[test]
+    fn reinterned_link_survives_distinct_uri_flood() {
+        // A link that a TUI keeps repainting (re-emitting the same OSC 8 URI) is
+        // most-recently-used and must outlive a flood of distinct URIs, while a
+        // link interned right after it but never touched again ages out. Under
+        // insertion-order (FIFO) eviction the reused link would be dropped because
+        // it was interned early; true LRU keeps it.
+        let mut table = HyperlinkTable::default();
+        let reused = table
+            .open(b"", &[b"https://example.com/reused".as_slice()])
+            .unwrap();
+        let cold = table
+            .open(b"", &[b"https://example.com/cold".as_slice()])
+            .unwrap();
+        assert_ne!(reused, cold, "the two seed links must be distinct");
+
+        let flood = MAX_LINK_ENTRIES + 500;
+        for n in 0..flood {
+            let uri = format!("https://example.com/flood/{n}");
+            table.open(b"", &[uri.as_bytes()]).unwrap();
+            // Repaint the reused link on every flood step so it stays hot.
+            let same = table
+                .open(b"", &[b"https://example.com/reused".as_slice()])
+                .unwrap();
+            assert_eq!(same, reused, "re-interning must return the stable id");
+        }
+
+        assert!(table.entries.len() <= MAX_LINK_ENTRIES);
+        assert!(
+            table.get(reused).is_some(),
+            "a continuously repainted link must survive a distinct-URI flood under LRU"
+        );
+        assert!(
+            table.get(cold).is_none(),
+            "a link interned then never touched again must be evicted before the reused one"
+        );
+    }
+
+    #[test]
+    fn touch_moves_link_to_most_recently_used_end() {
+        // Direct check of the recency reorder: interning three links then
+        // re-interning the oldest moves it to the back, so the next-oldest is the
+        // eviction front.
+        let mut table = HyperlinkTable::default();
+        let a = table
+            .open(b"", &[b"https://example.com/a".as_slice()])
+            .unwrap();
+        let b = table
+            .open(b"", &[b"https://example.com/b".as_slice()])
+            .unwrap();
+        let c = table
+            .open(b"", &[b"https://example.com/c".as_slice()])
+            .unwrap();
+        assert_eq!(table.order.front(), Some(&a), "a starts as the coldest");
+
+        // Re-emit a; it must jump to the most-recently-used back, leaving b coldest.
+        let again = table
+            .open(b"", &[b"https://example.com/a".as_slice()])
+            .unwrap();
+        assert_eq!(again, a);
+        assert_eq!(table.order.front(), Some(&b), "b is now the coldest");
+        assert_eq!(
+            table.order.back(),
+            Some(&a),
+            "the re-emitted link is hottest"
+        );
+        let _ = c;
     }
 
     #[test]

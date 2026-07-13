@@ -7,6 +7,40 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-13 -- Reconcile rail alias writeback and make hyperlink eviction truly LRU
+
+Saving a rail setting from the panel or a mouse resize now reconciles the
+canonical and legacy keys that share one field, so a change can no longer be
+silently reverted on the next reload. Reads prefer the canonical
+`workspace_rail_side` and `workspace_rail_*` keys, while the panel and the
+seam-resize persistence write the legacy `tab_bar_placement`/`tab_rail_*` twins;
+a standing canonical line therefore used to shadow the just-written value. The
+config rewrite now comments out the twin lines of any written rail key so the
+written value is the one that survives, covering the side, width, max width,
+gap, slot rows, autohide, and reveal-zone families.
+
+Two related side-of-record hazards are closed. A visibility-only edit that
+switches `workspace_rail` from the pre-0.8.5 `left`/`right` side syntax to
+`auto`/`always` now materializes the folded side into `workspace_rail_side`
+first, so the side is preserved rather than dropped to the default. Writing the
+side explicitly while such a fold is present rewrites that line to plain
+`always`, keeping its visibility intent without letting the fold shadow the new
+side.
+
+Hyperlink table eviction is now genuinely least-recently-used. Re-interning a
+link, the signal a repaint-heavy TUI emits every frame while a linked cell stays
+on screen, moves it to the most-recently-used end, so a distinct-URI flood evicts
+the genuinely cold links first instead of dropping a link that is still being
+repainted. The order tracking stays allocation-free and bounded by the existing
+entry ceiling.
+
+Regression tests cover the canonical-shadow revert, the width-family shadow, the
+visibility-only side preservation and its mirror, family scoping, and a reused
+link surviving an eviction flood while a never-touched one is dropped. This is
+settings-model and core changes shared by Linux, macOS, and Windows with no
+platform-specific surface. Verified: full library suite, clippy with all targets
+under deny-warnings, and fmt all clean.
+
 ## 2026-07-12 -- Keep the floating rail open under its resize cursor
 
 Hovering the content-facing half of a revealed workspace-rail resize seam now
