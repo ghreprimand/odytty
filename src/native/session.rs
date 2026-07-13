@@ -1716,12 +1716,14 @@ impl WorkspaceSet {
                     session.invalidate_layout_dependent_state();
                 }
                 // Route the kernel-side resize to whichever source backs the
-                // session: a local PTY gets TIOCSWINSZ (byte-identical to before
-                // Phase 2); an attached session forwards a `Resize` frame so the
-                // host applies TIOCSWINSZ + reflow on its side. Skipped entirely
-                // for the live divider-drag path (`resize_pty = false`), which
-                // reflows the model only and lets the release handler issue the
-                // single coalesced kernel resize at drag-end.
+                // session. A local PTY still refreshes its pixel metrics even
+                // when the cell grid is unchanged. An attached session has no
+                // cell-metric payload, so it forwards `Resize` only for a real
+                // dimension change; this keeps reconciliation transport-neutral
+                // when the host snapshot already matches the window. Skipped
+                // entirely for the live divider-drag path (`resize_pty = false`),
+                // which reflows the model only and lets the release handler issue
+                // the single coalesced kernel resize at drag-end.
                 if resize_pty {
                     match &session.source {
                         SessionSource::Local { pty } => {
@@ -1734,7 +1736,7 @@ impl WorkspaceSet {
                         }
                         #[cfg(unix)]
                         SessionSource::Attached { client } => {
-                            if let Ok(mut client) = client.lock() {
+                            if dimensions_changed && let Ok(mut client) = client.lock() {
                                 let _ = client.resize(cols as u32, rows as u32);
                             }
                         }

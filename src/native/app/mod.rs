@@ -889,6 +889,24 @@ impl App {
         true
     }
 
+    /// Reconcile every pane with the current window content geometry even when
+    /// the window grid itself has not changed. A newly attached mirror starts at
+    /// the host's dimensions, so it must not depend on a later window resize to
+    /// reach the window's render and hit-test basis. Per-pane dimension guards
+    /// keep an already-correct layout model- and transport-neutral.
+    #[cfg(unix)]
+    fn reconcile_pane_dims_to_window(&mut self) {
+        let Some(cell) = self.resolved_cell() else {
+            return;
+        };
+        let Some((width_px, height_px, padding)) = self.resolved_surface() else {
+            return;
+        };
+        let content = pane_content_rect(width_px, height_px, cell, padding, self.tab_reserve());
+        self.sessions
+            .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
+    }
+
     fn apply_grid_resize(&mut self, resize: PendingResize) {
         // A minimized window can report a 0x0 drawable surface. The GPU surface
         // ignores that size, and the terminal model must do the same: passing
@@ -1108,10 +1126,11 @@ impl App {
     /// scrollback intact" path. The mirror terminal is restored from the host
     /// snapshot inside [`WorkspaceSet::attach_in_new_tab`]; here we apply the window's
     /// presentation policy (theme/cursor/scrollback cap) so the attached tab
-    /// renders consistently, then switch focus to it. The grid content from the
-    /// host snapshot is untouched. The next resize reconciles the mirror to this
-    /// window's dimensions (a `Resize` frame to the host). `runtime_base` is
-    /// `None` in production (derived from `XDG_RUNTIME_DIR`); tests pass a base.
+    /// renders consistently, switch focus to it, then reconcile the mirror to
+    /// this window's dimensions. A mismatched host snapshot sends one `Resize`
+    /// frame to the host; an already matching mirror remains untouched.
+    /// `runtime_base` is `None` in production (derived from `XDG_RUNTIME_DIR`);
+    /// tests pass a base.
     #[cfg(unix)]
     pub(in crate::native) fn attach_session_in_new_tab(
         &mut self,
@@ -1119,6 +1138,14 @@ impl App {
         session_id: &str,
     ) -> std::io::Result<()> {
         let token = self.sessions.attach_in_new_tab(runtime_base, session_id)?;
+        self.present_attached_session(token);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    fn present_attached_session(&mut self, token: SessionToken) {
+        #[cfg(test)]
+        let test_geometry = (self.test_cell, self.test_surface);
         let effective_theme = self.effective_theme;
         let themed_ui_roles = self.themed_ui_roles;
         let osc52_read = self.settings.osc52_read;
@@ -1139,8 +1166,16 @@ impl App {
             );
         }
         let _ = self.sessions.switch(token);
+        #[cfg(test)]
+        {
+            // The headless geometry overrides live on the active session via
+            // App's Deref target, so carry them across the same way the test
+            // workspace/session insertion seams do before reconciling.
+            self.test_cell = test_geometry.0;
+            self.test_surface = test_geometry.1;
+        }
         self.on_active_session_changed();
-        Ok(())
+        self.reconcile_pane_dims_to_window();
     }
 
     /// Windows stub: the detached session-host (Unix-domain socket transport) is
@@ -5648,6 +5683,30 @@ impl ApplicationHandler<UserEvent> for App {
                                 image_uploads,
                             )
                         };
+                        let pane_dims_reconciled = {
+                            #[cfg(unix)]
+                            {
+                                let drifted = snapshot.dimensions != self.grid;
+                                if drifted {
+                                    tracing::debug!(
+                                        snapshot_columns = snapshot.dimensions.columns,
+                                        snapshot_rows = snapshot.dimensions.rows,
+                                        window_columns = self.grid.columns,
+                                        window_rows = self.grid.rows,
+                                        "single-pane dimensions drifted from the window grid; reconciling"
+                                    );
+                                    self.reconcile_pane_dims_to_window();
+                                    if let Some(window) = self.window.as_ref() {
+                                        window.request_redraw();
+                                    }
+                                }
+                                drifted
+                            }
+                            #[cfg(not(unix))]
+                            {
+                                false
+                            }
+                        };
                         // Blink phase: hide the cursor during the off-phase. Only the
                         // live view (offset 0) shows a cursor; the blink driver holds
                         // it solid when not blinking or unfocused.
@@ -5954,7 +6013,11 @@ impl ApplicationHandler<UserEvent> for App {
                         self.last_presented_snapshot = Some(content_snapshot);
                         self.last_presented_cursor_style = cursor_style;
                         self.last_presented_cursor_blinking = cursor_blinking;
-                        self.needs_rebuild = false;
+                        // A drifted snapshot was captured before reconciliation,
+                        // so keep the focused session dirty for the requested
+                        // follow-up redraw. The next frame reads the corrected
+                        // dimensions and returns to the normal clean state.
+                        self.needs_rebuild = pane_dims_reconciled;
                     }
                 }
                 let action = {

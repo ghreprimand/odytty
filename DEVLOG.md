@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-13 -- Reconcile attached sessions with the window grid
+
+A newly attached session now reflows from the host snapshot dimensions to the
+current window content grid immediately, even when the window itself has not
+resized. The terminal snapshot, overlay drawing, transparency region, and
+pointer hit-tests therefore share one geometry basis as soon as the attached
+tab appears instead of waiting for a manual resize.
+
+The single-pane render path also detects a future snapshot/window dimension
+drift using state-only diagnostics, reconciles the pane layout, and schedules a
+clean follow-up frame. Attached clients receive one resize frame only when the
+dimensions differ; an already matching snapshot stays transport-neutral and
+avoids an unnecessary host reflow. Local PTYs retain their existing pixel-metric
+refresh behavior. Session-host attachment remains Unix-only, while the Windows
+unsupported-attach error path is unchanged.
+
+Verified: mismatched and already-matching attach dimensions, exact host resize
+frame counts, cargo build, cargo test, cargo fmt --check, and cargo clippy
+--all-targets --locked -- -D warnings are clean.
+
 ## 2026-07-13 -- Finish clearing work-cycle vocabulary from source comments
 
 A follow-up sweep removes the remaining internal work-cycle codenames from

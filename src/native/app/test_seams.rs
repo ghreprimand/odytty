@@ -13,6 +13,22 @@ use super::*;
 use winit::keyboard::KeyCode;
 
 impl App {
+    /// Headless session-attach driver that uses the real WorkspaceSet connect
+    /// seam, then runs the production presentation and dimension reconciliation.
+    #[cfg(all(test, unix))]
+    pub(in crate::native) fn attach_session_with_sink_for_test(
+        &mut self,
+        runtime_base: Option<&Path>,
+        session_id: &str,
+        sink: impl crate::native::attach::AttachEventSink,
+    ) -> std::io::Result<()> {
+        let token = self
+            .sessions
+            .attach_in_new_tab_for_test(runtime_base, session_id, sink)?;
+        self.present_attached_session(token);
+        Ok(())
+    }
+
     /// Resize the terminal model and PTY to fit the new physical surface size.
     ///
     /// Idempotent: when the computed whole-cell grid is unchanged (a sub-cell

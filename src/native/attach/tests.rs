@@ -16,8 +16,11 @@ use std::time::{Duration, Instant};
 
 use super::*;
 use crate::core::{Dimensions, SnapshotCaptureLimits, Terminal};
+use crate::native::app::App;
 use crate::native::layout::PaneRect;
+use crate::native::options::NativeOptions;
 use crate::native::session::{Session, WorkspaceSet};
+use crate::native::viewport::WindowPadding;
 use crate::pty::PtySession;
 use crate::session_host::protocol::{
     ClientFrame, HostFrame, HostHello, read_client_frame, read_client_hello, write_host_frame,
@@ -91,6 +94,34 @@ where
     (socket_path, handle)
 }
 
+/// Stand up a fake host at the production session-id path beneath a synthetic
+/// runtime base, so the App's resolve-by-id attach path is exercised unchanged.
+fn spawn_resolved_fake_host<T, F>(
+    id: &str,
+    snapshot: Vec<u8>,
+    script: F,
+) -> (PathBuf, JoinHandle<T>)
+where
+    T: Send + 'static,
+    F: FnOnce(UnixStream) -> T + Send + 'static,
+{
+    let base = unique_runtime_dir();
+    let runtime_dir = runtime_dir_path(&base);
+    std::fs::create_dir_all(&runtime_dir).expect("create runtime dir");
+    std::fs::set_permissions(&runtime_dir, std::fs::Permissions::from_mode(0o700))
+        .expect("chmod 0700 runtime dir");
+    let socket_path = session_socket_path(&runtime_dir, id).expect("session socket path");
+    let listener = UnixListener::bind(&socket_path).expect("bind fake host");
+    let handle = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept attach client");
+        let _hello = read_client_hello(&mut stream).expect("read client hello");
+        write_host_hello(&mut stream, &HostHello::accepted()).expect("write host hello");
+        write_host_frame(&mut stream, &HostFrame::Snapshot(snapshot)).expect("write snapshot");
+        script(stream)
+    });
+    (base, handle)
+}
+
 fn test_caps() -> SnapshotEnvelopeCaps {
     SnapshotEnvelopeCaps::default()
 }
@@ -160,6 +191,22 @@ fn drain_until_disconnect(mut stream: UnixStream) {
             Ok(_) => continue,
             // EOF / disconnect / protocol end: the client is gone, safe to drop.
             Err(_) => return,
+        }
+    }
+}
+
+fn collect_until_detach(mut stream: UnixStream) -> Vec<ClientFrame> {
+    let mut frames = Vec::new();
+    loop {
+        match read_client_frame(&mut stream) {
+            Ok(frame) => {
+                let detached = frame == ClientFrame::Detach;
+                frames.push(frame);
+                if detached {
+                    return frames;
+                }
+            }
+            Err(_) => return frames,
         }
     }
 }
@@ -514,6 +561,88 @@ fn build_local_session() -> Session {
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let pty = Arc::new(Mutex::new(pty));
     Session::new(SessionToken(0), terminal, writer, pty, None)
+}
+
+fn build_attach_app(dims: Dimensions) -> App {
+    let pty = PtySession::spawn_shell_command(dims, "sleep 1").expect("spawn test shell");
+    let writer: PtyWriter = Arc::new(Mutex::new(pty.take_writer().expect("writer")));
+    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let pty = Arc::new(Mutex::new(pty));
+    let options = NativeOptions {
+        initial_grid: dims,
+        ..NativeOptions::default()
+    };
+    App::new(
+        options,
+        terminal,
+        writer,
+        pty,
+        crate::settings::Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    )
+}
+
+#[test]
+fn app_attach_reconciles_host_dimensions_to_the_window_once() {
+    let host_dims = Dimensions::new(80, 24);
+    let window_dims = Dimensions::new(100, 30);
+    let id = "attach-reconcile";
+    let host_terminal = Terminal::new(host_dims.columns, host_dims.rows);
+    let (base, host) =
+        spawn_resolved_fake_host(id, snapshot_bytes(&host_terminal), collect_until_detach);
+    let mut app = build_attach_app(window_dims);
+    app.set_test_cell_for_test(crate::text::CellSize {
+        width: 10,
+        height: 20,
+        baseline: 0,
+    });
+    // Two tabs show the one-row top bar, leaving a 100x30 content grid.
+    app.set_test_surface_for_test(1000, 620, WindowPadding::ZERO);
+    let (tx, _rx) = mpsc::channel();
+    app.attach_session_with_sink_for_test(Some(&base), id, ChannelSink(tx))
+        .expect("attach presents the hosted tab");
+
+    assert_eq!(app.grid_dims_for_test(), (100, 30));
+    assert_eq!(app.active_session_grid_dims_for_test(), (100, 30));
+    app.close_all_sessions_for_test();
+    assert_eq!(
+        join_within(host, "dimension-reconcile fake host"),
+        vec![
+            ClientFrame::Resize {
+                columns: 100,
+                rows: 30,
+            },
+            ClientFrame::Detach,
+        ],
+        "a mismatched attached mirror receives exactly one window-size frame"
+    );
+}
+
+#[test]
+fn app_attach_sends_no_resize_when_host_dimensions_already_match() {
+    let dims = Dimensions::new(100, 30);
+    let id = "attach-equal";
+    let host_terminal = Terminal::new(dims.columns, dims.rows);
+    let (base, host) =
+        spawn_resolved_fake_host(id, snapshot_bytes(&host_terminal), collect_until_detach);
+    let mut app = build_attach_app(dims);
+    app.set_test_cell_for_test(crate::text::CellSize {
+        width: 10,
+        height: 20,
+        baseline: 0,
+    });
+    app.set_test_surface_for_test(1000, 620, WindowPadding::ZERO);
+    let (tx, _rx) = mpsc::channel();
+    app.attach_session_with_sink_for_test(Some(&base), id, ChannelSink(tx))
+        .expect("attach presents the hosted tab");
+
+    assert_eq!(app.active_session_grid_dims_for_test(), (100, 30));
+    app.close_all_sessions_for_test();
+    assert_eq!(
+        join_within(host, "equal-dimension fake host"),
+        vec![ClientFrame::Detach],
+        "an already-correct mirror must not receive a redundant resize"
+    );
 }
 
 #[test]
