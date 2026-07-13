@@ -12,10 +12,11 @@ OdyTTY ships as a versioned release. Each release provides:
 - a desktop entry, AppStream metadata, and icon installed into Freedesktop
   locations.
 
-Pick by system: AppImage for a no-install single-file Linux run, the AUR package
-on Arch-family systems, Homebrew on macOS, Scoop (or a direct zip download) on
-Windows, and a pacman-tracked source package on Odyssey itself so the install is
-versioned, owned, removable, and visible to Odyssey-Mon.
+Pick by system: on Linux the one-line installer picks a native `.deb` or `.rpm`
+for you (with the AppImage as a no-install single-file fallback and the AUR
+package on Arch-family systems), Homebrew on macOS, Scoop (or a direct zip
+download) on Windows, and a pacman-tracked source package on Odyssey itself so
+the install is versioned, owned, removable, and visible to Odyssey-Mon.
 
 ## Release Artifact Names And Checksums
 
@@ -24,6 +25,9 @@ version-pinned copy:
 
 | Always-latest alias | Version-pinned copy |
 | --- | --- |
+| `odytty-amd64.deb` | `odytty-<version>-amd64.deb` |
+| `odytty-x86_64.rpm` | `odytty-<version>-x86_64.rpm` |
+| `odytty-linux-x86_64.tar.gz` | `odytty-<version>-linux-x86_64.tar.gz` |
 | `odytty-x86_64.AppImage` | `odytty-<version>-x86_64.AppImage` |
 | `odytty-macos-arm64.zip` | `odytty-<version>-macos-arm64.zip` |
 | `odytty-windows-x86_64.zip` | `odytty-<version>-windows-x86_64.zip` |
@@ -40,6 +44,85 @@ Linux is the primary and most battle-tested platform, and it needs a
 Vulkan-capable GPU. Wayland is the primary display target. X11 works through
 the current `winit` and GPU stack, with some window-manager-dependent behavior
 for borderless windows and OS theme detection.
+
+### One-line installer (recommended)
+
+The fastest path. It detects your package manager and installs the matching
+prebuilt artifact from the latest release:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
+```
+
+It chooses a native `.deb` on apt/dpkg systems, a native `.rpm` on dnf/rpm
+systems, or the portable binary tarball otherwise. The download is always
+checksum-verified against the release `SHA256SUMS` before anything is
+installed. System package managers need root, so the script uses `sudo` when
+you are not already root; the tarball path falls back to a per-user `~/.local`
+install when no `sudo` is available. Pass `--dry-run` to print the plan and exit
+without downloading or installing:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash -s -- --dry-run
+```
+
+It is Linux x86_64 only: on macOS it prints the Homebrew command and on Windows
+the Scoop command instead of installing, and other architectures are pointed at
+the AppImage or a source build.
+
+### .deb (Debian, Ubuntu, Mint, Pop)
+
+Download the always-latest `.deb` alias and its checksums, verify, and install
+with apt so dependencies resolve:
+
+```sh
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-amd64.deb
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+sudo apt install ./odytty-amd64.deb
+```
+
+The package installs the binary, desktop entry, AppStream metadata, and icons
+under dpkg ownership. Update with a normal `sudo apt upgrade` once a newer
+release publishes, or re-run the download-and-install above.
+
+### .rpm (Fedora, RHEL, openSUSE, best-effort)
+
+Download the always-latest `.rpm` alias, verify, and install with dnf:
+
+```sh
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.rpm
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+sudo dnf install ./odytty-x86_64.rpm
+```
+
+Like the AppImage, the `.rpm` is a best-effort artifact: it is cross-built on
+Ubuntu and its metadata is validated in CI, but it is not tested on every RPM
+distribution. If it does not install cleanly on your system, use the binary
+tarball or build from source.
+
+### Binary tarball (portable prebuilt)
+
+The `odytty-linux-x86_64.tar.gz` is a prebuilt binary plus desktop-integration
+files and a bundled `install.sh`, for systems where a native package does not
+fit. Download, verify, extract, and run the bundled installer:
+
+```sh
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-linux-x86_64.tar.gz
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+tar -xzf odytty-linux-x86_64.tar.gz
+cd odytty-*-linux-x86_64
+./install.sh
+```
+
+The bundled `install.sh` copies the binary and desktop files into a prefix and
+refreshes the desktop and icon caches when those tools are present. `PREFIX`
+defaults to `~/.local` for a no-root per-user install (make sure
+`~/.local/bin` is on your `PATH`); set `PREFIX=/usr/local` and use `sudo` for a
+system-wide install. Remove a previous install with `./install.sh --uninstall`
+(honoring the same `PREFIX`).
 
 ### AppImage (x86_64)
 
@@ -102,8 +185,19 @@ below.
 
 ### Updating
 
-The AppImage has no package manager, so an update is a re-download of the
-always-latest alias (it resolves to the newest release):
+Native package installs update with your system package manager once a newer
+release publishes: `sudo apt upgrade` (deb) or `sudo dnf upgrade` (rpm).
+Re-running the one-line installer also pulls and installs the newest package:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
+```
+
+The AUR package updates with a normal `paru -Syu` / `yay -Syu`.
+
+The AppImage and binary tarball have no package manager, so an update is a
+re-download of the always-latest alias (it resolves to the newest release). For
+the AppImage:
 
 ```sh
 curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
@@ -112,7 +206,8 @@ sha256sum -c SHA256SUMS --ignore-missing
 chmod +x odytty-x86_64.AppImage
 ```
 
-The AUR package updates with a normal `paru -Syu` / `yay -Syu`.
+For the binary tarball, re-download `odytty-linux-x86_64.tar.gz`, verify, and
+re-run its bundled `./install.sh` with the same `PREFIX` as before.
 
 ## macOS (Apple Silicon)
 

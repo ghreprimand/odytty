@@ -31,14 +31,31 @@ default-terminal setup, and troubleshooting.
 
 | Platform | Support | Recommended release |
 | --- | --- | --- |
-| Linux | Primary and most battle-tested | x86_64 AppImage |
+| Linux | Primary and most battle-tested | One-line install, or native .deb / .rpm |
 | macOS | Supported and actively maturing | Homebrew cask with an Apple Silicon app |
 | Windows | First-class ConPTY support and actively maturing | Scoop package with an unsigned x86_64 build |
 
 ### Linux
 
-Linux needs a Vulkan-capable GPU. Download the always-latest AppImage and its
-checksums, verify it, mark it executable, and run:
+Linux needs a Vulkan-capable GPU. The fastest path is the one-line installer,
+which detects your package manager, downloads the matching artifact, and
+checksum-verifies it against `SHA256SUMS` before installing:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
+```
+
+It picks a native `.deb` on apt systems, a native `.rpm` on dnf systems, or the
+portable binary tarball otherwise. Pass `--dry-run` to preview the plan without
+downloading anything. Prefer to install by hand? Each explicit path:
+
+- **Arch (and derivatives):** `paru -S odytty` from the AUR.
+- **Debian, Ubuntu, Mint, Pop:** download `odytty-amd64.deb` from the
+  [latest release](https://github.com/ghreprimand/odytty/releases/latest) and
+  `sudo apt install ./odytty-amd64.deb`.
+- **Fedora, RHEL, openSUSE:** download `odytty-x86_64.rpm` and
+  `sudo dnf install ./odytty-x86_64.rpm` (best-effort, cross-built).
+- **Portable AppImage (no install):** download, verify, mark executable, run.
 
 ```sh
 curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
@@ -47,6 +64,9 @@ sha256sum -c SHA256SUMS --ignore-missing
 chmod +x odytty-x86_64.AppImage
 ./odytty-x86_64.AppImage
 ```
+
+A prebuilt binary tarball and a source build round out the options in the
+[full install guide](docs/install.md#linux).
 
 Wayland is the primary display target. X11 works through the current windowing
 and GPU stack. See the [Linux install notes](docs/install.md#linux)
@@ -98,7 +118,15 @@ the `Ctrl+Shift+P` command palette. No config file needed.
 <details>
 <summary><strong>Updating</strong></summary>
 
-**Linux AppImage**
+**Linux native package** installs update with your system: `sudo apt upgrade`
+(deb) or `sudo dnf upgrade` (rpm) once a new release publishes. Re-running the
+one-line installer also pulls the newest package:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
+```
+
+**Linux AppImage** updates are a re-download of the always-latest alias:
 
 ```sh
 curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
