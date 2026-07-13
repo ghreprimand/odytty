@@ -4,7 +4,7 @@
 //! The terminal core owns image storage and placement semantics. This module
 //! only mirrors visible RGBA8 images into GPU textures and maps projected
 //! `VisiblePlacement`s into pixel-space quads. It intentionally stays native
-//! side so graphics protocol packets can keep evolving independently.
+//! side so graphics protocol handling can keep evolving independently.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 

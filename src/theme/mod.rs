@@ -57,7 +57,7 @@ pub type Srgb = (u8, u8, u8);
 /// colors ([`cursor`](Self::cursor), [`selection`](Self::selection),
 /// [`search`](Self::search), and the reserved [`border`](Self::border) /
 /// [`inactive`](Self::inactive)) describe how presentation chrome should be
-/// painted; consumers land in later packets (cursor/selection/search treatments,
+/// painted; consumers land in later work (cursor/selection/search treatments,
 /// window chrome), so `border`/`inactive` are authored now but not yet read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {

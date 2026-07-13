@@ -1132,7 +1132,7 @@ impl Screen {
     }
 
     /// Terminal-owned graphics state. Render integration is intentionally
-    /// separate; this lets tests and future render packets inspect placements
+    /// separate; this lets tests and future render work inspect placements
     /// without changing the text [`Snapshot`] surface.
     pub fn graphics(&self) -> &ImageScene {
         &self.graphics
@@ -2013,7 +2013,7 @@ impl Screen {
 /// through this impl. Parameters already arrive as the owned [`Params`], so the
 /// callbacks forward straight to the shared `dispatch_*` logic. DCS/APC
 /// graphics payloads are recognized and handed to the graphics scene as raw
-/// bytes; protocol decoding remains in later graphics packets.
+/// bytes; protocol decoding remains in later graphics work.
 impl VtDispatch for Screen {
     fn print(&mut self, c: char) {
         self.dispatch_print(c);

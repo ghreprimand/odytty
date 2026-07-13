@@ -100,7 +100,7 @@ pub use params::{Params, ParamsIter};
 ///
 /// All methods default to no-ops, so an implementor overrides only the actions
 /// it cares about (the terminal core ignores DCS and APC today; those are
-/// wired up in later packets).
+/// wired up in later work).
 pub trait VtDispatch {
     /// Draw a character to the screen.
     fn print(&mut self, _c: char) {}

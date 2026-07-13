@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Terminal graphics protocols (Stage 6 ladder, see `graphics-protocol-spike.md`).
 //!
-//! Module ownership is split across parallel work packets:
+//! Module ownership is split across parallel work:
 //! - `sixel`: standalone Sixel DCS payload decoder (pure bytes -> RGBA).
 //! - `store` / `placement`: shared image store and cell-anchored placement
 //!   scene consumed by both the Kitty graphics protocol and Sixel.

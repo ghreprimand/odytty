@@ -5,7 +5,7 @@
 //! clear with terminal erase/reset operations, and stay isolated between the
 //! primary and alternate buffers. Coordinates are physical cell anchors. G2.1
 //! deliberately avoids protocol decoding; it only stores decoded-image records,
-//! placement records, and raw Kitty/Sixel payloads for later protocol packets.
+//! placement records, and raw Kitty/Sixel payloads for later protocol decoding.
 
 use std::collections::VecDeque;
 

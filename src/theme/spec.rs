@@ -9,7 +9,7 @@
 //! optional bundled visual-effect profile. Those extra fields are parsed,
 //! serialized, and round-tripped now (forward-compat) but only the color
 //! payload is projected into the runtime `Theme` via [`ThemeSpec::to_theme`];
-//! the rest is consumed by later packets (settings panel, theme picker).
+//! the rest is consumed by later work (settings panel, theme picker).
 //!
 //! ## File format
 //!
@@ -151,7 +151,7 @@ impl ThemeSpec {
     /// Project this spec into the runtime [`Theme`] consumed by the renderer.
     ///
     /// Only the color payload crosses over; authoring-only fields (appearance,
-    /// font hints, effect profile) stay in the spec for later packets. The
+    /// font hints, effect profile) stay in the spec for later work. The
     /// runtime `Theme::name` is `&'static`, so a spec whose name matches a
     /// built-in keeps that static name; any other (user) theme projects to the
     /// static placeholder `"custom"`.

@@ -41,7 +41,7 @@
 //! band width, slot height, and inter-slot gap are the live
 //! `ODYTTY_TAB_RAIL_WIDTH` / `ODYTTY_TAB_RAIL_SLOT_ROWS` / `ODYTTY_TAB_RAIL_GAP`
 //! knobs (resolved by the integration layer into [`RailGeom`] + `rail_cols`);
-//! auto-hide and drag-resize are later packets.
+//! auto-hide and drag-resize are handled in the interaction layer.
 
 use super::tab_bar::{TabBarColors, TabBarSource, TabHit};
 use super::tab_chrome;
