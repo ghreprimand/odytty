@@ -218,14 +218,15 @@ brew install --cask odytty
 
 Recent Homebrew versions require trusting a third-party tap before its cask will load. If the install stops with `Refusing to load cask ... from untrusted tap`, run `brew trust ghreprimand/odytty` (or `brew trust --cask ghreprimand/odytty/odytty` to trust just this cask) and re-run the install. It is a one-time per-machine trust.
 
+Update later with `brew upgrade --cask odytty` (or a plain `brew upgrade` to refresh everything Homebrew manages).
+
 The cask installs the prebuilt, ad-hoc-signed `OdyTTY.app` into `/Applications`,
 so it appears in Launchpad and Spotlight and can be dragged to the Dock to pin
 it. The app is ad-hoc signed but not notarized, so macOS quarantines the
 download; the cask automatically runs `xattr -dr com.apple.quarantine` on your
 behalf during install, clearing that security attribute so it launches cleanly
 (its install-time caveats disclose this in the terminal). Notarization (Apple
-Developer Program, deferred) is the only way to remove that need. `brew upgrade` picks up
-new releases automatically.
+Developer Program, deferred) is the only way to remove that need.
 
 To compile locally instead (Intel Macs, or to build from source), use the
 source formula, which installs the `odytty` CLI on your `PATH` with no `.app`
