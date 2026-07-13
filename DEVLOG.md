@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-13 -- Release v0.8.5 — reliability, rail interactions, and idle recovery
+
+Release v0.8.5. The arc since v0.8.2 is a reliability and interaction pass built
+on three code audits plus targeted fixes, with no change to the effect defaults
+or the platform matrix.
+
+Hardening and performance. OSC 8 hyperlink interning now uses a bounded,
+least-recently-used table so a flood of distinct links cannot grow memory without
+limit and a link a program keeps repainting outlives one that has gone cold.
+Scrollback eviction is constant-time, combining marks past the cell store spill
+into a bounded side table, and the search, emoji, and OSC dispatch paths drop
+their per-frame allocations. The GPU surface recovers automatically when the
+compositor reports it lost. A stall where the first keypress after a long idle
+took several seconds to present is fixed by retiring a starved swapchain on
+window focus and restore, so the next frame appears immediately; the same change
+adds skip-episode instrumentation to make any recurrence visible in the logs.
+
+Workspace rail and settings. With the rail set to auto-hide, clicking a workspace
+now switches it while panes are split, the floating rail can be width-dragged and
+stays open under its resize cursor, and hovering the top tab bar keeps the arrow
+cursor. Settings are reorganized into a Layout section that separates Rail side
+from Rail visibility, and the tab-bar height is editable by stepper, by typing,
+or by dragging the bar's bottom edge, with the panel and the mouse gesture kept
+in sync. Saving a rail setting no longer reverts to a shadowed value: the config
+rewrite reconciles the canonical and legacy keys that share a field. Chrome labels
+no longer clip their descenders on the default one-row bar.
+
+Earlier feel fixes folded into this release remove a multi-second right-click
+freeze, make split-pane tab drag-to-reorder and inline images work, open
+Ctrl+clicked paths, URLs, and hyperlinks even inside mouse-tracking programs, and
+restore wheel scrollback in inline TUIs. Windows and macOS build and pass the full
+suite on the same verified matrix that gates every commit.
+
 ## 2026-07-13 -- Reword source comments to design voice
 
 Three code comments that recorded who approved a decision now state the design
