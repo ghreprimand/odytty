@@ -2062,6 +2062,36 @@ fn autohide_seam_resizes_only_while_the_floating_rail_is_revealed() {
 }
 
 #[test]
+fn autohide_seam_hover_holds_the_floating_rail_revealed() {
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+    app.set_tab_bar_placement_for_test("left");
+    app.set_workspace_rail_for_test("always");
+    app.set_tab_rail_width_manual_for_test(16); // floating seam at x=128
+    app.set_tab_rail_autohide_for_test(true);
+    app.force_rail_reveal_for_test();
+
+    // The content-facing half of the grab band lies just outside the drawn
+    // overlay. It must still feed the reveal hold while advertising ColResize.
+    let seam_hover_x = 132.0;
+    assert_eq!(
+        app.pointer_over_rail_seam_for_test(seam_hover_x),
+        Some(true)
+    );
+    let hovered_at = std::time::Instant::now();
+    app.feed_rail_pointer_for_test(seam_hover_x, hovered_at);
+    app.poll_rail_autohide_for_test(hovered_at + std::time::Duration::from_secs(10));
+    assert!(
+        app.rail_autohide_is_visible_for_test(hovered_at + std::time::Duration::from_secs(10)),
+        "hovering the revealed seam must hold the floating rail open"
+    );
+}
+
+#[test]
 fn top_tab_hover_keeps_the_arrow_while_the_workspace_rail_is_autohidden() {
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");

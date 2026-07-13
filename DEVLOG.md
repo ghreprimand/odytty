@@ -7,6 +7,17 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-12 -- Keep the floating rail open under its resize cursor
+
+Hovering the content-facing half of a revealed workspace-rail resize seam now
+feeds the auto-hide reveal hold. The floating rail therefore stays open while
+the column-resize cursor is visible and the pointer approaches the press that
+starts a width drag, instead of entering hide grace beneath the affordance.
+
+Verified: revealed-seam hover remains visible beyond the hide-grace interval,
+including the grab-band portion outside the drawn rail, and cargo test, cargo
+fmt --check, and cargo clippy --all-targets --locked -- -D warnings are clean.
+
 ## 2026-07-12 -- Make tab bar height editing consistent
 
 The Layout panel now presents Tab bar height as a numeric stepper with an

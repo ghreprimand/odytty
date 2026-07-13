@@ -4020,7 +4020,9 @@ impl App {
     /// 30–200 px apart, so a fast approach can jump clean over a static point
     /// zone. `in_band` stays a **point** test: the keep-alive / hide-grace logic
     /// needs "is the pointer *now* over the band", not "did the path ever touch
-    /// it" (a motion-aware band would never let go once the pointer left).
+    /// it" (a motion-aware band would never let go once the pointer left). The
+    /// active seam grab band extends this point contact slightly into content so
+    /// the revealed rail cannot hide beneath its resize cursor.
     fn reveal_pointer_contact(
         &self,
         px_x: f64,
@@ -4036,7 +4038,9 @@ impl App {
                 let (surface_w, _pad) = self.reveal_surface_metrics();
                 reveal_edge_segment_crosses(side, prev, px_x, self.reveal_reach_px(), surface_w)
             });
-        (in_edge, self.pointer_in_reveal_band(px_x, cell, side))
+        let in_band = self.pointer_in_reveal_band(px_x, cell, side)
+            || self.pointer_over_rail_seam(px_x, cell);
+        (in_edge, in_band)
     }
 
     /// Whether the auto-hidden rail overlay is drawn (and hit-tested) this
