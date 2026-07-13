@@ -115,6 +115,21 @@ URLs), while `odytty-<version>-x86_64.AppImage` /
 **identical** copies for pinning a specific version. Each alias and its
 version-pinned twin carry matching checksums in `SHA256SUMS`.
 
+#### Updating
+
+**AppImage (recommended):** re-download the always-latest alias (it resolves to
+the newest release), verify it, and replace the existing file:
+
+```sh
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+chmod +x odytty-x86_64.AppImage
+```
+
+- **AUR:** `paru -Syu` (or `yay -Syu`) picks up new releases with a normal system upgrade.
+- **From source:** re-fetch the latest release tarball (or pull) and rebuild.
+
 <details>
 <summary><strong>Arch Linux (AUR)</strong></summary>
 
@@ -218,8 +233,6 @@ brew install --cask odytty
 
 Recent Homebrew versions require trusting a third-party tap before its cask will load. If the install stops with `Refusing to load cask ... from untrusted tap`, run `brew trust ghreprimand/odytty` (or `brew trust --cask ghreprimand/odytty/odytty` to trust just this cask) and re-run the install. It is a one-time per-machine trust.
 
-Update later with `brew upgrade --cask odytty` (or a plain `brew upgrade` to refresh everything Homebrew manages).
-
 The cask installs the prebuilt, ad-hoc-signed `OdyTTY.app` into `/Applications`,
 so it appears in Launchpad and Spotlight and can be dragged to the Dock to pin
 it. The app is ad-hoc signed but not notarized, so macOS quarantines the
@@ -235,6 +248,11 @@ bundle:
 ```sh
 brew install ghreprimand/odytty/odytty
 ```
+
+#### Updating
+
+- **Cask (recommended):** `brew upgrade --cask odytty`
+- **Source formula:** `brew upgrade odytty`
 
 <details>
 <summary><strong>Build from source</strong></summary>
@@ -313,7 +331,12 @@ Scoop puts `odytty` on your PATH (a shim under `~\scoop\shims`), so you can
 launch it by typing `odytty` in any shell, and it adds an **OdyTTY** entry to
 the Start menu. It also verifies the download against the release checksum and
 unpacks the zip for you, so the browser "downloaded from the internet" file
-warning never comes up. Update later with `scoop update odytty`.
+warning never comes up.
+
+#### Updating
+
+- **Scoop (recommended):** `scoop update odytty`
+- **Portable zip:** re-download the always-latest `odytty-windows-x86_64.zip`, re-verify the hash, and replace the old `odytty.exe`.
 
 <details>
 <summary><strong>Windows: portable zip, SmartScreen, scope details</strong></summary>

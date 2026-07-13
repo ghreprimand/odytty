@@ -88,6 +88,11 @@ yet. Launch it directly instead: from the Start menu, by typing `odytty`, or
 from a pinned shortcut. Detached/resumable session hosting is Unix-only in this
 release; the Windows build opens local ConPTY-backed tabs and panes.
 
+### Updating
+
+- **Scoop (recommended):** `scoop update odytty`
+- **Portable zip:** re-download the always-latest `odytty-windows-x86_64.zip`, re-verify the hash against `SHA256SUMS`, and replace the old `odytty.exe`.
+
 ## macOS (Apple Silicon)
 
 macOS builds and passes the full test suite on every push, and the release
@@ -107,8 +112,6 @@ brew install --cask odytty
 ```
 
 Recent Homebrew versions require trusting a third-party tap before its cask will load. If the install stops with `Refusing to load cask ... from untrusted tap`, run `brew trust ghreprimand/odytty` (or `brew trust --cask ghreprimand/odytty/odytty` to trust just this cask) and re-run the install. It is a one-time per-machine trust.
-
-Update later with `brew upgrade --cask odytty`.
 
 The **cask** installs the prebuilt, ad-hoc-signed `OdyTTY.app` into
 `/Applications`. The app is ad-hoc signed but not notarized, so macOS
@@ -135,6 +138,14 @@ brew install ghreprimand/odytty/odytty
 Per release there is nothing to do on your side: CI bumps the tap's cask to
 each new version automatically shortly after the release publishes, so
 `brew upgrade` picks it up.
+
+### Updating
+
+- **Cask (recommended):** `brew upgrade --cask odytty`
+- **Source formula:** `brew upgrade odytty`
+
+The scoped commands update only OdyTTY; a plain `brew upgrade` refreshes
+everything Homebrew manages.
 
 ### Direct .app zip download
 
@@ -195,6 +206,20 @@ artifact; if Vulkan initialization fails on your host, build from source.
 To integrate it into menus, tools like [Gear Lever][gearlever] or
 `appimaged` register the bundled desktop entry and icon. The AppImage can be
 built locally with `dist/appimage/build-appimage.sh`.
+
+### Updating
+
+The AppImage has no package manager, so an update is a re-download of the
+always-latest alias (it resolves to the newest release):
+
+```sh
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+chmod +x odytty-x86_64.AppImage
+```
+
+The AUR package (below) updates with a normal `paru -Syu` / `yay -Syu`.
 
 [gearlever]: https://github.com/mijorus/gearlever
 
