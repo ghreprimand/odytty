@@ -251,7 +251,12 @@ brew install ghreprimand/odytty/odytty
 
 #### Updating
 
-- **Cask (recommended):** `brew upgrade --cask odytty`
+**Cask (recommended):** refresh to the newest release:
+
+```sh
+brew upgrade --cask odytty
+```
+
 - **Source formula:** `brew upgrade odytty`
 
 <details>
@@ -335,7 +340,12 @@ warning never comes up.
 
 #### Updating
 
-- **Scoop (recommended):** `scoop update odytty`
+**Scoop (recommended):** refresh to the newest release:
+
+```powershell
+scoop update odytty
+```
+
 - **Portable zip:** re-download the always-latest `odytty-windows-x86_64.zip`, re-verify the hash, and replace the old `odytty.exe`.
 
 <details>

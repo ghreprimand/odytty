@@ -90,7 +90,12 @@ release; the Windows build opens local ConPTY-backed tabs and panes.
 
 ### Updating
 
-- **Scoop (recommended):** `scoop update odytty`
+**Scoop (recommended):** refresh to the newest release:
+
+```powershell
+scoop update odytty
+```
+
 - **Portable zip:** re-download the always-latest `odytty-windows-x86_64.zip`, re-verify the hash against `SHA256SUMS`, and replace the old `odytty.exe`.
 
 ## macOS (Apple Silicon)
@@ -141,7 +146,12 @@ each new version automatically shortly after the release publishes, so
 
 ### Updating
 
-- **Cask (recommended):** `brew upgrade --cask odytty`
+**Cask (recommended):** refresh to the newest release:
+
+```sh
+brew upgrade --cask odytty
+```
+
 - **Source formula:** `brew upgrade odytty`
 
 The scoped commands update only OdyTTY; a plain `brew upgrade` refreshes
