@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-14 -- Prefer accelerated adapters over software fallbacks
+
+GPU initialization now checks for a presentable accelerated adapter when the
+normal backend-order selection returns a software rasterizer. The standard
+adapter request remains unchanged; only a software result triggers enumeration,
+where discrete, integrated, other, and virtual devices are considered in that
+order with stable enumeration-order ties. This lets accelerated GL adapters such
+as virgl replace lavapipe while keeping the software adapter as the survival path
+when no accelerated option can present to the surface.
+
+The software predicate is shared by selection and the startup warning so the two
+paths cannot disagree. Hardware selections make no additional GPU calls, leaving
+normal Linux Vulkan, Windows DX12/Vulkan, and macOS Metal selection unchanged.
+Windows systems with only WARP also keep the existing software fallback.
+
+Verified: unit tests cover known software rasterizers, the lavapipe/virgl case,
+surface compatibility, all-software survival, device-tier ordering, and stable
+ties; cargo test, cargo build, cargo fmt --check, and cargo clippy --all-targets
+--locked -- -D warnings are clean.
+
 ## 2026-07-14 -- Release v0.8.8 — accelerated GL rendering when Vulkan is unavailable
 
 GPU initialization now supplies the native display handle that the GL backend

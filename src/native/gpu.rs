@@ -328,6 +328,48 @@ pub(super) fn required_limits_for_adapter(adapter_limits: &wgpu::Limits) -> (wgp
     )
 }
 
+/// Whether an adapter is a software rasterizer rather than an accelerated GPU.
+/// `Cpu` is unambiguous, while the name checks cover software implementations
+/// that report another device class.
+pub(super) fn adapter_is_software(info: &wgpu::AdapterInfo) -> bool {
+    if info.device_type == wgpu::DeviceType::Cpu {
+        return true;
+    }
+    let name = info.name.to_ascii_lowercase();
+    const SOFTWARE_MARKERS: [&str; 4] = [
+        "llvmpipe",
+        "lavapipe",
+        "swiftshader",
+        // Windows WARP software rasterizer.
+        "microsoft basic render driver",
+    ];
+    SOFTWARE_MARKERS.iter().any(|marker| name.contains(marker))
+}
+
+/// Select an accelerated, presentable adapter from enumeration order. Device
+/// class is the primary key and enumeration order breaks ties, preserving a
+/// deterministic choice without changing the normal `request_adapter` path.
+pub(super) fn rescue_adapter_index(candidates: &[(wgpu::AdapterInfo, bool)]) -> Option<usize> {
+    candidates
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (info, surface_supported))| {
+            if !surface_supported || adapter_is_software(info) {
+                return None;
+            }
+            let tier = match info.device_type {
+                wgpu::DeviceType::DiscreteGpu => 0,
+                wgpu::DeviceType::IntegratedGpu => 1,
+                wgpu::DeviceType::Other => 2,
+                wgpu::DeviceType::VirtualGpu => 3,
+                wgpu::DeviceType::Cpu => return None,
+            };
+            Some((tier, index))
+        })
+        .min()
+        .map(|(_, index)| index)
+}
+
 /// Viewport uniform mirroring `Viewport` in `cell.wgsl`: physical surface size
 /// in pixels plus presentation-only params. `effect` is `[0.0, _]` when the
 /// visual treatment is off, which makes the shader a no-op. `text.x` is glyph
@@ -922,29 +964,6 @@ impl AdapterDiagnostics {
     pub(in crate::native) fn summary(&self) -> String {
         format!("{} ({}, {})", self.name, self.backend, self.device_type)
     }
-
-    /// Whether the selected adapter is a software (CPU) rasterizer rather than a
-    /// hardware GPU. A silent fall back to software rendering is the usual cause
-    /// of a "very slow even with effects off" report: wgpu reports `Cpu` for a
-    /// pure software device, and the common software Vulkan/GL implementations
-    /// (Mesa llvmpipe/lavapipe, Google SwiftShader) and the Windows WARP fallback
-    /// ("Microsoft Basic Render Driver") announce themselves by name even when
-    /// they masquerade as another device class. Pure string/enum matching, so it
-    /// is cheap and unit-testable off the render path.
-    pub(in crate::native) fn is_software(&self) -> bool {
-        if self.device_type == "Cpu" {
-            return true;
-        }
-        let name = self.name.to_ascii_lowercase();
-        const SOFTWARE_MARKERS: [&str; 4] = [
-            "llvmpipe",
-            "lavapipe",
-            "swiftshader",
-            // Windows WARP software rasterizer.
-            "microsoft basic render driver",
-        ];
-        SOFTWARE_MARKERS.iter().any(|marker| name.contains(marker))
-    }
 }
 
 pub(super) struct GpuState {
@@ -1157,7 +1176,7 @@ impl GpuState {
             .create_surface(window.clone())
             .map_err(|err| NativeError::SurfaceCreation(err.to_string()))?;
 
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        let mut adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::default(),
             force_fallback_adapter: false,
             compatible_surface: Some(&surface),
@@ -1168,9 +1187,42 @@ impl GpuState {
             ))
         })?;
 
+        let initial_adapter_info = adapter.get_info();
+        let adapter_info = if adapter_is_software(&initial_adapter_info) {
+            let mut adapters =
+                pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()));
+            let candidates = adapters
+                .iter()
+                .map(|candidate| {
+                    (
+                        candidate.get_info(),
+                        candidate.is_surface_supported(&surface),
+                    )
+                })
+                .collect::<Vec<_>>();
+            if let Some(index) = rescue_adapter_index(&candidates) {
+                let replacement_info = candidates[index].0.clone();
+                tracing::warn!(
+                    "odytty: replacing software GPU adapter {} ({:?}, {:?}) with accelerated adapter {} ({:?}, {:?})",
+                    initial_adapter_info.name,
+                    initial_adapter_info.backend,
+                    initial_adapter_info.device_type,
+                    replacement_info.name,
+                    replacement_info.backend,
+                    replacement_info.device_type
+                );
+                adapter = adapters.swap_remove(index);
+                replacement_info
+            } else {
+                initial_adapter_info
+            }
+        } else {
+            initial_adapter_info
+        };
+
         // Capture adapter identity for the About panel before any device work.
         // Read-only diagnostics; does not influence rendering.
-        let adapter_diagnostics = AdapterDiagnostics::from_wgpu(&adapter.get_info());
+        let adapter_diagnostics = AdapterDiagnostics::from_wgpu(&adapter_info);
         // Name the selected adapter once at startup so a performance report can
         // be diagnosed from the log alone. Routed through `tracing` (not
         // stderr) so it lands in the rotated `odytty.log`: stderr may be
@@ -1185,7 +1237,7 @@ impl GpuState {
         // cause of a "very slow even with effects off" report, so it earns a
         // louder warning pointing at the docs.
         tracing::warn!("odytty: GPU adapter: {}", adapter_diagnostics.summary());
-        if adapter_diagnostics.is_software() {
+        if adapter_is_software(&adapter_info) {
             tracing::warn!(
                 "odytty: WARNING: rendering in software ({}); expect low performance. \
                  See the \"Slow rendering / software adapter\" section of docs/install.md",

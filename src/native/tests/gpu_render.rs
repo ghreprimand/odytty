@@ -790,11 +790,6 @@ fn snapshot_glyph_ensure_skips_hidden_cells() {
     );
 }
 
-/// PERF-DIAG: the software-adapter predicate that gates the loud startup warning
-/// (a silent software fallback is the usual cause of a "very slow" report). Pure
-/// string/enum matching, exercised across the CPU device class, the common
-/// Linux/Google software rasterizers, the Windows WARP fallback, and — the
-/// must-not-fire case — real hardware GPUs.
 fn diag(name: &str, device_type: &str) -> AdapterDiagnostics {
     AdapterDiagnostics {
         name: name.to_owned(),
@@ -803,29 +798,6 @@ fn diag(name: &str, device_type: &str) -> AdapterDiagnostics {
         driver: String::new(),
         driver_info: String::new(),
     }
-}
-
-#[test]
-fn software_adapter_predicate_flags_cpu_and_known_rasterizers() {
-    // The wgpu Cpu device class is unambiguous software.
-    assert!(diag("Some Device", "Cpu").is_software());
-    // Mesa's software rasterizers and Google SwiftShader announce by name even
-    // when they masquerade as another device class (llvmpipe reports Cpu, but
-    // lavapipe/SwiftShader can present as a virtual/other GPU).
-    assert!(diag("llvmpipe (LLVM 17.0.6, 256 bits)", "Cpu").is_software());
-    assert!(diag("llvmpipe", "IntegratedGpu").is_software());
-    assert!(diag("lavapipe (LLVM 17)", "VirtualGpu").is_software());
-    assert!(diag("SwiftShader Device (LLVM)", "Other").is_software());
-    // Windows WARP fallback.
-    assert!(diag("Microsoft Basic Render Driver", "VirtualGpu").is_software());
-    // Case-insensitive on the name.
-    assert!(diag("LLVMpipe", "Other").is_software());
-
-    // Real hardware GPUs must NOT trip the warning.
-    assert!(!diag("NVIDIA GeForce RTX 4080", "DiscreteGpu").is_software());
-    assert!(!diag("Intel(R) UHD Graphics 620", "IntegratedGpu").is_software());
-    assert!(!diag("Apple M2", "IntegratedGpu").is_software());
-    assert!(!diag("AMD Radeon RX 7900 XT", "DiscreteGpu").is_software());
 }
 
 #[test]

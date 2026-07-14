@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::gpu::{
-    BloomOptions, CrtOptions, ViewportUniform, choose_surface_format, content_build_opacity,
-    create_atlas_bind_group, create_cell_pipeline, create_color_atlas_bind_group,
-    create_color_glyph_pipeline, image::BgImageGpu, multi_pane_wallpaper_edge_wash_quads,
-    physical_font_px, post, rail_overlay_chrome_pin, required_limits_for_adapter,
-    scene_clear_color, scene_target_format, select_alpha_mode, wallpaper_edge_wash_quads,
+    BloomOptions, CrtOptions, ViewportUniform, adapter_is_software, choose_surface_format,
+    content_build_opacity, create_atlas_bind_group, create_cell_pipeline,
+    create_color_atlas_bind_group, create_color_glyph_pipeline, image::BgImageGpu,
+    multi_pane_wallpaper_edge_wash_quads, physical_font_px, post, rail_overlay_chrome_pin,
+    required_limits_for_adapter, rescue_adapter_index, scene_clear_color, scene_target_format,
+    select_alpha_mode, wallpaper_edge_wash_quads,
 };
 use crate::atlas::CellSize;
 use crate::core::Terminal;
@@ -14,6 +15,198 @@ use crate::text::SubpixelMode;
 use wgpu::util::DeviceExt;
 
 const TEST_SURFACE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+fn adapter_info(
+    name: &str,
+    device_type: wgpu::DeviceType,
+    backend: wgpu::Backend,
+) -> wgpu::AdapterInfo {
+    wgpu::AdapterInfo {
+        name: name.to_owned(),
+        vendor: 0,
+        device: 0,
+        device_type,
+        device_pci_bus_id: String::new(),
+        driver: String::new(),
+        driver_info: String::new(),
+        backend,
+        subgroup_min_size: 0,
+        subgroup_max_size: 0,
+        transient_saves_memory: false,
+    }
+}
+
+fn adapter_candidate(
+    name: &str,
+    device_type: wgpu::DeviceType,
+    backend: wgpu::Backend,
+    surface_supported: bool,
+) -> (wgpu::AdapterInfo, bool) {
+    (adapter_info(name, device_type, backend), surface_supported)
+}
+
+#[test]
+fn software_adapter_predicate_matches_known_rasterizers() {
+    use wgpu::{Backend, DeviceType};
+
+    assert!(adapter_is_software(&adapter_info(
+        "Some Device",
+        DeviceType::Cpu,
+        Backend::Vulkan
+    )));
+    assert!(adapter_is_software(&adapter_info(
+        "llvmpipe (LLVM 17.0.6, 256 bits)",
+        DeviceType::Cpu,
+        Backend::Vulkan
+    )));
+    assert!(adapter_is_software(&adapter_info(
+        "llvmpipe",
+        DeviceType::IntegratedGpu,
+        Backend::Gl
+    )));
+    assert!(adapter_is_software(&adapter_info(
+        "lavapipe (LLVM 17)",
+        DeviceType::VirtualGpu,
+        Backend::Vulkan
+    )));
+    assert!(adapter_is_software(&adapter_info(
+        "SwiftShader Device (LLVM)",
+        DeviceType::Other,
+        Backend::Vulkan
+    )));
+    assert!(adapter_is_software(&adapter_info(
+        "Microsoft Basic Render Driver",
+        DeviceType::VirtualGpu,
+        Backend::Dx12
+    )));
+    assert!(adapter_is_software(&adapter_info(
+        "LLVMpipe",
+        DeviceType::Other,
+        Backend::Gl
+    )));
+
+    for info in [
+        adapter_info(
+            "NVIDIA GeForce RTX 4080",
+            DeviceType::DiscreteGpu,
+            Backend::Vulkan,
+        ),
+        adapter_info(
+            "Intel(R) UHD Graphics 620",
+            DeviceType::IntegratedGpu,
+            Backend::Vulkan,
+        ),
+        adapter_info("Apple M2", DeviceType::IntegratedGpu, Backend::Metal),
+        adapter_info(
+            "AMD Radeon RX 7900 XT",
+            DeviceType::DiscreteGpu,
+            Backend::Vulkan,
+        ),
+    ] {
+        assert!(!adapter_is_software(&info), "{}", info.name);
+    }
+}
+
+#[test]
+fn rescue_prefers_accelerated_virgl_over_lavapipe() {
+    let candidates = [
+        adapter_candidate(
+            "lavapipe (LLVM 17)",
+            wgpu::DeviceType::Cpu,
+            wgpu::Backend::Vulkan,
+            true,
+        ),
+        adapter_candidate("virgl", wgpu::DeviceType::Other, wgpu::Backend::Gl, true),
+    ];
+
+    assert_eq!(rescue_adapter_index(&candidates), Some(1));
+}
+
+#[test]
+fn rescue_keeps_software_when_no_accelerated_adapter_exists() {
+    let candidates = [
+        adapter_candidate(
+            "lavapipe",
+            wgpu::DeviceType::Cpu,
+            wgpu::Backend::Vulkan,
+            true,
+        ),
+        adapter_candidate(
+            "Microsoft Basic Render Driver",
+            wgpu::DeviceType::VirtualGpu,
+            wgpu::Backend::Dx12,
+            true,
+        ),
+    ];
+
+    assert_eq!(rescue_adapter_index(&candidates), None);
+}
+
+#[test]
+fn rescue_rejects_adapter_without_surface_support() {
+    let candidates = [adapter_candidate(
+        "virgl",
+        wgpu::DeviceType::Other,
+        wgpu::Backend::Gl,
+        false,
+    )];
+
+    assert_eq!(rescue_adapter_index(&candidates), None);
+}
+
+#[test]
+fn rescue_prefers_hardware_device_tiers() {
+    let candidates = [
+        adapter_candidate(
+            "NVIDIA GeForce RTX 4080",
+            wgpu::DeviceType::DiscreteGpu,
+            wgpu::Backend::Vulkan,
+            true,
+        ),
+        adapter_candidate("virgl", wgpu::DeviceType::Other, wgpu::Backend::Gl, true),
+    ];
+
+    // The production happy path does not call the rescue when request_adapter
+    // already returns hardware; the pure ranking still pins the same priority.
+    assert_eq!(rescue_adapter_index(&candidates), Some(0));
+}
+
+#[test]
+fn rescue_preserves_enumeration_order_within_a_tier() {
+    let candidates = [
+        adapter_candidate(
+            "first Other",
+            wgpu::DeviceType::Other,
+            wgpu::Backend::Gl,
+            true,
+        ),
+        adapter_candidate(
+            "second Other",
+            wgpu::DeviceType::Other,
+            wgpu::Backend::Gl,
+            true,
+        ),
+    ];
+
+    assert_eq!(rescue_adapter_index(&candidates), Some(0));
+}
+
+#[test]
+fn rescue_prefers_virgl_other_over_venus_virtual() {
+    let candidates = [
+        adapter_candidate(
+            "Venus",
+            wgpu::DeviceType::VirtualGpu,
+            wgpu::Backend::Vulkan,
+            true,
+        ),
+        adapter_candidate("virgl", wgpu::DeviceType::Other, wgpu::Backend::Gl, true),
+    ];
+
+    // Other precedes VirtualGpu so an accelerated virgl adapter wins over a
+    // virtual Vulkan device even when Vulkan enumerates first.
+    assert_eq!(rescue_adapter_index(&candidates), Some(1));
+}
 
 #[test]
 fn floating_rail_carries_its_descender_safe_offset() {
