@@ -789,7 +789,7 @@ jobs:
           printf 'Host aur.archlinux.org\n  User aur\n  IdentityFile ~/.ssh/aur\n  IdentitiesOnly yes\n' > ~/.ssh/config
           chmod 600 ~/.ssh/config
           git config --global user.name "OdyTTY release bot"
-          git config --global user.email "maintainers@odytty.unfinished-works.com"
+          git config --global user.email "admin@unfinished-works.com"
           git config --global --add safe.directory '*'
           git clone ssh://aur@aur.archlinux.org/odytty.git aur-repo
           # Idempotency guard (mirrors Scoop's version check): skip if the AUR
