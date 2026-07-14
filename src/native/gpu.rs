@@ -307,6 +307,27 @@ pub(super) fn choose_surface_format(
     (format, format.is_srgb())
 }
 
+/// Choose device limits that preserve the WebGPU defaults when the adapter can
+/// satisfy them and fall back to the GLES-compatible floor when it cannot.
+/// The surface-sized texture limit always follows the selected adapter.
+pub(super) fn required_limits_for_adapter(adapter_limits: &wgpu::Limits) -> (wgpu::Limits, bool) {
+    let preferred = wgpu::Limits {
+        max_texture_dimension_2d: adapter_limits.max_texture_dimension_2d,
+        ..wgpu::Limits::default()
+    };
+    if preferred.check_limits(adapter_limits) {
+        return (preferred, false);
+    }
+
+    (
+        wgpu::Limits {
+            max_texture_dimension_2d: adapter_limits.max_texture_dimension_2d,
+            ..wgpu::Limits::downlevel_defaults()
+        },
+        true,
+    )
+}
+
 /// Viewport uniform mirroring `Viewport` in `cell.wgsl`: physical surface size
 /// in pixels plus presentation-only params. `effect` is `[0.0, _]` when the
 /// visual treatment is off, which makes the shader a no-op. `text.x` is glyph
@@ -1125,9 +1146,12 @@ impl GpuState {
         let size = window.inner_size();
         let scale = (window.scale_factor() as f32).max(1.0);
         let physical_px = physical_font_px(options.font_size_px, scale);
-        // No display handle is supplied here: the default Linux backend is
-        // Vulkan, which ignores it. (It only matters for GLES-on-Wayland.)
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        // GL/GLES requires the window's display handle to create a presentable
+        // surface on both Wayland and X11. Vulkan, Metal, and DX12 ignore this
+        // field, so their existing adapter and rendering paths are unchanged.
+        let instance = wgpu::Instance::new(
+            wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(window.clone())),
+        );
 
         let surface = instance
             .create_surface(window.clone())
@@ -1138,7 +1162,11 @@ impl GpuState {
             force_fallback_adapter: false,
             compatible_surface: Some(&surface),
         }))
-        .map_err(|err| NativeError::NoAdapter(err.to_string()))?;
+        .map_err(|err| {
+            NativeError::NoAdapter(format!(
+                "{err}; install a Vulkan driver or accelerated GL stack; if WGPU_BACKEND is set, ensure it selects an installed backend; see the \"Slow rendering / software adapter\" section of docs/install.md"
+            ))
+        })?;
 
         // Capture adapter identity for the About panel before any device work.
         // Read-only diagnostics; does not influence rendering.
@@ -1180,10 +1208,13 @@ impl GpuState {
             );
         }
 
-        let required_limits = wgpu::Limits {
-            max_texture_dimension_2d: adapter.limits().max_texture_dimension_2d,
-            ..wgpu::Limits::default()
-        };
+        let adapter_limits = adapter.limits();
+        let (required_limits, uses_downlevel_limits) = required_limits_for_adapter(&adapter_limits);
+        if uses_downlevel_limits {
+            tracing::warn!(
+                "odytty: GPU adapter is below WebGPU default limits; using downlevel-compatible limits"
+            );
+        }
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("odytty-device"),
             required_features: enabled_features,

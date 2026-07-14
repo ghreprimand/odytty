@@ -3,8 +3,8 @@ use super::gpu::{
     BloomOptions, CrtOptions, ViewportUniform, choose_surface_format, content_build_opacity,
     create_atlas_bind_group, create_cell_pipeline, create_color_atlas_bind_group,
     create_color_glyph_pipeline, image::BgImageGpu, multi_pane_wallpaper_edge_wash_quads,
-    physical_font_px, post, rail_overlay_chrome_pin, scene_clear_color, scene_target_format,
-    select_alpha_mode, wallpaper_edge_wash_quads,
+    physical_font_px, post, rail_overlay_chrome_pin, required_limits_for_adapter,
+    scene_clear_color, scene_target_format, select_alpha_mode, wallpaper_edge_wash_quads,
 };
 use crate::atlas::CellSize;
 use crate::core::Terminal;
@@ -98,6 +98,37 @@ fn surface_format_falls_back_to_first_non_srgb() {
         choose_surface_format(&formats),
         (wgpu::TextureFormat::Bgra8Unorm, false)
     );
+}
+
+#[test]
+fn default_capable_adapter_keeps_webgpu_limits() {
+    let adapter_limits = wgpu::Limits::default();
+    let (required, uses_downlevel_limits) = required_limits_for_adapter(&adapter_limits);
+
+    assert!(!uses_downlevel_limits);
+    assert_eq!(required, wgpu::Limits::default());
+}
+
+#[test]
+fn subdefault_adapter_uses_downlevel_limits() {
+    let adapter_limits = wgpu::Limits {
+        max_uniform_buffer_binding_size: wgpu::Limits::downlevel_defaults()
+            .max_uniform_buffer_binding_size,
+        ..wgpu::Limits::default()
+    };
+
+    let (required, uses_downlevel_limits) = required_limits_for_adapter(&adapter_limits);
+
+    assert!(uses_downlevel_limits);
+    assert_eq!(
+        required.max_uniform_buffer_binding_size,
+        wgpu::Limits::downlevel_defaults().max_uniform_buffer_binding_size
+    );
+    assert_eq!(
+        required.max_texture_dimension_2d,
+        adapter_limits.max_texture_dimension_2d
+    );
+    assert!(required.check_limits(&adapter_limits));
 }
 
 #[test]

@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-14 -- Enable accelerated GL presentation fallback
+
+GPU initialization now supplies the native display handle that the GL backend
+needs to create a presentable Wayland or X11 surface. Systems without a usable
+Vulkan adapter can therefore select an accelerated GL adapter such as virgl,
+while software adapters remain the last-resort path. Standard `WGPU_*`
+environment overrides, including `WGPU_BACKEND`, are now honored, and a final
+adapter-selection failure points to both the driver choices and the software
+adapter troubleshooting guide.
+
+Adapters below the WebGPU default limits now request the downlevel-compatible
+limit set while retaining the adapter's surface texture dimension. Full-default
+adapters keep the existing request unchanged. The display-handle behavior change
+is confined to the Linux GL backend: Windows DX12 and macOS Metal ignore the
+field, so their default rendering paths are unchanged.
+
+Verified: the default and downlevel limit-selection cases are covered by unit
+tests; cargo test, cargo build, cargo fmt --check, and cargo clippy
+--all-targets --locked -- -D warnings are clean.
+
 ## 2026-07-13 -- Release v0.8.7 — slim prebuilt Linux distribution: binary tarball, .deb, .rpm, and a one-line installer
 
 Linux gains three prebuilt install paths alongside the portable AppImage, all
