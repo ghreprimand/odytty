@@ -161,9 +161,16 @@ Install the `odytty` package with an AUR helper:
 paru -S odytty      # or: yay -S odytty
 ```
 
-Or install manually:
+No AUR helper yet? `paru` and `yay` are themselves AUR packages, so a fresh
+Arch install does not ship them. Use the manual `makepkg` route below (it needs
+no helper), or bootstrap one first by cloning it from the AUR and running
+`makepkg -si` (the same clone-and-build steps shown below, with `paru` in place
+of `odytty`) if you want a helper for future updates.
+
+Or install manually (no AUR helper needed):
 
 ```sh
+sudo pacman -S --needed base-devel git
 git clone https://aur.archlinux.org/odytty.git
 cd odytty
 makepkg -si

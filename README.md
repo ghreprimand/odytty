@@ -49,7 +49,16 @@ It picks a native `.deb` on apt systems, a native `.rpm` on dnf systems, or the
 portable binary tarball otherwise. Pass `--dry-run` to preview the plan without
 downloading anything. Prefer to install by hand? Each explicit path:
 
-- **Arch (and derivatives):** `paru -S odytty` from the AUR.
+- **Arch (and derivatives):** with an AUR helper, `paru -S odytty` (or
+  `yay -S odytty`). A fresh Arch box has no helper yet, so the no-helper
+  route works from a clean install:
+  ```sh
+  sudo pacman -S --needed base-devel git
+  git clone https://aur.archlinux.org/odytty.git
+  cd odytty
+  makepkg -si
+  ```
+  See the [Arch install notes](docs/install.md#arch-linux-aur) for detail.
 - **Debian, Ubuntu, Mint, Pop:** download `odytty-amd64.deb` from the
   [latest release](https://github.com/ghreprimand/odytty/releases/latest) and
   `sudo apt install ./odytty-amd64.deb`.
