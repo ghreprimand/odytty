@@ -7,7 +7,7 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-07-14 -- Enable accelerated GL presentation fallback
+## 2026-07-14 -- Release v0.8.8 — accelerated GL rendering when Vulkan is unavailable
 
 GPU initialization now supplies the native display handle that the GL backend
 needs to create a presentable Wayland or X11 surface. Systems without a usable

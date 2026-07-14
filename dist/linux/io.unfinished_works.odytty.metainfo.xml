@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.8.8" date="2026-07-14">
+      <description>
+        <p>Reliability release. OdyTTY now renders on accelerated OpenGL when no Vulkan adapter is available, so systems with a working GL stack but no Vulkan (a common virtual-machine configuration) start and run on the GPU instead of failing or falling back to slow software rendering. Software rasterization remains a last resort. Standard graphics environment overrides are now honored. Windows and macOS ship from the same verified build matrix.</p>
+      </description>
+    </release>
     <release version="0.8.7" date="2026-07-13">
       <description>
         <p>Packaging release. Linux gains three prebuilt install paths alongside the portable AppImage: a standalone binary tarball, a native Debian package, and a best-effort RPM, all x86_64. A hosted one-line installer detects the system package manager and installs the matching artifact from the latest release, verifying its checksum against the published SHA256SUMS first. macOS and Windows keep their existing Homebrew and Scoop channels with no change.</p>
