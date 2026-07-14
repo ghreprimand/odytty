@@ -827,9 +827,13 @@ GPU adapter was available and the graphics stack silently fell back to a
 - The **About panel** (open the command palette with `Ctrl+Shift+P` and select
   *About*, or the settings panel's About tab) shows the active renderer's
   adapter name, backend, and device class.
-- On startup OdyTTY prints one line to stderr naming the adapter, e.g.
-  `odytty: GPU adapter: llvmpipe (LLVM 17.0.6, 256 bits) (Vulkan, Cpu)`. When a
-  software adapter is selected it also prints a warning:
+- On startup OdyTTY logs one line naming the adapter, backend, and device
+  class, e.g. `odytty: GPU adapter: llvmpipe (LLVM 17.0.6, 256 bits) (Vulkan,
+  Cpu)`. It goes to the rotated log (`~/.local/state/odytty/odytty.log` on
+  Linux) and to stderr when that is visible, so the adapter identity survives
+  even when a launcher discards stderr. Accelerated GL reads a real renderer
+  with backend `Gl` (for example a name containing `virgl` inside a VM); a
+  software adapter reads `llvmpipe` or `lavapipe`, and OdyTTY adds a warning:
   `odytty: WARNING: rendering in software (...); expect low performance`.
 
 **What a software adapter means.** Names such as **llvmpipe** or **lavapipe**
@@ -852,6 +856,29 @@ older hardware.
   a fresh install before drivers are added.
 - **macOS:** Metal is always hardware-backed on supported machines; a software
   adapter here is unusual and typically indicates a virtualized environment.
+
+### No Vulkan adapter, accelerated GL, and virtual machines
+
+On Linux OdyTTY prefers a Vulkan adapter but does not require one. When no
+Vulkan adapter is present it selects accelerated OpenGL/GLES (Mesa) instead of
+failing to start; a CPU software rasterizer (llvmpipe or lavapipe) is the last
+resort and is slow. Accelerated GL is a real GPU path: the About panel and the
+startup log show backend `Gl` with a hardware renderer name. On this path text
+is drawn in grayscale rather than subpixel (accelerated GL has no dual-source
+blending) and a few effects may be unavailable; that is expected, not a fault.
+
+**Virtual machines.** In a guest, OdyTTY needs either a Vulkan adapter or an
+accelerated GL stack. If the guest exposes accelerated GL (virgl or virtio-gpu
+with a render node) OdyTTY uses it and runs on the GPU. If the guest has
+neither, it falls back to software rendering, which works but is slow. To
+exercise the Vulkan path in a guest without passthrough, install Mesa's
+software Vulkan (on Arch, `sudo pacman -S vulkan-swrast` provides lavapipe);
+note that is still CPU rendering and slow. For hardware acceleration, enable
+virgl (GL) or Venus (Vulkan) in the hypervisor.
+
+**Forcing a backend.** Standard `wgpu` environment overrides are honored, so a
+backend can be forced for debugging with `WGPU_BACKEND=gl` or
+`WGPU_BACKEND=vulkan`.
 
 ## Public Release Direction
 
