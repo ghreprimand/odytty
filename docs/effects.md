@@ -5,11 +5,26 @@ them, and what to expect on different hardware. For the architecture and
 readability invariants behind the effects system, see
 [docs/visual-architecture.md](visual-architecture.md).
 
+## Contents
+
+- [The model](#the-model)
+- [Bloom](#bloom)
+- [Retro preset](#retro-preset)
+- [CRT / retro profile](#crt--retro-profile)
+- [The ambient visual setting](#the-ambient-visual-setting)
+- [Cursor animations](#cursor-animations)
+- [New-output fade](#new-output-fade)
+- [Background treatments](#background-treatments)
+- [Window transparency](#window-transparency)
+- [Pixel-precise scrolling](#pixel-precise-scrolling)
+- [Accessibility](#accessibility)
+- [Plain / fast mode](#plain--fast-mode)
+
 ---
 
 ## The model
 
-OdyTTY's visual effects follow three hard rules:
+OdyTTY's visual effects follow four hard rules:
 
 **Always disable-able.** The no-config startup path uses OdyTTY's current
 ambient visual baseline. Every effect has an explicit off switch, and
@@ -65,15 +80,17 @@ reference (all settings, types, defaults, and reload behaviour) is in
 **`bloom`** — master switch. `on` enables the effect; `off` returns to the
 direct scene path when no other post effect is active.
 
-**`bloom_threshold`** — linear luminance knee for the bright-pass. Pixels
-brighter than this value are eligible to glow; pixels below it are not. `auto`
-(and an empty value) resolves to the static built-in default `0.70`; it is not
-theme-derived today. A theme-foreground-seeded knee
-(`relative_luminance(foreground) + 0.12`, clamped to `0.70–1.25`) is reserved in
-the code but not yet wired into config resolution. The default `0.70` keeps
-normal body text below the knee so it does not glow — only genuinely bright
-elements (bold highlights, status indicators, and glyphs rendered against a
-bright background) participate. Specify a fixed float to override the default.
+**`bloom_threshold`** — linear luminance knee for the bright pass; pixels above
+it glow, pixels below do not.
+
+- `auto` (and an empty value) resolves to the static built-in default `0.70`; it
+  is not theme-derived today.
+- A theme-foreground-seeded knee (`relative_luminance(foreground) + 0.12`,
+  clamped to `0.70–1.25`) is reserved in the code but not yet wired into config
+  resolution.
+- The default keeps normal body text below the knee, so only genuinely bright
+  elements — bold highlights, status indicators, and glyphs against a bright
+  background — participate. Specify a fixed float to override.
 
 **`bloom_intensity`** — additive glow strength. `0.0` produces no glow even
 when enabled; `0.7` is the default ambient glow strength; `1.0` is the cap.
@@ -292,15 +309,17 @@ off with `background_treatment = color` or `background_image = none`.
 edges and corners. Both are applied before the minimum-contrast floor, so the
 foreground is re-lifted over the treated background cell by cell.
 
-`image` draws a PNG, JPEG, or WebP behind the grid. With
-`cell_bg_opacity = 1.0`, cell
-backgrounds remain opaque and the image is hidden behind the cells. Values below
-`1.0` let the image show through behind text. OdyTTY computes a readability
-scrim automatically unless `background_image_scrim` is set explicitly. Missing,
-unreadable, undecodable, or oversized inputs degrade safely with a warning.
-The settings panel's `Background image` row opens an inline path picker that
-enumerates directories off the UI path, so navigation remains responsive while
-large folders load.
+`image` draws a PNG, JPEG, or WebP behind the grid:
+
+- With `cell_bg_opacity = 1.0`, cell backgrounds stay opaque and the image is
+  hidden behind the cells; values below `1.0` let it show through behind text.
+- OdyTTY computes a readability scrim automatically unless
+  `background_image_scrim` is set explicitly.
+- Missing, unreadable, undecodable, or oversized inputs degrade safely with a
+  warning.
+- The settings panel's `Background image` row opens an inline path picker that
+  enumerates directories off the UI path, so navigation stays responsive while
+  large folders load.
 
 The settings panel shows `cell_bg_opacity` as **Wallpaper visibility**, the
 inverse of the config value: `0.0` hides the wallpaper behind solid cells, while
@@ -378,14 +397,15 @@ notch path as detented wheels.
 tracks finger travel exactly; higher scrolls faster than the finger, lower
 slower. Applies only to pixel-precise input.
 
-**`scroll_glide`** — animate scrollback between *discrete* wheel notches. These
-wheels carry no sub-step data, so pixel tracking cannot smooth them; instead the
-viewport offset jumps instantly per notch and the rendered view eases toward it
-with a forward-chase follower that only moves in the scroll direction (so a
-notch stream cannot sawtooth). On by default; primary screen only. In a split,
-each pane glides independently as an eased follower — the pane under the pointer
-moves on its own, its overflowing partial row clipped to the pane so it never
-smears across the divider into a neighbour.
+**`scroll_glide`** — animate scrollback between *discrete* wheel notches (on by
+default; primary screen only).
+
+- Detented wheels carry no sub-step data, so the viewport offset jumps instantly
+  per notch and the rendered view eases toward it with a forward-chase follower
+  that only moves in the scroll direction, so a notch stream cannot sawtooth.
+- In a split, each pane glides independently as an eased follower: the pane under
+  the pointer moves on its own, its overflowing partial row clipped to the pane
+  so it never smears across the divider into a neighbour.
 
 ### Configuring via odytty.conf
 
@@ -397,7 +417,7 @@ scroll_pixel_speed = 1.0
 ### Configuring via environment
 
 ```sh
-ODYTTY_SCROLL_PIXEL_SPEED=1.5 cargo run --release
+ODYTTY_SCROLL_PIXEL_SPEED=1.5 odytty
 ```
 
 ---
