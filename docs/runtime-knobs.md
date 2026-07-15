@@ -21,6 +21,20 @@ families are non-fatal: OdyTTY keeps the last valid active settings and prints a
 warning. Deleting the config file also keeps the current settings until a later
 valid rewrite appears.
 
+## Contents
+
+- [Config Format](#config-format)
+- [Settings Reference](#settings-reference)
+- [Setting Details](#setting-details)
+- [Key Binding Grammar](#key-binding-grammar)
+- [Pane And Interaction Details](#pane-and-interaction-details)
+- [Use The Native Settings UI](#use-the-native-settings-ui)
+- [Examples](#examples)
+- [Bench Environment Variables](#bench-environment-variables)
+- [Detached-Session CLI](#detached-session-cli)
+- [Command Palette](#command-palette)
+- [Connection Hosts](#connection-hosts)
+
 ## Config Format
 
 `odytty.conf` is a dependency-free `key = value` file with `#` comments:
@@ -38,317 +52,6 @@ The in-app settings panel writes this same file with preservation-first
 writeback: comments, blank lines, ordering, and unknown/future keys stay in
 place, changed keys are rewritten, missing changed keys are appended, and saves
 use a same-directory temporary file plus rename.
-
-## Detached-Session CLI
-
-Detached sessions have no `odytty.conf` keys in this slice. The public commands
-are:
-
-```sh
-odytty new --detached [-e COMMAND...] [--working-directory DIR] [--title TITLE]
-odytty list
-odytty attach [--diagnostic] ID
-```
-
-`new --detached` starts a local session-host process and prints `id=...`.
-`list` reports live local sessions as metadata-only rows (`id`, `name`, `state`,
-`age_ms`, `panes`) and never prints scrollback or command output. `attach <id>`
-reattaches a detached session in a live native window. The window opens its
-normal initial local session, adds the hosted session as a focused tab repainted
-from the host snapshot, and streams live output. If the id is missing or dead,
-the window still opens and stderr reports `odytty: attach session <id> failed: <err>`.
-The headless script/CI form, `attach --diagnostic <id>`, prints a one-line
-status dump (`id=... state=attached mode=diagnostic columns=... rows=...
-panes=1`) and exits without opening a window.
-
-Host lifecycle is local-only and bounded. Each attach receives a current
-`SnapshotEnvelope` first, then future `Output` and `Invalidate` frames while it
-stays connected. Detach or socket close removes only that client; the hosted PTY
-and terminal model keep running with bounded scrollback until the child exits or
-the detached idle timeout (12 hours with no attached client) kills and reaps it.
-The idle bound is internal (`--idle-timeout-ms`); there is no user-facing flag or
-environment variable for it. Scrollback is not printed by
-`list` and is not sent anywhere except over the per-user Unix-domain socket to an
-attaching local client.
-
-The session-host socket lives under a per-user runtime directory. An
-explicitly-set `XDG_RUNTIME_DIR` always wins on every platform (Linux uses its
-standard `/run/user/<uid>`). On macOS, which does not set `XDG_RUNTIME_DIR`, the
-host falls back to the per-user Darwin temp directory
-(`std::env::temp_dir()` → `confstr(_CS_DARWIN_USER_TEMP_DIR)`,
-e.g. `/var/folders/.../T/`). In both cases the `odytty/` socket subdirectory is
-created `0700` and validated owner-private, so the runtime directory is
-local-only and owner-private on every platform — no network, nothing leaves the
-machine (the privacy charter is unchanged). `AF_UNIX` socket paths are bounded
-(`sun_path` is 104 bytes on macOS, 108 on Linux); a runtime base long enough to
-overflow that limit is rejected with a clear error instead of an opaque
-`bind()` failure.
-
-## Command Palette
-
-The command palette is exposed through the `command-palette` action in
-`keybinds`. It is bound by default to `Ctrl+Shift+P` (and a
-right-click menu "Command Palette" item); rebind it in `odytty.conf` as usual:
-
-```conf
-keybinds = ctrl+alt+p=command-palette
-```
-
-For a one-off/dev override, run
-`ODYTTY_KEYBINDS="ctrl+alt+p=command-palette" cargo run --release`; env wins for
-that session.
-
-When opened, the native overlay fuzzy-filters three bounded sources:
-terminal-local actions, shell history, and recent directories. History is read
-read-only from the foreground shell's conventional file using the same hard caps
-as the source provider: 1 MiB from the file tail, 20,000 physical lines scanned,
-5,000 returned entries, and 4,096 characters per entry. Missing, unreadable,
-malformed, oversized, or non-UTF-8 files return empty or partial in-memory
-candidates without panicking. Conventional history paths are `~/.bash_history`
-for bash, `~/.zsh_history` for zsh, and
-`$XDG_DATA_HOME/fish/fish_history` for fish (falling back to
-`~/.local/share/fish/fish_history` when `XDG_DATA_HOME` is unset). Recent
-directories are fed from already-parsed OSC 7 cwd values; OdyTTY does not query
-the filesystem for directories and never logs, writes, or transmits history
-contents.
-
-Selecting a history or directory row types that text into the active pane's PTY
-without appending a newline. Selecting an action closes the overlay and runs the
-local action.
-
-## Connection Hosts
-
-The SSH / connection manager reads its default saved hosts from an OdyTTY-owned
-local file:
-
-- `$XDG_CONFIG_HOME/odytty/hosts.conf`
-- `~/.config/odytty/hosts.conf` when `XDG_CONFIG_HOME` is unset
-
-The file uses an OpenSSH-like block format:
-
-```conf
-Host web1
-    HostName web1.example.invalid
-    User deploy
-    Port 2222
-    Theme odyssey
-    Font "Victor Mono"
-    Title "Synthetic Web"
-    IdentityFile ~/.ssh/id_ed25519
-```
-
-`Host` aliases are the quick-connect names. `HostName`, `User`, and `Port`
-drive the connect action. OdyTTY builds argv as `ssh [-p PORT] -- [USER@]HOST`
-and opens it in a new tab/session; `--` keeps a saved host name from being
-interpreted as another ssh option. `Theme`, `Font`, and `Title` are optional
-per-host profile fields reserved for the overlay UI. `Integration on|off`,
-`Reuse on|off`, and `Tmux on|off` are optional per-host overrides for remote
-shell integration, connection reuse, and tmux persistence (see below). `Persist`
-overrides the connection-persistence window for one host (any `ssh` ControlPersist
-value, e.g. `off`, `2h`, `45m`).
-`IdentityFile` names a path to an existing SSH private key; when set, the connect
-argv gains `-i <path>` so a key that is not in `~/.ssh/config` still
-authenticates. OdyTTY stores only the path — never any key material — and
-`ssh-copy-id` remains the once-and-done way off passwords entirely. A `Protocol`
-key is reserved (default and only accepted value `ssh`) so a future transport
-needs no file-format migration; any value is preserved across an edit.
-
-You do not have to hand-edit this file to reach a new host. In the connection
-manager, typing a `[user@]host[:port]` that matches no saved host offers a
-**Connect to: …** row — **Enter** connects, and **Shift+Enter** (or **Ctrl+S**)
-connects and appends a `Host` block here for you. The append is atomic
-(temp-file-and-rename) and preserves the file's existing contents byte-for-byte;
-the new block reads `Host <host>` (no redundant `HostName` when the alias is the
-host) plus `User`/`Port` when supplied. An exact-alias collision skips the write
-and reports "already saved". Typed input with embedded spaces, a leading `-`, or
-a port outside `1-65535` is rejected before any connect or write.
-
-You can also add and edit hosts with an in-app form instead of typing directives
-by hand. In the connection manager, **Tab** opens a blank **Add connection**
-form and the **right arrow** (`\u{2192}`) opens an **Edit** form pre-filled from
-the selected OdyTTY-owned row (`ssh-config`-imported rows are read-only). The
-form carries `Alias`, `HostName`, `User`, and `Port` up front, with an
-**Advanced** section for `IdentityFile`, the three-way `Integration` / `Reuse` /
-`Tmux` overrides (**inherit / on / off**), and `Theme` / `Font` / `Title`. On the
-**IdentityFile** row, **Enter** (while the field is empty) — or a click on the
-always-visible **[Browse]** chip at the end of the row (whether the field is
-empty or already holds a path) — opens a browser of
-candidate private keys found under `~/.ssh` — filename heuristics only (`id_*`,
-`*.pem`, `*.key`, and any file with a matching `.pub` sibling; `*.pub`,
-`known_hosts`, `config`, and `authorized_keys` are excluded). The browser lists
-file **names** only and never reads key contents; picking one fills the path, and
-typing a path by hand stays fully supported (keys can live outside `~/.ssh`). A
-focused-field help line at the bottom of the form explains each field as you move
-through it. Field validation matches the ad-hoc rules; an alias collision is
-refused inline with no write. **Save** (or **Ctrl+S**) appends a new block or edits the existing one in
-place — an edit re-renders only that block and leaves every other block, comment,
-and unknown field byte-for-byte untouched. **Test connection** runs a
-non-interactive background probe (`ssh -o BatchMode=yes -o ConnectTimeout=5 …
-exit`) and reports a tri-state result: reachable with key/agent auth, reachable
-but interactive-auth (the expected state for a password host — the connect still
-works, interactively), a host-key mismatch, or unreachable. The probe carries no
-password and stores nothing credential-shaped.
-
-### Remote shell integration (`remote_integration`)
-
-An SSH tab runs the system `ssh` as its local child, so by default the remote
-shell never sees OdyTTY's OSC 133 hooks and a remote session loses prompt marks,
-cwd titles, and the input boundaries those features need. With
-`remote_integration = on` (the default; `ODYTTY_REMOTE_INTEGRATION=on`), a
-connection injects OdyTTY's bash integration on the remote so a remote bash
-session behaves like a local one. The integration is delivered inline as a
-base64 blob decoded into a temporary rcfile that **self-deletes on first read** —
-nothing is persisted on the remote. Every failure path (no bash, no `base64`,
-undetectable shell) and any non-bash remote shell **degrades silently to a plain
-`ssh` session**, so the connection is never broken. Turning it off globally, or
-setting `Integration off` for a single host in `hosts.conf`, makes that SSH
-launch byte-identical to a plain `ssh` invocation. The remote command is a
-fixed, inspectable POSIX-sh bootstrap plus OdyTTY's own public integration
-snippet; no local paths, usernames, or hostnames are embedded in it, and
-authentication stays entirely with the system `ssh`. A remote SSH tab titles
-itself `user@host` when no explicit per-host `Title` is set.
-
-### SSH connection reuse (`remote_reuse`)
-
-With `remote_reuse = on` (the default; `ODYTTY_REMOTE_REUSE=on`), an integrated
-SSH tab adds OpenSSH `ControlMaster=auto` / `ControlPersist` multiplexing with a
-control socket OdyTTY owns under its state directory. The first tab to a host
-establishes a shared master connection; later tabs to the same host reuse it, so
-they open with no second authentication or handshake. If the shared master is
-gone, the tab degrades to an ordinary fresh connect. A per-host `Reuse off` line
-in `hosts.conf` opts a single host out, and `remote_reuse = off` disables it
-globally. Reuse layers onto integrated sessions only, so with
-`remote_integration` off the SSH argv stays byte-identical to a plain `ssh`
-launch regardless of this setting. **Windows:** OpenSSH for Windows has no
-connection multiplexing, so a Windows client never emits control options and
-reuse is a silent no-op there.
-
-### SSH connection persistence window (`remote_persist`)
-
-Connection reuse keeps an authenticated master alive for a while after the last
-tab to a host closes, so a daily-driver host is authenticated roughly once per
-boot rather than once per tab. `remote_persist` (`ODYTTY_REMOTE_PERSIST`) sets
-how long that master lingers: `10m` (the default), `30m`, `1h`, `2h`, or `off`.
-The default `10m` maps to OpenSSH `ControlPersist=600`, which is the historical
-fixed window — so the default is a no-op change and existing behavior is
-unchanged. `off` maps to `ControlPersist=no`, tearing the master down with its
-last connection (the pre-persistence posture). A per-host `Persist` line in
-`hosts.conf` overrides the global value for a single host and additionally
-accepts any raw `ssh` ControlPersist value (for example `Persist 45m`). This
-only takes effect with connection reuse on. **Windows:** OpenSSH for Windows has
-no connection multiplexing, so this knob is inert on a Windows client (no control
-options are ever emitted).
-
-### SSH session persistence (`remote_tmux`)
-
-With `remote_tmux = on` (`ODYTTY_REMOTE_TMUX=on`; **off by default**), an
-integrated SSH tab wraps the remote shell in a persistent `tmux` session
-(`tmux new-session -A -s odytty`). A create-or-attach session means a link that
-drops and is reconnected reattaches the same remote session with its running
-programs and scrollback intact, rather than starting fresh. When the remote host
-has no `tmux`, the bootstrap degrades to a plain integrated bash session, so
-enabling this never breaks a connection. A per-host `Tmux on` line in
-`hosts.conf` opts a single host in (or `Tmux off` opts one out) regardless of the
-global default. Persistence rides inside the integration bootstrap, so it only
-takes effect with `remote_integration` on; with integration off the SSH argv is
-byte-identical to a plain `ssh` launch regardless of this setting. **Windows:**
-the wrap is remote-side, so a Windows client drives it the same as any other,
-provided the remote host has `tmux`.
-
-### Dropped-connection reconnect
-
-An integrated SSH tab whose link drops (the `ssh` client exits with its
-transport-failure status, 255) does not close silently. The tab is held open with
-an in-pane **"connection dropped"** prompt: press **Enter** to re-establish the
-connection in the same tab, or **Esc** / **Ctrl+D** to dismiss and close it.
-Reconnect re-runs the exact same argv, so with `remote_tmux` on it reattaches the
-persisted session. A clean logout (`exit`, status 0) and ordinary remote-command
-failures close the tab as before; only the transport-drop status offers
-reconnect.
-
-### Remote image paste-through (`remote_image_paste`)
-
-With `remote_image_paste = ask` (the default; `ODYTTY_REMOTE_IMAGE_PASTE=ask`),
-pasting while the clipboard holds an **image** and the active tab is a remote
-integrated SSH session offers to upload it to the remote host. A confirm prompt
-appears in the pane — showing the encoded size and the target host — and nothing
-is uploaded until **Enter** confirms (**Esc** cancels). On confirmation the image
-is PNG-encoded and streamed over the tab's `ssh` connection (reusing the live
-`ControlMaster` when one is up) into a file created `0600` under an unguessable
-`/tmp/odytty-paste-<random>.png` name. On success a one-line notice —
-`image uploaded <path> · copied to clipboard` — is written into the pane and the
-remote path is copied to the **local clipboard**; the path is **not** typed into
-the shell (a bare path on an empty prompt would run on the next Enter and error).
-Paste it (`Ctrl+Shift+V`) into a command wherever the file is wanted. Nothing is
-ever run remotely — it is an upload plus a clipboard copy, not a command. The
-feature also engages on reconnected and restored remote tabs.
-
-`remote_image_paste = off` (`ODYTTY_REMOTE_IMAGE_PASTE=off`) disables the feature:
-an image paste on a remote tab does nothing. There is deliberately no silent
-auto-upload mode — confirm-first is the only enabled behavior. The feature only
-engages on a remote *integrated* tab; a local tab or an integration-off plain-ssh
-tab pastes exactly as before. Images larger than 10 MiB (PNG-encoded) are refused
-with a one-line notice rather than uploaded.
-
-Uploaded files are cleaned up **best-effort** when the tab closes (an `rm -f`
-over the same connection). If the link has already dropped, cleanup cannot run
-and the file persists in the remote `/tmp` until the remote's own temp-file
-reaper removes it — OdyTTY never promises guaranteed remote deletion. **Windows:**
-the upload uses the bundled `ssh.exe` the same way (no `ControlMaster` reuse, as
-OpenSSH for Windows has none), so each upload does its own connect; the clipboard
-image is read through the platform clipboard backend. A Windows *remote* is out
-of scope (the `/tmp` path assumes a POSIX host).
-
-OpenSSH config import is separate and default-off. `ssh_config_hosts = on` (or
-`ODYTTY_SSH_CONFIG_HOSTS=on`) lets the connection manager merge host names from
-a caller-resolved OpenSSH config path. The same toggle is reachable in the
-Settings panel's Connections section. While it is off, OdyTTY does not read
-OpenSSH config. When enabled, the read is local, read-only, name-only, bounded,
-and ignores key material such as identity files. OdyTTY never handles SSH
-credentials, private keys, or passphrases; authentication remains with the
-system `ssh` binary and agent.
-
-The saved hosts are browsed through the **connection-manager overlay**, opened
-by default with `Ctrl+Shift+S` (or the right-click menu's "Connection Manager"
-item). Rebind the `connection-manager` action in `odytty.conf`:
-
-```conf
-keybinds = ctrl+alt+h=connection-manager
-```
-
-For a one-off/dev override, run
-`ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager" cargo run --release`; env wins
-for that session. The overlay lists the merged hosts (OdyTTY-owned first, then
-any opt-in OpenSSH-config names), with type-to-filter fuzzy matching over alias,
-host name, and user; `↑`/`↓` select, `Enter` quick-connects the highlighted
-host, and `Esc` dismisses. With `ssh_config_hosts` off, the overlay shows
-OdyTTY-owned hosts only and OdyTTY never references `~/.ssh` at all. The overlay
-is **presentation-only**: it reads a frozen snapshot of the hosts list and never
-mutates live terminal state; accepting a host hands the connect action a
-name-only target to spawn.
-
-### Session-attach summon overlay (`session-attach`)
-
-The in-window analogue of the `odytty attach` CLI: a **session-attach overlay**
-that lists the live, detached session-host sessions so you can reattach one
-without leaving the window. Open it with `Ctrl+Shift+A` by default (or the
-right-click menu's "Manage Sessions" item). Rebind the `session-attach` action in
-`odytty.conf`:
-
-```conf
-keybinds = ctrl+alt+a=session-attach
-```
-
-For a one-off/dev override, run
-`ODYTTY_KEYBINDS="ctrl+alt+a=session-attach" cargo run --release`; env wins for
-that session. The overlay lists each live session by its `--title` (falling back
-to the session id), with type-to-filter fuzzy matching over title and id;
-`↑`/`↓` select, `Enter` attaches the highlighted session **into a new tab**, and
-`Esc` dismisses. With no live sessions it opens to a hint rather than failing.
-The overlay is **presentation-only**: it reads a frozen snapshot of the live
-sessions and never attaches anything itself; accepting a row hands the App an
-attach request. If the chosen session ended between listing and accepting, the
-attach fails gracefully (no panic) and the user can retry.
 
 ## Settings Reference
 
@@ -376,20 +79,20 @@ environment variable was not set at startup.
 | `window_padding` | `ODYTTY_WINDOW_PADDING` | Float, `0.0..=64.0` px | `4.0` |
 | `window_border` | `ODYTTY_WINDOW_BORDER` | `on`, `off` | `off` |
 | `window_decorations` | `ODYTTY_WINDOW_DECORATIONS` | `on`, `off` | `on` |
-| `window_transparency` | `ODYTTY_WINDOW_TRANSPARENCY` | `on`, `off` — draw the terminal background translucent at `window_opacity` so the desktop shows through; text, cursor, selection, and every overlay stay fully opaque. Requires a compositing window manager (Wayland natively; X11 needs a compositor; Windows uses DWM). No visible effect where the display server offers no alpha compositing | `off` |
-| `window_opacity` | `ODYTTY_WINDOW_OPACITY` | Percent, `20..=100` (step 5) — background opacity when `window_transparency` is on; `100` is fully opaque. Only the background scales — text and overlays never fade | `85` |
+| `window_transparency` | `ODYTTY_WINDOW_TRANSPARENCY` | `on`, `off` | `off` |
+| `window_opacity` | `ODYTTY_WINDOW_OPACITY` | Percent, `20..=100` (step 5) | `85` |
 | `always_show_tab_bar` | `ODYTTY_ALWAYS_SHOW_TAB_BAR` | `on`, `off` | `off` |
-| `tab_bar_height` | `ODYTTY_TAB_BAR_HEIGHT` | `auto` (one text row) or a fixed row count `1..=5` — a taller top bar with the labels centered vertically in the band. Drag the tab bar's bottom edge for a manual height; double-click it to reset to `auto` (top bar only) | `auto` |
-| `workspace_rail_side` | `ODYTTY_WORKSPACE_RAIL_SIDE` | `left`, `right` — which side the **workspace rail** sits on (tabs always render on the top bar). Legacy alias: `tab_bar_placement` / `ODYTTY_TAB_BAR_PLACEMENT` (`top`, `left`, `right`; `top` folds to `left`), accepted with no warning; the canonical `workspace_rail_side` wins when both are set | `left` |
-| `workspace_rail` | `ODYTTY_WORKSPACE_RAIL` | `auto` (rail appears once a second workspace exists) or `always` (pinned even with one); the side comes from `workspace_rail_side`. Legacy `left`/`right` still parse: each folds to `always` pinned to that side | `auto` |
-| `workspace_rail_width` | `ODYTTY_WORKSPACE_RAIL_WIDTH` | `auto` (size to the longest workspace name) or fixed cells `8..=32` (rail only). Drag the rail's inner edge for a manual width; double-click it to reset to `auto`. Legacy alias: `tab_rail_width` / `ODYTTY_TAB_RAIL_WIDTH` | `auto` |
-| `workspace_rail_max_width` | `ODYTTY_WORKSPACE_RAIL_MAX_WIDTH` | Integer cells, `8..=32` — cap for the `auto` width before workspace names ellipsize (rail only). Legacy alias: `tab_rail_max_width` / `ODYTTY_TAB_RAIL_MAX_WIDTH` | `24` |
-| `workspace_rail_gap` | `ODYTTY_WORKSPACE_RAIL_GAP` | Integer rows, `0..=3` (rail only). Legacy alias: `tab_rail_gap` / `ODYTTY_TAB_RAIL_GAP` | `1` |
-| `workspace_rail_slot_rows` | `ODYTTY_WORKSPACE_RAIL_SLOT_ROWS` | `1` (compact) or `2` (padded — single centered label + a breathing row) (rail only). Legacy alias: `tab_rail_slot_rows` / `ODYTTY_TAB_RAIL_SLOT_ROWS` | `2` |
+| `tab_bar_height` | `ODYTTY_TAB_BAR_HEIGHT` | `auto`, or `1..=5` rows | `auto` |
+| `workspace_rail_side` | `ODYTTY_WORKSPACE_RAIL_SIDE` | `left`, `right` | `left` |
+| `workspace_rail` | `ODYTTY_WORKSPACE_RAIL` | `auto`, `always` | `auto` |
+| `workspace_rail_width` | `ODYTTY_WORKSPACE_RAIL_WIDTH` | `auto`, or `8..=32` cells | `auto` |
+| `workspace_rail_max_width` | `ODYTTY_WORKSPACE_RAIL_MAX_WIDTH` | `8..=32` cells | `24` |
+| `workspace_rail_gap` | `ODYTTY_WORKSPACE_RAIL_GAP` | `0..=3` rows | `1` |
+| `workspace_rail_slot_rows` | `ODYTTY_WORKSPACE_RAIL_SLOT_ROWS` | `1`, `2` rows | `2` |
 | `tab_panel_strength` | `ODYTTY_TAB_PANEL_STRENGTH` | Float, `0.0..=1.0` (`0` = panel off) | `1.0` |
 | `tab_seam` | `ODYTTY_TAB_SEAM` | `on`, `off` | `on` |
-| `workspace_rail_autohide` | `ODYTTY_WORKSPACE_RAIL_AUTOHIDE` | `on`, `off` (rail only) — hide the rail until the pointer reaches its window edge, then reveal it as a floating overlay (no content reflow); a workspace-switch/new/close chord flashes it briefly. Legacy alias: `tab_rail_autohide` / `ODYTTY_TAB_RAIL_AUTOHIDE` | `off` |
-| `workspace_rail_reveal_px` | `ODYTTY_WORKSPACE_RAIL_REVEAL_PX` | Logical px, `1..=32` (rail only) — width of the window-edge zone that triggers the auto-hide reveal; scaled for HiDPI displays. Legacy alias: `tab_rail_reveal_px` / `ODYTTY_TAB_RAIL_REVEAL_PX` | `16` |
+| `workspace_rail_autohide` | `ODYTTY_WORKSPACE_RAIL_AUTOHIDE` | `on`, `off` | `off` |
+| `workspace_rail_reveal_px` | `ODYTTY_WORKSPACE_RAIL_REVEAL_PX` | `1..=32` logical px | `16` |
 | `background_treatment` | `ODYTTY_BACKGROUND_TREATMENT` | `off`/`color`, `gradient`, `vignette`, `image` | `image` |
 | `background_image` | `ODYTTY_BACKGROUND_IMAGE` | PNG/JPEG/WebP path, `default` (bundled), or `none` | `default` (bundled) |
 | `cell_bg_opacity` | `ODYTTY_CELL_BG_OPACITY` | Float, `0.0..=1.0` | `0.8` |
@@ -441,8 +144,8 @@ environment variable was not set at startup.
 | `interactive_paths_image_inline` | `ODYTTY_INTERACTIVE_PATHS_IMAGE_INLINE` | `on`, `off` | `on` |
 | `interactive_paths_editor` | `ODYTTY_INTERACTIVE_PATHS_EDITOR` | editor name or argv template | *(empty — use `$EDITOR`)* |
 | `confirm_close` | `ODYTTY_CONFIRM_CLOSE` | `on`, `off` | `on` |
-| `shell_exit_closes` | `ODYTTY_SHELL_EXIT_CLOSES` | `workspace` (typing `exit`/Ctrl-D that empties a workspace closes just that workspace; the last workspace still quits), `app` (a shell exit that would close a workspace quits OdyTTY instead, even with other workspaces open — pairs with `restore_workspaces` so the same set reopens next launch). Governs only the shell-exit path; the rail close button and close-tab/-workspace/-pane keybinds keep per-surface meaning | `workspace` |
-| `bell` | `ODYTTY_BELL` | `off`, `visual`, `urgent`, `all` — how the terminal reacts to BEL: `urgent` requests window attention when unfocused, `visual` briefly flashes the screen, `all` does both, `off` ignores it. No audible bell | `urgent` |
+| `shell_exit_closes` | `ODYTTY_SHELL_EXIT_CLOSES` | `workspace`, `app` | `workspace` |
+| `bell` | `ODYTTY_BELL` | `off`, `visual`, `urgent`, `all` | `urgent` |
 | `ssh_config_hosts` | `ODYTTY_SSH_CONFIG_HOSTS` | `on`, `off` | `off` |
 | `remote_integration` | `ODYTTY_REMOTE_INTEGRATION` | `on`, `off` | `on` |
 | `remote_reuse` | `ODYTTY_REMOTE_REUSE` | `on`, `off` | `on` |
@@ -458,7 +161,67 @@ environment variable was not set at startup.
 | `cvd_strength` | `ODYTTY_CVD_STRENGTH` | Float, `0.0..=1.0` | `1.0` |
 | `native_autoclose_ms` | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer ms | unset |
 
-### Notes
+## Setting Details
+
+### Make The Window Transparent
+
+`window_transparency = on` draws the terminal background at
+`window_opacity` so the desktop shows through. Text, the cursor, selection, and
+every overlay remain opaque.
+
+Wayland supports compositing natively, X11 requires a compositor, and Windows
+uses DWM. A display server without alpha compositing shows no visible change.
+
+### Size The Tab Bar
+
+`tab_bar_height = auto` uses one text row. A fixed value from `1` through `5`
+makes the band taller and centers its labels vertically.
+
+Drag the bottom edge to set a manual height. Double-click that edge to return
+to `auto`.
+
+### Configure The Workspace Rail
+
+`workspace_rail_side` chooses the left or right edge, while
+`workspace_rail` controls whether the rail appears automatically or stays
+pinned. Tabs remain on the top bar.
+
+`workspace_rail_width = auto` sizes to the longest workspace name within the
+configured maximum. Drag the inner edge for a manual width, or double-click it
+to return to `auto`.
+
+With autohide on, the pointer entering the configured edge zone reveals the
+rail as a floating overlay without reflowing terminal content. Workspace
+switch, create, and close shortcuts also reveal it briefly.
+
+Legacy rail names remain accepted without warnings:
+
+| Canonical config key | Canonical environment variable | Legacy config key | Legacy environment variable |
+| --- | --- | --- | --- |
+| `workspace_rail_side` | `ODYTTY_WORKSPACE_RAIL_SIDE` | `tab_bar_placement` | `ODYTTY_TAB_BAR_PLACEMENT` |
+| `workspace_rail_width` | `ODYTTY_WORKSPACE_RAIL_WIDTH` | `tab_rail_width` | `ODYTTY_TAB_RAIL_WIDTH` |
+| `workspace_rail_max_width` | `ODYTTY_WORKSPACE_RAIL_MAX_WIDTH` | `tab_rail_max_width` | `ODYTTY_TAB_RAIL_MAX_WIDTH` |
+| `workspace_rail_gap` | `ODYTTY_WORKSPACE_RAIL_GAP` | `tab_rail_gap` | `ODYTTY_TAB_RAIL_GAP` |
+| `workspace_rail_slot_rows` | `ODYTTY_WORKSPACE_RAIL_SLOT_ROWS` | `tab_rail_slot_rows` | `ODYTTY_TAB_RAIL_SLOT_ROWS` |
+| `workspace_rail_autohide` | `ODYTTY_WORKSPACE_RAIL_AUTOHIDE` | `tab_rail_autohide` | `ODYTTY_TAB_RAIL_AUTOHIDE` |
+| `workspace_rail_reveal_px` | `ODYTTY_WORKSPACE_RAIL_REVEAL_PX` | `tab_rail_reveal_px` | `ODYTTY_TAB_RAIL_REVEAL_PX` |
+
+### Choose Shell-Exit Behavior
+
+`shell_exit_closes = workspace` closes an emptied workspace, with the final
+workspace still quitting OdyTTY. `app` quits OdyTTY whenever a shell exit would
+close a workspace, which pairs with `restore_workspaces`.
+
+This setting only governs shell exits. Rail controls and close-tab,
+close-workspace, and close-pane bindings retain their surface-specific meaning.
+
+### Configure The Bell
+
+`urgent` requests window attention when OdyTTY is unfocused, `visual` shows a
+brief screen flash, `all` combines them, and `off` ignores BEL. OdyTTY has no
+audible bell.
+
+### Tune Themes, Fonts, And Rendering
 
 - The accessibility-oriented knobs — `min_contrast`, `cvd_mode` / `cvd_strength`,
   and `focus_dim` — are covered in depth in
@@ -467,25 +230,28 @@ environment variable was not set at startup.
 - `theme = system` is a convenience alias. It enables OS dark/light following
   and maps dark to `odyssey`, light to `odyssey-light`, unless explicit
   `os_theme_dark` / `os_theme_light` values are set.
-- The vertical rail's geometry knobs carry a canonical `workspace_rail_*`
-  family (`workspace_rail_width`, `_max_width`, `_gap`, `_slot_rows`,
-  `_autohide`, `_reveal_px`) and matching `ODYTTY_WORKSPACE_RAIL_*` environment
-  variables, since the rail lists workspaces rather than tabs. The older
-  `tab_rail_*` config keys and `ODYTTY_TAB_RAIL_*` variables remain fully
-  accepted as legacy aliases onto the same settings, so existing configs keep
-  working unchanged. Each name is a pure alias — no separate field, default, or
-  range. When both a `workspace_rail_*` name and its `tab_rail_*` twin are set
-  for the same field, the canonical `workspace_rail_*` value wins. The master
-  toggle `workspace_rail` / `ODYTTY_WORKSPACE_RAIL` is unchanged.
+- The vertical rail's geometry knobs carry a canonical `workspace_rail_*` family
+  (`workspace_rail_width`, `_max_width`, `_gap`, `_slot_rows`, `_autohide`,
+  `_reveal_px`) and matching `ODYTTY_WORKSPACE_RAIL_*` environment variables,
+  since the rail lists workspaces rather than tabs. The older `tab_rail_*`
+  config keys and `ODYTTY_TAB_RAIL_*` variables remain fully accepted as legacy
+  aliases onto the same settings, so existing configs keep working unchanged.
+  Each name is a pure alias — no separate field, default, or range. When both a
+  `workspace_rail_*` name and its `tab_rail_*` twin are set for the same field,
+  the canonical `workspace_rail_*` value wins.
+
+  The master toggle `workspace_rail` / `ODYTTY_WORKSPACE_RAIL` is unchanged.
 - Rail side and visibility are separate settings. `workspace_rail_side`
   (`ODYTTY_WORKSPACE_RAIL_SIDE`, `left`|`right`) selects which side the rail
   sits on; `workspace_rail` (`auto`|`always`) selects whether it shows. For the
   side, when more than one source is set the precedence is canonical
-  `workspace_rail_side` > legacy `workspace_rail=left|right` > `tab_bar_placement`,
-  so the canonical key wins. A legacy `workspace_rail=left|right` both pins the
-  rail (visibility `always`) and supplies the side when `workspace_rail_side` is
-  absent. The default side resolves to the left. All legacy forms stay accepted
-  with no warning.
+  `workspace_rail_side` > legacy `workspace_rail=left|right` >
+  `tab_bar_placement`, so the canonical key wins. A legacy
+  `workspace_rail=left|right` both pins the rail (visibility `always`) and
+  supplies the side when `workspace_rail_side` is absent.
+
+  The default side resolves to the left. All legacy forms stay accepted with no
+  warning.
 - `ODYTTY_APPEARANCE=dark|light` seeds the initial appearance for OS-theme
   following on X11, where the compositor never delivers a live light/dark
   signal. It is read directly from the environment rather than through the
@@ -510,35 +276,42 @@ environment variable was not set at startup.
   Braille (`U+2800..=U+28FF`), and Powerline glyphs from cell geometry instead
   of relying on the active font.
 - `symbol_fallback = on` backfills symbol/icon codepoints the body font lacks
-  from a fallback chain (bundled Symbols Nerd Font v3+v2, an optional host
-  `* Nerd Font`, plus a system tail). On macOS the tail is fixed system faces;
-  on Linux it is the installed broad-coverage symbol faces (Noto Sans Symbols /
+  from a fallback chain (bundled Symbols Nerd Font v3+v2, an optional host `*
+  Nerd Font`, plus a system tail). On macOS the tail is fixed system faces; on
+  Linux it is the installed broad-coverage symbol faces (Noto Sans Symbols /
   Symbols2, Symbola, DejaVu, Unifont) when present. When a symbol codepoint
   still misses the static chain on Linux, OdyTTY runs a per-codepoint,
   result-cached `fc-match :charset=<cp>` query to find a monochrome host face
-  that covers it (color/bitmap-only faces are rejected), which resolves
-  standard symbols such as the playback triangle `U+23F5 ⏵`, the record bullet,
-  and check/ballot marks that no bundled face carries. The query is local-only
-  and read-only, runs at most once per distinct missing codepoint, and is never
-  on the per-frame path; if `fc-match` is absent (e.g. headless CI) the
-  codepoint keeps the historical hollow-box glyph. Setting `symbol_fallback =
-  off` disables the whole chain and the runtime query. Codepoints with Unicode
-  `Emoji_Presentation=Yes` route to the color-emoji path when a color emoji font
-  is available; text-default symbols in the same blocks, such as `U+2731` and
-  `U+25CF`, stay on the monochrome fallback path. If the color face does not
-  cover a color-routed codepoint, OdyTTY emits no color run and falls through to
-  the same monochrome coverage/symbol fallback renderer.
+  that covers it (color/bitmap-only faces are rejected), which resolves standard
+  symbols such as the playback triangle `U+23F5 ⏵`, the record bullet, and
+  check/ballot marks that no bundled face carries. The query is local-only and
+  read-only, runs at most once per distinct missing codepoint, and is never on
+  the per-frame path; if `fc-match` is absent (for example, in headless CI), the
+  codepoint keeps the historical hollow-box glyph.
+
+  Setting
+  `symbol_fallback = off` disables the whole chain and the runtime query.
+  Codepoints with Unicode `Emoji_Presentation=Yes` route to the color-emoji path
+  when a color emoji font is available; text-default symbols in the same blocks,
+  such as `U+2731` and `U+25CF`, stay on the monochrome fallback path. If the
+  color face does not cover a color-routed codepoint, OdyTTY emits no color run
+  and falls through to the same monochrome coverage/symbol fallback renderer.
+
+### Tune Scrolling
+
 - `pixel_scroll` (default on) governs high-resolution, pixel-precise input —
   touchpads and hi-res wheels that emit pixel deltas. Such input scrolls the
   viewport by a continuous sub-row amount that tracks physical finger travel
   1:1, rather than quantizing to whole notches. Continuous pixel input is
-  tracked directly instead of eased, which avoids the sawtoothing that an
-  easing catch-up produces on high-resolution devices. Classic detented wheels
-  emit line deltas and are unaffected — they continue to use `scroll_wheel_lines`
-  as the per-notch multiplier. The continuous direct-tracking pixel lane is
-  per-pane: in a split it drives the pane under the pointer (without stealing
-  focus), its overflowing partial row clipped to that pane so the sub-cell shift
-  never smears across the divider.
+  tracked directly instead of eased, which avoids the sawtoothing that an easing
+  catch-up produces on high-resolution devices. Classic detented wheels emit
+  line deltas and are unaffected — they continue to use `scroll_wheel_lines` as
+  the per-notch multiplier.
+
+  The continuous direct-tracking pixel lane is per-pane: in a split it drives
+  the pane under the pointer (without stealing focus), its overflowing partial
+  row clipped to that pane so the sub-cell shift never smears across the
+  divider.
 - `scroll_pixel_speed` (default `1.0`, range `0.25..=4.0`) is the sensitivity
   multiplier for the continuous pixel lane. `1.0` tracks finger travel exactly;
   higher scrolls faster than the finger, lower slower. It applies only to
@@ -546,14 +319,16 @@ environment variable was not set at startup.
 - `scroll_glide` (default on) animates scrollback between discrete wheel
   notches. Detented wheels emit whole notches with no sub-step data, so pixel
   tracking cannot help them; instead the integer viewport offset still jumps
-  instantly per notch, but the rendered view eases toward it over a few frames
-  — a forward-chase follower that only ever moves in the scroll direction, so a
-  stream of notches cannot sawtooth. On by default; primary screen only.
-  In a split, each pane glides independently as an eased follower with
-  pixel-precise sub-cell smoothness — the pane under the pointer, without stealing
-  focus — its overflowing partial row clipped to the pane so it never smears
-  across the divider into a neighbour. High-resolution direct-tracking wheels and
-  touchpads use `pixel_scroll`, which is likewise per-pane in a split.
+  instantly per notch, but the rendered view eases toward it over a few frames —
+  a forward-chase follower that only ever moves in the scroll direction, so a
+  stream of notches cannot sawtooth. On by default; primary screen only. In a
+  split, each pane glides independently as an eased follower with pixel-precise
+  sub-cell smoothness — the pane under the pointer, without stealing focus — its
+  overflowing partial row clipped to the pane so it never smears across the
+  divider into a neighbour.
+
+  High-resolution direct-tracking wheels and touchpads use `pixel_scroll`, which
+  is likewise per-pane in a split.
 - `scroll_wheel_lines` sets how many rows one wheel notch advances the local
   scrollback viewport (default `6`). The same count also drives
   alternate-scroll (DECSET 1007) arrow emulation, so classic pagers (`less`,
@@ -562,6 +337,8 @@ environment variable was not set at startup.
   own the wheel — their report carries direction, not magnitude — so the
   multiplier does not apply there, and continuous (touchpad pixel) deltas are
   never multiplied.
+### Choose Cursor And Background Behavior
+
 - `cursor_blink = auto` currently resolves to the conventional blinking
   terminal default on Linux.
 - `background_treatment = image` draws a PNG, JPEG, or WebP behind the grid. Use
@@ -580,52 +357,15 @@ environment variable was not set at startup.
   picker also lists two entries at the top — **Default (bundled)** restores the
   shipped OdyTTY background and **None (no image)** clears it — so the bundled
   default is reachable from the GUI without editing the config.
-- `native_autoclose_ms` is a smoke-test helper and is startup-only.
+### Use Startup Smoke Timing
 
-## Key Bindings
+`native_autoclose_ms` is a smoke-test helper and is startup-only.
 
-For the full keyboard reference — every default chord, overlay shortcut, and the
-pane-prefix table in one place — see [`keybindings.md`](keybindings.md). The
-defaults below are the most common local shortcuts.
+## Key Binding Grammar
 
-Default local shortcuts:
-
-| Shortcut | Action |
-| --- | --- |
-| `Ctrl+Shift+F` | `search` |
-| `Ctrl+Shift+,` | `settings` |
-| `Ctrl+Shift+H` | `theme-picker` |
-| `Ctrl+Shift+C` | `copy` |
-| `Ctrl+Shift+V` | `paste` |
-| `Shift+PageUp` / `Shift+PageDown` | `scroll-up` / `scroll-down` |
-| `Ctrl+Shift+Up` | `jump-prompt-prev` |
-| `Ctrl+Shift+Down` | `jump-prompt-next` |
-| `Ctrl+Shift+P` | `command-palette` |
-| `Ctrl+Shift+S` | `connection-manager` |
-| `Ctrl+Shift+R` | `session-replay` |
-| `Ctrl+Shift+B` | `theme-builder` |
-| `Ctrl+Shift+A` | `session-attach` |
-| `Ctrl+Shift+Space` | `copy-mode` |
-| `Ctrl+Shift+L` | `hints` |
-| `Ctrl+Shift+K` | `clear-input` |
-| `Ctrl+Shift+T` | `new-tab` |
-| `Ctrl+Shift+W` | `close-tab` |
-| `Ctrl+PageDown` / `Ctrl+PageUp` | `next-tab` / `prev-tab` |
-| `Ctrl+Shift+E` | `split-columns` (new pane right) |
-| `Ctrl+Shift+O` | `split-rows` (new pane below) |
-
-`Ctrl+Shift+E` and `Ctrl+Shift+O` are *direct* global chords, not prefix-gated.
-They are how you create the **first** split: the `pane_prefix` engine (below) is
-inert on a single-pane tab, so the prefix split keys (`<prefix> %` / `<prefix> "`)
-only become available once a tab already has more than one pane. Both direct
-chords keep working on multi-pane tabs too.
-
-The command palette, connection manager, session replay, and theme builder each
-ship a default `Ctrl+Shift+<letter>` chord (and a right-click menu entry /
-Themes-section entry). All overlay chords are `Ctrl+Shift+<letter>` chords, which
-a TUI cannot receive, so the PTY input path is unaffected. Prompt navigation uses
-the `Ctrl+Shift+Up` / `Ctrl+Shift+Down` arrow chords only — there are no letter
-fallbacks.
+For every default chord, bindable action, overlay shortcut, and pane-prefix key,
+see [`keybindings.md`](keybindings.md). This section documents only the config
+grammar and Settings surface.
 
 `keybinds` accepts comma- or semicolon-separated `chord=action` entries in
 `odytty.conf`:
@@ -641,21 +381,14 @@ Chord modifiers are `ctrl`, `shift`, `alt`, and `super`. Keys may be letters,
 digits, `f1`-`f24`, `pageup`, `pagedown`, `home`, `end`, `enter`, `esc`,
 `backspace`, `delete`, `insert`, `tab`, `space`, arrow keys, or `comma`.
 
-Valid actions are `search`, `settings`, `theme-picker`, `theme-builder`, `copy`,
-`paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`,
-`copy-mode`, `hints`, `clear-input`, `command-palette`, `session-replay`,
-`connection-manager`, `session-attach`, `new-tab`, `next-tab`, `prev-tab`, and
-`close-tab`, plus
-the pane-management actions `split-columns`, `split-rows`, `focus-pane-left`,
-`focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`,
-`close-pane`, `zoom-pane`, and `equalize-panes`.
-
 The in-app keybinding editor is opened from the Settings panel's Keybindings
 row. It covers every bindable action — the core workflow actions plus the
 overlay (command palette, connection manager, session replay, theme builder,
 session-attach / Manage Sessions),
 tab, and pane-management actions — writing through to `keybinds`; the
 `ODYTTY_KEYBINDS` env var can override the same setting for a session.
+
+## Pane And Interaction Details
 
 ### Panes — multiplexer prefix (`pane_prefix`)
 
@@ -665,6 +398,10 @@ active tab has more than one pane; on a single-pane tab, `Ctrl+b` passes through
 to the shell unchanged, preserving the byte-identical default input path. Set
 `pane_prefix=off` (or `none`) to disable the pane prefix entirely and free
 `Ctrl+b` in multi-pane tabs too.
+
+`Ctrl+Shift+E` and `Ctrl+Shift+O` create the first split because the prefix is
+inactive on a single-pane tab. Both direct chords continue to work after the
+tab has multiple panes.
 
 | After the prefix | Action | Config name |
 |---|---|---|
@@ -679,19 +416,22 @@ to the shell unchanged, preserving the byte-identical default input path. Set
 The prefix itself is reconfigurable:
 
 ```sh
-ODYTTY_PANE_PREFIX="ctrl+a" cargo run --release   # use Ctrl+a instead
-ODYTTY_PANE_PREFIX=off cargo run --release        # disable; Ctrl+b is literal in multi-pane tabs too
+ODYTTY_PANE_PREFIX="ctrl+a" odytty   # use Ctrl+a instead
+ODYTTY_PANE_PREFIX=off odytty        # disable; Ctrl+b is literal in multi-pane tabs too
 ```
 
-**Nested multiplexers.** In a multi-pane tab, pressing the prefix twice
-(`Ctrl+b Ctrl+b`) sends a single literal prefix byte (e.g. `0x02`) to the
-focused pane, so a `tmux` or `screen` running *inside* OdyTTY still receives its
-own prefix and works normally. In a single-pane tab, the first `Ctrl+b` already
-passes through literally. Alternatively, change `pane_prefix` so the outer and
-inner prefixes differ. Individual pane actions are rebindable via `keybinds`
-(the chord is the *second* key, after the prefix), e.g.
-`keybinds = ctrl+f=zoom-pane` rebinds zoom to `<prefix> Ctrl+f`.
-`ODYTTY_KEYBINDS` provides the same syntax as a session-scoped override.
+**Nested multiplexers.** In a multi-pane tab, pressing the prefix twice (`Ctrl+b
+Ctrl+b`) sends a single literal prefix byte (e.g. `0x02`) to the focused pane,
+so a `tmux` or `screen` running *inside* OdyTTY still receives its own prefix
+and works normally. In a single-pane tab, the first `Ctrl+b` already passes
+through literally.
+
+Alternatively, change `pane_prefix` so the outer and inner prefixes differ.
+Individual pane actions are rebindable via `keybinds` (the chord is the *second*
+key, after the prefix), e.g. `keybinds = ctrl+f=zoom-pane` rebinds zoom to
+`<prefix> Ctrl+f`. `ODYTTY_KEYBINDS` provides the same syntax as a
+session-scoped override.
+
 
 > Zoom (`<prefix> z`) makes the focused pane fill the whole content area while
 > the split layout underneath is preserved; press it again to restore the exact
@@ -706,7 +446,9 @@ stands out. It accepts `0.0..=1.0`; `0.0` (the default) is off — every pane
 renders undimmed and the multi-pane frame is byte-identical to before this knob
 existed. `0.15`–`0.30` is a subtle recede. The focused pane is never dimmed,
 single-pane tabs are never affected, and the minimum-contrast floor still
-applies so text stays legible. The plain renderer profile forces it off.
+applies so text stays legible.
+
+The plain renderer profile forces it off.
 
 ### Session output replay (`session_replay`)
 
@@ -726,15 +468,17 @@ Recording is **local-only**: frames live only in process memory — they are nev
 written to disk, logged, or sent anywhere, and they are dropped when the session
 closes or recording is turned off.
 
-To scrub, press `Ctrl+Shift+R` (the default, or the right-click menu's
-"Session Replay" item) to open the replay overlay; rebind the `session-replay`
-action via `keybinds` if you prefer. `ODYTTY_KEYBINDS` provides the same syntax
-as a session-scoped override. `←`/`→` step one frame,
-`PgUp`/`PgDn` jump ten, `Home`/`End` go to the oldest/newest frame, and `Esc`
-closes it. Replay is **presentation-only**: the overlay scrubs a frozen, fully
-decoupled clone of the ring and never mutates the live terminal — the session
-keeps running underneath while you scrub. The scrub view is a monochrome text
-preview of the recorded screen at each point.
+To scrub, press `Ctrl+Shift+R` (the default, or the right-click menu's "Session
+Replay" item) to open the replay overlay; rebind the `session-replay` action via
+`keybinds` if you prefer. `ODYTTY_KEYBINDS` provides the same syntax as a
+session-scoped override. `←`/`→` step one frame, `PgUp`/`PgDn` jump ten,
+`Home`/`End` go to the oldest/newest frame, and `Esc` closes it. Replay is
+**presentation-only**: the overlay scrubs a frozen, fully decoupled clone of the
+ring and never mutates the live terminal — the session keeps running underneath
+while you scrub.
+
+The scrub view is a monochrome text preview of the recorded screen at each
+point.
 
 ### Restore workspaces at launch (`restore_workspaces`)
 
@@ -808,8 +552,7 @@ Paste is unaffected: `Ctrl+Shift+V` pastes. There is deliberately no
 "smart `Ctrl+V`" — plain `Ctrl+V` stays the readline/vi verbatim-insert (`^V`).
 If you want plain `Ctrl+V` to paste anyway, bind it directly:
 
-```ini
-# odytty.conf — map plain Ctrl+V to paste (shadows ^V verbatim-insert)
+```conf
 keybinds = ctrl+v=paste
 ```
 
@@ -853,17 +596,18 @@ the pointer (the default, feature-off path makes zero `stat` calls). Hover
 detection runs on the **focused pane only** (a v1 bound shared with OSC 8
 hyperlink hover).
 
-**Opening a path (Ctrl+click + context menu).** With the feature on, **Ctrl+click**
-on a resolved span opens it (the same gate as OSC 8 hyperlinks — Ctrl is
-required; Cmd on macOS). This works even while a full mouse-tracking TUI (vim,
-tmux, Claude Code) has mouse reporting on: a Ctrl+click that lands on a resolved
-span opens it, while a Ctrl+click anywhere else still reports to the app, so the
-program keeps its clicks — matching kitty/iTerm2/GNOME Terminal, no extra Shift
-needed. A right-click over a resolved span adds a **file section** to the
-context menu — Open, Open With…, Copy Path, Copy File, Reveal in File Manager
-("Open With…" appears only on a regular file, not a directory). Every open is
-an **argv vector**, never a shell string, so a path containing spaces, `;`,
-`$()`, or backticks is inert. The dispatch:
+**Opening a path (Ctrl+click + context menu).** With the feature on,
+**Ctrl+click** on a resolved span opens it (the same gate as OSC 8 hyperlinks —
+Ctrl is required; Cmd on macOS). This works even while a full mouse-tracking TUI
+(vim, tmux, Claude Code) has mouse reporting on: a Ctrl+click that lands on a
+resolved span opens it, while a Ctrl+click anywhere else still reports to the
+app, so the program keeps its clicks — matching kitty/iTerm2/GNOME Terminal, no
+extra Shift needed. A right-click over a resolved span adds a **file section**
+to the context menu — Open, Open With…, Copy Path, Copy File, Reveal in File
+Manager ("Open With…" appears only on a regular file, not a directory).
+
+Every open is an **argv vector**, never a shell string, so a path containing
+spaces, `;`, `$()`, or backticks is inert. The dispatch:
 
 | Span | Action |
 |------|--------|
@@ -879,23 +623,26 @@ and uses `open -R <abs>` to reveal the item in Finder on macOS.
 **Choosing an application ("Open With…").** On a regular-file span the file
 section gains an **Open With…** item that opens a type-to-filter picker overlay
 of the desktop applications registered to handle the file's MIME type. On Linux,
-the MIME type is detected first with a single read-only
-`xdg-mime query filetype <abs>` call. If that system probe is unavailable or
-empty, and on macOS where no LaunchServices probe is wired yet, OdyTTY falls back
-to a small built-in magic-byte sniff for common file types (PNG, JPEG, GIF, PDF,
-WebP, BMP, TIFF). The candidate applications are read from the standard
-freedesktop locations (`mimeapps.list` defaults + added associations, then
-`mimeinfo.cache`, across the `XDG_CONFIG_*`/`XDG_DATA_*` directory ladders),
-honoring `[Removed Associations]`. Apps marked `NoDisplay`, `Hidden`, or
-`Terminal=true`, or without an `Exec`, are excluded; the list is capped and
-deduplicated (user entries override system ones). Selecting an app launches it
-on the file. The launch is built **per the Desktop-Entry quoting rules, not a
-shell**: the `.desktop` `Exec` is tokenized, `%f`/`%F` expand to the bare path
-and `%u`/`%U` to a `file://` URI as a single argv element, and `%i`/`%c`/`%k`
-plus the deprecated field codes are stripped — so a path containing spaces, `;`,
-`$()`, or backticks is one inert argument, never interpolated. If the MIME type
-cannot be detected or no application handles it, the picker opens with an
-empty-state hint. Closed, the overlay is byte-identical to the live frame.
+the MIME type is detected first with a single read-only `xdg-mime query filetype
+<abs>` call. If that system probe is unavailable or empty, and on macOS where no
+LaunchServices probe is wired yet, OdyTTY falls back to a small built-in
+magic-byte sniff for common file types (PNG, JPEG, GIF, PDF, WebP, BMP, TIFF).
+
+The candidate applications are read from the standard freedesktop locations
+(`mimeapps.list` defaults + added associations, then `mimeinfo.cache`, across
+the `XDG_CONFIG_*`/`XDG_DATA_*` directory ladders), honoring `[Removed
+Associations]`. Apps marked `NoDisplay`, `Hidden`, or `Terminal=true`, or
+without an `Exec`, are excluded; the list is capped and deduplicated (user
+entries override system ones). Selecting an app launches it on the file. The
+launch is built **per the Desktop-Entry quoting rules, not a shell**: the
+`.desktop` `Exec` is tokenized, `%f`/`%F` expand to the bare path and `%u`/`%U`
+to a `file://` URI as a single argv element, and `%i`/`%c`/`%k` plus the
+deprecated field codes are stripped — so a path containing spaces, `;`, `$()`,
+or backticks is one inert argument, never interpolated.
+
+If the MIME type cannot be detected or no application handles it, the picker
+opens with an empty-state hint. Closed, the overlay is byte-identical to the
+live frame.
 
 **In-terminal image viewer ("Open in OdyTTY").** When the resolved span is an
 image file — extension `.png`, `.jpg`/`.jpeg`, or `.webp` (matching the built-in
@@ -903,18 +650,21 @@ decoders; GIF/BMP/TIFF are not offered) — the file section gains an **Open in
 OdyTTY** item. It decodes the image and renders it centered, aspect-preserved,
 over a dimmed backdrop through the existing GPU graphics path; `Esc` (or a click
 away) dismisses it. The viewer is presentation-only: while it is closed the
-frame is byte-identical, and opening it never mutates the live terminal. The
-decode is bounded **before** it runs (max 12000 px per axis, 256 MiB allocation),
-so a corrupt or decompression-bomb file is refused gracefully — it simply does
-not open, never crashes or hangs. The image type is confirmed by content
-(magic-byte sniff), not by trusting the file name. It is gated by the master
-`interactive_paths` setting plus `interactive_paths_image_inline` (default `on`):
-with the master gate on and `interactive_paths_image_inline = on`, Ctrl+clicking
-a resolved `.png`/`.jpg`/`.jpeg`/`.webp` span opens the in-app viewer and the
-**Open in OdyTTY** menu item appears. Set `interactive_paths_image_inline = off`
-to route image paths to the external default app (the same `xdg-open`/`open`
-path as any other file) instead of the in-app lightbox. With the master gate off
-there is no image detection and no menu item at all.
+frame is byte-identical, and opening it never mutates the live terminal.
+
+The decode is bounded **before** it runs (max 12000 px per axis, 256 MiB
+allocation), so a corrupt or decompression-bomb file is refused gracefully — it
+simply does not open, never crashes or hangs. The image type is confirmed by
+content (magic-byte sniff), not by trusting the file name. It is gated by the
+master `interactive_paths` setting plus `interactive_paths_image_inline`
+(default `on`): with the master gate on and `interactive_paths_image_inline =
+on`, Ctrl+clicking a resolved `.png`/`.jpg`/`.jpeg`/`.webp` span opens the
+in-app viewer and the **Open in OdyTTY** menu item appears. Set
+`interactive_paths_image_inline = off` to route image paths to the external
+default app (the same `xdg-open`/`open` path as any other file) instead of the
+in-app lightbox.
+
+With the master gate off there is no image detection and no menu item at all.
 
 **Editor selection (`interactive_paths_editor`).** A `path:line:col` span opens
 in an editor chosen by: the `interactive_paths_editor` setting (env
@@ -923,21 +673,25 @@ in an editor chosen by: the `interactive_paths_editor` setting (env
 `nvim`, `vi`, `code`, `emacs`, `emacsclient`, `helix`/`hx`, `sublime`/`subl`,
 `nano`, `micro` (each mapped to its position-flag form, e.g. `code --goto
 F:L:C`, `vim +call cursor(L,C) F`, `nano +L,C F`) — or an **argv template** with
-`{file}`, `{line}`, `{col}` placeholders (e.g. `myeditor --line {line} {file}`).
-The spec is always whitespace-tokenized into argv and **never** evaluated by a
-shell; a `$EDITOR` carrying args (`code --wait`) is split into argv too. Both the
-toggle and the editor knob live in the Settings panel's Input section.
+`{file}`, `{line}`, `{col}` placeholders (e.g.
+
+`myeditor --line {line} {file}`). The spec is always whitespace-tokenized into
+argv and **never** evaluated by a shell; a `$EDITOR` carrying args (`code
+--wait`) is split into argv too. Both the toggle and the editor knob live in the
+Settings panel's Input section.
 
 **Troubleshooting interactive paths.** If Ctrl+click does nothing, confirm
 `interactive_paths = on`, the pointer is over the focused pane, and the span
 resolves to a real file or directory from the pane cwd. Bare filenames from
 plain `ls` output require `interactive_paths_barewords = on`. If Open or Reveal
 fails, Linux needs `xdg-open` available on `PATH`; macOS uses the system `open`
-command. If Open With is empty, the file type was not reported by `xdg-mime`, was
-not recognized by the fallback sniffer, or no matching desktop application was
+command.
+
+If Open With is empty, the file type was not reported by `xdg-mime`, was not
+recognized by the fallback sniffer, or no matching desktop application was
 registered in the freedesktop application database.
 
-## Native UI
+## Use The Native Settings UI
 
 - `Ctrl+Shift+,` opens Settings. `/` filters by name, key, description, or
   group. `Esc` clears the filter or closes the panel. `Ctrl+S` persists changes.
@@ -948,37 +702,52 @@ registered in the freedesktop application database.
   delete, clear input, open settings, and create, rename, or close tabs. A
   custom tab name is session-local; it overrides shell title updates until an
   empty rename clears it. The menu also offers **Detach & switch**, which spawns
-  a fresh managed session in the focused pane's working directory and switches to
-  it (a Swap / Keep both / Cancel prompt; this is a new session, not a live
+  a fresh managed session in the focused pane's working directory and switches
+  to it (a Swap / Keep both / Cancel prompt; this is a new session, not a live
   migration of the current one), and **Manage Sessions** (the `session-attach`
-  overlay, default `Ctrl+Shift+A`). With `interactive_paths` on, right-clicking over a
-  resolved path adds a file section (Open / Open With… / Copy Path / Copy File /
-  Reveal in File Manager), plus **Open in OdyTTY** on an image file (in-terminal
-  viewer). **Open With…** opens an app picker for the file's MIME type; the
-  launch is argv-only (Desktop-Entry quoting, never a shell).
+  overlay, default `Ctrl+Shift+A`).
+
+  With `interactive_paths` on, right-clicking over a resolved path adds a file
+  section (Open / Open With… / Copy Path / Copy File / Reveal in File Manager),
+  plus **Open in OdyTTY** on an image file (in-terminal viewer). **Open With…**
+  opens an app picker for the file's MIME type; the launch is argv-only
+  (Desktop-Entry quoting, never a shell).
 - First launch without a config file shows an onboarding card. Set
   `ODYTTY_ONBOARDING=1` to force it.
 
 ## Examples
 
+**Use the plain renderer for compatibility or performance checks:**
+
 ```sh
-# Plain renderer for compatibility/perf checks.
-ODYTTY_RENDER_QUALITY=plain cargo run --release
+ODYTTY_RENDER_QUALITY=plain odytty
+```
 
-# OS dark/light theme alias.
-ODYTTY_THEME=system cargo run --release
+**Follow the OS dark or light appearance:**
 
-# Background image behind translucent cells.
+```sh
+ODYTTY_THEME=system odytty
+```
+
+**Show a background image through translucent cells:**
+
+```sh
 ODYTTY_BACKGROUND_TREATMENT=image \
 ODYTTY_BACKGROUND_IMAGE=/tmp/background.jpg \
 ODYTTY_CELL_BG_OPACITY=0.85 \
-cargo run --release
+odytty
+```
 
-# Non-blinking underline cursor.
-ODYTTY_CURSOR_STYLE=underline ODYTTY_CURSOR_BLINK=off cargo run --release
+**Use a non-blinking underline cursor:**
 
-# Development lifecycle smoke.
-ODYTTY_NATIVE_AUTOCLOSE_MS=600 cargo run --release
+```sh
+ODYTTY_CURSOR_STYLE=underline ODYTTY_CURSOR_BLINK=off odytty
+```
+
+**Close automatically during lifecycle smoke checks:**
+
+```sh
+ODYTTY_NATIVE_AUTOCLOSE_MS=600 odytty
 ```
 
 ## Bench Environment Variables
@@ -989,3 +758,333 @@ These affect `cargo bench --bench perf` only.
 | --- | --- | --- |
 | `ODYTTY_PERF_PROFILE` | `default`, `legacy`, `quick` | `default` |
 | `ODYTTY_PERF_GEOMETRY_ONLY` | Any non-empty value | unset |
+
+## Detached-Session CLI
+
+Detached sessions have no `odytty.conf` keys in this slice. The public commands
+are:
+
+```sh
+odytty new --detached [-e COMMAND...] [--working-directory DIR] [--title TITLE]
+odytty list
+odytty attach [--diagnostic] ID
+```
+
+`new --detached` starts a local session-host process and prints `id=...`. `list`
+reports live local sessions as metadata-only rows (`id`, `name`, `state`,
+`age_ms`, `panes`) and never prints scrollback or command output. `attach <id>`
+reattaches a detached session in a live native window. The window opens its
+normal initial local session, adds the hosted session as a focused tab repainted
+from the host snapshot, and streams live output.
+
+If the id is missing or dead, the window still opens and stderr reports `odytty:
+attach session <id> failed: <err>`. The headless script/CI form, `attach
+--diagnostic <id>`, prints a one-line status dump (`id=... state=attached
+mode=diagnostic columns=... rows=...
+
+panes=1`) and exits without opening a window.
+
+Host lifecycle is local-only and bounded. Each attach receives a current
+`SnapshotEnvelope` first, then future `Output` and `Invalidate` frames while it
+stays connected. Detach or socket close removes only that client; the hosted PTY
+and terminal model keep running with bounded scrollback until the child exits or
+the detached idle timeout (12 hours with no attached client) kills and reaps it.
+The idle bound is internal (`--idle-timeout-ms`); there is no user-facing flag
+or environment variable for it.
+
+Scrollback is not printed by `list` and is not sent anywhere except over the
+per-user Unix-domain socket to an attaching local client.
+
+The session-host socket lives under a per-user runtime directory. An
+explicitly-set `XDG_RUNTIME_DIR` always wins on every platform (Linux uses its
+standard `/run/user/<uid>`). On macOS, which does not set `XDG_RUNTIME_DIR`, the
+host falls back to the per-user Darwin temp directory (`std::env::temp_dir()` →
+`confstr(_CS_DARWIN_USER_TEMP_DIR)`, e.g. `/var/folders/.../T/`).
+
+In both cases the `odytty/` socket subdirectory is created `0700` and validated
+owner-private, so the runtime directory is local-only and owner-private on every
+platform — no network, nothing leaves the machine (the privacy charter is
+unchanged). `AF_UNIX` socket paths are bounded (`sun_path` is 104 bytes on
+macOS, 108 on Linux); a runtime base long enough to overflow that limit is
+rejected with a clear error instead of an opaque `bind()` failure.
+
+## Command Palette
+
+The command palette is exposed through the `command-palette` action in
+`keybinds`. It is bound by default to `Ctrl+Shift+P` (and a
+right-click menu "Command Palette" item); rebind it in `odytty.conf` as usual:
+
+```conf
+keybinds = ctrl+alt+p=command-palette
+```
+
+For a one-session override:
+
+```sh
+ODYTTY_KEYBINDS="ctrl+alt+p=command-palette" odytty
+```
+
+Environment values win for that session.
+
+For palette behavior and its bounded action, history, and directory sources,
+see [Search Actions, History, And Directories](features.md#search-actions-history-and-directories).
+
+## Connection Hosts
+
+The SSH / connection manager reads its default saved hosts from an OdyTTY-owned
+local file:
+
+- `$XDG_CONFIG_HOME/odytty/hosts.conf`
+- `~/.config/odytty/hosts.conf` when `XDG_CONFIG_HOME` is unset
+
+The file uses an OpenSSH-like block format:
+
+```conf
+Host web1
+    HostName web1.example.invalid
+    User deploy
+    Port 2222
+    Theme odyssey
+    Font "Victor Mono"
+    Title "Synthetic Web"
+    IdentityFile ~/.ssh/id_ed25519
+```
+
+`Host` aliases are the quick-connect names. `HostName`, `User`, and `Port` drive
+the connect action. OdyTTY builds argv as `ssh [-p PORT] -- [USER@]HOST` and
+opens it in a new tab/session; `--` keeps a saved host name from being
+interpreted as another ssh option. `Theme`, `Font`, and `Title` are optional
+per-host profile fields reserved for the overlay UI.
+
+`Integration on|off`, `Reuse on|off`, and `Tmux on|off` are optional per-host
+overrides for remote shell integration, connection reuse, and tmux persistence
+(see below). `Persist` overrides the connection-persistence window for one host
+(any `ssh` ControlPersist value, e.g. `off`, `2h`, `45m`). `IdentityFile` names
+a path to an existing SSH private key; when set, the connect argv gains `-i
+<path>` so a key that is not in `~/.ssh/config` still authenticates.
+
+OdyTTY stores only the path — never any key material — and `ssh-copy-id` remains
+the once-and-done way off passwords entirely. A `Protocol` key is reserved
+(default and only accepted value `ssh`) so a future transport needs no
+file-format migration; any value is preserved across an edit.
+
+You do not have to hand-edit this file to reach a new host. In the connection
+manager, typing a `[user@]host[:port]` that matches no saved host offers a
+**Connect to: …** row — **Enter** connects, and **Shift+Enter** (or **Ctrl+S**)
+connects and appends a `Host` block here for you. The append is atomic
+(temp-file-and-rename) and preserves the file's existing contents byte-for-byte;
+the new block reads `Host <host>` (no redundant `HostName` when the alias is the
+host) plus `User`/`Port` when supplied. An exact-alias collision skips the write
+and reports "already saved".
+
+Typed input with embedded spaces, a leading `-`, or a port outside `1-65535` is
+rejected before any connect or write.
+
+You can also add and edit hosts with an in-app form instead of typing directives
+by hand. In the connection manager, **Tab** opens a blank **Add connection**
+form and the **right arrow** (`\u{2192}`) opens an **Edit** form pre-filled from
+the selected OdyTTY-owned row (`ssh-config`-imported rows are read-only). The
+form carries `Alias`, `HostName`, `User`, and `Port` up front, with an
+**Advanced** section for `IdentityFile`, the three-way `Integration` / `Reuse` /
+`Tmux` overrides (**inherit / on / off**), and `Theme` / `Font` / `Title`. On
+the **IdentityFile** row, **Enter** (while the field is empty) — or a click on
+the always-visible **[Browse]** chip at the end of the row (whether the field is
+empty or already holds a path) — opens a browser of candidate private keys found
+under `~/.ssh` — filename heuristics only (`id_*`, `*.pem`, `*.key`, and any
+file with a matching `.pub` sibling; `*.pub`, `known_hosts`, `config`, and
+`authorized_keys` are excluded).
+
+The browser lists file **names** only and never reads key contents; picking one
+fills the path, and typing a path by hand stays fully supported (keys can live
+outside `~/.ssh`). A focused-field help line at the bottom of the form explains
+each field as you move through it. Field validation matches the ad-hoc rules; an
+alias collision is refused inline with no write. **Save** (or **Ctrl+S**)
+appends a new block or edits the existing one in place — an edit re-renders only
+that block and leaves every other block, comment, and unknown field
+byte-for-byte untouched.
+
+**Test connection** runs a non-interactive background probe (`ssh -o
+BatchMode=yes -o ConnectTimeout=5 … exit`) and reports a tri-state result:
+reachable with key/agent auth, reachable but interactive-auth (the expected
+state for a password host — the connect still works, interactively), a host-key
+mismatch, or unreachable. The probe carries no password and stores nothing
+credential-shaped.
+
+### Remote shell integration (`remote_integration`)
+
+An SSH tab runs the system `ssh` as its local child, so by default the remote
+shell never sees OdyTTY's OSC 133 hooks and a remote session loses prompt marks,
+cwd titles, and the input boundaries those features need. With
+`remote_integration = on` (the default; `ODYTTY_REMOTE_INTEGRATION=on`), a
+connection injects OdyTTY's bash integration on the remote so a remote bash
+session behaves like a local one. The integration is delivered inline as a
+base64 blob decoded into a temporary rcfile that **self-deletes on first read**
+— nothing is persisted on the remote. Every failure path (no bash, no `base64`,
+undetectable shell) and any non-bash remote shell **degrades silently to a plain
+`ssh` session**, so the connection is never broken.
+
+Turning it off globally, or setting `Integration off` for a single host in
+`hosts.conf`, makes that SSH launch byte-identical to a plain `ssh` invocation.
+The remote command is a fixed, inspectable POSIX-sh bootstrap plus OdyTTY's own
+public integration snippet; no local paths, usernames, or hostnames are embedded
+in it, and authentication stays entirely with the system `ssh`. A remote SSH tab
+titles itself `user@host` when no explicit per-host `Title` is set.
+
+### SSH connection reuse (`remote_reuse`)
+
+With `remote_reuse = on` (the default; `ODYTTY_REMOTE_REUSE=on`), an integrated
+SSH tab adds OpenSSH `ControlMaster=auto` / `ControlPersist` multiplexing with a
+control socket OdyTTY owns under its state directory. The first tab to a host
+establishes a shared master connection; later tabs to the same host reuse it, so
+they open with no second authentication or handshake. If the shared master is
+gone, the tab degrades to an ordinary fresh connect. A per-host `Reuse off` line
+in `hosts.conf` opts a single host out, and `remote_reuse = off` disables it
+globally.
+
+Reuse layers onto integrated sessions only, so with `remote_integration` off the
+SSH argv stays byte-identical to a plain `ssh` launch regardless of this
+setting. **Windows:** OpenSSH for Windows has no connection multiplexing, so a
+Windows client never emits control options and reuse is a silent no-op there.
+
+### SSH connection persistence window (`remote_persist`)
+
+Connection reuse keeps an authenticated master alive for a while after the last
+tab to a host closes, so a daily-driver host is authenticated roughly once per
+boot rather than once per tab. `remote_persist` (`ODYTTY_REMOTE_PERSIST`) sets
+how long that master lingers: `10m` (the default), `30m`, `1h`, `2h`, or `off`.
+The default `10m` maps to OpenSSH `ControlPersist=600`, which is the historical
+fixed window — so the default is a no-op change and existing behavior is
+unchanged. `off` maps to `ControlPersist=no`, tearing the master down with its
+last connection (the pre-persistence posture).
+
+A per-host `Persist` line in `hosts.conf` overrides the global value for a
+single host and additionally accepts any raw `ssh` ControlPersist value (for
+example `Persist 45m`). This only takes effect with connection reuse on.
+**Windows:** OpenSSH for Windows has no connection multiplexing, so this knob is
+inert on a Windows client (no control options are ever emitted).
+
+### SSH session persistence (`remote_tmux`)
+
+With `remote_tmux = on` (`ODYTTY_REMOTE_TMUX=on`; **off by default**), an
+integrated SSH tab wraps the remote shell in a persistent `tmux` session (`tmux
+new-session -A -s odytty`). A create-or-attach session means a link that drops
+and is reconnected reattaches the same remote session with its running programs
+and scrollback intact, rather than starting fresh. When the remote host has no
+`tmux`, the bootstrap degrades to a plain integrated bash session, so enabling
+this never breaks a connection. A per-host `Tmux on` line in `hosts.conf` opts a
+single host in (or `Tmux off` opts one out) regardless of the global default.
+
+Persistence rides inside the integration bootstrap, so it only takes effect with
+`remote_integration` on; with integration off the SSH argv is byte-identical to
+a plain `ssh` launch regardless of this setting. **Windows:** the wrap is
+remote-side, so a Windows client drives it the same as any other, provided the
+remote host has `tmux`.
+
+### Dropped-connection reconnect
+
+An integrated SSH tab whose link drops (the `ssh` client exits with its
+transport-failure status, 255) does not close silently. The tab is held open with
+an in-pane **"connection dropped"** prompt: press **Enter** to re-establish the
+connection in the same tab, or **Esc** / **Ctrl+D** to dismiss and close it.
+Reconnect re-runs the exact same argv, so with `remote_tmux` on it reattaches the
+persisted session. A clean logout (`exit`, status 0) and ordinary remote-command
+failures close the tab as before; only the transport-drop status offers
+reconnect.
+
+### Remote image paste-through (`remote_image_paste`)
+
+With `remote_image_paste = ask` (the default; `ODYTTY_REMOTE_IMAGE_PASTE=ask`),
+pasting while the clipboard holds an **image** and the active tab is a remote
+integrated SSH session offers to upload it to the remote host. A confirm prompt
+appears in the pane — showing the encoded size and the target host — and nothing
+is uploaded until **Enter** confirms (**Esc** cancels). On confirmation the
+image is PNG-encoded and streamed over the tab's `ssh` connection (reusing the
+live `ControlMaster` when one is up) into a file created `0600` under an
+unguessable `/tmp/odytty-paste-<random>.png` name. On success a one-line notice
+— `image uploaded <path> · copied to clipboard` — is written into the pane and
+the remote path is copied to the **local clipboard**; the path is **not** typed
+into the shell (a bare path on an empty prompt would run on the next Enter and
+error).
+
+Paste it (`Ctrl+Shift+V`) into a command wherever the file is wanted. Nothing is
+ever run remotely — it is an upload plus a clipboard copy, not a command. The
+feature also engages on reconnected and restored remote tabs.
+
+`remote_image_paste = off` (`ODYTTY_REMOTE_IMAGE_PASTE=off`) disables the feature:
+an image paste on a remote tab does nothing. There is deliberately no silent
+auto-upload mode — confirm-first is the only enabled behavior. The feature only
+engages on a remote *integrated* tab; a local tab or an integration-off plain-ssh
+tab pastes exactly as before. Images larger than 10 MiB (PNG-encoded) are refused
+with a one-line notice rather than uploaded.
+
+Uploaded files are cleaned up **best-effort** when the tab closes (an `rm -f`
+over the same connection). If the link has already dropped, cleanup cannot run
+and the file persists in the remote `/tmp` until the remote's own temp-file
+reaper removes it — OdyTTY never promises guaranteed remote deletion. **Windows:**
+the upload uses the bundled `ssh.exe` the same way (no `ControlMaster` reuse, as
+OpenSSH for Windows has none), so each upload does its own connect; the clipboard
+image is read through the platform clipboard backend. A Windows *remote* is out
+of scope (the `/tmp` path assumes a POSIX host).
+
+OpenSSH config import is separate and default-off. `ssh_config_hosts = on` (or
+`ODYTTY_SSH_CONFIG_HOSTS=on`) lets the connection manager merge host names from
+a caller-resolved OpenSSH config path. The same toggle is reachable in the
+Settings panel's Connections section. While it is off, OdyTTY does not read
+OpenSSH config.
+
+When enabled, the read is local, read-only, name-only, bounded, and ignores key
+material such as identity files. OdyTTY never handles SSH credentials, private
+keys, or passphrases; authentication remains with the system `ssh` binary and
+agent.
+
+The saved hosts are browsed through the **connection-manager overlay**, opened
+by default with `Ctrl+Shift+S` (or the right-click menu's "Connection Manager"
+item). Rebind the `connection-manager` action in `odytty.conf`:
+
+```conf
+keybinds = ctrl+alt+h=connection-manager
+```
+
+For a one-session override:
+
+```sh
+ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager" odytty
+```
+
+Environment values win for that session. The overlay lists the merged hosts (OdyTTY-owned first, then
+any opt-in OpenSSH-config names), with type-to-filter fuzzy matching over alias,
+host name, and user; `↑`/`↓` select, `Enter` quick-connects the highlighted
+host, and `Esc` dismisses. With `ssh_config_hosts` off, the overlay shows
+OdyTTY-owned hosts only and OdyTTY never references `~/.ssh` at all. The overlay
+is **presentation-only**: it reads a frozen snapshot of the hosts list and never
+mutates live terminal state; accepting a host hands the connect action a
+name-only target to spawn.
+
+### Session-attach summon overlay (`session-attach`)
+
+The in-window analogue of the `odytty attach` CLI: a **session-attach overlay**
+that lists the live, detached session-host sessions so you can reattach one
+without leaving the window. Open it with `Ctrl+Shift+A` by default (or the
+right-click menu's "Manage Sessions" item). Rebind the `session-attach` action in
+`odytty.conf`:
+
+```conf
+keybinds = ctrl+alt+a=session-attach
+```
+
+For a one-session override:
+
+```sh
+ODYTTY_KEYBINDS="ctrl+alt+a=session-attach" odytty
+```
+
+Environment values win for that session. The overlay lists each live session by
+its `--title` (falling back to the session id), with type-to-filter fuzzy
+matching over title and id; `↑`/`↓` select, `Enter` attaches the highlighted
+session **into a new tab**, and `Esc` dismisses. With no live sessions it opens
+to a hint rather than failing. The overlay is **presentation-only**: it reads a
+frozen snapshot of the live sessions and never attaches anything itself;
+accepting a row hands the App an attach request.
+
+If the chosen session ended between listing and accepting, the attach fails
+gracefully (no panic) and the user can retry.
