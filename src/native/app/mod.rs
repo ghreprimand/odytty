@@ -3260,7 +3260,7 @@ impl App {
             self.top_bar_origin_px(cell),
             cell,
         );
-        if let Some(marker) = rendered_geometry.active_marker(source.active_tab(), accent) {
+        if let Some(marker) = rendered_geometry.active_marker(source.active_tab(), accent, None) {
             output.quads.push(marker);
         }
         if let Some(drag) = self.top_tab_drag.filter(|drag| drag.armed)
@@ -3315,7 +3315,9 @@ impl App {
         let accent = chrome_accent_color(tab_chrome::active_fill(colors, panel));
         let rendered_geometry =
             ChromeSlotGeom::rail(source, cols, rows, origin, cell, self.rail_geom());
-        if let Some(marker) = rendered_geometry.active_marker(source.active_tab(), accent) {
+        if let Some(marker) =
+            rendered_geometry.active_marker(source.active_tab(), accent, Some(side))
+        {
             output.quads.push(marker);
         }
         if let Some(drag) = self.rail_ws_drag.filter(|drag| drag.armed) {
