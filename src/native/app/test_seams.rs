@@ -1161,31 +1161,82 @@ impl App {
         self.cursor_slide_deadline = Some(now + std::time::Duration::from_millis(150));
     }
 
+    /// Test seam for the focused split-pane cursor consumer. Enables every
+    /// cursor effect without changing production defaults.
+    #[cfg(test)]
+    pub(in crate::native) fn enable_cursor_effects_for_test(&mut self) {
+        self.settings.cursor_motion = true;
+        self.settings.cursor_trail = true;
+        self.settings.cursor_glow = true;
+        self.settings.cursor_easing = true;
+    }
+
+    /// Disable every cursor effect so a split test can prove the identity path
+    /// emits no effect geometry and arms no frame-paced cursor wake.
+    #[cfg(test)]
+    pub(in crate::native) fn disable_cursor_effects_for_test(&mut self) {
+        self.settings.cursor_motion = false;
+        self.settings.cursor_trail = false;
+        self.settings.cursor_glow = false;
+        self.settings.cursor_easing = false;
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn focused_cursor_animation_deadline_for_test(
+        &self,
+    ) -> Option<std::time::Instant> {
+        self.focused_cursor_animation_deadline()
+    }
+
+    /// Drive the same focused cursor consumer used by `rebuild_multipane` and
+    /// return its pane-local quads plus the live render parameters.
+    #[cfg(test)]
+    pub(in crate::native) fn advance_multipane_cursor_effects_for_test(
+        &mut self,
+        now: std::time::Instant,
+        snapshot: &mut Snapshot,
+        cell: CellSize,
+        origin: [f32; 2],
+    ) -> (Vec<SolidQuad>, CursorRenderParams) {
+        let clip_rect = [
+            origin[0],
+            origin[1],
+            origin[0] + snapshot.dimensions.columns as f32 * cell.width as f32,
+            origin[1] + snapshot.dimensions.rows as f32 * cell.height as f32,
+        ];
+        let effects = self.advance_focused_multipane_cursor(
+            now,
+            snapshot,
+            crate::core::CursorStyle::Block,
+            true,
+            cell,
+            origin,
+            clip_rect,
+            0,
+            0,
+        );
+        (effects, self.cursor_render_params())
+    }
+
+    /// Whether every non-focused session has no live cursor wake source.
+    #[cfg(test)]
+    pub(in crate::native) fn background_cursor_timers_parked_for_test(&self) -> bool {
+        let active = self.sessions.active_id();
+        self.sessions
+            .iter()
+            .filter(|session| session.id != active)
+            .all(|session| {
+                session.cursor_blink.deadline().is_none()
+                    && session.cursor_ease_deadline.is_none()
+                    && session.cursor_slide_deadline.is_none()
+            })
+    }
+
     /// Test seam (NF20-B): arm the ACTIVE pane's synchronized-output hold at
     /// `now`, so its timeout deadline enters the wake set.
     #[cfg(test)]
     pub(in crate::native) fn arm_active_sync_hold_for_test(&mut self, now: std::time::Instant) {
         self.synchronized_output_hold.should_hold(true, now);
-    }
-
-    /// Test seam (NF21-1): mirror the render handler's synchronized-output
-    /// resolution — the hold is re-evaluated against the terminal's live DECSET
-    /// 2026 state on every requested rebuild, self-releasing a stale hold whose
-    /// batch has ended. A maintenance-only test harness never drives the render
-    /// path, so the strict-invariant split regression calls this to model that
-    /// one render pass (the cursor timers park in maintenance; the hold releases
-    /// here, exactly as production splits the two).
-    #[cfg(test)]
-    pub(in crate::native) fn resolve_synchronized_output_hold_for_test(
-        &mut self,
-        now: std::time::Instant,
-    ) {
-        let enabled = self
-            .terminal
-            .lock()
-            .map(|terminal| terminal.synchronized_output_enabled())
-            .unwrap_or(false);
-        let _ = self.synchronized_output_hold.should_hold(enabled, now);
     }
 
     /// Test seam (NF21-7): the render gate's rebuild decision — `self.needs_rebuild`

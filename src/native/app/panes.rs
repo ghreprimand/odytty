@@ -243,7 +243,85 @@ fn crop_snapshot(src: &Snapshot, left: usize, top: usize, width: usize, height: 
     }
 }
 
+/// Crop pane-local solid effects to the pane's at-rest grid rectangle. Cursor
+/// glow and trail can extend beyond their cell; this keeps them from crossing a
+/// row or column divider while preserving their original color and stacking.
+fn clip_solid_quads_to_rect(quads: &mut Vec<SolidQuad>, clip: [f32; 4]) {
+    for quad in quads.iter_mut() {
+        quad.rect[0] = quad.rect[0].max(clip[0]);
+        quad.rect[1] = quad.rect[1].max(clip[1]);
+        quad.rect[2] = quad.rect[2].min(clip[2]);
+        quad.rect[3] = quad.rect[3].min(clip[3]);
+    }
+    quads.retain(|quad| quad.rect[0] < quad.rect[2] && quad.rect[1] < quad.rect[3]);
+}
+
 impl App {
+    /// Soonest frame-paced cursor-effect deadline for the focused pane. Both
+    /// render branches consume this pair; background panes stay parked.
+    pub(super) fn focused_cursor_animation_deadline(&self) -> Option<Instant> {
+        match (self.cursor_ease_deadline, self.cursor_slide_deadline) {
+            (Some(ease), Some(slide)) => Some(ease.min(slide)),
+            (ease, slide) => ease.or(slide),
+        }
+    }
+
+    /// Advance and paint the focused split pane's cursor consumer for one
+    /// coherent frame. Background panes never call this method, so their parked
+    /// timers cannot enter the wake set. Returned quads are attached to the
+    /// focused `PaneRender` and inherit its GPU clip.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn advance_focused_multipane_cursor(
+        &mut self,
+        now: Instant,
+        snapshot: &mut Snapshot,
+        cursor_style: crate::core::CursorStyle,
+        cursor_blinking: bool,
+        cell: CellSize,
+        origin: [f32; 2],
+        clip_rect: [f32; 4],
+        viewport_offset: usize,
+        scrollback_len: usize,
+    ) -> Vec<SolidQuad> {
+        let base_cursor_visible = snapshot.cursor_visible;
+        let focused = self.focused;
+        let cursor_on = self.cursor_blink.poll(now, cursor_blinking, focused);
+        self.update_cursor_easing(now, cursor_on, cursor_blinking);
+        self.update_cursor_motion(now, snapshot, cell);
+        if !cursor_on && !self.settings.cursor_easing {
+            snapshot.cursor_visible = false;
+        }
+
+        let mut ctx = self.overlay_ctx(
+            scrollback_len,
+            cell,
+            snapshot.cursor,
+            snapshot.cursor_visible,
+            now,
+        );
+        ctx.viewport_offset = viewport_offset;
+        ctx.grid = snapshot.dimensions;
+        let mut effects = Vec::new();
+        self.paint_cursor_trail_quads(&ctx, &mut effects);
+        self.paint_cursor_glow_quads(&ctx, &mut effects);
+        let pad = ctx.window_padding.as_f32();
+        let translate = [origin[0] - pad, origin[1] - pad];
+        for quad in &mut effects {
+            quad.rect[0] += translate[0];
+            quad.rect[1] += translate[1];
+            quad.rect[2] += translate[0];
+            quad.rect[3] += translate[1];
+        }
+        clip_solid_quads_to_rect(&mut effects, clip_rect);
+
+        let mut presented = snapshot.clone();
+        presented.cursor_visible = base_cursor_visible;
+        self.last_presented_snapshot = Some(presented);
+        self.last_presented_cursor_style = cursor_style;
+        self.last_presented_cursor_blinking = cursor_blinking;
+        effects
+    }
+
     /// The pane content rect + cell metrics for the active **multi-pane** tab's
     /// pointer math, or `None` when the active tab is single-pane (the
     /// byte-identical path) or there is no GPU yet. Pointer coordinates
@@ -501,6 +579,10 @@ impl App {
         // highlights: (index in `panes_owned`, session token, render offset,
         // scrollback length).
         let mut pane_overlays: Vec<(usize, SessionToken, usize, usize)> = Vec::new();
+        // Focused cursor inputs captured under its terminal lock, then consumed
+        // after all session borrows end: (pane index, render offset, scrollback
+        // length, blinking style).
+        let mut focused_cursor_input: Option<(usize, usize, usize, bool, [f32; 4])> = None;
         // Cut 1: per-pane inline graphics. Each pane's visible placements +
         // upload payloads are collected under the pane's session-token namespace
         // (StoredImageId is a per-terminal counter, so panes can share a numeric
@@ -554,6 +636,7 @@ impl App {
             let frac_px = session.scroll_frac_offset;
             let snapshot = terminal.snapshot_with_scrollback(render_offset);
             let cursor_style = terminal.cursor_style();
+            let cursor_blinking = terminal.cursor_blinking();
             let is_focused = *token == focused;
             // Capture this pane's overlay inputs at the RENDER offset so its
             // selection / search highlights stay aligned with the glide-floored
@@ -594,6 +677,20 @@ impl App {
                 snapshot.dimensions.rows,
                 cell.height as f32,
             );
+            if is_focused {
+                focused_cursor_input = Some((
+                    panes_owned.len(),
+                    render_offset,
+                    scrollback_len,
+                    cursor_blinking,
+                    [
+                        base_origin[0],
+                        base_origin[1],
+                        base_origin[0] + snapshot.dimensions.columns as f32 * cell.width as f32,
+                        base_origin[1] + snapshot.dimensions.rows as f32 * cell.height as f32,
+                    ],
+                ));
+            }
             // Cut 1: the pane's scissor rect = its at-rest grid rect (base
             // origin + grid extent), clamped to the surface. Images are clipped
             // to this on both axes; a gliding image's partial edge row is cropped
@@ -646,6 +743,28 @@ impl App {
                 session.selection_block,
                 &session.search,
                 is_focused,
+            );
+        }
+
+        // The focused pane is the sole split cursor consumer. Advance its
+        // blink/ease/slide state and attach trail/glow quads to its pane-local
+        // tail. Every other pane keeps an empty effect list and parked timers.
+        let mut pane_cursor_effects: Vec<Vec<SolidQuad>> =
+            (0..panes_owned.len()).map(|_| Vec::new()).collect();
+        if let Some((idx, viewport_offset, scrollback_len, cursor_blinking, clip_rect)) =
+            focused_cursor_input
+            && let Some((snapshot, origin, true, cursor_style, _)) = panes_owned.get_mut(idx)
+        {
+            pane_cursor_effects[idx] = self.advance_focused_multipane_cursor(
+                now,
+                snapshot,
+                *cursor_style,
+                cursor_blinking,
+                cell,
+                *origin,
+                clip_rect,
+                viewport_offset,
+                scrollback_len,
             );
         }
 
@@ -760,14 +879,16 @@ impl App {
         // every pane renders undimmed and the multi-pane frame stays
         // byte-identical to before this knob existed.
         let inactive_dim = self.settings.effective_inactive_pane_dim();
-        for (snapshot, origin, is_focused, cursor_style, clip) in &panes_owned {
+        for (idx, (snapshot, origin, is_focused, cursor_style, clip)) in
+            panes_owned.iter().enumerate()
+        {
             panes.push(PaneRender {
                 snapshot,
                 origin: *origin,
                 focused: *is_focused,
                 cursor_style: *cursor_style,
                 focus_dim: pane_focus_dim(*is_focused, inactive_dim),
-                overlays: &[],
+                overlays: &pane_cursor_effects[idx],
                 treatment,
                 clip: *clip,
                 // Content panes carry no chrome label; the offsets are inert.

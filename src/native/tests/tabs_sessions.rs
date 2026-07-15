@@ -411,20 +411,10 @@ fn backgrounded_session_blink_does_not_spin_the_event_loop() {
 }
 
 #[test]
-fn splitting_a_pane_does_not_spin_from_the_focused_panes_timers() {
-    // NF21-1 regression (default-config busy-spin the instant any tab is split).
-    // NF20-B narrowed the wake SOURCES to the active pane and parked BACKGROUND
-    // panes, both assuming the render path advances the active pane's blink /
-    // ease / slide. That holds only single-pane: a multi-pane active tab renders
-    // through `rebuild_multipane`, which polls no cursor timer, and
-    // `park_background_timers` exempted the FOCUSED pane — so a blinking cursor's
-    // past `next_toggle` stranded in the wake set and `WaitUntil(<past>)` spun a
-    // core (plus a full multipane rebuild per iteration). The fix parks the
-    // focused pane's CURSOR timers too while the active tab is multi-pane (its
-    // synchronized-output hold stays live — that deadline is the crash
-    // watchdog, released via the render path, modeled here by
-    // `resolve_synchronized_output_hold_for_test`). Extends the NF20-B strict
-    // invariant to a SPLIT tab arming all three timer types.
+fn split_focused_cursor_effects_advance_without_background_wakes() {
+    // The split render path consumes cursor motion/easing only for the focused
+    // pane. Non-focused panes remain parked, preserving the NF20-B invariant
+    // that every sourced wake has a render consumer.
     let Some((mut app, _bytes)) = single_session_app() else {
         eprintln!("skipping: no PTY available");
         return;
@@ -435,34 +425,85 @@ fn splitting_a_pane_does_not_spin_from_the_focused_panes_timers() {
         return;
     };
 
-    // Split the single pane; focus lands on the NEW pane, so the active tab is
-    // now multi-pane and the focused pane is exactly the strand NF20-B misses.
+    // Focus lands on the new pane; the original becomes an idle background pane.
     app.seed_split_pane_for_test(true, terminal, writer, pty);
     assert_eq!(app.active_pane_count_for_test(), 2);
 
-    // Arm all three per-session timer sources on the (multi-pane) FOCUSED pane.
     let t0 = Instant::now();
-    app.arm_active_cursor_blink_for_test(t0); // toggle t0+530ms
-    app.arm_active_cursor_anim_for_test(t0); // ease t0+200ms, slide t0+150ms
-    app.arm_active_sync_hold_for_test(t0); // hold t0+150ms
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 0,
+    };
+    let origin = [200.0, 96.0];
+    let prior = snapshot(&["  "], 2);
+    let mut current = prior.clone();
+    current.cursor.column = 1;
+
+    app.disable_cursor_effects_for_test();
+    app.set_last_presented_snapshot_for_test(prior);
+    let (off_effects, off_params) =
+        app.advance_multipane_cursor_effects_for_test(t0, &mut current, cell, origin);
+    assert!(off_effects.is_empty());
+    assert_eq!(off_params, CursorRenderParams::default());
     assert!(
-        app.next_wake_deadline_for_test()
-            .is_some_and(|d| d <= t0 + Duration::from_millis(530)),
-        "an armed focused pane schedules a near-future wake"
+        app.focused_cursor_animation_deadline_for_test().is_none(),
+        "the cursor-effect off path arms no frame-paced wake"
     );
 
-    // Well past every boundary, drive the maintenance pass + the render-path
-    // sync-hold resolution the loop runs each iteration. The focused pane's
-    // cursor timers must be parked (no consumer in multipane) and its hold
-    // released — the next wake must be None or STRICTLY in the future.
+    app.enable_cursor_effects_for_test();
+    app.set_last_presented_snapshot_for_test(snapshot(&["  "], 2));
+
+    // The first frame arms the slide; the next advances it far enough for both
+    // trail ghosts and all three glow rings to be visible.
+    let _ = app.advance_multipane_cursor_effects_for_test(t0, &mut current, cell, origin);
+    let (effects, params) = app.advance_multipane_cursor_effects_for_test(
+        t0 + Duration::from_millis(20),
+        &mut current,
+        cell,
+        origin,
+    );
+    assert_ne!(
+        params.offset,
+        [0.0, 0.0],
+        "focused split cursor advances mid-slide"
+    );
+    assert!(
+        params.alpha > 0.0 && params.alpha < 1.0,
+        "focused split cursor advances eased alpha"
+    );
+    assert_eq!(effects.len(), 5, "two trail ghosts plus three glow rings");
+    assert!(
+        effects.iter().all(|quad| {
+            quad.rect[0] >= origin[0] - 0.01
+                && quad.rect[1] >= origin[1] - 0.01
+                && quad.rect[2] <= origin[0] + 2.0 * cell.width as f32 + 0.01
+                && quad.rect[3] <= origin[1] + cell.height as f32 + 0.01
+        }),
+        "cursor effects use the pane origin and remain clipped to its grid"
+    );
+
+    app.run_about_to_wait_maintenance_for_test(t0 + Duration::from_millis(20));
+    assert!(
+        app.background_cursor_timers_parked_for_test(),
+        "idle panes arm no cursor-animation wake"
+    );
+    assert!(
+        app.next_wake_deadline_for_test()
+            .is_some_and(|deadline| deadline > t0),
+        "the focused pane retains a bounded future wake"
+    );
+
+    // A later consumer frame settles the slide/ease; only the normal blink
+    // toggle may remain, and it must still be strictly in the future.
     let later = t0 + Duration::from_secs(5);
     app.run_about_to_wait_maintenance_for_test(later);
-    app.resolve_synchronized_output_hold_for_test(later);
+    let _ = app.advance_multipane_cursor_effects_for_test(later, &mut current, cell, origin);
     match app.next_wake_deadline_for_test() {
         None => {}
         Some(next) => assert!(
             next > later,
-            "the focused pane of a split tab must not strand a past wake \
+            "the focused split pane must not strand a past wake \
              (was {:?} past now)",
             later.saturating_duration_since(next)
         ),

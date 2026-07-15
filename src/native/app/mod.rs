@@ -1798,18 +1798,10 @@ impl App {
             // active pane; background panes are parked, so an active-only source
             // matches the consumer and cannot strand a stale hold in the wake set.
             self.synchronized_output_hold.deadline(),
-            // Cursor-animation wake source, ACTIVE pane only (NF20-B).
-            // `None` at rest (both fields `None`). Sourcing all panes stranded a
-            // backgrounded mid-animation deadline with no consumer; the active
-            // pane's ease/slide are advanced by the frame path, background panes
-            // are parked in maintenance.
-            {
-                let mut next = self.cursor_ease_deadline;
-                if let Some(deadline) = self.cursor_slide_deadline {
-                    next = Some(next.map_or(deadline, |current| current.min(deadline)));
-                }
-                next
-            },
+            // Cursor-animation wake source, ACTIVE focused pane only (NF20-B).
+            // Both single-pane and split render paths advance this consumer;
+            // background panes stay parked and never fan wakes into this set.
+            self.focused_cursor_animation_deadline(),
             // F4-P3: wake at the next rail auto-hide boundary (show debounce /
             // hide grace / flash expiry). `None` at rest — steady Hidden, or
             // Revealed with the pointer parked — so the idle wake set is
@@ -1835,13 +1827,12 @@ impl App {
                 .active_is_single_pane()
                 .then(|| self.animation_deadline())
                 .flatten(),
-            // NF21-1 (partial): in a split, source ONLY the per-pane glide wake.
-            // `rebuild_multipane` advances each visible pane's glide follower —
-            // its consumer — so this wake does not fan wider than its consumer
-            // (the NF20-B rule the single-pane gate above enforces). The other
-            // animation timers (cursor / bell / notice / hint) are still
-            // single-pane-only consumers, so widening all of `animation_deadline()`
-            // to multipane would spin them; only the glide deadline is sourced.
+            // In a split, source ONLY the per-pane glide wake here.
+            // `rebuild_multipane` advances each visible pane's glide follower,
+            // while the focused cursor deadline above drives only the focused
+            // pane. Other animation timers (bell / notice / hint) remain
+            // single-pane-only consumers, so widening all of
+            // `animation_deadline()` would fan wakes beyond their consumers.
             // `None` at rest / single-pane, so the idle wake set is unchanged.
             self.multipane_glide_deadline(),
             // WP2: wake to flush the debounced workspace-shape autosave. `None`
@@ -5282,16 +5273,15 @@ impl App {
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();
             }
-        } else if self.multipane_glide_deadline().is_some() {
-            // NF21-1 (partial): a split with an in-flight per-pane glide must
-            // repaint each frame until every follower settles. Setting the
-            // focused pane's `needs_rebuild` opens `should_rebuild_frame`'s
-            // tab-wide gate, so `rebuild_multipane` runs and advances EVERY
-            // visible pane's glide (regardless of which pane the wheel scrolled);
-            // it then clears all visible panes' flags, so this cannot storm — the
-            // wake is bounded by GLIDE_SETTLE_ROWS and returns to zero-wake idle
-            // once the glides settle. Only the glide timer is sourced here (the
-            // other animation timers have no multipane consumer).
+        } else if self.multipane_glide_deadline().is_some()
+            || self.focused_cursor_animation_deadline().is_some()
+        {
+            // A split with a live per-pane glide or focused cursor animation
+            // repaints until its matching consumer settles. Setting the focused
+            // pane's flag opens the tab-wide rebuild gate; the rebuild advances
+            // every visible glide and only the focused cursor, then clears the
+            // visible flags. Background cursor timers remain parked, so the wake
+            // set cannot fan out or storm at rest.
             self.needs_rebuild = true;
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();

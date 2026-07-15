@@ -677,14 +677,13 @@ impl Session {
 
     /// Settle the cursor-animation timers — blink phase, ID1 easing fade, VE4
     /// slide — to their at-rest identity with no scheduled wake. These are the
-    /// timers whose ONLY consumer is the render path's per-frame poll
+    /// timers whose consumer is the focused render path's per-frame poll
     /// (`cursor_blink.poll` / `update_cursor_easing` / `update_cursor_motion`),
-    /// so a pane with no render consumer strands their past toggle deadline in
-    /// the wake set and busy-spins. Two panes lack that consumer: a background
-    /// pane (never rendered, NF20-B) and the focused pane of a MULTI-pane tab
-    /// (`rebuild_multipane` advances no cursor timer, NF21-1). Idempotent;
-    /// every animation re-arms from the current frame time when the pane is
-    /// next rendered on the single-pane path.
+    /// so a pane with no render consumer strands its past toggle deadline in
+    /// the wake set and busy-spins. Background panes are never rendered and use
+    /// this reset; the focused pane of either a single-pane or split tab has a
+    /// matching consumer. Idempotent; every animation re-arms from the current
+    /// frame time when the pane next receives focus.
     pub(super) fn park_cursor_timers(&mut self) {
         self.cursor_blink.park();
         self.cursor_anim_alpha = 1.0;
@@ -1322,24 +1321,16 @@ impl WorkspaceSet {
     /// - Every pane of an inactive tab (in any workspace) and every non-focused
     ///   pane of the active tab is never rendered → fully parked
     ///   (`park_animation_timers`).
-    /// - The focused pane of a **single-pane** active tab keeps ALL its timers:
-    ///   the single-pane frame path polls its blink/ease/slide each rebuild and
-    ///   `should_hold` consumes its render hold.
-    /// - The focused pane of a **multi-pane** active tab renders through
-    ///   `rebuild_multipane`, which advances no cursor timer, so its blink /
-    ///   ease / slide would strand a past deadline and spin (NF21-1). Park just
-    ///   those (`park_cursor_timers`); its synchronized-output hold stays live
-    ///   (still consumed by `should_hold`; its deadline is the crash watchdog).
+    /// - The focused pane of the active tab keeps ALL its timers. Both the
+    ///   single-pane path and `rebuild_multipane` poll its blink/ease/slide;
+    ///   `should_hold` consumes its render hold before either branch.
     ///
     /// Idempotent; cheap (few panes).
     pub(super) fn park_background_timers(&mut self) {
         let active = self.active_focused_token();
-        let active_multipane = !self.active_is_single_pane();
         for (token, session) in self.sessions.iter_mut() {
             if *token != active {
                 session.park_animation_timers();
-            } else if active_multipane {
-                session.park_cursor_timers();
             }
         }
     }
