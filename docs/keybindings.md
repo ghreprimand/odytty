@@ -6,6 +6,22 @@ rebind everything. For the full config-key reference see
 [`runtime-knobs.md`](runtime-knobs.md); for accessibility-oriented keys see
 [`accessibility.md`](accessibility.md).
 
+## Contents
+
+- [How OdyTTY's shortcuts stay out of the shell's way](#how-odyttys-shortcuts-stay-out-of-the-shells-way)
+- [Global shortcuts](#global-shortcuts)
+- [Shell Integration](#shell-integration)
+- [Panes: the tmux-style prefix](#panes-the-tmux-style-prefix)
+- [Copy mode](#copy-mode)
+- [Keyboard hints (quick-select)](#keyboard-hints-quick-select)
+- [Search](#search)
+- [Command palette](#command-palette)
+- [Overlays](#overlays)
+- [Rebinding shortcuts](#rebinding-shortcuts)
+- [Workspaces](#workspaces)
+- [Remote reconnect prompt](#remote-reconnect-prompt)
+- [See also](#see-also)
+
 ## How OdyTTY's shortcuts stay out of the shell's way
 
 Every global OdyTTY shortcut is a `Ctrl+Shift+<key>` (or `Ctrl+PageUp/Down`,
@@ -218,22 +234,33 @@ host offers a **Connect to: …** row: `Enter` connects to the typed host, and
 `Shift+Enter` (or `Ctrl+S`) connects and saves it to `hosts.conf`. Both keys are
 shown in a hint line beneath the row.
 
-The connection manager also opens an **Add / Edit connection** form: `Tab` opens
-a blank Add form, and the right arrow (`\u{2192}`) opens an Edit form pre-filled
-from the selected OdyTTY-owned host (`ssh-config`-imported rows are read-only).
-A pinned **+ Add connection…** row at the bottom of the list opens the Add form
-on `Enter` or a click, and a key-hint line beneath it (`Tab add · \u{2192} edit ·
-Enter connect · Shift+Enter save typed host`) keeps those actions visible.
-In the form, `Up`/`Down` or `Tab` move between fields, typing edits the focused
-field, `Left`/`Right` (or `Space`) cycle a three-way `inherit`/`on`/`off`
-override, `Enter` presses the focused button, `Ctrl+S` saves from anywhere, and
-`Esc` cancels. On the **IdentityFile** row, `Enter` (while the field is empty)
-or a click on the always-visible `[Browse]` chip (empty or filled field alike)
-opens a browser of candidate private keys under `~/.ssh` (`Up`/`Down` pick,
-`Enter` fills the path, `Esc` returns); typing a path by hand still works. A
-focused-field help line at the bottom explains each field as you move through it.
-A **Test connection** button runs a background reachability +
-key-auth probe and shows a tri-state result.
+### Add / Edit connection form
+
+The connection manager also opens an **Add / Edit connection** form. A pinned
+**+ Add connection…** row at the bottom of the list opens the Add form on `Enter`
+or a click, and a key-hint line beneath it (`Tab add · → edit · Enter connect ·
+Shift+Enter save typed host`) keeps those actions visible.
+
+Opening and moving:
+
+- `Tab` opens a blank Add form.
+- `→` (right arrow) opens an Edit form pre-filled from the selected
+  OdyTTY-owned host; `ssh-config`-imported rows are read-only.
+- `Up`/`Down` or `Tab` move between fields; typing edits the focused field.
+- `Left`/`Right` (or `Space`) cycle a three-way `inherit`/`on`/`off` override.
+- `Enter` presses the focused button, `Ctrl+S` saves from anywhere, and `Esc`
+  cancels.
+
+The **IdentityFile** row:
+
+- `Enter` (while the field is empty) or a click on the always-visible `[Browse]`
+  chip (empty or filled field alike) opens a browser of candidate private keys
+  under `~/.ssh` (`Up`/`Down` pick, `Enter` fills the path, `Esc` returns).
+- Typing a path by hand still works.
+
+A focused-field help line at the bottom explains each field as you move through
+it. A **Test connection** button runs a background reachability and key-auth
+probe and shows a tri-state result.
 
 ## Rebinding shortcuts
 
@@ -276,15 +303,19 @@ A chord is `+`-joined modifiers plus one key:
 
 These tokens are accepted on the right-hand side of `chord=action`:
 
-`search`, `settings`, `theme-picker`, `theme-builder`, `copy`, `paste`,
-`scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`,
-`hints`, `clear-input`, `command-palette`, `session-replay`,
-`connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`,
-`prev-tab`, `close-tab`, `duplicate-tab`, `new-workspace`, `duplicate-workspace`, `close-workspace`, `rename-workspace`,
-`next-workspace`, `prev-workspace`, `workspace-picker`, `split-columns`,
-`split-rows`, `focus-pane-left`,
-`focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`,
-`close-pane`, `zoom-pane`, `equalize-panes`.
+- **Overlays and pickers:** `search`, `settings`, `theme-picker`,
+  `theme-builder`, `command-palette`, `session-replay`, `connection-manager`,
+  `session-attach`.
+- **Clipboard and copy:** `copy`, `paste`, `copy-mode`, `hints`, `clear-input`.
+- **Scroll and prompt:** `scroll-up`, `scroll-down`, `jump-prompt-prev`,
+  `jump-prompt-next`.
+- **Tabs and windows:** `new-tab`, `new-window`, `next-tab`, `prev-tab`,
+  `close-tab`, `duplicate-tab`.
+- **Workspaces:** `new-workspace`, `duplicate-workspace`, `close-workspace`,
+  `rename-workspace`, `next-workspace`, `prev-workspace`, `workspace-picker`.
+- **Panes:** `split-columns`, `split-rows`, `focus-pane-left`,
+  `focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`,
+  `close-pane`, `zoom-pane`, `equalize-panes`.
 
 Pane-management actions (`focus-pane-*`, `close-pane`, `zoom-pane`,
 `equalize-panes`, and the prefix-table `split-*`) cannot be bound to a bare
@@ -307,29 +338,37 @@ strip. Five chords are bound by default:
 | `Ctrl+Shift+G` | Open the workspace picker | `workspace-picker` |
 
 Renaming and closing a workspace are unbound by default — the rail's `+` slot,
-the workspace right-click menu, and the command palette cover them — but each is
-a bindable action (`close-workspace`, `rename-workspace`) you can assign a chord
-in the settings key-remap editor or the `keybinds` config. The workspace
-right-click menu also offers **Move Up** / **Move Down** to reorder the rail
-order (menu-only, no bindable chord) and **Duplicate Workspace**
-(`Ctrl+Shift+Alt+D`), which opens a fresh workspace whose first shell starts in
-the active pane's directory -- the workspace-level mirror of Duplicate Tab. (Close stays unbound
-because it is destructive; Rename follows the same precedent as Rename Tab.)
-Closing the last tab of a workspace closes that workspace; closing the last
-workspace quits OdyTTY. Typing `exit` or Ctrl-D is governed by the
-`shell_exit_closes` setting: the default `workspace` matches this cascade, while
-`app` quits OdyTTY whenever an exit would close a workspace. The close-tab,
-close-workspace, and close-pane keybinds and the rail close button always close
-a single surface, in both modes.
+the workspace right-click menu, and the command palette cover them. Each is still
+a bindable action you can assign a chord in the settings key-remap editor or the
+`keybinds` config:
 
-The command palette also carries workspace and layout actions that have no
-default chord: **New Workspace**, **Rename Workspace**, **Bind Workspace to
-Host** / **Unbind Workspace From Host** and **New Local Tab** (when a workspace
-is bound to a remote host), and **Save All Workspaces as Layout** /
-**Save Workspace as Layout** / **Open Layout** / **Delete Layout**. Any of the
-bindable workspace actions above can still be given a chord; the layout and
-host-binding actions are
-palette- and menu-only.
+- `rename-workspace` — unbound by default; follows the same precedent as Rename
+  Tab.
+- `close-workspace` — unbound by default because it is destructive.
+- **Move Up** / **Move Down** (workspace right-click menu) reorder the rail;
+  menu-only, no bindable chord.
+- **Duplicate Workspace** (`Ctrl+Shift+Alt+D`) opens a fresh workspace whose
+  first shell starts in the active pane's directory — the workspace-level mirror
+  of Duplicate Tab.
+
+**Close cascade.** Closing the last tab of a workspace closes that workspace, and
+closing the last workspace quits OdyTTY. Typing `exit` or Ctrl-D is governed by
+`shell_exit_closes`: the default `workspace` matches this cascade, while `app`
+quits OdyTTY whenever an exit would close a workspace. The close-tab,
+close-workspace, and close-pane keybinds and the rail close button always close a
+single surface, in both modes.
+
+**Palette- and menu-only actions.** The command palette carries workspace and
+layout actions that have no default chord:
+
+- **New Workspace**, **Rename Workspace**.
+- **Bind Workspace to Host** / **Unbind Workspace From Host**, and **New Local
+  Tab** (when a workspace is bound to a remote host).
+- **Save All Workspaces as Layout** / **Save Workspace as Layout** /
+  **Open Layout** / **Delete Layout**.
+
+Any of the bindable workspace actions above can still be given a chord; the
+layout and host-binding actions are palette- and menu-only.
 
 ## Remote reconnect prompt
 
