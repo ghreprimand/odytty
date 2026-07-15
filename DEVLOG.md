@@ -19,27 +19,47 @@ unfocused cursors, pane and content boundaries, HiDPI scaling, and translucent
 window alpha limits are applied without a separate animation timer, blur pass,
 or bloom source.
 
+Regression coverage exercises every cursor shape, content clipping, eased
+opacity, and retained aura output during synchronized terminal updates.
+
 ## 2026-07-15 -- Tab and workspace-rail seams now form one continuous surface
 
 The top tab seam now meets the content-facing seam of a pinned left or right
-workspace rail. The reserved rail-to-content gap remains intact as content
-padding, preserving workspace, tab, resize, and auto-hide behavior.
+workspace rail, forming one continuous, pixel-snapped chrome surface without
+an exposed background gutter. The reserved rail-to-content gap remains intact
+as content padding, preserving workspace, tab, resize, and auto-hide behavior.
 
-## 2026-07-15 -- Cursor glow follows the live slide offset
+Both rail sides retain one intentional resize seam and the same tab and
+workspace interactions. Geometry regressions cover mirrored rails, auto-hide
+overlays, resize seams, and scale-factor boundaries.
 
-Cursor glow rings now use the same live sub-cell offset as the cursor block,
-keeping the glow centered throughout a slide. Existing clipping and animation
-wake behavior remain unchanged.
+## 2026-07-15 -- Cursor glow was aligned with the live slide offset
+
+Before the later analytic-aura refinement, the then-current cursor-glow
+treatment used the same live sub-cell offset as the cursor block, keeping it
+centered throughout a slide. This opt-in treatment retained pane clipping and
+rode the existing slide schedule without adding an animation wake.
 
 ## 2026-07-15 -- Cursor motion is now enabled by default
 
-Cursor slide now defaults on alongside the existing default trail and blink
-fade. Large jumps and other discontinuities still snap.
+Cursor slide, trail, and cursor easing now default on; glow remains opt-in.
+The logical cursor reaches its destination cell immediately while short eligible
+moves interpolate only its presentation. Large jumps, the first frame, resize,
+reflow, scrollback, and focus loss still snap, as do disabled or reduced-motion
+paths, which schedule no motion wake.
+
+Selection, clipboard, and TUI semantics remain unchanged. Regression coverage
+exercises the live motion parameters during output and their related overlays.
 
 ## 2026-07-15 -- Unfocused Block cursors now render as hollow outlines
 
 An unfocused Block cursor now draws as a one-pixel outline while its glyph
-keeps the normal foreground color. Bar and underline cursors remain unchanged.
+keeps the normal foreground color. This preserves a clear cursor location
+without inverting the cell when the terminal is inactive.
+
+The treatment applies only to Block cursors; Bar and Underline cursors, logical
+cursor state, blink, motion, and easing behavior remain unchanged. Vertex
+coverage exercises the focused and unfocused forms.
 
 ## 2026-07-15 -- Focused split cursors animate without idle-pane wakes
 
@@ -56,15 +76,22 @@ reduced-motion preference discovery remains a future enhancement.
 Regression coverage exercises an in-flight split cursor, its offset and eased
 opacity, trail and glow, and the absence of animation wakes in idle panes.
 
-## 2026-07-15 -- Bell attention latches per focus-loss episode and SGR 21 underlines twice
+## 2026-07-15 -- Bell attention latches per focus-loss episode
 
 Urgent bells from an unfocused window now request system attention once per
 focus-loss episode. Focus gain clears that request and re-arms the next episode,
 avoiding repeated Windows taskbar, macOS Dock, and Linux window-manager
 attention while the window remains unfocused.
 
-Legacy SGR 21 now selects the existing double-underline style. Parser coverage
-confirms the resulting cell carries a double underline.
+Visual-only and disabled bell modes retain their previous behavior, and a bell
+without a native window does not consume the next eligible focus-loss episode.
+Regression coverage exercises repeated bells and re-arming on focus gain.
+
+## 2026-07-15 -- Legacy SGR 21 selects double underline
+
+Legacy SGR 21 now selects the existing double-underline style, matching the
+extended SGR 4:2 rendering path for applications that use the older form.
+Parser coverage confirms that the resulting cell carries a double underline.
 
 ## 2026-07-15 -- Public references match the complete shipped surface
 
@@ -166,6 +193,9 @@ cursor-only updates, including focused cursors in split layouts. Cursor motion
 therefore remains continuous while terminal output triggers full rebuilds, and
 the cursor block stays aligned with its trail throughout a slide. The shared GPU
 path is platform-neutral and is covered by a logic regression test.
+
+The regression compares a mid-slide Full frame with its CursorOnly equivalent,
+including the live offset and eased opacity carried by their cursor vertices.
 
 ## 2026-07-15 -- Release v0.8.9 — accelerated GPU adapters preferred over software fallbacks
 
