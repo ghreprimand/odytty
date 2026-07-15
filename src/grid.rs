@@ -835,7 +835,7 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
         // is preserved by construction, per cell. `treatment.active() == false`
         // (kind None or zero strength, the default) skips this entirely, so the
         // plain/fast path stays byte-identical.
-        if treatment.active() {
+        if treatment.active() && !chrome_pin.is_chrome(row, col) {
             bg = treatment.apply_to(bg, row, col, rows, cols);
         }
         // RV1 minimum-contrast floor: lift the foreground until it meets the

@@ -17,10 +17,10 @@
 //! fns to a shared chrome location" follow-up is now done). The old outlined-box
 //! language (per-slot rings, the rail↔content divider) was **deleted, not
 //! bypassed** because it read as hacked-together and cheap. The rail
-//! is now an invisible container; only the active slot is a drawn object, and
+//! is now a continuous surface; the active slot is embedded in the rail, and
 //! hierarchy comes from luminance:
-//! - **ACTIVE** — a warm `selection` fill (the bloom-off fallback) that bleeds to
-//!   the content seam, plus a bright bold `foreground` label brightened above the
+//! - **ACTIVE** — a warm full-width `selection` fill (the bloom-off fallback),
+//!   plus a bright bold `foreground` label brightened above the
 //!   bloom threshold so it auto-halos through `bloom.wgsl`.
 //! - **INACTIVE** — bare `inactive`-role labels on the wallpaper-through
 //!   background (no fill), dimmed along a phosphor-persistence luminance ramp
@@ -240,7 +240,7 @@ impl TabRail {
     ///   emits none, so `origin_px` is unused and `cell` only feeds the degenerate
     ///   guard (retained in the signature so a future divider needs no call-site
     ///   change).
-    /// - `placement` — `Left` (active fill bleeds to the right seam) or `Right`.
+    /// - `placement` — `Left` or `Right`; controls mirrored edge affordances.
     /// - `colors` — the theme-role colors (see [`TabBarColors`]).
     ///
     /// Returns a fully-painted `rail_cols × grid_rows` region (`glyphs`) and an
@@ -339,19 +339,12 @@ impl TabRail {
                     false,
                 )
             };
-            // Only the active/hover slots carry a fill; inactive slots stay
-            // wallpaper-through (the region default). The active fill bleeds to
-            // the content seam so it reads as fused to the body; hover insets on
-            // both sides (subordinate).
+            // Only active/hover/pressed slots carry a fill; inactive slots stay
+            // on the panel surface. State fills span the rail width so rows read
+            // as embedded components rather than detached cards.
             if is_active || is_hovered || is_pressed {
-                let slot_seam = if is_active || is_pressed {
-                    Some(placement)
-                } else {
-                    None
-                };
-                let (fill_c0, fill_c1) = slot_fill_cols(rail_cols, slot_seam);
                 for row in slot.start_row..slot.end_row.min(grid_rows) {
-                    for col in fill_c0..fill_c1.min(rail_cols) {
+                    for col in 0..rail_cols {
                         cells[row * rail_cols + col].attrs.background = slot_bg;
                     }
                 }
@@ -420,9 +413,8 @@ impl TabRail {
                 (panel_surface, rgb(tab_chrome::new_slot_plus_rest(colors)))
             };
             if is_hovered {
-                let (fill_c0, fill_c1) = slot_fill_cols(rail_cols, None);
                 for row in nt_start..nt_end.min(grid_rows) {
-                    for col in fill_c0..fill_c1.min(rail_cols) {
+                    for col in 0..rail_cols {
                         cells[row * rail_cols + col].attrs.background = nt_bg;
                     }
                 }
@@ -681,19 +673,6 @@ fn paint_overflow_indicator(
         a.background = cells[idx].attrs.background;
         cells[idx].ch = ch;
         cells[idx].attrs = a;
-    }
-}
-
-/// The `[c0, c1)` column range a slot's fill covers (R1.1). Inactive/closed
-/// slots inset on both sides; an active slot bleeds to the divider seam on its
-/// content-facing side (right for `Left` placement, left for `Right`) so the
-/// selection fill connects to the content, and insets on the closed side.
-fn slot_fill_cols(rail_cols: usize, open_seam: Option<RailSide>) -> (usize, usize) {
-    let inset = SLOT_INSET_COLS.min(rail_cols / 2);
-    match open_seam {
-        Some(RailSide::Left) => (inset, rail_cols),
-        Some(RailSide::Right) => (0, rail_cols.saturating_sub(inset)),
-        None => (inset, rail_cols.saturating_sub(inset)),
     }
 }
 
@@ -1362,10 +1341,9 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn active_slot_filled_with_selection_bleeding_to_the_content_seam() {
-        // Active fill = `selection`, covering the slot from the inset to the
-        // content seam (Left placement → to the right edge). Inactive slots have
-        // no fill.
+    fn active_slot_fill_spans_the_full_rail_width() {
+        // Active fill = `selection`, covering the complete row so the slot reads
+        // as embedded in the continuous rail surface.
         let src = MockSource::new(&["aaa", "bbb"], 0);
         let out = render_default(&src);
         let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
@@ -1374,7 +1352,7 @@ mod tests {
             tab_chrome::panel_tint(COLORS, PANEL_STRENGTH),
         ));
         let active = &layout.slots[0];
-        // Label cell + the content-seam cell (last col) both carry the fill.
+        // Both outer edges and the label cell carry the fill.
         assert_eq!(
             bg_at(&out, active.start_row, SLOT_LABEL_START_COL),
             active_fill,
@@ -1383,13 +1361,12 @@ mod tests {
         assert_eq!(
             bg_at(&out, active.start_row, RAIL_COLS - 1),
             active_fill,
-            "active fill bleeds to the content seam"
+            "active fill reaches the content seam"
         );
-        // The rail-edge inset column stays wallpaper (Left placement insets left).
         assert_eq!(
             bg_at(&out, active.start_row, 0),
-            rgb(tab_chrome::wallpaper_background(COLORS)),
-            "rail-edge inset column is wallpaper"
+            active_fill,
+            "active fill reaches the outer rail edge"
         );
     }
 
@@ -1711,29 +1688,6 @@ mod tests {
         assert!(
             out.glyphs.iter().any(|g| g.ch == '▲' || g.ch == '▼'),
             "an overflow indicator glyph is painted"
-        );
-    }
-
-    // -----------------------------------------------------------------------
-    // slot_fill_cols geometry (unchanged engine)
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn slot_fill_cols_insets_closed_and_bleeds_open_to_the_seam() {
-        // Inactive/hover (None): inset both sides.
-        assert_eq!(
-            slot_fill_cols(RAIL_COLS, None),
-            (SLOT_INSET_COLS, RAIL_COLS - SLOT_INSET_COLS)
-        );
-        // Active on Left placement: inset left, bleed right to the content seam.
-        assert_eq!(
-            slot_fill_cols(RAIL_COLS, Some(RailSide::Left)),
-            (SLOT_INSET_COLS, RAIL_COLS)
-        );
-        // Active on Right placement: bleed left to the seam, inset right.
-        assert_eq!(
-            slot_fill_cols(RAIL_COLS, Some(RailSide::Right)),
-            (0, RAIL_COLS - SLOT_INSET_COLS)
         );
     }
 

@@ -53,8 +53,8 @@ pub(super) struct PanelQuadSpec {
     /// Optional horizontal clip `[left, right]` for the top panel. `None`
     /// preserves the legacy full-window top span. Ignored for side rails.
     pub(super) top_span: Option<[f32; 2]>,
-    /// For `Right` only: cells occupied to the LEFT of the rail band — the
-    /// content columns plus the rail↔content wallpaper gap. The seam sits at the
+    /// For `Right` only: content cells occupied to the LEFT of the rail band.
+    /// The seam sits at the
     /// rail's grid-aligned content edge (`pad_x + lead_cells·cell_w`) so the
     /// wash/seam line up exactly with where the rail glyphs render (the rail is
     /// grid-embedded, left-aligned from the window padding, so a surface-derived
@@ -86,10 +86,8 @@ fn linear_rgba(c: Srgb, alpha: f32) -> [f32; 4] {
 }
 
 /// Resolve the top panel's horizontal span when a pinned workspace rail is
-/// present. The top seam joins the rail's content-facing seam, while the
-/// rail-to-content gap remains part of the terminal reservation below the bar.
-/// This makes the gap read as content-side padding instead of a break between
-/// two unrelated panel borders.
+/// present. The top seam joins the rail's content-facing seam at the shared,
+/// zero-gap panel junction.
 pub(super) fn joined_top_span(
     surface_width: f32,
     padding: f32,
@@ -134,6 +132,81 @@ fn seam_coord(spec: &PanelQuadSpec) -> f32 {
     }
 }
 
+/// The full surface-space panel rectangle for one band.
+pub(super) fn panel_rect(spec: &PanelQuadSpec) -> Option<[f32; 4]> {
+    let surface_w = spec.surface[0];
+    let surface_h = spec.surface[1];
+    if surface_w <= 0.0 || surface_h <= 0.0 || spec.band_cells == 0 {
+        return None;
+    }
+    let seam = seam_coord(spec);
+    let rect = match spec.axis {
+        PanelAxis::Top => {
+            let bottom = seam.clamp(0.0, surface_h);
+            let [left, right] = spec.top_span.unwrap_or([0.0, surface_w]);
+            let left = left.clamp(0.0, surface_w);
+            let right = right.clamp(left, surface_w);
+            [left, 0.0, right, bottom]
+        }
+        PanelAxis::Left => [0.0, 0.0, seam.clamp(0.0, surface_w), surface_h],
+        PanelAxis::Right => [seam.clamp(0.0, surface_w), 0.0, surface_w, surface_h],
+    };
+    (rect[2] > rect[0] && rect[3] > rect[1]).then_some(rect)
+}
+
+/// Split `rect` around its overlap with `cut`, returning non-overlapping strips.
+pub(crate) fn rect_without(rect: [f32; 4], cut: [f32; 4]) -> Vec<[f32; 4]> {
+    let overlap = [
+        rect[0].max(cut[0]),
+        rect[1].max(cut[1]),
+        rect[2].min(cut[2]),
+        rect[3].min(cut[3]),
+    ];
+    if overlap[2] <= overlap[0] || overlap[3] <= overlap[1] {
+        return vec![rect];
+    }
+    let candidates = [
+        [rect[0], rect[1], rect[2], overlap[1]],
+        [rect[0], overlap[3], rect[2], rect[3]],
+        [rect[0], overlap[1], overlap[0], overlap[3]],
+        [overlap[2], overlap[1], rect[2], overlap[3]],
+    ];
+    candidates
+        .into_iter()
+        .filter(|r| r[2] > r[0] && r[3] > r[1])
+        .collect()
+}
+
+/// Fill only the panel pixels not covered by chrome cells. This closes outer
+/// padding and sub-cell remainder strips without double-compositing beneath the
+/// cell backgrounds.
+pub(super) fn panel_base_gap_quads(
+    spec: &PanelQuadSpec,
+    cell_coverage: [f32; 4],
+    alpha: f32,
+) -> Vec<SolidQuad> {
+    let Some(rect) = panel_rect(spec) else {
+        return Vec::new();
+    };
+    base_gap_quads(rect, cell_coverage, spec.panel_color, alpha)
+}
+
+pub(super) fn base_gap_quads(
+    panel_rect: [f32; 4],
+    cell_coverage: [f32; 4],
+    panel_color: Srgb,
+    alpha: f32,
+) -> Vec<SolidQuad> {
+    if alpha <= 0.0 {
+        return Vec::new();
+    }
+    let color = linear_rgba(panel_color, alpha);
+    rect_without(panel_rect, cell_coverage)
+        .into_iter()
+        .map(|rect| SolidQuad { rect, color })
+        .collect()
+}
+
 impl PanelQuadSpec {
     /// The window-padding component on the panel's growth axis (x for rails, y
     /// for the top bar).
@@ -158,30 +231,24 @@ pub(super) fn panel_quads(spec: &PanelQuadSpec) -> Vec<SolidQuad> {
     let seam_w = spec.scale_factor.round().max(1.0);
 
     // Panel rect + seam rect per axis.
-    let (panel_rect, seam_rect): ([f32; 4], [f32; 4]) = match spec.axis {
+    let Some(panel_rect) = panel_rect(spec) else {
+        return Vec::new();
+    };
+    let seam_rect: [f32; 4] = match spec.axis {
         PanelAxis::Top => {
             let bottom = seam_x_or_y.clamp(0.0, surface_h);
             let [left, right] = spec.top_span.unwrap_or([0.0, surface_w]);
             let left = left.clamp(0.0, surface_w);
             let right = right.clamp(left, surface_w);
-            (
-                [left, 0.0, right, bottom],
-                [left, (bottom - seam_w).max(0.0), right, bottom],
-            )
+            [left, (bottom - seam_w).max(0.0), right, bottom]
         }
         PanelAxis::Left => {
             let seam_x = seam_x_or_y.clamp(0.0, surface_w);
-            (
-                [0.0, 0.0, seam_x, surface_h],
-                [(seam_x - seam_w).max(0.0), 0.0, seam_x, surface_h],
-            )
+            [(seam_x - seam_w).max(0.0), 0.0, seam_x, surface_h]
         }
         PanelAxis::Right => {
             let seam_x = seam_x_or_y.clamp(0.0, surface_w);
-            (
-                [seam_x, 0.0, surface_w, surface_h],
-                [seam_x, 0.0, (seam_x + seam_w).min(surface_w), surface_h],
-            )
+            [seam_x, 0.0, (seam_x + seam_w).min(surface_w), surface_h]
         }
     };
 
@@ -279,7 +346,7 @@ mod tests {
                 16
             },
             top_span: None,
-            // Right-rail lead: content + gap columns to the left of the band. In
+            // Right-rail lead: content columns to the left of the band. In
             // this fixture the surface is exactly `pad + (lead + band)·cell + pad`
             // (800 = 4 + (83 + 16)·8 + 4), so the grid-aligned right seam lands at
             // the same 668 px a surface-derived edge would — no remainder.
@@ -364,12 +431,12 @@ mod tests {
     }
 
     #[test]
-    fn joined_left_seam_preserves_the_content_gap_reservation() {
+    fn joined_left_seam_meets_zero_gap_content_edge() {
         let reserve = TabReserve {
             top_rows: 1,
             left_cols: 16,
             right_cols: 0,
-            gap_cols: 2,
+            gap_cols: 0,
         };
         let span = joined_top_span(800.0, 4.0, 8.0, 80, reserve).expect("left rail");
         let content = pane_content_rect(
@@ -385,21 +452,21 @@ mod tests {
         );
 
         assert_eq!(span, [132.0, 800.0], "top seam meets the rail seam");
-        assert_eq!(reserve.left_reserved_cols(), 18, "band plus gap reserved");
-        assert_eq!(content.x, 148.0, "content still begins after the gap");
-        assert_eq!(content.x - span[0], 16.0, "two gap columns remain");
+        assert_eq!(reserve.left_reserved_cols(), 16, "rail band reserved");
+        assert_eq!(content.x, 132.0, "content begins at the rail seam");
+        assert_eq!(content.x, span[0], "no exposed gutter remains");
     }
 
     #[test]
-    fn joined_right_seam_preserves_the_content_gap_reservation() {
+    fn joined_right_seam_meets_zero_gap_content_edge() {
         let reserve = TabReserve {
             top_rows: 1,
             left_cols: 0,
             right_cols: 16,
-            gap_cols: 2,
+            gap_cols: 0,
         };
-        // Exact grid width: padding + content + gap + rail + padding.
-        let surface_width = 4 + (80 + 2 + 16) * 8 + 4;
+        // Exact grid width: padding + content + rail + padding.
+        let surface_width = 4 + (80 + 16) * 8 + 4;
         let span =
             joined_top_span(surface_width as f32, 4.0, 8.0, 80, reserve).expect("right rail");
         let content = pane_content_rect(
@@ -415,38 +482,39 @@ mod tests {
         );
         let content_right = content.x + content.w;
 
-        assert_eq!(span, [0.0, 660.0], "top seam meets the rail seam");
-        assert_eq!(reserve.right_reserved_cols(), 18, "band plus gap reserved");
-        assert_eq!(content_right, 644.0, "content still ends before the gap");
-        assert_eq!(span[1] - content_right, 16.0, "two gap columns remain");
+        assert_eq!(span, [0.0, 644.0], "top seam meets the rail seam");
+        assert_eq!(reserve.right_reserved_cols(), 16, "rail band reserved");
+        assert_eq!(content_right, 644.0, "content ends at the rail seam");
+        assert_eq!(span[1], content_right, "no exposed gutter remains");
     }
 
     #[test]
-    fn joined_top_span_hit_owns_the_preserved_gap_on_both_sides() {
+    fn joined_top_span_hit_owns_the_zero_gap_junction_on_both_sides() {
         let left = TabReserve {
             top_rows: 1,
             left_cols: 16,
             right_cols: 0,
-            gap_cols: 2,
+            gap_cols: 0,
         };
         let left_span = joined_top_span(800.0, 4.0, 8.0, 80, left);
         assert!(
-            top_span_contains_x(left_span, 800.0, 140.0),
-            "left gap segment between rail seam x=132 and widget x=148 is owned"
+            top_span_contains_x(left_span, 800.0, 132.0),
+            "left junction begins at the rail seam"
         );
 
         let right = TabReserve {
             top_rows: 1,
             left_cols: 0,
             right_cols: 16,
-            gap_cols: 2,
+            gap_cols: 0,
         };
-        let surface_width = (4 + (80 + 2 + 16) * 8 + 4) as f32;
+        let surface_width = (4 + (80 + 16) * 8 + 4) as f32;
         let right_span = joined_top_span(surface_width, 4.0, 8.0, 80, right);
         assert!(
-            top_span_contains_x(right_span, surface_width, 652.0),
-            "right gap segment between widget x=644 and rail seam x=660 is owned"
+            top_span_contains_x(right_span, surface_width, 643.0),
+            "right junction ends at the rail seam"
         );
+        assert!(!top_span_contains_x(right_span, surface_width, 644.0));
     }
 
     #[test]
@@ -480,16 +548,31 @@ mod tests {
     }
 
     #[test]
-    fn seam_thickens_at_hidpi() {
-        let mut spec = base(PanelAxis::Left);
-        spec.scale_factor = 2.0;
-        let quads = panel_quads(&spec);
+    fn seam_width_is_pixel_snapped_across_scale_factors() {
         let seam_x = 4.0 + 16.0 * 8.0;
+        for (scale, width) in [(1.0, 1.0), (1.25, 1.0), (1.5, 2.0), (1.75, 2.0), (2.0, 2.0)] {
+            let mut spec = base(PanelAxis::Left);
+            spec.scale_factor = scale;
+            let quads = panel_quads(&spec);
+            assert_eq!(quads[1].rect, [seam_x - width, 0.0, seam_x, 600.0]);
+        }
+    }
+
+    #[test]
+    fn base_gap_quads_cover_only_padding_and_remainders() {
+        let mut spec = base(PanelAxis::Right);
+        spec.surface = [805.0, 603.0];
+        let coverage = [668.0, 4.0, 796.0, 596.0];
+        let gaps = panel_base_gap_quads(&spec, coverage, 0.8);
         assert_eq!(
-            quads[1].rect,
-            [seam_x - 2.0, 0.0, seam_x, 600.0],
-            "2px seam at 2x"
+            gaps.iter().map(|quad| quad.rect).collect::<Vec<_>>(),
+            vec![
+                [668.0, 0.0, 805.0, 4.0],
+                [668.0, 596.0, 805.0, 603.0],
+                [796.0, 4.0, 805.0, 596.0],
+            ]
         );
+        assert!(gaps.iter().all(|quad| (quad.color[3] - 0.8).abs() < 1e-6));
     }
 
     #[test]

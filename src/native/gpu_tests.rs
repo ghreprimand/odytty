@@ -3,13 +3,13 @@ use super::gpu::{
     BloomOptions, CrtOptions, ViewportUniform, adapter_is_software, choose_surface_format,
     content_build_opacity, create_atlas_bind_group, create_cell_pipeline,
     create_color_atlas_bind_group, create_color_glyph_pipeline, image::BgImageGpu,
-    multi_pane_wallpaper_edge_wash_quads, physical_font_px, post, rail_overlay_chrome_pin,
-    required_limits_for_adapter, rescue_adapter_index, scene_clear_color, scene_target_format,
-    select_alpha_mode, wallpaper_edge_wash_quads,
+    multi_pane_wallpaper_edge_wash_quads, physical_font_px, post, quads_excluding,
+    rail_overlay_chrome_pin, required_limits_for_adapter, rescue_adapter_index, scene_clear_color,
+    scene_target_format, select_alpha_mode, wallpaper_edge_wash_quads,
 };
 use crate::atlas::CellSize;
 use crate::core::Terminal;
-use crate::grid::{ColorGlyphVertex, Vertex};
+use crate::grid::{ColorGlyphVertex, SolidQuad, Vertex};
 use crate::settings::{RenderQuality, Settings};
 use crate::text::SubpixelMode;
 use wgpu::util::DeviceExt;
@@ -355,6 +355,23 @@ fn wallpaper_edge_wash_covers_only_non_grid_regions() {
             .iter()
             .all(|quad| (quad.color[3] - 0.6).abs() < f32::EPSILON)
     );
+}
+
+#[test]
+fn chrome_base_gaps_replace_overlapping_edge_wash_without_double_tint() {
+    let wash = SolidQuad {
+        rect: [0.0, 0.0, 100.0, 12.0],
+        color: [0.1, 0.2, 0.3, 0.6],
+    };
+    let base = SolidQuad {
+        rect: [0.0, 0.0, 24.0, 12.0],
+        color: [0.3, 0.2, 0.1, 0.8],
+    };
+    let clipped = quads_excluding(&[wash], &[base]);
+    assert_eq!(clipped.len(), 1);
+    assert_eq!(clipped[0].rect, [24.0, 0.0, 100.0, 12.0]);
+    assert_eq!(clipped[0].color, wash.color);
+    assert!(!rects_intersect(clipped[0].rect, base.rect));
 }
 
 /// NF11 helper: sum of quad areas (quads are asserted disjoint separately).

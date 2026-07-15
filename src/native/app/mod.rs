@@ -49,7 +49,9 @@ use super::clipboard::{
     NativeClipboard, read_clipboard_selection, write_clipboard_selection, write_paste_text,
 };
 use super::cvd_theme::CvdThemeCache;
-use super::gpu::{BloomOptions, ChromePinGeom, CrtOptions, FrameOutcome, GpuState, RailOverlay};
+use super::gpu::{
+    BloomOptions, ChromePinGeom, CrtOptions, FrameOutcome, GpuState, PanelFrameQuads, RailOverlay,
+};
 use super::options::{NativeError, NativeOptions};
 use super::overlay::{
     LayoutSaveKind, OverlayInput, OverlayOutcome, OverlayPointer, OverlayUi, PointerButton,
@@ -127,7 +129,7 @@ mod tab_bar;
 mod tab_chrome;
 // F4-P1: unified tab-panel + seam background-quad geometry (color from
 // `tab_chrome`), spliced into the GPU background segment behind the chrome.
-mod tab_panel;
+pub(super) mod tab_panel;
 // F4-V2 R1: vertical tab rail widget — the sibling of `tab_bar`, active when
 // `tab_bar_placement` is a rail.
 mod tab_rail;
@@ -287,8 +289,21 @@ struct RailOverlayData {
     origin: [f32; 2],
     rail_glyph_dy_rows: f32,
     widget_quads: Vec<SolidQuad>,
+    base_gaps: Vec<SolidQuad>,
     wash: Option<SolidQuad>,
     seam: Option<SolidQuad>,
+}
+
+#[derive(Default)]
+struct TabPanelFrameQuads {
+    base_gaps: Vec<SolidQuad>,
+    overlays: Vec<SolidQuad>,
+}
+
+impl TabPanelFrameQuads {
+    fn is_empty(&self) -> bool {
+        self.base_gaps.is_empty() && self.overlays.is_empty()
+    }
 }
 
 /// A clipboard image awaiting the image paste-through confirm prompt (F6-i7).
@@ -872,8 +887,8 @@ impl App {
         if reserve.top_rows > 0 {
             new_grid.rows = new_grid.rows.saturating_sub(reserve.top_rows).max(1);
         }
-        // Reserve the rail band AND its wallpaper gap (R1.1) off the content
-        // columns, so the grid the terminal reflows into matches the shrunken
+        // Reserve the rail band off the content columns, so the grid the
+        // terminal reflows into matches the shrunken
         // content rect `pane_content_rect` returns.
         let reserved_cols = reserve.left_reserved_cols() + reserve.right_reserved_cols();
         if reserved_cols > 0 {
@@ -3199,12 +3214,11 @@ impl App {
                 // `Manual(cols)` clamps the fixed width, `Auto` sizes to the
                 // longest workspace name (`rail_auto_want_cols`).
                 let rail_cols = self.settings.rail_width_cols(self.rail_auto_want_cols());
-                let gap = self.rail_gap_cols();
                 match self.workspace_rail_side() {
-                    RailSide::Left => (rail_cols, 0, gap),
-                    // F4-P2: a right rail reserves its band + gap off the RIGHT;
+                    RailSide::Left => (rail_cols, 0, 0),
+                    // F4-P2: a right rail reserves its band off the RIGHT;
                     // the content stays at column 0 (mirror of the left arm).
-                    RailSide::Right => (0, rail_cols, gap),
+                    RailSide::Right => (0, rail_cols, 0),
                 }
             } else {
                 (0, 0, 0)
@@ -3254,16 +3268,6 @@ impl App {
         let colors = self.tab_bar_colors();
         let panel = tab_chrome::panel_tint(colors, self.tab_panel_strength());
         let accent = chrome_accent_color(tab_chrome::active_fill(colors, panel));
-        let rendered_geometry = ChromeSlotGeom::top(
-            source,
-            columns,
-            self.tab_bar_rows(),
-            self.top_bar_origin_px(cell),
-            cell,
-        );
-        if let Some(marker) = rendered_geometry.active_marker(source.active_tab(), accent, None) {
-            output.quads.push(marker);
-        }
         if let Some(drag) = self.top_tab_drag.filter(|drag| drag.armed)
             && let Some(geometry) = self.top_strip_geom(cell)
         {
@@ -3314,13 +3318,6 @@ impl App {
         let colors = self.tab_bar_colors();
         let panel = tab_chrome::panel_tint(colors, self.tab_panel_strength());
         let accent = chrome_accent_color(tab_chrome::active_fill(colors, panel));
-        let rendered_geometry =
-            ChromeSlotGeom::rail(source, cols, rows, origin, cell, self.rail_geom());
-        if let Some(marker) =
-            rendered_geometry.active_marker(source.active_tab(), accent, Some(side))
-        {
-            output.quads.push(marker);
-        }
         if let Some(drag) = self.rail_ws_drag.filter(|drag| drag.armed) {
             let committed_geometry =
                 ChromeSlotGeom::rail(&rail_source, cols, rows, origin, cell, self.rail_geom());
@@ -3429,16 +3426,16 @@ impl App {
     /// into the GPU background segment (after the NF11 edge wash). The panel wash
     /// is emitted only when `p = strength × (1 − cell_bg_opacity) > 0`; the seam
     /// only when the seam knob is on AND the panel is live (`strength > 0`).
-    fn tab_panel_bg_quads(&self, cell: CellSize) -> Vec<SolidQuad> {
+    fn tab_panel_bg_quads(&self, cell: CellSize) -> TabPanelFrameQuads {
         let Some(gpu) = self.gpu.as_ref() else {
-            return Vec::new();
+            return TabPanelFrameQuads::default();
         };
         let show_top = self.should_show_tab_bar();
         // Auto-hide floats the rail (its wash/seam ride the overlay quads), so it
         // contributes no pinned panel band here.
         let show_rail = self.should_show_workspace_rail() && !self.rail_autohide_active();
         if !show_top && !show_rail {
-            return Vec::new();
+            return TabPanelFrameQuads::default();
         }
         let (surface_w, surface_h) = gpu.surface_size();
         let padding = gpu.window_padding();
@@ -3465,16 +3462,19 @@ impl App {
             match self.workspace_rail_side() {
                 RailSide::Left => bands.push((tab_panel::PanelAxis::Left, self.rail_cols(), 0)),
                 // For a right rail the seam sits at the rail's grid-aligned
-                // content edge (content columns + the wallpaper gap, both left of
-                // the band).
+                // content edge (the content columns left of the band).
                 RailSide::Right => bands.push((
                     tab_panel::PanelAxis::Right,
                     self.rail_cols(),
-                    self.grid.columns + self.rail_gap_cols(),
+                    self.grid.columns,
                 )),
             }
         }
-        let mut quads = Vec::new();
+        let base_alpha = crate::native::gpu::content_build_opacity(
+            self.effective_window_bg_alpha(gpu.transparency_capable()),
+            self.settings.cell_bg_opacity,
+        );
+        let mut quads = TabPanelFrameQuads::default();
         for (axis, band_cells, lead_cells) in bands {
             if band_cells == 0 {
                 continue;
@@ -3497,24 +3497,39 @@ impl App {
                 seam,
                 seam_alpha: tab_chrome::SEAM_ALPHA,
             };
-            quads.extend(tab_panel::panel_quads(&spec));
+            let origin = match axis {
+                tab_panel::PanelAxis::Top => self.top_bar_origin_px(cell),
+                tab_panel::PanelAxis::Left | tab_panel::PanelAxis::Right => {
+                    self.rail_origin_px(cell)
+                }
+            };
+            let dimensions = match axis {
+                tab_panel::PanelAxis::Top => [
+                    self.tab_bar_grid_cols() as f32 * cell.width as f32,
+                    self.tab_bar_rows() as f32 * cell.height as f32,
+                ],
+                tab_panel::PanelAxis::Left | tab_panel::PanelAxis::Right => [
+                    self.rail_cols() as f32 * cell.width as f32,
+                    self.tab_rail_grid_rows() as f32 * cell.height as f32,
+                ],
+            };
+            quads.base_gaps.extend(tab_panel::panel_base_gap_quads(
+                &spec,
+                [
+                    origin[0],
+                    origin[1],
+                    origin[0] + dimensions[0],
+                    origin[1] + dimensions[1],
+                ],
+                base_alpha,
+            ));
+            quads.overlays.extend(tab_panel::panel_quads(&spec));
         }
         quads
     }
 
-    /// The cell-quantized wallpaper gap (in columns) between a side rail and the
-    /// content this frame — `ceil(window_pad / cell_w)`, replicating the padding
-    /// band (R1.1). 0 before the GPU exists (no cell metrics yet).
-    fn rail_gap_cols(&self) -> usize {
-        let Some(gpu) = self.gpu.as_ref() else {
-            return 0;
-        };
-        panes::rail_content_gap_cols(gpu.window_padding(), gpu.cell())
-    }
-
     /// The rail band width in cells when a vertical rail is active this frame,
-    /// else 0. This is the rail widget's VISUAL width — it excludes the
-    /// rail↔content wallpaper gap, which is reserved separately (R1.1).
+    /// else 0. The band meets content directly at the shared seam.
     fn rail_cols(&self) -> usize {
         let r = self.tab_reserve();
         r.left_cols + r.right_cols
@@ -3582,8 +3597,7 @@ impl App {
             return false;
         };
         let content = pane_content_rect(w, h, cell, padding, self.tab_reserve());
-        // The rail band (and its wallpaper gap) sits outside the content rect on
-        // the rail side.
+        // The rail band sits outside the content rect on the rail side.
         match self.workspace_rail_side() {
             RailSide::Left => (x_px as f32) < content.x,
             RailSide::Right => (x_px as f32) >= content.x + content.w,
@@ -3604,7 +3618,7 @@ impl App {
     }
 
     /// Physical-pixel top-left of the top tab-bar strip: the window padding,
-    /// shifted right past a left workspace rail (its reserved band + gap). A
+    /// shifted right past a left workspace rail. A
     /// right rail / no rail leaves it at `[pad, pad]`, byte-identical to the
     /// top-only strip.
     fn top_bar_origin_px(&self, cell: CellSize) -> [f32; 2] {
@@ -3621,7 +3635,7 @@ impl App {
     /// rail widget's hit-test maps against and the multi-pane strip renders from.
     /// A left rail (and the byte-identical no-rail case) sits at the window
     /// padding `[pad, pad]`; a right rail sits at the far side, after the content
-    /// columns and the wallpaper gap: `pad + (content_cols + gap)·cell_w`. This
+    /// columns: `pad + content_cols·cell_w`. This
     /// is the same grid basis the reserve/decorate/panel-seam paths use, so the
     /// rail's glyphs, seam, and click targets stay pixel-aligned (F4-P2).
     fn rail_origin_px(&self, cell: CellSize) -> [f32; 2] {
@@ -3631,9 +3645,7 @@ impl App {
             .unwrap_or(WindowPadding::ZERO)
             .as_f32();
         let x = match self.rail_side() {
-            Some(RailSide::Right) => {
-                pad + (self.grid.columns + self.rail_gap_cols()) as f32 * cell.width as f32
-            }
+            Some(RailSide::Right) => pad + self.grid.columns as f32 * cell.width as f32,
             _ => pad,
         };
         [x, pad]
@@ -4212,6 +4224,33 @@ impl App {
             }
         }
         let (wash, seam) = self.build_rail_overlay_quads(cell, side);
+        let mut base_gaps = Vec::new();
+        if let Some(gpu) = self.gpu.as_ref() {
+            let (surface_w, surface_h) = gpu.surface_size();
+            let seam_x = match side {
+                RailSide::Left => origin[0] + cols as f32 * cell.width as f32,
+                RailSide::Right => origin[0],
+            };
+            let panel_rect = match side {
+                RailSide::Left => [0.0, 0.0, seam_x, surface_h as f32],
+                RailSide::Right => [seam_x, 0.0, surface_w as f32, surface_h as f32],
+            };
+            let alpha = crate::native::gpu::content_build_opacity(
+                self.effective_window_bg_alpha(gpu.transparency_capable()),
+                self.settings.cell_bg_opacity,
+            );
+            base_gaps = tab_panel::base_gap_quads(
+                panel_rect,
+                [
+                    origin[0],
+                    origin[1],
+                    origin[0] + cols as f32 * cell.width as f32,
+                    origin[1] + rows as f32 * cell.height as f32,
+                ],
+                tab_chrome::panel_tint(self.tab_bar_colors(), self.tab_panel_strength()),
+                alpha,
+            );
+        }
         let slot_rows = self.rail_geom().slot_rows;
         Some(RailOverlayData {
             snapshot,
@@ -4222,6 +4261,7 @@ impl App {
                 cell.height,
             ),
             widget_quads: output.quads,
+            base_gaps,
             wash,
             seam,
         })
@@ -4305,11 +4345,11 @@ impl App {
 
     /// Pixels to subtract from a raw pointer `(x, y)` before mapping it to a grid
     /// cell, accounting for tab chrome. Top bar → `(0, tab_h)`; left rail →
-    /// `(rail_w + gap_w, 0)`; right rail / none → `(0, 0)` (content origin
+    /// `(rail_w, 0)`; right rail / none → `(0, 0)` (content origin
     /// unmoved). This is the single placement-aware pointer transform every
     /// single-pane hit path applies; on the top path `left_reserved_cols() == 0`
-    /// so it is byte-identical. Includes the rail↔content wallpaper gap (R1.1) so
-    /// the content pointer stays registered with the shifted content origin.
+    /// so it is byte-identical. The content pointer stays registered with the
+    /// shifted content origin.
     fn tab_chrome_offset_px(&self, cell: CellSize) -> (f64, f64) {
         let r = self.tab_reserve();
         (
@@ -4432,13 +4472,10 @@ impl App {
     }
 
     /// Single-pane vertical-rail decoration (F4-V2): grow the snapshot by the
-    /// rail band plus its wallpaper gap (R1.1) on the rail side, shift the
+    /// rail band on the rail side, shift the
     /// original content (and the cursor) into the content band, paint the rail
-    /// glyphs into the rail band of every row, and leave the gap columns blank so
-    /// they render as the wallpaper-washed padding band (default cells composite
-    /// the background at `cell_bg_opacity`, identical to the window padding). The
-    /// reservation used here MUST match the resize path (ODP-8) or the
-    /// cursor/pointer desync — both read `TabReserve` gap-inclusive column math.
+    /// glyphs into the rail band of every row. The reservation used here MUST
+    /// match the resize path (ODP-8) or the cursor/pointer desync.
     fn decorate_snapshot_with_tab_rail(
         &self,
         snapshot: &Snapshot,
@@ -4447,21 +4484,19 @@ impl App {
         side: RailSide,
     ) -> (Snapshot, Vec<SolidQuad>) {
         let rail_cols = self.rail_cols();
-        let gap_cols = self.rail_gap_cols();
         let old_cols = snapshot.dimensions.columns;
         let rows = snapshot.dimensions.rows;
-        let new_cols = old_cols + rail_cols + gap_cols;
-        // Left rail: content shifts right by the rail band + gap; the rail paints
-        // at column 0 and the gap columns [rail_cols, rail_cols+gap_cols) stay
-        // blank. Right rail (F4-P2): content stays at column 0, then the gap,
-        // then the rail band at the far right.
+        let new_cols = old_cols + rail_cols;
+        // Left rail: content shifts right by the rail band, which paints at
+        // column 0. Right rail: content stays at column 0 and the rail paints at
+        // the far right.
         let content_col_offset = match side {
-            RailSide::Left => rail_cols + gap_cols,
+            RailSide::Left => rail_cols,
             RailSide::Right => 0,
         };
         let rail_col_start = match side {
             RailSide::Left => 0,
-            RailSide::Right => old_cols + gap_cols,
+            RailSide::Right => old_cols,
         };
         let mut decorated = Snapshot {
             dimensions: Dimensions::new(new_cols, rows),
@@ -4499,9 +4534,7 @@ impl App {
     }
 
     /// Columns the single-pane graphics layer shifts right for a left rail
-    /// (0 for the top bar or a right rail — content origin unmoved). Includes the
-    /// rail↔content wallpaper gap (R1.1) so images/sixels align with the content
-    /// band rather than the rail seam.
+    /// (0 for the top bar or a right rail — content origin unmoved).
     fn tab_bar_col_offset(&self) -> usize {
         self.tab_reserve().left_reserved_cols()
     }
@@ -4515,10 +4548,10 @@ impl App {
         let reserve = self.tab_reserve();
         let top_rows = reserve.top_rows;
         let (rail_col_start, rail_col_end) = if reserve.left_cols > 0 {
-            // Left rail (+ gap) occupies the leftmost reserved columns.
+            // Left rail occupies the leftmost reserved columns.
             (0, reserve.left_reserved_cols())
         } else if reserve.right_cols > 0 {
-            // Right rail (+ gap) occupies the rightmost reserved columns.
+            // Right rail occupies the rightmost reserved columns.
             (
                 decorated_cols.saturating_sub(reserve.right_reserved_cols()),
                 decorated_cols,
@@ -5975,9 +6008,10 @@ impl ApplicationHandler<UserEvent> for App {
                             let rail_overlay = rail_overlay_data.as_ref().map(|data| RailOverlay {
                                 snapshot: &data.snapshot,
                                 origin: data.origin,
-                                treatment: background_treatment,
+                                treatment: crate::grid::BackgroundTreatmentParams::default(),
                                 rail_glyph_dy_rows: data.rail_glyph_dy_rows,
                                 widget_quads: &data.widget_quads,
+                                base_gaps: &data.base_gaps,
                                 wash: data.wash,
                                 seam: data.seam,
                             });
@@ -6016,7 +6050,10 @@ impl ApplicationHandler<UserEvent> for App {
                                             cursor_params,
                                             focus_dim,
                                             background_treatment,
-                                            &tab_bg_quads,
+                                            PanelFrameQuads {
+                                                base_gaps: &tab_bg_quads.base_gaps,
+                                                overlays: &tab_bg_quads.overlays,
+                                            },
                                             rail_overlay,
                                         );
                                     }

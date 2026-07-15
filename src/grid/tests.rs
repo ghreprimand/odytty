@@ -1412,6 +1412,54 @@ fn bg_treatment_zero_strength_is_identity() {
     assert_eq!(params.apply_to(bg, 5, 5, 24, 80), bg);
 }
 
+#[test]
+fn bg_treatment_skips_chrome_cells_but_still_modulates_content() {
+    let Some(atlas) = atlas() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mut term = Terminal::new(2, 2);
+    term.advance(b"\x1b[?25l");
+    let snapshot = term.snapshot();
+    let build = |treatment, pin| {
+        let mut out = Vec::new();
+        build_cell_vertices_with_focus_dim_and_origin_into(
+            &mut out,
+            &snapshot,
+            &atlas,
+            &[],
+            0.0,
+            [0.0, 0.0],
+            treatment,
+            1.0,
+            None,
+            pin,
+        );
+        out
+    };
+    let plain = build(BackgroundTreatmentParams::default(), ChromePin::NONE);
+    let treated = build(
+        BackgroundTreatmentParams {
+            kind: BackgroundTreatment::Vignette,
+            strength: 1.0,
+        },
+        ChromePin {
+            scroll_offset_y: 0.0,
+            top_rows: 1,
+            rail_col_start: 0,
+            rail_col_end: 0,
+            band_glyph_dy_rows: 0.0,
+            rail_glyph_dy_rows: 0.0,
+        },
+    );
+    assert_eq!(treated[0].color, plain[0].color, "chrome stays untreated");
+    assert_ne!(
+        treated[2 * VERTS_PER_QUAD].color,
+        plain[2 * VERTS_PER_QUAD].color,
+        "content keeps the configured treatment"
+    );
+}
+
 /// Gradient: the top row is unchanged (falloff 0) and the bottom row is
 /// darkened the most, monotonically increasing with row; alpha is preserved.
 #[test]

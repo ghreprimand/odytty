@@ -354,43 +354,6 @@ impl ChromeSlotGeom {
             )
     }
 
-    pub(super) fn active_marker(
-        &self,
-        active_idx: usize,
-        color: [f32; 4],
-        rail_side: Option<RailSide>,
-    ) -> Option<SolidQuad> {
-        let rect = self.slots.iter().find(|slot| slot.idx == active_idx)?.rect;
-        let marker = match self.axis {
-            Axis::Horizontal => {
-                let bottom = rect.y + rect.height;
-                [
-                    rect.x as f32,
-                    (bottom - 4.0).max(rect.y) as f32,
-                    (rect.x + rect.width) as f32,
-                    bottom as f32,
-                ]
-            }
-            Axis::Vertical => {
-                let width = 3.0_f64.min(rect.width);
-                let (left, right) = match rail_side.unwrap_or(RailSide::Left) {
-                    RailSide::Left => (rect.x, rect.x + width),
-                    RailSide::Right => (rect.x + rect.width - width, rect.x + rect.width),
-                };
-                [
-                    left as f32,
-                    rect.y as f32,
-                    right as f32,
-                    (rect.y + rect.height) as f32,
-                ]
-            }
-        };
-        Some(SolidQuad {
-            rect: marker,
-            color,
-        })
-    }
-
     pub(super) fn insertion_indicator(
         &self,
         drop_idx: usize,
@@ -548,63 +511,6 @@ mod tests {
                     );
                 }
             }
-        }
-    }
-
-    #[test]
-    fn active_marker_is_present_at_every_supported_chrome_height() {
-        let source = Source {
-            titles: vec!["active".into(), "other".into()],
-        };
-        let cell = CellSize {
-            width: 8,
-            height: 16,
-            baseline: 12,
-        };
-        let color = [0.2, 0.4, 0.6, 1.0];
-        for rows in 1..=5 {
-            let geometry = ChromeSlotGeom::top(&source, 80, rows, [4.0, 6.0], cell);
-            let slot = geometry.slots.iter().find(|slot| slot.idx == 0).unwrap();
-            let marker = geometry.active_marker(0, color, None).expect("top marker");
-            assert_eq!(
-                marker.rect[1],
-                (slot.rect.y + slot.rect.height - 4.0).max(slot.rect.y) as f32
-            );
-            assert_eq!(marker.rect[3], (slot.rect.y + slot.rect.height) as f32);
-            assert_eq!(marker.rect[0], slot.rect.x as f32);
-            assert_eq!(marker.rect[2], (slot.rect.x + slot.rect.width) as f32);
-            assert_eq!(marker.color, color);
-        }
-        for slot_rows in [1, 2] {
-            let geometry = ChromeSlotGeom::rail(
-                &source,
-                16,
-                20,
-                [4.0, 6.0],
-                cell,
-                tab_rail::RailGeom {
-                    slot_rows,
-                    slot_gap: 0,
-                },
-            );
-            let slot = geometry.slots.iter().find(|slot| slot.idx == 0).unwrap();
-            let left = geometry
-                .active_marker(0, color, Some(RailSide::Left))
-                .expect("left rail marker");
-            assert_eq!(left.rect[0], slot.rect.x as f32);
-            assert_eq!(left.rect[2], (slot.rect.x + 3.0) as f32);
-            assert_eq!(left.rect[1], slot.rect.y as f32);
-            assert_eq!(left.rect[3], (slot.rect.y + slot.rect.height) as f32);
-            assert_eq!(left.color, color);
-
-            let right = geometry
-                .active_marker(0, color, Some(RailSide::Right))
-                .expect("right rail marker");
-            assert_eq!(right.rect[0], (slot.rect.x + slot.rect.width - 3.0) as f32);
-            assert_eq!(right.rect[2], (slot.rect.x + slot.rect.width) as f32);
-            assert_eq!(right.rect[1], slot.rect.y as f32);
-            assert_eq!(right.rect[3], (slot.rect.y + slot.rect.height) as f32);
-            assert_eq!(right.color, color);
         }
     }
 

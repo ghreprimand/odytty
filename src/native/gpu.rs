@@ -161,11 +161,10 @@ pub(super) struct OverlayTop<'a> {
 /// reflow. Composited topmost like an [`OverlayTop`], but with a three-layer
 /// stack around the strip snapshot so the near-opaque band reads over the
 /// terminal beneath it:
-/// 1. `wash` — one near-opaque quad UNDER the strip that occludes the live
-///    content the band floats over (`wash_alpha ≥ 0.85`).
-/// 2. the strip `snapshot` cells + glyphs (the rail's own tint + labels).
-/// 3. `widget_quads` — active/reorder indicators from the rail widget.
-/// 4. `seam` — the content-facing edge line, OVER the strip.
+/// 1. strip cell backgrounds and panel-colored outer remainder strips.
+/// 2. `wash` over cell backgrounds, excluding the already-filled remainders.
+/// 3. strip glyphs and `widget_quads` reorder indicators.
+/// 4. `seam` on the content-facing edge.
 ///
 /// Emitted only while the rail is revealed; `None` leaves every frame unchanged.
 pub(super) struct RailOverlay<'a> {
@@ -179,10 +178,37 @@ pub(super) struct RailOverlay<'a> {
     pub(super) rail_glyph_dy_rows: f32,
     /// Active and reorder indicators in window pixel geometry.
     pub(super) widget_quads: &'a [SolidQuad],
+    /// Panel-colored outer padding and sub-cell remainder strips.
+    pub(super) base_gaps: &'a [SolidQuad],
     /// Occluding wash quad drawn under the strip, or `None`.
     pub(super) wash: Option<SolidQuad>,
     /// Content-facing seam quad drawn over the strip, or `None`.
     pub(super) seam: Option<SolidQuad>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct PanelFrameQuads<'a> {
+    pub(super) base_gaps: &'a [SolidQuad],
+    pub(super) overlays: &'a [SolidQuad],
+}
+
+pub(super) fn quads_excluding(quads: &[SolidQuad], exclusions: &[SolidQuad]) -> Vec<SolidQuad> {
+    let mut current = quads.to_vec();
+    for exclusion in exclusions {
+        let mut next = Vec::new();
+        for quad in current {
+            next.extend(
+                super::app::tab_panel::rect_without(quad.rect, exclusion.rect)
+                    .into_iter()
+                    .map(|rect| SolidQuad {
+                        rect,
+                        color: quad.color,
+                    }),
+            );
+        }
+        current = next;
+    }
+    current
 }
 
 /// TAB-LABEL-CENTERING: the [`grid::ChromePin`] for one multi-pane render input.
@@ -1825,17 +1851,8 @@ impl GpuState {
         let Some(geom) = self.chrome_pin_geom else {
             return grid::ChromePin::NONE;
         };
-        // TAB-LABEL-CENTERING: the sub-row label offsets apply even at rest, so
-        // the pin is live whenever a glide is running OR a band carries a
-        // centering offset. A pin with no glide and no offsets is byte-identical
-        // to NONE (every gated branch is inert), so the plain single-row-chrome
-        // frame is unchanged.
-        if self.scroll_frac_offset == 0.0
-            && geom.band_glyph_dy_rows == 0.0
-            && geom.rail_glyph_dy_rows == 0.0
-        {
-            return grid::ChromePin::NONE;
-        }
+        // Preserve chrome geometry even at rest: the grid builder also uses the
+        // descriptor to keep spatial background treatments off chrome cells.
         grid::ChromePin {
             scroll_offset_y: self.scroll_frac_offset,
             top_rows: geom.top_rows,
@@ -2178,7 +2195,10 @@ impl GpuState {
             cursor_params,
             focus_dim,
             treatment,
-            &[],
+            PanelFrameQuads {
+                base_gaps: &[],
+                overlays: &[],
+            },
             None,
         );
     }
@@ -2217,7 +2237,7 @@ impl GpuState {
         cursor_params: CursorRenderParams,
         dividers: &[SolidQuad],
         overlay_top: Option<OverlayTop>,
-        bg_quads: &[SolidQuad],
+        panel: PanelFrameQuads,
         rail_overlay: Option<RailOverlay>,
     ) {
         // Pass A: ensure all panes' glyphs in both atlases, capturing each
@@ -2374,6 +2394,7 @@ impl GpuState {
                 [self.config.width, self.config.height],
                 color,
             );
+            let edge_quads = quads_excluding(&edge_quads, panel.base_gaps);
             self.vertices
                 .reserve(edge_quads.len() * grid::VERTS_PER_QUAD);
             for quad in edge_quads {
@@ -2381,13 +2402,18 @@ impl GpuState {
             }
         }
 
+        for &quad in panel.base_gaps {
+            grid::push_solid_quad(&mut self.vertices, quad);
+        }
+
         // F4-P1: tab-panel wash + seam quads close out the background segment,
         // after the NF11 edge wash — same layer as the single-pane splice in
         // `update_from_snapshot_with_overlays`. Empty when no chrome / panel off
         // / seam off, so the multi-pane frame stays byte-identical.
-        if !bg_quads.is_empty() {
-            self.vertices.reserve(bg_quads.len() * grid::VERTS_PER_QUAD);
-            for &quad in bg_quads {
+        if !panel.overlays.is_empty() {
+            self.vertices
+                .reserve(panel.overlays.len() * grid::VERTS_PER_QUAD);
+            for &quad in panel.overlays {
                 grid::push_solid_quad(&mut self.vertices, quad);
             }
         }
@@ -2554,7 +2580,7 @@ impl GpuState {
         cursor_params: CursorRenderParams,
         focus_dim: f32,
         treatment: grid::BackgroundTreatmentParams,
-        bg_quads: &[SolidQuad],
+        panel: PanelFrameQuads,
         rail_overlay: Option<RailOverlay>,
     ) {
         let mut color_glyph_runs = std::mem::take(&mut self.color_glyph_runs);
@@ -2609,6 +2635,7 @@ impl GpuState {
                 [self.config.width, self.config.height],
                 self.content_build_opacity(),
             );
+            let edge_quads = quads_excluding(&edge_quads, panel.base_gaps);
             if !edge_quads.is_empty() {
                 let insert_at = background_vertices as usize;
                 let mut edge_vertices = Vec::with_capacity(edge_quads.len() * grid::VERTS_PER_QUAD);
@@ -2624,15 +2651,27 @@ impl GpuState {
         } else {
             self.background_vertex_count = background_vertices;
         }
+        if !panel.base_gaps.is_empty() {
+            let insert_at = self.background_vertex_count as usize;
+            let mut base_vertices =
+                Vec::with_capacity(panel.base_gaps.len() * grid::VERTS_PER_QUAD);
+            for &quad in panel.base_gaps {
+                grid::push_solid_quad(&mut base_vertices, quad);
+            }
+            let added = base_vertices.len() as u32;
+            self.vertices.splice(insert_at..insert_at, base_vertices);
+            self.background_vertex_count = self.background_vertex_count.saturating_add(added);
+        }
         // F4-P1: tab-panel wash + seam quads land at the END of the background
         // segment (after the NF11 edge wash), so the panel re-tints the padding
         // strips + veils the fills and the seam draws over the panel — both
         // still under every glyph. Empty when no chrome / panel off / seam off,
         // leaving the frame byte-identical.
-        if !bg_quads.is_empty() {
+        if !panel.overlays.is_empty() {
             let insert_at = self.background_vertex_count as usize;
-            let mut panel_vertices = Vec::with_capacity(bg_quads.len() * grid::VERTS_PER_QUAD);
-            for &quad in bg_quads {
+            let mut panel_vertices =
+                Vec::with_capacity(panel.overlays.len() * grid::VERTS_PER_QUAD);
+            for &quad in panel.overlays {
                 grid::push_solid_quad(&mut panel_vertices, quad);
             }
             let added = panel_vertices.len() as u32;
@@ -2687,15 +2726,11 @@ impl GpuState {
         );
     }
 
-    /// Composite the F4-P3 rail auto-hide overlay strip **topmost**: the
-    /// occluding wash under it, then the strip cells + glyphs, then the seam over
-    /// it. Appended to `self.vertices` after every other segment so the floating
-    /// rail draws over the live content it reveals atop. The caller must have
-    /// ensured its glyphs (see [`Self::ensure_rail_overlay_glyphs`]).
+    /// Composite the F4-P3 rail auto-hide overlay strip **topmost**: backgrounds,
+    /// outer remainder fills, wash, glyphs, indicators, then seam. Appended to
+    /// `self.vertices` after every other segment so the floating rail draws over
+    /// live content. The caller must have ensured its glyphs.
     fn push_rail_overlay(&mut self, rail: &RailOverlay) {
-        if let Some(wash) = rail.wash {
-            grid::push_solid_quad(&mut self.vertices, wash);
-        }
         let mut strip: Vec<Vertex> = Vec::new();
         grid::build_cell_vertices_with_focus_dim_and_origin_into(
             &mut strip,
@@ -2710,7 +2745,17 @@ impl GpuState {
             None,
             rail_overlay_chrome_pin(rail.snapshot.dimensions.columns, rail.rail_glyph_dy_rows),
         );
-        self.vertices.extend_from_slice(&strip);
+        let bg = background_vertex_count(rail.snapshot).min(strip.len() as u32) as usize;
+        self.vertices.extend_from_slice(&strip[..bg]);
+        for &quad in rail.base_gaps {
+            grid::push_solid_quad(&mut self.vertices, quad);
+        }
+        if let Some(wash) = rail.wash {
+            for quad in quads_excluding(&[wash], rail.base_gaps) {
+                grid::push_solid_quad(&mut self.vertices, quad);
+            }
+        }
+        self.vertices.extend_from_slice(&strip[bg..]);
         for &quad in rail.widget_quads {
             grid::push_solid_quad(&mut self.vertices, quad);
         }

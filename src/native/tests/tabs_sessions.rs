@@ -5413,7 +5413,7 @@ fn an_autohide_workspace_drag_uses_cursor_moved_and_reorders() {
 }
 
 #[test]
-fn autohide_overlay_retains_active_and_reorder_quads_on_both_sides() {
+fn autohide_overlay_retains_reorder_quads_on_both_sides() {
     for side in ["left", "right"] {
         let Some(mut app) = rail_drag_app() else {
             eprintln!("skipping: no PTY available");
@@ -5425,13 +5425,7 @@ fn autohide_overlay_retains_active_and_reorder_quads_on_both_sides() {
         app.force_rail_reveal_for_test();
 
         let resting = app.rail_overlay_widget_quads_for_test();
-        assert_eq!(resting.len(), 1, "{side} overlay retains its active marker");
-        let marker = resting[0];
-        if side == "left" {
-            assert_eq!([marker.rect[0], marker.rect[2]], [0.0, 3.0]);
-        } else {
-            assert_eq!([marker.rect[0], marker.rect[2]], [797.0, 800.0]);
-        }
+        assert!(resting.is_empty(), "{side} uses the embedded active fill");
 
         let pointer_x = if side == "left" { 20.0 } else { 680.0 };
         app.pointer_move_for_test(pointer_x, 24.0);
@@ -5442,8 +5436,8 @@ fn autohide_overlay_retains_active_and_reorder_quads_on_both_sides() {
         let dragging = app.rail_overlay_widget_quads_for_test();
         assert_eq!(
             dragging.len(),
-            2,
-            "{side} overlay retains active and insertion indicators"
+            1,
+            "{side} overlay retains the insertion indicator"
         );
         assert!(
             dragging.iter().any(|quad| {

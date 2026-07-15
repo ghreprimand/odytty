@@ -35,7 +35,7 @@ struct PaneGraphics {
     scissor: [u32; 4],
 }
 use crate::graphics::VisiblePlacement;
-use crate::native::gpu::{OverlayTop, PaneRender, RailOverlay};
+use crate::native::gpu::{OverlayTop, PaneRender, PanelFrameQuads, RailOverlay};
 use crate::native::image_layer::{PaneImageInput, PaneImageUpload};
 use crate::native::layout::{PaneRect, divider_rects, grid_dims_for_rect};
 use crate::native::overlay::{apply_overlay, overlay_rect};
@@ -66,14 +66,9 @@ pub(super) fn pane_focus_dim(is_focused: bool, inactive_dim: f32) -> f32 {
 /// `NONE` (all zero) is the byte-identical no-chrome case. Callers build it from
 /// [`App::tab_reserve`]; the free `pane_content_rect` stays pure/GPU-free.
 ///
-/// `gap_cols` is the cell-quantized wallpaper gap between a side rail and the
-/// content (R1.1): the rail's visual band is `left_cols`/`right_cols` wide, then
-/// `gap_cols` blank columns replicate the window-padding band between the rail
-/// and the terminal so text never abuts the rail seam. It only ever applies on
-/// the side the rail occupies (0 for the top bar / no chrome). The rail widget's
-/// visual width (`App::rail_cols`) excludes it; the content reservation
-/// (`pane_content_rect`, the pointer/graphics offsets, the resize column count)
-/// includes it — so grid, cursor, and pointer stay in lockstep (ODP-8).
+/// `gap_cols` remains in the geometry carrier for compatibility with pure
+/// layout tests, but production chrome now sets it to zero: the rail and content
+/// meet at one intentional seam instead of exposing a wallpaper gutter.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct TabReserve {
     /// Rows reserved off the top (horizontal bar).
@@ -83,8 +78,8 @@ pub(super) struct TabReserve {
     /// Columns reserved off the right (right rail — R2; always 0 in R1) — the
     /// rail's visual band width.
     pub(super) right_cols: usize,
-    /// Blank wallpaper-gap columns between the side rail and the content (R1.1).
-    /// Zero for the top bar / no chrome.
+    /// Compatibility field for generic geometry. Production chrome keeps this
+    /// at zero so rail and content share one seam.
     pub(super) gap_cols: usize,
 }
 
@@ -107,8 +102,7 @@ impl TabReserve {
         }
     }
 
-    /// Total columns reserved off the left of the content: the left rail's band
-    /// plus its wallpaper gap. Zero unless a left rail is active.
+    /// Total columns reserved off the left of the content.
     pub(super) fn left_reserved_cols(&self) -> usize {
         if self.left_cols > 0 {
             self.left_cols + self.gap_cols
@@ -117,8 +111,7 @@ impl TabReserve {
         }
     }
 
-    /// Total columns reserved off the right of the content: the right rail's
-    /// band plus its wallpaper gap. Zero unless a right rail is active.
+    /// Total columns reserved off the right of the content.
     pub(super) fn right_reserved_cols(&self) -> usize {
         if self.right_cols > 0 {
             self.right_cols + self.gap_cols
@@ -126,20 +119,6 @@ impl TabReserve {
             0
         }
     }
-}
-
-/// Cell-quantized wallpaper gap between a side rail and the content, replicating
-/// the window-padding band: `ceil(pad_px / cell_w)` columns. Zero when there is
-/// no window padding (a faithful "replicate the padding" — no padding, no gap)
-/// or a degenerate cell. Pure so both render paths and the reservation share one
-/// definition.
-pub(super) fn rail_content_gap_cols(padding: WindowPadding, cell: CellSize) -> usize {
-    let cw = cell.width as usize;
-    if cw == 0 {
-        return 0;
-    }
-    let pad = padding.physical_px() as usize;
-    pad.div_ceil(cw)
 }
 
 /// The pixel rectangle available to panes: the surface minus window padding on
@@ -159,8 +138,8 @@ pub(super) fn pane_content_rect(
 ) -> PaneRect {
     let pad = padding.as_f32();
     let tab_h = cell.height as f32 * reserve.top_rows as f32;
-    // Include the rail↔content wallpaper gap (R1.1) so the content origin sits a
-    // padding-band's width off the rail, not flush against its seam.
+    // `gap_cols` is zero in production; the generic carrier remains gap-aware
+    // so older serialized/test geometry stays well-defined.
     let left_w = cell.width as f32 * reserve.left_reserved_cols() as f32;
     let right_w = cell.width as f32 * reserve.right_reserved_cols() as f32;
     let w = (width_px as f32 - 2.0 * pad - left_w - right_w).max(0.0);
@@ -867,7 +846,7 @@ impl App {
                 cursor_style: crate::core::CursorStyle::default(),
                 focus_dim: 0.0,
                 overlays: &[],
-                treatment,
+                treatment: crate::grid::BackgroundTreatmentParams::default(),
                 // Chrome strips never glide sub-row.
                 clip: crate::grid::VClip::NONE,
                 // TAB-LABEL-CENTERING: this strip's own label offset (one axis is
@@ -953,9 +932,10 @@ impl App {
             let rail_overlay = rail_overlay_data.as_ref().map(|data| RailOverlay {
                 snapshot: &data.snapshot,
                 origin: data.origin,
-                treatment: treatment_for_overlay,
+                treatment: crate::grid::BackgroundTreatmentParams::default(),
                 rail_glyph_dy_rows: data.rail_glyph_dy_rows,
                 widget_quads: &data.widget_quads,
+                base_gaps: &data.base_gaps,
                 wash: data.wash,
                 seam: data.seam,
             });
@@ -964,7 +944,10 @@ impl App {
                 cursor_params,
                 &frame_quads,
                 overlay,
-                &tab_bg_quads,
+                PanelFrameQuads {
+                    base_gaps: &tab_bg_quads.base_gaps,
+                    overlays: &tab_bg_quads.overlays,
+                },
                 rail_overlay,
             );
             // Cut 1: hand each pane's collected graphics to the image layer,
@@ -1223,8 +1206,8 @@ mod tests {
     }
 
     #[test]
-    fn right_rail_shrinks_the_content_rect_from_the_right_keeping_the_left_origin() {
-        // F4-P2 layout mirror: a right rail reserves `right_cols` (+ gap) off the
+    fn zero_gap_right_rail_shrinks_content_from_the_right() {
+        // F4-P2 layout mirror: a right rail reserves `right_cols` off the
         // RIGHT — the content width shrinks but its x-origin stays put (content on
         // the LEFT), the mirror of the left rail (which shifts the origin right).
         // y/height are unchanged (a rail reserves columns, not rows).
@@ -1236,10 +1219,10 @@ mod tests {
             top_rows: 0,
             left_cols: 0,
             right_cols: 16,
-            gap_cols: 2,
+            gap_cols: 0,
         };
         let with = pane_content_rect(w, h, cell, padding, reserve);
-        let reserved = cell.width as f32 * (16.0 + 2.0);
+        let reserved = cell.width as f32 * 16.0;
         assert!(
             (with.x - without.x).abs() < f32::EPSILON,
             "x-origin stays put (content on the left)"
@@ -1251,17 +1234,14 @@ mod tests {
         );
         assert!(
             (with.w - (without.w - reserved)).abs() < f32::EPSILON,
-            "width shrinks from the right by band + gap"
+            "width shrinks from the right by the rail band"
         );
-        // The gap only counts on the rail side: no left reservation here.
         assert_eq!(reserve.left_reserved_cols(), 0);
-        assert_eq!(reserve.right_reserved_cols(), 18);
+        assert_eq!(reserve.right_reserved_cols(), 16);
     }
 
     #[test]
-    fn left_rail_gap_shifts_content_by_the_band_plus_the_gap() {
-        // R1.1: the rail↔content wallpaper gap widens the reservation beyond the
-        // rail band, so content shifts right (and shrinks) by band + gap.
+    fn zero_gap_left_rail_shifts_content_by_the_band_only() {
         let cell = cell();
         let padding = WindowPadding::from_logical(8.0, 1.0);
         let (w, h) = (1280u32, 800u32);
@@ -1270,35 +1250,20 @@ mod tests {
             top_rows: 0,
             left_cols: 16,
             right_cols: 0,
-            gap_cols: 2,
+            gap_cols: 0,
         };
         let with = pane_content_rect(w, h, cell, padding, reserve);
-        let reserved = cell.width as f32 * (16.0 + 2.0);
+        let reserved = cell.width as f32 * 16.0;
         assert!(
             (with.x - (without.x + reserved)).abs() < f32::EPSILON,
-            "x shifts by band + gap"
+            "x shifts by the rail band"
         );
         assert!(
             (with.w - (without.w - reserved)).abs() < f32::EPSILON,
-            "width shrinks by band + gap"
+            "width shrinks by the rail band"
         );
-        // The gap only counts on the rail side: no right reservation here.
         assert_eq!(reserve.right_reserved_cols(), 0);
-        assert_eq!(reserve.left_reserved_cols(), 18);
-    }
-
-    #[test]
-    fn rail_content_gap_replicates_the_padding_band_cell_quantized() {
-        let cell = cell(); // width 10
-        // pad 8px @1x → ceil(8/10) = 1 column.
-        let one = WindowPadding::from_logical(8.0, 1.0);
-        assert_eq!(rail_content_gap_cols(one, cell), 1);
-        // pad 24px → ceil(24/10) = 3 columns.
-        let three = WindowPadding::from_logical(24.0, 1.0);
-        assert_eq!(rail_content_gap_cols(three, cell), 3);
-        // No padding → no gap (faithful "replicate the padding band").
-        let zero = WindowPadding::from_logical(0.0, 1.0);
-        assert_eq!(rail_content_gap_cols(zero, cell), 0);
+        assert_eq!(reserve.left_reserved_cols(), 16);
     }
 
     #[test]
