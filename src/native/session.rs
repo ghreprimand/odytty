@@ -425,6 +425,7 @@ pub(super) struct Session {
     pub(super) cursor_slide_deadline: Option<Instant>,
     pub(super) cursor_slide_start: Option<Instant>,
     pub(super) cursor_slide_from_px: [f32; 2],
+    pub(super) cursor_streak: super::app::cursor_streak::CursorStreakState,
     pub(super) row_fade_starts: Vec<Option<Instant>>,
     pub(super) last_scrollback_len_for_fade: usize,
     pub(super) row_fade_epoch: u64,
@@ -632,6 +633,7 @@ impl Session {
             cursor_slide_deadline: None,
             cursor_slide_start: None,
             cursor_slide_from_px: [0.0, 0.0],
+            cursor_streak: super::app::cursor_streak::CursorStreakState::default(),
             row_fade_starts: Vec::new(),
             last_scrollback_len_for_fade: 0,
             row_fade_epoch: 0,
@@ -694,6 +696,7 @@ impl Session {
         self.cursor_slide_deadline = None;
         self.cursor_slide_start = None;
         self.cursor_slide_from_px = [0.0, 0.0];
+        self.cursor_streak.park();
     }
 
     /// Settle every timer of a never-rendered (background) pane: the cursor

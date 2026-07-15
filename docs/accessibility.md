@@ -82,7 +82,13 @@ Both are disabled on the `render_quality = plain` path.
 
 Cursor slide (`cursor_motion`) is on by default, so a fresh install glides
 between nearby cursor positions. The cursor trail (`cursor_trail`) is also on
-and follows that slide. Cursor glow (`cursor_glow`) and the new-output fade
+and follows that slide. Its linked `cursor_trail_strength` profile defaults to
+`balanced`: moves of two through six cells keep the restrained nearby echo,
+while stable jumps beyond six cells may add a short tapered streak after a
+40 ms dwell. The real cursor reaches its destination immediately, noisy cursor
+churn is coalesced, and the streak settles within 220 ms. `subtle` reduces the
+effect and `expressive` makes it more visible without changing input timing.
+Cursor glow (`cursor_glow`) and the new-output fade
 (`new_output_fade`) remain off unless you turn them on.
 
 Four additional motion behaviors are on by default, because none adds input

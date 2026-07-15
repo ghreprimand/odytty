@@ -93,6 +93,7 @@ mod connections_ui;
 mod copy_mode_ui;
 mod cursor;
 mod cursor_frame;
+pub(in crate::native) mod cursor_streak;
 mod cursor_trail;
 mod detach_switch;
 mod gutter_ui;
@@ -214,6 +215,10 @@ impl SynchronizedOutputHold {
 
     pub(super) fn is_due(&self, now: Instant) -> bool {
         self.deadline().is_some_and(|deadline| now >= deadline)
+    }
+
+    pub(super) fn is_holding(&self) -> bool {
+        self.active_since.is_some() && !self.timed_out
     }
 
     /// Release the hold with no scheduled wake (the `enabled = false` rest
@@ -5639,10 +5644,14 @@ impl ApplicationHandler<UserEvent> for App {
                         .lock()
                         .map(|terminal| terminal.synchronized_output_enabled())
                         .unwrap_or(false);
-                    if self
+                    let was_holding = self.synchronized_output_hold.is_holding();
+                    let is_holding = self
                         .synchronized_output_hold
-                        .should_hold(synchronized_output, now)
-                    {
+                        .should_hold(synchronized_output, now);
+                    if was_holding && !is_holding {
+                        self.clear_cursor_streak();
+                    }
+                    if is_holding {
                         let _ = self.update_held_cursor_frame(now);
                     } else if !self.sessions.active_is_single_pane() {
                         // Multi-pane active tab: branch to the per-pane render
@@ -5770,6 +5779,7 @@ impl ApplicationHandler<UserEvent> for App {
                         // the identity while their knobs are off.
                         self.update_cursor_easing(now, cursor_on, cursor_blinking);
                         self.update_cursor_motion(now, &snapshot, cell);
+                        self.update_cursor_streak(now, &snapshot, cursor_style, cell);
                         // Blink off-phase hard-hide — skipped while easing is on,
                         // where the precomputed alpha carries the fade instead (so
                         // easing does not double-hide).
@@ -5861,6 +5871,15 @@ impl ApplicationHandler<UserEvent> for App {
                             content_x0 + self.grid.columns as f32 * cell.width as f32,
                             content_y0 + self.grid.rows as f32 * cell.height as f32,
                         ]);
+                        let cursor_streak = self.cursor_streak_request(
+                            now,
+                            [
+                                content_x0,
+                                content_y0,
+                                content_x0 + self.grid.columns as f32 * cell.width as f32,
+                                content_y0 + self.grid.rows as f32 * cell.height as f32,
+                            ],
+                        );
                         let (snapshot, tab_bar_quads) = self.decorate_snapshot_with_tab_bar(
                             &snapshot,
                             snapshot.cursor_visible,
@@ -5930,6 +5949,7 @@ impl ApplicationHandler<UserEvent> for App {
                                 visible: snapshot.cursor_visible,
                                 style: cursor_style,
                                 anim: CursorAnimKey::from_params(&cursor_params),
+                                streak_epoch: self.cursor_streak_epoch(),
                             },
                         };
                         let update = RenderSignature::update_from(
@@ -6047,6 +6067,7 @@ impl ApplicationHandler<UserEvent> for App {
                                             &snapshot,
                                             cursor_style,
                                             cursor_glow,
+                                            cursor_streak,
                                             cursor_params,
                                             focus_dim,
                                             background_treatment,
@@ -6057,6 +6078,7 @@ impl ApplicationHandler<UserEvent> for App {
                                             cursor_style,
                                             &overlays,
                                             cursor_glow,
+                                            cursor_streak,
                                             cursor_params,
                                             focus_dim,
                                             background_treatment,
@@ -6074,6 +6096,7 @@ impl ApplicationHandler<UserEvent> for App {
                                         cursor_style,
                                         &overlays,
                                         cursor_glow,
+                                        cursor_streak,
                                         cursor_params,
                                     );
                                 }

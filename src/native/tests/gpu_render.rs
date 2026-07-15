@@ -314,8 +314,100 @@ fn cursor_glow_hidden_unfocused_and_zero_alpha_emit_nothing() {
     }
 }
 
+fn streak_request(progress: f32, strength: CursorTrailStrength) -> CursorStreakRequest {
+    CursorStreakRequest {
+        source: Position { row: 0, column: 0 },
+        destination: Position { row: 3, column: 4 },
+        progress,
+        strength,
+        clip_rect: [5.0, 7.0, 500.0, 400.0],
+    }
+}
+
 #[test]
-fn synchronized_output_hold_retains_trail_and_glow_inputs() {
+fn cursor_streak_emits_one_oriented_six_vertex_quad_for_all_shapes() {
+    let snapshot = glow_snapshot();
+    let cell = CellSize {
+        width: 20,
+        height: 40,
+        baseline: 0,
+    };
+    for style in [CursorStyle::Block, CursorStyle::Bar, CursorStyle::Underline] {
+        let instance = build_cursor_streak_instance(
+            &snapshot,
+            cell,
+            style,
+            [11.0, 13.0],
+            1.25,
+            1.0,
+            streak_request(0.25, CursorTrailStrength::Balanced),
+        )
+        .expect("nondegenerate path emits a streak");
+        let mut vertices: Vec<CursorStreakVertex> = Vec::new();
+        append_cursor_streak_vertices(&mut vertices, instance);
+        assert_eq!(vertices.len(), VERTS_PER_QUAD);
+        assert!(instance.radii[0] >= 1.25);
+        assert!(instance.radii[1] > instance.radii[0]);
+        assert_eq!(instance.clip_rect, [5.0, 7.0, 500.0, 400.0]);
+        assert!(
+            vertices
+                .iter()
+                .all(|vertex| vertex.segment == instance.segment)
+        );
+    }
+}
+
+#[test]
+fn cursor_streak_tail_collapses_and_alpha_is_profiled_and_capped() {
+    let snapshot = glow_snapshot();
+    let cell = CellSize {
+        width: 20,
+        height: 40,
+        baseline: 0,
+    };
+    let instance = |progress, strength, content_alpha| {
+        build_cursor_streak_instance(
+            &snapshot,
+            cell,
+            CursorStyle::Block,
+            [11.0, 13.0],
+            1.0,
+            content_alpha,
+            streak_request(progress, strength),
+        )
+        .expect("active streak")
+    };
+    let subtle = instance(0.0, CursorTrailStrength::Subtle, 1.0);
+    let balanced = instance(0.0, CursorTrailStrength::Balanced, 1.0);
+    let expressive = instance(0.0, CursorTrailStrength::Expressive, 1.0);
+    assert!((subtle.peak_alpha - 0.08).abs() < 1e-6);
+    assert!((balanced.peak_alpha - 0.12).abs() < 1e-6);
+    assert!((expressive.peak_alpha - 0.16).abs() < 1e-6);
+    assert!(subtle.radii[1] < balanced.radii[1]);
+    assert!(balanced.radii[1] < expressive.radii[1]);
+
+    let early = instance(0.25, CursorTrailStrength::Balanced, 1.0);
+    let late = instance(0.75, CursorTrailStrength::Balanced, 1.0);
+    let early_length =
+        (early.segment[2] - early.segment[0]).hypot(early.segment[3] - early.segment[1]);
+    let late_length = (late.segment[2] - late.segment[0]).hypot(late.segment[3] - late.segment[1]);
+    assert!(late_length < early_length);
+    assert!(late.peak_alpha < early.peak_alpha);
+
+    let translucent = instance(0.0, CursorTrailStrength::Expressive, 0.5);
+    assert!(translucent.peak_alpha * 0.5 <= 0.02 + 1e-6);
+    assert_eq!(
+        &balanced.color[..3],
+        &[
+            text::srgb_to_linear(0x20),
+            text::srgb_to_linear(0x80),
+            text::srgb_to_linear(0xe0),
+        ]
+    );
+}
+
+#[test]
+fn synchronized_output_hold_retains_trail_glow_and_streak_inputs() {
     let trail = SolidQuad {
         rect: [20.0, 30.0, 40.0, 70.0],
         color: [0.1, 0.2, 0.3, 0.09],
@@ -323,9 +415,12 @@ fn synchronized_output_hold_retains_trail_and_glow_inputs() {
     let glow = CursorGlowRequest {
         clip_rect: [10.0, 10.0, 200.0, 160.0],
     };
-    let (held_overlays, held_glow) = retained_cursor_effects(&[trail], Some(glow));
+    let streak = streak_request(0.4, CursorTrailStrength::Balanced);
+    let (held_overlays, held_glow, held_streak) =
+        retained_cursor_effects(&[trail], Some(glow), Some(streak));
     assert_eq!(held_overlays, vec![trail], "held frame retains trail quads");
     assert_eq!(held_glow, Some(glow), "held frame retains the aura request");
+    assert_eq!(held_streak, Some(streak), "held frame retains the streak");
 }
 
 #[test]
@@ -383,6 +478,8 @@ fn cursor_glow_shader_and_pipeline_validate() {
     });
     let _pipeline =
         create_cursor_glow_pipeline(&device, wgpu::TextureFormat::Rgba8UnormSrgb, &layout);
+    let _streak_pipeline =
+        create_cursor_streak_pipeline(&device, wgpu::TextureFormat::Rgba8UnormSrgb, &layout);
 }
 
 #[test]
@@ -798,6 +895,7 @@ fn render_sig() -> RenderSignature {
             visible: true,
             style: crate::core::CursorStyle::Block,
             anim: CursorAnimKey::IDENTITY,
+            streak_epoch: 0,
         },
     }
 }
@@ -818,6 +916,18 @@ fn render_signature_update_matrix_covers_pixel_invalidators() {
     cursor.cursor.visible = false;
     assert_eq!(
         RenderSignature::update_from(Some(&base), &cursor),
+        GeometryUpdate::CursorOnly
+    );
+
+    let mut streak = base.clone();
+    streak.cursor.streak_epoch = 1;
+    assert_eq!(
+        RenderSignature::update_from(Some(&base), &streak),
+        GeometryUpdate::CursorOnly
+    );
+    streak.cursor.streak_epoch = 2;
+    assert_eq!(
+        RenderSignature::update_from(Some(&base), &streak),
         GeometryUpdate::CursorOnly
     );
 

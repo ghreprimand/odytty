@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Large cursor jumps now leave a bounded directional streak
+
+Cursor trail now connects stable jumps beyond the six-cell glide range with
+one tapered, rounded ribbon that collapses into the destination. The logical
+and rendered cursor still arrives immediately. A 40 ms destination dwell
+filters transient TUI repaint positions, and synchronized-output batches
+coalesce into one old-to-final candidate when their held frame is released.
+
+The new `cursor_trail_strength` setting links nearby echoes and large-jump
+streaks through Subtle, Balanced, and Expressive profiles. Balanced preserves
+the existing nearby echo. Accepted streaks use one six-vertex analytic pass,
+resolve the live cursor color in linear light, stay below glyphs and within the
+active pane, respect translucent-window alpha limits, and settle within 120 to
+220 ms without delaying input or adding an idle wake.
+
+Cursor motion off, cursor trail off, reduced motion, focus loss, scrollback,
+resize, reflow, hidden cursors, style changes, and pane switches remain static
+identity paths. Windows, macOS, and Linux share the same Rust and wgpu policy.
+Regression coverage exercises trigger and dwell boundaries, churn coalescing,
+profile timing, wake bounds, cursor shapes, clipping inputs, dynamic color,
+cache classification, and synchronized-output retention.
+
 ## 2026-07-15 -- Cursor glow now uses a shape-aware analytic aura
 
 Cursor glow now renders one clipped, continuously feathered aura from the

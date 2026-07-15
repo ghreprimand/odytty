@@ -1212,6 +1212,11 @@ impl App {
         self.focused_cursor_animation_deadline()
     }
 
+    #[cfg(test)]
+    pub(in crate::native) fn cursor_streak_deadline_for_test(&self) -> Option<std::time::Instant> {
+        self.cursor_streak_deadline()
+    }
+
     /// Drive the same focused cursor consumer used by `rebuild_multipane` and
     /// return its pane-local quads plus the live render parameters.
     #[cfg(test)]
@@ -1224,6 +1229,7 @@ impl App {
     ) -> (
         Vec<SolidQuad>,
         Option<crate::native::gpu::CursorGlowRequest>,
+        Option<crate::native::gpu::CursorStreakRequest>,
         CursorRenderParams,
     ) {
         let clip_rect = [
@@ -1244,7 +1250,8 @@ impl App {
             0,
         );
         let glow = self.cursor_glow_request(clip_rect);
-        (effects, glow, self.cursor_render_params())
+        let streak = self.cursor_streak_request(now, clip_rect);
+        (effects, glow, streak, self.cursor_render_params())
     }
 
     /// Whether every non-focused session has no live cursor wake source.
@@ -1258,6 +1265,7 @@ impl App {
                 session.cursor_blink.deadline().is_none()
                     && session.cursor_ease_deadline.is_none()
                     && session.cursor_slide_deadline.is_none()
+                    && session.cursor_streak.deadline().is_none()
             })
     }
 

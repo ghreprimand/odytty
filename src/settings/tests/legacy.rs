@@ -87,6 +87,11 @@ fn defaults_are_stable_without_env() {
     assert_eq!(settings.cell_bg_opacity, DEFAULT_CELL_BG_OPACITY);
     assert!(settings.cursor_motion, "cursor motion defaults on");
     assert!(settings.cursor_trail, "the default motion trail is enabled");
+    assert_eq!(
+        settings.cursor_trail_strength,
+        CursorTrailStrength::Balanced,
+        "the linked trail profile defaults to balanced"
+    );
     assert!(!settings.reduced_motion, "motion is allowed by default");
     assert!(warnings.is_empty());
 }
@@ -171,6 +176,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "cursor_easing",
             "cursor_glow",
             "cursor_trail",
+            "cursor_trail_strength",
             "cursor_motion",
             "keybinds",
             "scroll_wheel_lines",
@@ -298,6 +304,7 @@ fn setting_info_formats_current_values_for_display() {
         crt_vignette_strength: 0.14,
         symbol_font: Some(PathBuf::from("/tmp/symbols.otf")),
         cursor_blink: CursorBlink::Off,
+        cursor_trail_strength: CursorTrailStrength::Expressive,
         osc52_read: true,
         ..Settings::default()
     };
@@ -324,6 +331,7 @@ fn setting_info_formats_current_values_for_display() {
     assert_eq!(value("crt_vignette_strength"), "0.14");
     assert_eq!(value("symbol_font"), "/tmp/symbols.otf");
     assert_eq!(value("cursor_blink"), "off");
+    assert_eq!(value("cursor_trail_strength"), "expressive");
     assert_eq!(value("osc52_read"), "on");
 }
 

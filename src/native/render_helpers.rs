@@ -309,6 +309,10 @@ pub(super) struct CursorRenderSignature {
     /// [`CursorAnimKey::IDENTITY`], so the key is a frame-to-frame constant and
     /// the classification stays `Retained` — the plain path is byte-identical.
     pub(super) anim: CursorAnimKey,
+    /// Per-session large-jump ribbon phase. Zero at rest; changes on start,
+    /// every active frame, and stop so content-stable streak frames classify as
+    /// `CursorOnly` without perturbing the content signature.
+    pub(super) streak_epoch: u64,
 }
 
 /// Change-observable, equality-stable quantization of [`CursorRenderParams`] for

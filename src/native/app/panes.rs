@@ -242,10 +242,17 @@ impl App {
         if self.settings.reduced_motion {
             return None;
         }
-        match (self.cursor_ease_deadline, self.cursor_slide_deadline) {
-            (Some(ease), Some(slide)) => Some(ease.min(slide)),
-            (ease, slide) => ease.or(slide),
-        }
+        let streak = (!self.synchronized_output_hold.is_holding())
+            .then(|| self.cursor_streak_deadline())
+            .flatten();
+        [
+            self.cursor_ease_deadline,
+            self.cursor_slide_deadline,
+            streak,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// Advance and paint the focused split pane's cursor consumer for one
@@ -270,6 +277,7 @@ impl App {
         let cursor_on = self.cursor_blink.poll(now, cursor_blinking, focused);
         self.update_cursor_easing(now, cursor_on, cursor_blinking);
         self.update_cursor_motion(now, snapshot, cell);
+        self.update_cursor_streak(now, snapshot, cursor_style, cell);
         if !cursor_on && (!self.settings.cursor_easing || self.settings.reduced_motion) {
             snapshot.cursor_visible = false;
         }
@@ -734,6 +742,7 @@ impl App {
         let mut pane_cursor_effects: Vec<Vec<SolidQuad>> =
             (0..panes_owned.len()).map(|_| Vec::new()).collect();
         let mut pane_cursor_glow = vec![None; panes_owned.len()];
+        let mut pane_cursor_streak = vec![None; panes_owned.len()];
         if let Some((idx, viewport_offset, scrollback_len, cursor_blinking, clip_rect)) =
             focused_cursor_input
             && let Some((snapshot, origin, true, cursor_style, _)) = panes_owned.get_mut(idx)
@@ -750,6 +759,7 @@ impl App {
                 scrollback_len,
             );
             pane_cursor_glow[idx] = self.cursor_glow_request(clip_rect);
+            pane_cursor_streak[idx] = self.cursor_streak_request(now, clip_rect);
         }
 
         // The tab chrome (only when the bar is shown) is drawn as its own region
@@ -856,6 +866,7 @@ impl App {
                 band_glyph_dy_rows: strip.band_glyph_dy_rows,
                 rail_glyph_dy_rows: strip.rail_glyph_dy_rows,
                 cursor_glow: None,
+                cursor_streak: None,
             });
         }
         // Inactive-pane dimming: the focused pane is never dimmed (`0.0`), the
@@ -880,6 +891,7 @@ impl App {
                 band_glyph_dy_rows: 0.0,
                 rail_glyph_dy_rows: 0.0,
                 cursor_glow: pane_cursor_glow[idx],
+                cursor_streak: pane_cursor_streak[idx],
             });
         }
 

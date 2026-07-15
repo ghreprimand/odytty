@@ -193,6 +193,7 @@ fn render_sig(overlays: OverlayCompositeSignature) -> RenderSignature {
             visible: true,
             style: CursorStyle::Block,
             anim: CursorAnimKey::IDENTITY,
+            streak_epoch: 0,
         },
     }
 }

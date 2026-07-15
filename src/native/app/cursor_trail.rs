@@ -28,9 +28,8 @@
 //! overlay quads (ID1 reorder) — composites over them without any double-blend
 //! of the cursor cell (T-TRAIL-3).
 //!
-//! RV1 safety: the echo alpha peaks at `0.09` in the theme cursor-role
-//! color, well under the floor's adjacent-text safety threshold, and it decays
-//! to fully transparent at rest.
+//! The linked strength profile sets echo alpha and lag. Balanced preserves the
+//! original `0.09` / `0.70` treatment; every profile decays fully at rest.
 //!
 //! Off-path contract (`cursor_trail = false`):
 //! [`App::paint_cursor_trail_quads`] returns before emitting any quad and
@@ -39,13 +38,46 @@
 
 use super::overlay_registry::OverlayCtx;
 use super::*;
+use crate::settings::CursorTrailStrength;
 
-/// Fraction of the way back from the cursor's current animated position toward
-/// the slide origin (`0.0` = current, `1.0` = origin).
-const TRAIL_ECHO_LAG: f32 = 0.7;
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct CursorTrailProfile {
+    pub(super) echo_alpha: f32,
+    pub(super) echo_lag: f32,
+    pub(super) streak_alpha: f32,
+    pub(super) radius_scale: f32,
+    pub(super) duration_min: Duration,
+    pub(super) duration_max: Duration,
+}
 
-/// Peak opacity for the single restrained motion echo.
-const TRAIL_ECHO_ALPHA: f32 = 0.09;
+pub(super) fn cursor_trail_profile(strength: CursorTrailStrength) -> CursorTrailProfile {
+    match strength {
+        CursorTrailStrength::Subtle => CursorTrailProfile {
+            echo_alpha: 0.05,
+            echo_lag: 0.62,
+            streak_alpha: 0.08,
+            radius_scale: 0.75,
+            duration_min: Duration::from_millis(120),
+            duration_max: Duration::from_millis(150),
+        },
+        CursorTrailStrength::Balanced => CursorTrailProfile {
+            echo_alpha: 0.09,
+            echo_lag: 0.70,
+            streak_alpha: 0.12,
+            radius_scale: 1.0,
+            duration_min: Duration::from_millis(150),
+            duration_max: Duration::from_millis(185),
+        },
+        CursorTrailStrength::Expressive => CursorTrailProfile {
+            echo_alpha: 0.13,
+            echo_lag: 0.78,
+            streak_alpha: 0.16,
+            radius_scale: 1.25,
+            duration_min: Duration::from_millis(175),
+            duration_max: Duration::from_millis(220),
+        },
+    }
+}
 
 /// Ordinary one-cell cursor steps stay clean; the trail begins at two cells.
 const MIN_TRAIL_CELLS: f32 = 2.0;
@@ -121,10 +153,11 @@ impl App {
         let base = text::foreground_linear(Color::Rgb(r, g, b));
         // Echo offset = current offset lerped toward the origin offset by the
         // fixed lag (the path the cursor just traversed).
-        let gx = o[0] + (f[0] - o[0]) * TRAIL_ECHO_LAG;
-        let gy = o[1] + (f[1] - o[1]) * TRAIL_ECHO_LAG;
+        let profile = cursor_trail_profile(self.settings.cursor_trail_strength);
+        let gx = o[0] + (f[0] - o[0]) * profile.echo_lag;
+        let gy = o[1] + (f[1] - o[1]) * profile.echo_lag;
         let mut color = base;
-        color[3] = TRAIL_ECHO_ALPHA * intensity;
+        color[3] = profile.echo_alpha * intensity;
         out.push(SolidQuad {
             rect: [x0 + gx, y0 + gy, x0 + gx + cell_w, y0 + gy + cell_h],
             color,
@@ -301,7 +334,11 @@ mod tests {
             );
             assert!(q.color[3] > 0.0, "visible mid-glide");
             assert!(
-                (q.color[3] - TRAIL_ECHO_ALPHA).abs() <= 1e-6,
+                (q.color[3]
+                    - cursor_trail_profile(crate::settings::CursorTrailStrength::Balanced)
+                        .echo_alpha)
+                    .abs()
+                    <= 1e-6,
                 "mid-glide reaches the restrained peak alpha: {}",
                 q.color[3]
             );

@@ -190,6 +190,7 @@ impl App {
                 visible: snapshot.cursor_visible,
                 style: self.last_presented_cursor_style,
                 anim: CursorAnimKey::from_params(&params),
+                streak_epoch: self.cursor_streak_epoch(),
             },
         };
         let update = RenderSignature::update_from(self.last_render_signature.as_ref(), &signature);

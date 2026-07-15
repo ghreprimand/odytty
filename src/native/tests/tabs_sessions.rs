@@ -442,10 +442,11 @@ fn split_focused_cursor_effects_advance_without_background_wakes() {
 
     app.disable_cursor_effects_for_test();
     app.set_last_presented_snapshot_for_test(prior);
-    let (off_effects, off_glow, off_params) =
+    let (off_effects, off_glow, off_streak, off_params) =
         app.advance_multipane_cursor_effects_for_test(t0, &mut current, cell, origin);
     assert!(off_effects.is_empty());
     assert!(off_glow.is_none());
+    assert!(off_streak.is_none());
     assert_eq!(off_params, CursorRenderParams::default());
     assert!(
         app.focused_cursor_animation_deadline_for_test().is_none(),
@@ -459,7 +460,7 @@ fn split_focused_cursor_effects_advance_without_background_wakes() {
     // parameters. This one-cell move intentionally emits no trail echo, keeping
     // focused split-pane typing as crisp as single-pane.
     let _ = app.advance_multipane_cursor_effects_for_test(t0, &mut current, cell, origin);
-    let (effects, glow, params) = app.advance_multipane_cursor_effects_for_test(
+    let (effects, glow, streak, params) = app.advance_multipane_cursor_effects_for_test(
         t0 + Duration::from_millis(20),
         &mut current,
         cell,
@@ -475,6 +476,7 @@ fn split_focused_cursor_effects_advance_without_background_wakes() {
         "focused split cursor advances eased alpha"
     );
     assert!(effects.is_empty(), "one-cell moves omit the trail echo");
+    assert!(streak.is_none(), "nearby moves emit no large-jump streak");
     let logical_cursor_x = origin[0] + current.cursor.column as f32 * cell.width as f32;
     let glow = glow.expect("focused split emits one clipped aura request");
     assert_eq!(
@@ -526,6 +528,66 @@ fn split_focused_cursor_effects_advance_without_background_wakes() {
             later.saturating_duration_since(next)
         ),
     }
+}
+
+#[test]
+fn split_large_jump_streak_uses_only_the_focused_pane_clip_and_wake() {
+    let Some((mut app, _bytes)) = single_session_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal, writer, pty, _b)) = recorded_session(NativeOptions::default().initial_grid)
+    else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    app.enable_cursor_effects_for_test();
+
+    let t0 = Instant::now();
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 0,
+    };
+    let origin = [160.0, 80.0];
+    let mut prior = snapshot(&["                    "], 20);
+    let mut current = prior.clone();
+    current.cursor.column = 12;
+    app.set_last_presented_snapshot_for_test(prior.clone());
+    let _ = app.advance_multipane_cursor_effects_for_test(t0, &mut prior, cell, origin);
+
+    let pending_at = t0 + Duration::from_millis(1);
+    let (_, _, pending, _) =
+        app.advance_multipane_cursor_effects_for_test(pending_at, &mut current, cell, origin);
+    assert!(
+        pending.is_none(),
+        "large jump waits for a stable destination"
+    );
+    assert_eq!(
+        app.cursor_streak_deadline_for_test(),
+        Some(pending_at + Duration::from_millis(40))
+    );
+
+    let active_at = pending_at + Duration::from_millis(40);
+    let (_, _, streak, _) =
+        app.advance_multipane_cursor_effects_for_test(active_at, &mut current, cell, origin);
+    let streak = streak.expect("stable focused-pane jump activates one streak");
+    assert_eq!(streak.source, Position { row: 0, column: 0 });
+    assert_eq!(streak.destination, Position { row: 0, column: 12 });
+    assert_eq!(
+        streak.clip_rect,
+        [
+            origin[0],
+            origin[1],
+            origin[0] + 20.0 * cell.width as f32,
+            origin[1] + cell.height as f32,
+        ]
+    );
+    assert!(
+        app.background_cursor_timers_parked_for_test(),
+        "the background split pane contributes no streak wake"
+    );
 }
 
 #[test]

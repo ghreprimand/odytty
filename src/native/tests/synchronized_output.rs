@@ -7,8 +7,10 @@ fn synchronized_output_hold_releases_on_decrst() {
     let t0 = Instant::now();
 
     assert!(hold.should_hold(true, t0));
+    assert!(hold.is_holding());
     assert_eq!(hold.deadline(), Some(t0 + SYNCHRONIZED_OUTPUT_TIMEOUT));
     assert!(!hold.should_hold(false, t0 + Duration::from_millis(20)));
+    assert!(!hold.is_holding());
     assert_eq!(hold.deadline(), None);
 
     assert!(hold.should_hold(true, t0 + Duration::from_millis(40)));
@@ -23,6 +25,7 @@ fn synchronized_output_hold_times_out_without_sleeping() {
     assert!(!hold.is_due(t0 + SYNCHRONIZED_OUTPUT_TIMEOUT - Duration::from_millis(1)));
     assert!(hold.is_due(t0 + SYNCHRONIZED_OUTPUT_TIMEOUT));
     assert!(!hold.should_hold(true, t0 + SYNCHRONIZED_OUTPUT_TIMEOUT));
+    assert!(!hold.is_holding());
 
     assert!(
         !hold.should_hold(

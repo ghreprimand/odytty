@@ -129,3 +129,35 @@ fn reduced_motion_live_reload_preserves_individual_preferences() {
     assert!(current.cursor_motion);
     assert!(current.new_output_fade);
 }
+
+#[test]
+fn cursor_trail_strength_parses_config_env_and_edit_round_trip() {
+    for (raw, expected) in [
+        ("subtle", CursorTrailStrength::Subtle),
+        ("balanced", CursorTrailStrength::Balanced),
+        ("expressive", CursorTrailStrength::Expressive),
+    ] {
+        let (from_config, warnings) =
+            settings_from_config(&format!("cursor_trail_strength = {raw}"), []);
+        assert!(warnings.is_empty());
+        assert_eq!(from_config.cursor_trail_strength, expected);
+        assert_eq!(
+            from_config.to_edit_values().get(CURSOR_TRAIL_STRENGTH_ENV),
+            Some(&raw.to_owned())
+        );
+
+        let (from_env, warnings) = settings_from_config(
+            "cursor_trail_strength = subtle",
+            [(CURSOR_TRAIL_STRENGTH_ENV, raw)],
+        );
+        assert!(warnings.is_empty());
+        assert_eq!(from_env.cursor_trail_strength, expected);
+    }
+
+    let (fallback, warnings) = settings_from_config("cursor_trail_strength = loud", []);
+    assert_eq!(
+        fallback.cursor_trail_strength,
+        CursorTrailStrength::Balanced
+    );
+    assert_eq!(warnings.len(), 1);
+}

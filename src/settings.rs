@@ -523,6 +523,35 @@ pub enum RenderQuality {
     High,
 }
 
+/// Linked intensity profile for nearby cursor echoes and large-jump streaks.
+/// `Balanced` preserves the original nearby echo's opacity and lag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CursorTrailStrength {
+    Subtle,
+    #[default]
+    Balanced,
+    Expressive,
+}
+
+impl CursorTrailStrength {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Subtle => "subtle",
+            Self::Balanced => "balanced",
+            Self::Expressive => "expressive",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match normalize_name(value).as_str() {
+            "subtle" | "low" | "quiet" => Some(Self::Subtle),
+            "balanced" | "default" | "normal" => Some(Self::Balanced),
+            "expressive" | "high" | "strong" => Some(Self::Expressive),
+            _ => None,
+        }
+    }
+}
+
 impl RenderQuality {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -1236,6 +1265,8 @@ pub struct Settings {
     /// so it is visible only while `cursor_motion` is also on; purely
     /// presentational, never affects cell semantics or the logical cursor.
     pub cursor_trail: bool,
+    /// Linked intensity profile for the nearby echo and large-jump streak.
+    pub cursor_trail_strength: CursorTrailStrength,
     /// Whether the cursor glides between adjacent positions instead of
     /// teleporting (VE4). Off by default; the off path sits at the exact cell
     /// origin (zero offset), byte-identical to before. Discontinuities always
@@ -1616,6 +1647,7 @@ impl Default for Settings {
             cursor_easing: DEFAULT_CURSOR_EASING,
             cursor_glow: DEFAULT_CURSOR_GLOW,
             cursor_trail: DEFAULT_CURSOR_TRAIL,
+            cursor_trail_strength: CursorTrailStrength::default(),
             cursor_motion: DEFAULT_CURSOR_MOTION,
             reduced_motion: DEFAULT_REDUCED_MOTION,
             osc52_read: false,
@@ -2171,6 +2203,19 @@ impl Settings {
             DEFAULT_CURSOR_TRAIL,
             &mut warn,
         );
+        let raw_cursor_trail_strength = get(CURSOR_TRAIL_STRENGTH_ENV);
+        let cursor_trail_strength = raw_cursor_trail_strength
+            .as_deref()
+            .and_then(|raw| raw.to_str())
+            .and_then(CursorTrailStrength::parse)
+            .unwrap_or_else(|| {
+                if let Some(raw) = raw_cursor_trail_strength.as_ref() {
+                    warn(&format!(
+                        "{CURSOR_TRAIL_STRENGTH_ENV}={raw:?} is not a valid cursor-trail strength; using balanced"
+                    ));
+                }
+                CursorTrailStrength::default()
+            });
         let cursor_motion = parse_bool_setting(
             get(CURSOR_MOTION_ENV).as_deref(),
             CURSOR_MOTION_ENV,
@@ -2519,6 +2564,7 @@ impl Settings {
             cursor_easing,
             cursor_glow,
             cursor_trail,
+            cursor_trail_strength,
             cursor_motion,
             reduced_motion,
             osc52_read,
@@ -2677,6 +2723,10 @@ impl Settings {
         );
         values.insert(CURSOR_GLOW_ENV, bool_display(self.cursor_glow).to_owned());
         values.insert(CURSOR_TRAIL_ENV, bool_display(self.cursor_trail).to_owned());
+        values.insert(
+            CURSOR_TRAIL_STRENGTH_ENV,
+            self.cursor_trail_strength.as_str().to_owned(),
+        );
         values.insert(
             CURSOR_MOTION_ENV,
             bool_display(self.cursor_motion).to_owned(),
