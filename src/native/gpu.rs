@@ -296,6 +296,13 @@ pub(super) fn append_cursor_glow_vertices(
     ]);
 }
 
+pub(super) fn retained_cursor_effects(
+    overlays: &[SolidQuad],
+    cursor_glow: Option<CursorGlowRequest>,
+) -> (Vec<SolidQuad>, Option<CursorGlowRequest>) {
+    (overlays.to_vec(), cursor_glow)
+}
+
 #[cfg(test)]
 pub(super) fn cursor_glow_falloff(outside: f32, radius: f32) -> f32 {
     let normalized = outside.max(0.0) / radius.max(0.001);
@@ -1278,6 +1285,8 @@ pub(super) struct GpuState {
     cursor_vertices: Vec<Vertex>,
     cursor_glow_vertices: Vec<CursorGlowVertex>,
     cursor_glow_vertex_count: u32,
+    retained_cursor_overlays: Vec<SolidQuad>,
+    retained_cursor_glow: Option<CursorGlowRequest>,
     color_glyph_vertices: Vec<ColorGlyphVertex>,
     color_glyph_runs: Vec<ColorGlyphRun>,
     vertex_count: u32,
@@ -1855,6 +1864,8 @@ impl GpuState {
             cursor_vertices: Vec::new(),
             cursor_glow_vertices: Vec::with_capacity(grid::VERTS_PER_QUAD),
             cursor_glow_vertex_count: 0,
+            retained_cursor_overlays: Vec::new(),
+            retained_cursor_glow: None,
             color_glyph_vertices,
             color_glyph_runs: initial_color_glyph_runs,
             vertex_count,
@@ -2532,6 +2543,8 @@ impl GpuState {
         let mut tail: Vec<Vertex> = Vec::new();
         let mut pane_buf: Vec<Vertex> = Vec::new();
         let mut cursor_glow_instance = None;
+        let mut retained_cursor_overlays = Vec::new();
+        let mut retained_cursor_glow = None;
         for (pane, runs) in panes.iter().zip(pane_runs.iter()) {
             pane_buf.clear();
             grid::build_cell_vertices_with_focus_dim_and_origin_into(
@@ -2603,6 +2616,8 @@ impl GpuState {
                         request,
                     )
                 });
+                retained_cursor_overlays.extend_from_slice(pane.overlays);
+                retained_cursor_glow = pane.cursor_glow;
                 grid::append_cursor_vertices_with_origin(
                     &mut tail,
                     pane.snapshot,
@@ -2618,6 +2633,8 @@ impl GpuState {
             grid::clip_quads_vertical(&mut tail[tail_start..], pane.clip);
         }
         self.write_cursor_glow_instance(cursor_glow_instance);
+        self.retained_cursor_overlays = retained_cursor_overlays;
+        self.retained_cursor_glow = retained_cursor_glow;
 
         // NF11: wash the wallpaper wherever no pane grid covers it (padding
         // band, sub-cell remainder strips, divider gaps) — same gate, color
@@ -2951,6 +2968,9 @@ impl GpuState {
             cursor_params,
         );
         self.rebuild_cursor_glow(snapshot, cursor_style, origin, cursor_params, cursor_glow);
+        self.retained_cursor_overlays.clear();
+        self.retained_cursor_overlays.extend_from_slice(overlays);
+        self.retained_cursor_glow = cursor_glow;
         // F4-P3: the revealed rail overlay strip draws topmost — after the
         // cursor and every overlay — so the floating band sits over the live
         // content it reveals atop. `None` leaves the frame byte-identical.
@@ -3057,6 +3077,47 @@ impl GpuState {
     }
 
     pub(super) fn update_cursor_and_overlays(
+        &mut self,
+        snapshot: &Snapshot,
+        cursor_style: CursorStyle,
+        overlays: &[SolidQuad],
+        cursor_glow: Option<CursorGlowRequest>,
+        params: CursorRenderParams,
+    ) {
+        self.retained_cursor_overlays.clear();
+        self.retained_cursor_overlays.extend_from_slice(overlays);
+        self.retained_cursor_glow = cursor_glow;
+        self.update_cursor_and_overlays_inner(
+            snapshot,
+            cursor_style,
+            overlays,
+            cursor_glow,
+            params,
+        );
+    }
+
+    /// Rebuild a held synchronized-output cursor frame with the exact solid
+    /// overlays and analytic-aura request retained from the last presented
+    /// frame. Blink and easing parameters remain live while trail/glow geometry
+    /// stays present until the synchronized content frame is released.
+    pub(super) fn update_cursor_with_retained_overlays(
+        &mut self,
+        snapshot: &Snapshot,
+        cursor_style: CursorStyle,
+        params: CursorRenderParams,
+    ) {
+        let (overlays, cursor_glow) =
+            retained_cursor_effects(&self.retained_cursor_overlays, self.retained_cursor_glow);
+        self.update_cursor_and_overlays_inner(
+            snapshot,
+            cursor_style,
+            &overlays,
+            cursor_glow,
+            params,
+        );
+    }
+
+    fn update_cursor_and_overlays_inner(
         &mut self,
         snapshot: &Snapshot,
         cursor_style: CursorStyle,

@@ -197,10 +197,9 @@ impl App {
         if let Some(gpu) = self.gpu.as_mut() {
             match update {
                 GeometryUpdate::Full | GeometryUpdate::CursorOnly => {
-                    gpu.update_cursor_and_overlays(
+                    gpu.update_cursor_with_retained_overlays(
                         &snapshot,
                         last_presented_cursor_style,
-                        &[],
                         params,
                     );
                 }

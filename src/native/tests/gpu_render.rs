@@ -313,6 +313,20 @@ fn cursor_glow_hidden_unfocused_and_zero_alpha_emit_nothing() {
 }
 
 #[test]
+fn synchronized_output_hold_retains_trail_and_glow_inputs() {
+    let trail = SolidQuad {
+        rect: [20.0, 30.0, 40.0, 70.0],
+        color: [0.1, 0.2, 0.3, 0.09],
+    };
+    let glow = CursorGlowRequest {
+        clip_rect: [10.0, 10.0, 200.0, 160.0],
+    };
+    let (held_overlays, held_glow) = retained_cursor_effects(&[trail], Some(glow));
+    assert_eq!(held_overlays, vec![trail], "held frame retains trail quads");
+    assert_eq!(held_glow, Some(glow), "held frame retains the aura request");
+}
+
+#[test]
 fn cursor_glow_shader_and_pipeline_validate() {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
