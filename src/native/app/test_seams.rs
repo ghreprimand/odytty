@@ -1783,6 +1783,16 @@ impl App {
         self.rail_ws_drag.map(|d| (d.armed, d.drop_idx))
     }
 
+    /// Widget overlay quads retained by the revealed auto-hide rail path.
+    #[cfg(test)]
+    pub(in crate::native) fn rail_overlay_widget_quads_for_test(&self) -> Vec<SolidQuad> {
+        let Some(cell) = self.resolved_cell() else {
+            return Vec::new();
+        };
+        self.build_rail_overlay(cell)
+            .map_or_else(Vec::new, |overlay| overlay.widget_quads)
+    }
+
     /// Test seam (TOP-TAB-DRAG): armed state and live insertion index.
     #[cfg(test)]
     pub(in crate::native) fn top_tab_drag_for_test(&self) -> Option<(bool, usize)> {

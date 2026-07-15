@@ -5413,6 +5413,50 @@ fn an_autohide_workspace_drag_uses_cursor_moved_and_reorders() {
 }
 
 #[test]
+fn autohide_overlay_retains_active_and_reorder_quads_on_both_sides() {
+    for side in ["left", "right"] {
+        let Some(mut app) = rail_drag_app() else {
+            eprintln!("skipping: no PTY available");
+            return;
+        };
+        app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+        app.set_workspace_rail_for_test(side);
+        app.set_tab_rail_autohide_for_test(true);
+        app.force_rail_reveal_for_test();
+
+        let resting = app.rail_overlay_widget_quads_for_test();
+        assert_eq!(resting.len(), 1, "{side} overlay retains its active marker");
+        let marker = resting[0];
+        if side == "left" {
+            assert_eq!([marker.rect[0], marker.rect[2]], [0.0, 3.0]);
+        } else {
+            assert_eq!([marker.rect[0], marker.rect[2]], [797.0, 800.0]);
+        }
+
+        let pointer_x = if side == "left" { 20.0 } else { 680.0 };
+        app.pointer_move_for_test(pointer_x, 24.0);
+        app.mouse_left_press_for_test();
+        app.pointer_move_for_test(pointer_x, 140.0);
+        assert_eq!(app.rail_ws_drag_for_test(), Some((true, 3)));
+
+        let dragging = app.rail_overlay_widget_quads_for_test();
+        assert_eq!(
+            dragging.len(),
+            2,
+            "{side} overlay retains active and insertion indicators"
+        );
+        assert!(
+            dragging.iter().any(|quad| {
+                quad.rect[2] - quad.rect[0] > 100.0
+                    && (quad.rect[3] - quad.rect[1] - 2.0).abs() < 0.01
+            }),
+            "{side} overlay retains the horizontal reorder insertion indicator"
+        );
+        app.mouse_left_release_for_test();
+    }
+}
+
+#[test]
 fn a_dragged_workspace_order_persists_through_the_shape_snapshot() {
     // The reorder rides the shape-snapshot autosave path (the same one the
     // context-menu Move Up/Down uses), so a dragged order survives a restart.

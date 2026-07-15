@@ -955,6 +955,7 @@ impl App {
                 origin: data.origin,
                 treatment: treatment_for_overlay,
                 rail_glyph_dy_rows: data.rail_glyph_dy_rows,
+                widget_quads: &data.widget_quads,
                 wash: data.wash,
                 seam: data.seam,
             });

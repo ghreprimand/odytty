@@ -286,6 +286,7 @@ struct RailOverlayData {
     snapshot: Snapshot,
     origin: [f32; 2],
     rail_glyph_dy_rows: f32,
+    widget_quads: Vec<SolidQuad>,
     wash: Option<SolidQuad>,
     seam: Option<SolidQuad>,
 }
@@ -4220,6 +4221,7 @@ impl App {
                 slot_rows.saturating_sub(1) / 2,
                 cell.height,
             ),
+            widget_quads: output.quads,
             wash,
             seam,
         })
@@ -5975,6 +5977,7 @@ impl ApplicationHandler<UserEvent> for App {
                                 origin: data.origin,
                                 treatment: background_treatment,
                                 rail_glyph_dy_rows: data.rail_glyph_dy_rows,
+                                widget_quads: &data.widget_quads,
                                 wash: data.wash,
                                 seam: data.seam,
                             });

@@ -164,7 +164,8 @@ pub(super) struct OverlayTop<'a> {
 /// 1. `wash` — one near-opaque quad UNDER the strip that occludes the live
 ///    content the band floats over (`wash_alpha ≥ 0.85`).
 /// 2. the strip `snapshot` cells + glyphs (the rail's own tint + labels).
-/// 3. `seam` — the content-facing edge line, OVER the strip.
+/// 3. `widget_quads` — active/reorder indicators from the rail widget.
+/// 4. `seam` — the content-facing edge line, OVER the strip.
 ///
 /// Emitted only while the rail is revealed; `None` leaves every frame unchanged.
 pub(super) struct RailOverlay<'a> {
@@ -176,6 +177,8 @@ pub(super) struct RailOverlay<'a> {
     pub(super) treatment: grid::BackgroundTreatmentParams,
     /// Descender-safe slot-centering offset shared with pinned rail strips.
     pub(super) rail_glyph_dy_rows: f32,
+    /// Active and reorder indicators in window pixel geometry.
+    pub(super) widget_quads: &'a [SolidQuad],
     /// Occluding wash quad drawn under the strip, or `None`.
     pub(super) wash: Option<SolidQuad>,
     /// Content-facing seam quad drawn over the strip, or `None`.
@@ -2708,6 +2711,9 @@ impl GpuState {
             rail_overlay_chrome_pin(rail.snapshot.dimensions.columns, rail.rail_glyph_dy_rows),
         );
         self.vertices.extend_from_slice(&strip);
+        for &quad in rail.widget_quads {
+            grid::push_solid_quad(&mut self.vertices, quad);
+        }
         if let Some(seam) = rail.seam {
             grid::push_solid_quad(&mut self.vertices, seam);
         }

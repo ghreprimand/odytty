@@ -157,8 +157,8 @@ pub(super) struct TabRailGlyph {
     pub(super) attrs: Attrs,
 }
 
-/// Output from [`TabRail::render`]: the fully-painted region glyphs plus a
-/// (currently always empty) chrome-quad list.
+/// Output from [`TabRail::render`]: the fully-painted region glyphs plus the
+/// chrome-quad list populated by App integration.
 #[derive(Debug, Default)]
 pub(super) struct TabRailOutput {
     /// Solid pixel-space quads. The widget render starts this empty; App
