@@ -704,6 +704,48 @@ fn cursor_glow_on_emits_three_concentric_rings() {
     );
 }
 
+/// A moving cursor and its glow share the exact live sub-cell offset. This is
+/// the single-pane placement contract; the render signature already observes
+/// the same `CursorRenderParams`, so no additional wake or cache key is needed.
+#[test]
+fn cursor_glow_follows_the_live_slide_offset() {
+    let settings = Settings {
+        cursor_glow: true,
+        cursor_motion: true,
+        ..Default::default()
+    };
+    let Some(mut app) = build_app(settings) else {
+        return;
+    };
+    let mut prior = content_snapshot();
+    prior.cursor = Position { row: 1, column: 1 };
+    app.set_last_presented_snapshot_for_test(prior);
+    let mut current = content_snapshot();
+    current.cursor = Position { row: 1, column: 2 };
+    let now = Instant::now();
+    app.update_cursor_motion(now, &current, cell(CELL_W, CELL_H));
+    let params = app.cursor_render_params();
+    assert_ne!(params.offset, [0.0, 0.0], "slide is active");
+
+    let ctx = app.overlay_ctx(0, cell(CELL_W, CELL_H), current.cursor, true, now);
+    let mut quads = Vec::new();
+    app.paint_cursor_glow_quads(&ctx, &mut quads);
+
+    let x0 = current.cursor.column as f32 * CELL_W as f32 + params.offset[0];
+    let y0 = current.cursor.row as f32 * CELL_H as f32 + params.offset[1];
+    let inner = quads.last().expect("inner glow ring");
+    assert_eq!(
+        inner.rect,
+        [
+            x0 - 1.0,
+            y0 - 1.0,
+            x0 + CELL_W as f32 + 1.0,
+            y0 + CELL_H as f32 + 1.0,
+        ],
+        "glow and cursor block use the same animation offset"
+    );
+}
+
 /// Visibility gate: glow on but the cursor hidden (blink off-phase / DECTCEM)
 /// emits no quads, matching the cursor block which is also not drawn that frame.
 #[test]

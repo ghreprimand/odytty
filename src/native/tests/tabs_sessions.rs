@@ -473,6 +473,14 @@ fn split_focused_cursor_effects_advance_without_background_wakes() {
         "focused split cursor advances eased alpha"
     );
     assert_eq!(effects.len(), 5, "two trail ghosts plus three glow rings");
+    let logical_cursor_x = origin[0] + current.cursor.column as f32 * cell.width as f32;
+    let inner_glow = effects.last().expect("inner glow ring");
+    assert!((inner_glow.rect[0] - (logical_cursor_x + params.offset[0] - 1.0)).abs() < 0.01);
+    assert!(
+        (inner_glow.rect[2] - (logical_cursor_x + params.offset[0] + cell.width as f32 + 1.0))
+            .abs()
+            < 0.01
+    );
     assert!(
         effects.iter().all(|quad| {
             quad.rect[0] >= origin[0] - 0.01

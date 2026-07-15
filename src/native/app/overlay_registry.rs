@@ -48,6 +48,10 @@ pub(in crate::native) struct OverlayCtx {
     /// contributors (ID1 glow, VE4 trail). Captured from the post-blink-resolve
     /// snapshot at the frame-composition call site.
     pub(in crate::native) cursor: Position,
+    /// Live sub-cell cursor displacement for this frame. Cursor-layer geometry
+    /// uses the same value as the cursor block so effects remain centered while
+    /// a motion slide is in flight. Identity at rest and while motion is off.
+    pub(in crate::native) cursor_offset: [f32; 2],
     /// Whether the cursor is drawn this frame (already folds the blink
     /// off-phase). Cursor-layer overlays gate on this so the glow hides exactly
     /// when the cursor block does.
@@ -103,6 +107,7 @@ impl App {
                 .map(GpuState::window_padding)
                 .unwrap_or_default(),
             cursor,
+            cursor_offset: self.cursor_motion_offset(),
             cursor_visible,
             now,
             clear_color: self
@@ -333,8 +338,8 @@ impl App {
         let pad = ctx.window_padding.as_f32();
         let cell_w = ctx.cell.width as f32;
         let cell_h = ctx.cell.height as f32;
-        let x0 = pad + col * cell_w;
-        let y0 = pad + row * cell_h;
+        let x0 = pad + col * cell_w + ctx.cursor_offset[0];
+        let y0 = pad + row * cell_h + ctx.cursor_offset[1];
         let x1 = x0 + cell_w;
         let y1 = y0 + cell_h;
         // Glow color = theme foreground in linear RGB (matches the scroll
