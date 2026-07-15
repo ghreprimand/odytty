@@ -37,9 +37,11 @@ default-terminal setup, and troubleshooting.
 
 ### Linux
 
-Linux needs a Vulkan-capable GPU. The fastest path is the one-line installer,
-which detects your package manager, downloads the matching artifact, and
-checksum-verifies it against `SHA256SUMS` before installing:
+Linux needs a GPU backed by Vulkan or accelerated OpenGL/GLES; OdyTTY prefers
+Vulkan and treats software rendering as a slow last resort. The fastest path is
+the one-line installer, which detects your package manager, downloads the
+matching artifact, and checksum-verifies it against `SHA256SUMS` before
+installing:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash

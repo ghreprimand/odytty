@@ -80,10 +80,11 @@ release.
 
 ## Linux
 
-Linux is the primary and most battle-tested platform, and it needs a
-Vulkan-capable GPU. Wayland is the primary display target. X11 works through
-the current `winit` and GPU stack, with some window-manager-dependent behavior
-for borderless windows and OS theme detection.
+Linux is the primary and most battle-tested platform. OdyTTY prefers a Vulkan
+adapter, but accelerated OpenGL/GLES also works and software rendering remains
+a slow last resort. Wayland is the primary display target. X11 works through the
+current `winit` and GPU stack, with some window-manager-dependent behavior for
+borderless windows and OS theme detection.
 
 ### One-line installer (recommended)
 
@@ -182,10 +183,11 @@ The executable bit is required because browsers normally omit it. Without
 "permission denied".
 
 The AppImage bundles OdyTTY's own dependencies but **not** the graphics driver:
-it uses the host's Vulkan ICD (Mesa or a vendor driver), so the machine needs a
-working Vulkan setup - the same requirement as a source build. It is built on
-the oldest supported Ubuntu LTS for a wide glibc floor. This is a best-effort
-artifact; if Vulkan initialization fails on your host, build from source.
+it uses the host's Vulkan ICD or accelerated OpenGL/GLES stack, the same graphics
+requirement as a source build. It is built on the oldest supported Ubuntu LTS
+for a wide glibc floor. This is a best-effort artifact; if GPU initialization
+fails, see [No Vulkan adapter, accelerated GL, and virtual
+machines](#no-vulkan-adapter-accelerated-gl-and-virtual-machines).
 
 To integrate it into menus, tools like [Gear Lever][gearlever] or
 `appimaged` register the bundled desktop entry and icon. The AppImage can be

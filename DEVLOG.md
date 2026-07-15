@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Linux requirements include accelerated OpenGL
+
+The front-page and install guidance now describe accelerated OpenGL/GLES as a
+supported Linux rendering path instead of requiring Vulkan. AppImage guidance
+now points GPU initialization failures to the backend troubleshooting path;
+rebuilding the same renderer from source is no longer presented as a driver
+remedy.
+
+Verification: documentation-only change checked against the live adapter
+selection path and its accelerated-GL regression coverage; the Rust suite was
+not rerun.
+
 ## 2026-07-15 -- Config saves preserve every documented setting
 
 The canonical config-key map now covers `remote_tmux` and
