@@ -14,37 +14,41 @@
 //! settles (`cursor_slide_start` returns to `None`). This is the bounded-repaint
 //! contract: no perpetual wake is ever armed by the trail (T-TRAIL-2).
 //!
-//! Ghost geometry (D-VE4T-3): each ghost sits between the cursor's current
+//! Echo geometry (D-VE4T-3): the echo sits between the cursor's current
 //! animated position (offset `o = cursor_anim_offset`) and the slide origin
 //! (offset `f = cursor_slide_from_px`), at a fixed lag fraction back toward the
-//! origin — the cells the cursor just passed through. The ghost intensity is a
+//! origin — the cells the cursor just passed through. One-cell moves omit the
+//! echo so ordinary typing stays crisp; only short moves of two through six
+//! cells produce it. The echo intensity is a
 //! single half-sine bump over the *remaining* displacement fraction
 //! `remain = |o| / |f|`: `sin(remain · π)`, which is `0` at the slide start
-//! (`remain == 1`, the ghosts coincide with the cursor) and `0` at the slide end
-//! (`remain == 0`), peaking mid-glide. So the ghosts never pile opaque on the
+//! (`remain == 1`, the echo coincides with the cursor) and `0` at the slide end
+//! (`remain == 0`), peaking mid-glide. So the echo never piles opaque on the
 //! cursor cell at either endpoint, and the cursor block — drawn AFTER the
 //! overlay quads (ID1 reorder) — composites over them without any double-blend
 //! of the cursor cell (T-TRAIL-3).
 //!
-//! RV1 safety: the ghost alphas are capped low (≤ 0.16) in the theme cursor-role
-//! color, well under the floor's adjacent-text safety threshold, and they decay
+//! RV1 safety: the echo alpha peaks at `0.09` in the theme cursor-role
+//! color, well under the floor's adjacent-text safety threshold, and it decays
 //! to fully transparent at rest.
 //!
-//! Off-path contract (`cursor_trail` defaults to `false`):
+//! Off-path contract (`cursor_trail = false`):
 //! [`App::paint_cursor_trail_quads`] returns before emitting any quad and
-//! [`App::cursor_trail_overlay_signature`] is constant `Inert`, so the default
-//! render path is byte-identical to before this feature existed and the
-//! geometry-update decision is unchanged.
+//! [`App::cursor_trail_overlay_signature`] is constant `Inert`, so disabling the
+//! feature emits no geometry and does not source animation work.
 
 use super::overlay_registry::OverlayCtx;
 use super::*;
 
-/// Per-ghost `(lag, base_alpha)` along the slide path, ordered nearest-cursor
-/// first. `lag` is the fraction of the way back from the cursor's current
-/// animated position toward the slide origin (`0.0` = current, `1.0` = origin);
-/// `base_alpha` is the peak opacity (further ghosts are fainter). Capped at
-/// `0.16` to keep the trail under the RV1 floor's adjacent-cell safety margin.
-const TRAIL_GHOSTS: [(f32, f32); 2] = [(0.5, 0.16), (0.85, 0.09)];
+/// Fraction of the way back from the cursor's current animated position toward
+/// the slide origin (`0.0` = current, `1.0` = origin).
+const TRAIL_ECHO_LAG: f32 = 0.7;
+
+/// Peak opacity for the single restrained motion echo.
+const TRAIL_ECHO_ALPHA: f32 = 0.09;
+
+/// Ordinary one-cell cursor steps stay clean; the trail begins at two cells.
+const MIN_TRAIL_CELLS: f32 = 2.0;
 
 /// Below this displacement magnitude (in pixels) the slide is treated as
 /// degenerate (no meaningful path) and the trail emits nothing — guards the
@@ -57,10 +61,10 @@ impl App {
     /// No-op unless `cursor_trail` is on, the cursor is drawn this frame, and a
     /// cursor slide is actually in flight (`cursor_slide_start.is_some()`), so
     /// the trail only ever appears layered on the existing slide animation. Each
-    /// ghost is a cursor-cell-sized [`SolidQuad`] in the theme cursor-role color
-    /// at a position lagging behind the gliding cursor, with a half-sine
-    /// intensity that is zero at both slide endpoints. Drawn before the cursor
-    /// block (cursor-layer overlay), so the cursor composites on top.
+    /// qualifying move emits one cursor-cell-sized [`SolidQuad`] in the theme
+    /// cursor-role color at a position lagging behind the gliding cursor, with a
+    /// half-sine intensity that is zero at both slide endpoints. Drawn before
+    /// the cursor block (cursor-layer overlay), so the cursor composites on top.
     pub(in crate::native) fn paint_cursor_trail_quads(
         &self,
         ctx: &OverlayCtx,
@@ -86,6 +90,15 @@ impl App {
         if fmag < MIN_TRAIL_PX {
             return;
         }
+        let cell_w = ctx.cell.width as f32;
+        let cell_h = ctx.cell.height as f32;
+        if cell_w <= 0.0 || cell_h <= 0.0 {
+            return;
+        }
+        let move_cells = f[0].abs() / cell_w + f[1].abs() / cell_h;
+        if !(MIN_TRAIL_CELLS..=super::cursor_frame::MAX_SLIDE_CELLS).contains(&move_cells) {
+            return;
+        }
         let omag = (o[0] * o[0] + o[1] * o[1]).sqrt();
         // Remaining-displacement fraction: 1.0 at the slide start (cursor at the
         // origin), 0.0 at the end (cursor settled). The half-sine bump peaks
@@ -100,26 +113,22 @@ impl App {
         let col = ctx.cursor.column.min(cols - 1) as f32;
         let row = ctx.cursor.row.min(rows - 1) as f32;
         let pad = ctx.window_padding.as_f32();
-        let cell_w = ctx.cell.width as f32;
-        let cell_h = ctx.cell.height as f32;
         let x0 = pad + col * cell_w;
         let y0 = pad + row * cell_h;
         // Trail color = theme cursor-role color in linear RGB (matches the
-        // cursor block's default color basis); per-ghost alpha set below.
+        // cursor block's default color basis); echo alpha set below.
         let (r, g, b) = self.effective_theme.cursor;
         let base = text::foreground_linear(Color::Rgb(r, g, b));
-        for (lag, base_alpha) in TRAIL_GHOSTS {
-            // Ghost offset = current offset lerped toward the origin offset by
-            // `lag` (the path the cursor just traversed).
-            let gx = o[0] + (f[0] - o[0]) * lag;
-            let gy = o[1] + (f[1] - o[1]) * lag;
-            let mut color = base;
-            color[3] = base_alpha * intensity;
-            out.push(SolidQuad {
-                rect: [x0 + gx, y0 + gy, x0 + gx + cell_w, y0 + gy + cell_h],
-                color,
-            });
-        }
+        // Echo offset = current offset lerped toward the origin offset by the
+        // fixed lag (the path the cursor just traversed).
+        let gx = o[0] + (f[0] - o[0]) * TRAIL_ECHO_LAG;
+        let gy = o[1] + (f[1] - o[1]) * TRAIL_ECHO_LAG;
+        let mut color = base;
+        color[3] = TRAIL_ECHO_ALPHA * intensity;
+        out.push(SolidQuad {
+            rect: [x0 + gx, y0 + gy, x0 + gx + cell_w, y0 + gy + cell_h],
+            color,
+        });
     }
 
     /// Render-cache fragment. Constant `CursorTrail { phase: 0 }` while the trail
@@ -187,13 +196,17 @@ mod tests {
         )
     }
 
-    /// Arm a mid-glide slide directly: a 3-column rightward move, half-decayed.
-    fn arm_midslide(app: &mut App) {
-        let full = [3.0 * CELL_W as f32, 0.0];
+    /// Arm a horizontal slide directly at a chosen remaining fraction.
+    fn arm_slide(app: &mut App, cells: f32, remain: f32) {
+        let full = [cells * CELL_W as f32, 0.0];
         app.cursor_slide_from_px = full;
-        // Half of the displacement still pending ⇒ remain == 0.5 ⇒ peak intensity.
-        app.cursor_anim_offset = [full[0] * 0.5, 0.0];
+        app.cursor_anim_offset = [full[0] * remain, 0.0];
         app.cursor_slide_start = Some(Instant::now());
+    }
+
+    /// Arm a mid-glide 3-column move at the echo's peak intensity.
+    fn arm_midslide(app: &mut App) {
+        arm_slide(app, 3.0, 0.5);
     }
 
     fn pos(row: usize, column: usize) -> Position {
@@ -253,10 +266,22 @@ mod tests {
         assert!(quads.is_empty(), "hidden cursor emits no trail");
     }
 
-    // --- T-TRAIL-3: bounded ghost set, correct color, low alpha -------------
+    // --- T-TRAIL-3: distance gate, one restrained echo ----------------------
 
     #[test]
-    fn midslide_emits_capped_low_alpha_cursor_color_ghosts() {
+    fn one_cell_move_emits_no_echo() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.settings.cursor_trail = true;
+        arm_slide(&mut app, 1.0, 0.5);
+        let mut quads = Vec::new();
+        app.paint_cursor_trail_quads(&ctx_at(&app, pos(2, 10), true, Instant::now()), &mut quads);
+        assert!(quads.is_empty(), "ordinary one-cell typing emits no echo");
+    }
+
+    #[test]
+    fn short_midslide_emits_one_restrained_cursor_color_echo() {
         let Some(mut app) = build_app() else {
             return;
         };
@@ -265,19 +290,19 @@ mod tests {
         let cursor = pos(2, 10);
         let mut quads = Vec::new();
         app.paint_cursor_trail_quads(&ctx_at(&app, cursor, true, Instant::now()), &mut quads);
-        assert_eq!(quads.len(), TRAIL_GHOSTS.len(), "one quad per ghost");
+        assert_eq!(quads.len(), 1, "a short move emits one echo");
         let (r, g, b) = app.effective_theme.cursor;
         let expect = crate::text::foreground_linear(crate::core::Color::Rgb(r, g, b));
         for q in &quads {
             assert_eq!(
                 [q.color[0], q.color[1], q.color[2]],
                 [expect[0], expect[1], expect[2]],
-                "ghosts use the theme cursor color"
+                "the echo uses the theme cursor color"
             );
             assert!(q.color[3] > 0.0, "visible mid-glide");
             assert!(
-                q.color[3] <= 0.16 + 1e-6,
-                "alpha stays under the RV1 safety cap: {}",
+                (q.color[3] - TRAIL_ECHO_ALPHA).abs() <= 1e-6,
+                "mid-glide reaches the restrained peak alpha: {}",
                 q.color[3]
             );
             // Cell-sized quad.
@@ -289,8 +314,57 @@ mod tests {
         let dest_x = pad + cursor.column as f32 * CELL_W as f32;
         assert!(
             quads.iter().all(|q| q.rect[0] > dest_x - 1e-3),
-            "ghosts sit between current offset and origin, never past the destination"
+            "the echo sits between current offset and origin, never past the destination"
         );
+    }
+
+    #[test]
+    fn two_and_six_cell_moves_each_emit_one_echo() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.settings.cursor_trail = true;
+        for cells in [MIN_TRAIL_CELLS, super::super::cursor_frame::MAX_SLIDE_CELLS] {
+            arm_slide(&mut app, cells, 0.5);
+            let mut quads = Vec::new();
+            app.paint_cursor_trail_quads(
+                &ctx_at(&app, pos(2, 10), true, Instant::now()),
+                &mut quads,
+            );
+            assert_eq!(quads.len(), 1, "{cells}-cell move emits one echo");
+        }
+    }
+
+    #[test]
+    fn snapped_large_move_emits_no_echo() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.settings.cursor_trail = true;
+        arm_slide(
+            &mut app,
+            super::super::cursor_frame::MAX_SLIDE_CELLS + 1.0,
+            0.5,
+        );
+        let mut quads = Vec::new();
+        app.paint_cursor_trail_quads(&ctx_at(&app, pos(2, 10), true, Instant::now()), &mut quads);
+        assert!(
+            quads.is_empty(),
+            "a move beyond the snap threshold emits no echo"
+        );
+    }
+
+    #[test]
+    fn reduced_motion_emits_no_echo() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.settings.cursor_trail = true;
+        app.settings.reduced_motion = true;
+        arm_midslide(&mut app);
+        let mut quads = Vec::new();
+        app.paint_cursor_trail_quads(&ctx_at(&app, pos(2, 10), true, Instant::now()), &mut quads);
+        assert!(quads.is_empty(), "reduced motion emits no echo");
     }
 
     // --- T-TRAIL-2: intensity is zero at both slide endpoints ---------------

@@ -551,10 +551,10 @@ fn motion_slides_between_adjacent_cells_then_settles() {
     );
 }
 
-/// The shipped defaults make the trail an active consumer of cursor motion;
-/// reduced motion still snaps the cursor, emits no trail, and parks its wake.
+/// The shipped defaults glide ordinary typing without a trail smear; reduced
+/// motion still snaps the cursor and parks its wake.
 #[test]
-fn default_motion_activates_trail_and_reduced_motion_forces_static() {
+fn default_motion_keeps_typing_crisp_and_reduced_motion_forces_static() {
     let settings = Settings::default();
     assert!(settings.cursor_motion, "cursor motion defaults on");
     assert!(settings.cursor_trail, "cursor trail defaults on");
@@ -577,8 +577,8 @@ fn default_motion_activates_trail_and_reduced_motion_forces_static() {
     let mut trail = Vec::new();
     app.paint_cursor_trail_quads(&ctx, &mut trail);
     assert!(
-        !trail.is_empty(),
-        "the default trail is visible during a slide"
+        trail.is_empty(),
+        "ordinary one-cell typing emits no trail echo"
     );
     assert_ne!(app.cursor_render_params().offset, [0.0, 0.0]);
     assert!(app.animation_deadline().is_some(), "slide wake is bounded");

@@ -454,8 +454,9 @@ fn split_focused_cursor_effects_advance_without_background_wakes() {
     app.enable_cursor_effects_for_test();
     app.set_last_presented_snapshot_for_test(snapshot(&["  "], 2));
 
-    // The first frame arms the slide; the next advances it far enough for both
-    // trail ghosts and all three glow rings to be visible.
+    // The first frame arms the slide; the next advances it far enough for all
+    // three glow rings to be visible. This one-cell move intentionally emits no
+    // trail echo, keeping focused split-pane typing as crisp as single-pane.
     let _ = app.advance_multipane_cursor_effects_for_test(t0, &mut current, cell, origin);
     let (effects, params) = app.advance_multipane_cursor_effects_for_test(
         t0 + Duration::from_millis(20),
@@ -472,7 +473,7 @@ fn split_focused_cursor_effects_advance_without_background_wakes() {
         params.alpha > 0.0 && params.alpha < 1.0,
         "focused split cursor advances eased alpha"
     );
-    assert_eq!(effects.len(), 5, "two trail ghosts plus three glow rings");
+    assert_eq!(effects.len(), 3, "one-cell moves omit the trail echo");
     let logical_cursor_x = origin[0] + current.cursor.column as f32 * cell.width as f32;
     let inner_glow = effects.last().expect("inner glow ring");
     assert!((inner_glow.rect[0] - (logical_cursor_x + params.offset[0] - 1.0)).abs() < 0.01);

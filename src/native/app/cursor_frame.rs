@@ -35,7 +35,7 @@ const CURSOR_MOTION_FRAME: Duration = Duration::from_millis(16);
 /// Manhattan cell distance beyond which a cursor move snaps instead of sliding.
 /// A large jump (clear-screen, cursor-home, a multi-line leap) teleports; only
 /// short adjacent steps glide.
-const MAX_SLIDE_CELLS: f32 = 6.0;
+pub(super) const MAX_SLIDE_CELLS: f32 = 6.0;
 
 /// Ease-out cubic: fast departure, gentle arrival. Maps `0.0..=1.0` to itself.
 fn ease_out_cubic(p: f32) -> f32 {
