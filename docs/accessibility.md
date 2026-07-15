@@ -15,9 +15,9 @@ images, treatments, and translucent cell backgrounds.
 
 | Key | Env var | Default | Range |
 | --- | --- | --- | --- |
-| `min_contrast` | `ODYTTY_MIN_CONTRAST` | `16.0` | `1.0`–`21.0` |
+| `min_contrast` | `ODYTTY_MIN_CONTRAST` | `17.0` | `1.0`–`21.0` |
 
-The value is a WCAG 2.x relative-luminance contrast ratio. The default `16.0` is
+The value is a WCAG 2.x relative-luminance contrast ratio. The default `17.0` is
 a deliberately strong readability floor; setting `1.0` disables the floor
 entirely (exact passthrough of theme colors). The number shown in the Theme
 Builder is the same metric the render floor enforces — what you see previewed is
