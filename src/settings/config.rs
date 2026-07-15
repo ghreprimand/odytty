@@ -232,7 +232,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
             Some(REMOTE_INTEGRATION_ENV)
         }
         "remotereuse" | "sshreuse" | "controlmaster" | "sshcontrolmaster" => Some(REMOTE_REUSE_ENV),
+        "remotetmux" => Some(REMOTE_TMUX_ENV),
         "remotepersist" | "controlpersist" | "sshpersist" | "persist" => Some(REMOTE_PERSIST_ENV),
+        "remoteimagepaste" => Some(REMOTE_IMAGE_PASTE_ENV),
         "sessionreplay" | "replay" | "outputreplay" | "scrollbackreplay" => {
             Some(SESSION_REPLAY_ENV)
         }

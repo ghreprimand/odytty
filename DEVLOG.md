@@ -7,6 +7,17 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Config saves preserve every documented setting
+
+The canonical config-key map now covers `remote_tmux` and
+`remote_image_paste`, so both settings load from `odytty.conf` and survive
+settings-panel saves. An exhaustive mapping test now round-trips every entry in
+the settings environment-key roster through its canonical config-file name,
+preventing future settings from being silently omitted during config rewrites.
+
+Verified: cargo test, cargo fmt --check, and cargo clippy --all-targets --locked
+-- -D warnings are clean.
+
 ## 2026-07-15 -- Full GPU rebuilds preserve cursor animation parameters
 
 Full cell-buffer rebuilds now apply the same live cursor offset and opacity as

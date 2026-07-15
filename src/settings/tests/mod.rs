@@ -88,6 +88,22 @@ fn setting_env_keys_lists_every_declared_env_const() {
     );
 }
 
+/// Every setting env key must have a canonical config-file spelling, and that
+/// spelling must map back to the same env key. Otherwise settings-panel saves
+/// can report success while silently omitting the setting from `odytty.conf`.
+#[test]
+fn setting_env_keys_have_symmetric_config_mappings() {
+    for &env_key in SETTING_ENV_KEYS {
+        let config_key = env_to_config_key(env_key)
+            .unwrap_or_else(|| panic!("{env_key} has no canonical config-file key"));
+        assert_eq!(
+            config_key_to_env(config_key),
+            Some(env_key),
+            "canonical config key {config_key:?} does not map back to {env_key}"
+        );
+    }
+}
+
 #[cfg(not(windows))]
 #[test]
 fn config_base_dir_resolves_xdg_then_home() {
