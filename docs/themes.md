@@ -16,6 +16,16 @@ There are two kinds of theme:
 - **User theme files**, written in the dependency-free theme file format
   described below and dropped into your theme directory (or referenced by path).
 
+## Contents
+
+- [Selecting a theme](#selecting-a-theme)
+- [In-app theme tools](#in-app-theme-tools)
+- [Built-in theme library](#built-in-theme-library)
+- [File format](#file-format)
+- [Example](#example)
+- [How a selected theme is presented](#how-a-selected-theme-is-presented)
+- [Precedence with running applications](#precedence-with-running-applications)
+
 ## Selecting a theme
 
 ```conf
@@ -97,56 +107,31 @@ path — so the file format is exercised by the library on every startup.
 ### Theme families
 
 **OdyTTY original** — `plain`, `odyssey`, and the `odyssey-*` variants are
-original themes designed for OdyTTY's public visual identity. The `odyssey`
-name comes from OdysseyOS, a companion Linux From Scratch system,
-but these themes are built into OdyTTY and do not require that system.
-`odyssey` is the fresh-install default;
-`plain` reproduces the historical xterm default palette byte-for-byte and
-remains available as an explicit compatibility choice.
-The `odyssey-*` variants span a range of visual moods across dark and light
-appearances: deep-space and interstellar cold (`odyssey`, `odyssey-deepspace`,
-`odyssey-pulsar`, `odyssey-midnight`), warm atmospheric (`odyssey-solar`,
-`odyssey-ember`, `odyssey-abyss`, `odyssey-volcanic`, `odyssey-rosewood`,
-`odyssey-garnet`, `odyssey-amber`, `odyssey-terracotta`, `odyssey-harvest`),
-cool natural (`odyssey-glacier`, `odyssey-voyager`, `odyssey-fathom`,
-`odyssey-harbor`, `odyssey-orchard`, `odyssey-tidepool`, `odyssey-slate`,
-`odyssey-default` (the shipped default; alias `odyssey-jungle`),
-`odyssey-lagoon`), cosmic nebula (`odyssey-nebula`,
-`odyssey-aurora`, `odyssey-ion`, `odyssey-twilight`, `odyssey-quasar`,
-`odyssey-cobalt`), natural greens and chartreuse (`odyssey-verdant`,
-`odyssey-moss`, `odyssey-chartreuse`, `odyssey-pine`), warm and cool text
-focus (`odyssey-meridian`, `odyssey-graphite`, `odyssey-sepia`), vivid accents
-(`odyssey-violet`, `odyssey-fuchsia`, `odyssey-orchid`), deep indigo and berry
-(`odyssey-indigo`, `odyssey-raspberry`), and light companions
-(`odyssey-light`, `odyssey-dawn-light`, `odyssey-sandstone-light`,
-`odyssey-cloud-light`, `odyssey-coral-light`, `odyssey-mist-light`,
-`odyssey-meadow-light`, `odyssey-parchment-light`, `odyssey-blossom-light`,
-`odyssey-linen-light`, `odyssey-lilac-light`, `odyssey-pearl-light`,
-`odyssey-apricot-light`, `odyssey-butter-light`, `odyssey-sage-light`,
-`odyssey-slate-light`, `odyssey-seafoam-light`, `odyssey-citrus-light`,
-`odyssey-mauve-light`, `odyssey-clover-light`, `odyssey-sienna-light`,
-`odyssey-periwinkle-light`), and extended originals spanning celestial phenomena, minerals, waters, and botanicals (`odyssey-eclipse`, `odyssey-comet`, `odyssey-nocturne`, `odyssey-obsidian`, `odyssey-basalt`, `odyssey-jade`, `odyssey-fjord`, `odyssey-mangrove`, `odyssey-quartz-light`, `odyssey-marble-light`, `odyssey-dune-light`, `odyssey-fern-light`). These carry the strongest OdyTTY visual identity.
+original themes designed for OdyTTY's public visual identity. The `odyssey` name
+comes from OdysseyOS, a companion Linux From Scratch system, but these themes are
+built into OdyTTY and do not require that system. `odyssey` is the fresh-install
+default; `plain` reproduces the historical xterm default palette byte-for-byte
+and remains available as an explicit compatibility choice. The `odyssey-*`
+variants span a wide range of moods across dark and light appearances —
+deep-space and interstellar cold, warm atmospheric, cool natural, cosmic nebula,
+natural greens, vivid accents, and light daylight companions — and carry the
+strongest OdyTTY visual identity. See the [library table](#built-in-theme-library)
+below for the full roster.
 
 **Community** — themes ported from widely-used open-source color-scheme
-palettes. The dark side covers the original community batch (Solarized, Gruvbox,
-Nord, Dracula, Tokyo Night, Catppuccin Mocha, One Dark, Monokai) plus an
-extended set including Everforest, Kanagawa, Rose Pine, Ayu Mirage, Night Owl,
-Palenight, GitHub-style dark, Zenburn, Oceanic Next, and Iceberg. The light side covers counterparts:
-Solarized Light, Catppuccin Latte, GitHub-style light, Gruvbox Light, One
-Light, Ayu Light, Rose Pine Dawn, Tokyo Night Day, PaperColor, and Everforest
-Light. Sources and licenses are listed in the
-[attribution table](#attribution-and-licensing) below.
+palettes, covering both dark and light sides (Solarized, Gruvbox, Nord, Dracula,
+Tokyo Night, Catppuccin, Everforest, Rose Pine, and more). Sources and licenses
+are listed in the [attribution table](#attribution-and-licensing) below; every
+name appears in the [library table](#built-in-theme-library).
 
 **Retro / phosphor** — eight themes inspired by historical display hardware:
-three green-phosphor monochrome variants (`green-phosphor`, `ibm-5151`,
-`vt220-green`), two amber monochrome variants (`amber-crt`, `hercules-amber`),
-an Apple II-inspired green phosphor (`apple-ii-green`), the Commodore 64
-blue-on-purple character screen (`commodore-64`), and a DOS/CGA sixteen-color
-text palette (`dos-cga`) tuned to the canonical ANSI hue angles. These use
-deliberately narrow ANSI palettes that approximate the look of the original
-hardware while meeting the library's 4.0 contrast floor. Vendor and platform
-names that appear in theme titles are trademarks of their respective owners;
-OdyTTY has no affiliation with or endorsement from any of those vendors.
+green-phosphor and amber monochrome variants, an Apple II-inspired green phosphor,
+the Commodore 64 blue-on-purple character screen, and a DOS/CGA sixteen-color text
+palette tuned to the canonical ANSI hue angles. These use deliberately narrow
+ANSI palettes that approximate the look of the original hardware while meeting the
+library's 4.0 contrast floor. Vendor and platform names that appear in theme
+titles are trademarks of their respective owners; OdyTTY has no affiliation with
+or endorsement from any of those vendors.
 
 | Name | Appearance | Family |
 | --- | --- | --- |
@@ -359,16 +344,18 @@ Colors are written as `#RRGGBB` or `#RGB` (the leading `#` is optional;
 | `font_size` | Optional font-size hint in px (schema metadata; not applied by theme selection). |
 | `visual` | Bundled visual-effect profile metadata: `off`, `ambient`, or `scanlines`. `ambient` and `scanlines` are aliases for *each other* — both map to the `Ambient` effect, a faint static scanline wash applied to cell backgrounds only (glyphs untouched), which is distinct from the separate CRT post-process scanline pass (the `crt` / `crt_scanline_*` settings). Theme selection does not auto-apply this field. |
 
-`appearance`, `font_family`, `font_size`, and `visual` are parsed, validated,
-and round-tripped, but none are projected into the running theme. In particular,
-the light/dark label shown by `--list-themes` and the in-app Theme Picker is
-derived at runtime from the theme's background **relative luminance** — a
-background luminance above `0.18` is treated as light — not from the file's
-`appearance` field, which is retained as round-tripped metadata only. (The
-appearance column in the [library](#built-in-theme-library) table agrees with
-the file because each built-in's authored `appearance` matches its background
-luminance.) The font and visual fields are likewise kept as schema metadata
-rather than auto-applied when the theme changes.
+`appearance`, `font_family`, `font_size`, and `visual` are parsed, validated, and
+round-tripped, but none are projected into the running theme:
+
+- The light/dark label shown by `--list-themes` and the in-app Theme Picker is
+  derived at runtime from the theme's background **relative luminance** — a
+  background luminance above `0.18` is treated as light — not from the file's
+  `appearance` field, which is retained as metadata only.
+- The appearance column in the [library](#built-in-theme-library) table agrees
+  with the file because each built-in's authored `appearance` matches its
+  background luminance.
+- The font and visual fields are likewise kept as schema metadata rather than
+  auto-applied when the theme changes.
 
 ## Example
 
