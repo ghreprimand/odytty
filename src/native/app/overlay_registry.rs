@@ -852,8 +852,8 @@ impl App {
     /// Each field is filled by exactly one Phase-4 feature's contributor stub —
     /// `cursor_motion_offset()` (VE4-slide, `cursor_frame.rs`) and
     /// `cursor_blink_alpha()` (ID1-easing, `cursor.rs`). Both stubs return the
-    /// identity today (`[0.0, 0.0]` / `1.0`), so this returns
-    /// `CursorRenderParams::default()` and the cursor renders byte-identically.
+    /// identity at rest (`[0.0, 0.0]` / `1.0`), so a settled cursor returns
+    /// `CursorRenderParams::default()`.
     ///
     /// This aggregator dissolves the `push_cursor` collision: ID1 and VE4 each
     /// own one field, so neither edits the other's file.

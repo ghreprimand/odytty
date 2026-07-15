@@ -479,13 +479,14 @@ pub const DEFAULT_CURSOR_EASING: bool = true;
 
 /// Cursor slide motion (`ODYTTY_CURSOR_MOTION`, VE4): when on, the cursor glides
 /// a short sub-cell interpolation between adjacent steady-state positions
-/// instead of teleporting. Off by default — while off the cursor sits at its
-/// exact cell origin (zero offset) and the render path is byte-identical to
-/// before. Discontinuities (first frame, resize/reflow, scrollback, large jump,
-/// unfocused) always snap rather than slide. Purely presentational; the logical
-/// cursor position is always the destination cell, so selection/clipboard and
-/// TUI semantics are unaffected.
-pub const DEFAULT_CURSOR_MOTION: bool = false;
+/// instead of teleporting. On by default; while at rest or explicitly disabled,
+/// the cursor sits at its exact cell origin with zero animation wake. The
+/// reduced-motion master setting also forces this static path. Discontinuities
+/// (first frame, resize/reflow, scrollback, large jump, unfocused) always snap
+/// rather than slide. Purely presentational; the logical cursor position is
+/// always the destination cell, so selection/clipboard and TUI semantics are
+/// unaffected.
+pub const DEFAULT_CURSOR_MOTION: bool = true;
 
 /// Soft cursor glow (`ODYTTY_CURSOR_GLOW`, ID1): when on, three concentric
 /// semi-transparent halo quads are drawn behind the cursor block in the theme

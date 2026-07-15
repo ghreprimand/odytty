@@ -13,9 +13,9 @@
 //!    aggregators fold in, and [`App::update_cursor_motion`] refreshes them once
 //!    per rebuild from the injected `now` and the cursor's logical move.
 //!
-//! Off-path contract (`cursor_motion` defaults to `false`): the offset is held
-//! at `[0.0, 0.0]` and no wake is armed, so the cursor sits at its exact cell
-//! origin and renders byte-identically. Discontinuities (first frame,
+//! Static-path contract (`cursor_motion = false` or reduced motion): the offset
+//! is held at `[0.0, 0.0]` and no wake is armed, so the cursor sits at its exact
+//! cell origin. Discontinuities (first frame,
 //! resize/reflow, scrollback, large jump, unfocused, hidden cursor) always snap
 //! rather than slide — the worst case degrades to today's instant teleport.
 //!
@@ -76,7 +76,7 @@ impl App {
     /// (`last_presented_snapshot.cursor`), which still holds the prior frame's
     /// position at this point in the rebuild.
     ///
-    /// Identity when off: with `cursor_motion == false` (the default) this pins
+    /// Identity when off: with `cursor_motion == false` this pins
     /// `offset = [0.0, 0.0]` and clears the deadline, so
     /// [`App::cursor_render_params`] stays at the identity and
     /// [`App::animation_deadline`] contributes nothing.

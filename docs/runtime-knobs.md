@@ -122,7 +122,7 @@ environment variable was not set at startup.
 | `cursor_style` | `ODYTTY_CURSOR_STYLE` | `block`, `underline`, `bar` | `bar` |
 | `cursor_blink` | `ODYTTY_CURSOR_BLINK` | `auto`, `on`, `off` | `on` |
 | `cursor_easing` | `ODYTTY_CURSOR_EASING` | `on`, `off` | `on` |
-| `cursor_motion` | `ODYTTY_CURSOR_MOTION` | `on`, `off` | `off` |
+| `cursor_motion` | `ODYTTY_CURSOR_MOTION` | `on`, `off` | `on` |
 | `cursor_glow` | `ODYTTY_CURSOR_GLOW` | `on`, `off` | `off` |
 | `cursor_trail` | `ODYTTY_CURSOR_TRAIL` | `on`, `off` | `on` |
 | `reduced_motion` | `ODYTTY_REDUCED_MOTION` | `on`, `off` | `off` |

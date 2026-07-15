@@ -390,12 +390,11 @@ fn animation_deadline_is_none_at_rest() {
 // --- ID1 easing + VE4 slide: observability + default-identity ------
 
 /// Trap #1 (kill-shot): the quantized `anim` key MUST equal the identity bucket
-/// when both features are off. The pure mapping (`from_params(default)`) and the
-/// aggregator on the default path both land on `CursorAnimKey::IDENTITY`, so the
-/// signature is a frame-to-frame constant ⇒ `update_from` returns `Retained` ⇒
-/// the GPU is never touched ⇒ the plain path is byte-identical.
+/// while the cursor is at rest. The pure mapping (`from_params(default)`) and
+/// the settled aggregator both land on `CursorAnimKey::IDENTITY`, so the
+/// signature is a frame-to-frame constant and the retained path stays idle.
 #[test]
-fn cursor_anim_key_is_identity_when_both_features_off() {
+fn cursor_anim_key_is_identity_at_rest() {
     assert_eq!(
         CursorAnimKey::from_params(&CursorRenderParams::default()),
         CursorAnimKey::IDENTITY,
@@ -404,7 +403,7 @@ fn cursor_anim_key_is_identity_when_both_features_off() {
     let Some(mut app) = build_app(Settings::default()) else {
         return;
     };
-    // Run both updaters on the default path (knobs off); they must pin identity.
+    // Run both updaters on a settled default frame; they must retain identity.
     let now = Instant::now();
     let snap = content_snapshot();
     app.update_cursor_easing(now, false, false);
@@ -412,12 +411,12 @@ fn cursor_anim_key_is_identity_when_both_features_off() {
     assert_eq!(
         CursorAnimKey::from_params(&app.cursor_render_params()),
         CursorAnimKey::IDENTITY,
-        "the default path quantizes to identity even after the updaters run"
+        "the settled default path stays in the identity bucket"
     );
     assert_eq!(
         app.animation_deadline(),
         None,
-        "the default path arms no animation wake"
+        "the settled default path arms no animation wake"
     );
 }
 
@@ -539,6 +538,62 @@ fn motion_slides_between_adjacent_cells_then_settles() {
         None,
         "a settled slide arms no further wake (bounded)"
     );
+}
+
+/// The shipped defaults make the trail an active consumer of cursor motion;
+/// reduced motion still snaps the cursor, emits no trail, and parks its wake.
+#[test]
+fn default_motion_activates_trail_and_reduced_motion_forces_static() {
+    let settings = Settings::default();
+    assert!(settings.cursor_motion, "cursor motion defaults on");
+    assert!(settings.cursor_trail, "cursor trail defaults on");
+    let Some(mut app) = build_app(settings) else {
+        return;
+    };
+    let cell = cell(CELL_W, CELL_H);
+    let mut prior = content_snapshot();
+    prior.cursor = Position { row: 0, column: 0 };
+    app.set_last_presented_snapshot_for_test(prior);
+    let mut current = content_snapshot();
+    current.cursor = Position { row: 0, column: 1 };
+    let t0 = Instant::now();
+    app.update_cursor_motion(t0, &current, cell);
+    app.set_last_presented_snapshot_for_test(current.clone());
+    let mid = t0 + Duration::from_millis(20);
+    app.update_cursor_motion(mid, &current, cell);
+
+    let ctx = app.overlay_ctx(0, cell, current.cursor, true, mid);
+    let mut trail = Vec::new();
+    app.paint_cursor_trail_quads(&ctx, &mut trail);
+    assert!(
+        !trail.is_empty(),
+        "the default trail is visible during a slide"
+    );
+    assert_ne!(app.cursor_render_params().offset, [0.0, 0.0]);
+    assert!(app.animation_deadline().is_some(), "slide wake is bounded");
+
+    let Some(mut reduced) = build_app(Settings {
+        reduced_motion: true,
+        ..Default::default()
+    }) else {
+        return;
+    };
+    let mut reduced_prior = content_snapshot();
+    reduced_prior.cursor = Position { row: 0, column: 0 };
+    reduced.set_last_presented_snapshot_for_test(reduced_prior);
+    reduced.update_cursor_motion(mid + Duration::from_millis(1), &current, cell);
+    let static_ctx = reduced.overlay_ctx(
+        0,
+        cell,
+        current.cursor,
+        true,
+        mid + Duration::from_millis(1),
+    );
+    trail.clear();
+    reduced.paint_cursor_trail_quads(&static_ctx, &mut trail);
+    assert!(trail.is_empty(), "reduced motion suppresses the trail");
+    assert_eq!(reduced.cursor_render_params().offset, [0.0, 0.0]);
+    assert_eq!(reduced.animation_deadline(), None, "no motion wake remains");
 }
 
 /// Trap #4: the first frame (no prior snapshot) snaps — never glides from a

@@ -85,6 +85,9 @@ fn defaults_are_stable_without_env() {
     assert_eq!(settings.window_padding_px, DEFAULT_WINDOW_PADDING_PX);
     assert_eq!(settings.subpixel, SubpixelMode::Off);
     assert_eq!(settings.cell_bg_opacity, DEFAULT_CELL_BG_OPACITY);
+    assert!(settings.cursor_motion, "cursor motion defaults on");
+    assert!(settings.cursor_trail, "the default motion trail is enabled");
+    assert!(!settings.reduced_motion, "motion is allowed by default");
     assert!(warnings.is_empty());
 }
 
