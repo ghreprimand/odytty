@@ -10,6 +10,33 @@ see §8). Phase 8b (C3b) shipped **"Open With…"** — the xdg-mime/.desktop ha
 enumeration + app-picker overlay (see §9). This document is the contract those
 phases implement against.
 
+*This is a design record: sections marked "shipped" are implemented; the rest is
+the contract they build toward.*
+
+## Contents
+
+- [Goal](#goal)
+- [1. Detection model](#1-detection-model)
+  - [What counts as a path span](#what-counts-as-a-path-span)
+  - [`:line[:col]` suffix capture](#linecol-suffix-capture)
+  - [Ambiguity handling (false-positive guards)](#ambiguity-handling-false-positive-guards)
+  - [Bounded cost (anti-DoS)](#bounded-cost-anti-dos)
+- [2. Resolution model](#2-resolution-model)
+  - [When resolution runs](#when-resolution-runs)
+  - [Hover affordance: hand cursor + armed `Ctrl`-hover underline](#hover-affordance-hand-cursor--armed-ctrl-hover-underline)
+- [3. Open-action dispatch table (for Phase 8)](#3-open-action-dispatch-table-for-phase-8)
+- [4. Editor invocation matrix (`path:line:col`)](#4-editor-invocation-matrix-pathlinecol)
+  - [Config-override knob: `interactive_paths_editor`](#config-override-knob-interactive_paths_editor)
+- [5. Security argument](#5-security-argument)
+- [6. Module layout & purity invariant](#6-module-layout--purity-invariant)
+- [7. Rejected / deferred](#7-rejected--deferred)
+- [8. In-terminal image viewer (Phase 9 / C4) — shipped](#8-in-terminal-image-viewer-phase-9--c4--shipped)
+- [9. "Open With…" app picker (Phase 8b / C3b) — shipped](#9-open-with-app-picker-phase-8b--c3b--shipped)
+- [10. Config keys, click-hint chip & failure notice](#10-config-keys-click-hint-chip--failure-notice)
+  - [Config keys](#config-keys)
+  - [Click-hint chip](#click-hint-chip)
+  - [Open-failure notice](#open-failure-notice)
+
 ## Goal
 
 Make filesystem paths that appear in arbitrary terminal output
@@ -161,7 +188,9 @@ span shows the pointer (hand) cursor — the same affordance OdyTTY already uses
 for OSC 8 hyperlinks — and **when `Ctrl` is held while hovering a resolved span,
 that span's cells are underlined** (the "now it will open" signal), painted onto
 the snapshot cells like the selection/search highlights
-(`src/native/app/click_hint.rs`). The armed underline is **presentation-only**,
+(`src/native/app/click_hint.rs`).
+
+The armed underline is **presentation-only**,
 and its coordinates feed the overlay signature so it **recomputes from the live
 pointer each frame** and tracks the pointer as output streams underneath — never
 caching a stale span. That discipline is deliberate: an always-on hover underline
@@ -387,7 +416,9 @@ shape) and `FsDesktopEnv` (the real `XDG_*` ladders + bounded `std::fs` reads,
 in priority order — `mimeapps.list` `[Default Applications]` then
 `[Added Associations]` across the config ladder, then `mimeinfo.cache`
 `[MIME Cache]` across the data ladder — with `[Removed Associations]` subtracted
-and ids deduplicated (first occurrence wins). Each id resolves to its `.desktop`
+and ids deduplicated (first occurrence wins).
+
+Each id resolves to its `.desktop`
 file across the data ladder (user dir wins; a dash-prefixed id `kde-foo.desktop`
 maps to `applications/kde/foo.desktop`). Entries that are not
 `Type=Application`, or are `NoDisplay`/`Hidden`/`Terminal=true`, or lack an
@@ -404,7 +435,9 @@ substitution are all literal text). Field codes then expand per token: `%f`/`%F`
 element), `%i`/`%c`/`%k` and the deprecated `%d %D %n %N %v %m` are stripped,
 `%%` → literal `%`, and a substring code (`--file=%f`) substitutes in place yet
 stays one element. With no `%f/%F/%u/%U` the path is appended as a trailing
-element. The expanded argv flows into the shared C3 `spawn_detached` (argv-only,
+element.
+
+The expanded argv flows into the shared C3 `spawn_detached` (argv-only,
 null stdio) — so a path containing spaces, `;`, `$()`, or backticks is one inert
 argument, never interpolated into a shell.
 
