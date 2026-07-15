@@ -4,6 +4,28 @@ This document describes the current renderer pipeline, color resolution model,
 and visual-enhancement boundaries. It is a companion to the user-facing
 settings guide in [`docs/runtime-knobs.md`](runtime-knobs.md).
 
+## Contents
+
+- [Current renderer pipeline](#current-renderer-pipeline)
+  - [Draw order within the scene pass](#draw-order-within-the-scene-pass)
+  - [Cell pipeline (`cell.wgsl` / `cell_subpixel.wgsl`)](#cell-pipeline-cellwgsl--cell_subpixelwgsl)
+  - [CRT scanline effect and the legacy ambient setting](#crt-scanline-effect-and-the-legacy-ambient-setting)
+  - [Coverage atlas (`GlyphAtlas`)](#coverage-atlas-glyphatlas)
+  - [Color-glyph atlas (`ColorGlyphAtlas`)](#color-glyph-atlas-colorglyphatlas)
+- [Current color model](#current-color-model)
+  - [Theme system (landed)](#theme-system-landed)
+  - [Dynamic color overrides (OSC 10/11/12, OSC 4)](#dynamic-color-overrides-osc-101112-osc-4)
+  - [Color resolution at render time](#color-resolution-at-render-time)
+  - [Color-vision-deficiency adaptation](#color-vision-deficiency-adaptation)
+- [Visual-enhancement direction](#visual-enhancement-direction)
+  - [Hard rule (enforced across all tiers)](#hard-rule-enforced-across-all-tiers)
+  - [Tier 1 — Readability-first enhancements](#tier-1--readability-first-enhancements)
+  - [Tier 2 — Identity and depth](#tier-2--identity-and-depth)
+  - [Tier 3 — Atmospheric effects (opt-in post-process)](#tier-3--atmospheric-effects-opt-in-post-process)
+  - [Theme and appearance system](#theme-and-appearance-system)
+  - [In-app configuration UX](#in-app-configuration-ux)
+- [Modularity boundary](#modularity-boundary)
+
 ---
 
 ## Current renderer pipeline
@@ -42,15 +64,19 @@ The canonical scene order is:
 Steps 2–6 are the scene pass — the sequence that the post-process branch
 re-targets to the offscreen `Rgba16Float` buffer when an effect is active. The
 in-app **image lightbox** (the C4 viewer overlay; `src/native/image_layer.rs`,
-`OverlayImage`) is the exception: it is composited **after** the CRT/bloom post
-pass, directly onto the swapchain, so the presented photo is never run through
-scanlines, vignette, or bloom. It draws a full-viewport dimming scrim
-(`SCRIM_ALPHA`) and then the fitted image (`OVERLAY_FIT_FRACTION` of the
-viewport, never upscaled) using a dedicated **`Linear`** sampler — distinct from
-the `Nearest` sampler used for inline terminal-graphics placements — so a
-scaled-down image is smoothly interpolated. It is opened by Ctrl+click on a
-resolved image path (see [`docs/keybindings.md`](keybindings.md)) and dismissed
-with `Esc` or a click outside.
+`OverlayImage`) is the exception:
+
+- It is composited **after** the CRT/bloom post pass, directly onto the
+  swapchain, so the presented photo is never run through scanlines, vignette, or
+  bloom.
+- It draws a full-viewport dimming scrim (`SCRIM_ALPHA`) and then the fitted
+  image (`OVERLAY_FIT_FRACTION` of the viewport, never upscaled) using a
+  dedicated **`Linear`** sampler — distinct from the `Nearest` sampler used for
+  inline terminal-graphics placements — so a scaled-down image is smoothly
+  interpolated.
+- It is opened by Ctrl+click on a resolved image path (see
+  [`docs/keybindings.md`](keybindings.md)) and dismissed with `Esc` or a click
+  outside.
 
 ### Cell pipeline (`cell.wgsl` / `cell_subpixel.wgsl`)
 
@@ -192,15 +218,18 @@ Theme and appearance system section below and `docs/themes.md` for details.
 
 When `cvd_mode` is set (`protan`, `deutan`, or `tritan`; default `off`), the
 theme palette is daltonized in OKLab before it reaches the render path:
-`cvd_theme::effective_theme` calls `cvd::adapt_palette`, which separates the
-confusable opponent axis (red–green `a` for protan/deutan, blue–yellow `b` for
-tritan) and re-floors the result so it stays readable. `cvd_strength` (default
-`1.0`) scales the adaptation; the `off` short-circuit leaves the theme byte-for-byte
-untouched. The scope is **palette-only** — the 16 ANSI colors plus the structural
-foreground/background/chrome roles. Indexed-256 cube/grayscale colors and
-application truecolor are **not** remapped. This sits in the same accessibility
-band as the minimum-contrast floor and focus dimming; see
-[`docs/accessibility.md`](accessibility.md).
+
+- `cvd_theme::effective_theme` calls `cvd::adapt_palette`, which separates the
+  confusable opponent axis (red–green `a` for protan/deutan, blue–yellow `b` for
+  tritan) and re-floors the result so it stays readable.
+- `cvd_strength` (default `1.0`) scales the adaptation; the `off` short-circuit
+  leaves the theme byte-for-byte untouched.
+- The scope is **palette-only** — the 16 ANSI colors plus the structural
+  foreground/background/chrome roles. Indexed-256 cube/grayscale colors and
+  application truecolor are **not** remapped.
+
+This sits in the same accessibility band as the minimum-contrast floor and focus
+dimming; see [`docs/accessibility.md`](accessibility.md).
 
 ---
 
@@ -320,15 +349,19 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
 
 ### Theme and appearance system
 
-**The full theme system has landed** — a 16-color ANSI palette with semantic
-roles, a dependency-free `.theme` file format with built-in themes and live
-reload through the settings/config seam, 142 built-in themes across OdyTTY
-original, community, and retro/phosphor families, and an in-app theme builder with live
-preview saved to a user theme file. `Theme` carries the full
-16-color ANSI palette plus semantic roles (cursor, selection, search, reserved
-border/inactive). The indexed-color render path is theme-driven; OSC-4 /
-dynamic-color overrides layer on top with correct precedence. See
-`docs/themes.md` for the full roster and attribution.
+**The full theme system has landed:**
+
+- A 16-color ANSI palette with semantic roles (cursor, selection, search,
+  reserved border/inactive), carried by `Theme`.
+- A dependency-free `.theme` file format with built-in themes and live reload
+  through the settings/config seam.
+- 142 built-in themes across OdyTTY original, community, and retro/phosphor
+  families.
+- An in-app theme builder with live preview, saved to a user theme file.
+
+The indexed-color render path is theme-driven; OSC-4 / dynamic-color overrides
+layer on top with correct precedence. See `docs/themes.md` for the full roster
+and attribution.
 
 ### In-app configuration UX
 
