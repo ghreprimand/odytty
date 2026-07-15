@@ -7,6 +7,16 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Contributor checks match the blocking CI gate
+
+The contributor pre-commit and push criteria now include the blocking Clippy
+command used across the CI matrix. Deep-fuzz guidance now distinguishes the
+protocol suite from the separate Kitty/Sixel graphics tier, so graphics changes
+run the intended ignored tests rather than only the protocol corpus.
+
+Verified: cargo test, cargo fmt --check, and cargo clippy --all-targets --locked
+-- -D warnings are clean.
+
 ## 2026-07-15 -- Platform documentation matches shipped backends
 
 Platform guidance now includes Windows config, theme, host-list, font, path,

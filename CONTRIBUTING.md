@@ -251,12 +251,20 @@ and relevant feature opt-outs are selected. Default-on readability and identity
 settings need explicit identity or bounded-effect coverage. Add a pixel-smoke
 case for any default-path change.
 
-**Deep fuzz tier.** `tests/protocol_fuzz.rs` has `#[ignore]`-gated deep tiers
-that run at 40 000 iterations. Run them before touching the parser or core
+**Deep fuzz tiers.** `tests/protocol_fuzz.rs` has `#[ignore]`-gated protocol
+tiers that run at 40 000 iterations. Run them before touching the parser or core
 protocol handlers:
 
 ```sh
 ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture
+```
+
+The graphics surface has a separate ignored tier covering Kitty/Sixel parsing,
+transport paths, mixed streams, and shared-memory lifecycle. Run it for graphics
+protocol or image-transport changes:
+
+```sh
+ODYTTY_FUZZ_ITERS=40000 cargo test -p odytty graphics_fuzz -- --ignored --nocapture
 ```
 
 The quick smoke tiers (`*_smoke` suffix) run in the default suite.
@@ -270,14 +278,17 @@ Before every commit, run through this gate and stop if anything is unclear:
 2. **Run the test suite.** `cargo test` — the full battery is deterministic and
    must pass. If you touched the parser, core protocol handlers, or graphics
    surface, also run the deep fuzz tier (see above).
-3. **Check formatting:** `cargo fmt --check`.
-4. **Check whitespace:** `git diff --cached --check` (no trailing whitespace or
+3. **Check lints:** `cargo clippy --all-targets --locked -- -D warnings`. This
+   is blocking on every CI platform; the default Clippy set is also denied in
+   `Cargo.toml`.
+4. **Check formatting:** `cargo fmt --check`.
+5. **Check whitespace:** `git diff --cached --check` (no trailing whitespace or
    conflict markers).
-5. **Scan staged content for secrets.** No credentials, API keys, tokens,
+6. **Scan staged content for secrets.** No credentials, API keys, tokens,
    private hostnames/URLs, personal data, or local-only configuration.
-6. **Keep local-only files out.** Machine-local config, generated credentials,
+7. **Keep local-only files out.** Machine-local config, generated credentials,
    private notes, `.env*`, and editor/agent scratch files stay untracked.
-7. **Check file sizes.** No source file should exceed approximately 2000 lines.
+8. **Check file sizes.** No source file should exceed approximately 2000 lines.
 
 **Toolchain lockstep.** OdyTTY pins a verified Minimum Supported Rust Version:
 `rust-toolchain.toml` (`channel = "1.96.0"`) and `Cargo.toml`
@@ -301,12 +312,13 @@ configuration. If anything looks ambiguous, stop and confirm before committing.
   `cargo test` / `cargo fmt --check` status, remaining gaps) so the running
   record stays in lockstep with the code.
 - Write clear commit messages describing what changed and why.
-- Push after each completed change, once the tree is clean, `cargo test` and
-  `cargo fmt --check` pass, public docs and `DEVLOG.md` match the state of the
-  project, and tracked/staged content has been scanned for secrets or local-only
-  data. Frequent pushed commits are preferred so the public history is a living
-  record of development; the public-repo safety boundary is the gate, not
-  deliberate infrequency.
+- Push after each completed change, once the tree is clean, `cargo test`,
+  `cargo clippy --all-targets --locked -- -D warnings`, and `cargo fmt --check`
+  pass, public docs and `DEVLOG.md` match the state of the project, and
+  tracked/staged content has been scanned for secrets or local-only data.
+  Frequent pushed commits are preferred so the public history is a living record
+  of development; the public-repo safety boundary is the gate, not deliberate
+  infrequency.
 
 ## Visual-enhancement contributions
 
