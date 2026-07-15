@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Cursor idle blink parking now persists through redraw
+
+The 15-second keyboard-idle blink boundary now remains solid-on after the
+following redraw. The earlier state transition cleared its activity timestamp
+when it parked, which made the render sample that followed look like a new
+blinking cursor activation and re-arm a 650 ms wake.
+
+Idle parking now records its distinct settled state, so a requested blinking
+cursor remains visible and contributes no blink deadline until new keyboard or
+IME activity, focus gain, or pane activation starts a fresh hold. Steady
+DECSCUSR shapes, focus loss, reduced motion, background panes, and terminal
+input bytes retain their existing behavior. Linux, Windows, and macOS share
+the same Rust and wgpu state policy.
+
+Regression coverage drives the production maintenance deadline into its
+following render sample and verifies that no stale or replacement blink wake
+is scheduled.
+
 ## 2026-07-15 -- Cursor streak GPU uniforms now match the shared viewport layout
 
 The large-jump cursor streak shader now consumes the same 32-byte viewport

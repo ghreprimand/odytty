@@ -31,6 +31,10 @@ pub(super) struct CursorBlinkState {
     on: bool,
     next_toggle: Option<Instant>,
     last_keyboard_activity: Option<Instant>,
+    /// An idle-stop is distinct from focus loss and a steady application
+    /// cursor. All three park solid, but only this state must remain parked
+    /// when the next render samples the still-blinking cursor.
+    idle_parked: bool,
 }
 
 impl CursorBlinkState {
@@ -40,6 +44,7 @@ impl CursorBlinkState {
             on: true,
             next_toggle: None,
             last_keyboard_activity: None,
+            idle_parked: false,
         }
     }
 
@@ -55,6 +60,7 @@ impl CursorBlinkState {
         self.on = true;
         self.last_keyboard_activity = Some(now);
         self.next_toggle = Some(now + CURSOR_ACTIVITY_HOLD);
+        self.idle_parked = false;
     }
 
     /// Update the blink phase for `now` and return whether the cursor is
@@ -64,6 +70,9 @@ impl CursorBlinkState {
     pub(super) fn poll(&mut self, now: Instant, blinking: bool, focused: bool) -> bool {
         if !blinking || !focused {
             self.park();
+            return true;
+        }
+        if self.idle_parked {
             return true;
         }
         if self.last_keyboard_activity.is_none() {
@@ -76,7 +85,7 @@ impl CursorBlinkState {
             .last_keyboard_activity
             .is_some_and(|activity| now >= activity + CURSOR_BLINK_STOP_AFTER)
         {
-            self.park();
+            self.park_after_idle();
             return true;
         }
         match self.next_toggle {
@@ -113,6 +122,17 @@ impl CursorBlinkState {
         self.on = true;
         self.next_toggle = None;
         self.last_keyboard_activity = None;
+        self.idle_parked = false;
+    }
+
+    /// Park after the keyboard-idle budget elapses. Unlike [`Self::park`],
+    /// retain that provenance so the next render sample does not mistake the
+    /// settled state for a newly activated blinking cursor and re-arm it.
+    fn park_after_idle(&mut self) {
+        self.on = true;
+        self.next_toggle = None;
+        self.last_keyboard_activity = None;
+        self.idle_parked = true;
     }
 
     /// Whether a scheduled toggle is due at `now` (the loop should rebuild and

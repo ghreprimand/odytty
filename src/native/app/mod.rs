@@ -7772,12 +7772,60 @@ mod tests {
         assert!(state.is_due(stop));
         assert!(state.poll(stop, true, true), "long idle parks visible");
         assert_eq!(state.deadline(), None, "parked cursor cannot self-wake");
+        assert!(
+            state.poll(stop + Duration::from_millis(1), true, true),
+            "the next render sample keeps the idle-parked cursor visible"
+        );
+        assert_eq!(
+            state.deadline(),
+            None,
+            "a render after the idle boundary cannot re-arm blinking"
+        );
 
         state.note_activity(stop + Duration::from_millis(1), true, true);
         assert_eq!(
             state.deadline(),
             Some(stop + Duration::from_millis(1) + CURSOR_ACTIVITY_HOLD),
             "the next key re-arms one bounded visible hold"
+        );
+    }
+
+    #[test]
+    fn blink_idle_park_survives_the_maintenance_to_render_path() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        let activity = Instant::now();
+        app.focused = true;
+        app.note_cursor_keyboard_activity(activity);
+        let stop = activity + CURSOR_BLINK_STOP_AFTER;
+
+        // This is the event-loop consumer: it resolves the deadline and asks
+        // for the redraw whose render path will sample the cursor again.
+        app.run_about_to_wait_maintenance_for_test(stop);
+        assert_eq!(
+            app.cursor_blink.deadline(),
+            None,
+            "maintenance clears the parked cursor's wake before redraw"
+        );
+
+        // This is the following render consumer. The shipped bug treated the
+        // cleared activity timestamp as first use here and re-armed a 650 ms
+        // blink wake after every idle park.
+        let blinking = app.terminal.lock().expect("terminal").cursor_blinking();
+        let focused = app.focused;
+        assert!(
+            app.cursor_blink
+                .poll(stop + Duration::from_millis(1), blinking, focused)
+        );
+        assert_eq!(
+            app.cursor_blink.deadline(),
+            None,
+            "the redraw leaves an idle-parked blinking cursor solid with no wake"
+        );
+        assert!(
+            !app.cursor_blink.is_due(stop + Duration::from_secs(1)),
+            "the parked cursor cannot leave a stale deadline for the scheduler"
         );
     }
 
