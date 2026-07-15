@@ -5813,8 +5813,8 @@ impl ApplicationHandler<UserEvent> for App {
                         };
                         overlays.extend(tab_bar_quads);
                         // R3 call-site parity + A2 cache observability: compute
-                        // the live cursor params ONCE so the signature `anim` key
-                        // and the GPU CursorOnly call derive from the same source.
+                        // the live cursor params ONCE so focus, animation key,
+                        // and the GPU CursorOnly/Full calls share one source.
                         // Identity while both knobs are off ⇒ a constant key ⇒
                         // `Retained` ⇒ byte-identical plain path.
                         let cursor_params = self.cursor_render_params();
@@ -6992,6 +6992,48 @@ mod tests {
             Settings::default(),
             crate::settings::SettingsReloader::for_current_process(Instant::now()),
         ))
+    }
+
+    #[test]
+    fn unfocused_cursor_params_are_solid_stationary_and_focus_aware() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        let now = Instant::now();
+        app.focused = false;
+        app.cursor_anim_alpha = 0.25;
+        app.cursor_anim_offset = [6.0, -3.0];
+        app.cursor_ease_deadline = Some(now + Duration::from_millis(16));
+        app.cursor_slide_deadline = Some(now + Duration::from_millis(16));
+        app.cursor_slide_start = Some(now);
+
+        app.update_cursor_easing(now, false, true);
+        let snapshot = Snapshot {
+            dimensions: app.grid,
+            cursor: Position::default(),
+            cursor_visible: true,
+            colors: crate::core::DynamicColors::default(),
+            cells: vec![crate::core::Cell::default(); app.grid.columns * app.grid.rows],
+        };
+        app.update_cursor_motion(
+            now,
+            &snapshot,
+            CellSize {
+                width: 8,
+                height: 16,
+                baseline: 12,
+            },
+        );
+
+        let params = app.cursor_render_params();
+        assert!(
+            !params.focused,
+            "focus bit reaches the shared cursor params"
+        );
+        assert_eq!(params.alpha, 1.0, "unfocused cursor holds solid");
+        assert_eq!(params.offset, [0.0, 0.0], "unfocused cursor snaps");
+        assert_eq!(app.cursor_blink_fade_deadline(), None);
+        assert_eq!(app.cursor_motion_deadline(), None);
     }
 
     #[test]

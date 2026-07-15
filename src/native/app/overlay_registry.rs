@@ -861,6 +861,7 @@ impl App {
         CursorRenderParams {
             offset: self.cursor_motion_offset(),
             alpha: self.cursor_blink_alpha(),
+            focused: self.focused,
         }
     }
 

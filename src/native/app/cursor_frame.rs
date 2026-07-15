@@ -180,8 +180,9 @@ impl App {
         // R3 call-site parity: this blink-frame path and the normal paint path
         // (`app/mod.rs` CursorOnly arm) MUST pass the same `cursor_render_params()`
         // source, or the cursor would render differently between a blink tick and
-        // a content repaint. The signature's `anim` key is derived from the same
-        // params so the cache observes any animation step here too.
+        // a content repaint. This includes the window-focus bit that selects a
+        // filled or hollow Block. The signature's `anim` key is derived from the
+        // same params so the cache observes every geometry change here too.
         let params = self.cursor_render_params();
         let signature = RenderSignature {
             content: previous_signature.content,

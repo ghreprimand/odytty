@@ -316,7 +316,7 @@ pub(super) struct CursorRenderSignature {
 /// buckets them into integers so it can live in the `Eq`/`Hash`-bearing
 /// signature while still flagging a visible animation step.
 ///
-/// Identity contract (the kill-shot): a fully opaque, zero-offset cursor MUST
+/// Identity contract (the kill-shot): a focused, fully opaque, zero-offset cursor MUST
 /// quantize to [`Self::IDENTITY`] exactly. `offset == [0.0, 0.0]` rounds to
 /// `(0, 0)` and `alpha == 1.0` rounds to the full alpha bucket, so the default
 /// path produces a constant key and never spuriously reclassifies to
@@ -327,6 +327,8 @@ pub(super) struct CursorAnimKey {
     pub(super) offset_q: (i32, i32),
     /// Alpha quantized to `1/1024` buckets, clamped to `0..=1` (ID1 easing).
     pub(super) alpha_q: u16,
+    /// Window focus changes Block cursor geometry from filled to hollow.
+    pub(super) focused: bool,
 }
 
 impl CursorAnimKey {
@@ -336,7 +338,7 @@ impl CursorAnimKey {
     const OFFSET_SCALE: f32 = 4.0;
     /// Alpha buckets across `0..=1`. `1.0` maps to exactly `ALPHA_SCALE`.
     const ALPHA_SCALE: f32 = 1024.0;
-    /// The identity bucket: zero offset, full opacity. Equal to
+    /// The identity bucket: focused, zero offset, full opacity. Equal to
     /// `CursorAnimKey::from_params(&CursorRenderParams::default())`. The
     /// default-identity gate asserts against this; it is referenced only from the
     /// test battery in production builds, so the `dead_code` allow documents the
@@ -345,6 +347,7 @@ impl CursorAnimKey {
     pub(super) const IDENTITY: Self = Self {
         offset_q: (0, 0),
         alpha_q: Self::ALPHA_SCALE as u16,
+        focused: true,
     };
 
     pub(super) fn from_params(params: &CursorRenderParams) -> Self {
@@ -354,6 +357,7 @@ impl CursorAnimKey {
                 (params.offset[1] * Self::OFFSET_SCALE).round() as i32,
             ),
             alpha_q: (params.alpha.clamp(0.0, 1.0) * Self::ALPHA_SCALE).round() as u16,
+            focused: params.focused,
         }
     }
 }

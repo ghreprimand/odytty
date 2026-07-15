@@ -1083,15 +1083,16 @@ impl BackgroundTreatmentParams {
     }
 }
 
-/// Visual-only animation parameters applied to the cursor quad (Wave-15b
-/// foundation). Each field is owned by exactly one Phase-4 cursor feature; the
-/// [`Default`] is the identity, so today's render is byte-identical.
+/// Visual-only parameters applied to cursor geometry. The [`Default`] is the
+/// focused, fully opaque, zero-offset identity.
 ///
 /// - `offset` — sub-cell pixel shift added to the cursor's cell origin
 ///   (VE4-slide). Default `[0.0, 0.0]` ⇒ unchanged `x0`/`y0`.
 /// - `alpha` — multiplier on the cursor quad's color alpha (ID1-easing).
 ///   Default `1.0` ⇒ unchanged opacity. Polarity: `1.0` = fully opaque (today),
 ///   `0.0` = invisible — never default to `0.0`.
+/// - `focused` — whether the window owns keyboard focus. An unfocused Block
+///   cursor becomes a hollow outline; underline and bar styles are unchanged.
 ///
 /// The type lives here (not in the native overlay registry) because
 /// [`push_cursor`] — a `crate::grid` function — must name it to apply the
@@ -1102,6 +1103,7 @@ impl BackgroundTreatmentParams {
 pub struct CursorRenderParams {
     pub offset: [f32; 2],
     pub alpha: f32,
+    pub focused: bool,
 }
 
 impl Default for CursorRenderParams {
@@ -1109,6 +1111,7 @@ impl Default for CursorRenderParams {
         Self {
             offset: [0.0, 0.0],
             alpha: 1.0,
+            focused: true,
         }
     }
 }
@@ -1458,9 +1461,11 @@ pub fn cursor_bar_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32) -> [f32; 4] {
 
 /// Emit the cursor for the snapshot in the given shape, if one should be drawn.
 ///
-/// - **Block**: an **inverse** block — a background quad in the cell's
+/// - **Block, focused**: an **inverse** block — a background quad in the cell's
 ///   foreground color with the cell's glyph (if any) redrawn on top in the
 ///   cell's background color, keeping the character readable under the cursor.
+/// - **Block, unfocused**: four one-pixel cursor-color border quads. The cell's
+///   existing glyph remains untouched in its normal foreground color.
 /// - **Underline**: a thin foreground-colored bar at the cell's bottom edge,
 ///   drawn over the cell's existing glyph (no inversion).
 /// - **Bar**: a thin foreground-colored vertical bar at the cell's left edge,
@@ -1516,6 +1521,27 @@ fn push_cursor(
     match style {
         CursorStyle::Block => {
             let mut block_color = rgb_linear(snapshot.colors.cursor);
+            block_color[3] *= params.alpha;
+            if !params.focused {
+                let thickness = 1.0_f32.min(cell_w).min(cell_h);
+                let x1 = x0 + cell_w;
+                let y1 = y0 + cell_h;
+                for rect in [
+                    [x0, y0, x1, y0 + thickness],
+                    [x0, y1 - thickness, x1, y1],
+                    [x0, y0, x0 + thickness, y1],
+                    [x1 - thickness, y0, x1, y1],
+                ] {
+                    push_solid_quad(
+                        out,
+                        SolidQuad {
+                            rect,
+                            color: block_color,
+                        },
+                    );
+                }
+                return;
+            }
             // The under-cursor glyph is drawn in the cell's background color over
             // the cursor block; apply the RV1 floor so it stays legible against
             // the block (the relevant pair here is glyph-vs-block, since `fg` is
@@ -1526,7 +1552,6 @@ fn push_cursor(
             // the under-glyph through a transient contrast violation. The glyph
             // itself is NEVER alpha-faded — only the block is.
             let glyph_color = text::enforce_contrast_rgba(bg, block_color);
-            block_color[3] *= params.alpha;
             push_quad(
                 out,
                 [x0, y0, x0 + cell_w, y0 + cell_h],

@@ -1003,6 +1003,7 @@ fn cursor_render_params_offset_and_alpha_are_live() {
         CursorRenderParams {
             offset: [0.0, 0.0],
             alpha: 0.5,
+            focused: true,
         },
     );
     assert!(
@@ -1021,10 +1022,131 @@ fn cursor_render_params_offset_and_alpha_are_live() {
         CursorRenderParams {
             offset: [5.0, 7.0],
             alpha: 1.0,
+            focused: true,
         },
     );
     assert!((shifted[0].pos[0] - (base[0].pos[0] + 5.0)).abs() < 1e-6);
     assert!((shifted[0].pos[1] - (base[0].pos[1] + 7.0)).abs() < 1e-6);
+}
+
+#[test]
+fn unfocused_block_cursor_is_a_four_quad_hollow_outline() {
+    let Some(atlas) = atlas() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let snapshot = Terminal::new(2, 1).snapshot();
+    let mut verts = Vec::new();
+    append_cursor_vertices_with_origin(
+        &mut verts,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        [0.0, 0.0],
+        CursorRenderParams {
+            focused: false,
+            ..CursorRenderParams::default()
+        },
+    );
+    assert_eq!(verts.len(), 4 * VERTS_PER_QUAD, "four border quads");
+
+    let cell_w = atlas.cell.width as f32;
+    let cell_h = atlas.cell.height as f32;
+    let expected = [
+        [0.0, 0.0, cell_w, 1.0],
+        [0.0, cell_h - 1.0, cell_w, cell_h],
+        [0.0, 0.0, 1.0, cell_h],
+        [cell_w - 1.0, 0.0, cell_w, cell_h],
+    ];
+    for (quad, expected_rect) in verts.chunks_exact(VERTS_PER_QUAD).zip(expected) {
+        let left = quad.iter().map(|v| v.pos[0]).fold(f32::INFINITY, f32::min);
+        let top = quad.iter().map(|v| v.pos[1]).fold(f32::INFINITY, f32::min);
+        let right = quad
+            .iter()
+            .map(|v| v.pos[0])
+            .fold(f32::NEG_INFINITY, f32::max);
+        let bottom = quad
+            .iter()
+            .map(|v| v.pos[1])
+            .fold(f32::NEG_INFINITY, f32::max);
+        assert_eq!([left, top, right, bottom], expected_rect);
+        assert!(quad.iter().all(|v| v.is_glyph == 0.0));
+        assert!(
+            quad.iter()
+                .all(|v| v.color == text::foreground_linear(Color::Default))
+        );
+    }
+}
+
+#[test]
+fn unfocused_block_leaves_the_existing_glyph_in_normal_foreground() {
+    let Some(atlas) = atlas() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mut term = Terminal::new(1, 1);
+    term.advance(b"R");
+    let snapshot = term.snapshot();
+    let mut verts = Vec::new();
+    build_cell_vertices_into(&mut verts, &snapshot, &atlas);
+    let cell_vertices = verts.len();
+    append_cursor_vertices_with_origin(
+        &mut verts,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        [0.0, 0.0],
+        CursorRenderParams {
+            focused: false,
+            ..CursorRenderParams::default()
+        },
+    );
+
+    assert_eq!(cell_vertices, 2 * VERTS_PER_QUAD, "cell background + glyph");
+    assert_eq!(verts[VERTS_PER_QUAD].is_glyph, 1.0);
+    assert_eq!(
+        verts[VERTS_PER_QUAD].color,
+        text::foreground_linear(Color::Default),
+        "the glyph keeps its normal foreground color"
+    );
+    assert_eq!(
+        verts.len() - cell_vertices,
+        4 * VERTS_PER_QUAD,
+        "the cursor layer adds only the hollow border"
+    );
+}
+
+#[test]
+fn unfocused_non_block_cursor_styles_are_unchanged() {
+    let Some(atlas) = atlas() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let snapshot = Terminal::new(2, 1).snapshot();
+    for style in [CursorStyle::Underline, CursorStyle::Bar] {
+        let mut focused = Vec::new();
+        append_cursor_vertices_with_origin(
+            &mut focused,
+            &snapshot,
+            &atlas,
+            style,
+            [0.0, 0.0],
+            CursorRenderParams::default(),
+        );
+        let mut unfocused = Vec::new();
+        append_cursor_vertices_with_origin(
+            &mut unfocused,
+            &snapshot,
+            &atlas,
+            style,
+            [0.0, 0.0],
+            CursorRenderParams {
+                focused: false,
+                ..CursorRenderParams::default()
+            },
+        );
+        assert_eq!(focused, unfocused, "style {style:?} ignores focus");
+    }
 }
 
 #[test]

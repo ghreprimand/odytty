@@ -232,6 +232,7 @@ fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
     let params = CursorRenderParams {
         offset: [3.25, -1.5],
         alpha: 0.42,
+        focused: true,
     };
 
     let previous = render_sig();
@@ -286,6 +287,59 @@ fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
         [origin[0] + params.offset[0], origin[1] + params.offset[1]]
     );
     assert!((cursor.color[3] - params.alpha).abs() < 1e-6);
+}
+
+#[test]
+fn full_rebuild_cursor_layer_matches_cursor_only_when_unfocused() {
+    let Ok(font) = text::load_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let atlas = GlyphAtlas::build(&font, 24.0);
+    let snapshot = snapshot(&[" "], 1);
+    let origin = [8.0, 12.0];
+    let params = CursorRenderParams {
+        focused: false,
+        ..CursorRenderParams::default()
+    };
+
+    let mut full = Vec::new();
+    crate::grid::build_cell_vertices_with_focus_dim_and_origin_into(
+        &mut full,
+        &snapshot,
+        &atlas,
+        &[],
+        0.0,
+        origin,
+        crate::grid::BackgroundTreatmentParams::default(),
+        crate::settings::DEFAULT_CELL_BG_OPACITY,
+        None,
+        crate::grid::ChromePin::NONE,
+    );
+    let cell_vertices = full.len();
+    append_cursor_layer_vertices(
+        &mut full,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        origin,
+        &[],
+        params,
+    );
+
+    let mut cursor_only = Vec::new();
+    append_cursor_layer_vertices(
+        &mut cursor_only,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        origin,
+        &[],
+        params,
+    );
+
+    assert_eq!(&full[cell_vertices..], cursor_only.as_slice());
+    assert_eq!(cursor_only.len(), 4 * VERTS_PER_QUAD, "hollow border quads");
 }
 
 fn search_sig(query: &str) -> SearchRenderSignature {

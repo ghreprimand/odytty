@@ -436,6 +436,7 @@ fn cursor_anim_key_quantization_polarity() {
     let faded = CursorAnimKey::from_params(&CursorRenderParams {
         offset: [0.0, 0.0],
         alpha: 0.5,
+        focused: true,
     });
     assert_ne!(
         faded,
@@ -449,11 +450,21 @@ fn cursor_anim_key_quantization_polarity() {
     let slid = CursorAnimKey::from_params(&CursorRenderParams {
         offset: [3.0, 0.0],
         alpha: 1.0,
+        focused: true,
     });
     assert_ne!(
         slid,
         CursorAnimKey::IDENTITY,
         "a sub-cell slide offset reclassifies (the cache observes the slide)"
+    );
+    let unfocused = CursorAnimKey::from_params(&CursorRenderParams {
+        focused: false,
+        ..CursorRenderParams::default()
+    });
+    assert_ne!(
+        unfocused,
+        CursorAnimKey::IDENTITY,
+        "focus loss reclassifies the filled block into a hollow outline"
     );
 }
 
