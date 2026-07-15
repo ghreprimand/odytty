@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Public references match the complete shipped surface
+
+Installation guidance now distinguishes direct GitHub Release packages from
+repository-managed updates, and package metadata describes the accelerated GL
+fallback, current copyright, build requirements, AppStream contents, and
+Windows icon-build constraints accurately.
+
+The user references now enumerate all 142 built-in themes and the complete
+context-menu surfaces, distinguish bindable and fixed input paths, document the
+actual path-detection and graphics protocol behavior, and provide complete
+reduced-motion and flat-rendering recipes. Security, persistence, session
+attach, diagnostics, release, rendering, and platform records now match their
+current implementation paths. Historical entries retain their technical facts
+without local workflow narration and remain reverse-chronological.
+
+Verified: the annotated example config parses without warnings, every changed
+relative link resolves, the documented theme roster matches the compiled
+registry, DEVLOG dates remain reverse-chronological, and cargo fmt, test, and
+Clippy gates are clean.
+
+---
+
 ## 2026-07-15 -- Current-work documentation reflects shipped features
 
 The current-work index and durable references now record pane-aware inline
@@ -10063,10 +10085,9 @@ and rebinding incl. the 31 bindable-action tokens) and `docs/accessibility.md`
 bell), cross-linked from the README and the relevant docs. These retire the
 scattered, drift-prone keybinding/accessibility fragments.
 
-**Method.** The audit and the per-document rewrites ran as multi-agent sweeps: a
-ground-truth code inventory per subsystem, a per-document drift audit, then one
-writer plus one independent verifier per file, with a final main-loop pass to
-reconcile cross-cutting facts (the ambient/UX5 correction came out of that).
+**Method.** Each document was audited against a ground-truth code inventory of
+its subsystem, rewritten, then independently verified against the code before
+landing.
 
 **Verified:** `cargo fmt --check` clean; `cargo test --locked` green (exit 0, no
 failures; the two scrubbed test files pass, latest lib tier 2521 passed / 0
@@ -13934,12 +13955,12 @@ tag-triggered `release.yml` produced exactly two assets: `odytty-0.2.0.tar.gz`
 green on both `ubuntu-latest` and `macos-latest` for the release commit — the
 first fully-green macOS run, which is what lifted the release freeze.
 
-Reconciliation before tagging: pulled the six macOS-agent commits
+Reconciliation before tagging: pulled the six macOS commits
 (`73bd655`..`194b6e3`) and verified them on Linux — `cargo fmt --check` clean,
 full `cargo test` green (1871 lib pass / 7 ignored), and the cross-platform
 mmap `t=s` shm path passes all 7 `shm_transport_*` tests here (the 3 formerly
 Linux-only ones now run on both). The fuzz-suite compile fix builds under both
-rustc 1.96 (Linux) and 1.94 (the Mac agent's toolchain). Privacy sweep over the
+rustc 1.96 (Linux) and 1.94 (the macOS toolchain). Privacy sweep over the
 whole tracked tree: no secrets, tokens, IPs, private hostnames, or private-repo
 references introduced.
 
@@ -14535,8 +14556,7 @@ bundled and system fonts are both first-class.
 - `--show-config`'s `symbol_font_source` now reports the full chain joined with
   ` > ` (e.g. `bundled > bundled > host:<path>`).
 - Docs updated: `SPEC.md`, `README.md`, `NOTICE` (second font + license),
-  `TODO.md`. Removed a stray no-op fish backup the prior agent left in the
-  user's config (not tracked here).
+  `TODO.md`.
 
 Verified: `cargo fmt --check` clean; `cargo test` all suites green (lib 1847
 passed / 0 failed / 7 ignored, plus integration suites); `cargo build --release`
@@ -14999,6 +15019,29 @@ Gaps: the host-driven font picker lists only families present on the host
 (pre-existing), so a bundled family not installed locally won't appear in the
 picker — it is still usable via `font_family` config/env. Cursive Victor Italic
 faces are intentionally not bundled (Oblique is used for italic).
+
+---
+
+## 2026-06-19 -- Glyph release Phase 1: bundled-symbols fallback path
+
+- Added the bundled Nerd Fonts Symbols Only face
+  (`assets/fonts/nerd-fonts-symbols/SymbolsNerdFontMono-Regular.ttf`) plus
+  upstream MIT license text, per-set glyph credits/license references, and
+  NOTICE attribution. Default builds enable the `bundled-symbols-font` feature,
+  so the resolver has an in-repo symbols face without host font installation.
+- Changed symbol fallback defaults to on in settings and the runtime published
+  flag. Users can still set `symbol_fallback = false` /
+  `ODYTTY_SYMBOL_FALLBACK=off` to force the plain missing-glyph path.
+- Updated fallback resolution precedence to explicit path, then host Nerd font,
+  then bundled symbols face, and added resolver tests for off, bundled, explicit
+  path, and host-precedence paths.
+- Refreshed `gpu_composite_smoke`'s CRT uniform fixture to match the production
+  post-process uniform (`curvature` field) and to assert the documented bounded
+  output dither in the bloom-off composite path.
+- Verified: `cargo fmt --check` clean; `cargo test` clean;
+  `cargo build --release` clean.
+- Remaining gap: visual screenshot verification still belongs to integration
+  with fish/starship/eza in the live environment.
 
 ---
 
@@ -15696,29 +15739,6 @@ baseline, zero-new; SPDX on the new module; leak scan clean. No parser/core-stat
 touch ⇒ no fuzz. Caps: `app/mod.rs` 1945, `gpu.rs` 1949 — both under the 1950
 flag but tight; the next `gpu.rs` touch should extract the `StyleFonts` /
 font-resolution block into a `gpu/` submodule first.
-
----
-
-## 2026-06-19 -- Glyph release Phase 1: bundled-symbols fallback path
-
-- Added the bundled Nerd Fonts Symbols Only face
-  (`assets/fonts/nerd-fonts-symbols/SymbolsNerdFontMono-Regular.ttf`) plus
-  upstream MIT license text, per-set glyph credits/license references, and
-  NOTICE attribution. Default builds enable the `bundled-symbols-font` feature,
-  so the resolver has an in-repo symbols face without host font installation.
-- Changed symbol fallback defaults to on in settings and the runtime published
-  flag. Users can still set `symbol_fallback = false` /
-  `ODYTTY_SYMBOL_FALLBACK=off` to force the plain missing-glyph path.
-- Updated fallback resolution precedence to explicit path, then host Nerd font,
-  then bundled symbols face, and added resolver tests for off, bundled, explicit
-  path, and host-precedence paths.
-- Refreshed `gpu_composite_smoke`'s CRT uniform fixture to match the production
-  post-process uniform (`curvature` field) and to assert the documented bounded
-  output dither in the bloom-off composite path.
-- Verified: `cargo fmt --check` clean; `cargo test` clean;
-  `cargo build --release` clean.
-- Remaining gap: visual screenshot verification still belongs to integration
-  with fish/starship/eza in the live environment.
 
 ---
 

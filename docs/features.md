@@ -15,7 +15,10 @@ For installation and a shorter overview, start with the
   - [Adjust The Tab Bar](#adjust-the-tab-bar)
   - [Split A Tab Into Panes](#split-a-tab-into-panes)
   - [Organize Workspaces And The Rail](#organize-workspaces-and-the-rail)
+  - [Close Workspaces And Handle Shell Exit](#close-workspaces-and-handle-shell-exit)
   - [Restore Workspaces And Open Layouts](#restore-workspaces-and-open-layouts)
+  - [Save And Reopen Named Layouts](#save-and-reopen-named-layouts)
+  - [Open Local Tools](#open-local-tools)
 - [Shell Integration](#shell-integration)
 - [Settings And Themes](#settings-and-themes)
 
@@ -40,8 +43,8 @@ sections and rows, `Enter` activates a choice, and `Esc` clears a search or
 closes the panel.
 
 `Ctrl+Shift+,` and Settings from the terminal content menu open the section
-list. Settings from a tab, workspace slot, or empty workspace rail opens
-Layout directly.
+list. Settings from the empty tab strip, a workspace slot, or the empty
+workspace rail opens Layout directly.
 
 Edits apply live, but the config file is not changed until you press `Ctrl+S`.
 Saving uses a preservation-first writeback: comments, blank lines, key order,
@@ -252,19 +255,21 @@ sub-rectangle. Optional inactive-pane dimming uses `inactive_pane_dim`, defaults
 to `0.0`, and is disabled by `render_quality=plain`; the no-dim frame remains
 byte-identical.
 
-The terminal content menu includes Settings plus **Connection Manager**,
-**Command Palette**, and **Session Replay** in a launcher section, each labeled
-with its effective shortcut. A tab's own menu provides New Tab, Rename Tab,
-Close Tab, Close Other Tabs, **Connect to Host…**, **Replace with Host…**, New
-Window, and Settings.
+The terminal content menu includes Settings plus **Keyboard Shortcuts**,
+**Connection Manager**, **Command Palette**, **Session Replay**, **Manage
+Sessions**, and **Detach & switch** in a launcher section. Items with a bound
+chord show it right-aligned. A tab's own menu provides New Tab, optional New
+Local Tab for a host-bound workspace, Duplicate Tab, Rename Tab, Close Tab,
+Close Other Tabs, **Connect to Host…**, **Replace with Host…**, optional **Move
+to Workspace…**, and New Window.
 
 **Connect to Host…** opens a saved host in a new tab immediately after the
 clicked tab without changing the clicked shell. **Replace with Host…** replaces
 the clicked tab and asks for confirmation when that tab still has a program
 running.
 
-Right-clicking the empty tab strip offers New Tab, Command Palette, and
-Settings.
+Right-clicking the empty tab strip offers New Tab, New Workspace, Open Layout,
+Command Palette, and Settings.
 
 ### Organize Workspaces And The Rail
 
@@ -346,12 +351,13 @@ command-line argument suppresses restore.
 
 A second window leaves restore ownership with the first and shows this notice:
 
-> Another OdyTTY window owns session restore, this window won't restore or
-> autosave workspaces
+> Another OdyTTY window owns session restore — this window won't restore or
+> autosave workspaces.
 
 The snapshot records structure only. It never saves terminal output,
-scrollback, environment, or the commands that were running, so every restored
-pane is a fresh shell at its directory.
+scrollback, environment, or the commands that were running. A plain local pane
+therefore restores as a fresh shell at its captured directory; the live-host
+and remote reconnect paths below do not re-execute captured commands.
 
 A restored remote pane reconnects through the same `ssh` path and opens a fresh
 remote login shell at the host's default directory. It does not re-enter the
@@ -412,7 +418,7 @@ create one.
 | `Ctrl+Shift+L` | Open keyboard quick-select hints |
 | `Ctrl+Shift+Space` | Enter keyboard copy mode |
 | `Ctrl+Shift+Up` / `Ctrl+Shift+Down` | Jump to the previous or next prompt mark |
-| `Ctrl+Shift+K` | Clear editable prompt input when shell integration allows it |
+| `Ctrl+Shift+K` | Clear the current shell input line (sends readline Ctrl+A, Ctrl+K; no shell integration required) |
 | `Delete` / `Backspace` | Delete selected editable prompt input when shell integration allows it |
 
 The command palette, connection manager, session replay, theme builder, and
@@ -424,7 +430,7 @@ Launcher actions appear in the content menu, while Settings → Themes includes
 an **Open Theme Builder** entry.
 
 Prompt navigation uses `Ctrl+Shift+Up` and `Ctrl+Shift+Down`. Rebind any local
-action through Settings → Keybindings or `keybinds`:
+action through Settings → Input, in the **Key bindings** row, or `keybinds`:
 
 ```conf
 keybinds = ctrl+alt+p=command-palette
@@ -434,7 +440,7 @@ keybinds = ctrl+alt+p=command-palette
 
 ### Enable Prompt-Aware Actions
 
-OSC 133 prompt marks enable prompt jumps, clearing or deleting editable prompt
+OSC 133 prompt marks enable prompt jumps, deleting selected editable prompt
 input, command-status gutters, and click-to-position support when the shell
 advertises it. OdyTTY parses these marks by default but injects no hooks until
 you opt in.

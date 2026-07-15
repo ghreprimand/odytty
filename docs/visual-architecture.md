@@ -45,23 +45,26 @@ offscreen target and composited back through a fullscreen pass. The
 
 The canonical scene order is:
 
-1. **Surface clear** — the swapchain attachment is cleared to the theme's
-   `clear` color before any draw calls.
-2. **Background cell quads** — solid color quads covering every cell background
+1. **Scene clear** — the selected scene attachment is cleared to the theme's
+   `clear` color: the HDR offscreen target while post-processing is active, or
+   the swapchain on the direct path.
+2. **Background image** — the configured wallpaper, when active.
+3. **Background cell quads** — solid color quads covering every cell background
    (pass 1 of the cell pipeline, vertex range `0..background_count`).
-3. **Below-zero images** — Kitty/Sixel placements with `z < 0` drawn by the
+4. **Below-zero images** — Kitty/Sixel placements with `z < 0` drawn by the
    image layer (`image_layer.draw_below`).
-4. **Coverage glyphs and decorations** — glyph coverage quads, underlines,
-   strikethroughs, and cursor/overlay quads (pass 2 of the cell pipeline,
-   vertex range `background_count..cell_count`, then cursor/overlays at
-   `cell_count..vertex_count`).
-5. **Color-glyph quads** — premultiplied-RGBA color emoji bitmaps drawn by the
+5. **Coverage glyphs and decorations** — glyph coverage quads, underlines, and
+   strikethroughs (pass 2 of the cell pipeline, vertex range
+   `background_count..cell_count`).
+6. **Color-glyph quads** — premultiplied-RGBA color emoji bitmaps drawn by the
    dedicated color-glyph pipeline (vertex range
    `0..color_glyph_vertex_count`).
-6. **Above/non-negative-z images** — Kitty/Sixel placements with `z >= 0`
+7. **Cursor and overlays** — the remaining cell-pipeline range,
+   `cell_count..vertex_count`.
+8. **Above/non-negative-z images** — Kitty/Sixel placements with `z >= 0`
    drawn by the image layer (`image_layer.draw_above`).
 
-Steps 2–6 are the scene pass — the sequence that the post-process branch
+Steps 2–8 are the scene pass — the sequence that the post-process branch
 re-targets to the offscreen `Rgba16Float` buffer when an effect is active. The
 in-app **image lightbox** (the C4 viewer overlay; `src/native/image_layer.rs`,
 `OverlayImage`) is the exception:
@@ -107,7 +110,7 @@ Both shaders share the same vertex layout (`pos_px`, `uv`, `color`,
 - Background fragment: same as the grayscale path (inline scanline wash retired; CRT post-process handles it).
 - Fallback: if the adapter lacks `DUAL_SOURCE_BLENDING`, OdyTTY falls back to
   `SubpixelMode::Off` with a stderr notice; startup never fails because of it
-  (`src/native/gpu.rs`: `fn actual_subpixel`).
+  (`src/native/gpu.rs`: `effective_subpixel_mode`).
 
 ### CRT scanline effect and the legacy ambient setting
 
@@ -240,9 +243,10 @@ dimming; see [`docs/accessibility.md`](accessibility.md).
 
 The enhancement work is organized into three tiers. Tier 1 readability
 foundations are shipped. Tier 2 identity/depth work now includes themed roles,
-focus dimming, cursor motion/glow/trail, background treatments, padding, border,
-and window decoration controls. Tier 3 atmospheric work now includes the HDR
-post-process branch, bloom, CRT/retro, curvature, and new-output fade.
+focus dimming, background treatments, padding, border, and window decoration
+controls. Tier 3 atmospheric work now includes cursor motion, glow, trail, and
+blink fade alongside the HDR post-process branch, bloom, CRT/retro, curvature,
+and new-output fade.
 
 ### Hard rule (enforced across all tiers)
 
@@ -310,9 +314,7 @@ Distinctive treatments that direct attention without harming legibility.
   cursor/selection/search semantic roles are delivered: when
   `themed_ui_roles` is on (default), the cursor uses the theme cursor color,
   selections use the theme selection color, and search highlights use the theme
-  search color rather than raw cell inversion. Blink fade (`cursor_easing`) and
-  trail (`cursor_trail`) ship on; glow (`cursor_glow`) and slide
-  (`cursor_motion`) are opt-in. The trail is visible only while slide is on.
+  search color rather than raw cell inversion.
   `ODYTTY_THEMED_UI_ROLES=off`
   restores the classic inversion behavior.
 - **Focus dimming (landed):** dims the whole grid — both text foreground

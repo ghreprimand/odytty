@@ -7,12 +7,12 @@ short **Phase 2 (persistent/resumable sessions)** forward-note so Phase 1 does n
 paint Phase 2 into a corner.
 
 This is a **dated design record** captured before the panes/sessions work was
-implemented. The design it gates has since landed (the live code uses the
-`TabSet` arena described in §2, not the `SessionSet` baseline in §1), so read §1
-as a historical snapshot of the pre-refactor code rather than current ground
-truth. File and symbol references were concrete against that baseline so the
-original reviewers could check them. For the *current* user-facing keyboard and
-session model, see `docs/keybindings.md`.
+implemented. The design it gates has since landed and evolved: the live session
+arena belongs to `WorkspaceSet`, with a workspace level above the §2 design-time
+tab shape (`WorkspaceSet` → `Workspace` → `Tab` → `PaneNode`). `TabSet` was the
+design name, not a shipped type. Read §1 as a historical snapshot of the
+pre-refactor code and §2's names as design-time. For the current user-facing
+keyboard and session model, see `docs/keybindings.md`.
 
 ---
 
@@ -52,10 +52,10 @@ These reflect the project's standing engineering rules:
 
 > **Superseded.** This section describes the `SessionSet` / `Vec<Session>` model
 > as it stood *before* this design was implemented. The shipped code replaced it
-> with the `TabSet` arena (`sessions: HashMap<SessionToken, Session>`, `tabs:
-> Vec<Tab>`, `active_tab`) and the `Tab { layout, focused, title_override,
-> zoomed }` / `PaneNode::Leaf`/`Split` structures of §2. Keep it as the baseline
-> the design started from, not a description of the current tree.
+> with the session arena on `WorkspaceSet`. The shipped model adds
+> `WorkspaceSet` → `Workspace` above the design-time `TabSet` → `Tab` →
+> `PaneNode` shape. Keep this section as the baseline the design started from,
+> not a description of the current tree.
 
 The baseline model was a **flat list of sessions == the tab strip**:
 
@@ -464,6 +464,9 @@ diagrams in §2 show:
   *fresh managed session* in the focused pane's current working directory (read
   from OSC 7) and switches to it. It is an honest spawn-in-cwd, not a live
   migration of the running pane; it reuses the attach plumbing from §6.2.
+  Activating it opens a three-way dialog: **Swap** closes the original only
+  after the new managed session is live, **Keep both** preserves it, and
+  **Cancel** makes no change. On Windows the item raises a not-supported notice.
 
 ---
 
@@ -517,7 +520,8 @@ Unix CLI surface for the first resumable slice:
 
 - `odytty new --detached`
 - `odytty list`
-- `odytty attach <id>`
+- `odytty attach [<id>]`
+- `odytty attach --diagnostic <id>`
 
 CLI surface status:
 
@@ -526,12 +530,14 @@ CLI surface status:
   prints a stable `id=...` row.
 - `odytty list` is live. It scans live per-session Unix sockets under
   `$XDG_RUNTIME_DIR/odytty/`, completes a clean attach/detach handshake for each
-  live host, and prints metadata-only rows (`id`, `name`, `state`, `age_ms`,
-  `panes`). It never prints scrollback or command output.
-- `odytty attach <id>` is diagnostic-only in this slice. It validates the id,
-  connects to the host, receives and decodes the current `SnapshotEnvelope`,
-  prints `id`, `state=attached`, `mode=diagnostic`, `columns`, `rows`, and
-  `panes`, then detaches. Native window-as-client rendering is a later stage.
+  live host, and prints metadata-only tab-separated rows: the session name or
+  id, pane count, humanized age, and a trailing id in parentheses when the name
+  differs. It never prints scrollback or command output.
+- `odytty attach [<id>]` opens a native window reattached to the hosted session;
+  without an id it attaches the sole live session or lists the choices.
+  `odytty attach --diagnostic <id>` is the CLI-only status path: it validates
+  the id, decodes the current `SnapshotEnvelope`, prints the diagnostic fields,
+  then detaches.
 
 Smallest viable ordering:
 
@@ -554,7 +560,7 @@ Session-host foundation status:
 
 - `src/session_host/` is the root-level, non-native module for Phase 2 process,
   socket, protocol, and PTY lifecycle code. It imports `src/core/` and
-  `src/pty.rs`, not `src/native/`.
+  `src/pty/`, not `src/native/`.
 - The first slice is one session per host process. The host owns the PTY and
   `Terminal`, accepts local Unix-domain attach clients, sends a current
   `SnapshotEnvelope`, then streams raw output and render-invalidation frames.
@@ -582,8 +588,8 @@ Session-host foundation status:
   envelope layer, and a detached idle timeout so a host cannot run forever
   without an attached window. Host shutdown drains PTY EOF into the terminal
   model before returning `SessionExited`; idle timeout kills and reaps the child.
-- Public CLI wiring exists for detached create/list/diagnostic attach. Native
-  window-as-client attach wiring remains a later stage. The hidden
+- Public CLI wiring exists for detached create, list, diagnostic attach, and
+  live native-window attach; §6.2 records the landed client. The hidden
   `odytty session-host ...` process mode remains internal substrate.
 - **Restore path** applies a decoded envelope into a live core model through
   `Screen::restore_from_envelope`, `Terminal::restore_from_envelope`, or
@@ -655,7 +661,7 @@ and **close** (kill+reap vs. a clean `Detach` that keeps the host session alive)
 site (keys, IME, paste) writes through the identical `self.writer` path -- the
 input code and the local path are untouched.
 
-- **Present as a live tab.** `TabSet::attach_in_new_tab(runtime_base, id)` resolves
+- **Present as a live tab.** `WorkspaceSet::attach_in_new_tab(runtime_base, id)` resolves
   the id to its per-user socket (CLI parity), connects + restores the mirror, spawns
   the read pump (sink = winit proxy), and grafts an attached `Session` in as a new
   single-pane tab. `App::attach_session_in_new_tab` applies the window's

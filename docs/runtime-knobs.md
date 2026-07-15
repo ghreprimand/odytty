@@ -48,7 +48,9 @@ render_quality = high
 min_contrast = 17.0
 ```
 
-Blank lines are ignored. Duplicate keys are allowed; the last valid value wins.
+Blank lines are ignored. Duplicate keys are allowed; the last occurrence wins.
+If that value is invalid, OdyTTY warns and falls back to the setting's built-in
+default rather than an earlier occurrence.
 The in-app settings panel writes this same file with preservation-first
 writeback: comments, blank lines, ordering, and unknown/future keys stay in
 place, changed keys are rewritten, missing changed keys are appended, and saves
@@ -114,7 +116,7 @@ environment variable was not set at startup.
 | `geometric_boxdraw` | `ODYTTY_GEOMETRIC_BOXDRAW` | `on`, `off` | `on` |
 | `box_thickness` | `ODYTTY_BOX_THICKNESS` | Float, `0.5..=3.0` | `1.0` |
 | `symbol_fallback` | `ODYTTY_SYMBOL_FALLBACK` | `on`, `off` | `on` |
-| `symbol_font` | `ODYTTY_SYMBOL_FONT` | `.ttf`/`.otf` path, empty, or `auto` | auto |
+| `symbol_font` | `ODYTTY_SYMBOL_FONT` | `.ttf`/`.otf`/`.ttc` path, empty, or `auto` | auto |
 | `symbol_map` | `ODYTTY_SYMBOL_MAP` | Semicolon-separated `range=family` entries | empty |
 | `themed_ui_roles` | `ODYTTY_THEMED_UI_ROLES` | `on`, `off` | `on` |
 | `cursor_style` | `ODYTTY_CURSOR_STYLE` | `block`, `underline`, `bar` | `bar` |
@@ -379,9 +381,11 @@ keybinds = ctrl+shift+y=copy;ctrl+alt+v=paste;super+f=search;alt+pageup=scroll-u
 For a one-off/dev override, pass the same list through `ODYTTY_KEYBINDS`; env
 wins for that session.
 
-Chord modifiers are `ctrl`, `shift`, `alt`, and `super`. Keys may be letters,
-digits, `f1`-`f24`, `pageup`, `pagedown`, `home`, `end`, `enter`, `esc`,
-`backspace`, `delete`, `insert`, `tab`, `space`, arrow keys, or `comma`.
+Chord modifiers are `ctrl`, `shift`, `alt`, and `super`. The key may be any
+single printable ASCII character except `+` and `=`, the word `comma`,
+`f1`-`f24`, or a named key: `pageup`, `pagedown`, `home`, `end`, `enter`, `esc`,
+`backspace`, `delete`, `insert`, `tab`, `space`, `up`, `down`, `left`, or
+`right`.
 
 The in-app keybinding editor is opened from the Settings panel's Keybindings
 row. It covers every bindable action — the core workflow actions plus the
@@ -770,19 +774,22 @@ available on Unix; Windows rejects them with a clean unsupported-platform error:
 ```sh
 odytty new --detached [-e COMMAND...] [--working-directory DIR] [--title TITLE]
 odytty list
-odytty attach [--diagnostic] ID
+odytty attach [ID]
+odytty attach --diagnostic ID
 ```
 
 `new --detached` starts a local session-host process and prints `id=...`. `list`
-reports live local sessions as metadata-only rows (`id`, `name`, `state`,
-`age_ms`, `panes`) and never prints scrollback or command output. `attach <id>`
-reattaches a detached session in a live native window. The window opens its
-normal initial local session, adds the hosted session as a focused tab repainted
-from the host snapshot, and streams live output.
+prints one tab-separated row per live session: its title or id, pane count,
+humanized age, and a trailing id in parentheses when the title differs. It
+never prints scrollback or command output. `attach [ID]` reattaches a detached
+session in a live native window; without an id it attaches the sole live session
+or lists the choices. The window opens its normal initial local session, adds
+the hosted session as a focused tab repainted from the host snapshot, and
+streams live output.
 
-If the id is missing or dead, the window still opens and stderr reports `odytty:
-attach session <id> failed: <err>`. The headless script/CI form, `attach
---diagnostic <id>`, prints a one-line status dump (`id=... state=attached
+If an explicitly requested id is dead, the window still opens and stderr reports
+`odytty: attach session <id> failed: <err>`. The headless script/CI form,
+`attach --diagnostic <id>`, prints a one-line status dump (`id=... state=attached
 mode=diagnostic columns=... rows=...
 
 panes=1`) and exits without opening a window.

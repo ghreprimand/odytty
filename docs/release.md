@@ -36,6 +36,11 @@ cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked
 ```
 
+The macOS leg runs the test command single-threaded as
+`cargo test --locked -- --test-threads=1`, with a per-attempt timeout and one
+automatic retry for the known runner PTY-teardown deadlock. A genuine test
+failure still fails the job.
+
 Release publishing never runs for fork pull requests. A normal release lands
 the version commit on `master` and then pushes an annotated tag.
 
@@ -117,8 +122,10 @@ desktop-file-validate dist/linux/io.unfinished_works.odytty.desktop
 appstreamcli validate --pedantic dist/linux/io.unfinished_works.odytty.metainfo.xml
 ```
 
-The tag workflow separately smoke-tests the packaged Windows binary,
-AppImage, macOS binary, and Linux tarball binary.
+The tag workflow smoke-tests the Windows and macOS binaries before packaging,
+the assembled AppImage, and the binary inside the Linux tarball staging tree.
+The `.deb` and `.rpm` packages receive metadata and file-list validation but are
+not executed.
 
 ### 3. Push The Annotated Tag
 

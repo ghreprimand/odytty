@@ -110,13 +110,14 @@ CPU does millions of cached `stat`s per second, so the poll work itself is noise
 on any machine that can run a Vulkan/wgpu renderer at all. The cost that *does*
 matter on old / battery hardware is **waking the CPU out of a deep sleep state**
 once a second, which hurts idle power even when the work is trivial. That is
-precisely what the v0.5.5 focus-gate removes: backgrounded, there is no periodic
-wake, so the CPU can stay in a deep C-state.
+precisely what the v0.5.5 focus-gate removes: backgrounded, OdyTTY schedules no
+config-poll timer wake of its own. The driver threads measured above still wake
+periodically, so the process as a whole does not remain in a deep C-state.
 
 ### Standing recommendation
 
-Keep mtime polling. The implementation is the cheap (stat-only) variant, the
-expensive case (the idle/backgrounded wake) is already gated out, and inotify
+Keep mtime polling. The implementation is the cheap (stat-only) variant, its
+own idle/backgrounded wake is already gated out, and inotify
 would trade a tiny, well-understood cost for atomic-save/rename edge-case
 complexity. If a future change *does* move to a `notify`-crate watcher, watch
 the **parent directory** (not the file) and land a regression test covering the

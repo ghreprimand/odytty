@@ -63,24 +63,28 @@ detect_paths(line: &str) -> Vec<PathSpan>
 ```
 
 It returns byte-offset spans (`start..end` into `line`) that *look like* a path,
-plus an optional `:line[:col]` suffix parsed off the end. Detection is
-**syntactic only** — it makes no filesystem decision. Liveness is decided later
-by the resolution layer (§2).
+plus an optional `:line[:col]` suffix parsed off the end. Production hover uses
+`detect_path_candidates_at`: it expands around the hovered whitespace-delimited
+token by at most six tokens per side, returns at most eight candidates longest
+first, and lets the resolution layer choose the longest candidate that exists.
+Detection is **syntactic only** — it makes no filesystem decision. Liveness is
+decided later by the resolution layer (§2).
 
 ### What counts as a path span
 
-A candidate is a maximal run of "path characters" that satisfies at least one
-*shape* rule:
+A candidate is a whitespace-delimited token or bounded run of tokens that
+satisfies at least one *shape* rule:
 
 | Shape | Trigger | Example |
 |-------|---------|---------|
 | Absolute | starts with `/` | `/etc/hosts`, `/proj/src/main.rs` |
 | Home | starts with `~/` (or bare `~` followed by `/`) | `~/notes/a.txt` |
 | Explicit relative | starts with `./` or `../` | `./foo.rs`, `../sibling/x` |
-| Bare relative | contains a `/` separator and no leading scheme | `src/main.rs`, `dir/file` |
+| Bare relative | contains a `/` separator | `src/main.rs`, `dir/file` |
 | Windows absolute (Windows builds) | drive-absolute or UNC | `C:\src\main.rs`, `\\server\share\file.txt` |
 | Windows relative (Windows builds) | contains a `\` separator | `src\main.rs` |
 | Bareword (opt-in) | a separator-less basename carrying a file extension; gated on `interactive_paths_barewords` (default on) | `main.rs`, `photo.JPG` |
+| Spaced bareword (hover) | a bounded token run carrying a file extension | `my notes.txt` |
 
 The **bare-relative rule requires an interior `/`**, the key false-positive
 guard: a separator-less word with *no* extension (`README`) is never a
@@ -112,9 +116,10 @@ column 10.
 - **Version strings:** `1.2.3`, `v1.2.3`, `1.2.3.4` have no `/` and no path
   prefix → never candidates. The `:line:col` parser also never fires on them
   (no path body precedes a bare `1.2.3`).
-- **Dotted barewords / domains:** `foo.bar`, `example.com`, `a.b.c` have no `/`
-  → not candidates. (If such a string *is* a real relative file, the user can
-  prefix `./`; we will not guess.)
+- **Dotted barewords / domains:** with bareword detection on by default,
+  `foo.bar` and `a.b.c` are candidates and remain inert unless the stat gate
+  finds them. Version-like strings and common-TLD domains such as `example.com`
+  are structurally excluded.
 - **Trailing punctuation:** a candidate's trailing run of `.,;:!?` is stripped
   (`see ./foo.rs:3.` → span `./foo.rs`, line 3). The strip happens *after* the
   `:line:col` parse so `foo.rs:3.` keeps line 3 and drops the period.
@@ -195,13 +200,11 @@ that span's cells are underlined** (the "now it will open" signal), painted onto
 the snapshot cells like the selection/search highlights
 (`src/native/app/click_hint.rs`).
 
-The armed underline is **presentation-only**,
-and its coordinates feed the overlay signature so it **recomputes from the live
-pointer each frame** and tracks the pointer as output streams underneath — never
-caching a stale span. That discipline is deliberate: an always-on hover underline
-keyed on a *cached* span previously smeared across unrelated cells as live output
-scrolled under a stationary pointer, so the decoration is armed by `Ctrl` and
-recomputed per frame rather than left persistently lit. Both the cursor shape
+The armed underline is **presentation-only**. Pointer movement and the click
+path recompute the span and latch it in `hovered_path_cells`; its coordinates
+feed the overlay signature, so a moving armed hover re-keys the frame cache.
+The decoration is armed by the platform open modifier rather than left
+persistently lit. Both the cursor shape
 (not part of the frame bytes) and the armed underline live strictly inside the
 `interactive_paths` master gate, so the default feature-off frame is
 **byte-identical**.
@@ -253,8 +256,8 @@ vectors, never a shell string:
 | `vim` / `nvim` / `vi` | `[ed, "+call cursor(L,C)", F]` | `[ed, "+L", F]` |
 | `vscode` (`code`) | `["code", "--goto", "F:L:C"]` | `["code", "--goto", "F:L"]` |
 | `emacs` / `emacsclient` | `[ed, "+L:C", F]` | `[ed, "+L", F]` |
-| `helix` (`hx`) | `["hx", "F:L:C"]` | `["hx", "F:L"]` |
-| `sublime` (`subl`) | `["subl", "F:L:C"]` | `["subl", "F:L"]` |
+| `helix` / `hx` | `["hx", "F:L:C"]` | `["hx", "F:L"]` |
+| `sublime` / `subl` | `["subl", "F:L:C"]` | `["subl", "F:L"]` |
 | `nano` | `["nano", "+L,C", F]` | `["nano", "+L", F]` |
 | `micro` | `["micro", "F:L:C"]` | `["micro", "F:L"]` |
 | fallback (unknown `$EDITOR`) | `[$EDITOR, F]` (line/col lost) | `[$EDITOR, F]` |
@@ -270,12 +273,14 @@ Notes:
 
 A settings key `interactive_paths_editor` (env `ODYTTY_INTERACTIVE_PATHS_EDITOR`,
 **shipped in C3** as a `String` setting in the Input group) lets the user pin the
-editor + argv template explicitly, overriding `$EDITOR` detection. Accepts a
-known editor name (keys into the matrix above) or a
-template with `{file}` / `{line}` / `{col}` placeholders that expands to an argv
-vector (split on whitespace *before* placeholder substitution, so a substituted
-path with spaces stays one argv element). This knob is wired in Phase 8; it is
-named here so the matrix and the setting agree.
+editor command or argv template explicitly, overriding `$EDITOR` detection. It
+accepts a known editor name, a program plus leading arguments such as
+`code --wait`, or a template with `{file}` / `{line}` / `{col}` placeholders.
+Command-form matching uses the program basename, case-insensitively, and keeps
+path-qualified programs and leading arguments. Templates split on whitespace
+*before* placeholder substitution, so a substituted path with spaces stays one
+argv element. This knob is wired in Phase 8; it is named here so the matrix and
+the setting agree.
 
 ---
 
@@ -306,7 +311,8 @@ named here so the matrix and the setting agree.
 src/paths/
   mod.rs      pub use; resolve(), ResolveProbe, FsKind, Resolved, PathSpan re-export;
               is_image_path() + IMAGE_EXTENSIONS  (pure, std-only — C4 offer gate)
-  detect.rs   detect_paths(), PathSpan  (pure scanner, no I/O)
+  detect.rs   detect_paths(), detect_path_candidates_at(), PathSpan
+              (pure scanner, no I/O)
 ```
 
 - `src/paths/` imports **std only** (no `winit`/`wgpu`/render/settings, no
@@ -410,14 +416,16 @@ fixtures:
 - `exec.rs` — `exec_to_argv(exec, abs)`, the security spine (below).
 - `parse.rs` — hand parsers for `.desktop` / `mimeapps.list` / `mimeinfo.cache`
   (one small INI-ish group reader; no new dependency).
+- `macos_apps.rs` — `map_macos_app_paths(bundle_paths, file_abs)`, the pure
+  NSWorkspace-result-to-`DesktopApp` mapper.
 - `mod.rs` — `enumerate_open_with(probe, env, abs)` behind two injectable seams
   (`MimeProbe`, `DesktopEnv`), capped at `MAX_OPEN_WITH` (12).
 
 The production seam implementations live in `native/app/open_with_ui.rs` (they
-touch the real process/filesystem): `XdgMimeProbe` (the single audited
-captured-output `xdg-mime query filetype <abs>` spawn — the *only* new spawn
-shape) and `FsDesktopEnv` (the real `XDG_*` ladders + bounded `std::fs` reads,
-256 KiB per file).
+touch the real process/filesystem): `PlatformMimeProbe` (Linux runs the single
+audited captured-output `xdg-mime query filetype <abs>` spawn; macOS and Windows
+fall through to magic-byte sniffing) and `FsDesktopEnv` (the real `XDG_*`
+ladders + bounded `std::fs` reads, 256 KiB per file).
 
 **Enumeration.** On Linux, `xdg-mime` → MIME type; then candidate desktop ids are gathered
 in priority order — `mimeapps.list` `[Default Applications]` then

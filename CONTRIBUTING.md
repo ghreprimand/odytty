@@ -225,7 +225,8 @@ test buckets include:
 - `protocol_fuzz_*_smoke` — quick fuzzer tiers.
 - `pty_alt_screen_smoke` — PTY-backed alternate-screen behavior.
 - `emoji_pixel_smoke`, `boxdraw_pixel_smoke` — emoji and box-drawing rasterization.
-- `transcript_smoke` — live-PTY transcript replay.
+- `transcript_smoke` — headless core transcript replay, plus one ignored live-PTY
+  capture check.
 - `cli` — command-line surface.
 
 Most of the PTY-backed suite runs in the default `cargo test` (e.g.
@@ -351,7 +352,7 @@ references.
 
 All 142 built-in themes live in `src/theme/builtins/` as `.theme` files.
 The `REGISTRY` slice in `src/theme/builtins.rs` maps names to
-`include_str!`-embedded sources. Adding a new built-in is four steps:
+`include_str!`-embedded sources. Adding a new built-in is five steps:
 
 1. **Write the `.theme` file** in `src/theme/builtins/`. Use an existing file
    as a template; every color role must have a value. See `SPEC.md` for the
@@ -367,8 +368,11 @@ The `REGISTRY` slice in `src/theme/builtins.rs` maps names to
    floor (4.0, just below WCAG AA 4.5 to accommodate authentic low-contrast
    community palettes like Solarized). Fix the palette rather than lowering the
    floor.
-4. **Update `docs/themes.md`.** Add a row to the attribution table with the
-   theme name, family, origin, and license.
+4. **Update the roster count.** Change `library_has_the_full_roster` in
+   `src/theme/builtins.rs` and every public count that names the old total.
+5. **Update `docs/themes.md`.** Add the theme to the built-in roster. External
+   palettes must include their family, origin, and license attribution; OdyTTY
+   originals are covered by the library's project attribution.
 
 User-authored themes (outside the built-in library) can be placed in the
 `themes/` directory next to `odytty.conf` and are accessible by name from the

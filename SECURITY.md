@@ -8,9 +8,9 @@ seriously even though this is a small, personal, maintainer-led project.
 
 ## Supported versions
 
-OdyTTY ships as a rolling source release. Only the **latest tagged release** (and
-`master`) receive security fixes; there are no long-term support branches. Check
-your version with `odytty --version`.
+OdyTTY ships as a rolling release with source and prebuilt artifacts. Only the
+**latest tagged release** (and `master`) receive security fixes; there are no
+long-term support branches. Check your version with `odytty --version`.
 
 ## Reporting a vulnerability
 
@@ -48,12 +48,17 @@ address or other personal contact is required.
 - Workspace/layout snapshot leakage: the persistence snapshot is defined to
   record structure only — workspace and tab names, pane split ratios, and each
   pane's working directory — and to NEVER capture terminal grid content,
-  scrollback, environment, or the commands that were running. A restored pane is
-  always a fresh shell at the captured directory. A snapshot that persists any of
-  the excluded content is in scope.
+  scrollback, environment, or the commands that were running. A restored local
+  pane opens a fresh shell at the captured directory and never re-executes a
+  captured command. On Unix, a pane whose detached session host is still alive
+  reattaches to that running session and its scrollback. A captured SSH pane
+  reconnects to a fresh remote login shell at the remote's default directory.
+  A snapshot that persists any of the excluded content is in scope.
 - Remote image paste-through writing outside its intended bounds: an image
-  pasted into a remote session is uploaded over the existing SSH connection into
-  a temporary file created `0600` under `umask 077`, and its path is copied to
+  pasted into a remote session is uploaded over the existing SSH connection when
+  reuse is available on Unix. With reuse off, and on Windows, the upload opens a
+  separate SSH connection. It writes a temporary file created `0600` under
+  `umask 077`, and its path is copied to
   the clipboard rather than injected into the shell for execution. A path that
   escapes the temp location, world-readable upload permissions, or the path being
   auto-executed is in scope.

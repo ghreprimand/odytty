@@ -124,8 +124,8 @@ sudo apt install ./odytty-amd64.deb
 ```
 
 The package installs the binary, desktop entry, AppStream metadata, and icons
-under dpkg ownership. Update with a normal `sudo apt upgrade` once a newer
-release publishes, or re-run the download-and-install above.
+under dpkg ownership. OdyTTY does not publish an apt repository, so update by
+re-running the download-and-install above or the one-line installer.
 
 ### .rpm (Fedora, RHEL, openSUSE, best-effort)
 
@@ -245,9 +245,9 @@ below.
 
 ### Updating
 
-Native package installs update with your system package manager once a newer
-release publishes: `sudo apt upgrade` (deb) or `sudo dnf upgrade` (rpm).
-Re-running the one-line installer also pulls and installs the newest package:
+The `.deb` and `.rpm` assets are direct GitHub Release downloads, not packages
+from an apt or dnf repository. Update by downloading and reinstalling the
+always-latest asset, or re-run the one-line installer:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
@@ -570,7 +570,7 @@ verifying an install, automation, or wiring launchers:
 ```sh
 odytty --version        # print the installed version
 odytty --list-themes    # list built-in themes
-odytty --list-fonts     # list discoverable monospace fonts
+odytty --list-fonts     # list discoverable font files, marking monospace rows
 odytty --show-config    # print the effective configuration
 odytty --core-smoke     # print a parser/core smoke transcript
 ```
@@ -669,7 +669,7 @@ installing each release under a versioned directory and pointing
 `~/.local/bin/odytty` at the selected version:
 
 ```sh
-version=0.8.2
+version=X.Y.Z
 cargo build --release --locked
 install -Dm755 target/release/odytty \
   "$HOME/.local/opt/odytty/$version/bin/odytty"
@@ -692,8 +692,9 @@ To roll back, repoint the symlink to an older directory under
 ## Odyssey/LFS Versioned Install
 
 Odyssey source builds are versioned by pacman, not by leaving build products in
-the source tree. A release tag such as `v0.8.2` should be archived into
-`/sources/odytty-0.8.2.tar.gz`, then built from `~/pkgbuilds/odytty/PKGBUILD`
+the source tree. Replace `X.Y.Z` with the release version; its `vX.Y.Z` tag
+should be archived into `/sources/odytty-X.Y.Z.tar.gz`, then built from
+`~/pkgbuilds/odytty/PKGBUILD`
 with `odyssey-build`.
 
 Example PKGBUILD:
@@ -701,14 +702,20 @@ Example PKGBUILD:
 ```bash
 # Maintainer: Unfinished Works <maintainers@odytty.unfinished-works.com>
 pkgname=odytty
-pkgver=0.8.2
+pkgver=X.Y.Z
 pkgrel=1
 pkgdesc="GPU-rendered Rust terminal emulator with an Odyssey visual identity"
 arch=('x86_64')
 url="https://github.com/ghreprimand/odytty"
 license=('GPL-3.0-only')
-depends=('fontconfig' 'freetype2' 'vulkan-icd-loader')
-makedepends=('cargo' 'rust')
+depends=(
+    'fontconfig'
+    'freetype2'
+    'vulkan-icd-loader'
+    'libxkbcommon'
+    'hicolor-icon-theme'
+)
+makedepends=('cargo')
 source=("file:///sources/${pkgname}-${pkgver}.tar.gz")
 sha256sums=('SKIP')
 

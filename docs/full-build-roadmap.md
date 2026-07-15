@@ -42,10 +42,11 @@ A second defining pillar is **foundation ownership**. Every byte from the PTY to
 the glyph quad passes exclusively through OdyTTY-owned code: the PTY layer, the
 escape-sequence parser, the terminal model, the renderer geometry, and the
 shaders. External crates are acceptable only below the product line — font
-rasterization, GPU API, windowing, clipboard transport, and Unicode character
-data. This ownership boundary is real and in production: the owned PTY layer and
-the clean-room VT parser ship today; `vte`, `portable-pty`, and `crossterm` have
-all been removed from the dependency tree.
+rasterization, GPU API, windowing, clipboard transport, image-format decoding
+(PNG/JPEG/WebP), and Unicode character data. This ownership boundary is real
+and in production: the owned PTY layer and the clean-room VT parser ship today;
+`vte`, `portable-pty`, and `crossterm` have all been removed from the dependency
+tree.
 
 A third pillar, which shapes much of the roadmap below, is **configuration you
 never hand-edit**. The defining UX goal is that everything is discoverable and
@@ -133,7 +134,9 @@ foundation the command-aware navigation builds on.
 
 ### Graphics And Media
 
-A complete Sixel decoder and terminal integration; the
+A complete Sixel decoder wired to live DCS. DA1 does not yet advertise Sixel,
+and XTSMGRAPHICS queries are not implemented, so applications that require a
+capability probe may not emit it. The graphics stack also includes the
 Kitty graphics protocol (direct RGB/RGBA and PNG transmit, file transports on
 all platforms and shared-memory transport on Unix, with security hardening,
 placements with z-order/crop/scale/offset, delete and query operations); a GPU
@@ -292,7 +295,7 @@ labels, and visible font-load failure reporting all ship today.
   hand-editing config.
 - **Shipped — CLI introspection: list available fonts**, completing the
   existing introspection helpers.
-- **Shipped — Settings completeness.** Every configuration group (13 raw groups,
+- **Shipped — Settings completeness.** Every configuration group (15 raw groups,
   including the connection and session groups) maps into one of the panel's 10
   display sections, so no shipped knob is unreachable from the panel; a field
   inventory confirmed every user-facing `Settings` field surfaces through a reachable
@@ -659,10 +662,11 @@ handful of deliberately-deferred niceties.
   off by default, reopens the previous window shape when launched with no
   arguments. The shape includes workspaces, tabs, and pane splits at their
   recorded working directories. The snapshot records structure only, never
-  terminal output, scrollback, environment, or the commands that were running,
-  so a restored pane is always a fresh shell. Named layouts capture the whole
-  session and reopen with a replace-or-add prompt; on Unix, still-live SSH
-  sessions reattach.
+  terminal output, scrollback, environment, or the commands that were running.
+  Local panes open fresh shells at their captured directories, panes backed by
+  still-live Unix session hosts reattach, and SSH panes reconnect to fresh
+  remote login shells. Named layouts capture the whole session and reopen with
+  a replace-or-add prompt.
 - **Someday — Multi-window** management.
 
 ## Track 10 — Packaging, Release, And Platform
@@ -759,8 +763,8 @@ Recorded so the boundary is deliberate and not relitigated by default.
 ### Keep These Dependencies External
 
 - Font rasterization, the GPU API, the windowing toolkit, clipboard transport,
-  and Unicode width tables stay external. Re-owning them would add maintenance
-  without adding identity or capability.
+  image-format decoding (PNG/JPEG/WebP), and Unicode width tables stay external.
+  Re-owning them would add maintenance without adding identity or capability.
 
 ---
 

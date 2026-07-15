@@ -111,7 +111,7 @@ Summoning paths:
   auto-tracks the bound chord via the existing `set_accelerators` path.
 
 Closed overlay = live frame byte-identical (the mode is never entered until
-summoned); `gpu_composite_smoke` stays 3/3.
+summoned); `gpu_composite_smoke` stays green (6/6 at this revision).
 
 ### Related: Detach & switch (Unix only)
 
@@ -121,7 +121,7 @@ directory and attaches it (an honest spawn, not a live migration of the running
 process). It is a sibling of the manage-sessions surface described here rather
 than part of the attach overlay itself.
 
-## Rejected Option 4: Pre-Window Launcher
+## Rejected: Pre-Window Launcher
 
 The pre-window launcher option is rejected. A chooser before the native window
 would make startup conditional on external session state, create a second launch

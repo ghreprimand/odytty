@@ -28,8 +28,9 @@ paths, which uses Cmd+click on macOS because Ctrl+click is a secondary click.
 
 ## How OdyTTY's shortcuts stay out of the shell's way
 
-Every global OdyTTY shortcut is a `Ctrl+Shift+<key>` (or `Ctrl+PageUp/Down`,
-`Shift+PageUp/Down`) chord. A TUI program cannot receive `Ctrl+Shift+<letter>`
+Every global OdyTTY shortcut is a `Ctrl+Shift+<key>` chord, plus
+`Ctrl+Shift+Alt+D`, `Ctrl+PageUp/Down`, and `Shift+PageUp/Down`. A TUI program
+cannot receive `Ctrl+Shift+<letter>`
 through a PTY, so binding local actions there means the bytes a shell or
 full-screen application sees are **unchanged** — OdyTTY never steals a keystroke
 your program expects. Two stateful exceptions apply: the pane prefix (default
@@ -43,7 +44,9 @@ Control + Shift + the up arrow.
 
 ## Global shortcuts
 
-These work anywhere in the window. They are all rebindable (see
+These work anywhere in the window. All are rebindable except the direct split
+chords (`Ctrl+Shift+E` / `Ctrl+Shift+O`) and the hardcoded
+`Delete` / `Backspace` selection action (see
 [Rebinding](#rebinding-shortcuts)).
 
 | Chord | Action | Token |
@@ -64,7 +67,7 @@ These work anywhere in the window. They are all rebindable (see
 | `Ctrl+Shift+L` | Keyboard quick-select hints | `hints` |
 | `Ctrl+Shift+Up` | Jump to the previous prompt mark | `jump-prompt-prev` |
 | `Ctrl+Shift+Down` | Jump to the next prompt mark | `jump-prompt-next` |
-| `Ctrl+Shift+K` | Clear the editable prompt input (when shell integration allows) | `clear-input` |
+| `Ctrl+Shift+K` | Clear the shell input line (sends readline Ctrl+A, Ctrl+K; no shell integration required) | `clear-input` |
 | `Delete` / `Backspace` | Delete the selected editable prompt input (when shell integration allows; otherwise the key behaves normally) | — |
 | `Shift+PageUp` | Scroll the viewport up one page | `scroll-up` |
 | `Shift+PageDown` | Scroll the viewport down one page | `scroll-down` |
@@ -134,10 +137,11 @@ disabled with an "Enable shell integration in Settings" hint, and plain
 
 Closing a tab (`Ctrl+Shift+W`) closes the **whole** tab — every pane it holds.
 Closing the last tab of the last workspace quits OdyTTY. Right-click menus are
-context-aware: a tab slot opens a tab-scoped menu (New / Rename / Close /
-Close Others / New Window), the empty tab strip offers New Tab, Command Palette,
-and Settings, and the terminal grid opens the selection- and path-aware content
-menu; each item is labelled with its live chord.
+context-aware: a tab slot includes New, Duplicate, Rename, Close, Close Others,
+Connect to Host, Replace with Host, optional Move to Workspace, and New Window;
+the empty tab strip offers New Tab, New Workspace, Open Layout, Command Palette,
+and Settings. The terminal grid opens the selection- and path-aware content
+menu. Items with a bound chord show it.
 
 ## Panes: the tmux-style prefix
 
@@ -241,7 +245,8 @@ session replay, Manage Sessions, the image viewer, and the modal dialogs) is
 presentation-only: the terminal stays live behind it and the PTY is never
 blocked. They share a common navigation model — Up/Down/Left/Right to move,
 `Enter` to activate, `Esc` to close — and the settings panel adds `/` to
-type-to-search settings by name. Modal dialogs print their own one-key choices
+type-to-search settings by name, config key, description, or group. Modal
+dialogs print their own one-key choices
 (for example the attach dialog's `[N]`ew tab / `[R]`eplace, or close-confirm's
 `[Y]`/`[N]`).
 
@@ -309,7 +314,8 @@ to a hand-typed entry.
 
 A chord is `+`-joined modifiers plus one key:
 
-- Modifiers: `ctrl`/`control`, `shift`, `alt`/`option`, `super`/`meta`/`cmd`/`win`.
+- Modifiers: `ctrl`/`control`, `shift`, `alt`/`option`,
+  `super`/`meta`/`cmd`/`command`/`win`/`windows`.
 - Key: a single printable character; `comma`; a named key
   (`enter`, `backspace`, `esc`, `tab`, `space`, `pageup`, `pagedown`, `home`,
   `end`, `delete`, `insert`, `up`/`down`/`left`/`right`); or `f1`–`f24`.
@@ -353,10 +359,10 @@ strip. Five chords are bound by default:
 | `Ctrl+Shift+Alt+D` | Duplicate the active workspace (fresh workspace in the active pane's directory) | `duplicate-workspace` |
 | `Ctrl+Shift+G` | Open the workspace picker | `workspace-picker` |
 
-Renaming and closing a workspace are unbound by default — the rail's `+` slot,
-the workspace right-click menu, and the command palette cover them. Each is still
-a bindable action you can assign a chord in the settings key-remap editor or the
-`keybinds` config:
+Renaming and closing a workspace are unbound by default. The workspace
+right-click menu covers both, while the command palette covers Rename Workspace
+only. Close Workspace is also reachable from the rail close button or a chord
+you assign in the settings key-remap editor or `keybinds` config:
 
 - `rename-workspace` — unbound by default; follows the same precedent as Rename
   Tab.
@@ -374,10 +380,10 @@ quits OdyTTY whenever an exit would close a workspace. The close-tab,
 close-workspace, and close-pane keybinds and the rail close button always close a
 single surface, in both modes.
 
-**Palette- and menu-only actions.** The command palette carries workspace and
-layout actions that have no default chord:
+**Palette and menu actions without a default chord.** The command palette
+carries workspace and layout actions that have no default chord:
 
-- **New Workspace**, **Rename Workspace**.
+- **Rename Workspace**.
 - **Bind Workspace to Host** / **Unbind Workspace From Host**, and **New Local
   Tab** (when a workspace is bound to a remote host).
 - **Save All Workspaces as Layout** / **Save Workspace as Layout** /

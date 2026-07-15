@@ -59,9 +59,10 @@ at minimum the scalable SVG plus the 256x256 PNG cover the common cases.
 The desktop entry uses `Icon=io.unfinished_works.odytty`, so the hicolor icon
 theme assets need to be installed with that basename.
 
-The AppStream metadata is intentionally small: it gives software
-centers and inventory tools a stable component id, homepage, bug tracker,
-license, summary, and release version.
+The AppStream metadata gives software centers and inventory tools a stable
+component id, homepage, bug tracker, license, summary, full description,
+categories and keywords, a remotely hosted screenshot, content rating, and the
+complete hand-maintained release history.
 
 On macOS the app bundle uses the Apple-valid reverse-DNS identifier
 `io.unfinished-works.odytty` (hyphen), which intentionally differs from the
@@ -129,11 +130,13 @@ detached/resumable session integration out until a Windows host transport lands.
 Build requirements:
 
 ```text
-rust 1.96 or newer
-cargo
-pkg-config or pkgconf
-vulkan-loader
+rust 1.96 or newer, including cargo
 ```
+
+The release runner also prepares Linux development packages used by its wider
+packaging and smoke environment. They are not link-time requirements for the
+Rust build itself; the reference PKGBUILD therefore needs only `cargo` in
+`makedepends`.
 
 The font stack is pure-Rust (`ab_glyph`, `swash`, `ttf-parser` for
 metadata-only reads), so there is **no** build/link dependency on `freetype2`.
@@ -223,9 +226,12 @@ Explorer, the taskbar, and Alt-Tab therefore show OdyTTY's icon from the
 executable itself; no separate icon file ships in the zip.
 
 `build.rs` performs the embed through the `winresource` build dependency. That
-dependency is present in `Cargo.lock` but compiled only for Windows, and the
-`CARGO_CFG_TARGET_OS == "windows"` guard makes the step follow the target rather
-than the build host.
+dependency is present in `Cargo.lock` but compiled only when the build host is
+Windows. The embed requires both a Windows host and a Windows target: the host
+controls `cfg(windows)`, while `CARGO_CFG_TARGET_OS == "windows"` checks the
+target. Cross-compiling from Linux or macOS therefore produces a functional
+executable without the embedded icon. Shipped zips are built on
+`windows-latest`, so release executables include it.
 
 The committed source art is `dist/windows/odytty.ico`, so it is also present in
 the source archive. The `windows-latest` MSVC runner uses its bundled `rc.exe`

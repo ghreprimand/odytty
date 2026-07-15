@@ -2,8 +2,9 @@
 
 OdyTTY renders inline images through two protocols: the **Kitty graphics
 protocol** (APC-based) and **Sixel** (DCS-based). Both land on the same
-shared GPU image layer, so images compose with terminal text with correct
-draw order (cell backgrounds → images → glyphs).
+shared GPU image layer, so images compose with terminal text using z-order:
+cell backgrounds → negative-z images → glyphs → non-negative-z images. The
+default `z=0` therefore places an image above text.
 
 ## Contents
 
@@ -59,6 +60,9 @@ rejected with an explicit error response; incomplete state is cleared.
 
 ### Image ids, placement ids, and display geometry
 
+- **`s=`/`v=`** — source pixel width / height. Both are required for raw
+  `f=24` and `f=32` payloads; omitting either returns `missing-dimensions`.
+  They are optional for PNG, where a supplied mismatch is rejected.
 - **`i=`** — image id assigned by the application. If omitted, one is
   auto-assigned.
 - **`p=`** — placement id. A single image may have several named placements at
@@ -87,7 +91,7 @@ rejected with an explicit error response; incomplete state is cleared.
 | `q=` | Behavior |
 |------|----------|
 | `0` or absent | Send `OK` or error response for every command |
-| `1` | Parsed but treated identically to `q=0` — all responses sent |
+| `1` | Suppress `OK` responses; error responses are still sent |
 | `2` | Suppress all responses (both `OK` and errors) |
 
 ### Delete specifiers (`a=d`)
@@ -109,6 +113,9 @@ stored image data once no remaining placements reference the image.
 - **Unicode placeholder rendering** — image positioning via special Unicode
   codepoints in the cell grid. The placeholder key (`U=1`) is ignored and the
   image is placed at the cursor as usual.
+- **Payload compression (`o=z`)** — zlib-compressed payloads are not supported.
+  The `o=` key is ignored, so compressed data is rejected as an invalid payload
+  rather than decompressed.
 
 ---
 

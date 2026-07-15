@@ -189,8 +189,9 @@ keybinds =
 #       Font "Victor Mono"
 #       Title "Synthetic Web"
 #
-# The connect action opens system ssh in a new tab/session as:
-#   ssh [-p PORT] -- [USER@]HOST
+# The connect action uses the system ssh binary. With remote integration on it
+# adds a temporary shell-integration bootstrap; disabling integration produces
+# the plain ssh argv path.
 # OdyTTY never reads, stores, prompts for, or passes credentials, private keys,
 # or passphrases; authentication remains with the system ssh binary and agent.
 #
@@ -240,10 +241,10 @@ remote_tmux = off
 # clipboard image is pasted into a remote integrated tab, a confirm prompt (with
 # the encoded size + target host) offers to upload it: on Enter the PNG streams
 # over the tab's ssh connection into a 0600 file under an unguessable
-# /tmp/odytty-paste-<random>.png name, and the remote path is pasted into the
-# shell as text (nothing is run remotely). "off" disables it; there is no silent
-# auto-upload mode. Over-10MiB images are refused. Uploaded files are cleaned up
-# best-effort on tab close. Only engages on a remote integrated tab.
+# /tmp/odytty-paste-<random>.png name, and the remote path is copied to the
+# clipboard rather than typed into the shell. "off" disables it; there is no
+# silent auto-upload mode. Over-10MiB images are refused. Uploaded files are
+# cleaned up best-effort on tab close. Only engages on a remote integrated tab.
 remote_image_paste = ask
 
 # Per-session output recording for the scrubbable replay overlay. Default off:

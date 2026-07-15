@@ -78,10 +78,12 @@ You can browse, preview, and create themes without editing files by hand.
 
 ### Theme Picker
 
-The Theme Picker (default `Ctrl+Shift+H`, also reachable from the right-click
-menu) lists every built-in and user theme with a live preview, so you can scroll
-through the [library](#built-in-theme-library) and apply a theme by selecting
-it. Each entry's light/dark label is derived from its background luminance (see
+The Theme Picker (default `Ctrl+Shift+H`, also reachable from the command
+palette) lists the `system` alias and every built-in theme with a live preview,
+so you can scroll through the [library](#built-in-theme-library) and apply a
+theme by selecting it. User theme files remain selectable by name through the
+settings/config surface but are not enumerated in this picker. Each entry's
+light/dark label is derived from its background luminance (see
 [File format](#file-format)). Press `B` inside the picker to open the Theme
 Builder on the highlighted theme.
 
@@ -212,6 +214,18 @@ or endorsement from any of those vendors.
 | `odyssey-marble-light` | light | OdyTTY original (warm ivory daylight with terracotta and olive ink) |
 | `odyssey-dune-light` | light | OdyTTY original (sandy warm parchment with sun-baked accents) |
 | `odyssey-fern-light` | light | OdyTTY original (soft green-tinted daylight with woodland accents) |
+| `odyssey-cinder` | dark | OdyTTY original |
+| `odyssey-umbra` | dark | OdyTTY original |
+| `odyssey-mariner` | dark | OdyTTY original |
+| `odyssey-onyx` | dark | OdyTTY original |
+| `odyssey-vesper` | dark | OdyTTY original |
+| `odyssey-cypress` | dark | OdyTTY original |
+| `odyssey-tungsten` | dark | OdyTTY original |
+| `odyssey-magma` | dark | OdyTTY original |
+| `odyssey-alabaster-light` | light | OdyTTY original |
+| `odyssey-marigold-light` | light | OdyTTY original |
+| `odyssey-willow-light` | light | OdyTTY original |
+| `odyssey-cerulean-light` | light | OdyTTY original |
 | `solarized-dark` | dark | Community |
 | `solarized-light` | light | Community |
 | `gruvbox-dark` | dark | Community |
@@ -248,6 +262,24 @@ or endorsement from any of those vendors.
 | `commodore-64` | dark | Retro — Commodore 64-inspired blue screen, no affiliation |
 | `hercules-amber` | dark | Retro — Hercules-card-inspired amber monochrome |
 | `vt220-green` | dark | Retro — DEC VT220-inspired green phosphor, no affiliation |
+| `odyssey-tempest` | dark | OdyTTY original |
+| `odyssey-borealis` | dark | OdyTTY original |
+| `odyssey-plasma` | dark | OdyTTY original |
+| `odyssey-monsoon` | dark | OdyTTY original |
+| `odyssey-nightshade` | dark | OdyTTY original |
+| `odyssey-spruce` | dark | OdyTTY original |
+| `odyssey-cosmos` | dark | OdyTTY original |
+| `odyssey-copperhead` | dark | OdyTTY original |
+| `odyssey-crimson` | dark | OdyTTY original |
+| `odyssey-seaglass` | light | OdyTTY original |
+| `odyssey-driftwood` | light | OdyTTY original |
+| `odyssey-storm-light` | light | OdyTTY original |
+| `odyssey-inkwell` | dark | OdyTTY original |
+| `odyssey-citadel` | dark | OdyTTY original |
+| `odyssey-verdigris` | dark | OdyTTY original |
+| `odyssey-wildfire` | dark | OdyTTY original |
+| `odyssey-moonstone-light` | light | OdyTTY original |
+| `odyssey-primrose-light` | light | OdyTTY original |
 
 ### Readability validation
 

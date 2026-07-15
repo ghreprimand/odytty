@@ -101,5 +101,6 @@ with the exact visual description and screenshot if possible.
 
 ## See also
 
-- [`docs/keybindings.md`](keybindings.md) — full reference for the chords used in
-  cells B5 and C6 (split, lightbox dismiss) and their rebinding.
+- [`docs/keybindings.md`](keybindings.md) — reference for the split chords used
+  in cell C6. The direct split chords are fixed; the lightbox `Esc` and
+  click-outside dismiss paths in B5 are hardcoded rather than bindable actions.

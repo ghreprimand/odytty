@@ -20,8 +20,10 @@ images, treatments, and translucent cell backgrounds.
 The value is a WCAG 2.x relative-luminance contrast ratio. The default `17.0` is
 a deliberately strong readability floor; setting `1.0` disables the floor
 entirely (exact passthrough of theme colors). The number shown in the Theme
-Builder is the same metric the render floor enforces — what you see previewed is
-what is guaranteed on screen.
+Builder uses the same metric as the render floor, so authoring and rendering
+agree on what contrast means. The builder authors against WCAG AA 4.5, while
+the render floor defaults to 17.0; rendering may therefore lift a role above the
+ratio shown by the builder.
 
 Note: the `render_quality = plain` fast path turns the floor **off** (it forces
 `min_contrast` to `1.0`). If you want a calmer, effect-free look *and* the
@@ -49,8 +51,9 @@ cvd_strength = 1.0
 Scope and behavior:
 
 - Adaptation applies to the **16 ANSI palette colors plus the cursor, selection,
-  and search-highlight roles**. Structural colors (background, foreground,
-  border, inactive) are held so the overall theme stays recognizable.
+  and search-highlight roles**. Background, border, inactive, and clear are
+  held so the overall theme stays recognizable. Foreground is not daltonized,
+  but it is re-floored against the background like other readable roles.
 - `cvd_strength = 1.0` is full correction; `0.0` is exact bit-for-bit
   passthrough (identical to `cvd_mode = off`). The adaptation is applied once —
   it is not meant to be stacked.
@@ -58,10 +61,11 @@ Scope and behavior:
   luminance during adaptation, so the correction is anchored correctly for both
   light and dark themes.
 
-Current limitations: application-emitted indexed-256 and 24-bit truecolor output
-is **not** remapped (only the theme palette is adapted); a per-cell output lens
-is future work. With a CVD mode active, the Theme Builder's live preview is
-itself adapted.
+Current limitations: application-emitted indexed colors outside the 16 ANSI
+slots — the color cube and grayscale ramp at indices 16–255 — and 24-bit
+truecolor output are not remapped. Indices 0–15 resolve through the adapted
+theme palette. A per-cell output lens is future work. With a CVD mode active,
+the Theme Builder's live preview is itself adapted.
 
 ## Dimming and focus
 
@@ -82,15 +86,19 @@ fade (`new_output_fade`) are all off unless you turn them on. The cursor trail
 (`cursor_trail`) is enabled but only draws while cursor slide is also on, so with
 slide off there is no trail either.
 
-Three motion features *are* on by default, because none of them adds input
+Four motion behaviors *are* on by default, because none of them adds input
 latency:
+
+- **Cursor blink** (`cursor_blink`) periodically hides and restores the cursor.
+  Set it to `off` for a cursor that remains continuously visible.
 
 - **Cursor blink fade** (`cursor_easing`) eases the cursor's opacity in and out
   across each blink instead of switching it hard on and off. It only acts while
   the cursor is blinking and the window is focused; it never moves the cursor.
-- **Animated scroll glide** (`scroll_glide`) applies to detented wheels: a notch
-  still moves the viewport instantly, but the rendered view eases toward the new
-  position over a few frames.
+- **Animated scroll glide** (`scroll_glide`) applies to discrete scroll jumps,
+  including wheel notches and keyboard page-scroll actions: the viewport moves
+  instantly, but the rendered view eases toward the new position over a few
+  frames.
 - **Continuous pixel scrolling** (`pixel_scroll`) tracks high-resolution wheels
   and touchpads 1:1 on a sub-row lane.
 
@@ -103,22 +111,25 @@ fully static terminal requires turning them off explicitly:
 
 ```conf
 # odytty.conf — no cursor or scroll motion at all
+cursor_blink = off
 cursor_easing = off
 scroll_glide = off
 pixel_scroll = off
 ```
 
-Two ambient effects *are* on by default — `bloom` and `crt` (a subtle scanline
-and vignette). The default `visual = ambient` is a back-compat alias that folds
-into the CRT post-process rather than adding a separate wash (an explicit `crt`
-setting wins). For a flat, effect-free terminal while keeping the contrast floor,
-turn these off individually:
+Three ambient treatments are on by default: `bloom`, `crt` (a subtle scanline
+and vignette), and the bundled wallpaper selected by
+`background_treatment = image`. The default `visual = ambient` is a back-compat
+alias that folds into the CRT post-process rather than adding a separate wash
+(an explicit `crt` setting wins). For a flat, effect-free terminal while
+keeping the contrast floor, turn these off individually:
 
 ```conf
 # odytty.conf — calm, static, with the readability floor intact
 bloom = off
 crt = off
 visual = off
+background_treatment = color
 # cursor slide, glow, and the new-output fade are already off by default;
 # add cursor_easing = off, scroll_glide = off, pixel_scroll = off for a
 # fully static terminal (see above)
@@ -149,9 +160,12 @@ bell (`BEL`) is handled visually or via the window manager.
 
 Theme choice interacts with all of the above. The minimum-contrast floor applies
 on top of any theme, and the retro/phosphor themes use deliberately narrow
-palettes that still meet the library's contrast floor. `theme = system` follows
-the OS dark/light preference automatically. See [`themes.md`](themes.md) for the
-theme format, the in-app Theme Picker (`Ctrl+Shift+H`) and Theme Builder
+palettes that still meet the library's contrast floor. `theme = system` enables
+OS dark/light following. Wayland delivers the preference live; X11 has no live
+signal, so set `ODYTTY_APPEARANCE=dark|light` to seed it. See
+[`runtime-knobs.md`](runtime-knobs.md) for that platform detail and
+[`themes.md`](themes.md) for the theme format, the in-app Theme Picker
+(`Ctrl+Shift+H`) and Theme Builder
 (`Ctrl+Shift+B`), and the full built-in library.
 
 ## Window transparency and the contrast floor

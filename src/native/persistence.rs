@@ -6,9 +6,10 @@
 //! order, each tab's pane split tree + ratios, and per-pane cwd. What it
 //! NEVER captures: terminal grid content, scrollback, environment, or command
 //! lines. That exclusion is a hard privacy invariant (the FREEZE-HARDEN rule,
-//! §10.1) and a security posture: shape restore always lands a fresh
+//! §10.1) and a security posture: a local shape restore lands a fresh
 //! interactive shell at the captured cwd and never re-executes a captured
-//! command (the tmux-resurrect footgun, explicit non-goal sub-ODP 8i).
+//! command. A live detached host can be reattached, while a captured remote
+//! pane reconnects at the remote login shell's default directory.
 //!
 //! Platform-neutral and first-class on Windows (§10.8): the state dir has a
 //! tested `%LOCALAPPDATA%` arm (NF13), OSC 7 cwd capture covers PowerShell and

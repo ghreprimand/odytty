@@ -45,8 +45,8 @@ makes a logged failure actionable.
 
 ## Where the logs live
 
-Two files live in a per-user state directory, namespaced to `odytty` on every
-platform:
+Three diagnostic files live in a per-user state directory, namespaced to
+`odytty` on every platform:
 
 - `odytty.log` — the rotated application log (warnings and above by default).
 - `odytty.log.1` — the single rotated predecessor of `odytty.log`.
@@ -116,15 +116,15 @@ to a crash.
   stores per event on the healthy path, and re-arms as soon as a frame is
   presented.
 - **GPU adapter identity.** At startup OdyTTY records the selected GPU adapter's
-  name, backend, device class, and driver — hardware metadata only, no user
+  name, backend, and device class — hardware metadata only, no user
   content. If the selected adapter is a software rasterizer (llvmpipe, lavapipe,
   SwiftShader, or WARP), it logs a prominent software-rendering warning pointing
   at the "Slow rendering / software adapter" section of
   [`install.md`](install.md). These startup lines go to `odytty.log` as well as
   stderr, so the adapter identity and the software-render warning survive even
   when a launcher discards stderr — and are retrievable on Windows, where there
-  is no visible stderr at all. The same adapter details are shown live in the
-  About panel.
+  is no visible stderr at all. The About panel shows those details plus the
+  driver name and version, which the startup log omits.
 - **Application log.** Warnings and above from across the app, teed to stderr and
   the rotated `odytty.log`.
 
@@ -133,7 +133,8 @@ to a crash.
 ### `RUST_LOG` — runtime log level
 
 `RUST_LOG` sets the log level. It accepts a **bare level token** only —
-`error`, `warn`, `info`, `debug`, or `trace` (any case). The default is `warn`.
+`error`, `warn`, `info`, `debug`, or `trace` (any case), or the numeric
+equivalents `1` through `5`. The default is `warn`.
 
 ```sh
 RUST_LOG=info odytty
@@ -174,7 +175,8 @@ afterward.
   is summarized in a single state-only record — its duration, the skip count,
   and whether the window was focused or minimized, never any terminal content —
   logged at `debug` level, escalating to `warn` once an episode reaches ten
-  seconds. Under the default `warn` log level these records are silent.
+  seconds. Under the default `warn` log level only the escalated records appear;
+  shorter episodes stay silent unless `RUST_LOG=debug` is set.
 
 ## Retrieving logs for a support request
 

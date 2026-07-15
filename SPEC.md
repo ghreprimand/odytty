@@ -514,7 +514,7 @@ The native layer owns the presentation-hold policy. `SynchronizedOutputHold`
 (`src/native/app/`) monitors the core mode flag and, while it is set, defers
 GPU content uploads — the terminal model continues to advance and process PTY
 bytes without interruption, but grid snapshots are not uploaded or rendered.
-After `SYNCHRONIZED_OUTPUT_TIMEOUT` (150 ms, `src/native/app/mod.rs:123`), the hold
+After `SYNCHRONIZED_OUTPUT_TIMEOUT` (150 ms in `src/native/app/mod.rs`), the hold
 is released unconditionally and will not re-engage until the application resets
 the mode and sets it again. The timeout deadline is registered with the event
 loop so the release fires promptly at the deadline without additional polling.
@@ -1245,7 +1245,7 @@ formats and install channels are defined in the
 
 - iTerm2 graphics protocol
 
-- Ligature/stylistic-set shaping (strategy decided; implementation deferred
+- Ligature/stylistic-set shaping (strategy remains undecided; implementation deferred
   until a specific trigger condition is met)
 
 - Profiles and cross-session multiplexing (panes/splits within a window are now
@@ -1642,9 +1642,11 @@ pixels, keyed by `(font identity, glyph-or-cluster id, physical px size,
 scale)` rather than by character. Slots span one or two terminal cells; wide
 color glyphs draw once from the lead cell and continuation cells emit nothing.
 The native renderer owns a dedicated color-glyph texture, vertex buffer, WGSL
-shader, and premultiplied-alpha blend state. The segment currently receives no
-live runs until the real decoder supplied decoded swash glyphs, but synthetic tests pin the
-atlas bookkeeping, UVs, dirty revision, pass ordering, and wide-cell contract.
+shader, and premultiplied-alpha blend state. At this increment the segment
+received no live runs because the real decoder had not yet supplied decoded
+swash glyphs, but synthetic tests pinned the atlas bookkeeping, UVs, dirty
+revision, pass ordering, and wide-cell contract. The third increment below
+activates the live path.
 
 Selection/search backgrounds render under color glyphs; OdyTTY does not tint or
 recolor source emoji pixels with SGR foreground colors.

@@ -45,9 +45,9 @@ path when the adapter cannot support them. OdyTTY prints one notice to stderr
 and continues normally.
 
 **Pixel-identical plain path.** When all effects are off, the renderer is
-byte-identical to the pre-effects codebase. You can verify this with the
-`pixel_smoke` test suite, which asserts exact structural equivalence between the
-direct and offscreen-passthrough paths.
+byte-identical to the pre-effects codebase. The
+`gpu_composite_smoke::passthrough_composite_matches_direct_render_bytes` test
+asserts exact equivalence between the direct and offscreen-passthrough paths.
 
 ---
 
@@ -158,6 +158,8 @@ When enabled, the preset uses:
 ```conf
 retro = on
 # effective runtime values:
+# bloom = on
+# crt = on
 # bloom_threshold = 0.70
 # bloom_intensity = 1.0
 # bloom_radius = 8.0
@@ -165,6 +167,9 @@ retro = on
 # crt_vignette_strength = 0.35
 # crt_curvature = 0.025
 ```
+
+The preset forces bloom and CRT on at runtime even if either individual switch
+is explicitly off; turning `retro` off restores the individual settings.
 
 `render_quality = plain` still bypasses the preset and renders through the direct
 path.
@@ -260,7 +265,7 @@ the `crt_*` knobs above; `visual` exists so older configs keep working.
 
 ## Cursor animations
 
-OdyTTY has three optional cursor animations; all are purely visual and never
+OdyTTY has four optional cursor animations; all are purely visual and never
 affect the logical cursor position or terminal state. Since v0.6.0 the shipped
 defaults enable **cursor easing** and the **cursor trail** (`cursor_easing = on`,
 `cursor_trail = on`) as part of the OdysseyOS identity, while **cursor slide**

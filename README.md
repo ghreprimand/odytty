@@ -129,9 +129,9 @@ the `Ctrl+Shift+P` command palette. No config file needed.
 <details>
 <summary><strong>Updating</strong></summary>
 
-**Linux native package** installs update with your system: `sudo apt upgrade`
-(deb) or `sudo dnf upgrade` (rpm) once a new release publishes. Re-running the
-one-line installer also pulls the newest package:
+**Linux native package** installs from GitHub Releases are not connected to an
+apt or dnf repository. Re-download and reinstall the always-latest `.deb` or
+`.rpm`, or re-run the one-line installer to pull the newest package:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
