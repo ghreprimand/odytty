@@ -1,14 +1,41 @@
 # Packaging OdyTTY
 
-The release shape is a versioned source release, a best-effort Linux x86_64
-AppImage, and an unsigned Windows x86_64 portable zip. Linux desktop
-integration files are included so downstream packages can install them in
-normal XDG locations.
+Use this reference to build distribution packages, install platform metadata,
+and preserve the public release contract.
+
+## Contents
+
+- [Release Contract](#release-contract)
+- [Install The Platform Surface](#install-the-platform-surface)
+- [Build The Package](#build-the-package)
+- [Run Packaging Checks](#run-packaging-checks)
+- [Track Upstream Releases](#track-upstream-releases)
+- [Publish Arch And AUR Packages](#publish-arch-and-aur-packages)
+- [Package Windows](#package-windows)
+- [Register Default-Terminal Integration](#register-default-terminal-integration)
+- [Package Odyssey And LFS](#package-odyssey-and-lfs)
+
+## Release Contract
 
 This file describes the packaging surface for the source tree it ships with.
 For a tagged release, read the `PACKAGING.md` from that same tag.
 
-## Install Surface
+Each release publishes seven artifact types:
+
+| Platform | Published artifact |
+| --- | --- |
+| Linux | Debian package, RPM package, binary tarball, and AppImage |
+| macOS | Apple Silicon app zip |
+| Windows | x86_64 portable zip |
+| Source builds | Versioned source archive |
+
+Every artifact has an always-latest alias and a byte-identical version-pinned
+copy. `SHA256SUMS` is the fifteenth release asset. Use the
+[Install Guide artifact table](docs/install.md#release-artifact-names-and-checksums)
+for exact filenames and the [Release Guide](docs/release.md) for publication
+checks.
+
+## Install The Platform Surface
 
 Packages should install:
 
@@ -46,11 +73,15 @@ not need to install a custom terminfo entry yet. If a future release switches to
 an OdyTTY-specific `TERM`, that release must ship and document the matching
 terminfo entry before packagers set it by default.
 
-## Build
+## Build The Package
 
 ```sh
 cargo build --release --locked
 ```
+
+OdyTTY's verified minimum Rust version is 1.96. `rust-toolchain.toml` pins
+`1.96.0` and `Cargo.toml` declares `rust-version = "1.96"`; packagers may use a
+newer stable compiler, but upstream CI builds at this floor.
 
 The installed binary should be launched as:
 
@@ -98,7 +129,7 @@ detached/resumable session integration out until a Windows host transport lands.
 Build requirements:
 
 ```text
-rust
+rust 1.96 or newer
 cargo
 pkg-config or pkgconf
 vulkan-loader
@@ -110,21 +141,31 @@ metadata-only reads), so there is **no** build/link dependency on `freetype2`.
 to backfill symbol glyphs from the host font set. It is not needed to build or
 link the binary, only at run time on systems that rely on that backfill.
 
-Distribution build systems that forbid network access during the build should
-vendor Rust crates before the build step, for example with `cargo vendor`, and
-configure Cargo to use the vendored source.
+Distribution build systems that forbid network access should vendor Rust crates
+before the build step:
 
-## Testing during packaging
+```sh
+cargo vendor
+```
 
-If your `check()` runs the test suite, use the full `cargo test` (or run
-`cargo build` first). The attach/detach end-to-end tests locate the compiled
-`odytty` binary in `target/`, and `cargo test --lib` alone does not build the
-binary target — those tests then fail with an "odytty binary not found" error.
-`cargo test` (what upstream CI runs) builds the binary and passes.
+Configure Cargo to use that vendored source before starting the offline build.
 
-## Upstream Release Tracking
+## Run Packaging Checks
 
-Use GitHub releases/tags as the upstream version source:
+If the package's `check()` runs the suite, use the full test target:
+
+```sh
+cargo test --locked
+```
+
+The attach and detach end-to-end tests locate the compiled `odytty` binary in
+`target/`. `cargo test --lib` alone does not build that binary and fails with
+an "odytty binary not found" error. A prior full build also satisfies the
+binary requirement.
+
+## Track Upstream Releases
+
+Use GitHub releases and tags as the upstream version source:
 
 ```text
 type: github
@@ -133,18 +174,27 @@ repo: odytty
 tag_prefix: v
 ```
 
-See [`docs/release.md`](docs/release.md) for the release artifact checklist.
+See the [Release Guide](docs/release.md) for the artifact checklist.
 
-## Arch / AUR
+## Publish Arch And AUR Packages
 
-An AUR package for Arch-family systems is built from the template in
-`dist/aur/` (PKGBUILD plus its publish runbook). It is a community distribution
-channel that tracks the published GitHub release rather than an official release
-artifact — the release workflow itself publishes only the source release, the
-Linux AppImage, and the Windows zip. End-user install steps live in
-[`docs/install.md`](docs/install.md#arch-linux-aur).
+The live `odytty` AUR package builds from the version-pinned source archive.
+The templates in `dist/aur/` are stamped, checksummed, regenerated, and pushed
+automatically after every tagged GitHub Release.
 
-## Windows Artifacts
+When the AUR publishing credential is unavailable, the workflow still validates
+the generated `PKGBUILD` and `.SRCINFO`, then exits without pushing. See the
+[AUR publishing guide](dist/aur/README.md) for the automatic path and manual
+fallback.
+
+End-user installation steps live in the
+[Install Guide](docs/install.md#arch-linux-aur). The exact upstream release
+filenames are listed in its
+[artifact table](docs/install.md#release-artifact-names-and-checksums).
+
+## Package Windows
+
+### Keep The Portable Zip Minimal
 
 The release workflow publishes both Windows zip names:
 
@@ -166,23 +216,30 @@ NOTICE
 It must not contain `.pdb` files, build directories, or installer work
 directories.
 
-### Windows executable icon
+### Embed The Executable Icon
 
-`odytty.exe` embeds its application icon as a PE resource at build time, so
-Explorer, the taskbar, and Alt-Tab show OdyTTY's icon on the executable itself —
-no separate icon file ships in the zip. The embed is performed by `build.rs`
-via the `winresource` build-dependency (a `cfg(windows)` build-dep: present in
-`Cargo.lock` but never compiled on Linux/macOS), gated on
-`CARGO_CFG_TARGET_OS == "windows"` so it fires for Windows *targets* regardless
-of build host. The source art is `dist/windows/odytty.ico` (committed, so it is
-present in the `git archive` tarball too); the `windows-latest` MSVC runner's
-bundled `rc.exe`/`llvm-rc` performs the embed. A failed embed is non-fatal — the
-build warns and produces a fully functional, icon-less exe. No `release.yml`
-change is needed: the icon rides inside `odytty.exe`.
+`odytty.exe` embeds its application icon as a PE resource at build time.
+Explorer, the taskbar, and Alt-Tab therefore show OdyTTY's icon from the
+executable itself; no separate icon file ships in the zip.
+
+`build.rs` performs the embed through the `winresource` build dependency. That
+dependency is present in `Cargo.lock` but compiled only for Windows, and the
+`CARGO_CFG_TARGET_OS == "windows"` guard makes the step follow the target rather
+than the build host.
+
+The committed source art is `dist/windows/odytty.ico`, so it is also present in
+the source archive. The `windows-latest` MSVC runner uses its bundled `rc.exe`
+or `llvm-rc` to embed it.
+
+An embed failure is non-fatal: the build warns and produces a functional
+executable without an icon. The icon rides inside `odytty.exe`, so
+`release.yml` needs no separate icon step.
 
 The *runtime* window/title-bar icon (and Alt-Tab/taskbar entry on X11) is set
 separately via winit from the 256×256 hicolor PNG embedded in the binary; see
-CONTRIBUTING.
+the [contribution guide](CONTRIBUTING.md).
+
+### Publish The Scoop Manifest
 
 The in-repo Scoop bucket manifest is `bucket/odytty.json`. A user can install
 the repo as a Scoop bucket after the first Windows release:
@@ -196,7 +253,7 @@ Scoop puts `odytty` on the user's PATH (a shim) and creates an **OdyTTY**
 Start-menu entry (via the manifest's `shortcuts` field), and verifies the
 download against the pinned release checksum.
 
-## Default-Terminal Integration
+## Register Default-Terminal Integration
 
 OdyTTY's desktop entry advertises the relevant terminal execution keys for
 `xdg-terminal-exec`-style integrations:
@@ -211,11 +268,17 @@ Do not silently set OdyTTY as the user's default terminal in package install
 scripts. Register it as an available terminal where the target distribution has
 a standard mechanism, then let the user choose it.
 
-## Odyssey/LFS
+## Package Odyssey And LFS
 
-On Odyssey, package OdyTTY as a normal source-build PKGBUILD in `~/pkgbuilds`
-and build it with `odyssey-build`. That makes pacman own `/usr/bin/odytty` and
-the desktop entry, giving a versioned install such as `odytty 0.6.2-1`.
+On Odyssey, package OdyTTY as a normal source-build PKGBUILD in `~/pkgbuilds`,
+then build it with:
+
+```sh
+odyssey-build
+```
+
+Pacman then owns `/usr/bin/odytty` and the desktop entry, producing a versioned
+install such as `odytty <version>-1`.
 
 See [`docs/install.md`](docs/install.md) for a concrete Odyssey PKGBUILD
 example and default-terminal notes.
