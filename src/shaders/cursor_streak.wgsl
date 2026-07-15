@@ -2,7 +2,7 @@
 
 struct Viewport {
     size: vec2<f32>,
-    effect: vec4<f32>,
+    effect: vec2<f32>,
     text: vec4<f32>,
 };
 

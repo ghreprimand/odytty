@@ -478,8 +478,181 @@ fn cursor_glow_shader_and_pipeline_validate() {
     });
     let _pipeline =
         create_cursor_glow_pipeline(&device, wgpu::TextureFormat::Rgba8UnormSrgb, &layout);
-    let _streak_pipeline =
+}
+
+#[test]
+fn cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws() {
+    use wgpu::util::DeviceExt as _;
+
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::default(),
+        force_fallback_adapter: false,
+        compatible_surface: None,
+    })) else {
+        return;
+    };
+    let Ok((device, queue)) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("cursor-streak-bound-draw-test"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::default(),
+        experimental_features: wgpu::ExperimentalFeatures::disabled(),
+        memory_hints: wgpu::MemoryHints::default(),
+        trace: wgpu::Trace::Off,
+    })) else {
+        return;
+    };
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("cursor-streak-bound-draw-test-bgl"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+
+    let viewport = ViewportUniform {
+        size: [96.0, 64.0],
+        effect: [0.0, 1.0],
+        text: [1.0, 0.0, 0.0, 0.0],
+    };
+    assert_eq!(std::mem::size_of_val(&viewport), 32);
+    let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("cursor-streak-bound-draw-test-viewport"),
+        contents: bytemuck::bytes_of(&viewport),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let atlas = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("cursor-streak-bound-draw-test-atlas"),
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let atlas_view = atlas.create_view(&wgpu::TextureViewDescriptor::default());
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("cursor-streak-bound-draw-test-bg"),
+        layout: &layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: viewport_buf.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&atlas_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+        ],
+    });
+
+    let snapshot = glow_snapshot();
+    let streak = build_cursor_streak_instance(
+        &snapshot,
+        CellSize {
+            width: 12,
+            height: 20,
+            baseline: 0,
+        },
+        CursorStyle::Block,
+        [0.0, 0.0],
+        1.0,
+        1.0,
+        streak_request(0.25, CursorTrailStrength::Expressive),
+    )
+    .expect("an active large-jump streak must emit geometry");
+    let mut vertices = Vec::new();
+    append_cursor_streak_vertices(&mut vertices, streak);
+    assert_eq!(vertices.len(), VERTS_PER_QUAD);
+    let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("cursor-streak-bound-draw-test-vertices"),
+        contents: bytemuck::cast_slice(&vertices),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("cursor-streak-bound-draw-test-target"),
+        size: wgpu::Extent3d {
+            width: 96,
+            height: 64,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let pipeline =
         create_cursor_streak_pipeline(&device, wgpu::TextureFormat::Rgba8UnormSrgb, &layout);
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("cursor-streak-bound-draw-test-encoder"),
+    });
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("cursor-streak-bound-draw-test-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &target_view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_vertex_buffer(0, vertex_buf.slice(..));
+        pass.draw(0..vertices.len() as u32, 0..1);
+    }
+    queue.submit([encoder.finish()]);
+    let error = pollster::block_on(scope.pop());
+    assert!(
+        error.is_none(),
+        "the real 32-byte viewport binding and submitted streak draw must validate: {error:?}"
+    );
 }
 
 #[test]

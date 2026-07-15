@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Cursor streak GPU uniforms now match the shared viewport layout
+
+The large-jump cursor streak shader now consumes the same 32-byte viewport
+uniform layout as the other scene pipelines. Its effect field had been declared
+two floats wider than the shared host buffer, so activating a streak could raise
+a wgpu validation error when the bind group was used for a submitted draw.
+
+Regression coverage now binds the real 32-byte layout and buffer, generates an
+active Expressive large-jump streak, and submits its six-vertex draw under a
+validation error scope. This cross-platform wgpu correction changes no streak
+geometry, timing, strength profile, alpha, clipping, or cursor behavior.
+
 ## 2026-07-15 -- Cursor blink now yields to active typing
 
 Press, repeat, and meaningful IME composition activity now keep an
