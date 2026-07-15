@@ -1433,6 +1433,7 @@ impl App {
     pub(super) fn on_window_focus_changed(&mut self, focused: bool) {
         self.focused = focused;
         if focused {
+            self.rearm_bell_attention_on_focus_gain();
             // Read the reset-immune episode before restore clears the bounded
             // retry counter. A fresh focus gain remains byte-identical.
             if self.skip_episode.is_active() {

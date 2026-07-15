@@ -31,6 +31,33 @@ const FLASH_FRAME: Duration = Duration::from_millis(16);
 /// Peak opacity of the flash tint at the instant of the bell.
 const FLASH_PEAK_ALPHA: f32 = 0.30;
 
+/// One platform attention request is enough for an unfocused window episode.
+/// A focus gain clears the latch and permits a later episode to request again.
+#[derive(Debug, Default)]
+pub(super) struct BellAttentionLatch {
+    requested: bool,
+}
+
+impl BellAttentionLatch {
+    /// Returns whether this bell should issue the platform attention request.
+    /// A missing window never consumes an episode because no request can issue.
+    fn request_due(&mut self, wants_urgent: bool, focused: bool, has_window: bool) -> bool {
+        if !wants_urgent || focused || !has_window || self.requested {
+            return false;
+        }
+        self.requested = true;
+        true
+    }
+
+    /// Clears the request state on focus gain and reports whether the platform
+    /// request needs clearing too.
+    fn rearm_on_focus_gain(&mut self) -> bool {
+        let requested = self.requested;
+        self.requested = false;
+        requested
+    }
+}
+
 /// Ease-out cubic: fast departure, gentle arrival. Maps `0.0..=1.0` to itself.
 fn ease_out_cubic(p: f32) -> f32 {
     let inv = 1.0 - p;
@@ -54,12 +81,24 @@ impl App {
     /// on the off / visual-only path, or without a window. The urgency call is
     /// cross-platform (taskbar flash on Windows, dock bounce on macOS, WM
     /// attention hint on Linux).
-    pub(in crate::native) fn request_bell_attention(&self, window: Option<&Window>) {
-        if self.settings.bell.wants_urgent()
-            && !self.focused
-            && let Some(window) = window
+    pub(in crate::native) fn request_bell_attention(&mut self, window: Option<&Window>) {
+        if self.bell_attention.request_due(
+            self.settings.bell.wants_urgent(),
+            self.focused,
+            window.is_some(),
+        ) && let Some(window) = window
         {
             window.request_user_attention(Some(UserAttentionType::Informational));
+        }
+    }
+
+    /// Clear any outstanding portable platform attention request and re-arm a
+    /// later unfocused episode. `None` is winit's portable clear operation.
+    pub(super) fn rearm_bell_attention_on_focus_gain(&mut self) {
+        if self.bell_attention.rearm_on_focus_gain()
+            && let Some(window) = self.window.as_ref()
+        {
+            window.request_user_attention(None);
         }
     }
 
@@ -152,6 +191,40 @@ mod tests {
     fn ease_out_cubic_endpoints() {
         assert_eq!(ease_out_cubic(0.0), 0.0);
         assert_eq!(ease_out_cubic(1.0), 1.0);
+    }
+
+    #[test]
+    fn bell_attention_latches_once_per_unfocused_episode() {
+        let mut latch = BellAttentionLatch::default();
+
+        assert!(
+            !latch.request_due(true, true, true),
+            "a focused bell cannot consume the next unfocused episode"
+        );
+        assert!(
+            latch.request_due(true, false, true),
+            "first bell requests attention"
+        );
+        assert!(
+            !latch.request_due(true, false, true),
+            "repeated bells remain suppressed while unfocused"
+        );
+        assert!(latch.rearm_on_focus_gain(), "focus gain clears the request");
+        assert!(
+            latch.request_due(true, false, true),
+            "the next unfocused episode requests attention"
+        );
+    }
+
+    #[test]
+    fn bell_attention_without_a_window_does_not_latch() {
+        let mut latch = BellAttentionLatch::default();
+
+        assert!(!latch.request_due(true, false, false));
+        assert!(
+            latch.request_due(true, false, true),
+            "a later window-backed bell still requests attention"
+        );
     }
 
     fn build_app() -> Option<App> {

@@ -509,6 +509,9 @@ pub(super) struct App {
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
+    /// Whether this unfocused episode has already requested platform user
+    /// attention for a bell. Cleared when the window regains focus.
+    bell_attention: bell::BellAttentionLatch,
     /// Instant the context menu was last opened. A press that lands on the menu
     /// within [`CONTEXT_MENU_INPUT_DEBOUNCE`] of opening is swallowed: it can
     /// only be a stale queued click replaying (a human needs longer to see the
@@ -774,6 +777,7 @@ impl App {
             top_tab_drag: None,
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
+            bell_attention: bell::BellAttentionLatch::default(),
             context_menu_opened_at: None,
             #[cfg(test)]
             last_menu_path_scan_for_test: false,
