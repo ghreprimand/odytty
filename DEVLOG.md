@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Tab and workspace-rail seams now form one continuous surface
+
+The top tab seam now meets the content-facing seam of a pinned left or right
+workspace rail. The reserved rail-to-content gap remains intact as content
+padding, preserving workspace, tab, resize, and auto-hide behavior.
+
+## 2026-07-15 -- Cursor glow follows the live slide offset
+
+Cursor glow rings now use the same live sub-cell offset as the cursor block,
+keeping the glow centered throughout a slide. Existing clipping and animation
+wake behavior remain unchanged.
+
+## 2026-07-15 -- Cursor motion is now enabled by default
+
+Cursor slide now defaults on alongside the existing default trail and blink
+fade. Large jumps and other discontinuities still snap.
+
+## 2026-07-15 -- Unfocused Block cursors now render as hollow outlines
+
+An unfocused Block cursor now draws as a one-pixel outline while its glyph
+keeps the normal foreground color. Bar and underline cursors remain unchanged.
+
 ## 2026-07-15 -- Focused split cursors animate without idle-pane wakes
 
 Cursor slide, trail, glow, and eased fade now advance in the focused pane of a

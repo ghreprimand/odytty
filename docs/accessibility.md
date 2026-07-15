@@ -80,13 +80,12 @@ Both are disabled on the `render_quality = plain` path.
 
 ## Reduced motion and a calm profile
 
-Most cursor motion is off by default, so a fresh install is nearly static.
-Cursor slide (`cursor_motion`), cursor glow (`cursor_glow`), and the new-output
-fade (`new_output_fade`) are all off unless you turn them on. The cursor trail
-(`cursor_trail`) is enabled but only draws while cursor slide is also on, so with
-slide off there is no trail either.
+Cursor slide (`cursor_motion`) is on by default, so a fresh install glides
+between nearby cursor positions. The cursor trail (`cursor_trail`) is also on
+and follows that slide. Cursor glow (`cursor_glow`) and the new-output fade
+(`new_output_fade`) remain off unless you turn them on.
 
-Four motion behaviors *are* on by default, because none of them adds input
+Four additional motion behaviors are on by default, because none adds input
 latency:
 
 - **Cursor blink** (`cursor_blink`) periodically hides and restores the cursor.
@@ -106,8 +105,8 @@ For both scroll features the scroll target snaps immediately — only the visual
 position eases, and it moves solely in the scroll direction, so it cannot
 overshoot.
 
-`reduced_motion = on` is the master switch for cursor slide, trail, glow,
-blink fade, and new-output fade. It forces those effects to snap or stay
+`reduced_motion = on` is the master static override for cursor slide, trail,
+glow, blink fade, and new-output fade. It forces those effects to snap or stay
 static without changing their individual saved settings, so disabling it later
 restores the prior choices. The explicit setting behaves the same on Windows,
 macOS, and Linux. OdyTTY does not currently read a platform reduced-motion
@@ -142,9 +141,10 @@ bloom = off
 crt = off
 visual = off
 background_treatment = color
-# cursor slide, glow, and the new-output fade are already off by default;
-# add reduced_motion = on, cursor_blink = off, scroll_glide = off, and
-# pixel_scroll = off for a fully static terminal (see above)
+# cursor glow and the new-output fade are already off by default;
+# reduced_motion makes the default cursor slide, trail, and blink fade static.
+# Add cursor_blink = off, scroll_glide = off, and pixel_scroll = off for a
+# fully static terminal (see above).
 ```
 
 The `render_quality = plain` profile disables post-processing, background

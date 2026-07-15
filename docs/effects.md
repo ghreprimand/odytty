@@ -266,10 +266,14 @@ the `crt_*` knobs above; `visual` exists so older configs keep working.
 ## Cursor animations
 
 OdyTTY has four optional cursor animations; all are purely visual and never
-affect the logical cursor position or terminal state. Since v0.6.0 the shipped
-defaults enable **cursor easing** and the **cursor trail** (`cursor_easing = on`,
-`cursor_trail = on`) as part of the OdysseyOS identity, while **cursor slide**
-(`cursor_motion`) stays off by default. Set any of them to `off` to disable.
+affect the logical cursor position or terminal state. The shipped defaults
+enable **cursor slide**, **cursor easing**, and the **cursor trail**
+(`cursor_motion = on`, `cursor_easing = on`, `cursor_trail = on`) as part of
+the OdysseyOS identity, while **cursor glow** stays opt-in. Set any of them to
+`off` to disable.
+
+`reduced_motion = on` is the master static override: slide snaps while trail,
+glow, and blink fade remain inert, without changing their saved settings.
 
 **Cursor slide** (`cursor_motion = on`): the cursor glides between adjacent
 positions (55 ms ease-out-cubic) instead of jumping. Large jumps, resizes,
