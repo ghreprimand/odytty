@@ -28,9 +28,11 @@ Every global OdyTTY shortcut is a `Ctrl+Shift+<key>` (or `Ctrl+PageUp/Down`,
 `Shift+PageUp/Down`) chord. A TUI program cannot receive `Ctrl+Shift+<letter>`
 through a PTY, so binding local actions there means the bytes a shell or
 full-screen application sees are **unchanged** — OdyTTY never steals a keystroke
-your program expects. The one stateful exception is the pane prefix (default
-`Ctrl+b`), and it is captured **only** once a tab has more than one pane (see
-[Panes](#panes-the-tmux-style-prefix)).
+your program expects. Two stateful exceptions apply: the pane prefix (default
+`Ctrl+b`) is captured only once a tab has more than one pane, and default-on
+smart `Ctrl+C` copies and clears a live local selection instead of interrupting.
+A full-screen TUI holds no local selection, so its `Ctrl+C` still interrupts.
+See [Panes](#panes-the-tmux-style-prefix).
 
 Notation: `Ctrl+Shift+,` is Control + Shift + the comma key. `Ctrl+Shift+Up` is
 Control + Shift + the up arrow.
@@ -72,10 +74,11 @@ These work anywhere in the window. They are all rebindable (see
 Notes that trip people up:
 
 - **Copy/paste are `Ctrl+Shift+C` / `Ctrl+Shift+V`** (the Linux-terminal
-  convention) — plain `Ctrl+C` sends the interrupt (`^C`) and plain `Ctrl+V` is
+  convention). By default, plain `Ctrl+C` copies and clears a live selection
+  when one exists, and sends the interrupt (`^C`) otherwise; plain `Ctrl+V` is
   readline/vi verbatim-insert. Two ways to change the copy/paste feel:
-  - `smart_ctrl_c = copy-or-interrupt` (Settings → Clipboard) makes plain
-    `Ctrl+C` copy + clear a selection when one exists, and interrupt otherwise.
+  - Set `smart_ctrl_c = off` (Settings → Clipboard) to make plain `Ctrl+C`
+    always interrupt.
   - To make plain `Ctrl+V` paste, bind it: `keybinds = ctrl+v=paste` (this
     shadows verbatim-insert).
 - A printed `https://…` URL is clickable by default (`Ctrl+click` to open,

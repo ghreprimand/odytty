@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Documented defaults match the shipped experience
+
+Settings and rendering documentation now reflects the live defaults for smart
+Ctrl+C, the `odyssey-default` theme, text gamma, stem darkening, minimum
+contrast, geometric box drawing, cursor animation, cursor blink, workspace-rail
+width, background scrim, and bloom threshold. Related rendering recipes now use
+the default bar cursor and a genuinely larger-than-default font size, while the
+theme guide distinguishes authored palette values from the default render-time
+contrast lift.
+
+The annotated example config loads without warnings. Verified: cargo test,
+cargo fmt --check, and cargo clippy --all-targets --locked -- -D warnings are
+clean.
+
 ## 2026-07-15 -- Linux requirements include accelerated OpenGL
 
 The front-page and install guidance now describe accelerated OpenGL/GLES as a

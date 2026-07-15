@@ -361,7 +361,7 @@ Sharp, stable, comfortable text is a primary product pillar.
   Cross-platform raster + placement math, ConPTY graphics parity, no
   platform-specific surface.
 - **Shipped — Stem-darkening default activation.** The rasterization machinery
-  ships default-on at `0.5`, with `0.0` as the byte-identical opt-out.
+  ships default-on at `0.7`, with `0.0` as the byte-identical opt-out.
 - **Someday — Legibility font features.** A narrow, charter-clean subset (such
   as a slashed or dotted zero) is the near-term slice; broader ligatures and
   arbitrary font features remain deferred pending an explicit shaping decision.
@@ -515,12 +515,13 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   scanner (`hints`) and the exact same argv-only, scheme-allowlisted dispatch.
   Explicit OSC 8 hyperlinks win a tie (no double-decoration); the off path never
   scans (byte-identical hover). Independent of `interactive_paths`.
-- **Shipped — Smart Ctrl+C (`smart_ctrl_c`, off by default).** Opt-in
-  `copy-or-interrupt` policy: plain `Ctrl+C` copies + clears a local selection
+- **Shipped — Smart Ctrl+C (`smart_ctrl_c`, `copy-or-interrupt` by default).**
+  Plain `Ctrl+C` copies + clears a local selection
   when one exists and otherwise sends the interrupt (`^C`). The interrupt stays
   reachable (no selection, second press, `Esc`-first, or the always-unambiguous
   `Ctrl+Shift+C`); a full-screen TUI never holds a local selection so its
-  `Ctrl+C` keeps interrupting. Off is byte-identical. Plain `Ctrl+V` stays
+  `Ctrl+C` keeps interrupting. `smart_ctrl_c=off` restores the pre-v0.6.0
+  interrupt-always path. Plain `Ctrl+V` stays
   verbatim-insert (deliberately no smart paste); `keybinds = ctrl+v=paste` is the
   documented opt-in for Windows-style paste.
 - **Shipped — Interactive paths.** Detect file paths (and `path:line:col` spans) in

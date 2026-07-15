@@ -245,7 +245,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         that blocks UV bleed and preserves box-drawing edge joins + descenders.
   - [x] Shader gamma/contrast side: `ODYTTY_TEXT_GAMMA` drives a glyph coverage
         correction uniform; `1.0` is the exact legacy blend escape hatch and
-        `1.5` is the tuned default for light-on-dark text weight.
+        `1.2` is the tuned default for light-on-dark text weight.
   - [x] Bearing-aware glyph geometry (`src/atlas.rs` + `src/grid.rs`, R3): each
         atlas slot reserves an overflow margin and records per-slot inked bounds;
         `glyph_quad` sizes each glyph quad to its real ink so overflow renders
@@ -262,8 +262,9 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         scales dim foregrounds, suppresses hidden glyphs, keeps inverse/cursor/
         selection behavior in the existing attr path, and draws underline +
         strikethrough as metric-derived solid quads.
-  - [x] Bold/italic style faces are loaded when discovered; missing style faces
-        fall back to regular without synthetic emboldening.
+  - [x] Bold/italic style faces are loaded when discovered; missing faces are
+        synthesized by default with double-strike bold and a 12-degree italic
+        shear, while real faces always win.
 - [x] Profile redraw, scrolling, resize, and large-output performance.
   - [x] Headless `cargo bench --bench perf` harness (evidence-only). Hotspots:
         resize/reflow is O(total scrollback) (~46 ms at 50k lines; ~17 ms even
@@ -399,24 +400,25 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         block, blinking/steady underline, blinking/steady bar; `RIS`/`DECSTR`
         reset to the host default.
   - [x] `ODYTTY_CURSOR_STYLE` (block|underline|bar) and `ODYTTY_CURSOR_BLINK`
-        (on|off|auto, default auto) set the host default policy; DECSCUSR
+        (on|off|auto, default on) set the host default policy; DECSCUSR
         overrides at runtime; bad values warn once and fall back.
   - [x] Render the three cursor shapes through the existing quad path; blink is
         focus-aware and busy-redraw-free (solid with no scheduled wake when the
         style does not blink or the window is unfocused).
-- [x] Opt-in cursor animations (all off by default).
-  - [x] Cursor easing (`cursor_easing`): opacity fades across each blink edge
-        (180 ms ease) instead of a hard toggle; unfocused and steady cursors
-        stay fully opaque with no animation overhead.
-  - [x] Cursor slide (`cursor_motion`): cursor glides between adjacent cells
-        (55 ms ease-out-cubic) instead of jumping; snaps on first frame, large
-        jumps (> 6 cells), resize, scrollback, and unfocus.
-  - [x] Cursor trail (`cursor_trail`): a short fading after-image trails the
-        cursor as it glides, drawn behind the cursor block in the theme cursor
-        color; only visible while cursor slide is on; fully decays on settle.
-  - [x] Cursor glow (`cursor_glow`): three faint concentric rings in the theme
-        foreground color drawn behind the cursor block; faint enough to keep
-        nearby text readable.
+- [x] Cursor animations (`cursor_easing` and `cursor_trail` on by default;
+      `cursor_motion` and `cursor_glow` off by default).
+  - [x] Cursor easing (`cursor_easing`, on by default): opacity fades across each
+        blink edge (180 ms ease) instead of a hard toggle; unfocused and steady
+        cursors stay fully opaque with no animation overhead.
+  - [x] Cursor slide (`cursor_motion`, off by default): cursor glides between
+        adjacent cells (55 ms ease-out-cubic) instead of jumping; snaps on first
+        frame, large jumps (> 6 cells), resize, scrollback, and unfocus.
+  - [x] Cursor trail (`cursor_trail`, on by default): a short fading after-image
+        trails the cursor as it glides, drawn behind the cursor block in the
+        theme cursor color; only visible while cursor slide is on; fully decays.
+  - [x] Cursor glow (`cursor_glow`, off by default): three faint concentric rings
+        in the theme foreground color drawn behind the cursor block; faint enough
+        to keep nearby text readable.
 - [ ] Add window title and focus behavior.
   - [x] Apply OSC title changes to the native window title.
   - [x] Emit DECSET 1004 focus-in/out reports from native window focus events.
@@ -723,7 +725,7 @@ a floor; surpassing it is the standing ambition.
       to match the perceived brightness of the prior linear ×0.5).
 - [x] Minimum-contrast floor (`ODYTTY_MIN_CONTRAST`, `min_contrast`):
       configurable WCAG contrast ratio floor applied at render time. Default
-      `16.0` is the fresh-install readability floor; `1.0` is the exact
+      `17.0` is the fresh-install readability floor; `1.0` is the exact
       passthrough opt-out. The floor is measured via WCAG
       relative luminance; the lift bisects OKLab lightness while preserving hue
       and chroma (`src/color.rs:enforce_min_contrast`).
@@ -736,13 +738,15 @@ a floor; surpassing it is the standing ambition.
         passthrough (byte-identical opt-out pixels, including the new underline
         path). A
         pixel-smoke frame (256-color + truecolor + explicit-underline-color
-        cells) certifies the no-op at default, and coverage units prove each
-        color type is lifted with hue and chroma preserved when the floor is up.
+        cells) pins `min_contrast = 1.0` and certifies the opt-out no-op; coverage
+        units prove each color type is lifted with hue and chroma preserved when
+        the floor is up.
 - [x] Geometric box-drawing / Powerline rendering (`ODYTTY_GEOMETRIC_BOXDRAW`,
       `geometric_boxdraw`): U+2500–257F, U+2580–259F, Braille, and Powerline
       separators rendered as pixel-perfect geometry at exact cell size rather
-      than font glyphs. Off by default; enable via setting or env var.
-- [x] Stem-darkening ships default-on at `0.5` (crisper
+      than font glyphs. On by default; `geometric_boxdraw = off` or
+      `ODYTTY_GEOMETRIC_BOXDRAW=off` restores font-rasterized glyphs.
+- [x] Stem-darkening ships default-on at `0.7` (crisper
       light-on-dark text); `ODYTTY_STEM_DARKEN` / `stem_darken = 0.0` is the
       byte-identical opt-out. Applied at startup and live reload before
       glyph-atlas rasterization. Native warns if the GPU surface falls back to
@@ -791,7 +795,7 @@ a floor; surpassing it is the standing ambition.
   - [x] CRT post-process core: bounded scanlines + vignette share the same
         offscreen scene render and final composite pass as bloom; curvature and
         chromatic aberration are deferred.
-  - [x] Cursor trail (`cursor_trail`, off by default): fading after-image that
+  - [x] Cursor trail (`cursor_trail`, on by default): fading after-image that
         trails the cursor as it glides (rides cursor slide; fully decays on
         settle); themed window border (`window_border`, off by default): a thin
         DPI-scaled frame in the theme border color inside the padding band.
@@ -846,8 +850,8 @@ feature validates against.
 - [ ] Perceptual color moat (OKLab/OKLCH pipeline + readability floor).
   - [x] Universal legibility: the contrast floor provably covers every
         text color type (ANSI, 256-color, truecolor, explicit underline color),
-        lifting foregrounds in OKLab while preserving hue and chroma. Default
-        floor is exact passthrough.
+        lifting foregrounds in OKLab while preserving hue and chroma. The
+        shipped floor is `17.0`; the `1.0` opt-out is exact passthrough.
   - [x] Perceptual-safe theme builder: OKLCH lightness/chroma/hue editing
         with a live contrast readout and snap-to-floor against a dedicated
         authoring floor, so the builder cannot author an unreadable theme; hex

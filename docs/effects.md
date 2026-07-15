@@ -313,8 +313,9 @@ foreground is re-lifted over the treated background cell by cell.
 
 - With `cell_bg_opacity = 1.0`, cell backgrounds stay opaque and the image is
   hidden behind the cells; values below `1.0` let it show through behind text.
-- OdyTTY computes a readability scrim automatically unless
-  `background_image_scrim` is set explicitly.
+- OdyTTY ships a fixed `0.5` scrim by default. Set
+  `background_image_scrim = auto` to compute a floor-safe scrim from the image's
+  luminance, or set a float to pin another value.
 - Missing, unreadable, undecodable, or oversized inputs degrade safely with a
   warning.
 - The settings panel's `Background image` row opens an inline path picker that

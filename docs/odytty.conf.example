@@ -66,11 +66,12 @@ workspace_rail_side = left
 # and folds to `always` pinned to that side. Hot-reloadable.
 workspace_rail = auto
 
-# Vertical-rail geometry. Width in cells (8-32), inter-slot gap in rows (0-3), and
-# slot height (1 = compact list that truncates long titles, 2 = padded rows that
-# can wrap). The legacy `tab_rail_*` names are still accepted as aliases onto the
-# same settings. All hot-reloadable.
-workspace_rail_width = 16
+# Vertical-rail geometry. Width is auto by default (longest title, capped by
+# workspace_rail_max_width) or a fixed 8-32 cells. Inter-slot gap is 0-3 rows;
+# slot height 1 is compact and 2 allows padded wrapping. The legacy `tab_rail_*`
+# names are still accepted as aliases onto the same settings. All hot-reloadable.
+workspace_rail_width = auto
+workspace_rail_max_width = 24
 workspace_rail_gap = 1
 workspace_rail_slot_rows = 2
 
@@ -146,10 +147,10 @@ selection_drag_extend = on
 scrollbar_drag = on
 wheel_zoom = on
 copy_on_select = off
-# What plain Ctrl+C does. off (default) always sends the interrupt (^C).
-# copy-or-interrupt: copy + clear the selection when text is selected, else
-# interrupt. To interrupt while text is selected, press Esc first or Ctrl+C
-# twice; Ctrl+Shift+C always copies. (Plain Ctrl+V stays verbatim-insert; bind
+# What plain Ctrl+C does. copy-or-interrupt (default): copy + clear the selection
+# when text is selected, else interrupt. off always sends the interrupt (^C).
+# To interrupt while text is selected, press Esc first or Ctrl+C twice;
+# Ctrl+Shift+C always copies. (Plain Ctrl+V stays verbatim-insert; bind
 # `keybinds = ctrl+v=paste` if you want plain Ctrl+V to paste.)
 smart_ctrl_c = copy-or-interrupt
 # smart_ctrl_c = off   # plain Ctrl+C always interrupts (pre-v0.6.0 behavior)

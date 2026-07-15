@@ -117,8 +117,9 @@ retired: the cell shaders no longer modulate background brightness inline.
 `visual=ambient` and `visual=scanlines` are back-compat aliases: when either is
 set and no explicit `crt` key is present, OdyTTY enables the CRT scanline
 effect as if `crt=on` were specified. An explicit `crt` setting always wins —
-the `visual` key never overrides it. `visual=off`/`none`/`plain` keep the
-renderer plain.
+the `visual` key never overrides it. `visual=off`/`none`/`plain` suppress only
+the legacy alias; because CRT and bloom both default on, use `crt=off` and
+`bloom=off` (or `render_quality=plain`) for a plain renderer.
 
 The CRT path requires a GPU adapter with filterable 16-bit float support; it
 silently no-ops on adapters that lack it. Unlike the old cell-shader wash
@@ -176,8 +177,9 @@ the theme's 16-color palette alongside the default fg/bg, and passes `clear` to
 `gpu.rs` as the wgpu surface clear color.
 
 The built-in library contains 142 contrast-validated themes. `plain`
-reproduces the historical xterm table byte-for-byte, while `odyssey` is the
-fresh-install default. Unknown names fall back to `odyssey`.
+reproduces the historical xterm table byte-for-byte, while `odyssey-default` is
+the fresh-install default. The settings loader warns and falls back to
+`odyssey-default` for unknown names; `Theme::from_name_or_default` uses `plain`.
 
 The indexed-color resolution chain is now theme-driven for indices 0–15:
 `text::indexed_srgb(0..=15)` reads the published theme palette override before
@@ -273,7 +275,7 @@ highest-priority additions.
   paths: `mix_oklab` for blends and the OKLab bisect for the contrast floor.
 - **Minimum-contrast guarantee (landed):** configurable perceptual fg/bg
   contrast floor applied at render time (`ODYTTY_MIN_CONTRAST`, `min_contrast`).
-  Value `1.0` = exact passthrough; the fresh-install default is `16.0`.
+  Value `1.0` = exact passthrough; the fresh-install default is `17.0`.
   The floor is measured via WCAG
   relative luminance; lift is applied by bisecting OKLab lightness while
   preserving hue and chroma (`src/color.rs:enforce_min_contrast`).
@@ -307,8 +309,10 @@ Distinctive treatments that direct attention without harming legibility.
   cursor/selection/search semantic roles are delivered: when
   `themed_ui_roles` is on (default), the cursor uses the theme cursor color,
   selections use the theme selection color, and search highlights use the theme
-  search color rather than raw cell inversion. Cursor blink fade, glow, slide,
-  and trail are also shipped as opt-in settings. `ODYTTY_THEMED_UI_ROLES=off`
+  search color rather than raw cell inversion. Blink fade (`cursor_easing`) and
+  trail (`cursor_trail`) ship on; glow (`cursor_glow`) and slide
+  (`cursor_motion`) are opt-in. The trail is visible only while slide is on.
+  `ODYTTY_THEMED_UI_ROLES=off`
   restores the classic inversion behavior.
 - **Focus dimming (landed):** dims the whole grid — both text foreground
   and background — perceptually in OKLab while the window is unfocused, so it
@@ -321,7 +325,9 @@ Distinctive treatments that direct attention without harming legibility.
   focused frames byte-identical to the unfocused-off path.
 - **Background treatments (landed):** optional gradient, vignette, and
   PNG/JPEG/WebP image backgrounds. Image mode uses `cell_bg_opacity`, a one-time
-  CPU blur, and an automatic readability scrim so text remains legible.
+  optional CPU blur (`background_blur_radius`, default `0` = off), and a
+  readability scrim (`background_image_scrim`, fixed `0.5` by default; `auto`
+  computes a floor-safe value).
 - **Window chrome / padding identity (landed):** themed padding, optional thin
   semantic-role border, and a live window-decoration toggle.
 
@@ -333,8 +339,10 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
 
 - **Post-process pipeline architecture (VE1) (landed):** linear `Rgba16Float`
   offscreen render target, composite pass, filterable-format probe with
-  weak-adapter auto-downgrade. Zero visible change at default settings; the
-  scene pipelines re-target the offscreen format only while a pass is active.
+  weak-adapter auto-downgrade. The pipeline is a no-op when no effect is enabled;
+  the shipped defaults enable bloom and CRT, so the offscreen path is normally
+  active. Scene pipelines re-target the offscreen format only while a pass is
+  active.
 - **Bloom / phosphor glow (VE2) (landed):** bright-text/bright-cell glow via a
   bright-pass threshold + half-res separable blur + additive composite. Enabled
   in the fresh-install ambient baseline behind the `bloom` setting and

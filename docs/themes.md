@@ -8,7 +8,7 @@ border/inactive). A theme is selected with the `theme` setting
 
 There are two kinds of theme:
 
-- **Built-in themes**, selected by name — `odyssey` is the fresh-install
+- **Built-in themes**, selected by name — `odyssey-default` is the fresh-install
   default, while `plain` remains available as the pixel-identical pre-theme
   appearance plus a curated library of OdyTTY-original and community themes
   (see [Built-in theme
@@ -51,7 +51,7 @@ Resolution order for the `theme` value:
    `<name>.theme`, then `<name>`.
 
 If the value resolves to nothing, or the file cannot be read, OdyTTY falls back
-to the default `odyssey` theme and logs a warning. **A bad or missing theme
+to the default `odyssey-default` theme and logs a warning. **A bad or missing theme
 value never prevents startup.**
 
 ### Theme directory
@@ -109,9 +109,9 @@ path — so the file format is exercised by the library on every startup.
 **OdyTTY original** — `plain`, `odyssey`, and the `odyssey-*` variants are
 original themes designed for OdyTTY's public visual identity. The `odyssey` name
 comes from OdysseyOS, a companion Linux From Scratch system, but these themes are
-built into OdyTTY and do not require that system. `odyssey` is the fresh-install
-default; `plain` reproduces the historical xterm default palette byte-for-byte
-and remains available as an explicit compatibility choice. The `odyssey-*`
+built into OdyTTY and do not require that system. `odyssey-default` is the
+fresh-install default; `plain` reproduces the historical xterm default palette
+byte-for-byte and remains available as an explicit compatibility choice. The `odyssey-*`
 variants span a wide range of moods across dark and light appearances —
 deep-space and interstellar cold, warm atmospheric, cool natural, cosmic nebula,
 natural greens, vivid accents, and light daylight companions — and carry the
@@ -254,13 +254,13 @@ Every built-in's default foreground/background pair is checked against a
 minimum WCAG perceptual contrast ratio at build/test time. OdyTTY uses a floor
 of **4.0** — just under the WCAG AA 4.5 threshold so that faithful community
 palettes (Solarized in particular sits right at the boundary: ~4.1 light,
-~4.75 dark) keep their authentic values rather than being silently retuned.
+~4.75 dark) retain their authored values in the built-in library.
 
-This is a *library-authoring* floor, not a render-time guarantee. Per-user
-render-time contrast enforcement — a configurable minimum that lifts low-contrast
-text from *any* app or theme — is available via `ODYTTY_MIN_CONTRAST` /
-`min_contrast =` in `odytty.conf`. It builds on the same contrast helper
-(`theme::contrast_ratio`) used to validate the library here.
+This is a *library-authoring* floor, not a render-time guarantee. Render-time
+contrast enforcement ships on at `min_contrast = 17.0` (range `1.0`–`21.0`) and
+lifts low-contrast text from any app or theme. Set `min_contrast = 1.0` for the
+authored palette values without a render-time lift. The renderer uses the same
+contrast helper (`theme::contrast_ratio`) that validates the library.
 
 ### Attribution and licensing
 
@@ -333,7 +333,7 @@ Colors are written as `#RRGGBB` or `#RGB` (the leading `#` is optional;
 | `appearance` | `dark` or `light`. Metadata for future light/dark-aware features. |
 | `foreground` (`fg`) | Default text color for `Color::Default` cells. |
 | `background` (`bg`) | Default cell background. |
-| `clear` | Window clear color; defaults to `background` when omitted. |
+| `clear` | Window clear color; keeps the `plain` baseline when omitted rather than inheriting this theme's `background`, so set it explicitly. |
 | `cursor` | Cursor color (semantic role). |
 | `selection` | Selection background (semantic role). |
 | `search` | Search-highlight background (semantic role). |

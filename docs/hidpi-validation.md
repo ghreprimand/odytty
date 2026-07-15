@@ -25,7 +25,7 @@ Status: turnkey — run each cell, record pass/fail in the rightmost column.
 |----------------------------|----------------------------------------------|
 | `WINIT_X11_SCALE_FACTOR=N` | Force X11 scale to N (e.g. 1.25, 2.0)       |
 | `ODYTTY_FONT_SIZE=N`       | Override logical font size (default 20, clamp 6.0–72.0) |
-| `ODYTTY_THEME=name`        | Theme selection (default `odyssey`)          |
+| `ODYTTY_THEME=name`        | Theme selection (default `odyssey-default`; `odyssey` is distinct) |
 
 ---
 
@@ -42,7 +42,7 @@ Launch OdyTTY at each scale; verify text is crisp from frame one.
 | A3 | 1.5 | default | `WINIT_X11_SCALE_FACTOR=1.5 cargo run --release` | Crisp, no seams between cells | |
 | A4 | 1.75 | default | `WINIT_X11_SCALE_FACTOR=1.75 cargo run --release` | Crisp, baseline consistency across glyphs | |
 | A5 | 2.0 | default | `WINIT_X11_SCALE_FACTOR=2 cargo run --release` | Crisp HiDPI, no oversized or undersized glyphs | |
-| A6 | 2.0 | 18px | `WINIT_X11_SCALE_FACTOR=2 ODYTTY_FONT_SIZE=18 cargo run --release` | Crisp at larger font, atlas memory sane (no OOM) | |
+| A6 | 2.0 | 32px | `WINIT_X11_SCALE_FACTOR=2 ODYTTY_FONT_SIZE=32 cargo run --release` | Crisp at larger font, atlas memory sane (no OOM) | |
 
 ### B. Live scale-factor transitions (multi-monitor drag)
 
@@ -64,7 +64,7 @@ At each scale, inspect these specific rendering details.
 |---|-------|-------|---------------|--------|
 | C1 | 1.25 | Box-drawing joins | `printf '\u2500\u253c\u2500'` — horizontal line through the cross, no gap at the cell boundary | |
 | C2 | 1.5 | Baseline consistency | Type `EFghij` — cap tops of E/F align, descenders of g/j extend below baseline | |
-| C3 | 1.75 | Cursor alignment | Move cursor with arrows — block cursor covers exactly one cell, no pixel offset | |
+| C3 | 1.75 | Cursor alignment | Move cursor with arrows — default bar cursor stays on the cell's leading edge with no pixel offset | |
 | C4 | 2.0 | Selection highlight | Select text with mouse — highlight tracks cell boundaries exactly | |
 | C5 | any | Scroll indicator | Scroll up in history — indicator bar is at right edge, 3px wide, no artifacts | |
 | C6 | 1.5 | Pane split geometry | Split with `Ctrl+Shift+E` (pane right) then `Ctrl+Shift+O` (pane below) — the 1px divider stays crisp, each pane's grid floors cleanly with no sub-cell seam, and the ~6px divider grab band hit-tests on the visible line | |

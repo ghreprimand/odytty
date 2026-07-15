@@ -886,7 +886,7 @@ its first stable layer.
     this equivalence so the claim cannot silently drift.
   - **Minimum-contrast floor** (`ODYTTY_MIN_CONTRAST`, `min_contrast`): a
     configurable WCAG contrast ratio floor between foreground and background,
-    applied at render time. Default `16.0` is the fresh-install readability
+    applied at render time. Default `17.0` is the fresh-install readability
     floor (range `1.0`–`21.0`); `1.0` disables the floor and is the exact
     passthrough opt-out. Higher
     values lift underpowered foregrounds toward legibility.
@@ -895,7 +895,7 @@ its first stable layer.
     via WCAG relative luminance; the lift is applied by bisecting OKLab lightness
     while preserving hue and chroma (`src/color.rs:enforce_min_contrast`).
   - **Stem darkening** (`ODYTTY_STEM_DARKEN`, `stem_darken`): a coverage boost
-    that keeps glyph stroke weight on light-on-dark displays. Default `0.5`;
+    that keeps glyph stroke weight on light-on-dark displays. Default `0.7`;
     range `0.0`–`1.0`, where `0.0` is the
     byte-identical opt-out to the classic raster. Applied at rasterization time
     (`src/atlas/mod.rs`).
@@ -1400,8 +1400,7 @@ Tier-3 atmospheric effects land in this order:
 3. **Bloom / phosphor glow (landed):** bright-pass threshold + half-res
    separable blur + additive composite, enabled in the fresh-install ambient
    baseline behind the `bloom` setting and gated on adapter HDR support. The
-   built-in threshold is fixed at `0.70`, while the `auto` value remains
-   available for theme-derived tuning.
+   built-in threshold is fixed at `0.70`; `auto` resolves to that fixed default.
 
 4. **CRT / retro profile core (landed):** bounded scanlines + vignette, enabled
    in the fresh-install ambient baseline behind `crt` and sharing the same
@@ -1435,11 +1434,10 @@ composite back to the CPU resolve step.
 the minimum-contrast floor to clean up legibility after the fact. Every Tier-3 effect must
 be **structurally unable** to harm body-text legibility by construction:
 
-- **Bloom / additive glow:** threshold is auto-derived to lie strictly above
-  the luminance of normal body text, so body text is never in the bright set
-  that glow acts on. Composition is additive (never replace), so background
-  regions brighten but existing foreground coverage is only increased, not
-  reduced.
+- **Bloom / additive glow:** the threshold floor is fixed at `0.70`, above the
+  luminance of normal body text, so body text is never in the bright set that
+  glow acts on. Composition is additive (never replace), so background regions
+  brighten but existing foreground coverage is only increased, not reduced.
 
 - **CRT scanlines / vignette:** modulate brightness uniformly; paired with
   an intensity cap that keeps the worst-case dimming above the body-text
