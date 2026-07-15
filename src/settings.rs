@@ -1231,7 +1231,7 @@ pub struct Settings {
     /// logical cursor position.
     pub cursor_glow: bool,
     /// Whether a short fading after-image trails the cursor along its slide path
-    /// (VE4). Off by default; the off path emits no trail quads and arms no
+    /// (VE4). On by default; the off path emits no trail quads and arms no
     /// extra wake, byte-identical to before. Rides the cursor-slide animation,
     /// so it is visible only while `cursor_motion` is also on; purely
     /// presentational, never affects cell semantics or the logical cursor.
@@ -1255,8 +1255,9 @@ pub struct Settings {
     pub synthetic_styles: bool,
     /// Whether box-drawing, block-element and Powerline glyphs are rendered
     /// geometrically (cell-aligned rectangles/rails/arcs/triangles) instead of
-    /// from the font (RV2). Off by default; the font path is byte-identical to
-    /// before. Purely presentational — never affects cell semantics.
+    /// from the font (RV2). On by default; turning it off restores the
+    /// byte-identical font path. Purely presentational — never affects cell
+    /// semantics.
     pub geometric_boxdraw: bool,
     /// Whether to install a symbol / Nerd-font fallback face for private-use
     /// prompt icons (RV6). On by default so common PUA prompt icons render out
@@ -1439,7 +1440,7 @@ pub struct Settings {
     /// continuous sub-row lane tracking physical travel instead of quantizing to
     /// whole notches; it affects only pixel-precise input, so detented wheels
     /// (line deltas) are unchanged whether this is on or off and the at-rest
-    /// render path is byte-identical. Single-pane only in v1.
+    /// render path is byte-identical.
     pub pixel_scroll: bool,
     /// Sensitivity multiplier for the continuous pixel-scroll lane. `1.0`
     /// (default) tracks finger travel exactly; higher/lower scroll faster/slower
@@ -1447,9 +1448,9 @@ pub struct Settings {
     /// Applies only to pixel-precise input, never the detented-wheel path.
     pub scroll_pixel_speed: f32,
     /// Animated scrollback glide between discrete wheel notches (SCROLL-GLIDE).
-    /// Default OFF. When on, a notch moves the integer viewport offset instantly
-    /// and the rendered viewport eases toward it with a forward-chase follower
-    /// that only moves in the scroll direction (so a notch stream cannot
+    /// On by default; a notch moves the integer viewport offset instantly and
+    /// the rendered viewport eases toward it with a forward-chase follower that
+    /// only moves in the scroll direction (so a notch stream cannot
     /// sawtooth). Only detented wheels use this; high-resolution/touchpad input
     /// uses `pixel_scroll`. At rest the render path is byte-identical.
     pub scroll_glide: bool,

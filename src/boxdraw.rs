@@ -29,6 +29,10 @@
 //!   as btop for high-resolution terminal graphs.
 //! - **Powerline** `U+E0B0..=E0B3`: the right/left filled triangles and their
 //!   outline variants used by powerline / starship-style prompts.
+//! - **Symbols for Legacy Computing**: sextants `U+1FB00..=U+1FB3B`, octants
+//!   `U+1CD00..=U+1CDE5`, triangular blocks `U+1FB68..=U+1FB6F`, supplemental
+//!   eighth-blocks `U+1FB70..=U+1FB8F`, and seven-segment digits
+//!   `U+1FBF0..=U+1FBF9`.
 //!
 //! Everything else (arcs beyond the four rounded corners, the rarer technical
 //! symbols, etc.) is left to the font glyph via the fallback path.

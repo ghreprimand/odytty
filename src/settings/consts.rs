@@ -424,7 +424,7 @@ pub const MAX_LINE_HEIGHT: f32 = 2.0;
 /// byte-identically (multiplying the light weight by `1.0` is exact in `f32`);
 /// values below `1.0` draw thinner rules and above `1.0` draw heavier rules.
 /// Only affects the renderer's own geometric box-drawing path — inert when
-/// geometric box-drawing is off or when a font supplies the glyphs.
+/// geometric box-drawing is off or when a symbol-map override wins.
 pub const DEFAULT_BOX_THICKNESS: f32 = 1.0;
 pub const MIN_BOX_THICKNESS: f32 = 0.5;
 pub const MAX_BOX_THICKNESS: f32 = 3.0;
@@ -501,7 +501,7 @@ pub const DEFAULT_CURSOR_GLOW: bool = false;
 /// while it glides between cells. Rides the existing cursor-slide animation
 /// (`cursor_motion`): the trail only appears while a slide is in flight and
 /// fully decays as the slide settles, so it never schedules a wake beyond the
-/// slide's own animation window. Off by default — while off no trail quads are
+/// slide's own animation window. On by default; while off no trail quads are
 /// emitted and the render path is byte-identical to before. The ghosts are
 /// drawn behind the cursor block in the theme cursor color at low alpha, so
 /// they never obscure cell content or affect the logical cursor position.
@@ -571,7 +571,7 @@ pub const MAX_WINDOW_OPACITY: f32 = 100.0;
 pub const DEFAULT_PIXEL_SCROLL: bool = true;
 
 /// Animated scrollback glide between discrete wheel notches
-/// (`ODYTTY_SCROLL_GLIDE`): default OFF. When on, a wheel notch moves the
+/// (`ODYTTY_SCROLL_GLIDE`): when on, a wheel notch moves the
 /// integer viewport offset instantly (as always) but the RENDERED viewport
 /// eases toward it over a few frames — a forward-chase follower that only ever
 /// moves in the scroll direction, so continuous notches cannot sawtooth.
