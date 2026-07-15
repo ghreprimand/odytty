@@ -47,10 +47,27 @@ fn settings_from_config<const N: usize>(
 }
 
 #[test]
-fn cursor_glow_defaults_off() {
+fn cursor_glow_defaults_on() {
     let (settings, warnings) = settings_from([]);
-    assert!(!settings.cursor_glow, "cursor glow is off by default");
+    assert!(settings.cursor_glow, "cursor glow is on by default");
     assert!(warnings.is_empty());
+}
+
+#[test]
+fn default_cursor_presentation_reaches_the_settings_panel() {
+    let rows = Settings::default().setting_info();
+    let style = rows
+        .iter()
+        .find(|row| row.key == "cursor_style")
+        .expect("cursor-style panel row");
+    assert_eq!(style.value, "block");
+
+    let glow = rows
+        .iter()
+        .find(|row| row.key == "cursor_glow")
+        .expect("cursor-glow panel row");
+    assert_eq!(glow.value, "on");
+    assert!(glow.description.contains("On by default"));
 }
 
 #[test]
@@ -61,6 +78,10 @@ fn cursor_glow_parses_on_via_env() {
 
     let (off, _) = settings_from([(CURSOR_GLOW_ENV, "off")]);
     assert!(!off.cursor_glow);
+
+    let (config_off, warnings) = settings_from_config("cursor_glow = off", []);
+    assert!(!config_off.cursor_glow);
+    assert!(warnings.is_empty());
 }
 
 #[test]

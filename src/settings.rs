@@ -1255,7 +1255,7 @@ pub struct Settings {
     /// off-phase. Purely presentational.
     pub cursor_easing: bool,
     /// Whether the cursor draws one shape-aware analytic aura behind its glyph,
-    /// matching Block, Bar, or Underline geometry (ID1). Off by default; the
+    /// matching Block, Bar, or Underline geometry (ID1). On by default; the
     /// off path emits no aura geometry. Purely presentational; never affects
     /// cell semantics or the logical cursor position.
     pub cursor_glow: bool,
@@ -1642,7 +1642,7 @@ impl Default for Settings {
             box_thickness: DEFAULT_BOX_THICKNESS,
             key_bindings: Vec::new(),
             pane_prefix: default_pane_prefix(),
-            cursor_style: CursorStyle::Bar,
+            cursor_style: CursorStyle::Block,
             cursor_blink: CursorBlink::On,
             cursor_easing: DEFAULT_CURSOR_EASING,
             cursor_glow: DEFAULT_CURSOR_GLOW,

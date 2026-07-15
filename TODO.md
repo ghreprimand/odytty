@@ -405,20 +405,20 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
   - [x] Render the three cursor shapes through the existing quad path; blink is
         focus-aware and busy-redraw-free (solid with no scheduled wake when the
         style does not blink or the window is unfocused).
-- [x] Cursor animations (`cursor_easing` and `cursor_trail` on by default;
-      `cursor_motion` and `cursor_glow` off by default).
+- [x] Cursor presentation effects (`cursor_easing`, `cursor_trail`,
+      `cursor_motion`, and `cursor_glow` on by default).
   - [x] Cursor easing (`cursor_easing`, on by default): opacity fades across each
         blink edge (180 ms ease) instead of a hard toggle; unfocused and steady
         cursors stay fully opaque with no animation overhead.
-  - [x] Cursor slide (`cursor_motion`, off by default): cursor glides between
+  - [x] Cursor slide (`cursor_motion`, on by default): cursor glides between
         adjacent cells (55 ms ease-out-cubic) instead of jumping; snaps on first
         frame, large jumps (> 6 cells), resize, scrollback, and unfocus.
   - [x] Cursor trail (`cursor_trail`, on by default): a short fading after-image
         trails the cursor as it glides, drawn behind the cursor block in the
         theme cursor color; only visible while cursor slide is on; fully decays.
-  - [x] Cursor glow (`cursor_glow`, off by default): three faint concentric rings
-        in the theme foreground color drawn behind the cursor block; faint enough
-        to keep nearby text readable.
+  - [x] Cursor glow (`cursor_glow`, on by default): one soft shape-aware analytic
+        aura behind the cursor glyph; its restrained alpha keeps nearby text
+        readable.
 - [ ] Add window title and focus behavior.
   - [x] Apply OSC title changes to the native window title.
   - [x] Emit DECSET 1004 focus-in/out reports from native window focus events.

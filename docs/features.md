@@ -675,6 +675,15 @@ copy mode, hints, overlay navigation, and rebinding.
 Use [Configuring OdyTTY](#configuring-odytty) for the in-app settings workflow.
 This section covers theme selection, background images, and transparency.
 
+### Cursor Presentation
+
+Fresh profiles use a blinking Block cursor with cursor slide, trail, blink
+fade, and the restrained shape-aware glow enabled. The glow follows the active
+Block, Bar, or Underline geometry without changing terminal state or input
+behavior. Each presentation control remains independently configurable in
+Settings or [Runtime Knobs](runtime-knobs.md); `reduced_motion = on` makes the
+motion and glow paths static while preserving their saved choices.
+
 ### Follow The Desktop Theme
 
 Set `theme = system` or `ODYTTY_THEME=system` to follow the desktop dark or

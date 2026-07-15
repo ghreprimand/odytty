@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Cursor presentation now starts with Block and glow
+
+Fresh profiles now use the blinking Block cursor as their host default, while
+applications retain full DECSCUSR control over the effective shape and blink
+policy. The shape-aware cursor aura is also enabled by default, following the
+resolved Block, Bar, or Underline geometry beneath the glyph without changing
+cursor state, terminal input, or rendering wake behavior.
+
+Cursor slide, trail, Balanced follower strength, blink fade, and blinking
+remain unchanged defaults. Each setting still has its own off switch, and
+`reduced_motion = on` keeps the aura and motion effects static without
+overwriting saved choices. Explicit config and environment values continue to
+override the fresh profile.
+
+Fallback, config, environment, settings-panel, cache-gate, and default-path
+regressions cover the revised presentation. The Rust and wgpu behavior is the
+same on Linux, Windows, and macOS; no PTY, spawn, path, or environment handling
+changes.
+
 ## 2026-07-15 -- Large cursor jumps now use an elastic presentation follower
 
 Large jumps beyond the six-cell glide range now move one cursor-shaped body

@@ -85,6 +85,8 @@ fn defaults_are_stable_without_env() {
     assert_eq!(settings.window_padding_px, DEFAULT_WINDOW_PADDING_PX);
     assert_eq!(settings.subpixel, SubpixelMode::Off);
     assert_eq!(settings.cell_bg_opacity, DEFAULT_CELL_BG_OPACITY);
+    assert_eq!(settings.cursor_style, CursorStyle::Block);
+    assert!(settings.cursor_glow, "cursor glow defaults on");
     assert!(settings.cursor_motion, "cursor motion defaults on");
     assert!(settings.cursor_trail, "the default motion trail is enabled");
     assert_eq!(
@@ -1639,9 +1641,9 @@ fn overlay_edit_to_missing_font_family_reports_clear_error() {
 
 #[test]
 fn cursor_defaults_without_env() {
-    // v0.6.0 shipped identity: bar cursor that blinks by default.
+    // v0.9.0 ships a blinking block cursor by default.
     let (settings, warnings) = settings_from([]);
-    assert_eq!(settings.cursor_style, CursorStyle::Bar);
+    assert_eq!(settings.cursor_style, CursorStyle::Block);
     assert_eq!(settings.cursor_blink, CursorBlink::On);
     assert!(settings.cursor_blink.enabled());
     assert!(warnings.is_empty());
@@ -1676,9 +1678,10 @@ fn cursor_style_and_blink_parse_case_insensitively() {
 #[test]
 fn garbage_cursor_style_falls_back_with_one_warning() {
     let (settings, warnings) = settings_from([(CURSOR_STYLE_ENV, "diamond")]);
-    assert_eq!(settings.cursor_style, CursorStyle::Bar);
+    assert_eq!(settings.cursor_style, CursorStyle::Block);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains(CURSOR_STYLE_ENV));
+    assert!(warnings[0].contains("using block"));
 }
 
 #[test]

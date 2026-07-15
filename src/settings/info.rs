@@ -1082,7 +1082,7 @@ impl Settings {
                 env: CURSOR_GLOW_ENV,
                 name: "Cursor glow",
                 value: bool_display(self.cursor_glow).to_owned(),
-                description: "When on, the cursor gets one soft shape-aware analytic aura behind its glyph, matching Block, Bar, or Underline geometry in the resolved cursor color. Off by default; the aura is faint enough to keep nearby text readable. Purely visual — never moves the logical cursor.",
+                description: "When on, the cursor gets one soft shape-aware analytic aura behind its glyph, matching Block, Bar, or Underline geometry in the resolved cursor color. On by default; the aura is faint enough to keep nearby text readable. Purely visual — never moves the logical cursor.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],

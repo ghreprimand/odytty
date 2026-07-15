@@ -300,9 +300,9 @@ impl App {
     // one submodule.
 
     /// Request the dedicated analytic cursor aura for one content rectangle.
-    /// `None` is the exact default-off, reduced-motion, unfocused, and fully
-    /// faded path. The GPU resolves shape, color, motion, DPI, transparency,
-    /// and clipping from the same inputs as the cursor itself.
+    /// `None` is the exact disabled, reduced-motion, unfocused, and fully faded
+    /// path. The GPU resolves shape, color, motion, DPI, transparency, and
+    /// clipping from the same inputs as the cursor itself.
     pub(in crate::native) fn cursor_glow_request(
         &self,
         clip_rect: [f32; 4],
@@ -329,12 +329,12 @@ impl App {
     // VE4 cursor-trail cache fragment: `cursor_trail_overlay_signature` lives in
     // `cursor_trail.rs` alongside the trail's quad emitter.
 
-    /// ID1 cursor-glow cache fragment. `Inert` while off, so the composite key
-    /// is a frame-to-frame constant and the default render path never
-    /// reclassifies. When on it returns a constant `CursorGlow { phase: 0 }`:
-    /// the off→on toggle flips `Inert` ↔ `CursorGlow`, forcing a rebuild so the
-    /// glow appears/disappears without a stale cache, while cursor *moves* and
-    /// blink toggles already reclassify through the terminal-revision and the
+    /// ID1 cursor-glow cache fragment. `Inert` while disabled or under reduced
+    /// motion, so the composite key is a frame-to-frame constant. When enabled
+    /// it returns a constant `CursorGlow { phase: 0 }`: the toggle flips
+    /// `Inert` ↔ `CursorGlow`, forcing a rebuild so the glow appears or
+    /// disappears without a stale cache, while cursor *moves* and blink toggles
+    /// already reclassify through the terminal-revision and the
     /// `CursorRenderSignature.visible` fields respectively. The analytic
     /// instance is rebuilt from the live cursor parameters on both GPU update
     /// paths, so no extra per-position signature field is needed.

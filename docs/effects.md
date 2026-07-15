@@ -267,10 +267,10 @@ the `crt_*` knobs above; `visual` exists so older configs keep working.
 
 OdyTTY has four optional cursor animations; all are purely visual and never
 affect the logical cursor position or terminal state. The shipped defaults
-enable **cursor slide**, **cursor easing**, and the **cursor trail**
-(`cursor_motion = on`, `cursor_easing = on`, `cursor_trail = on`) as part of
-the OdysseyOS identity, while **cursor glow** stays opt-in. Set any of them to
-`off` to disable.
+enable **cursor slide**, **cursor easing**, the **cursor trail**, and the
+shape-aware **cursor glow** (`cursor_motion = on`, `cursor_easing = on`,
+`cursor_trail = on`, `cursor_glow = on`) as part of the OdysseyOS identity.
+Set any of them to `off` to disable.
 
 `reduced_motion = on` is the master static override: slide snaps while trail,
 glow, and blink fade remain inert, without changing their saved settings.
@@ -283,9 +283,9 @@ scrollback navigation, and the first frame always snap instantly.
 cursor as it glides, drawn behind the cursor block in the theme cursor color.
 Only visible while cursor slide is also on; fully decays as the glide settles.
 
-**Cursor glow** (`cursor_glow = on`): three faint concentric rings in the theme
-foreground color behind the cursor block. Faint enough to keep nearby text
-readable.
+**Cursor glow** (`cursor_glow = on`): one soft analytic aura behind the cursor
+glyph, matching its Block, Bar, or Underline geometry in the resolved cursor
+color. Its restrained alpha keeps nearby text readable.
 
 **Cursor blink fade** (`cursor_easing = on`): the cursor eases its opacity in
 and out across each blink instead of switching hard on and off. Only active

@@ -123,11 +123,11 @@ crt_vignette_strength = 0.45
 crt_curvature = 0.0
 
 # Cursor and motion.
-cursor_style = bar
+cursor_style = block
 cursor_blink = on
 cursor_easing = on
-cursor_motion = off
-cursor_glow = off
+cursor_motion = on
+cursor_glow = on
 cursor_trail = on
 reduced_motion = off
 new_output_fade = off

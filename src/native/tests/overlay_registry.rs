@@ -204,7 +204,10 @@ fn render_sig(overlays: OverlayCompositeSignature) -> RenderSignature {
 /// to before the registry existed.
 #[test]
 fn frame_overlay_refactor_is_pixel_identical() {
-    let Some(mut app) = build_app(Settings::default()) else {
+    let Some(mut app) = build_app(Settings {
+        cursor_glow: false,
+        ..Settings::default()
+    }) else {
         return; // no PTY in this environment
     };
     let original = content_snapshot();
@@ -238,7 +241,7 @@ fn frame_overlay_refactor_is_pixel_identical() {
     app.paint_background_quads(&ctx, &mut quads);
     assert!(
         app.cursor_glow_request([0.0, 0.0, 100.0, 100.0]).is_none(),
-        "the default-off aura request must be absent"
+        "the explicitly disabled aura request must be absent"
     );
     assert!(
         quads.is_empty(),
@@ -697,11 +700,14 @@ fn modal_gate_is_dead_by_default() {
 
 // --- ID1 v1 soft cursor glow (Phase 4) --------------------------------------
 
-/// Off-path identity: the default-off glow produces no GPU request and keeps
-/// the cache fragment inert.
+/// Off-path identity: explicitly disabling glow produces no GPU request and
+/// keeps the cache fragment inert.
 #[test]
-fn cursor_glow_off_emits_no_request() {
-    let Some(app) = build_app(Settings::default()) else {
+fn disabled_cursor_glow_emits_no_request() {
+    let Some(app) = build_app(Settings {
+        cursor_glow: false,
+        ..Settings::default()
+    }) else {
         return;
     };
     let ctx = app.overlay_ctx(
@@ -723,13 +729,11 @@ fn cursor_glow_off_emits_no_request() {
     );
 }
 
-/// Glow on produces one clipped analytic-aura request rather than CPU rings.
+/// The default glow produces one clipped analytic-aura request rather than CPU
+/// rings.
 #[test]
-fn cursor_glow_on_emits_one_analytic_request() {
-    let Some(app) = build_app(Settings {
-        cursor_glow: true,
-        ..Settings::default()
-    }) else {
+fn default_cursor_glow_emits_one_analytic_request() {
+    let Some(app) = build_app(Settings::default()) else {
         return;
     };
     let clip = [4.0, 6.0, 80.0, 100.0];

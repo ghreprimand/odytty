@@ -211,20 +211,20 @@ pub(super) fn parse_cursor_style_setting(
     warn: &mut impl FnMut(&str),
 ) -> CursorStyle {
     let Some(raw) = raw else {
-        return CursorStyle::Bar;
+        return CursorStyle::Block;
     };
     let value = raw.to_string_lossy();
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        return CursorStyle::Bar;
+        return CursorStyle::Block;
     }
     match parse_cursor_style(trimmed) {
         Some(style) => style,
         None => {
             warn(&format!(
-                "{CURSOR_STYLE_ENV}={trimmed:?} is not block|underline|bar; using bar"
+                "{CURSOR_STYLE_ENV}={trimmed:?} is not block|underline|bar; using block"
             ));
-            CursorStyle::Bar
+            CursorStyle::Block
         }
     }
 }

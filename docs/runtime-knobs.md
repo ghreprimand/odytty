@@ -119,11 +119,11 @@ environment variable was not set at startup.
 | `symbol_font` | `ODYTTY_SYMBOL_FONT` | `.ttf`/`.otf`/`.ttc` path, empty, or `auto` | auto |
 | `symbol_map` | `ODYTTY_SYMBOL_MAP` | Semicolon-separated `range=family` entries | empty |
 | `themed_ui_roles` | `ODYTTY_THEMED_UI_ROLES` | `on`, `off` | `on` |
-| `cursor_style` | `ODYTTY_CURSOR_STYLE` | `block`, `underline`, `bar` | `bar` |
+| `cursor_style` | `ODYTTY_CURSOR_STYLE` | `block`, `underline`, `bar` | `block` |
 | `cursor_blink` | `ODYTTY_CURSOR_BLINK` | `auto`, `on`, `off` | `on` |
 | `cursor_easing` | `ODYTTY_CURSOR_EASING` | `on`, `off` | `on` |
 | `cursor_motion` | `ODYTTY_CURSOR_MOTION` | `on`, `off` | `on` |
-| `cursor_glow` | `ODYTTY_CURSOR_GLOW` | `on`, `off` | `off` |
+| `cursor_glow` | `ODYTTY_CURSOR_GLOW` | `on`, `off` | `on` |
 | `cursor_trail` | `ODYTTY_CURSOR_TRAIL` | `on`, `off` | `on` |
 | `cursor_trail_strength` | `ODYTTY_CURSOR_TRAIL_STRENGTH` | `subtle`, `balanced`, `expressive` | `balanced` |
 | `reduced_motion` | `ODYTTY_REDUCED_MOTION` | `on`, `off` | `off` |

@@ -90,8 +90,9 @@ body stretches briefly and then compresses into the logical destination.
 `subtle` stays nearly rigid and settles fastest; `expressive` allows more
 stretch and a longer settle. The logical cursor target and input routing remain
 immediate, and the bounded follower schedules no wake after it settles.
-Cursor glow (`cursor_glow`) and the new-output fade
-(`new_output_fade`) remain off unless you turn them on.
+Cursor glow (`cursor_glow`) is on by default and follows the same static
+override. The new-output fade (`new_output_fade`) remains off unless you turn
+it on.
 
 Four additional motion behaviors are on by default, because none adds input
 latency:
@@ -149,8 +150,8 @@ bloom = off
 crt = off
 visual = off
 background_treatment = color
-# cursor glow and the new-output fade are already off by default;
-# reduced_motion makes the default cursor slide, trail, and blink fade static.
+# cursor glow is on by default; the new-output fade is already off.
+# reduced_motion makes the default cursor slide, trail, glow, and blink fade static.
 # Add cursor_blink = off, scroll_glide = off, and pixel_scroll = off for a
 # fully static terminal (see above).
 ```

@@ -930,14 +930,14 @@ its first stable layer.
   fullscreen-triangle passthrough composite; default path stays
   direct-to-swapchain (byte-identical); GPU readback smoke guards the seam
 
-- Cursor animations (purely visual, never move the logical cursor). Since v0.6.0
-  the shipped defaults enable cursor blink fade (`cursor_easing`, 180 ms ease)
-  and the cursor trail (`cursor_trail`, short fading after-image trailing the
-  gliding cursor in the theme cursor color), as part of the OdysseyOS identity;
-  cursor slide (`cursor_motion`, 55 ms ease-out-cubic, snaps on large jumps/
-  resize/scrollback) and cursor glow (`cursor_glow`, three faint concentric rings
-  in the theme foreground color behind the cursor block) stay off by default.
-  Each is independently disableable with `= off`.
+- Cursor presentation effects (purely visual, never move the logical cursor).
+  The v0.9 defaults enable cursor blink fade (`cursor_easing`), cursor slide
+  (`cursor_motion`, snapping on large jumps, resize, and scrollback), the
+  cursor trail (`cursor_trail`, a short fading after-image in the theme cursor
+  color), and cursor glow (`cursor_glow`, one shape-aware analytic aura behind
+  the Block, Bar, or Underline glyph). Each is independently disableable with
+  `= off`; reduced motion makes the presentation static without overwriting
+  saved settings.
 
 - New-output fade (`new_output_fade`, off by default): rows of freshly arrived
   output fade in over a short ramp at the live tail; scrollback and resize snap.

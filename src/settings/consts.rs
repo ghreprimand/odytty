@@ -492,11 +492,11 @@ pub const DEFAULT_CURSOR_MOTION: bool = true;
 
 /// Soft cursor glow (`ODYTTY_CURSOR_GLOW`, ID1): when on, one shape-aware
 /// analytic aura is drawn behind the cursor glyph, matching Block, Bar, or
-/// Underline geometry in the resolved cursor color. Off by default; while off
+/// Underline geometry in the resolved cursor color. On by default; while off
 /// no aura geometry is emitted. Purely presentational; never affects cell
 /// semantics or the logical cursor position. The aura alpha is capped low
 /// enough that adjacent-cell text contrast stays within the RV1 floor.
-pub const DEFAULT_CURSOR_GLOW: bool = false;
+pub const DEFAULT_CURSOR_GLOW: bool = true;
 
 /// Cursor motion trail (`ODYTTY_CURSOR_TRAIL`, VE4): when on, a short fading
 /// after-image of decaying ghost quads trails the cursor along its slide path

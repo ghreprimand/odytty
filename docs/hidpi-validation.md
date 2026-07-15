@@ -64,7 +64,7 @@ At each scale, inspect these specific rendering details.
 |---|-------|-------|---------------|--------|
 | C1 | 1.25 | Box-drawing joins | `printf '\u2500\u253c\u2500'` — horizontal line through the cross, no gap at the cell boundary | |
 | C2 | 1.5 | Baseline consistency | Type `EFghij` — cap tops of E/F align, descenders of g/j extend below baseline | |
-| C3 | 1.75 | Cursor alignment | Move cursor with arrows — default bar cursor stays on the cell's leading edge with no pixel offset | |
+| C3 | 1.75 | Cursor alignment | Move cursor with arrows — default Block cursor fills its cell with no pixel offset | |
 | C4 | 2.0 | Selection highlight | Select text with mouse — highlight tracks cell boundaries exactly | |
 | C5 | any | Scroll indicator | Scroll up in history — indicator bar is at right edge, 3px wide, no artifacts | |
 | C6 | 1.5 | Pane split geometry | Split with `Ctrl+Shift+E` (pane right) then `Ctrl+Shift+O` (pane below) — the 1px divider stays crisp, each pane's grid floors cleanly with no sub-cell seam, and the ~6px divider grab band hit-tests on the visible line | |
