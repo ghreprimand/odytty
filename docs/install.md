@@ -485,16 +485,16 @@ release; the Windows build opens local ConPTY-backed tabs and panes.
 The Windows build carries the full rendering, theme, effect, and inline-graphics
 stack. It opens local ConPTY-backed tabs and panes, stores persistent
 configuration under `%APPDATA%\odytty\`, discovers host fonts in
-`C:\Windows\Fonts`, recognizes clickable drive-letter and UNC paths, opens
-or reveals files through `cmd` and Explorer, and runs SSH connections inside
-local pseudoconsole-backed tabs.
+`%WINDIR%\Fonts` and `%LOCALAPPDATA%\Microsoft\Windows\Fonts`, recognizes
+clickable drive-letter and UNC paths, opens or reveals files through `cmd` and
+Explorer, and runs SSH connections inside local pseudoconsole-backed tabs.
 
 Detached and resumable session hosting, detached SSH, and headless
 `--interactive` mode remain Unix-only. The full Open With application list is
-not available on Windows, and the hostname field and command-palette shell
-history currently degrade to empty. Interactive behavior is verified manually
-on Windows devices; the blocking Windows CI leg proves the build compiles and
-its unit tests pass.
+not available on Windows, and command-palette shell history currently degrades
+to empty. Hostname discovery uses `GetComputerNameExW`. Interactive behavior is
+verified manually on Windows devices; the blocking Windows CI leg proves the
+build compiles and its unit tests pass.
 
 ### Updating
 
@@ -582,7 +582,7 @@ including `symbol_fallback` and the resolved `symbol_font_source` fallback
 chain. See [the settings authority](runtime-knobs.md) for every key, default,
 range, and environment variable.
 
-OdyTTY also hosts detached sessions that outlive the window:
+On Unix, OdyTTY also hosts detached sessions that outlive the window:
 
 ```sh
 odytty new --detached -e btop     # start a detached session, prints id=<id>
@@ -592,26 +592,29 @@ odytty attach <id>                # reattach a specific session in a native wind
 odytty attach --diagnostic <id>   # print one status line without attaching
 ```
 
-On non-macOS systems, detached sessions require `XDG_RUNTIME_DIR` to be set;
+On non-macOS Unix systems, detached sessions require `XDG_RUNTIME_DIR` to be set;
 their owner-private sockets live under `$XDG_RUNTIME_DIR/odytty/`. macOS falls
-back to the system temporary directory. The
+back to its per-user temporary directory. The
 [detached-session CLI reference](runtime-knobs.md#detached-session-cli) covers
 metadata-only listings, reattachment, snapshot streaming, failure behavior,
 bounded scrollback, socket privacy, and the idle timeout.
 
 ## Configuration Files
 
-OdyTTY reads an optional config file at:
+OdyTTY reads an optional config file at one of these platform locations:
 
 ```text
-$XDG_CONFIG_HOME/odytty/odytty.conf
+Windows: %APPDATA%\odytty\odytty.conf
+Unix:   $XDG_CONFIG_HOME/odytty/odytty.conf
 ```
 
-falling back to `$HOME/.config/odytty/odytty.conf` when `XDG_CONFIG_HOME` is
-unset. User themes are loaded from the theme directory alongside it:
+On Unix it falls back to `$HOME/.config/odytty/odytty.conf` when
+`XDG_CONFIG_HOME` is unset. User themes are loaded from the theme directory
+alongside it:
 
 ```text
-$XDG_CONFIG_HOME/odytty/themes
+Windows: %APPDATA%\odytty\themes
+Unix:   $XDG_CONFIG_HOME/odytty/themes
 ```
 
 The file is line-based `key = value`; environment variables set at startup

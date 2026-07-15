@@ -141,7 +141,8 @@ configuration.
 
 Color emoji uses `swash` and a dedicated premultiplied-RGBA atlas. Bitmap
 strike color fonts are supported through Noto Color Emoji (CBDT/CBLC) on Linux
-and Apple Color Emoji (sbix) on macOS.
+and Apple Color Emoji (sbix) on macOS. Windows currently uses the monochrome
+fallback because stock Segoe UI Emoji is not discovered or bitmap-rasterized.
 
 Variation selectors, flags, keycaps, skin tones, and common ZWJ clusters are
 supported. Text-default symbols stay on the monochrome fallback path, missing
@@ -154,7 +155,7 @@ COLR/CPAL and SVG-in-OpenType expansion remain future work.
 
 | Protocol | Supported surface |
 | --- | --- |
-| Kitty graphics | Actions `t`, `T`, `p`, `d`, and `q`; raw RGB, raw RGBA, and PNG still images; direct, file, temp-file, and POSIX shared-memory transports; chunking; image and placement ids; z-index; crop; cell scaling; and pixel offsets |
+| Kitty graphics | Actions `t`, `T`, `p`, `d`, and `q`; raw RGB, raw RGBA, and PNG still images; direct, file, and temp-file transports on all platforms plus POSIX shared memory on Unix; chunking; image and placement ids; z-index; crop; cell scaling; and pixel offsets |
 | Sixel | DEC/xterm data language, RGB/HLS color introducers, repeat, raster attributes, transparency, VT340 palette, and DECSDM |
 
 Animation and Kitty Unicode placeholders are not supported.
@@ -405,7 +406,7 @@ create one.
 | `Ctrl+Shift+P` | Open the command palette |
 | `Ctrl+Shift+S` | Open the connection manager |
 | `Ctrl+Shift+R` | Open session replay |
-| `Ctrl+Shift+A` | Manage detached sessions |
+| `Ctrl+Shift+A` | Manage detached sessions on Unix; open an empty list on Windows |
 | `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy or paste |
 | `Shift+PageUp` / `Shift+PageDown` | Scroll the local viewport |
 | `Ctrl+Shift+L` | Open keyboard quick-select hints |
@@ -615,7 +616,8 @@ the path works for reconnected and restored remote tabs.
 
 ### Manage Detached Sessions
 
-Detached sessions can be managed inside the window as well as from the CLI.
+On Unix, detached sessions can be managed inside the window as well as from the
+CLI.
 The `session-attach` action, `Ctrl+Shift+A`, and **Manage Sessions** all open the
 live detached-session list. Choosing an already-open session switches to its
 tab; another session prompts for **New tab** or **Replace**.
@@ -627,19 +629,21 @@ Attaching reconnects the live PTY and terminal model. The session host keeps
 both alive through detach and attach cycles until the child exits or the idle
 timeout reaps it.
 
+On Windows, Manage Sessions opens an empty list and attach is unavailable.
+
 ### Open Interactive Paths
 
 Interactive paths are off by default through `interactive_paths`. When enabled,
-Ctrl+click opens a detected path: text files open in the configured editor with
-`line:col` positioning, while png, jpg, jpeg, and webp files open in an in-app
-lightbox.
+Ctrl+click on Linux/Windows or Cmd+click on macOS opens a detected path: text
+files open in the configured editor with `line:col` positioning, while png, jpg,
+jpeg, and webp files open in an in-app lightbox.
 
 Dismiss the lightbox with `Esc` or a click outside. A click hint and the path
 menu expose Open, **Open With…**, Copy Path, Copy File, and Reveal in File
 Manager.
 
-Opening uses `xdg-open` on Linux or `open` on macOS with a scheme allowlist.
-OdyTTY never routes a path through a shell.
+Opening uses `xdg-open` on Linux, `open` on macOS, or `cmd /C start` on Windows
+with a scheme allowlist. OdyTTY never interpolates a path into a shell string.
 
 ### Rebind Local Actions
 

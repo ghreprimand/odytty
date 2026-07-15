@@ -82,11 +82,11 @@ The foundation is broad and solid. The following are complete and in production.
 
 ### Owned Byte Path
 
-A native Wayland window runs a real local shell and renders
-GPU-backed monospaced text via `wgpu`/Vulkan. The Linux PTY layer uses `rustix`
-directly; the VT parser is a clean-room two-layer DEC ANSI pipeline built from
-primary specifications; the terminal model, renderer geometry, and shaders are
-OdyTTY-originated. The owned path is the only path.
+A native window runs a real local shell and renders GPU-backed monospaced text
+through `wgpu`. Linux and macOS use the owned Unix PTY backend; Windows uses the
+owned ConPTY backend. The VT parser is a clean-room two-layer DEC ANSI pipeline
+built from primary specifications; the terminal model, renderer geometry, and
+shaders are OdyTTY-originated. The owned path is the only path.
 
 ### Terminal Correctness
 
@@ -134,11 +134,12 @@ foundation the command-aware navigation builds on.
 ### Graphics And Media
 
 A complete Sixel decoder and terminal integration; the
-Kitty graphics protocol (direct RGB/RGBA and PNG transmit, file/shared-memory
-transports with security hardening, placements with z-order/crop/scale/offset,
-delete and query operations); a GPU image layer; and color emoji (ZWJ families,
-flags, keycaps, skin-tone modifiers, variation selectors) via a dedicated RGBA
-color-glyph atlas.
+Kitty graphics protocol (direct RGB/RGBA and PNG transmit, file transports on
+all platforms and shared-memory transport on Unix, with security hardening,
+placements with z-order/crop/scale/offset, delete and query operations); a GPU
+image layer; and color emoji on Linux and macOS (ZWJ families, flags, keycaps,
+skin-tone modifiers, variation selectors) via a dedicated RGBA color-glyph
+atlas. Windows uses the monochrome fallback.
 
 ### Text Rendering Quality
 
@@ -214,11 +215,11 @@ a right-click context-menu section with live accelerator labels. Dividers are
 drag-resizable, and panes support directional focus-move, close, zoom, and
 equalize.
 
-#### Persistent And Detachable Sessions
+#### Persistent And Detachable Sessions (Unix only)
 
-A detached session-host process owns the PTYs and terminal models, so a window
-can close and a new one can reattach by id. The restored snapshot includes full
-scrollback through an OdyTTY-owned, versioned format.
+On Unix, a detached session-host process owns the PTYs and terminal models, so a
+window can close and a new one can reattach by id. The restored snapshot
+includes full scrollback through an OdyTTY-owned, versioned format.
 
 The host socket is a per-user, filesystem-permission-scoped, local-only Unix
 socket. It never touches the network, preserving the privacy posture, and
@@ -226,10 +227,10 @@ scrollback persistence stays on the local filesystem. Opt-in per-session output
 recording with a bounded ring buffer feeds a scrubbable, presentation-only
 replay overlay.
 
-The CLI surface adds `odytty list`, `odytty attach [<id>]`, and `odytty new`.
-An attach without an id opens the sole session or lists the available sessions
-when several exist. New sessions are always detached; `--detached` is a parsed
-no-op alias.
+The Unix CLI surface adds `odytty list`, `odytty attach [<id>]`, and
+`odytty new`. An attach without an id opens the sole session or lists the
+available sessions when several exist. New sessions are always detached;
+`--detached` is a parsed no-op alias.
 
 #### Command Palette
 
@@ -506,12 +507,13 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   count), reflowing the shell grid by the reserved rows. Pure layout + pointer
   math, no platform-specific surface.
 - **Shipped — OSC 8 hyperlinks.** Explicit hyperlink escapes render as
-  hover-affordanced links that open on modifier (`Ctrl`) click through the same
-  argv-safe dispatch, gated to a `http`/`https`/`file`/`mailto` scheme allowlist
-  — never auto-opened, never shell-interpolated.
+  hover-affordanced links that open on Ctrl+click on Linux/Windows or Cmd+click
+  on macOS through the same argv-safe dispatch, gated to a
+  `http`/`https`/`file`/`mailto` scheme allowlist — never auto-opened, never
+  shell-interpolated.
 - **Shipped — Clickable bare URLs (`interactive_urls`, on by default).** A URL a
   program printed as plain text (no OSC 8 escape) gets the hand cursor, a
-  `Ctrl`+hover armed underline, and `Ctrl`+click open — reusing the OSC 8 URL
+  platform-modifier hover underline and click open — reusing the OSC 8 URL
   scanner (`hints`) and the exact same argv-only, scheme-allowlisted dispatch.
   Explicit OSC 8 hyperlinks win a tie (no double-decoration); the off path never
   scans (byte-identical hover). Independent of `interactive_paths`.
@@ -624,7 +626,8 @@ handful of deliberately-deferred niceties.
   ratio; per-pane scrollback/selection/search/cursor; tmux-compatible prefix
   bindings plus direct GUI chords and a context-menu section; drag-resizable
   dividers; directional focus-move, close, zoom, and equalize.
-- **Shipped — Persistent / detachable sessions** that survive a window closing.
+- **Shipped on Unix — Persistent / detachable sessions** that survive a window
+  closing.
   The loudest real-user demand: a detached session-host owns the PTYs and
   terminal models over a per-user, local-only socket, with an opt-in, bounded
   output-recording ring buffer and a scrubbable replay overlay.
@@ -632,22 +635,23 @@ handful of deliberately-deferred niceties.
   quick-connects by spawning the system `ssh` in a new pane/session; opt-in,
   read-only, name-only `~/.ssh/config` parsing, with an OdyTTY-owned hosts list
   as the default so the feature works without touching `~/.ssh`. An SSH pane can
-  itself be a persistent session, so a dropped link can be reattached locally.
+  itself be a persistent session on Unix, so a dropped link can be reattached
+  locally.
   An Add/Edit connection form with a Test Connection probe and a per-host
   IdentityFile field manages the OdyTTY-owned hosts; a right-click menu on a host
   row opens it in a new tab or new workspace, binds the current workspace to it,
   or edits/removes it; and an unsaved host can be connected to ad hoc, with an
   offer to save it to the hosts list.
-- **Shipped — Session attach launcher.** The shipped persistence is now pleasant to
-  reach: `odytty attach` with no id attaches the sole live session (or lists when
+- **Shipped on Unix — Session attach launcher.** The shipped persistence is now
+  pleasant to reach: `odytty attach` with no id attaches the sole live session (or lists when
   several exist), and an in-window Manage Sessions overlay (default `Ctrl+Shift+A`)
   filters and reattaches a detached session into a new tab, with New-tab/Replace
   prompts and dedup of already-attached tabs. "Summon, not greet" — opening a
   window stays fast.
-- **Shipped — Manage Sessions overlay management.** Beyond attach, the overlay
+- **Shipped on Unix — Manage Sessions overlay management.** Beyond attach, the overlay
   renames a session and kills a session (right-click, with confirmation) directly
   from the manager.
-- **Shipped — Detach & switch.** A context-menu action that spawns a fresh managed
+- **Shipped on Unix — Detach & switch.** A context-menu action that spawns a fresh managed
   session in the focused pane's current directory and switches to it, so a window
   can hand off to a new detached session without leaving the keyboard.
 - **Someday — Broadcast input** to multiple panes at once.
@@ -708,10 +712,10 @@ Making OdyTTY installable and maintainable outside the source tree.
   A signed or notarized `.dmg` stays deferred until the Apple Developer Program
   is adopted.
 
-- **Ongoing — Broader platform work.** macOS builds, is exercised in CI, and
-  now ships an artifact alongside Linux; Linux-first remains the guiding
-  constraint. Confirm behavior under both Wayland and X11 where relevant, and
-  avoid portability abstractions until real platform pressure exists.
+- **Ongoing — Broader platform work.** Linux, macOS, and Windows build in
+  blocking CI and ship release artifacts. Linux remains the primary target;
+  Windows uses ConPTY and macOS uses the Unix backend. Confirm behavior under
+  both Wayland and X11 where relevant and continue on-device platform hardening.
 
 ## Track 11 — Exploratory And Far Future
 

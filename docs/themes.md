@@ -56,8 +56,9 @@ value never prevents startup.**
 
 ### Theme directory
 
-| Base | Theme directory |
+| Platform/base | Theme directory |
 | --- | --- |
+| Windows | `%APPDATA%\odytty\themes\` |
 | `$XDG_CONFIG_HOME` set | `$XDG_CONFIG_HOME/odytty/themes/` |
 | otherwise | `$HOME/.config/odytty/themes/` |
 

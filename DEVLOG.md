@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Platform documentation matches shipped backends
+
+Platform guidance now includes Windows config, theme, host-list, font, path,
+opener, PowerShell integration, hostname, and ConPTY teardown behavior. macOS
+link and path gestures use Cmd while its global shortcuts remain Ctrl-based.
+Detached sessions and POSIX shared-memory graphics are identified as Unix-only,
+and Windows color emoji, Open With, and symlink-protection fallbacks are stated
+explicitly.
+
+Verified: cargo test, cargo fmt --check, and cargo clippy --all-targets --locked
+-- -D warnings are clean.
+
 ## 2026-07-15 -- Documented defaults match the shipped experience
 
 Settings and rendering documentation now reflects the live defaults for smart

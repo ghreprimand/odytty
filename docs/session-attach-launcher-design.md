@@ -1,14 +1,15 @@
 # Session Attach Launcher Design
 
-This record covers the detached-session attach flow and the in-window launcher
-that summons it.
+This record covers the Unix-only detached-session attach flow and its in-window
+launcher. On Windows, Manage Sessions opens an empty overlay and attach requests
+return a clean unsupported-platform error.
 
 ## Principle: Summon, Not Greet
 
-Session attach is a tool the operator summons when needed. OdyTTY should not
+Session attach is a tool summoned when needed. OdyTTY should not
 open a pre-window chooser or block normal startup behind a session picker. A
 normal launch still opens the normal terminal path; attach UI appears only when
-the operator asks for it through `odytty attach`, a keybinding, or a menu item.
+requested through `odytty attach`, a keybinding, or a menu item.
 
 ## CLI Attach Resolution
 
@@ -23,7 +24,7 @@ the normal local shell, and attach the requested hosted session as a focused tab
   `odytty attach <id>`.
 
 The multiple-session case must never auto-attach. Requiring an id avoids
-surprising the operator when more than one resumable session exists.
+surprising behavior when more than one resumable session exists.
 
 `odytty attach --diagnostic <id>` remains the script/CI form. It prints the
 diagnostic status row and exits without opening a window.
@@ -62,7 +63,7 @@ switches to its existing tab, while a fresh session prompts New tab vs Replace.
 The Replace path closes the current tab; the New-tab path keeps the existing tab
 and pane layout intact.
 
-### Status: shipped
+### Status: shipped on Unix
 
 The overlay is `OverlayMode::SessionAttach`, a structural clone of the
 connection-manager overlay sourced from
@@ -112,7 +113,7 @@ Summoning paths:
 Closed overlay = live frame byte-identical (the mode is never entered until
 summoned); `gpu_composite_smoke` stays 3/3.
 
-### Related: Detach & switch
+### Related: Detach & switch (Unix only)
 
 The context menu also exposes a **Detach & switch** action, which shares this
 attach plumbing: it spawns a fresh managed session in the focused pane's working

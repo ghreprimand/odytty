@@ -48,7 +48,7 @@ frames** are not supported — only the first frame is decoded.
 | `d` (default) | Direct — payload is base64-encoded pixel data in the APC itself | ✅ supported |
 | `f` | File — payload is a base64-encoded filesystem path | ✅ with security restrictions |
 | `t` | Temp file — like `f`, deleted after read | ✅ with security restrictions |
-| `s` | POSIX shared memory — payload is a base64-encoded segment name | ✅ with security restrictions |
+| `s` | POSIX shared memory — payload is a base64-encoded segment name | ✅ on Unix; rejected as unsupported on Windows |
 
 ### Chunked transfer
 
@@ -122,9 +122,10 @@ to read.
 
 ### Path allowlist (`t=f`, `t=t`)
 
-`t=f` and `t=t` paths must resolve inside a canonical temp directory — `/tmp`,
-`/dev/shm`, or the resolved value of `$TMPDIR`. Paths outside this set are
-rejected before any file is opened. This blocks a remote-exfiltration attack
+`t=f` and `t=t` paths must resolve inside an allowlisted canonical temp
+directory: `/tmp`, `/dev/shm`, or the resolved value of `$TMPDIR` on Unix, and
+the system temporary directory on Windows. Paths outside this set are rejected
+before any file is opened. This blocks a remote-exfiltration attack
 where the remote host constructs a `t=f` path pointing to `~/.ssh/id_rsa` or
 another sensitive local file, causing the terminal to encode and return its
 contents as pixel data.
@@ -134,14 +135,16 @@ temp directories because no legitimate application needs to transmit images
 from outside a temp dir — programs that use file transports always write to a
 temp file first.
 
-### Symlink rejection (`O_NOFOLLOW`)
+### Symlink rejection (`O_NOFOLLOW`, Unix)
 
-Files are opened with `O_NOFOLLOW`. A symlink inside `/tmp` pointing to
+On Unix, files are opened with `O_NOFOLLOW`. A symlink inside `/tmp` pointing to
 `/etc/shadow` or any other file is rejected at the kernel open call, before
 any data is read. This eliminates the TOCTOU race between path validation and
 the `open()` call.
 
-The reference Kitty terminal follows symlinks. OdyTTY does not.
+The reference Kitty terminal follows symlinks. OdyTTY rejects them on Unix.
+Windows uses a plain file open after canonical-path allowlist validation and
+does not provide the Unix `O_NOFOLLOW` guarantee.
 
 ### Delete-before-decode for temp files (`t=t`)
 
@@ -151,7 +154,7 @@ is already gone and no data lingers on disk. This matches the Kitty
 specification's documented "terminal should delete" semantics and adds the
 guarantee that a decode failure cannot leave sensitive content behind.
 
-### Immediate `shm_unlink` (`t=s`)
+### Immediate `shm_unlink` (`t=s`, Unix)
 
 POSIX shared memory objects are unlinked by name immediately after opening
 (before data is read). The segment remains accessible via the open file
@@ -237,11 +240,14 @@ opt-in on the terminal side.
 
 Separately from the escape-sequence protocols above, OdyTTY can open a resolved
 image path directly from terminal output in an in-terminal lightbox overlay. It
-is gated behind the `interactive_paths` master gate plus
-`interactive_paths_image_inline` (which defaults on).
+is available when the `interactive_paths` master gate is on. The
+`interactive_paths_image_inline` sub-setting, which defaults on, controls only
+the modifier-click shortcut; the right-click **Open in OdyTTY** entry remains
+available while the master gate is on.
 
-- **Open it** by `Ctrl`+clicking a detected `png` / `jpg` / `jpeg` / `webp` path,
-  or by choosing **Open in OdyTTY** from the right-click menu.
+- **Open it** by Ctrl+clicking a detected `png` / `jpg` / `jpeg` / `webp` path
+  on Linux/Windows, Cmd+clicking on macOS, or choosing **Open in OdyTTY** from
+  the right-click menu.
 - The file is decoded with the `image` crate and presented as a centered,
   scrim-dimmed overlay composited on top of the terminal.
 - The overlay never upscales beyond the source pixels; dismiss it with `Esc` or
@@ -249,7 +255,7 @@ is gated behind the `interactive_paths` master gate plus
 
 This viewer is a distinct surface from the Kitty/Sixel inline placements: it is
 driven by the path-interaction layer, not by bytes on the PTY. See
-[keybindings.md](keybindings.md) for the `Ctrl`+click chord and
+[keybindings.md](keybindings.md) for the platform-specific click chord and
 [runtime-knobs.md](runtime-knobs.md) for the `interactive_paths` settings.
 
 ---
@@ -354,9 +360,9 @@ monochrome coverage foreground quad is suppressed (`src/grid.rs`:
 (underline, strikethrough), and selection/search highlights are still emitted
 so SGR styling layers correctly around the color bitmap without tinting it.
 
-**Degradation.** If no color-emoji font is installed (Noto Color Emoji on
-Linux, Apple Color Emoji on macOS), `EmojiRasterizer::discover()` returns a
-rasterizer with no font rather than failing; it emits no color glyph runs, so
-all emoji cells fall through to the monochrome coverage path and remain
-readable. See [accessibility.md](accessibility.md) for the related readability
-guarantees.
+**Degradation.** If no supported color-emoji font is installed (Noto Color
+Emoji on Linux or Apple Color Emoji on macOS), `EmojiRasterizer::discover()`
+returns a rasterizer with no font rather than failing. Stock Windows Segoe UI
+Emoji is not discovered or rasterized, so Windows takes the same monochrome
+coverage path. Emoji cells remain readable. See
+[accessibility.md](accessibility.md) for the related readability guarantees.

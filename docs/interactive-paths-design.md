@@ -1,14 +1,15 @@
 # Interactive Paths — Design (C0)
 
 Status: design + pure detection spine landed (Phase 6 / C0–C1). Phase 7 (C2)
-shipped the hover affordance (hand cursor plus the armed `Ctrl`-hover
-underline). Phase 8 (C3) shipped the Ctrl+click open
+shipped the hover affordance (hand cursor plus the armed Ctrl-hover underline,
+or Cmd-hover on macOS). Phase 8 (C3) shipped the platform-modifier click open
 dispatch, the editor invocation matrix + `interactive_paths_editor` knob, and
 the context-menu file section (Open / Copy Path / Copy File / Reveal in File
 Manager). Phase 9 (C4) shipped the in-terminal image viewer ("Open in OdyTTY";
-see §8). Phase 8b (C3b) shipped **"Open With…"** — the xdg-mime/.desktop handler
-enumeration + app-picker overlay (see §9). This document is the contract those
-phases implement against.
+see §8). Phase 8b (C3b) shipped **"Open With…"** — freedesktop handler
+enumeration on Linux, `NSWorkspace` enumeration on macOS, and the app-picker
+overlay (see §9). Windows currently opens the picker with no enumerated apps.
+This document is the contract those phases implement against.
 
 *This is a design record: sections marked "shipped" are implemented; the rest is
 the contract they build toward.*
@@ -41,10 +42,11 @@ the contract they build toward.*
 
 Make filesystem paths that appear in arbitrary terminal output
 (`cargo` errors, `grep` results, stack traces, `ls` output, log lines, …)
-*actionable* — hover shows they are live, `Ctrl+click` opens them, a context
-menu offers Open / Open With / Copy / Reveal, and `path:line:col` jumps an
-editor to the exact spot. All of this is **default-off**, **local-only**, and
-spawned **argv-only** (no shell interpolation).
+*actionable* — hover shows they are live, Ctrl+click opens them on Linux/Windows,
+Cmd+click opens them on macOS, a context menu offers Open / Open With / Copy /
+Reveal, and `path:line:col` jumps an editor to the exact spot. All of this is
+**default-off**, **local-only**, and spawned **argv-only** (no shell
+interpolation).
 
 The work splits into a pure, owned, fully-tested **spine** (this module:
 detection + resolution logic, no I/O, no UI) and later **wiring** stages that
@@ -76,6 +78,8 @@ A candidate is a maximal run of "path characters" that satisfies at least one
 | Home | starts with `~/` (or bare `~` followed by `/`) | `~/notes/a.txt` |
 | Explicit relative | starts with `./` or `../` | `./foo.rs`, `../sibling/x` |
 | Bare relative | contains a `/` separator and no leading scheme | `src/main.rs`, `dir/file` |
+| Windows absolute (Windows builds) | drive-absolute or UNC | `C:\src\main.rs`, `\\server\share\file.txt` |
+| Windows relative (Windows builds) | contains a `\` separator | `src\main.rs` |
 | Bareword (opt-in) | a separator-less basename carrying a file extension; gated on `interactive_paths_barewords` (default on) | `main.rs`, `photo.JPG` |
 
 The **bare-relative rule requires an interior `/`**, the key false-positive
@@ -98,9 +102,10 @@ cap) is parsed **off** the path and recorded separately:
 | `src/main.rs:42` | `src/main.rs` | `Some(42)` | `None` |
 | `src/main.rs` | `src/main.rs` | `None` | `None` |
 
-A `:` that is not followed by a digit is **not** a suffix (it stays part of the
-candidate scan only if it is otherwise a path character, which `:` is not — so it
-terminates the run). Windows drive-letter colons are out of scope (Linux-first).
+A trailing `:` that is not followed by digits is not a position suffix. The
+suffix parser preserves a Windows drive-letter colon and peels only a final
+`:line[:col]`, so `C:\src\main.rs:42:10` resolves to the drive path plus line 42,
+column 10.
 
 ### Ambiguity handling (false-positive guards)
 
@@ -221,19 +226,19 @@ open.
 
 | Span kind | Action | argv |
 |-----------|--------|------|
-| File, no `:line` | open with default app | OS default-open (Linux `["xdg-open", <abs>]`, macOS `["open", <abs>]`) |
+| File, no `:line` | open with default app | OS default-open (Linux `["xdg-open", <abs>]`, macOS `["open", <abs>]`, Windows `["cmd", "/C", "start", "", <abs>]`) |
 | File, with `:line[:col]` | open editor at position | per the editor matrix (§4) |
 | Directory | open in file manager | OS default-open (as above) |
 
 The default-open argv is selected per host by
 `platform_opener::open_default_argv` (`src/native/app/platform_opener.rs`):
-**Linux** uses `["xdg-open", <abs>]`, **macOS** uses `["open", <abs>]`. (The
-earlier hardcoded `xdg-open` was a macOS breakage this branch fixes.) The opener
+**Linux** uses `["xdg-open", <abs>]`, **macOS** uses `["open", <abs>]`, and
+**Windows** uses `["cmd", "/C", "start", "", <abs>]`. The opener
 receives the canonical absolute path as a **single argv element**, so
 spaces/quotes/`;`/`$()` in the path are inert — there is no shell. The "Reveal in
 File Manager" item is likewise OS-branched: `["xdg-open", <parent dir>]` on
 Linux, `["open", "-R", <abs>]` (which reveals the file itself in Finder) on
-macOS.
+macOS, and `["explorer", "/select,", <abs>]` on Windows.
 
 ---
 
@@ -310,8 +315,8 @@ src/paths/
 - No `std::fs` import in `src/paths/`; the only filesystem touch is the
   caller's `ResolveProbe` impl, which tests replace with a synthetic map.
 - `src/paths/` is now **wired live** into the input/render path through
-  `src/native/app/interaction.rs` (hover detection, `Ctrl`+click open, and the
-  image viewer). The pure spine stays I/O-free and std-only; only the caller in
+  `src/native/app/interaction.rs` (hover detection, platform-modifier click
+  open, and the image viewer). The pure spine stays I/O-free and std-only; only the caller in
   `interaction.rs` runs the stat probe and spawns. (The original C0 stage
   landed the module unreferenced and additive — that "adds zero runtime
   behavior" framing, still echoed in the `src/paths/mod.rs` docstring, describes
@@ -328,7 +333,9 @@ src/paths/
   is supported. (Extension-bearing barewords like `main.rs` or `photo.jpg` *are*
   detected — shipped behind `interactive_paths_barewords` (default on); see
   §1 and §10.)
-- **Windows drive letters / UNC paths** — out of scope (Linux-first).
+- **Windows path shapes** — drive-letter absolute paths, UNC paths, and
+  backslash-relative paths ship in Windows builds; POSIX builds keep their
+  existing shape rules.
 - **Read-only text preview** of non-image files — optional/later (C4 ships the
   image viewer first).
 - **File mutations** (chmod/rename/delete) — declined for now (C5).
@@ -350,9 +357,9 @@ keeps the menu byte-identical to C3.
 
 **Trigger.** Two entry points. The context-menu **"Open in OdyTTY"** item opens
 the viewer directly; and when `interactive_paths_image_inline` is on (the
-default), a **`Ctrl`+click on a resolved image span opens the in-app viewer**
-too, falling back to the external default-open (§3) only if inline view is off
-or the decode fails.
+default), a platform-modifier click on a resolved image span opens the in-app
+viewer too, falling back to the external default-open (§3) only if inline view
+is off or the decode fails.
 
 **Decode bound (the security-critical part).** All image-file decoding funnels
 through one module, `src/native/image_decode.rs`, which sets `image::Limits`
@@ -412,11 +419,13 @@ captured-output `xdg-mime query filetype <abs>` spawn — the *only* new spawn
 shape) and `FsDesktopEnv` (the real `XDG_*` ladders + bounded `std::fs` reads,
 256 KiB per file).
 
-**Enumeration.** `xdg-mime` → MIME type; then candidate desktop ids are gathered
+**Enumeration.** On Linux, `xdg-mime` → MIME type; then candidate desktop ids are gathered
 in priority order — `mimeapps.list` `[Default Applications]` then
 `[Added Associations]` across the config ladder, then `mimeinfo.cache`
 `[MIME Cache]` across the data ladder — with `[Removed Associations]` subtracted
-and ids deduplicated (first occurrence wins).
+and ids deduplicated (first occurrence wins). macOS asks `NSWorkspace` directly.
+Windows currently returns no candidates and shows the picker's empty-state hint;
+default-open and reveal remain available there.
 
 Each id resolves to its `.desktop`
 file across the data ladder (user dir wins; a dash-prefixed id `kde-foo.desktop`
@@ -463,18 +472,20 @@ gate is on**.
 |-----|-----|---------|--------|
 | `interactive_paths` | `ODYTTY_INTERACTIVE_PATHS` | `off` | Master gate. Off → no detection, no hover, no menu items, no viewer; behavior byte-identical to a build without the feature. |
 | `interactive_paths_barewords` | `ODYTTY_INTERACTIVE_PATHS_BAREWORDS` | `on` | Detect extension-bearing separator-less basenames (`main.rs`, `photo.jpg`) in addition to slash-bearing paths (§1). |
-| `interactive_paths_click_hint` | `ODYTTY_INTERACTIVE_PATHS_CLICK_HINT` | `on` | Show the transient "Ctrl+click to open" teaching chip (below). |
-| `interactive_paths_image_inline` | `ODYTTY_INTERACTIVE_PATHS_IMAGE_INLINE` | `on` | `Ctrl`+click an image span opens the in-app viewer (§8); off → the external default-open (§3) is used. |
+| `interactive_paths_click_hint` | `ODYTTY_INTERACTIVE_PATHS_CLICK_HINT` | `on` | Show the transient Ctrl-click teaching chip, or Cmd-click on macOS (below). |
+| `interactive_paths_image_inline` | `ODYTTY_INTERACTIVE_PATHS_IMAGE_INLINE` | `on` | Platform-modifier click on an image span opens the in-app viewer (§8); off → the external default-open (§3) is used. |
 | `interactive_paths_editor` | `ODYTTY_INTERACTIVE_PATHS_EDITOR` | *(empty)* | Pin the editor + argv template, overriding `$EDITOR` detection (§4). |
 
 ### Click-hint chip
 
-The hand cursor appears on hover, but *opening* requires `Ctrl`+click — a plain
-left-click only makes a text selection, so the cursor can "lie." The click-hint
+The hand cursor appears on hover, but opening requires Ctrl+click on
+Linux/Windows or Cmd+click on macOS. A plain left-click only makes a text
+selection, so the cursor can "lie." The click-hint
 chip (`src/native/app/click_hint.rs`, gated on `interactive_paths_click_hint`)
 closes that gap: after **≥2 plain mis-clicks** on a resolved path land within
 `CLICK_HINT_MISCLICK_WINDOW` (1500 ms), a transient bottom-left
-`" Ctrl+click to open "` message appears for `CLICK_HINT_DURATION` (3000 ms). It
+platform-specific `" Ctrl+click to open "` / `" Cmd+click to open "` message
+appears for `CLICK_HINT_DURATION` (3000 ms). It
 retires after `CLICK_HINT_MAX_SHOWS` (3) raises per launch so it never nags, and
 is byte-identical when absent.
 

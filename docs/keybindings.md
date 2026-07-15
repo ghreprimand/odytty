@@ -6,6 +6,10 @@ rebind everything. For the full config-key reference see
 [`runtime-knobs.md`](runtime-knobs.md); for accessibility-oriented keys see
 [`accessibility.md`](accessibility.md).
 
+The default global chords remain Ctrl-based on macOS; Cmd+C and Cmd+V are not
+default copy/paste bindings. The exception is opening links and interactive
+paths, which uses Cmd+click on macOS because Ctrl+click is a secondary click.
+
 ## Contents
 
 - [How OdyTTY's shortcuts stay out of the shell's way](#how-odyttys-shortcuts-stay-out-of-the-shells-way)
@@ -53,7 +57,7 @@ These work anywhere in the window. They are all rebindable (see
 | `Ctrl+Shift+P` | Open the command palette | `command-palette` |
 | `Ctrl+Shift+S` | Open the connection manager | `connection-manager` |
 | `Ctrl+Shift+R` | Open session replay | `session-replay` |
-| `Ctrl+Shift+A` | Open Manage Sessions (attach a detached session) | `session-attach` |
+| `Ctrl+Shift+A` | Open Manage Sessions (Unix attach list; empty on Windows) | `session-attach` |
 | `Ctrl+Shift+C` | Copy the selection | `copy` |
 | `Ctrl+Shift+V` | Paste | `paste` |
 | `Ctrl+Shift+Space` | Enter keyboard copy mode | `copy-mode` |
@@ -81,8 +85,9 @@ Notes that trip people up:
     always interrupt.
   - To make plain `Ctrl+V` paste, bind it: `keybinds = ctrl+v=paste` (this
     shadows verbatim-insert).
-- A printed `https://…` URL is clickable by default (`Ctrl+click` to open,
-  `Ctrl+hover` to preview the underline); toggle with `interactive_urls`.
+- A printed `https://…` URL is clickable by default (Ctrl+click on
+  Linux/Windows or Cmd+click on macOS, with the same modifier for the hover
+  underline); toggle with `interactive_urls`.
 - The settings panel is `Ctrl+Shift+,` (comma), **not** `Ctrl+,`.
 - Prompt navigation is the `Ctrl+Shift+Up/Down` **arrows** only; there are no
   letter-key prompt-jump shortcuts.
@@ -96,10 +101,11 @@ Notes that trip people up:
 
 Prompt-aware shortcuts depend on OSC 133 marks from the shell. Set
 `shell_integration = on` in Settings or `odytty.conf` to have newly spawned
-local `bash`, `zsh`, and `fish` shells load OdyTTY's integration wrapper. The
-wrapper sources your normal shell config first, then emits `133;A` prompt
-start, `133;B` prompt-end/input-start, `133;C` command start, and `133;D`
-command end marks.
+local `bash`, `zsh`, and `fish` shells load OdyTTY's integration wrapper.
+Windows PowerShell (`powershell` or `pwsh`) receives the same integration
+snippet through its launch command. The POSIX-shell wrappers source the normal
+shell config first. Each integration emits `133;A` prompt start, `133;B`
+prompt-end/input-start, `133;C` command start, and `133;D` command end marks.
 
 This unlocks prompt jumps, selected prompt-input Delete/Backspace,
 click-to-position support when advertised by the shell, and command-status
@@ -114,6 +120,13 @@ eval "$(odytty shell-integration bash)"
 eval "$(odytty shell-integration zsh)"
 odytty shell-integration fish | source
 ```
+
+```powershell
+Invoke-Expression (& odytty shell-integration powershell | Out-String)
+```
+
+Automatic injection is used for newly spawned PowerShell sessions when the
+setting is enabled.
 
 Until prompt input marks are active, the context-menu Cut/Delete items are
 disabled with an "Enable shell integration in Settings" hint, and plain

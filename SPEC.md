@@ -96,9 +96,10 @@ Connection-manager data follows the same local boundary:
 This stance is durable. Any future feature that transmits data without explicit
 user action is out of scope.
 
-Network-capable actions are explicit and user-initiated. Ctrl+click sends an
-allowlisted hyperlink to `xdg-open`, while connection entries delegate to
-system `ssh`; links never open automatically from terminal output.
+Network-capable actions are explicit and user-initiated. Ctrl+click on
+Linux/Windows or Cmd+click on macOS sends an allowlisted hyperlink to the
+platform default opener, while connection entries delegate to system `ssh`;
+links never open automatically from terminal output.
 
 ## Build Direction
 
@@ -137,10 +138,12 @@ code; `portable-pty` and `crossterm` are gone from the dependency tree.
   (ConPTY) via `CreatePseudoConsole` fed by a `CreatePipe` pair; the child is
   launched with `CreateProcessW` attaching the pseudoconsole through
   `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE` on a `STARTUPINFOEXW` attribute list.
-  `ResizePseudoConsole` for resize; `TerminateProcess` for kill, which then
-  closes the pseudoconsole so the output reader hits EOF (mirroring the Unix
-  `EIO`→EOF teardown). There is no POSIX process group, so `foreground_job`
-  returns the contract's `ForegroundJob::Unknown` indeterminate default.
+  `ResizePseudoConsole` for resize; `TerminateJobObject` on a kill-on-close Job
+  Object for whole-tree kill, with root-only `TerminateProcess` as the degraded
+  fallback if job assignment failed. Closing the pseudoconsole then lets the
+  output reader hit EOF, mirroring the Unix `EIO`→EOF teardown. There is no
+  POSIX process group, so `foreground_job` returns the contract's
+  `ForegroundJob::Unknown` indeterminate default.
 
   The
   default interactive shell prefers PowerShell to match Windows Terminal's
@@ -322,9 +325,10 @@ scroll, and Kitty/Sixel images all work in splits.
 **Kitty graphics protocol.** Actions `a=t` (transmit), `a=T` (transmit and
 display), `a=p` (display existing by id), `a=d` (delete), and `a=q` (query)
 are supported. Formats `f=24` (raw RGB), `f=32` (raw RGBA), and `f=100` (PNG
-still image) are supported. Transports `t=d` (direct), `t=f` (file), `t=t`
-(temp file), and `t=s` (POSIX shared memory) are supported; file transports
-carry security restrictions documented in `docs/graphics.md`. Chunked transfer
+still image) are supported. Transports `t=d` (direct), `t=f` (file), and `t=t`
+(temp file) are supported on all platforms; `t=s` (POSIX shared memory) is
+Unix-only and rejected as unsupported on Windows. File transports carry
+security restrictions documented in `docs/graphics.md`. Chunked transfer
 (`m=1`/`m=0`) is supported under a 96 MiB encoded-payload cap.
 
 Placement ids,
@@ -429,14 +433,14 @@ with arbitrarily large strings.
 
 The native layer tracks the hovered `LinkId` from cursor position. On hover,
 all visible cells sharing that id have their underline attribute set in the
-render snapshot — no change to the terminal model state. On explicit
-Ctrl+click (or Ctrl+Shift+click when mouse reporting is active), the native
-app calls `xdg-open` with the URI as a direct argument after verifying its
-scheme against an allowlist (`http`, `https`, `file`, `mailto`). No shell
-interpolation occurs.
+render snapshot — no change to the terminal model state. On explicit Ctrl+click
+on Linux/Windows or Cmd+click on macOS, the native app calls the platform
+default opener with the URI as a direct argument after verifying its scheme
+against an allowlist (`http`, `https`, `file`, `mailto`). Mouse reporting does
+not add a Shift requirement. No shell interpolation occurs.
 
-Links are never followed automatically; the allowlist
-check and the `xdg-open` call only happen on deliberate user action.
+Links are never followed automatically; the allowlist check and platform-opener
+call only happen on deliberate user action.
 
 ### OSC 52 Clipboard
 
@@ -671,7 +675,8 @@ its first stable layer.
 
 ### Parser And Protocols
 
-- Owned Linux PTY layer and owned VT parser (clean-room from primary specs)
+- Owned platform PTY layer (Unix PTY and Windows ConPTY backends) and owned VT
+  parser (clean-room from primary specs)
 
 - File-based configuration with live reload; env always wins
 
@@ -712,8 +717,9 @@ its first stable layer.
 - Clipboard hardening: chunked paste, bracketed-paste sanitization, PRIMARY
   selection, OSC 52 write support, and default-deny OSC 52 read policy
 
-- OSC 8 hyperlinks: hover underline, Ctrl+click open via `xdg-open`, scheme
-  allowlist (`http`/`https`/`file`/`mailto`), never auto-opened from input
+- OSC 8 hyperlinks: hover underline, Ctrl+click on Linux/Windows or Cmd+click on
+  macOS through the platform opener, scheme allowlist
+  (`http`/`https`/`file`/`mailto`), never auto-opened from input
 
 - Dynamic colors: OSC 10/11/12, OSC 4 palette entries, and reset/query support
 
@@ -1029,14 +1035,14 @@ its first stable layer.
 
 ### Sessions And SSH
 
-- Resumable-session substrate: a hidden root-level `session_host` module owns
-  the first detached-host foundation outside `src/native/`. The internal
+- Unix resumable-session substrate: a hidden root-level `session_host` module
+  owns the first detached-host foundation outside `src/native/`. The internal
   `odytty session-host` mode hosts one PTY + terminal model, exposes only a
   per-user Unix-domain socket under `$XDG_RUNTIME_DIR/odytty/`, requires a
   `0700` current-user runtime directory, rejects incompatible protocol/snapshot
   versions, sends a current `SnapshotEnvelope` on every attach, streams
   output/invalidation frames, and reaps the child process. Runtime-dir
-  resolution: an explicitly-set `XDG_RUNTIME_DIR` always wins on every platform
+  resolution: an explicitly-set `XDG_RUNTIME_DIR` always wins on Unix
   (Linux uses its standard `/run/user/<uid>`, byte-identical). On macOS, which
   has no `XDG_RUNTIME_DIR`, the host falls back to the per-user Darwin temp
   directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`, for example
@@ -1155,26 +1161,30 @@ its first stable layer.
   off): when enabled, OdyTTY syntactically detects file and directory spans in
   the visible row under the pointer and stat-gates them against the filesystem
   (`std::fs::symlink_metadata`, no symlink traversal), so only real paths arm.
-  Ctrl+click opens a resolved path through the platform default opener; a
+  Ctrl+click (Cmd+click on macOS) opens a resolved path through the platform
+  default opener; a
   `:line[:col]` suffix routes to an editor by an editor-argument matrix
   (`vim`/`nvim`/`vi`, `code`, `emacs`/`emacsclient`, `hx`/`helix`/`subl`/
   `micro`, `nano`, with an open-and-drop-position fallback) chosen by
   `interactive_paths_editor` (empty by default → `$EDITOR` → `$VISUAL`). Three
   sub-keys default on but are inert until the master gate is on:
   `interactive_paths_barewords` (also detect basename-plus-extension tokens),
-  `interactive_paths_click_hint` (a transient "Ctrl+click to open" teaching chip
-  after repeated plain mis-clicks on a resolved path), and
+  `interactive_paths_click_hint` (a transient platform-specific Ctrl/Cmd-click
+  teaching chip after repeated plain mis-clicks on a resolved path), and
   `interactive_paths_image_inline` (route image paths to the in-app viewer). The
-  right-click menu adds **Open**, **Open in OdyTTY**, **Open With…** (a picker
-  built from an `xdg-mime`/magic-byte type query and desktop-entry enumeration),
-  **Copy Path**, **Copy File** (`file://` URI), and **Reveal in File Manager**.
+  right-click menu adds **Open**, **Open in OdyTTY**, **Open With…**, **Copy
+  Path**, **Copy File** (`file://` URI), and **Reveal in File Manager**. Open
+  With uses freedesktop MIME/desktop enumeration on Linux and `NSWorkspace` on
+  macOS; Windows currently opens an empty picker because application enumeration
+  is not implemented there.
 
   Every open routes through a single argv-only detached-spawn point — never
   `sh -c` — so a filename containing `;`, `$()`, backticks, or spaces is an inert
   argv element.
 
 - In-app image lightbox: Ctrl+clicking a resolved `png`/`jpg`/`jpeg`/`webp` path
-  (or choosing **Open in OdyTTY**) opens a decoded image in a free-floating
+  on Linux/Windows, Cmd+clicking it on macOS, or choosing **Open in OdyTTY** opens
+  a decoded image in a free-floating
   overlay drawn after the post-process pass directly onto the swapchain, so CRT
   and bloom never touch it. The image is aspect-fit to a fraction of the
   viewport and never upscaled past source, behind a dark scrim. Dismiss with
@@ -1199,9 +1209,9 @@ its first stable layer.
   old hosted tab so it stays reattachable). Right-clicking a row requests a kill
   with a "Terminate session" confirm; on confirm OdyTTY kills the host (a stale
   socket is treated as already-gone) and reopens the manager so the dead row
-  disappears.
+  disappears. On Windows the overlay opens empty and attach is unavailable.
 
-- Detach & switch (right-click menu item, always available): spawns a **fresh**
+- Detach & switch (Unix-only right-click menu item): spawns a **fresh**
   managed session — honestly a spawn, not live-process migration, because the
   focused pane's shell is this window's own child and cannot be handed off — in
   the focused pane's OSC 7 working directory, attaches it in a new tab, and
@@ -1320,8 +1330,9 @@ all `#[cfg(unix)]`-gated.
 The pure pieces stay cross-platform on purpose: the `session_host` wire
 `protocol.rs` (neutral core types), the `SessionCliCommand` parser (so
 `--help`/usage strings stay byte-identical), and the
-`BindableAction::SessionAttach` keybind variant. That variant is a no-op on
-Windows, keeping the shared keybind catalog and its test identical.
+`BindableAction::SessionAttach` keybind variant. On Windows that action opens an
+empty presentation overlay and any attach attempt is rejected cleanly, keeping
+the shared keybind catalog and its test identical.
 
 The CLI execution boundary prints a clean "not supported on Windows yet" rather
 than panicking. Non-detached SSH-in-a-tab still works on Windows because it uses
@@ -1330,27 +1341,25 @@ the local ConPTY path, not `session_host`.
 ### Windows v1 Scope
 
 - **Supported:** Local terminal behavior including tabs, splits, rendering,
-  themes, effects, and images in unsplit tabs; persistent config via
-  `%APPDATA%`; host-font scanning of `C:\Windows\Fonts`; Windows clickable-path
-  detection; default-open and reveal; and non-detached SSH-in-a-tab.
+  themes, effects, and per-pane images; persistent config via `%APPDATA%`;
+  host-font scanning of `%WINDIR%\Fonts` and
+  `%LOCALAPPDATA%\Microsoft\Windows\Fonts`; Windows clickable-path detection;
+  default-open and reveal; and non-detached SSH-in-a-tab.
 
 - **Deferred:** Detachable sessions, detached or resumable SSH,
   `--interactive` headless mode, the full "Open With…" application list
   (desktop-entry enumeration is freedesktop-only), registry font display-name
   parsing, and PowerShell/PSReadLine history in the command palette.
 
-- **Silent fallbacks:** The hostname is always `None`, disabling OSC 7
-  foreign-host resolution; command-palette shell history is empty; and panic
-  and application logs land in `%LOCALAPPDATA%\odytty`.
+- **Silent fallbacks:** Command-palette shell history is empty; panic and
+  application logs land in `%LOCALAPPDATA%\odytty`. Hostname resolution uses
+  `GetComputerNameExW`, so OSC 7 foreign-host checks remain available.
 
-### Close The Remaining Windows Exit Gap
+### Windows Natural-Exit Teardown
 
-On Windows a tab whose child exits *on its own* rather than through an explicit
-`kill` does not yet auto-close, because there is no POSIX signal/process-group
-teardown. An explicit close still works.
-
-Closing this gap needs a per-child waiter thread that closes the pseudoconsole
-on natural exit. This is on-device polish rather than a milestone blocker.
+Every successful ConPTY spawn starts a child-process waiter on a duplicated
+process handle. A natural child exit closes the pseudoconsole, wakes the output
+reader through EOF, and lets the tab follow the normal session teardown path.
 
 ## Post-Process Pipeline Architecture
 
@@ -1574,10 +1583,12 @@ pixels keyed by shaped cluster, font identity, and physical cell size alongside
 the existing coverage atlas.
 
 Emoji cells sample source pixels directly and are
-never tinted by SGR foreground color. Font discovery probes fontconfig for
-Noto Color Emoji, Noto Emoji, or the `emoji` generic family; an explicit
-per-session setting is planned as a follow-up. VS15 (`U+FE0E`) forces the text
-path; VS16 (`U+FE0F`) forces the emoji path; characters with
+never tinted by SGR foreground color. Linux font discovery probes fontconfig
+only for Noto Color Emoji; directory scanning also finds Noto Color Emoji on
+Linux and Apple Color Emoji on macOS. Stock Windows Segoe UI Emoji is not
+discovered or rasterized, so Windows falls back to monochrome glyphs. An
+explicit per-session setting is planned as a follow-up. VS15 (`U+FE0E`) forces
+the text path; VS16 (`U+FE0F`) forces the emoji path; characters with
 Unicode `Emoji_Presentation=Yes` default to emoji; others default to text. The
 predicate must not claim whole symbol blocks: text-default Dingbats/geometric
 markers stay on the monochrome coverage/symbol fallback path.
@@ -1600,9 +1611,10 @@ directly; the returned path and family string are checked against a strict
 identity predicate (normalized filename or family must contain `notocoloremoji`),
 so generic fontconfig substitution fonts are rejected. If fontconfig is
 unavailable or returns a non-matching result, a bounded directory scan covers
-`/usr/share/fonts`, `/usr/local/share/fonts`, `~/.local/share/fonts`, and
-`~/.fonts` at maximum depth 6 and a 20 000-file cap, matching by normalized
-filename stem.
+the standard Linux directories, the macOS system/user font directories, or the
+Windows machine/per-user font directories at maximum depth 6 and a 20 000-file
+cap, matching only Noto Color Emoji or Apple Color Emoji by normalized filename
+stem. The Windows scan therefore finds no supported stock color face.
 
 When no Noto Color Emoji is found, the module returns `None` and
 all downstream code skips the emoji path without error. On a successful find,

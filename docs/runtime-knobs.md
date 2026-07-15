@@ -12,8 +12,9 @@ exhaustive key-by-key reference.
 
 Config path:
 
+- `%APPDATA%\odytty\odytty.conf` on Windows
 - `$XDG_CONFIG_HOME/odytty/odytty.conf`
-- `~/.config/odytty/odytty.conf` when `XDG_CONFIG_HOME` is unset
+- `~/.config/odytty/odytty.conf` on Unix when `XDG_CONFIG_HOME` is unset
 
 The native app polls the resolved config file about once per second. Invalid
 rewrites, unknown keys, malformed values, unreadable files, and unresolved font
@@ -278,8 +279,9 @@ audible bell.
 - `symbol_fallback = on` backfills symbol/icon codepoints the body font lacks
   from a fallback chain (bundled Symbols Nerd Font v3+v2, an optional host `*
   Nerd Font`, plus a system tail). On macOS the tail is fixed system faces; on
-  Linux it is the installed broad-coverage symbol faces (Noto Sans Symbols /
-  Symbols2, Symbola, DejaVu, Unifont) when present. When a symbol codepoint
+  Windows it tries Segoe UI Symbol, Segoe MDL2 Assets, and Cambria Math; on Linux
+  it uses installed broad-coverage symbol faces (Noto Sans Symbols / Symbols2,
+  Symbola, DejaVu, Unifont) when present. When a symbol codepoint
   still misses the static chain on Linux, OdyTTY runs a per-codepoint,
   result-cached `fc-match :charset=<cp>` query to find a monochrome host face
   that covers it (color/bitmap-only faces are rejected), which resolves standard
@@ -512,8 +514,9 @@ Rules:
 
 `interactive_urls = on` is the **default**: a bare URL that a program printed as
 plain text — `https://example.com`, not wrapped in an OSC 8 hyperlink escape —
-gets the pointer (hand) cursor on hover, a `Ctrl+hover` armed underline, and
-opens in your browser on `Ctrl+click` (Cmd+click on macOS). It is independent of
+gets the pointer (hand) cursor on hover, an armed underline while the platform
+modifier is held, and opens in your browser on Ctrl+click on Linux/Windows or
+Cmd+click on macOS. It is independent of
 `interactive_paths`: URL opening and filesystem-path detection toggle
 separately. The same toggle is in the Settings panel's Input section.
 
@@ -581,9 +584,9 @@ plain words, domains, versions, and non-existent filenames stay inert. Set
 `interactive_paths_barewords = off` for the older slash-required behavior.
 
 `interactive_paths_click_hint = on` (the default) shows a transient, bottom-left
-"Ctrl+click to open" teaching chip after two plain (non-Ctrl) mis-clicks on a
-resolved path within a short window — a discoverability nudge, since opens are
-Ctrl-gated. It is purely presentational and rate-limited. Set
+Ctrl-click teaching chip, or Cmd-click on macOS, after two plain mis-clicks on a
+resolved path within a short window. It is purely presentational and
+rate-limited. Set
 `interactive_paths_click_hint = off` to suppress the chip entirely; it is also
 inert whenever the master `interactive_paths` gate is off.
 
@@ -596,13 +599,12 @@ the pointer (the default, feature-off path makes zero `stat` calls). Hover
 detection runs on the **focused pane only** (a v1 bound shared with OSC 8
 hyperlink hover).
 
-**Opening a path (Ctrl+click + context menu).** With the feature on,
-**Ctrl+click** on a resolved span opens it (the same gate as OSC 8 hyperlinks —
-Ctrl is required; Cmd on macOS). This works even while a full mouse-tracking TUI
-(vim, tmux, Claude Code) has mouse reporting on: a Ctrl+click that lands on a
-resolved span opens it, while a Ctrl+click anywhere else still reports to the
-app, so the program keeps its clicks — matching kitty/iTerm2/GNOME Terminal, no
-extra Shift needed. A right-click over a resolved span adds a **file section**
+**Opening a path (modifier+click + context menu).** With the feature on,
+Ctrl+click on Linux/Windows or Cmd+click on macOS opens a resolved span. This
+works even while a full mouse-tracking TUI has mouse reporting on: a
+modifier+click that lands on a resolved span opens it, while the same click
+anywhere else still reports to the app, so the program keeps its clicks. No
+extra Shift is needed. A right-click over a resolved span adds a **file section**
 to the context menu — Open, Open With…, Copy Path, Copy File, Reveal in File
 Manager ("Open With…" appears only on a regular file, not a directory).
 
@@ -611,24 +613,25 @@ spaces, `;`, `$()`, or backticks is inert. The dispatch:
 
 | Span | Action |
 |------|--------|
-| File, no `:line` | Linux: `xdg-open <abs>`; macOS: `open <abs>` (default app) |
+| File, no `:line` | Linux: `xdg-open <abs>`; macOS: `open <abs>`; Windows: `cmd /C start "" <abs>` |
 | File, `:line[:col]` | editor at that position (see below) |
-| Directory | Linux: `xdg-open <abs>`; macOS: `open <abs>` (file manager) |
+| Directory | Linux: `xdg-open <abs>`; macOS: `open <abs>`; Windows: `cmd /C start "" <abs>` |
 
 "Copy Path" copies the absolute path; "Copy File" copies a `file://<abs>` URI as
 text (the clipboard is text-only — this pastes into file managers as a file
-reference); "Reveal in File Manager" opens the containing directory on Linux
-and uses `open -R <abs>` to reveal the item in Finder on macOS.
+reference); "Reveal in File Manager" opens the containing directory on Linux,
+uses `open -R <abs>` on macOS, and uses Explorer `/select,` on Windows.
 
 **Choosing an application ("Open With…").** On a regular-file span the file
 section gains an **Open With…** item that opens a type-to-filter picker overlay
 of the desktop applications registered to handle the file's MIME type. On Linux,
 the MIME type is detected first with a single read-only `xdg-mime query filetype
-<abs>` call. If that system probe is unavailable or empty, and on macOS where no
-LaunchServices probe is wired yet, OdyTTY falls back to a small built-in
-magic-byte sniff for common file types (PNG, JPEG, GIF, PDF, WebP, BMP, TIFF).
+<abs>` call. If that system probe is unavailable or empty, OdyTTY falls back to
+a small built-in magic-byte sniff for common file types (PNG, JPEG, GIF, PDF,
+WebP, BMP, TIFF). macOS asks `NSWorkspace` for registered applications directly.
+Windows does not enumerate applications yet, so its picker opens empty.
 
-The candidate applications are read from the standard freedesktop locations
+On Linux, candidate applications are read from the standard freedesktop locations
 (`mimeapps.list` defaults + added associations, then `mimeinfo.cache`, across
 the `XDG_CONFIG_*`/`XDG_DATA_*` directory ladders), honoring `[Removed
 Associations]`. Apps marked `NoDisplay`, `Hidden`, or `Terminal=true`, or
@@ -658,10 +661,10 @@ simply does not open, never crashes or hangs. The image type is confirmed by
 content (magic-byte sniff), not by trusting the file name. It is gated by the
 master `interactive_paths` setting plus `interactive_paths_image_inline`
 (default `on`): with the master gate on and `interactive_paths_image_inline =
-on`, Ctrl+clicking a resolved `.png`/`.jpg`/`.jpeg`/`.webp` span opens the
-in-app viewer and the **Open in OdyTTY** menu item appears. Set
+on`, platform-modifier clicking a resolved `.png`/`.jpg`/`.jpeg`/`.webp` span
+opens the in-app viewer and the **Open in OdyTTY** menu item appears. Set
 `interactive_paths_image_inline = off` to route image paths to the external
-default app (the same `xdg-open`/`open` path as any other file) instead of the
+default app (the same platform-opener path as any other file) instead of the
 in-app lightbox.
 
 With the master gate off there is no image detection and no menu item at all.
@@ -669,7 +672,7 @@ With the master gate off there is no image detection and no menu item at all.
 **Editor selection (`interactive_paths_editor`).** A `path:line:col` span opens
 in an editor chosen by: the `interactive_paths_editor` setting (env
 `ODYTTY_INTERACTIVE_PATHS_EDITOR`) if non-empty, else `$EDITOR`/`$VISUAL`, else
-`xdg-open` (position lost). The value is either a **known editor name** — `vim`,
+the platform opener (position lost). The value is either a **known editor name** — `vim`,
 `nvim`, `vi`, `code`, `emacs`, `emacsclient`, `helix`/`hx`, `sublime`/`subl`,
 `nano`, `micro` (each mapped to its position-flag form, e.g. `code --goto
 F:L:C`, `vim +call cursor(L,C) F`, `nano +L,C F`) — or an **argv template** with
@@ -680,16 +683,16 @@ argv and **never** evaluated by a shell; a `$EDITOR` carrying args (`code
 --wait`) is split into argv too. Both the toggle and the editor knob live in the
 Settings panel's Input section.
 
-**Troubleshooting interactive paths.** If Ctrl+click does nothing, confirm
+**Troubleshooting interactive paths.** If modifier+click does nothing, confirm
 `interactive_paths = on`, the pointer is over the focused pane, and the span
 resolves to a real file or directory from the pane cwd. Bare filenames from
 plain `ls` output require `interactive_paths_barewords = on`. If Open or Reveal
-fails, Linux needs `xdg-open` available on `PATH`; macOS uses the system `open`
-command.
+fails, Linux needs `xdg-open` available on `PATH`; macOS uses `open`; Windows
+uses `cmd` and Explorer.
 
-If Open With is empty, the file type was not reported by `xdg-mime`, was not
-recognized by the fallback sniffer, or no matching desktop application was
-registered in the freedesktop application database.
+If Open With is empty on Linux or macOS, the file type was not recognized or no
+matching application was registered. Windows application enumeration is not
+implemented, so its picker always shows the empty state.
 
 ## Use The Native Settings UI
 
@@ -761,8 +764,8 @@ These affect `cargo bench --bench perf` only.
 
 ## Detached-Session CLI
 
-Detached sessions have no `odytty.conf` keys in this slice. The public commands
-are:
+Detached sessions have no `odytty.conf` keys in this slice. These commands are
+available on Unix; Windows rejects them with a clean unsupported-platform error:
 
 ```sh
 odytty new --detached [-e COMMAND...] [--working-directory DIR] [--title TITLE]
@@ -796,16 +799,15 @@ Scrollback is not printed by `list` and is not sent anywhere except over the
 per-user Unix-domain socket to an attaching local client.
 
 The session-host socket lives under a per-user runtime directory. An
-explicitly-set `XDG_RUNTIME_DIR` always wins on every platform (Linux uses its
-standard `/run/user/<uid>`). On macOS, which does not set `XDG_RUNTIME_DIR`, the
+explicitly-set `XDG_RUNTIME_DIR` always wins on supported Unix hosts (Linux uses
+its standard `/run/user/<uid>`). On macOS, which does not set `XDG_RUNTIME_DIR`, the
 host falls back to the per-user Darwin temp directory (`std::env::temp_dir()` →
 `confstr(_CS_DARWIN_USER_TEMP_DIR)`, e.g. `/var/folders/.../T/`).
 
 In both cases the `odytty/` socket subdirectory is created `0700` and validated
-owner-private, so the runtime directory is local-only and owner-private on every
-platform — no network, nothing leaves the machine (the privacy charter is
-unchanged). `AF_UNIX` socket paths are bounded (`sun_path` is 104 bytes on
-macOS, 108 on Linux); a runtime base long enough to overflow that limit is
+owner-private, so both Unix resolution paths stay local-only and owner-private.
+No network service is opened. `AF_UNIX` socket paths are bounded (`sun_path` is
+104 bytes on macOS, 108 on Linux); a runtime base long enough to overflow that limit is
 rejected with a clear error instead of an opaque `bind()` failure.
 
 ## Command Palette
@@ -834,8 +836,9 @@ see [Search Actions, History, And Directories](features.md#search-actions-histor
 The SSH / connection manager reads its default saved hosts from an OdyTTY-owned
 local file:
 
+- `%APPDATA%\odytty\hosts.conf` on Windows
 - `$XDG_CONFIG_HOME/odytty/hosts.conf`
-- `~/.config/odytty/hosts.conf` when `XDG_CONFIG_HOME` is unset
+- `~/.config/odytty/hosts.conf` on Unix when `XDG_CONFIG_HOME` is unset
 
 The file uses an OpenSSH-like block format:
 
@@ -1083,8 +1086,9 @@ its `--title` (falling back to the session id), with type-to-filter fuzzy
 matching over title and id; `↑`/`↓` select, `Enter` attaches the highlighted
 session **into a new tab**, and `Esc` dismisses. With no live sessions it opens
 to a hint rather than failing. The overlay is **presentation-only**: it reads a
-frozen snapshot of the live sessions and never attaches anything itself;
-accepting a row hands the App an attach request.
+frozen snapshot of the live sessions on Unix. On Windows it opens with the
+empty-state hint and attach is unavailable. The overlay never attaches anything
+itself; accepting a row hands the App an attach request.
 
 If the chosen session ended between listing and accepting, the attach fails
 gracefully (no panic) and the user can retry.

@@ -109,8 +109,8 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         consumed (no grid leakage).
   - [x] Native: apply changed OSC window titles to the `winit` window.
   - [x] OSC 8 hyperlinks: core cell association and id dedup; native hover
-        underline plus explicit Ctrl+click open with scheme allowlist and no
-        shell interpolation.
+        underline plus explicit Ctrl+click open on Linux/Windows or Cmd+click on
+        macOS, with a scheme allowlist and no shell interpolation.
   - [x] OSC 52 clipboard write path with regular/PRIMARY selectors, bounded
         base64 decoding, and default-deny read/query policy behind explicit
         `osc52_read` opt-in.
@@ -646,8 +646,9 @@ a floor; surpassing it is the standing ambition.
         crate dependency; header-level cap checks, RGBA8 normalization, chunked
         PNG fixtures, and explicit malformed/oversized/dimension-mismatch
         errors.
-  - [x] File/shared-memory transports (`t=f`, `t=t`, `t=s`) with security
-        hardening: temp-dir path restriction, O_NOFOLLOW symlink rejection,
+  - [x] File transports (`t=f`, `t=t`) on all platforms and shared-memory
+        transport (`t=s`) on Unix, with security hardening: temp-dir path
+        restriction, Unix O_NOFOLLOW symlink rejection,
         delete-before-decode for t=t, immediate shm_unlink for t=s, size caps;
         25 integration tests.
 - [x] Graphics-surface fuzzing: deterministic never-panic + bounded-memory
@@ -902,18 +903,19 @@ feature validates against.
         (only when TUI mouse reporting is off).
 - [x] Interactive / clickable file paths (`interactive_paths`, master gate,
       default off): the renderer scans cells for file/directory paths and
-      Ctrl+click opens them through the OS opener (`xdg-open` on Linux, `open`
-      on macOS) with the same scheme-allowlist / argv-only safety as OSC 8.
+      Ctrl+click (Cmd+click on macOS) opens them through the OS opener
+      (`xdg-open` on Linux, `open` on macOS, `cmd /C start` on Windows) with the
+      same scheme-allowlist / argv-only safety as OSC 8.
       Everything below is inert until the master gate is on.
   - [x] Sub-gates default on under the master gate:
         `interactive_paths_barewords` (extension-bearing basenames),
-        `interactive_paths_click_hint` (a "Ctrl+click to open" teaching chip),
+        `interactive_paths_click_hint` (a platform-specific click teaching chip),
         and `interactive_paths_image_inline`; `interactive_paths_editor` is an
         empty editor-command template for `:line[:col]` jump (`{file}`/`{line}`/
         `{col}` argv template, else `$EDITOR`/`$VISUAL`, else the default opener).
-  - [x] In-app image lightbox: Ctrl+click a resolved `png`/`jpg`/`jpeg`/`webp`
-        path (or the right-click "Open in OdyTTY" item) opens an in-window image
-        viewer; `Esc` or click-outside dismisses it.
+  - [x] In-app image lightbox: Ctrl+click (Cmd+click on macOS) a resolved
+        `png`/`jpg`/`jpeg`/`webp` path, or use the right-click "Open in OdyTTY"
+        item, to open an in-window viewer; `Esc` or click-outside dismisses it.
   - [x] Path right-click menu: Open, Open in OdyTTY (images), Open With… (the
         `xdg-mime` / macOS app-picker overlay), Copy Path, Copy File, and Reveal
         in File Manager. See `docs/keybindings.md` for the chord reference.
@@ -1320,17 +1322,15 @@ feature validates against.
         for OdyTTY-owned rows). A `Protocol` field is reserved (`ssh` only).
 - [ ] Plugin systems, AI features, dashboards, or rich nonstandard workflows.
 - [ ] Heavy animation or effects that can compromise readability or latency.
-- [ ] Broad cross-platform support beyond Linux-first validation.
+- [ ] Platform support beyond the shipped Linux, Windows, and macOS targets.
 - [ ] Windows on-device hardening. Interactive Windows behaviour has now been
       validated on-device across several passes for the 0.7.0 cycle (local
       shells, tabs, splits, selection/copy-paste, minimize/restore, wheel
       routing, shell integration, and clickable paths incl. inline images);
       CI additionally proves compile + unit tests on every push. It remains a
-      newer target with a lower polish bar than Linux. Known follow-up: a
-      Windows shell that exits on its own does not yet close its pseudoconsole,
-      so its tab will not auto-close until a dedicated child-process waiter
-      thread is added — an architectural change best validated on a real
-      Windows machine.
+      newer target with a lower polish bar than Linux. A child-process waiter now
+      closes the pseudoconsole when a shell exits naturally, so the tab follows
+      the normal reader-EOF teardown path.
 - [ ] Windows default-terminal handoff. OdyTTY can be launched directly and
       hosts ConPTY shells, but it does not implement the Windows
       default-terminal handoff protocol (DelegationConsole/DelegationTerminal

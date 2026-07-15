@@ -460,7 +460,7 @@ diagrams in §2 show:
   right-click menu: **Split Right**, **Split Down**, and **Close Pane** (the
   Close Pane item is shown only when the active tab has more than one pane). These
   mirror the `split-columns` / `split-rows` / `close-pane` actions.
-- **Detach & switch.** A later context-menu action, **Detach & switch**, spawns a
+- **Detach & switch (Unix only).** A later context-menu action, **Detach & switch**, spawns a
   *fresh managed session* in the focused pane's current working directory (read
   from OSC 7) and switches to it. It is an honest spawn-in-cwd, not a live
   migration of the running pane; it reuses the attach plumbing from §6.2.
@@ -492,7 +492,7 @@ Guarantees Phase 1 will uphold:
 Phase 1 will **not** design the daemon, socket, or snapshot format — only keep the
 above invariants so Phase 2 has a clean seam.
 
-### 6.1 Phase 2 — Resumable Sessions (settled)
+### 6.1 Phase 2 — Resumable Sessions (settled, Unix only)
 
 **Decision status: settled (2026-06-21).** Phase 2 uses an
 OdyTTY-owned detached session-host process. The session-host owns live PTYs and
@@ -513,7 +513,7 @@ Privacy and security posture:
 - SSH credentials stay with the system `ssh` binary and agent. OdyTTY never
   reads private keys or handles SSH passwords.
 
-CLI surface for the first resumable slice:
+Unix CLI surface for the first resumable slice:
 
 - `odytty new --detached`
 - `odytty list`
@@ -572,7 +572,8 @@ Session-host foundation status:
   5. Client `Input` and `Resize` frames apply only while that client remains
      attached. Client `Detach`, EOF, or socket close removes only that client;
      the PTY and terminal model keep running for later attach by id.
-- The control socket lives under `$XDG_RUNTIME_DIR/odytty/`; the runtime
+- The control socket lives under `$XDG_RUNTIME_DIR/odytty/` on Unix systems that
+  define it; macOS otherwise uses its per-user temporary directory. The runtime
   directory must be owned by the current uid and mode `0700`. A startup lock
   serializes bind attempts, and stale sockets are removed only after a live-peer
   connection probe fails.

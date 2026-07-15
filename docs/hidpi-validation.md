@@ -54,7 +54,7 @@ Requires two monitors at different scales, or Wayland live-rescale.
 | B2 | 2.0 → 1.0 (drag back) | No blur, no oversized glyphs, grid resizes back | |
 | B3 | 1.0 → 1.25 (GNOME/KDE slider) | Seam-free grid at 1.25, no torn frame on transition | |
 | B4 | 1.25 → 1.5 → 1.75 → 2.0 (step through) | Crisp at each stop, grid adjusts, no stale density | |
-| B5 | Image lightbox open, then 1.0 → 2.0 | Ctrl+click a resolved image path to open the in-app lightbox, then change scale — image re-centers from retained pixels, stays fit to ~0.9 of the viewport, never upscales past 1.0 (no blur); Esc / click-outside dismisses | |
+| B5 | Image lightbox open, then 1.0 → 2.0 | Enable `interactive_paths`, then Ctrl+click on Linux/Windows or Cmd+click on macOS over a resolved image path; change scale and confirm that the image re-centers from retained pixels, stays fit to ~0.9 of the viewport, never upscales past 1.0 (no blur), and dismisses with Esc / click-outside | |
 
 ### C. Fractional-scale detail checks
 

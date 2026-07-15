@@ -74,7 +74,8 @@ in-app **image lightbox** (the C4 viewer overlay; `src/native/image_layer.rs`,
   dedicated **`Linear`** sampler — distinct from the `Nearest` sampler used for
   inline terminal-graphics placements — so a scaled-down image is smoothly
   interpolated.
-- It is opened by Ctrl+click on a resolved image path (see
+- With `interactive_paths` enabled, it is opened by Ctrl+click on Linux/Windows
+  or Cmd+click on macOS over a resolved image path (see
   [`docs/keybindings.md`](keybindings.md)) and dismissed with `Esc` or a click
   outside.
 

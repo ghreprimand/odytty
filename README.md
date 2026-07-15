@@ -175,8 +175,9 @@ formula, portable zip, and source-build paths.
   Windows uses ConPTY.
 - **Readable GPU text and graphics.** The `wgpu` renderer uses bundled Victor
   Mono and JetBrains Mono fonts, system-font discovery, a Nerd-font fallback
-  chain, subpixel antialiasing, HiDPI rebuilds, color emoji, Kitty graphics, and
-  Sixel. [Explore text and graphics](docs/features.md#text-emoji-and-graphics).
+  chain, subpixel antialiasing, HiDPI rebuilds, color emoji on Linux and macOS
+  with a monochrome Windows fallback, Kitty graphics, and Sixel. [Explore text
+  and graphics](docs/features.md#text-emoji-and-graphics).
 - **Modern terminal interaction.** Kitty keyboard support, broad mouse modes,
   focus reporting, IME composition, search, refined and PRIMARY selection,
   bracketed-paste hardening, copy mode, keyboard hints, prompt navigation, OSC 8
@@ -184,7 +185,7 @@ formula, portable zip, and source-build paths.
   [See terminal compatibility](docs/features.md#terminal-compatibility).
 - **Workspaces for real sessions.** Tabs contain resizable panes and named
   workspaces, with a configurable tmux-style pane prefix, session restore,
-  detached and in-window managed sessions, layouts, and replay.
+  Unix-only detached and in-window managed sessions, layouts, and replay.
   [See native workflows](docs/features.md#native-app-workflow).
 - **Local SSH workflows.** The connection manager keeps an OdyTTY-owned hosts
   list and can opt into name-only OpenSSH host import, remote shell integration,
@@ -195,7 +196,9 @@ formula, portable zip, and source-build paths.
   tabs, rail, and panes, with a theme picker (`Ctrl+Shift+H`), font picker, and
   `Ctrl+Shift+P` command palette putting most customization one keystroke away.
   Unlike config-file-only terminals, hand-editing is optional: the
-  `~/.config/odytty` file with hot reload stays for anyone who wants it.
+  `odytty.conf` file with hot reload stays for anyone who wants it
+  (`%APPDATA%\odytty\odytty.conf` on Windows, otherwise under
+  `$XDG_CONFIG_HOME/odytty/` or `~/.config/odytty/`).
   [Explore settings and themes](docs/features.md#settings-and-themes).
 - **A visual layer with an off switch.** OdyTTY ships 142 built-in themes, user
   themes, a theme builder, background treatments, transparency, bloom, CRT, and
