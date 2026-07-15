@@ -73,6 +73,302 @@ fn color_glyph_blend_uses_premultiplied_source_alpha() {
     assert_eq!(blend.alpha.src_factor, wgpu::BlendFactor::One);
 }
 
+fn glow_snapshot() -> Snapshot {
+    let dimensions = Dimensions::new(5, 4);
+    let mut colors = crate::core::DynamicColors::default();
+    colors.cursor = crate::core::RgbColor::new(0x20, 0x80, 0xe0);
+    Snapshot {
+        dimensions,
+        cursor: Position { row: 1, column: 2 },
+        cursor_visible: true,
+        colors,
+        cells: vec![Cell::default(); dimensions.columns * dimensions.rows],
+    }
+}
+
+fn glow_instance(
+    snapshot: &Snapshot,
+    cell: CellSize,
+    style: CursorStyle,
+    params: CursorRenderParams,
+    scale: f32,
+    content_alpha: f32,
+) -> Option<super::super::gpu::CursorGlowInstance> {
+    build_cursor_glow_instance(
+        snapshot,
+        cell,
+        style,
+        [11.0, 13.0],
+        params,
+        scale,
+        content_alpha,
+        CursorGlowRequest {
+            clip_rect: [0.0, 0.0, 1000.0, 1000.0],
+        },
+    )
+}
+
+#[test]
+fn cursor_glow_matches_cursor_shape_and_scale_matrix() {
+    let snapshot = glow_snapshot();
+    let params = CursorRenderParams {
+        offset: [2.5, -1.25],
+        alpha: 1.0,
+        focused: true,
+    };
+    for scale in [1.0_f32, 1.25, 1.5, 1.75, 2.0] {
+        let cell = CellSize {
+            width: (20.0 * scale) as u32,
+            height: (40.0 * scale) as u32,
+            baseline: 0,
+        };
+        let x0 = 11.0 + 2.0 * cell.width as f32 + params.offset[0];
+        let y0 = 13.0 + cell.height as f32 + params.offset[1];
+        for style in [CursorStyle::Block, CursorStyle::Bar, CursorStyle::Underline] {
+            let instance = glow_instance(&snapshot, cell, style, params, scale, 1.0)
+                .expect("focused visible cursor emits one aura");
+            let expected = match style {
+                CursorStyle::Block => [x0, y0, x0 + cell.width as f32, y0 + cell.height as f32],
+                CursorStyle::Bar => {
+                    crate::grid::cursor_bar_rect(x0, y0, cell.width as f32, cell.height as f32)
+                }
+                CursorStyle::Underline => crate::grid::cursor_underline_rect(
+                    x0,
+                    y0,
+                    cell.width as f32,
+                    cell.height as f32,
+                ),
+            };
+            assert_eq!(instance.source_rect, expected);
+            assert!((instance.radius / scale - 5.0).abs() < 1e-6);
+            if style == CursorStyle::Block {
+                assert!((instance.corner_radius / scale - 1.0).abs() < 1e-6);
+            } else {
+                let source_w = expected[2] - expected[0];
+                let source_h = expected[3] - expected[1];
+                assert!((instance.corner_radius - 0.5 * source_w.min(source_h)).abs() < 1e-6);
+            }
+        }
+    }
+}
+
+#[test]
+fn cursor_glow_is_one_six_vertex_shape_aware_quad() {
+    let snapshot = glow_snapshot();
+    let instance = glow_instance(
+        &snapshot,
+        CellSize {
+            width: 20,
+            height: 40,
+            baseline: 0,
+        },
+        CursorStyle::Block,
+        CursorRenderParams::default(),
+        1.0,
+        1.0,
+    )
+    .expect("aura instance");
+    let mut vertices: Vec<CursorGlowVertex> = Vec::new();
+    append_cursor_glow_vertices(&mut vertices, instance);
+    assert_eq!(vertices.len(), VERTS_PER_QUAD);
+    assert!(
+        vertices
+            .iter()
+            .all(|vertex| vertex.source_rect == instance.source_rect)
+    );
+}
+
+#[test]
+fn cursor_glow_falloff_is_smooth_and_monotonic() {
+    let radius = 5.0;
+    let samples = [0.0, 0.25, 0.5, 0.75, 1.0, 1.25]
+        .map(|fraction| cursor_glow_falloff(fraction * radius, radius));
+    assert!(samples.windows(2).all(|pair| pair[0] > pair[1]));
+    assert!((samples[4] - 1.0 / 16.0).abs() < 1e-6);
+    assert!((samples[5] - 2.0_f32.powf(-6.25)).abs() < 1e-6);
+}
+
+#[test]
+fn cursor_glow_easing_and_composite_peak_are_bounded() {
+    let snapshot = glow_snapshot();
+    let cell = CellSize {
+        width: 20,
+        height: 40,
+        baseline: 0,
+    };
+    let peak = |alpha| {
+        glow_instance(
+            &snapshot,
+            cell,
+            CursorStyle::Block,
+            CursorRenderParams {
+                alpha,
+                ..CursorRenderParams::default()
+            },
+            1.0,
+            1.0,
+        )
+        .map_or(0.0, |instance| instance.peak_alpha)
+    };
+    assert!((peak(1.0) - 0.08).abs() < 1e-6);
+    assert!((peak(0.5) - 0.02).abs() < 1e-6);
+    assert_eq!(peak(0.0), 0.0);
+
+    let old_center = 1.0_f32 - (1.0 - 0.05) * (1.0 - 0.09) * (1.0 - 0.13);
+    assert!((old_center - 0.247_885).abs() < 1e-6);
+    assert!(
+        peak(1.0) < 0.13,
+        "one aura stays below the former per-ring cap"
+    );
+}
+
+#[test]
+fn cursor_glow_caps_translucent_alpha_lift() {
+    let snapshot = glow_snapshot();
+    let cell = CellSize {
+        width: 20,
+        height: 40,
+        baseline: 0,
+    };
+    for content_alpha in [1.0_f32, 0.8, 0.5, 0.2] {
+        let instance = glow_instance(
+            &snapshot,
+            cell,
+            CursorStyle::Block,
+            CursorRenderParams::default(),
+            1.0,
+            content_alpha,
+        )
+        .expect("aura instance");
+        let lift = instance.peak_alpha * (1.0 - content_alpha);
+        assert!(lift <= 0.02 + 1e-6, "alpha lift {lift} at {content_alpha}");
+    }
+}
+
+#[test]
+fn cursor_glow_uses_dynamic_cursor_color_and_exact_clip() {
+    let snapshot = glow_snapshot();
+    let request = CursorGlowRequest {
+        clip_rect: [60.0, 50.0, 72.0, 75.0],
+    };
+    let instance = build_cursor_glow_instance(
+        &snapshot,
+        CellSize {
+            width: 20,
+            height: 40,
+            baseline: 0,
+        },
+        CursorStyle::Block,
+        [11.0, 13.0],
+        CursorRenderParams::default(),
+        1.0,
+        1.0,
+        request,
+    )
+    .expect("clipped aura instance");
+    assert_eq!(instance.quad_rect, request.clip_rect);
+    assert_eq!(
+        &instance.color[..3],
+        &[
+            text::srgb_to_linear(0x20),
+            text::srgb_to_linear(0x80),
+            text::srgb_to_linear(0xe0),
+        ]
+    );
+}
+
+#[test]
+fn cursor_glow_hidden_unfocused_and_zero_alpha_emit_nothing() {
+    let cell = CellSize {
+        width: 20,
+        height: 40,
+        baseline: 0,
+    };
+    let mut snapshot = glow_snapshot();
+    snapshot.cursor_visible = false;
+    assert!(
+        glow_instance(
+            &snapshot,
+            cell,
+            CursorStyle::Block,
+            CursorRenderParams::default(),
+            1.0,
+            1.0,
+        )
+        .is_none()
+    );
+    snapshot.cursor_visible = true;
+    for params in [
+        CursorRenderParams {
+            focused: false,
+            ..CursorRenderParams::default()
+        },
+        CursorRenderParams {
+            alpha: 0.0,
+            ..CursorRenderParams::default()
+        },
+    ] {
+        assert!(glow_instance(&snapshot, cell, CursorStyle::Block, params, 1.0, 1.0).is_none());
+    }
+}
+
+#[test]
+fn cursor_glow_shader_and_pipeline_validate() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::default(),
+        force_fallback_adapter: false,
+        compatible_surface: None,
+    })) else {
+        return;
+    };
+    let Ok((device, _queue)) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("cursor-glow-pipeline-test"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            memory_hints: wgpu::MemoryHints::default(),
+            trace: wgpu::Trace::Off,
+        }))
+    else {
+        return;
+    };
+    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("cursor-glow-pipeline-test-bgl"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+    let _pipeline =
+        create_cursor_glow_pipeline(&device, wgpu::TextureFormat::Rgba8UnormSrgb, &layout);
+}
+
 #[test]
 fn cell_metrics_scale_with_font_size() {
     let options = NativeOptions {

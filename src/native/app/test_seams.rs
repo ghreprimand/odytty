@@ -1221,7 +1221,11 @@ impl App {
         snapshot: &mut Snapshot,
         cell: CellSize,
         origin: [f32; 2],
-    ) -> (Vec<SolidQuad>, CursorRenderParams) {
+    ) -> (
+        Vec<SolidQuad>,
+        Option<crate::native::gpu::CursorGlowRequest>,
+        CursorRenderParams,
+    ) {
         let clip_rect = [
             origin[0],
             origin[1],
@@ -1239,7 +1243,8 @@ impl App {
             0,
             0,
         );
-        (effects, self.cursor_render_params())
+        let glow = self.cursor_glow_request(clip_rect);
+        (effects, glow, self.cursor_render_params())
     }
 
     /// Whether every non-focused session has no live cursor wake source.

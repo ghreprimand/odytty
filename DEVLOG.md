@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Cursor glow now uses a shape-aware analytic aura
+
+Cursor glow now renders one clipped, continuously feathered aura from the
+actual Block, Bar, or Underline cursor geometry. It uses the resolved cursor
+color, follows the live motion offset, fades with squared cursor opacity, and
+draws below terminal glyphs so text remains crisp.
+
+The aura remains opt-in and disabled by default. Reduced motion, hidden or
+unfocused cursors, pane and content boundaries, HiDPI scaling, and translucent
+window alpha limits are applied without a separate animation timer, blur pass,
+or bloom source.
+
 ## 2026-07-15 -- Tab and workspace-rail seams now form one continuous surface
 
 The top tab seam now meets the content-facing seam of a pinned left or right

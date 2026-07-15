@@ -40,7 +40,6 @@ mod harness;
 
 mod background_treatment;
 mod crt_vignette;
-mod cursor_glow;
 mod cvd;
 mod decorations;
 mod dim_focus;

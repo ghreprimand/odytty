@@ -285,7 +285,6 @@ impl App {
         ctx.grid = snapshot.dimensions;
         let mut effects = Vec::new();
         self.paint_cursor_trail_quads(&ctx, &mut effects);
-        self.paint_cursor_glow_quads(&ctx, &mut effects);
         let pad = ctx.window_padding.as_f32();
         let translate = [origin[0] - pad, origin[1] - pad];
         for quad in &mut effects {
@@ -729,10 +728,12 @@ impl App {
         }
 
         // The focused pane is the sole split cursor consumer. Advance its
-        // blink/ease/slide state and attach trail/glow quads to its pane-local
-        // tail. Every other pane keeps an empty effect list and parked timers.
+        // blink/ease/slide state and attach trail quads plus one analytic-aura
+        // request to its pane. Every other pane keeps empty effects and parked
+        // timers.
         let mut pane_cursor_effects: Vec<Vec<SolidQuad>> =
             (0..panes_owned.len()).map(|_| Vec::new()).collect();
+        let mut pane_cursor_glow = vec![None; panes_owned.len()];
         if let Some((idx, viewport_offset, scrollback_len, cursor_blinking, clip_rect)) =
             focused_cursor_input
             && let Some((snapshot, origin, true, cursor_style, _)) = panes_owned.get_mut(idx)
@@ -748,6 +749,7 @@ impl App {
                 viewport_offset,
                 scrollback_len,
             );
+            pane_cursor_glow[idx] = self.cursor_glow_request(clip_rect);
         }
 
         // The tab chrome (only when the bar is shown) is drawn as its own region
@@ -853,6 +855,7 @@ impl App {
                 // always 0.0 — a strip is either the top bar or the rail).
                 band_glyph_dy_rows: strip.band_glyph_dy_rows,
                 rail_glyph_dy_rows: strip.rail_glyph_dy_rows,
+                cursor_glow: None,
             });
         }
         // Inactive-pane dimming: the focused pane is never dimmed (`0.0`), the
@@ -876,6 +879,7 @@ impl App {
                 // Content panes carry no chrome label; the offsets are inert.
                 band_glyph_dy_rows: 0.0,
                 rail_glyph_dy_rows: 0.0,
+                cursor_glow: pane_cursor_glow[idx],
             });
         }
 

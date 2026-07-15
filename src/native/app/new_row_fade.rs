@@ -350,8 +350,11 @@ mod tests {
         let mut effects = Vec::new();
         let ctx = ctx_at(&app, 0, Instant::now());
         app.paint_cursor_trail_quads(&ctx, &mut effects);
-        app.paint_cursor_glow_quads(&ctx, &mut effects);
         assert!(effects.is_empty(), "reduced motion emits no cursor effects");
+        assert!(
+            app.cursor_glow_request([0.0, 0.0, 100.0, 100.0]).is_none(),
+            "reduced motion emits no aura request"
+        );
 
         let now = Instant::now();
         app.update_cursor_easing(now, false, true);

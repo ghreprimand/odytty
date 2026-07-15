@@ -20,9 +20,11 @@ use super::connection_overlay::ConnectionOverlaySignature;
 use super::context_menu_ui::ContextMenuSignature;
 use super::font_picker::FontPickerSignature;
 use super::gpu::{
-    AdapterDiagnostics, StyleFonts, ViewportUniform, append_cursor_layer_vertices,
-    blend_state_for_color_glyphs, blend_state_for_subpixel, effect_params, effective_subpixel_mode,
-    ensure_snapshot_glyphs, grow_vertex_buffer_capacity, text_params, theme_clear_color,
+    AdapterDiagnostics, CursorGlowRequest, CursorGlowVertex, StyleFonts, ViewportUniform,
+    append_cursor_glow_vertices, append_cursor_layer_vertices, blend_state_for_color_glyphs,
+    blend_state_for_subpixel, build_cursor_glow_instance, create_cursor_glow_pipeline,
+    cursor_glow_falloff, effect_params, effective_subpixel_mode, ensure_snapshot_glyphs,
+    grow_vertex_buffer_capacity, text_params, theme_clear_color,
 };
 use super::key_remap_ui::KeyRemapSignature;
 use super::onboarding::OnboardingSignature;

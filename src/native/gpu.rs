@@ -135,6 +135,171 @@ pub(super) struct PaneRender<'a> {
     /// TAB-LABEL-CENTERING: sub-row glyph shift for a workspace-rail chrome strip.
     /// `0.0` (every content pane and the top-bar strip) is inert.
     pub(super) rail_glyph_dy_rows: f32,
+    /// Shape-aware cursor aura clip for the focused content pane. `None` is the
+    /// exact off path for background panes, chrome strips, reduced motion, and
+    /// the default-off `cursor_glow` setting.
+    pub(super) cursor_glow: Option<CursorGlowRequest>,
+}
+
+/// Per-frame request for the analytic cursor aura. Geometry is rebuilt from the
+/// same snapshot, origin, style, and [`CursorRenderParams`] as the cursor, so
+/// Full and CursorOnly paths cannot diverge. The clip is the terminal content
+/// rectangle in physical window pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct CursorGlowRequest {
+    pub(super) clip_rect: [f32; 4],
+}
+
+/// Fully resolved analytic aura instance consumed by the six-vertex GPU pass.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct CursorGlowInstance {
+    pub(super) quad_rect: [f32; 4],
+    pub(super) source_rect: [f32; 4],
+    pub(super) radius: f32,
+    pub(super) corner_radius: f32,
+    pub(super) color: [f32; 4],
+    pub(super) peak_alpha: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct CursorGlowVertex {
+    pub(super) pos: [f32; 2],
+    pub(super) source_rect: [f32; 4],
+    /// x = falloff radius, y = source corner radius, z = peak alpha.
+    pub(super) aura: [f32; 4],
+    pub(super) color: [f32; 4],
+}
+
+const CURSOR_GLOW_BLOCK_ALPHA: f32 = 0.08;
+const CURSOR_GLOW_THIN_ALPHA: f32 = 0.10;
+const CURSOR_GLOW_ALPHA_LIFT: f32 = 0.02;
+
+fn cursor_glow_peak_alpha(style: CursorStyle, cursor_alpha: f32, content_alpha: f32) -> f32 {
+    let base = match style {
+        CursorStyle::Block => CURSOR_GLOW_BLOCK_ALPHA,
+        CursorStyle::Underline | CursorStyle::Bar => CURSOR_GLOW_THIN_ALPHA,
+    };
+    let eased = base * cursor_alpha.clamp(0.0, 1.0).powi(2);
+    let transparency_cap =
+        CURSOR_GLOW_ALPHA_LIFT / (1.0 - content_alpha.clamp(0.0, 1.0)).max(0.001);
+    eased.min(transparency_cap).clamp(0.0, 1.0)
+}
+
+fn intersect_rect(rect: [f32; 4], clip: [f32; 4]) -> Option<[f32; 4]> {
+    let intersection = [
+        rect[0].max(clip[0]),
+        rect[1].max(clip[1]),
+        rect[2].min(clip[2]),
+        rect[3].min(clip[3]),
+    ];
+    (intersection[0] < intersection[2] && intersection[1] < intersection[3]).then_some(intersection)
+}
+
+/// Resolve one cursor aura from the exact live cursor inputs. This is the only
+/// instance builder used by Full, CursorOnly, and multi-pane updates.
+pub(super) fn build_cursor_glow_instance(
+    snapshot: &Snapshot,
+    cell: atlas::CellSize,
+    cursor_style: CursorStyle,
+    origin: [f32; 2],
+    params: CursorRenderParams,
+    scale: f32,
+    content_alpha: f32,
+    request: CursorGlowRequest,
+) -> Option<CursorGlowInstance> {
+    if !snapshot.cursor_visible || !params.focused || params.alpha <= 0.0 {
+        return None;
+    }
+    let cols = snapshot.dimensions.columns;
+    let rows = snapshot.dimensions.rows;
+    if cols == 0 || rows == 0 {
+        return None;
+    }
+    let cell_w = cell.width as f32;
+    let cell_h = cell.height as f32;
+    if cell_w <= 0.0 || cell_h <= 0.0 {
+        return None;
+    }
+
+    let col = snapshot.cursor.column.min(cols - 1) as f32;
+    let row = snapshot.cursor.row.min(rows - 1) as f32;
+    let x0 = origin[0] + col * cell_w + params.offset[0];
+    let y0 = origin[1] + row * cell_h + params.offset[1];
+    let source_rect = match cursor_style {
+        CursorStyle::Block => [x0, y0, x0 + cell_w, y0 + cell_h],
+        CursorStyle::Underline => grid::cursor_underline_rect(x0, y0, cell_w, cell_h),
+        CursorStyle::Bar => grid::cursor_bar_rect(x0, y0, cell_w, cell_h),
+    };
+
+    let scale = scale.max(0.001);
+    let source_w = source_rect[2] - source_rect[0];
+    let source_h = source_rect[3] - source_rect[1];
+    let radius = (0.35 * cell_w.min(cell_h)).clamp(3.0 * scale, 5.0 * scale);
+    let corner_radius = match cursor_style {
+        CursorStyle::Block => (1.0 * scale).min(0.15 * source_w.min(source_h)),
+        CursorStyle::Underline | CursorStyle::Bar => 0.5 * source_w.min(source_h),
+    };
+    let extent = (1.25 * radius + 1.0).ceil();
+    let quad_rect = intersect_rect(
+        [
+            source_rect[0] - extent,
+            source_rect[1] - extent,
+            source_rect[2] + extent,
+            source_rect[3] + extent,
+        ],
+        request.clip_rect,
+    )?;
+    let peak_alpha = cursor_glow_peak_alpha(cursor_style, params.alpha, content_alpha);
+    if peak_alpha <= 0.0 {
+        return None;
+    }
+    let cursor = snapshot.colors.cursor;
+    Some(CursorGlowInstance {
+        quad_rect,
+        source_rect,
+        radius,
+        corner_radius,
+        color: [
+            text::srgb_to_linear(cursor.red),
+            text::srgb_to_linear(cursor.green),
+            text::srgb_to_linear(cursor.blue),
+            1.0,
+        ],
+        peak_alpha,
+    })
+}
+
+pub(super) fn append_cursor_glow_vertices(
+    out: &mut Vec<CursorGlowVertex>,
+    instance: CursorGlowInstance,
+) {
+    let [x0, y0, x1, y1] = instance.quad_rect;
+    let shared = |pos| CursorGlowVertex {
+        pos,
+        source_rect: instance.source_rect,
+        aura: [
+            instance.radius,
+            instance.corner_radius,
+            instance.peak_alpha,
+            0.0,
+        ],
+        color: instance.color,
+    };
+    out.extend([
+        shared([x0, y0]),
+        shared([x0, y1]),
+        shared([x1, y0]),
+        shared([x1, y0]),
+        shared([x0, y1]),
+        shared([x1, y1]),
+    ]);
+}
+
+#[cfg(test)]
+pub(super) fn cursor_glow_falloff(outside: f32, radius: f32) -> f32 {
+    let normalized = outside.max(0.0) / radius.max(0.001);
+    2.0_f32.powf(-4.0 * normalized * normalized)
 }
 
 /// A window-level overlay drawn **topmost** over a multi-pane composite
@@ -859,6 +1024,15 @@ fn create_color_glyph_vertex_buffer(device: &wgpu::Device, capacity_bytes: u64) 
     })
 }
 
+fn create_cursor_glow_vertex_buffer(device: &wgpu::Device) -> wgpu::Buffer {
+    device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("odytty-cursor-glow-vertices"),
+        size: (grid::VERTS_PER_QUAD * std::mem::size_of::<CursorGlowVertex>()) as u64,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    })
+}
+
 pub(super) fn create_cell_pipeline(
     device: &wgpu::Device,
     format: wgpu::TextureFormat,
@@ -918,6 +1092,61 @@ pub(super) fn create_cell_pipeline(
                 // independently while the destination contributes
                 // `1.0 - coverage`.
                 blend: Some(blend_state_for_subpixel(subpixel)),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+
+pub(super) fn create_cursor_glow_pipeline(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    bind_group_layout: &wgpu::BindGroupLayout,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("odytty-cursor-glow-shader"),
+        source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/cursor_glow.wgsl").into()),
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("odytty-cursor-glow-pl"),
+        bind_group_layouts: &[Some(bind_group_layout)],
+        immediate_size: 0,
+    });
+    let vertex_attrs = wgpu::vertex_attr_array![
+        0 => Float32x2, // expanded quad position
+        1 => Float32x4, // source cursor rectangle
+        2 => Float32x4, // falloff radius, corner radius, peak alpha
+        3 => Float32x4, // resolved linear cursor color
+    ];
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("odytty-cursor-glow-pipeline"),
+        layout: Some(&pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<CursorGlowVertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &vertex_attrs,
+            }],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            cull_mode: None,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(blend_state_for_subpixel(SubpixelMode::Off)),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -1028,6 +1257,7 @@ pub(super) struct GpuState {
     enabled_features: wgpu::Features,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    cursor_glow_pipeline: wgpu::RenderPipeline,
     color_glyph_pipeline: wgpu::RenderPipeline,
     scene_target_format: wgpu::TextureFormat,
     post_process_format: Option<wgpu::TextureFormat>,
@@ -1041,10 +1271,13 @@ pub(super) struct GpuState {
     viewport_buf: wgpu::Buffer,
     vertex_buf: wgpu::Buffer,
     vertex_buf_capacity_bytes: u64,
+    cursor_glow_vertex_buf: wgpu::Buffer,
     color_glyph_vertex_buf: wgpu::Buffer,
     color_glyph_vertex_buf_capacity_bytes: u64,
     vertices: Vec<Vertex>,
     cursor_vertices: Vec<Vertex>,
+    cursor_glow_vertices: Vec<CursorGlowVertex>,
+    cursor_glow_vertex_count: u32,
     color_glyph_vertices: Vec<ColorGlyphVertex>,
     color_glyph_runs: Vec<ColorGlyphRun>,
     vertex_count: u32,
@@ -1520,6 +1753,8 @@ impl GpuState {
         // --- Render pipeline from the shared cell shader.
         let pipeline =
             create_cell_pipeline(&device, scene_target_format, &bind_group_layout, subpixel);
+        let cursor_glow_pipeline =
+            create_cursor_glow_pipeline(&device, scene_target_format, &bind_group_layout);
         let color_glyph_pipeline = create_color_glyph_pipeline(
             &device,
             scene_target_format,
@@ -1558,6 +1793,7 @@ impl GpuState {
         let background_vertex_count = background_vertex_count(initial_snapshot);
         let vertex_buf_capacity_bytes = grow_vertex_buffer_capacity(0, vertex_bytes_len(&vertices));
         let vertex_buf = create_vertex_buffer(&device, vertex_buf_capacity_bytes);
+        let cursor_glow_vertex_buf = create_cursor_glow_vertex_buffer(&device);
         if vertex_count > 0 {
             queue.write_buffer(&vertex_buf, 0, bytemuck::cast_slice(&vertices));
         }
@@ -1598,6 +1834,7 @@ impl GpuState {
             enabled_features,
             config,
             pipeline,
+            cursor_glow_pipeline,
             color_glyph_pipeline,
             scene_target_format,
             post_process_format,
@@ -1611,10 +1848,13 @@ impl GpuState {
             viewport_buf,
             vertex_buf,
             vertex_buf_capacity_bytes,
+            cursor_glow_vertex_buf,
             color_glyph_vertex_buf,
             color_glyph_vertex_buf_capacity_bytes,
             vertices,
             cursor_vertices: Vec::new(),
+            cursor_glow_vertices: Vec::with_capacity(grid::VERTS_PER_QUAD),
+            cursor_glow_vertex_count: 0,
             color_glyph_vertices,
             color_glyph_runs: initial_color_glyph_runs,
             vertex_count,
@@ -2145,6 +2385,8 @@ impl GpuState {
             &self.bind_group_layout,
             self.subpixel,
         );
+        self.cursor_glow_pipeline =
+            create_cursor_glow_pipeline(&self.device, target_format, &self.bind_group_layout);
         self.color_glyph_pipeline = create_color_glyph_pipeline(
             &self.device,
             target_format,
@@ -2184,6 +2426,7 @@ impl GpuState {
         &mut self,
         snapshot: &Snapshot,
         cursor_style: CursorStyle,
+        cursor_glow: Option<CursorGlowRequest>,
         cursor_params: CursorRenderParams,
         focus_dim: f32,
         treatment: grid::BackgroundTreatmentParams,
@@ -2192,6 +2435,7 @@ impl GpuState {
             snapshot,
             cursor_style,
             &[],
+            cursor_glow,
             cursor_params,
             focus_dim,
             treatment,
@@ -2287,6 +2531,7 @@ impl GpuState {
         let mut glyph_segment: Vec<Vertex> = Vec::new();
         let mut tail: Vec<Vertex> = Vec::new();
         let mut pane_buf: Vec<Vertex> = Vec::new();
+        let mut cursor_glow_instance = None;
         for (pane, runs) in panes.iter().zip(pane_runs.iter()) {
             pane_buf.clear();
             grid::build_cell_vertices_with_focus_dim_and_origin_into(
@@ -2346,6 +2591,18 @@ impl GpuState {
                 grid::push_solid_quad(&mut tail, overlay);
             }
             if pane.focused {
+                cursor_glow_instance = pane.cursor_glow.and_then(|request| {
+                    build_cursor_glow_instance(
+                        pane.snapshot,
+                        self.atlas.cell,
+                        pane.cursor_style,
+                        pane.origin,
+                        cursor_params,
+                        self.scale,
+                        self.window_bg_alpha,
+                        request,
+                    )
+                });
                 grid::append_cursor_vertices_with_origin(
                     &mut tail,
                     pane.snapshot,
@@ -2360,6 +2617,7 @@ impl GpuState {
             // cursor on the partial edge row cannot bleed past the divider.
             grid::clip_quads_vertical(&mut tail[tail_start..], pane.clip);
         }
+        self.write_cursor_glow_instance(cursor_glow_instance);
 
         // NF11: wash the wallpaper wherever no pane grid covers it (padding
         // band, sub-cell remainder strips, divider gaps) — same gate, color
@@ -2577,6 +2835,7 @@ impl GpuState {
         snapshot: &Snapshot,
         cursor_style: CursorStyle,
         overlays: &[SolidQuad],
+        cursor_glow: Option<CursorGlowRequest>,
         cursor_params: CursorRenderParams,
         focus_dim: f32,
         treatment: grid::BackgroundTreatmentParams,
@@ -2679,11 +2938,9 @@ impl GpuState {
             self.background_vertex_count = self.background_vertex_count.saturating_add(added);
         }
         self.cell_vertex_count = self.vertices.len() as u32;
-        // D-GLOW-3 draw order: cursor-layer overlays (glow/trail) are appended
-        // BEFORE the cursor block so they composite behind it. Both live in the
-        // single `[cell_vertex_count..vertex_count]` draw segment, so order
-        // within the buffer is the stacking order; the count tracking is
-        // unaffected (`cell_vertex_count` is fixed above, `vertex_count` below).
+        // Cursor-layer solid overlays (including the motion trail) are appended
+        // before the cursor block. The analytic aura uses its dedicated
+        // below-glyph pass and is rebuilt from the same cursor inputs below.
         append_cursor_layer_vertices(
             &mut self.vertices,
             snapshot,
@@ -2693,6 +2950,7 @@ impl GpuState {
             overlays,
             cursor_params,
         );
+        self.rebuild_cursor_glow(snapshot, cursor_style, origin, cursor_params, cursor_glow);
         // F4-P3: the revealed rail overlay strip draws topmost — after the
         // cursor and every overlay — so the floating band sits over the live
         // content it reveals atop. `None` leaves the frame byte-identical.
@@ -2803,14 +3061,14 @@ impl GpuState {
         snapshot: &Snapshot,
         cursor_style: CursorStyle,
         overlays: &[SolidQuad],
+        cursor_glow: Option<CursorGlowRequest>,
         params: CursorRenderParams,
     ) {
         self.cursor_vertices.clear();
         let origin = self.content_origin();
-        // D-GLOW-3 draw order: cursor-layer overlays (glow/trail) precede the
-        // cursor block in `cursor_vertices` so they composite behind it. This
-        // mirrors the Full-rebuild path so the CursorOnly update produces an
-        // identical stacking order; the count tracking is order-independent.
+        // Cursor-layer solid overlays precede the cursor block in
+        // `cursor_vertices`. The analytic aura is rebuilt independently into
+        // its dedicated below-glyph buffer from these same live inputs.
         append_cursor_layer_vertices(
             &mut self.cursor_vertices,
             snapshot,
@@ -2820,6 +3078,7 @@ impl GpuState {
             overlays,
             params,
         );
+        self.rebuild_cursor_glow(snapshot, cursor_style, origin, params, cursor_glow);
 
         let cell_vertices = self.cell_vertex_count as usize;
         let needed_vertices = cell_vertices + self.cursor_vertices.len();
@@ -2846,6 +3105,44 @@ impl GpuState {
                 &self.vertex_buf,
                 offset,
                 bytemuck::cast_slice(&self.cursor_vertices),
+            );
+        }
+    }
+
+    fn rebuild_cursor_glow(
+        &mut self,
+        snapshot: &Snapshot,
+        cursor_style: CursorStyle,
+        origin: [f32; 2],
+        params: CursorRenderParams,
+        request: Option<CursorGlowRequest>,
+    ) {
+        let instance = request.and_then(|request| {
+            build_cursor_glow_instance(
+                snapshot,
+                self.atlas.cell,
+                cursor_style,
+                origin,
+                params,
+                self.scale,
+                self.window_bg_alpha,
+                request,
+            )
+        });
+        self.write_cursor_glow_instance(instance);
+    }
+
+    fn write_cursor_glow_instance(&mut self, instance: Option<CursorGlowInstance>) {
+        self.cursor_glow_vertices.clear();
+        if let Some(instance) = instance {
+            append_cursor_glow_vertices(&mut self.cursor_glow_vertices, instance);
+        }
+        self.cursor_glow_vertex_count = self.cursor_glow_vertices.len() as u32;
+        if !self.cursor_glow_vertices.is_empty() {
+            self.queue.write_buffer(
+                &self.cursor_glow_vertex_buf,
+                0,
+                bytemuck::cast_slice(&self.cursor_glow_vertices),
             );
         }
     }
@@ -2948,11 +3245,10 @@ impl GpuState {
 
         let background_count = self.background_vertex_count.min(self.vertex_count);
         let cell_count = self.cell_vertex_count.min(self.vertex_count);
-        // Canonical Kitty render order: background cell quads ->
-        // negative-z images -> coverage glyphs/decorations -> color
-        // glyphs -> cursor/overlays -> non-negative-z images. The image
-        // and color-glyph layers bind their own pipelines/buffers, so
-        // the text pipeline is re-bound before each cell-vertex segment.
+        // Canonical Kitty render order: background cell quads -> negative-z
+        // images -> analytic cursor aura -> coverage glyphs/decorations ->
+        // color glyphs -> cursor/overlays -> non-negative-z images. Keeping the
+        // aura below both glyph lanes preserves text pixels exactly.
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
@@ -2960,6 +3256,12 @@ impl GpuState {
             pass.draw(0..background_count, 0..1);
         }
         self.image_layer.draw_below(pass);
+        if self.cursor_glow_vertex_count > 0 {
+            pass.set_pipeline(&self.cursor_glow_pipeline);
+            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.set_vertex_buffer(0, self.cursor_glow_vertex_buf.slice(..));
+            pass.draw(0..self.cursor_glow_vertex_count, 0..1);
+        }
         if background_count < cell_count {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);

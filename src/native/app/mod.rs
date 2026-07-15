@@ -5831,7 +5831,6 @@ impl ApplicationHandler<UserEvent> for App {
                         self.paint_scroll_indicator_quads(&ctx, &mut overlays);
                         self.paint_gutter_quads(&ctx, &mut overlays);
                         self.paint_cursor_trail_quads(&ctx, &mut overlays);
-                        self.paint_cursor_glow_quads(&ctx, &mut overlays);
                         self.paint_background_quads(&ctx, &mut overlays);
                         // ID4 themed window border: a thin frame in the padding
                         // band, drawn over any background treatment; empty on the
@@ -5853,6 +5852,15 @@ impl ApplicationHandler<UserEvent> for App {
                                 chrome_dy as f32,
                             );
                         }
+                        let pad = ctx.window_padding.as_f32();
+                        let content_x0 = pad + chrome_dx as f32;
+                        let content_y0 = pad + chrome_dy as f32;
+                        let cursor_glow = self.cursor_glow_request([
+                            content_x0,
+                            content_y0,
+                            content_x0 + self.grid.columns as f32 * cell.width as f32,
+                            content_y0 + self.grid.rows as f32 * cell.height as f32,
+                        ]);
                         let (snapshot, tab_bar_quads) = self.decorate_snapshot_with_tab_bar(
                             &snapshot,
                             snapshot.cursor_visible,
@@ -6038,6 +6046,7 @@ impl ApplicationHandler<UserEvent> for App {
                                         gpu.update_from_snapshot(
                                             &snapshot,
                                             cursor_style,
+                                            cursor_glow,
                                             cursor_params,
                                             focus_dim,
                                             background_treatment,
@@ -6047,6 +6056,7 @@ impl ApplicationHandler<UserEvent> for App {
                                             &snapshot,
                                             cursor_style,
                                             &overlays,
+                                            cursor_glow,
                                             cursor_params,
                                             focus_dim,
                                             background_treatment,
@@ -6063,6 +6073,7 @@ impl ApplicationHandler<UserEvent> for App {
                                         &snapshot,
                                         cursor_style,
                                         &overlays,
+                                        cursor_glow,
                                         cursor_params,
                                     );
                                 }

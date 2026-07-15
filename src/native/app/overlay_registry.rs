@@ -28,13 +28,6 @@ use super::*;
 use crate::core::{Attrs, Cell};
 use unicode_width::UnicodeWidthChar;
 
-/// ID1 v1 cursor-glow halo rings as `(extend_px, alpha)`, emitted outer-first so
-/// the more opaque inner rings composite over the faint outer one. The pixel
-/// extents reach at most a half-cell beyond the cursor and the alphas are capped
-/// at `0.13`, which keeps adjacent-cell text within the RV1 floor safety
-/// threshold (D-GLOW-2 / D-GLOW-6).
-const CURSOR_GLOW_RINGS: [(f32, f32); 3] = [(8.0, 0.05), (4.0, 0.09), (1.0, 0.13)];
-
 /// Read-only inputs every paint contributor needs (today threaded
 /// individually). Built once per frame by [`App::overlay_ctx`].
 #[derive(Debug, Clone, Copy)]
@@ -48,10 +41,6 @@ pub(in crate::native) struct OverlayCtx {
     /// contributors (ID1 glow, VE4 trail). Captured from the post-blink-resolve
     /// snapshot at the frame-composition call site.
     pub(in crate::native) cursor: Position,
-    /// Live sub-cell cursor displacement for this frame. Cursor-layer geometry
-    /// uses the same value as the cursor block so effects remain centered while
-    /// a motion slide is in flight. Identity at rest and while motion is off.
-    pub(in crate::native) cursor_offset: [f32; 2],
     /// Whether the cursor is drawn this frame (already folds the blink
     /// off-phase). Cursor-layer overlays gate on this so the glow hides exactly
     /// when the cursor block does.
@@ -107,7 +96,6 @@ impl App {
                 .map(GpuState::window_padding)
                 .unwrap_or_default(),
             cursor,
-            cursor_offset: self.cursor_motion_offset(),
             cursor_visible,
             now,
             clear_color: self
@@ -311,51 +299,22 @@ impl App {
     // alongside `cursor_trail_overlay_signature`, so the whole trail feature is
     // one submodule.
 
-    /// ID1 v1 soft cursor glow — three concentric semi-transparent halo quads
-    /// in the theme foreground color, emitted as cursor-layer overlays so the
-    /// GPU draws them BEHIND the cursor block (D-GLOW-3 reorder). Off by default
-    /// (`cursor_glow`); while off this pushes nothing, so the default render
-    /// path is byte-identical. The rings extend at most a half-cell beyond the
-    /// cursor cell at low alpha (0.05/0.09/0.13), kept under the RV1 floor's
-    /// safety threshold for adjacent-cell text (D-GLOW-6).
-    pub(in crate::native) fn paint_cursor_glow_quads(
+    /// Request the dedicated analytic cursor aura for one content rectangle.
+    /// `None` is the exact default-off, reduced-motion, unfocused, and fully
+    /// faded path. The GPU resolves shape, color, motion, DPI, transparency,
+    /// and clipping from the same inputs as the cursor itself.
+    pub(in crate::native) fn cursor_glow_request(
         &self,
-        ctx: &OverlayCtx,
-        out: &mut Vec<SolidQuad>,
-    ) {
-        if self.settings.reduced_motion || !self.settings.cursor_glow || !ctx.cursor_visible {
-            return;
+        clip_rect: [f32; 4],
+    ) -> Option<crate::native::gpu::CursorGlowRequest> {
+        if self.settings.reduced_motion
+            || !self.settings.cursor_glow
+            || !self.focused
+            || self.cursor_blink_alpha() <= 0.0
+        {
+            return None;
         }
-        let cols = ctx.grid.columns;
-        let rows = ctx.grid.rows;
-        if cols == 0 || rows == 0 {
-            return;
-        }
-        // Defensive clamp mirroring `push_cursor`: a stale snapshot could carry
-        // a cursor past the grid.
-        let col = ctx.cursor.column.min(cols - 1) as f32;
-        let row = ctx.cursor.row.min(rows - 1) as f32;
-        let pad = ctx.window_padding.as_f32();
-        let cell_w = ctx.cell.width as f32;
-        let cell_h = ctx.cell.height as f32;
-        let x0 = pad + col * cell_w + ctx.cursor_offset[0];
-        let y0 = pad + row * cell_h + ctx.cursor_offset[1];
-        let x1 = x0 + cell_w;
-        let y1 = y0 + cell_h;
-        // Glow color = theme foreground in linear RGB (matches the scroll
-        // indicator's color basis); per-ring alpha set below. D-GLOW-5.
-        let (r, g, b) = self.effective_theme.foreground;
-        let base = text::foreground_linear(Color::Rgb(r, g, b));
-        // Outer ring first (largest, faintest) so the more opaque inner rings
-        // composite on top of it; all three precede the cursor block.
-        for (extend, alpha) in CURSOR_GLOW_RINGS {
-            let mut color = base;
-            color[3] = alpha;
-            out.push(SolidQuad {
-                rect: [x0 - extend, y0 - extend, x1 + extend, y1 + extend],
-                color,
-            });
-        }
+        Some(crate::native::gpu::CursorGlowRequest { clip_rect })
     }
 
     /// ID3/U5 background-treatment quads — no-op slot (foundation). Filled by
@@ -376,9 +335,9 @@ impl App {
     /// the off→on toggle flips `Inert` ↔ `CursorGlow`, forcing a rebuild so the
     /// glow appears/disappears without a stale cache, while cursor *moves* and
     /// blink toggles already reclassify through the terminal-revision and the
-    /// `CursorRenderSignature.visible` fields respectively (D-GLOW-7 — the glow
-    /// quads are repainted from the live `ctx.cursor` every frame, so no extra
-    /// per-position signature field is needed).
+    /// `CursorRenderSignature.visible` fields respectively. The analytic
+    /// instance is rebuilt from the live cursor parameters on both GPU update
+    /// paths, so no extra per-position signature field is needed.
     pub(in crate::native) fn cursor_glow_overlay_signature(&self) -> OverlayFragment {
         if self.settings.reduced_motion || !self.settings.cursor_glow {
             return OverlayFragment::Inert;

@@ -442,9 +442,10 @@ fn split_focused_cursor_effects_advance_without_background_wakes() {
 
     app.disable_cursor_effects_for_test();
     app.set_last_presented_snapshot_for_test(prior);
-    let (off_effects, off_params) =
+    let (off_effects, off_glow, off_params) =
         app.advance_multipane_cursor_effects_for_test(t0, &mut current, cell, origin);
     assert!(off_effects.is_empty());
+    assert!(off_glow.is_none());
     assert_eq!(off_params, CursorRenderParams::default());
     assert!(
         app.focused_cursor_animation_deadline_for_test().is_none(),
@@ -454,11 +455,11 @@ fn split_focused_cursor_effects_advance_without_background_wakes() {
     app.enable_cursor_effects_for_test();
     app.set_last_presented_snapshot_for_test(snapshot(&["  "], 2));
 
-    // The first frame arms the slide; the next advances it far enough for all
-    // three glow rings to be visible. This one-cell move intentionally emits no
-    // trail echo, keeping focused split-pane typing as crisp as single-pane.
+    // The first frame arms the slide; the next advances the shared cursor/aura
+    // parameters. This one-cell move intentionally emits no trail echo, keeping
+    // focused split-pane typing as crisp as single-pane.
     let _ = app.advance_multipane_cursor_effects_for_test(t0, &mut current, cell, origin);
-    let (effects, params) = app.advance_multipane_cursor_effects_for_test(
+    let (effects, glow, params) = app.advance_multipane_cursor_effects_for_test(
         t0 + Duration::from_millis(20),
         &mut current,
         cell,
@@ -473,24 +474,32 @@ fn split_focused_cursor_effects_advance_without_background_wakes() {
         params.alpha > 0.0 && params.alpha < 1.0,
         "focused split cursor advances eased alpha"
     );
-    assert_eq!(effects.len(), 3, "one-cell moves omit the trail echo");
+    assert!(effects.is_empty(), "one-cell moves omit the trail echo");
     let logical_cursor_x = origin[0] + current.cursor.column as f32 * cell.width as f32;
-    let inner_glow = effects.last().expect("inner glow ring");
-    assert!((inner_glow.rect[0] - (logical_cursor_x + params.offset[0] - 1.0)).abs() < 0.01);
-    assert!(
-        (inner_glow.rect[2] - (logical_cursor_x + params.offset[0] + cell.width as f32 + 1.0))
-            .abs()
-            < 0.01
+    let glow = glow.expect("focused split emits one clipped aura request");
+    assert_eq!(
+        glow.clip_rect,
+        [
+            origin[0],
+            origin[1],
+            origin[0] + 2.0 * cell.width as f32,
+            origin[1] + cell.height as f32,
+        ]
     );
-    assert!(
-        effects.iter().all(|quad| {
-            quad.rect[0] >= origin[0] - 0.01
-                && quad.rect[1] >= origin[1] - 0.01
-                && quad.rect[2] <= origin[0] + 2.0 * cell.width as f32 + 0.01
-                && quad.rect[3] <= origin[1] + cell.height as f32 + 0.01
-        }),
-        "cursor effects use the pane origin and remain clipped to its grid"
-    );
+    let aura = build_cursor_glow_instance(
+        &current,
+        cell,
+        CursorStyle::Block,
+        origin,
+        params,
+        1.0,
+        1.0,
+        glow,
+    )
+    .expect("focused split builds one aura instance");
+    assert!((aura.source_rect[0] - (logical_cursor_x + params.offset[0])).abs() < 0.01);
+    assert!(aura.quad_rect[0] >= origin[0]);
+    assert!(aura.quad_rect[2] <= origin[0] + 2.0 * cell.width as f32);
 
     app.run_about_to_wait_maintenance_for_test(t0 + Duration::from_millis(20));
     assert!(

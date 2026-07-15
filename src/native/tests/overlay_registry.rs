@@ -234,8 +234,11 @@ fn frame_overlay_refactor_is_pixel_identical() {
     app.paint_scroll_indicator_quads(&ctx, &mut quads);
     app.paint_gutter_quads(&ctx, &mut quads);
     app.paint_cursor_trail_quads(&ctx, &mut quads);
-    app.paint_cursor_glow_quads(&ctx, &mut quads);
     app.paint_background_quads(&ctx, &mut quads);
+    assert!(
+        app.cursor_glow_request([0.0, 0.0, 100.0, 100.0]).is_none(),
+        "the default-off aura request must be absent"
+    );
     assert!(
         quads.is_empty(),
         "the off-path quad manifest must produce no quads"
@@ -274,7 +277,6 @@ fn inactive_contributors_are_noops() {
 
     let mut quads: Vec<SolidQuad> = Vec::new();
     app.paint_cursor_trail_quads(&ctx, &mut quads);
-    app.paint_cursor_glow_quads(&ctx, &mut quads);
     app.paint_background_quads(&ctx, &mut quads);
     app.paint_window_border_quads(&ctx, &mut quads);
     assert!(quads.is_empty(), "the new quad slots must push nothing");
@@ -683,11 +685,10 @@ fn modal_gate_is_dead_by_default() {
 
 // --- ID1 v1 soft cursor glow (Phase 4) --------------------------------------
 
-/// Off-path identity (T1 kill-shot): with `cursor_glow` off (the default) the
-/// glow painter emits zero quads even with the cursor visible, and the cache
-/// fragment is `Inert` — so the default render path is byte-identical.
+/// Off-path identity: the default-off glow produces no GPU request and keeps
+/// the cache fragment inert.
 #[test]
-fn cursor_glow_off_emits_no_quads() {
+fn cursor_glow_off_emits_no_request() {
     let Some(app) = build_app(Settings::default()) else {
         return;
     };
@@ -698,9 +699,11 @@ fn cursor_glow_off_emits_no_quads() {
         true, // visible — proves the gate is the setting, not visibility
         std::time::Instant::now(),
     );
-    let mut quads: Vec<SolidQuad> = Vec::new();
-    app.paint_cursor_glow_quads(&ctx, &mut quads);
-    assert!(quads.is_empty(), "glow must emit nothing while off");
+    assert!(ctx.cursor_visible);
+    assert!(
+        app.cursor_glow_request([0.0, 0.0, 100.0, 100.0]).is_none(),
+        "glow must request no GPU work while off"
+    );
     assert_eq!(
         app.cursor_glow_overlay_signature(),
         OverlayFragment::Inert,
@@ -708,59 +711,20 @@ fn cursor_glow_off_emits_no_quads() {
     );
 }
 
-/// Glow on + cursor visible emits exactly three concentric halo rings centered
-/// on the cursor cell, faintest (outer) first so the inner rings composite over
-/// it. Alphas are the ratified 0.05/0.09/0.13 ladder and every ring shares one
-/// RGB (the theme foreground), independent of cursor position.
+/// Glow on produces one clipped analytic-aura request rather than CPU rings.
 #[test]
-fn cursor_glow_on_emits_three_concentric_rings() {
+fn cursor_glow_on_emits_one_analytic_request() {
     let Some(app) = build_app(Settings {
         cursor_glow: true,
         ..Settings::default()
     }) else {
         return;
     };
-    let cw = CELL_W as f32;
-    let ch = CELL_H as f32;
-    let (col, row) = (2usize, 1usize);
-    let ctx = app.overlay_ctx(
-        0,
-        cell(CELL_W, CELL_H),
-        crate::core::Position { row, column: col },
-        true,
-        std::time::Instant::now(),
+    let clip = [4.0, 6.0, 80.0, 100.0];
+    assert_eq!(
+        app.cursor_glow_request(clip),
+        Some(crate::native::gpu::CursorGlowRequest { clip_rect: clip })
     );
-    let mut quads: Vec<SolidQuad> = Vec::new();
-    app.paint_cursor_glow_quads(&ctx, &mut quads);
-    assert_eq!(quads.len(), 3, "glow must emit exactly three rings");
-
-    // No window padding in tests (gpu absent ⇒ ZERO), so the cursor cell is at
-    // [col*cw, row*ch, +cw, +ch]; rings extend 8/4/1 px outward.
-    let x0 = col as f32 * cw;
-    let y0 = row as f32 * ch;
-    let x1 = x0 + cw;
-    let y1 = y0 + ch;
-    let expected = [(8.0f32, 0.05f32), (4.0, 0.09), (1.0, 0.13)];
-    for (q, (extend, alpha)) in quads.iter().zip(expected) {
-        assert_eq!(
-            q.rect,
-            [x0 - extend, y0 - extend, x1 + extend, y1 + extend],
-            "ring rect must be the cursor cell expanded by {extend}px"
-        );
-        assert!(
-            (q.color[3] - alpha).abs() < 1e-6,
-            "ring alpha must be {alpha}"
-        );
-    }
-    // Concentric: outer encloses mid encloses inner (strictly nested).
-    assert!(
-        quads[0].rect[0] < quads[1].rect[0] && quads[1].rect[0] < quads[2].rect[0],
-        "rings must nest outer→inner"
-    );
-    // One shared RGB across rings (the theme foreground in linear RGB).
-    let rgb = |q: &SolidQuad| [q.color[0], q.color[1], q.color[2]];
-    assert_eq!(rgb(&quads[0]), rgb(&quads[1]), "all rings share one color");
-    assert_eq!(rgb(&quads[1]), rgb(&quads[2]), "all rings share one color");
 
     // Cache fragment is a non-Inert constant while on (T4 — toggles the cache).
     assert_eq!(
@@ -768,70 +732,6 @@ fn cursor_glow_on_emits_three_concentric_rings() {
         OverlayFragment::CursorGlow { phase: 0 },
         "the glow cache fragment must be CursorGlow while on"
     );
-}
-
-/// A moving cursor and its glow share the exact live sub-cell offset. This is
-/// the single-pane placement contract; the render signature already observes
-/// the same `CursorRenderParams`, so no additional wake or cache key is needed.
-#[test]
-fn cursor_glow_follows_the_live_slide_offset() {
-    let settings = Settings {
-        cursor_glow: true,
-        cursor_motion: true,
-        ..Default::default()
-    };
-    let Some(mut app) = build_app(settings) else {
-        return;
-    };
-    let mut prior = content_snapshot();
-    prior.cursor = Position { row: 1, column: 1 };
-    app.set_last_presented_snapshot_for_test(prior);
-    let mut current = content_snapshot();
-    current.cursor = Position { row: 1, column: 2 };
-    let now = Instant::now();
-    app.update_cursor_motion(now, &current, cell(CELL_W, CELL_H));
-    let params = app.cursor_render_params();
-    assert_ne!(params.offset, [0.0, 0.0], "slide is active");
-
-    let ctx = app.overlay_ctx(0, cell(CELL_W, CELL_H), current.cursor, true, now);
-    let mut quads = Vec::new();
-    app.paint_cursor_glow_quads(&ctx, &mut quads);
-
-    let x0 = current.cursor.column as f32 * CELL_W as f32 + params.offset[0];
-    let y0 = current.cursor.row as f32 * CELL_H as f32 + params.offset[1];
-    let inner = quads.last().expect("inner glow ring");
-    assert_eq!(
-        inner.rect,
-        [
-            x0 - 1.0,
-            y0 - 1.0,
-            x0 + CELL_W as f32 + 1.0,
-            y0 + CELL_H as f32 + 1.0,
-        ],
-        "glow and cursor block use the same animation offset"
-    );
-}
-
-/// Visibility gate: glow on but the cursor hidden (blink off-phase / DECTCEM)
-/// emits no quads, matching the cursor block which is also not drawn that frame.
-#[test]
-fn cursor_glow_hidden_cursor_emits_no_quads() {
-    let Some(app) = build_app(Settings {
-        cursor_glow: true,
-        ..Settings::default()
-    }) else {
-        return;
-    };
-    let ctx = app.overlay_ctx(
-        0,
-        cell(CELL_W, CELL_H),
-        crate::core::Position { row: 1, column: 2 },
-        false, // cursor hidden this frame
-        std::time::Instant::now(),
-    );
-    let mut quads: Vec<SolidQuad> = Vec::new();
-    app.paint_cursor_glow_quads(&ctx, &mut quads);
-    assert!(quads.is_empty(), "no glow while the cursor is hidden");
 }
 
 /// Cache invalidation (T4): toggling `cursor_glow` flips the composite between
