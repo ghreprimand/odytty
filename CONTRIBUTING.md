@@ -5,6 +5,22 @@ conventions for changes and commits. See `DEVLOG.md` for current state, `TODO.md
 for the milestone checklist, and `SPEC.md` for durable product/architecture
 decisions.
 
+## Contents
+
+- [Project status and contributions](#project-status-and-contributions)
+- [Developer Certificate of Origin (DCO)](#developer-certificate-of-origin-dco)
+- [Scope discipline](#scope-discipline)
+- [Ownership boundary](#ownership-boundary)
+- [Module map](#module-map)
+- [Platform targets and the per-platform backend pattern](#platform-targets-and-the-per-platform-backend-pattern)
+- [Test battery](#test-battery)
+- [Pre-commit gate](#pre-commit-gate)
+- [Public repository safety](#public-repository-safety)
+- [Commit, push, and devlog cadence](#commit-push-and-devlog-cadence)
+- [Visual-enhancement contributions](#visual-enhancement-contributions)
+- [Adding a built-in theme](#adding-a-built-in-theme)
+- [Performance benchmarks](#performance-benchmarks)
+
 ## Project status and contributions
 
 OdyTTY is a personal, maintainer-led project with a specific design vision (see
@@ -202,25 +218,38 @@ Two distinct icon paths, do not conflate them:
 ## Test battery
 
 The default `cargo test` run is deterministic and host-independent. Integration
-test buckets include
-`mouse_protocol`, `pixel_smoke` (49 compositor checks across its module set),
-`protocol_fuzz_*_smoke` (quick fuzzer tiers), `pty_alt_screen_smoke`,
-`transcript_smoke`, `emoji_pixel_smoke`, `boxdraw_pixel_smoke`, and `cli`. Most
-of the PTY-backed suite runs in the default `cargo test` (e.g.
+test buckets include:
+
+- `mouse_protocol` — mouse-tracking protocol coverage.
+- `pixel_smoke` — 49 compositor checks across its module set.
+- `protocol_fuzz_*_smoke` — quick fuzzer tiers.
+- `pty_alt_screen_smoke` — PTY-backed alternate-screen behavior.
+- `emoji_pixel_smoke`, `boxdraw_pixel_smoke` — emoji and box-drawing rasterization.
+- `transcript_smoke` — live-PTY transcript replay.
+- `cli` — command-line surface.
+
+Most of the PTY-backed suite runs in the default `cargo test` (e.g.
 `pty_alt_screen_smoke`); only a few live-PTY tests (`transcript_smoke`, the
 clipboard-paste test) are `#[ignore]`d and require a real PTY
 (`cargo test -- --ignored` to run them).
 
 **Pixel-smoke discipline.** `tests/pixel_smoke/` (a directory binary: entry
-`main.rs` plus its test modules) rasterizes the real
-`grid::build_vertices*` geometry through a headless CPU compositor and asserts
-structural invariants: blank-cell purity, glyph ink within bounds, inverse
-fg/bg swap, dim luminance drop, underline/strikethrough rows, box-drawing seam
-continuity, wide-char single-draw, and bar-cursor stripe. The plain/fast profile
-must stay **byte-identical** when `render_quality=plain` and relevant feature
-opt-outs are selected. Default-on readability and identity settings need
-explicit identity or bounded-effect coverage. Add a pixel-smoke case for any
-default-path change.
+`main.rs` plus its test modules) rasterizes the real `grid::build_vertices*`
+geometry through a headless CPU compositor and asserts structural invariants:
+
+- blank-cell purity
+- glyph ink within bounds
+- inverse fg/bg swap
+- dim luminance drop
+- underline/strikethrough rows
+- box-drawing seam continuity
+- wide-char single-draw
+- bar-cursor stripe
+
+The plain/fast profile must stay **byte-identical** when `render_quality=plain`
+and relevant feature opt-outs are selected. Default-on readability and identity
+settings need explicit identity or bounded-effect coverage. Add a pixel-smoke
+case for any default-path change.
 
 **Deep fuzz tier.** `tests/protocol_fuzz.rs` has `#[ignore]`-gated deep tiers
 that run at 40 000 iterations. Run them before touching the parser or core
@@ -249,6 +278,13 @@ Before every commit, run through this gate and stop if anything is unclear:
 6. **Keep local-only files out.** Machine-local config, generated credentials,
    private notes, `.env*`, and editor/agent scratch files stay untracked.
 7. **Check file sizes.** No source file should exceed approximately 2000 lines.
+
+**Toolchain lockstep.** OdyTTY pins a verified Minimum Supported Rust Version:
+`rust-toolchain.toml` (`channel = "1.96.0"`) and `Cargo.toml`
+(`rust-version = "1.96"`) must stay in step, and CI builds at that floor on every
+run. If you adopt a language feature that raises the real floor, bump both files
+in the same commit and note it in `DEVLOG.md`; treat a mismatch between them as a
+bug.
 
 ## Public repository safety
 
