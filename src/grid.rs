@@ -1104,6 +1104,9 @@ pub struct CursorRenderParams {
     pub offset: [f32; 2],
     pub alpha: f32,
     pub focused: bool,
+    /// Suppress the ordinary destination cursor while the large-jump follower
+    /// owns the presentation. Terminal state and glyph content remain live.
+    pub follower_active: bool,
 }
 
 impl Default for CursorRenderParams {
@@ -1112,6 +1115,7 @@ impl Default for CursorRenderParams {
             offset: [0.0, 0.0],
             alpha: 1.0,
             focused: true,
+            follower_active: false,
         }
     }
 }
@@ -1489,7 +1493,7 @@ fn push_cursor(
     origin: [f32; 2],
     params: CursorRenderParams,
 ) {
-    if !snapshot.cursor_visible {
+    if !snapshot.cursor_visible || params.follower_active {
         return;
     }
 

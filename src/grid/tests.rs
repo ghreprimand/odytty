@@ -1004,6 +1004,7 @@ fn cursor_render_params_offset_and_alpha_are_live() {
             offset: [0.0, 0.0],
             alpha: 0.5,
             focused: true,
+            follower_active: false,
         },
     );
     assert!(
@@ -1023,6 +1024,7 @@ fn cursor_render_params_offset_and_alpha_are_live() {
             offset: [5.0, 7.0],
             alpha: 1.0,
             focused: true,
+            follower_active: false,
         },
     );
     assert!((shifted[0].pos[0] - (base[0].pos[0] + 5.0)).abs() < 1e-6);
@@ -1076,6 +1078,28 @@ fn unfocused_block_cursor_is_a_four_quad_hollow_outline() {
                 .all(|v| v.color == text::foreground_linear(Color::Default))
         );
     }
+}
+
+#[test]
+fn active_large_jump_follower_suppresses_the_destination_cursor_geometry() {
+    let Some(atlas) = atlas() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let snapshot = Terminal::new(3, 2).snapshot();
+    let mut vertices = Vec::new();
+    append_cursor_vertices_with_origin(
+        &mut vertices,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        [0.0, 0.0],
+        CursorRenderParams {
+            follower_active: true,
+            ..CursorRenderParams::default()
+        },
+    );
+    assert!(vertices.is_empty());
 }
 
 #[test]

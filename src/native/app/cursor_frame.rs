@@ -17,7 +17,8 @@
 //! is held at `[0.0, 0.0]` and no wake is armed, so the cursor sits at its exact
 //! cell origin. Discontinuities (first frame,
 //! resize/reflow, scrollback, large jump, unfocused, hidden cursor) always snap
-//! rather than slide — the worst case degrades to today's instant teleport.
+//! rather than use this short glide. Large jumps may be presented by the
+//! independent bounded follower in `cursor_streak.rs`.
 //!
 //! This module reaches `App`'s private fields directly; the parent reaches these
 //! methods through `pub(super)`.
@@ -33,8 +34,8 @@ const CURSOR_SLIDE_DURATION: Duration = Duration::from_millis(55);
 const CURSOR_MOTION_FRAME: Duration = Duration::from_millis(16);
 
 /// Manhattan cell distance beyond which a cursor move snaps instead of sliding.
-/// A large jump (clear-screen, cursor-home, a multi-line leap) teleports; only
-/// short adjacent steps glide.
+/// A large jump bypasses this nearby-motion glide; only short adjacent steps
+/// use it. The optional trail follower owns the separate large-jump treatment.
 pub(super) const MAX_SLIDE_CELLS: f32 = 6.0;
 
 /// Ease-out cubic: fast departure, gentle arrival. Maps `0.0..=1.0` to itself.
@@ -113,8 +114,8 @@ impl App {
         } else if let Some((from, _)) = prior
             && to != from
         {
-            // A fresh logical move: arm a glide from the prior cell, unless it is
-            // a large jump (then teleport).
+            // A fresh logical move: arm a glide from the prior cell unless it is
+            // a large jump, which the separate follower may present.
             let dcol = from.column as f32 - to.column as f32;
             let drow = from.row as f32 - to.row as f32;
             if dcol.abs() + drow.abs() <= MAX_SLIDE_CELLS {

@@ -440,6 +440,7 @@ fn cursor_anim_key_quantization_polarity() {
         offset: [0.0, 0.0],
         alpha: 0.5,
         focused: true,
+        follower_active: false,
     });
     assert_ne!(
         faded,
@@ -454,6 +455,7 @@ fn cursor_anim_key_quantization_polarity() {
         offset: [3.0, 0.0],
         alpha: 1.0,
         focused: true,
+        follower_active: false,
     });
     assert_ne!(
         slid,
@@ -468,6 +470,15 @@ fn cursor_anim_key_quantization_polarity() {
         unfocused,
         CursorAnimKey::IDENTITY,
         "focus loss reclassifies the filled block into a hollow outline"
+    );
+    let follower = CursorAnimKey::from_params(&CursorRenderParams {
+        follower_active: true,
+        ..CursorRenderParams::default()
+    });
+    assert_ne!(
+        follower,
+        CursorAnimKey::IDENTITY,
+        "the follower start frame removes the ordinary destination cursor"
     );
 }
 

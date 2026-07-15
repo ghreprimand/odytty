@@ -523,7 +523,7 @@ pub enum RenderQuality {
     High,
 }
 
-/// Linked intensity profile for nearby cursor echoes and large-jump streaks.
+/// Linked response profile for nearby cursor echoes and the large-jump follower.
 /// `Balanced` preserves the original nearby echo's opacity and lag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CursorTrailStrength {
@@ -1265,7 +1265,7 @@ pub struct Settings {
     /// so it is visible only while `cursor_motion` is also on; purely
     /// presentational, never affects cell semantics or the logical cursor.
     pub cursor_trail: bool,
-    /// Linked intensity profile for the nearby echo and large-jump streak.
+    /// Linked response profile for the nearby echo and large-jump follower.
     pub cursor_trail_strength: CursorTrailStrength,
     /// Whether the cursor glides between adjacent positions instead of
     /// teleporting (VE4). On by default; the off path sits at the exact cell

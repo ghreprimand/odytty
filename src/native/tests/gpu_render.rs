@@ -107,6 +107,7 @@ fn glow_instance(
         CursorGlowRequest {
             clip_rect: [0.0, 0.0, 1000.0, 1000.0],
         },
+        None,
     )
 }
 
@@ -117,6 +118,7 @@ fn cursor_glow_matches_cursor_shape_and_scale_matrix() {
         offset: [2.5, -1.25],
         alpha: 1.0,
         focused: true,
+        follower_active: false,
     };
     for scale in [1.0_f32, 1.25, 1.5, 1.75, 2.0] {
         let cell = CellSize {
@@ -266,6 +268,7 @@ fn cursor_glow_uses_dynamic_cursor_color_and_exact_clip() {
         1.0,
         1.0,
         request,
+        None,
     )
     .expect("clipped aura instance");
     assert_eq!(instance.quad_rect, request.clip_rect);
@@ -277,6 +280,41 @@ fn cursor_glow_uses_dynamic_cursor_color_and_exact_clip() {
             text::srgb_to_linear(0xe0),
         ]
     );
+}
+
+#[test]
+fn cursor_glow_follows_the_stretched_presentation_body() {
+    let snapshot = glow_snapshot();
+    let follower = CursorStreakRequest {
+        destination: Position { row: 3, column: 4 },
+        rect: [40.0, 120.0, 92.0, 160.0],
+        alpha: 1.0,
+        clip_rect: [0.0, 0.0, 500.0, 400.0],
+    };
+    let glow = build_cursor_glow_instance(
+        &snapshot,
+        CellSize {
+            width: 20,
+            height: 40,
+            baseline: 0,
+        },
+        CursorStyle::Block,
+        [11.0, 13.0],
+        CursorRenderParams {
+            follower_active: true,
+            ..CursorRenderParams::default()
+        },
+        1.0,
+        1.0,
+        CursorGlowRequest {
+            clip_rect: follower.clip_rect,
+        },
+        Some(follower),
+    )
+    .expect("active follower keeps the aura attached");
+    assert_eq!(glow.source_rect, [51.0, 133.0, 103.0, 173.0]);
+    assert!(glow.quad_rect[0] < glow.source_rect[0]);
+    assert!(glow.quad_rect[2] > glow.source_rect[2]);
 }
 
 #[test]
@@ -314,90 +352,60 @@ fn cursor_glow_hidden_unfocused_and_zero_alpha_emit_nothing() {
     }
 }
 
-fn streak_request(progress: f32, strength: CursorTrailStrength) -> CursorStreakRequest {
+fn streak_request(rect: [f32; 4]) -> CursorStreakRequest {
     CursorStreakRequest {
-        source: Position { row: 0, column: 0 },
         destination: Position { row: 3, column: 4 },
-        progress,
-        strength,
+        rect,
+        alpha: 1.0,
         clip_rect: [5.0, 7.0, 500.0, 400.0],
     }
 }
 
 #[test]
-fn cursor_streak_emits_one_oriented_six_vertex_quad_for_all_shapes() {
+fn cursor_follower_emits_one_axis_aligned_six_vertex_quad_for_all_shapes() {
     let snapshot = glow_snapshot();
     let cell = CellSize {
         width: 20,
         height: 40,
         baseline: 0,
     };
-    for style in [CursorStyle::Block, CursorStyle::Bar, CursorStyle::Underline] {
-        let instance = build_cursor_streak_instance(
-            &snapshot,
-            cell,
-            style,
-            [11.0, 13.0],
-            1.25,
-            1.0,
-            streak_request(0.25, CursorTrailStrength::Balanced),
-        )
-        .expect("nondegenerate path emits a streak");
+    for rect in [
+        [40.0, 120.0, 92.0, 160.0],
+        [40.0, 120.0, 46.0, 160.0],
+        [40.0, 156.0, 92.0, 160.0],
+    ] {
+        let instance =
+            build_cursor_streak_instance(&snapshot, cell, [11.0, 13.0], streak_request(rect))
+                .expect("nondegenerate follower emits a cursor body");
         let mut vertices: Vec<CursorStreakVertex> = Vec::new();
         append_cursor_streak_vertices(&mut vertices, instance);
         assert_eq!(vertices.len(), VERTS_PER_QUAD);
-        assert!(instance.radii[0] >= 1.25);
-        assert!(instance.radii[1] > instance.radii[0]);
         assert_eq!(instance.clip_rect, [5.0, 7.0, 500.0, 400.0]);
         assert!(
             vertices
                 .iter()
-                .all(|vertex| vertex.segment == instance.segment)
+                .all(|vertex| vertex.source_rect == instance.source_rect)
         );
+        assert_eq!(instance.peak_alpha, 1.0);
     }
 }
 
 #[test]
-fn cursor_streak_tail_collapses_and_alpha_is_profiled_and_capped() {
+fn cursor_follower_geometry_is_not_profiled_by_alpha_or_window_transparency() {
     let snapshot = glow_snapshot();
     let cell = CellSize {
         width: 20,
         height: 40,
         baseline: 0,
     };
-    let instance = |progress, strength, content_alpha| {
-        build_cursor_streak_instance(
-            &snapshot,
-            cell,
-            CursorStyle::Block,
-            [11.0, 13.0],
-            1.0,
-            content_alpha,
-            streak_request(progress, strength),
-        )
-        .expect("active streak")
-    };
-    let subtle = instance(0.0, CursorTrailStrength::Subtle, 1.0);
-    let balanced = instance(0.0, CursorTrailStrength::Balanced, 1.0);
-    let expressive = instance(0.0, CursorTrailStrength::Expressive, 1.0);
-    assert!((subtle.peak_alpha - 0.08).abs() < 1e-6);
-    assert!((balanced.peak_alpha - 0.12).abs() < 1e-6);
-    assert!((expressive.peak_alpha - 0.16).abs() < 1e-6);
-    assert!(subtle.radii[1] < balanced.radii[1]);
-    assert!(balanced.radii[1] < expressive.radii[1]);
-
-    let early = instance(0.25, CursorTrailStrength::Balanced, 1.0);
-    let late = instance(0.75, CursorTrailStrength::Balanced, 1.0);
-    let early_length =
-        (early.segment[2] - early.segment[0]).hypot(early.segment[3] - early.segment[1]);
-    let late_length = (late.segment[2] - late.segment[0]).hypot(late.segment[3] - late.segment[1]);
-    assert!(late_length < early_length);
-    assert!(late.peak_alpha < early.peak_alpha);
-
-    let translucent = instance(0.0, CursorTrailStrength::Expressive, 0.5);
-    assert!(translucent.peak_alpha * 0.5 <= 0.02 + 1e-6);
+    let rect = [40.0, 120.0, 92.0, 160.0];
+    let instance =
+        build_cursor_streak_instance(&snapshot, cell, [11.0, 13.0], streak_request(rect))
+            .expect("active follower");
+    assert_eq!(instance.peak_alpha, 1.0);
+    assert_eq!(instance.source_rect, [51.0, 133.0, 103.0, 173.0]);
     assert_eq!(
-        &balanced.color[..3],
+        &instance.color[..3],
         &[
             text::srgb_to_linear(0x20),
             text::srgb_to_linear(0x80),
@@ -415,7 +423,7 @@ fn synchronized_output_hold_retains_trail_glow_and_streak_inputs() {
     let glow = CursorGlowRequest {
         clip_rect: [10.0, 10.0, 200.0, 160.0],
     };
-    let streak = streak_request(0.4, CursorTrailStrength::Balanced);
+    let streak = streak_request([40.0, 120.0, 92.0, 160.0]);
     let (held_overlays, held_glow, held_streak) =
         retained_cursor_effects(&[trail], Some(glow), Some(streak));
     assert_eq!(held_overlays, vec![trail], "held frame retains trail quads");
@@ -588,13 +596,10 @@ fn cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws() {
             height: 20,
             baseline: 0,
         },
-        CursorStyle::Block,
         [0.0, 0.0],
-        1.0,
-        1.0,
-        streak_request(0.25, CursorTrailStrength::Expressive),
+        streak_request([8.0, 20.0, 48.0, 40.0]),
     )
-    .expect("an active large-jump streak must emit geometry");
+    .expect("an active large-jump follower must emit geometry");
     let mut vertices = Vec::new();
     append_cursor_streak_vertices(&mut vertices, streak);
     assert_eq!(vertices.len(), VERTS_PER_QUAD);
@@ -815,6 +820,7 @@ fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
         offset: [3.25, -1.5],
         alpha: 0.42,
         focused: true,
+        follower_active: false,
     };
 
     let previous = render_sig();
@@ -869,6 +875,72 @@ fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
         [origin[0] + params.offset[0], origin[1] + params.offset[1]]
     );
     assert!((cursor.color[3] - params.alpha).abs() < 1e-6);
+}
+
+#[test]
+fn full_rebuild_cursor_layer_matches_cursor_only_during_large_jump_follower() {
+    let Ok(font) = text::load_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let atlas = GlyphAtlas::build(&font, 24.0);
+    let snapshot = snapshot(&[" "], 1);
+    let origin = [8.0, 12.0];
+    let params = CursorRenderParams {
+        follower_active: true,
+        ..CursorRenderParams::default()
+    };
+
+    let previous = render_sig();
+    let mut follower_frame = previous.clone();
+    follower_frame.content.terminal_revision += 1;
+    follower_frame.cursor.anim = CursorAnimKey::from_params(&params);
+    assert_eq!(
+        RenderSignature::update_from(Some(&previous), &follower_frame),
+        GeometryUpdate::Full,
+        "terminal output keeps the active follower frame on the Full path"
+    );
+
+    let mut full = Vec::new();
+    crate::grid::build_cell_vertices_with_focus_dim_and_origin_into(
+        &mut full,
+        &snapshot,
+        &atlas,
+        &[],
+        0.0,
+        origin,
+        crate::grid::BackgroundTreatmentParams::default(),
+        crate::settings::DEFAULT_CELL_BG_OPACITY,
+        None,
+        crate::grid::ChromePin::NONE,
+    );
+    let cell_vertices = full.len();
+    append_cursor_layer_vertices(
+        &mut full,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        origin,
+        &[],
+        params,
+    );
+
+    let mut cursor_only = Vec::new();
+    append_cursor_layer_vertices(
+        &mut cursor_only,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        origin,
+        &[],
+        params,
+    );
+
+    assert_eq!(&full[cell_vertices..], cursor_only.as_slice());
+    assert!(
+        cursor_only.is_empty(),
+        "both paths suppress the ordinary destination cursor while the follower is active"
+    );
 }
 
 #[test]

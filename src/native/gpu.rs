@@ -12,7 +12,6 @@ use crate::core::{CursorStyle, RgbColor, Snapshot};
 use crate::emoji::{ColorGlyphAtlas, EmojiRasterizer};
 use crate::graphics::{StoredImageId, VisiblePlacement};
 use crate::grid::{self, ColorGlyphRun, ColorGlyphVertex, CursorRenderParams, SolidQuad, Vertex};
-use crate::settings::CursorTrailStrength;
 use crate::text::{self, GlyphAtlas, SubpixelMode};
 use crate::theme::{Theme, VisualEffect};
 
@@ -140,7 +139,7 @@ pub(super) struct PaneRender<'a> {
     /// exact off path for background panes, chrome strips, reduced motion, and
     /// the default-off `cursor_glow` setting.
     pub(super) cursor_glow: Option<CursorGlowRequest>,
-    /// Large-jump cursor streak for the focused pane. `None` for chrome,
+    /// Large-jump cursor follower for the focused pane. `None` for chrome,
     /// background panes, reduced motion, or an idle/disabled trail.
     pub(super) cursor_streak: Option<CursorStreakRequest>,
 }
@@ -154,23 +153,21 @@ pub(super) struct CursorGlowRequest {
     pub(super) clip_rect: [f32; 4],
 }
 
-/// Per-frame large-jump ribbon request. Cell coordinates remain logical so the
-/// shared Full/CursorOnly/multi-pane instance builder applies the exact render
-/// origin and cell metrics used by the real cursor.
+/// Per-frame large-jump cursor-follower request. The rectangle is expressed in
+/// undecorated content pixels; the shared instance builder adds the pane origin
+/// and any single-pane chrome offset used by the real cursor.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct CursorStreakRequest {
-    pub(super) source: crate::core::Position,
     pub(super) destination: crate::core::Position,
-    pub(super) progress: f32,
-    pub(super) strength: CursorTrailStrength,
+    pub(super) rect: [f32; 4],
+    pub(super) alpha: f32,
     pub(super) clip_rect: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct CursorStreakInstance {
-    pub(super) corners: [[f32; 2]; 4],
-    pub(super) segment: [f32; 4],
-    pub(super) radii: [f32; 2],
+    pub(super) quad_rect: [f32; 4],
+    pub(super) source_rect: [f32; 4],
     pub(super) color: [f32; 4],
     pub(super) peak_alpha: f32,
     pub(super) clip_rect: [f32; 4],
@@ -180,134 +177,70 @@ pub(super) struct CursorStreakInstance {
 #[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct CursorStreakVertex {
     pub(super) pos: [f32; 2],
-    pub(super) segment: [f32; 4],
-    /// x = tail radius, y = destination radius, z = peak alpha.
-    pub(super) ribbon: [f32; 4],
+    pub(super) source_rect: [f32; 4],
+    /// x = peak alpha. Remaining lanes are reserved for shape evolution.
+    pub(super) follower: [f32; 4],
     pub(super) color: [f32; 4],
     pub(super) clip_rect: [f32; 4],
 }
 
-const CURSOR_STREAK_ALPHA_LIFT: f32 = 0.02;
-
-fn cursor_streak_profile(strength: CursorTrailStrength) -> (f32, f32) {
-    match strength {
-        CursorTrailStrength::Subtle => (0.08, 0.75),
-        CursorTrailStrength::Balanced => (0.12, 1.0),
-        CursorTrailStrength::Expressive => (0.16, 1.25),
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(super) fn build_cursor_streak_instance(
+fn cursor_streak_source_rect(
     snapshot: &Snapshot,
     cell: atlas::CellSize,
-    cursor_style: CursorStyle,
     origin: [f32; 2],
-    scale: f32,
-    content_alpha: f32,
     request: CursorStreakRequest,
-) -> Option<CursorStreakInstance> {
+) -> Option<[f32; 4]> {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
-    if cols == 0 || rows == 0 || request.progress >= 1.0 {
+    if cols == 0 || rows == 0 || cell.width == 0 || cell.height == 0 {
         return None;
     }
-    let cell_w = cell.width as f32;
-    let cell_h = cell.height as f32;
-    if cell_w <= 0.0 || cell_h <= 0.0 {
-        return None;
-    }
-    // Single-pane tab decoration shifts both the snapshot cursor and content
-    // cells. Derive that stable offset from the request destination so the
-    // same builder also remains identity for undecorated split panes.
     let decoration_col = snapshot
         .cursor
         .column
-        .saturating_sub(request.destination.column);
-    let decoration_row = snapshot.cursor.row.saturating_sub(request.destination.row);
-    let center = |position: crate::core::Position| {
-        let position = crate::core::Position {
-            column: position.column.saturating_add(decoration_col),
-            row: position.row.saturating_add(decoration_row),
-        };
-        let col = position.column.min(cols - 1) as f32;
-        let row = position.row.min(rows - 1) as f32;
-        let x0 = origin[0] + col * cell_w;
-        let y0 = origin[1] + row * cell_h;
-        let rect = match cursor_style {
-            CursorStyle::Block => [x0, y0, x0 + cell_w, y0 + cell_h],
-            CursorStyle::Underline => grid::cursor_underline_rect(x0, y0, cell_w, cell_h),
-            CursorStyle::Bar => grid::cursor_bar_rect(x0, y0, cell_w, cell_h),
-        };
-        ([(rect[0] + rect[2]) * 0.5, (rect[1] + rect[3]) * 0.5], rect)
-    };
-    let (source, _) = center(request.source);
-    let (destination, destination_rect) = center(request.destination);
-    let progress = request.progress.clamp(0.0, 1.0);
-    let inv = 1.0 - progress;
-    let eased = 1.0 - inv * inv * inv;
-    let tail = [
-        source[0] + (destination[0] - source[0]) * eased,
-        source[1] + (destination[1] - source[1]) * eased,
-    ];
-    let delta = [destination[0] - tail[0], destination[1] - tail[1]];
-    let length = delta[0].hypot(delta[1]);
-    if length <= f32::EPSILON {
+        .saturating_sub(request.destination.column) as f32;
+    let decoration_row = snapshot.cursor.row.saturating_sub(request.destination.row) as f32;
+    let dx = origin[0] + decoration_col * cell.width as f32;
+    let dy = origin[1] + decoration_row * cell.height as f32;
+    Some([
+        request.rect[0] + dx,
+        request.rect[1] + dy,
+        request.rect[2] + dx,
+        request.rect[3] + dy,
+    ])
+}
+
+pub(super) fn build_cursor_streak_instance(
+    snapshot: &Snapshot,
+    cell: atlas::CellSize,
+    origin: [f32; 2],
+    request: CursorStreakRequest,
+) -> Option<CursorStreakInstance> {
+    if !snapshot.cursor_visible {
         return None;
     }
-    let direction = [delta[0] / length, delta[1] / length];
-    let perpendicular = [-direction[1], direction[0]];
-    let scale = scale.max(0.001);
-    let (_, radius_scale) = cursor_streak_profile(request.strength);
-    let source_w = destination_rect[2] - destination_rect[0];
-    let source_h = destination_rect[3] - destination_rect[1];
-    let base_radius = match cursor_style {
-        CursorStyle::Block => 0.22 * cell_w.min(cell_h),
-        CursorStyle::Bar => 0.5 * source_w + 0.75 * scale,
-        CursorStyle::Underline => 0.5 * source_h + 0.75 * scale,
-    } * radius_scale;
-    let destination_radius = base_radius.max(scale);
-    let tail_radius = (0.30 * destination_radius).max(scale);
-    let extent = destination_radius + 1.0;
-    let start = [
-        tail[0] - direction[0] * extent,
-        tail[1] - direction[1] * extent,
-    ];
-    let end = [
-        destination[0] + direction[0] * extent,
-        destination[1] + direction[1] * extent,
-    ];
-    let corners = [
-        [
-            start[0] - perpendicular[0] * extent,
-            start[1] - perpendicular[1] * extent,
-        ],
-        [
-            start[0] + perpendicular[0] * extent,
-            start[1] + perpendicular[1] * extent,
-        ],
-        [
-            end[0] - perpendicular[0] * extent,
-            end[1] - perpendicular[1] * extent,
-        ],
-        [
-            end[0] + perpendicular[0] * extent,
-            end[1] + perpendicular[1] * extent,
-        ],
-    ];
-    let (profile_alpha, _) = cursor_streak_profile(request.strength);
-    let transparency_cap =
-        CURSOR_STREAK_ALPHA_LIFT / (1.0 - content_alpha.clamp(0.0, 1.0)).max(0.001);
-    let time_alpha = (1.0 - progress).powf(0.8);
-    let peak_alpha = profile_alpha.min(transparency_cap) * time_alpha;
+    let source_rect = cursor_streak_source_rect(snapshot, cell, origin, request)?;
+    if source_rect[0] >= source_rect[2] || source_rect[1] >= source_rect[3] {
+        return None;
+    }
+    let peak_alpha = request.alpha.clamp(0.0, 1.0);
     if peak_alpha <= 0.0 {
         return None;
     }
+    let extent = 1.0;
+    let quad_rect = intersect_rect(
+        [
+            source_rect[0] - extent,
+            source_rect[1] - extent,
+            source_rect[2] + extent,
+            source_rect[3] + extent,
+        ],
+        request.clip_rect,
+    )?;
     let cursor = snapshot.colors.cursor;
     Some(CursorStreakInstance {
-        corners,
-        segment: [tail[0], tail[1], destination[0], destination[1]],
-        radii: [tail_radius, destination_radius],
+        quad_rect,
+        source_rect,
         color: [
             text::srgb_to_linear(cursor.red),
             text::srgb_to_linear(cursor.green),
@@ -325,17 +258,13 @@ pub(super) fn append_cursor_streak_vertices(
 ) {
     let shared = |pos| CursorStreakVertex {
         pos,
-        segment: instance.segment,
-        ribbon: [
-            instance.radii[0],
-            instance.radii[1],
-            instance.peak_alpha,
-            0.0,
-        ],
+        source_rect: instance.source_rect,
+        follower: [instance.peak_alpha, 0.0, 0.0, 0.0],
         color: instance.color,
         clip_rect: instance.clip_rect,
     };
-    let [a, b, c, d] = instance.corners;
+    let [x0, y0, x1, y1] = instance.quad_rect;
+    let [a, b, c, d] = [[x0, y0], [x0, y1], [x1, y0], [x1, y1]];
     out.extend([
         shared(a),
         shared(b),
@@ -404,8 +333,10 @@ pub(super) fn build_cursor_glow_instance(
     scale: f32,
     content_alpha: f32,
     request: CursorGlowRequest,
+    follower: Option<CursorStreakRequest>,
 ) -> Option<CursorGlowInstance> {
-    if !snapshot.cursor_visible || !params.focused || params.alpha <= 0.0 {
+    let cursor_alpha = follower.map_or(params.alpha, |follower| follower.alpha);
+    if !snapshot.cursor_visible || !params.focused || cursor_alpha <= 0.0 {
         return None;
     }
     let cols = snapshot.dimensions.columns;
@@ -423,11 +354,13 @@ pub(super) fn build_cursor_glow_instance(
     let row = snapshot.cursor.row.min(rows - 1) as f32;
     let x0 = origin[0] + col * cell_w + params.offset[0];
     let y0 = origin[1] + row * cell_h + params.offset[1];
-    let source_rect = match cursor_style {
-        CursorStyle::Block => [x0, y0, x0 + cell_w, y0 + cell_h],
-        CursorStyle::Underline => grid::cursor_underline_rect(x0, y0, cell_w, cell_h),
-        CursorStyle::Bar => grid::cursor_bar_rect(x0, y0, cell_w, cell_h),
-    };
+    let source_rect = follower
+        .and_then(|follower| cursor_streak_source_rect(snapshot, cell, origin, follower))
+        .unwrap_or_else(|| match cursor_style {
+            CursorStyle::Block => [x0, y0, x0 + cell_w, y0 + cell_h],
+            CursorStyle::Underline => grid::cursor_underline_rect(x0, y0, cell_w, cell_h),
+            CursorStyle::Bar => grid::cursor_bar_rect(x0, y0, cell_w, cell_h),
+        });
 
     let scale = scale.max(0.001);
     let source_w = source_rect[2] - source_rect[0];
@@ -447,7 +380,7 @@ pub(super) fn build_cursor_glow_instance(
         ],
         request.clip_rect,
     )?;
-    let peak_alpha = cursor_glow_peak_alpha(cursor_style, params.alpha, content_alpha);
+    let peak_alpha = cursor_glow_peak_alpha(cursor_style, cursor_alpha, content_alpha);
     if peak_alpha <= 0.0 {
         return None;
     }
@@ -2901,16 +2834,14 @@ impl GpuState {
                         self.scale,
                         self.window_bg_alpha,
                         request,
+                        pane.cursor_streak,
                     )
                 });
                 cursor_streak_instance = pane.cursor_streak.and_then(|request| {
                     build_cursor_streak_instance(
                         pane.snapshot,
                         self.atlas.cell,
-                        pane.cursor_style,
                         pane.origin,
-                        self.scale,
-                        self.window_bg_alpha,
                         request,
                     )
                 });
@@ -3269,8 +3200,15 @@ impl GpuState {
             overlays,
             cursor_params,
         );
-        self.rebuild_cursor_glow(snapshot, cursor_style, origin, cursor_params, cursor_glow);
-        self.rebuild_cursor_streak(snapshot, cursor_style, origin, cursor_streak);
+        self.rebuild_cursor_glow(
+            snapshot,
+            cursor_style,
+            origin,
+            cursor_params,
+            cursor_glow,
+            cursor_streak,
+        );
+        self.rebuild_cursor_streak(snapshot, origin, cursor_streak);
         self.retained_cursor_overlays.clear();
         self.retained_cursor_overlays.extend_from_slice(overlays);
         self.retained_cursor_glow = cursor_glow;
@@ -3406,7 +3344,7 @@ impl GpuState {
     /// Rebuild a held synchronized-output cursor frame with the exact solid
     /// overlays and analytic-aura request retained from the last presented
     /// frame. Blink and easing parameters remain live while trail, glow, and a
-    /// frozen large-jump streak stay present until synchronized content releases.
+    /// frozen large-jump follower stay present until synchronized content releases.
     pub(super) fn update_cursor_with_retained_overlays(
         &mut self,
         snapshot: &Snapshot,
@@ -3451,8 +3389,15 @@ impl GpuState {
             overlays,
             params,
         );
-        self.rebuild_cursor_glow(snapshot, cursor_style, origin, params, cursor_glow);
-        self.rebuild_cursor_streak(snapshot, cursor_style, origin, cursor_streak);
+        self.rebuild_cursor_glow(
+            snapshot,
+            cursor_style,
+            origin,
+            params,
+            cursor_glow,
+            cursor_streak,
+        );
+        self.rebuild_cursor_streak(snapshot, origin, cursor_streak);
 
         let cell_vertices = self.cell_vertex_count as usize;
         let needed_vertices = cell_vertices + self.cursor_vertices.len();
@@ -3490,6 +3435,7 @@ impl GpuState {
         origin: [f32; 2],
         params: CursorRenderParams,
         request: Option<CursorGlowRequest>,
+        follower: Option<CursorStreakRequest>,
     ) {
         let instance = request.and_then(|request| {
             build_cursor_glow_instance(
@@ -3501,6 +3447,7 @@ impl GpuState {
                 self.scale,
                 self.window_bg_alpha,
                 request,
+                follower,
             )
         });
         self.write_cursor_glow_instance(instance);
@@ -3509,20 +3456,11 @@ impl GpuState {
     fn rebuild_cursor_streak(
         &mut self,
         snapshot: &Snapshot,
-        cursor_style: CursorStyle,
         origin: [f32; 2],
         request: Option<CursorStreakRequest>,
     ) {
         let instance = request.and_then(|request| {
-            build_cursor_streak_instance(
-                snapshot,
-                self.atlas.cell,
-                cursor_style,
-                origin,
-                self.scale,
-                self.window_bg_alpha,
-                request,
-            )
+            build_cursor_streak_instance(snapshot, self.atlas.cell, origin, request)
         });
         self.write_cursor_streak_instance(instance);
     }

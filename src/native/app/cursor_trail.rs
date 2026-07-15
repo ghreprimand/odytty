@@ -44,10 +44,14 @@ use crate::settings::CursorTrailStrength;
 pub(super) struct CursorTrailProfile {
     pub(super) echo_alpha: f32,
     pub(super) echo_lag: f32,
-    pub(super) streak_alpha: f32,
-    pub(super) radius_scale: f32,
-    pub(super) duration_min: Duration,
-    pub(super) duration_max: Duration,
+    /// Continuous first-order response of the direction-facing cursor edges.
+    pub(super) follower_leading_rate: f32,
+    /// Slower response of the opposite edges, which creates the elastic body.
+    pub(super) follower_trailing_rate: f32,
+    /// Maximum presented width/height as a multiple of the settled shape.
+    pub(super) follower_max_stretch: f32,
+    /// Hard upper bound for a follower flight after the latest retarget.
+    pub(super) follower_max_settle: Duration,
 }
 
 pub(super) fn cursor_trail_profile(strength: CursorTrailStrength) -> CursorTrailProfile {
@@ -55,26 +59,26 @@ pub(super) fn cursor_trail_profile(strength: CursorTrailStrength) -> CursorTrail
         CursorTrailStrength::Subtle => CursorTrailProfile {
             echo_alpha: 0.05,
             echo_lag: 0.62,
-            streak_alpha: 0.08,
-            radius_scale: 0.75,
-            duration_min: Duration::from_millis(120),
-            duration_max: Duration::from_millis(150),
+            follower_leading_rate: 42.0,
+            follower_trailing_rate: 34.0,
+            follower_max_stretch: 1.5,
+            follower_max_settle: Duration::from_millis(180),
         },
         CursorTrailStrength::Balanced => CursorTrailProfile {
             echo_alpha: 0.09,
             echo_lag: 0.70,
-            streak_alpha: 0.12,
-            radius_scale: 1.0,
-            duration_min: Duration::from_millis(150),
-            duration_max: Duration::from_millis(185),
+            follower_leading_rate: 36.0,
+            follower_trailing_rate: 24.0,
+            follower_max_stretch: 2.25,
+            follower_max_settle: Duration::from_millis(240),
         },
         CursorTrailStrength::Expressive => CursorTrailProfile {
             echo_alpha: 0.13,
             echo_lag: 0.78,
-            streak_alpha: 0.16,
-            radius_scale: 1.25,
-            duration_min: Duration::from_millis(175),
-            duration_max: Duration::from_millis(220),
+            follower_leading_rate: 32.0,
+            follower_trailing_rate: 16.0,
+            follower_max_stretch: 3.0,
+            follower_max_settle: Duration::from_millis(340),
         },
     }
 }

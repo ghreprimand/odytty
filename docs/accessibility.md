@@ -84,10 +84,12 @@ Cursor slide (`cursor_motion`) is on by default, so a fresh install glides
 between nearby cursor positions. The cursor trail (`cursor_trail`) is also on
 and follows that slide. Its linked `cursor_trail_strength` profile defaults to
 `balanced`: moves of two through six cells keep the restrained nearby echo,
-while stable jumps beyond six cells may add a short tapered streak after a
-40 ms dwell. The real cursor reaches its destination immediately, noisy cursor
-churn is coalesced, and the streak settles within 220 ms. `subtle` reduces the
-effect and `expressive` makes it more visible without changing input timing.
+while jumps beyond six cells move one cursor-shaped presentation body on the
+same frame. Its leading and trailing edges converge at different rates, so the
+body stretches briefly and then compresses into the logical destination.
+`subtle` stays nearly rigid and settles fastest; `expressive` allows more
+stretch and a longer settle. The logical cursor target and input routing remain
+immediate, and the bounded follower schedules no wake after it settles.
 Cursor glow (`cursor_glow`) and the new-output fade
 (`new_output_fade`) remain off unless you turn them on.
 

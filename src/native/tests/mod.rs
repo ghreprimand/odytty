@@ -65,9 +65,8 @@ use crate::input::{self, Key, KeyEventType, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, CellPoint};
 use crate::settings::{
-    BindableAction, CursorTrailStrength, DEFAULT_FONT_SIZE_PX, DEFAULT_TEXT_GAMMA,
-    DEFAULT_WINDOW_PADDING_PX, KeyBindingKey, KeyBindingModifiers, KeyBindingOverride, KeyChord,
-    Settings,
+    BindableAction, DEFAULT_FONT_SIZE_PX, DEFAULT_TEXT_GAMMA, DEFAULT_WINDOW_PADDING_PX,
+    KeyBindingKey, KeyBindingModifiers, KeyBindingOverride, KeyChord, Settings,
 };
 use crate::text::{self, CellSize, FontStyle, GlyphAtlas, SubpixelMode};
 use crate::theme::{Theme, VisualEffect};

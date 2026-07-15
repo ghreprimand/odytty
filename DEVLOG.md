@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Large cursor jumps now use an elastic presentation follower
+
+Large jumps beyond the six-cell glide range now move one cursor-shaped body
+toward the logical destination on the first changed frame. The leading and
+trailing edges pursue the target at different frame-rate-independent rates,
+which stretches the Block, Bar, or Underline footprint along each movement
+axis before it compresses into the destination. The former 40 ms blank dwell
+and fixed old-to-new tapered ribbon have been removed, so the effect no longer
+teleports the real cursor and then fades a separate thin line behind it.
+
+Terminal state, input routing, PTY bytes, and the logical cursor target remain
+immediate. While the bounded follower is moving, only the ordinary destination
+cursor geometry is suppressed; terminal glyphs stay live above the follower.
+Mid-flight target changes reverse or redirect the current body without
+restarting from stale geometry. Synchronized-output holds still expose only
+their released final target, and nearby moves of two through six cells retain
+the quieter existing glide and echo.
+
+Subtle, Balanced, and Expressive now differ through leading response, trailing
+response, maximum stretch, and settle bounds rather than opacity. The profiles
+remain geometrically distinct at common scale factors and translucent window
+alphas. An enabled cursor aura follows the same moving and stretched rectangle;
+with the aura disabled, the resolved cursor-color body remains fully legible.
+Pane clipping, focused-pane-only wakes, Full and CursorOnly rebuild parity,
+focus loss, reduced motion, hidden cursors, scrollback, resize, reflow, and
+zero-wake settled state retain their bounded identity contracts.
+
+Regression coverage pins same-frame onset, mid-flight stretch, profile
+separation, diagonal movement, reversal, all cursor shapes, synchronized-output
+coalescing, chrome and split-pane coordinates, cache transitions, aura
+attachment, settle termination, and an actual six-vertex wgpu draw using the
+shared 32-byte viewport uniform. The Rust and wgpu presentation path is shared
+by Windows, macOS, and Linux; no platform PTY, spawn, path, or environment
+behavior changes.
+
 ## 2026-07-15 -- Cursor idle blink parking now persists through redraw
 
 The 15-second keyboard-idle blink boundary now remains solid-on after the

@@ -808,11 +808,11 @@ impl App {
     // --- cursor render-params aggregator (foundation) ---------------
 
     /// Fold the per-feature cursor render parameters into one [`CursorRenderParams`].
-    /// Each field is filled by exactly one Phase-4 feature's contributor stub —
-    /// `cursor_motion_offset()` (VE4-slide, `cursor_frame.rs`) and
-    /// `cursor_blink_alpha()` (ID1-easing, `cursor.rs`). Both stubs return the
-    /// identity at rest (`[0.0, 0.0]` / `1.0`), so a settled cursor returns
-    /// `CursorRenderParams::default()`.
+    /// Motion supplies the nearby offset, easing supplies alpha, window focus
+    /// selects filled versus hollow geometry, and the large-jump follower
+    /// suppresses the ordinary destination cursor while it owns presentation.
+    /// Every contributor returns its identity at rest, so a settled focused
+    /// cursor returns `CursorRenderParams::default()`.
     ///
     /// This aggregator dissolves the `push_cursor` collision: ID1 and VE4 each
     /// own one field, so neither edits the other's file.
@@ -821,6 +821,7 @@ impl App {
             offset: self.cursor_motion_offset(),
             alpha: self.cursor_blink_alpha(),
             focused: self.focused,
+            follower_active: self.cursor_streak_active(),
         }
     }
 

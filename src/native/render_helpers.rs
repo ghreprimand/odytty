@@ -309,8 +309,8 @@ pub(super) struct CursorRenderSignature {
     /// [`CursorAnimKey::IDENTITY`], so the key is a frame-to-frame constant and
     /// the classification stays `Retained` — the plain path is byte-identical.
     pub(super) anim: CursorAnimKey,
-    /// Per-session large-jump ribbon phase. Zero at rest; changes on start,
-    /// every active frame, and stop so content-stable streak frames classify as
+    /// Per-session large-jump follower phase. Zero at rest; changes on start,
+    /// every active frame, and stop so content-stable follower frames classify as
     /// `CursorOnly` without perturbing the content signature.
     pub(super) streak_epoch: u64,
 }
@@ -320,8 +320,8 @@ pub(super) struct CursorRenderSignature {
 /// buckets them into integers so it can live in the `Eq`/`Hash`-bearing
 /// signature while still flagging a visible animation step.
 ///
-/// Identity contract (the kill-shot): a focused, fully opaque, zero-offset cursor MUST
-/// quantize to [`Self::IDENTITY`] exactly. `offset == [0.0, 0.0]` rounds to
+/// Identity contract (the kill-shot): a focused, fully opaque, zero-offset cursor
+/// with no active follower MUST quantize to [`Self::IDENTITY`] exactly. `offset == [0.0, 0.0]` rounds to
 /// `(0, 0)` and `alpha == 1.0` rounds to the full alpha bucket, so the default
 /// path produces a constant key and never spuriously reclassifies to
 /// `CursorOnly`.
@@ -333,6 +333,8 @@ pub(super) struct CursorAnimKey {
     pub(super) alpha_q: u16,
     /// Window focus changes Block cursor geometry from filled to hollow.
     pub(super) focused: bool,
+    /// The large-jump follower replaces the ordinary destination cursor.
+    pub(super) follower_active: bool,
 }
 
 impl CursorAnimKey {
@@ -352,6 +354,7 @@ impl CursorAnimKey {
         offset_q: (0, 0),
         alpha_q: Self::ALPHA_SCALE as u16,
         focused: true,
+        follower_active: false,
     };
 
     pub(super) fn from_params(params: &CursorRenderParams) -> Self {
@@ -362,6 +365,7 @@ impl CursorAnimKey {
             ),
             alpha_q: (params.alpha.clamp(0.0, 1.0) * Self::ALPHA_SCALE).round() as u16,
             focused: params.focused,
+            follower_active: params.follower_active,
         }
     }
 }

@@ -498,6 +498,7 @@ fn split_focused_cursor_effects_advance_without_background_wakes() {
         1.0,
         1.0,
         glow,
+        None,
     )
     .expect("focused split builds one aura instance");
     assert!((aura.source_rect[0] - (logical_cursor_x + params.offset[0])).abs() < 0.01);
@@ -558,26 +559,19 @@ fn split_large_jump_streak_uses_only_the_focused_pane_clip_and_wake() {
     app.set_last_presented_snapshot_for_test(prior.clone());
     let _ = app.advance_multipane_cursor_effects_for_test(t0, &mut prior, cell, origin);
 
-    let pending_at = t0 + Duration::from_millis(1);
-    let (_, _, pending, _) =
-        app.advance_multipane_cursor_effects_for_test(pending_at, &mut current, cell, origin);
-    assert!(
-        pending.is_none(),
-        "large jump waits for a stable destination"
-    );
+    let started_at = t0 + Duration::from_millis(1);
+    let (_, _, follower, params) =
+        app.advance_multipane_cursor_effects_for_test(started_at, &mut current, cell, origin);
+    let follower = follower.expect("large jump starts the focused follower immediately");
     assert_eq!(
         app.cursor_streak_deadline_for_test(),
-        Some(pending_at + Duration::from_millis(40))
+        Some(started_at + Duration::from_millis(16))
     );
-
-    let active_at = pending_at + Duration::from_millis(40);
-    let (_, _, streak, _) =
-        app.advance_multipane_cursor_effects_for_test(active_at, &mut current, cell, origin);
-    let streak = streak.expect("stable focused-pane jump activates one streak");
-    assert_eq!(streak.source, Position { row: 0, column: 0 });
-    assert_eq!(streak.destination, Position { row: 0, column: 12 });
+    assert!(params.follower_active);
+    assert_eq!(follower.destination, Position { row: 0, column: 12 });
+    assert!(follower.rect[0] > 0.0 && follower.rect[2] < 13.0 * cell.width as f32);
     assert_eq!(
-        streak.clip_rect,
+        follower.clip_rect,
         [
             origin[0],
             origin[1],
@@ -1243,20 +1237,16 @@ fn pinned_tab_chrome_preserves_single_pane_cursor_motion_and_large_jump_streaks(
 
         let mut jumped = nearby.clone();
         jumped.cursor.column = 15;
-        let pending_at = t0 + Duration::from_millis(2);
-        let (_, jumped_content, _, pending) =
-            app.advance_single_pane_cursor_effects_with_chrome_for_test(pending_at, &jumped, cell);
+        let started_at = t0 + Duration::from_millis(2);
+        let (_, jumped_content, params, follower) =
+            app.advance_single_pane_cursor_effects_with_chrome_for_test(started_at, &jumped, cell);
         assert_eq!(jumped_content.dimensions, jumped.dimensions);
         assert_eq!(jumped_content.cursor, jumped.cursor);
-        assert!(pending.is_none(), "{label}: large jump observes dwell");
-
-        let active_at = pending_at + Duration::from_millis(40);
-        let (_, active_content, _, streak) =
-            app.advance_single_pane_cursor_effects_with_chrome_for_test(active_at, &jumped, cell);
-        assert_eq!(active_content.dimensions, jumped.dimensions);
-        assert_eq!(active_content.cursor, jumped.cursor);
-        let streak = streak.expect("stable large jump activates through pinned chrome");
-        assert_eq!(streak.source, Position { row: 0, column: 2 }, "{label}");
+        assert!(
+            params.follower_active,
+            "{label}: destination cursor is suppressed"
+        );
+        let streak = follower.expect("large jump activates immediately through pinned chrome");
         assert_eq!(
             streak.destination,
             Position { row: 0, column: 15 },
