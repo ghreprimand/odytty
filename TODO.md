@@ -205,7 +205,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         matrix (23 cells across 5 sections). All H1/H2 seams confirmed correct.
 - [ ] Improve glyph atlas management, including cache growth, invalidation, and
       missing-glyph behavior.
-  - [x] Atlas extracted to `src/atlas.rs`; missing-glyph fallback box, dynamic
+  - [x] Atlas extracted to `src/atlas/`; missing-glyph fallback box, dynamic
         glyph cache with page-append growth (no eviction), and full-rebuild
         size invalidation with a `revision()`/`take_dirty()` re-upload signal.
   - [x] Native render loop calls `ensure()` for non-ASCII cells, re-uploads the
@@ -240,13 +240,13 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
       while preserving cell correctness.
 - [ ] Improve rasterization quality: pixel alignment, baseline consistency,
       padding, gamma, blending, and contrast.
-  - [x] Raster side (`src/atlas.rs`): single documented baseline for every
+  - [x] Raster side (`src/atlas/`): single documented baseline for every
         glyph, nearest-pixel rounding, and a per-slot transparent padding gutter
         that blocks UV bleed and preserves box-drawing edge joins + descenders.
   - [x] Shader gamma/contrast side: `ODYTTY_TEXT_GAMMA` drives a glyph coverage
         correction uniform; `1.0` is the exact legacy blend escape hatch and
         `1.2` is the tuned default for light-on-dark text weight.
-  - [x] Bearing-aware glyph geometry (`src/atlas.rs` + `src/grid.rs`, R3): each
+  - [x] Bearing-aware glyph geometry (`src/atlas/` + `src/grid.rs`, R3): each
         atlas slot reserves an overflow margin and records per-slot inked bounds;
         `glyph_quad` sizes each glyph quad to its real ink so overflow renders
         uncropped, with a two-pass (backgrounds-then-glyphs) emission so neighbor
@@ -314,7 +314,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         promotes to a full rebuild) are a separate follow-on.
 - [x] Add visual regression screenshots or pixel-level smoke checks where
       practical.
-  - [x] V1: `tests/pixel_smoke.rs` — a headless CPU compositor rasterizes the
+  - [x] V1: `tests/pixel_smoke/` — a headless CPU compositor rasterizes the
         real `grid::build_vertices*` geometry (default-path blend) and asserts
         structural invariants: blank-cell purity, glyph ink within bounds,
         inverse fg/bg swap, dim luminance drop, underline/strikethrough rows,
@@ -465,10 +465,9 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
   - [x] Startup env precedence remains pinned during reload: env-overridden
         keys never change until restart, while config-sourced values can
         refresh.
-  - [x] Reloadable values: theme, visual, font path/family/size, text gamma,
-        subpixel mode, cursor defaults, and key bindings. Font changes rebuild
-        the atlas, recompute the grid, and push PTY winsize through the same
-        path as HiDPI scale changes.
+  - [x] Every setting reloads except `native_autoclose_ms`. Font changes rebuild
+        the atlas, recompute the grid, and push PTY winsize through the same path
+        as HiDPI scale changes.
   - [x] Robustness policy: invalid rewrites and deleted files leave the current
         settings untouched; `native_autoclose_ms` remains startup-only.
 - [x] Settings overlay framework: presentation-only in-window panel layer rendered
@@ -546,9 +545,9 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         stray value on focus regain. Keyboard path unchanged and additive;
         plain/fast render path untouched.
   - [x] Coherent effect grouping and clearer setting labels: `setting_info()`
-        stable-sorts rows into contiguous groups (Theme, Font, Rendering,
-        Post-process, Cursor, Input, Connections, Sessions, Clipboard,
-        Accessibility, Development) and cryptic keys
+        stable-sorts rows into contiguous groups (Theme, Font, Rendering, Tabs,
+        Workspace rail, Panel, Panes, Post-process, Cursor, Input, Connections,
+        Sessions, Clipboard, Accessibility, Development) and cryptic keys
         gained clear display labels + help text (e.g. `osc52_read` →
         "Allow clipboard read (OSC 52)", `render_quality` → "Renderer profile",
         `crt_scanline_period` → "CRT scanline spacing", `symbol_font` →
@@ -574,43 +573,6 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
 Design ruling: visual capability parity with the strongest GPU terminals is
 a floor; surpassing it is the standing ambition.
 
-- [ ] Add color emoji rendering.
-  - [x] Decision spike: selected `swash`, a separate premultiplied-RGBA
-        emoji atlas/draw segment, Linux Noto Color Emoji CBDT/CBLC first,
-        VS15/VS16 + degradation in the first implementation increment, and
-        deferred-not-blocked COLR v1 / SVG-in-OT support.
-  - [x] Emoji font discovery and swash proof module: `src/emoji/` discovers
-        Noto Color Emoji via fontconfig or bounded
-        search, records advertised color glyph formats, and shapes
-        representative single, variation-selector, skin-tone, flag, keycap,
-        and ZWJ-family sequences. Host-dependent Noto fixture is ignored when
-        absent; no atlas/GPU path changes yet.
-  - [x] Separate RGBA color-glyph atlas and dedicated shader path:
-        `ColorGlyphAtlas` stores premultiplied synthetic RGBA glyphs keyed by
-        shaped font/glyph-or-cluster identity, and native now has a dedicated
-        color-glyph pass ordered after coverage glyphs/decorations and before
-        cursor/overlays. Real color font decoding is follow-up work.
-  - [x] Noto Color Emoji CBDT/CBLC rendering with VS15/VS16 policy:
-        `EmojiRasterizer` shapes eligible cell graphemes with `swash`, renders
-        color bitmaps into the premultiplied atlas, drives live color-glyph
-        runs, keeps VS15 on coverage, sends VS16/default emoji to color when
-        resident, and degrades to coverage/fallback when the color path cannot
-        resolve a bitmap.
-  - [x] Emoji presentation gate narrowed to Unicode `Emoji_Presentation`
-        property ranges for the non-pictographic symbol blocks, so text-default
-        Dingbats/markers such as `U+2731`, `U+25CF`, and `U+25CB` use the
-        monochrome coverage/symbol fallback path; missing color-face coverage
-        also emits no color run and falls through to the same mono path.
-  - [x] Emoji cluster coverage for flags, keycaps, skin tones, and common
-        ZWJ sequences. The renderer reconstructs bounded clusters from the
-        snapshot, keys atlas entries by full cluster, emits one color glyph when
-        Noto resolves a single bitmap, and falls back visibly otherwise.
-  - [x] ColorGlyphAtlas capacity audit: the atlas is already bounded at
-        4096 resident glyph/cluster slots, grows in fixed row chunks, returns
-        `Full` without overwrite or dirtying at capacity, and leaves fallback
-        rendering visible; no eviction added without observed need.
-  - [ ] Scalable color font expansion (COLR/CPAL first, SVG-in-OT only
-        from evidence).
 - [ ] Wide-glyph raster quality: double-width (CJK/wide) atlas slot sizing.
   - [x] Audit: width-2 glyphs were clipped — a single-cell atlas slot caps
         ink at `cell.width + overflow_margin` (~`cell.width + cell.height/4`),
@@ -694,7 +656,8 @@ a floor; surpassing it is the standing ambition.
       then shared-scene placement and cursor/scroll policy.
   - [x] Decoder (`src/graphics/sixel.rs`): full Sixel data language (raster attrs,
         RGB/HLS color introducers, repeat, CR/LF, 6-bit data bytes), VT340
-        16-color default palette, HLS-to-RGB, 40 MiB / 10 kpx hard caps,
+        16-color default palette, HLS-to-RGB, 40 Mpx total / 10 kpx-per-side
+        hard caps,
         P2 transparency, robustness against malformed input, 27 tests.
   - [x] Integration (`src/core/graphics_routing.rs`): DCS hook/put/unhook routing
         extracted from screen.rs; on DCS q unhook decode payload via the sixel decoder,
@@ -794,8 +757,9 @@ a floor; surpassing it is the standing ambition.
         separable blur, additive composite, enabled in the fresh-install ambient
         baseline and adapter-gated.
   - [x] CRT post-process core: bounded scanlines + vignette share the same
-        offscreen scene render and final composite pass as bloom; curvature and
-        chromatic aberration are deferred.
+        offscreen scene render and final composite pass as bloom. Subtle barrel
+        curvature ships as `crt_curvature` (0.0–0.12, default 0.0); chromatic
+        aberration is deferred.
   - [x] Cursor trail (`cursor_trail`, on by default): fading after-image that
         trails the cursor as it glides (rides cursor slide; fully decays on
         settle); themed window border (`window_border`, off by default): a thin
@@ -926,12 +890,12 @@ feature validates against.
         entry.
   - [x] Surface font-load failures in the overlay instead of failing silently.
   - [x] In-app keybinding editor: the settings panel's Keybindings row opens a
-        dedicated editor where the 12 core non-tab actions are listed; pressing
+        dedicated editor where all 40 bindable actions are listed; pressing
         a row captures a new chord, `Backspace` resets a row to its default,
         `R` resets all bindings, and conflicts prompt before replacing. Changes
         are written to `odytty.conf` via the preservation-first writeback path;
-        all bindable actions, including command-palette, tab, and pane actions,
-        remain configurable through `ODYTTY_KEYBINDS` / `keybinds`.
+        the list is sourced from `BindableAction::ALL` and covers core, overlay,
+        tab, workspace, and pane actions.
   - [x] First-run onboarding and settings search: on first launch (no config
         file yet, or `ODYTTY_ONBOARDING=1`) a welcome card shows the core
         keyboard shortcuts, read live from the active bindings so rebinds are
@@ -1050,9 +1014,10 @@ feature validates against.
       the current bounded scrollback/live grid before live output resumes; host
       shutdown drains PTY EOF, broadcasts session exit, removes the socket, and
       returns when the child exits or the detached idle timeout kills it.
-- [x] Detached-session CLI surface: `odytty new --detached` starts a local
-      session host and prints `id=...`; `odytty list` reports live sessions in
-      metadata-only script rows (`id`, `name`, `state`, `age_ms`, `panes`);
+- [x] Unix detached-session CLI surface: `odytty new --detached` starts a local
+      session host and prints `id=...`; `odytty list` reports live sessions as
+      metadata-only rows (name or id, pane count, humanized age, and the id when
+      it differs from the name);
       `odytty attach <id>` opens a live native window and reattaches the hosted
       session as a focused tab repainted from the host snapshot; `odytty attach
       --diagnostic <id>` preserves the headless script/CI status dump.
@@ -1072,15 +1037,15 @@ feature validates against.
       routing resize (`TIOCSWINSZ` vs. a `Resize` frame) and close (kill+reap vs.
       a clean `Detach` that keeps the host alive). Input is unchanged — an attached
       session's `writer` is an `AttachInputWriter` boxed into the same `PtyWriter`,
-      so the app-side input path is identical. `TabSet::attach_in_new_tab` /
+      so the app-side input path is identical. `WorkspaceSet::attach_in_new_tab` /
       `App::attach_session_in_new_tab` present a hosted session as a live tab
       (restored mirror + live repaint); `NativeOptions.attach_session` (default
       `None`) is the opt-in startup seam `odytty attach <id>` sets. SessionExit /
       link-drop closes the attached tab exactly like a local shell exit. Guarded by
       `default_session_source_is_local` + `local_session_resize_routes_to_pty_unchanged`
       + the `gpu_composite_smoke` pixel guard; headlessly tested via a fake host.
-      (Phase 2 remainder: output replay/scrubbing + daemon survival across full
-      window close.)
+      Output replay and real-process daemon survival across a full window close
+      have since landed below.
 - [x] Real-process daemon-survival e2e (`src/native/tests/attach_e2e.rs`):
       glues a real `odytty session-host` subprocess to the real native
       `AttachClient` across a true client disconnect. Proves attach restores the
@@ -1102,7 +1067,8 @@ feature validates against.
       close). Presentation-only — proven by `replay_isolation` tests that the
       live terminal frame is byte-identical whether or not replay is active, plus
       ring-bound eviction, recording-off, scrub-navigation, and overlay-closed-
-      inert tests. Opened via the unbound `session-replay` action. Recording is
+      inert tests. Opened via the `session-replay` action (`Ctrl+Shift+R` by
+      default). Recording is
       local-only: frames live only in memory (no disk, no network) and are
       dropped on close / disable. Closes the Phase 2 tests-box replay-overlay-
       isolation part.
@@ -1256,15 +1222,15 @@ feature validates against.
       bundled, JetBrains Mono retained/selectable), bundled symbol fallback on by
       default, expanded geometric coverage, and the OSC 133 narrow-resize prompt
       repaint fix.
-- [ ] Evaluate an AppImage artifact after the source package and desktop
-      integration are proven.
+- [x] AppImage artifact: every tag publishes the smoke-tested
+      `odytty-x86_64.AppImage` alias and a version-pinned twin in `SHA256SUMS`.
 
 ## Deferred Until After the First Prototype
 
 - [x] Tabs and multiple local shell sessions: landed as the first multi-context
       slice. Splits/panes within a window have since landed too (see Stage 8);
-      detachable sessions, profiles, and cross-session multiplexing remain
-      deferred.
+      Unix detachable sessions also landed. Profiles and cross-session
+      multiplexing remain deferred.
 - [x] Shell integration beyond basic PTY behavior — landed: OSC 133 semantic
       prompt marks and command-aware UX (see Stage 7). Further shell-integration
       surface (click-to-position) is tracked there.
@@ -1276,8 +1242,8 @@ feature validates against.
       user history.
 - [x] In-window command-palette overlay: keyboard-driven fuzzy picker over local
       actions, bounded shell history, and recent OSC 7 directories. Exposed as
-      the opt-in `command-palette` keybind action (unbound by default; suggested
-      `ctrl+alt+p=command-palette`). Selecting history/directories types text
+      the `command-palette` action (`Ctrl+Shift+P` by default, rebindable).
+      Selecting history/directories types text
       into the active pane without pressing Enter; selecting actions dispatches
       the local action after the overlay closes.
 - [x] SSH config parser substrate: pure, bounded parser over caller-supplied
@@ -1303,9 +1269,8 @@ feature validates against.
 - [x] Connection-manager overlay UI: keyboard-driven, type-to-filter list of the
       merged saved hosts (OdyTTY-owned first, opt-in OpenSSH-config names only
       when `ssh_config_hosts` is on), fuzzy-ranked over alias/host/user via the
-      shared scorer. Exposed as the opt-in `connection-manager` keybind action
-      (unbound by default; suggested `ctrl+alt+h=connection-manager`), so the
-      unset input path stays byte-identical. `↑`/`↓` select, Enter quick-connects
+      shared scorer. Exposed as the `connection-manager` action (`Ctrl+Shift+S`
+      by default, rebindable). `↑`/`↓` select, Enter quick-connects
       via the SSH connect action, Esc dismisses; per-host profile fields show in
       the row. Presentation-only — the overlay never mutates live terminal state
       (isolation test proves the live frame is byte-identical when active). With

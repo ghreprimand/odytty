@@ -423,8 +423,9 @@ gap to close and unlocks the most downstream value. Semantic prompt marking
 (OSC 133) ships today as the foundation.
 
 - **Shipped — Command-aware UX.** Built on prompt marking: jump to the previous or
-  next prompt, select and copy a single command's output, and show a per-command
-  success/failure indicator in the gutter.
+  next prompt and show a per-command success/failure indicator in the gutter.
+  Selecting and copying a single command's output has a core range helper
+  (`command_output_cell_range`) but is not yet wired to a UI action.
 - **Shipped — Click to position the cursor** at a prompt, using the prompt-marking
   click events. The click slice only — not a takeover of shell input editing.
 - **Shipped — Remote shell integration.** Connecting to a saved SSH host carries
@@ -543,11 +544,10 @@ is opt-in or configurable and never disturbs an application's own mouse handling
 
 ## Track 7 — Theming And Palettes
 
-- **Later — Theme-naming standard.** A two-tier approach: keep the original
-  `odyssey`-named family as the primary OdyTTY identity, and optionally ship
-  popular community palettes under their real names only where the upstream license
-  permits redistribution and brand guidelines are followed and attributed,
-  without implying endorsement.
+- **Shipped — Theme-naming standard.** The original `odyssey`-named family remains
+  the primary OdyTTY identity, while licensed and attributed community palettes
+  ship under their upstream names. `theme_family()` classifies every built-in as
+  `baseline`, `odyssey`, or `community`, and `--list-themes` exposes the family.
 - **Ongoing — Theme-library expansion** past 100, using data-only additions. The
   roster is now 142 after six more contrast-validated original OdysseyOS
   palettes: four dark palettes (inkwell navy, citadel slate, verdigris teal, and

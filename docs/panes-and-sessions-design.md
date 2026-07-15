@@ -674,9 +674,10 @@ input code and the local path are untouched.
   `TIOCSWINSZ` to the concrete PTY (`local_session_resize_routes_to_pty_unchanged`),
   alongside the `gpu_composite_smoke` pixel guard.
 
-Still out of this stage (Phase 2 remainder): output replay/scrubbing and the
-detach/reattach *daemon* survival across a full window close (the session-host
-peer's surface). The in-window attach client is complete and tested.
+Output replay/scrubbing (`session_replay`, default off) and real-process daemon
+survival across a full window close have since landed. The presentation-only
+replay overlay and the in-window attach client are complete, and the
+`attach_e2e` suite covers detach, host survival, and reattach by id.
 
 ---
 

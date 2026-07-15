@@ -243,8 +243,8 @@ blocking CI targets alongside Linux. See [Install And Run](#install-and-run) for
 the current packages and maturity notes.
 
 Known gaps include Windows detached and resumable session hosting, profiles,
-per-pane inline graphics, Kitty animation and Unicode placeholders, iTerm2
-graphics, COLR/CPAL color fonts, and broader ligature and stylistic-set shaping.
+Kitty animation and Unicode placeholders, iTerm2 graphics, COLR/CPAL color
+fonts, and broader ligature and stylistic-set shaping.
 See the [current work](TODO.md) and [full roadmap](docs/full-build-roadmap.md).
 
 ## Testing

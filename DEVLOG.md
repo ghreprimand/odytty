@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Current-work documentation reflects shipped features
+
+The current-work index and durable references now record pane-aware inline
+graphics and pixel scrolling, configurable CRT curvature, output replay,
+detached-host survival, the full keybinding editor, default overlay chords, and
+release AppImages as shipped. Per-command output selection remains correctly
+identified as unwired despite its core range helper, and the implemented theme
+family standard is no longer presented as future work.
+
+Verified: cargo test, cargo fmt --check, and cargo clippy --all-targets --locked
+-- -D warnings are clean.
+
 ## 2026-07-15 -- Contributor checks match the blocking CI gate
 
 The contributor pre-commit and push criteria now include the blocking Clippy

@@ -1029,9 +1029,8 @@ its first stable layer.
   off, is forced off in plain render quality, and leaves the no-dim path
   byte-identical. Interactive overlays (selection / search) render per pane, so
   a selection or a search match shows in the correct pane regardless of focus
-  (the interactive search query bar stays on the focused pane). Per-pane inline
-  graphics remains a planned fast-follow (see the v1 limitation note under Inline
-  Graphics).
+  (the interactive search query bar stays on the focused pane). Kitty and Sixel
+  inline graphics also composite within each pane's origin and clip rectangle.
 
 ### Sessions And SSH
 
@@ -1417,8 +1416,9 @@ Tier-3 atmospheric effects land in this order:
    post-composite dimming cannot feed back into the CPU minimum-contrast
    resolver, the shader clamps scanline/vignette strength and enforces a
    brightness floor so lit cells are never zeroed.
-   `retro=on` is a stronger preset over the same bloom/CRT path; curvature and
-   chromatic aberration are deferred.
+   `retro=on` is a stronger preset over the same bloom/CRT path and applies a
+   subtle `0.025` curvature. Configurable curvature ships as `crt_curvature`
+   (`0.0`–`0.12`, default `0.0`); chromatic aberration is deferred.
 
 Cursor motion trail (`cursor_trail`, on by default since v0.6.0): a short fading
 after-image that trails the cursor as it glides between cells, drawn behind the cursor block

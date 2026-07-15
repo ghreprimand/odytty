@@ -379,8 +379,8 @@ high-resolution devices.
 
 Classic detented wheels emit line deltas and are unaffected — they keep using
 `scroll_wheel_lines` as the per-notch multiplier. Pixel-precise scrolling is
-single-pane only for now; inside a split, pixel input falls back to the notch
-path.
+also pane-aware in splits: the pane under the pointer receives the continuous
+delta, and its sub-cell offset is clipped to that pane's content rectangle.
 
 ### Settings
 
