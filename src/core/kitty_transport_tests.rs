@@ -8,6 +8,10 @@ use super::*;
 // Used by the shm-segment test helpers below.
 use std::ffi::CString;
 use std::os::fd::AsRawFd;
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+#[cfg(unix)]
+use std::os::unix::fs::FileTypeExt;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -243,6 +247,78 @@ fn file_transport_rejects_empty_path() {
     let apc = b"\x1b_Ga=T,t=f,f=32,s=2,v=2;\x1b\\".to_vec();
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 0, "empty path rejected");
+}
+
+#[cfg(unix)]
+#[test]
+fn fifo_transport_child_rejects_without_deleting() {
+    let Ok(path) = std::env::var("ODYTTY_KITTY_FIFO_TEST_PATH") else {
+        return;
+    };
+    let path = std::path::PathBuf::from(path);
+
+    let file = super::kitty_transport::read_file_transport(path.as_os_str().as_bytes(), 16);
+    assert_eq!(
+        file,
+        Err(super::kitty_transport::TransportError::NonRegularFile)
+    );
+
+    let temp = super::kitty_transport::read_temp_transport(path.as_os_str().as_bytes(), 16);
+    assert_eq!(
+        temp,
+        Err(super::kitty_transport::TransportError::NonRegularFile)
+    );
+    assert!(
+        std::fs::symlink_metadata(&path)
+            .unwrap()
+            .file_type()
+            .is_fifo(),
+        "a rejected t=t FIFO must not be deleted"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn file_and_temp_transports_reject_fifo_without_blocking() {
+    use std::process::Command;
+    use std::time::{Duration, Instant};
+
+    let path = std::env::temp_dir().join(format!(
+        "odytty-kitty-fifo-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let c_path = CString::new(path.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .arg("--exact")
+        .arg("core::kitty_transport_tests::fifo_transport_child_rejects_without_deleting")
+        .arg("--nocapture")
+        .env("ODYTTY_KITTY_FIFO_TEST_PATH", &path)
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            let _ = std::fs::remove_file(&path);
+            panic!("FIFO transport subprocess exceeded the bounded rejection window");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    let _ = std::fs::remove_file(&path);
+    assert!(
+        status.success(),
+        "FIFO transport subprocess failed: {status}"
+    );
 }
 
 // ---------------------------------------------------------------------------

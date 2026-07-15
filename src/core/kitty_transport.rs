@@ -41,6 +41,7 @@
 //!   the temp file is still gone — no lingering data on the filesystem.
 //!   This matches Kitty's documented "terminal should delete" semantics
 //!   and is strictly safer.
+//!   Rejected special files are never deleted.
 //!
 //! - t=s calls `shm_unlink` immediately after opening, before reading.
 //!   The shared memory segment ceases to be addressable by name as soon
@@ -67,6 +68,8 @@ pub(super) enum TransportError {
     /// Path is a symlink (O_NOFOLLOW enforcement).
     #[cfg_attr(not(unix), allow(dead_code))]
     SymlinkRejected,
+    /// Opened handle is not a regular file.
+    NonRegularFile,
     /// File open / read failed.
     IoError(String),
     /// File exceeds the read size cap.
@@ -81,6 +84,7 @@ impl TransportError {
             TransportError::InvalidPath => "EBADF:invalid-path",
             TransportError::PathNotAllowed => "EPERM:path-not-allowed",
             TransportError::SymlinkRejected => "EPERM:symlink-rejected",
+            TransportError::NonRegularFile => "EPERM:non-regular-file",
             TransportError::IoError(_) => "EIO:read-failed",
             TransportError::TooLarge => "EFBIG:payload-too-large",
             TransportError::ShmError(_) => "EIO:shm-failed",
@@ -155,7 +159,10 @@ fn validate_path(path: &Path) -> Result<PathBuf, TransportError> {
 // ---------------------------------------------------------------------------
 
 /// Read image data from a regular file. The file is opened with `O_NOFOLLOW`
-/// and must reside inside an allowed temp directory.
+/// and must reside inside an allowed temp directory. On Unix the open is also
+/// nonblocking, then the opened handle is verified as regular before any read,
+/// so FIFOs and devices cannot stall the PTY thread. Windows has no POSIX FIFO
+/// surface and retains the existing read-only regular-file open behavior.
 ///
 /// `max_read` is the maximum bytes to read (typically the store's decoded cap).
 pub(super) fn read_file_transport(
@@ -169,6 +176,7 @@ pub(super) fn read_file_transport(
 
 /// Read and then delete a temp file (t=t). The file is deleted *before*
 /// returning the data — even if later decode fails, the temp file is gone.
+/// A path rejected before a successful regular-file read is never deleted.
 ///
 /// `max_read` is the maximum bytes to read.
 pub(super) fn read_temp_transport(
@@ -286,11 +294,12 @@ fn read_regular_file(path: &Path, max_read: usize) -> Result<Vec<u8>, TransportE
 
     let cap = max_read.min(MAX_TRANSPORT_READ_BYTES);
 
-    // Open with O_NOFOLLOW — kernel rejects symlinks.
+    // Open with O_NOFOLLOW — kernel rejects symlinks. O_NONBLOCK makes the
+    // admission check safe for FIFOs and devices; only regular files proceed.
     let mut opts = OpenOptions::new();
     opts.read(true);
     #[cfg(unix)]
-    opts.custom_flags(libc::O_NOFOLLOW);
+    opts.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
 
     let file = opts.open(path).map_err(|e| {
         // O_NOFOLLOW symlink rejection surfaces as ELOOP on Unix; the flag and
@@ -307,6 +316,9 @@ fn read_regular_file(path: &Path, max_read: usize) -> Result<Vec<u8>, TransportE
     let metadata = file
         .metadata()
         .map_err(|e| TransportError::IoError(format!("metadata: {e}")))?;
+    if !metadata.is_file() {
+        return Err(TransportError::NonRegularFile);
+    }
     let len = metadata.len() as usize;
     if len > cap {
         return Err(TransportError::TooLarge);
