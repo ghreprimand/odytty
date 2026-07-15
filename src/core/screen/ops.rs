@@ -621,6 +621,9 @@ impl Screen {
                         .set_underline_style(UnderlineStyle::Dashed),
                     _ => {}
                 },
+                21 => self
+                    .current_attrs
+                    .set_underline_style(UnderlineStyle::Double),
                 5 => self.current_attrs.set_blink(true),
                 7 => self.current_attrs.set_inverse(true),
                 8 => self.current_attrs.set_hidden(true),

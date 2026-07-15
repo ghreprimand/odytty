@@ -109,6 +109,20 @@ fn sgr_22_clears_bold_and_dim_together() {
 }
 
 #[test]
+fn sgr_21_selects_double_underline() {
+    let mut terminal = Terminal::new(1, 1);
+
+    terminal.advance(b"\x1b[21mL");
+
+    let cell = terminal.screen().cell(0, 0).unwrap();
+    assert!(cell.attrs.underline());
+    assert_eq!(
+        cell.attrs.effective_underline_style(),
+        UnderlineStyle::Double
+    );
+}
+
+#[test]
 fn sgr_underline_subparams_select_styles() {
     let cases = [
         (b"\x1b[4mS".as_slice(), UnderlineStyle::Straight, true),
