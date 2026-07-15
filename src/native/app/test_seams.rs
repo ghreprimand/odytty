@@ -1145,6 +1145,65 @@ impl App {
         Some((snapshot.dimensions.columns, snapshot.dimensions.rows))
     }
 
+    /// Drive the single-pane cursor-effect ordering through the production
+    /// snapshot preparation seam. The returned pair is `(decorated, content)`:
+    /// only the first may include pinned tab or workspace-rail coordinates.
+    #[cfg(test)]
+    pub(in crate::native) fn advance_single_pane_cursor_effects_with_chrome_for_test(
+        &mut self,
+        now: std::time::Instant,
+        snapshot: &Snapshot,
+        cell: CellSize,
+    ) -> (
+        Snapshot,
+        Snapshot,
+        CursorRenderParams,
+        Option<crate::native::gpu::CursorStreakRequest>,
+    ) {
+        self.update_cursor_motion(now, snapshot, cell);
+        self.update_cursor_streak(now, snapshot, crate::core::CursorStyle::Block, cell);
+
+        let (chrome_dx, chrome_dy) = self.tab_chrome_offset_px(cell);
+        let pad = self
+            .gpu
+            .as_ref()
+            .map(GpuState::window_padding)
+            .unwrap_or(WindowPadding::ZERO)
+            .as_f32();
+        let content_x0 = pad + chrome_dx as f32;
+        let content_y0 = pad + chrome_dy as f32;
+        let streak = self.cursor_streak_request(
+            now,
+            [
+                content_x0,
+                content_y0,
+                content_x0 + snapshot.dimensions.columns as f32 * cell.width as f32,
+                content_y0 + snapshot.dimensions.rows as f32 * cell.height as f32,
+            ],
+        );
+        let (decorated, _, content) = self.prepare_single_pane_snapshots(
+            snapshot,
+            snapshot.cursor_visible,
+            snapshot.cursor_visible,
+            cell,
+        );
+        let mut held = decorated.clone();
+        held.cursor_visible = snapshot.cursor_visible;
+        self.last_presented_snapshot = Some(held);
+        self.last_cursor_comparison_snapshot = Some(content.clone());
+        self.last_presented_cursor_style = crate::core::CursorStyle::Block;
+        (decorated, content, self.cursor_render_params(), streak)
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn held_snapshot_geometry_for_test(
+        &self,
+    ) -> Option<(Dimensions, Position)> {
+        self.last_presented_snapshot
+            .as_ref()
+            .map(|snapshot| (snapshot.dimensions, snapshot.cursor))
+    }
+
     /// Test seam (F4-P3 / NF20): whether the rail auto-hide machine schedules a
     /// wake at `now` — the state machine's contribution to `next_wake_deadline`.
     /// `false` means the machine is idle (steady Hidden, or Revealed with the

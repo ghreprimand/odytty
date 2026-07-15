@@ -340,7 +340,12 @@ pub(super) struct Session {
     pub(super) needs_rebuild: bool,
     pub(super) last_render_signature: Option<RenderSignature>,
     pub(super) synchronized_output_hold: SynchronizedOutputHold,
+    /// Last GPU-presented snapshot. Single-pane tab chrome is included so a
+    /// held blink or synchronized-output frame retains its rendered geometry.
     pub(super) last_presented_snapshot: Option<Snapshot>,
+    /// Last terminal-content snapshot in undecorated grid coordinates. Cursor
+    /// motion compares against this rather than the chrome-shifted render copy.
+    pub(super) last_cursor_comparison_snapshot: Option<Snapshot>,
     pub(super) last_presented_cursor_style: crate::core::CursorStyle,
     pub(super) last_presented_cursor_blinking: bool,
     pub(super) selection: AbsoluteSelectionState,
@@ -592,6 +597,7 @@ impl Session {
             last_render_signature: None,
             synchronized_output_hold: SynchronizedOutputHold::default(),
             last_presented_snapshot: None,
+            last_cursor_comparison_snapshot: None,
             last_presented_cursor_style: crate::core::CursorStyle::default(),
             last_presented_cursor_blinking: true,
             selection: AbsoluteSelectionState::default(),

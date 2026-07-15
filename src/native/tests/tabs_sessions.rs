@@ -1158,6 +1158,129 @@ fn workspace_rail_grows_decorated_snapshot_by_columns_beside_the_top_bar() {
 }
 
 #[test]
+fn pinned_tab_chrome_preserves_single_pane_cursor_motion_and_large_jump_streaks() {
+    let cases = [
+        ("top tabs", None, false),
+        ("left workspace rail", Some("left"), true),
+        ("right workspace rail", Some("right"), false),
+    ];
+    let cell = CellSize {
+        width: 11,
+        height: 19,
+        baseline: 14,
+    };
+
+    for (label, rail, shifts_content_right) in cases {
+        let Some(mut app) = tab_bar_app() else {
+            eprintln!("skipping: no PTY available");
+            return;
+        };
+        app.set_test_cell_for_test(cell);
+        app.set_tab_rail_width_manual_for_test(16);
+        if let Some(side) = rail {
+            app.set_workspace_rail_for_test(side);
+        }
+        app.enable_cursor_effects_for_test();
+
+        let (top_rows, rail_cols) = app.tab_reserve_for_test();
+        assert!(top_rows > 0, "{label}: top tabs must be pinned");
+        assert_eq!(
+            rail_cols,
+            if rail.is_some() { 16 } else { 0 },
+            "{label}: expected pinned rail reservation"
+        );
+
+        let t0 = Instant::now();
+        let mut prior = snapshot(&["                        "], 24);
+        prior.cursor = Position { row: 0, column: 0 };
+        let (decorated, content, _, _) =
+            app.advance_single_pane_cursor_effects_with_chrome_for_test(t0, &prior, cell);
+        assert_eq!(
+            content.dimensions, prior.dimensions,
+            "{label}: raw dimensions"
+        );
+        assert_eq!(content.cursor, prior.cursor, "{label}: raw cursor");
+        assert_eq!(
+            decorated.dimensions,
+            Dimensions::new(
+                prior.dimensions.columns + rail_cols,
+                prior.dimensions.rows + top_rows,
+            ),
+            "{label}: rendering remains chrome-decorated"
+        );
+        assert_eq!(decorated.cursor.row, prior.cursor.row + top_rows);
+        assert_eq!(
+            decorated.cursor.column,
+            prior.cursor.column + if shifts_content_right { rail_cols } else { 0 },
+            "{label}: decorated cursor uses the visual content origin"
+        );
+        assert_eq!(
+            app.held_snapshot_geometry_for_test(),
+            Some((decorated.dimensions, decorated.cursor)),
+            "{label}: held frames retain decorated GPU coordinates"
+        );
+
+        let mut nearby = prior.clone();
+        nearby.cursor.column = 2;
+        let (_, nearby_content, params, nearby_streak) = app
+            .advance_single_pane_cursor_effects_with_chrome_for_test(
+                t0 + Duration::from_millis(1),
+                &nearby,
+                cell,
+            );
+        assert_eq!(nearby_content.dimensions, nearby.dimensions);
+        assert_eq!(nearby_content.cursor, nearby.cursor);
+        assert_eq!(
+            params.offset,
+            [-2.0 * cell.width as f32, 0.0],
+            "{label}: eligible nearby motion must not snap on chrome dimensions"
+        );
+        assert!(
+            nearby_streak.is_none(),
+            "{label}: nearby motion stays quiet"
+        );
+
+        let mut jumped = nearby.clone();
+        jumped.cursor.column = 15;
+        let pending_at = t0 + Duration::from_millis(2);
+        let (_, jumped_content, _, pending) =
+            app.advance_single_pane_cursor_effects_with_chrome_for_test(pending_at, &jumped, cell);
+        assert_eq!(jumped_content.dimensions, jumped.dimensions);
+        assert_eq!(jumped_content.cursor, jumped.cursor);
+        assert!(pending.is_none(), "{label}: large jump observes dwell");
+
+        let active_at = pending_at + Duration::from_millis(40);
+        let (_, active_content, _, streak) =
+            app.advance_single_pane_cursor_effects_with_chrome_for_test(active_at, &jumped, cell);
+        assert_eq!(active_content.dimensions, jumped.dimensions);
+        assert_eq!(active_content.cursor, jumped.cursor);
+        let streak = streak.expect("stable large jump activates through pinned chrome");
+        assert_eq!(streak.source, Position { row: 0, column: 2 }, "{label}");
+        assert_eq!(
+            streak.destination,
+            Position { row: 0, column: 15 },
+            "{label}"
+        );
+        let expected_x0 = if shifts_content_right {
+            rail_cols as f32 * cell.width as f32
+        } else {
+            0.0
+        };
+        let expected_y0 = top_rows as f32 * cell.height as f32;
+        assert_eq!(
+            streak.clip_rect,
+            [
+                expected_x0,
+                expected_y0,
+                expected_x0 + jumped.dimensions.columns as f32 * cell.width as f32,
+                expected_y0 + jumped.dimensions.rows as f32 * cell.height as f32,
+            ],
+            "{label}: streak clip follows the scaled content rect"
+        );
+    }
+}
+
+#[test]
 fn left_rail_hit_test_resolves_switch_close_and_new() {
     // Row-major rail hit-test round-trip: the same TabHit dispatch the bar uses,
     // resolved through the rail's X-band + row-stacked slots (F4-V2).

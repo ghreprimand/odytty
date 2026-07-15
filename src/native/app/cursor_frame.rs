@@ -72,9 +72,9 @@ impl App {
     ///
     /// Called once per rebuild after the blink poll, so the `&self` accessors
     /// above return a value consistent with this frame. The destination is the
-    /// fresh `snapshot.cursor`; the origin is the previously presented cursor
-    /// (`last_presented_snapshot.cursor`), which still holds the prior frame's
-    /// position at this point in the rebuild.
+    /// fresh `snapshot.cursor`; the origin is the prior undecorated content
+    /// cursor (`last_cursor_comparison_snapshot.cursor`), which still holds the
+    /// prior frame's position at this point in the rebuild.
     ///
     /// Identity when off: with `cursor_motion == false` this pins
     /// `offset = [0.0, 0.0]` and clears the deadline, so
@@ -98,7 +98,7 @@ impl App {
         }
         let to = snapshot.cursor;
         let prior = self
-            .last_presented_snapshot
+            .last_cursor_comparison_snapshot
             .as_ref()
             .map(|s| (s.cursor, s.dimensions));
         // Discontinuities that must teleport rather than glide.
@@ -154,7 +154,8 @@ impl App {
     /// end).
     #[cfg(test)]
     pub(in crate::native) fn set_last_presented_snapshot_for_test(&mut self, snapshot: Snapshot) {
-        self.last_presented_snapshot = Some(snapshot);
+        self.last_presented_snapshot = Some(snapshot.clone());
+        self.last_cursor_comparison_snapshot = Some(snapshot);
     }
 
     pub(super) fn update_held_cursor_frame(&mut self, now: Instant) -> bool {
