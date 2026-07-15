@@ -4,7 +4,7 @@ OdyTTY ships as a versioned release. Each release provides:
 
 - a git tag (`vX.Y.Z`) and source tarball;
 - a GitHub Release entry with `SHA256SUMS` for every artifact;
-- a best-effort x86_64 **AppImage** (one download for most Linux distributions);
+- native Linux **`.deb` and `.rpm`** packages via a one-line installer, a portable **standalone tarball**, and an x86_64 **AppImage** as a no-install fallback;
 - an **AUR** package (`odytty`) for Arch-family systems;
 - a prebuilt **macOS** `.app` zip for Apple Silicon (ad-hoc signed) plus a Homebrew tap;
 - an unsigned Windows x86_64 portable **zip**;
@@ -17,6 +17,46 @@ for you (with the AppImage as a no-install single-file fallback and the AUR
 package on Arch-family systems), Homebrew on macOS, Scoop (or a direct zip
 download) on Windows, and a pacman-tracked source package on Odyssey itself so
 the install is versioned, owned, removable, and visible to Odyssey-Mon.
+
+## Contents
+
+- [Release Artifact Names And Checksums](#release-artifact-names-and-checksums)
+- [Linux](#linux)
+  - [One-line installer (recommended)](#one-line-installer-recommended)
+  - [.deb (Debian, Ubuntu, Mint, Pop)](#deb-debian-ubuntu-mint-pop)
+  - [.rpm (Fedora, RHEL, openSUSE, best-effort)](#rpm-fedora-rhel-opensuse-best-effort)
+  - [Binary tarball (portable prebuilt)](#binary-tarball-portable-prebuilt)
+  - [AppImage (x86_64)](#appimage-x86_64)
+  - [Arch Linux (AUR)](#arch-linux-aur)
+  - [Updating](#updating)
+- [macOS (Apple Silicon)](#macos-apple-silicon)
+  - [Homebrew (recommended)](#homebrew-recommended)
+  - [Updating](#updating-1)
+  - [Direct .app zip download](#direct-app-zip-download)
+  - [Build from source](#build-from-source)
+  - [Signed / notarized builds](#signed--notarized-builds)
+- [Windows](#windows)
+  - [Scoop](#scoop)
+  - [Portable zip](#portable-zip)
+  - [Windows scope](#windows-scope)
+  - [Updating](#updating-2)
+- [Build From Source](#build-from-source-1)
+- [Command-Line Surface](#command-line-surface)
+- [Configuration Files](#configuration-files)
+- [User-Local Install](#user-local-install)
+- [System Install](#system-install)
+- [Generic Versioned User Install](#generic-versioned-user-install)
+- [Odyssey/LFS Versioned Install](#odysseylfs-versioned-install)
+- [What The Desktop Entry Does](#what-the-desktop-entry-does)
+- [Terminfo](#terminfo)
+- [Default Terminal](#default-terminal)
+  - [LFS Or Other Manual Systems](#lfs-or-other-manual-systems)
+  - [`xdg-terminal-exec`](#xdg-terminal-exec)
+  - [Debian-Style `x-terminal-emulator`](#debian-style-x-terminal-emulator)
+  - [macOS](#macos)
+- [Troubleshooting](#troubleshooting)
+  - [Slow rendering / software adapter](#slow-rendering--software-adapter)
+  - [No Vulkan adapter, accelerated GL, and virtual machines](#no-vulkan-adapter-accelerated-gl-and-virtual-machines)
 
 ## Release Artifact Names And Checksums
 
@@ -190,11 +230,11 @@ After that, `paru -S odytty` installs OdyTTY and `paru -Syu` handles updates.
 The package builds from the release source tarball and installs the binary,
 desktop entry, AppStream metadata, and icons under pacman ownership. The
 first install compiles from source (pulling in `cargo`/`rust`), so it takes a
-few minutes. The AUR package is community-maintained and tracks the published
-GitHub releases; it usually updates shortly after a release, though timing
-depends on its maintainer. It is not an official project release channel, and
-AUR packages are not vetted by Arch. Review the PKGBUILD before installing; AUR
-helpers show it by default.
+few minutes. The `odytty` AUR package is maintained by the project and
+auto-published on each release: the release pipeline pushes the updated package
+to the AUR as part of publishing a new version, so it tracks the GitHub releases
+closely. AUR packages are not vetted by Arch, so review the PKGBUILD before
+installing; AUR helpers show it by default.
 
 To pick up the very latest immediately regardless of the AUR package's state,
 build from the release source tarball directly (the PKGBUILD template and its
@@ -238,29 +278,42 @@ Developer identity. There is no `.dmg` and no Gatekeeper-approved signature yet.
 ### Homebrew (recommended)
 
 The Homebrew tap is the least-friction path; the cask handles Gatekeeper
-approval for you (see below). Add the tap and install the cask:
+approval for you. Install it in two steps:
 
-```sh
-brew tap ghreprimand/odytty
-brew install --cask odytty
-```
+1. Add the tap and install the cask:
 
-Recent Homebrew versions require trusting a third-party tap before its cask will load. If the install stops with `Refusing to load cask ... from untrusted tap`, run `brew trust ghreprimand/odytty` (or `brew trust --cask ghreprimand/odytty/odytty` to trust just this cask) and re-run the install. It is a one-time per-machine trust.
+   ```sh
+   brew tap ghreprimand/odytty
+   brew install --cask odytty
+   ```
+
+2. If the install stops with `Refusing to load cask ... from untrusted tap`,
+   trust the tap once and re-run the install:
+
+   ```sh
+   brew trust ghreprimand/odytty
+   ```
+
+   Use `brew trust --cask ghreprimand/odytty/odytty` to trust just this cask.
+   This is a one-time per-machine trust.
 
 The **cask** installs the prebuilt, ad-hoc-signed `OdyTTY.app` into
-`/Applications`. The app is ad-hoc signed but not notarized, so macOS
-quarantines the download and Gatekeeper would otherwise block the first
-launch. To spare you a manual step, the cask automatically clears the
-`com.apple.quarantine` security attribute from the installed app during
-install (the same `xattr -dr com.apple.quarantine` you would otherwise run by
-hand), so `brew install --cask` and `brew upgrade` launch cleanly. Be aware
-that this removes a macOS Gatekeeper safeguard on an ad-hoc-signed,
-un-notarized app; the cask's install-time caveats disclose it in the terminal.
-Notarization through the Apple Developer Program (deferred) is the only way to
-avoid needing that flag-clear at all. Because the app lands
-in `/Applications`, it appears in Launchpad and Spotlight and can be dragged to
-the Dock to pin it, with no separate launcher step. (The source formula below
-installs only the `odytty` CLI on your PATH, with no GUI launcher.)
+`/Applications`:
+
+- The app is ad-hoc signed but not notarized, so macOS quarantines the download
+  and Gatekeeper would otherwise block the first launch.
+- To spare you a manual step, the cask automatically clears the
+  `com.apple.quarantine` attribute during install (the same
+  `xattr -dr com.apple.quarantine` you would otherwise run by hand), so
+  `brew install --cask` and `brew upgrade` launch cleanly.
+- This removes a macOS Gatekeeper safeguard on an ad-hoc-signed, un-notarized
+  app; the cask's install-time caveats disclose it in the terminal. Notarization
+  through the Apple Developer Program (deferred) is the only way to avoid needing
+  that flag-clear at all.
+- Because the app lands in `/Applications`, it appears in Launchpad and Spotlight
+  and can be dragged to the Dock to pin it, with no separate launcher step. (The
+  source formula below installs only the `odytty` CLI on your PATH, with no GUI
+  launcher.)
 
 Prefer to compile locally instead? Use the **source formula**, which builds
 from the release tarball with your own toolchain:
@@ -381,13 +434,15 @@ scoop bucket add odytty https://github.com/ghreprimand/odytty
 scoop install odytty
 ```
 
-Scoop creates a shim under `~\scoop\shims` (on your PATH) so `odytty` launches
-from any shell, and adds an **OdyTTY** Start-menu entry. The bucket manifest is
-`bucket/odytty.json`: it pins the release URL and hash, which is what
-`scoop update odytty` reads. From your side there is nothing to do per release -
-CI bumps the manifest to each new version automatically shortly after the
-release publishes, so `scoop update odytty` picks up new versions on its own once
-that bump lands.
+After install:
+
+- Scoop creates a shim under `~\scoop\shims` (on your PATH) so `odytty` launches
+  from any shell, and adds an **OdyTTY** Start-menu entry.
+- The bucket manifest is `bucket/odytty.json`: it pins the release URL and hash,
+  which is what `scoop update odytty` reads.
+- From your side there is nothing to do per release: CI bumps the manifest to
+  each new version automatically shortly after the release publishes, so
+  `scoop update odytty` picks up new versions on its own once that bump lands.
 
 ### Portable zip
 
@@ -405,14 +460,16 @@ Expand-Archive odytty-windows-x86_64.zip -DestinationPath .\odytty
 Compare the hash with the `odytty-windows-x86_64.zip` row in `SHA256SUMS`; they
 must match before you run the binary.
 
-Because OdyTTY is not code-signed yet, launching it for the first time may
-raise a blue "Windows protected your PC" SmartScreen dialog naming an unknown
-publisher. This is expected for unsigned open-source software and can appear
-however you install it - a package manager removes the browser-download friction
-but does not, on its own, guarantee the first-run prompt won't show. Click
-**More info**, then **Run anyway**. To clear the "downloaded from the internet"
-mark up front instead, run `Unblock-File .\odytty\odytty.exe` before launching.
-Code-signed Windows binaries are a planned improvement.
+Because OdyTTY is not code-signed yet, the first launch may raise a blue
+"Windows protected your PC" SmartScreen dialog naming an unknown publisher:
+
+- This is expected for unsigned open-source software and can appear however you
+  install it; a package manager removes the browser-download friction but does
+  not, on its own, guarantee the first-run prompt won't show.
+- Click **More info**, then **Run anyway**.
+- To clear the "downloaded from the internet" mark up front instead, run
+  `Unblock-File .\odytty\odytty.exe` before launching.
+- Code-signed Windows binaries are a planned improvement.
 
 OdyTTY can't yet be set as the Windows *default terminal* (the app Windows hands
 console programs to when launched from Explorer or another program) - that needs
@@ -859,42 +916,30 @@ older hardware.
 
 ### No Vulkan adapter, accelerated GL, and virtual machines
 
-On Linux OdyTTY prefers a Vulkan adapter but does not require one. When no
-Vulkan adapter is present it selects accelerated OpenGL/GLES (Mesa) instead of
-failing to start; a CPU software rasterizer (llvmpipe or lavapipe) is the last
-resort and is slow. Accelerated GL is a real GPU path: the About panel and the
-startup log show backend `Gl` with a hardware renderer name. On this path text
-is drawn in grayscale rather than subpixel (accelerated GL has no dual-source
-blending) and a few effects may be unavailable; that is expected, not a fault.
+On Linux OdyTTY prefers a Vulkan adapter but does not require one:
+
+- When no Vulkan adapter is present it selects accelerated OpenGL/GLES (Mesa)
+  instead of failing to start; a CPU software rasterizer (llvmpipe or lavapipe)
+  is the last resort and is slow.
+- Accelerated GL is a real GPU path: the About panel and the startup log show
+  backend `Gl` with a hardware renderer name.
+- On this path text is drawn in grayscale rather than subpixel (accelerated GL
+  has no dual-source blending) and a few effects may be unavailable; that is
+  expected, not a fault.
 
 **Virtual machines.** In a guest, OdyTTY needs either a Vulkan adapter or an
-accelerated GL stack. If the guest exposes accelerated GL (virgl or virtio-gpu
-with a render node) OdyTTY uses it and runs on the GPU. If the guest has
-neither, it falls back to software rendering, which works but is slow. To
-exercise the Vulkan path in a guest without passthrough, install Mesa's
-software Vulkan (on Arch, `sudo pacman -S vulkan-swrast` provides lavapipe);
-note that is still CPU rendering and slow. For hardware acceleration, enable
-virgl (GL) or Venus (Vulkan) in the hypervisor.
+accelerated GL stack:
+
+- If the guest exposes accelerated GL (virgl or virtio-gpu with a render node)
+  OdyTTY uses it and runs on the GPU.
+- If the guest has neither, it falls back to software rendering, which works but
+  is slow.
+- To exercise the Vulkan path in a guest without passthrough, install Mesa's
+  software Vulkan (on Arch, `sudo pacman -S vulkan-swrast` provides lavapipe);
+  note that is still CPU rendering and slow.
+- For hardware acceleration, enable virgl (GL) or Venus (Vulkan) in the
+  hypervisor.
 
 **Forcing a backend.** Standard `wgpu` environment overrides are honored, so a
 backend can be forced for debugging with `WGPU_BACKEND=gl` or
 `WGPU_BACKEND=vulkan`.
-
-## Public Release Direction
-
-For an upstream release that avoids maintaining many distro-specific packages:
-
-- publish source tarballs with `SHA256SUMS` (the Release workflow attaches both);
-- create a GitHub Release for the tag so package monitors can track upstream
-  versions;
-- attach the x86_64 AppImage built by `dist/appimage/build-appimage.sh`;
-- attach the unsigned Windows x86_64 zip built by the release workflow;
-- keep the Scoop bucket manifest in sync with the release artifact names;
-- publish the AUR `odytty` package from `dist/aur/` (see its README runbook);
-- include `dist/linux/io.unfinished_works.odytty.desktop`;
-- include `dist/linux/io.unfinished_works.odytty.metainfo.xml`;
-- include `dist/icons/hicolor/`;
-- include install docs for source builds, versioned user-local installs, and
-  packagers;
-- let other distro-specific `.deb`, `.rpm`, Nix, and similar packages be
-  maintained downstream using the same install surface.
