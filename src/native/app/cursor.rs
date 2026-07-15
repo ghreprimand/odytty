@@ -8,7 +8,7 @@
 //! / [`App::cursor_ease_deadline`] fields, which [`App::update_cursor_easing`]
 //! refreshes once per rebuild from the injected `now` and blink phase.
 //!
-//! Off-path contract (`cursor_easing` defaults to `false`): the alpha is held at
+//! Off-path contract (when `cursor_easing` is off): the alpha is held at
 //! `1.0` and no wake is armed, so the cursor renders byte-identically and an
 //! idle terminal arms no extra wakeups. The blink off-phase still hard-hides the
 //! cursor (the caller's existing `cursor_visible = false`), so easing never
@@ -57,7 +57,7 @@ impl App {
     /// driver's current phase and `blinking` whether the active style requests a
     /// blink at all.
     ///
-    /// Identity when off: with `cursor_easing == false` (the default), the
+    /// Identity when off: with `cursor_easing == false`, the
     /// cursor is steady, or the window unfocused, this pins `alpha = 1.0` and
     /// clears the deadline, so [`App::cursor_render_params`] stays at the
     /// identity and [`App::animation_deadline`] contributes nothing.
