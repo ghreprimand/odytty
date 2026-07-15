@@ -1,0 +1,32 @@
+name: RustSec audit
+
+on:
+  pull_request:
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - .github/scripts/rustsec-audit.sh
+      - .github/workflows/rustsec-audit.yml
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Dependency advisory audit
+    runs-on: ubuntu-latest
+    steps:
+      # v4.2.2
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Install cargo-audit
+        run: RUSTUP_TOOLCHAIN=stable cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Audit locked dependency graph
+        run: .github/scripts/rustsec-audit.sh
