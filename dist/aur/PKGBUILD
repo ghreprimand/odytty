@@ -1,4 +1,5 @@
 # Maintainer: Unfinished Works <admin@unfinished-works.com>
+# Contributor: Rafael Dominiquini
 #
 # Source-of-truth PKGBUILD for the `odytty` AUR package. The AUR holds its own
 # git repository; this copy is the upstream template. On each release tag the
