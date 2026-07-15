@@ -699,107 +699,15 @@ jobs:
 
   aur:
     name: Publish AUR package
-    # Mirrors the `scoop` job: needs the published release so the source tarball
-    # and its SHA256SUMS exist. Runs in an Arch container for makepkg / updpkgsums
-    # / namcap, and pushes to the SEPARATE AUR git repo (not this repo's master).
-    #
-    # The AUR package is currently community-maintained (an external packager
-    # tracks the GitHub releases), so upstream does not self-publish. When no
-    # AUR_SSH_PRIVATE_KEY secret is configured, the push step skips cleanly and
-    # the job stays green — the PKGBUILD is still stamped and namcap-linted as a
-    # validation gate. To take over upstream publishing later, obtain maintainer
-    # rights to the `odytty` pkgbase, add the secret, and re-run; the push then
-    # activates automatically. This job runs AFTER `release` has published the
-    # GitHub release, so nothing already published depends on it.
+    # Delegates to the reusable aur-publish workflow, the single source of truth
+    # for stamping the PKGBUILD and pushing to AUR over a host-key-pinned ssh
+    # channel. Needs the published release so the source tarball and its
+    # SHA256SUMS exist; guarded to tag refs so it never runs on a workflow_dispatch
+    # validation build (use the aur-publish workflow's own manual trigger for a
+    # backfill).
     needs: [release]
     if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    container: archlinux:base-devel
-    permissions:
-      contents: read
-    steps:
-      - name: Install tooling
-        run: pacman -Sy --noconfirm --needed git openssh namcap pacman-contrib
-
-      - name: Checkout master
-        uses: actions/checkout@v4
-        with:
-          ref: master
-          fetch-depth: 0
-
-      - name: Derive version
-        id: ver
-        run: |
-          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          else
-            version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
-          fi
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Stamp PKGBUILD, fill checksum, regenerate .SRCINFO, lint
-        run: |
-          set -euo pipefail
-          version="${{ steps.ver.outputs.version }}"
-          # makepkg and updpkgsums refuse to run as root, so do all packaging
-          # work as an unprivileged build user that owns the template dir.
-          useradd -m builder
-          chown -R builder:builder dist/aur
-          runuser -u builder -- env "PKGVER=$version" bash -euo pipefail -c '
-            cd dist/aur
-            # Stamp the release version; the source= URL then resolves to the
-            # just-published release tarball.
-            sed -i -e "s/^pkgver=.*/pkgver=${PKGVER}/" -e "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
-            # Replace the SKIP placeholder with the real release-tarball sha256.
-            updpkgsums
-            # Regenerate .SRCINFO from the stamped PKGBUILD — never hand-write.
-            makepkg --printsrcinfo > .SRCINFO
-            # Static lint is the blocking gate: namcap exits 0 even on errors, so
-            # fail the job when any "E:" line is present.
-            { namcap PKGBUILD || true; } | tee /tmp/namcap.log
-            if grep -qE " E: " /tmp/namcap.log; then
-              echo "::error::namcap reported PKGBUILD errors (see log above)"
-              exit 1
-            fi
-          '
-
-      - name: Push to AUR
-        env:
-          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          version="${{ steps.ver.outputs.version }}"
-          if [ -z "${AUR_SSH_PRIVATE_KEY:-}" ]; then
-            echo "AUR publish skipped: no AUR_SSH_PRIVATE_KEY configured."
-            echo "The AUR package is community-maintained; upstream does not self-publish this release. Nothing to do."
-            exit 0
-          fi
-          install -d -m700 ~/.ssh
-          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
-          chmod 600 ~/.ssh/aur
-          # Pin the AUR host key: scan it, then verify the scanned key against the
-          # PUBLISHED Ed25519 fingerprint before trusting it (no blind TOFU).
-          ssh-keyscan -t ed25519 aur.archlinux.org > ~/.ssh/known_hosts 2>/dev/null
-          fp="$(ssh-keygen -lf ~/.ssh/known_hosts | awk '{print $2}')"
-          expected="SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4"
-          if [ "$fp" != "$expected" ]; then
-            echo "::error::AUR host key fingerprint mismatch: got '$fp' expected '$expected'"
-            exit 1
-          fi
-          printf 'Host aur.archlinux.org\n  User aur\n  IdentityFile ~/.ssh/aur\n  IdentitiesOnly yes\n' > ~/.ssh/config
-          chmod 600 ~/.ssh/config
-          git config --global user.name "OdyTTY release bot"
-          git config --global user.email "admin@unfinished-works.com"
-          git config --global --add safe.directory '*'
-          git clone ssh://aur@aur.archlinux.org/odytty.git aur-repo
-          # Idempotency guard (mirrors Scoop's version check): skip if the AUR
-          # repo already carries this pkgver.
-          if grep -qE "^[[:space:]]*pkgver = ${version}$" aur-repo/.SRCINFO 2>/dev/null; then
-            echo "AUR already at ${version}; nothing to do."
-            exit 0
-          fi
-          cp dist/aur/PKGBUILD dist/aur/.SRCINFO aur-repo/
-          cd aur-repo
-          git add PKGBUILD .SRCINFO
-          git commit -m "odytty ${version}-1"
-          git push origin HEAD:master
+    uses: ./.github/workflows/aur-publish.yml
+    with:
+      version: ${{ github.ref_name }}
+    secrets: inherit
