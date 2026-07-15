@@ -1,66 +1,98 @@
-# AUR package (`odytty`)
+# Publishing The AUR Package
 
-This directory is the upstream source of truth for the [AUR][aur] package
-`odytty`. The AUR itself is a separate git repository; the files here
-(`PKGBUILD`, `.SRCINFO`) are copied there and pushed at each release.
+OdyTTY publishes the [`odytty` AUR package][aur] automatically after each
+tagged GitHub release. The templates in this directory are the upstream source
+of truth; the AUR remains a separate Git repository.
 
-The package builds from the published GitHub release **source tarball** — the
-same `git archive` artifact the Release workflow attaches — so an installed
-`odytty` is versioned, owned by pacman, removable, and reproducible from a fixed
-source. This is a best-effort artifact: it is built by users with `makepkg`, not
-pre-built or smoke-tested by upstream CI.
+## Automatic Publishing
 
-## First-time setup (maintainer)
+The release workflow calls `.github/workflows/aur-publish.yml` after the GitHub
+Release exists. That workflow:
+
+1. stamps the tag version into `PKGBUILD` and resets `pkgrel` to `1`;
+2. replaces the checksum placeholder from the published source archive;
+3. regenerates `.SRCINFO` with `makepkg --printsrcinfo`;
+4. checks `PKGBUILD` with `namcap`; and
+5. pushes both generated files to the AUR repository.
+
+The job is idempotent. If the AUR already carries the release version, it exits
+without creating another commit.
+
+Publishing requires the repository's AUR credential. When that credential is
+unavailable, the workflow still stamps and validates the package, then exits
+cleanly without pushing. This validation-only path keeps forks and replacement
+repositories usable.
+
+The same workflow has a manual trigger for retrying a failed publication without
+replaying every release producer. Supply the release version with or without a
+leading `v`; leaving it blank reads the version from `Cargo.toml` on `master`.
+
+## Verify A Tagged Release
+
+After the release workflow finishes, confirm the AUR page shows the new
+`pkgver` and `pkgrel=1`. A local source build provides an additional check:
 
 ```sh
-git clone ssh://aur@aur.archlinux.org/odytty.git aur-odytty
-cd aur-odytty
-cp /path/to/odytty/dist/aur/PKGBUILD .
+git clone https://aur.archlinux.org/odytty.git
+cd odytty
+makepkg -si
 ```
 
-## Publishing a release
+The package builds from the version-pinned GitHub Release source archive. It is
+owned and removable through pacman, but remains a best-effort source package:
+users build it with `makepkg`, and upstream CI validates metadata rather than
+building it on every supported Arch configuration.
 
-1. Wait until the GitHub Release for the tag exists and its
-   `odytty-<version>.tar.gz` asset is attached (the Release workflow uploads it).
-2. Bump `pkgver` (and reset `pkgrel=1`) in `dist/aur/PKGBUILD`.
-3. Fill in the real checksum from the published tarball:
+## Publishing By Hand When CI Is Unavailable
 
-   ```sh
-   updpkgsums            # rewrites sha256sums=() from the downloaded source
-   ```
+Use this fallback only when the automatic workflow cannot run. Wait for the
+GitHub Release and its `odytty-<version>.tar.gz` source asset before starting.
 
-4. Regenerate the metadata index:
+Create a temporary package workspace so release stamping does not alter the
+upstream templates:
 
-   ```sh
-   makepkg --printsrcinfo > .SRCINFO
-   ```
+```sh
+version=X.Y.Z
+workdir="$(mktemp -d)"
+cp dist/aur/PKGBUILD dist/aur/.SRCINFO "$workdir/"
+cd "$workdir"
 
-5. Build-test in a clean chroot before publishing:
+sed -i \
+  -e "s/^pkgver=.*/pkgver=${version}/" \
+  -e "s/^pkgrel=.*/pkgrel=1/" \
+  PKGBUILD
+updpkgsums
+makepkg --printsrcinfo > .SRCINFO
+makepkg -f
+namcap PKGBUILD ./*.pkg.tar.zst
+```
 
-   ```sh
-   makepkg -f            # or: extra-x86_64-build (devtools, clean chroot)
-   namcap PKGBUILD *.pkg.tar.zst
-   ```
+Copy the validated files into a fresh AUR checkout, review the staged diff, and
+publish:
 
-6. Commit both files and push to the AUR remote:
+```sh
+version=X.Y.Z
+git clone ssh://aur@aur.archlinux.org/odytty.git aur-odytty
+cp PKGBUILD .SRCINFO aur-odytty/
+cd aur-odytty
+git add PKGBUILD .SRCINFO
+git diff --cached
+git commit -m "odytty ${version}-1"
+git push origin HEAD:master
+```
 
-   ```sh
-   cp dist/aur/PKGBUILD dist/aur/.SRCINFO /path/to/aur-odytty/
-   cd /path/to/aur-odytty
-   git commit -am "odytty <version>-1"
-   git push
-   ```
+The `sha256sums=('SKIP')` value checked into the upstream template is only a
+placeholder. `updpkgsums` must replace it with the published archive checksum;
+never publish an AUR revision that still contains `SKIP`.
 
-> The `sha256sums=('SKIP')` checked in here is a placeholder. `updpkgsums`
-> replaces it with the real release-tarball checksum; do not publish an AUR
-> revision with `SKIP`.
+Increment `pkgrel` instead of `pkgver` when only the packaging recipe changes.
+Reset `pkgrel` to `1` for every new upstream version.
 
-## Notes
+## Package Dependencies
 
-- `pkgrel` bumps when the PKGBUILD changes but the source version does not.
-- Runtime deps (`fontconfig`, `freetype2`, `vulkan-icd-loader`, `libxkbcommon`,
-  `hicolor-icon-theme`) cover the GPU/text/desktop stack OdyTTY links against;
-  the Vulkan ICD itself (Mesa, proprietary drivers) is the user's GPU driver and
-  is not pulled in here.
+The runtime dependencies cover the GPU, text, and desktop stack:
+`fontconfig`, `freetype2`, `vulkan-icd-loader`, `libxkbcommon`, and
+`hicolor-icon-theme`. The Vulkan ICD itself comes from the user's Mesa or vendor
+graphics driver and is not installed by this package.
 
 [aur]: https://aur.archlinux.org/packages/odytty
