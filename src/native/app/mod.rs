@@ -3413,25 +3413,29 @@ impl App {
             .then(|| tab_chrome::seam_color(colors, panel_color));
         let reserve = self.tab_reserve();
         let top_span = if show_top {
-            let mut left = 0.0;
-            let mut right = surface_w as f32;
-            if reserve.left_reserved_cols() > 0 {
-                left = padding.as_f32() + reserve.left_reserved_cols() as f32 * cell.width as f32;
-            } else if self.rail_autohide_active()
+            let mut span = tab_panel::joined_top_span(
+                surface_w as f32,
+                padding.as_f32(),
+                cell.width as f32,
+                self.tab_bar_grid_cols(),
+                reserve,
+            );
+            if span.is_none()
+                && self.rail_autohide_active()
                 && self.rail_overlay_visible()
                 && self.rail_autohide_side() == Some(RailSide::Left)
             {
-                left = padding.as_f32() + self.rail_overlay_cols() as f32 * cell.width as f32;
-            }
-            if reserve.right_reserved_cols() > 0 {
-                right = padding.as_f32() + self.tab_bar_grid_cols() as f32 * cell.width as f32;
+                span = Some([
+                    padding.as_f32() + self.rail_overlay_cols() as f32 * cell.width as f32,
+                    surface_w as f32,
+                ]);
             } else if self.rail_autohide_active()
                 && self.rail_overlay_visible()
                 && self.rail_autohide_side() == Some(RailSide::Right)
             {
-                right = self.rail_overlay_origin_px(cell, RailSide::Right)[0];
+                span = Some([0.0, self.rail_overlay_origin_px(cell, RailSide::Right)[0]]);
             }
-            ((left > 0.0) || (right < surface_w as f32)).then_some([left, right])
+            span
         } else {
             None
         };

@@ -22,6 +22,7 @@
 //! Pure and GPU-device-free: unit-tested without a window. Handles all three
 //! axes (`Top`, `Left`, `Right`) so right-side tab placement rides this unchanged.
 
+use super::panes::TabReserve;
 use super::*;
 use crate::theme::Srgb;
 
@@ -82,6 +83,33 @@ fn linear_rgba(c: Srgb, alpha: f32) -> [f32; 4] {
         text::srgb_to_linear(c.2),
         alpha.clamp(0.0, 1.0),
     ]
+}
+
+/// Resolve the top panel's horizontal span when a pinned workspace rail is
+/// present. The top seam joins the rail's content-facing seam, while the
+/// rail-to-content gap remains part of the terminal reservation below the bar.
+/// This makes the gap read as content-side padding instead of a break between
+/// two unrelated panel borders.
+pub(super) fn joined_top_span(
+    surface_width: f32,
+    padding: f32,
+    cell_width: f32,
+    content_cols: usize,
+    reserve: TabReserve,
+) -> Option<[f32; 2]> {
+    if reserve.left_cols > 0 {
+        Some([
+            padding + reserve.left_cols as f32 * cell_width,
+            surface_width,
+        ])
+    } else if reserve.right_cols > 0 {
+        Some([
+            0.0,
+            padding + (content_cols + reserve.gap_cols) as f32 * cell_width,
+        ])
+    } else {
+        None
+    }
 }
 
 /// The panel's content-facing seam coordinate along the panel's growth axis:
@@ -326,6 +354,64 @@ mod tests {
         let bottom = 4.0 + 16.0;
         assert_eq!(quads[0].rect, [content_left, 0.0, 800.0, bottom]);
         assert_eq!(quads[1].rect, [content_left, bottom - 1.0, 800.0, bottom]);
+    }
+
+    #[test]
+    fn joined_left_seam_preserves_the_content_gap_reservation() {
+        let reserve = TabReserve {
+            top_rows: 1,
+            left_cols: 16,
+            right_cols: 0,
+            gap_cols: 2,
+        };
+        let span = joined_top_span(800.0, 4.0, 8.0, 80, reserve).expect("left rail");
+        let content = pane_content_rect(
+            800,
+            600,
+            CellSize {
+                width: 8,
+                height: 16,
+                baseline: 0,
+            },
+            WindowPadding::from_logical(4.0, 1.0),
+            reserve,
+        );
+
+        assert_eq!(span, [132.0, 800.0], "top seam meets the rail seam");
+        assert_eq!(reserve.left_reserved_cols(), 18, "band plus gap reserved");
+        assert_eq!(content.x, 148.0, "content still begins after the gap");
+        assert_eq!(content.x - span[0], 16.0, "two gap columns remain");
+    }
+
+    #[test]
+    fn joined_right_seam_preserves_the_content_gap_reservation() {
+        let reserve = TabReserve {
+            top_rows: 1,
+            left_cols: 0,
+            right_cols: 16,
+            gap_cols: 2,
+        };
+        // Exact grid width: padding + content + gap + rail + padding.
+        let surface_width = 4 + (80 + 2 + 16) * 8 + 4;
+        let span =
+            joined_top_span(surface_width as f32, 4.0, 8.0, 80, reserve).expect("right rail");
+        let content = pane_content_rect(
+            surface_width,
+            600,
+            CellSize {
+                width: 8,
+                height: 16,
+                baseline: 0,
+            },
+            WindowPadding::from_logical(4.0, 1.0),
+            reserve,
+        );
+        let content_right = content.x + content.w;
+
+        assert_eq!(span, [0.0, 660.0], "top seam meets the rail seam");
+        assert_eq!(reserve.right_reserved_cols(), 18, "band plus gap reserved");
+        assert_eq!(content_right, 644.0, "content still ends before the gap");
+        assert_eq!(span[1] - content_right, 16.0, "two gap columns remain");
     }
 
     #[test]
