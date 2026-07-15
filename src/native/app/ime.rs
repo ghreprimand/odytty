@@ -33,6 +33,12 @@ impl App {
                 self.set_ime_preedit(String::new());
             }
             Ime::Preedit(text, _cursor) => {
+                if !text.is_empty() {
+                    // Some platforms do not expose every composition keystroke
+                    // through KeyboardInput. A meaningful pre-edit still counts
+                    // as typing for the cursor's visible activity hold.
+                    self.note_cursor_keyboard_activity(std::time::Instant::now());
+                }
                 if text.is_empty() {
                     self.ime_session = None;
                 } else if self.ime_session.is_none() {
@@ -43,8 +49,12 @@ impl App {
             }
             Ime::Commit(text) => {
                 let origin = self.ime_session.take();
+                let accepts_commit = origin.is_none() || origin == Some(self.sessions.active_id());
+                if !text.is_empty() && accepts_commit {
+                    self.note_cursor_keyboard_activity(std::time::Instant::now());
+                }
                 self.set_ime_preedit(String::new());
-                if origin.is_none() || origin == Some(self.sessions.active_id()) {
+                if accepts_commit {
                     self.commit_ime_text(&text);
                 }
             }
@@ -265,6 +275,50 @@ mod tests {
         assert!(
             app.ime_preedit.is_empty(),
             "a cancelled IME leaves no ghost"
+        );
+    }
+
+    #[test]
+    fn meaningful_ime_activity_rearms_cursor_visibility_without_empty_edges() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+
+        app.cursor_blink.park();
+        app.handle_ime(Ime::Enabled);
+        app.handle_ime(Ime::Preedit(String::new(), None));
+        assert_eq!(
+            app.cursor_blink.deadline(),
+            None,
+            "IME lifecycle edges and an empty pre-edit are not keyboard activity"
+        );
+
+        app.handle_ime(Ime::Preedit("x".to_owned(), None));
+        assert!(
+            app.cursor_blink.deadline().is_some(),
+            "a nonempty pre-edit keeps a blinking cursor visible"
+        );
+
+        app.cursor_blink.park();
+        app.handle_ime(Ime::Commit(String::new()));
+        assert_eq!(
+            app.cursor_blink.deadline(),
+            None,
+            "an empty commit cannot arm a wake"
+        );
+        app.handle_ime(Ime::Commit("x".to_owned()));
+        assert!(
+            app.cursor_blink.deadline().is_some(),
+            "a committed composition re-arms the visible hold"
+        );
+
+        app.cursor_blink.park();
+        app.ime_session = Some(SessionToken(99));
+        app.handle_ime(Ime::Commit("late".to_owned()));
+        assert_eq!(
+            app.cursor_blink.deadline(),
+            None,
+            "a delayed commit from another pane cannot wake the active cursor"
         );
     }
 

@@ -1218,7 +1218,7 @@ impl App {
     }
 
     /// Test seam (NF20-B): arm the ACTIVE pane's cursor blink (blinking +
-    /// focused) at `now`, so its toggle deadline enters the wake set — the setup
+    /// focused) at `now`, so its activity-hold deadline enters the wake set — the setup
     /// for the per-session deadline fan-out regression (a pane whose blink is
     /// armed and then backgrounded must not strand a stale wake).
     #[cfg(test)]

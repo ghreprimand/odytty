@@ -1433,6 +1433,10 @@ impl App {
     pub(super) fn on_window_focus_changed(&mut self, focused: bool) {
         self.focused = focused;
         if focused {
+            // A focus gain is a fresh visible-hold boundary for the active
+            // cursor. This is presentation-only and leaves focus-report bytes
+            // below unchanged.
+            self.note_cursor_keyboard_activity(Instant::now());
             self.rearm_bell_attention_on_focus_gain();
             // Read the reset-immune episode before restore clears the bounded
             // retry counter. A fresh focus gain remains byte-identical.
@@ -1444,6 +1448,10 @@ impl App {
             // minimized, so the ordinary focus-gain path is unchanged.
             self.restore_from_minimized();
         } else {
+            // Drop the deadline immediately rather than waiting for the next
+            // render sample, so an unfocused window cannot retain a stale blink
+            // wake while the event loop is otherwise idle.
+            self.cursor_blink.park();
             self.window_pointer_px = None;
             self.cancel_overlay_drag_on_focus_loss();
             self.pointer_left_held = false;

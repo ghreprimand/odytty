@@ -27,6 +27,19 @@ const CURSOR_EASE_FADE: Duration = Duration::from_millis(180);
 const CURSOR_ANIM_FRAME: Duration = Duration::from_millis(16);
 
 impl App {
+    /// Force the presentation side of a keyboard/focus activity hold fully
+    /// visible. The blink state machine has already selected the on phase; this
+    /// cancels a stale fade so a key pressed during an off phase cannot leave one
+    /// transparent frame before the next rebuild.
+    pub(in crate::native) fn hold_cursor_easing_visible(&mut self, now: Instant) {
+        self.cursor_anim_alpha = 1.0;
+        self.cursor_ease_deadline = None;
+        self.cursor_ease_phase_on = true;
+        // Mark the on phase as settled. The normal updater continues to create
+        // a fade only when the later activity-boundary edge turns it off.
+        self.cursor_ease_toggle_at = Some(now - CURSOR_EASE_FADE);
+    }
+
     /// Alpha multiplier for the cursor quad color (ID1 easing).
     ///
     /// Polarity is the kill-shot: `1.0` = fully opaque (today's render), `0.0` =

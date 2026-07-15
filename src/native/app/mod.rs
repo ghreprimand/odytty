@@ -69,6 +69,8 @@ use super::render_helpers::{
 use super::theme_builder::{save_theme_to_dir, user_theme_dir_for_config};
 
 use self::panes::{DIVIDER_GRAB_PX, PANE_DIVIDER_PX, pane_content_rect};
+#[cfg(test)]
+pub(super) use super::cursor::{CURSOR_ACTIVITY_HOLD, CURSOR_BLINK_STOP_AFTER};
 pub(super) use super::cursor::{CURSOR_BLINK_INTERVAL, CursorBlinkState};
 use super::layout::{FocusDir, SplitAxis};
 pub(super) use super::resize::{
@@ -1893,6 +1895,13 @@ impl App {
         physical: PhysicalKey,
         event_type: KeyEventType,
     ) {
+        // A physical press or repeat is keyboard activity even when chrome,
+        // an overlay, or a pane command consumes it below. Record it before
+        // routing or PTY encoding so cursor presentation never changes input
+        // bytes, ordering, or latency.
+        if event_type != KeyEventType::Release {
+            self.note_cursor_keyboard_activity(Instant::now());
+        }
         let mods = self.modifiers;
         let key_modes = self.key_modes();
         if event_type != KeyEventType::Release {
@@ -3009,6 +3018,11 @@ impl App {
         }
         self.last_active_session = incoming;
 
+        // A pane activation gives its cursor the same visible hold as keyboard
+        // activity. Background panes are parked, so only the newly focused
+        // session receives a bounded blink deadline.
+        self.note_cursor_keyboard_activity(Instant::now());
+
         // NF21-8/9/11: an active-session change (tab OR workspace switch post-W1)
         // must not carry window/session input latches across the boundary. Drop
         // the pointer drag + hover cell on every session so the outgoing one
@@ -3062,6 +3076,27 @@ impl App {
         self.last_render_signature = None;
         self.needs_rebuild = true;
         self.sync_active_window_title();
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+
+    /// Record activity for the active cursor without touching terminal input.
+    /// The application-controlled DECSCUSR blink flag remains authoritative:
+    /// steady shapes keep no deadline, while a blinking focused cursor holds
+    /// solid until the activity quiet period expires.
+    pub(in crate::native) fn note_cursor_keyboard_activity(&mut self, now: Instant) {
+        let blinking = self
+            .terminal
+            .lock()
+            .map(|terminal| terminal.cursor_blinking())
+            .unwrap_or(false);
+        let focused = self.focused;
+        self.cursor_blink.note_activity(now, blinking, focused);
+        if blinking && focused {
+            self.hold_cursor_easing_visible(now);
+        }
+        self.needs_rebuild = true;
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
@@ -5321,9 +5356,18 @@ impl App {
             }
         }
 
-        // A due cursor-blink toggle rebuilds once so the phase flips; the rebuild
-        // path polls the blink driver and advances it.
+        // Advance a due cursor-blink boundary before recomputing the wake set.
+        // This prevents a delayed redraw from leaving `WaitUntil` pointed at a
+        // past blink instant; the rebuild below consumes the already-resolved
+        // phase for easing and rendering.
         if self.cursor_blink.is_due(now) {
+            let blinking = self
+                .terminal
+                .lock()
+                .map(|terminal| terminal.cursor_blinking())
+                .unwrap_or(false);
+            let focused = self.focused;
+            let _ = self.cursor_blink.poll(now, blinking, focused);
             self.needs_rebuild = true;
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();
@@ -7107,6 +7151,48 @@ mod tests {
         ))
     }
 
+    #[derive(Clone, Default)]
+    struct RecordingWriter {
+        bytes: Arc<Mutex<Vec<u8>>>,
+    }
+
+    impl std::io::Write for RecordingWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.bytes
+                .lock()
+                .expect("recorded bytes")
+                .extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A headless app whose active writer records exact terminal input. This
+    /// keeps activity-policy tests at the production key-routing seam without
+    /// writing to a real shell.
+    fn build_recording_app() -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
+        let dims = Dimensions::new(24, 80);
+        let session = crate::native::test_support::spawn_test_pause_shell(dims).ok()?;
+        let _ = session.take_writer().ok()?;
+        let recorder = RecordingWriter::default();
+        let bytes = recorder.bytes.clone();
+        let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
+        let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+        let pty = Arc::new(Mutex::new(session));
+        let app = App::new(
+            NativeOptions::default(),
+            terminal,
+            writer,
+            pty,
+            Settings::default(),
+            crate::settings::SettingsReloader::for_current_process(Instant::now()),
+        );
+        Some((app, bytes))
+    }
+
     #[test]
     fn unfocused_cursor_params_are_solid_stationary_and_focus_aware() {
         let Some(mut app) = build_idle_app() else {
@@ -7616,29 +7702,39 @@ mod tests {
     }
 
     #[test]
-    fn blink_toggles_at_the_interval_when_focused() {
+    fn blink_waits_for_activity_hold_then_toggles_at_the_interval() {
         let mut state = blink();
         let t0 = Instant::now();
-        // First poll arms the phase (on) and schedules the next toggle.
+        // The first visible sample uses the same quiet hold as keyboard input.
         assert!(state.poll(t0, true, true));
         let deadline = state.deadline().expect("blink should schedule a wake");
-        assert_eq!(deadline, t0 + Duration::from_millis(500));
+        assert_eq!(deadline, t0 + CURSOR_ACTIVITY_HOLD);
         assert!(!state.is_due(t0));
 
-        // Before the deadline: unchanged, still on.
-        assert!(state.poll(t0 + Duration::from_millis(250), true, true));
+        // Before the activity boundary: unchanged, still on.
+        assert!(state.poll(
+            t0 + CURSOR_ACTIVITY_HOLD - Duration::from_millis(1),
+            true,
+            true
+        ));
+        assert!(!state.is_due(t0 + CURSOR_ACTIVITY_HOLD - Duration::from_millis(1)));
 
-        // At/after the deadline: flips to off and reschedules.
-        assert!(state.is_due(t0 + Duration::from_millis(500)));
-        assert!(!state.poll(t0 + Duration::from_millis(500), true, true));
+        // The first boundary flips to off. Later edges retain the configured
+        // half-period rather than adding another activity hold.
+        assert!(state.is_due(t0 + CURSOR_ACTIVITY_HOLD));
+        assert!(!state.poll(t0 + CURSOR_ACTIVITY_HOLD, true, true));
         assert_eq!(
             state.deadline(),
-            Some(t0 + Duration::from_millis(1000)),
+            Some(t0 + CURSOR_ACTIVITY_HOLD + Duration::from_millis(500)),
             "next toggle is one interval later"
         );
 
         // Next interval flips back on.
-        assert!(state.poll(t0 + Duration::from_millis(1000), true, true));
+        assert!(state.poll(
+            t0 + CURSOR_ACTIVITY_HOLD + Duration::from_millis(500),
+            true,
+            true
+        ));
     }
 
     #[test]
@@ -7647,10 +7743,158 @@ mod tests {
         let t0 = Instant::now();
         assert!(state.poll(t0, true, true));
         // Toggle to off-phase.
-        assert!(!state.poll(t0 + Duration::from_millis(500), true, true));
+        assert!(!state.poll(t0 + CURSOR_ACTIVITY_HOLD, true, true));
         // Losing focus forces solid-on and clears the scheduled wake.
-        assert!(state.poll(t0 + Duration::from_millis(600), true, false));
+        assert!(state.poll(
+            t0 + CURSOR_ACTIVITY_HOLD + Duration::from_millis(100),
+            true,
+            false
+        ));
         assert_eq!(state.deadline(), None);
+    }
+
+    #[test]
+    fn blink_activity_rearms_visibility_and_parks_after_long_idle() {
+        let mut state = blink();
+        let t0 = Instant::now();
+        assert!(state.poll(t0, true, true));
+        assert!(!state.poll(t0 + CURSOR_ACTIVITY_HOLD, true, true));
+
+        let activity = t0 + CURSOR_ACTIVITY_HOLD + Duration::from_millis(20);
+        state.note_activity(activity, true, true);
+        assert!(
+            state.poll(activity, true, true),
+            "activity restores solid-on"
+        );
+        assert_eq!(state.deadline(), Some(activity + CURSOR_ACTIVITY_HOLD));
+
+        let stop = activity + CURSOR_BLINK_STOP_AFTER;
+        assert!(state.is_due(stop));
+        assert!(state.poll(stop, true, true), "long idle parks visible");
+        assert_eq!(state.deadline(), None, "parked cursor cannot self-wake");
+
+        state.note_activity(stop + Duration::from_millis(1), true, true);
+        assert_eq!(
+            state.deadline(),
+            Some(stop + Duration::from_millis(1) + CURSOR_ACTIVITY_HOLD),
+            "the next key re-arms one bounded visible hold"
+        );
+    }
+
+    #[test]
+    fn blink_activity_never_overrides_steady_or_unfocused_cursor_policy() {
+        let mut state = blink();
+        let now = Instant::now();
+
+        state.note_activity(now, false, true);
+        assert!(state.poll(now, false, true));
+        assert_eq!(
+            state.deadline(),
+            None,
+            "steady DECSCUSR stays authoritative"
+        );
+
+        state.note_activity(now, true, false);
+        assert!(state.poll(now, true, false));
+        assert_eq!(state.deadline(), None, "unfocused cursor has no wake");
+    }
+
+    #[test]
+    fn keyboard_activity_rearms_press_and_repeat_without_changing_pty_bytes() {
+        let Some((mut app, bytes)) = build_recording_app() else {
+            return;
+        };
+        app.cursor_blink.park();
+        app.cursor_anim_alpha = 0.0;
+        app.cursor_ease_deadline = Some(Instant::now() + Duration::from_millis(16));
+        app.cursor_ease_phase_on = false;
+        let logical = WinitKey::Character("x".into());
+
+        app.handle_key_event(
+            logical.clone(),
+            logical.clone(),
+            PhysicalKey::Code(winit::keyboard::KeyCode::KeyX),
+            KeyEventType::Press,
+        );
+        assert!(
+            app.cursor_blink.deadline().is_some(),
+            "a press re-arms the visible hold"
+        );
+        assert_eq!(app.cursor_anim_alpha, 1.0, "a press cancels an off fade");
+        assert_eq!(app.cursor_ease_deadline, None, "a press adds no fade wake");
+
+        app.handle_key_event(
+            logical.clone(),
+            logical.clone(),
+            PhysicalKey::Code(winit::keyboard::KeyCode::KeyX),
+            KeyEventType::Repeat,
+        );
+        assert!(
+            app.cursor_blink.deadline().is_some(),
+            "a repeat keeps the cursor visible"
+        );
+
+        app.cursor_blink.park();
+        app.handle_key_event(
+            logical.clone(),
+            logical,
+            PhysicalKey::Code(winit::keyboard::KeyCode::KeyX),
+            KeyEventType::Release,
+        );
+        assert_eq!(
+            app.cursor_blink.deadline(),
+            None,
+            "a release alone is not keyboard activity"
+        );
+        assert_eq!(
+            bytes.lock().expect("recorded bytes").as_slice(),
+            b"xx",
+            "activity tracking adds no PTY bytes and keeps release encoding unchanged"
+        );
+    }
+
+    #[test]
+    fn focus_boundaries_park_then_rearm_the_active_cursor_hold() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        let now = Instant::now();
+        app.cursor_blink.note_activity(now, true, true);
+        assert!(app.cursor_blink.deadline().is_some());
+
+        app.on_window_focus_changed(false);
+        assert_eq!(
+            app.cursor_blink.deadline(),
+            None,
+            "focus loss immediately drops the active blink wake"
+        );
+
+        app.on_window_focus_changed(true);
+        assert!(
+            app.cursor_blink.deadline().is_some(),
+            "focus gain begins a fresh visible hold for the active pane"
+        );
+    }
+
+    #[test]
+    fn reduced_motion_keeps_activity_blink_edges_hard() {
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        app.settings.reduced_motion = true;
+        let now = Instant::now();
+        app.cursor_blink.note_activity(now, true, true);
+        let cursor_on = app
+            .cursor_blink
+            .poll(now + CURSOR_ACTIVITY_HOLD, true, true);
+        assert!(!cursor_on, "the activity boundary still reaches blink off");
+        app.update_cursor_easing(now + CURSOR_ACTIVITY_HOLD, cursor_on, true);
+        assert_eq!(app.cursor_blink_alpha(), 1.0, "no reduced-motion fade");
+        assert_eq!(app.cursor_blink_fade_deadline(), None, "no easing wake");
+        assert!(
+            app.cursor_blink.deadline().is_some(),
+            "the normal blink half-period remains a bounded hard-edge wake"
+        );
     }
 
     // ---- Shell-integration "applies to new shells" notice ----

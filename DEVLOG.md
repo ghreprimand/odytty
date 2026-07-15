@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Cursor blink now yields to active typing
+
+Press, repeat, and meaningful IME composition activity now keep an
+application-requested blinking cursor fully visible. After 650 ms of keyboard
+quiet, the first off edge begins; later edges retain the existing 530 ms
+half-period. After 15 seconds without keyboard activity, the cursor parks
+solid-on and schedules no further wake until new input, focus gain, or pane
+activation starts a fresh visible hold.
+
+Application-requested steady DECSCUSR shapes remain steady, focus loss parks
+the cursor immediately, and background panes keep no cursor deadline. Reduced
+motion preserves the same activity and idle policy with hard blink edges and no
+easing wake. The policy changes presentation state only: key routing, IME
+commit routing, PTY bytes, ordering, cursor motion, streaks, and chrome-free
+cursor comparison snapshots remain unchanged.
+
+The state machine and its active-pane wake handling are shared by Linux,
+Windows, and macOS. Regression coverage pins quiet-boundary timing, repeat and
+release behavior, IME lifecycle, focus and pane parking, long-idle wake
+termination, reduced-motion hard edges, exact PTY input bytes, and stale-wake
+prevention after session switches.
+
 ## 2026-07-15 -- Large cursor jumps now leave a bounded directional streak
 
 Cursor trail now connects stable jumps beyond the six-cell glide range with

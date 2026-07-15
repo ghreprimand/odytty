@@ -362,7 +362,8 @@ fn backgrounded_session_blink_does_not_spin_the_event_loop() {
         return;
     };
 
-    // Arm the ACTIVE pane's (session 0) blink: its toggle deadline (t0+530ms)
+    // Arm the ACTIVE pane's (session 0) blink: its activity-hold deadline
+    // (t0+650ms)
     // now sits in the wake set. Also arm the other two per-session deadline
     // sources — cursor ease/slide and the synchronized-output hold — so this one
     // flow covers every fan-out source `next_wake_deadline` mins over sessions.
