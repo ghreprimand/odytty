@@ -2819,6 +2819,7 @@ impl App {
             };
             self.overlay.set_context_menu_rail_clearance(left, right);
         }
+        self.apply_cursor_icon(CursorIcon::Default);
         self.request_selection_redraw();
     }
 

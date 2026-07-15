@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-14 -- Context menus take the arrow cursor immediately
+
+Context menus opened under a stationary pointer now show the arrow cursor
+immediately instead of retaining the terminal I-beam until the next pointer
+move. The successful menu-open path applies the same cursor rule already used
+when moving over an open overlay; guarded no-menu paths remain unchanged.
+
+The cursor update uses the existing winit path identically on Linux, Windows,
+and macOS. A regression test opens the menu from a live terminal-content pointer
+and verifies that the cursor changes from the I-beam to the arrow without a
+follow-up move.
+
+Verified: cargo test, cargo fmt --check, and cargo clippy --all-targets --locked
+-- -D warnings are clean.
+
 ## 2026-07-14 -- Prefer accelerated adapters over software fallbacks
 
 GPU initialization now checks for a presentable accelerated adapter when the

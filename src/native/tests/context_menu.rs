@@ -411,6 +411,30 @@ fn right_click_opens_menu_in_a_plain_shell() {
 }
 
 #[test]
+fn context_menu_open_replaces_the_grid_i_beam_immediately() {
+    let Some((mut app, _terminal)) = app_for_test() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 10));
+    app.pointer_move_for_test(28.0, 25.0);
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::Text,
+        "precondition: the stationary pointer starts over terminal content"
+    );
+
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+
+    assert!(app.context_menu_open_for_test());
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::Default,
+        "opening the menu in place must replace the terminal I-beam"
+    );
+}
+
+#[test]
 fn right_click_over_resolved_path_shows_file_section() {
     // C3: right-clicking over a resolved interactive path (feature on) re-detects
     // the path at the click cell and surfaces the file section. Synthetic only:
