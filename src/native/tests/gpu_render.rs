@@ -75,8 +75,10 @@ fn color_glyph_blend_uses_premultiplied_source_alpha() {
 
 fn glow_snapshot() -> Snapshot {
     let dimensions = Dimensions::new(5, 4);
-    let mut colors = crate::core::DynamicColors::default();
-    colors.cursor = crate::core::RgbColor::new(0x20, 0x80, 0xe0);
+    let colors = crate::core::DynamicColors {
+        cursor: crate::core::RgbColor::new(0x20, 0x80, 0xe0),
+        ..crate::core::DynamicColors::default()
+    };
     Snapshot {
         dimensions,
         cursor: Position { row: 1, column: 2 },

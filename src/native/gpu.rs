@@ -198,6 +198,7 @@ fn intersect_rect(rect: [f32; 4], clip: [f32; 4]) -> Option<[f32; 4]> {
 
 /// Resolve one cursor aura from the exact live cursor inputs. This is the only
 /// instance builder used by Full, CursorOnly, and multi-pane updates.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn build_cursor_glow_instance(
     snapshot: &Snapshot,
     cell: atlas::CellSize,
