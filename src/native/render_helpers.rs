@@ -167,8 +167,8 @@ pub(super) enum OverlayFragment {
     },
     /// VE4-v1 cursor-trail animation phase.
     CursorTrail { phase: u32 },
-    /// ID1/VE4 cursor-glow animation phase (glow routed as overlay quads per
-    /// D-IDVE-1, so it is a contributor slot like the trail).
+    /// ID1/VE4 cursor-glow animation phase. The effect is rendered as one
+    /// shape-aware analytic aura beneath glyphs, not solid overlay geometry.
     CursorGlow { phase: u32 },
     /// ID3/U5 background treatment (quantized scrim + treatment discriminant).
     Background { scrim_q: u16, treat: u8 },

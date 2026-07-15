@@ -488,13 +488,12 @@ pub const DEFAULT_CURSOR_EASING: bool = true;
 /// unaffected.
 pub const DEFAULT_CURSOR_MOTION: bool = true;
 
-/// Soft cursor glow (`ODYTTY_CURSOR_GLOW`, ID1): when on, three concentric
-/// semi-transparent halo quads are drawn behind the cursor block in the theme
-/// foreground color, giving the cursor a subtle bloom. Off by default — while
-/// off no glow quads are emitted and the render path is byte-identical to
-/// before. Purely presentational; never affects cell semantics or the logical
-/// cursor position. The halo alpha is capped low enough that adjacent-cell text
-/// contrast stays within the RV1 floor.
+/// Soft cursor glow (`ODYTTY_CURSOR_GLOW`, ID1): when on, one shape-aware
+/// analytic aura is drawn behind the cursor glyph, matching Block, Bar, or
+/// Underline geometry in the resolved cursor color. Off by default; while off
+/// no aura geometry is emitted. Purely presentational; never affects cell
+/// semantics or the logical cursor position. The aura alpha is capped low
+/// enough that adjacent-cell text contrast stays within the RV1 floor.
 pub const DEFAULT_CURSOR_GLOW: bool = false;
 
 /// Cursor motion trail (`ODYTTY_CURSOR_TRAIL`, VE4): when on, a short fading
