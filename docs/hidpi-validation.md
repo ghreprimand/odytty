@@ -1,6 +1,6 @@
 # HiDPI Scale Validation — Manual Matrix
 
-Operator-runnable manual test matrix for HiDPI/fractional-scale behavior.
+Maintainer-run manual test matrix for HiDPI/fractional-scale behavior.
 Covers initial-launch correctness, live scale-factor transitions, and
 interaction with font-size settings.
 

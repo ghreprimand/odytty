@@ -201,7 +201,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
   - [x] H3: headless scale-matrix tests (11 tests: CellSize integrality/
         monotonicity across 5 scales × 2 font sizes, grid_dimensions_for at 50
         combos, rebuild invalidation, debounce final-scale, UV seam-free at
-        fractional scales) + `docs/hidpi-validation.md` operator-runnable manual
+        fractional scales) + `docs/hidpi-validation.md` maintainer-run manual
         matrix (23 cells across 5 sections). All H1/H2 seams confirmed correct.
 - [ ] Improve glyph atlas management, including cache growth, invalidation, and
       missing-glyph behavior.
@@ -569,7 +569,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
 
 ## Visual Capability Parity (Stage 6 parity half)
 
-Operator directive: visual capability parity with the strongest GPU terminals is
+Design ruling: visual capability parity with the strongest GPU terminals is
 a floor; surpassing it is the standing ambition.
 
 - [ ] Add color emoji rendering.
