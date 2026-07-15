@@ -9,6 +9,16 @@ deliberate, permanent project stance, not a default you can accidentally flip.
 This document covers where the logs live on each platform, how large they can
 grow, what is and is not captured, and the opt-in trace gates.
 
+## Contents
+
+- [The privacy floor (read this first)](#the-privacy-floor-read-this-first)
+- [Where the logs live](#where-the-logs-live)
+- [Size bounds](#size-bounds)
+- [What is captured](#what-is-captured)
+- [Log level and trace gates](#log-level-and-trace-gates)
+- [Recovery behavior](#recovery-behavior)
+- [Retrieving logs for a support request](#retrieving-logs-for-a-support-request)
+
 ## The privacy floor (read this first)
 
 No terminal content ever reaches any log or crash file. Concretely, none of
@@ -50,12 +60,15 @@ platform:
 
 **Windows is first-class here.** The log directory resolves to
 `%LOCALAPPDATA%\odytty`, which is persistent per-user storage. This is
-deliberate: earlier Windows builds fell through to `%TEMP%`, which Windows
-periodically cleans, so a log could vanish before it could be retrieved for a
-support request. Windows also runs as a GUI-subsystem application with no
-visible stderr, so the on-disk `odytty.log` is the primary way to see what the
-build reported at startup. The path resolution is unit-tested on the Windows CI
-leg.
+deliberate:
+
+- Earlier Windows builds fell through to `%TEMP%`, which Windows periodically
+  cleans, so a log could vanish before it could be retrieved for a support
+  request.
+- Windows runs as a GUI-subsystem application with no visible stderr, so the
+  on-disk `odytty.log` is the primary way to see what the build reported at
+  startup.
+- The path resolution is unit-tested on the Windows CI leg.
 
 The directory is created lazily, on the first actual log write — a quick
 `odytty --version` or `--show-config` never touches it. If every candidate
