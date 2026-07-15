@@ -202,6 +202,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "osc52_read",
             "copy_on_select",
             "smart_ctrl_c",
+            "reduced_motion",
             "cvd_mode",
             "cvd_strength",
             "native_autoclose_ms",
