@@ -220,6 +220,74 @@ fn padded_cell_vertices_start_at_window_padding_origin() {
     assert!(vertices.iter().all(|vertex| vertex.pos[1] >= origin[1]));
 }
 
+#[test]
+fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
+    let Ok(font) = text::load_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let atlas = GlyphAtlas::build(&font, 24.0);
+    let snapshot = snapshot(&[" "], 1);
+    let origin = [8.0, 12.0];
+    let params = CursorRenderParams {
+        offset: [3.25, -1.5],
+        alpha: 0.42,
+    };
+
+    let previous = render_sig();
+    let mut mid_slide = previous.clone();
+    mid_slide.content.terminal_revision += 1;
+    mid_slide.cursor.anim = CursorAnimKey::from_params(&params);
+    assert_eq!(
+        RenderSignature::update_from(Some(&previous), &mid_slide),
+        GeometryUpdate::Full,
+        "terminal output classifies the mid-slide frame as a Full rebuild"
+    );
+
+    let mut full = Vec::new();
+    crate::grid::build_cell_vertices_with_focus_dim_and_origin_into(
+        &mut full,
+        &snapshot,
+        &atlas,
+        &[],
+        0.0,
+        origin,
+        crate::grid::BackgroundTreatmentParams::default(),
+        crate::settings::DEFAULT_CELL_BG_OPACITY,
+        None,
+        crate::grid::ChromePin::NONE,
+    );
+    let cell_vertices = full.len();
+    append_cursor_layer_vertices(
+        &mut full,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        origin,
+        &[],
+        params,
+    );
+
+    let mut cursor_only = Vec::new();
+    append_cursor_layer_vertices(
+        &mut cursor_only,
+        &snapshot,
+        &atlas,
+        CursorStyle::Block,
+        origin,
+        &[],
+        params,
+    );
+
+    assert_eq!(&full[cell_vertices..], cursor_only.as_slice());
+    let cursor = cursor_only[0];
+    assert_eq!(
+        cursor.pos,
+        [origin[0] + params.offset[0], origin[1] + params.offset[1]]
+    );
+    assert!((cursor.color[3] - params.alpha).abs() < 1e-6);
+}
+
 fn search_sig(query: &str) -> SearchRenderSignature {
     SearchRenderSignature {
         open: !query.is_empty(),

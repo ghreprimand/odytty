@@ -7,6 +7,14 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Full GPU rebuilds preserve cursor animation parameters
+
+Full cell-buffer rebuilds now apply the same live cursor offset and opacity as
+cursor-only updates, including focused cursors in split layouts. Cursor motion
+therefore remains continuous while terminal output triggers full rebuilds, and
+the cursor block stays aligned with its trail throughout a slide. The shared GPU
+path is platform-neutral and is covered by a logic regression test.
+
 ## 2026-07-15 -- Release v0.8.9 — accelerated GPU adapters preferred over software fallbacks
 
 Reliability release. On systems that expose both an accelerated adapter and a

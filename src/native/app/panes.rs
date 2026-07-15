@@ -811,6 +811,7 @@ impl App {
                 .is_some_and(crate::native::gpu::GpuState::transparency_capable);
             self.effective_window_bg_alpha(capable)
         };
+        let cursor_params = self.cursor_render_params();
         if let Some(gpu) = self.gpu.as_mut() {
             gpu.set_scroll_frac_offset(0.0);
             // SCROLL-CHROME-BOUNCE: multi-pane never glides sub-row; pin inert.
@@ -833,7 +834,14 @@ impl App {
                 wash: data.wash,
                 seam: data.seam,
             });
-            gpu.update_from_panes(&panes, &frame_quads, overlay, &tab_bg_quads, rail_overlay);
+            gpu.update_from_panes(
+                &panes,
+                cursor_params,
+                &frame_quads,
+                overlay,
+                &tab_bg_quads,
+                rail_overlay,
+            );
             // Cut 1: hand each pane's collected graphics to the image layer,
             // clipped per pane. Empty (no split graphics) leaves the layer's
             // pane draws cleared, so a graphics-free multipane frame issues no

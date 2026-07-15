@@ -635,6 +635,25 @@ fn background_vertex_count(snapshot: &Snapshot) -> u32 {
     (cells * grid::VERTS_PER_QUAD) as u32
 }
 
+/// Append the overlays and live cursor parameters shared by Full and
+/// CursorOnly rebuilds. Keeping this layer in one builder prevents the two GPU
+/// paths from diverging when cursor animation parameters change.
+pub(super) fn append_cursor_layer_vertices(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cursor_style: CursorStyle,
+    origin: [f32; 2],
+    overlays: &[SolidQuad],
+    params: CursorRenderParams,
+) {
+    out.reserve(overlays.len() * grid::VERTS_PER_QUAD);
+    for &overlay in overlays {
+        grid::push_solid_quad(out, overlay);
+    }
+    grid::append_cursor_vertices_with_origin(out, snapshot, atlas, cursor_style, origin, params);
+}
+
 /// PANE-SUBCELL-CLIP: the number of background quads the snapshot's FIRST row
 /// contributes — the non-continuation cells in row 0. Background quads are
 /// emitted in row-major order, so these lead the background segment, and
@@ -2145,6 +2164,7 @@ impl GpuState {
         &mut self,
         snapshot: &Snapshot,
         cursor_style: CursorStyle,
+        cursor_params: CursorRenderParams,
         focus_dim: f32,
         treatment: grid::BackgroundTreatmentParams,
     ) {
@@ -2152,6 +2172,7 @@ impl GpuState {
             snapshot,
             cursor_style,
             &[],
+            cursor_params,
             focus_dim,
             treatment,
             &[],
@@ -2190,6 +2211,7 @@ impl GpuState {
     pub(super) fn update_from_panes(
         &mut self,
         panes: &[PaneRender],
+        cursor_params: CursorRenderParams,
         dividers: &[SolidQuad],
         overlay_top: Option<OverlayTop>,
         bg_quads: &[SolidQuad],
@@ -2307,7 +2329,7 @@ impl GpuState {
                     &self.atlas,
                     pane.cursor_style,
                     pane.origin,
-                    CursorRenderParams::default(),
+                    cursor_params,
                 );
             }
             // The pane's own overlays (selection / search) and cursor ride its
@@ -2526,6 +2548,7 @@ impl GpuState {
         snapshot: &Snapshot,
         cursor_style: CursorStyle,
         overlays: &[SolidQuad],
+        cursor_params: CursorRenderParams,
         focus_dim: f32,
         treatment: grid::BackgroundTreatmentParams,
         bg_quads: &[SolidQuad],
@@ -2619,17 +2642,14 @@ impl GpuState {
         // single `[cell_vertex_count..vertex_count]` draw segment, so order
         // within the buffer is the stacking order; the count tracking is
         // unaffected (`cell_vertex_count` is fixed above, `vertex_count` below).
-        self.vertices.reserve(overlays.len() * grid::VERTS_PER_QUAD);
-        for &overlay in overlays {
-            grid::push_solid_quad(&mut self.vertices, overlay);
-        }
-        grid::append_cursor_vertices_with_origin(
+        append_cursor_layer_vertices(
             &mut self.vertices,
             snapshot,
             &self.atlas,
             cursor_style,
             origin,
-            CursorRenderParams::default(),
+            overlays,
+            cursor_params,
         );
         // F4-P3: the revealed rail overlay strip draws topmost — after the
         // cursor and every overlay — so the floating band sits over the live
@@ -2740,17 +2760,13 @@ impl GpuState {
         // cursor block in `cursor_vertices` so they composite behind it. This
         // mirrors the Full-rebuild path so the CursorOnly update produces an
         // identical stacking order; the count tracking is order-independent.
-        self.cursor_vertices
-            .reserve(overlays.len() * grid::VERTS_PER_QUAD);
-        for &overlay in overlays {
-            grid::push_solid_quad(&mut self.cursor_vertices, overlay);
-        }
-        grid::append_cursor_vertices_with_origin(
+        append_cursor_layer_vertices(
             &mut self.cursor_vertices,
             snapshot,
             &self.atlas,
             cursor_style,
             origin,
+            overlays,
             params,
         );
 

@@ -5984,6 +5984,7 @@ impl ApplicationHandler<UserEvent> for App {
                                         gpu.update_from_snapshot(
                                             &snapshot,
                                             cursor_style,
+                                            cursor_params,
                                             focus_dim,
                                             background_treatment,
                                         );
@@ -5992,6 +5993,7 @@ impl ApplicationHandler<UserEvent> for App {
                                             &snapshot,
                                             cursor_style,
                                             &overlays,
+                                            cursor_params,
                                             focus_dim,
                                             background_treatment,
                                             &tab_bg_quads,
