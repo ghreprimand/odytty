@@ -1,105 +1,111 @@
-# OdyTTY Release Process
+# Releasing OdyTTY
 
-OdyTTY releases create both a source tag and a GitHub Release entry that package
-monitors can discover. The first public release was `v0.1.0`; the current
-release is `v0.8.2`. `Cargo.toml` must match the release version. The version
-examples below use `0.6.2` as an illustrative tag — substitute the tag you are
-cutting.
+Use this guide to cut a tagged OdyTTY release, verify its 15 published assets,
+and confirm the Scoop, Homebrew, and AUR channels updated. Replace `X.Y.Z` with
+the version being released.
 
-OdyTTY publishes a source tarball, a best-effort Linux x86_64 AppImage, an
-unsigned Windows x86_64 portable zip, and `SHA256SUMS`. The same source tarball
-builds on Linux, macOS, and Windows with `cargo build --release --locked`.
+## Contents
+
+- [Continuous Integration](#continuous-integration)
+- [Release Readiness](#release-readiness)
+- [Release Artifacts](#release-artifacts)
+- [Create A Release](#create-a-release)
+- [Release Workflow Jobs](#release-workflow-jobs)
+- [Verify Publishing Channels](#verify-publishing-channels)
+- [Build A Fallback Source Archive](#build-a-fallback-source-archive)
+- [Verify The Odyssey Package](#verify-the-odyssey-package)
+- [Package-Monitor Compatibility](#package-monitor-compatibility)
+- [Odyssey-Mon Upstream Tracking](#odyssey-mon-upstream-tracking)
+- [Versioning](#versioning)
 
 ## Continuous Integration
 
-Two GitHub Actions workflows back the process. Neither uses a self-hosted
-runner; both run on standard GitHub-hosted runners, which are free with no quota
-for public repositories.
+OdyTTY uses GitHub-hosted runners for both workflows:
 
-- **`.github/workflows/ci.yml`** — on every push and pull request to `master`,
-  builds and tests on `ubuntu-latest`, `macos-latest`, and `windows-latest`
-  (`cargo fmt --check`, `cargo build --release --locked`, `cargo clippy
-  --all-targets --locked -- -D warnings`, `cargo test --locked`). This is the
-  cross-platform correctness gate; it produces no artifacts.
-- **`.github/workflows/release.yml`** — on a `vX.Y.Z` tag push, creates the
-  source tarball, Linux AppImage, Windows zip, macOS `.app` zip, `SHA256SUMS`, and publishes the
-  GitHub Release automatically. Tag pushes are restricted to maintainers, so
-  this never runs from fork pull requests.
+| Workflow | Trigger | Result |
+| --- | --- | --- |
+| `.github/workflows/ci.yml` | Pushes and pull requests to `master` | Formats, builds, lints, and tests on Ubuntu, macOS, and Windows; publishes no artifacts |
+| `.github/workflows/release.yml` | `vX.Y.Z` tags or manual validation | Builds all seven release artifact types; tag runs also publish the release and update package channels |
 
-Because the release workflow does the archive, checksum, and publish steps, a
-normal release is: land the version bump on `master`, then push the tag. The
-manual archive commands below are documented only as a fallback for building a
-tarball locally (for example, to feed the Odyssey package before the tag's CI
-run finishes).
+The CI gate runs these commands on all supported platforms:
 
-## Current Release Readiness
+```sh
+cargo fmt --check
+cargo build --release --locked
+cargo clippy --all-targets --locked -- -D warnings
+cargo test --locked
+```
 
-The current release ships:
+Release publishing never runs for fork pull requests. A normal release lands
+the version commit on `master` and then pushes an annotated tag.
 
-- plain `odytty` launches the native terminal;
-- `odytty -e command args...` executes a command directly in the initial PTY;
-- `--working-directory DIR` sets the initial shell/command directory;
-- `--title TITLE` sets the initial window title;
-- `odytty --version`, `--help`, `--list-themes`, `--list-fonts`, and
-  `--show-config` work without opening a window;
-- `odytty new` / `list` / `attach [ID]` manage detached sessions on Unix, with
-  an in-window Manage Sessions overlay and a Detach & switch action;
-- tabs and split panes (first split via `Ctrl+Shift+E` / `Ctrl+Shift+O`, then
-  the `Ctrl-b` prefix model);
-- overlays for the command palette, connection manager, session replay, theme
-  picker, and theme builder;
-- 142 built-in themes with a perceptual minimum-contrast floor and optional
-  color-vision-deficiency modes;
-- interactive/clickable paths (off by default) with `Ctrl+click`-to-open and an
-  in-app image lightbox;
-- a mouse-cursor shape over the grid (I-beam), hyperlinks (hand), and chrome
-  (arrow);
-- desktop launcher metadata in `dist/linux/`;
-- hicolor SVG and PNG icon assets in `dist/icons/hicolor/`;
-- source, AppImage, Windows zip, user-local, system, Odyssey/LFS, and downstream packaging
-  instructions are documented;
-- Linux, macOS, and Windows build from the published source archive and are
-  exercised in CI.
+## Release Readiness
 
-Deferred:
+The release must agree with the current public references:
 
-- signed Windows installers, MSI/NSIS/WiX, and public `.pdb` uploads;
-- `.dmg` / signed or notarized macOS binary artifacts;
-- `.deb`, `.rpm`, Nix, Flatpak, Snap, or AUR packages maintained upstream;
-- package-managed Debian `x-terminal-emulator` registration;
-- a custom `TERM` value and matching OdyTTY terminfo entry.
+| Surface | Authoritative reference |
+| --- | --- |
+| Terminal and native-app behavior | [Feature Reference](features.md) |
+| Default shortcuts and rebinding | [Keybindings](keybindings.md) |
+| Settings, defaults, and environment variables | [Runtime Knobs](runtime-knobs.md) |
+| Supported install paths and artifact names | [Install Guide](install.md) |
 
-A release must not silently change a user's default terminal; packages should
-register OdyTTY as available and let the user choose it.
+Linux, macOS, and Windows build from the published source archive and run in
+the CI matrix. Releases also carry desktop metadata and hicolor icons for
+Linux packages.
+
+The upstream release does not currently publish Nix, Flatpak, or Snap packages.
+A package must not silently change the user's default terminal; it should
+register OdyTTY as available and leave selection to the user.
 
 ## Release Artifacts
 
-A release includes exactly:
+Each release publishes seven artifact types under both an always-latest alias
+and a byte-identical version-pinned name:
 
-```text
-odytty-0.6.2.tar.gz
-odytty.tar.gz
-odytty-0.6.2-x86_64.AppImage
-odytty-x86_64.AppImage
-odytty-0.6.2-windows-x86_64.zip
-odytty-windows-x86_64.zip
-odytty-0.6.2-macos-arm64.zip
-odytty-macos-arm64.zip
-SHA256SUMS
-```
+| Artifact | Always-latest alias | Version-pinned name |
+| --- | --- | --- |
+| Debian package | `odytty-amd64.deb` | `odytty-X.Y.Z-amd64.deb` |
+| RPM package | `odytty-x86_64.rpm` | `odytty-X.Y.Z-x86_64.rpm` |
+| Linux binary tarball | `odytty-linux-x86_64.tar.gz` | `odytty-X.Y.Z-linux-x86_64.tar.gz` |
+| Linux AppImage | `odytty-x86_64.AppImage` | `odytty-X.Y.Z-x86_64.AppImage` |
+| macOS Apple Silicon app zip | `odytty-macos-arm64.zip` | `odytty-X.Y.Z-macos-arm64.zip` |
+| Windows portable zip | `odytty-windows-x86_64.zip` | `odytty-X.Y.Z-windows-x86_64.zip` |
+| Source archive | `odytty.tar.gz` | `odytty-X.Y.Z.tar.gz` |
 
-These are produced and attached by `release.yml`. The version-less files are
-always-latest aliases for durable download URLs; each alias and its
-version-pinned twin are byte-identical and therefore show matching hashes in
-`SHA256SUMS`. Detached signatures may be added later if upstream signing is set
-up; CI does not sign today.
+`SHA256SUMS` is the fifteenth asset. Each alias and its pinned twin have the
+same hash because they contain the same bytes.
+
+Durable download links use the aliases under `releases/latest/download/`.
+Pinned names select one specific version. See the
+[install artifact table](install.md#release-artifact-names-and-checksums) for
+the user-facing download contract.
+
+Release artifacts are not cryptographically signed. The macOS app is ad-hoc
+signed during assembly, but it is not Developer ID signed or notarized.
 
 ## Create A Release
 
-1. Verify the version in `Cargo.toml` matches the intended tag, and refresh
-   `Cargo.lock` (`cargo build`).
+### 1. Update Release Metadata
 
-2. Run the release checks locally (CI runs the same on all supported platforms):
+Set `Cargo.toml` to `X.Y.Z` and refresh `Cargo.lock`. Keep the declared MSRV in
+`Cargo.toml` aligned with `rust-toolchain.toml` if the Rust version changes.
+
+Add the newest `<release>` entry to
+`dist/linux/io.unfinished_works.odytty.metainfo.xml`. Add the release headline
+to `DEVLOG.md` using this shape:
+
+```text
+## YYYY-MM-DD -- Release vX.Y.Z
+```
+
+Commit these changes together, push `master`, and wait for all three CI
+platform jobs to pass.
+
+### 2. Run Local Release Checks
+
+Run the full suite rather than `cargo test --lib`. CLI and attach integration
+tests require the compiled `odytty` binary.
 
 ```sh
 cargo fmt --check
@@ -111,91 +117,90 @@ desktop-file-validate dist/linux/io.unfinished_works.odytty.desktop
 appstreamcli validate --pedantic dist/linux/io.unfinished_works.odytty.metainfo.xml
 ```
 
-   The `clippy` line mirrors CI's `-D warnings` gate. Run the full
-   `cargo test --locked` (not `cargo test --lib`): the CLI/attach integration
-   tests need the compiled `odytty` binary, which `--lib` does not build.
-   Windows release zip contents are verified by the tag-triggered release
-   workflow's `odytty.exe --version` smoke test.
+The tag workflow separately smoke-tests the packaged Windows binary,
+AppImage, macOS binary, and Linux tarball binary.
 
-3. Update `dist/linux/io.unfinished_works.odytty.metainfo.xml` to add a
-   `<release>` entry for the new version (newest first) and add the headline
-   `DEVLOG.md` entry with a `## YYYY-MM-DD -- Release vX.Y.Z` heading. Commit the
-   version bump together with these and any other release-note/doc updates, then
-   push `master`. Confirm the `ci.yml` run is green on Linux, macOS, and
-   Windows.
-
-4. Tag the release and push the tag. This triggers `release.yml`, which builds
-   the tarball, AppImage, Windows zip, and macOS `.app` zip, writes `SHA256SUMS`, and publishes the
-   GitHub Release:
+### 3. Push The Annotated Tag
 
 ```sh
-git tag -a v0.6.2 -m "OdyTTY v0.6.2"
-git push origin v0.6.2
+version=X.Y.Z
+git tag -a "v${version}" -m "OdyTTY v${version}"
+git push origin "v${version}"
 ```
 
-5. Confirm the published release has exactly the artifact set listed above and
-   that `SHA256SUMS` includes matching hashes for each alias/version-pinned pair.
-   Confirm the source archive builds with `cargo build --release --locked`.
+The tag starts all producer jobs, publishes the GitHub Release, and then runs
+the three package-channel jobs.
 
-   To produce the same tarball locally without CI (fallback):
+### 4. Verify The Published Release
+
+Confirm the release has 15 assets: seven aliases, seven pinned copies, and
+`SHA256SUMS`. Verify that every alias/pinned pair has matching hashes.
+
+Download the pinned source archive and confirm it builds:
 
 ```sh
-git archive --format=tar.gz --prefix=odytty-0.6.2/ \
-  -o odytty-0.6.2.tar.gz v0.6.2
-sha256sum odytty-0.6.2.tar.gz > SHA256SUMS
+cargo build --release --locked
 ```
 
-6. For Windows distribution metadata, the Scoop bucket manifest
-   (`bucket/odytty.json`) must be bumped to the new release — its pinned
-   `version`, `url`, and `hash` are the only fields the Scoop **client** reads,
-   so `scoop update odytty` serves the previous version until this bump lands.
-   (The manifest's `autoupdate` block is **not** client-side: it is metadata for
-   maintainer tooling — checkver scripts and Excavator bots — and does not keep
-   installed clients current on its own.) A manifest bump is therefore
-   **required every release**, and it can only happen **after** the release's
-   `SHA256SUMS` asset exists (the hash comes from the
-   `odytty-<version>-windows-x86_64.zip` row).
+Also confirm the release title, tag, `Cargo.toml` version, and metainfo release
+entry all use `X.Y.Z`.
 
-   **Primary path — automatic (CI).** The `scoop` job in `release.yml` runs
-   after the release is published: it downloads `SHA256SUMS`, rewrites
-   `bucket/odytty.json` (version/url/hash), and commits `Scoop: bump manifest to
-   vX.Y.Z` to `master`. After tagging, confirm this commit landed on `master`
-   shortly after the release finishes publishing, and that the manifest's pinned
-   `version` matches the tag. No manual edit is needed when the job succeeds.
+## Release Workflow Jobs
 
-   **Fallback — manual.** If the `scoop` job failed or was skipped (for example,
-   branch protection blocks `GITHUB_TOKEN` pushes to `master`), bump the
-   manifest by hand: set `version` to the release, set the `64bit` `url` to
-   `…/releases/download/v<version>/odytty-<version>-windows-x86_64.zip`, and set
-   `hash` to that file's row in the published `SHA256SUMS`; commit and push to
-   `master`. The manifest first became installable from this repo with the
-   release that included `odytty-<version>-windows-x86_64.zip` and `SHA256SUMS`.
+`release.yml` has seven producer jobs and four tag-only publishing jobs:
 
-7. For macOS distribution metadata, the Homebrew tap
-   (`ghreprimand/homebrew-odytty`) is bumped to the new release, mirroring the
-   Scoop manifest. The cask's `version`, `url`, and `sha256` are the fields
-   `brew` reads, so `brew upgrade --cask odytty` serves the previous version
-   until this bump lands. As with Scoop, the bump can only happen **after** the
-   release's `SHA256SUMS` asset exists — the cask hash comes from the
-   `odytty-<version>-macos-arm64.zip` row.
+| Job | Artifact or channel | Guard |
+| --- | --- | --- |
+| `source` | Source tarball | Runs for tag and manual validation |
+| `appimage` | Linux AppImage | Runs for tag and manual validation |
+| `linux-tarball` | Standalone Linux binary tarball | Runs for tag and manual validation |
+| `deb` | Debian package | Runs for tag and manual validation |
+| `rpm` | RPM package | Runs for tag and manual validation |
+| `windows` | Windows portable zip | Runs for tag and manual validation |
+| `macos` | Ad-hoc-signed macOS app zip | Runs for tag and manual validation |
+| `release` | GitHub Release, aliases, pinned copies, and `SHA256SUMS` | Tag only; requires all seven producers |
+| `scoop` | In-repo Scoop manifest | Tag only; runs after `release` and pushes with `GITHUB_TOKEN` |
+| `homebrew` | External Homebrew tap | Tag only; runs after `release`; validates locally and publishes when `HOMEBREW_TAP_DEPLOY_KEY` is present |
+| `aur` | AUR package | Tag only; runs after `release` through `aur-publish.yml`; publishes when `AUR_SSH_PRIVATE_KEY` is present |
 
-   **Primary path — automatic (CI).** The `homebrew` job in `release.yml` runs
-   after the release is published: it downloads `SHA256SUMS`, stamps the cask
-   and source-build formula (version/url/sha256) in `dist/homebrew/`, and
-   pushes them over SSH to the `ghreprimand/homebrew-odytty` tap. After
-   tagging, confirm the tap received the bump commit and that the cask's pinned
-   `version` matches the tag. The job is guarded: it runs green and pushes
-   nothing when the `HOMEBREW_TAP_DEPLOY_KEY` secret is absent, exactly like the
-   AUR job.
+The Homebrew and AUR credentials are configured for the live channels. Their
+missing-key paths remain clean validation-only no-ops so forks and replacement
+repositories can use the workflow safely.
 
-   **Fallback — manual.** If the `homebrew` job failed or was skipped, edit the
-   cask in the tap directly: set `version` to the release, set `url` to
-   `…/releases/download/v<version>/odytty-<version>-macos-arm64.zip`, and set
-   `sha256` to that file's row in the published `SHA256SUMS`; commit and push to
-   the tap's default branch.
+## Verify Publishing Channels
 
-8. Build the Odyssey package from the published archive, not from the working
-   tree, and verify file ownership:
+After `release` finishes, verify every channel:
+
+| Channel | Expected automatic result | Fallback |
+| --- | --- | --- |
+| Scoop | `bucket/odytty.json` is committed to `master` with the new version, Windows zip URL, and hash | Update those three fields from the published `SHA256SUMS` |
+| Homebrew | The cask and source formula are stamped and pushed to `ghreprimand/homebrew-odytty` | Follow the [Homebrew publishing guide](../dist/homebrew/README.md) |
+| AUR | The `odytty` package is stamped and pushed to the AUR | Follow the [AUR publishing guide](../dist/aur/README.md) |
+
+For Scoop, the client reads the pinned `version`, `url`, and `hash`. The
+`autoupdate` block is metadata for maintainer tooling and does not update
+installed clients by itself.
+
+The Scoop hash comes from the
+`odytty-X.Y.Z-windows-x86_64.zip` row in `SHA256SUMS`. The Homebrew cask uses
+the macOS zip row, while the formula and AUR package use the source-tarball row.
+
+## Build A Fallback Source Archive
+
+The workflow normally builds the archive. To create the same versioned tarball
+locally when GitHub Actions is unavailable:
+
+```sh
+version=X.Y.Z
+git archive --format=tar.gz --prefix="odytty-${version}/" \
+  -o "odytty-${version}.tar.gz" "v${version}"
+sha256sum "odytty-${version}.tar.gz" > SHA256SUMS
+```
+
+## Verify The Odyssey Package
+
+Build the Odyssey package from the published archive rather than the working
+tree. Then verify ownership and the installed version:
 
 ```sh
 cd ~/pkgbuilds/odytty
@@ -209,26 +214,26 @@ odytty --version
 
 ## Package-Monitor Compatibility
 
-The GitHub Release is the upstream signal for package monitors. The tag,
-release title, source archive, checksum file, and `Cargo.toml` version should
-all agree:
+The GitHub Release is the upstream signal for package monitors. These values
+must agree:
 
 ```text
-tag: v0.6.2
-release title: v0.6.2
-Cargo.toml version: 0.6.2
-archive: odytty-0.6.2.tar.gz
+tag: vX.Y.Z
+release title: vX.Y.Z
+Cargo.toml version: X.Y.Z
+archive: odytty-X.Y.Z.tar.gz
 ```
 
-Do not publish a release entry for a tag whose source archive cannot be built
-with `cargo build --release --locked`.
+Do not publish a release whose source archive fails:
+
+```sh
+cargo build --release --locked
+```
 
 ## Odyssey-Mon Upstream Tracking
 
-After OdyTTY is installed as a local pacman package, Odyssey-Mon sees the local
-installed version from `pacman -Qi odytty`, for example `0.6.2-1`.
-
-Configure upstream tracking as a GitHub source:
+Odyssey-Mon reads the installed package version from `pacman -Qi odytty` and
+compares it with GitHub tags. Configure the upstream source as:
 
 ```text
 type: github
@@ -237,9 +242,8 @@ repo: odytty
 tag_prefix: v
 ```
 
-With that mapping, upstream releases such as `v0.6.2` can be compared against
-the installed pacman version `0.6.2-1`, after Odyssey-Mon normalizes the `v`
-prefix and package-release suffix.
+Odyssey-Mon normalizes the leading `v` and the package-release suffix, so an
+upstream `vX.Y.Z` tag compares with an installed `X.Y.Z-1` package.
 
 ## Versioning
 
@@ -252,6 +256,5 @@ v0.1.9
 v0.2.0
 ```
 
-For package-only recipe changes, keep the source version and bump the package
-release field in the downstream package recipe, such as `pkgrel=2` in a
-PKGBUILD.
+For recipe-only packaging changes, keep the source version and increment the
+downstream package release field, such as `pkgrel=2` in a PKGBUILD.
