@@ -1,312 +1,457 @@
 # OdyTTY Feature Reference
 
-The complete reference for OdyTTY's terminal behavior, native app workflow,
-shell integration, and configuration. The [README](../README.md) carries the
-overview and install paths; this document is the deep manual for what the
-terminal does and every knob that shapes it.
+Use this guide to understand OdyTTY's terminal behavior, configure the native
+app, and work with tabs, panes, workspaces, remote hosts, and shell integration.
+For installation and a shorter overview, start with the
+[README](../README.md).
 
 ## Contents
 
+- [Configuring OdyTTY](#configuring-odytty)
 - [Terminal Compatibility](#terminal-compatibility)
 - [Text, Emoji, And Graphics](#text-emoji-and-graphics)
-- [Native App Workflow](#native-app-workflow)
+- [Tab And Pane Workflow](#tab-and-pane-workflow)
+  - [Open, Close, And Switch Tabs](#open-close-and-switch-tabs)
+  - [Adjust The Tab Bar](#adjust-the-tab-bar)
+  - [Split A Tab Into Panes](#split-a-tab-into-panes)
+  - [Organize Workspaces And The Rail](#organize-workspaces-and-the-rail)
+  - [Restore Workspaces And Open Layouts](#restore-workspaces-and-open-layouts)
 - [Shell Integration](#shell-integration)
 - [Settings And Themes](#settings-and-themes)
 
+## Configuring OdyTTY
+
+Most customization happens inside OdyTTY. Hand-editing a config file is
+optional: the settings panel, pickers, and command palette provide the primary
+in-app paths.
+
+| Task | Where to do it | What happens |
+| --- | --- | --- |
+| Browse and edit settings | `Ctrl+Shift+,` | Changes apply live in the terminal behind the panel |
+| Find a setting | Press `/` inside Settings | Filters by name, config key, description, or group |
+| Save changes | `Ctrl+S` inside Settings | Writes only changed rows to `odytty.conf` |
+| Choose a theme | `Ctrl+Shift+H` or Settings → Themes | Opens the theme picker |
+| Choose a font | Open a font row in Settings → Fonts | Opens the bundled and system font picker |
+| Run an action | `Ctrl+Shift+P` | Opens the command palette |
+| Configure tabs and panes | Settings → Layout | Groups Tabs, Workspace rail, Panel, and Panes |
+
+The settings panel is keyboard- and pointer-driven. Arrow keys move through
+sections and rows, `Enter` activates a choice, and `Esc` clears a search or
+closes the panel.
+
+`Ctrl+Shift+,` and Settings from the terminal content menu open the section
+list. Settings from a tab, workspace slot, or empty workspace rail opens
+Layout directly.
+
+Edits apply live, but the config file is not changed until you press `Ctrl+S`.
+Saving uses a preservation-first writeback: comments, blank lines, key order,
+and unknown or future keys stay in place, while changed keys are rewritten and
+missing changed keys are appended. OdyTTY saves through a same-directory
+temporary file and rename instead of truncating the file in place.
+
+Settings resolve in this order:
+
+| Priority | Source | Intended use |
+| --- | --- | --- |
+| 1 | Built-in defaults | A complete usable setup |
+| 2 | `odytty.conf` | Durable preferences |
+| 3 | `ODYTTY_*` environment variables | Session-scoped overrides |
+
+On Unix, the config path is `$XDG_CONFIG_HOME/odytty/odytty.conf`, falling back
+to `~/.config/odytty/odytty.conf`. On Windows it is
+`%APPDATA%\odytty\odytty.conf`. OdyTTY polls the resolved file about once per
+second and applies valid external edits live; environment-pinned values remain
+pinned for that session.
+
+The optional file format is dependency-free `key = value` text with `#`
+comments:
+
+```conf
+theme = odyssey-default
+font_family = Victor Mono
+font_size = 20.0
+render_quality = high
+```
+
+See [Runtime Knobs](runtime-knobs.md) for every config key, environment
+variable, range, default, and reload rule. The
+[annotated config](odytty.conf.example) is a starting point for readers who
+prefer to edit the file.
+
 ## Terminal Compatibility
 
-The owned parser and terminal core cover common shell and TUI behavior:
-printing, UTF-8 chunking, SGR attributes including 256-color and truecolor,
-cursor movement, erase, insert/delete character and line, insert/replace mode
-(IRM), repeat, reverse index, scroll regions, origin mode, tab stops, bracketed
-paste, focus reporting,
-alternate screen modes 47/1047/1048/1049, OSC 0/2 titles, OSC 7 working
-directory tracking, OSC 8 hyperlinks, OSC 52 clipboard write plus opt-in read,
-OSC 133 prompt marks, OSC 4/10/11/12 dynamic colors, DECRQM/DECRPM, XTWINOPS,
-XTGETTCAP, DECRQSS, rectangle operations, selective erase, synchronized output
-mode 2026, and broad mouse reporting.
+OdyTTY owns its parser and terminal model. The supported surface covers common
+shells and full-screen terminal applications:
 
-Mouse support includes X10/normal/button-event/any-event tracking, focus
-events, UTF-8, SGR, urxvt, legacy encodings, and SGR-pixel mode 1016 with true
-physical pixel coordinates from the native window. Alternate scroll mode (1007,
-default on) translates the wheel into cursor-key presses on the alternate
-screen, so full-screen TUIs that do not track the mouse (pagers and similar)
-scroll with the wheel at the same rows-per-notch as the local viewport
-(the configured `scroll_wheel_lines` amount).
+| Area | Supported behavior |
+| --- | --- |
+| Text and attributes | Printing, UTF-8 chunking, SGR attributes, 256-color, and truecolor |
+| Cursor and editing | Cursor movement, erase, insert/delete character and line, insert/replace mode (IRM), repeat, and reverse index |
+| Screen state | Scroll regions, origin mode, tab stops, bracketed paste, focus reporting, and alternate-screen modes 47/1047/1048/1049 |
+| OSC sequences | OSC 0/2 titles, OSC 7 working directories, OSC 8 hyperlinks, OSC 52 clipboard write plus opt-in read, OSC 133 prompt marks, and OSC 4/10/11/12 dynamic colors |
+| Queries and controls | DECRQM/DECRPM, XTWINOPS, XTGETTCAP, DECRQSS, rectangle operations, selective erase, and synchronized output mode 2026 |
+| Pointer input | Broad mouse reporting, including X10, normal, button-event, any-event, focus events, UTF-8, SGR, urxvt, legacy encodings, and SGR-pixel mode 1016 |
+| Keyboard input | Mode-aware legacy encoding, negotiated Kitty keyboard protocol, and IME composition |
 
-Keyboard support includes mode-aware legacy encoding and the Kitty keyboard
-protocol as a negotiated overlay. With no Kitty flags active, legacy bytes are
-preserved. IME composition is enabled: input-method pre-edit is rendered inline
-at the cursor and committed text is sent to the shell, so CJK input methods and
-compose-key/dead-key accents work.
+SGR-pixel mode reports true physical pixel coordinates from the native window.
+Alternate scroll mode 1007 is on by default and translates the wheel into
+cursor-key presses on the alternate screen. Full-screen applications that do
+not track the mouse therefore scroll at the configured `scroll_wheel_lines`
+rows per notch.
 
-The bell (BEL) is configurable via the `bell` setting: `urgent` (default,
-requests window attention when unfocused), `visual` (a brief readability-safe
-screen flash), `all` (both), or `off`. There is no audible bell.
+The Kitty keyboard protocol is a negotiated overlay. With no Kitty flags
+active, legacy bytes are preserved.
+
+IME pre-edit appears inline at the cursor and committed text is sent to the
+shell. This supports CJK input methods and compose-key or dead-key accents.
+
+The terminal bell (`BEL`) has no audible mode:
+
+| `bell` value | Behavior |
+| --- | --- |
+| `urgent` | Requests window attention when unfocused; this is the default |
+| `visual` | Shows a brief, readability-safe screen flash |
+| `all` | Requests attention and shows the flash |
+| `off` | Disables bell feedback |
 
 ## Text, Emoji, And Graphics
 
-Text rendering uses bundled Victor Mono by default at 20 logical pixels with
-line height `1.0`. JetBrains Mono is also bundled and remains selectable via
-`font_family`. The font picker groups families into **Bundled Fonts** (Victor
-Mono, JetBrains Mono, always available) and **System Fonts** (host monospace
-families), and either resolves with zero config. The symbol/Nerd-font fallback
-is a **chain** of bundled faces (Nerd Fonts **v3** and **v2**), so PUA prompt
-icons render out of the box regardless of which Nerd Font era a config emits or
-whether the host has any Nerd font installed. System font families, direct font
-files, font-weight variants, per-range symbol maps, synthetic styles, subpixel
-AA, glyph coverage gamma, stem darkening, and minimum-contrast enforcement are
-configurable.
+### Render Text And Symbols
 
-Color emoji uses `swash` and a dedicated premultiplied-RGBA atlas. Bitmap-strike
-color fonts are supported: Noto Color Emoji (CBDT/CBLC) on Linux and Apple Color
-Emoji (sbix) on macOS, including variation selectors, flags, keycaps, skin
-tones, and common ZWJ clusters. Text-default symbols stay on the monochrome
-fallback path, and missing color glyph coverage falls back there instead of
-tofu. Emoji pixels are not SGR-tinted. COLR/CPAL and SVG-in-OpenType expansion
-remain future work.
+Victor Mono is bundled and selected by default at 20 logical pixels with line
+height `1.0`. JetBrains Mono is also bundled and selectable through
+`font_family`.
 
-Kitty graphics support includes actions `t`, `T`, `p`, `d`, and `q`; raw RGB,
-raw RGBA, and PNG still images; direct, file, temp-file, and POSIX shared-memory
-transports; chunking; image and placement ids; z-index; crop; cell scaling; and
-pixel offsets. Sixel supports the DEC/xterm data language, RGB/HLS color
-introducers, repeat, raster attributes, transparency, VT340 palette, and DECSDM.
+The font picker separates always-available **Bundled Fonts** from host
+**System Fonts**. Its bundled symbol fallback is a chain of Nerd Fonts v3 and
+v2 faces, so PUA prompt icons work without a host-installed Nerd font and
+remain compatible with configs from either Nerd Font era.
+
+Bundled and discovered system families both resolve without hand-written
+configuration.
+
+| Text control | Support |
+| --- | --- |
+| Font sources | Bundled families, system families, and direct font files |
+| Styling | Font-weight variants, synthetic styles, and subpixel antialiasing |
+| Fallback | Per-range symbol maps and bundled Nerd Font v3/v2 faces |
+| Readability | Glyph coverage gamma, stem darkening, and minimum-contrast enforcement |
+
+### Render Color Emoji
+
+Color emoji uses `swash` and a dedicated premultiplied-RGBA atlas. Bitmap
+strike color fonts are supported through Noto Color Emoji (CBDT/CBLC) on Linux
+and Apple Color Emoji (sbix) on macOS.
+
+Variation selectors, flags, keycaps, skin tones, and common ZWJ clusters are
+supported. Text-default symbols stay on the monochrome fallback path, missing
+color glyphs fall back there instead of becoming tofu, and emoji pixels are not
+SGR-tinted.
+
+COLR/CPAL and SVG-in-OpenType expansion remain future work.
+
+### Display Inline Graphics
+
+| Protocol | Supported surface |
+| --- | --- |
+| Kitty graphics | Actions `t`, `T`, `p`, `d`, and `q`; raw RGB, raw RGBA, and PNG still images; direct, file, temp-file, and POSIX shared-memory transports; chunking; image and placement ids; z-index; crop; cell scaling; and pixel offsets |
+| Sixel | DEC/xterm data language, RGB/HLS color introducers, repeat, raster attributes, transparency, VT340 palette, and DECSDM |
+
 Animation and Kitty Unicode placeholders are not supported.
 
-## Native App Workflow
+<a id="native-app-workflow"></a>
 
-The native app runs multiple sessions. `Ctrl+Shift+T` opens a new tab,
-`Ctrl+Shift+W` closes the active tab, and `Ctrl+PageDown` /
-`Ctrl+PageUp` switch tabs. Closing a tab closes the **whole** tab (every pane
-it holds), which is distinct from closing a single pane (see "Close Pane"
-below); closing the last tab of the last workspace quits the app. The tab bar appears when
-two or more sessions exist; a single shell keeps the original full-grid view.
-To keep the bar visible with a single tab, turn on **Always show tab bar**
-(`always_show_tab_bar`, off by default); either way, a single tab you have
-renamed always shows the bar so a named "workflow" tab is never hidden. The bar
-renders as a distinct band separated from the terminal body by a thin themed
-line: inactive tabs are dimmed, and the active tab keeps a full-strength bold
-label plus an accent underline in the theme's cursor color, all opaque so they
-stay legible over background images and treatments. Inline graphics are offset
-by the same reserved tab-bar row as text, so Kitty/Sixel placements stay aligned
-with the visible grid while the bar is shown. The bar's height is adjustable the
-same way the workspace rail's width is: drag the bar's bottom edge down to make
-it taller (up to five text rows, with the labels centered vertically in the
-band), and double-click that edge to snap back to the default single row
-(`tab_bar_height`, `auto` by default).
+## Tab And Pane Workflow
 
-**Rename a tab** to organize your work: right-click the tab and
-choose **Rename Tab**, or run **Rename Tab** from the command palette. The
-custom name overrides shell title updates until you clear it (commit an empty
-name to revert to the live shell title). Names are per-session and are not saved
-across restarts.
+OdyTTY can run many shells in one window. Tabs hold one or more panes, while
+workspaces group complete sets of tabs.
 
-**Workspaces** group sets of tabs. Each workspace keeps its own tabs and
-remembers which one was active, so switching workspaces swaps the whole tab
-strip at once. A session starts with a single workspace, and a single-workspace
-session looks exactly as before, with no extra chrome.
+### Open, Close, And Switch Tabs
 
-Once a second workspace exists, a vertical **rail** lists them down one side.
-`Ctrl+Shift+PageDown` and `Ctrl+Shift+PageUp` cycle between workspaces,
-`Ctrl+Shift+Enter` creates a new workspace, and `Ctrl+Shift+G` opens the
-workspace picker. The rail's `+` slot also creates a new workspace; it now rests at a more
-visible brightness, and a dead gap row sits just above it, so a click just past
-the last workspace is inert and never opens a workspace by accident. The rail
-follows the `workspace_rail` setting: `auto` (default) reveals it once a second
-workspace exists, `always` pins it even with one, and `left` / `right` pin it to
-that side.
-
-Workspaces can be reordered two ways. **Drag a rail slot** to a new position:
-press and drag a workspace up or down the rail, a bright rule marks where it will
-land, release to drop it (or press Escape to cancel with the order untouched). A
-short press that never crosses the drag threshold stays a plain click that
-switches to the workspace, so a click never reorders by accident. The rail also
-stays revealed for the whole drag when auto-hide is on, so the drop target never
-vanishes mid-gesture. Right-clicking a workspace (or the empty rail) offers the
-same reorder via **Move Up** / **Move Down** menu entries (a keyboard-free
-alternative with no bindable chord), alongside New, **Duplicate**, Rename, and
-Close Workspace plus **Bind to Host…** / **Unbind from Host** for that slot. Either path follows
-the active workspace by identity so the focused workspace never changes, and the
-new order persists across restart. Pointer drag reorder uses the shared
-cross-platform pointer path, so it behaves identically on Linux, Windows, and
-macOS. Rename
-edits the label in place, and Bind routes the clicked workspace's new tabs to a
-chosen saved host (existing tabs keep their shells). The terminal content menu
-carries the same New / Rename / Close Workspace and Bind/Unbind actions, acting
-on the active workspace.
-
-**Duplicate a workspace** to branch off from where you are: the workspace
-right-click menu's **Duplicate Workspace** (or `Ctrl+Shift+Alt+D`) opens a fresh
-workspace whose first shell starts in the active pane's working directory. It
-mirrors **Duplicate Tab** (`Ctrl+Shift+D`, on the tab right-click menu) one level
-up. Both are honest fresh shells at the same directory, not process forks:
-scrollback and the running program are not copied. A pane with no tracked
-directory opens in the default one. The cwd is inherited through the same path
-New Tab uses, so it behaves identically on Linux, Windows (ConPTY honors the
-working directory), and macOS.
-
-Closing the last tab in a workspace closes that workspace; closing the last
-workspace quits the app. Typing `exit` or Ctrl-D follows the
-`shell_exit_closes` setting: the default `workspace` matches this cascade, while
-`app` quits OdyTTY whenever an exit would close a workspace, pairing with
-**Restore workspaces** so the set reopens next launch. When more than one workspace exists, a tab's right-click
-menu adds **Move to Workspace…**, which opens a picker of the other workspaces by
-name and relocates the clicked tab to the chosen one.
-
-**Restoring a layout.** With `restore_workspaces` on (off by default; the
-Sessions section of Settings, or `ODYTTY_RESTORE_WORKSPACES`), launching
-`odytty` with no arguments reopens the previous window shape: its workspaces,
-tabs, and pane splits, each pane at its recorded working directory. Any
-command-line argument suppresses restore, and only the primary instance
-restores. A second window launched while the first is running keeps the lock
-owner in charge and shows a one-line notice ("Another OdyTTY window owns
-session restore, this window won't restore or autosave workspaces"), so it never
-fights over the saved state.
-
-The saved snapshot records **structure only**, never terminal output,
-scrollback, environment, or the commands that were running, so a restored pane
-is always a fresh shell at its directory, never a replayed session. A pane that
-was connected to a remote host is restored by reconnecting to that host through
-the same `ssh` path, landing a fresh remote login shell at the host's own
-default directory (the recorded remote directory is not re-entered in this
-version, and nothing that was running is re-run). A host that no longer resolves
-opens a local shell instead; a local pane whose recorded directory has vanished
-or denies access retries at your home directory rather than aborting the
-restore. Snapshots saved before remote restore existed reopen those panes as
-local shells.
-
-A session can also be saved as a **named layout**. A layout captures the **whole
-application**: every workspace, with its tabs, splits, working directories, and
-host bindings. Save one via **Save as Layout…** on the content-grid right-click
-menu, a workspace rail slot's right-click menu, the empty rail menu, or the
-command palette (**Save All Workspaces as Layout**). A single workspace can be
-captured on its own with **Save Workspace as Layout…**: a workspace rail slot's
-right-click menu saves the clicked workspace, the content-grid menu saves the
-active one, and the palette entry (**Save Workspace as Layout**) saves the
-active one. Saving under a name that already exists prompts before overwriting,
-so you can replace the existing layout, pick a different name, or cancel.
-
-Opening a layout later (**Open Layout** in the palette, or **Open Layout…** from
-the empty rail, the empty tab strip, or the content-grid menu) asks how it should
-land when the window already holds real state:
-
-- **Replace** tears down the current workspaces and installs the saved set as the
-  whole window.
-- **Add** appends the saved workspace(s) beside the current ones.
-- **Cancel** leaves everything untouched.
-
-A fresh window that still holds a single untouched default workspace skips the
-prompt: the opened layout consumes that workspace so the window shows exactly
-what was saved. With no layouts saved yet the picker explains how to create one.
-
-On Unix, a restored or instantiated pane whose detached session-host is still
-alive reattaches to it; a dead one silently opens a fresh shell, with a compact
-"N of M sessions reattached" notice. Restore and named layouts are
-cross-platform (the state dir uses `%LOCALAPPDATA%` on Windows); session-host
-reattach is Unix-only, so a Windows restore always lands fresh shells.
-
-Any tab can be split into panes. The direct chords `Ctrl+Shift+E` (split into
-columns, new pane on the right) and `Ctrl+Shift+O` (split into rows, new pane
-below) create a split on a single-pane tab; they match Ghostty's Linux
-defaults and work at both single-pane and multi-pane. You can also split from
-the terminal's right-click menu's "Split Right" / "Split Down" items. When the
-active tab is already multi-pane, that same content menu also offers a "Close
-Pane" item (labelled with the effective `Ctrl+b x` prefix chord) to close just
-the focused pane; it is hidden in a single-pane tab, where closing the tab is
-the only close. The content menu also has a launcher section at the bottom:
-"Connection Manager", "Command Palette", and "Session Replay", each labelled
-with its effective chord and opening the matching overlay. Right-clicking a tab
-opens a separate, tab-scoped menu (New Tab, Rename Tab, Close Tab, Close Other
-Tabs, **Connect to Host…**, **Replace with Host…**, New Window, plus Move to
-Workspace… when more than one workspace exists), and right-clicking the empty
-tab strip offers New Tab, Command Palette, and Settings. **Connect to Host…**
-opens a saved host in a new tab positioned right after the clicked one (the
-clicked shell is left untouched); **Replace with Host…** opens the host in the
-clicked tab's place, first asking to confirm when that tab still has a program
-running. Once the active tab
-has multiple panes, a tmux-style prefix (default
-`Ctrl+b`, configurable via
-`pane_prefix`) opens a transient pane-command mode; press the prefix then a pane
-key:
-
-| After the prefix | Action |
+| Task | Shortcut |
 | --- | --- |
-| `%` | Split the focused pane into columns (side-by-side) |
-| `"` | Split the focused pane into rows (stacked) |
-| `←` / `→` / `↑` / `↓` | Move focus to the neighbor pane |
+| Open a new tab | `Ctrl+Shift+T` |
+| Close the active tab | `Ctrl+Shift+W` |
+| Switch to the next tab | `Ctrl+PageDown` |
+| Switch to the previous tab | `Ctrl+PageUp` |
+
+Closing a tab closes the whole tab, including every pane it holds. Closing a
+single pane is a separate action, and closing the last tab in the last
+workspace quits OdyTTY.
+
+**Rename a tab** from its right-click menu or with **Rename Tab** in the command
+palette. The custom name overrides shell title updates until an empty name
+clears it, and names are session-local rather than saved across restarts.
+
+When more than one workspace exists, a tab's right-click menu adds **Move to
+Workspace…**. The picker lists the other workspaces by name and moves the
+clicked tab to the selected destination.
+
+**Duplicate Tab** in the tab menu, or `Ctrl+Shift+D`, opens a fresh shell at the
+active pane's working directory. It does not copy scrollback or the running
+program, and a pane without a tracked directory opens in the default one.
+
+### Adjust The Tab Bar
+
+The bar appears when two or more sessions exist. A single unnamed shell keeps
+the full-grid view, while a renamed single tab always shows the bar so its
+workflow name remains visible.
+
+| Tab-bar control | Behavior |
+| --- | --- |
+| **Always show tab bar** | Keeps the bar visible with one unnamed tab; `always_show_tab_bar` is off by default |
+| Drag the bottom edge | Sets `tab_bar_height` from one to five text rows |
+| Double-click the bottom edge | Resets `tab_bar_height` to `auto`, the default one-row height |
+
+The bar is an opaque band with a thin themed divider, so its labels stay
+legible over images and effects. Inactive tabs are dimmed; the active tab keeps
+a full-strength bold label and an accent underline in the theme's cursor color.
+
+Labels stay centered vertically when the bar grows. Kitty and Sixel placements
+use the same reserved rows as text, so inline graphics remain aligned with the
+visible grid.
+
+### Split A Tab Into Panes
+
+| Task | Direct path |
+| --- | --- |
+| Split into columns, with the new pane on the right | `Ctrl+Shift+E` or **Split Right** |
+| Split into rows, with the new pane below | `Ctrl+Shift+O` or **Split Down** |
+| Close only the focused pane | **Close Pane**, labeled with `Ctrl+b x`, in a multi-pane content menu |
+| Resize adjacent panes | Drag their divider |
+
+The direct split chords match Ghostty's Linux defaults and work in both
+single-pane and multi-pane tabs. **Close Pane** is hidden for a single-pane tab,
+where closing the tab is the only close action.
+
+Once a tab has multiple panes, a tmux-style prefix enters a transient pane
+command mode. The prefix is `Ctrl+b` by default and is configurable through
+`pane_prefix`.
+
+| Key after the prefix | Action |
+| --- | --- |
+| `%` | Split the focused pane into columns |
+| `"` | Split the focused pane into rows |
+| `←` / `→` / `↑` / `↓` | Move focus to the neighboring pane |
 | `o` | Cycle focus to the next pane |
 | `x` | Close the focused pane |
-| `z` | Zoom / un-zoom the focused pane (full-bleed; layout is preserved) |
+| `z` | Zoom or unzoom the focused pane while preserving its layout |
 | `Space` / `=` | Equalize split sizes |
-| `Ctrl+b` (prefix again) | Send a literal prefix to the focused pane (nested multiplexer) |
+| `Ctrl+b` | Send a literal prefix to the focused pane for a nested multiplexer |
+
+The prefix is captured only in a multi-pane tab. A single-pane shell receives
+`Ctrl+b` unchanged, and `pane_prefix=off` frees it in multi-pane tabs as well.
 
 Each pane owns an independent PTY, terminal model, scrollback, viewport,
-selection, search, and cursor. Drag a divider to resize the panes on either
-side. The prefix is captured only when the active tab has more than one pane; a
-single-pane shell receives `Ctrl+b` unchanged, preserving the byte-identical
-default input path. Set `pane_prefix=off` to disable the pane prefix entirely
-and free the chord in multi-pane tabs too. Interactive overlays (selection /
-search) render per pane, so a selection or a search match shows in the correct
-pane regardless of which pane holds focus; the search query bar stays on the
-focused pane. Inline graphics (Kitty/Sixel) render per pane as well, each
-placement clipped to its pane's sub-rect so an image never bleeds across a
-divider. Optional
-inactive-pane dimming is
-implemented via `inactive_pane_dim`; it defaults to `0.0`, is disabled on
-`render_quality=plain`, and leaves the no-dim pane frame byte-identical.
+selection, search, and cursor. Selection and search highlights render in their
+own pane, while the search query bar stays on the focused pane.
 
-Core local shortcuts:
+Kitty and Sixel placements are also per-pane and clipped to the pane's
+sub-rectangle. Optional inactive-pane dimming uses `inactive_pane_dim`, defaults
+to `0.0`, and is disabled by `render_quality=plain`; the no-dim frame remains
+byte-identical.
+
+The terminal content menu includes Settings plus **Connection Manager**,
+**Command Palette**, and **Session Replay** in a launcher section, each labeled
+with its effective shortcut. A tab's own menu provides New Tab, Rename Tab,
+Close Tab, Close Other Tabs, **Connect to Host…**, **Replace with Host…**, New
+Window, and Settings.
+
+**Connect to Host…** opens a saved host in a new tab immediately after the
+clicked tab without changing the clicked shell. **Replace with Host…** replaces
+the clicked tab and asks for confirmation when that tab still has a program
+running.
+
+Right-clicking the empty tab strip offers New Tab, Command Palette, and
+Settings.
+
+### Organize Workspaces And The Rail
+
+Every workspace keeps its own tabs and remembers which tab was active.
+Switching workspaces swaps the complete tab strip, while a one-workspace
+session adds no extra chrome.
+
+| Task | Shortcut or control |
+| --- | --- |
+| Create a workspace | `Ctrl+Shift+Enter` or the rail's `+` slot |
+| Open the workspace picker | `Ctrl+Shift+G` |
+| Switch to the next workspace | `Ctrl+Shift+PageDown` |
+| Switch to the previous workspace | `Ctrl+Shift+PageUp` |
+| Duplicate a workspace | `Ctrl+Shift+Alt+D` or **Duplicate Workspace** |
+
+The vertical workspace rail appears when a second workspace exists. Its `+`
+slot rests at a visible brightness, and a dead gap row above it prevents clicks
+past the last workspace from opening one accidentally.
+
+Drag the rail's inner edge to adjust its width.
+
+| `workspace_rail` value | Rail placement |
+| --- | --- |
+| `auto` | Reveals the rail after a second workspace exists; this is the default |
+| `always` | Pins the rail even with one workspace |
+| `left` | Pins the rail on the left |
+| `right` | Pins the rail on the right |
+
+**Drag a rail slot** to reorder workspaces. A bright rule marks the destination;
+release drops the slot, while `Esc` cancels without changing the order.
+
+A short press that stays below the drag threshold remains a normal workspace
+switch. Auto-hide keeps the rail revealed throughout a drag, and the shared
+pointer path behaves the same on Linux, Windows, and macOS.
+
+The workspace menu offers **Move Up** and **Move Down** as a non-drag reorder
+path with no bindable chord. It also offers New, **Duplicate**, Rename, Close
+Workspace, **Bind to Host…**, **Unbind from Host**, and Settings.
+
+Either reorder path follows the active workspace by identity, so focus does not
+change, and the order persists across restart. Rename edits the label in place.
+
+Binding a workspace routes its future tabs to the chosen saved host without
+changing existing tabs. The terminal content menu exposes the same New, Rename,
+Close Workspace, and Bind or Unbind actions for the active workspace.
+
+Duplicating a workspace starts a fresh workspace whose first shell uses the
+active pane's working directory. Like Duplicate Tab, it creates a new shell
+rather than cloning scrollback or the running program.
+
+The working-directory path is shared by New Tab, Duplicate Tab, and Duplicate
+Workspace. It behaves consistently on Linux, macOS, and Windows, where ConPTY
+honors the selected directory.
+
+### Close Workspaces And Handle Shell Exit
+
+Closing the last tab in a workspace closes that workspace. Closing the last
+workspace quits the app.
+
+Typing `exit` or pressing `Ctrl+D` follows `shell_exit_closes`:
+
+| Value | Behavior |
+| --- | --- |
+| `workspace` | Follows the normal tab-to-workspace-to-app cascade; this is the default |
+| `app` | Quits OdyTTY whenever the exit would close a workspace |
+
+The `app` value pairs with **Restore workspaces** when the entire saved shape
+should reopen on the next launch.
+
+### Restore Workspaces And Open Layouts
+
+Turn on `restore_workspaces` in Settings → Sessions or with
+`ODYTTY_RESTORE_WORKSPACES` to reopen the previous window shape. It is off by
+default.
+
+Launching `odytty` with no arguments restores the primary instance's
+workspaces, tabs, pane splits, and each pane's recorded working directory. Any
+command-line argument suppresses restore.
+
+A second window leaves restore ownership with the first and shows this notice:
+
+> Another OdyTTY window owns session restore, this window won't restore or
+> autosave workspaces
+
+The snapshot records structure only. It never saves terminal output,
+scrollback, environment, or the commands that were running, so every restored
+pane is a fresh shell at its directory.
+
+A restored remote pane reconnects through the same `ssh` path and opens a fresh
+remote login shell at the host's default directory. It does not re-enter the
+recorded remote directory or restart anything that was running.
+
+If a remote host no longer resolves, OdyTTY opens a local shell instead. If a
+local directory has vanished or denies access, OdyTTY retries at the home
+directory; snapshots from before remote restore support also reopen those panes
+locally.
+
+On Unix, a restored or instantiated pane reattaches when its detached session
+host is still alive. A dead host silently opens a fresh shell and OdyTTY shows
+a compact "N of M sessions reattached" notice.
+
+Restore and named layouts use `%LOCALAPPDATA%` on Windows. Session-host
+reattachment is Unix-only, so Windows restores always open fresh shells.
+
+### Save And Reopen Named Layouts
+
+A named layout can capture either the whole app or one workspace:
+
+| Scope | Save paths |
+| --- | --- |
+| Every workspace, tab, split, directory, and host binding | **Save as Layout…** in the content, rail-slot, or empty-rail menu; **Save All Workspaces as Layout** in the command palette |
+| One clicked or active workspace | **Save Workspace as Layout…** in a rail-slot or content menu; **Save Workspace as Layout** in the command palette |
+
+Reusing a layout name prompts to replace the existing layout, choose another
+name, or cancel.
+
+Open **Open Layout** from the command palette, or **Open Layout…** from the
+empty rail, empty tab strip, or content menu. When the current window already
+contains real state, choose how to apply it:
+
+| Choice | Result |
+| --- | --- |
+| **Replace** | Tears down the current workspaces and installs the saved set |
+| **Add** | Appends the saved workspaces beside the current ones |
+| **Cancel** | Leaves the window untouched |
+
+A fresh window with one untouched default workspace skips this prompt and
+replaces that placeholder. When no layouts exist, the picker explains how to
+create one.
+
+### Open Local Tools
 
 | Shortcut | Action |
 | --- | --- |
-| `Ctrl+Shift+E` / `Ctrl+Shift+O` | Split the focused pane into columns / rows |
 | `Ctrl+Shift+F` | Search scrollback |
-| `Ctrl+Shift+,` | Settings panel |
-| `Ctrl+Shift+H` | Theme picker |
-| `Ctrl+Shift+B` | Theme builder |
-| `Ctrl+Shift+P` | Command palette |
-| `Ctrl+Shift+S` | Connection manager |
-| `Ctrl+Shift+R` | Session replay |
-| `Ctrl+Shift+A` | Manage Sessions (attach a detached session) |
-| `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / paste |
-| `Shift+PageUp` / `Shift+PageDown` | Scroll local viewport |
-| `Ctrl+Shift+L` | Keyboard quick-select hints |
-| `Ctrl+Shift+Space` | Keyboard copy mode |
-| `Ctrl+Shift+Up` / `Ctrl+Shift+Down` | Jump to previous / next prompt mark |
+| `Ctrl+Shift+,` | Open Settings |
+| `Ctrl+Shift+H` | Open the theme picker |
+| `Ctrl+Shift+B` | Open the theme builder |
+| `Ctrl+Shift+P` | Open the command palette |
+| `Ctrl+Shift+S` | Open the connection manager |
+| `Ctrl+Shift+R` | Open session replay |
+| `Ctrl+Shift+A` | Manage detached sessions |
+| `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy or paste |
+| `Shift+PageUp` / `Shift+PageDown` | Scroll the local viewport |
+| `Ctrl+Shift+L` | Open keyboard quick-select hints |
+| `Ctrl+Shift+Space` | Enter keyboard copy mode |
+| `Ctrl+Shift+Up` / `Ctrl+Shift+Down` | Jump to the previous or next prompt mark |
 | `Ctrl+Shift+K` | Clear editable prompt input when shell integration allows it |
 | `Delete` / `Backspace` | Delete selected editable prompt input when shell integration allows it |
 
 The command palette, connection manager, session replay, theme builder, and
-Manage Sessions each ship with a default `Ctrl+Shift+<letter>` chord and a
-discoverable menu entry: the launcher actions appear in the right-click menu's
-launcher section, and the theme builder is an "Open Theme Builder" entry in the
-Settings → Themes section. These chords are all `Ctrl+Shift+<letter>`, which a
-TUI cannot receive, so PTY input is unchanged. Prompt navigation is the
-`Ctrl+Shift+Up/Down` arrows. Rebind any of them, for example:
+Manage Sessions each have a discoverable menu entry and a default
+`Ctrl+Shift+<letter>` shortcut. A TUI cannot receive those chords, so PTY input
+is unchanged.
+
+Launcher actions appear in the content menu, while Settings → Themes includes
+an **Open Theme Builder** entry.
+
+Prompt navigation uses `Ctrl+Shift+Up` and `Ctrl+Shift+Down`. Rebind any local
+action through Settings → Keybindings or `keybinds`:
 
 ```conf
-# odytty.conf
 keybinds = ctrl+alt+p=command-palette
 ```
 
 ## Shell Integration
 
-Some prompt-aware actions need OSC 133 prompt marks from the shell:
-prompt jumps, clearing/deleting editable prompt input, command-status gutters,
-and click-to-position support when the shell advertises it. OdyTTY parses these
-marks by default but does not inject hooks unless you opt in.
+### Enable Prompt-Aware Actions
 
-Set `shell_integration = on` in Settings or `odytty.conf` to make newly spawned
-local `bash`, `zsh`, and `fish` shells load OdyTTY's integration wrapper at
-startup. The wrapper sources your normal shell config first, then installs the
-OSC 133 hooks. Existing shells are unchanged until restarted. Bash integration
-uses an interactive `--rcfile`, so login-shell-only startup files remain your
-shell's responsibility. On Windows, a `powershell`/`pwsh` shell is injected with
-an OdyTTY PowerShell profile via `-NoExit -Command` (PSReadLine drives the
-command-start mark); `cmd.exe` has no OSC 133 hook surface and is unsupported.
+OSC 133 prompt marks enable prompt jumps, clearing or deleting editable prompt
+input, command-status gutters, and click-to-position support when the shell
+advertises it. OdyTTY parses these marks by default but injects no hooks until
+you opt in.
 
-For manual setup, SSH/login shells, or users who prefer explicit rc edits, print
-the snippet and source it yourself:
+Set `shell_integration = on` in Settings or `odytty.conf`. Newly spawned local
+`bash`, `zsh`, and `fish` shells then load OdyTTY's wrapper after their normal
+shell config.
+
+Existing shells do not change until restarted. Bash uses an interactive
+`--rcfile`, so login-shell-only startup files remain the shell's responsibility.
+
+| Windows shell | Integration behavior |
+| --- | --- |
+| `powershell` / `pwsh` | Loads an OdyTTY PowerShell profile through `-NoExit -Command`; PSReadLine drives the command-start mark |
+| `cmd.exe` | Unsupported because it has no OSC 133 hook surface |
+
+For manual setup, SSH or login shells, or explicit rc management, print and
+source the integration:
 
 ```sh
 eval "$(odytty shell-integration bash)"
@@ -314,249 +459,297 @@ eval "$(odytty shell-integration zsh)"
 odytty shell-integration fish | source
 ```
 
-Until prompt input marks are active, the right-click menu disables Cut/Delete
-for prompt input and shows an "Enable shell integration in Settings" hint. A
-plain `Delete` / `Backspace` with **no** selection still passes through to the
-shell normally; with an active selection but no known prompt boundary, OdyTTY
-will not send blind edit bytes; it clears the stale selection and surfaces the
-same shell-integration hint instead of risking a corrupted command line.
+Until prompt input marks are active, the content menu disables Cut and Delete
+for prompt input and shows an **Enable shell integration in Settings** hint.
+A plain `Delete` or `Backspace` with no selection still reaches the shell.
 
-For a one-off/dev override, run
-`ODYTTY_KEYBINDS="ctrl+alt+p=command-palette" odytty`; env wins for that
-session.
+With a selection but no known prompt boundary, OdyTTY does not send blind edit
+bytes. It clears the stale selection and shows the same hint instead of risking
+a corrupted command line.
 
-The palette fuzzy-filters local actions, bounded read-only shell history, and
-recent OSC 7 directories. Selecting a history or directory row types that text
-into the active pane without pressing Enter; selecting an action runs the local
-action after the overlay closes.
+### Search Actions, History, And Directories
 
-Output replay is available as the `session-replay` action, bound by default to
-`Ctrl+Shift+R`. Turn on recording with `session_replay = on` (or
-`ODYTTY_SESSION_REPLAY=on` as a one-off override); it is off by default, so the
-plain path is unchanged. Then rebind the scrub overlay if desired:
+The command palette fuzzy-filters local actions, bounded read-only shell
+history, and recent OSC 7 directories. A history or directory choice types its
+text into the active pane without pressing Enter; an action runs after the
+overlay closes.
+
+Use an environment override for one session:
+
+```sh
+ODYTTY_KEYBINDS="ctrl+alt+p=command-palette" odytty
+```
+
+Environment values win for that session.
+
+### Replay Recent Output
+
+Session replay is the `session-replay` action, bound to `Ctrl+Shift+R`. Recording
+is off by default, so enable `session_replay` before opening the scrub overlay:
 
 ```conf
-# odytty.conf
 session_replay = on
 keybinds = ctrl+alt+r=session-replay
 ```
 
-For a one-off/dev override, run
-`ODYTTY_SESSION_REPLAY=on ODYTTY_KEYBINDS="ctrl+alt+r=session-replay" odytty`;
-env wins for that session.
+For a one-session override:
 
-The ring is capped (600 frames and 24 MiB, whichever binds first) and
-local-only; frames never touch disk or the network. The overlay is
-presentation-only: `←`/`→` step, `PgUp`/`PgDn` jump ten, `Home`/`End` jump to
-the ends, and the live session keeps running underneath untouched while you
-scrub.
+```sh
+ODYTTY_SESSION_REPLAY=on ODYTTY_KEYBINDS="ctrl+alt+r=session-replay" odytty
+```
 
-The connection manager is available as the `connection-manager` action, bound by
-default to `Ctrl+Shift+S`. Rebind it to open a type-to-filter list of saved
-hosts and quick-connect with Enter:
+The local-only ring never touches disk or the network. It is capped at 600
+frames or 24 MiB, whichever limit is reached first.
+
+The overlay is presentation-only while the live session continues underneath.
+Use `←` or `→` to step, `PgUp` or `PgDn` to jump ten frames, and `Home` or `End`
+to move to either end.
+
+### Connect To Saved Or Ad-Hoc Hosts
+
+The `connection-manager` action opens a type-to-filter host list with
+`Ctrl+Shift+S`. Rebind it if desired:
 
 ```conf
-# odytty.conf
 keybinds = ctrl+alt+h=connection-manager
 ```
 
-For a one-off/dev override, run
-`ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager" odytty`; env wins for that
-session.
+For a one-session override:
 
-Hosts come from the OdyTTY-owned `hosts.conf` and, only when
-`ssh_config_hosts = on`, name-only entries from your OpenSSH config. With the
-opt-in off, the overlay lists OdyTTY-owned hosts only and never references
-`~/.ssh`. The overlay is presentation-only; selecting a host spawns the system
-`ssh` in a new session.
+```sh
+ODYTTY_KEYBINDS="ctrl+alt+h=connection-manager" odytty
+```
 
-**Ad-hoc connect.** You do not have to save a host first. When the filter query
-matches no saved host but is a well-formed `[user@]host[:port]`, the overlay
-offers a **Connect to: …** row: **Enter** connects to it straight away (through
-the same path a saved host uses), and **Shift+Enter** (or **Ctrl+S**) connects
-*and* appends a matching `Host` block to `hosts.conf` so it is saved for next
-time. The write is atomic and preserves the file's existing contents; if the
-alias already exists it just connects and reports "already saved". Typed input
-is validated: embedded spaces, a leading `-`, or an out-of-range port are
-rejected so nothing option-injects into the `ssh` command line.
+Hosts come from OdyTTY's `hosts.conf`. When `ssh_config_hosts = on`, the manager
+also shows name-only entries from the OpenSSH config; while it is off, OdyTTY
+does not reference `~/.ssh`.
 
-**Add / Edit form.** For more than a quick save, the connection manager opens an
-in-app form: **Tab** starts a blank **Add connection** and the right arrow opens
-an **Edit** pre-filled from the selected OdyTTY-owned host (`ssh-config`-imported
-rows are read-only). Alongside alias / host / user / port, an **Advanced** section
-carries an `IdentityFile` path (adds `ssh -i` on connect; a path, never a stored
-secret; `ssh-copy-id` is the once-and-done way off passwords), the three-way
-`Integration` / `Reuse` / `Tmux` overrides (**inherit / on / off**), and
-theme / font / title. Saving appends a new block or edits the existing one in
-place, leaving every other block, comment, and unknown field byte-for-byte
-untouched. A **Test connection** button runs a non-interactive background probe
-and reports an honest tri-state result without ever handling a password:
-reachable with key/agent auth, reachable but interactive-auth (expected for a
-password host; the connect still works), a host-key mismatch, or unreachable.
+The manager is presentation-only. Selecting a host starts the system `ssh`
+client in a new session.
 
-**Host-row right-click menu.** Right-clicking a saved-host row opens a small menu
-with **Open in New Tab** (connect in the current workspace), **Open in New
-Workspace** (a fresh workspace, pre-bound to the host so its new tabs open there
-too), and **Bind Current Workspace** (route the active workspace's new tabs
-through this host). For OdyTTY-owned rows it also offers **Edit…** (the same
-pre-filled form) and **Remove…** (deletes the host's `hosts.conf` block after a
-confirm); `ssh-config`-imported rows are read-only, so those two are hidden.
-Dismissing the menu returns to the manager with its selection intact.
+**Connect without saving.** Type a valid `[user@]host[:port]` that matches no
+saved host. The **Connect to: …** row connects with `Enter`, while
+`Shift+Enter` or `Ctrl+S` connects and atomically appends a matching `Host`
+block to `hosts.conf`.
 
-**Remote shell integration.** By default (`remote_integration`, on) connecting
-to a saved host carries OdyTTY's shell integration onto the remote: an inline,
-bash-only bootstrap writes a temporary rcfile on the remote and execs an
-interactive shell against it, so a remote bash session gains the same prompt
-and input boundaries as a local one. Nothing is persisted on the remote, and a
-non-bash shell or any failure degrades to a plain `ssh`. The tab is titled
-`user@host`. `remote_reuse` (on) multiplexes further tabs to the same host over
-a shared ControlMaster connection so they connect with no new handshake, and
-`remote_persist` (10 minutes by default) keeps that master socket alive after
-the last tab closes so a quick reconnect skips re-authentication;
-`remote_tmux` (off by default) wraps the remote shell in a persistent
-`tmux new-session -A -s odytty` so a dropped-and-reconnected link resumes the
-same remote session. When a remote connection drops, the tab is held open with
-a reconnect prompt: **Enter** reconnects in place, **Esc** or **Ctrl+D**
-closes the tab. Pasting a clipboard image into an integrated remote tab offers
-a confirm-first upload (`remote_image_paste`, `ask` by default). A one-line
-prompt appears in the pane (`upload image <size> to user@host?  Enter: upload
-· Esc: cancel`), and only on **Enter** does the image transfer. It streams over
-the same authenticated `ssh` connection (reusing the ControlMaster socket when
-one is up) into a `0600` file under an unguessable `/tmp` name; nothing runs
-remotely and images above the 10 MiB cap are refused with a notice. On success
-the pane shows `image uploaded <path> · copied to clipboard` and the remote
-path is copied to the local clipboard; it is **not** typed into the shell, so
-an empty prompt never runs a stray path. Paste it (`Ctrl+Shift+V`) wherever you
-want it as a command argument. Uploaded files are cleaned up best-effort when
-the tab closes. This works on reconnected and restored remote tabs too. Each
-knob has a per-host override in
-`hosts.conf` (`Integration`, `Reuse`, `Tmux`). Connection reuse is a
-Unix-client feature; on a Windows client each connection authenticates
-independently through `ssh.exe`.
+Existing contents are preserved. If the alias already exists, OdyTTY connects
+and reports "already saved"; embedded spaces, a leading `-`, and out-of-range
+ports are rejected to prevent option injection.
 
-Detached sessions are managed from inside the window as well as from the CLI. The
-`session-attach` action (default `Ctrl+Shift+A`, also the **Manage Sessions**
-entry in the right-click menu) lists the live detached sessions; selecting one
-attaches it. If that session is already open it switches to its tab; otherwise a
-prompt offers a **New tab** or **Replace** (which closes the current tab).
-Right-click a session to kill it behind a confirmation, and the **Detach &
-switch** context-menu action hands the focused pane's working directory to a
-fresh managed session. Attaching reconnects the live PTY and terminal model; the
-host keeps them alive across detach/attach cycles until the child exits or the
-idle timeout reaps it.
+**Add or edit a host.** Press `Tab` for a blank form, or the right arrow to edit
+the selected OdyTTY-owned host. OpenSSH-imported rows are read-only.
 
-Interactive paths are an opt-in layer (`interactive_paths`, off by default) that
-makes file paths in command output actionable. With it on, Ctrl+click opens a
-path: a file opens in your configured editor, jumping to the right `line:col`
-when the path carries one, and an image path (png/jpg/jpeg/webp) opens in an
-in-app lightbox you dismiss with `Esc` or a click outside. A discoverable click
-hint, plus right-click "Open", "Open With…", "Copy Path", "Copy File", and
-"Reveal in File Manager", round out the menu. Opening goes through the platform
-opener (`xdg-open` on Linux, `open` on macOS) with a scheme allowlist; nothing is
-ever run through a shell.
+| Form area | Fields and behavior |
+| --- | --- |
+| Connection | Alias, host, user, and port |
+| Identity | `IdentityFile` path, passed to `ssh` with `-i`; it is a path, never a stored secret |
+| Overrides | Integration, Reuse, and Tmux, each set to inherit, on, or off |
+| Appearance | Theme, font, and title |
 
-The `keybinds` config key can rebind local actions. The global actions are
-`search`, `settings`, `theme-picker`, `theme-builder`, `copy`, `paste`,
-`scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`,
-`hints`, `clear-input`, `command-palette`, `session-replay`,
-`connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`,
-`prev-tab`, `close-tab`, and `duplicate-tab`. The workspace actions are
-`new-workspace`, `duplicate-workspace`, `close-workspace`, `rename-workspace`,
-`next-workspace`, `prev-workspace`, and `workspace-picker`. The pane actions (`split-columns`,
-`split-rows`, `focus-pane-left` / `-right` / `-up` / `-down`, `focus-pane-next`,
-`close-pane`, `zoom-pane`, `equalize-panes`) are rebindable too; the chord is the
-key pressed *after* the prefix, for example `keybinds = ctrl+f=zoom-pane`.
-`ODYTTY_KEYBINDS` provides the same syntax as a session-scoped override. See
-[`docs/keybindings.md`](keybindings.md) for the complete keyboard reference:
-every default chord, the pane prefix, copy mode, hints, and rebinding.
+Saving appends a new block or edits the existing block in place while
+preserving every other block, comment, and unknown field byte-for-byte.
+`ssh-copy-id` remains the once-only path away from password prompts.
+
+**Test a host.** The form runs a non-interactive background probe and reports
+one of four honest results: reachable with key-based authentication,
+reachable but requiring interactive authentication, host-key mismatch, or
+unreachable. OdyTTY never handles a password, and normal connection still works
+for an interactive-auth host.
+
+**Use the host-row menu.** Right-click a row for **Open in New Tab**, **Open in
+New Workspace**, or **Bind Current Workspace**. A new host workspace is
+pre-bound so its later tabs use that host too.
+
+OdyTTY-owned rows also offer **Edit…** and confirmed **Remove…** actions.
+Imported OpenSSH rows hide both actions, and dismissing the menu preserves the
+manager's selection.
+
+### Control Remote Sessions
+
+Saved hosts support these connection behaviors:
+
+| Setting | Default | Behavior |
+| --- | --- | --- |
+| `remote_integration` | `on` | Sends a temporary bash-only integration wrapper and opens an interactive shell against it |
+| `remote_reuse` | `on` | Reuses a shared ControlMaster connection for later tabs to the same host |
+| `remote_persist` | 10 minutes | Keeps the master socket alive after the last tab closes |
+| `remote_tmux` | `off` | Wraps the remote shell in a persistent tmux session named `odytty` |
+
+The integration wrapper writes a temporary remote rcfile and persists nothing
+on the host. A non-bash shell or any bootstrap failure falls back to plain
+`ssh`, and the tab title becomes `user@host`.
+
+The tmux behavior is equivalent to:
+
+```sh
+tmux new-session -A -s odytty
+```
+
+Each saved host can override Integration, Reuse, and Tmux in `hosts.conf`.
+Connection reuse is available on Unix clients; Windows clients authenticate
+each connection independently through `ssh.exe`.
+
+When a remote connection drops, the tab stays open with a reconnect prompt.
+`Enter` reconnects in place, while `Esc` or `Ctrl+D` closes the tab.
+
+### Paste Images Into Remote Sessions
+
+Pasting a clipboard image into an integrated remote tab follows
+`remote_image_paste`, which defaults to `ask`. OdyTTY first shows this
+confirmation in the pane:
+
+> upload image <size> to user@host? Enter: upload · Esc: cancel
+
+Only `Enter` starts the transfer. The image streams over the authenticated
+`ssh` connection, reusing ControlMaster when available, into an unguessable
+`0600` file under `/tmp`.
+
+Nothing executes remotely, and files above 10 MiB are refused. After a
+successful upload, OdyTTY shows
+`image uploaded <path> · copied to clipboard`, copies the remote path to the
+local clipboard, and does not type it into the shell.
+
+Paste the copied path with `Ctrl+Shift+V` where it belongs as a command
+argument. Uploaded files are cleaned up best-effort when the tab closes, and
+the path works for reconnected and restored remote tabs.
+
+### Manage Detached Sessions
+
+Detached sessions can be managed inside the window as well as from the CLI.
+The `session-attach` action, `Ctrl+Shift+A`, and **Manage Sessions** all open the
+live detached-session list. Choosing an already-open session switches to its
+tab; another session prompts for **New tab** or **Replace**.
+
+Right-click a session to kill it after confirmation. **Detach & switch** gives
+the focused pane's working directory to a fresh managed session.
+
+Attaching reconnects the live PTY and terminal model. The session host keeps
+both alive through detach and attach cycles until the child exits or the idle
+timeout reaps it.
+
+### Open Interactive Paths
+
+Interactive paths are off by default through `interactive_paths`. When enabled,
+Ctrl+click opens a detected path: text files open in the configured editor with
+`line:col` positioning, while png, jpg, jpeg, and webp files open in an in-app
+lightbox.
+
+Dismiss the lightbox with `Esc` or a click outside. A click hint and the path
+menu expose Open, **Open With…**, Copy Path, Copy File, and Reveal in File
+Manager.
+
+Opening uses `xdg-open` on Linux or `open` on macOS with a scheme allowlist.
+OdyTTY never routes a path through a shell.
+
+### Rebind Local Actions
+
+The `keybinds` setting and `ODYTTY_KEYBINDS` override local actions:
+
+| Scope | Actions |
+| --- | --- |
+| Global | `search`, `settings`, `theme-picker`, `theme-builder`, `copy`, `paste`, `scroll-up`, `scroll-down`, `jump-prompt-prev`, `jump-prompt-next`, `copy-mode`, `hints`, `clear-input`, `command-palette`, `session-replay`, `connection-manager`, `session-attach`, `new-tab`, `new-window`, `next-tab`, `prev-tab`, `close-tab`, and `duplicate-tab` |
+| Workspace | `new-workspace`, `duplicate-workspace`, `close-workspace`, `rename-workspace`, `next-workspace`, `prev-workspace`, and `workspace-picker` |
+| Pane | `split-columns`, `split-rows`, `focus-pane-left`, `focus-pane-right`, `focus-pane-up`, `focus-pane-down`, `focus-pane-next`, `close-pane`, `zoom-pane`, and `equalize-panes` |
+
+For pane actions, the binding is the key pressed after the prefix:
+
+```conf
+keybinds = ctrl+f=zoom-pane
+```
+
+See [Keybindings](keybindings.md) for every default chord, the pane prefix,
+copy mode, hints, overlay navigation, and rebinding.
 
 ## Settings And Themes
 
-Settings load in this order:
+Use [Configuring OdyTTY](#configuring-odytty) for the in-app settings workflow.
+This section covers theme selection, background images, and transparency.
 
-1. Built-in defaults.
-2. `$XDG_CONFIG_HOME/odytty/odytty.conf`, or
-   `~/.config/odytty/odytty.conf`.
-3. `ODYTTY_*` environment variables, which override config values for the
-   current session.
+### Follow The Desktop Theme
 
-The config file is the primary place to set durable preferences. Its format is
-`key = value` with `#` comments. The native app polls the resolved file about
-once per second; env-pinned keys stay pinned for the session and are best suited
-to one-off/dev overrides. The settings panel live-applies changes and writes
-only changed keys back to `odytty.conf`, preserving comments, blank lines,
-unknown keys, and ordering via same-directory atomic rename.
+Set `theme = system` or `ODYTTY_THEME=system` to follow the desktop dark or
+light preference. The default mapping uses `odyssey` for dark mode and
+`odyssey-light` for light mode.
 
-`theme = system` or `ODYTTY_THEME=system` follows the desktop dark/light
-preference using OdyTTY defaults (`odyssey` dark, `odyssey-light` light).
-Explicit `follow_os_theme`, `os_theme_dark`, and `os_theme_light` settings allow
-custom mappings.
+Use `follow_os_theme`, `os_theme_dark`, and `os_theme_light` to choose custom
+mappings.
 
-### Default background image (and how to turn it off)
+### Change Or Disable The Background Image
 
-Since v0.6.0 OdyTTY ships with its OdysseyOS visual identity on by default: the
-default theme is `odyssey-default` (a deep forest-green palette; also reachable
-under the `odyssey-jungle` alias), and an original "Dark Waves" background image
-is **bundled into the binary and shown by default** behind the grid. The image
-is embedded at build time, so it works identically on every install (source
-build, AppImage, and distro package) with no external file to manage. It carries
-the repository license (see [`assets/backgrounds/LICENSE`](../assets/backgrounds/LICENSE)).
+Since v0.6.0, OdyTTY ships its OdysseyOS visual identity enabled by default. The
+`odyssey-default` theme is a deep forest-green palette and is also available
+through the `odyssey-jungle` alias.
 
-To turn the background **off**, set either key in `odytty.conf`:
+The original "Dark Waves" image is bundled into the binary and shown behind the
+grid. It works without an external file in source builds, AppImages, and distro
+packages, and carries the repository license described in
+[assets/backgrounds/LICENSE](../assets/backgrounds/LICENSE).
 
-```ini
-# odytty.conf: disable the bundled background entirely
-background_treatment = color   # draw the theme background only (no image)
-# or use:
-background_image = none        # keep image treatment available but use no image
+Draw only the theme background:
+
+```conf
+background_treatment = color
 ```
 
-To use **your own** image instead, point `background_image` at a file:
+Alternatively, keep image treatment available without selecting an image:
 
-```ini
-# odytty.conf: use a custom background
+```conf
+background_image = none
+```
+
+Choose a custom image instead:
+
+```conf
 background_treatment = image
-background_image = /path/to/your/wallpaper.png   # png / jpeg / webp
-background_image_scrim = 0.5                      # 0 = none, 1 = opaque scrim; `auto` = floor-safe
+background_image = /path/to/your/wallpaper.png
+background_image_scrim = 0.5
 ```
 
-`background_image = default` (the unset value) selects the bundled image again.
+PNG, JPEG, and WebP images are supported. `background_image_scrim` ranges from
+`0` for no scrim to `1` for an opaque scrim, while `auto` selects a
+floor-safe value.
 
-### Window transparency
+`background_image = default`, including the unset state, selects the bundled
+image again.
 
-OdyTTY can render its background translucent so the desktop shows through the
-terminal. Text, the cursor, selection, and every overlay (menus, pickers, the
-settings panel) always stay fully opaque; the readability boundary is hard, so
-only the background fades. It is **off by default**; the opaque path is
-unchanged. Enable it from the settings panel (Rendering → Window transparency /
-Window opacity) or `odytty.conf`:
+### Make The Window Transparent
 
-```ini
-# odytty.conf: let the desktop show through the terminal background
+Window transparency lets the desktop show through the terminal background.
+Text, the cursor, selection, menus, pickers, and the settings panel remain fully
+opaque, so only the background fades.
+
+Transparency is off by default and leaves the opaque path unchanged. Enable it
+from Settings → Rendering or in `odytty.conf`:
+
+```conf
 window_transparency = on
-window_opacity = 85          # percent, 20..=100 (step 5); 100 is fully opaque
+window_opacity = 85
 ```
 
-Transparency needs a compositing window manager: Wayland handles it natively,
-X11 needs a compositor running, and Windows uses DWM. Where the display server
-offers no alpha compositing the toggle has no visible effect. A menu, picker, or
-the settings panel stays a readable opaque surface while it is open, and only
-that panel, not the whole window. The terminal behind it keeps showing the
-desktop through, so opening a menu no longer flashes the window opaque.
+`window_opacity` is a percentage from 20 through 100 in steps of 5, with 100
+fully opaque.
 
-A configured background image is part of that background: with transparency
-on it becomes translucent too and composes over the desktop, rather than
-sealing the window opaque where the image draws.
+Wayland supports compositing natively, X11 requires a compositor, and Windows
+uses DWM. On a display server without alpha compositing, the setting has no
+visible effect.
 
-See:
+An open menu, picker, or settings panel remains an opaque surface without
+making the whole window opaque. The terminal behind it continues to show the
+desktop.
 
-- [`docs/runtime-knobs.md`](runtime-knobs.md) for every config key,
-  environment variable, range, default, and reload behavior.
-- [`docs/odytty.conf.example`](odytty.conf.example) for an annotated config.
-- [`docs/themes.md`](themes.md) for the theme format and built-in roster.
-- [`docs/effects.md`](effects.md) for bloom, CRT, retro, background, and
-  motion effects.
-- [`docs/keybindings.md`](keybindings.md) for the complete keyboard
-  reference and rebinding.
-- [`docs/accessibility.md`](accessibility.md) for the minimum-contrast
-  floor, color-vision modes, dimming, and the bell.
+A configured background image is part of the background layer. With
+transparency enabled, it also becomes translucent and composes over the
+desktop.
+
+Further reference:
+
+- [Runtime Knobs](runtime-knobs.md) lists every config key, environment
+  variable, range, default, and reload behavior.
+- [Annotated Config](odytty.conf.example) is a complete commented example.
+- [Themes](themes.md) documents the theme format and built-in roster.
+- [Effects](effects.md) covers bloom, CRT, retro, background, and motion
+  effects.
+- [Keybindings](keybindings.md) is the complete keyboard and rebinding
+  reference.
+- [Accessibility](accessibility.md) covers minimum contrast, color-vision
+  modes, dimming, and the bell.

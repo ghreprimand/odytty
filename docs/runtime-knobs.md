@@ -5,6 +5,11 @@ OdyTTY loads native runtime settings from built-in defaults, then
 remain pinned for the session, so use `odytty.conf` for durable preferences and
 environment variables for one-off/dev overrides.
 
+For the menu-driven workflow, including Settings search, theme and font
+pickers, the Layout section, and preservation-first saves, see
+[Configuring OdyTTY](features.md#configuring-odytty). This document remains the
+exhaustive key-by-key reference.
+
 Config path:
 
 - `$XDG_CONFIG_HOME/odytty/odytty.conf`
