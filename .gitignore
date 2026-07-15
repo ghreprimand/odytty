@@ -6,9 +6,14 @@ AGENTS.md
 CLAUDE.md
 GEMINI.md
 
-# Local-only audit / findings reports (never publish to the public repo)
-AUDIT_old.md
-AUDIT.md
+# Local-only audit findings and generated reports (never publish to the public
+# repo). Directory-scoped so new files land ignored by default rather than
+# needing a rule per filename. The root-level AUDIT*.md pattern is kept as a
+# backstop: tooling has historically written reports to the repo root, and an
+# un-ignored one there is exactly the file that must never be published.
+/audit/
+/reports/
+/AUDIT*.md
 
 # Local/private configuration
 .env
