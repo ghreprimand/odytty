@@ -5,6 +5,16 @@ protocol** (APC-based) and **Sixel** (DCS-based). Both land on the same
 shared GPU image layer, so images compose with terminal text with correct
 draw order (cell backgrounds → images → glyphs).
 
+## Contents
+
+- [Kitty graphics protocol](#kitty-graphics-protocol)
+- [Security posture for file-based transports](#security-posture-for-file-based-transports)
+- [Sixel](#sixel)
+- [Protocol availability](#protocol-availability)
+- [In-app image viewer (lightbox)](#in-app-image-viewer-lightbox)
+- [Try it](#try-it)
+- [Color emoji segment](#color-emoji-segment)
+
 ---
 
 ## Kitty graphics protocol
@@ -188,13 +198,15 @@ pixels (~152 MiB RGBA). Malformed or truncated input never panics — unknown
 bytes are skipped and partial images are returned for whatever was decoded
 before a truncation.
 
-**Memory behavior.** Raster attribute declarations (`"Pan;Pad;Ph;Pv`) are
-cap-validated immediately but do not allocate the declared canvas — the pixel
-buffer fills lazily as sixel data is painted. A header-only stream returns an
-`Empty` result with zero pixel allocation. Row stride grows geometrically
-(amortized `O(area)`) so wide images decoded column-by-column do not incur
-`O(N²)` buffer re-layouts. The pixel and axis caps listed above are unchanged
-by these optimizations.
+**Memory behavior.** Sixel decoding allocates lazily and stays bounded:
+
+- Raster attribute declarations (`"Pan;Pad;Ph;Pv`) are cap-validated immediately
+  but do not allocate the declared canvas — the pixel buffer fills lazily as
+  sixel data is painted.
+- A header-only stream returns an `Empty` result with zero pixel allocation.
+- Row stride grows geometrically (amortized `O(area)`), so wide images decoded
+  column-by-column do not incur `O(N²)` buffer re-layouts.
+- The pixel and axis caps listed above are unchanged by these optimizations.
 
 ### DECSDM (private mode 80)
 
@@ -224,14 +236,16 @@ opt-in on the terminal side.
 ## In-app image viewer (lightbox)
 
 Separately from the escape-sequence protocols above, OdyTTY can open a resolved
-image path directly from terminal output in an in-terminal lightbox overlay.
-When the interactive-paths feature is enabled (master gate `interactive_paths`,
-plus `interactive_paths_image_inline`, which defaults on), `Ctrl`+clicking a
-detected `png` / `jpg` / `jpeg` / `webp` path — or choosing **Open in OdyTTY**
-from the right-click menu — decodes the file with the `image` crate and presents
-it as a centered, scrim-dimmed overlay composited on top of the terminal. The
-overlay never upscales beyond the source pixels; dismiss it with `Esc` or by
-clicking outside the image.
+image path directly from terminal output in an in-terminal lightbox overlay. It
+is gated behind the `interactive_paths` master gate plus
+`interactive_paths_image_inline` (which defaults on).
+
+- **Open it** by `Ctrl`+clicking a detected `png` / `jpg` / `jpeg` / `webp` path,
+  or by choosing **Open in OdyTTY** from the right-click menu.
+- The file is decoded with the `image` crate and presented as a centered,
+  scrim-dimmed overlay composited on top of the terminal.
+- The overlay never upscales beyond the source pixels; dismiss it with `Esc` or
+  by clicking outside the image.
 
 This viewer is a distinct surface from the Kitty/Sixel inline placements: it is
 driven by the path-interaction layer, not by bytes on the PTY. See
@@ -314,13 +328,15 @@ coverage path without error.
 
 **Rasterization.** `swash` renders the glyph using `Source::ColorBitmap` with
 `StrikeWith::BestFit`, requesting the embedded bitmap strike closest to the cell
-height — this covers both CBDT/CBLC strikes (Noto Color Emoji on Linux) and
-sbix strikes (Apple Color Emoji on macOS). The returned image must have
-`Content::Color`; a monochrome strike
-causes the cell to fall back silently. The rendered bitmap is scaled and
-centered into the atlas slot using nearest-neighbour downscale (aspect-ratio
-preserving, letterboxed), then straight-alpha is converted to premultiplied RGBA
-before upload.
+height:
+
+- The strike selection covers both CBDT/CBLC strikes (Noto Color Emoji on Linux)
+  and sbix strikes (Apple Color Emoji on macOS).
+- The returned image must have `Content::Color`; a monochrome strike causes the
+  cell to fall back silently.
+- The rendered bitmap is scaled and centered into the atlas slot using
+  nearest-neighbour downscale (aspect-ratio preserving, letterboxed), then
+  straight-alpha is converted to premultiplied RGBA before upload.
 
 **Atlas.** `ColorGlyphAtlas` (`src/emoji/color_atlas.rs`) is a grow-only
 `Rgba8Unorm` atlas keyed by `(font identity, glyph-or-cluster id, physical px
