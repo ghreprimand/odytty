@@ -1095,7 +1095,7 @@ impl Settings {
                 env: CURSOR_TRAIL_ENV,
                 name: "Cursor trail",
                 value: bool_display(self.cursor_trail).to_owned(),
-                description: "When on, a short fading after-image trails the cursor as it glides between cells, in the theme cursor color and drawn behind the cursor block. On by default, but only visible while Cursor slide is also on (it trails that motion) and fully decays as the glide settles — Cursor slide is off by default, so enable it to see the trail. Purely visual — never moves the logical cursor.",
+                description: "When on, a short fading after-image trails the cursor as it glides between cells, in the theme cursor color and drawn behind the cursor block. On by default and visible while Cursor slide is on, which is also the default; it fully decays as the glide settles. Purely visual — never moves the logical cursor.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],
