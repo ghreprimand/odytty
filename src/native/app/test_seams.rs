@@ -635,6 +635,12 @@ impl App {
         self.pointer_drag.scrollbar_grab().is_some()
     }
 
+    /// Whether the cached pointer currently intersects a live scrollbar thumb.
+    #[cfg(test)]
+    pub(in crate::native) fn scrollbar_hit_for_test(&self) -> bool {
+        self.scrollbar_hit_test().is_some()
+    }
+
     /// Test seam (INTERACTIVE-PATHS): toggle the `interactive_paths` setting so
     /// the gated hover-scan path (and its byte-identical off path) can be pinned.
     #[cfg(test)]
@@ -939,6 +945,24 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn tab_bar_seam_dragging_for_test(&self) -> bool {
         self.tab_bar_seam_drag
+    }
+
+    /// Exact horizontal span shared by the drawn top seam and its RowResize
+    /// hit target.
+    #[cfg(test)]
+    pub(in crate::native) fn top_panel_span_for_test(&self) -> Option<[f32; 2]> {
+        let cell = self.resolved_cell()?;
+        let (surface_w, _, padding) = self.resolved_surface()?;
+        Some(
+            self.top_panel_span(cell, surface_w as f32, padding)
+                .unwrap_or([0.0, surface_w as f32]),
+        )
+    }
+
+    /// Exact physical Y of the top seam used by drawing and hit-testing.
+    #[cfg(test)]
+    pub(in crate::native) fn tab_bar_seam_y_for_test(&self) -> Option<f32> {
+        self.tab_bar_seam_y_px(self.resolved_cell()?)
     }
 
     // --- F4-P3 rail auto-hide seams ---

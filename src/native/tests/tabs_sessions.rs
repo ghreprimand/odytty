@@ -1305,6 +1305,131 @@ fn rail_seam_hover_shows_a_resize_cursor_off_the_tab_slots() {
 }
 
 #[test]
+fn top_seam_owns_pinned_rail_junction_on_both_sides_at_common_scales() {
+    for scale in [1.0_f32, 1.25, 1.5, 1.75, 2.0] {
+        let cell = cell((8.0 * scale).round() as u32, (16.0 * scale).round() as u32);
+        let padding = WindowPadding::from_logical(4.0, scale);
+        for side in ["left", "right"] {
+            let Some(mut app) = tab_bar_app() else {
+                eprintln!("skipping: no PTY available");
+                return;
+            };
+            app.set_test_cell_for_test(cell);
+            app.set_test_scale_for_test(scale);
+            app.set_test_surface_for_test(1000, 600, padding);
+            app.set_workspace_rail_for_test(side);
+            app.set_tab_rail_width_manual_for_test(16);
+
+            let span = app.top_panel_span_for_test().expect("drawn top span");
+            let seam_y = app.tab_bar_seam_y_for_test().expect("top seam");
+            let junction_x = if side == "left" {
+                span[0] + cell.width as f32 * 0.5
+            } else {
+                span[1] - cell.width as f32 * 0.5
+            };
+            app.pointer_move_for_test(junction_x as f64, seam_y as f64);
+            assert_eq!(
+                app.cursor_icon_for_test(),
+                winit::window::CursorIcon::RowResize,
+                "{side} rail junction owns the drawn top seam at scale {scale}"
+            );
+
+            app.set_pointer_px_for_test(junction_x as f64, seam_y as f64);
+            app.mouse_left_press_for_test();
+            assert!(
+                app.tab_bar_seam_dragging_for_test(),
+                "junction press arms row resize for {side} rail at scale {scale}"
+            );
+            assert!(!app.rail_seam_dragging_for_test());
+            app.mouse_left_release_for_test();
+        }
+    }
+}
+
+#[test]
+fn revealed_autohide_rail_clips_and_owns_the_top_seam_junction() {
+    for side in ["left", "right"] {
+        let Some(mut app) = tab_bar_app() else {
+            eprintln!("skipping: no PTY available");
+            return;
+        };
+        let cell = cell(8, 16);
+        app.set_test_cell_for_test(cell);
+        app.set_test_surface_for_test(800, 400, WindowPadding::ZERO);
+        app.set_workspace_rail_for_test(side);
+        app.set_tab_rail_width_manual_for_test(16);
+        app.set_tab_rail_autohide_for_test(true);
+        app.force_rail_reveal_for_test();
+
+        let span = app.top_panel_span_for_test().expect("revealed top span");
+        let seam_y = app.tab_bar_seam_y_for_test().expect("top seam");
+        let junction_x = if side == "left" {
+            span[0]
+        } else {
+            span[1] - 1.0
+        };
+        app.pointer_move_for_test(junction_x as f64, seam_y as f64);
+        assert_eq!(
+            app.cursor_icon_for_test(),
+            winit::window::CursorIcon::RowResize,
+            "revealed {side} junction owns the drawn horizontal seam"
+        );
+
+        let clipped_x = if side == "left" {
+            span[0] - 8.0
+        } else {
+            span[1] + 8.0
+        };
+        app.pointer_move_for_test(clipped_x as f64, seam_y as f64);
+        assert_ne!(
+            app.cursor_icon_for_test(),
+            winit::window::CursorIcon::RowResize,
+            "the top seam is not hit-testable inside the revealed {side} overlay"
+        );
+    }
+}
+
+#[test]
+fn top_seam_wins_its_right_junction_with_a_live_scrollbar() {
+    let Some((mut app, fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    {
+        let mut terminal = fixtures[0].0.lock().expect("terminal");
+        terminal.advance(&scrollback_bytes(200));
+    }
+    let cell = cell(8, 16);
+    app.set_test_cell_for_test(cell);
+    app.set_test_surface_for_test(900, 400, WindowPadding::ZERO);
+    app.set_workspace_rail_for_test("right");
+    app.set_tab_rail_width_manual_for_test(16);
+    app.scroll_up_for_test(usize::MAX);
+    if app.scrollback_len_for_test() == 0 {
+        eprintln!("skipping: no scrollback materialized");
+        return;
+    }
+
+    let span = app.top_panel_span_for_test().expect("right top span");
+    let seam_y = app.tab_bar_seam_y_for_test().expect("top seam");
+    let content_edge_x = span[1] - 1.0;
+    app.set_pointer_px_for_test(content_edge_x as f64, seam_y as f64);
+    assert!(
+        app.scrollbar_hit_for_test(),
+        "fixture overlaps the live thumb"
+    );
+    app.pointer_move_for_test(content_edge_x as f64, seam_y as f64);
+    assert_eq!(
+        app.cursor_icon_for_test(),
+        winit::window::CursorIcon::RowResize
+    );
+    app.mouse_left_press_for_test();
+    assert!(app.tab_bar_seam_dragging_for_test());
+    assert!(!app.scrollbar_dragging_for_test());
+    app.mouse_left_release_for_test();
+}
+
+#[test]
 fn tab_bar_seam_drag_sets_and_persists_a_manual_height() {
     let Some(mut app) = tab_bar_app() else {
         eprintln!("skipping: no PTY available");

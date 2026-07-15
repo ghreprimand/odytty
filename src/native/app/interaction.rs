@@ -1718,27 +1718,12 @@ impl App {
             self.apply_cursor_icon(icon);
             return;
         }
-        // F4-P4: rail seam hover — a column-resize cursor over the seam grab
-        // band so drag-to-resize is discoverable (the press path grabs the same
-        // band). Wins over tab-slot hover in its thin band and yields to the
-        // scroll thumb (inside `pointer_over_rail_seam`); skipped while a
-        // selection is in progress. Clears any stale slot highlight beneath the
-        // resize cursor. Inert off a rail, so the plain hover path is unchanged.
-        if !self.pointer_drag.is_selecting() && self.pointer_over_rail_seam(x_px, cell) {
-            if self.tab_rail.hover.is_some() {
-                self.tab_rail.set_hover(None);
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                }
-            }
-            self.apply_cursor_icon(CursorIcon::ColResize);
-            return;
-        }
         // Tab-bar bottom-seam hover — a row-resize cursor over the seam grab band
         // so drag-to-resize the bar height is discoverable (the press path grabs
-        // the same band). Wins over tab-slot hover in its thin band; skipped
-        // while a selection is in progress. Clears any stale slot highlight
-        // beneath the resize cursor. Inert when no top bar is shown.
+        // the same band). Wins at the rail junction because the horizontal seam
+        // is visibly drawn there; skipped while a selection is in progress.
+        // Clears any stale slot highlight beneath the resize cursor. Inert when
+        // no top bar is shown.
         if !self.pointer_drag.is_selecting() && self.pointer_over_tab_bar_seam(x_px, y_px, cell) {
             if self.tab_bar.hover.is_some() {
                 self.tab_bar.set_hover(None);
@@ -1747,6 +1732,19 @@ impl App {
                 }
             }
             self.apply_cursor_icon(CursorIcon::RowResize);
+            return;
+        }
+        // F4-P4: rail seam hover — a column-resize cursor over the remaining
+        // vertical seam grab band. Yields to the top seam at their junction and
+        // to the scroll thumb inside `pointer_over_rail_seam`.
+        if !self.pointer_drag.is_selecting() && self.pointer_over_rail_seam(x_px, cell) {
+            if self.tab_rail.hover.is_some() {
+                self.tab_rail.set_hover(None);
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+            }
+            self.apply_cursor_icon(CursorIcon::ColResize);
             return;
         }
         // Tab-chrome hover: a vertical rail hit-tests with its own row-major

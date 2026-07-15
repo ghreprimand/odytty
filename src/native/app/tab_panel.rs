@@ -112,6 +112,13 @@ pub(super) fn joined_top_span(
     }
 }
 
+/// Whether `x` lies on the top panel's drawn horizontal span. A missing clip is
+/// the full surface width. Shared by the App hit-test and pure geometry tests.
+pub(super) fn top_span_contains_x(span: Option<[f32; 2]>, surface_width: f32, x: f32) -> bool {
+    let [left, right] = span.unwrap_or([0.0, surface_width]);
+    x >= left && x < right
+}
+
 /// The panel's content-facing seam coordinate along the panel's growth axis:
 /// for a rail this is the x of the rail↔content boundary; for the top bar the y
 /// of the bar↔content boundary.
@@ -412,6 +419,34 @@ mod tests {
         assert_eq!(reserve.right_reserved_cols(), 18, "band plus gap reserved");
         assert_eq!(content_right, 644.0, "content still ends before the gap");
         assert_eq!(span[1] - content_right, 16.0, "two gap columns remain");
+    }
+
+    #[test]
+    fn joined_top_span_hit_owns_the_preserved_gap_on_both_sides() {
+        let left = TabReserve {
+            top_rows: 1,
+            left_cols: 16,
+            right_cols: 0,
+            gap_cols: 2,
+        };
+        let left_span = joined_top_span(800.0, 4.0, 8.0, 80, left);
+        assert!(
+            top_span_contains_x(left_span, 800.0, 140.0),
+            "left gap segment between rail seam x=132 and widget x=148 is owned"
+        );
+
+        let right = TabReserve {
+            top_rows: 1,
+            left_cols: 0,
+            right_cols: 16,
+            gap_cols: 2,
+        };
+        let surface_width = (4 + (80 + 2 + 16) * 8 + 4) as f32;
+        let right_span = joined_top_span(surface_width, 4.0, 8.0, 80, right);
+        assert!(
+            top_span_contains_x(right_span, surface_width, 652.0),
+            "right gap segment between widget x=644 and rail seam x=660 is owned"
+        );
     }
 
     #[test]

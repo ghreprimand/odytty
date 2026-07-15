@@ -200,20 +200,22 @@ impl App {
             }
             return;
         }
-        // F4-P4: the rail seam drag owns the left button — a release ends it
-        // (persisting the dragged width); a press on the seam grab band starts a
-        // drag, or resets to auto on a double-click. Placed before the multi-pane
-        // pane/divider branch so a seam press on a split tab isn't swallowed by
-        // pane focus, and before the tab-hit block so the seam wins its thin band
-        // over a tab-slot click. Inert off a rail / on the plain path.
-        if self.handle_rail_seam_button(state, button) {
+        // Preserve ownership of an in-flight seam drag before resolving a new
+        // junction press. This keeps releases routed to the gesture that armed.
+        if self.rail_seam_drag && self.handle_rail_seam_button(state, button) {
             return;
         }
-        // Adjustable tab-bar height: the bottom-seam drag owns the left button
-        // the same way, on the horizontal edge. Placed beside the rail seam,
-        // before the pane/divider and tab-hit branches, so a height-seam press
-        // wins its thin band. Inert when no top bar is shown / on the plain path.
+        if self.tab_bar_seam_drag && self.handle_tab_bar_seam_button(state, button) {
+            return;
+        }
+        // A new press on the drawn top seam wins at the rail junction, matching
+        // the RowResize hover affordance across the complete horizontal line.
         if self.handle_tab_bar_seam_button(state, button) {
+            return;
+        }
+        // The rail seam owns the remaining vertical grab band and keeps its
+        // existing divider/tab priority away from the junction.
+        if self.handle_rail_seam_button(state, button) {
             return;
         }
         // A left-release always ends an in-progress divider drag (design doc

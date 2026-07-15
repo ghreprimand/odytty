@@ -3386,6 +3386,40 @@ impl App {
         self.settings.tab_panel_strength
     }
 
+    /// Horizontal span of the drawn top-panel seam. Hit-testing consumes this
+    /// same resolved span so every visible segment owns the row-resize target,
+    /// including the pinned or revealed rail junction.
+    fn top_panel_span(
+        &self,
+        cell: CellSize,
+        surface_width: f32,
+        padding: WindowPadding,
+    ) -> Option<[f32; 2]> {
+        let mut span = tab_panel::joined_top_span(
+            surface_width,
+            padding.as_f32(),
+            cell.width as f32,
+            self.tab_bar_grid_cols(),
+            self.tab_reserve(),
+        );
+        if span.is_none()
+            && self.rail_autohide_active()
+            && self.rail_overlay_visible()
+            && self.rail_autohide_side() == Some(RailSide::Left)
+        {
+            span = Some([
+                padding.as_f32() + self.rail_overlay_cols() as f32 * cell.width as f32,
+                surface_width,
+            ]);
+        } else if self.rail_autohide_active()
+            && self.rail_overlay_visible()
+            && self.rail_autohide_side() == Some(RailSide::Right)
+        {
+            span = Some([0.0, self.rail_overlay_origin_px(cell, RailSide::Right)[0]]);
+        }
+        span
+    }
+
     /// Build the F4-P1 unified-panel background quads (ODP-1 wash + ODP-2 seam)
     /// for the current frame, in surface pixels. Empty when the bar is hidden,
     /// the GPU is not up yet, or the band is degenerate; the caller splices these
@@ -3411,31 +3445,8 @@ impl App {
         let wash_alpha = tab_chrome::panel_wash_alpha(strength, self.settings.cell_bg_opacity);
         let seam = (self.settings.tab_seam && strength > 0.0)
             .then(|| tab_chrome::seam_color(colors, panel_color));
-        let reserve = self.tab_reserve();
         let top_span = if show_top {
-            let mut span = tab_panel::joined_top_span(
-                surface_w as f32,
-                padding.as_f32(),
-                cell.width as f32,
-                self.tab_bar_grid_cols(),
-                reserve,
-            );
-            if span.is_none()
-                && self.rail_autohide_active()
-                && self.rail_overlay_visible()
-                && self.rail_autohide_side() == Some(RailSide::Left)
-            {
-                span = Some([
-                    padding.as_f32() + self.rail_overlay_cols() as f32 * cell.width as f32,
-                    surface_w as f32,
-                ]);
-            } else if self.rail_autohide_active()
-                && self.rail_overlay_visible()
-                && self.rail_autohide_side() == Some(RailSide::Right)
-            {
-                span = Some([0.0, self.rail_overlay_origin_px(cell, RailSide::Right)[0]]);
-            }
-            span
+            self.top_panel_span(cell, surface_w as f32, padding)
         } else {
             None
         };
@@ -3765,10 +3776,9 @@ impl App {
 
     /// Whether the pointer at raw `(px_x, px_y)` is within the tab-bar bottom
     /// seam grab band this frame and should start / show a height resize rather
-    /// than a tab hit. Requires the pointer to sit horizontally within the bar's
-    /// content-column span (beside any rail) so a drag only starts on the bar's
-    /// own edge, not out over the rail corner. `false` when no top bar is shown,
-    /// so the plain path never grabs.
+    /// than a tab hit. The horizontal bounds are the exact drawn panel span, so
+    /// a rail-junction segment cannot be visible without owning RowResize.
+    /// `false` when no top bar is shown, so the plain path never grabs.
     fn pointer_over_tab_bar_seam(&self, px_x: f64, px_y: f64, cell: CellSize) -> bool {
         let Some(seam_y) = self.tab_bar_seam_y_px(cell) else {
             return false;
@@ -3776,12 +3786,17 @@ impl App {
         if (px_y as f32 - seam_y).abs() > DIVIDER_GRAB_PX {
             return false;
         }
-        // Horizontal span of the bar: it starts past a left rail band and runs
-        // for the content columns (`tab_bar_grid_cols`), matching the strip and
-        // its tab hit-test basis.
+        let x = px_x as f32;
+        if let Some((surface_w, _, padding)) = self.resolved_surface() {
+            return tab_panel::top_span_contains_x(
+                self.top_panel_span(cell, surface_w as f32, padding),
+                surface_w as f32,
+                x,
+            );
+        }
+        // Pre-GPU/headless fallback retains the historical strip basis.
         let origin_x = self.top_bar_origin_px(cell)[0];
         let width = self.tab_bar_grid_cols() as f32 * cell.width as f32;
-        let x = px_x as f32;
         x >= origin_x && x < origin_x + width
     }
 
