@@ -18,7 +18,7 @@
 # No FUSE is required: APPIMAGE_EXTRACT_AND_RUN=1 makes both linuxdeploy and the
 # nested appimagetool self-extract instead of mounting, which is what CI needs.
 #
-# Local overrides (skip the downloads):
+# Local overrides must be byte-identical to the pinned release assets:
 #   LINUXDEPLOY=/path/to/linuxdeploy-x86_64.AppImage
 #   LINUXDEPLOY_PLUGIN_APPIMAGE=/path/to/linuxdeploy-plugin-appimage-x86_64.AppImage
 set -euo pipefail
@@ -51,26 +51,54 @@ cp dist/linux/io.unfinished_works.odytty.metainfo.xml \
   "$APPDIR/usr/share/metainfo/"
 cp -a dist/icons/hicolor/. "$APPDIR/usr/share/icons/hicolor/"
 
-# Fetch tooling (or use caller-provided paths).
-fetch() { # url dest
-  if command -v curl >/dev/null 2>&1; then
-    curl -fsSL -o "$2" "$1"
-  else
-    wget -qO "$2" "$1"
-  fi
-  chmod +x "$2"
+# Verified immutable upstream release inputs. Do not substitute the mutable
+# `continuous` channel: these checksums are the review boundary before either
+# downloaded AppImage receives execute permission.
+LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-$ARCH.AppImage"
+LINUXDEPLOY_SHA256="c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d"
+PLUGIN_URL="https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/1-alpha-20250213-1/linuxdeploy-plugin-appimage-$ARCH.AppImage"
+PLUGIN_SHA256="992d502a248e14ab185448ddf6f6e7d25558cb84d4623c354c3af350c25fccb3"
+
+verify_and_enable() { # path expected-sha256 label
+  local actual
+  [ -f "$1" ] || { echo "error: missing $3 at $1" >&2; exit 1; }
+  [ ! -L "$1" ] || { echo "error: refusing symlinked $3" >&2; exit 1; }
+  actual="$(sha256sum "$1" | awk '{print $1}')"
+  [ "$actual" = "$2" ] || {
+    echo "error: $3 checksum mismatch" >&2
+    exit 1
+  }
+  chmod 0755 "$1"
+}
+
+fetch_verified() { # url expected-sha256 dest label
+  local tmp="$3.download"
+  command -v curl >/dev/null 2>&1 || {
+    echo "error: curl is required to fetch verified AppImage tooling" >&2
+    exit 1
+  }
+  rm -f "$tmp"
+  curl --fail --location --silent --show-error \
+    --proto '=https' --proto-redir '=https' \
+    -o "$tmp" "$1"
+  verify_and_enable "$tmp" "$2" "$4"
+  mv "$tmp" "$3"
 }
 
 LD="${LINUXDEPLOY:-$WORK/linuxdeploy-$ARCH.AppImage}"
-if [ ! -x "$LD" ] || [ -z "${LINUXDEPLOY:-}" ]; then
-  echo "==> downloading linuxdeploy"
-  fetch "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-$ARCH.AppImage" "$LD"
+if [ -n "${LINUXDEPLOY:-}" ]; then
+  verify_and_enable "$LD" "$LINUXDEPLOY_SHA256" "linuxdeploy"
+else
+  echo "==> downloading pinned linuxdeploy"
+  fetch_verified "$LINUXDEPLOY_URL" "$LINUXDEPLOY_SHA256" "$LD" "linuxdeploy"
 fi
 
 PLUGIN="${LINUXDEPLOY_PLUGIN_APPIMAGE:-$WORK/linuxdeploy-plugin-appimage-$ARCH.AppImage}"
-if [ ! -x "$PLUGIN" ] || [ -z "${LINUXDEPLOY_PLUGIN_APPIMAGE:-}" ]; then
-  echo "==> downloading linuxdeploy appimage plugin"
-  fetch "https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-$ARCH.AppImage" "$PLUGIN"
+if [ -n "${LINUXDEPLOY_PLUGIN_APPIMAGE:-}" ]; then
+  verify_and_enable "$PLUGIN" "$PLUGIN_SHA256" "linuxdeploy appimage plugin"
+else
+  echo "==> downloading pinned linuxdeploy appimage plugin"
+  fetch_verified "$PLUGIN_URL" "$PLUGIN_SHA256" "$PLUGIN" "linuxdeploy appimage plugin"
 fi
 # The appimage output plugin must be discoverable on PATH by linuxdeploy.
 ln -sf "$PLUGIN" "$WORK/linuxdeploy-plugin-appimage"
