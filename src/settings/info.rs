@@ -1121,7 +1121,7 @@ impl Settings {
                 env: CURSOR_MOTION_ENV,
                 name: "Cursor slide",
                 value: bool_display(self.cursor_motion).to_owned(),
-                description: "When on, the cursor glides a short distance between adjacent positions instead of jumping. Off by default; large jumps, resizes, scrollback and the first frame snap instantly. Purely visual — the logical cursor is always at the destination cell.",
+                description: "When on, the cursor glides a short distance between adjacent positions instead of jumping. On by default; large jumps, resizes, reflow, scrollback, the first frame, focus loss, and reduced motion snap instantly. Purely visual — the logical cursor is always at the destination cell.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],

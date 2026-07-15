@@ -1250,14 +1250,14 @@ pub struct Settings {
     pub cursor_style: CursorStyle,
     /// Default cursor blink policy applied at power-on (DECSCUSR can override).
     pub cursor_blink: CursorBlink,
-    /// Whether the cursor eases its opacity across the blink toggle (ID1). Off
+    /// Whether the cursor eases its opacity across the blink toggle (ID1). On
     /// by default; the off path holds alpha at `1.0` and hard-hides on the blink
-    /// off-phase, byte-identical to before. Purely presentational.
+    /// off-phase. Purely presentational.
     pub cursor_easing: bool,
-    /// Whether the cursor draws a soft concentric halo behind the block (ID1).
-    /// Off by default; the off path emits no glow quads, byte-identical to
-    /// before. Purely presentational; never affects cell semantics or the
-    /// logical cursor position.
+    /// Whether the cursor draws one shape-aware analytic aura behind its glyph,
+    /// matching Block, Bar, or Underline geometry (ID1). Off by default; the
+    /// off path emits no aura geometry. Purely presentational; never affects
+    /// cell semantics or the logical cursor position.
     pub cursor_glow: bool,
     /// Whether a short fading after-image trails the cursor along its slide path
     /// (VE4). On by default; the off path emits no trail quads and arms no
@@ -1268,9 +1268,9 @@ pub struct Settings {
     /// Linked intensity profile for the nearby echo and large-jump streak.
     pub cursor_trail_strength: CursorTrailStrength,
     /// Whether the cursor glides between adjacent positions instead of
-    /// teleporting (VE4). Off by default; the off path sits at the exact cell
-    /// origin (zero offset), byte-identical to before. Discontinuities always
-    /// snap. The logical cursor position is always the destination cell.
+    /// teleporting (VE4). On by default; the off path sits at the exact cell
+    /// origin with zero offset. Discontinuities always snap. The logical cursor
+    /// position is always the destination cell.
     pub cursor_motion: bool,
     /// Master accessibility gate for cursor slide, trail, glow, blink fade, and
     /// new-output fade. When on, the effects use static or instant behavior

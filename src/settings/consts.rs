@@ -473,10 +473,10 @@ pub const DEFAULT_COPY_ON_SELECT: bool = false;
 
 /// Cursor blink-fade easing (`ODYTTY_CURSOR_EASING`, ID1): when on, the cursor
 /// eases its opacity in and out across the blink toggle instead of hard
-/// on/off-switching. Off by default — while off the cursor renders its alpha at
-/// a constant `1.0` and the blink off-phase hides the cursor outright, so the
-/// render path is byte-identical to before. Purely presentational; never
-/// affects cell semantics or the logical cursor position.
+/// on/off-switching. On by default; while disabled or under reduced motion, the
+/// cursor renders its alpha at a constant `1.0` and the blink off-phase hides
+/// the cursor outright. Purely presentational; never affects cell semantics or
+/// the logical cursor position.
 pub const DEFAULT_CURSOR_EASING: bool = true;
 
 /// Cursor slide motion (`ODYTTY_CURSOR_MOTION`, VE4): when on, the cursor glides
