@@ -7,6 +7,16 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Release v0.8.9 — accelerated GPU adapters preferred over software fallbacks
+
+Reliability release. On systems that expose both an accelerated adapter and a
+software one (for example accelerated OpenGL alongside a software Vulkan
+driver), OdyTTY now prefers the accelerated adapter rather than settling on
+the software fallback, so those machines render on the GPU. Context menus now
+take the arrow cursor the instant they open instead of retaining the terminal
+text cursor until the pointer moves. Windows and macOS ship from the same
+verified build matrix.
+
 ## 2026-07-14 -- Context menus take the arrow cursor immediately
 
 Context menus opened under a stationary pointer now show the arrow cursor

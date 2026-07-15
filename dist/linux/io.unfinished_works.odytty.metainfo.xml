@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.8.9" date="2026-07-15">
+      <description>
+        <p>Reliability release. When a system exposes both software and hardware graphics adapters, OdyTTY now prefers the accelerated adapter instead of settling on a software one, so machines with accelerated OpenGL alongside a software Vulkan driver render on the GPU. Context menus now show the arrow cursor the moment they open, rather than keeping the text cursor until the pointer moves. Windows and macOS ship from the same verified build matrix.</p>
+      </description>
+    </release>
     <release version="0.8.8" date="2026-07-14">
       <description>
         <p>Reliability release. OdyTTY now renders on accelerated OpenGL when no Vulkan adapter is available, so systems with a working GL stack but no Vulkan (a common virtual-machine configuration) start and run on the GPU instead of failing or falling back to slow software rendering. Software rasterization remains a last resort. Standard graphics environment overrides are now honored. Windows and macOS ship from the same verified build matrix.</p>
