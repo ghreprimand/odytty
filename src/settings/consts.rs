@@ -42,6 +42,7 @@ pub const CURSOR_EASING_ENV: &str = "ODYTTY_CURSOR_EASING";
 pub const CURSOR_MOTION_ENV: &str = "ODYTTY_CURSOR_MOTION";
 pub const CURSOR_GLOW_ENV: &str = "ODYTTY_CURSOR_GLOW";
 pub const CURSOR_TRAIL_ENV: &str = "ODYTTY_CURSOR_TRAIL";
+pub const REDUCED_MOTION_ENV: &str = "ODYTTY_REDUCED_MOTION";
 pub const NEW_OUTPUT_FADE_ENV: &str = "ODYTTY_NEW_OUTPUT_FADE";
 pub const WINDOW_BORDER_ENV: &str = "ODYTTY_WINDOW_BORDER";
 pub const WINDOW_DECORATIONS_ENV: &str = "ODYTTY_WINDOW_DECORATIONS";
@@ -163,6 +164,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     CURSOR_MOTION_ENV,
     CURSOR_GLOW_ENV,
     CURSOR_TRAIL_ENV,
+    REDUCED_MOTION_ENV,
     NEW_OUTPUT_FADE_ENV,
     WINDOW_BORDER_ENV,
     WINDOW_DECORATIONS_ENV,
@@ -505,6 +507,13 @@ pub const DEFAULT_CURSOR_GLOW: bool = false;
 /// they never obscure cell content or affect the logical cursor position.
 /// Visible only when `cursor_motion` is also on (the slide it trails).
 pub const DEFAULT_CURSOR_TRAIL: bool = true;
+
+/// Reduced motion (`ODYTTY_REDUCED_MOTION`): master accessibility gate for the
+/// cursor slide, trail, glow, blink fade, and new-output fade. On forces those
+/// effects to their static or instant behavior without changing their stored
+/// individual settings. The explicit setting has the same behavior on every
+/// supported platform; OS preference discovery remains future work.
+pub const DEFAULT_REDUCED_MOTION: bool = false;
 
 /// New-output fade-in (`ODYTTY_NEW_OUTPUT_FADE`, VE4): when on, rows of freshly
 /// arrived output at the live tail fade in over a short ease-out ramp instead of

@@ -5717,7 +5717,9 @@ impl ApplicationHandler<UserEvent> for App {
                         // Blink off-phase hard-hide — skipped while easing is on,
                         // where the precomputed alpha carries the fade instead (so
                         // easing does not double-hide).
-                        if !cursor_on && !self.settings.cursor_easing {
+                        if !cursor_on
+                            && (!self.settings.cursor_easing || self.settings.reduced_motion)
+                        {
                             snapshot.cursor_visible = false;
                         }
                         self.hovered_hyperlink = self.pointer_cell.and_then(|point| {

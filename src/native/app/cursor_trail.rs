@@ -66,7 +66,11 @@ impl App {
         ctx: &OverlayCtx,
         out: &mut Vec<SolidQuad>,
     ) {
-        if !self.settings.cursor_trail || !ctx.cursor_visible || self.cursor_slide_start.is_none() {
+        if self.settings.reduced_motion
+            || !self.settings.cursor_trail
+            || !ctx.cursor_visible
+            || self.cursor_slide_start.is_none()
+        {
             return;
         }
         let cols = ctx.grid.columns;
@@ -128,7 +132,7 @@ impl App {
     /// frame-to-frame constant therefore avoids forcing a Full rebuild on every
     /// slide frame.
     pub(super) fn cursor_trail_overlay_signature(&self) -> OverlayFragment {
-        if !self.settings.cursor_trail {
+        if self.settings.reduced_motion || !self.settings.cursor_trail {
             return OverlayFragment::Inert;
         }
         OverlayFragment::CursorTrail { phase: 0 }

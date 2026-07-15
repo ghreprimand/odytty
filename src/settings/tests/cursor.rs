@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Focused tests for cursor presentation settings (the ID1 `cursor_glow` knob
-//! and its config aliases), kept out of the large `legacy` module so that file
-//! stays under the source-size cap.
+//! Focused tests for cursor presentation and reduced-motion settings, kept out
+//! of the large `legacy` module so that file stays under the source-size cap.
 
 use super::*;
 
@@ -76,4 +75,57 @@ fn cursor_glow_round_trips_through_config_key_and_aliases() {
         assert!(settings.cursor_glow, "alias `{alias}` must enable the glow");
         assert!(warnings.is_empty(), "alias `{alias}` must not warn");
     }
+}
+
+#[test]
+fn reduced_motion_defaults_parses_persists_and_has_a_panel_row() {
+    let (default, warnings) = settings_from([]);
+    assert!(!default.reduced_motion, "reduced motion is off by default");
+    assert!(warnings.is_empty());
+
+    let (from_env, warnings) = settings_from([(REDUCED_MOTION_ENV, "on")]);
+    assert!(from_env.reduced_motion);
+    assert!(warnings.is_empty());
+
+    let (from_config, warnings) = settings_from_config("reduced_motion = yes", []);
+    assert!(from_config.reduced_motion);
+    assert!(warnings.is_empty());
+    assert_eq!(
+        from_config.to_edit_values().get(REDUCED_MOTION_ENV),
+        Some(&"on".to_owned())
+    );
+
+    let row = from_config
+        .setting_info()
+        .into_iter()
+        .find(|row| row.key == "reduced_motion")
+        .expect("reduced-motion panel row");
+    assert_eq!(row.group, "Accessibility");
+    assert_eq!(row.env, REDUCED_MOTION_ENV);
+    assert_eq!(row.value, "on");
+}
+
+#[test]
+fn reduced_motion_live_reload_preserves_individual_preferences() {
+    let _guard = RELOAD_GLOBAL_TEST_LOCK.lock().unwrap();
+    let mut current = Settings {
+        cursor_easing: true,
+        cursor_glow: true,
+        cursor_trail: true,
+        cursor_motion: true,
+        new_output_fade: true,
+        ..Settings::default()
+    };
+    let reloaded = Settings {
+        reduced_motion: true,
+        ..current.clone()
+    };
+
+    assert!(apply_reloadable_values(&mut current, reloaded));
+    assert!(current.reduced_motion);
+    assert!(current.cursor_easing);
+    assert!(current.cursor_glow);
+    assert!(current.cursor_trail);
+    assert!(current.cursor_motion);
+    assert!(current.new_output_fade);
 }

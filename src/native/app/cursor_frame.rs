@@ -52,14 +52,20 @@ impl App {
     /// snap is guaranteed by the updater (a `None` prior snapshot snaps), so this
     /// never glides from a stale position.
     pub(super) fn cursor_motion_offset(&self) -> [f32; 2] {
-        self.cursor_anim_offset
+        if self.settings.reduced_motion {
+            [0.0, 0.0]
+        } else {
+            self.cursor_anim_offset
+        }
     }
 
     /// Next wake instant while a cursor slide is in flight, or `None` once it
     /// settles (the bounded-wake contract: a finished glide arms no further
     /// wake, so an idle terminal returns to zero extra wakeups).
     pub(super) fn cursor_motion_deadline(&self) -> Option<Instant> {
-        self.cursor_slide_deadline
+        (!self.settings.reduced_motion)
+            .then_some(self.cursor_slide_deadline)
+            .flatten()
     }
 
     /// Recompute the cursor slide offset + the next slide wake for `now`.
@@ -84,7 +90,7 @@ impl App {
         snapshot: &Snapshot,
         cell: CellSize,
     ) {
-        if !self.settings.cursor_motion {
+        if self.settings.reduced_motion || !self.settings.cursor_motion {
             self.cursor_anim_offset = [0.0, 0.0];
             self.cursor_slide_deadline = None;
             self.cursor_slide_start = None;
@@ -167,7 +173,7 @@ impl App {
         // Easing keeps the cursor visible through the blink off-phase (the
         // precomputed alpha carries the fade); the hard-hide applies only when
         // easing is off, matching the main rebuild path so the two stay in sync.
-        if !cursor_on && !self.settings.cursor_easing {
+        if !cursor_on && (!self.settings.cursor_easing || self.settings.reduced_motion) {
             snapshot.cursor_visible = false;
         }
 

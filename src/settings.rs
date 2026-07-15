@@ -1241,6 +1241,10 @@ pub struct Settings {
     /// origin (zero offset), byte-identical to before. Discontinuities always
     /// snap. The logical cursor position is always the destination cell.
     pub cursor_motion: bool,
+    /// Master accessibility gate for cursor slide, trail, glow, blink fade, and
+    /// new-output fade. When on, the effects use static or instant behavior
+    /// without mutating their stored individual settings.
+    pub reduced_motion: bool,
     /// Whether OSC 52 clipboard read/query replies are enabled. Off by default
     /// to avoid silent clipboard exfiltration.
     pub osc52_read: bool,
@@ -1612,6 +1616,7 @@ impl Default for Settings {
             cursor_glow: DEFAULT_CURSOR_GLOW,
             cursor_trail: DEFAULT_CURSOR_TRAIL,
             cursor_motion: DEFAULT_CURSOR_MOTION,
+            reduced_motion: DEFAULT_REDUCED_MOTION,
             osc52_read: false,
             synthetic_styles: true,
             geometric_boxdraw: true,
@@ -2171,6 +2176,12 @@ impl Settings {
             DEFAULT_CURSOR_MOTION,
             &mut warn,
         );
+        let reduced_motion = parse_bool_setting(
+            get(REDUCED_MOTION_ENV).as_deref(),
+            REDUCED_MOTION_ENV,
+            DEFAULT_REDUCED_MOTION,
+            &mut warn,
+        );
         let osc52_read = parse_bool_setting(
             get(OSC52_READ_ENV).as_deref(),
             OSC52_READ_ENV,
@@ -2508,6 +2519,7 @@ impl Settings {
             cursor_glow,
             cursor_trail,
             cursor_motion,
+            reduced_motion,
             osc52_read,
             synthetic_styles,
             geometric_boxdraw,
@@ -2667,6 +2679,10 @@ impl Settings {
         values.insert(
             CURSOR_MOTION_ENV,
             bool_display(self.cursor_motion).to_owned(),
+        );
+        values.insert(
+            REDUCED_MOTION_ENV,
+            bool_display(self.reduced_motion).to_owned(),
         );
         values.insert(OSC52_READ_ENV, bool_display(self.osc52_read).to_owned());
         values.insert(

@@ -34,14 +34,20 @@ impl App {
     /// the current frame; `1.0` whenever easing is off, the cursor is steady, or
     /// the window is unfocused.
     pub(super) fn cursor_blink_alpha(&self) -> f32 {
-        self.cursor_anim_alpha
+        if self.settings.reduced_motion {
+            1.0
+        } else {
+            self.cursor_anim_alpha
+        }
     }
 
     /// Next wake instant while a blink-fade ramp is in flight, or `None` once it
     /// settles (the bounded-wake contract: the ramp ends and the blink toggle
     /// deadline — scheduled independently — carries to the next edge).
     pub(super) fn cursor_blink_fade_deadline(&self) -> Option<Instant> {
-        self.cursor_ease_deadline
+        (!self.settings.reduced_motion)
+            .then_some(self.cursor_ease_deadline)
+            .flatten()
     }
 
     /// Recompute the eased cursor alpha + the next fade wake for `now`.
@@ -61,7 +67,11 @@ impl App {
         cursor_on: bool,
         blinking: bool,
     ) {
-        if !self.settings.cursor_easing || !blinking || !self.focused {
+        if self.settings.reduced_motion
+            || !self.settings.cursor_easing
+            || !blinking
+            || !self.focused
+        {
             self.cursor_anim_alpha = 1.0;
             self.cursor_ease_deadline = None;
             // Resync the edge tracker so the first ramp after (re-)enabling

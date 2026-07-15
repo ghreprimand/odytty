@@ -51,7 +51,10 @@ impl App {
     pub(in crate::native) fn update_row_fade(&mut self, now: Instant, scrollback_len: usize) {
         // Off path or scrolled back into history (D-VE4F-3): never populate;
         // snap to the live content and record the baseline length.
-        if !self.settings.new_output_fade || self.viewport.offset() > 0 {
+        if self.settings.reduced_motion
+            || !self.settings.new_output_fade
+            || self.viewport.offset() > 0
+        {
             self.row_fade_starts.clear();
             self.last_scrollback_len_for_fade = scrollback_len;
             return;
@@ -104,7 +107,7 @@ impl App {
     /// [`App::animation_deadline`] as the fourth contributor — it joins the
     /// existing single control-flow timer rather than adding a second.
     pub(super) fn new_row_fade_deadline(&self) -> Option<Instant> {
-        if self.row_fade_starts.is_empty() {
+        if self.settings.reduced_motion || self.row_fade_starts.is_empty() {
             return None;
         }
         self.row_fade_starts
@@ -119,7 +122,7 @@ impl App {
     /// `Inert` otherwise — so the off path is a frame-to-frame constant and the
     /// geometry-update decision is unchanged from before this field existed.
     pub(super) fn new_row_fade_overlay_signature(&self) -> OverlayFragment {
-        if self.row_fade_starts.iter().any(Option::is_some) {
+        if !self.settings.reduced_motion && self.row_fade_starts.iter().any(Option::is_some) {
             OverlayFragment::NewRowFade {
                 epoch: self.row_fade_epoch,
             }
@@ -139,7 +142,7 @@ impl App {
         ctx: &OverlayCtx,
         out: &mut Vec<SolidQuad>,
     ) {
-        if self.row_fade_starts.is_empty() {
+        if self.settings.reduced_motion || self.row_fade_starts.is_empty() {
             return;
         }
         let cols = ctx.grid.columns;
@@ -267,6 +270,116 @@ mod tests {
         let mut quads = Vec::new();
         app.paint_new_row_fade_quads(&ctx_at(&app, 0, Instant::now()), &mut quads);
         assert!(quads.is_empty(), "off path emits zero quads");
+    }
+
+    #[test]
+    fn reduced_motion_snaps_output_fade_and_suppresses_wakes() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.settings.new_output_fade = true;
+        let t0 = Instant::now();
+        app.update_row_fade(t0, 0);
+        app.update_row_fade(t0 + Duration::from_millis(1), 2);
+        assert!(
+            app.new_row_fade_deadline().is_some(),
+            "fade is initially live"
+        );
+
+        app.settings.reduced_motion = true;
+        app.update_row_fade(t0 + Duration::from_millis(2), 2);
+
+        assert!(
+            app.settings.new_output_fade,
+            "stored preference is unchanged"
+        );
+        assert!(
+            app.row_fade_starts.is_empty(),
+            "reduced motion clears the fade"
+        );
+        assert_eq!(
+            app.new_row_fade_deadline(),
+            None,
+            "reduced motion adds no wake"
+        );
+        assert_eq!(
+            app.new_row_fade_overlay_signature(),
+            OverlayFragment::Inert,
+            "reduced motion makes the overlay inert"
+        );
+    }
+
+    #[test]
+    fn reduced_motion_makes_cursor_effects_static_and_inert() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.settings.cursor_motion = true;
+        app.settings.cursor_trail = true;
+        app.settings.cursor_glow = true;
+        app.settings.cursor_easing = true;
+        app.cursor_anim_alpha = 0.5;
+        app.cursor_ease_deadline = Some(Instant::now() + Duration::from_millis(16));
+        app.cursor_anim_offset = [4.0, 0.0];
+        app.cursor_slide_from_px = [8.0, 0.0];
+        app.cursor_slide_start = Some(Instant::now());
+        app.cursor_slide_deadline = Some(Instant::now() + Duration::from_millis(16));
+
+        app.settings.reduced_motion = true;
+
+        let params = app.cursor_render_params();
+        assert_eq!(params.offset, [0.0, 0.0], "reduced motion snaps the cursor");
+        assert_eq!(params.alpha, 1.0, "reduced motion disables blink fading");
+        assert_eq!(app.cursor_blink_fade_deadline(), None, "no easing wake");
+        assert_eq!(app.cursor_motion_deadline(), None, "no slide wake");
+        assert_eq!(
+            app.focused_cursor_animation_deadline(),
+            None,
+            "no focused split-pane wake"
+        );
+        assert_eq!(
+            app.cursor_trail_overlay_signature(),
+            OverlayFragment::Inert,
+            "trail is inert"
+        );
+        assert_eq!(
+            app.cursor_glow_overlay_signature(),
+            OverlayFragment::Inert,
+            "glow is inert"
+        );
+        let mut effects = Vec::new();
+        let ctx = ctx_at(&app, 0, Instant::now());
+        app.paint_cursor_trail_quads(&ctx, &mut effects);
+        app.paint_cursor_glow_quads(&ctx, &mut effects);
+        assert!(effects.is_empty(), "reduced motion emits no cursor effects");
+
+        let now = Instant::now();
+        app.update_cursor_easing(now, false, true);
+        let snapshot = crate::core::Snapshot {
+            dimensions: Dimensions::new(COLS, ROWS),
+            cursor: crate::core::Position { row: 0, column: 1 },
+            cursor_visible: true,
+            colors: crate::core::DynamicColors::default(),
+            cells: vec![crate::core::Cell::default(); COLS * ROWS],
+        };
+        app.update_cursor_motion(
+            now,
+            &snapshot,
+            CellSize {
+                width: CELL_W,
+                height: CELL_H,
+                baseline: 0,
+            },
+        );
+        assert_eq!(app.cursor_anim_alpha, 1.0, "easing state resets");
+        assert_eq!(app.cursor_ease_deadline, None, "easing timer clears");
+        assert_eq!(app.cursor_anim_offset, [0.0, 0.0], "slide state resets");
+        assert_eq!(app.cursor_slide_deadline, None, "slide timer clears");
+        assert_eq!(app.cursor_slide_start, None, "slide start clears");
+        assert!(app.settings.cursor_motion);
+        assert!(app.settings.cursor_trail);
+        assert!(app.settings.cursor_glow);
+        assert!(app.settings.cursor_easing);
     }
 
     // --- T5: scrollback-delta tracking correctness --------------------------

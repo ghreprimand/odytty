@@ -125,6 +125,7 @@ environment variable was not set at startup.
 | `cursor_motion` | `ODYTTY_CURSOR_MOTION` | `on`, `off` | `off` |
 | `cursor_glow` | `ODYTTY_CURSOR_GLOW` | `on`, `off` | `off` |
 | `cursor_trail` | `ODYTTY_CURSOR_TRAIL` | `on`, `off` | `on` |
+| `reduced_motion` | `ODYTTY_REDUCED_MOTION` | `on`, `off` | `off` |
 | `new_output_fade` | `ODYTTY_NEW_OUTPUT_FADE` | `on`, `off` | `off` |
 | `keybinds` | `ODYTTY_KEYBINDS` | `chord=action` list | empty |
 | `pane_prefix` | `ODYTTY_PANE_PREFIX` | Key chord, or `off` to disable | `ctrl+b` |

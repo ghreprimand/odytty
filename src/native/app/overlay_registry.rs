@@ -318,7 +318,7 @@ impl App {
         ctx: &OverlayCtx,
         out: &mut Vec<SolidQuad>,
     ) {
-        if !self.settings.cursor_glow || !ctx.cursor_visible {
+        if self.settings.reduced_motion || !self.settings.cursor_glow || !ctx.cursor_visible {
             return;
         }
         let cols = ctx.grid.columns;
@@ -375,7 +375,7 @@ impl App {
     /// quads are repainted from the live `ctx.cursor` every frame, so no extra
     /// per-position signature field is needed).
     pub(in crate::native) fn cursor_glow_overlay_signature(&self) -> OverlayFragment {
-        if !self.settings.cursor_glow {
+        if self.settings.reduced_motion || !self.settings.cursor_glow {
             return OverlayFragment::Inert;
         }
         OverlayFragment::CursorGlow { phase: 0 }

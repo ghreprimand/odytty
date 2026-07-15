@@ -106,13 +106,25 @@ For both scroll features the scroll target snaps immediately — only the visual
 position eases, and it moves solely in the scroll direction, so it cannot
 overshoot.
 
-There is no reduced-motion or "calm" master switch that forces these off; a
-fully static terminal requires turning them off explicitly:
+`reduced_motion = on` is the master switch for cursor slide, trail, glow,
+blink fade, and new-output fade. It forces those effects to snap or stay
+static without changing their individual saved settings, so disabling it later
+restores the prior choices. The explicit setting behaves the same on Windows,
+macOS, and Linux. OdyTTY does not currently read a platform reduced-motion
+preference; that integration remains backlog.
+
+```conf
+# odytty.conf — disable cursor and output motion while preserving preferences
+reduced_motion = on
+```
+
+It does not disable cursor blinking, smooth scrolling, or continuous pixel
+scrolling. Turn those off explicitly for a fully static terminal:
 
 ```conf
 # odytty.conf — no cursor or scroll motion at all
 cursor_blink = off
-cursor_easing = off
+reduced_motion = on
 scroll_glide = off
 pixel_scroll = off
 ```
@@ -131,8 +143,8 @@ crt = off
 visual = off
 background_treatment = color
 # cursor slide, glow, and the new-output fade are already off by default;
-# add cursor_easing = off, scroll_glide = off, pixel_scroll = off for a
-# fully static terminal (see above)
+# add reduced_motion = on, cursor_blink = off, scroll_glide = off, and
+# pixel_scroll = off for a fully static terminal (see above)
 ```
 
 The `render_quality = plain` profile disables post-processing, background

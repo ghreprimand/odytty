@@ -1625,6 +1625,19 @@ impl Settings {
             },
             SettingInfo {
                 group: "Accessibility",
+                key: "reduced_motion",
+                env: REDUCED_MOTION_ENV,
+                name: "Reduce motion",
+                value: bool_display(self.reduced_motion).to_owned(),
+                description: "When on, cursor slide, trail, glow, blink fade, and new-output fade use static or instant behavior. Their individual settings remain saved unchanged. This explicit setting behaves the same on Windows, macOS, and Linux; OS reduced-motion preference discovery is not yet available.",
+                kind: SettingKind::Bool,
+                range: None,
+                options: &["on", "off"],
+                reloadable: true,
+                numeric: None,
+            },
+            SettingInfo {
+                group: "Accessibility",
                 key: "cvd_mode",
                 env: CVD_MODE_ENV,
                 name: "Color-blind adaptation",
@@ -1758,6 +1771,7 @@ impl Settings {
                 .map(format_float)
                 .unwrap_or_else(|| "auto".to_owned()),
             "new_output_fade" => bool_display(self.new_output_fade).to_owned(),
+            "reduced_motion" => bool_display(self.reduced_motion).to_owned(),
             "subpixel" => subpixel_display(self.subpixel).to_owned(),
             "line_height" => format_float(self.line_height),
             "synthetic_styles" => bool_display(self.synthetic_styles).to_owned(),

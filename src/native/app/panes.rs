@@ -260,6 +260,9 @@ impl App {
     /// Soonest frame-paced cursor-effect deadline for the focused pane. Both
     /// render branches consume this pair; background panes stay parked.
     pub(super) fn focused_cursor_animation_deadline(&self) -> Option<Instant> {
+        if self.settings.reduced_motion {
+            return None;
+        }
         match (self.cursor_ease_deadline, self.cursor_slide_deadline) {
             (Some(ease), Some(slide)) => Some(ease.min(slide)),
             (ease, slide) => ease.or(slide),
@@ -288,7 +291,7 @@ impl App {
         let cursor_on = self.cursor_blink.poll(now, cursor_blinking, focused);
         self.update_cursor_easing(now, cursor_on, cursor_blinking);
         self.update_cursor_motion(now, snapshot, cell);
-        if !cursor_on && !self.settings.cursor_easing {
+        if !cursor_on && (!self.settings.cursor_easing || self.settings.reduced_motion) {
             snapshot.cursor_visible = false;
         }
 
