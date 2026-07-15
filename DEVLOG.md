@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Focused split cursors animate without idle-pane wakes
+
+Cursor slide, trail, glow, and eased fade now advance in the focused pane of a
+split. Their quads remain within that pane, and only the focused pane schedules
+animation frames, leaving idle and background panes at rest.
+
+`ODYTTY_REDUCED_MOTION` adds a master accessibility control for cursor slide,
+trail, glow, easing, and new-output fade. When enabled, those effects snap or
+remain static while their individual settings stay saved. It defaults off and
+behaves identically on Windows, macOS, and Linux; automatic operating-system
+reduced-motion preference discovery remains a future enhancement.
+
+Regression coverage exercises an in-flight split cursor, its offset and eased
+opacity, trail and glow, and the absence of animation wakes in idle panes.
+
+## 2026-07-15 -- Bell attention latches per focus-loss episode and SGR 21 underlines twice
+
+Urgent bells from an unfocused window now request system attention once per
+focus-loss episode. Focus gain clears that request and re-arms the next episode,
+avoiding repeated Windows taskbar, macOS Dock, and Linux window-manager
+attention while the window remains unfocused.
+
+Legacy SGR 21 now selects the existing double-underline style. Parser coverage
+confirms the resulting cell carries a double underline.
+
 ## 2026-07-15 -- Public references match the complete shipped surface
 
 Installation guidance now distinguishes direct GitHub Release packages from
