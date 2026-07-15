@@ -16,6 +16,20 @@ session model, see `docs/keybindings.md`.
 
 ---
 
+## Contents
+
+- [0. Constraints this design must satisfy](#0-constraints-this-design-must-satisfy)
+- [1. Pre-implementation baseline (historical)](#1-pre-implementation-baseline-historical)
+- [2. Layout-tree model](#2-layout-tree-model)
+- [3. Per-pane geometry & render](#3-per-pane-geometry--render)
+- [4. Input routing & focus model](#4-input-routing--focus-model)
+- [5. Resize (window) generalization](#5-resize-window-generalization)
+- [6. Phase 2 forward-note (don't paint into a corner)](#6-phase-2-forward-note-dont-paint-into-a-corner)
+- [7. Phase 0 decision record — tmux-compatibility keybinding stance](#7-phase-0-decision-record--tmux-compatibility-keybinding-stance)
+- [8. Test plan (maps to Phase 1 checklist)](#8-test-plan-maps-to-phase-1-checklist)
+- [9. Open items](#9-open-items)
+- [10. Summary of recommended decisions](#10-summary-of-recommended-decisions)
+
 ## 0. Constraints this design must satisfy
 
 These reflect the project's standing engineering rules:
@@ -725,11 +739,15 @@ GUI-chord split bindings — **`Ctrl+Shift+E` → split-columns (new pane right)
 **`Ctrl+Shift+O` → split-rows (new pane below)**. *(As implemented, these two
 direct chords ship alongside the prefix; the original draft of this scope
 statement named the prefix as the only new global key, which is why they are
-called out explicitly here.)* The direct chords exist because the prefix engine is
+called out explicitly here.)*
+
+The direct chords exist because the prefix engine is
 inert on a single-pane tab (K2), so the **first** split has to be reachable
-without a prefix; once a tab is multi-pane the prefix table takes over. Everything
-here is **additive**: when no prefix is pending and these two chords aren't
+without a prefix; once a tab is multi-pane the prefix table takes over.
+
+Everything here is **additive**: when no prefix is pending and these two chords aren't
 pressed, every existing binding and all ordinary input is byte-identical to today.
+
 The prefix is a transient one-keystroke mode — the next key resolves against the
 prefix table, then input returns to normal; a timeout or an unrecognized key
 cancels cleanly back to normal typing. (See `docs/keybindings.md` for the full
@@ -743,7 +761,7 @@ transfers.
 
 Rationale:
 
-1. **Operator directive** — explicit ratification of the "two standards by domain"
+1. **Design ruling** — explicit ratification of the "two standards by domain"
    framing to maximize tmux muscle-memory transfer (the #1 adoption gate the demand
    scan surfaced) **without** disturbing the existing GUI-chord world.
 2. The prefix model is what tmux/screen users already have in their fingers; a
@@ -828,6 +846,7 @@ existing `bindable_action_name` convention in `src/settings/values.rs`):
 (`Ctrl-b Space`/`=`). The two split actions carry a direct global chord in
 *addition* to their prefix key so the first split is reachable while the prefix
 engine is single-pane-inert.
+
 Plus a `prefix`/`pane-prefix` setting for the configurable prefix chord (K3.1) and
 the doubled-prefix passthrough behavior (K3.2). Remap recipes (changing the
 prefix, rebinding individual pane actions) are documented as opt-in in
