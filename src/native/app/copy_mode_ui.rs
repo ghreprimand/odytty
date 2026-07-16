@@ -270,7 +270,7 @@ impl App {
                 let line: String = snapshot.cells[off + start_col..=off + end_col]
                     .iter()
                     .filter(|cell| !cell.wide_continuation)
-                    .map(|cell| cell.ch)
+                    .flat_map(selection::cell_grapheme_chars)
                     .collect::<String>()
                     .trim_end()
                     .to_owned();
@@ -719,6 +719,41 @@ mod tests {
             .absolute_selection_text(range, false)
             .expect("selection yields text");
         assert_eq!(text, "hello", "char-wise yank copies the exact run");
+    }
+
+    /// The live copy choke point (mouse PRIMARY/CLIPBOARD/copy-on-select and
+    /// the copy-mode yank both route here) preserves stored combining marks:
+    /// a decomposed cluster copies as the same decomposed bytes rather than
+    /// dropping the accent. Fish emits `e + acute`, `a + diaeresis`,
+    /// `n + tilde` as base-plus-combining bytes.
+    #[test]
+    fn absolute_selection_preserves_combining_marks() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        seed(&app, "e\u{0301} a\u{0308} n\u{0303}");
+        let scrollback_len = app.scrollback_len();
+        app.copy_mode = Some(CopyModeState::new(AbsoluteCellPoint {
+            row: scrollback_len,
+            column: 0,
+        }));
+        app.copy_mode_key(&WinitKey::Character("v".into()));
+        // Base cells: e, space, a, space, n → extend 4 cells to cover all five.
+        for _ in 0..4 {
+            app.copy_mode_key(&WinitKey::Character("l".into()));
+        }
+        let range = app
+            .copy_mode
+            .as_ref()
+            .and_then(CopyModeState::range)
+            .expect("a multi-cell selection has a range");
+        let text = app
+            .absolute_selection_text(range, false)
+            .expect("selection yields text");
+        assert_eq!(
+            text, "e\u{0301} a\u{0308} n\u{0303}",
+            "combining marks survive the live copy path"
+        );
     }
 
     /// C24 (app-level, real provider): a word motion from a caret parked in

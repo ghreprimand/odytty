@@ -572,8 +572,10 @@ pub fn selected_text(snapshot: &Snapshot, range: SelectionRange) -> String {
 /// The characters a copied cell contributes: its base char followed by any
 /// stored zero-width combining marks, in arrival order — so a decomposed
 /// cluster (base plus combining accent) copies as the same decomposed
-/// cluster instead of losing the mark.
-fn cell_grapheme_chars(cell: &crate::core::Cell) -> impl Iterator<Item = char> + '_ {
+/// cluster instead of losing the mark. Shared with the absolute
+/// scrollback-window copy path so the snapshot and scrollback extractors
+/// contribute identical bytes for a cell.
+pub(crate) fn cell_grapheme_chars(cell: &crate::core::Cell) -> impl Iterator<Item = char> + '_ {
     std::iter::once(cell.ch).chain(cell.combining().iter().copied())
 }
 
