@@ -180,6 +180,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "cursor_blink",
             "cursor_easing",
             "cursor_glow",
+            "cursor_glow_intensity",
             "cursor_trail",
             "cursor_trail_strength",
             "cursor_motion",
@@ -290,6 +291,55 @@ fn setting_info_covers_every_field_with_descriptions() {
     );
     assert!(info.iter().any(|row| row.key == "background_treatment"
         && row.options == ["off", "gradient", "vignette", "image"]));
+}
+
+#[test]
+fn cursor_glow_intensity_defaults_parses_and_clamps() {
+    // Absent env → default.
+    let (settings, warnings) = settings_from([]);
+    assert_eq!(
+        settings.cursor_glow_intensity,
+        DEFAULT_CURSOR_GLOW_INTENSITY
+    );
+    assert!(warnings.is_empty());
+
+    // A valid in-range value parses.
+    let (settings, _) = settings_from([(CURSOR_GLOW_INTENSITY_ENV, "0.75")]);
+    assert_eq!(settings.cursor_glow_intensity, 0.75);
+
+    // Out-of-range values clamp to the normalized bounds.
+    let (settings, _) = settings_from([(CURSOR_GLOW_INTENSITY_ENV, "5")]);
+    assert_eq!(settings.cursor_glow_intensity, MAX_CURSOR_GLOW_INTENSITY);
+    let (settings, _) = settings_from([(CURSOR_GLOW_INTENSITY_ENV, "-3")]);
+    assert_eq!(settings.cursor_glow_intensity, MIN_CURSOR_GLOW_INTENSITY);
+
+    // Garbage warns and falls back to the default rather than aborting.
+    let (settings, warnings) = settings_from([(CURSOR_GLOW_INTENSITY_ENV, "bright")]);
+    assert_eq!(
+        settings.cursor_glow_intensity,
+        DEFAULT_CURSOR_GLOW_INTENSITY
+    );
+    assert!(warnings.iter().any(|w| w.contains("cursor glow intensity")));
+}
+
+#[test]
+fn cursor_glow_intensity_round_trips_through_edit_values() {
+    // The panel edit-value writeback surfaces and re-parses the intensity, so a
+    // slider change survives a Save + reload without drifting.
+    let settings = Settings {
+        cursor_glow_intensity: 0.4,
+        ..Settings::default()
+    };
+    let info = settings.setting_info();
+    let value = info
+        .iter()
+        .find(|row| row.key == "cursor_glow_intensity")
+        .map(|row| row.value.as_str())
+        .unwrap();
+    assert_eq!(value, "0.4");
+
+    let (reparsed, _) = settings_from([(CURSOR_GLOW_INTENSITY_ENV, value)]);
+    assert_eq!(reparsed.cursor_glow_intensity, 0.4);
 }
 
 #[test]

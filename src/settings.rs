@@ -1312,6 +1312,13 @@ pub struct Settings {
     /// off path emits no aura geometry. Purely presentational; never affects
     /// cell semantics or the logical cursor position.
     pub cursor_glow: bool,
+    /// Cursor glow strength on a normalized `0.0..=1.0` scale, independent of
+    /// the whole-scene HDR `bloom_intensity`. `0.0` emits no aura even while
+    /// `cursor_glow` is on; the default reproduces the calibrated restrained
+    /// peak; `1.0` is stronger but bounded so nearby text stays readable and
+    /// translucent backgrounds never receive an excessive alpha lift. Purely
+    /// presentational; hot-reloadable.
+    pub cursor_glow_intensity: f32,
     /// Whether a short fading after-image trails the cursor along its slide path
     /// (VE4). On by default; the off path emits no trail quads and arms no
     /// extra wake, byte-identical to before. Rides the cursor-slide animation,
@@ -1705,6 +1712,7 @@ impl Default for Settings {
             cursor_blink: CursorBlink::On,
             cursor_easing: DEFAULT_CURSOR_EASING,
             cursor_glow: DEFAULT_CURSOR_GLOW,
+            cursor_glow_intensity: DEFAULT_CURSOR_GLOW_INTENSITY,
             cursor_trail: DEFAULT_CURSOR_TRAIL,
             cursor_trail_strength: CursorTrailStrength::default(),
             cursor_motion: DEFAULT_CURSOR_MOTION,
@@ -2269,6 +2277,8 @@ impl Settings {
             DEFAULT_CURSOR_GLOW,
             &mut warn,
         );
+        let cursor_glow_intensity =
+            parse_cursor_glow_intensity(get(CURSOR_GLOW_INTENSITY_ENV).as_deref(), &mut warn);
         let cursor_trail = parse_bool_setting(
             get(CURSOR_TRAIL_ENV).as_deref(),
             CURSOR_TRAIL_ENV,
@@ -2638,6 +2648,7 @@ impl Settings {
             cursor_blink,
             cursor_easing,
             cursor_glow,
+            cursor_glow_intensity,
             cursor_trail,
             cursor_trail_strength,
             cursor_motion,
@@ -2803,6 +2814,10 @@ impl Settings {
             bool_display(self.cursor_easing).to_owned(),
         );
         values.insert(CURSOR_GLOW_ENV, bool_display(self.cursor_glow).to_owned());
+        values.insert(
+            CURSOR_GLOW_INTENSITY_ENV,
+            format_float(self.cursor_glow_intensity),
+        );
         values.insert(CURSOR_TRAIL_ENV, bool_display(self.cursor_trail).to_owned());
         values.insert(
             CURSOR_TRAIL_STRENGTH_ENV,

@@ -309,12 +309,16 @@ impl App {
     ) -> Option<crate::native::gpu::CursorGlowRequest> {
         if self.settings.reduced_motion
             || !self.settings.cursor_glow
+            || self.settings.cursor_glow_intensity <= 0.0
             || !self.focused
             || self.cursor_blink_alpha() <= 0.0
         {
             return None;
         }
-        Some(crate::native::gpu::CursorGlowRequest { clip_rect })
+        Some(crate::native::gpu::CursorGlowRequest {
+            clip_rect,
+            intensity: self.settings.cursor_glow_intensity,
+        })
     }
 
     /// ID3/U5 background-treatment quads — no-op slot (foundation). Filled by
@@ -329,20 +333,29 @@ impl App {
     // VE4 cursor-trail cache fragment: `cursor_trail_overlay_signature` lives in
     // `cursor_trail.rs` alongside the trail's quad emitter.
 
-    /// ID1 cursor-glow cache fragment. `Inert` while disabled or under reduced
-    /// motion, so the composite key is a frame-to-frame constant. When enabled
-    /// it returns a constant `CursorGlow { phase: 0 }`: the toggle flips
-    /// `Inert` ↔ `CursorGlow`, forcing a rebuild so the glow appears or
-    /// disappears without a stale cache, while cursor *moves* and blink toggles
-    /// already reclassify through the terminal-revision and the
+    /// ID1 cursor-glow cache fragment. `Inert` while disabled, at zero
+    /// intensity, or under reduced motion, so the composite key is a
+    /// frame-to-frame constant. When enabled it returns `CursorGlow { phase }`
+    /// where `phase` quantizes the `cursor_glow_intensity`: the toggle flips
+    /// `Inert` ↔ `CursorGlow` and an intensity change moves `phase`, both
+    /// forcing a rebuild so the aura appears, disappears, or restrengthens
+    /// without a stale cache. Cursor *moves* and blink toggles already
+    /// reclassify through the terminal-revision and the
     /// `CursorRenderSignature.visible` fields respectively. The analytic
     /// instance is rebuilt from the live cursor parameters on both GPU update
     /// paths, so no extra per-position signature field is needed.
     pub(in crate::native) fn cursor_glow_overlay_signature(&self) -> OverlayFragment {
-        if self.settings.reduced_motion || !self.settings.cursor_glow {
+        if self.settings.reduced_motion
+            || !self.settings.cursor_glow
+            || self.settings.cursor_glow_intensity <= 0.0
+        {
             return OverlayFragment::Inert;
         }
-        OverlayFragment::CursorGlow { phase: 0 }
+        // Quantize the normalized intensity so a live strength change reclassifies
+        // the cache and cannot retain stale aura alpha. 1000 buckets over 0.0..=1.0
+        // is finer than the panel's 0.05 step, so every settable value is distinct.
+        let phase = (self.settings.cursor_glow_intensity.clamp(0.0, 1.0) * 1000.0).round() as u32;
+        OverlayFragment::CursorGlow { phase }
     }
 
     // Note: `background_overlay_signature()` (ID3/U5) lives in `background_ui.rs`

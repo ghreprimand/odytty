@@ -286,7 +286,11 @@ Only visible while cursor slide is also on; fully decays as the glide settles.
 
 **Cursor glow** (`cursor_glow = on`): one soft analytic aura behind the cursor
 glyph, matching its Block, Bar, or Underline geometry in the resolved cursor
-color. Its restrained alpha keeps nearby text readable.
+color. Its restrained alpha keeps nearby text readable. `cursor_glow_intensity`
+tunes the aura strength on a `0.0..=1.0` scale, separate from the whole-scene
+`bloom_intensity`: `0.0` shows no aura even while the glow is on, the default
+`0.5` reproduces the calibrated restrained peak, and `1.0` is stronger but stays
+bounded so text stays readable and translucent backgrounds are not washed out.
 
 **Cursor blink fade** (`cursor_easing = on`): the cursor eases its opacity in
 and out across each blink instead of switching hard on and off. Only active

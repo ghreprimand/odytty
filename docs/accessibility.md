@@ -91,8 +91,10 @@ body stretches briefly and then compresses into the logical destination.
 stretch and a longer settle. The logical cursor target and input routing remain
 immediate, and the bounded follower schedules no wake after it settles.
 Cursor glow (`cursor_glow`) is on by default and follows the same static
-override. The new-output fade (`new_output_fade`) remains off unless you turn
-it on.
+override. Its strength is adjustable through `cursor_glow_intensity` on a
+`0.0..=1.0` scale; setting it to `0.0` removes the aura entirely while leaving
+the glow toggle on. The new-output fade (`new_output_fade`) remains off unless
+you turn it on.
 
 Four additional motion behaviors are on by default, because none adds input
 latency:

@@ -152,6 +152,11 @@ pub(super) struct PaneRender<'a> {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct CursorGlowRequest {
     pub(super) clip_rect: [f32; 4],
+    /// User-facing normalized aura strength (`cursor_glow_intensity`, 0.0..=1.0).
+    /// Resolved from settings at the single overlay-request choke point so both
+    /// GPU update paths scale the peak alpha identically. Folded into the
+    /// overlay cache signature so a live change cannot retain a stale aura.
+    pub(super) intensity: f32,
 }
 
 /// Per-frame large-jump cursor-follower request. The rectangle is expressed in
@@ -301,14 +306,36 @@ const CURSOR_GLOW_BLOCK_ALPHA: f32 = 0.08;
 const CURSOR_GLOW_THIN_ALPHA: f32 = 0.10;
 const CURSOR_GLOW_ALPHA_LIFT: f32 = 0.02;
 
-fn cursor_glow_peak_alpha(style: CursorStyle, cursor_alpha: f32, content_alpha: f32) -> f32 {
+/// Map the user-facing normalized `cursor_glow_intensity` (0.0..=1.0) to a peak
+/// multiplier. The default intensity reproduces the historical fixed peaks
+/// exactly (multiplier `1.0`); `0.0` yields no aura; the maximum doubles the
+/// peak while the translucency lift cap scales by the same factor so a
+/// translucent background never receives an excessive alpha lift.
+fn cursor_glow_intensity_multiplier(intensity: f32) -> f32 {
+    let clamped = intensity.clamp(
+        crate::settings::MIN_CURSOR_GLOW_INTENSITY,
+        crate::settings::MAX_CURSOR_GLOW_INTENSITY,
+    );
+    (clamped / crate::settings::DEFAULT_CURSOR_GLOW_INTENSITY).max(0.0)
+}
+
+fn cursor_glow_peak_alpha(
+    style: CursorStyle,
+    cursor_alpha: f32,
+    content_alpha: f32,
+    intensity: f32,
+) -> f32 {
+    let multiplier = cursor_glow_intensity_multiplier(intensity);
+    if multiplier <= 0.0 {
+        return 0.0;
+    }
     let base = match style {
         CursorStyle::Block => CURSOR_GLOW_BLOCK_ALPHA,
         CursorStyle::Underline | CursorStyle::Bar => CURSOR_GLOW_THIN_ALPHA,
-    };
+    } * multiplier;
     let eased = base * cursor_alpha.clamp(0.0, 1.0).powi(2);
     let transparency_cap =
-        CURSOR_GLOW_ALPHA_LIFT / (1.0 - content_alpha.clamp(0.0, 1.0)).max(0.001);
+        (CURSOR_GLOW_ALPHA_LIFT * multiplier) / (1.0 - content_alpha.clamp(0.0, 1.0)).max(0.001);
     eased.min(transparency_cap).clamp(0.0, 1.0)
 }
 
@@ -381,7 +408,8 @@ pub(super) fn build_cursor_glow_instance(
         ],
         request.clip_rect,
     )?;
-    let peak_alpha = cursor_glow_peak_alpha(cursor_style, cursor_alpha, content_alpha);
+    let peak_alpha =
+        cursor_glow_peak_alpha(cursor_style, cursor_alpha, content_alpha, request.intensity);
     if peak_alpha <= 0.0 {
         return None;
     }

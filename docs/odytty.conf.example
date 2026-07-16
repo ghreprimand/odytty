@@ -131,6 +131,10 @@ cursor_blink = on
 cursor_easing = on
 cursor_motion = on
 cursor_glow = on
+# Cursor glow strength, 0.0..=1.0 (independent of bloom_intensity). 0.0 hides
+# the aura even while cursor_glow is on; 0.5 is the restrained default; 1.0 is
+# stronger but bounded so text stays readable.
+cursor_glow_intensity = 0.5
 cursor_trail = on
 reduced_motion = off
 new_output_fade = off

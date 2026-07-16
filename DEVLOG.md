@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-16 -- Adjustable cursor glow strength
+
+The cursor glow gains an independent strength control, `cursor_glow_intensity`
+(`ODYTTY_CURSOR_GLOW_INTENSITY`), on a normalized `0.0..=1.0` scale. It is
+distinct from the whole-scene HDR `bloom_intensity`, which continues to govern
+post-process bloom on the composited frame. `0.0` emits no aura even while
+`cursor_glow` stays on; the default `0.5` maps to the previously fixed
+restrained peaks exactly (Block `0.08`, Bar/Underline `0.10`), so the shipped
+look is unchanged; `1.0` doubles the peak while the translucent-background lift
+cap scales by the same factor, keeping nearby text readable and translucent
+surfaces from washing out.
+
+The strength is carried through the single cursor-aura request choke point into
+both the Full and CursorOnly GPU update paths, so they cannot diverge, and it is
+folded into the overlay cache signature as a quantized phase so a live strength
+change reclassifies the cache instead of retaining a stale aura. Shape-aware
+Block/Bar/Underline geometry, resolved cursor color, DPI, slide/easing/blink
+alpha, focused-pane clipping, split behavior, synchronized-output overlay
+retention, focus loss, and the `reduced_motion` hard-off path are unchanged, and
+the control adds no extra wake or render pass. A numeric slider appears in the
+Cursor section of Settings and is hot-reloadable.
+
+Coverage exercises the zero/default/maximum peak calibration and monotonicity,
+the translucency lift cap, the no-aura-at-zero path on every cursor shape, cache
+invalidation on a strength change, and settings parse/clamp/round-trip. Cursor
+rendering is cross-platform GPU code with no PTY, path, or environment surface;
+`cargo fmt --check` and `cargo clippy --all-targets --locked` are clean and the
+focused suites pass. The rendered strength remains a visual taste call for a
+release-profile build.
+
+---
+
 ## 2026-07-16 -- Harden PTY-directed host I/O and private local state
 
 Kitty direct and chunked-inline graphics remain available. Named file,

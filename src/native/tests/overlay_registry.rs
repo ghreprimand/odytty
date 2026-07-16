@@ -739,14 +739,84 @@ fn default_cursor_glow_emits_one_analytic_request() {
     let clip = [4.0, 6.0, 80.0, 100.0];
     assert_eq!(
         app.cursor_glow_request(clip),
-        Some(crate::native::gpu::CursorGlowRequest { clip_rect: clip })
+        Some(crate::native::gpu::CursorGlowRequest {
+            clip_rect: clip,
+            intensity: crate::settings::DEFAULT_CURSOR_GLOW_INTENSITY,
+        })
     );
 
     // Cache fragment is a non-Inert constant while on (T4 — toggles the cache).
     assert_eq!(
         app.cursor_glow_overlay_signature(),
-        OverlayFragment::CursorGlow { phase: 0 },
-        "the glow cache fragment must be CursorGlow while on"
+        OverlayFragment::CursorGlow { phase: 500 },
+        "the glow cache fragment must be CursorGlow while on, with the default \
+         intensity 0.5 quantized to phase 500"
+    );
+}
+
+/// Zero intensity is the exact off path even while `cursor_glow` is on: no GPU
+/// request and an inert cache fragment, so no aura geometry is ever emitted.
+#[test]
+fn zero_intensity_cursor_glow_emits_no_request() {
+    let Some(app) = build_app(Settings {
+        cursor_glow: true,
+        cursor_glow_intensity: 0.0,
+        ..Settings::default()
+    }) else {
+        return;
+    };
+    assert!(
+        app.cursor_glow_request([0.0, 0.0, 100.0, 100.0]).is_none(),
+        "zero intensity must request no aura even while glow is on"
+    );
+    assert_eq!(
+        app.cursor_glow_overlay_signature(),
+        OverlayFragment::Inert,
+        "zero intensity keeps the cache fragment inert"
+    );
+}
+
+/// Hot-reload cache invalidation: changing `cursor_glow_intensity` moves the
+/// quantized cache phase and carries the new strength into the GPU request, so a
+/// live strength change cannot retain stale aura geometry or alpha.
+#[test]
+fn cursor_glow_intensity_change_invalidates_cache_and_request() {
+    let Some(low) = build_app(Settings {
+        cursor_glow: true,
+        cursor_glow_intensity: 0.25,
+        ..Settings::default()
+    }) else {
+        return;
+    };
+    let Some(high) = build_app(Settings {
+        cursor_glow: true,
+        cursor_glow_intensity: 0.9,
+        ..Settings::default()
+    }) else {
+        return;
+    };
+    let clip = [4.0, 6.0, 80.0, 100.0];
+    assert_eq!(
+        low.cursor_glow_request(clip).map(|r| r.intensity),
+        Some(0.25),
+        "the request carries the live intensity"
+    );
+    assert_eq!(
+        high.cursor_glow_request(clip).map(|r| r.intensity),
+        Some(0.9)
+    );
+    assert_ne!(
+        low.cursor_glow_overlay_signature(),
+        high.cursor_glow_overlay_signature(),
+        "different intensities must produce different cache fragments"
+    );
+    assert_eq!(
+        low.cursor_glow_overlay_signature(),
+        OverlayFragment::CursorGlow { phase: 250 }
+    );
+    assert_eq!(
+        high.cursor_glow_overlay_signature(),
+        OverlayFragment::CursorGlow { phase: 900 }
     );
 }
 

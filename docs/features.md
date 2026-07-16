@@ -730,8 +730,12 @@ follower presentation advance only in the focused pane of a split, where they
 stay clipped and do not wake idle panes.
 
 The aura follows the active Block, Bar, or Underline geometry without changing
-terminal state or input behavior. Each presentation control remains independently
-configurable in Settings or [Runtime Knobs](runtime-knobs.md); `reduced_motion =
+terminal state or input behavior. Its strength is adjustable through
+`cursor_glow_intensity` on a `0.0..=1.0` scale, independent of the whole-scene
+bloom: `0.0` removes the aura while leaving the glow toggle on, the default is a
+restrained peak, and higher values stay bounded so text remains readable. Each
+presentation control remains independently configurable in Settings or
+[Runtime Knobs](runtime-knobs.md); `reduced_motion =
 on` makes slide, trail, glow, easing, and new-output fade static or instant
 while preserving their saved choices.
 

@@ -126,6 +126,7 @@ environment variable was not set at startup.
 | `cursor_easing` | `ODYTTY_CURSOR_EASING` | `on`, `off` | `on` |
 | `cursor_motion` | `ODYTTY_CURSOR_MOTION` | `on`, `off` | `on` |
 | `cursor_glow` | `ODYTTY_CURSOR_GLOW` | `on`, `off` | `on` |
+| `cursor_glow_intensity` | `ODYTTY_CURSOR_GLOW_INTENSITY` | Float, `0.0..=1.0` | `0.5` |
 | `cursor_trail` | `ODYTTY_CURSOR_TRAIL` | `on`, `off` | `on` |
 | `cursor_trail_strength` | `ODYTTY_CURSOR_TRAIL_STRENGTH` | `subtle`, `balanced`, `expressive` | `balanced` |
 | `reduced_motion` | `ODYTTY_REDUCED_MOTION` | `on`, `off` | `off` |
@@ -378,6 +379,12 @@ audible bell.
   matched to the active Block, Bar, or Underline geometry. An unfocused Block
   cursor becomes a one-pixel hollow outline while its glyph keeps the normal
   foreground color; Bar and Underline remain their normal shapes.
+- `cursor_glow_intensity` scales that aura on a normalized `0.0..=1.0` range,
+  independent of the whole-scene `bloom_intensity`. `0.0` shows no aura even
+  while `cursor_glow` is on; the default `0.5` reproduces the calibrated
+  restrained peak; `1.0` is stronger but stays bounded so nearby text remains
+  readable and translucent backgrounds are not washed out. It is hot-reloadable
+  and has no effect while `cursor_glow` is off.
 - Cursor slide, trail, glow, easing, blink activity, and large-jump follower
   presentation apply to the focused pane in a split and remain clipped to that
   pane. Idle and background panes do not receive animation wakes.

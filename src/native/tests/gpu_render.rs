@@ -106,9 +106,117 @@ fn glow_instance(
         content_alpha,
         CursorGlowRequest {
             clip_rect: [0.0, 0.0, 1000.0, 1000.0],
+            intensity: crate::settings::DEFAULT_CURSOR_GLOW_INTENSITY,
         },
         None,
     )
+}
+
+/// Resolve the aura peak alpha for one cursor style at a given content alpha and
+/// user-facing `cursor_glow_intensity`, so the intensity mapping can be asserted
+/// end-to-end through the shared instance builder (the same path Full and
+/// CursorOnly use).
+fn glow_peak_for_intensity(style: CursorStyle, content_alpha: f32, intensity: f32) -> Option<f32> {
+    let snapshot = glow_snapshot();
+    build_cursor_glow_instance(
+        &snapshot,
+        CellSize {
+            width: 20,
+            height: 40,
+            baseline: 0,
+        },
+        style,
+        [11.0, 13.0],
+        CursorRenderParams::default(),
+        1.0,
+        content_alpha,
+        CursorGlowRequest {
+            clip_rect: [0.0, 0.0, 1000.0, 1000.0],
+            intensity,
+        },
+        None,
+    )
+    .map(|instance| instance.peak_alpha)
+}
+
+#[test]
+fn cursor_glow_intensity_zero_emits_no_aura() {
+    // 0.0 must suppress the aura entirely even while cursor_glow is on, for both
+    // the block and the thin cursor shapes and at any background opacity.
+    for style in [CursorStyle::Block, CursorStyle::Bar, CursorStyle::Underline] {
+        assert_eq!(
+            glow_peak_for_intensity(style, 1.0, 0.0),
+            None,
+            "intensity 0.0 must emit no aura instance"
+        );
+    }
+}
+
+#[test]
+fn cursor_glow_default_intensity_reproduces_calibrated_peaks() {
+    // The default intensity maps to the historical fixed peaks exactly, so the
+    // shipped look is unchanged: Block 0.08, Bar/Underline 0.10 on an opaque
+    // background.
+    let default = crate::settings::DEFAULT_CURSOR_GLOW_INTENSITY;
+    let block = glow_peak_for_intensity(CursorStyle::Block, 1.0, default).unwrap();
+    let bar = glow_peak_for_intensity(CursorStyle::Bar, 1.0, default).unwrap();
+    let underline = glow_peak_for_intensity(CursorStyle::Underline, 1.0, default).unwrap();
+    assert!((block - 0.08).abs() < 1e-6, "block default peak = {block}");
+    assert!((bar - 0.10).abs() < 1e-6, "bar default peak = {bar}");
+    assert!(
+        (underline - 0.10).abs() < 1e-6,
+        "underline default peak = {underline}"
+    );
+}
+
+#[test]
+fn cursor_glow_intensity_is_monotonic_and_bounded() {
+    // Peak alpha rises monotonically with intensity from 0 up to the bounded
+    // maximum, and the maximum stays low enough to keep nearby text readable.
+    let mut previous = 0.0_f32;
+    for step in 0..=20 {
+        let intensity = step as f32 / 20.0;
+        let peak = glow_peak_for_intensity(CursorStyle::Block, 1.0, intensity).unwrap_or(0.0);
+        assert!(
+            peak + 1e-6 >= previous,
+            "peak must not decrease as intensity rises: {peak} < {previous} at {intensity}"
+        );
+        previous = peak;
+    }
+    // Maximum intensity doubles the calibrated peak but stays bounded.
+    let max_block = glow_peak_for_intensity(CursorStyle::Block, 1.0, 1.0).unwrap();
+    let max_thin = glow_peak_for_intensity(CursorStyle::Bar, 1.0, 1.0).unwrap();
+    assert!(
+        (max_block - 0.16).abs() < 1e-6,
+        "max block peak = {max_block}"
+    );
+    assert!((max_thin - 0.20).abs() < 1e-6, "max thin peak = {max_thin}");
+    assert!(max_thin <= 0.25, "max aura must remain restrained");
+}
+
+#[test]
+fn cursor_glow_intensity_respects_translucency_cap() {
+    // On a translucent background the composite-alpha lift is capped so the aura
+    // never washes the surface out, and the cap itself scales with intensity so
+    // the maximum lift stays bounded (0.02 at default, 0.04 at maximum).
+    let content_alpha = 0.5; // translucent surface
+    let default_peak = glow_peak_for_intensity(
+        CursorStyle::Block,
+        content_alpha,
+        crate::settings::DEFAULT_CURSOR_GLOW_INTENSITY,
+    )
+    .unwrap();
+    let max_peak = glow_peak_for_intensity(CursorStyle::Block, content_alpha, 1.0).unwrap();
+    // cap = 0.02 * multiplier / (1 - content_alpha): default multiplier 1.0 -> 0.04, max 2.0 -> 0.08.
+    assert!(
+        (default_peak - 0.04).abs() < 1e-6,
+        "default translucent cap = {default_peak}"
+    );
+    assert!(
+        (max_peak - 0.08).abs() < 1e-6,
+        "max translucent cap = {max_peak}"
+    );
+    assert!(max_peak <= 0.10, "translucent lift must stay bounded");
 }
 
 #[test]
@@ -254,6 +362,7 @@ fn cursor_glow_uses_dynamic_cursor_color_and_exact_clip() {
     let snapshot = glow_snapshot();
     let request = CursorGlowRequest {
         clip_rect: [60.0, 50.0, 72.0, 75.0],
+        intensity: crate::settings::DEFAULT_CURSOR_GLOW_INTENSITY,
     };
     let instance = build_cursor_glow_instance(
         &snapshot,
@@ -308,6 +417,7 @@ fn cursor_glow_follows_the_stretched_presentation_body() {
         1.0,
         CursorGlowRequest {
             clip_rect: follower.clip_rect,
+            intensity: crate::settings::DEFAULT_CURSOR_GLOW_INTENSITY,
         },
         Some(follower),
     )
@@ -422,6 +532,7 @@ fn synchronized_output_hold_retains_trail_glow_and_streak_inputs() {
     };
     let glow = CursorGlowRequest {
         clip_rect: [10.0, 10.0, 200.0, 160.0],
+        intensity: crate::settings::DEFAULT_CURSOR_GLOW_INTENSITY,
     };
     let streak = streak_request([40.0, 120.0, 92.0, 160.0]);
     let (held_overlays, held_glow, held_streak) =

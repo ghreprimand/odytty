@@ -43,6 +43,7 @@ pub const CURSOR_BLINK_ENV: &str = "ODYTTY_CURSOR_BLINK";
 pub const CURSOR_EASING_ENV: &str = "ODYTTY_CURSOR_EASING";
 pub const CURSOR_MOTION_ENV: &str = "ODYTTY_CURSOR_MOTION";
 pub const CURSOR_GLOW_ENV: &str = "ODYTTY_CURSOR_GLOW";
+pub const CURSOR_GLOW_INTENSITY_ENV: &str = "ODYTTY_CURSOR_GLOW_INTENSITY";
 pub const CURSOR_TRAIL_ENV: &str = "ODYTTY_CURSOR_TRAIL";
 pub const CURSOR_TRAIL_STRENGTH_ENV: &str = "ODYTTY_CURSOR_TRAIL_STRENGTH";
 pub const REDUCED_MOTION_ENV: &str = "ODYTTY_REDUCED_MOTION";
@@ -169,6 +170,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     CURSOR_EASING_ENV,
     CURSOR_MOTION_ENV,
     CURSOR_GLOW_ENV,
+    CURSOR_GLOW_INTENSITY_ENV,
     CURSOR_TRAIL_ENV,
     CURSOR_TRAIL_STRENGTH_ENV,
     REDUCED_MOTION_ENV,
@@ -503,6 +505,19 @@ pub const DEFAULT_CURSOR_MOTION: bool = true;
 /// semantics or the logical cursor position. The aura alpha is capped low
 /// enough that adjacent-cell text contrast stays within the RV1 floor.
 pub const DEFAULT_CURSOR_GLOW: bool = true;
+
+/// Cursor glow strength (`ODYTTY_CURSOR_GLOW_INTENSITY`, ID1): a user-facing
+/// normalized `0.0..=1.0` scale for the aura peak alpha, independent of the
+/// whole-scene HDR `bloom_intensity`. `0.0` emits no aura even while
+/// `cursor_glow` is on; the default reproduces the calibrated restrained peak
+/// (Block `0.08`, Bar/Underline `0.10`, translucent-background lift cap `0.02`);
+/// `1.0` doubles the peak while staying bounded so nearby text remains readable
+/// and translucent backgrounds never receive an excessive alpha lift. The
+/// mapping is `multiplier = intensity / DEFAULT_CURSOR_GLOW_INTENSITY`, so the
+/// default value maps to the historical fixed peaks exactly.
+pub const DEFAULT_CURSOR_GLOW_INTENSITY: f32 = 0.5;
+pub const MIN_CURSOR_GLOW_INTENSITY: f32 = 0.0;
+pub const MAX_CURSOR_GLOW_INTENSITY: f32 = 1.0;
 
 /// Cursor motion trail (`ODYTTY_CURSOR_TRAIL`, VE4): when on, a short fading
 /// after-image of decaying ghost quads trails the cursor along its slide path
