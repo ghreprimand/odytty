@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.9.0" date="2026-07-16">
+      <description>
+        <p>Visual-polish release. The cursor comes alive: it glides smoothly between cells with a short fading trail, eases across its blink, and carries one soft shape-aware glow matched to the Block, Bar, or Underline shape. The glow strength is now adjustable on its own scale, independent of the scene bloom. Large jumps leave a brief elastic streak that settles into the destination, blinking yields to active typing and parks visibly when idle, and an unfocused window shows a hollow Block outline. A reduced-motion master switch makes every one of these effects static or instant for accessibility. Programming ligatures are enabled by default for the bundled font, so sequences render as their designed glyphs while copy, selection, and cursor positions stay per-character. Text with combining accents now renders and copies correctly, and the legacy double-underline attribute is honored. The workspace rail and tab bar were refined into one continuous, aligned surface. This release also hardens local behavior: terminal-directed file, temporary-file, and shared-memory graphics transports are off by default, clipboard writes require an active focused session, and private state and log files are owner-only on Unix. Windows and macOS ship from the same verified build matrix.</p>
+      </description>
+    </release>
     <release version="0.8.9" date="2026-07-15">
       <description>
         <p>Reliability release. When a system exposes both software and hardware graphics adapters, OdyTTY now prefers the accelerated adapter instead of settling on a software one, so machines with accelerated OpenGL alongside a software Vulkan driver render on the GPU. Context menus now show the arrow cursor the moment they open, rather than keeping the text cursor until the pointer moves. Windows and macOS ship from the same verified build matrix.</p>

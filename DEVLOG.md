@@ -7,6 +7,50 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-16 -- Release v0.9.0 — the cursor comes alive: smooth motion, trail, adjustable glow, ligatures, and accessibility
+
+Visual-polish release. The cursor is the centerpiece. It now glides smoothly
+between adjacent cells with a short fading trail, eases its opacity across each
+blink, and carries one soft shape-aware glow matched to the active Block, Bar,
+or Underline geometry in the resolved cursor color. The glow strength is
+adjustable on its own normalized scale through `cursor_glow_intensity`,
+independent of the whole-scene bloom. Large jumps beyond the glide range leave a
+brief elastic streak that stretches toward and settles into the destination,
+under a linked `subtle`/`balanced`/`expressive` response profile. Blinking
+yields to active typing and resumes after a short quiet period, parking visibly
+after prolonged idle. An unfocused window renders a Block cursor as a hollow
+outline while its glyph keeps the normal foreground color. Motion, trail, glow,
+easing, and the follower advance only in the focused pane of a split, stay
+clipped to that pane, and never wake idle panes. The logical cursor position,
+copy, selection, and terminal state are unchanged by any of this presentation
+work.
+
+A `reduced_motion` master accessibility switch forces the cursor slide, trail,
+glow, blink fade, and new-output fade to their static or instant behavior in one
+place, without altering the individual settings.
+
+Programming ligatures are enabled by default for the bundled font: contextual
+sequences render as their designed glyphs through OpenType shaping, while the
+logical grid stays per-character, so copy, selection, search, cursor placement,
+and wide-cell behavior are unaffected. Text built from a base character plus
+combining accents now both renders with the accent and copies back with it. The
+legacy `SGR 21` attribute is honored as a double underline alongside the modern
+underline styles.
+
+The workspace rail and top tab bar were refined into one continuous,
+pixel-snapped surface with aligned edges and a single intentional resize seam,
+replacing the earlier detached-looking chrome.
+
+This release also hardens local behavior. Terminal-directed file, temporary-file,
+and POSIX shared-memory graphics transports are default-off behind
+`kitty_named_transports`, and enabled Unix transports reject symlinks and
+non-regular objects; direct and chunked-inline graphics remain available. OSC 52
+clipboard writes default on but require the active PTY and observed window focus,
+failing closed otherwise, with reads independently default-off. Unix state,
+layout, and diagnostic files are owner-private through no-follow handles with
+`0700` directories and `0600` files. Windows and macOS ship from the same
+verified build matrix that gates every release.
+
 ## 2026-07-16 -- Adjustable cursor glow strength
 
 The cursor glow gains an independent strength control, `cursor_glow_intensity`
