@@ -135,8 +135,9 @@ available.
 ### Path allowlist (`t=f`, `t=t`)
 
 `t=f` and `t=t` paths must resolve inside an allowlisted canonical temp
-directory: `/tmp`, `/dev/shm`, or the resolved value of `$TMPDIR` on Unix, and
-the system temporary directory on Windows. Paths outside this set are rejected
+directory: `/tmp`, `/dev/shm`, or the resolved value of `$TMPDIR` on any
+platform, plus the system temporary directory (`std::env::temp_dir()`) on
+Windows. Paths outside this set are rejected
 before any file is opened. A Kitty reply contains status only, never the file
 bytes. The restriction still prevents terminal output from using `t=f` as a
 local readability and image-decodability oracle or rendering an allowed local

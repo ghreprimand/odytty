@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-16 -- Documentation matches the shipped cursor, transport, and state surface
+
+A documentation-currency pass reconciled the public references with the v0.9
+code after the visual-polish release. The changes are documentation-only; no
+runtime behavior, defaults, or release metadata changed.
+
+- The visual pipeline reference now lists the analytic cursor aura and the
+  large-jump elastic follower as their own scene-pass step, drawn behind both
+  glyph lanes and clipped to the focused pane, with the scene draw order
+  renumbered accordingly.
+- The effects guide documents `cursor_trail_strength`
+  (`subtle`/`balanced`/`expressive`, default `balanced`) and records that
+  reduced motion also holds the new-output fade static. The config example
+  gains the two settings that were new to this cycle, `cursor_trail_strength`
+  and `kitty_named_transports`.
+- The active tab is described as a selection-role fill with a bright, bold
+  label, matching the reworked chrome rather than the retired accent underline.
+- The Kitty file-transport allowlist is corrected: `/tmp`, `/dev/shm`, and
+  `$TMPDIR` are honored on every platform, with the system temporary directory
+  added only on Windows.
+- The diagnostics log-directory table shows the owner-scoped Unix temporary
+  fallback (`<temp>/odytty-<uid>`). The release guide lists the RustSec
+  advisory workflow that gates dependency advisories on pull requests, a weekly
+  schedule, and each release. The contributor module map and shader list add
+  `cursor_glow.wgsl` and `cursor_streak.wgsl`, and the pixel-smoke bucket count
+  is corrected to 47.
+
+The built-in theme count (142) and the Rust 1.96 toolchain and declared MSRV
+remain unchanged and in lockstep.
+
+---
+
 ## 2026-07-16 -- Pure UI tests run over a headless session source
 
 Pure App and UI tests no longer spawn a real shell PTY merely to satisfy the

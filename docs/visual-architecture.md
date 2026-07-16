@@ -53,18 +53,24 @@ The canonical scene order is:
    (pass 1 of the cell pipeline, vertex range `0..background_count`).
 4. **Below-zero images** — Kitty/Sixel placements with `z < 0` drawn by the
    image layer (`image_layer.draw_below`).
-5. **Coverage glyphs and decorations** — glyph coverage quads, underlines, and
+5. **Cursor aura and large-jump follower** — the focused pane's one shape-aware
+   analytic cursor aura (`cursor_glow`, `src/shaders/cursor_glow.wgsl`) and, when
+   one is animating, its elastic large-jump follower
+   (`src/shaders/cursor_streak.wgsl`), each drawn in its own pipeline *behind*
+   both glyph lanes so text pixels are preserved exactly. Both are emitted only
+   for the focused, live-tail pane and clipped to that pane's rect.
+6. **Coverage glyphs and decorations** — glyph coverage quads, underlines, and
    strikethroughs (pass 2 of the cell pipeline, vertex range
    `background_count..cell_count`).
-6. **Color-glyph quads** — premultiplied-RGBA color emoji bitmaps drawn by the
+7. **Color-glyph quads** — premultiplied-RGBA color emoji bitmaps drawn by the
    dedicated color-glyph pipeline (vertex range
    `0..color_glyph_vertex_count`).
-7. **Cursor and overlays** — the remaining cell-pipeline range,
+8. **Cursor and overlays** — the remaining cell-pipeline range,
    `cell_count..vertex_count`.
-8. **Above/non-negative-z images** — Kitty/Sixel placements with `z >= 0`
+9. **Above/non-negative-z images** — Kitty/Sixel placements with `z >= 0`
    drawn by the image layer (`image_layer.draw_above`).
 
-Steps 2–8 are the scene pass — the sequence that the post-process branch
+Steps 2–9 are the scene pass — the sequence that the post-process branch
 re-targets to the offscreen `Rgba16Float` buffer when an effect is active. The
 in-app **image lightbox** (the C4 viewer overlay; `src/native/image_layer.rs`,
 `OverlayImage`) is the exception:

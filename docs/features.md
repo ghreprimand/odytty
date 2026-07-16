@@ -237,8 +237,8 @@ The bar and a pinned workspace rail form one continuous, pixel-snapped chrome
 surface with no exposed background gutter. Their shared junction has one
 intentional resize seam, while the rail-to-content gap remains content padding.
 The band stays opaque enough for labels to remain legible over images and
-effects. Inactive tabs are dimmed; the active tab keeps a full-strength bold
-label and an accent underline in the theme's cursor color.
+effects. Inactive tabs are dimmed; the active tab is marked by a selection-role
+fill and a bright, bold label.
 
 Labels stay centered vertically when the bar grows. Kitty and Sixel placements
 use the same reserved rows as text, so inline graphics remain aligned with the

@@ -42,6 +42,10 @@ focus_dim = 0.0
 inactive_pane_dim = 0.0
 geometric_boxdraw = on
 box_thickness = 1.0
+# Kitty graphics named-file/temp-file/shared-memory transports (t=f/t=t/t=s) let
+# terminal output demand local host I/O (even over SSH), so they are off by
+# default. Direct and chunked-inline image transfers stay available regardless.
+kitty_named_transports = off
 window_padding = 4
 window_border = off
 window_decorations = on
@@ -136,6 +140,9 @@ cursor_glow = on
 # stronger but bounded so text stays readable.
 cursor_glow_intensity = 0.5
 cursor_trail = on
+# Cursor trail response: subtle | balanced (default) | expressive. Governs both
+# the nearby echo and the large-jump follower stretch/settle.
+cursor_trail_strength = balanced
 reduced_motion = off
 new_output_fade = off
 

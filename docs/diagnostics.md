@@ -54,8 +54,8 @@ Three diagnostic files live in a per-user state directory, namespaced to
 
 | Platform | Log directory | Source | Fallback |
 |---|---|---|---|
-| **Linux / BSD** | `$XDG_STATE_HOME/odytty` | `XDG_STATE_HOME` | `~/.local/state/odytty`, then the OS temp dir |
-| **macOS** | `~/Library/Logs/odytty` | `HOME` | the OS temp dir |
+| **Linux / BSD** | `$XDG_STATE_HOME/odytty` | `XDG_STATE_HOME` | `~/.local/state/odytty`, then `<temp>/odytty-<uid>` (e.g. `/tmp/odytty-1000`) |
+| **macOS** | `~/Library/Logs/odytty` | `HOME` | `<temp>/odytty-<uid>` |
 | **Windows** | `%LOCALAPPDATA%\odytty` | `LOCALAPPDATA` | `%TEMP%\odytty` |
 
 **Windows is first-class here.** The log directory resolves to

@@ -20,12 +20,13 @@ the version being released.
 
 ## Continuous Integration
 
-OdyTTY uses GitHub-hosted runners for both workflows:
+OdyTTY uses GitHub-hosted runners for these workflows:
 
 | Workflow | Trigger | Result |
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | Pushes and pull requests to `master` | Formats, builds, lints, and tests on Ubuntu, macOS, and Windows; publishes no artifacts |
 | `.github/workflows/release.yml` | `vX.Y.Z` tags or manual validation | Builds all seven release artifact types; tag runs also publish the release and update package channels |
+| `.github/workflows/rustsec-audit.yml` | Pull requests touching `Cargo.lock`, `Cargo.toml`, or the audit script or workflow; a weekly schedule; and manual dispatch | Runs `cargo audit` against the locked dependency graph; the `release` job runs the same audit before publishing; publishes no artifacts |
 
 The CI gate runs these commands on all supported platforms:
 

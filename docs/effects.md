@@ -283,6 +283,11 @@ scrollback navigation, and the first frame always snap instantly.
 **Cursor trail** (`cursor_trail = on`): a short fading after-image trails the
 cursor as it glides, drawn behind the cursor block in the theme cursor color.
 Only visible while cursor slide is also on; fully decays as the glide settles.
+The echo rides only short adjacent moves; a longer jump instead sends a single
+cursor-shaped elastic follower that stretches toward and settles into the
+destination. `cursor_trail_strength` (`subtle` / `balanced` / `expressive`,
+default `balanced`) tunes both the echo and the long-jump follower — `subtle` is
+faster with less stretch, `expressive` stretches more and settles longer.
 
 **Cursor glow** (`cursor_glow = on`): one soft analytic aura behind the cursor
 glyph, matching its Block, Bar, or Underline geometry in the resolved cursor
@@ -313,7 +318,8 @@ animation wake and are not changed by `reduced_motion`.
 `new_output_fade = on` fades freshly arrived output rows in over a short ramp
 at the live tail instead of appearing instantly. The fade obscures then reveals
 each new row, so the text is always fully rendered and readable. Scrollback and
-resize snap. Off by default; only at the live tail.
+resize snap. Off by default; only at the live tail. `reduced_motion = on`
+suppresses it.
 
 ---
 

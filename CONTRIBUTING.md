@@ -139,7 +139,7 @@ The source tree is organized into clear ownership lanes:
 | `src/grid.rs` | Render geometry and color resolution: backgrounds, glyphs, decorations, cursor/selection/search overlays, inverse/dim/minimum-contrast handling, and image/emoji ordering seams. |
 | `src/text.rs` + `src/atlas/` | Glyph rasterization: font loading, R8 and RGBA atlas, coverage/subpixel paths, synthetic bold/italic, symbol fallback chain. |
 | `src/native/` | GPU renderer (`gpu.rs`, `gpu/`), event loop (`app/mod.rs`), settings panel and overlays (`settings_panel/` directory, `overlay.rs`, `theme_builder.rs`), selection, search, input/keybindings (see `docs/keybindings.md`). |
-| `src/shaders/` | WGSL shader sources (`cell.wgsl`, `cell_subpixel.wgsl`, `bloom.wgsl`, `background_image.wgsl`) consumed by the `src/native/` renderer. |
+| `src/shaders/` | WGSL shader sources (`cell.wgsl`, `cell_subpixel.wgsl`, `bloom.wgsl`, `background_image.wgsl`, `cursor_glow.wgsl`, `cursor_streak.wgsl`) consumed by the `src/native/` renderer. |
 | `src/theme/` | `Theme` struct, `.theme` file format and parser (`spec.rs`), built-in registry (`builtins.rs`, `builtins/`), contrast validation, live reload. |
 | `src/settings/` | `Settings` struct, config file round-trip, live reload, atomic writeback, `SettingInfo` inventory for the in-app panel. |
 | `src/color.rs` | Perceptual color primitives: sRGB ↔ linear transfer, OKLab/OKLCH conversions, `dim_perceptual`, `mix_oklab`, `enforce_min_contrast`. Single source of truth for the sRGB transfer. |
@@ -221,7 +221,7 @@ The default `cargo test` run is deterministic and host-independent. Integration
 test buckets include:
 
 - `mouse_protocol` — mouse-tracking protocol coverage.
-- `pixel_smoke` — 49 compositor checks across its module set.
+- `pixel_smoke` — 47 compositor checks across its module set.
 - `protocol_fuzz_*_smoke` — quick fuzzer tiers.
 - `pty_alt_screen_smoke` — PTY-backed alternate-screen behavior.
 - `emoji_pixel_smoke`, `boxdraw_pixel_smoke` — emoji and box-drawing rasterization.
