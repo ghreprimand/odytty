@@ -21,21 +21,11 @@ impl Write for RecordingWriter {
 
 fn app_with_recording_writer() -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
     let dims = Dimensions::new(80, 24);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let _ = session.take_writer().ok()?;
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(session));
-    let app = App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
+    let (app, _terminal) =
+        headless_app_with_writer(NativeOptions::default(), dims, Settings::default(), writer);
     Some((app, bytes))
 }
 

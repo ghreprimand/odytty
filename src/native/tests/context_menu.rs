@@ -26,27 +26,18 @@ use winit::platform::x11::EventLoopBuilderExtX11;
 
 fn app_for_test() -> Option<(App, Arc<Mutex<Terminal>>)> {
     let dims = Dimensions::new(80, 24);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(session));
-    let app = App::new(
+    Some(headless_app_with(
         NativeOptions::default(),
-        terminal.clone(),
-        writer,
-        pty,
+        dims,
         Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
-    Some((app, terminal))
+    ))
 }
 
 fn app_for_test_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
     let dims = Dimensions::new(80, 24);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
+    let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(session));
+    let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
     let mut builder = EventLoop::<UserEvent>::with_user_event();
     #[cfg(target_os = "linux")]
     {
@@ -60,7 +51,7 @@ fn app_for_test_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
     let event_loop = builder.build().ok()?;
     let proxy = event_loop.create_proxy();
     let sessions = WorkspaceSet::new(
-        Session::new(SessionToken(0), terminal, writer, pty, None),
+        Session::new_headless(SessionToken(0), terminal, writer, headless),
         Some(proxy),
     );
     let app = App::new_with_sessions(
@@ -90,22 +81,12 @@ impl Write for RecordingWriter {
 
 fn app_with_recording_writer(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
     let dims = Dimensions::new(80, 24);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let _ = session.take_writer().ok()?;
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let (app, terminal) =
+        headless_app_with_writer(NativeOptions::default(), dims, Settings::default(), writer);
     terminal.lock().expect("terminal").advance(content);
-    let pty = Arc::new(Mutex::new(session));
-    let app = App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
     Some((app, bytes))
 }
 
@@ -119,22 +100,12 @@ fn app_with_recording_writer_and_terminal(
     content: &[u8],
 ) -> Option<(App, Arc<Mutex<Vec<u8>>>, Arc<Mutex<Terminal>>)> {
     let dims = Dimensions::new(80, 24);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let _ = session.take_writer().ok()?;
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let (app, terminal) =
+        headless_app_with_writer(NativeOptions::default(), dims, Settings::default(), writer);
     terminal.lock().expect("terminal").advance(content);
-    let pty = Arc::new(Mutex::new(session));
-    let app = App::new(
-        NativeOptions::default(),
-        terminal.clone(),
-        writer,
-        pty,
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
     Some((app, bytes, terminal))
 }
 
@@ -524,14 +495,9 @@ fn right_clicking_tab_enables_rename_for_that_tab() {
         return;
     };
     let dims = Dimensions::new(80, 24);
-    let Some(session) = spawn_test_pause_shell(dims).ok() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().expect("writer")));
+    let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal2 = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty2 = Arc::new(Mutex::new(session));
-    app.push_session_for_test(terminal2, writer, pty2);
+    app.push_headless_session_for_test(terminal2, writer, dims);
     app.set_session_tab_title_for_test(0, "first-tab");
     app.set_session_tab_title_for_test(1, "second-tab");
     app.set_test_cell_for_test(cell(8, 16));
@@ -564,14 +530,9 @@ fn plain_context_menu_open_disables_rename_tab() {
         return;
     };
     let dims = Dimensions::new(80, 24);
-    let Some(session) = spawn_test_pause_shell(dims).ok() else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().expect("writer")));
+    let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal2 = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty2 = Arc::new(Mutex::new(session));
-    app.push_session_for_test(terminal2, writer, pty2);
+    app.push_headless_session_for_test(terminal2, writer, dims);
     app.set_test_cell_for_test(cell(8, 16));
 
     app.set_pointer_cell_for_test(5, 10);
@@ -1539,15 +1500,9 @@ fn clicking_close_tab_closes_active_session_and_keeps_neighbor_active() {
         return;
     };
     let dims = Dimensions::new(80, 24);
-    let session = spawn_test_pause_shell(dims).ok();
-    let Some(session) = session else {
-        eprintln!("skipping: no PTY available");
-        return;
-    };
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().expect("writer")));
+    let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal2 = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty2 = Arc::new(Mutex::new(session));
-    app.push_session_for_test(terminal2, writer, pty2);
+    app.push_headless_session_for_test(terminal2, writer, dims);
     assert!(app.switch_to_session_for_test(1));
     assert_eq!(app.session_count_for_test(), 2);
     assert_eq!(app.active_session_id_for_test(), 1);
@@ -1943,13 +1898,10 @@ fn rail_two_workspace_app() -> Option<App> {
     app.set_workspace_rail_for_test("left");
     // A second workspace so the rail has a real slot 0 to right-click.
     let dims = Dimensions::new(80, 24);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let _ = session.take_writer().ok()?;
     let recorder = RecordingWriter::default();
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(session));
-    app.push_workspace_for_test(terminal, writer, pty);
+    app.push_headless_workspace_for_test(terminal, writer, dims);
     Some(app)
 }
 

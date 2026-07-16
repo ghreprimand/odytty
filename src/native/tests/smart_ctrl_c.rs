@@ -12,7 +12,8 @@
 //! (the clipboard backend is headless), which is exactly the state the intercept
 //! mutates before swallowing the chord.
 //!
-//! Skipped when no PTY is available (CI sandboxes).
+//! These run over a headless session (no real PTY): they exercise only App-level
+//! key wiring and selection state, not shell or PTY behavior.
 
 use super::*;
 use crate::settings::SmartCtrlC;
@@ -21,23 +22,16 @@ const COLS: usize = 80;
 const ROWS: usize = 24;
 
 fn build_app(content: &[u8]) -> Option<App> {
-    let dims = Dimensions::new(COLS, ROWS);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let (app, terminal) = headless_app_with(
+        NativeOptions::default(),
+        Dimensions::new(COLS, ROWS),
+        Settings::default(),
+    );
     {
         let mut t = terminal.lock().expect("terminal");
         t.advance(content);
     }
-    let pty = Arc::new(Mutex::new(session));
-    Some(App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    ))
+    Some(app)
 }
 
 #[test]

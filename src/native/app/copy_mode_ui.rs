@@ -510,22 +510,14 @@ mod tests {
         assert_eq!(translate_copy_mode_char('z', true), None);
     }
 
-    // --- App-level integration (skips when no PTY is available) -------------
+    // --- App-level integration (headless, no real PTY) ----------------------
 
     fn build_app() -> Option<App> {
         let d = Dimensions::new(40, 6);
-        let session = crate::native::test_support::spawn_test_pause_shell(d).ok()?;
-        let writer: crate::native::pty::PtyWriter =
-            Arc::new(Mutex::new(session.take_writer().ok()?));
-        let terminal = Arc::new(Mutex::new(Terminal::new(d.columns, d.rows)));
-        let pty = Arc::new(Mutex::new(session));
-        let mut app = App::new(
+        let (mut app, _terminal) = crate::native::test_support::headless_app_with(
             crate::native::options::NativeOptions::default(),
-            terminal,
-            writer,
-            pty,
+            d,
             Settings::default(),
-            crate::settings::SettingsReloader::for_current_process(Instant::now()),
         );
         app.set_test_cell_for_test(crate::atlas::CellSize {
             width: 8,
@@ -827,19 +819,12 @@ mod tests {
         let Some(mut app) = build_app() else {
             return;
         };
-        // Build a second local session and push it as a second tab.
+        // Build a second headless session and push it as a second tab.
         let d = Dimensions::new(40, 6);
-        let Ok(session) = crate::native::test_support::spawn_test_pause_shell(d) else {
-            return;
-        };
-        let Ok(raw_writer) = session.take_writer() else {
-            return;
-        };
-        let writer: crate::native::pty::PtyWriter = Arc::new(Mutex::new(raw_writer));
+        let writer = crate::native::test_support::headless_writer();
         let terminal = Arc::new(Mutex::new(Terminal::new(d.columns, d.rows)));
-        let pty = Arc::new(Mutex::new(session));
         // Position 0 is the original tab; the pushed one takes a later position.
-        let second = app.push_session_for_test(terminal, writer, pty);
+        let second = app.push_headless_session_for_test(terminal, writer, d);
         // Seed the stale layout state on the first tab, then background it by
         // switching to the second.
         app.seed_layout_dependent_state_for_test(0);

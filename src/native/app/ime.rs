@@ -199,25 +199,16 @@ impl App {
 mod tests {
     use super::*;
     use crate::core::Terminal;
-    use std::sync::{Arc, Mutex};
 
     const ROWS: usize = 6;
     const COLS: usize = 40;
 
     fn build_app() -> Option<App> {
         let d = Dimensions::new(COLS, ROWS);
-        let session = crate::native::test_support::spawn_test_pause_shell(d).ok()?;
-        let writer: crate::native::pty::PtyWriter =
-            Arc::new(Mutex::new(session.take_writer().ok()?));
-        let terminal = Arc::new(Mutex::new(Terminal::new(d.columns, d.rows)));
-        let pty = Arc::new(Mutex::new(session));
-        let mut app = App::new(
+        let (mut app, _terminal) = crate::native::test_support::headless_app_with(
             crate::native::options::NativeOptions::default(),
-            terminal,
-            writer,
-            pty,
+            d,
             Settings::default(),
-            crate::settings::SettingsReloader::for_current_process(Instant::now()),
         );
         app.grid = d;
         Some(app)

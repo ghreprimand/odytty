@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-16 -- Pure UI tests run over a headless session source
+
+Pure App and UI tests no longer spawn a real shell PTY merely to satisfy the
+`App` constructor. A test-only headless session source backs them: an in-memory
+writer sink (or a caller-supplied recording writer), recorded resize geometry
+and call counts, an injectable foreground job that defaults to unknown, and an
+immediate no-op close with no child process, PTY master/slave, output-pump
+thread, wake pipe, or platform API. A shared `headless_app_for_test` constructor
+centralizes the fixture, and split/second-tab/second-workspace seams gained
+headless variants.
+
+The change is test-only and alters no production behavior on any platform. The
+production local-PTY session source and the `PtySession` layout are unchanged,
+and a focused set of real-PTY tests is retained where PTY, child, resize-ioctl,
+shell-integration, attach, and output-pump behavior is the thing under test.
+Removing the real shell from the many pure-UI fixtures eliminates the
+fork/exec/kill/wait teardown those tests inherited implicitly, which was the
+source of an intermittent macOS CI wedge in the single-threaded PTY-spawning
+region. With that teardown gone from the bulk of the suite, the macOS
+per-attempt watchdog is tightened from 720s to 360s while single-threading,
+process-group cleanup, the single retry, and the job and step backstops stay in
+place.
+
+Deterministic tests prove the headless source owns no OS child, routes writes to
+the supplied writer, records resize dimensions and counts, and reports an
+injected foreground job through the same production seam a confirm-close prompt
+reads.
+
+---
+
 ## 2026-07-16 -- Release v0.9.0 — the cursor comes alive: smooth motion, trail, adjustable glow, ligatures, and accessibility
 
 Visual-polish release. The cursor is the centerpiece. It now glides smoothly

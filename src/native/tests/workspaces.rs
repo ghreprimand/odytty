@@ -26,10 +26,9 @@ use winit::platform::x11::EventLoopBuilderExtX11;
 /// off-main-thread `EventLoop`, which AppKit forbids.
 fn app_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
     let dims = Dimensions::new(80, 24);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
+    let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(session));
+    let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
     let mut builder = EventLoop::<UserEvent>::with_user_event();
     #[cfg(target_os = "linux")]
     {
@@ -43,7 +42,7 @@ fn app_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
     let event_loop = builder.build().ok()?;
     let proxy = event_loop.create_proxy();
     let sessions = WorkspaceSet::new(
-        Session::new(SessionToken(0), terminal, writer, pty, None),
+        Session::new_headless(SessionToken(0), terminal, writer, headless),
         Some(proxy),
     );
     let app = App::new_with_sessions(

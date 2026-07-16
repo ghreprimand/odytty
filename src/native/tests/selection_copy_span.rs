@@ -14,9 +14,7 @@ use super::*;
 /// Returns `None` when no PTY is available (callers then skip).
 fn app_with_rows(lines: usize) -> Option<App> {
     let dims = Dimensions::new(80, 24);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let (app, terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
     {
         let mut t = terminal.lock().expect("terminal");
         let mut content = String::new();
@@ -25,15 +23,7 @@ fn app_with_rows(lines: usize) -> Option<App> {
         }
         t.advance(content.as_bytes());
     }
-    let pty = Arc::new(Mutex::new(session));
-    Some(App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    ))
+    Some(app)
 }
 
 #[test]

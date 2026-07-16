@@ -25,18 +25,8 @@ const TALL_ROWS: usize = 200;
 
 fn app_for_test() -> Option<App> {
     let dims = Dimensions::new(80, 24);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(session));
-    Some(App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    ))
+    let (app, _terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
+    Some(app)
 }
 
 fn down(app: &mut App, times: usize) {

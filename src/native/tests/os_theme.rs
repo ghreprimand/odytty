@@ -17,22 +17,11 @@ const ROWS: usize = 8;
 /// `None` when no PTY is available.
 fn build_app(theme: Theme) -> Option<App> {
     let dims = Dimensions::new(COLS, ROWS);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(session));
     let settings = Settings {
         theme,
         ..Default::default()
     };
-    let app = App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        settings,
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
+    let (app, _terminal) = headless_app_with(NativeOptions::default(), dims, settings);
     Some(app)
 }
 

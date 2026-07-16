@@ -52,23 +52,12 @@ fn lock_recover_yields_usable_guard_after_poison() {
 /// no PTY is available (CI sandboxes), so callers skip cleanly.
 fn app_with_terminal_handle(content: &[u8]) -> Option<(App, Arc<Mutex<Terminal>>)> {
     let dims = Dimensions::new(80, 24);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let (app, terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
     {
         let mut t = terminal.lock().expect("terminal");
         t.advance(content);
     }
     let handle = Arc::clone(&terminal);
-    let pty = Arc::new(Mutex::new(session));
-    let app = App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
     Some((app, handle))
 }
 

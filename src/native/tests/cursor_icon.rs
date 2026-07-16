@@ -21,54 +21,30 @@ const CELL_H: u32 = 10;
 /// inject the cell size so the pointer hit-test runs without a GPU.
 fn build_app(content: &[u8]) -> Option<App> {
     let dims = Dimensions::new(COLS, ROWS);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let (mut app, terminal) =
+        headless_app_with(NativeOptions::default(), dims, Settings::default());
     {
         let mut t = terminal.lock().expect("terminal");
         t.advance(content);
     }
-    let pty = Arc::new(Mutex::new(session));
-    let mut app = App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
     app.set_test_cell_for_test(cell(CELL_W, CELL_H));
     Some(app)
 }
 
-/// Build a two-pane split `App` headlessly: spawn two one-shot PTYs, seed the
-/// active tab into a `columns`/rows split, and inject the cell size + surface
-/// geometry so `multipane_geometry()` (and the divider hover/drag cursor path)
-/// resolves without a GPU. Surface is exactly `COLS×ROWS` cells, zero padding,
-/// one tab (no tab bar), so the content rect is `(0,0, COLS·CELL_W, ROWS·CELL_H)`
-/// and the lone even-ratio divider sits at its midpoint.
-type PaneParts = (Arc<Mutex<Terminal>>, PtyWriter, Arc<Mutex<PtySession>>);
-
+/// Build a two-pane split `App` headlessly: two headless (no-PTY) sessions,
+/// seed the active tab into a `columns`/rows split, and inject the cell size +
+/// surface geometry so `multipane_geometry()` (and the divider hover/drag cursor
+/// path) resolves without a GPU. Surface is exactly `COLS×ROWS` cells, zero
+/// padding, one tab (no tab bar), so the content rect is
+/// `(0,0, COLS·CELL_W, ROWS·CELL_H)` and the lone even-ratio divider sits at its
+/// midpoint.
 fn build_split_app(columns: bool) -> Option<App> {
     let dims = Dimensions::new(COLS, ROWS);
-    let make = || -> Option<PaneParts> {
-        let session = spawn_test_pause_shell(dims).ok()?;
-        let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
-        let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-        let pty = Arc::new(Mutex::new(session));
-        Some((terminal, writer, pty))
-    };
-    let (t1, w1, p1) = make()?;
-    let mut app = App::new(
-        NativeOptions::default(),
-        t1,
-        w1,
-        p1,
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
-    let (t2, w2, p2) = make()?;
-    app.seed_split_pane_for_test(columns, t2, w2, p2);
+    let (mut app, _terminal) =
+        headless_app_with(NativeOptions::default(), dims, Settings::default());
+    let t2 = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let w2 = crate::native::test_support::headless_writer();
+    app.seed_headless_split_pane_for_test(columns, t2, w2, dims);
     app.set_test_cell_for_test(cell(CELL_W, CELL_H));
     app.set_test_surface_for_test(
         COLS as u32 * CELL_W,

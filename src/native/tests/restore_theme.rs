@@ -59,22 +59,12 @@ fn distinctive_theme() -> Theme {
 /// by restore/append before the app seeds it. `None` when no PTY is available.
 fn unseeded_app(theme: Theme) -> Option<App> {
     let dims = Dimensions::new(40, 8);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(session));
     let settings = Settings {
         theme,
         ..Default::default()
     };
-    Some(App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        settings,
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    ))
+    let (app, _terminal) = headless_app_with(NativeOptions::default(), dims, settings);
+    Some(app)
 }
 
 /// The core guarantee: a session whose terminal was built without the theme

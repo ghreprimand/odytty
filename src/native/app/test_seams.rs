@@ -880,6 +880,40 @@ impl App {
         idx
     }
 
+    /// Headless variant of [`Self::push_workspace_for_test`]: push a workspace
+    /// backed by a [`crate::native::session::HeadlessSession`] instead of a real
+    /// PTY, so a pure rail/workspace UI test creates no OS child.
+    #[cfg(test)]
+    pub(in crate::native) fn push_headless_workspace_for_test(
+        &mut self,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        dimensions: crate::core::Dimensions,
+    ) -> usize {
+        let id = self
+            .sessions
+            .iter()
+            .map(|s| s.id.0)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        let headless = Arc::new(crate::native::session::HeadlessSession::new(dimensions));
+        self.sessions.push_workspace(Session::new_headless(
+            crate::native::session::SessionToken(id),
+            terminal,
+            writer,
+            headless,
+        ));
+        let cell = self.test_cell;
+        let surface = self.test_surface;
+        let idx = self.sessions.workspace_count().saturating_sub(1);
+        let _ = self.sessions.switch_workspace(idx);
+        self.test_cell = cell;
+        self.test_surface = surface;
+        self.recompute_grid_for_tab_bar();
+        idx
+    }
+
     /// Test seam (W2): rename the workspace at rail index `idx`.
     pub(in crate::native) fn rename_workspace_for_test(&mut self, idx: usize, name: &str) {
         self.sessions.rename_workspace(idx, name.to_owned());
@@ -1807,6 +1841,33 @@ impl App {
         self.sessions.position_of_token(id).unwrap_or(0)
     }
 
+    /// Headless variant of [`Self::push_session_for_test`]: push a second tab
+    /// backed by a [`crate::native::session::HeadlessSession`] instead of a real
+    /// PTY, so a pure multi-tab UI test creates no OS child.
+    #[cfg(test)]
+    pub(in crate::native) fn push_headless_session_for_test(
+        &mut self,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        dimensions: crate::core::Dimensions,
+    ) -> usize {
+        let next_id = self
+            .sessions
+            .iter()
+            .map(|session| session.id.0)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        let headless = Arc::new(crate::native::session::HeadlessSession::new(dimensions));
+        let id = self.sessions.push(Session::new_headless(
+            crate::native::session::SessionToken(next_id),
+            terminal,
+            writer,
+            headless,
+        ));
+        self.sessions.position_of_token(id).unwrap_or(0)
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn switch_to_session_for_test(&mut self, session: usize) -> bool {
         let Some(token) = self.sessions.token_at_position(session) else {
@@ -2431,6 +2492,41 @@ impl App {
             writer,
             pty,
             None,
+        );
+        let token = self.sessions.split_active_for_test(axis, session);
+        token.0 as usize
+    }
+
+    /// Headless variant of [`Self::seed_split_pane_for_test`]: split off a second
+    /// pane backed by a [`crate::native::session::HeadlessSession`] instead of a
+    /// real PTY, so a pure split-UI test creates no OS child. `dimensions` sizes
+    /// the new pane's headless resize state.
+    #[cfg(test)]
+    pub(in crate::native) fn seed_headless_split_pane_for_test(
+        &mut self,
+        columns: bool,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        dimensions: crate::core::Dimensions,
+    ) -> usize {
+        let axis = if columns {
+            crate::native::layout::SplitAxis::Columns
+        } else {
+            crate::native::layout::SplitAxis::Rows
+        };
+        let next_id = self
+            .sessions
+            .iter()
+            .map(|session| session.id.0)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1);
+        let headless = Arc::new(crate::native::session::HeadlessSession::new(dimensions));
+        let session = crate::native::session::Session::new_headless(
+            crate::native::session::SessionToken(next_id),
+            terminal,
+            writer,
+            headless,
         );
         let token = self.sessions.split_active_for_test(axis, session);
         token.0 as usize

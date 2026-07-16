@@ -1192,21 +1192,20 @@ fn rename_write_cell(snapshot: &mut Snapshot, row: usize, column: usize, ch: cha
 #[cfg(test)]
 mod workspace_prompt_identity_tests {
     use super::*;
-    use crate::native::test_support::spawn_test_pause_shell;
+    use crate::native::session::HeadlessSession;
+    use crate::native::test_support::headless_writer;
 
     fn session(id: u64, dimensions: Dimensions) -> Option<Session> {
-        let pty = spawn_test_pause_shell(dimensions).ok()?;
-        let writer: PtyWriter = Arc::new(Mutex::new(pty.take_writer().ok()?));
+        let writer: PtyWriter = headless_writer();
         let terminal = Arc::new(Mutex::new(Terminal::new(
             dimensions.columns,
             dimensions.rows,
         )));
-        Some(Session::new(
+        Some(Session::new_headless(
             SessionToken(id),
             terminal,
             writer,
-            Arc::new(Mutex::new(pty)),
-            None,
+            Arc::new(HeadlessSession::new(dimensions)),
         ))
     }
 

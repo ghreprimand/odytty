@@ -450,23 +450,16 @@ mod tests {
         assert_eq!(carry_scroll_frac(0.25, 0.0), (0, 0.25));
     }
 
-    // --- App-level integration (real PTY, synthetic cell height) ------------
+    // --- App-level integration (headless, synthetic cell height) ------------
 
     fn build_app() -> Option<App> {
         let d = Dimensions::new(40, 6);
-        let session = crate::native::test_support::spawn_test_pause_shell(d).ok()?;
-        let writer: crate::native::pty::PtyWriter =
-            Arc::new(Mutex::new(session.take_writer().ok()?));
-        let terminal = Arc::new(Mutex::new(Terminal::new(d.columns, d.rows)));
-        let pty = Arc::new(Mutex::new(session));
-        Some(App::new(
+        let (app, _terminal) = crate::native::test_support::headless_app_with(
             crate::native::options::NativeOptions::default(),
-            terminal,
-            writer,
-            pty,
+            d,
             Settings::default(),
-            crate::settings::SettingsReloader::for_current_process(Instant::now()),
-        ))
+        );
+        Some(app)
     }
 
     /// Feed enough line feeds to push rows into scrollback so the viewport has
@@ -775,7 +768,7 @@ mod tests {
 
     /// Build a headless two-pane split: pane A (the original, pre-split active)
     /// and pane B (the new focused pane), each seeded with its own scrollback.
-    /// Skips (returns `None`) when no PTY is available, like [`build_app`].
+    /// No real PTY: both panes are headless sessions.
     fn build_split_app() -> Option<(App, SessionToken, SessionToken)> {
         let mut app = build_app()?;
         let a = app.sessions.active_id();
@@ -783,17 +776,14 @@ mod tests {
         seed_scrollback(&app);
         // Build a second pane with its own seeded scrollback, then split.
         let d = Dimensions::new(40, 6);
-        let session = crate::native::test_support::spawn_test_pause_shell(d).ok()?;
-        let writer: crate::native::pty::PtyWriter =
-            Arc::new(Mutex::new(session.take_writer().ok()?));
+        let writer = crate::native::test_support::headless_writer();
         let terminal_b = Arc::new(Mutex::new(Terminal::new(d.columns, d.rows)));
         if let Ok(mut t) = terminal_b.lock() {
             for _ in 0..40 {
                 t.advance(b"line\r\n");
             }
         }
-        let pty = Arc::new(Mutex::new(session));
-        app.seed_split_pane_for_test(false, terminal_b, writer, pty);
+        app.seed_headless_split_pane_for_test(false, terminal_b, writer, d);
         let b = app.sessions.active_id();
         assert_ne!(a, b, "split minted a distinct second pane");
         Some((app, a, b))

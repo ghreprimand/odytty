@@ -181,7 +181,6 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::Terminal;
 
     const CELL_W: u32 = 8;
     const CELL_H: u32 = 16;
@@ -203,22 +202,14 @@ mod tests {
         }
     }
 
-    // --- App-level (skips when no PTY is available) -------------------------
+    // --- App-level (headless, no real PTY) ----------------------------------
 
     fn build_app() -> Option<App> {
         let d = Dimensions::new(COLS, ROWS);
-        let session = crate::native::test_support::spawn_test_pause_shell(d).ok()?;
-        let writer: crate::native::pty::PtyWriter =
-            Arc::new(Mutex::new(session.take_writer().ok()?));
-        let terminal = Arc::new(Mutex::new(Terminal::new(d.columns, d.rows)));
-        let pty = Arc::new(Mutex::new(session));
-        let mut app = App::new(
+        let (mut app, _terminal) = crate::native::test_support::headless_app_with(
             crate::native::options::NativeOptions::default(),
-            terminal,
-            writer,
-            pty,
+            d,
             Settings::default(),
-            crate::settings::SettingsReloader::for_current_process(Instant::now()),
         );
         // Pin a deterministic grid + cell so row geometry is known.
         app.grid = d;

@@ -106,19 +106,22 @@ jobs:
       # narrow `odytty-<hex>` name pattern, never a bare `odytty`) is
       # force-killed so a wedged tree from attempt 1 cannot taint attempt 2.
       #
-      # Budget: per-attempt timeout 720s (12 min) — comfortable over a green
-      # single-threaded macOS run (~2-3 min), a quick trip on a hang. Two
-      # attempts cap the retried command near ~24 min; the 30-min step backstop
-      # sits above that so the per-attempt timeout is what trips first (a step
-      # timeout below 2x per-attempt would kill the loop mid-retry and defeat
-      # it). The macOS job ceiling (above) is 40 min to fit a cold build +
-      # clippy + two test attempts; ubuntu/windows keep the tight 25-min job
-      # ceiling.
+      # Budget: per-attempt timeout 360s (6 min). Pure UI tests no longer own a
+      # real PTY (a headless session source backs them), so the fixture
+      # spawn/teardown that drove the transient wedge is gone from the bulk of
+      # the suite; a green single-threaded macOS run is ~2-3 min and the slowest
+      # recent non-retry run was ~195s, so 360s keeps ~165s of headroom (~1.85x)
+      # while cutting the failure latency of a genuine hang in half. Two attempts
+      # cap the retried command near ~12 min; the 30-min step backstop sits well
+      # above that so the per-attempt timeout is what trips first (a step timeout
+      # below 2x per-attempt would kill the loop mid-retry and defeat it). The
+      # macOS job ceiling (above) is 40 min to fit a cold build + clippy + two
+      # test attempts; ubuntu/windows keep the tight 25-min job ceiling.
       - name: Test (macOS, auto-retry PTY-teardown deadlock)
         if: matrix.os == 'macos-latest'
         timeout-minutes: 30
         run: |
-          attempt_timeout=720
+          attempt_timeout=360
           max_attempts=2
 
           run_with_timeout() {

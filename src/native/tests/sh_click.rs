@@ -39,27 +39,17 @@ fn build_app(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
 
 fn build_app_with(content: &[u8], sh_click: bool) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
     let dims = Dimensions::new(COLS, ROWS);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    // Spawn provides the `pty` field; the writer is the recorder so the emitted
-    // arrows are observable (the real PTY writer would swallow them into a shell).
-    let _ = session.take_writer().ok()?;
+    // The writer is the recorder so the emitted arrows are observable (a real
+    // PTY writer would swallow them into a shell). No real PTY is needed.
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let (mut app, terminal) =
+        headless_app_with_writer(NativeOptions::default(), dims, Settings::default(), writer);
     {
         let mut t = terminal.lock().expect("terminal");
         t.advance(content);
     }
-    let pty = Arc::new(Mutex::new(session));
-    let mut app = App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
     app.set_sh_click_for_test(sh_click);
     Some((app, bytes))
 }

@@ -22,10 +22,9 @@ use winit::platform::x11::EventLoopBuilderExtX11;
 
 fn app_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
     let dims = Dimensions::new(80, 24);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
+    let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(session));
+    let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
     let mut builder = EventLoop::<UserEvent>::with_user_event();
     #[cfg(target_os = "linux")]
     {
@@ -39,7 +38,7 @@ fn app_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
     let event_loop = builder.build().ok()?;
     let proxy = event_loop.create_proxy();
     let sessions = WorkspaceSet::new(
-        Session::new(SessionToken(0), terminal, writer, pty, None),
+        Session::new_headless(SessionToken(0), terminal, writer, headless),
         Some(proxy),
     );
     let app = App::new_with_sessions(
@@ -70,23 +69,13 @@ fn recorded_app() -> Option<(App, std::sync::Arc<std::sync::Mutex<Vec<u8>>>)> {
     }
 
     let dims = Dimensions::new(80, 24);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let _ = session.take_writer().ok()?;
     let bytes = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let recorder = RecordingWriter {
         bytes: bytes.clone(),
     };
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(session));
-    let app = App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
+    let (app, _terminal) =
+        headless_app_with_writer(NativeOptions::default(), dims, Settings::default(), writer);
     Some((app, bytes))
 }
 

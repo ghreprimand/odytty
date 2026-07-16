@@ -87,6 +87,85 @@ pub(super) enum SessionSource {
     /// on this enum is exhaustive with the `Local` arm alone.
     #[cfg(unix)]
     Attached { client: Arc<Mutex<AttachClient>> },
+    /// Test-only headless source (no OS child, PTY, pump, wake pipe, or platform
+    /// API). Pure App/UI tests need only a terminal model and a writable sink to
+    /// satisfy [`App::new`], not a real shell; owning one made those tests
+    /// inherit a real `PtySession`'s synchronous kill+wait teardown, which was
+    /// the root cause of the macOS CI PTY-teardown wedge. This variant records
+    /// resize geometry and reports an injectable foreground job so migrated
+    /// tests keep their geometry/close assertions, while close/shutdown are
+    /// immediate no-ops. Compiled out of production builds entirely.
+    #[cfg(test)]
+    Headless { session: Arc<HeadlessSession> },
+}
+
+/// Test-only backing state for [`SessionSource::Headless`]. Interior-mutable so
+/// one `Arc` handle shared with a test can observe resize calls without a lock
+/// dance, mirroring how a real fixture shares `Arc<Mutex<PtySession>>`.
+#[cfg(test)]
+pub(super) struct HeadlessSession {
+    dimensions: Mutex<crate::core::Dimensions>,
+    resize_calls: std::sync::atomic::AtomicUsize,
+    cell_metrics: Mutex<Option<crate::core::CellMetrics>>,
+    foreground_job: Mutex<ForegroundJob>,
+}
+
+#[cfg(test)]
+impl HeadlessSession {
+    pub(super) fn new(dimensions: crate::core::Dimensions) -> Self {
+        Self {
+            dimensions: Mutex::new(dimensions),
+            resize_calls: std::sync::atomic::AtomicUsize::new(0),
+            cell_metrics: Mutex::new(None),
+            foreground_job: Mutex::new(ForegroundJob::Unknown),
+        }
+    }
+
+    /// Record a kernel-side resize exactly as the real PTY resize dispatch would,
+    /// without any syscall: store the new dimensions and bump the call counter.
+    pub(super) fn record_resize(&self, dimensions: crate::core::Dimensions) {
+        if let Ok(mut current) = self.dimensions.lock() {
+            *current = dimensions;
+        }
+        self.resize_calls
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    pub(super) fn record_cell_metrics(&self, metrics: crate::core::CellMetrics) {
+        if let Ok(mut current) = self.cell_metrics.lock() {
+            *current = Some(metrics);
+        }
+    }
+
+    pub(super) fn dimensions(&self) -> crate::core::Dimensions {
+        self.dimensions
+            .lock()
+            .map(|d| *d)
+            .unwrap_or_else(|_| crate::core::Dimensions::new(1, 1))
+    }
+
+    pub(super) fn resize_call_count(&self) -> usize {
+        self.resize_calls.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub(super) fn cell_metrics(&self) -> Option<crate::core::CellMetrics> {
+        self.cell_metrics.lock().ok().and_then(|m| *m)
+    }
+
+    pub(super) fn foreground_job(&self) -> ForegroundJob {
+        self.foreground_job
+            .lock()
+            .map(|j| *j)
+            .unwrap_or(ForegroundJob::Unknown)
+    }
+
+    /// Inject a foreground job so a migrated confirm-close test can exercise the
+    /// running-job branch without a real child.
+    pub(super) fn set_foreground_job(&self, job: ForegroundJob) {
+        if let Ok(mut current) = self.foreground_job.lock() {
+            *current = job;
+        }
+    }
 }
 
 /// A remote session's reconnect anchor (F6-i4). Holds what is needed to
@@ -499,6 +578,27 @@ impl Session {
         )
     }
 
+    /// Construct a test-only headless session backed by a [`HeadlessSession`]
+    /// instead of a real PTY. No OS child, master/slave, pump thread, or wake
+    /// pipe is created, so the session's teardown is a synchronous no-op and the
+    /// fixture cannot inherit a real shell's kill+wait. The returned handle lets
+    /// a test observe resize geometry or inject a foreground job.
+    #[cfg(test)]
+    pub(super) fn new_headless(
+        id: SessionToken,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        headless: Arc<HeadlessSession>,
+    ) -> Self {
+        Self::from_parts(
+            id,
+            terminal,
+            writer,
+            SessionSource::Headless { session: headless },
+            None,
+        )
+    }
+
     /// Construct a locally-spawned session that shares a pre-built recorder
     /// handle with its pump thread (so the pump's frames land in the same ring
     /// the App later scrubs). Used by the startup path and `insert_spawned_
@@ -802,6 +902,20 @@ impl Session {
             SessionSource::Local { pty } => Some(pty),
             #[cfg(unix)]
             SessionSource::Attached { .. } => None,
+            SessionSource::Headless { .. } => None,
+        }
+    }
+
+    /// The headless backing state, or `None` for a real-PTY or attached session.
+    /// Test-only seam so a migrated fixture can assert recorded resize geometry
+    /// or inject a foreground job without owning a real shell.
+    #[cfg(test)]
+    pub(super) fn headless_session(&self) -> Option<&Arc<HeadlessSession>> {
+        match &self.source {
+            SessionSource::Headless { session } => Some(session),
+            SessionSource::Local { .. } => None,
+            #[cfg(unix)]
+            SessionSource::Attached { .. } => None,
         }
     }
 
@@ -816,6 +930,10 @@ impl Session {
                 .is_ok_and(|pty| pty.foreground_job() == ForegroundJob::Running),
             #[cfg(unix)]
             SessionSource::Attached { .. } => false,
+            #[cfg(test)]
+            SessionSource::Headless { session } => {
+                session.foreground_job() == ForegroundJob::Running
+            }
         }
     }
 
@@ -902,6 +1020,12 @@ impl Session {
                         }
                     });
             }
+            // A headless test session owns no child, PTY, or pump thread, so
+            // close is an immediate no-op with no thread and no blocking wait.
+            #[cfg(test)]
+            SessionSource::Headless { .. } => {
+                debug_assert!(pump_thread.is_none());
+            }
         }
         true
     }
@@ -944,6 +1068,12 @@ impl Session {
                             let _ = thread.join();
                         }
                     });
+            }
+            // A headless test session owns no child or pump thread; nothing to
+            // wait on or join.
+            #[cfg(test)]
+            SessionSource::Headless { .. } => {
+                debug_assert!(pump_thread.is_none());
             }
         }
         true
@@ -994,6 +1124,15 @@ impl Session {
                     let _ = thread.join();
                 }
             }),
+            // A headless test session has no child or pump thread; the deferred
+            // reaper is a no-op.
+            #[cfg(test)]
+            SessionSource::Headless { .. } => {
+                debug_assert!(pump_thread.is_none());
+                Box::new(move || {
+                    let _ = pump_thread;
+                })
+            }
         }
     }
 }
@@ -1740,6 +1879,14 @@ impl WorkspaceSet {
                                 let _ = client.resize(cols as u32, rows as u32);
                             }
                         }
+                        // Record the resize geometry without any syscall so a
+                        // migrated geometry test can still assert it.
+                        #[cfg(test)]
+                        SessionSource::Headless { session } => {
+                            session
+                                .record_cell_metrics(crate::core::CellMetrics::new(cell_w, cell_h));
+                            session.record_resize(crate::core::Dimensions::new(cols, rows));
+                        }
                     }
                 }
             }
@@ -2348,6 +2495,8 @@ impl WorkspaceSet {
             }
             #[cfg(unix)]
             SessionSource::Attached { .. } => None,
+            #[cfg(test)]
+            SessionSource::Headless { .. } => None,
         }
     }
 
@@ -3620,14 +3769,15 @@ impl WorkspaceSet {
             home,
             |set, _cwd| {
                 let dims = crate::core::Dimensions::new(20, 8);
-                let pty = crate::native::test_support::spawn_test_pause_shell(dims).ok()?;
-                let writer: PtyWriter = Arc::new(Mutex::new(pty.take_writer().ok()?));
+                let writer: PtyWriter = crate::native::test_support::headless_writer();
                 let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-                let pty = Arc::new(Mutex::new(pty));
+                let headless = Arc::new(HeadlessSession::new(dims));
                 let token = SessionToken(set.next_token);
                 set.next_token = set.next_token.saturating_add(1);
-                set.sessions
-                    .insert(token, Session::new(token, terminal, writer, pty, None));
+                set.sessions.insert(
+                    token,
+                    Session::new_headless(token, terminal, writer, headless),
+                );
                 Some(token)
             },
             |_, _| None,
@@ -3943,16 +4093,31 @@ mod tests {
     }
 
     fn build_session_with_id(id: SessionToken) -> Session {
+        // Pure WorkspaceSet bookkeeping: no PTY behavior is asserted, so a
+        // headless session avoids owning a real shell. The CLOSE-HANG / shutdown
+        // reaper tests use `build_session_with_parked_reader`, which keeps a real
+        // pump-thread shape.
+        let dims = Dimensions::new(20, 8);
+        let writer: PtyWriter = crate::native::test_support::headless_writer();
+        let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+        let headless = Arc::new(HeadlessSession::new(dims));
+        Session::new_headless(id, terminal, writer, headless)
+    }
+
+    fn build_session() -> Session {
+        build_session_with_id(SessionToken(0))
+    }
+
+    /// A real-PTY-backed local session for the small set of tests that assert
+    /// `SessionSource::Local` behavior or route a resize to a concrete PTY.
+    /// Every other session test uses the headless builders.
+    fn build_local_session_with_id(id: SessionToken) -> Session {
         let dims = Dimensions::new(20, 8);
         let pty = spawn_test_pause_shell(dims).expect("spawn test shell");
         let writer: PtyWriter = Arc::new(Mutex::new(pty.take_writer().expect("writer")));
         let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
         let pty = Arc::new(Mutex::new(pty));
         Session::new(id, terminal, writer, pty, None)
-    }
-
-    fn build_session() -> Session {
-        build_session_with_id(SessionToken(0))
     }
 
     fn test_selection() -> AbsoluteSelectionRange {
@@ -5153,7 +5318,7 @@ mod tests {
     fn default_session_source_is_local() {
         // BYTE-IDENTITY GUARD: a normally-spawned session is `Local`, so the
         // source generalization is a no-op for the default path.
-        let set = WorkspaceSet::new(build_session(), None);
+        let set = WorkspaceSet::new(build_local_session_with_id(SessionToken(0)), None);
         assert!(matches!(set.active().source, SessionSource::Local { .. }));
     }
 
@@ -5163,7 +5328,7 @@ mod tests {
         // BYTE-IDENTITY GUARD: resizing a local session must push the exact same
         // TIOCSWINSZ to the concrete PTY as before Phase 2 — the `Local` match
         // arm is the identical `pty.lock().resize(...)` call.
-        let mut set = WorkspaceSet::new(build_session(), None);
+        let mut set = WorkspaceSet::new(build_local_session_with_id(SessionToken(0)), None);
         let content = PaneRect::new(0.0, 0.0, 800.0, 400.0);
         set.resize_all_panes(content, 10, 20, 1.0);
         let pty_dims = set

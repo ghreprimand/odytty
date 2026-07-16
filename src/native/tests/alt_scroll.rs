@@ -37,24 +37,15 @@ impl Write for RecordingWriter {
 /// only sees bytes the wheel produces. Returns `None` when no PTY is available.
 fn app_with_setup_settings(setup: &[u8], settings: Settings) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
     let dims = Dimensions::new(COLS, ROWS);
-    let session = spawn_test_pause_shell(dims).ok()?;
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let (app, terminal) =
+        headless_app_with_writer(NativeOptions::default(), dims, settings, writer);
     {
         let mut t = terminal.lock().expect("terminal");
         t.advance(setup);
     }
-    let pty = Arc::new(Mutex::new(session));
-    let app = App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        settings,
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
     bytes.lock().expect("bytes").clear();
     Some((app, bytes))
 }

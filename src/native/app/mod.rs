@@ -731,6 +731,35 @@ impl App {
         )
     }
 
+    /// Test-only constructor over a headless session source: no real PTY, OS
+    /// child, pump thread, or wake pipe. Pure App/UI tests that need only a
+    /// terminal model and a writable sink use this so they never inherit a real
+    /// shell's synchronous kill+wait teardown (the macOS CI PTY-teardown wedge).
+    /// The returned `App` owns a `SessionSource::Headless`; its backing state is
+    /// reachable through the active session's `headless_session()` seam.
+    #[cfg(test)]
+    pub(super) fn new_headless(
+        options: NativeOptions,
+        terminal: Arc<Mutex<Terminal>>,
+        writer: PtyWriter,
+        headless: Arc<crate::native::session::HeadlessSession>,
+        settings: Settings,
+        settings_reloader: SettingsReloader,
+    ) -> Self {
+        let session = Session::new_headless(
+            crate::native::session::SessionToken(0),
+            terminal,
+            writer,
+            headless,
+        );
+        Self::new_with_sessions(
+            options,
+            WorkspaceSet::new(session, None),
+            settings,
+            settings_reloader,
+        )
+    }
+
     pub(super) fn new_with_sessions(
         options: NativeOptions,
         sessions: WorkspaceSet,
@@ -7148,23 +7177,16 @@ mod tests {
         );
     }
 
-    /// Build a fresh, un-driven `App` for wake-scheduling tests. Spawns a real
-    /// (short-lived) PTY like the sibling `App`-level tests; returns `None` if
-    /// the host cannot spawn one (skip rather than fail in constrained CI).
+    /// Build a fresh, un-driven `App` for wake-scheduling tests over a headless
+    /// (no-PTY) session, so the fixture creates no OS child.
     fn build_idle_app() -> Option<App> {
         let dims = Dimensions::new(24, 80);
-        let session = crate::native::test_support::spawn_test_pause_shell(dims).ok()?;
-        let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
-        let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-        let pty = Arc::new(Mutex::new(session));
-        Some(App::new(
+        let (app, _terminal) = crate::native::test_support::headless_app_with(
             NativeOptions::default(),
-            terminal,
-            writer,
-            pty,
+            dims,
             Settings::default(),
-            crate::settings::SettingsReloader::for_current_process(Instant::now()),
-        ))
+        );
+        Some(app)
     }
 
     #[derive(Clone, Default)]
@@ -7191,20 +7213,14 @@ mod tests {
     /// writing to a real shell.
     fn build_recording_app() -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
         let dims = Dimensions::new(24, 80);
-        let session = crate::native::test_support::spawn_test_pause_shell(dims).ok()?;
-        let _ = session.take_writer().ok()?;
         let recorder = RecordingWriter::default();
         let bytes = recorder.bytes.clone();
         let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
-        let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-        let pty = Arc::new(Mutex::new(session));
-        let app = App::new(
+        let (app, _terminal) = crate::native::test_support::headless_app_with_writer(
             NativeOptions::default(),
-            terminal,
-            writer,
-            pty,
+            dims,
             Settings::default(),
-            crate::settings::SettingsReloader::for_current_process(Instant::now()),
+            writer,
         );
         Some((app, bytes))
     }

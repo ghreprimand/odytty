@@ -22,22 +22,11 @@ const GRID: &[u8] = b"ab12ef\r\ngh34ij\r\nkl56mn";
 /// selection has real cells to span. Returns `None` when no PTY is available.
 fn build_app(content: &[u8]) -> Option<App> {
     let dims = Dimensions::new(COLS, ROWS);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let (app, terminal) = headless_app_with(NativeOptions::default(), dims, Settings::default());
     {
         let mut t = terminal.lock().expect("terminal");
         t.advance(content);
     }
-    let pty = Arc::new(Mutex::new(session));
-    let app = App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
     Some(app)
 }
 
@@ -65,24 +54,15 @@ impl Write for RecordingWriter {
 /// reporting enabled. Returns `None` when no PTY is available.
 fn build_recording_app(content: &[u8]) -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
     let dims = Dimensions::new(COLS, ROWS);
-    let session = spawn_test_pause_shell(dims).ok()?;
     let recorder = RecordingWriter::default();
     let bytes = recorder.bytes.clone();
     let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let (app, terminal) =
+        headless_app_with_writer(NativeOptions::default(), dims, Settings::default(), writer);
     {
         let mut t = terminal.lock().expect("terminal");
         t.advance(content);
     }
-    let pty = Arc::new(Mutex::new(session));
-    let app = App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
     Some((app, bytes))
 }
 

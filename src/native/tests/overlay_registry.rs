@@ -27,18 +27,7 @@ const CELL_H: u32 = 10;
 /// is available.
 fn build_app(settings: Settings) -> Option<App> {
     let dims = Dimensions::new(COLS, ROWS);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(session));
-    let mut app = App::new(
-        NativeOptions::default(),
-        terminal,
-        writer,
-        pty,
-        settings,
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
+    let (mut app, _terminal) = headless_app_with(NativeOptions::default(), dims, settings);
     app.set_test_cell_for_test(cell(CELL_W, CELL_H));
     Some(app)
 }

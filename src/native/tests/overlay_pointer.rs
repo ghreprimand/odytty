@@ -1,31 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! UX4-P1 App-level pointer-precedence tests: an open overlay captures the
 //! mouse before selection / PTY mouse-reporting, the exact mouse analogue of
-//! the keyboard overlay guard. These drive a real `App` (with a one-shot PTY,
-//! skipped when none is available) through the same handlers the `window_event`
-//! arms call.
+//! the keyboard overlay guard. These drive a real `App` (over a headless,
+//! no-PTY session) through the same handlers the `window_event` arms call.
 
 use super::*;
 use winit::event::ElementState;
 
-/// Build an `App` over a one-shot PTY, returning the App plus a clone of the
-/// shared terminal handle (so a test can drive it into a mouse-reporting mode),
-/// or `None` when no PTY is available (CI sandboxes); callers then skip.
+/// Build an `App` over a headless (no-PTY) session, returning the App plus a
+/// clone of the shared terminal handle (so a test can drive it into a
+/// mouse-reporting mode). These are pure UI state tests: they never exercise
+/// PTY/child/output-pump behavior, so a real shell is unnecessary. Returns
+/// `Some` unconditionally; the `Option` shape is kept so the call sites are
+/// unchanged.
 fn app_for_test() -> Option<(App, Arc<Mutex<Terminal>>)> {
-    let dims = Dimensions::new(80, 24);
-    let session = spawn_test_pause_shell(dims).ok()?;
-    let writer: PtyWriter = Arc::new(Mutex::new(session.take_writer().ok()?));
-    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
-    let pty = Arc::new(Mutex::new(session));
-    let app = App::new(
-        NativeOptions::default(),
-        terminal.clone(),
-        writer,
-        pty,
-        Settings::default(),
-        crate::settings::SettingsReloader::for_current_process(Instant::now()),
-    );
-    Some((app, terminal))
+    Some(headless_app_for_test())
 }
 
 #[test]

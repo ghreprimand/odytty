@@ -463,22 +463,14 @@ mod tests {
         assert_eq!(hints.candidates().count(), 2, "two labels start with 'a'");
     }
 
-    // --- App-level integration (skips when no PTY is available) -------------
+    // --- App-level integration (headless, no real PTY) ----------------------
 
     fn build_app() -> Option<App> {
         let d = dims(40, 4);
-        let session = crate::native::test_support::spawn_test_pause_shell(d).ok()?;
-        let writer: crate::native::pty::PtyWriter =
-            Arc::new(Mutex::new(session.take_writer().ok()?));
-        let terminal = Arc::new(Mutex::new(Terminal::new(d.columns, d.rows)));
-        let pty = Arc::new(Mutex::new(session));
-        let mut app = App::new(
+        let (mut app, _terminal) = crate::native::test_support::headless_app_with(
             crate::native::options::NativeOptions::default(),
-            terminal,
-            writer,
-            pty,
+            d,
             Settings::default(),
-            crate::settings::SettingsReloader::for_current_process(Instant::now()),
         );
         app.set_test_cell_for_test(crate::atlas::CellSize {
             width: 8,
