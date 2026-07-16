@@ -235,7 +235,7 @@ first install compiles from source (pulling in `cargo`/`rust`), so it takes a
 few minutes. The `odytty` AUR package is maintained by the project and
 auto-published on each release: the release pipeline pushes the updated package
 to the AUR as part of publishing a new version, so it tracks the GitHub releases
-closely. AUR packages are not vetted by Arch, so review the PKGBUILD before
+closely. AUR packages are not vetted by Arch, so inspect the PKGBUILD before
 installing; AUR helpers show it by default.
 
 To pick up the very latest immediately regardless of the AUR package's state,

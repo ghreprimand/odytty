@@ -52,7 +52,7 @@ cp dist/linux/io.unfinished_works.odytty.metainfo.xml \
 cp -a dist/icons/hicolor/. "$APPDIR/usr/share/icons/hicolor/"
 
 # Verified immutable upstream release inputs. Do not substitute the mutable
-# `continuous` channel: these checksums are the review boundary before either
+# `continuous` channel: these checksums are the verification boundary before either
 # downloaded AppImage receives execute permission.
 LINUXDEPLOY_URL="https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-$ARCH.AppImage"
 LINUXDEPLOY_SHA256="c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d"

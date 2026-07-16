@@ -67,7 +67,7 @@ makepkg -f
 namcap PKGBUILD ./*.pkg.tar.zst
 ```
 
-Copy the validated files into a fresh AUR checkout, review the staged diff, and
+Copy the validated files into a fresh AUR checkout, inspect the staged diff, and
 publish:
 
 ```sh
