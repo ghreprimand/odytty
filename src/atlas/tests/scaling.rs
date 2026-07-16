@@ -171,6 +171,7 @@ fn rasterize_clip_width_relieves_wide_glyph_clipping() {
             &font,
             pen,
             'W',
+            0.0,
             &mut data,
             stride,
             SubpixelMode::Off,

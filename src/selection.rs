@@ -559,7 +559,7 @@ pub fn selected_text(snapshot: &Snapshot, range: SelectionRange) -> String {
         let line = snapshot.cells[offset + start_column..=offset + end_column]
             .iter()
             .filter(|cell| !cell.wide_continuation)
-            .map(|cell| cell.ch)
+            .flat_map(cell_grapheme_chars)
             .collect::<String>()
             .trim_end()
             .to_owned();
@@ -567,6 +567,14 @@ pub fn selected_text(snapshot: &Snapshot, range: SelectionRange) -> String {
     }
 
     lines.join("\n")
+}
+
+/// The characters a copied cell contributes: its base char followed by any
+/// stored zero-width combining marks, in arrival order — so a decomposed
+/// cluster (base plus combining accent) copies as the same decomposed
+/// cluster instead of losing the mark.
+fn cell_grapheme_chars(cell: &crate::core::Cell) -> impl Iterator<Item = char> + '_ {
+    std::iter::once(cell.ch).chain(cell.combining().iter().copied())
 }
 
 /// Extract a block (rectangular/column) selection as text (MOUSE-RECT). Unlike
@@ -601,7 +609,7 @@ pub fn selected_text_block(snapshot: &Snapshot, range: SelectionRange) -> String
         let line = snapshot.cells[offset + lo..=offset + hi]
             .iter()
             .filter(|cell| !cell.wide_continuation)
-            .map(|cell| cell.ch)
+            .flat_map(cell_grapheme_chars)
             .collect::<String>()
             .trim_end()
             .to_owned();
@@ -892,6 +900,27 @@ mod tests {
         };
 
         assert_eq!(selected_text(&snapshot, range), " a b");
+    }
+
+    /// A decomposed combining cluster copies as the same decomposed cluster:
+    /// the stored zero-width marks follow their base char instead of being
+    /// dropped, on both the wrapped and the block extraction paths.
+    #[test]
+    fn extracts_combining_marks_with_their_base() {
+        let mut snapshot = snapshot(&["ex", "yz"], 2);
+        // Attach a combining acute to 'e' and a diaeresis to 'z'.
+        snapshot.cells[0].push_combining('\u{0301}');
+        snapshot.cells[3].push_combining('\u{0308}');
+        let range = SelectionRange {
+            start: CellPoint { row: 0, column: 0 },
+            end: CellPoint { row: 1, column: 1 },
+        };
+
+        assert_eq!(selected_text(&snapshot, range), "e\u{0301}x\nyz\u{0308}");
+        assert_eq!(
+            selected_text_block(&snapshot, range),
+            "e\u{0301}x\nyz\u{0308}"
+        );
     }
 
     #[test]

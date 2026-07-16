@@ -956,6 +956,13 @@ pub(super) fn ensure_snapshot_glyphs_excluding_color_runs(
         }
         let style = grid::font_style_for_attrs(&cell.attrs);
         let _ = atlas.ensure_styled(fonts.font_for(style), style, cell.ch);
+        // Zero-width combining marks stored on the cell rasterize as their own
+        // dynamic glyphs (anchored so their ink lands over the base cell); a
+        // mark the font lacks caches the fallback decision and simply does not
+        // draw (`combining_mark_quad` filters the fallback slot).
+        for &mark in cell.combining() {
+            let _ = atlas.ensure_styled(fonts.font_for(style), style, mark);
+        }
     }
 }
 

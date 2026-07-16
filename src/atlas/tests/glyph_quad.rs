@@ -162,3 +162,74 @@ fn styled_glyph_quad_resolves_styled_slot() {
     // Distinct slots => distinct UV rects.
     assert_ne!(regular.uv, bold.uv);
 }
+
+/// A zero-width combining mark rasterizes with a one-cell pen anchor, so its
+/// (left-hanging) ink lands over the slot's cell box and the renderer can
+/// draw the mark quad at the base cell's origin. The recorded ink must be
+/// non-empty and horizontally intersect the cell.
+#[test]
+fn combining_mark_ink_lands_over_the_cell_box() {
+    let Some(font) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mark = '\u{0301}'; // combining acute accent
+    if !font_has_glyph(&font, mark) {
+        eprintln!("skipping: font has no combining acute");
+        return;
+    }
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    atlas
+        .ensure_styled(&font, FontStyle::Regular, mark)
+        .expect("mark uv");
+    let quad = atlas
+        .combining_mark_quad(FontStyle::Regular, mark)
+        .expect("mark quad");
+    assert!(quad.width > 0 && quad.height > 0, "mark must ink pixels");
+    let cell_w = atlas.cell.width as i32;
+    assert!(
+        quad.offset_x < cell_w && quad.offset_x + quad.width as i32 > 0,
+        "mark ink [{}, {}) must intersect the cell [0, {cell_w})",
+        quad.offset_x,
+        quad.offset_x + quad.width as i32
+    );
+}
+
+/// `combining_mark_quad` never yields the hollow-box fallback: a mark that is
+/// not resident — or one the font lacks (which `ensure_styled` caches as the
+/// fallback slot) — returns `None`, because the mark quad composites OVER an
+/// already-drawn base glyph and a tofu box there would obscure the base.
+#[test]
+fn combining_mark_quad_filters_missing_marks() {
+    let Some(font) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    // Never ensured: no resident slot, no quad (glyph_quad_styled would have
+    // reported the fallback box here).
+    assert!(
+        atlas
+            .combining_mark_quad(FontStyle::Regular, '\u{0301}')
+            .is_none()
+    );
+    // A mark the font lacks resolves to the fallback slot via ensure_styled
+    // and must still be filtered.
+    let missing = (0x0591..=0x05BD_u32)
+        .chain(0x0E31..=0x0E31)
+        .filter_map(char::from_u32)
+        .find(|&ch| is_combining_mark(ch) && !font_has_glyph(&font, ch));
+    let Some(missing) = missing else {
+        eprintln!("skipping: font covers every probed mark");
+        return;
+    };
+    atlas
+        .ensure_styled(&font, FontStyle::Regular, missing)
+        .expect("fallback uv");
+    assert!(
+        atlas
+            .combining_mark_quad(FontStyle::Regular, missing)
+            .is_none(),
+        "font-missing mark must not resolve to the tofu box"
+    );
+}

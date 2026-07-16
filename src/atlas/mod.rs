@@ -922,6 +922,7 @@ impl GlyphAtlas {
                 font,
                 Pen { px, baseline },
                 ch,
+                0.0, // printable ASCII: never a combining mark
                 &mut data,
                 width,
                 subpixel,
@@ -1045,6 +1046,22 @@ impl GlyphAtlas {
             return Some(self.slot_glyph_bounds(FALLBACK_SLOT));
         }
         None
+    }
+
+    /// Bearing-aware quad geometry for a zero-width combining mark, or `None`
+    /// when the mark is not resident as a real glyph. Unlike
+    /// [`Self::glyph_quad_styled`] this NEVER resolves to the hollow-box
+    /// fallback: a mark the font lacks must simply not draw, because its quad
+    /// is composited OVER an already-drawn base glyph and a tofu box there
+    /// would obscure the base. Marks rasterize with a one-cell pen anchor (see
+    /// `ensure_styled`), so the returned offsets place the ink on the base
+    /// cell when the quad is anchored at that cell's origin.
+    pub fn combining_mark_quad(&self, style: FontStyle, ch: char) -> Option<GlyphBounds> {
+        let &slot = self.dynamic.get(&(style, ch))?;
+        if slot == FALLBACK_SLOT {
+            return None;
+        }
+        Some(self.slot_glyph_bounds(slot))
     }
 
     /// Build the public [`GlyphBounds`] for a slot from its stored ink extent,
@@ -1190,6 +1207,17 @@ impl GlyphAtlas {
                     pad,
                 }
             });
+            // Combining marks carry a zero advance and hang their ink LEFT of
+            // the pen (they are typeset after their base advances). Anchoring
+            // the pen one cell to the right places that ink over the slot's
+            // cell box — the same anchor mechanism `ensure_shaped` uses — so
+            // the renderer can draw the mark quad at the base cell's origin
+            // and the recorded `GlyphInk` offsets land the ink on the base.
+            let anchor_x = if is_combining_mark(ch) {
+                self.cell.width as f32
+            } else {
+                0.0
+            };
             rasterize_glyph(
                 raster_font,
                 Pen {
@@ -1197,6 +1225,7 @@ impl GlyphAtlas {
                     baseline: self.cell.baseline as f32,
                 },
                 ch,
+                anchor_x,
                 &mut self.data,
                 self.width,
                 self.subpixel,
@@ -1762,6 +1791,7 @@ fn rasterize_glyph(
     font: &FontVec,
     pen: Pen,
     ch: char,
+    anchor_x: f32,
     data: &mut [u8],
     width: u32,
     subpixel: SubpixelMode,
@@ -1776,7 +1806,7 @@ fn rasterize_glyph(
         font,
         pen,
         font.glyph_id(ch),
-        0.0,
+        anchor_x,
         data,
         width,
         subpixel,

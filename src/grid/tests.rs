@@ -2267,3 +2267,102 @@ mod pane_subcell_clip {
         );
     }
 }
+
+/// A decomposed combining cluster draws its mark over the base glyph: the
+/// content pass emits a glyph quad with the mark's atlas UV at the base
+/// cell's origin plus the mark's bearing-aware offsets.
+#[test]
+fn combining_mark_draws_over_the_base_glyph() {
+    let Ok(font) = load_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mark = '\u{0301}';
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    if atlas
+        .ensure_styled(&font, FontStyle::Regular, mark)
+        .is_none()
+        || atlas
+            .combining_mark_quad(FontStyle::Regular, mark)
+            .is_none()
+    {
+        eprintln!("skipping: font has no combining acute");
+        return;
+    }
+    let bounds = atlas
+        .combining_mark_quad(FontStyle::Regular, mark)
+        .expect("mark quad");
+
+    let mut term = Terminal::new(2, 1);
+    term.advance("\x1b[?25le\u{0301}".as_bytes());
+    let snapshot = term.snapshot();
+    assert_eq!(
+        snapshot.cells[0].combining(),
+        &[mark],
+        "core stored the mark on the base cell"
+    );
+    let verts = build_vertices(&snapshot, &atlas);
+
+    let mark_quads: Vec<_> = verts
+        .chunks(VERTS_PER_QUAD)
+        .filter(|quad| quad[0].is_glyph == 1.0 && quad[0].uv == [bounds.uv[0], bounds.uv[1]])
+        .collect();
+    assert_eq!(mark_quads.len(), 1, "exactly one mark quad");
+    // Base cell is (0,0): the quad's top-left is the mark's bearing offsets.
+    assert_eq!(
+        mark_quads[0][0].pos,
+        [bounds.offset_x as f32, bounds.offset_y as f32]
+    );
+    // The base glyph still draws (its own quad is present too).
+    let base = atlas
+        .glyph_quad_styled(FontStyle::Regular, 'e')
+        .expect("base quad");
+    assert!(
+        verts
+            .chunks(VERTS_PER_QUAD)
+            .any(|quad| quad[0].is_glyph == 1.0 && quad[0].uv == [base.uv[0], base.uv[1]]),
+        "base glyph quad still present"
+    );
+}
+
+/// A Block cursor sitting on a combining cluster redraws the mark over the
+/// cursor block along with the base glyph: the mark's UV appears twice, once
+/// from the content pass and once from the cursor redraw.
+#[test]
+fn block_cursor_redraws_combining_mark_over_the_block() {
+    let Ok(font) = load_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mark = '\u{0301}';
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    if atlas
+        .ensure_styled(&font, FontStyle::Regular, mark)
+        .is_none()
+        || atlas
+            .combining_mark_quad(FontStyle::Regular, mark)
+            .is_none()
+    {
+        eprintln!("skipping: font has no combining acute");
+        return;
+    }
+    let bounds = atlas
+        .combining_mark_quad(FontStyle::Regular, mark)
+        .expect("mark quad");
+
+    let mut term = Terminal::new(2, 1);
+    // Print the cluster, then move the cursor back onto it (cursor visible).
+    term.advance("e\u{0301}\x1b[1;1H".as_bytes());
+    let snapshot = term.snapshot();
+    assert_eq!(snapshot.cursor, crate::core::Position { row: 0, column: 0 });
+    let verts = build_vertices(&snapshot, &atlas);
+
+    let mark_quads = verts
+        .chunks(VERTS_PER_QUAD)
+        .filter(|quad| quad[0].is_glyph == 1.0 && quad[0].uv == [bounds.uv[0], bounds.uv[1]])
+        .count();
+    assert_eq!(
+        mark_quads, 2,
+        "content pass + cursor redraw each emit the mark"
+    );
+}

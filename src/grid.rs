@@ -982,6 +982,35 @@ pub fn build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
                 }
             }
 
+            // Zero-width combining marks stored on the cell draw over the base
+            // glyph at the same cell origin: each mark rasterized with a
+            // one-cell pen anchor so its (left-hanging) ink lands on the base
+            // cell (`combining_mark_quad`, which never yields the tofu box).
+            // Marks draw even over a space base (a mark can attach to one) and
+            // follow the base glyph's seam-clipping rule. Wide bases and
+            // stacked multi-mark clusters render at the same single-cell
+            // anchor — a bounded approximation, not full mark positioning.
+            if !cell.attrs.hidden()
+                && !has_color_glyph_run(color_runs, row, col)
+                && ligature.is_none()
+            {
+                for &mark in cell.combining() {
+                    let Some(bounds) =
+                        atlas.combining_mark_quad(font_style_for_attrs(&cell.attrs), mark)
+                    else {
+                        continue;
+                    };
+                    if chrome_pin.active()
+                        && chrome_pin.top_rows > 0
+                        && !chrome_pin.is_chrome(row, col)
+                    {
+                        push_glyph_quad_clipped_top(out, x0, y0, bounds, fg, chrome_seam_y);
+                    } else {
+                        push_glyph_quad(out, x0, decoration_y0, bounds, fg);
+                    }
+                }
+            }
+
             // Emit a contextual span once from its first source column. Its
             // atlas keys carry only source span/anchor data; shaped advances
             // never move grid columns. Horizontal clipping prevents ink from
@@ -1699,6 +1728,18 @@ fn push_cursor(
                     atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), cell.ch)
             {
                 push_glyph_quad(out, x0, y0, bounds, glyph_color);
+            }
+            // The under-cursor glyph keeps its combining marks too, drawn in
+            // the same contrast-derived color as the base (see the content
+            // pass for the anchoring rule).
+            if !cell.attrs.hidden() {
+                for &mark in cell.combining() {
+                    if let Some(bounds) =
+                        atlas.combining_mark_quad(font_style_for_attrs(&cell.attrs), mark)
+                    {
+                        push_glyph_quad(out, x0, y0, bounds, glyph_color);
+                    }
+                }
             }
         }
         CursorStyle::Underline => {
