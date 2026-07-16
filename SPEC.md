@@ -326,10 +326,16 @@ scroll, and Kitty/Sixel images all work in splits.
 display), `a=p` (display existing by id), `a=d` (delete), and `a=q` (query)
 are supported. Formats `f=24` (raw RGB), `f=32` (raw RGBA), and `f=100` (PNG
 still image) are supported. Transports `t=d` (direct), `t=f` (file), and `t=t`
-(temp file) are supported on all platforms; `t=s` (POSIX shared memory) is
-Unix-only and rejected as unsupported on Windows. File transports carry
-security restrictions documented in `docs/graphics.md`. Chunked transfer
-(`m=1`/`m=0`) is supported under a 96 MiB encoded-payload cap.
+(temp file) and `t=s` (POSIX shared memory on Unix) share an explicit named-
+transport gate. Direct and chunked transfers are always available; named
+transports default off and are rejected before host I/O unless
+`kitty_named_transports` enables them. Once enabled, file paths remain limited
+to approved temporary roots, Unix opens no-follow regular-file handles without
+blocking on FIFOs, `t=t` requires its protocol marker before deletion, and
+`t=s` unlinks only after validation succeeds. POSIX shared memory is unsupported
+on Windows. File transports carry the fuller security rationale in
+`docs/graphics.md`. Chunked transfer (`m=1`/`m=0`) is supported under a 96 MiB
+encoded-payload cap.
 
 Placement ids,
 z-index, source-rectangle crop, cell-box scaling, and anchor pixel offset are
@@ -451,12 +457,32 @@ PRIMARY selection; an empty selector defaults to the regular clipboard. Decoded
 payloads are capped at 64 KiB and invalid base64 or non-UTF-8 payloads are
 dropped without grid leakage or a host reply.
 
+Writes use the `osc52_write` policy (`on` by default; `ask` or `off` available)
+at the native authority boundary. Every permitted write must originate from the
+active PTY while an OS-focused window has been observed; unknown or lost focus
+fails closed. The default-on path emits only a bounded, content-free notice.
+`ask` stores consent only for the lifetime of the emitting PTY session and
+rechecks authority when the response is accepted. Linux PRIMARY remains a
+separate target; macOS and Windows have no PRIMARY surface.
+
 OSC 52 reads (`... ; ? ST`) are disabled by default because replying with
 clipboard contents lets a remote program exfiltrate local data. With the
 default `osc52_read = off`, the core queues no request and sends no reply.
 
 Only an explicit `osc52_read = on` / `ODYTTY_OSC52_READ=on` opt-in lets native
 clipboard reads produce an OSC 52 reply.
+
+### Private State And Diagnostic Files
+
+Unix persistent state and diagnostic writers validate their final OdyTTY-owned
+leaf through no-follow handles: it must be a directory owned by the effective
+UID and is kept at mode `0700`. Known sensitive files must be owned regular
+files at mode `0600`; unexpected types, symlinks, foreign ownership, and write
+failures leave the corresponding disk sink unavailable rather than being
+followed or repaired. Atomic JSON uses a fresh private sibling, synchronization,
+and rename. Layout migration considers only direct known JSON files, never an
+arbitrary recursive tree. macOS mode repairs preserve inherited ACL entries;
+Windows retains its inherited-ACL behavior.
 
 ### Dynamic Colors
 
@@ -939,6 +965,32 @@ its first stable layer.
   `= off`; reduced motion makes the presentation static without overwriting
   saved settings.
 
+#### Cursor Render Parameter Parity
+
+  `CursorRenderParams` carries the presentation-only sub-cell offset, opacity,
+  focus state, and large-jump follower state from the native animation sample to
+  the grid cursor builder. Every Full rebuild, CursorOnly rebuild, and focused
+  split-pane rebuild receives the same sampled parameters. The render-cache
+  signature includes a stable quantization of those parameters, so a visible
+  animation sample cannot be mistaken for unchanged cursor geometry. This keeps
+  cursor slide, blink fade, trail alignment, focus appearance, and follower
+  suppression continuous while terminal output requires a Full rebuild.
+
+  Focus changes are part of the same parameter contract. A focused Block is the
+  ordinary inverse block; an unfocused Block is four one-pixel border quads with
+  its normal glyph left visible. Bar and Underline retain their established
+  geometry. None of these presentation values changes terminal state, copy,
+  selection, or input routing.
+
+#### Multi-Pane Cursor Scope
+
+  Cursor slide, trail, analytic aura, opacity easing, blink activity, and the
+  large-jump follower are consumers only for the focused pane of the active
+  split. Their quads use that pane's origin and clip rectangle, and only that
+  pane contributes a cursor-animation deadline. Background and idle panes keep
+  their independent terminal output behavior but never receive cursor-animation
+  wakes without an active consumer.
+
 - New-output fade (`new_output_fade`, off by default): rows of freshly arrived
   output fade in over a short ramp at the live tail; scrollback and resize snap.
 
@@ -1031,6 +1083,20 @@ its first stable layer.
   a selection or a search match shows in the correct pane regardless of focus
   (the interactive search query bar stays on the focused pane). Kitty and Sixel
   inline graphics also composite within each pane's origin and clip rectangle.
+
+#### Rail And Tab Chrome
+
+  The top tab band and either pinned workspace-rail side are one continuous,
+  pixel-snapped chrome surface. Their shared junction and the content-facing
+  rail edge use one intentional resize seam; each drawn top-seam segment owns
+  the matching resize hit target. The rail-to-content gap is retained as content
+  padding, not exposed background.
+
+  Auto-hidden rails remain floating overlays without content reflow, while
+  active and reorder overlays survive the auto-hide path on both sides. The
+  component treatment changes only presentation geometry: workspace and tab
+  semantics, resize behavior, auto-hide behavior, and existing hit targets stay
+  intact.
 
 ### Sessions And SSH
 
@@ -1153,6 +1219,11 @@ its first stable layer.
   ControlMaster reuse is compiled out on a Windows client (OpenSSH
   there has no connection multiplexing); integration, tmux, reconnect, image
   paste-through, and workspace binding are cross-platform.
+
+  On Unix, the final ControlMaster directory is accepted only when it is a
+  non-symlink directory owned by the effective UID. Permission repair occurs
+  through a no-follow directory handle, so a foreign, special, or swapped leaf
+  fails closed without changing its target. Windows has no ControlMaster surface.
 
 ### Platform Integration
 
@@ -1551,10 +1622,39 @@ loaded `Arc` identities; `GlyphAtlas::set_synthetic_styles` receives those bits
 and applies a `SynthTransform` during rasterization — italic via horizontal
 shear (tan 12° ≈ 0.2126), bold via double-strike at a sub-pixel embolden offset,
 bold-italic by composing both. Real faces always take precedence; synthesis
-activates only for genuinely absent slots. Eligible ASCII programming ligatures
-are contextually shaped and anchored to source cells; other complex shaping
-remains unimplemented. Scalar atlas entries remain one character rasterized
-into its cell or two-cell slot.
+activates only for genuinely absent slots. The ordinary path remains one
+character rasterized into its cell or two-cell slot. Default programming
+ligatures use the bounded, cell-preserving design recorded below; broader
+complex-text shaping remains outside this terminal-grid model.
+
+#### Programming Ligatures
+
+`ligatures` is a default-on presentation setting. Eligible same-style ASCII runs
+are shaped with `swash::ShapeContext` and contextual alternates, while the
+terminal model retains its original one-character-per-cell state. `ligatures =
+off` performs no shaping and retains the prior scalar atlas and vertex output
+exactly.
+
+The renderer caches deterministic per-row shape plans, bounded to 512 rows, so
+unchanged rows are not reshaped in the render hot loop. Contextual atlas entries
+are keyed by face and style, shaped glyph identifier, source span, and source
+cell anchor. Their ink may span the source cells but is clipped to that span;
+shaped advances never move terminal columns. Wide-cell boundaries, style-face
+changes, and unsupported runs fall back to the ordinary per-cell path.
+
+Logical cells remain authoritative for cursor placement, copy, search,
+selection, synchronized output, and terminal protocol behavior. Selection and
+search colors are compositing inputs rather than artificial shaping boundaries,
+so they do not split a contextual glyph outline. Each pane shapes independently
+inside its own origin and clip rectangle. This keeps the terminal grid stable
+even when the selected font lacks the requested alternates.
+
+#### Combining Marks
+
+Zero-width combining marks remain stored with their base cell in arrival order.
+The monochrome renderer draws resident marks over that base and suppresses a
+missing-mark tofu fallback, so a missing font glyph cannot obscure the base.
+Wrapped and rectangular selection copy the base followed by those stored marks.
 
 ### Store Cell Attributes Compactly
 

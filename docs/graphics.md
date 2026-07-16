@@ -128,7 +128,9 @@ reference Kitty terminal to limit what terminal output can instruct the host to
 read. Named transports are disabled by default. Set
 `kitty_named_transports = on` or `ODYTTY_KITTY_NAMED_TRANSPORTS=on` only when
 the entire PTY session, including plain SSH output, is trusted with this local
-host-I/O authority.
+host-I/O authority. With the gate off, `t=f`, `t=t`, and `t=s` are rejected
+before file or shared-memory I/O; direct and chunked-inline transfers remain
+available.
 
 ### Path allowlist (`t=f`, `t=t`)
 
@@ -155,6 +157,14 @@ the `open()` call.
 The reference Kitty terminal follows symlinks. OdyTTY rejects them on Unix.
 Windows uses a plain file open after canonical-path allowlist validation and
 does not provide the Unix `O_NOFOLLOW` guarantee.
+
+### Regular-file validation (`t=f`, `t=t`)
+
+On Unix, OdyTTY opens candidate files nonblocking and verifies the opened handle
+is a regular file before reading. FIFOs, devices, directories, and other special
+objects are rejected without reading bytes, so a PTY request cannot block on a
+named pipe. Windows retains its regular-file transport behavior; POSIX shared
+memory has no Windows surface.
 
 ### Delete-before-decode for temp files (`t=t`)
 

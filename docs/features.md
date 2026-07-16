@@ -88,7 +88,7 @@ shells and full-screen terminal applications:
 
 | Area | Supported behavior |
 | --- | --- |
-| Text and attributes | Printing, UTF-8 chunking, SGR attributes, 256-color, and truecolor |
+| Text and attributes | Printing, UTF-8 chunking, SGR attributes including legacy SGR 21 double underline, 256-color, and truecolor |
 | Cursor and editing | Cursor movement, erase, insert/delete character and line, insert/replace mode (IRM), repeat, and reverse index |
 | Screen state | Scroll regions, origin mode, tab stops, bracketed paste, focus reporting, and alternate-screen modes 47/1047/1048/1049 |
 | OSC sequences | OSC 0/2 titles, OSC 7 working directories, OSC 8 hyperlinks, OSC 52 clipboard write plus opt-in read, OSC 133 prompt marks, and OSC 4/10/11/12 dynamic colors |
@@ -139,14 +139,32 @@ configuration.
 | Styling | Font-weight variants, synthetic styles, and subpixel antialiasing |
 | Programming ligatures | Default-on ASCII contextual alternates with grid-aligned source cells |
 | Fallback | Per-range symbol maps and bundled Nerd Font v3/v2 faces |
-| Readability | Glyph coverage gamma, stem darkening, and minimum-contrast enforcement |
+| Readability | Linear-light color composition, glyph coverage gamma, stem darkening, and minimum-contrast enforcement |
 
 Fresh profiles enable contextual programming ligatures from the selected text
 font. Shaping is limited to eligible ASCII runs and changes only presentation:
 the terminal model keeps one logical character per cell, so copying, selection,
 search, cursor placement, and wide-cell behavior retain their ordinary
 semantics. Unsupported fonts and runs render through the normal per-cell path.
-Set `ligatures = off` to restore scalar rendering; the setting reloads live.
+Set `ligatures = off` in Settings or configuration, or
+`ODYTTY_LIGATURES=off` for one launch, to restore scalar rendering; the setting
+reloads live.
+
+Decomposed combining marks stay attached to their base glyph in the monochrome
+text path. Wrapped and rectangular selection copy the base followed by its marks
+in stored order. If the active font lacks a combining mark, OdyTTY omits that
+mark instead of drawing a tofu box over the base glyph.
+
+Supported box-drawing, block and shade elements, Braille, Powerline separators,
+and Symbols for Legacy Computing sextants and octants use OdyTTY's procedural
+cell coverage instead of font outlines. The coverage meets its cell edges
+exactly, keeping TUI borders, graphs, and prompt separators crisp and seamless
+at every font size. `geometric_boxdraw` is on by default; `box_thickness` tunes
+line weight when a different visual density is preferred.
+
+Text colors are composed in linear light, with an sRGB surface preferred for
+correct antialiased edges. `text_gamma` controls coverage weight independently,
+and optional subpixel antialiasing uses dual-source blending on capable GPUs.
 
 ### Render Color Emoji
 
@@ -166,7 +184,7 @@ COLR/CPAL and SVG-in-OpenType expansion remain future work.
 
 | Protocol | Supported surface |
 | --- | --- |
-| Kitty graphics | Actions `t`, `T`, `p`, `d`, and `q`; raw RGB, raw RGBA, and PNG still images; direct, file, and temp-file transports on all platforms plus POSIX shared memory on Unix; chunking; image and placement ids; z-index; crop; cell scaling; and pixel offsets |
+| Kitty graphics | Actions `t`, `T`, `p`, `d`, and `q`; raw RGB, raw RGBA, and PNG still images; direct and chunked-inline transports; opt-in file, temporary-file, and Unix POSIX shared-memory transports; image and placement ids; z-index; crop; cell scaling; and pixel offsets |
 | Sixel | DEC/xterm data language, RGB/HLS color introducers, repeat, raster attributes, transparency, VT340 palette, and DECSDM |
 
 Animation and Kitty Unicode placeholders are not supported.
@@ -215,9 +233,12 @@ workflow name remains visible.
 | Drag the bottom edge | Sets `tab_bar_height` from one to five text rows |
 | Double-click the bottom edge | Resets `tab_bar_height` to `auto`, the default one-row height |
 
-The bar is an opaque band with a thin themed divider, so its labels stay
-legible over images and effects. Inactive tabs are dimmed; the active tab keeps
-a full-strength bold label and an accent underline in the theme's cursor color.
+The bar and a pinned workspace rail form one continuous, pixel-snapped chrome
+surface with no exposed background gutter. Their shared junction has one
+intentional resize seam, while the rail-to-content gap remains content padding.
+The band stays opaque enough for labels to remain legible over images and
+effects. Inactive tabs are dimmed; the active tab keeps a full-strength bold
+label and an accent underline in the theme's cursor color.
 
 Labels stay centered vertically when the bar grows. Kitty and Sixel placements
 use the same reserved rows as text, so inline graphics remain aligned with the
@@ -356,6 +377,15 @@ default.
 Launching `odytty` with no arguments restores the primary instance's
 workspaces, tabs, pane splits, and each pane's recorded working directory. Any
 command-line argument suppresses restore.
+
+On Unix, OdyTTY validates its final state-directory leaves as owner-private,
+non-symlink directories and uses owner-private regular files for layouts,
+snapshots, and diagnostics. State JSON is written through a private temporary
+sibling and atomic rename. Existing direct layout JSON files are the only
+entries migrated; unknown children are left untouched. A failed validation
+disables the affected disk sink instead of following or repairing an unexpected
+object. macOS preserves inherited ACL entries while tightening mode bits;
+Windows retains its inherited-ACL behavior.
 
 A second window leaves restore ownership with the first and shows this notice:
 
@@ -686,11 +716,24 @@ This section covers theme selection, background images, and transparency.
 ### Cursor Presentation
 
 Fresh profiles use a blinking Block cursor with cursor slide, trail, blink
-fade, and the restrained shape-aware glow enabled. The glow follows the active
-Block, Bar, or Underline geometry without changing terminal state or input
-behavior. Each presentation control remains independently configurable in
-Settings or [Runtime Knobs](runtime-knobs.md); `reduced_motion = on` makes the
-motion and glow paths static while preserving their saved choices.
+fade, and the restrained shape-aware glow enabled. Nearby eligible moves glide
+while the logical cursor and input remain immediate. Stable jumps beyond the
+six-cell glide range use the selected `cursor_trail_strength` presentation
+profile (`balanced` by default): one cursor-shaped follower stretches into the
+destination without delaying terminal state or input.
+
+Keyboard and IME activity keep a requested blinking cursor visible; blinking
+resumes after a short quiet period and parks visibly on after prolonged idle.
+In an unfocused window, a Block cursor becomes a hollow outline while Bar and
+Underline keep their normal forms. Cursor motion, trail, glow, easing, and
+follower presentation advance only in the focused pane of a split, where they
+stay clipped and do not wake idle panes.
+
+The aura follows the active Block, Bar, or Underline geometry without changing
+terminal state or input behavior. Each presentation control remains independently
+configurable in Settings or [Runtime Knobs](runtime-knobs.md); `reduced_motion =
+on` makes slide, trail, glow, easing, and new-output fade static or instant
+while preserving their saved choices.
 
 ### Follow The Desktop Theme
 

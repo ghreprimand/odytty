@@ -98,11 +98,15 @@ Four additional motion behaviors are on by default, because none adds input
 latency:
 
 - **Cursor blink** (`cursor_blink`) periodically hides and restores the cursor.
-  Set it to `off` for a cursor that remains continuously visible.
+  Keyboard and IME activity hold a requested blinking cursor visibly on;
+  blinking begins after 650 ms of quiet and parks visibly on after 15 seconds
+  without activity. Set it to `off` for a cursor that remains continuously
+  visible.
 
 - **Cursor blink fade** (`cursor_easing`) eases the cursor's opacity in and out
   across each blink instead of switching it hard on and off. It only acts while
   the cursor is blinking and the window is focused; it never moves the cursor.
+  Under reduced motion, the same blink policy uses hard edges with no fade.
 - **Animated scroll glide** (`scroll_glide`) applies to discrete scroll jumps,
   including wheel notches and keyboard page-scroll actions: the viewport moves
   instantly, but the rendered view eases toward the new position over a few

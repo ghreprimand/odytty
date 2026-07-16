@@ -88,6 +88,9 @@ Notes that trip people up:
     always interrupt.
   - To make plain `Ctrl+V` paste, bind it: `keybinds = ctrl+v=paste` (this
     shadows verbatim-insert).
+- With `osc52_write = ask`, a terminal clipboard consent prompt captures
+  `Ctrl+Shift+1` to allow once, `Ctrl+Shift+S` to allow for the current PTY
+  session, `Ctrl+Shift+D` to deny for that session, and `Esc` to cancel.
 - A printed `https://…` URL is clickable by default (Ctrl+click on
   Linux/Windows or Cmd+click on macOS, with the same modifier for the hover
   underline); toggle with `interactive_urls`.

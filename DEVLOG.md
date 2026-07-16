@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-16 -- Harden PTY-directed host I/O and private local state
+
+Kitty direct and chunked-inline graphics remain available. Named file,
+temporary-file, and POSIX shared-memory transports are now default-off behind
+`kitty_named_transports`; disabled requests stop before host I/O. Enabled Unix
+file transports reject symlinks and non-regular objects without blocking on
+FIFOs, temporary files require the protocol marker, and shared-memory names are
+unlinked only after their content validates. Windows retains file transport
+support while POSIX shared memory remains unavailable.
+
+OSC 52 writes default to `on` but require the active PTY and observed OS focus.
+Unknown or lost focus fails closed. `ask` keeps allow or deny decisions only for
+the live PTY session, notices expose the target and byte count rather than
+content, and reads remain independently default-off. Linux PRIMARY remains
+available; macOS and Windows have no PRIMARY surface.
+
+Unix state, layout, and diagnostic paths now validate owner-private leaves and
+known sensitive files through no-follow handles, use `0700` directories and
+`0600` files, and fail closed when validation fails. JSON writes use a private
+atomic path; direct known layout files alone are migrated. SSH ControlMaster
+reuse applies the same final-leaf protections to its socket directory. macOS
+preserves inherited ACL entries; Windows retains its inherited-ACL behavior.
+
+Regression coverage exercises disabled named transports, FIFO rejection, focus
+and session consent boundaries, state ownership and symlink rejection, atomic
+layout persistence, and ControlMaster leaf validation.
+
+---
+
 ## 2026-07-15 -- Selection preserves programming-ligature geometry
 
 Selection and search colors no longer split contextual shaping runs. Highlight

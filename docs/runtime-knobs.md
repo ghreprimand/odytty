@@ -114,6 +114,7 @@ environment variable was not set at startup.
 | `subpixel` | `ODYTTY_SUBPIXEL` | `off`, `rgb`, `bgr` | `off` |
 | `synthetic_styles` | `ODYTTY_SYNTHETIC_STYLES` | `on`, `off` | `on` |
 | `ligatures` | `ODYTTY_LIGATURES` | `on`, `off` | `on` |
+| `kitty_named_transports` | `ODYTTY_KITTY_NAMED_TRANSPORTS` | `on`, `off` | `off` |
 | `geometric_boxdraw` | `ODYTTY_GEOMETRIC_BOXDRAW` | `on`, `off` | `on` |
 | `box_thickness` | `ODYTTY_BOX_THICKNESS` | Float, `0.5..=3.0` | `1.0` |
 | `symbol_fallback` | `ODYTTY_SYMBOL_FALLBACK` | `on`, `off` | `on` |
@@ -160,6 +161,7 @@ environment variable was not set at startup.
 | `remote_image_paste` | `ODYTTY_REMOTE_IMAGE_PASTE` | `ask`, `off` | `ask` |
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
 | `restore_workspaces` | `ODYTTY_RESTORE_WORKSPACES` | `on`, `off` | `off` |
+| `osc52_write` | `ODYTTY_OSC52_WRITE` | `off`, `ask`, `on` | `on` |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` |
 | `copy_on_select` | `ODYTTY_COPY_ON_SELECT` | `on`, `off` | `off` |
 | `smart_ctrl_c` | `ODYTTY_SMART_CTRL_C` | `off`, `copy-or-interrupt` | `copy-or-interrupt` |
@@ -278,9 +280,17 @@ audible bell.
 - `retro = on` promotes effective bloom/CRT settings to a stronger phosphor
   profile without overwriting individual values: threshold `0.70`, intensity
   `1.0`, radius `8.0`, scanlines `0.35`, vignette `0.35`, curvature `0.025`.
-- `geometric_boxdraw = on` renders supported box-drawing, block-element,
-  Braille (`U+2800..=U+28FF`), and Powerline glyphs from cell geometry instead
-  of relying on the active font.
+- `geometric_boxdraw = on` renders supported box-drawing, block and shade
+  elements, Braille (`U+2800..=U+28FF`), all four Powerline separators, and
+  Symbols for Legacy Computing sextants and octants from cell geometry instead
+  of relying on the active font. The procedural coverage tiles each cell edge
+  exactly, so TUI borders and prompt separators stay seamless at any selected
+  font or size. `box_thickness` adjusts the line weight without changing cell
+  placement.
+- Text and UI colors are resolved in linear light before composition, and
+  `text_gamma` adjusts glyph coverage independently of the color pipeline. An
+  sRGB surface is preferred so antialiased edges retain their intended weight;
+  optional subpixel text uses dual-source blending when the adapter supports it.
 - `symbol_fallback = on` backfills symbol/icon codepoints the body font lacks
   from a fallback chain (bundled Symbols Nerd Font v3+v2, an optional host `*
   Nerd Font`, plus a system tail). On macOS the tail is fixed system faces; on
@@ -346,8 +356,36 @@ audible bell.
   never multiplied.
 ### Choose Cursor And Background Behavior
 
-- `cursor_blink = auto` currently resolves to the conventional blinking
-  terminal default on Linux.
+- Fresh profiles use `cursor_style = block` and `cursor_blink = on`. `auto`
+  also resolves to the conventional blinking terminal default. Applications can
+  still select their requested DECSCUSR cursor shape and blink policy.
+- Keyboard and IME activity hold an application-requested blinking cursor
+  visibly on. Blinking begins after a short 650 ms quiet period and parks solid
+  on after 15 seconds without activity, so an idle terminal has no continuing
+  blink wake. Steady application-requested shapes remain steady.
+- `cursor_easing = on` fades blinking cursor edges rather than switching them
+  hard. `cursor_motion = on` glides eligible nearby moves while the logical
+  cursor, selection, copy, and terminal input reach the destination immediately.
+  First frames, resize, reflow, scrollback, focus loss, and other
+  discontinuities remain exact-position presentation paths.
+- `cursor_trail = on` adds the low-alpha nearby echo. For stable jumps beyond
+  the six-cell glide range, the same enabled trail presentation uses one
+  cursor-shaped follower that stretches toward the destination and settles
+  without delaying input. `cursor_trail_strength` selects `subtle`, `balanced`
+  (the default), or `expressive` response for both forms. Turning motion or
+  trail off removes its presentation work; settled effects add no idle wake.
+- `cursor_glow = on` draws one restrained analytic aura beneath the glyph,
+  matched to the active Block, Bar, or Underline geometry. An unfocused Block
+  cursor becomes a one-pixel hollow outline while its glyph keeps the normal
+  foreground color; Bar and Underline remain their normal shapes.
+- Cursor slide, trail, glow, easing, blink activity, and large-jump follower
+  presentation apply to the focused pane in a split and remain clipped to that
+  pane. Idle and background panes do not receive animation wakes.
+- `reduced_motion = on` is the master static override for cursor slide, trail,
+  glow, easing, and new-output fade. It preserves the stored settings while
+  forcing those paths to their static or instant forms. `new_output_fade`
+  remains off by default.
+
 - `background_treatment = image` draws a PNG, JPEG, or WebP behind the grid. Use
   `cell_bg_opacity < 1.0` to show it through cells; otherwise it is only visible
   in transparent/padding areas. The settings panel presents this inverse as
@@ -364,6 +402,28 @@ audible bell.
   picker also lists two entries at the top — **Default (bundled)** restores the
   shipped OdyTTY background and **None (no image)** clears it — so the bundled
   default is reachable from the GUI without editing the config.
+
+### Gate Terminal Clipboard And Named Graphics Authority
+
+`osc52_write = on` is the default compatibility policy for terminal-requested
+clipboard writes. OdyTTY still accepts a write only from the active PTY after
+the window has reported OS focus; requests are discarded while focus is absent
+or has not yet been observed. A compact, rate-limited notice identifies only
+the clipboard target and byte count, never the copied content.
+
+Set `osc52_write = ask` to require a choice for each PTY session. The consent
+overlay offers allow once, allow for that session, deny for that session, or
+cancel; remembered choices disappear when the PTY closes. `off` drains and
+discards all write requests. OSC 52 reads are independent and remain off by
+default through `osc52_read = off`. On Linux, selector `p` targets PRIMARY;
+macOS and Windows have no PRIMARY surface, so that target is a no-op there.
+
+Kitty direct and chunked-inline image transfers remain available. File,
+temporary-file, and POSIX shared-memory transports named by terminal output
+require `kitty_named_transports = on`; the default rejects them before local
+file or shared-memory I/O. See [Graphics Protocol Support](graphics.md) before
+granting that authority to output from an SSH or other remote session.
+
 ### Use Startup Smoke Timing
 
 `native_autoclose_ms` is a smoke-test helper and is startup-only.
@@ -958,6 +1018,11 @@ Reuse layers onto integrated sessions only, so with `remote_integration` off the
 SSH argv stays byte-identical to a plain `ssh` launch regardless of this
 setting. **Windows:** OpenSSH for Windows has no connection multiplexing, so a
 Windows client never emits control options and reuse is a silent no-op there.
+
+On Unix, the final ControlMaster directory must be a real, effective-UID-owned
+directory rather than a symlink or other object. OdyTTY validates it through a
+no-follow directory handle and repairs only its own permissions to `0700`; a
+failed check disables reuse for that launch rather than emitting a control path.
 
 ### SSH connection persistence window (`remote_persist`)
 
