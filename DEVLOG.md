@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Selection preserves programming-ligature geometry
+
+Selection and search colors no longer split contextual shaping runs. Highlight
+foreground, background, inverse, and opacity changes remain cell-owned
+compositing inputs, while only bold and italic face changes divide a shaping
+run. Dragging either edge of a selection through a two- or three-cell
+programming ligature therefore keeps the same glyph outline, atlas identity,
+and source-column placement while the selected cells retain their configured
+colors.
+
+Regression coverage walks every partial and full selection range across the
+bundled font's two- and three-cell ligatures. It pins legacy inverse and themed
+selection treatments, opaque and translucent backgrounds, single- and
+multi-pane origins, Full and CursorOnly rebuild behavior, settings-panel
+reachability, and real wgpu submission. The shared Rust and wgpu path behaves
+the same on Windows, macOS, and Linux; no PTY, spawn, path, or environment
+behavior changes.
+
 ## 2026-07-15 -- Programming ligatures are available as an opt-in
 
 ASCII programming ligatures can now be enabled with `ligatures = on` or

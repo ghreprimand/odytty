@@ -685,10 +685,24 @@ fn programming_ligature_vertices_submit_through_the_real_cell_pipeline() {
 
     let font = text::load_bundled_font().expect("bundled font");
     let fonts = StyleFonts::regular(font);
-    let snap = snapshot(&["->"], 2);
+    let mut snap = snapshot(&["!=="], 3);
+    crate::selection::apply_highlight(
+        &mut snap,
+        crate::selection::SelectionRange {
+            start: crate::selection::CellPoint { row: 0, column: 1 },
+            end: crate::selection::CellPoint { row: 0, column: 1 },
+        },
+        Some(crate::selection::SelectionStyle {
+            fill: [0x24, 0x33, 0x52],
+            fg: [0xEA, 0xEE, 0xF4],
+        }),
+    );
     let mut shaper = crate::ligature::LigatureShaper::new();
     let runs = shaper.build_runs(true, &snap, &fonts, &[]);
-    assert!(!runs.is_empty(), "bundled font exposes an arrow ligature");
+    assert!(
+        runs.iter().any(|run| run.start == 0 && run.end == 3),
+        "a partial selection must preserve the bundled three-cell ligature"
+    );
     let mut atlas = GlyphAtlas::build(fonts.font_for(FontStyle::Regular), 24.0);
     for run in &runs {
         for glyph in run.glyphs.iter() {
@@ -1473,6 +1487,37 @@ fn render_signature_update_matrix_covers_pixel_invalidators() {
         RenderSignature::update_from(Some(&base), &image),
         GeometryUpdate::Full
     );
+}
+
+#[test]
+fn ligature_selection_boundaries_rebuild_cells_then_keep_cursor_only_cells() {
+    for span in [2usize, 3usize] {
+        let mut previous = render_sig();
+        for start in 0..span {
+            for end in start..span {
+                let mut selected = render_sig();
+                selected.content.selection = Some(SelectionSignature {
+                    start: (0, start),
+                    end: (0, end),
+                    block: false,
+                });
+                assert_eq!(
+                    RenderSignature::update_from(Some(&previous), &selected),
+                    GeometryUpdate::Full,
+                    "selection {start}..={end} across a {span}-cell ligature must rebuild cells"
+                );
+
+                let mut blink = selected.clone();
+                blink.cursor.visible = false;
+                assert_eq!(
+                    RenderSignature::update_from(Some(&selected), &blink),
+                    GeometryUpdate::CursorOnly,
+                    "cursor blink after selection {start}..={end} must retain the rebuilt cell segment"
+                );
+                previous = selected;
+            }
+        }
+    }
 }
 
 #[test]

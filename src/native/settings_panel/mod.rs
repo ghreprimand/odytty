@@ -1587,6 +1587,22 @@ mod tests {
     }
 
     #[test]
+    fn programming_ligatures_is_the_first_reachable_rendering_row() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        let rendering = SECTIONS
+            .iter()
+            .position(|section| section.name == "Rendering")
+            .expect("Rendering section");
+        panel.drill_into_section(rendering);
+
+        let signature = panel.render_signature();
+        assert_eq!(signature.selected, 0);
+        let row = signature.entries.first().expect("Rendering settings row");
+        assert_eq!(row.key, "ligatures");
+        assert_eq!(row.value, "off");
+    }
+
+    #[test]
     fn panel_navigation_is_bounded_and_scrolls() {
         let mut panel = SettingsPanel::new(&Settings::default());
         // At Level 1, Down moves section_selected.

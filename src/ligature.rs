@@ -224,12 +224,17 @@ impl LigatureShaper {
                 start += 1;
                 continue;
             }
-            let attrs = cells[start].attrs;
-            let style = font_style_for_attrs(&attrs);
+            let style = font_style_for_attrs(&cells[start].attrs);
             let mut end = start + 1;
             while end < cells.len()
                 && eligible_cell(&cells[end], row, end, color_runs)
-                && cells[end].attrs == attrs
+                // Selection and search treatments change foreground,
+                // background, and inverse attributes cell by cell. Those are
+                // compositing inputs, not shaping inputs: splitting here would
+                // replace one contextual glyph with independently shaped
+                // fragments as a highlight boundary crosses it. Only the font
+                // face selected by bold/italic affects contextual shaping.
+                && font_style_for_attrs(&cells[end].attrs) == style
             {
                 end += 1;
             }
@@ -389,7 +394,9 @@ mod tests {
         append_cursor_vertices_with_origin, build_cell_vertices_with_focus_dim_and_origin_into,
         build_cell_vertices_with_focus_dim_origin_and_ligatures_into,
     };
-    use crate::selection::{CellPoint, SelectionRange, selected_text};
+    use crate::selection::{
+        CellPoint, SelectionRange, SelectionStyle, apply_highlight, selected_text,
+    };
     use crate::text;
 
     struct Fonts(FontVec);
@@ -404,6 +411,14 @@ mod tests {
         let mut terminal = Terminal::new(16, 2);
         terminal.advance(text.as_bytes());
         terminal.snapshot()
+    }
+
+    fn glyph_geometry(vertices: &[crate::grid::Vertex]) -> Vec<([f32; 2], [f32; 2])> {
+        vertices
+            .iter()
+            .filter(|vertex| vertex.is_glyph == 1.0)
+            .map(|vertex| (vertex.pos, vertex.uv))
+            .collect()
     }
 
     #[test]
@@ -681,6 +696,147 @@ mod tests {
                 CursorRenderParams::default(),
             );
             assert!(with_cursor.len() > cells.len(), "cursor style {style:?}");
+        }
+    }
+
+    #[test]
+    fn every_selection_boundary_preserves_two_and_three_cell_ligature_geometry() {
+        let fonts = Fonts(text::load_bundled_font().expect("bundled font"));
+        let atlas_font = text::load_bundled_font().expect("bundled font");
+        let themed = SelectionStyle {
+            fill: [0x24, 0x33, 0x52],
+            fg: [0xEA, 0xEE, 0xF4],
+        };
+
+        for (text, span) in [("!=", 2usize), ("!==", 3usize)] {
+            let base = snapshot(text);
+            let mut shaper = LigatureShaper::new();
+            let base_runs = shaper.build_runs(true, &base, &fonts, &[]);
+            let base_run = base_runs
+                .iter()
+                .find(|run| run.start == 0 && run.end == span)
+                .unwrap_or_else(|| {
+                    panic!("bundled font must expose the {span}-cell {text} ligature")
+                });
+            let expected_glyphs = base_run.glyphs.clone();
+
+            let mut atlas = GlyphAtlas::build(&atlas_font, 24.0);
+            for glyph in expected_glyphs.iter() {
+                let _ = atlas.ensure_shaped(&atlas_font, glyph.key);
+            }
+            let cell_w = atlas.cell.width as f32;
+            let cell_h = atlas.cell.height as f32;
+
+            // All contiguous partial/full cell selections cover every possible
+            // start and end boundary through the contextual source span.
+            for start in 0..span {
+                for end in start..span {
+                    for selection_style in [None, Some(themed)] {
+                        let mut selected = base.clone();
+                        apply_highlight(
+                            &mut selected,
+                            SelectionRange {
+                                start: CellPoint {
+                                    row: 0,
+                                    column: start,
+                                },
+                                end: CellPoint {
+                                    row: 0,
+                                    column: end,
+                                },
+                            },
+                            selection_style,
+                        );
+                        let selected_runs = shaper.build_runs(true, &selected, &fonts, &[]);
+                        let selected_run = selected_runs
+                            .iter()
+                            .find(|run| run.start == 0 && run.end == span)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "selection {start}..={end} must preserve the {span}-cell {text} run"
+                                )
+                            });
+                        assert_eq!(
+                            selected_run.glyphs, expected_glyphs,
+                            "selection {start}..={end} must not change contextual glyph ids"
+                        );
+
+                        // Origin zero is the single-pane Full path; a translated
+                        // origin exercises the same builder used per pane in the
+                        // multi-pane Full path. Both opaque and translucent cell
+                        // backgrounds cover the selection compositing inputs.
+                        for (origin, opacity) in
+                            [([0.0, 0.0], 1.0), ([4.0 * cell_w, 2.0 * cell_h], 0.43)]
+                        {
+                            let mut base_vertices = Vec::new();
+                            build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
+                                &mut base_vertices,
+                                &base,
+                                &atlas,
+                                &[],
+                                &base_runs,
+                                0.0,
+                                origin,
+                                BackgroundTreatmentParams::default(),
+                                opacity,
+                                None,
+                                ChromePin::NONE,
+                            );
+                            let mut selected_vertices = Vec::new();
+                            build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
+                                &mut selected_vertices,
+                                &selected,
+                                &atlas,
+                                &[],
+                                &selected_runs,
+                                0.0,
+                                origin,
+                                BackgroundTreatmentParams::default(),
+                                opacity,
+                                None,
+                                ChromePin::NONE,
+                            );
+                            assert_eq!(
+                                glyph_geometry(&selected_vertices),
+                                glyph_geometry(&base_vertices),
+                                "selection {start}..={end} changed {text} outline/source geometry"
+                            );
+                            assert!(
+                                selected_vertices
+                                    .iter()
+                                    .filter(|vertex| vertex.is_glyph == 0.0)
+                                    .all(|vertex| (vertex.color[3] - opacity).abs() < 1e-6),
+                                "selection backgrounds must retain the requested composite opacity"
+                            );
+                            assert!(
+                                selected_vertices
+                                    .iter()
+                                    .filter(|vertex| vertex.is_glyph == 1.0)
+                                    .all(|vertex| (vertex.color[3] - 1.0).abs() < 1e-6),
+                                "selection must not attenuate contextual glyph coverage"
+                            );
+
+                            // CursorOnly rebuilds append to the cached Full cell
+                            // segment. Prove every boundary leaves that segment
+                            // byte-identical while the cursor layer changes.
+                            let cached_cells = selected_vertices.clone();
+                            append_cursor_vertices_with_origin(
+                                &mut selected_vertices,
+                                &selected,
+                                &atlas,
+                                CursorStyle::Block,
+                                origin,
+                                CursorRenderParams::default(),
+                            );
+                            assert_eq!(
+                                &selected_vertices[..cached_cells.len()],
+                                cached_cells.as_slice()
+                            );
+                            assert!(selected_vertices.len() > cached_cells.len());
+                        }
+                    }
+                }
+            }
         }
     }
 
