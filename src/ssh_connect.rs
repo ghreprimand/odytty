@@ -540,12 +540,99 @@ fn fnv1a_32(bytes: &[u8]) -> u32 {
 
 /// Create OdyTTY's `ControlMaster` socket directory with owner-only `0700`
 /// permissions, so the multiplexing sockets are never group/world accessible.
-/// Idempotent; tightens permissions on an existing dir too.
+/// Idempotent; tightens permissions on an existing same-owner dir too.
+///
+/// The final `ssh` leaf is handled without following symlinks: `mkdir` never
+/// resolves a final-component symlink, the leaf is then validated via
+/// `symlink_metadata` (real directory, owned by the effective UID), and any
+/// permission repair happens through an `O_NOFOLLOW | O_DIRECTORY` handle with
+/// `fchmod` semantics — so a planted symlink, a foreign-owned directory, or a
+/// non-directory object at the leaf fails closed and its target is never
+/// touched. Parent components keep the prior `create_dir_all` behavior; the
+/// state parent is prepared and validated separately by the caller.
+///
+/// Unix-only: Windows has no `ControlMaster` multiplexing surface, so this
+/// function has no Windows counterpart and the Windows `ssh_control_dir` path
+/// always returns `None` without emitting control options.
 #[cfg(unix)]
 pub fn ensure_control_dir(control_dir: &std::path::Path) -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::create_dir_all(control_dir)?;
-    std::fs::set_permissions(control_dir, std::fs::Permissions::from_mode(0o700))
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+
+    if let Some(parent) = control_dir.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    // Non-recursive mkdir for the leaf: a pre-existing final-component symlink
+    // (dangling or not) makes this fail with `AlreadyExists` instead of being
+    // resolved, and the validation below then rejects it.
+    let mut builder = std::fs::DirBuilder::new();
+    builder.mode(0o700);
+    match builder.create(control_dir) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
+    }
+
+    // SAFETY: `geteuid` takes no arguments, reads no memory, and cannot fail.
+    let euid = unsafe { libc::geteuid() };
+    let metadata = std::fs::symlink_metadata(control_dir)?;
+    if let Some(reason) = control_leaf_rejection(
+        metadata.file_type().is_symlink(),
+        metadata.file_type().is_dir(),
+        metadata.uid(),
+        euid,
+    ) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("ssh control dir rejected: {reason}"),
+        ));
+    }
+    if metadata.mode() & 0o777 == 0o700 {
+        return Ok(());
+    }
+
+    // Repair a broad mode through an opened handle, never a pathname chmod:
+    // `O_NOFOLLOW` refuses a symlink swapped in after the stat above, and the
+    // handle is re-validated before `File::set_permissions` (fchmod) so the
+    // mode change can only ever land on the directory inode itself.
+    let handle = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY | libc::O_CLOEXEC)
+        .open(control_dir)?;
+    let handle_metadata = handle.metadata()?;
+    if let Some(reason) = control_leaf_rejection(
+        false,
+        handle_metadata.file_type().is_dir(),
+        handle_metadata.uid(),
+        euid,
+    ) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("ssh control dir rejected: {reason}"),
+        ));
+    }
+    handle.set_permissions(std::fs::Permissions::from_mode(0o700))
+}
+
+/// The fail-closed leaf policy for [`ensure_control_dir`], separated from I/O
+/// so the reject cases (symlink, non-directory, foreign owner) are directly
+/// testable without fabricating filesystem objects owned by other users.
+#[cfg(unix)]
+fn control_leaf_rejection(
+    is_symlink: bool,
+    is_dir: bool,
+    owner_uid: u32,
+    euid: u32,
+) -> Option<&'static str> {
+    if is_symlink {
+        return Some("path is a symlink");
+    }
+    if !is_dir {
+        return Some("path is not a directory");
+    }
+    if owner_uid != euid {
+        return Some("directory is owned by another user");
+    }
+    None
 }
 
 /// The default tab title for an SSH connection: `user@host` when a user is
@@ -1315,6 +1402,138 @@ mod tests {
         // Idempotent: a second call tightens rather than fails.
         ensure_control_dir(&dir).expect("second call");
         std::fs::remove_dir_all(&base).ok();
+    }
+
+    /// A unique scratch base under the OS temp dir for control-dir tests.
+    #[cfg(unix)]
+    fn control_dir_scratch(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "odytty-ctrl-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_control_dir_rejects_symlink_leaf_without_touching_target() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = control_dir_scratch("symlink");
+        let target = base.join("target");
+        std::fs::create_dir_all(&target).expect("create target");
+        std::fs::write(target.join("keep.txt"), b"untouched").expect("seed target");
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o755))
+            .expect("broaden target");
+        let dir = base.join("ssh");
+        std::os::unix::fs::symlink(&target, &dir).expect("plant symlink leaf");
+
+        let error = ensure_control_dir(&dir).expect_err("symlink leaf must fail closed");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        // The symlink target keeps its permissions and content: no follow-chmod.
+        let mode = std::fs::metadata(&target)
+            .expect("target metadata")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o755);
+        assert_eq!(
+            std::fs::read(target.join("keep.txt")).expect("target content"),
+            b"untouched"
+        );
+        // The planted link itself is left in place, not replaced or deleted.
+        assert!(
+            std::fs::symlink_metadata(&dir)
+                .expect("leaf metadata")
+                .file_type()
+                .is_symlink()
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_control_dir_rejects_dangling_symlink_leaf() {
+        let base = control_dir_scratch("dangling");
+        std::fs::create_dir_all(&base).expect("create base");
+        let dir = base.join("ssh");
+        std::os::unix::fs::symlink(base.join("missing"), &dir).expect("plant dangling link");
+
+        let error = ensure_control_dir(&dir).expect_err("dangling symlink must fail closed");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert!(
+            std::fs::symlink_metadata(&dir)
+                .expect("leaf metadata")
+                .file_type()
+                .is_symlink()
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_control_dir_rejects_regular_file_leaf_without_touching_it() {
+        let base = control_dir_scratch("file");
+        std::fs::create_dir_all(&base).expect("create base");
+        let dir = base.join("ssh");
+        std::fs::write(&dir, b"not a directory").expect("plant file leaf");
+
+        let error = ensure_control_dir(&dir).expect_err("file leaf must fail closed");
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+        assert_eq!(
+            std::fs::read(&dir).expect("leaf content"),
+            b"not a directory"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ensure_control_dir_repairs_broad_mode_on_same_owner_directory() {
+        use std::os::unix::fs::PermissionsExt;
+        let base = control_dir_scratch("repair");
+        let dir = base.join("ssh");
+        std::fs::create_dir_all(&dir).expect("create dir");
+        std::fs::write(dir.join("ssh-deadbeef"), b"socket placeholder").expect("seed dir");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755))
+            .expect("broaden dir");
+
+        ensure_control_dir(&dir).expect("same-owner repair succeeds");
+        let mode = std::fs::metadata(&dir)
+            .expect("metadata")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o700);
+        // Repair only tightens the mode; existing contents are preserved.
+        assert_eq!(
+            std::fs::read(dir.join("ssh-deadbeef")).expect("content"),
+            b"socket placeholder"
+        );
+        std::fs::remove_dir_all(&base).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn control_leaf_rejection_fails_closed_on_symlink_type_and_owner() {
+        // Symlink beats everything else.
+        assert_eq!(
+            control_leaf_rejection(true, true, 1000, 1000),
+            Some("path is a symlink")
+        );
+        // A non-directory object is rejected.
+        assert_eq!(
+            control_leaf_rejection(false, false, 1000, 1000),
+            Some("path is not a directory")
+        );
+        // A directory owned by another user is rejected (root-squashed or
+        // pre-planted foreign dirs never get sockets or a chmod).
+        assert_eq!(
+            control_leaf_rejection(false, true, 0, 1000),
+            Some("directory is owned by another user")
+        );
+        // The happy path: real same-owner directory passes.
+        assert_eq!(control_leaf_rejection(false, true, 1000, 1000), None);
     }
 
     #[cfg(windows)]
