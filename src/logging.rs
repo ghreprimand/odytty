@@ -21,7 +21,7 @@
 //! touches the state dir), and every I/O error is swallowed — logging must
 //! never take the terminal down.
 
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -64,14 +64,50 @@ fn env_level() -> tracing::Level {
 /// The odytty state directory used for `odytty.log` (and the panic log):
 /// `$XDG_STATE_HOME/odytty`, falling back to `~/.local/state/odytty`
 /// (`~/Library/Logs/odytty` on macOS, `%LOCALAPPDATA%\odytty` on Windows),
-/// falling back to a temp-dir `odytty` folder when nothing else is resolvable.
+/// falling back to an owner-scoped temp leaf on Unix (or the existing inherited
+/// ACL temp folder on Windows) when nothing else is resolvable.
 pub(crate) fn state_log_dir() -> PathBuf {
-    platform_state_dir().unwrap_or_else(|| std::env::temp_dir().join("odytty"))
+    platform_state_dir().unwrap_or_else(temp_state_dir)
+}
+
+/// Prepare the final OdyTTY state leaf before a sensitive runtime writer uses
+/// it.  Resolution stays side-effect free; this is intentionally called only
+/// by the lazy writer paths so CLI version/help remain disk-silent.
+pub(crate) fn prepare_state_log_dir() -> io::Result<PathBuf> {
+    let dir = state_log_dir();
+    crate::state_dir::prepare_private_dir(&dir)?;
+    Ok(dir)
+}
+
+#[cfg(unix)]
+fn temp_state_dir() -> PathBuf {
+    // A system temp root is shared.  The fallback leaf is therefore scoped to
+    // the effective UID and then validated as a real owner-private directory
+    // by `prepare_state_log_dir` before any data is written.
+    let uid = unsafe { libc::geteuid() };
+    unix_temp_state_dir(&std::env::temp_dir(), uid)
+}
+
+#[cfg(unix)]
+fn unix_temp_state_dir(temp_root: &std::path::Path, uid: u32) -> PathBuf {
+    temp_root.join(format!("odytty-{uid}"))
+}
+
+#[cfg(not(unix))]
+fn temp_state_dir() -> PathBuf {
+    // Windows keeps the existing inherited-ACL behavior.  The Unix UID/mode
+    // hardening deliberately does not construct or replace Windows ACLs.
+    std::env::temp_dir().join("odytty")
 }
 
 #[cfg(target_os = "macos")]
 fn platform_state_dir() -> Option<PathBuf> {
-    env_path("HOME").map(|home| home.join("Library").join("Logs").join("odytty"))
+    macos_state_dir(env_path("HOME"))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_state_dir(home: Option<PathBuf>) -> Option<PathBuf> {
+    home.map(|home| home.join("Library").join("Logs").join("odytty"))
 }
 
 /// Windows: `%LOCALAPPDATA%\odytty` — a persistent per-user location. Without
@@ -139,6 +175,7 @@ struct RotatingLog {
     max_bytes: u64,
     file: Option<File>,
     written: u64,
+    disk_disabled: bool,
 }
 
 impl RotatingLog {
@@ -148,23 +185,29 @@ impl RotatingLog {
             max_bytes,
             file: None,
             written: 0,
+            disk_disabled: false,
         }
     }
 
     fn write_all_swallowing(&mut self, buf: &[u8]) {
-        let _ = self.write_all_inner(buf);
+        if self.disk_disabled {
+            return;
+        }
+        if self.write_all_inner(buf).is_err() {
+            self.disable_disk_sink();
+        }
     }
 
     fn write_all_inner(&mut self, buf: &[u8]) -> io::Result<()> {
         if self.file.is_some() && self.written.saturating_add(buf.len() as u64) > self.max_bytes {
-            self.rotate();
+            self.rotate()?;
         }
         if self.file.is_none() {
             self.open()?;
             // A pre-existing file from an earlier run may already be at the
             // cap; rotate before the first append of this run if so.
             if self.written.saturating_add(buf.len() as u64) > self.max_bytes {
-                self.rotate();
+                self.rotate()?;
                 if self.file.is_none() {
                     self.open()?;
                 }
@@ -180,26 +223,47 @@ impl RotatingLog {
 
     fn open(&mut self) -> io::Result<()> {
         if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent)?;
+            crate::state_dir::prepare_private_dir(parent)?;
         }
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)?;
+        let file = crate::state_dir::open_append_sensitive(&self.path)?;
+        let rotated = self.rotated_path();
+        crate::state_dir::repair_existing_sensitive(&rotated)?;
         self.written = file.metadata().map(|meta| meta.len()).unwrap_or(0);
         self.file = Some(file);
         Ok(())
     }
 
-    fn rotate(&mut self) {
+    fn rotate(&mut self) -> io::Result<()> {
         self.file = None;
-        let rotated = self
-            .path
+        if let Some(parent) = self.path.parent() {
+            crate::state_dir::prepare_private_dir(parent)?;
+        }
+        // Validate both known files through no-follow handles before the
+        // replacement.  `rename` replaces a name rather than following a final
+        // symlink, and a pre-existing broad same-owner rotation is repaired.
+        crate::state_dir::repair_existing_sensitive(&self.path)?;
+        let rotated = self.rotated_path();
+        crate::state_dir::repair_existing_sensitive(&rotated)?;
+        fs::rename(&self.path, &rotated)?;
+        crate::state_dir::repair_existing_sensitive(&rotated)?;
+        self.written = 0;
+        Ok(())
+    }
+
+    fn rotated_path(&self) -> PathBuf {
+        self.path
             .parent()
             .map(|parent| parent.join(ROTATED_LOG_FILE))
-            .unwrap_or_else(|| PathBuf::from(ROTATED_LOG_FILE));
-        let _ = fs::rename(&self.path, rotated);
-        self.written = 0;
+            .unwrap_or_else(|| PathBuf::from(ROTATED_LOG_FILE))
+    }
+
+    fn disable_disk_sink(&mut self) {
+        self.file = None;
+        self.disk_disabled = true;
+        // The state sink may be hostile or unavailable.  Keep the notice fixed:
+        // do not print a filesystem path or an OS error into terminal-visible
+        // diagnostics.
+        let _ = io::stderr().write_all(b"odytty: secure state log disabled\n");
     }
 }
 
@@ -295,10 +359,63 @@ mod tests {
         // in an `odytty` component so odytty.log / panic.log never scatter into
         // a shared location. Always-on cross-platform contract.
         let dir = state_log_dir();
+        let name = dir.file_name().and_then(|name| name.to_str());
+        #[cfg(unix)]
+        let expected_temp_name = format!("odytty-{}", unsafe { libc::geteuid() });
+        #[cfg(unix)]
+        assert!(
+            name == Some("odytty") || name == Some(expected_temp_name.as_str()),
+            "state log dir must be namespaced under odytty: {dir:?}"
+        );
+        #[cfg(not(unix))]
         assert_eq!(
-            dir.file_name().and_then(|name| name.to_str()),
+            name,
             Some("odytty"),
             "state log dir must be namespaced under odytty: {dir:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_temp_state_dir_is_scoped_to_the_effective_uid() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_state_dir();
+        let uid = unsafe { libc::geteuid() };
+        let expected = format!("odytty-{uid}");
+        assert_eq!(
+            dir.file_name().and_then(|name| name.to_str()),
+            Some(expected.as_str())
+        );
+
+        let temp = TempDir::new("odytty-log-private-dir");
+        let leaf = temp.path().join("state");
+        crate::state_dir::prepare_private_dir(&leaf).expect("prepare private leaf");
+        assert_eq!(
+            fs::metadata(leaf)
+                .expect("state metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unix_temp_fallback_rejects_an_ambiguous_existing_leaf() {
+        use std::os::unix::fs::symlink;
+
+        let root = TempDir::new("odytty-temp-fallback");
+        let uid = unsafe { libc::geteuid() };
+        let fallback = unix_temp_state_dir(root.path(), uid);
+        let target = root.path().join("target");
+        fs::create_dir(&target).expect("create target");
+        symlink(&target, &fallback).expect("seed ambiguous fallback");
+
+        assert!(
+            crate::state_dir::prepare_private_dir(&fallback).is_err(),
+            "a pre-existing symlink fallback must fail closed"
         );
     }
 
@@ -316,6 +433,17 @@ mod tests {
         // Unset LOCALAPPDATA => None, so state_log_dir uses the temp-dir
         // fallback rather than panicking.
         assert_eq!(windows_state_dir(None), None);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_state_dir_retains_the_library_logs_mapping() {
+        let home = PathBuf::from("/Users/example");
+        assert_eq!(
+            macos_state_dir(Some(home.clone())),
+            Some(home.join("Library").join("Logs").join("odytty"))
+        );
+        assert_eq!(macos_state_dir(None), None);
     }
 
     #[test]
@@ -384,5 +512,58 @@ mod tests {
         let mut log = RotatingLog::new(blocker.join(LOG_FILE), 1024);
         log.write_all_swallowing(b"dropped\n"); // must not panic
         assert!(log.file.is_none());
+        assert!(
+            log.disk_disabled,
+            "a failed secure open disables the disk sink"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rotation_repairs_current_and_rotated_log_modes_without_changing_data() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = TempDir::new("odytty-log-modes");
+        let state = temp.path().join("state");
+        fs::create_dir(&state).expect("create state");
+        fs::set_permissions(&state, fs::Permissions::from_mode(0o755)).expect("chmod state");
+        let current = state.join(LOG_FILE);
+        let rotated = state.join(ROTATED_LOG_FILE);
+        fs::write(&current, b"old\n").expect("seed current");
+        fs::write(&rotated, b"previous\n").expect("seed rotated");
+        fs::set_permissions(&current, fs::Permissions::from_mode(0o644)).expect("chmod current");
+        fs::set_permissions(&rotated, fs::Permissions::from_mode(0o644)).expect("chmod rotated");
+
+        let mut log = RotatingLog::new(current.clone(), 4);
+        log.write_all_swallowing(b"new\n");
+
+        assert_eq!(
+            fs::read_to_string(&current).expect("current contents"),
+            "new\n"
+        );
+        assert_eq!(
+            fs::read_to_string(&rotated).expect("rotated contents"),
+            "old\n"
+        );
+        assert_eq!(
+            fs::metadata(&state)
+                .expect("state metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        for path in [&current, &rotated] {
+            assert_eq!(
+                fs::metadata(path)
+                    .expect("log metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600,
+                "{} must be owner-only",
+                path.display()
+            );
+        }
     }
 }

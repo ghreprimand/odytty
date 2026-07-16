@@ -54,9 +54,12 @@ impl PrimaryInstanceLock {
     /// dir or process env).
     pub(crate) fn acquire_at(path: &Path) -> Option<Self> {
         if let Some(parent) = path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            crate::state_dir::prepare_private_dir(parent).ok()?;
         }
-        let file = File::create(path).ok()?;
+        // Do not truncate the persistent lock path and do not follow a final
+        // symlink.  The shared helper creates a new file as 0600 on Unix or
+        // repairs an owned existing regular file through its handle.
+        let file = crate::state_dir::open_read_write_sensitive(path).ok()?;
         // `try_lock` is non-blocking: `Ok(())` = acquired (primary); any error
         // (would-block from another holder, or a genuine IO/lock error) => run
         // as secondary rather than risk two writers.
@@ -119,5 +122,42 @@ mod tests {
         if let Some(parent) = path.parent() {
             let _ = std::fs::remove_dir(parent);
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn lock_repairs_the_final_state_leaf_and_file_modes() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = temp_lock_path("modes");
+        let parent = path.parent().expect("lock parent");
+        std::fs::create_dir_all(parent).expect("create lock parent");
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o755))
+            .expect("chmod lock parent");
+        std::fs::write(&path, b"existing").expect("seed lock");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))
+            .expect("chmod lock");
+
+        let lock = PrimaryInstanceLock::acquire_at(&path);
+        assert!(lock.is_some(), "secure repaired lock can be acquired");
+        assert_eq!(
+            std::fs::metadata(parent)
+                .expect("parent metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::metadata(&path)
+                .expect("lock metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        drop(lock);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(parent);
     }
 }

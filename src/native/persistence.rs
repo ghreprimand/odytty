@@ -31,7 +31,7 @@
 
 #![allow(dead_code)]
 
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use self::json::Json;
@@ -407,17 +407,23 @@ pub(crate) fn layouts_dir() -> PathBuf {
 pub(crate) fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
     use std::io::Write as _;
 
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        crate::state_dir::prepare_private_dir(parent)?;
     }
-    let tmp = temp_sibling(path);
+    let (tmp, mut file) = create_temp_sibling(path)?;
     let write_result = (|| -> io::Result<()> {
-        let mut file = std::fs::File::create(&tmp)?;
         file.write_all(contents.as_bytes())?;
         // Flush the temp file's data to disk BEFORE the rename, so a crash right
         // after the rename cannot expose a renamed-but-empty file.
         file.sync_all()?;
+        // An existing snapshot/layout must be a known owner-owned regular file
+        // before replacement.  Absence is valid for a first write.
+        crate::state_dir::repair_existing_sensitive(path)?;
         std::fs::rename(&tmp, path)?;
+        crate::state_dir::repair_existing_sensitive(path)?;
         // fsync the parent directory so the rename itself survives a crash.
         if let Some(parent) = path.parent()
             && let Ok(dir) = std::fs::File::open(parent)
@@ -433,7 +439,7 @@ pub(crate) fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn temp_sibling(path: &Path) -> PathBuf {
+fn create_temp_sibling(path: &Path) -> io::Result<(PathBuf, std::fs::File)> {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
@@ -442,16 +448,47 @@ fn temp_sibling(path: &Path) -> PathBuf {
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(SNAPSHOT_FILE);
-    let tmp_name = format!(".{base}.{}.{nanos}.tmp", std::process::id());
-    match path.parent() {
-        Some(parent) => parent.join(tmp_name),
-        None => PathBuf::from(tmp_name),
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    for attempt in 0..128_u32 {
+        let tmp_name = format!(".{base}.{}.{nanos}.{attempt}.tmp", std::process::id());
+        let tmp = parent.join(tmp_name);
+        match crate::state_dir::create_new_sensitive(&tmp) {
+            Ok(file) => return Ok((tmp, file)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
     }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not reserve a unique persistence temporary file",
+    ))
 }
 
 /// Serialize and atomically write the whole-app snapshot to its state-dir path.
 pub(crate) fn save_snapshot(snapshot: &ShapeSnapshot) -> io::Result<()> {
-    write_atomic(&snapshot_path(), &snapshot.to_json_pretty())
+    let dir = crate::logging::prepare_state_log_dir()?;
+    write_atomic(&dir.join(SNAPSHOT_FILE), &snapshot.to_json_pretty())
+}
+
+fn prepared_layouts_dir() -> io::Result<PathBuf> {
+    let dir = crate::logging::prepare_state_log_dir()?.join(LAYOUTS_DIR);
+    crate::state_dir::prepare_private_dir(&dir)?;
+    repair_direct_layout_files(&dir)?;
+    Ok(dir)
+}
+
+/// Repair only the known JSON files directly inside `layouts`.  Deliberately do
+/// not recurse: unknown files, socket objects, and nested directories are not
+/// OdyTTY persistence data and remain untouched.
+fn repair_direct_layout_files(dir: &Path) -> io::Result<()> {
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
+            crate::state_dir::repair_existing_sensitive(&path)?;
+        }
+    }
+    Ok(())
 }
 
 /// Sanitize a layout name into a safe single-segment filename stem (WP3 / 8e).
@@ -510,7 +547,7 @@ fn save_layout_in(dir: &Path, name: &str, snapshot: &ShapeSnapshot) -> io::Resul
 /// name actually written, or an error when the name is unusable or the write
 /// fails.
 pub(crate) fn save_layout(name: &str, snapshot: &ShapeSnapshot) -> io::Result<String> {
-    save_layout_in(&layouts_dir(), name, snapshot)
+    save_layout_in(&prepared_layouts_dir()?, name, snapshot)
 }
 
 /// Whether a saved layout already exists for `name` in `dir` (OVERWRITE-WARN).
@@ -519,26 +556,35 @@ pub(crate) fn save_layout(name: &str, snapshot: &ShapeSnapshot) -> io::Result<St
 /// unusable name (nothing survives sanitization) can never collide, so it is
 /// reported absent.
 fn layout_exists_in(dir: &Path, name: &str) -> bool {
-    layout_path_in(dir, name).is_some_and(|path| path.is_file())
+    layout_path_in(dir, name)
+        .is_some_and(|path| crate::state_dir::open_existing_sensitive(&path).is_ok())
 }
 
 /// Whether a saved layout already exists for `name` (OVERWRITE-WARN). The save
 /// paths call this before writing so a name collision can prompt the user
 /// (replace vs. a different name) instead of silently clobbering.
 pub(crate) fn layout_exists(name: &str) -> bool {
-    layout_exists_in(&layouts_dir(), name)
+    prepared_layouts_dir()
+        .ok()
+        .is_some_and(|dir| layout_exists_in(&dir, name))
 }
 
 /// The sorted `*.json` file stems under `dir` (WP3 core). A missing directory is
 /// an empty list, never an error; non-`*.json` files are ignored.
 fn list_layout_names_in(dir: &Path) -> Vec<String> {
     let mut names = Vec::new();
+    if crate::state_dir::validate_private_dir(dir).is_err() {
+        return names;
+    }
     let Ok(entries) = std::fs::read_dir(dir) else {
         return names;
     };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        if crate::state_dir::open_existing_sensitive(&path).is_err() {
             continue;
         }
         if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
@@ -551,7 +597,9 @@ fn list_layout_names_in(dir: &Path) -> Vec<String> {
 
 /// The names of all saved layouts, sorted (WP3). Empty when nothing is saved.
 pub(crate) fn list_layout_names() -> Vec<String> {
-    list_layout_names_in(&layouts_dir())
+    prepared_layouts_dir()
+        .map(|dir| list_layout_names_in(&dir))
+        .unwrap_or_default()
 }
 
 /// Read and classify a named layout from `dir` (WP3 core).
@@ -559,7 +607,7 @@ fn load_layout_in(dir: &Path, name: &str) -> LoadOutcome {
     let Some(path) = layout_path_in(dir, name) else {
         return LoadOutcome::Absent;
     };
-    match std::fs::read_to_string(&path) {
+    match read_sensitive_to_string(&path) {
         Err(err) if err.kind() == io::ErrorKind::NotFound => LoadOutcome::Absent,
         Err(err) => LoadOutcome::Corrupt(err.to_string()),
         Ok(text) => match ShapeSnapshot::from_json_str(&text) {
@@ -574,7 +622,10 @@ fn load_layout_in(dir: &Path, name: &str) -> LoadOutcome {
 /// four-way outcome so the caller degrades a corrupt/skewed layout to a notice
 /// instead of instantiating a broken workspace.
 pub(crate) fn load_layout(name: &str) -> LoadOutcome {
-    load_layout_in(&layouts_dir(), name)
+    match prepared_layouts_dir() {
+        Ok(dir) => load_layout_in(&dir, name),
+        Err(_) => LoadOutcome::Corrupt("secure layout state unavailable".to_owned()),
+    }
 }
 
 /// Delete a named layout from `dir` (WP3 core). A missing file is success.
@@ -582,6 +633,7 @@ fn delete_layout_in(dir: &Path, name: &str) -> io::Result<()> {
     let Some(path) = layout_path_in(dir, name) else {
         return Ok(());
     };
+    crate::state_dir::repair_existing_sensitive(&path)?;
     match std::fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(()),
@@ -592,13 +644,16 @@ fn delete_layout_in(dir: &Path, name: &str) -> io::Result<()> {
 /// Delete a named layout (WP3). A missing file is treated as success (the end
 /// state — no such layout — is what the caller wanted).
 pub(crate) fn delete_layout(name: &str) -> io::Result<()> {
-    delete_layout_in(&layouts_dir(), name)
+    delete_layout_in(&prepared_layouts_dir()?, name)
 }
 
 /// Read and classify the whole-app snapshot from its state-dir path.
 pub(crate) fn load_snapshot() -> LoadOutcome {
-    let path = snapshot_path();
-    match std::fs::read_to_string(&path) {
+    let path = match crate::logging::prepare_state_log_dir() {
+        Ok(dir) => dir.join(SNAPSHOT_FILE),
+        Err(_) => return LoadOutcome::Corrupt("secure workspace state unavailable".to_owned()),
+    };
+    match read_sensitive_to_string(&path) {
         Err(err) if err.kind() == io::ErrorKind::NotFound => LoadOutcome::Absent,
         Err(err) => LoadOutcome::Corrupt(err.to_string()),
         Ok(text) => match ShapeSnapshot::from_json_str(&text) {
@@ -607,6 +662,13 @@ pub(crate) fn load_snapshot() -> LoadOutcome {
             Err(LoadError::Malformed(message)) => LoadOutcome::Corrupt(message),
         },
     }
+}
+
+fn read_sensitive_to_string(path: &Path) -> io::Result<String> {
+    let mut file = crate::state_dir::open_existing_sensitive(path)?;
+    let mut text = String::new();
+    file.read_to_string(&mut text)?;
+    Ok(text)
 }
 
 /// Where a restored pane should open, plus whether its captured directory was

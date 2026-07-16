@@ -35,6 +35,7 @@ pub mod settings;
 pub mod shell_integration;
 pub mod ssh_config;
 pub mod ssh_connect;
+pub(crate) mod state_dir;
 pub mod text;
 pub mod theme;
 pub mod theme_author;

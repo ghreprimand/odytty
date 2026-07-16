@@ -18,7 +18,6 @@
 //! assertion strings; do not interpolate terminal content into panics.
 
 use std::backtrace::Backtrace;
-use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::panic::PanicHookInfo;
 use std::path::{Path, PathBuf};
@@ -136,9 +135,9 @@ fn escape_field(value: &str) -> String {
 }
 
 fn write_record(dir: &Path, record: &str) -> io::Result<PathBuf> {
-    fs::create_dir_all(dir)?;
+    crate::state_dir::prepare_private_dir(dir)?;
     let path = dir.join(PANIC_LOG_FILE);
-    let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
+    let mut file = crate::state_dir::open_append_sensitive(&path)?;
     file.write_all(record.as_bytes())?;
     Ok(path)
 }
@@ -146,6 +145,7 @@ fn write_record(dir: &Path, record: &str) -> io::Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use std::time::Duration;
 
     #[test]
@@ -190,6 +190,43 @@ mod tests {
 
         assert_eq!(second_path, temp.path().join(PANIC_LOG_FILE));
         assert_eq!(content, format!("{first}{second}"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn panic_record_repairs_owner_private_modes_without_rewriting_records() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = TempDir::new("odytty-panic-log-modes");
+        let state = temp.path().join("state");
+        fs::create_dir(&state).expect("create state");
+        fs::set_permissions(&state, fs::Permissions::from_mode(0o755)).expect("chmod state");
+        let path = state.join(PANIC_LOG_FILE);
+        fs::write(&path, "existing\n").expect("seed panic log");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).expect("chmod panic log");
+
+        write_record(&state, "new\n").expect("append record");
+
+        assert_eq!(
+            fs::read_to_string(&path).expect("panic log contents"),
+            "existing\nnew\n"
+        );
+        assert_eq!(
+            fs::metadata(&state)
+                .expect("state metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            fs::metadata(&path)
+                .expect("panic metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
     }
 
     /// The human report puts every caller-controlled string through plain

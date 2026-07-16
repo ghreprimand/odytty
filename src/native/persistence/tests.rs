@@ -292,6 +292,72 @@ fn atomic_write_replaces_target_and_leaves_no_temp_file() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[cfg(unix)]
+#[test]
+fn atomic_write_repairs_parent_and_target_modes_and_rejects_a_symlink_target() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let root = std::env::temp_dir().join(format!(
+        "odytty-persist-modes-{}-{nanos}",
+        std::process::id()
+    ));
+    std::fs::create_dir(&root).expect("create root");
+    let state = root.join("state");
+    std::fs::create_dir(&state).expect("create state");
+    std::fs::set_permissions(&state, std::fs::Permissions::from_mode(0o755)).expect("chmod state");
+    let path = state.join("workspaces.json");
+    std::fs::write(&path, "old\n").expect("seed snapshot");
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))
+        .expect("chmod snapshot");
+
+    write_atomic(&path, "new\n").expect("replace snapshot");
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("snapshot contents"),
+        "new\n"
+    );
+    assert_eq!(
+        std::fs::metadata(&state)
+            .expect("state metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(
+        std::fs::metadata(&path)
+            .expect("snapshot metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+
+    let target = root.join("unrelated");
+    std::fs::write(&target, "keep\n").expect("seed unrelated target");
+    let linked = state.join("linked.json");
+    symlink(&target, &linked).expect("create target symlink");
+    assert!(write_atomic(&linked, "must not replace\n").is_err());
+    assert_eq!(
+        std::fs::read_to_string(&target).expect("unrelated contents"),
+        "keep\n"
+    );
+    assert!(
+        std::fs::read_dir(&state)
+            .expect("state entries")
+            .all(|entry| !entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".tmp")),
+        "failed replacement cleans up its owned temporary sibling"
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
 #[test]
 fn json_escapes_round_trip_through_the_parser() {
     let value = json::parse(r#"{ "s": "a\"b\\c\n\t\/\u0041\uD83D\uDE00" }"#).expect("parse");
@@ -621,6 +687,29 @@ fn layout_save_list_load_delete_round_trip() {
 
     let stem = save_layout_in(&dir, "dev", &layout).expect("save");
     assert_eq!(stem, "dev");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        assert_eq!(
+            std::fs::metadata(&dir)
+                .expect("layouts metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700,
+            "layouts is an owner-private leaf"
+        );
+        assert_eq!(
+            std::fs::metadata(dir.join("dev.json"))
+                .expect("layout metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600,
+            "direct layout JSON is owner-private"
+        );
+    }
     assert_eq!(list_layout_names_in(&dir), vec!["dev".to_owned()]);
 
     match load_layout_in(&dir, "dev") {
@@ -678,6 +767,64 @@ fn layout_exists_matches_the_writer_stem() {
     // A genuinely different name does not collide.
     assert!(!layout_exists_in(&dir, "Other"));
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn layout_migration_repairs_direct_json_only_and_leaves_unknown_entries_alone() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!(
+        "odytty-layout-migration-{}-{nanos}",
+        std::process::id()
+    ));
+    crate::state_dir::prepare_private_dir(&dir).expect("prepare layouts leaf");
+    let direct_json = dir.join("legacy.json");
+    std::fs::write(&direct_json, "{}\n").expect("seed direct json");
+    std::fs::set_permissions(&direct_json, std::fs::Permissions::from_mode(0o644))
+        .expect("chmod direct json");
+    let unknown = dir.join("notes.txt");
+    std::fs::write(&unknown, "keep\n").expect("seed unknown entry");
+    std::fs::set_permissions(&unknown, std::fs::Permissions::from_mode(0o644))
+        .expect("chmod unknown entry");
+    let nested = dir.join("nested");
+    std::fs::create_dir(&nested).expect("seed nested directory");
+    std::fs::set_permissions(&nested, std::fs::Permissions::from_mode(0o755))
+        .expect("chmod nested directory");
+
+    repair_direct_layout_files(&dir).expect("migrate direct layouts");
+
+    assert_eq!(
+        std::fs::metadata(&direct_json)
+            .expect("direct json metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    assert_eq!(
+        std::fs::metadata(&unknown)
+            .expect("unknown metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o644,
+        "unknown state entries are not recursively normalized"
+    );
+    assert_eq!(
+        std::fs::metadata(&nested)
+            .expect("nested metadata")
+            .permissions()
+            .mode()
+            & 0o777,
+        0o755,
+        "nested directories are left alone"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
