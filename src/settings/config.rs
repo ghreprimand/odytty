@@ -32,9 +32,9 @@ use super::{
 use super::{
     BOX_THICKNESS_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV, INTERACTIVE_PATHS_CLICK_HINT_ENV,
     INTERACTIVE_PATHS_EDITOR_ENV, INTERACTIVE_PATHS_ENV, INTERACTIVE_PATHS_IMAGE_INLINE_ENV,
-    INTERACTIVE_URLS_ENV, LINE_HEIGHT_ENV, REMOTE_IMAGE_PASTE_ENV, REMOTE_INTEGRATION_ENV,
-    REMOTE_PERSIST_ENV, REMOTE_REUSE_ENV, REMOTE_TMUX_ENV, SESSION_REPLAY_ENV,
-    SSH_CONFIG_HOSTS_ENV,
+    INTERACTIVE_URLS_ENV, LIGATURES_ENV, LINE_HEIGHT_ENV, REMOTE_IMAGE_PASTE_ENV,
+    REMOTE_INTEGRATION_ENV, REMOTE_PERSIST_ENV, REMOTE_REUSE_ENV, REMOTE_TMUX_ENV,
+    SESSION_REPLAY_ENV, SSH_CONFIG_HOSTS_ENV,
 };
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
@@ -164,6 +164,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "cursormotion" | "cursorslide" | "cursoranimation" => Some(CURSOR_MOTION_ENV),
         "osc52read" | "allowosc52read" | "clipboardread" => Some(OSC52_READ_ENV),
         "syntheticstyles" | "synthstyles" | "syntheticfonts" => Some(SYNTHETIC_STYLES_ENV),
+        "ligatures" | "programmingligatures" | "calt" => Some(LIGATURES_ENV),
         "scrollwheellines" | "wheellines" | "scrollspeed" | "scrollwheelspeed" => {
             Some(SCROLL_WHEEL_LINES_ENV)
         }
@@ -307,6 +308,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         SUBPIXEL_ENV => Some("subpixel"),
         LINE_HEIGHT_ENV => Some("line_height"),
         BOX_THICKNESS_ENV => Some("box_thickness"),
+        LIGATURES_ENV => Some("ligatures"),
         KEYBINDS_ENV => Some("keybinds"),
         PANE_PREFIX_ENV => Some("pane_prefix"),
         CURSOR_STYLE_ENV => Some("cursor_style"),

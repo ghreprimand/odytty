@@ -137,8 +137,16 @@ configuration.
 | --- | --- |
 | Font sources | Bundled families, system families, and direct font files |
 | Styling | Font-weight variants, synthetic styles, and subpixel antialiasing |
+| Programming ligatures | Opt-in ASCII contextual alternates with grid-aligned source cells |
 | Fallback | Per-range symbol maps and bundled Nerd Font v3/v2 faces |
 | Readability | Glyph coverage gamma, stem darkening, and minimum-contrast enforcement |
+
+Set `ligatures = on` to enable contextual programming ligatures from the
+selected text font. Shaping is limited to eligible ASCII runs and changes only
+presentation: the terminal model keeps one logical character per cell, so
+copying, selection, search, cursor placement, and wide-cell behavior retain
+their ordinary semantics. Unsupported fonts and runs render through the normal
+per-cell path. The setting is off by default and reloads live.
 
 ### Render Color Emoji
 

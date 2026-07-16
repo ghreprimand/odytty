@@ -87,6 +87,19 @@ pub fn geometric_boxdraw_enabled() -> bool {
     GEOMETRIC_BOXDRAW_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Process-wide opt-in contextual shaping switch. `false` is the exact scalar
+/// renderer path and allocates no shaping cache entries.
+static LIGATURES_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(DEFAULT_LIGATURES);
+
+pub fn set_ligatures_enabled(enabled: bool) {
+    LIGATURES_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn ligatures_enabled() -> bool {
+    LIGATURES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Runtime flag mirroring [`Settings::symbol_fallback`], published
 /// process-wide so the GPU renderer can rebuild the glyph atlas when live
 /// settings enable or disable the RV6 symbol / Nerd-font fallback. Defaults to
@@ -1240,6 +1253,10 @@ pub struct Settings {
     /// reproduces the historical geometric box-drawing weights byte-identically;
     /// other values scale the rule thickness.
     pub box_thickness: f32,
+    /// ASCII programming ligatures via contextual OpenType `calt`. Off by
+    /// default; logical cells, cursor coordinates, copy, and selection remain
+    /// unchanged when enabled.
+    pub ligatures: bool,
     pub key_bindings: Vec<KeyBindingOverride>,
     /// Multiplexer prefix chord (§7). `Some(Ctrl-b)` by default — the single
     /// new globally-captured key that opens the transient pane-command mode.
@@ -1640,6 +1657,7 @@ impl Default for Settings {
             subpixel: SubpixelMode::Off,
             line_height: DEFAULT_LINE_HEIGHT,
             box_thickness: DEFAULT_BOX_THICKNESS,
+            ligatures: DEFAULT_LIGATURES,
             key_bindings: Vec::new(),
             pane_prefix: default_pane_prefix(),
             cursor_style: CursorStyle::Block,
@@ -2181,6 +2199,12 @@ impl Settings {
         let subpixel = parse_subpixel(get(SUBPIXEL_ENV).as_deref(), &mut warn);
         let line_height = parse_line_height(get(LINE_HEIGHT_ENV).as_deref(), &mut warn);
         let box_thickness = parse_box_thickness(get(BOX_THICKNESS_ENV).as_deref(), &mut warn);
+        let ligatures = parse_bool_setting(
+            get(LIGATURES_ENV).as_deref(),
+            LIGATURES_ENV,
+            DEFAULT_LIGATURES,
+            &mut warn,
+        );
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
         let pane_prefix = parse_pane_prefix(get(PANE_PREFIX_ENV).as_deref(), &mut warn);
         let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
@@ -2557,6 +2581,7 @@ impl Settings {
             subpixel,
             line_height,
             box_thickness,
+            ligatures,
             key_bindings,
             pane_prefix,
             cursor_style,
@@ -2710,6 +2735,7 @@ impl Settings {
         values.insert(SUBPIXEL_ENV, subpixel_display(self.subpixel).to_owned());
         values.insert(LINE_HEIGHT_ENV, format_float(self.line_height));
         values.insert(BOX_THICKNESS_ENV, format_float(self.box_thickness));
+        values.insert(LIGATURES_ENV, bool_display(self.ligatures).to_owned());
         values.insert(KEYBINDS_ENV, key_bindings_edit_value(&self.key_bindings));
         values.insert(PANE_PREFIX_ENV, pane_prefix_display(self.pane_prefix));
         values.insert(

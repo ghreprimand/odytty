@@ -137,6 +137,12 @@ scroll_glide = off
 pixel_scroll = off
 ```
 
+Programming ligatures are a static presentation option rather than motion.
+`reduced_motion` therefore leaves `ligatures` unchanged. When ligatures are
+enabled, logical cells and copied text remain the original characters; set
+`ligatures = off` to retain the ordinary one-glyph-per-cell presentation. This
+behavior is the same on Windows, macOS, and Linux.
+
 Three ambient treatments are on by default: `bloom`, `crt` (a subtle scanline
 and vignette), and the bundled wallpaper selected by
 `background_treatment = image`. The default `visual = ambient` is a back-compat

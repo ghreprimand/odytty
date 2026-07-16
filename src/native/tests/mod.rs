@@ -24,9 +24,10 @@ use super::gpu::{
     CursorStreakVertex, StyleFonts, ViewportUniform, append_cursor_glow_vertices,
     append_cursor_layer_vertices, append_cursor_streak_vertices, blend_state_for_color_glyphs,
     blend_state_for_subpixel, build_cursor_glow_instance, build_cursor_streak_instance,
-    create_cursor_glow_pipeline, create_cursor_streak_pipeline, cursor_glow_falloff, effect_params,
-    effective_subpixel_mode, ensure_snapshot_glyphs, grow_vertex_buffer_capacity,
-    retained_cursor_effects, text_params, theme_clear_color,
+    create_atlas_bind_group, create_cell_pipeline, create_cursor_glow_pipeline,
+    create_cursor_streak_pipeline, cursor_glow_falloff, effect_params, effective_subpixel_mode,
+    ensure_snapshot_glyphs, grow_vertex_buffer_capacity, retained_cursor_effects, text_params,
+    theme_clear_color,
 };
 use super::key_remap_ui::KeyRemapSignature;
 use super::onboarding::OnboardingSignature;

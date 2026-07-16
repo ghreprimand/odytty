@@ -600,6 +600,18 @@ pub enum FontStyle {
     BoldItalic,
 }
 
+/// Atlas identity for one contextual glyph. The face fingerprint prevents a
+/// shaped ID from being reused across font faces; span and anchor keep the same
+/// outline distinct when it is positioned in a different source-cell window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ShapedGlyphKey {
+    pub face_fingerprint: u64,
+    pub style: FontStyle,
+    pub glyph_id: u16,
+    pub span_cells: u8,
+    pub anchor_cell: u8,
+}
+
 /// Integer pixel metrics for one monospace cell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CellSize {
@@ -735,6 +747,9 @@ pub struct GlyphAtlas {
     /// once. Keyed by style so bold/italic variants get distinct slots; the live
     /// render path only ever inserts [`FontStyle::Regular`] today.
     dynamic: HashMap<(FontStyle, char), u32>,
+    /// Contextual OpenType glyphs keyed independently from scalar codepoints.
+    /// Empty on every freshly built atlas and untouched while ligatures are off.
+    shaped: HashMap<ShapedGlyphKey, u32>,
     /// Physical pixel size new glyphs are rasterized at (matches the ASCII block).
     px: f32,
     /// Monotonic counter bumped whenever pixels or dimensions change. The native
@@ -934,6 +949,7 @@ impl GlyphAtlas {
             next_slot: base_slots,
             max_slots: MAX_ATLAS_SLOTS,
             dynamic: HashMap::new(),
+            shaped: HashMap::new(),
             px,
             revision: 0,
             dirty: false,
@@ -1203,6 +1219,77 @@ impl GlyphAtlas {
         self.revision += 1;
         self.dirty = true;
         Some(self.slot_uv(slot))
+    }
+
+    /// Rasterize a contextual OpenType glyph into a source-column-anchored
+    /// multi-cell slot. The glyph ID is the shared OpenType index used by swash
+    /// and ab_glyph. Shaped advances are intentionally absent from this API.
+    pub fn ensure_shaped(&mut self, font: &FontVec, key: ShapedGlyphKey) -> Option<GlyphBounds> {
+        if key.span_cells == 0 || key.anchor_cell >= key.span_cells {
+            return None;
+        }
+        if let Some(&slot) = self.shaped.get(&key) {
+            return self.shaped_bounds(slot);
+        }
+        let span = u32::from(key.span_cells);
+        let slot = self.allocate_slots(span)?;
+        let origin = slot_offset(slot, self.cols, self.cell);
+        let synth = self.synth_for(key.style);
+        let ink = rasterize_glyph_id(
+            font,
+            Pen {
+                px: self.px,
+                baseline: self.cell.baseline as f32,
+            },
+            GlyphId(key.glyph_id),
+            f32::from(key.anchor_cell) * self.cell.width as f32,
+            &mut self.data,
+            self.width,
+            self.subpixel,
+            SlotRegion {
+                origin,
+                cell: self.cell,
+                outer_w: span * slot_w(self.cell),
+            },
+            synth,
+            None,
+        )
+        .unwrap_or(GlyphInk {
+            offset_x: 0,
+            offset_y: 0,
+            width: 0,
+            height: 0,
+        });
+        self.slot_ink[slot as usize] = ink;
+        self.shaped.insert(key, slot);
+        self.revision += 1;
+        self.dirty = true;
+        self.shaped_bounds(slot)
+    }
+
+    /// Immutable contextual-glyph lookup used after the ensure pass.
+    pub fn shaped_glyph_quad(&self, key: ShapedGlyphKey) -> Option<GlyphBounds> {
+        let slot = *self.shaped.get(&key)?;
+        self.shaped_bounds(slot)
+    }
+
+    fn shaped_bounds(&self, slot: u32) -> Option<GlyphBounds> {
+        let bounds = self.slot_glyph_bounds(slot);
+        (bounds.width > 0 && bounds.height > 0).then_some(bounds)
+    }
+
+    /// Number of contextual glyph identities resident in the atlas.
+    pub fn shaped_slot_count(&self) -> usize {
+        self.shaped.len()
+    }
+
+    /// Whether a contextual identity owns an atlas slot. This is distinct from
+    /// [`Self::shaped_glyph_quad`]: contextual fonts may intentionally replace
+    /// one source glyph with a zero-ink spacer, which is resident but emits no
+    /// quad. Callers use residency to distinguish that valid spacer from atlas
+    /// exhaustion and retain scalar fallback for an unallocated span.
+    pub fn contains_shaped(&self, key: ShapedGlyphKey) -> bool {
+        self.shaped.contains_key(&key)
     }
 
     /// Reserve `span` consecutive dynamic slots in a single atlas row and return
@@ -1682,6 +1769,36 @@ fn rasterize_glyph(
     synth: SynthTransform,
     fit: Option<CellFit>,
 ) -> Option<GlyphInk> {
+    if !font_has_glyph(font, ch) {
+        return None;
+    }
+    rasterize_glyph_id(
+        font,
+        pen,
+        font.glyph_id(ch),
+        0.0,
+        data,
+        width,
+        subpixel,
+        region,
+        synth,
+        fit,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rasterize_glyph_id(
+    font: &FontVec,
+    pen: Pen,
+    glyph_id: GlyphId,
+    anchor_x: f32,
+    data: &mut [u8],
+    width: u32,
+    subpixel: SubpixelMode,
+    region: SlotRegion,
+    synth: SynthTransform,
+    fit: Option<CellFit>,
+) -> Option<GlyphInk> {
     let SlotRegion {
         origin,
         cell,
@@ -1689,7 +1806,7 @@ fn rasterize_glyph(
     } = region;
     let (ox, oy) = origin;
     let scale = PxScale::from(pen.px);
-    if !font_has_glyph(font, ch) {
+    if glyph_id.0 == 0 {
         return None;
     }
     // Stem-darkening strength is read once per glyph; `0.0` (the default) makes
@@ -1711,7 +1828,6 @@ fn rasterize_glyph(
     // path) leaves placement at the natural bearing on `pen.baseline`,
     // byte-identical to the pre-fit renderer.
     let fit_placement: Option<FitPlacement> = fit.and_then(|f| {
-        let glyph_id = font.glyph_id(ch);
         let measure = |sc: PxScale| {
             font.outline_glyph(glyph_id.with_scale_and_position(sc, point(0.0, 0.0)))
                 .map(|o| o.px_bounds())
@@ -1761,9 +1877,7 @@ fn rasterize_glyph(
             Some(fp) => (fp.scale, 0.0),
             None => (scale, pen.baseline),
         };
-        let glyph = font
-            .glyph_id(ch)
-            .with_scale_and_position(use_scale, point(shift_x, pos_y));
+        let glyph = glyph_id.with_scale_and_position(use_scale, point(anchor_x + shift_x, pos_y));
         let Some(outline) = font.outline_glyph(glyph) else {
             return;
         };

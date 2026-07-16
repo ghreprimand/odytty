@@ -13,6 +13,7 @@ readability invariants behind the effects system, see
 - [CRT / retro profile](#crt--retro-profile)
 - [The ambient visual setting](#the-ambient-visual-setting)
 - [Cursor animations](#cursor-animations)
+- [Programming ligatures](#programming-ligatures)
 - [New-output fade](#new-output-fade)
 - [Background treatments](#background-treatments)
 - [Window transparency](#window-transparency)
@@ -290,6 +291,18 @@ color. Its restrained alpha keeps nearby text readable.
 **Cursor blink fade** (`cursor_easing = on`): the cursor eases its opacity in
 and out across each blink instead of switching hard on and off. Only active
 while the cursor is blinking and the window is focused.
+
+## Programming ligatures
+
+`ligatures = on` enables contextual programming ligatures for eligible ASCII
+runs. This is a static text presentation option, not a motion or post-process
+effect: glyphs may span several source cells, but each cell keeps its original
+character and grid position for cursor placement, selection, search, and copy.
+Ink is clipped to the shaped source span, and unsupported fonts or runs fall
+back to ordinary per-cell glyphs. The option is off by default.
+
+Ligatures behave identically on Windows, macOS, and Linux. They do not add an
+animation wake and are not changed by `reduced_motion`.
 
 ## New-output fade
 

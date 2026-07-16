@@ -12,6 +12,7 @@ use crate::core::{CursorStyle, RgbColor, Snapshot};
 use crate::emoji::{ColorGlyphAtlas, EmojiRasterizer};
 use crate::graphics::{StoredImageId, VisiblePlacement};
 use crate::grid::{self, ColorGlyphRun, ColorGlyphVertex, CursorRenderParams, SolidQuad, Vertex};
+use crate::ligature::{LigatureRun, LigatureShaper};
 use crate::text::{self, GlyphAtlas, SubpixelMode};
 use crate::theme::{Theme, VisualEffect};
 
@@ -1530,6 +1531,8 @@ pub(super) struct GpuState {
     pub(super) atlas: GlyphAtlas,
     color_glyph_atlas: ColorGlyphAtlas,
     emoji_rasterizer: EmojiRasterizer,
+    /// Bounded row-plan cache for opt-in ASCII contextual shaping.
+    ligature_shaper: LigatureShaper,
     /// Fonts used to populate the atlas dynamic region for regular and styled
     /// glyphs. Missing style faces intentionally fall back to the regular font.
     fonts: StyleFonts,
@@ -1584,6 +1587,8 @@ pub(super) struct GpuState {
     /// rebuild the atlas; geometry slots are atlas-owned, so flipping the setting
     /// must not wait for unrelated font changes.
     geometric_enabled: bool,
+    /// Last-applied opt-in programming-ligature switch.
+    ligatures_enabled: bool,
     /// Last-applied effective symbol / Nerd-font fallback switch. The setting is
     /// published process-wide and the legacy env var may override it; retaining
     /// the effective value lets live toggles rebuild the atlas.
@@ -1832,7 +1837,7 @@ impl GpuState {
         let symbol_map_fonts = resolve_symbol_map_fonts(&symbol_map);
         atlas.set_symbol_map_fonts(symbol_map_fonts.clone());
         ensure_snapshot_glyphs(&mut atlas, &fonts, initial_snapshot);
-        let atlas_texture = create_atlas_texture(&device, &queue, &atlas);
+        let mut atlas_texture = create_atlas_texture(&device, &queue, &atlas);
         // Nearest + clamp: glyph cells map 1:1 to pixels, so no filtering.
         let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("odytty-atlas-sampler"),
@@ -1890,7 +1895,7 @@ impl GpuState {
                 },
             ],
         });
-        let bind_group = create_atlas_bind_group(
+        let mut bind_group = create_atlas_bind_group(
             &device,
             &bind_group_layout,
             &viewport_buf,
@@ -1902,6 +1907,35 @@ impl GpuState {
         let mut emoji_rasterizer = EmojiRasterizer::discover();
         let initial_color_glyph_runs =
             emoji_rasterizer.build_color_glyph_runs(initial_snapshot, &mut color_glyph_atlas);
+        let ligatures_enabled = crate::settings::ligatures_enabled();
+        let mut ligature_shaper = LigatureShaper::new();
+        let mut initial_ligature_runs = ligature_shaper.build_runs(
+            ligatures_enabled,
+            initial_snapshot,
+            &fonts,
+            &initial_color_glyph_runs,
+        );
+        for glyph in initial_ligature_runs
+            .iter()
+            .flat_map(|run| run.glyphs.iter())
+        {
+            let _ = atlas.ensure_shaped(fonts.font_for(glyph.key.style), glyph.key);
+        }
+        initial_ligature_runs.retain(|run| {
+            run.glyphs
+                .iter()
+                .all(|glyph| atlas.contains_shaped(glyph.key))
+        });
+        if atlas.take_dirty() {
+            atlas_texture = create_atlas_texture(&device, &queue, &atlas);
+            bind_group = create_atlas_bind_group(
+                &device,
+                &bind_group_layout,
+                &viewport_buf,
+                &atlas_texture,
+                &atlas_sampler,
+            );
+        }
         let color_glyph_atlas_texture =
             create_color_atlas_texture(&device, &queue, &color_glyph_atlas);
         let color_glyph_atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -1981,11 +2015,12 @@ impl GpuState {
         // pump thread advances the shared terminal. A >=1x1 grid always emits at
         // least one background quad, so this buffer is never zero-sized.
         let mut vertices = Vec::new();
-        grid::build_cell_vertices_with_focus_dim_and_origin_into(
+        grid::build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
             &mut vertices,
             initial_snapshot,
             &atlas,
             &initial_color_glyph_runs,
+            &initial_ligature_runs,
             0.0,
             origin,
             grid::BackgroundTreatmentParams::default(),
@@ -2095,6 +2130,7 @@ impl GpuState {
             atlas,
             color_glyph_atlas,
             emoji_rasterizer,
+            ligature_shaper,
             fonts,
             font_size_px: options.font_size_px,
             scale,
@@ -2110,6 +2146,7 @@ impl GpuState {
             box_thickness,
             synthetic_enabled,
             geometric_enabled,
+            ligatures_enabled,
             symbol_fallback_enabled,
             symbol_font_path,
             symbol_fallback,
@@ -2171,6 +2208,7 @@ impl GpuState {
         atlas.set_symbol_map_fonts(self.symbol_map_fonts.clone());
         let _ = atlas.take_dirty();
         self.atlas = atlas;
+        self.ligature_shaper.clear();
         self.refresh_atlas_texture();
         self.color_glyph_atlas = ColorGlyphAtlas::new(self.atlas.cell);
         self.color_glyph_atlas
@@ -2416,6 +2454,8 @@ impl GpuState {
         let synthetic_changed = synthetic_now != self.synthetic_enabled;
         let geometric_now = crate::settings::geometric_boxdraw_enabled();
         let geometric_changed = geometric_now != self.geometric_enabled;
+        let ligatures_now = crate::settings::ligatures_enabled();
+        let ligatures_changed = ligatures_now != self.ligatures_enabled;
         let symbol_fallback_now = effective_symbol_fallback_enabled();
         let symbol_font_path_now = effective_symbol_font_path();
         let symbol_fallback_changed = symbol_fallback_now != self.symbol_fallback_enabled
@@ -2433,6 +2473,7 @@ impl GpuState {
             && !box_thickness_changed
             && !synthetic_changed
             && !geometric_changed
+            && !ligatures_changed
             && !symbol_fallback_changed
             && !symbol_map_changed
         {
@@ -2482,6 +2523,9 @@ impl GpuState {
         }
         if geometric_changed {
             self.geometric_enabled = geometric_now;
+        }
+        if ligatures_changed {
+            self.ligatures_enabled = ligatures_now;
         }
         if symbol_fallback_changed {
             self.symbol_fallback_enabled = symbol_fallback_now;
@@ -2716,17 +2760,21 @@ impl GpuState {
         // Pass A: ensure all panes' glyphs in both atlases, capturing each
         // pane's color-glyph runs for the build pass.
         let mut pane_runs: Vec<Vec<ColorGlyphRun>> = Vec::with_capacity(panes.len());
+        let mut pane_ligature_runs: Vec<Vec<LigatureRun>> = Vec::with_capacity(panes.len());
         for pane in panes {
             let runs = self
                 .emoji_rasterizer
                 .build_color_glyph_runs(pane.snapshot, &mut self.color_glyph_atlas);
+            let mut ligature_runs = self.build_ligature_runs(pane.snapshot, &runs);
             ensure_snapshot_glyphs_excluding_color_runs(
                 &mut self.atlas,
                 &self.fonts,
                 pane.snapshot,
                 &runs,
             );
+            self.ensure_ligature_glyphs(&mut ligature_runs);
             pane_runs.push(runs);
+            pane_ligature_runs.push(ligature_runs);
         }
         // The topmost overlay panel is text-only (borders, labels, values); its
         // mono glyphs must be in the atlas before any vertices are built. It
@@ -2765,13 +2813,18 @@ impl GpuState {
         let mut retained_cursor_overlays = Vec::new();
         let mut retained_cursor_glow = None;
         let mut retained_cursor_streak = None;
-        for (pane, runs) in panes.iter().zip(pane_runs.iter()) {
+        for ((pane, runs), ligature_runs) in panes
+            .iter()
+            .zip(pane_runs.iter())
+            .zip(pane_ligature_runs.iter())
+        {
             pane_buf.clear();
-            grid::build_cell_vertices_with_focus_dim_and_origin_into(
+            grid::build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
                 &mut pane_buf,
                 pane.snapshot,
                 &self.atlas,
                 runs,
+                ligature_runs,
                 pane.focus_dim,
                 pane.origin,
                 pane.treatment,
@@ -3098,12 +3151,14 @@ impl GpuState {
             &mut self.color_glyph_atlas,
             &mut color_glyph_runs,
         );
+        let mut ligature_runs = self.build_ligature_runs(snapshot, &color_glyph_runs);
         ensure_snapshot_glyphs_excluding_color_runs(
             &mut self.atlas,
             &self.fonts,
             snapshot,
             &color_glyph_runs,
         );
+        self.ensure_ligature_glyphs(&mut ligature_runs);
         // F4-P3: the revealed rail overlay strip's mono glyphs must join the
         // atlas before any texture refresh, alongside the terminal snapshot's.
         if let Some(rail) = rail_overlay.as_ref() {
@@ -3117,11 +3172,12 @@ impl GpuState {
         let content_opacity = self.content_build_opacity();
         // SCROLL-CHROME-BOUNCE: hold composited chrome still while content glides.
         let chrome_pin = self.chrome_pin();
-        grid::build_cell_vertices_with_focus_dim_and_origin_into(
+        grid::build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
             &mut self.vertices,
             snapshot,
             &self.atlas,
             &color_glyph_runs,
+            &ligature_runs,
             focus_dim,
             origin,
             treatment,
@@ -3231,6 +3287,27 @@ impl GpuState {
             self.queue
                 .write_buffer(&self.vertex_buf, 0, bytemuck::cast_slice(&self.vertices));
         }
+    }
+
+    fn build_ligature_runs(
+        &mut self,
+        snapshot: &Snapshot,
+        color_runs: &[ColorGlyphRun],
+    ) -> Vec<LigatureRun> {
+        self.ligature_shaper
+            .build_runs(self.ligatures_enabled, snapshot, &self.fonts, color_runs)
+    }
+
+    fn ensure_ligature_glyphs(&mut self, runs: &mut Vec<LigatureRun>) {
+        for glyph in runs.iter().flat_map(|run| run.glyphs.iter()) {
+            let font = self.fonts.font_for(glyph.key.style);
+            let _ = self.atlas.ensure_shaped(font, glyph.key);
+        }
+        runs.retain(|run| {
+            run.glyphs
+                .iter()
+                .all(|glyph| self.atlas.contains_shaped(glyph.key))
+        });
     }
 
     /// Ensure the F4-P3 rail auto-hide overlay strip's mono glyphs are in the

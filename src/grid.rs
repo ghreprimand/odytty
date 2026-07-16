@@ -26,6 +26,7 @@ use bytemuck::{Pod, Zeroable};
 use crate::atlas::GlyphBounds;
 use crate::core::{Attrs, Color, CursorStyle, DynamicColors, RgbColor, Snapshot, UnderlineStyle};
 use crate::emoji::{ColorGlyphAtlas, ColorGlyphKey};
+use crate::ligature::LigatureRun;
 use crate::text::{self, FontStyle, GlyphAtlas};
 
 /// One vertex of a cell quad. Matches the `VsIn` layout in `cell.wgsl`.
@@ -789,6 +790,38 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
     // `ChromePin::NONE` (every non-single-pane-content caller) is byte-identical.
     chrome_pin: ChromePin,
 ) {
+    build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
+        out,
+        snapshot,
+        atlas,
+        color_runs,
+        &[],
+        focus_dim,
+        origin,
+        treatment,
+        cell_bg_opacity,
+        opaque_region,
+        chrome_pin,
+    );
+}
+
+/// Ligature-aware counterpart to
+/// [`build_cell_vertices_with_focus_dim_and_origin_into`]. An empty run slice
+/// takes the same scalar-glyph branches as the legacy entry point.
+#[allow(clippy::too_many_arguments)]
+pub fn build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    color_runs: &[ColorGlyphRun],
+    ligature_runs: &[LigatureRun],
+    focus_dim: f32,
+    origin: [f32; 2],
+    treatment: BackgroundTreatmentParams,
+    cell_bg_opacity: f32,
+    opaque_region: Option<CellRegion>,
+    chrome_pin: ChromePin,
+) {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
     let cell_w = atlas.cell.width as f32;
@@ -856,6 +889,7 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
     // Pass 1: full-cell background quads only. Emitting every background before
     // any glyph guarantees a later column's background can never paint over an
     // earlier glyph's beyond-cell overflow ink.
+    let mut ligature_index = 0;
     for row in 0..rows {
         for col in 0..cols {
             let cell = &snapshot.cells[row * cols + col];
@@ -911,9 +945,24 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
             let y0 = chrome_pin.cell_top_y(origin[1], cell_h, row, col);
             let decoration_y0 = y0 + chrome_pin.glyph_center_dy(row, col, cell_h);
 
+            while ligature_runs
+                .get(ligature_index)
+                .is_some_and(|run| run.row < row || (run.row == row && run.end <= col))
+            {
+                ligature_index += 1;
+            }
+            let ligature = ligature_runs
+                .get(ligature_index)
+                .filter(|run| run.covers(row, col))
+                .filter(|run| {
+                    run.glyphs
+                        .iter()
+                        .all(|glyph| atlas.contains_shaped(glyph.key))
+                });
             if !cell.attrs.hidden()
                 && cell.ch != ' '
                 && !has_color_glyph_run(color_runs, row, col)
+                && ligature.is_none()
                 && let Some(bounds) =
                     atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), cell.ch)
             {
@@ -930,6 +979,36 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
                     // row / odd-height bands) leaves the glyph exactly where the
                     // row-snap placed it, so the plain path is byte-identical.
                     push_glyph_quad(out, x0, decoration_y0, bounds, fg);
+                }
+            }
+
+            // Emit a contextual span once from its first source column. Its
+            // atlas keys carry only source span/anchor data; shaped advances
+            // never move grid columns. Horizontal clipping prevents ink from
+            // reaching the following logical cell or an adjacent pane.
+            if let Some(run) = ligature.filter(|run| run.start == col) {
+                let span_x0 = origin[0] + run.start as f32 * cell_w;
+                let span_x1 = origin[0] + run.end as f32 * cell_w;
+                let grid_top = if chrome_pin.active()
+                    && chrome_pin.top_rows > 0
+                    && !chrome_pin.is_chrome(row, col)
+                {
+                    chrome_seam_y
+                } else {
+                    origin[1]
+                };
+                let grid_bottom = origin[1] + rows as f32 * cell_h;
+                for glyph in run.glyphs.iter() {
+                    if let Some(bounds) = atlas.shaped_glyph_quad(glyph.key) {
+                        push_glyph_quad_clipped_rect(
+                            out,
+                            span_x0,
+                            decoration_y0,
+                            bounds,
+                            fg,
+                            [span_x0, grid_top, span_x1, grid_bottom],
+                        );
+                    }
                 }
             }
 
@@ -1178,6 +1257,57 @@ fn push_glyph_quad(out: &mut Vec<Vertex>, x0: f32, y0: f32, bounds: GlyphBounds,
     let gx1 = gx0 + bounds.width as f32;
     let gy1 = gy0 + bounds.height as f32;
     push_quad(out, [gx0, gy0, gx1, gy1], bounds.uv, color, 1.0);
+}
+
+/// Crop a coverage glyph to a pixel rectangle by adjusting UVs, never by
+/// squashing geometry. Used by multi-cell contextual glyphs so their ink stays
+/// inside the logical source span and pane/grid bounds.
+fn push_glyph_quad_clipped_rect(
+    out: &mut Vec<Vertex>,
+    x0: f32,
+    y0: f32,
+    bounds: GlyphBounds,
+    color: [f32; 4],
+    clip: [f32; 4],
+) {
+    let mut gx0 = x0 + bounds.offset_x as f32;
+    let mut gy0 = y0 + bounds.offset_y as f32;
+    let mut gx1 = gx0 + bounds.width as f32;
+    let mut gy1 = gy0 + bounds.height as f32;
+    let [mut u0, mut v0, mut u1, mut v1] = bounds.uv;
+    let original_uv = bounds.uv;
+    let original_w = gx1 - gx0;
+    let original_h = gy1 - gy0;
+    if original_w <= 0.0
+        || original_h <= 0.0
+        || gx1 <= clip[0]
+        || gx0 >= clip[2]
+        || gy1 <= clip[1]
+        || gy0 >= clip[3]
+    {
+        return;
+    }
+    if gx0 < clip[0] {
+        let t = (clip[0] - gx0) / original_w;
+        u0 = original_uv[0] + t * (original_uv[2] - original_uv[0]);
+        gx0 = clip[0];
+    }
+    if gx1 > clip[2] {
+        let t = (gx1 - clip[2]) / original_w;
+        u1 = original_uv[2] - t * (original_uv[2] - original_uv[0]);
+        gx1 = clip[2];
+    }
+    if gy0 < clip[1] {
+        let t = (clip[1] - gy0) / original_h;
+        v0 = original_uv[1] + t * (original_uv[3] - original_uv[1]);
+        gy0 = clip[1];
+    }
+    if gy1 > clip[3] {
+        let t = (gy1 - clip[3]) / original_h;
+        v1 = original_uv[3] - t * (original_uv[3] - original_uv[1]);
+        gy1 = clip[3];
+    }
+    push_quad(out, [gx0, gy0, gx1, gy1], [u0, v0, u1, v1], color, 1.0);
 }
 
 /// SCROLL-CHROME-BOUNCE: push a coverage glyph whose top is cropped at

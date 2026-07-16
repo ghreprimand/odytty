@@ -34,6 +34,7 @@ pub const CRT_CURVATURE_ENV: &str = "ODYTTY_CRT_CURVATURE";
 pub const SUBPIXEL_ENV: &str = "ODYTTY_SUBPIXEL";
 pub const LINE_HEIGHT_ENV: &str = "ODYTTY_LINE_HEIGHT";
 pub const BOX_THICKNESS_ENV: &str = "ODYTTY_BOX_THICKNESS";
+pub const LIGATURES_ENV: &str = "ODYTTY_LIGATURES";
 pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const PANE_PREFIX_ENV: &str = "ODYTTY_PANE_PREFIX";
 pub const CURSOR_STYLE_ENV: &str = "ODYTTY_CURSOR_STYLE";
@@ -157,6 +158,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     SUBPIXEL_ENV,
     LINE_HEIGHT_ENV,
     BOX_THICKNESS_ENV,
+    LIGATURES_ENV,
     KEYBINDS_ENV,
     PANE_PREFIX_ENV,
     CURSOR_STYLE_ENV,
@@ -528,6 +530,11 @@ pub const DEFAULT_REDUCED_MOTION: bool = false;
 /// (`viewport_offset == 0`); scrolling back or resizing snaps instantly. The
 /// row carrying the cursor is never obscured. Purely presentational.
 pub const DEFAULT_NEW_OUTPUT_FADE: bool = false;
+
+/// Programming ligatures (`ODYTTY_LIGATURES`): ASCII contextual `calt`
+/// shaping. Off by default; the disabled path performs no shaping and preserves
+/// the scalar atlas/geometry output exactly.
+pub const DEFAULT_LIGATURES: bool = false;
 
 /// Themed window border (`ODYTTY_WINDOW_BORDER`, ID4): when on, a thin border in
 /// the theme `border` role color is drawn around the grid, framing the terminal

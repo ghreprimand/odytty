@@ -28,14 +28,27 @@ use std::hint::black_box;
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
+use ab_glyph::FontVec;
 use odytty::atlas::GlyphAtlas;
 use odytty::core::{CursorStyle, Terminal};
-use odytty::grid::build_vertices;
+use odytty::grid::{
+    BackgroundTreatmentParams, ChromePin,
+    build_cell_vertices_with_focus_dim_origin_and_ligatures_into, build_vertices,
+};
+use odytty::ligature::{LigatureFonts, LigatureShaper};
 use odytty::parser::{OdyParser, Params, VtDispatch};
-use odytty::text::load_font;
+use odytty::text::{FontStyle, load_font};
 
 const COLS: usize = 80;
 const ROWS: usize = 24;
+
+struct BenchLigatureFont<'a>(&'a FontVec);
+
+impl LigatureFonts for BenchLigatureFont<'_> {
+    fn ligature_font(&self, _style: FontStyle) -> &FontVec {
+        self.0
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 struct BenchProfile {
@@ -698,6 +711,80 @@ fn main() {
             }
         });
         report_ops("snapshot()+cursor_tail_only()", frame_ops, d);
+
+        // Phase 7: integrated cell geometry with the presentation switch off
+        // versus enabled on an unchanged, cache-hot punctuation-heavy grid.
+        let mut ligature_term = Terminal::new(COLS, ROWS);
+        let line = "let value->field => next != other <= limit :: scope || fallback\r\n";
+        for _ in 0..ROWS {
+            ligature_term.advance(line.as_bytes());
+        }
+        let ligature_snapshot = ligature_term.snapshot();
+        let fonts = BenchLigatureFont(font);
+        let mut ligature_shaper = LigatureShaper::new();
+        let ligature_runs = ligature_shaper.build_runs(true, &ligature_snapshot, &fonts, &[]);
+        let mut ligature_atlas = GlyphAtlas::build(font, 28.0);
+        for run in &ligature_runs {
+            for glyph in run.glyphs.iter() {
+                let _ = ligature_atlas.ensure_shaped(font, glyph.key);
+            }
+        }
+
+        let cold_ops = geo_ops.min(20);
+        start_row("ligature cold row plans");
+        let d = best_of(profile.runs, || {
+            for _ in 0..cold_ops {
+                ligature_shaper.clear();
+                black_box(ligature_shaper.build_runs(true, &ligature_snapshot, &fonts, &[]));
+            }
+        });
+        report_ops("ligature cold row plans", cold_ops, d);
+
+        start_row("ligatures off integrated");
+        let d = best_of(profile.runs, || {
+            let mut vertices = Vec::new();
+            for _ in 0..geo_ops {
+                let runs = ligature_shaper.build_runs(false, &ligature_snapshot, &fonts, &[]);
+                build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
+                    &mut vertices,
+                    &ligature_snapshot,
+                    &ligature_atlas,
+                    &[],
+                    &runs,
+                    0.0,
+                    [0.0, 0.0],
+                    BackgroundTreatmentParams::default(),
+                    1.0,
+                    None,
+                    ChromePin::NONE,
+                );
+                black_box(&vertices);
+            }
+        });
+        report_ops("ligatures off integrated", geo_ops, d);
+
+        start_row("ligatures on cached");
+        let d = best_of(profile.runs, || {
+            let mut vertices = Vec::new();
+            for _ in 0..geo_ops {
+                let runs = ligature_shaper.build_runs(true, &ligature_snapshot, &fonts, &[]);
+                build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
+                    &mut vertices,
+                    &ligature_snapshot,
+                    &ligature_atlas,
+                    &[],
+                    &runs,
+                    0.0,
+                    [0.0, 0.0],
+                    BackgroundTreatmentParams::default(),
+                    1.0,
+                    None,
+                    ChromePin::NONE,
+                );
+                black_box(&vertices);
+            }
+        });
+        report_ops("ligatures on cached", geo_ops, d);
     }
 
     if geometry_only {

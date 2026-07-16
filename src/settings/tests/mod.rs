@@ -25,6 +25,7 @@ mod cursor;
 mod info;
 mod keybinds;
 mod legacy;
+mod ligature;
 mod mouse;
 mod numeric;
 mod overlay;

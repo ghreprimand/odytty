@@ -17,6 +17,7 @@ pub mod graphics;
 pub mod grid;
 pub mod hints;
 pub mod input;
+pub mod ligature;
 pub(crate) mod local_hostname;
 pub mod logging;
 pub mod native;

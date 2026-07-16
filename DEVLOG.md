@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-15 -- Programming ligatures are available as an opt-in
+
+ASCII programming ligatures can now be enabled with `ligatures = on` or
+`ODYTTY_LIGATURES=on`. Eligible same-style runs use the selected text font's
+contextual alternates while the terminal model retains its original logical
+cells. Copy, selection, search, cursor placement, wide cells, and synchronized
+output therefore keep their existing semantics. Unsupported fonts and runs
+fall back to the ordinary per-cell renderer. The default remains off.
+
+The renderer keys contextual glyphs by face, style, glyph identifier, source
+span, and source-cell anchor. A bounded 512-row deterministic cache avoids
+reshaping unchanged rows, and source-column anchoring ignores proportional
+shaped advances so terminal grid alignment remains authoritative. Ink is
+clipped to its source span, the focused split pane shapes independently, and
+Full and CursorOnly rebuilds retain the same cell geometry.
+
+Regression coverage pins the disabled byte-identical path, cache hits and
+eviction, row edits, wide-cell boundaries, logical copy and selection,
+cursor-over-ligature geometry, atlas reuse, split-pane shaping, clipping, and
+GPU submission. The Rust and wgpu presentation path is shared by Windows,
+macOS, and Linux; no PTY, spawn, path, or environment behavior changes.
+
 ## 2026-07-15 -- Cursor presentation now starts with Block and glow
 
 Fresh profiles now use the blinking Block cursor as their host default, while

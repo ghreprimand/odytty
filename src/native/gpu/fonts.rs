@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use ab_glyph::FontVec;
 
+use crate::ligature::LigatureFonts;
 use crate::native::options::{NativeError, NativeOptions};
 use crate::text::{self, FontStyle};
 
@@ -184,6 +185,12 @@ impl StyleFonts {
 
     pub(super) fn regular_font(&self) -> &FontVec {
         &self.regular
+    }
+}
+
+impl LigatureFonts for StyleFonts {
+    fn ligature_font(&self, style: FontStyle) -> &FontVec {
+        self.font_for(style)
     }
 }
 
