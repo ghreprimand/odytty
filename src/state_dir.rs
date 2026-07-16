@@ -11,7 +11,11 @@ use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::Path;
 
+// Unix owner-only mode bits. The Windows path uses inherited ACLs and never
+// references these, so they are scoped to the platforms that apply them.
+#[cfg(unix)]
 const PRIVATE_DIR_MODE: u32 = 0o700;
+#[cfg(unix)]
 const PRIVATE_FILE_MODE: u32 = 0o600;
 
 /// Create or repair one application-owned state leaf.  This never changes a
@@ -82,10 +86,13 @@ pub(crate) fn open_read_write_sensitive(path: &Path) -> io::Result<File> {
     }
     #[cfg(not(unix))]
     {
+        // The caller keeps this handle for advisory locking; the persistent
+        // lock content must survive, so truncation is explicitly disabled.
         OpenOptions::new()
             .create(true)
             .read(true)
             .write(true)
+            .truncate(false)
             .open(path)
     }
 }

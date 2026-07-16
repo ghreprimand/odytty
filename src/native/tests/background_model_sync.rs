@@ -73,6 +73,12 @@ const OSC11_QUERY: &[u8] = b"\x1b]11;?\x1b\\";
 // OSC 52 clipboard write of "hi" (base64 "aGk=").
 const OSC52_WRITE_HI: &[u8] = b"\x1b]52;c;aGk=\x1b\\";
 const OSC52_WRITE_BYE: &[u8] = b"\x1b]52;c;Ynll\x1b\\";
+// Primary-selection writes exist only on the Linux clipboard backend, so this
+// fixture is consumed solely by the Linux-gated primary-slot test below.
+#[cfg(all(
+    target_os = "linux",
+    not(any(target_os = "android", target_os = "emscripten"))
+))]
 const OSC52_WRITE_PRIMARY: &[u8] = b"\x1b]52;p;aGk=\x1b\\";
 const OSC52_READ: &[u8] = b"\x1b]52;c;?\x1b\\";
 
