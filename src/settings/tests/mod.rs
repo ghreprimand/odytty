@@ -29,6 +29,7 @@ mod legacy;
 mod ligature;
 mod mouse;
 mod numeric;
+mod osc52_write;
 mod overlay;
 mod sh2;
 mod system_theme;

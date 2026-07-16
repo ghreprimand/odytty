@@ -325,6 +325,10 @@ interactive_paths_editor =
 
 # Clipboard and accessibility. See docs/accessibility.md for cvd_mode,
 # min_contrast, focus_dim, and bell guidance.
+# Terminal clipboard writes require the active PTY and an OS-focused window.
+# "ask" keeps consent in memory for the current PTY session only; "off"
+# drains and discards writes. Clipboard reads remain a separate opt-in.
+osc52_write = on
 osc52_read = off
 cvd_mode = off
 cvd_strength = 1.0

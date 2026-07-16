@@ -685,6 +685,7 @@ pub fn show_config_output(settings: &Settings) -> String {
                 .unwrap_or_default(),
         ),
         ("osc52_read", bool_value(settings.osc52_read).to_owned()),
+        ("osc52_write", settings.osc52_write.as_str().to_owned()),
         (
             "render_quality",
             settings.render_quality.as_str().to_owned(),

@@ -1431,6 +1431,7 @@ impl App {
     /// (Windows restore-without-`Resized`) clears the flag so the vetoed repaint
     /// can schedule. The redraw the arm already requests then actually paints.
     pub(super) fn on_window_focus_changed(&mut self, focused: bool) {
+        self.observe_osc52_window_focus();
         self.focused = focused;
         if focused {
             // A focus gain is a fresh visible-hold boundary for the active
@@ -1448,6 +1449,10 @@ impl App {
             // minimized, so the ordinary focus-gain path is unchanged.
             self.restore_from_minimized();
         } else {
+            // Clipboard-write consent is valid only while the emitting session
+            // remains visibly focused. Drop the pending value before any focus
+            // report or later key can act on it.
+            self.cancel_osc52_prompt();
             // Drop the deadline immediately rather than waiting for the next
             // render sample, so an unfocused window cannot retain a stale blink
             // wake while the event loop is otherwise idle.

@@ -45,9 +45,7 @@ use super::bindings::{
     encode_native_mouse_report, map_keypad_physical_key, map_named_key, map_winit_mouse_button,
     motion_report_button, prefix_chord_from_winit, wheel_report_button,
 };
-use super::clipboard::{
-    NativeClipboard, read_clipboard_selection, write_clipboard_selection, write_paste_text,
-};
+use super::clipboard::{NativeClipboard, read_clipboard_selection, write_paste_text};
 use super::cvd_theme::CvdThemeCache;
 use super::gpu::{
     BloomOptions, ChromePinGeom, CrtOptions, FrameOutcome, GpuState, PanelFrameQuads, RailOverlay,
@@ -114,6 +112,7 @@ mod new_row_fade;
 mod open_notice;
 mod open_with_ui;
 mod os_theme;
+pub(in crate::native) mod osc52;
 mod overlay_registry;
 mod palette_ui;
 mod panes;
@@ -556,14 +555,13 @@ pub(super) struct App {
     /// each animation frame reclassifies the render cache (the flash alpha moves
     /// while cell content does not). Constant while no flash is in flight.
     bell_flash_epoch: u64,
-    /// OPEN-NOTICE (P0-2): a transient, non-blocking status line shown when an
-    /// open/reveal spawn fails (a missing/broken `xdg-open`/`open`), so a failed
-    /// open is never an indistinguishable silent no-op. `None` on every success
-    /// and feature-off path, so the default render path is byte-identical (the
-    /// painter and signature both early-out on `None`). Auto-expires after
-    /// [`open_notice::NOTICE_DURATION`]; carries the message and the instant it
-    /// was raised.
+    /// Transient native status line used for open failures and bounded neutral
+    /// security notices. `None` on the idle path, so the default render path is
+    /// byte-identical. Auto-expires after [`open_notice::NOTICE_DURATION`].
     open_notice: Option<open_notice::OpenNotice>,
+    /// OSC 52 write authority is native-window state: one bounded pending
+    /// request, ephemeral per-PTY consent, and the neutral-notice rate limit.
+    osc52_write: osc52::Osc52WriteState,
     /// UX-A (Phase 11): in-memory, per-launch click-to-open discoverability
     /// state — the transient bottom-left "Ctrl+click to open" hint plus the
     /// mis-click bookkeeping that decides when to raise it. NOT persisted; resets
@@ -807,6 +805,7 @@ impl App {
             bell_flash_start: None,
             bell_flash_epoch: 0,
             open_notice: None,
+            osc52_write: osc52::Osc52WriteState::default(),
             click_hint: click_hint::ClickHintState::default(),
             ime_preedit: String::new(),
             ime_session: None,
@@ -1914,6 +1913,9 @@ impl App {
         if event_type != KeyEventType::Release {
             self.note_cursor_keyboard_activity(Instant::now());
         }
+        if self.handle_osc52_prompt_key(&binding_key, physical, event_type) {
+            return;
+        }
         let mods = self.modifiers;
         let key_modes = self.key_modes();
         if event_type != KeyEventType::Release {
@@ -2910,13 +2912,15 @@ impl App {
         // workspace's tab) that emitted an OSC 52 write would otherwise queue it
         // until switch-back and then silently replace the system clipboard —
         // minutes-stale, from a program the user is not looking at. Policy: a
-        // WRITE from a non-focused session is DISCARDED (a backgrounded program
-        // must not hijack the clipboard); a READ requires both the existing live
-        // `osc52_read` gate and session focus, so a background program cannot
-        // exfiltrate clipboard contents. Every session is drained each pass so
-        // nothing queues indefinitely and a discarded request is never applied
-        // on switch-back.
+        // WRITE authority requires the active session, a confirmed OS-focused
+        // window, and the live `osc52_write` policy. A READ independently
+        // requires the existing `osc52_read` gate and active session, so a
+        // background program cannot exfiltrate clipboard contents. Every
+        // session is drained each pass so nothing queues indefinitely and a
+        // discarded request is never applied on switch-back.
         let focused = self.sessions.active_id();
+        let mut writes = Vec::new();
+        let live_sessions: Vec<_> = self.sessions.iter().map(|session| session.id).collect();
         for session in self.sessions.iter() {
             let is_focused = session.id == focused;
             let requests = session
@@ -2927,17 +2931,7 @@ impl App {
             for request in requests {
                 match request {
                     ClipboardRequest::Write { selection, text } => {
-                        if is_focused {
-                            let _ =
-                                write_clipboard_selection(&mut self.clipboard, selection, &text);
-                        } else {
-                            // Drop the write and leave the clipboard untouched;
-                            // the drain above already dequeued it so it cannot
-                            // resurface on switch-back.
-                            tracing::debug!(
-                                "discarded OSC 52 clipboard write from a non-focused session"
-                            );
-                        }
+                        writes.push((session.id, selection, text));
                     }
                     ClipboardRequest::Read { selection } => {
                         if !is_focused {
@@ -2990,6 +2984,11 @@ impl App {
                 }
             }
         }
+        self.prune_osc52_session_state(&live_sessions);
+        let now = Instant::now();
+        for (session, selection, text) in writes {
+            self.handle_osc52_write(session, selection, text, now);
+        }
     }
 
     fn update_window_title(&mut self) {
@@ -3022,6 +3021,7 @@ impl App {
     }
 
     fn on_active_session_changed(&mut self) {
+        self.cancel_osc52_prompt();
         let outgoing = self.last_active_session;
         let incoming = self.sessions.active_id();
         if self.focused && outgoing != incoming {
@@ -4926,6 +4926,10 @@ impl App {
         reloaded: Settings,
         source: SettingsApplySource,
     ) {
+        // A permission prompt is tied to the policy snapshot that produced it.
+        // Any live settings apply cancels it before equality checks or model
+        // updates, so a stale prompt cannot authorize under changed policy.
+        self.cancel_osc52_prompt();
         let mut next_settings = self.settings.clone();
         if !apply_reloadable_values(&mut next_settings, reloaded) {
             return;
@@ -5775,9 +5779,8 @@ impl ApplicationHandler<UserEvent> for App {
                                 terminal.screen().scrollback_len()
                             };
                             self.update_bell_flash(now);
-                            // OPEN-NOTICE (P0-2): expire a transient open-failure
-                            // banner once it has outlived its lifetime; no-op when
-                            // none is in flight.
+                            // Expire the transient native status banner once it
+                            // has outlived its lifetime; no-op when absent.
                             self.update_open_notice(now);
                             // UX-A (Phase 11): expire the click hint + drop a
                             // stale unpaired mis-click. No-op on the idle path.
@@ -5904,9 +5907,8 @@ impl ApplicationHandler<UserEvent> for App {
                         // IME pre-edit: paint the in-progress composition inline
                         // at the cursor; empty on the no-composition path.
                         self.paint_ime_preedit_cells(&mut snapshot);
-                        // OPEN-NOTICE (P0-2): a transient one-row failure banner
-                        // across the top of the grid; empty on the success /
-                        // no-notice path so the frame is byte-identical.
+                        // Transient status or OSC 52 consent banner across the
+                        // top of the grid; empty on the idle path.
                         self.paint_open_notice_cells(&mut snapshot);
                         // UX-A (Phase 11): the Ctrl+hover armed underline on the
                         // hovered path span, then the transient bottom-left

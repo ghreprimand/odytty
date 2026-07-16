@@ -213,6 +213,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "session_replay",
             "restore_workspaces",
             "shell_exit_closes",
+            "osc52_write",
             "osc52_read",
             "copy_on_select",
             "smart_ctrl_c",

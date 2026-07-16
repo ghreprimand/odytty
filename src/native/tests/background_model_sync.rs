@@ -14,9 +14,11 @@
 //! spawn); skipped when no PTY is available, ignored on macOS (off-main-thread
 //! winit `EventLoop`).
 
+use super::super::app::osc52::PromptDecision;
 use super::super::pty::UserEvent;
 use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
+use crate::settings::Osc52WritePolicy;
 use winit::event_loop::EventLoop;
 #[cfg(target_os = "linux")]
 use winit::platform::wayland::EventLoopBuilderExtWayland;
@@ -47,12 +49,13 @@ fn app_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
         Session::new(SessionToken(0), terminal, writer, pty, None),
         Some(proxy),
     );
-    let app = App::new_with_sessions(
+    let mut app = App::new_with_sessions(
         NativeOptions::default(),
         sessions,
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
+    app.on_window_focus_changed_for_test(true);
     Some((app, event_loop))
 }
 
@@ -69,6 +72,8 @@ macro_rules! app_or_skip {
 const OSC11_QUERY: &[u8] = b"\x1b]11;?\x1b\\";
 // OSC 52 clipboard write of "hi" (base64 "aGk=").
 const OSC52_WRITE_HI: &[u8] = b"\x1b]52;c;aGk=\x1b\\";
+const OSC52_WRITE_BYE: &[u8] = b"\x1b]52;c;Ynll\x1b\\";
+const OSC52_WRITE_PRIMARY: &[u8] = b"\x1b]52;p;aGk=\x1b\\";
 const OSC52_READ: &[u8] = b"\x1b]52;c;?\x1b\\";
 
 #[cfg_attr(
@@ -161,6 +166,130 @@ fn focused_osc52_write_reaches_clipboard() {
         Some("hi"),
         "the focused session's OSC 52 write reaches the clipboard"
     );
+    let notice = app
+        .open_notice_message_for_test()
+        .expect("focused write raises a bounded notice");
+    assert!(notice.contains("Clipboard"));
+    assert!(notice.contains("2 bytes"));
+    assert!(!notice.contains("hi"), "clipboard content stays out of UI");
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn focused_osc52_write_obeys_window_focus_and_off_policy() {
+    let (mut app, _event_loop) = app_or_skip!();
+    app.reset_last_clipboard_write_for_test();
+
+    app.on_window_focus_changed_for_test(false);
+    app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
+    app.drain_clipboard_requests_for_test();
+    assert_eq!(app.last_clipboard_write_for_test(), None);
+
+    app.on_window_focus_changed_for_test(true);
+    app.set_osc52_write_policy_for_test(Osc52WritePolicy::Off);
+    app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
+    app.drain_clipboard_requests_for_test();
+    assert_eq!(app.last_clipboard_write_for_test(), None);
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn osc52_ask_coalesces_and_allow_once_does_not_persist() {
+    let (mut app, _event_loop) = app_or_skip!();
+    app.set_osc52_write_policy_for_test(Osc52WritePolicy::Ask);
+    app.reset_last_clipboard_write_for_test();
+
+    app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
+    app.advance_session_bytes_for_test(0, OSC52_WRITE_BYE);
+    app.drain_clipboard_requests_for_test();
+    assert_eq!(app.last_clipboard_write_for_test(), None);
+    assert_eq!(app.osc52_prompt_metadata_for_test(), Some(("Clipboard", 3)));
+
+    app.resolve_osc52_prompt_for_test(PromptDecision::AllowOnce);
+    assert_eq!(app.last_clipboard_write_for_test().as_deref(), Some("bye"));
+
+    app.reset_last_clipboard_write_for_test();
+    app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
+    app.drain_clipboard_requests_for_test();
+    assert_eq!(app.last_clipboard_write_for_test(), None);
+    assert_eq!(app.osc52_prompt_metadata_for_test(), Some(("Clipboard", 2)));
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn osc52_ask_session_decisions_are_ephemeral_and_cancel_on_staleness() {
+    let (mut app, _event_loop) = app_or_skip!();
+    app.set_osc52_write_policy_for_test(Osc52WritePolicy::Ask);
+
+    app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
+    app.drain_clipboard_requests_for_test();
+    app.resolve_osc52_prompt_for_test(PromptDecision::AllowSession);
+    app.reset_last_clipboard_write_for_test();
+    app.advance_session_bytes_for_test(0, OSC52_WRITE_BYE);
+    app.drain_clipboard_requests_for_test();
+    assert_eq!(app.last_clipboard_write_for_test().as_deref(), Some("bye"));
+
+    // A new PTY session has no inherited consent.
+    app.new_tab_for_test();
+    app.reset_last_clipboard_write_for_test();
+    app.advance_session_bytes_for_test(1, OSC52_WRITE_HI);
+    app.drain_clipboard_requests_for_test();
+    assert_eq!(app.last_clipboard_write_for_test(), None);
+    assert!(app.osc52_prompt_metadata_for_test().is_some());
+
+    // Focus loss cancels the value permanently.
+    app.on_window_focus_changed_for_test(false);
+    assert_eq!(app.osc52_prompt_metadata_for_test(), None);
+    app.on_window_focus_changed_for_test(true);
+
+    // A reload cancels an in-flight request even if the policy remains ask.
+    app.advance_session_bytes_for_test(1, OSC52_WRITE_HI);
+    app.drain_clipboard_requests_for_test();
+    assert!(app.osc52_prompt_metadata_for_test().is_some());
+    app.reload_osc52_write_policy_for_test(Osc52WritePolicy::Ask);
+    assert_eq!(app.osc52_prompt_metadata_for_test(), None);
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn osc52_ask_deny_session_blocks_later_writes() {
+    let (mut app, _event_loop) = app_or_skip!();
+    app.set_osc52_write_policy_for_test(Osc52WritePolicy::Ask);
+    app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
+    app.drain_clipboard_requests_for_test();
+    app.resolve_osc52_prompt_for_test(PromptDecision::DenySession);
+
+    app.reset_last_clipboard_write_for_test();
+    app.advance_session_bytes_for_test(0, OSC52_WRITE_BYE);
+    app.drain_clipboard_requests_for_test();
+    assert_eq!(app.last_clipboard_write_for_test(), None);
+    assert_eq!(app.osc52_prompt_metadata_for_test(), None);
+}
+
+#[cfg(all(
+    target_os = "linux",
+    not(any(target_os = "android", target_os = "emscripten"))
+))]
+#[test]
+fn focused_osc52_primary_write_uses_the_linux_primary_slot() {
+    let (mut app, _event_loop) = app_or_skip!();
+    app.reset_last_clipboard_write_for_test();
+    app.advance_session_bytes_for_test(0, OSC52_WRITE_PRIMARY);
+    app.drain_clipboard_requests_for_test();
+    assert_eq!(app.last_clipboard_write_for_test().as_deref(), Some("hi"));
+    assert_eq!(app.osc52_prompt_metadata_for_test(), None);
 }
 
 #[cfg_attr(

@@ -3,10 +3,16 @@ use std::sync::{Arc, Mutex};
 
 use arboard::Clipboard;
 #[cfg(all(
+    not(test),
     unix,
     not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
 ))]
-use arboard::{GetExtLinux, LinuxClipboardKind, SetExtLinux};
+use arboard::SetExtLinux;
+#[cfg(all(
+    unix,
+    not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
+))]
+use arboard::{GetExtLinux, LinuxClipboardKind};
 
 use crate::core::{ClipboardSelection, Terminal};
 
@@ -203,24 +209,34 @@ impl ClipboardSelectionIo for NativeClipboard {
         not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
     ))]
     fn write_primary_selection_text(&mut self, text: &str) -> Option<()> {
-        let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
-            Ok(clipboard) => clipboard,
-            Err(err) => {
-                tracing::warn!("primary selection unavailable for copy: {err}");
-                return None;
-            }
-        };
-
-        match clipboard
-            .set()
-            .clipboard(LinuxClipboardKind::Primary)
-            .text(text.to_owned())
+        #[cfg(test)]
         {
-            Ok(()) => Some(()),
-            Err(err) => {
-                tracing::warn!("primary selection copy failed: {err}");
-                self.slot.clear();
-                None
+            // Keep OSC 52 PRIMARY regressions hermetic like regular clipboard
+            // writes. Production still uses the compositor-specific path below.
+            self.last_clipboard_write = Some(text.to_owned());
+            Some(())
+        }
+        #[cfg(not(test))]
+        {
+            let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
+                Ok(clipboard) => clipboard,
+                Err(err) => {
+                    tracing::warn!("primary selection unavailable for copy: {err}");
+                    return None;
+                }
+            };
+
+            match clipboard
+                .set()
+                .clipboard(LinuxClipboardKind::Primary)
+                .text(text.to_owned())
+            {
+                Ok(()) => Some(()),
+                Err(err) => {
+                    tracing::warn!("primary selection copy failed: {err}");
+                    self.slot.clear();
+                    None
+                }
             }
         }
     }
@@ -471,5 +487,16 @@ mod tests {
             read_clipboard_selection(&mut clipboard, ClipboardSelection::Primary).as_deref(),
             Some("primary")
         );
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[test]
+    fn native_primary_selection_remains_unsupported() {
+        let mut clipboard = NativeClipboard::default();
+        assert_eq!(
+            write_clipboard_selection(&mut clipboard, ClipboardSelection::Primary, "ignored"),
+            None
+        );
+        assert_eq!(clipboard.last_clipboard_write, None);
     }
 }

@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! OPEN-NOTICE (P0-2): a transient, non-blocking status line for a FAILED open.
+//! Transient, non-blocking native status notices.
 //!
 //! v0.4.0 swallowed every `Command::spawn()` error at the single
 //! [`super::interactive_paths::spawn_detached`] point, so a missing or broken
 //! opener (`xdg-open`/`open`) was indistinguishable from "feature off" — the
 //! user clicked and nothing happened, with no explanation. This surface fixes
 //! that: when an open/reveal spawn fails, the App raises a short message that
-//! paints as a one-row banner over the top of the grid and auto-expires.
+//! paints as a one-row banner over the top of the grid and auto-expires. Routine
+//! security status can reuse the same bounded surface with a neutral tone.
 //!
 //! Design constraints (from the Phase-2 ruling):
 //! * NON-BLOCKING — it never captures focus, pauses the loop, or eats input;
 //!   it is purely a painted row plus a wake deadline, modelled on the existing
 //!   bell-flash overlay plumbing.
-//! * FIRES ONLY ON FAILURE — [`App::spawn_open_or_notice`] sets it from the
-//!   `Err` arm only; the success path never touches it.
+//! * OPEN FAILURES REMAIN FAILURE-ONLY - [`App::spawn_open_or_notice`] sets its
+//!   notice from the `Err` arm only; the success path never touches it.
 //! * BYTE-IDENTICAL WHEN ABSENT — both the painter ([`App::paint_open_notice_cells`])
 //!   and the cache signature ([`App::open_notice_overlay_signature`]) early-out
 //!   when `open_notice` is `None`, so a no-error / feature-off frame is
@@ -30,12 +31,19 @@ use super::{App, OverlayFragment};
 /// read a one-line failure message, short enough to not linger over the shell.
 pub(in crate::native) const NOTICE_DURATION: Duration = Duration::from_millis(4000);
 
-/// A raised open-failure notice: the message plus the instant it was raised (for
-/// the auto-expiry clock). Presentation-only.
+/// A raised notice: message, tone, and the instant used by the auto-expiry
+/// clock. Presentation-only.
 #[derive(Debug, Clone)]
 pub(in crate::native) struct OpenNotice {
     message: String,
     raised_at: Instant,
+    tone: NoticeTone,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NoticeTone {
+    Failure,
+    Neutral,
 }
 
 impl OpenNotice {
@@ -70,6 +78,18 @@ impl App {
         self.open_notice = Some(OpenNotice {
             message,
             raised_at: Instant::now(),
+            tone: NoticeTone::Failure,
+        });
+        self.request_selection_redraw();
+    }
+
+    /// Raise a neutral transient status notice. The caller owns rate limiting;
+    /// this keeps the established one-notice, one-expiry-wake bound.
+    pub(in crate::native) fn raise_neutral_notice(&mut self, message: String) {
+        self.open_notice = Some(OpenNotice {
+            message,
+            raised_at: Instant::now(),
+            tone: NoticeTone::Neutral,
         });
         self.request_selection_redraw();
     }
@@ -97,6 +117,9 @@ impl App {
     /// banner repaints when the text changes or it clears), `Inert` otherwise.
     /// `Inert` on the default path keeps the geometry-update decision unchanged.
     pub(in crate::native) fn open_notice_overlay_signature(&self) -> OverlayFragment {
+        if let Some(prompt) = self.osc52_prompt_overlay_signature() {
+            return prompt;
+        }
         match self.open_notice.as_ref() {
             Some(notice) => OverlayFragment::OpenNotice {
                 text: notice.message.clone(),
@@ -111,6 +134,9 @@ impl App {
     /// notice's lifetime; the shell content underneath is untouched in the model
     /// and reappears when the banner clears.
     pub(in crate::native) fn paint_open_notice_cells(&self, snapshot: &mut Snapshot) {
+        if self.paint_osc52_prompt_cells(snapshot) {
+            return;
+        }
         let Some(notice) = self.open_notice.as_ref() else {
             return;
         };
@@ -119,7 +145,7 @@ impl App {
         if columns == 0 || rows == 0 {
             return;
         }
-        let attrs = notice_attrs();
+        let attrs = notice_attrs(notice.tone);
         // Fill the whole top row so the banner reads as a solid bar.
         for column in 0..columns {
             snapshot.cells[column] = Cell::new(' ', attrs);
@@ -141,12 +167,20 @@ impl App {
 
 /// Banner attributes: an inverse, attention-colored bar. Indexed colors keep it
 /// theme-portable (the active palette supplies the actual RGB).
-fn notice_attrs() -> Attrs {
+fn notice_attrs(tone: NoticeTone) -> Attrs {
     let mut attrs = Attrs::default();
-    // Bright-red background, near-black foreground, via the inverse path so it
-    // contrasts against any theme like the rename modal does.
-    attrs.foreground = Color::Indexed(0);
-    attrs.background = Color::Indexed(9);
+    match tone {
+        NoticeTone::Failure => {
+            // Bright-red background and near-black foreground keep failures
+            // visually distinct from routine status updates.
+            attrs.foreground = Color::Indexed(0);
+            attrs.background = Color::Indexed(9);
+        }
+        NoticeTone::Neutral => {
+            attrs.foreground = Color::Indexed(15);
+            attrs.background = Color::Indexed(4);
+        }
+    }
     attrs
 }
 
@@ -163,8 +197,15 @@ mod tests {
 
     #[test]
     fn notice_attrs_are_inverse_attention_colors() {
-        let a = notice_attrs();
+        let a = notice_attrs(NoticeTone::Failure);
         assert_eq!(a.background, Color::Indexed(9));
         assert_eq!(a.foreground, Color::Indexed(0));
+    }
+
+    #[test]
+    fn neutral_notice_uses_status_colors() {
+        let a = notice_attrs(NoticeTone::Neutral);
+        assert_eq!(a.background, Color::Indexed(4));
+        assert_eq!(a.foreground, Color::Indexed(15));
     }
 }

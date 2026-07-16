@@ -2657,6 +2657,32 @@ impl App {
         self.clipboard.last_clipboard_write = None;
     }
 
+    #[cfg(test)]
+    pub(in crate::native) fn set_osc52_write_policy_for_test(
+        &mut self,
+        policy: crate::settings::Osc52WritePolicy,
+    ) {
+        self.settings.osc52_write = policy;
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn resolve_osc52_prompt_for_test(
+        &mut self,
+        decision: super::osc52::PromptDecision,
+    ) {
+        self.resolve_osc52_prompt(decision);
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn reload_osc52_write_policy_for_test(
+        &mut self,
+        policy: crate::settings::Osc52WritePolicy,
+    ) {
+        let mut next = self.settings.clone();
+        next.osc52_write = policy;
+        self.apply_settings_through_reload_seam(next, SettingsApplySource::ConfigReload);
+    }
+
     /// Enable the production OSC 52 read policy for every live session and
     /// inject hermetic clipboard text for request-drain tests.
     #[cfg(test)]

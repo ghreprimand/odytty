@@ -1625,6 +1625,19 @@ impl Settings {
             },
             SettingInfo {
                 group: "Clipboard",
+                key: "osc52_write",
+                env: OSC52_WRITE_ENV,
+                name: "Terminal clipboard writes (OSC 52)",
+                value: self.osc52_write.as_str().to_owned(),
+                description: "Controls clipboard writes requested by terminal output. On (default) preserves copy workflows, Ask requires ephemeral per-session approval, and Off discards writes. Every mode permanently discards requests from background sessions or while the OS window is unfocused.",
+                kind: SettingKind::Enum,
+                range: None,
+                options: &["off", "ask", "on"],
+                reloadable: true,
+                numeric: None,
+            },
+            SettingInfo {
+                group: "Clipboard",
                 key: "osc52_read",
                 env: OSC52_READ_ENV,
                 name: "Allow clipboard read (OSC 52)",
@@ -1894,6 +1907,7 @@ impl Settings {
                 }
             }
             "osc52_read" => bool_display(self.osc52_read).to_owned(),
+            "osc52_write" => self.osc52_write.as_str().to_owned(),
             "copy_on_select" => bool_display(self.copy_on_select).to_owned(),
             "smart_ctrl_c" => self.smart_ctrl_c.as_str().to_owned(),
             "cvd_mode" => self.cvd_mode.as_str().to_owned(),

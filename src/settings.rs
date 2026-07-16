@@ -782,6 +782,38 @@ pub enum RemoteImagePaste {
     Off,
 }
 
+/// Policy for OSC 52 clipboard writes emitted by terminal applications.
+/// Window focus and active-session checks are mandatory in every mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Osc52WritePolicy {
+    /// Drain and discard all OSC 52 writes.
+    Off,
+    /// Require an explicit, ephemeral per-session decision.
+    Ask,
+    /// Apply focused writes immediately and show a bounded neutral notice.
+    #[default]
+    On,
+}
+
+impl Osc52WritePolicy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Ask => "ask",
+            Self::On => "on",
+        }
+    }
+
+    fn parse(value: &str) -> Option<Self> {
+        match normalize_name(value).as_str() {
+            "off" | "no" | "disabled" | "false" => Some(Self::Off),
+            "ask" | "confirm" | "prompt" => Some(Self::Ask),
+            "on" | "yes" | "allow" | "true" => Some(Self::On),
+            _ => None,
+        }
+    }
+}
+
 impl RemoteImagePaste {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -1300,6 +1332,10 @@ pub struct Settings {
     /// Whether OSC 52 clipboard read/query replies are enabled. Off by default
     /// to avoid silent clipboard exfiltration.
     pub osc52_read: bool,
+    /// OSC 52 clipboard-write policy. `On` preserves peer-terminal copy
+    /// compatibility; the native layer still requires active-session and OS
+    /// focus before applying any write.
+    pub osc52_write: Osc52WritePolicy,
     /// Whether the renderer synthesizes missing bold/italic faces from the
     /// regular outline (double-strike embolden + shear). On by default; turning
     /// it off makes styled cells render as plain regular glyphs when no real
@@ -1674,6 +1710,7 @@ impl Default for Settings {
             cursor_motion: DEFAULT_CURSOR_MOTION,
             reduced_motion: DEFAULT_REDUCED_MOTION,
             osc52_read: false,
+            osc52_write: Osc52WritePolicy::default(),
             synthetic_styles: true,
             geometric_boxdraw: true,
             symbol_fallback: true,
@@ -2269,6 +2306,7 @@ impl Settings {
             false,
             &mut warn,
         );
+        let osc52_write = parse_osc52_write(get(OSC52_WRITE_ENV).as_deref(), &mut warn);
         let synthetic_styles = parse_bool_setting(
             get(SYNTHETIC_STYLES_ENV).as_deref(),
             SYNTHETIC_STYLES_ENV,
@@ -2605,6 +2643,7 @@ impl Settings {
             cursor_motion,
             reduced_motion,
             osc52_read,
+            osc52_write,
             synthetic_styles,
             geometric_boxdraw,
             symbol_fallback,
@@ -2778,6 +2817,7 @@ impl Settings {
             bool_display(self.reduced_motion).to_owned(),
         );
         values.insert(OSC52_READ_ENV, bool_display(self.osc52_read).to_owned());
+        values.insert(OSC52_WRITE_ENV, self.osc52_write.as_str().to_owned());
         values.insert(
             SYNTHETIC_STYLES_ENV,
             bool_display(self.synthetic_styles).to_owned(),

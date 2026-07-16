@@ -698,6 +698,29 @@ pub(super) fn parse_remote_image_paste(
     }
 }
 
+pub(super) fn parse_osc52_write(
+    raw: Option<&OsStr>,
+    warn: &mut impl FnMut(&str),
+) -> Osc52WritePolicy {
+    let Some(raw) = raw else {
+        return Osc52WritePolicy::default();
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Osc52WritePolicy::default();
+    }
+    match Osc52WritePolicy::parse(trimmed) {
+        Some(policy) => policy,
+        None => {
+            warn(&format!(
+                "{OSC52_WRITE_ENV}={trimmed:?} is not off|ask|on; using on"
+            ));
+            Osc52WritePolicy::default()
+        }
+    }
+}
+
 pub(super) fn parse_workspace_rail(
     raw: Option<&OsStr>,
     warn: &mut impl FnMut(&str),
