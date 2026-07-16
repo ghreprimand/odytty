@@ -27,9 +27,9 @@ text_gamma = 1.2
 stem_darken = 0.7
 subpixel = off
 synthetic_styles = on
-# Contextual programming ligatures are opt-in. Logical cells, selection, and
-# copied text remain unchanged when they are enabled.
-ligatures = off
+# Contextual programming ligatures are on by default. Logical cells, selection,
+# and copied text remain unchanged; set this to off for scalar rendering.
+ligatures = on
 symbol_fallback = on
 # symbol_font = auto
 # symbol_map = U+E000-U+F8FF=Symbols Nerd Font

@@ -267,7 +267,7 @@ impl Settings {
                 env: LIGATURES_ENV,
                 name: "Programming ligatures",
                 value: bool_display(self.ligatures).to_owned(),
-                description: "Shapes eligible ASCII symbol runs with the font's contextual alternates. Off by default. Grid cells, cursor positions, selection, and copied text stay unchanged; unsupported fonts keep scalar glyphs.",
+                description: "Shapes eligible ASCII symbol runs with the font's contextual alternates. On by default. Grid cells, cursor positions, selection, and copied text stay unchanged; unsupported fonts keep scalar glyphs.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],

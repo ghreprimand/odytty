@@ -244,7 +244,8 @@ the current packages and maturity notes.
 
 Known gaps include Windows detached and resumable session hosting, profiles,
 Kitty animation and Unicode placeholders, iTerm2 graphics, COLR/CPAL color
-fonts, and broader ligature and stylistic-set shaping.
+fonts, and broader ligature and stylistic-set shaping beyond the default ASCII
+contextual path.
 See the [current work](TODO.md) and [full roadmap](docs/full-build-roadmap.md).
 
 ## Testing

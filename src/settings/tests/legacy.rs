@@ -85,6 +85,7 @@ fn defaults_are_stable_without_env() {
     assert_eq!(settings.window_padding_px, DEFAULT_WINDOW_PADDING_PX);
     assert_eq!(settings.subpixel, SubpixelMode::Off);
     assert_eq!(settings.cell_bg_opacity, DEFAULT_CELL_BG_OPACITY);
+    assert!(settings.ligatures, "programming ligatures default on");
     assert_eq!(settings.cursor_style, CursorStyle::Block);
     assert!(settings.cursor_glow, "cursor glow defaults on");
     assert!(settings.cursor_motion, "cursor motion defaults on");

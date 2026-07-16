@@ -1531,7 +1531,7 @@ pub(super) struct GpuState {
     pub(super) atlas: GlyphAtlas,
     color_glyph_atlas: ColorGlyphAtlas,
     emoji_rasterizer: EmojiRasterizer,
-    /// Bounded row-plan cache for opt-in ASCII contextual shaping.
+    /// Bounded row-plan cache for ASCII contextual shaping.
     ligature_shaper: LigatureShaper,
     /// Fonts used to populate the atlas dynamic region for regular and styled
     /// glyphs. Missing style faces intentionally fall back to the regular font.
@@ -1587,7 +1587,7 @@ pub(super) struct GpuState {
     /// rebuild the atlas; geometry slots are atlas-owned, so flipping the setting
     /// must not wait for unrelated font changes.
     geometric_enabled: bool,
-    /// Last-applied opt-in programming-ligature switch.
+    /// Last-applied programming-ligature switch.
     ligatures_enabled: bool,
     /// Last-applied effective symbol / Nerd-font fallback switch. The setting is
     /// published process-wide and the legacy env var may override it; retaining

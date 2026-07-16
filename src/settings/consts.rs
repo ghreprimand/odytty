@@ -532,9 +532,9 @@ pub const DEFAULT_REDUCED_MOTION: bool = false;
 pub const DEFAULT_NEW_OUTPUT_FADE: bool = false;
 
 /// Programming ligatures (`ODYTTY_LIGATURES`): ASCII contextual `calt`
-/// shaping. Off by default; the disabled path performs no shaping and preserves
-/// the scalar atlas/geometry output exactly.
-pub const DEFAULT_LIGATURES: bool = false;
+/// shaping. On by default; `off` performs no shaping and preserves the scalar
+/// atlas/geometry output exactly.
+pub const DEFAULT_LIGATURES: bool = true;
 
 /// Themed window border (`ODYTTY_WINDOW_BORDER`, ID4): when on, a thin border in
 /// the theme `border` role color is drawn around the grid, framing the terminal

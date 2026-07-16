@@ -32,17 +32,17 @@ fn settings_from_config(config_contents: &str) -> (Settings, Vec<String>) {
 }
 
 #[test]
-fn ligatures_default_off_and_parse_env_and_config() {
+fn ligatures_default_on_and_explicit_env_and_config_opt_out() {
     let (default, warnings) = settings_from([]);
-    assert!(!default.ligatures);
+    assert!(default.ligatures);
     assert!(warnings.is_empty());
 
-    let (from_env, warnings) = settings_from([(LIGATURES_ENV, "on")]);
-    assert!(from_env.ligatures);
+    let (from_env, warnings) = settings_from([(LIGATURES_ENV, "off")]);
+    assert!(!from_env.ligatures);
     assert!(warnings.is_empty());
 
-    let (from_config, warnings) = settings_from_config("ligatures = true");
-    assert!(from_config.ligatures);
+    let (from_config, warnings) = settings_from_config("ligatures = off");
+    assert!(!from_config.ligatures);
     assert!(warnings.is_empty());
 }
 
@@ -54,7 +54,7 @@ fn ligatures_have_a_reloadable_panel_row() {
         .find(|row| row.key == "ligatures")
         .expect("ligatures panel row");
     assert_eq!(row.env, LIGATURES_ENV);
-    assert_eq!(row.value, "off");
+    assert_eq!(row.value, "on");
     assert!(row.reloadable);
     assert!(row.description.contains("ASCII"));
 }
@@ -67,9 +67,9 @@ fn reload_publishes_ligature_switch_without_changing_other_settings() {
     let restore = ligatures_enabled();
     let mut current = Settings::default();
     let mut reloaded = current.clone();
-    reloaded.ligatures = true;
+    reloaded.ligatures = false;
     assert!(apply_reloadable_values(&mut current, reloaded));
-    assert!(current.ligatures);
-    assert!(ligatures_enabled());
+    assert!(!current.ligatures);
+    assert!(!ligatures_enabled());
     set_ligatures_enabled(restore);
 }

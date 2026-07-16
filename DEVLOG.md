@@ -25,14 +25,14 @@ reachability, and real wgpu submission. The shared Rust and wgpu path behaves
 the same on Windows, macOS, and Linux; no PTY, spawn, path, or environment
 behavior changes.
 
-## 2026-07-15 -- Programming ligatures are available as an opt-in
+## 2026-07-15 -- Programming ligatures start enabled
 
-ASCII programming ligatures can now be enabled with `ligatures = on` or
-`ODYTTY_LIGATURES=on`. Eligible same-style runs use the selected text font's
-contextual alternates while the terminal model retains its original logical
-cells. Copy, selection, search, cursor placement, wide cells, and synchronized
-output therefore keep their existing semantics. Unsupported fonts and runs
-fall back to the ordinary per-cell renderer. The default remains off.
+Fresh profiles use ASCII programming ligatures through the selected text font's
+contextual alternates. `ligatures = off` or `ODYTTY_LIGATURES=off` restores the
+scalar renderer. The terminal model retains its original logical cells, so
+copy, selection, search, cursor placement, wide cells, and synchronized output
+keep their existing semantics. Unsupported fonts and runs fall back to the
+ordinary per-cell renderer.
 
 The renderer keys contextual glyphs by face, style, glyph identifier, source
 span, and source-cell anchor. A bounded 512-row deterministic cache avoids
@@ -46,6 +46,10 @@ eviction, row edits, wide-cell boundaries, logical copy and selection,
 cursor-over-ligature geometry, atlas reuse, split-pane shaping, clipping, and
 GPU submission. The Rust and wgpu presentation path is shared by Windows,
 macOS, and Linux; no PTY, spawn, path, or environment behavior changes.
+
+The verified cache-hot benchmark is 190.4 microseconds per frame with
+ligatures off and 209.3 microseconds with ligatures on, an 18.9 microsecond
+absolute difference. Unchanged rows do not reshape.
 
 ## 2026-07-15 -- Cursor presentation now starts with Block and glow
 

@@ -87,8 +87,8 @@ pub fn geometric_boxdraw_enabled() -> bool {
     GEOMETRIC_BOXDRAW_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Process-wide opt-in contextual shaping switch. `false` is the exact scalar
-/// renderer path and allocates no shaping cache entries.
+/// Process-wide contextual shaping switch. `false` is the exact scalar renderer
+/// path and allocates no shaping cache entries.
 static LIGATURES_ENABLED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(DEFAULT_LIGATURES);
 
@@ -1253,9 +1253,9 @@ pub struct Settings {
     /// reproduces the historical geometric box-drawing weights byte-identically;
     /// other values scale the rule thickness.
     pub box_thickness: f32,
-    /// ASCII programming ligatures via contextual OpenType `calt`. Off by
+    /// ASCII programming ligatures via contextual OpenType `calt`. Enabled by
     /// default; logical cells, cursor coordinates, copy, and selection remain
-    /// unchanged when enabled.
+    /// unchanged.
     pub ligatures: bool,
     pub key_bindings: Vec<KeyBindingOverride>,
     /// Multiplexer prefix chord (§7). `Some(Ctrl-b)` by default — the single

@@ -236,8 +236,8 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         cell geometry. Deferred (post-v0.1.6): diagonal-edged blocks
         `U+1FB3C..1FB67` and negative diagonals `U+1FBBD..1FBBF` (need a general
         antialiased polygon filler).
-- [ ] Decide the shaping strategy for ligatures/stylistic sets behind settings
-      while preserving cell correctness.
+- [x] Ship grid-preserving ASCII contextual ligatures behind a live setting;
+      broader ligature and stylistic-set shaping remains deferred.
 - [ ] Improve rasterization quality: pixel alignment, baseline consistency,
       padding, gamma, blending, and contrast.
   - [x] Raster side (`src/atlas/`): single documented baseline for every

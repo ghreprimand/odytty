@@ -1245,8 +1245,8 @@ formats and install channels are defined in the
 
 - iTerm2 graphics protocol
 
-- Ligature/stylistic-set shaping (strategy remains undecided; implementation deferred
-  until a specific trigger condition is met)
+- Broader ligature and stylistic-set shaping beyond the shipped ASCII
+  contextual-ligature path
 
 - Profiles and cross-session multiplexing (panes/splits within a window are now
   supported — see above)
@@ -1494,8 +1494,9 @@ OdyTTY is a Linux-first Rust application built around these primary crates:
 | `png` | PNG decoding for Kitty `f=100` |
 | `image` | PNG, JPEG, and WebP wallpaper decoding |
 
-Normal text remains on `ab_glyph`; `swash` is limited to the emoji and
-color-font path. Platform syscall crates are split by target:
+Normal text remains on `ab_glyph`; `swash` supplies the emoji and color-font
+path plus default programming-ligature shaping. Platform syscall crates are
+split by target:
 `rustix`/`libc` sit under `[target.'cfg(unix)'.dependencies]`, while the
 `windows` crate supports the ConPTY backend under
 `[target.'cfg(windows)'.dependencies]`.
@@ -1550,9 +1551,10 @@ loaded `Arc` identities; `GlyphAtlas::set_synthetic_styles` receives those bits
 and applies a `SynthTransform` during rasterization — italic via horizontal
 shear (tan 12° ≈ 0.2126), bold via double-strike at a sub-pixel embolden offset,
 bold-italic by composing both. Real faces always take precedence; synthesis
-activates only for genuinely absent slots. Ligatures and complex shaping are not
-implemented; each atlas entry is a single character rasterized into its cell
-or two-cell slot.
+activates only for genuinely absent slots. Eligible ASCII programming ligatures
+are contextually shaped and anchored to source cells; other complex shaping
+remains unimplemented. Scalar atlas entries remain one character rasterized
+into its cell or two-cell slot.
 
 ### Store Cell Attributes Compactly
 

@@ -294,12 +294,12 @@ while the cursor is blinking and the window is focused.
 
 ## Programming ligatures
 
-`ligatures = on` enables contextual programming ligatures for eligible ASCII
-runs. This is a static text presentation option, not a motion or post-process
-effect: glyphs may span several source cells, but each cell keeps its original
-character and grid position for cursor placement, selection, search, and copy.
-Ink is clipped to the shaped source span, and unsupported fonts or runs fall
-back to ordinary per-cell glyphs. The option is off by default.
+Fresh profiles enable contextual programming ligatures for eligible ASCII runs.
+This is a static text presentation option, not a motion or post-process effect:
+glyphs may span several source cells, but each cell keeps its original character
+and grid position for cursor placement, selection, search, and copy. Ink is
+clipped to the shaped source span, and unsupported fonts or runs fall back to
+ordinary per-cell glyphs. Set `ligatures = off` for scalar rendering.
 
 Ligatures behave identically on Windows, macOS, and Linux. They do not add an
 animation wake and are not changed by `reduced_motion`.

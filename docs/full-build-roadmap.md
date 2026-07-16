@@ -367,8 +367,8 @@ Sharp, stable, comfortable text is a primary product pillar.
 - **Shipped — Stem-darkening default activation.** The rasterization machinery
   ships default-on at `0.7`, with `0.0` as the byte-identical opt-out.
 - **Someday — Legibility font features.** A narrow, charter-clean subset (such
-  as a slashed or dotted zero) is the near-term slice; broader ligatures and
-  arbitrary font features remain deferred pending an explicit shaping decision.
+  as a slashed or dotted zero) is the near-term slice; broader ligatures beyond
+  the shipped ASCII contextual path and arbitrary font features remain deferred.
 - **Someday — Scalable color-font expansion** (COLR/CPAL, then SVG-in-OT only
   from real evidence) beyond the current emoji rendering.
 

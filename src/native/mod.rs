@@ -163,7 +163,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // Publish the RV2 geometric box-drawing switch before the atlas is built;
     // the reload path republishes it and the renderer rebuilds when it flips.
     crate::settings::set_geometric_boxdraw_enabled(settings.geometric_boxdraw);
-    // Publish opt-in contextual shaping before the GPU renderer is created.
+    // Publish contextual shaping before the GPU renderer is created.
     crate::settings::set_ligatures_enabled(settings.ligatures);
     // Publish the RV6 symbol fallback knobs before the atlas is built; the
     // reload path republishes them and the renderer re-resolves/rebuilds when

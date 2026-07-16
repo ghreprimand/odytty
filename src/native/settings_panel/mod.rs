@@ -1599,7 +1599,7 @@ mod tests {
         assert_eq!(signature.selected, 0);
         let row = signature.entries.first().expect("Rendering settings row");
         assert_eq!(row.key, "ligatures");
-        assert_eq!(row.value, "off");
+        assert_eq!(row.value, "on");
     }
 
     #[test]
