@@ -124,18 +124,21 @@ stored image data once no remaining placements reference the image.
 File and shared-memory transports read host filesystem state based on bytes
 arriving over the PTY. When a session runs over SSH, those bytes originate from
 a remote host. OdyTTY applies restrictions deliberately stricter than the
-reference Kitty terminal to limit what a remote host can instruct the terminal
-to read.
+reference Kitty terminal to limit what terminal output can instruct the host to
+read. Named transports are disabled by default. Set
+`kitty_named_transports = on` or `ODYTTY_KITTY_NAMED_TRANSPORTS=on` only when
+the entire PTY session, including plain SSH output, is trusted with this local
+host-I/O authority.
 
 ### Path allowlist (`t=f`, `t=t`)
 
 `t=f` and `t=t` paths must resolve inside an allowlisted canonical temp
 directory: `/tmp`, `/dev/shm`, or the resolved value of `$TMPDIR` on Unix, and
 the system temporary directory on Windows. Paths outside this set are rejected
-before any file is opened. This blocks a remote-exfiltration attack
-where the remote host constructs a `t=f` path pointing to `~/.ssh/id_rsa` or
-another sensitive local file, causing the terminal to encode and return its
-contents as pixel data.
+before any file is opened. A Kitty reply contains status only, never the file
+bytes. The restriction still prevents terminal output from using `t=f` as a
+local readability and image-decodability oracle or rendering an allowed local
+image without separate user action.
 
 The reference Kitty terminal allows `t=f` from any path. OdyTTY restricts to
 temp directories because no legitimate application needs to transmit images
@@ -155,19 +158,16 @@ does not provide the Unix `O_NOFOLLOW` guarantee.
 
 ### Delete-before-decode for temp files (`t=t`)
 
-For `t=t`, the temp file is deleted from the filesystem immediately after
-reading, before any decode step. If a subsequent decode step fails, the file
-is already gone and no data lingers on disk. This matches the Kitty
-specification's documented "terminal should delete" semantics and adds the
-guarantee that a decode failure cannot leave sensitive content behind.
+For `t=t`, the full path must contain the reference protocol's
+`tty-graphics-protocol` marker. A marked temp file is deleted immediately after
+its safe regular-file read, before image decode. Unmarked and rejected objects
+are never deleted.
 
-### Immediate `shm_unlink` (`t=s`, Unix)
+### Validated `shm_unlink` (`t=s`, Unix)
 
-POSIX shared memory objects are unlinked by name immediately after opening
-(before data is read). The segment remains accessible via the open file
-descriptor but can no longer be found by name, minimizing the window for a
-squatting attack where a rogue process replaces the segment after validation
-but before reading.
+POSIX shared memory objects are opened read-only, bounded, and validated before
+their names are unlinked. An invalid or unreadable object retains its name.
+Windows keeps `t=s` unsupported.
 
 ### Size cap before decode
 
@@ -236,10 +236,9 @@ terminal modes.
 
 ## Protocol availability
 
-Both the Kitty graphics protocol and Sixel are always active — there is no
-config key or `ODYTTY_*` environment variable to enable or disable either one.
-Programs can emit images through whichever protocol they prefer without any
-opt-in on the terminal side.
+Sixel and Kitty direct/chunked-inline graphics are always active. Kitty named
+file, temporary-file, and POSIX shared-memory transports are off by default and
+share the reloadable `kitty_named_transports` policy gate described above.
 
 ---
 

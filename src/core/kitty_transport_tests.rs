@@ -51,6 +51,12 @@ fn write_test_rgba_file(name: &str) -> std::path::PathBuf {
     path
 }
 
+fn named_transport_terminal() -> Terminal {
+    let mut terminal = Terminal::new(80, 24);
+    terminal.set_kitty_named_transports_enabled(true);
+    terminal
+}
+
 /// Create a minimal valid PNG in memory for a 2×2 RGBA image.
 fn make_2x2_png() -> Vec<u8> {
     let mut buf = Vec::new();
@@ -139,9 +145,57 @@ fn cleanup_shm(name: &str) {
 // ---------------------------------------------------------------------------
 
 #[test]
+fn named_transports_default_off_rejects_before_host_access() {
+    let file = write_test_rgba_file("odytty-g25-default-off-file.dat");
+    let marked = write_test_rgba_file("tty-graphics-protocol-odytty-g25-default-off.dat");
+    let unmarked = write_test_rgba_file("odytty-g25-default-off-temp.dat");
+    let shm_name = format!("/odytty_g25_default_off_{}", std::process::id());
+    create_shm(&shm_name, &[0xFF_u8; 16]);
+
+    let mut terminal = Terminal::new(80, 24);
+    for apc in [
+        kitty_file_apc(file.to_str().unwrap(), 32, "i=81"),
+        kitty_temp_apc(marked.to_str().unwrap(), 32),
+        kitty_temp_apc(unmarked.to_str().unwrap(), 32),
+        kitty_shm_apc(&shm_name, 32, 2, 2),
+    ] {
+        terminal.advance(&apc);
+        let response = String::from_utf8(terminal.take_host_output()).unwrap();
+        assert!(
+            response.contains("EPERM:named-transport-disabled"),
+            "normal denial response: {response}"
+        );
+    }
+
+    assert!(file.exists());
+    assert!(marked.exists());
+    assert!(unmarked.exists());
+    let c_name = CString::new(shm_name.as_str()).unwrap();
+    let fd = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_RDONLY, 0) };
+    assert!(fd >= 0, "a denied t=s request must not unlink the name");
+    unsafe { libc::close(fd) };
+
+    std::fs::remove_file(file).ok();
+    std::fs::remove_file(marked).ok();
+    std::fs::remove_file(unmarked).ok();
+    cleanup_shm(&shm_name);
+}
+
+#[test]
+fn named_transport_default_denial_honors_quiet_response() {
+    let file = write_test_rgba_file("odytty-g25-default-off-quiet.dat");
+    let mut terminal = Terminal::new(80, 24);
+    let apc = kitty_file_apc(file.to_str().unwrap(), 32, "q=2");
+    terminal.advance(&apc);
+    assert!(terminal.take_host_output().is_empty());
+    assert!(file.exists());
+    std::fs::remove_file(file).ok();
+}
+
+#[test]
 fn file_transport_rgba_2x2() {
     let path = write_test_rgba_file("odytty_g25_file_rgba.dat");
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_file_apc(path.to_str().unwrap(), 32, "");
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 1, "image placed via t=f");
@@ -157,7 +211,7 @@ fn file_transport_png() {
 
     let path_b64 = simple_base64(path.to_str().unwrap().as_bytes());
     let apc = format!("\x1b_Ga=T,t=f,f=100;{path_b64}\x1b\\").into_bytes();
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 1, "PNG via t=f placed");
     std::fs::remove_file(&path).ok();
@@ -166,7 +220,7 @@ fn file_transport_png() {
 #[test]
 fn file_transport_transmit_only() {
     let path = write_test_rgba_file("odytty_g25_file_tonly.dat");
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_file_transmit_only(path.to_str().unwrap(), 32, 42);
     t.advance(&apc);
     // a=t stores image but does NOT place.
@@ -182,7 +236,7 @@ fn file_transport_transmit_only() {
 #[test]
 fn file_transport_with_image_id() {
     let path = write_test_rgba_file("odytty_g25_file_id.dat");
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_file_apc(path.to_str().unwrap(), 32, "i=77");
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 1);
@@ -195,7 +249,7 @@ fn file_transport_with_image_id() {
 
 #[test]
 fn file_transport_rejects_outside_tmp() {
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_file_apc("/etc/passwd", 32, "");
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 0, "file outside /tmp rejected");
@@ -205,7 +259,7 @@ fn file_transport_rejects_outside_tmp() {
 fn file_transport_rejects_home_ssh() {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
     let ssh_path = format!("{home}/.ssh/id_rsa");
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_file_apc(&ssh_path, 32, "");
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 0, "~/.ssh rejected");
@@ -221,7 +275,7 @@ fn file_transport_rejects_symlink() {
     #[cfg(unix)]
     std::os::unix::fs::symlink(&real, &link).unwrap();
 
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_file_apc(link.to_str().unwrap(), 32, "");
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 0, "symlink rejected");
@@ -234,7 +288,7 @@ fn file_transport_rejects_symlink() {
 fn file_transport_rejects_nonexistent() {
     let path = std::env::temp_dir().join("odytty_g25_nonexistent_9f3c.dat");
     let _ = std::fs::remove_file(&path);
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_file_apc(path.to_str().unwrap(), 32, "");
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 0, "missing file rejected");
@@ -242,7 +296,7 @@ fn file_transport_rejects_nonexistent() {
 
 #[test]
 fn file_transport_rejects_empty_path() {
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     // Empty path = empty base64 payload.
     let apc = b"\x1b_Ga=T,t=f,f=32,s=2,v=2;\x1b\\".to_vec();
     t.advance(&apc);
@@ -284,7 +338,7 @@ fn file_and_temp_transports_reject_fifo_without_blocking() {
     use std::time::{Duration, Instant};
 
     let path = std::env::temp_dir().join(format!(
-        "odytty-kitty-fifo-{}-{}",
+        "tty-graphics-protocol-odytty-kitty-fifo-{}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -327,8 +381,8 @@ fn file_and_temp_transports_reject_fifo_without_blocking() {
 
 #[test]
 fn temp_transport_reads_and_deletes() {
-    let path = write_test_rgba_file("odytty_g25_temp.dat");
-    let mut t = Terminal::new(80, 24);
+    let path = write_test_rgba_file("tty-graphics-protocol-odytty-g25-temp.dat");
+    let mut t = named_transport_terminal();
     let apc = kitty_temp_apc(path.to_str().unwrap(), 32);
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 1, "temp file placed");
@@ -336,8 +390,20 @@ fn temp_transport_reads_and_deletes() {
 }
 
 #[test]
+fn temp_transport_opt_in_requires_reference_deletion_marker() {
+    let path = write_test_rgba_file("odytty-g25-unmarked-temp.dat");
+    let mut terminal = named_transport_terminal();
+    terminal.advance(&kitty_temp_apc(path.to_str().unwrap(), 32));
+    let response = String::from_utf8(terminal.take_host_output()).unwrap();
+    assert!(response.contains("EPERM:missing-temp-marker"));
+    assert!(path.exists(), "an unmarked t=t path must remain untouched");
+    assert!(terminal.visible_graphics(0).is_empty());
+    std::fs::remove_file(path).ok();
+}
+
+#[test]
 fn temp_transport_rejects_outside_tmp() {
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_temp_apc("/etc/hostname", 32);
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 0, "t=t outside /tmp rejected");
@@ -353,7 +419,7 @@ fn temp_transport_rejects_symlink() {
     #[cfg(unix)]
     std::os::unix::fs::symlink(&real, &link).unwrap();
 
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_temp_apc(link.to_str().unwrap(), 32);
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 0, "t=t symlink rejected");
@@ -372,7 +438,7 @@ fn shm_transport_rgba_2x2() {
     let rgba = [0xFF_u8; 16]; // 2×2 white
     create_shm(name, &rgba);
 
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_shm_apc(name, 32, 2, 2);
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 1, "shm image placed");
@@ -407,13 +473,31 @@ fn shm_reader_rejects_segment_shrunk_after_initial_size_check() {
 }
 
 #[test]
+fn shm_transport_validation_failure_preserves_name() {
+    let name = format!("/odytty_g25_invalid_shm_{}", std::process::id());
+    let c_name = CString::new(name.as_str()).unwrap();
+    let created = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_CREAT | libc::O_RDWR, 0o600) };
+    assert!(created >= 0);
+    unsafe { libc::close(created) };
+
+    let mut terminal = named_transport_terminal();
+    terminal.advance(&kitty_shm_apc(&name, 32, 2, 2));
+    assert!(terminal.visible_graphics(0).is_empty());
+
+    let fd = unsafe { libc::shm_open(c_name.as_ptr(), libc::O_RDONLY, 0) };
+    assert!(fd >= 0, "a rejected t=s object must retain its name");
+    unsafe { libc::close(fd) };
+    cleanup_shm(&name);
+}
+
+#[test]
 fn shm_transport_without_leading_slash() {
     let name_with = "/odytty_g25_shm_noslash";
     let name_without = "odytty_g25_shm_noslash";
     let rgba = [0xFF_u8; 16];
     create_shm(name_with, &rgba);
 
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_shm_apc(name_without, 32, 2, 2);
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 1, "shm without / works");
@@ -422,7 +506,7 @@ fn shm_transport_without_leading_slash() {
 
 #[test]
 fn shm_transport_rejects_path_traversal() {
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_shm_apc("../etc/passwd", 32, 2, 2);
     t.advance(&apc);
     assert_eq!(
@@ -434,7 +518,7 @@ fn shm_transport_rejects_path_traversal() {
 
 #[test]
 fn shm_transport_rejects_nested_slash() {
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_shm_apc("/foo/bar", 32, 2, 2);
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 0, "shm nested slash rejected");
@@ -442,7 +526,7 @@ fn shm_transport_rejects_nested_slash() {
 
 #[test]
 fn shm_transport_nonexistent() {
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_shm_apc("/odytty_g25_nonexistent_shm", 32, 2, 2);
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 0, "nonexistent shm rejected");
@@ -450,7 +534,7 @@ fn shm_transport_nonexistent() {
 
 #[test]
 fn shm_transport_empty_name() {
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     // Empty shm name = empty base64 payload.
     let apc = b"\x1b_Ga=T,t=s,f=32,s=2,v=2;\x1b\\".to_vec();
     t.advance(&apc);
@@ -464,7 +548,7 @@ fn shm_transport_empty_name() {
 #[test]
 fn file_transport_ok_response() {
     let path = write_test_rgba_file("odytty_g25_resp.dat");
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_file_apc(path.to_str().unwrap(), 32, "i=55");
     t.advance(&apc);
     let resp = t.take_host_output();
@@ -475,7 +559,7 @@ fn file_transport_ok_response() {
 
 #[test]
 fn file_transport_error_response_contains_reason() {
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_file_apc("/etc/passwd", 32, "i=56");
     t.advance(&apc);
     let resp = t.take_host_output();
@@ -489,7 +573,7 @@ fn file_transport_error_response_contains_reason() {
 #[test]
 fn file_transport_quiet_suppresses_response() {
     let path = write_test_rgba_file("odytty_g25_quiet.dat");
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_file_apc(path.to_str().unwrap(), 32, "q=2");
     t.advance(&apc);
     let resp = t.take_host_output();
@@ -510,7 +594,7 @@ fn file_transport_rgb_format() {
 
     let path_b64 = simple_base64(path.to_str().unwrap().as_bytes());
     let apc = format!("\x1b_Ga=T,t=f,f=24,s=2,v=2;{path_b64}\x1b\\").into_bytes();
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 1, "RGB via t=f placed");
     std::fs::remove_file(&path).ok();
@@ -522,7 +606,7 @@ fn file_transport_dimension_mismatch() {
     let path = write_test_rgba_file("odytty_g25_dim_mismatch.dat");
     let path_b64 = simple_base64(path.to_str().unwrap().as_bytes());
     let apc = format!("\x1b_Ga=T,t=f,f=32,s=3,v=3;{path_b64}\x1b\\").into_bytes();
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     t.advance(&apc);
     assert_eq!(
         t.visible_graphics(0).len(),
@@ -540,7 +624,7 @@ fn shm_transport_png() {
 
     let name_b64 = simple_base64(name.as_bytes());
     let apc = format!("\x1b_Ga=T,t=s,f=100;{name_b64}\x1b\\").into_bytes();
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 1, "PNG via shm placed");
     cleanup_shm(name);
@@ -549,11 +633,11 @@ fn shm_transport_png() {
 #[test]
 fn temp_transport_deletes_even_on_decode_failure() {
     let dir = std::env::temp_dir();
-    let path = dir.join("odytty_g25_temp_bad.dat");
+    let path = dir.join("tty-graphics-protocol-odytty-g25-temp-bad.dat");
     // Write garbage that won't decode as 2×2 RGBA.
     std::fs::write(&path, b"not an image").unwrap();
 
-    let mut t = Terminal::new(80, 24);
+    let mut t = named_transport_terminal();
     let apc = kitty_temp_apc(path.to_str().unwrap(), 32);
     t.advance(&apc);
     assert_eq!(t.visible_graphics(0).len(), 0, "bad data = no placement");

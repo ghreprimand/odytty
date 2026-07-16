@@ -674,6 +674,10 @@ pub fn show_config_output(settings: &Settings) -> String {
         ),
         ("keybinds", key_bindings_value(&settings.key_bindings)),
         (
+            "kitty_named_transports",
+            bool_value(settings.kitty_named_transports).to_owned(),
+        ),
+        (
             "native_autoclose_ms",
             settings
                 .native_autoclose

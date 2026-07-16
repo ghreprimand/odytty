@@ -148,6 +148,37 @@ fn kitty_chunked_transmission_accumulates_until_final_chunk() {
     assert_eq!(t.take_host_output(), b"\x1b_Gi=5;OK\x1b\\");
 }
 
+#[test]
+fn named_transport_policy_does_not_change_direct_or_chunked_bytes() {
+    fn run(enabled: bool) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+        let mut terminal = Terminal::new(20, 4);
+        terminal.set_kitty_named_transports_enabled(enabled);
+        terminal.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,i=71", &rgba_2x1()));
+        let direct_response = terminal.take_host_output();
+
+        let encoded = b64(&rgba_2x1());
+        let split = encoded.len() / 2;
+        let first = format!(
+            "\x1b_Gf=32,a=t,t=d,s=2,v=1,i=72,m=1;{}\x1b\\",
+            &encoded[..split]
+        );
+        let final_chunk = format!("\x1b_Gm=0;{}\x1b\\", &encoded[split..]);
+        terminal.advance(first.as_bytes());
+        terminal.advance(final_chunk.as_bytes());
+        let chunked_response = terminal.take_host_output();
+        let stored = terminal
+            .graphics()
+            .store()
+            .get(crate::graphics::StoredImageId(2))
+            .unwrap()
+            .rgba
+            .clone();
+        (direct_response, chunked_response, stored)
+    }
+
+    assert_eq!(run(false), run(true));
+}
+
 /// C3 regression: real emitters (kitty's own `icat`, timg, term-image) split
 /// large images into MANY `m=1` chunks before the final `m=0` — not just one.
 /// The old accumulator errored with `malformed-control` on the SECOND `m=1`

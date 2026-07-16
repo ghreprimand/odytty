@@ -143,6 +143,7 @@ pub struct HostConfig {
     pub max_sessions: usize,
     pub max_clients: usize,
     pub snapshot_limits: SnapshotCaptureLimits,
+    pub kitty_named_transports: bool,
 }
 
 impl HostConfig {
@@ -157,6 +158,7 @@ impl HostConfig {
             max_sessions: MAX_HOST_SESSIONS,
             max_clients: DEFAULT_MAX_CLIENTS,
             snapshot_limits: SnapshotCaptureLimits::default(),
+            kitty_named_transports: false,
         }
     }
 
@@ -254,7 +256,8 @@ pub(crate) fn await_host_socket(
 }
 
 pub fn run_internal_host_from_args(args: &[String]) -> Result<()> {
-    let config = parse_internal_host_args(args)?;
+    let mut config = parse_internal_host_args(args)?;
+    config.kitty_named_transports = crate::settings::Settings::from_env().kitty_named_transports;
     run_host(config).map(|_| ())
 }
 
@@ -293,6 +296,7 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
         socket: paths.socket.clone(),
     };
     let mut terminal = Terminal::new(config.dimensions.columns, config.dimensions.rows);
+    terminal.set_kitty_named_transports_enabled(config.kitty_named_transports);
     terminal.set_local_hostname(crate::local_hostname::get());
     terminal.set_scrollback_limit(config.snapshot_limits.max_scrollback_rows);
     let mut session = config.command.spawn(config.dimensions)?;

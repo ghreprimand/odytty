@@ -199,6 +199,7 @@ impl App {
         let effective_theme = self.effective_theme;
         let themed_ui_roles = self.themed_ui_roles;
         let osc52_read = self.settings.osc52_read;
+        let kitty_named_transports = self.settings.kitty_named_transports;
         let cursor_style = self.settings.cursor_style;
         let cursor_blink = self.settings.cursor_blink;
         let cell = self.gpu.as_ref().map(GpuState::cell);
@@ -209,6 +210,7 @@ impl App {
                 effective_theme,
                 themed_ui_roles,
                 osc52_read,
+                kitty_named_transports,
                 cursor_style,
                 cursor_blink,
                 cell,
@@ -517,7 +519,13 @@ impl App {
         if !enabled {
             return None;
         }
-        let dir = crate::logging::state_log_dir().join("ssh");
+        let dir = match crate::logging::prepare_state_log_dir() {
+            Ok(state_dir) => state_dir.join("ssh"),
+            Err(_) => {
+                tracing::warn!("ssh connection reuse disabled: secure state unavailable");
+                return None;
+            }
+        };
         match crate::ssh_connect::ensure_control_dir(&dir) {
             Ok(()) => Some(dir),
             Err(error) => {

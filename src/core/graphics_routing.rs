@@ -188,6 +188,7 @@ pub(super) fn apc_dispatch(
     screen_rows: usize,
     screen_cols: usize,
     cell_metrics: CellMetrics,
+    named_transports_enabled: bool,
 ) -> ApcOutcome {
     match kitty::handle_apc(
         &mut stats.kitty,
@@ -198,6 +199,7 @@ pub(super) fn apc_dispatch(
         screen_rows,
         screen_cols,
         cell_metrics,
+        named_transports_enabled,
     ) {
         Ok(outcome) => {
             host_output.extend_from_slice(&outcome.response);

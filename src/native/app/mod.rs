@@ -967,6 +967,7 @@ impl App {
         effective_theme: Theme,
         themed_ui_roles: bool,
         osc52_read: bool,
+        kitty_named_transports: bool,
         cursor_style: crate::core::CursorStyle,
         cursor_blink: crate::settings::CursorBlink,
         cell: Option<CellSize>,
@@ -986,6 +987,7 @@ impl App {
             // C29: OSC 4 replies report the theme palette, not the xterm table.
             terminal.set_base_palette(effective_theme.palette.map(rgb));
             terminal.set_osc52_read_enabled(osc52_read);
+            terminal.set_kitty_named_transports_enabled(kitty_named_transports);
             terminal.set_scrollback_limit(scrollback_limit);
             terminal.set_cursor_defaults(cursor_style, cursor_blink.enabled());
             if let Some(cell) = cell {
@@ -1052,6 +1054,7 @@ impl App {
                 let effective_theme = self.effective_theme;
                 let themed_ui_roles = self.themed_ui_roles;
                 let osc52_read = self.settings.osc52_read;
+                let kitty_named_transports = self.settings.kitty_named_transports;
                 let cursor_style = self.settings.cursor_style;
                 let cursor_blink = self.settings.cursor_blink;
                 let cell = self.gpu.as_ref().map(GpuState::cell);
@@ -1062,6 +1065,7 @@ impl App {
                         effective_theme,
                         themed_ui_roles,
                         osc52_read,
+                        kitty_named_transports,
                         cursor_style,
                         cursor_blink,
                         cell,
@@ -1176,6 +1180,7 @@ impl App {
         let effective_theme = self.effective_theme;
         let themed_ui_roles = self.themed_ui_roles;
         let osc52_read = self.settings.osc52_read;
+        let kitty_named_transports = self.settings.kitty_named_transports;
         let cursor_style = self.settings.cursor_style;
         let cursor_blink = self.settings.cursor_blink;
         let cell = self.gpu.as_ref().map(GpuState::cell);
@@ -1186,6 +1191,7 @@ impl App {
                 effective_theme,
                 themed_ui_roles,
                 osc52_read,
+                kitty_named_transports,
                 cursor_style,
                 cursor_blink,
                 cell,
@@ -1491,6 +1497,7 @@ impl App {
         let effective_theme = self.effective_theme;
         let themed_ui_roles = self.themed_ui_roles;
         let osc52_read = self.settings.osc52_read;
+        let kitty_named_transports = self.settings.kitty_named_transports;
         let cursor_style = self.settings.cursor_style;
         let cursor_blink = self.settings.cursor_blink;
         let cell = self.gpu.as_ref().map(GpuState::cell);
@@ -1501,6 +1508,7 @@ impl App {
                 effective_theme,
                 themed_ui_roles,
                 osc52_read,
+                kitty_named_transports,
                 cursor_style,
                 cursor_blink,
                 cell,
@@ -1534,6 +1542,7 @@ impl App {
         let effective_theme = self.effective_theme;
         let themed_ui_roles = self.themed_ui_roles;
         let osc52_read = self.settings.osc52_read;
+        let kitty_named_transports = self.settings.kitty_named_transports;
         let cursor_style = self.settings.cursor_style;
         let cursor_blink = self.settings.cursor_blink;
         let cell = self.gpu.as_ref().map(GpuState::cell);
@@ -1544,6 +1553,7 @@ impl App {
                 effective_theme,
                 themed_ui_roles,
                 osc52_read,
+                kitty_named_transports,
                 cursor_style,
                 cursor_blink,
                 cell,
@@ -1674,6 +1684,7 @@ impl App {
         let effective_theme = self.effective_theme;
         let themed_ui_roles = self.themed_ui_roles;
         let osc52_read = self.settings.osc52_read;
+        let kitty_named_transports = self.settings.kitty_named_transports;
         let cursor_style = self.settings.cursor_style;
         let cursor_blink = self.settings.cursor_blink;
         let cell = self.gpu.as_ref().map(GpuState::cell);
@@ -1684,6 +1695,7 @@ impl App {
                 effective_theme,
                 themed_ui_roles,
                 osc52_read,
+                kitty_named_transports,
                 cursor_style,
                 cursor_blink,
                 cell,
@@ -5157,6 +5169,7 @@ impl App {
         // C29: OSC 4 replies report the theme palette, not the xterm table.
         let base_palette = self.effective_theme.palette.map(rgb);
         let osc52_read = self.settings.osc52_read;
+        let kitty_named_transports = self.settings.kitty_named_transports;
         let cursor_style = self.settings.cursor_style;
         let cursor_blink = self.settings.cursor_blink.enabled();
         let scrollback_limit = self.settings.scrollback_limit();
@@ -5165,6 +5178,7 @@ impl App {
                 terminal.set_base_colors(base_fg, base_bg, cursor_default);
                 terminal.set_base_palette(base_palette);
                 terminal.set_osc52_read_enabled(osc52_read);
+                terminal.set_kitty_named_transports_enabled(kitty_named_transports);
                 terminal.set_cursor_defaults(cursor_style, cursor_blink);
                 terminal.set_scrollback_limit(scrollback_limit);
             }

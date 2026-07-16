@@ -181,6 +181,7 @@ pub struct Screen {
     host_output: Vec<u8>,
     clipboard_requests: Vec<ClipboardRequest>,
     osc52_read_enabled: bool,
+    kitty_named_transports_enabled: bool,
     /// BEL (`0x07`) latch. Set when the host writes a bell control; drained by
     /// the native layer once per frame to drive the visual/urgency bell. The
     /// core never makes noise or touches the grid — it only records that a bell
@@ -370,6 +371,7 @@ impl Screen {
             host_output: Vec::new(),
             clipboard_requests: Vec::new(),
             osc52_read_enabled: false,
+            kitty_named_transports_enabled: false,
             bell_pending: false,
             base_colors: DynamicColors::default(),
             base_palette: std::array::from_fn(|i| indexed_srgb(i as u8)),
@@ -500,6 +502,13 @@ impl Screen {
 
     pub fn set_osc52_read_enabled(&mut self, enabled: bool) {
         self.osc52_read_enabled = enabled;
+    }
+
+    /// Permit Kitty graphics transports that name host files or POSIX shared
+    /// memory. Disabled by default; direct and chunked-inline data are
+    /// unaffected.
+    pub fn set_kitty_named_transports_enabled(&mut self, enabled: bool) {
+        self.kitty_named_transports_enabled = enabled;
     }
 
     /// Set the scrollback retention cap in logical lines (`0` = unbounded),
@@ -1997,6 +2006,7 @@ impl Screen {
             self.dimensions.rows,
             self.dimensions.columns,
             self.cell_metrics,
+            self.kitty_named_transports_enabled,
         );
         if let Some((row, column)) = outcome.cursor {
             self.cursor.row = row;
@@ -2087,6 +2097,10 @@ impl Terminal {
 
     pub fn set_osc52_read_enabled(&mut self, enabled: bool) {
         self.screen.set_osc52_read_enabled(enabled);
+    }
+
+    pub fn set_kitty_named_transports_enabled(&mut self, enabled: bool) {
+        self.screen.set_kitty_named_transports_enabled(enabled);
     }
 
     /// Set the scrollback retention cap in logical lines (`0` = unbounded). See

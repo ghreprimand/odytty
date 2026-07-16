@@ -192,6 +192,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // colors rather than the hardcoded xterm table.
     model.set_base_palette(theme.palette.map(rgb));
     model.set_osc52_read_enabled(settings.osc52_read);
+    model.set_kitty_named_transports_enabled(settings.kitty_named_transports);
     // Bound scrollback memory from the start so the very first session is capped
     // before any output streams in (`0` = unbounded). See SCROLLBACK-CAP.
     model.set_scrollback_limit(settings.scrollback_limit());

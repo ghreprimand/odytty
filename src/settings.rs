@@ -1257,6 +1257,10 @@ pub struct Settings {
     /// default; logical cells, cursor coordinates, copy, and selection remain
     /// unchanged.
     pub ligatures: bool,
+    /// Whether Kitty graphics may read file, temporary-file, and POSIX
+    /// shared-memory transports named by terminal output. Off by default;
+    /// direct and chunked-inline graphics remain available.
+    pub kitty_named_transports: bool,
     pub key_bindings: Vec<KeyBindingOverride>,
     /// Multiplexer prefix chord (§7). `Some(Ctrl-b)` by default — the single
     /// new globally-captured key that opens the transient pane-command mode.
@@ -1658,6 +1662,7 @@ impl Default for Settings {
             line_height: DEFAULT_LINE_HEIGHT,
             box_thickness: DEFAULT_BOX_THICKNESS,
             ligatures: DEFAULT_LIGATURES,
+            kitty_named_transports: false,
             key_bindings: Vec::new(),
             pane_prefix: default_pane_prefix(),
             cursor_style: CursorStyle::Block,
@@ -2205,6 +2210,12 @@ impl Settings {
             DEFAULT_LIGATURES,
             &mut warn,
         );
+        let kitty_named_transports = parse_bool_setting(
+            get(KITTY_NAMED_TRANSPORTS_ENV).as_deref(),
+            KITTY_NAMED_TRANSPORTS_ENV,
+            false,
+            &mut warn,
+        );
         let key_bindings = parse_key_bindings(get(KEYBINDS_ENV).as_deref(), &mut warn);
         let pane_prefix = parse_pane_prefix(get(PANE_PREFIX_ENV).as_deref(), &mut warn);
         let cursor_style = parse_cursor_style_setting(get(CURSOR_STYLE_ENV).as_deref(), &mut warn);
@@ -2582,6 +2593,7 @@ impl Settings {
             line_height,
             box_thickness,
             ligatures,
+            kitty_named_transports,
             key_bindings,
             pane_prefix,
             cursor_style,
@@ -2736,6 +2748,10 @@ impl Settings {
         values.insert(LINE_HEIGHT_ENV, format_float(self.line_height));
         values.insert(BOX_THICKNESS_ENV, format_float(self.box_thickness));
         values.insert(LIGATURES_ENV, bool_display(self.ligatures).to_owned());
+        values.insert(
+            KITTY_NAMED_TRANSPORTS_ENV,
+            bool_display(self.kitty_named_transports).to_owned(),
+        );
         values.insert(KEYBINDS_ENV, key_bindings_edit_value(&self.key_bindings));
         values.insert(PANE_PREFIX_ENV, pane_prefix_display(self.pane_prefix));
         values.insert(

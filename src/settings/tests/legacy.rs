@@ -129,6 +129,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "symbol_fallback",
             "symbol_font",
             "symbol_map",
+            "kitty_named_transports",
             "ligatures",
             "text_gamma",
             "stem_darken",

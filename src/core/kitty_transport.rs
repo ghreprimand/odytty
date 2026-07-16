@@ -7,10 +7,9 @@
 //!
 //! ## Threat model
 //!
-//! 1. **Remote exfiltration via SSH**: a malicious remote host can send APC
-//!    sequences that instruct the local terminal to read a local file and echo
-//!    pixel data back. Mitigated by restricting t=f/t=t paths to canonical
-//!    temp directories only (`/tmp`, `/dev/shm`, resolved `$TMPDIR`).
+//! 1. **PTY-directed host reads**: terminal output can request local file reads
+//!    and learn success or failure through protocol status. Named transports
+//!    are disabled by default; explicit opt-in retains the temp-root boundary.
 //!
 //! 2. **Symlink / TOCTOU attacks**: a symlink in `/tmp` could redirect to
 //!    `/etc/shadow` or `~/.ssh/id_rsa`. Mitigated by opening with
@@ -22,10 +21,9 @@
 //!    Mitigated by enforcing the ImageStore byte cap on the raw file read
 //!    *before* any decode attempt (same cap as direct payloads).
 //!
-//! 4. **Shared-memory squatting**: a rogue process creates a `/dev/shm`
-//!    object with a known name to inject pixel data. Mitigated by opening
-//!    with `O_RDONLY` + immediate `shm_unlink` so the object lifetime is
-//!    minimal, and the same size cap applies.
+//! 4. **Shared-memory squatting**: a rogue process creates a named object to
+//!    inject pixel data. Mitigated by opening read-only, validating and reading
+//!    within the size cap, then unlinking only after the read succeeds.
 //!
 //! ## Design choices stricter than Kitty proper
 //!
@@ -37,15 +35,15 @@
 //! - Kitty resolves symlinks. OdyTTY rejects them (`O_NOFOLLOW`).
 //!   Rationale: TOCTOU window between stat and open is eliminated.
 //!
-//! - t=t deletes the file *before* decode, not after. If decode fails,
+//! - t=t requires the reference `tty-graphics-protocol` marker and deletes the
+//!   file *before* decode, not after. If decode fails,
 //!   the temp file is still gone — no lingering data on the filesystem.
 //!   This matches Kitty's documented "terminal should delete" semantics
 //!   and is strictly safer.
 //!   Rejected special files are never deleted.
 //!
-//! - t=s calls `shm_unlink` immediately after opening, before reading.
-//!   The shared memory segment ceases to be addressable by name as soon
-//!   as possible.
+//! - t=s calls `shm_unlink` only after size and content validation succeeds.
+//!   Rejected objects retain their names.
 
 #[cfg(unix)]
 use std::ffi::CString;
@@ -65,6 +63,8 @@ pub(super) enum TransportError {
     InvalidPath,
     /// Path is outside the allowed temp directory set.
     PathNotAllowed,
+    /// A temporary-file path lacks Kitty's required deletion marker.
+    MissingTempMarker,
     /// Path is a symlink (O_NOFOLLOW enforcement).
     #[cfg_attr(not(unix), allow(dead_code))]
     SymlinkRejected,
@@ -83,6 +83,7 @@ impl TransportError {
         match self {
             TransportError::InvalidPath => "EBADF:invalid-path",
             TransportError::PathNotAllowed => "EPERM:path-not-allowed",
+            TransportError::MissingTempMarker => "EPERM:missing-temp-marker",
             TransportError::SymlinkRejected => "EPERM:symlink-rejected",
             TransportError::NonRegularFile => "EPERM:non-regular-file",
             TransportError::IoError(_) => "EIO:read-failed",
@@ -185,6 +186,12 @@ pub(super) fn read_temp_transport(
 ) -> Result<Vec<u8>, TransportError> {
     let path = path_from_bytes(raw_path)?;
     let validated = validate_path(&path)?;
+    if !validated
+        .to_string_lossy()
+        .contains("tty-graphics-protocol")
+    {
+        return Err(TransportError::MissingTempMarker);
+    }
     let data = read_regular_file(&validated, max_read)?;
 
     // Delete unconditionally — best-effort; failure is not fatal.
@@ -198,7 +205,7 @@ pub(super) fn read_temp_transport(
 // ---------------------------------------------------------------------------
 
 /// Read image data from a POSIX shared memory segment. The segment is opened
-/// read-only and immediately unlinked before the data is read. The name
+/// read-only and unlinked only after its size and contents validate. The name
 /// must contain no path separators — it is passed directly to `shm_open`.
 ///
 /// `max_read` is the maximum bytes to read.
@@ -237,16 +244,17 @@ pub(super) fn read_shm_transport(
         return Err(TransportError::ShmError(format!("shm_open: {err}")));
     }
 
-    // Immediately unlink — the segment stays readable via our fd but becomes
-    // unreachable by name. Minimizes the window for squatting attacks.
-    unsafe {
-        libc::shm_unlink(c_name.as_ptr());
-    }
-
     // Copy through a fault-contained reader. Positional reads avoid mappings
     // on platforms that support them; macOS isolates its mmap-only shm access
     // in a child so a concurrent truncate cannot deliver SIGBUS to OdyTTY.
     let result = read_shm_fd(fd, max_read);
+
+    if result.is_ok() {
+        // Only validated content earns the destructive protocol side effect.
+        unsafe {
+            libc::shm_unlink(c_name.as_ptr());
+        }
+    }
 
     // Close the fd regardless.
     unsafe {

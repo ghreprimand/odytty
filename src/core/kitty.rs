@@ -140,6 +140,7 @@ pub(super) fn handle_apc(
     screen_rows: usize,
     screen_cols: usize,
     cell_metrics: CellMetrics,
+    named_transports_enabled: bool,
 ) -> Result<KittyOutcome, KittyError> {
     let command = parse_apc(data)?;
     if !graphics.record_kitty_apc(data) {
@@ -171,6 +172,7 @@ pub(super) fn handle_apc(
         screen_rows,
         screen_cols,
         cell_metrics,
+        named_transports_enabled,
     );
     match result {
         Ok(outcome) => Ok(outcome),
@@ -200,6 +202,7 @@ fn handle_command(
     screen_rows: usize,
     screen_cols: usize,
     cell_metrics: CellMetrics,
+    named_transports_enabled: bool,
 ) -> Result<KittyOutcome, KittyError> {
     if command.control.more_chunks {
         // C3: a chunked transmission is FIRST chunk (full control data, m=1),
@@ -296,9 +299,9 @@ fn handle_command(
             command,
             cursor_row,
             cursor_col,
-            screen_rows,
-            screen_cols,
+            (screen_rows, screen_cols),
             cell_metrics,
+            named_transports_enabled,
         ),
     }
 }
@@ -314,9 +317,9 @@ fn process_complete_command(
     command: Command,
     cursor_row: usize,
     cursor_col: usize,
-    screen_rows: usize,
-    screen_cols: usize,
+    screen_dims: (usize, usize),
     cell_metrics: CellMetrics,
+    named_transports_enabled: bool,
 ) -> Result<KittyOutcome, KittyError> {
     validate_supported_control(&command.control)?;
     let max_decoded = graphics.store().limits().max_decoded_bytes;
@@ -328,18 +331,33 @@ fn process_complete_command(
             decode_base64(&command.payload, max_decoded)?
         }
         'f' => {
+            if !named_transports_enabled {
+                return Err(KittyError::TransportFailed(
+                    "EPERM:named-transport-disabled",
+                ));
+            }
             // File: payload is base64-encoded file path; read from fs.
             let path_bytes = decode_base64(&command.payload, 4096)?;
             kitty_transport::read_file_transport(&path_bytes, max_decoded)
                 .map_err(|e| KittyError::TransportFailed(e.kitty_message()))?
         }
         't' => {
+            if !named_transports_enabled {
+                return Err(KittyError::TransportFailed(
+                    "EPERM:named-transport-disabled",
+                ));
+            }
             // Temp file: like 'f' but delete after read.
             let path_bytes = decode_base64(&command.payload, 4096)?;
             kitty_transport::read_temp_transport(&path_bytes, max_decoded)
                 .map_err(|e| KittyError::TransportFailed(e.kitty_message()))?
         }
         's' => {
+            if !named_transports_enabled {
+                return Err(KittyError::TransportFailed(
+                    "EPERM:named-transport-disabled",
+                ));
+            }
             // Shared memory: payload is base64-encoded shm name.
             let name_bytes = decode_base64(&command.payload, 4096)?;
             let mut bytes = kitty_transport::read_shm_transport(&name_bytes, max_decoded)
@@ -370,6 +388,7 @@ fn process_complete_command(
     let mut dirty = true;
     let mut cursor = None;
     if command.control.action == Some('T') {
+        let (screen_rows, screen_cols) = screen_dims;
         let (placed, new_cursor) = place_image(
             graphics,
             &command.control,
@@ -1027,6 +1046,7 @@ pub(super) fn test_intermediate_chunk_append(
         4,
         20,
         CellMetrics::default(),
+        false,
     )
     .err()
     .map(|err| err.message())

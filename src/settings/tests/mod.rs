@@ -24,6 +24,7 @@ static RELOAD_GLOBAL_TEST_LOCK: Mutex<()> = Mutex::new(());
 mod cursor;
 mod info;
 mod keybinds;
+mod kitty;
 mod legacy;
 mod ligature;
 mod mouse;
