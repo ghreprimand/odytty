@@ -570,7 +570,7 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
 
 ## Visual Capability Parity (Stage 6 parity half)
 
-Design ruling: visual capability parity with the strongest GPU terminals is
+Design decision: visual capability parity with the strongest GPU terminals is
 a floor; surpassing it is the standing ambition.
 
 - [ ] Wide-glyph raster quality: double-width (CJK/wide) atlas slot sizing.

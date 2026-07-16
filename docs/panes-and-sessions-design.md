@@ -769,7 +769,7 @@ transfers.
 
 Rationale:
 
-1. **Design ruling** — explicit ratification of the "two standards by domain"
+1. **Design decision** — explicit ratification of the "two standards by domain"
    framing to maximize tmux muscle-memory transfer (the #1 adoption gate the demand
    scan surfaced) **without** disturbing the existing GUI-chord world.
 2. The prefix model is what tmux/screen users already have in their fingers; a
