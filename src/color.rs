@@ -207,6 +207,25 @@ pub fn mix_linear(a: LinearRgb, b: LinearRgb, t: f32) -> LinearRgb {
     ]
 }
 
+/// Alpha-composite an opaque `top` color over an opaque `bottom` color at
+/// coverage `alpha`, in linear space (straight "source-over" with an opaque
+/// backdrop).
+///
+/// `alpha` is clamped to `[0, 1]`; `alpha = 1` returns `top` exactly and
+/// `alpha = 0` returns `bottom` exactly. Compositing in linear light is
+/// energy-correct, so a translucent fill blends toward its backdrop without the
+/// muddy midpoint a gamma-space average would introduce.
+///
+/// This is the blend the selection treatment uses to model a translucent
+/// selection fill over the cell/theme background: as `alpha` falls the fill
+/// recedes toward the backdrop, which is exactly what a `selection_opacity`
+/// knob controls. It is the same math as [`mix_linear`] with the arguments
+/// ordered for the compositing reading (`bottom` is the backdrop, `top` the
+/// source).
+pub fn composite_over(top: LinearRgb, bottom: LinearRgb, alpha: f32) -> LinearRgb {
+    mix_linear(bottom, top, alpha.clamp(0.0, 1.0))
+}
+
 /// Perceptually-uniform interpolation between two colors through OKLab.
 ///
 /// `t` is clamped to `[0, 1]` with exact endpoints. Equal steps in `t` look
@@ -688,6 +707,110 @@ mod tests {
         let b = [0.8, 0.6, 0.2];
         let m = mix_linear(a, b, 0.5);
         assert!(rgb_close(m, [0.5, 0.5, 0.4], 1e-6));
+    }
+
+    // --- Selection-opacity blend math (TRACK B, S1 pure core) ----------
+
+    #[test]
+    fn composite_over_endpoints_are_exact() {
+        // A translucent selection fill at full strength is the fill itself;
+        // at zero strength it vanishes into the backdrop. Both endpoints must
+        // be bit-exact so the default value can be a genuine byte-identity
+        // no-op wherever the render layer claims one.
+        let fill = [0.62, 0.11, 0.44];
+        let backdrop = [0.03, 0.05, 0.09];
+        assert_eq!(composite_over(fill, backdrop, 1.0), fill);
+        assert_eq!(composite_over(fill, backdrop, 0.0), backdrop);
+        // Out-of-range alpha is clamped, not extrapolated.
+        assert_eq!(composite_over(fill, backdrop, 1.5), fill);
+        assert_eq!(composite_over(fill, backdrop, -0.5), backdrop);
+    }
+
+    #[test]
+    fn composite_over_midpoint_is_linear_mean() {
+        // Source-over at alpha 0.5 is the linear-light average of fill and
+        // backdrop, matching mix_linear with the compositing argument order.
+        let fill = [0.8, 0.6, 0.2];
+        let backdrop = [0.2, 0.4, 0.6];
+        let m = composite_over(fill, backdrop, 0.5);
+        assert!(rgb_close(m, [0.5, 0.5, 0.4], 1e-6));
+        assert!(rgb_close(m, mix_linear(backdrop, fill, 0.5), 0.0));
+    }
+
+    #[test]
+    fn composite_over_recedes_monotonically_toward_backdrop() {
+        // As selection opacity falls, every channel of the composited fill
+        // moves monotonically from the fill toward the backdrop. This is the
+        // invariant a `selection_opacity` slider relies on: lower = weaker.
+        let fill = [0.90, 0.20, 0.35];
+        let backdrop = [0.04, 0.06, 0.10];
+        let mut prev = composite_over(fill, backdrop, 1.0);
+        for step in (0..=10).rev() {
+            let alpha = step as f32 / 10.0;
+            let c = composite_over(fill, backdrop, alpha);
+            for ch in 0..3 {
+                // fill channels are all >= backdrop channels here, so lowering
+                // alpha must not increase any channel.
+                assert!(
+                    c[ch] <= prev[ch] + 1e-6,
+                    "channel {ch} rose as alpha fell: {c:?} vs {prev:?}"
+                );
+            }
+            prev = c;
+        }
+        assert!(rgb_close(prev, backdrop, 1e-6));
+    }
+
+    #[test]
+    fn contrast_floor_holds_over_translucent_fill() {
+        // RV1 legibility under translucency: when the operator has raised the
+        // minimum-contrast floor, the selection foreground must be floored over
+        // the EFFECTIVE composited fill (fill over the theme backdrop), not the
+        // pre-blend opaque fill. Sweeping selection opacity from opaque down to
+        // faint, the floored fg must meet the ratio against the composited fill
+        // at every step, on both a dark and a light theme backdrop.
+        let ratio = 4.5;
+        let fill = srgb_tuple_to_lin((90, 40, 120)); // a saturated selection role
+        for &backdrop in &[
+            srgb_tuple_to_lin((12, 14, 20)),    // dark theme background
+            srgb_tuple_to_lin((240, 240, 235)), // light theme background
+        ] {
+            let base_fg = srgb_tuple_to_lin((200, 200, 200));
+            for step in 0..=10 {
+                let alpha = step as f32 / 10.0;
+                let effective = composite_over(fill, backdrop, alpha);
+                let floored = enforce_min_contrast(base_fg, effective, ratio);
+                let got = wcag_contrast(floored, effective);
+                assert!(
+                    got + 1e-3 >= ratio,
+                    "fg not legible at alpha {alpha} over {effective:?}: contrast {got}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn contrast_floor_over_opaque_fill_is_default_passthrough() {
+        // At the default min_contrast (1.0 -> passthrough) the floor is a no-op
+        // regardless of translucency, so the selection fg is unchanged whether
+        // the fill is opaque or fully faded. This underwrites the byte-identity
+        // story for the default selection-opacity value.
+        let fill = srgb_tuple_to_lin((90, 40, 120));
+        let backdrop = srgb_tuple_to_lin((12, 14, 20));
+        let fg = srgb_tuple_to_lin((200, 200, 200));
+        for step in 0..=4 {
+            let alpha = step as f32 / 4.0;
+            let effective = composite_over(fill, backdrop, alpha);
+            assert_eq!(enforce_min_contrast(fg, effective, 1.0), fg);
+        }
+    }
+
+    fn srgb_tuple_to_lin(c: (u8, u8, u8)) -> LinearRgb {
+        [
+            srgb_to_linear(c.0),
+            srgb_to_linear(c.1),
+            srgb_to_linear(c.2),
+        ]
     }
 
     #[test]

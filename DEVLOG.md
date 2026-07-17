@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Selection-opacity blend primitive
+
+Groundwork for an independently-adjustable selection strength: the selection
+fill is currently an opaque cell background with no alpha of its own, so under
+window transparency it is scaled by the window opacity along with the terminal
+background and washes out against a busy desktop. The fix is a future
+`selection_opacity` control; this entry lands the pure-color primitive it builds
+on, ahead of the settings and render wiring.
+
+- Added `color::composite_over(top, bottom, alpha)`: a linear-light source-over
+  blend of an opaque fill over an opaque backdrop. Alpha is clamped to `[0, 1]`;
+  full strength returns the fill bit-exactly and zero strength returns the
+  backdrop, so a default value can be a genuine no-op wherever byte identity is
+  claimed. It is the same energy-correct math as `mix_linear`, ordered for the
+  compositing reading.
+- Color unit tests cover the blend endpoints and clamping, the linear-mean
+  midpoint, monotone recession toward the backdrop as strength falls, and the
+  minimum-contrast floor holding over the effective composited fill (dark and
+  light backdrops, strength swept) while staying an exact passthrough at the
+  default contrast floor.
+
+State: `cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets
+--locked` clean. No behavior change yet — the primitive is unused until the
+settings knob and render path are wired. Platform-neutral color math with no
+PTY, spawn, path, env, or shell-integration surface; no Windows-specific code.
+
 ## 2026-07-16 -- Documentation matches the shipped cursor, transport, and state surface
 
 A documentation-currency pass reconciled the public references with the v0.9
