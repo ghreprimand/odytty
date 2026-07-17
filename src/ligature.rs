@@ -785,10 +785,12 @@ mod tests {
                             );
                             // SELECTION-OPACITY: route the selected build through
                             // the selection-aware entry, passing `opacity` as the
-                            // selection strength too, so selected and unselected
-                            // cells alike composite at `opacity` — the invariant
-                            // this test checks (the marker otherwise forces the
-                            // fully-opaque default on the legacy entry point).
+                            // selection strength too. Unselected cells composite
+                            // at `opacity`; a selected cell's surface alpha lerps
+                            // UP to `A_sel = opacity + opacity*(1 - opacity)` so
+                            // the selection is never weaker than its surround
+                            // (the marker otherwise forces the fully-opaque
+                            // default on the legacy entry point).
                             let mut selected_vertices = Vec::new();
                             build_cell_vertices_with_ligatures_and_selection_into(
                                 &mut selected_vertices,
@@ -809,12 +811,15 @@ mod tests {
                                 glyph_geometry(&base_vertices),
                                 "selection {start}..={end} changed {text} outline/source geometry"
                             );
+                            let a_sel = opacity + opacity * (1.0 - opacity);
                             assert!(
                                 selected_vertices
                                     .iter()
                                     .filter(|vertex| vertex.is_glyph == 0.0)
-                                    .all(|vertex| (vertex.color[3] - opacity).abs() < 1e-6),
-                                "selection backgrounds must retain the requested composite opacity"
+                                    .all(|vertex| (vertex.color[3] - opacity).abs() < 1e-6
+                                        || (vertex.color[3] - a_sel).abs() < 1e-6),
+                                "selection backgrounds are either the content opacity (unselected) \
+                                 or the lerped A_sel (selected), never weaker than the surround"
                             );
                             assert!(
                                 selected_vertices

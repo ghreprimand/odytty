@@ -887,14 +887,20 @@ pub fn build_cell_vertices_with_ligatures_and_selection_into(
 }
 
 /// Private core of the cell-vertex build. Carries every render parameter,
-/// including `selection_opacity`: the COLOR-space tint strength applied to a
-/// selected cell (see [`crate::core::Attrs::selected`]). A selected cell keeps
-/// the surrounding content's surface alpha; `selection_opacity` blends its
-/// selection fill toward the unselected background rather than scaling the
-/// background-quad alpha. All public entry points delegate here; the ones that
+/// including `selection_opacity` (see [`crate::core::Attrs::selected`]), which
+/// drives BOTH a selected cell's COLOR-space tint strength AND its background
+/// surface alpha. The surface alpha is lerped from the surrounding content
+/// opacity up to fully opaque as the knob rises —
+/// `A_sel = cell_bg_opacity + selection_opacity * (1.0 - cell_bg_opacity)` —
+/// so the selection PUNCHES THROUGH window transparency and stays visible, and
+/// is never weaker than its surround (`A_sel >= cell_bg_opacity` always). The
+/// color tint recedes toward the unselected fill as the knob falls, in lockstep
+/// with the surface alpha. All public entry points delegate here; the ones that
 /// do not thread a selection opacity pass `1.0`, the full-strength selection
-/// contract (and byte-identical for frames with no selected cell, since the
-/// blend is only taken when a cell carries the marker).
+/// contract: `A_sel == 1.0` at every window opacity, so a selected cell is
+/// byte-identical to the original fully-opaque selection at ANY window opacity.
+/// Frames with no selected cell are byte-identical for any scalar, since both
+/// the tint and the alpha lerp are only taken when a cell carries the marker.
 #[allow(clippy::too_many_arguments)]
 fn build_cells_core(
     out: &mut Vec<Vertex>,
@@ -936,12 +942,13 @@ fn build_cells_core(
             std::mem::swap(&mut fg, &mut bg);
         }
         // SELECTION-OPACITY (default/inverse path): a selected cell painted via
-        // the historical inverse swap blends its selection colors toward the
+        // the historical inverse swap blends its selection COLORS toward the
         // UNSELECTED appearance in linear color space, so `selection_opacity`
-        // controls the selection's tint STRENGTH while the cell's surface alpha
-        // (Pass 1) stays equal to the surrounding content opacity. Selection and
-        // content then share ONE transparency plane, so the selection reads the
-        // same against its surround at any window opacity (no inverse coupling).
+        // controls the selection's tint STRENGTH. The selected cell's surface
+        // alpha is handled separately in Pass 1 (lerped from content opacity up
+        // to fully opaque by the same knob), so tint and surface alpha recede
+        // toward the unselected look together as the knob falls, and the
+        // selection punches through window transparency as the knob rises.
         // After the swap `bg` is the selection fill (the cell's original
         // foreground) and `fg` is the backdrop (the cell's original background),
         // so compositing the fill over the backdrop at `selection_opacity` — and
@@ -1021,15 +1028,27 @@ fn build_cells_core(
             // other cell scales by `cell_bg_opacity` exactly as before. `None`
             // (the default) leaves `bg[3] * cell_bg_opacity` untouched.
             //
-            // SELECTION-OPACITY: a selected cell composites at the SAME surface
-            // alpha as its unselected neighbors (`cell_bg_opacity`), so selection
-            // and content share one transparency plane and the selection never
-            // couples inversely to window opacity. The `selection_opacity` knob
-            // acts purely in COLOR space (see `resolve` for the inverse path and
-            // `themed_selection_style` for the themed path), tuning the tint
-            // strength rather than the surface alpha.
+            // SELECTION-OPACITY: a selected cell's background surface alpha is
+            // lerped from the surrounding content opacity up to fully opaque,
+            // driven by the knob:
+            //   A_sel = cell_bg_opacity + selection_opacity * (1 - cell_bg_opacity)
+            // so the selection PUNCHES THROUGH window transparency and stays
+            // visible against a translucent/busy backdrop. It is monotonic in the
+            // knob and `A_sel >= cell_bg_opacity` always, so the selection is
+            // NEVER weaker than its surround; the excess over the surround
+            // (`k * (1 - cell_bg_opacity)`) grows as the window gets more
+            // transparent and is zero at an opaque window (equal-plane solid
+            // highlight) — no inverse feel in either direction. At k == 1.0
+            // A_sel == 1.0 at EVERY window opacity, so the cell is byte-identical
+            // to the original fully-opaque selection. Applies to BOTH the inverse
+            // and themed paths (both carry the `selected()` marker). The color
+            // tint recedes in lockstep (see `resolve` for the inverse path and
+            // `themed_selection_style` for the themed path). An `opaque_region`
+            // overlay cell still forces fully opaque, unchanged.
             let cell_opacity = if opaque_region.is_some_and(|r| r.contains(row, col)) {
                 1.0
+            } else if cell.attrs.selected() {
+                cell_bg_opacity + selection_opacity * (1.0 - cell_bg_opacity)
             } else {
                 cell_bg_opacity
             };

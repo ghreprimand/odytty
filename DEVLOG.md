@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Selection opacity: punch-through surface alpha, correcting the over-fix
+
+Eye-testing the color-space selection fix on a translucent window found it had
+over-corrected. Putting the selection back on the content transparency plane
+killed the inverse coupling, but it also meant the selection faded out with the
+window: at 20% and 50% window opacity the highlight washed out even at full
+selection strength, because it composited at the same low coverage as the
+content behind it. A selection needs to stand out against a transparent or busy
+backdrop, not dissolve into it.
+
+The corrected model lerps a selected cell's background surface alpha from the
+content plane up to fully opaque, controlled by the knob:
+
+    A_sel = cell_bg_opacity + selection_opacity * (1 - cell_bg_opacity)
+
+At full strength the selection is solid at any window opacity; at zero strength
+it sits exactly on the content plane and disappears. The alpha is monotonic in
+the knob and never falls below the surrounding content opacity, so the
+selection is never weaker than its surround: the excess coverage over the
+surround grows as the window gets more transparent (the highlight punches
+through toward the desktop) and vanishes at an opaque window (an equal-plane
+solid highlight). There is no inverse feel in either direction. The color tint
+introduced by the earlier fix rides along with the alpha — at full strength the
+cell is solid fill, and as the knob falls both the surface alpha and the fill
+color recede toward the unselected look together. The minimum-contrast floor
+still runs last, so text stays legible throughout.
+
+This strengthens the byte-identity guarantee. At `selection_opacity = 1.0` the
+lerp yields `A_sel = 1.0` at every window opacity, so a full-strength selection
+is byte-identical to the original fully-opaque selection regardless of window
+transparency — not only when the window itself is opaque. A regression test
+pins the four properties directly: the alpha equals the lerp and is never below
+the content opacity at every window opacity; the knob at 1.0 gives a fully
+opaque selection; the knob at 0.0 gives the content opacity; and the alpha is
+monotonic in the knob. Pure color/alpha math — no PTY, spawn, path, or platform
+surface, identical across Linux, Windows, and macOS. The shipped default value
+remains an open eye-test.
+
 ## 2026-07-17 -- Selection opacity: color-space tint, decoupled from window opacity
 
 Eye-testing the selection-strength knob surfaced an inverse coupling: as the

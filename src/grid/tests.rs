@@ -1679,14 +1679,18 @@ fn selection_test_vertices(
     verts
 }
 
-// ANTI-REGRESSION for the inverse-coupling bug (task 5ef3f27e): at a fixed
-// `selection_opacity`, the selected cell's SURFACE alpha tracks the content
-// opacity (equal to its neighbors) and its TINT color does not move with the
-// window opacity. Before the fix the selected cell's alpha was pinned to
-// `selection_opacity` regardless of window opacity, so the selection appeared
-// stronger as the window grew more transparent.
+// ANTI-REGRESSION for the selection-opacity coupling bug (task 5ef3f27e). A
+// selected cell's background SURFACE alpha is lerped from the content plane up
+// to fully opaque by the knob:
+//   A_sel = cell_bg_opacity + selection_opacity * (1 - cell_bg_opacity)
+// so the selection PUNCHES THROUGH window transparency (stays visible against a
+// translucent backdrop) and is NEVER weaker than its surround, with no inverse
+// feel in either direction. The first fix over-corrected by pinning the selected
+// cell to the content opacity, which washed the selection out under a
+// translucent window even at selection_opacity == 1.0; this asserts the
+// corrected lerp.
 #[test]
-fn selection_appearance_is_invariant_to_window_opacity() {
+fn selection_surface_alpha_lerps_content_to_opaque() {
     let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
     let mut term = Terminal::new(3, 1);
     term.advance(b"\x1b[?25l");
@@ -1695,41 +1699,65 @@ fn selection_appearance_is_invariant_to_window_opacity() {
     snapshot.cells[1].attrs.set_selected(true);
     snapshot.cells[1].attrs.set_inverse(true);
 
-    let selection_opacity = 0.5;
     let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * VERTS_PER_QUAD].color[3];
-    let bg_rgb = |verts: &[Vertex], quad: usize| {
-        let c = verts[quad * VERTS_PER_QUAD].color;
-        [c[0], c[1], c[2]]
-    };
-
-    // The selected cell shares the surrounding content's surface alpha at BOTH a
-    // near-opaque and a translucent window — never a fixed selection_opacity.
-    for cell_opacity in [0.4_f32, 0.9] {
+    // Surface alpha of the selected cell (col 1) at a given window opacity + knob.
+    let sel_alpha = |cell_opacity: f32, selection_opacity: f32| -> f32 {
         let verts = selection_test_vertices(&snapshot, &atlas, cell_opacity, selection_opacity);
-        assert!(
-            (bg_alpha(&verts, 0) - cell_opacity).abs() < 1e-6,
-            "an unselected edge cell scales by cell_bg_opacity"
-        );
-        assert!(
-            (bg_alpha(&verts, 1) - cell_opacity).abs() < 1e-6,
-            "the selected cell must share the content surface alpha, not selection_opacity"
-        );
-        assert!(
-            (bg_alpha(&verts, 2) - cell_opacity).abs() < 1e-6,
-            "the other edge cell also scales by cell_bg_opacity"
-        );
-    }
+        bg_alpha(&verts, 1)
+    };
+    let expected = |w: f32, k: f32| w + k * (1.0 - w);
 
-    // The selection tint (RGB) is identical at any window opacity: the color
-    // blend depends only on selection_opacity + the cell colors, never on
-    // cell_bg_opacity. This is the exact invariant the bug violated.
-    let low = selection_test_vertices(&snapshot, &atlas, 0.4, selection_opacity);
-    let high = selection_test_vertices(&snapshot, &atlas, 0.9, selection_opacity);
-    assert_eq!(
-        bg_rgb(&low, 1),
-        bg_rgb(&high, 1),
-        "the selection tint must not move with window opacity"
-    );
+    // Window opacities spanning translucent to near-opaque; the required
+    // byte-identity checks (2) call out 0.2 and 0.9 specifically.
+    for &w in &[0.2_f32, 0.5, 0.9] {
+        // Neighboring UNSELECTED cells always scale by plain cell_bg_opacity, at
+        // any knob, so the selection is measured against a stable surround.
+        for &k in &[0.0_f32, 0.5, 1.0] {
+            let verts = selection_test_vertices(&snapshot, &atlas, w, k);
+            assert!(
+                (bg_alpha(&verts, 0) - w).abs() < 1e-6 && (bg_alpha(&verts, 2) - w).abs() < 1e-6,
+                "unselected neighbors scale by cell_bg_opacity (w={w}, k={k})"
+            );
+        }
+
+        // (1) A_sel == the lerp and is never weaker than the surround, at every
+        // window opacity + knob.
+        for &k in &[0.0_f32, 0.35, 0.65, 1.0] {
+            let a = sel_alpha(w, k);
+            assert!(
+                (a - expected(w, k)).abs() < 1e-6,
+                "A_sel must equal the lerp (w={w}, k={k}, a={a})"
+            );
+            assert!(
+                a >= w - 1e-6,
+                "A_sel must never be weaker than the surround (w={w}, k={k}, a={a})"
+            );
+        }
+
+        // (2) k == 1.0 -> A_sel == 1.0 exactly at ANY window opacity: a fully
+        // opaque selection, byte-identical to the original opaque selection.
+        assert!(
+            (sel_alpha(w, 1.0) - 1.0).abs() < 1e-6,
+            "k=1.0 must give a fully opaque selection at w={w}"
+        );
+
+        // (3) k == 0.0 -> A_sel == cell_bg_opacity: selection on the content plane.
+        assert!(
+            (sel_alpha(w, 0.0) - w).abs() < 1e-6,
+            "k=0.0 must give A_sel == cell_bg_opacity at w={w}"
+        );
+
+        // (4) A_sel monotonically increasing in the knob.
+        let mut prev = f32::NEG_INFINITY;
+        for &k in &[0.0_f32, 0.25, 0.5, 0.75, 1.0] {
+            let a = sel_alpha(w, k);
+            assert!(
+                a >= prev - 1e-6,
+                "A_sel must be monotonic increasing in k (w={w}, k={k}, a={a})"
+            );
+            prev = a;
+        }
+    }
 }
 
 // selection_opacity == 1.0 is byte-identical to a fully-opaque selection; below
