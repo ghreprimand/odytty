@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Buttons: chips no longer bleed through overlay panels
+
+Fix: with an overlay panel open (settings, pickers), button chip styling was
+visible on cells the panel should fully occlude — the chip fill and re-styled
+glyphs drew over the panel. Cause: paint order. The frame's cell-paint
+manifest painted chips in the last slot, after the overlay panel, so a chip
+under the panel re-styled the panel's own cells. Selection and search paint
+before the overlay and were correctly occluded all along.
+
+Chips now paint at the content layer — after selection and search, before the
+overlay panel and the transient UI slots (hints, copy mode, IME pre-edit,
+notices, click hint) — so an open panel composites over any chip beneath it.
+This also corrects the Tier 1 point chip's content-end scan, which must read
+terminal content rather than panel cells. A regression test runs the
+production paint order with the settings panel open over a button span and
+asserts the panel's covered cells are byte-identical with and without a chip
+underneath: no fill, outline, or glyph bleed. Gate-off remains byte-identical
+(the chip painter is a no-op with no visible buttons).
+
 ## 2026-07-17 -- Launch-session seeding consolidated; headless tests exercise the real startup path
 
 Hardening after the launch-pane button-gate fix below. That bug had a

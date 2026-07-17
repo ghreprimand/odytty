@@ -193,6 +193,77 @@ fn launch_seeding_leaves_buttons_off_at_default_settings() {
     );
 }
 
+/// REGRESSION (chip/overlay layering): a button chip whose cells fall under an
+/// open overlay panel must be FULLY occluded — no fill, outline, or glyph
+/// re-style may bleed through. Chips once painted after the overlay slot and
+/// survived on top of the settings panel. This runs the production cell-paint
+/// order (chips at the content layer, then the panel) and asserts the panel's
+/// covered cells are byte-identical with and without a chip underneath.
+#[test]
+fn an_open_overlay_panel_fully_occludes_button_chips() {
+    // A full-size grid so the centered settings panel has real coverage.
+    let dims = Dimensions::new(80, 24);
+    let settings = crate::settings::Settings {
+        buttons: true,
+        ..crate::settings::Settings::default()
+    };
+    let (mut app, terminal) = headless_app_with(NativeOptions::default(), dims, settings);
+    app.set_test_cell_for_test(cell(CELL_W, CELL_H));
+    {
+        let mut t = terminal.lock().expect("terminal");
+        // Land the button mid-grid (row 10), squarely under the panel.
+        t.advance(&b"\r\n".repeat(10));
+        t.advance(T2_BUTTON);
+    }
+    app.open_settings_overlay_for_test();
+
+    let (visible, base) = {
+        let t = terminal.lock().expect("terminal");
+        (t.visible_button_spans(0), t.screen().snapshot())
+    };
+    assert_eq!(visible.len(), 1, "fixture: exactly one visible button span");
+
+    let ctx = app.overlay_ctx(
+        0,
+        cell(CELL_W, CELL_H),
+        base.cursor,
+        base.cursor_visible,
+        std::time::Instant::now(),
+    );
+
+    // Production order: the chip paints at the content layer, then the panel
+    // composites over it.
+    let mut with_chip = base.clone();
+    crate::native::app::button_chip::paint_button_cells(&mut with_chip, &visible);
+    assert_ne!(with_chip, base, "fixture: the chip must actually paint");
+    app.paint_overlay_cells(&mut with_chip, &ctx);
+
+    let mut without_chip = base.clone();
+    app.paint_overlay_cells(&mut without_chip, &ctx);
+
+    // The panel's coverage = every cell the overlay paint changed.
+    let covered: Vec<usize> = (0..base.cells.len())
+        .filter(|&i| without_chip.cells[i] != base.cells[i])
+        .collect();
+    assert!(!covered.is_empty(), "fixture: the panel must paint cells");
+    // The button span must sit inside the coverage, or the test is vacuous.
+    let cols = base.dimensions.columns;
+    let button = &visible[0];
+    let span_start = button.row * cols + button.start_col;
+    let span_end = span_start + button.len.max(1);
+    assert!(
+        (span_start..span_end).all(|i| covered.binary_search(&i).is_ok()),
+        "fixture: the panel must cover the button span"
+    );
+    // The contract: inside the panel, a chip underneath changes NOTHING.
+    for &i in &covered {
+        assert_eq!(
+            with_chip.cells[i], without_chip.cells[i],
+            "no chip decoration may bleed through the open panel (cell {i})"
+        );
+    }
+}
+
 #[test]
 fn plain_click_on_a_live_button_reports_the_exact_envelope() {
     let (mut app, _terminal, bytes) = build_app(T2_BUTTON, true);

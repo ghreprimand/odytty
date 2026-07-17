@@ -86,7 +86,7 @@ use super::viewport::{
 
 mod background_ui;
 mod bell;
-mod button_chip;
+pub(in crate::native) mod button_chip;
 mod chrome_geometry;
 pub(in crate::native) mod click_hint;
 mod connection_probe;
@@ -5999,6 +5999,16 @@ impl ApplicationHandler<UserEvent> for App {
                         );
                         self.paint_selection_cells(&mut snapshot, &ctx);
                         self.paint_search_cells(&mut snapshot, &ctx);
+                        // Button Protocol B2: program-defined button chips.
+                        // `visible_buttons` is empty on the gate-off / no-button
+                        // path, so this is a no-op there and the frame stays
+                        // byte-identical. Painted at the content layer — BEFORE
+                        // the overlay panel and the transient UI slots below —
+                        // so an open panel fully occludes any chip under it
+                        // (chips once painted last and bled through overlays).
+                        // The point-chip content-end scan also depends on this
+                        // spot: it must read terminal content, not panel cells.
+                        button_chip::paint_button_cells(&mut snapshot, &visible_buttons);
                         self.paint_overlay_cells(&mut snapshot, &ctx);
                         self.paint_hyperlink_cells(&mut snapshot, &ctx);
                         self.paint_hints_cells(&mut snapshot, &ctx);
@@ -6017,11 +6027,6 @@ impl ApplicationHandler<UserEvent> for App {
                         // + Ctrl + a hovered path; the hint needs to be shown.
                         self.paint_armed_path_underline_cells(&mut snapshot);
                         self.paint_click_hint_cells(&mut snapshot);
-                        // Button Protocol B2: program-defined button chips.
-                        // `visible_buttons` is empty on the gate-off / no-button
-                        // path, so this is a no-op there and the frame stays
-                        // byte-identical.
-                        button_chip::paint_button_cells(&mut snapshot, &visible_buttons);
                         // Frame-overlay quad manifest: scroll indicator, then the
                         // off-by-default SH2 gutter, then the no-op new slots.
                         let mut overlays: Vec<SolidQuad> = Vec::new();
