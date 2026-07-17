@@ -10,6 +10,10 @@ use unicode_width::UnicodeWidthChar;
 use crate::graphics::{ImageScene, VisiblePlacement};
 use crate::parser::{OdyParser, Params, VtDispatch};
 
+use super::button::{
+    ButtonScope, ButtonSignal, ButtonSpan, ButtonTable, MAX_BUTTON_SPANS_PER_LINE,
+    parse_button_osc_133, parse_button_osc_1337,
+};
 use super::graphics_routing::{self, DcsCapture, GraphicsStats};
 use super::hyperlink::{Hyperlink, HyperlinkTable};
 use super::kitty::{decode_base64_bytes, encode_base64_bytes};
@@ -56,6 +60,11 @@ pub(in crate::core) struct Line {
     pub(in crate::core) cells: Vec<Cell>,
     pub(in crate::core) wrapped: bool,
     pub(in crate::core) prompt_mark: Option<PromptKind>,
+    /// Button spans anchored to this physical row, in row-local columns
+    /// (Button Protocol B1). Like `prompt_mark`, this is advisory sidecar
+    /// state: no render-path code reads it yet and it never reaches the
+    /// [`Snapshot`]. Empty (no allocation) for the common button-free row.
+    pub(in crate::core) button_spans: Vec<ButtonSpan>,
 }
 /// An owned physical row of the visible viewport, produced by
 /// [`Screen::visible_search_rows`]. It owns its cells and carries the soft-wrap
@@ -94,6 +103,7 @@ impl Line {
             cells,
             wrapped: false,
             prompt_mark: None,
+            button_spans: Vec::new(),
         }
     }
 
@@ -103,6 +113,7 @@ impl Line {
             cells,
             wrapped: true,
             prompt_mark: None,
+            button_spans: Vec::new(),
         }
     }
 }
@@ -268,6 +279,26 @@ pub struct Screen {
     /// graphics protocol payloads awaiting later decoders.
     graphics: ImageScene,
     hyperlinks: HyperlinkTable,
+    /// Interned button entries (Button Protocol B1). Bounded by construction:
+    /// span refcounts couple entry lifetime to the scrollback ring, with a
+    /// hard refuse-new-at-ceiling entry cap. See [`super::button`].
+    buttons: ButtonTable,
+    /// Master gate for the button protocol. Off (the default): both button
+    /// spellings are parsed and consumed — keeping the parser total and the
+    /// no-grid-write invariant exercised — but create no table entry, no span,
+    /// and no observable state, so feature-off output is byte-identical. The
+    /// native layer will also gate the future pointer arm on this (both
+    /// chokepoints, so no partial-gate hole).
+    buttons_enabled: bool,
+    /// Sub-gate: accept the iTerm2 `OSC 1337 ; Button=` spelling. Inert while
+    /// `buttons_enabled` is off.
+    buttons_iterm_compat: bool,
+    /// Sub-gate: honor `scope=sticky`. When off, every definition is
+    /// block-scoped regardless of the emitter's request.
+    buttons_sticky: bool,
+    /// An open Tier 2 bracketed button run: definition received, `end` not
+    /// yet. The label cells printed in between become the button's span(s).
+    active_button_run: Option<ActiveButtonRun>,
     dcs_capture: Option<DcsCapture>,
     dcs_query: Option<query::DcsQueryCapture>,
     graphics_stats: GraphicsStats,
@@ -326,6 +357,22 @@ struct SavedCursor {
 struct ScrollRegion {
     top: usize,
     bottom: usize,
+}
+
+/// An open Tier 2 button run (`odytty-button;code=…` received, `end` pending).
+/// The start is anchored in absolute physical rows (scrollback height plus
+/// visible row, the `active_prompt_input_start` convention) so intervening
+/// scrolling is detected; a start that scrolls out of the visible grid (or a
+/// resize, alternate-screen switch, or block boundary) cancels the run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ActiveButtonRun {
+    id: super::button::ButtonId,
+    /// Start row in "pushed rows + visible row" units: a monotonic scroll
+    /// counter plus the visible row, so intervening scroll-out is detected
+    /// without projecting scrollback (the projection-free sibling of the
+    /// absolute-row convention).
+    start_abs_row: u64,
+    start_col: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -398,6 +445,11 @@ impl Screen {
             default_cursor_blink: true,
             graphics: ImageScene::default(),
             hyperlinks: HyperlinkTable::default(),
+            buttons: ButtonTable::default(),
+            buttons_enabled: false,
+            buttons_iterm_compat: true,
+            buttons_sticky: true,
+            active_button_run: None,
             dcs_capture: None,
             dcs_query: None,
             graphics_stats: GraphicsStats::default(),
@@ -783,6 +835,10 @@ impl Screen {
     pub fn resize(&mut self, columns: usize, rows: usize) {
         let dimensions = Dimensions::new(columns, rows);
         let width_unchanged = dimensions.columns == self.dimensions.columns;
+        // A resize re-anchors everything; an open button run's absolute start
+        // row is meaningless afterwards, so abandon it (refcounts for stamped
+        // spans are rebuilt below).
+        self.cancel_button_run();
         // DECSTBM margins are absolute row indices in the old grid. A row-count
         // change invalidates them on both the active and stored-primary screen;
         // a width-only reflow leaves them meaningful.
@@ -931,6 +987,10 @@ impl Screen {
         self.graphics
             .resize(self.dimensions.rows, self.dimensions.columns);
         self.prompt_marks_changed |= had_prompt_marks;
+        // Reflow re-projected button spans wholesale (splits/merges change the
+        // span count); replace the incremental refcount bookkeeping with an
+        // authoritative rebuild. No-op when no buttons exist.
+        self.rebuild_button_refcounts();
         self.mark_dirty();
 
         // Passive, env-gated diagnostic (no-op unless ODYTTY_REFLOW_TRACE is
@@ -1352,6 +1412,52 @@ impl Screen {
         self.click_events_enabled
     }
 
+    /// Master gate for the button protocol (Button Protocol B1). Off (the
+    /// default), both button spellings are parsed-and-ignored: no table
+    /// growth, no spans, no observable state — feature-off byte identity.
+    /// Enforced at this OSC chokepoint; the future pointer arm gates
+    /// independently on the same setting so no partial-gate hole exists.
+    pub fn set_buttons_enabled(&mut self, enabled: bool) {
+        self.buttons_enabled = enabled;
+    }
+
+    /// Sub-gate: accept the iTerm2 `OSC 1337 ; Button=` spelling (Tier 1).
+    pub fn set_buttons_iterm_compat(&mut self, enabled: bool) {
+        self.buttons_iterm_compat = enabled;
+    }
+
+    /// Sub-gate: honor `scope=sticky`; off downgrades definitions to block
+    /// scope.
+    pub fn set_buttons_sticky(&mut self, enabled: bool) {
+        self.buttons_sticky = enabled;
+    }
+
+    /// Number of interned button entries (live + invalidated-but-referenced).
+    pub fn button_entry_count(&self) -> usize {
+        self.buttons.len()
+    }
+
+    /// Test window into the interned button table.
+    #[cfg(test)]
+    pub(in crate::core) fn button_table(&self) -> &ButtonTable {
+        &self.buttons
+    }
+
+    /// Test window into a visible row's button spans (row-local columns).
+    #[cfg(test)]
+    pub(in crate::core) fn visible_row_button_spans(&self, row: usize) -> &[ButtonSpan] {
+        self.rows
+            .get(row)
+            .map(|line| line.button_spans.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// Test window into the scrollback store (logical-line span assertions).
+    #[cfg(test)]
+    pub(in crate::core) fn scrollback_store(&self) -> &Scrollback {
+        &self.scrollback
+    }
+
     /// Active OSC 133 `B` input-start boundary as `(absolute_row, column)`.
     /// Returns `None` before a cooperating shell reports `B`, after command
     /// output starts, or after reset. Advisory state only.
@@ -1482,6 +1588,14 @@ impl Screen {
         if code == Some(b'P') {
             if let Some(signal) = super::input_region::parse_edit_region_osc(parts) {
                 self.active_edit_region = Some(signal);
+                return;
+            }
+            // OdyTTY-private button run (`133;P;odytty-button;…`, Button
+            // Protocol B1). Parsed totally; acted on only behind the master
+            // gate. Signal names the parser does not know are ignored, so
+            // both private namespaces stay forward-versioned.
+            if let Some(signal) = parse_button_osc_133(parts) {
+                self.handle_button_signal(signal);
             }
             return;
         }
@@ -1500,8 +1614,16 @@ impl Screen {
                 self.active_prompt_input_start = None;
                 self.active_edit_region = None;
                 self.active_prompt_start = None;
+                // A command-block boundary ends every block-scoped button's
+                // life (D = command done). `C` (output start) belongs to the
+                // same command the buttons were defined in, so only `D`
+                // invalidates here; `A` handles the new-prompt boundary below.
+                if code == Some(b'D') {
+                    self.end_button_block();
+                }
             }
             Some(b'A') => {
+                self.end_button_block();
                 self.active_prompt_input_start = None;
                 self.active_edit_region = None;
                 // A primary-screen prompt boundary means no TUI still owns a
@@ -1545,6 +1667,227 @@ impl Screen {
             return;
         }
         self.active_hyperlink = self.hyperlinks.open(params[1], &params[2..]);
+    }
+
+    /// Handle an OSC 1337 payload. Only `Button=` carries modeled semantics
+    /// (Tier 1 of the button protocol); every other payload in the namespace
+    /// is recognized and consumed with no state. Parsing always runs (parser
+    /// totality is exercised regardless of configuration); state changes are
+    /// gated on the master `buttons` gate AND the iTerm2-compat sub-gate.
+    fn handle_osc1337(&mut self, parts: &[&[u8]]) {
+        let Some(signal) = parse_button_osc_1337(parts) else {
+            return;
+        };
+        if !self.buttons_enabled || !self.buttons_iterm_compat {
+            return;
+        }
+        match signal {
+            ButtonSignal::Define { code, icon, scope } => {
+                // Tier 1 buttons carry no label run: anchor a zero-length span
+                // at the cursor on the current physical row (rendered later as
+                // an overlay chip at the line's content end).
+                if self.primary_screen.is_some() {
+                    // v1 refuses button definitions on the alternate screen:
+                    // TUIs there own the mouse via real mouse reporting.
+                    return;
+                }
+                let scope = self.effective_scope(scope);
+                let row = self.cursor.row.min(self.rows.len().saturating_sub(1));
+                if self.rows[row].button_spans.len() >= MAX_BUTTON_SPANS_PER_LINE {
+                    return;
+                }
+                let Some(id) = self.buttons.define(code, icon, scope) else {
+                    return;
+                };
+                self.rows[row].button_spans.push(ButtonSpan {
+                    id,
+                    start_col: self.cursor.column,
+                    len: 0,
+                });
+                self.buttons.attach(id);
+            }
+            // The empty-code form invalidates ALL buttons (iTerm2 semantics);
+            // a Tier 1-only emitter has no narrower spelling.
+            ButtonSignal::InvalidateAll => self.buttons.invalidate_all(),
+            ButtonSignal::End | ButtonSignal::InvalidateCode(_) | ButtonSignal::Ignored => {}
+        }
+    }
+
+    /// Act on a parsed Tier 2 button signal (`133;P;odytty-button`). Master
+    /// gate enforced here — the OSC chokepoint; the future pointer arm gates
+    /// independently so no partial-gate hole exists.
+    fn handle_button_signal(&mut self, signal: ButtonSignal) {
+        if !self.buttons_enabled {
+            return;
+        }
+        match signal {
+            ButtonSignal::Define { code, icon, scope } => {
+                // A new definition supersedes any run left open (defensive:
+                // a well-formed emitter closes runs with `end`).
+                self.cancel_button_run();
+                if self.primary_screen.is_some() {
+                    return;
+                }
+                let scope = self.effective_scope(scope);
+                let Some(id) = self.buttons.define(code, icon, scope) else {
+                    return;
+                };
+                // Anchor at the position the NEXT printed cell will occupy: a
+                // pending-wrap cursor sits past the right edge, so the label
+                // begins on the following row.
+                let base = self.scrollback.pushed_row_count();
+                let (row, col) = if self.pending_wrap {
+                    (self.cursor.row + 1, 0)
+                } else {
+                    (self.cursor.row, self.cursor.column)
+                };
+                self.active_button_run = Some(ActiveButtonRun {
+                    id,
+                    start_abs_row: base + row as u64,
+                    start_col: col,
+                });
+            }
+            ButtonSignal::End => self.finish_button_run(),
+            ButtonSignal::InvalidateAll => {
+                self.cancel_button_run();
+                self.buttons.invalidate_all();
+            }
+            ButtonSignal::InvalidateCode(code) => self.buttons.invalidate_code(code),
+            ButtonSignal::Ignored => {}
+        }
+    }
+
+    /// Downgrade a requested scope to `Block` when the sticky sub-gate is off.
+    fn effective_scope(&self, scope: ButtonScope) -> ButtonScope {
+        if scope == ButtonScope::Sticky && !self.buttons_sticky {
+            ButtonScope::Block
+        } else {
+            scope
+        }
+    }
+
+    /// Close the open Tier 2 run: stamp the bracketed cells as button spans on
+    /// the physical rows between the run's start and the cursor, one row-local
+    /// segment per row, each holding one table reference. Degenerate runs
+    /// (empty label) anchor a zero-length span, matching the Tier 1 shape. A
+    /// run whose start scrolled out of the visible grid (a label taller than
+    /// the window — pathological) is canceled rather than half-stamped.
+    fn finish_button_run(&mut self) {
+        let Some(run) = self.active_button_run.take() else {
+            return;
+        };
+        let base = self.scrollback.pushed_row_count();
+        let width = self.dimensions.columns;
+        let end_abs = base + self.cursor.row as u64;
+        let end_col = if self.pending_wrap {
+            self.cursor.column + 1
+        } else {
+            self.cursor.column
+        };
+        if run.start_abs_row < base || run.start_abs_row > end_abs {
+            self.buttons.release_if_unreferenced(run.id);
+            return;
+        }
+        let start_row = (run.start_abs_row - base) as usize;
+        let end_row = self.cursor.row.min(self.rows.len().saturating_sub(1));
+        let mut attached_any = false;
+        for row in start_row..=end_row {
+            let seg_start = if row == start_row { run.start_col } else { 0 };
+            let seg_end = if row == end_row { end_col } else { width };
+            if seg_end <= seg_start {
+                continue;
+            }
+            let line = &mut self.rows[row];
+            if line.button_spans.len() >= MAX_BUTTON_SPANS_PER_LINE {
+                continue;
+            }
+            line.button_spans.push(ButtonSpan {
+                id: run.id,
+                start_col: seg_start,
+                len: seg_end - seg_start,
+            });
+            self.buttons.attach(run.id);
+            attached_any = true;
+        }
+        if !attached_any {
+            // Empty label: keep the button as a point anchor so the emitter's
+            // definition is not silently lost.
+            let row = start_row.min(self.rows.len().saturating_sub(1));
+            if self.rows[row].button_spans.len() < MAX_BUTTON_SPANS_PER_LINE {
+                self.rows[row].button_spans.push(ButtonSpan {
+                    id: run.id,
+                    start_col: run.start_col.min(width.saturating_sub(1)),
+                    len: 0,
+                });
+                self.buttons.attach(run.id);
+            } else {
+                self.buttons.release_if_unreferenced(run.id);
+            }
+        }
+    }
+
+    /// Abandon an open Tier 2 run (resize, alternate-screen switch, block
+    /// boundary, superseding definition, reset). The interned entry is freed
+    /// only if nothing else references it.
+    fn cancel_button_run(&mut self) {
+        if let Some(run) = self.active_button_run.take() {
+            self.buttons.release_if_unreferenced(run.id);
+        }
+    }
+
+    /// OSC 133 `A`/`D` boundary: every block-scoped button's life ends and any
+    /// open run is abandoned. Cheap no-op while the table is empty.
+    fn end_button_block(&mut self) {
+        self.cancel_button_run();
+        if !self.buttons.is_empty() {
+            self.buttons.invalidate_block_scoped();
+        }
+    }
+
+    /// Surrender the button-span references of a line leaving canonical
+    /// storage by discard (region scrolls, IL/DL, wholesale erase) — the
+    /// counterpart of the scrollback drain for rows that never reach the ring.
+    pub(super) fn release_line_buttons(&mut self, line: &Line) {
+        if line.button_spans.is_empty() {
+            return;
+        }
+        for span in &line.button_spans {
+            self.buttons.release(span.id);
+        }
+    }
+
+    /// Decrement table refcounts for span references the scrollback store
+    /// surrendered (ring eviction, front-drain, clear). Cheap `is_empty` gate
+    /// so the hot scroll path pays one branch when buttons are unused.
+    pub(super) fn drain_freed_button_refs(&mut self) {
+        if !self.scrollback.has_freed_button_ids() {
+            return;
+        }
+        for id in self.scrollback.take_freed_button_ids() {
+            self.buttons.release(id);
+        }
+    }
+
+    /// Recompute button refcounts from an authoritative walk of canonical
+    /// storage (live rows + scrollback logical lines). The resize/reflow paths
+    /// re-project spans wholesale, so incremental accounting is replaced by
+    /// this rebuild afterwards. No-op while the table is empty.
+    pub(super) fn rebuild_button_refcounts(&mut self) {
+        if self.buttons.is_empty() {
+            // Nothing to rebuild; discard any surrendered references too.
+            if self.scrollback.has_freed_button_ids() {
+                self.scrollback.take_freed_button_ids();
+            }
+            return;
+        }
+        // The rebuild supersedes the incremental drop accounting.
+        self.scrollback.take_freed_button_ids();
+        let mut ids = Vec::new();
+        self.scrollback.collect_button_ids(&mut ids);
+        for row in &self.rows {
+            ids.extend(row.button_spans.iter().map(|span| span.id));
+        }
+        self.buttons.rebuild_refcounts(ids);
     }
 
     /// Before overwriting `width` cells starting at `column` on `row`, blank any
@@ -1841,6 +2184,11 @@ impl Screen {
             // and stamp an advisory per-row mark; never touch the grid, never
             // reply. See [`Self::handle_osc133`].
             b"133" => self.handle_osc133(&params[1..]),
+            // OSC 1337 = iTerm2 extension namespace. Only the Button= payload
+            // is modeled (Button Protocol B1, master-gated); everything else
+            // is recognized and consumed with no state. Never touches the
+            // grid, never replies. See [`Self::handle_osc1337`].
+            b"1337" => self.handle_osc1337(&params[1..]),
             b"4" => self.osc_palette(params),
             b"8" => self.set_hyperlink(params),
             b"10" => self.osc_default_color(params, DefaultColorSlot::Foreground),
@@ -2107,6 +2455,30 @@ impl Terminal {
     /// [`Screen::set_scrollback_limit`].
     pub fn set_scrollback_limit(&mut self, limit: usize) {
         self.screen.set_scrollback_limit(limit);
+    }
+
+    /// Master gate for the button protocol (default off). See
+    /// [`Screen::set_buttons_enabled`].
+    pub fn set_buttons_enabled(&mut self, enabled: bool) {
+        self.screen.set_buttons_enabled(enabled);
+    }
+
+    /// Accept the iTerm2 `OSC 1337 ; Button=` spelling (default on; inert
+    /// while the master gate is off).
+    pub fn set_buttons_iterm_compat(&mut self, enabled: bool) {
+        self.screen.set_buttons_iterm_compat(enabled);
+    }
+
+    /// Honor `scope=sticky` (default on; off downgrades every definition to
+    /// block scope).
+    pub fn set_buttons_sticky(&mut self, enabled: bool) {
+        self.screen.set_buttons_sticky(enabled);
+    }
+
+    /// Number of interned button entries (live + invalidated-but-referenced).
+    /// Diagnostic/test surface.
+    pub fn button_entry_count(&self) -> usize {
+        self.screen.button_entry_count()
     }
 
     pub fn scrollback_trim_epoch(&self) -> u64 {
@@ -2465,6 +2837,9 @@ fn restore_lines_from_snapshot_rows(
             cells: row.cells.iter().map(|cell| cell.to_cell()).collect(),
             wrapped: row.wrapped,
             prompt_mark: None,
+            // Buttons are session-local interned state; a restored snapshot
+            // starts with no spans (the envelope carries none).
+            button_spans: Vec::new(),
         });
     }
     Ok(restored)

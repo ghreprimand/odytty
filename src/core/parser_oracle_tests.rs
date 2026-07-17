@@ -228,6 +228,32 @@ fn corpus() -> Vec<(&'static str, &'static [u8])> {
         ("c1_8bit_dcs_90", b"\x90q#0\x1b\\after"),
         ("c1_8bit_apc_9f", b"pre\x9fGdata\x1b\\post"),
         ("c1_8bit_st_9c", b"\x9cX"),
+        // ---- Button protocol OSCs (B1): parsed-and-ignored at default
+        // config, so these prove totality + no grid writes in both spellings.
+        (
+            "osc_button_1337_define",
+            b"\x1b]1337;Button=type=custom;code=42;icon=star\x07X",
+        ),
+        (
+            "osc_button_1337_invalidate",
+            b"\x1b]1337;Button=type=custom\x07X",
+        ),
+        (
+            "osc_button_1337_copy",
+            b"\x1b]1337;Button=type=copy;block=abc\x1b\\X",
+        ),
+        (
+            "osc_button_t2_run",
+            b"\x1b]133;P;odytty-button;code=7\x07Retry\x1b]133;P;odytty-button;end\x07",
+        ),
+        (
+            "osc_button_t2_invalidate",
+            b"\x1b]133;P;odytty-button;invalidate;code=5\x07X",
+        ),
+        (
+            "osc_button_t2_malformed",
+            b"\x1b]133;P;odytty-button;code=0;scope=bogus\x07X",
+        ),
         ("c1_nel_via_utf8", b"a\xc2\x85b"),
         (
             "c1_all_via_utf8",
@@ -363,6 +389,15 @@ const GOLDEN_20X6: &[(&str, u64)] = &[
     ("param_mixed_sep", 0x5e0599225639aa97),
     ("param_huge_saturate", 0x5c1071fc00a33a0a),
     ("param_private_then_params", 0x5c1071fc00a33a0a),
+    // Button protocol OSCs: every parse-and-ignore case fingerprints
+    // identically to a bare printed "X" (0x5c1071fc00a33a0a) — the direct
+    // proof that neither spelling writes the grid or perturbs state.
+    ("osc_button_1337_define", 0x5c1071fc00a33a0a),
+    ("osc_button_1337_invalidate", 0x5c1071fc00a33a0a),
+    ("osc_button_1337_copy", 0x5c1071fc00a33a0a),
+    ("osc_button_t2_run", 0x5f5a7f25f999f28c),
+    ("osc_button_t2_invalidate", 0x5c1071fc00a33a0a),
+    ("osc_button_t2_malformed", 0x5c1071fc00a33a0a),
 ];
 
 const GOLDEN_4X3: &[(&str, u64)] = &[
@@ -464,6 +499,12 @@ const GOLDEN_4X3: &[(&str, u64)] = &[
     ("param_mixed_sep", 0x1981f88165a6a5e5),
     ("param_huge_saturate", 0x1f230f3c45846c68),
     ("param_private_then_params", 0x1f230f3c45846c68),
+    ("osc_button_1337_define", 0x1f230f3c45846c68),
+    ("osc_button_1337_invalidate", 0x1f230f3c45846c68),
+    ("osc_button_1337_copy", 0x1f230f3c45846c68),
+    ("osc_button_t2_run", 0x9f508902b71ef36e),
+    ("osc_button_t2_invalidate", 0x1f230f3c45846c68),
+    ("osc_button_t2_malformed", 0x1f230f3c45846c68),
 ];
 
 const GOLDEN_EXTRA: &[(&str, u64)] = &[

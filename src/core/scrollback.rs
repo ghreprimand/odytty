@@ -52,6 +52,7 @@ use std::collections::VecDeque;
 
 use unicode_width::UnicodeWidthChar;
 
+use super::button::{ButtonId, ButtonSpan, MAX_BUTTON_SPANS_PER_LINE, SpanReprojector};
 use super::prompt_marks::PromptKind;
 use super::reflow::{ReflowOptions, reflow_lines_with_options, resize_keep_width_with_options};
 use super::screen::{Line, blank_row};
@@ -71,6 +72,14 @@ pub(in crate::core) struct LogicalLine {
     /// the line is projected back to a grid width (see [`project_line_into`]), so
     /// the mark survives scroll-out and re-wrap. `None` for an unmarked line.
     prompt_mark: Option<PromptKind>,
+    /// Button spans of this logical line in FLAT-cell coordinates (the same
+    /// space `cells` indexes). Carried like `prompt_mark`, extended from "mark
+    /// on the first row" to "column ranges within the line": physical-row
+    /// spans are offset into flat coordinates when rows merge in
+    /// [`Scrollback::push_row`], and re-projected onto physical rows by
+    /// [`project_line_into`], so buttons survive scroll-out and re-wrap.
+    /// Empty for the overwhelmingly common span-free line (no allocation).
+    button_spans: Vec<ButtonSpan>,
 }
 
 /// Memoized physical projection of the logical store at a single width.
@@ -121,6 +130,16 @@ pub(in crate::core) struct Scrollback {
     /// removed from the front. Native selection/search/copy-mode coordinates
     /// use that origin and must be invalidated when this changes.
     trim_epoch: u64,
+    /// Monotonic count of physical rows ever pushed into this store. Cheap
+    /// (no projection) anchor unit for "how far has the visible grid scrolled
+    /// since X" bookkeeping (the open button run); unaffected by trims.
+    pushed_rows: u64,
+    /// Button span references dropped by this store (a logical line evicted
+    /// from the ring, a front-drained open line, or a full clear) whose table
+    /// refcounts the owner has not yet decremented. The store cannot reach the
+    /// `ButtonTable` (it lives on `Screen`), so drops accumulate here and the
+    /// owner drains them via [`Scrollback::take_freed_button_ids`].
+    freed_button_ids: Vec<ButtonId>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -152,6 +171,8 @@ impl Scrollback {
             cache: RefCell::new(Projection::empty()),
             limit: DEFAULT_SCROLLBACK_LIMIT,
             trim_epoch: 0,
+            pushed_rows: 0,
+            freed_button_ids: Vec::new(),
         }
     }
 
@@ -162,6 +183,8 @@ impl Scrollback {
             cache: RefCell::new(Projection::empty()),
             limit,
             trim_epoch: 0,
+            pushed_rows: 0,
+            freed_button_ids: Vec::new(),
         }
     }
 
@@ -178,6 +201,8 @@ impl Scrollback {
             cache: RefCell::new(Projection::empty()),
             limit,
             trim_epoch: 0,
+            pushed_rows: 0,
+            freed_button_ids: Vec::new(),
         }
     }
 
@@ -205,6 +230,8 @@ impl Scrollback {
             cache: RefCell::new(Projection::empty()),
             limit: 0,
             trim_epoch: 0,
+            pushed_rows: 0,
+            freed_button_ids: Vec::new(),
         }
     }
 
@@ -235,6 +262,7 @@ impl Scrollback {
     /// Extends the trailing open logical line when the previous row soft-wrapped,
     /// otherwise starts a new logical line.
     pub(in crate::core) fn push_row(&mut self, row: Line) {
+        self.pushed_rows = self.pushed_rows.wrapping_add(1);
         let wrapped = row.wrapped;
         if let Some(last) = self.lines.back_mut()
             && last.open
@@ -244,16 +272,33 @@ impl Scrollback {
             // row already scrolled off before the mark was stamped (the mark
             // landed on a still-visible continuation row), adopt it here so the
             // line keeps its first non-`None` mark.
+            let offset = last.cells.len();
             last.cells.extend(row.cells.iter().copied());
             last.open = wrapped;
             if last.prompt_mark.is_none() {
                 last.prompt_mark = row.prompt_mark;
+            }
+            // Button spans arrive in row-local columns; offset them into the
+            // logical line's flat-cell space. The per-line cap holds across
+            // the merge: spans past it are dropped and their references
+            // surrendered (defensive; the definition paths already cap).
+            for span in row.button_spans {
+                if last.button_spans.len() >= MAX_BUTTON_SPANS_PER_LINE {
+                    self.freed_button_ids.push(span.id);
+                    continue;
+                }
+                last.button_spans.push(ButtonSpan {
+                    id: span.id,
+                    start_col: span.start_col + offset,
+                    len: span.len,
+                });
             }
         } else {
             self.lines.push_back(LogicalLine {
                 cells: row.cells,
                 open: wrapped,
                 prompt_mark: row.prompt_mark,
+                button_spans: row.button_spans,
             });
         }
         self.enforce_limit();
@@ -274,7 +319,13 @@ impl Scrollback {
             // `Vec::drain(0..excess)` performed once at the cap.
             let excess = self.lines.len() - self.limit;
             for _ in 0..excess {
-                self.lines.pop_front();
+                if let Some(line) = self.lines.pop_front() {
+                    // A line leaving the ring surrenders its button-span
+                    // references; the owner drains these and decrements the
+                    // table refcounts (sticky buttons free at zero).
+                    self.freed_button_ids
+                        .extend(line.button_spans.iter().map(|span| span.id));
+                }
             }
             trimmed = true;
         }
@@ -303,6 +354,31 @@ impl Scrollback {
         {
             let drop = last.cells.len() - (MAX_LOGICAL_LINE_CELLS - SLACK);
             last.cells.drain(0..drop);
+            // Shift surviving button spans left with the drained cells; spans
+            // fully inside the drained front are freed, spans straddling the
+            // cut keep their surviving tail.
+            if !last.button_spans.is_empty() {
+                let mut kept = Vec::with_capacity(last.button_spans.len());
+                for span in last.button_spans.drain(..) {
+                    let end = span.start_col.saturating_add(span.len);
+                    if span.start_col >= drop {
+                        kept.push(ButtonSpan {
+                            id: span.id,
+                            start_col: span.start_col - drop,
+                            len: span.len,
+                        });
+                    } else if end > drop {
+                        kept.push(ButtonSpan {
+                            id: span.id,
+                            start_col: 0,
+                            len: end - drop,
+                        });
+                    } else {
+                        self.freed_button_ids.push(span.id);
+                    }
+                }
+                last.button_spans = kept;
+            }
             trimmed = true;
         }
 
@@ -316,6 +392,10 @@ impl Scrollback {
     pub(in crate::core) fn clear(&mut self) {
         if !self.lines.is_empty() {
             self.trim_epoch = self.trim_epoch.wrapping_add(1);
+        }
+        for line in &self.lines {
+            self.freed_button_ids
+                .extend(line.button_spans.iter().map(|span| span.id));
         }
         self.lines.clear();
         self.invalidate();
@@ -343,6 +423,50 @@ impl Scrollback {
     /// the prompt-marks change flag honest on clear/resize.
     pub(in crate::core) fn any_prompt_mark(&self) -> bool {
         self.lines.iter().any(|l| l.prompt_mark.is_some())
+    }
+
+    /// Monotonic count of physical rows ever pushed into this store (no
+    /// projection cost — see the field doc).
+    pub(in crate::core) fn pushed_row_count(&self) -> u64 {
+        self.pushed_rows
+    }
+
+    /// Whether any button-span references have been surrendered since the last
+    /// drain. Cheap gate so the hot scroll path skips the drain entirely.
+    pub(in crate::core) fn has_freed_button_ids(&self) -> bool {
+        !self.freed_button_ids.is_empty()
+    }
+
+    /// Drain the surrendered button-span references (see
+    /// [`Scrollback::push_row`] / eviction). The owner decrements the button
+    /// table's refcounts with these.
+    pub(in crate::core) fn take_freed_button_ids(&mut self) -> Vec<ButtonId> {
+        std::mem::take(&mut self.freed_button_ids)
+    }
+
+    /// Append every button id referenced by stored logical lines to `out` (one
+    /// entry per span — the refcount unit). Used by the post-resize refcount
+    /// rebuild; O(lines) with an empty-vec check per line.
+    pub(in crate::core) fn collect_button_ids(&self, out: &mut Vec<ButtonId>) {
+        for line in &self.lines {
+            out.extend(line.button_spans.iter().map(|span| span.id));
+        }
+    }
+
+    /// Test window: flat-coordinate button spans of stored logical line
+    /// `index` (0 = oldest).
+    #[cfg(test)]
+    pub(in crate::core) fn logical_button_spans(&self, index: usize) -> &[ButtonSpan] {
+        self.lines
+            .get(index)
+            .map(|line| line.button_spans.as_slice())
+            .unwrap_or(&[])
+    }
+
+    /// Test window: number of stored logical lines.
+    #[cfg(test)]
+    pub(in crate::core) fn logical_len(&self) -> usize {
+        self.lines.len()
     }
 
     fn invalidate(&self) {
@@ -459,8 +583,11 @@ pub(in crate::core) fn resize_lazy_with_options(
                 Line::unwrapped(line.cells.clone())
             };
             // Carry the prompt mark onto the mega-row so `reflow_lines` re-anchors
-            // it onto the first re-wrapped physical row.
+            // it onto the first re-wrapped physical row. Button spans ride the
+            // same way: flat coordinates ARE row-local coordinates on a
+            // single mega-row, and `reflow_lines` re-projects them.
             mega.prompt_mark = line.prompt_mark;
+            mega.button_spans = line.button_spans.clone();
             subset.push(mega);
         }
     }
@@ -595,6 +722,7 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
     let mut lines = Vec::new();
     let mut current: Vec<Cell> = Vec::new();
     let mut current_mark: Option<PromptKind> = None;
+    let mut current_spans: Vec<ButtonSpan> = Vec::new();
     for row in rows {
         if current.is_empty() {
             // First physical row of a new logical line: capture its mark.
@@ -604,12 +732,21 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
             // carried none (first non-`None` mark in the logical line wins).
             current_mark = row.prompt_mark;
         }
+        // Row-local button spans offset into the joined flat-cell space.
+        for span in &row.button_spans {
+            current_spans.push(ButtonSpan {
+                id: span.id,
+                start_col: span.start_col + current.len(),
+                len: span.len,
+            });
+        }
         current.extend(row.cells.iter().copied());
         if !row.wrapped {
             lines.push(LogicalLine {
                 cells: std::mem::take(&mut current),
                 open: false,
                 prompt_mark: current_mark.take(),
+                button_spans: std::mem::take(&mut current_spans),
             });
         }
     }
@@ -618,6 +755,7 @@ pub(in crate::core) fn logical_from_physical(rows: &[Line]) -> Vec<LogicalLine> 
             cells: current,
             open: true,
             prompt_mark: current_mark,
+            button_spans: current_spans,
         });
     }
     lines
@@ -630,7 +768,14 @@ where
 {
     let mut out = Vec::new();
     for line in lines {
-        project_line_into(&line.cells, width, line.open, line.prompt_mark, &mut out);
+        project_line_into(
+            &line.cells,
+            width,
+            line.open,
+            line.prompt_mark,
+            &line.button_spans,
+            &mut out,
+        );
     }
     out
 }
@@ -642,7 +787,7 @@ fn cells_all_blank(cells: &[Cell]) -> bool {
 
 fn count_projected_rows(cells: &[Cell], width: usize, open: bool) -> usize {
     let mut tmp = Vec::new();
-    project_line_into(cells, width, open, None, &mut tmp);
+    project_line_into(cells, width, open, None, &[], &mut tmp);
     tmp.len()
 }
 
@@ -659,11 +804,16 @@ fn count_projected_rows(cells: &[Cell], width: usize, open: bool) -> usize {
 ///   `wrapped` iff the logical line is `open`, otherwise it is hard-terminated.
 /// - `mark` (the logical line's OSC 133 prompt mark, SH1) is stamped onto the
 ///   FIRST physical row produced; continuation rows keep their default `None`.
+/// - `spans` (the logical line's button spans, flat-cell coordinates) are
+///   re-projected onto the produced rows as row-local segments — the
+///   `prompt_mark` carry extended to column ranges. Span-free lines (the
+///   overwhelmingly common case) pay only an `is_empty` check.
 fn project_line_into(
     cells: &[Cell],
     width: usize,
     open: bool,
     mark: Option<PromptKind>,
+    spans: &[ButtonSpan],
     out: &mut Vec<Line>,
 ) {
     let plain = Cell::blank();
@@ -671,6 +821,11 @@ fn project_line_into(
     // is re-anchored here after the rows are produced. A logical line always
     // produces at least one row, so this index is always valid afterward.
     let first_row = out.len();
+    let mut reprojector = if spans.is_empty() {
+        None
+    } else {
+        Some(SpanReprojector::new())
+    };
 
     // Trim trailing plain blanks (matches reflow). Open lines carry none.
     let mut keep = cells.len();
@@ -698,6 +853,12 @@ fn project_line_into(
         }
 
         if unit == 2 {
+            if let Some(rec) = reprojector.as_mut() {
+                rec.record(i, out.len(), row_cells.len());
+                if i + 1 < cells.len() && cells[i + 1].wide_continuation {
+                    rec.record(i + 1, out.len(), row_cells.len() + 1);
+                }
+            }
             row_cells.push(cell);
             let cont = if i + 1 < cells.len() && cells[i + 1].wide_continuation {
                 cells[i + 1]
@@ -713,6 +874,9 @@ fn project_line_into(
         } else {
             // Drop an orphaned continuation cell (its lead was degraded).
             if !cell.wide_continuation {
+                if let Some(rec) = reprojector.as_mut() {
+                    rec.record(i, out.len(), row_cells.len());
+                }
                 row_cells.push(cell);
             }
             i += 1;
@@ -743,5 +907,14 @@ fn project_line_into(
     // Re-anchor the prompt mark onto this logical line's first physical row.
     if let Some(first) = out.get_mut(first_row) {
         first.prompt_mark = mark;
+    }
+
+    // Re-anchor button spans onto the produced rows as row-local segments.
+    if let Some(rec) = reprojector {
+        for (row, span) in rec.project(spans, keep, first_row) {
+            if let Some(line) = out.get_mut(row) {
+                line.button_spans.push(span);
+            }
+        }
     }
 }

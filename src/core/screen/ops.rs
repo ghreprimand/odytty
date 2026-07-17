@@ -52,6 +52,13 @@ impl Screen {
 
         if self.primary_screen.is_none() {
             self.scrollback.push_row(removed);
+            // Ring eviction may have surrendered button-span references.
+            self.drain_freed_button_refs();
+        } else {
+            // Alternate screen keeps no scrollback: a discarded row's button
+            // spans (impossible today — definitions are refused on the alt
+            // screen — but kept honest) surrender their references.
+            self.release_line_buttons(&removed);
         }
 
         self.rows
@@ -78,7 +85,8 @@ impl Screen {
             // anticipatory flag is legitimate and reflow depends on it.
             // NF10: region top at row 0 severs the scrollback tail instead.
             self.sever_above(region.top);
-            self.rows.remove(region.top);
+            let removed = self.rows.remove(region.top);
+            self.release_line_buttons(&removed);
             self.rows.insert(
                 region.bottom,
                 blank_row_with_bg(self.dimensions.columns, background),
@@ -108,6 +116,7 @@ impl Screen {
             // full-screen path does. `push_row` preserves the soft-wrap chain,
             // so — unlike the discard path — nothing is severed.
             self.scrollback.push_row(removed);
+            self.drain_freed_button_refs();
             self.rows.insert(
                 region.bottom,
                 blank_row_with_bg(self.dimensions.columns, background),
@@ -139,7 +148,8 @@ impl Screen {
         // predecessor is the scrollback tail.
         self.sever_above(top);
         for _ in 0..count {
-            self.rows.remove(top);
+            let removed = self.rows.remove(top);
+            self.release_line_buttons(&removed);
             self.rows.insert(
                 bottom,
                 blank_row_with_bg(self.dimensions.columns, background),
@@ -171,7 +181,8 @@ impl Screen {
         // NF10: at row 0 the predecessor is the scrollback tail.
         self.sever_above(top);
         for _ in 0..count {
-            self.rows.remove(bottom);
+            let removed = self.rows.remove(bottom);
+            self.release_line_buttons(&removed);
             self.rows
                 .insert(top, blank_row_with_bg(self.dimensions.columns, background));
         }
@@ -206,7 +217,8 @@ impl Screen {
             // row displaced onto the region bottom lost its successor.
             // NF10: at row 0 the predecessor is the scrollback tail.
             self.sever_above(top);
-            self.rows.remove(bottom);
+            let removed = self.rows.remove(bottom);
+            self.release_line_buttons(&removed);
             self.rows
                 .insert(top, blank_row_with_bg(self.dimensions.columns, background));
             self.sever_soft_wrap(bottom);
@@ -233,7 +245,8 @@ impl Screen {
         // row 0 the predecessor is the scrollback tail.
         self.sever_above(self.cursor.row);
         for _ in 0..count {
-            self.rows.remove(bottom);
+            let removed = self.rows.remove(bottom);
+            self.release_line_buttons(&removed);
             self.rows.insert(
                 self.cursor.row,
                 blank_row_with_bg(self.dimensions.columns, background),
@@ -267,7 +280,8 @@ impl Screen {
         // the predecessor is the scrollback tail.
         self.sever_above(self.cursor.row);
         for _ in 0..count {
-            self.rows.remove(self.cursor.row);
+            let removed = self.rows.remove(self.cursor.row);
+            self.release_line_buttons(&removed);
             self.rows.insert(
                 bottom,
                 blank_row_with_bg(self.dimensions.columns, background),
@@ -458,7 +472,11 @@ impl Screen {
                     .any(|l| l.prompt_mark.is_some());
                 self.erase_line_from_cursor();
                 for row in self.cursor.row + 1..self.dimensions.rows {
-                    self.rows[row] = blank_row_with_bg(self.dimensions.columns, background);
+                    let removed = std::mem::replace(
+                        &mut self.rows[row],
+                        blank_row_with_bg(self.dimensions.columns, background),
+                    );
+                    self.release_line_buttons(&removed);
                 }
                 self.prompt_marks_changed |= cleared_mark;
             }
@@ -467,7 +485,11 @@ impl Screen {
                     .iter()
                     .any(|l| l.prompt_mark.is_some());
                 for row in 0..self.cursor.row {
-                    self.rows[row] = blank_row_with_bg(self.dimensions.columns, background);
+                    let removed = std::mem::replace(
+                        &mut self.rows[row],
+                        blank_row_with_bg(self.dimensions.columns, background),
+                    );
+                    self.release_line_buttons(&removed);
                 }
                 // NF10 (NF6 sibling): when the cursor is below row 0, row 0
                 // was replaced wholesale — a trailing open scrollback line
@@ -482,8 +504,12 @@ impl Screen {
             2 | 3 => {
                 let cleared_mark = self.rows.iter().any(|l| l.prompt_mark.is_some())
                     || (mode == 3 && self.scrollback.any_prompt_mark());
-                for row in &mut self.rows {
-                    *row = blank_row_with_bg(self.dimensions.columns, background);
+                for row in 0..self.dimensions.rows {
+                    let removed = std::mem::replace(
+                        &mut self.rows[row],
+                        blank_row_with_bg(self.dimensions.columns, background),
+                    );
+                    self.release_line_buttons(&removed);
                 }
                 // NF6 (C16 seam): the visible screen is replaced wholesale, so
                 // a trailing open scrollback line must not keep claiming row 0
@@ -495,6 +521,7 @@ impl Screen {
                 self.sever_above(0);
                 if mode == 3 {
                     self.scrollback.clear();
+                    self.drain_freed_button_refs();
                 }
                 self.prompt_marks_changed |= cleared_mark;
             }
@@ -1038,6 +1065,8 @@ impl Screen {
     /// pending wrap clears. When false (modes 47/1047), cursor and wrap state
     /// carry into the fresh grid.
     pub(super) fn enter_alternate_screen(&mut self, clear_alt: bool) {
+        // A bracketed button run cannot straddle a screen switch; abandon it.
+        self.cancel_button_run();
         if self.primary_screen.is_some() {
             return;
         }
@@ -1209,6 +1238,14 @@ impl Screen {
         self.last_graphic_char = None;
         self.graphics.hard_reset();
         self.hyperlinks.clear();
+        // RIS drops every button: discard the scrollback store's surrendered
+        // references first (the table clear supersedes them), then clear the
+        // table and abandon any open run. The `buttons`/`buttons_*` gates are
+        // host configuration, not terminal state, and survive RIS (unlike the
+        // protocol-owned input-reporting family below).
+        self.scrollback.take_freed_button_ids();
+        self.buttons.clear();
+        self.active_button_run = None;
         self.dcs_capture = None;
         self.dcs_query = None;
         self.graphics_stats = GraphicsStats::default();

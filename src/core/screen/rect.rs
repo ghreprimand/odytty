@@ -99,6 +99,7 @@ impl Screen {
                 }
                 if mode == 3 {
                     self.scrollback.clear();
+                    self.drain_freed_button_refs();
                 }
             }
             _ => return,

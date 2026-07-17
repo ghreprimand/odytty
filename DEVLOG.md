@@ -7,6 +7,74 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Button protocol core: parse, intern, span, lifetime
+
+First slice of program-defined clickable buttons: the pure terminal-model
+spine, no rendering and no click handling yet. A program can mark up its own
+output with buttons that survive scrollback and (in a later slice) report a
+small integer code back into the PTY when clicked. Everything is behind a
+master gate that defaults off; with the gate off both spellings are parsed and
+consumed with zero observable state, and the parser-oracle corpus proves the
+resulting screens fingerprint identically to plain text.
+
+Two accepted spellings:
+
+- iTerm2-compatible: `OSC 1337 ; Button=type=custom ; code=N ; icon=name`
+  defines a point button at the cursor; the empty-code form invalidates all
+  buttons. `type=copy` and `Block=` payloads are recognized and consumed with
+  no state, keeping the parser total over the iTerm2 surface.
+- OdyTTY-native bracketed run: `OSC 133 ; P ; odytty-button ; code=N
+  [; icon] [; scope=block|sticky]` … label cells … `; end`. The bracketed
+  cells are the label, so non-supporting terminals print plain text — the
+  OSC 8 degrade story. `; invalidate [; code=N]` kills all buttons or one
+  code. Versioned like the other private OSCs: unknown signal names are
+  ignored, so future revisions are forward-compatible by construction.
+
+Design decisions, recorded:
+
+- **Line-anchored span sidecar, not a per-cell field.** Button identity rides
+  `Line`/`LogicalLine` as `ButtonSpan { id, start_col, len }` lists — the
+  `prompt_mark` carry extended from "mark on the first row" to "column ranges
+  within the line". Cell-size growth measurably costs sequential-feed
+  throughput, and buttons decorate a vanishingly small fraction of cells, so
+  per-cell bytes were the wrong trade. Spans live in flat-cell coordinates on
+  logical scrollback lines and re-project onto physical rows on re-wrap, so
+  buttons survive scroll-out, resize, and reflow (splits across rows, wide
+  glyphs, trimmed trailing blanks all covered by projection tests).
+- **Bounded by construction, refuse-new at the ceiling.** Entries are interned
+  (repaint loops cannot grow the table) and refcounted by their spans; a
+  `sticky` button lives exactly as long as some line referencing it, so the
+  table is bounded by scrollback depth times a per-line span cap (16), plus a
+  hard 8192-entry ceiling. At the ceiling NEW definitions are refused — the
+  deliberate inversion of the hyperlink table's LRU, because a visible button
+  that silently stopped working is worse than a refused new one.
+- **Block scope by default.** `scope=block` buttons gray out at the next
+  OSC 133 `A`/`D` command boundary; most buttons are meaningless once their
+  program exits. `scope=sticky` opts into the scrollback-coupled lifetime.
+  Invalidated-but-visible buttons keep their entry (rendered dead, clicks
+  inert) until their lines scroll away. `RIS` clears the table alongside the
+  hyperlink table; button definitions are refused on the alternate screen.
+- **No byte parsed here ever writes the grid** — labels are printed by the
+  program as ordinary cells; the terminal only decorates them.
+
+Verification: parser totality/flood/refcount/reflow tests mirroring the
+hyperlink table's rigor (49 unit + model tests), a new button-OSC surface in
+the protocol fuzzer (gate on and off, split feeds, resize churn; invariants:
+no panic, no grid write, bounded table, clean RIS), six parser-oracle corpus
+fixtures with golden fingerprints, and a ConPTY passthrough probe that emits
+both spellings from PowerShell under the real ConPTY loop on the Windows CI
+leg — the top cross-platform risk, since ConPTY has historically rewritten
+sequences it does not recognize. Windows behavior otherwise: the core is pure
+`src/core`, platform-free.
+
+`cargo test` (full library suite plus every integration target), `cargo fmt
+--check`, and `cargo clippy --all-targets --locked` all pass. Remaining gaps
+to the full feature: snapshot/render exposure (chip paint, hover, gray state),
+click dispatch with the terminal-composed `CSI ? 1337 ; code ~` report, and
+the emitter/docs story — staged next.
+
+---
+
 ## 2026-07-17 -- Selection-opacity blend primitive
 
 Groundwork for an independently-adjustable selection strength: the selection

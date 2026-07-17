@@ -19,6 +19,7 @@
 
 use unicode_width::UnicodeWidthChar;
 
+use super::button::{ButtonSpan, SpanReprojector};
 use super::prompt_marks::PromptKind;
 use super::screen::{Line, blank_row};
 use super::types::*;
@@ -56,6 +57,10 @@ struct LogicalLine {
     /// logical line; re-stamped onto the first re-wrapped physical row so marks
     /// survive a width-changing resize.
     prompt_mark: Option<PromptKind>,
+    /// Button spans joined from the source rows into flat-cell coordinates;
+    /// re-projected onto the re-wrapped physical rows (the `prompt_mark`
+    /// carry extended to column ranges).
+    button_spans: Vec<ButtonSpan>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -168,6 +173,7 @@ pub(in crate::core) fn reflow_lines_with_options(
     let mut current_row_count = 0usize;
     let mut current_start_row = 0usize;
     let mut current_mark: Option<PromptKind> = None;
+    let mut current_spans: Vec<ButtonSpan> = Vec::new();
     for (idx, line) in combined.iter().enumerate() {
         if current.is_empty() {
             // First physical row of a new logical line: capture its mark.
@@ -188,6 +194,14 @@ pub(in crate::core) fn reflow_lines_with_options(
             current_cursor_row_offset = Some(current_row_count);
             current_cursor_column = Some(cursor.column);
         }
+        // Row-local button spans offset into the joined flat-cell space.
+        for span in &line.button_spans {
+            current_spans.push(ButtonSpan {
+                id: span.id,
+                start_col: span.start_col + current.len(),
+                len: span.len,
+            });
+        }
         current.extend(line.cells.iter().copied());
         current_row_count += 1;
         if !line.wrapped {
@@ -198,6 +212,7 @@ pub(in crate::core) fn reflow_lines_with_options(
                 cursor_column: current_cursor_column.take(),
                 start_row: current_start_row,
                 prompt_mark: current_mark.take(),
+                button_spans: std::mem::take(&mut current_spans),
             });
             current_row_count = 0;
         }
@@ -211,6 +226,7 @@ pub(in crate::core) fn reflow_lines_with_options(
             cursor_column: current_cursor_column,
             start_row: current_start_row,
             prompt_mark: current_mark,
+            button_spans: current_spans,
         });
     }
 
@@ -249,6 +265,23 @@ pub(in crate::core) fn reflow_lines_with_options(
             row_cells.resize(new_cols, plain);
             let mut row = Line::unwrapped(row_cells);
             row.prompt_mark = logical.prompt_mark;
+            // The line collapsed to one truncated row: clamp its button spans
+            // into the surviving columns; spans entirely past the cut drop.
+            for span in &logical.button_spans {
+                if span.len == 0 {
+                    row.button_spans.push(ButtonSpan {
+                        id: span.id,
+                        start_col: span.start_col.min(new_cols.saturating_sub(1)),
+                        len: 0,
+                    });
+                } else if span.start_col < new_cols {
+                    row.button_spans.push(ButtonSpan {
+                        id: span.id,
+                        start_col: span.start_col,
+                        len: span.len.min(new_cols - span.start_col),
+                    });
+                }
+            }
             new_combined.push(row);
 
             if logical.start_row == start_row {
@@ -269,6 +302,11 @@ pub(in crate::core) fn reflow_lines_with_options(
         // re-anchored here after re-wrapping. A logical line always produces at
         // least one row, so this index is valid afterward.
         let first_row = new_combined.len();
+        let mut reprojector = if logical.button_spans.is_empty() {
+            None
+        } else {
+            Some(SpanReprojector::new())
+        };
         // Trim trailing plain blanks fully: the cursor is mapped separately
         // (see below), so trailing blanks never need to be materialized as
         // extra rows.
@@ -321,6 +359,12 @@ pub(in crate::core) fn reflow_lines_with_options(
                 {
                     cursor_dest = Some((new_combined.len(), row_cells.len()));
                 }
+                if let Some(rec) = reprojector.as_mut() {
+                    rec.record(i, new_combined.len(), row_cells.len());
+                    if i + 1 < cells.len() && cells[i + 1].wide_continuation {
+                        rec.record(i + 1, new_combined.len(), row_cells.len() + 1);
+                    }
+                }
                 row_cells.push(cell);
                 let cont = if i + 1 < cells.len() && cells[i + 1].wide_continuation {
                     cells[i + 1]
@@ -337,6 +381,9 @@ pub(in crate::core) fn reflow_lines_with_options(
             } else {
                 // Drop an orphaned continuation cell (its lead was degraded).
                 if !cell.wide_continuation {
+                    if let Some(rec) = reprojector.as_mut() {
+                        rec.record(i, new_combined.len(), row_cells.len());
+                    }
                     row_cells.push(cell);
                 }
                 i += 1;
@@ -389,6 +436,16 @@ pub(in crate::core) fn reflow_lines_with_options(
         // Re-anchor the prompt mark onto this logical line's first physical row.
         if let Some(first) = new_combined.get_mut(first_row) {
             first.prompt_mark = logical.prompt_mark;
+        }
+
+        // Re-anchor button spans onto the re-wrapped rows as row-local
+        // segments (the prompt-mark carry extended to column ranges).
+        if let Some(rec) = reprojector {
+            for (row, span) in rec.project(&logical.button_spans, keep, first_row) {
+                if let Some(line) = new_combined.get_mut(row) {
+                    line.button_spans.push(span);
+                }
+            }
         }
 
         if options.preserve_cursor_physical_line && logical.cursor_offset.is_some() {

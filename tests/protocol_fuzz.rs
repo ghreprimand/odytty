@@ -27,6 +27,11 @@
 //!    protection toggled and interleaved with DECSED/DECSEL/ED/EL, DECOM and
 //!    scroll-region churn, CJK wide glyphs placed across rectangle edges, and
 //!    alternate-screen flips mid-sequence.
+//! 8. **Button protocol OSCs** (B1): both spellings (`OSC 1337 ; Button=` and
+//!    `OSC 133 ; P ; odytty-button`) with valid, malformed, truncated, and
+//!    flooded payloads, gate on and off, interleaved with prompt marks,
+//!    resizes, alt-screen flips, and resets. Invariant: no byte sequence
+//!    panics or writes the grid, and the button table stays bounded.
 //!
 //! ## Invariants (self-consistency form, mirroring the parser-oracle fuzzers)
 //!
@@ -1331,4 +1336,168 @@ fn protocol_fuzz_rect_copy_churn_smoke() {
 #[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture"]
 fn protocol_fuzz_rect_copy_churn_deep() {
     run_rect_copy_churn(fuzz_iters());
+}
+
+// ---------------------------------------------------------------------------
+// (H) Button protocol OSCs (B1): totality, no grid writes, bounded table
+// ---------------------------------------------------------------------------
+
+/// A button OSC in either spelling — valid, malformed, truncated, or hostile.
+fn gen_button_osc(rng: &mut FuzzRng) -> Vec<u8> {
+    let mut s = String::from("\x1b]");
+    match rng.below(12) {
+        // Tier 1 valid define.
+        0 => {
+            s.push_str("1337;Button=type=custom;code=");
+            s.push_str(&fuzz_num(rng));
+            if rng.bool() {
+                s.push_str(";icon=");
+                s.push_str(rng.pick(&["star", "star.fill", "run", "junkicon", ""]));
+            }
+        }
+        // Tier 1 invalidate-all / copy / Block noise.
+        1 => s.push_str(rng.pick(&[
+            "1337;Button=type=custom",
+            "1337;Button=type=copy;block=abc",
+            "1337;Block=id=zz;attr=start",
+            "1337;SetUserVar=k=djM=",
+        ])),
+        // Tier 2 valid define (open run).
+        2 => {
+            s.push_str("133;P;odytty-button;code=");
+            s.push_str(&fuzz_num(rng));
+            if rng.bool() {
+                s.push_str(";scope=");
+                s.push_str(rng.pick(&["block", "sticky", "global", ""]));
+            }
+            if rng.bool() {
+                s.push_str(";icon=");
+                s.push_str(rng.pick(&["retry", "copy", "?", "x".repeat(200).as_str()]));
+            }
+        }
+        // Tier 2 end / invalidate forms.
+        3 => s.push_str(rng.pick(&[
+            "133;P;odytty-button;end",
+            "133;P;odytty-button;invalidate",
+            "133;P;odytty-button;invalidate;code=5",
+            "133;P;odytty-button;invalidate;code=0",
+            "133;P;odytty-button2;code=1",
+        ])),
+        // Key/value garbage in both namespaces.
+        4 => {
+            s.push_str(rng.pick(&["1337;", "133;P;odytty-button;"]));
+            let n = rng.below(6);
+            for k in 0..n {
+                if k > 0 {
+                    s.push(';');
+                }
+                s.push_str(rng.pick(&["code=", "icon=", "scope=", "junk", "=", ";;"]));
+                s.push_str(&fuzz_num(rng));
+            }
+        }
+        // Oversized / overflow codes.
+        5 => {
+            s.push_str("133;P;odytty-button;code=");
+            s.push_str(rng.pick(&["4294967296", "999999999999", "-3", "0x10", ""]));
+        }
+        // Prompt marks interleave (block boundaries drive invalidation).
+        6 => s.push_str(rng.pick(&["133;A", "133;B", "133;C", "133;D;0", "133;D;1"])),
+        // Raw byte soup in the 1337 namespace.
+        7 => {
+            s.push_str("1337;");
+            let n = rng.below(40);
+            for _ in 0..n {
+                s.push((0x20 + rng.below(0x5f) as u8) as char);
+            }
+        }
+        // Label text between define and end (emitted by the caller as plain
+        // print bytes — included here so runs open/close plausibly).
+        8 => return format!("B{}", rng.below(100)).into_bytes(),
+        // Screen churn between button ops.
+        9 => {
+            return (*rng.pick(&[
+                &b"\x1b[2J"[..],
+                &b"\x1b[3J"[..],
+                &b"\r\nline"[..],
+                &b"\x1b[?1049h"[..],
+                &b"\x1b[?1049l"[..],
+            ]))
+            .to_vec();
+        }
+        10 => {
+            // Truncated: no terminator appended below half the time is not
+            // possible (we always terminate); instead split the OSC oddly.
+            s.push_str("133;P;odytty-but");
+        }
+        _ => {
+            s.push_str("1337;Button=type=custom;code=1;code=2;icon=a;icon=b");
+        }
+    }
+    let mut bytes = s.into_bytes();
+    bytes.extend_from_slice(if rng.bool() { b"\x07" } else { b"\x1b\\" });
+    bytes
+}
+
+fn run_button_osc_churn(iters: u64) {
+    for i in 0..iters {
+        let seed = seed_for(i, 0xF208);
+        let mut rng = FuzzRng::new(seed);
+        let mut t = Terminal::new(20, 6);
+        let gate_on = rng.bool();
+        t.set_buttons_enabled(gate_on);
+        if rng.below(4) == 0 {
+            t.set_buttons_iterm_compat(false);
+        }
+        if rng.below(4) == 0 {
+            t.set_buttons_sticky(false);
+        }
+        let ops = 1 + rng.below(200);
+        for _ in 0..ops {
+            let seq = gen_button_osc(&mut rng);
+            // Occasionally split the feed mid-sequence (accumulator seams).
+            if seq.len() > 2 && rng.below(4) == 0 {
+                let cut = 1 + rng.below(seq.len() - 1);
+                t.advance(&seq[..cut]);
+                t.advance(&seq[cut..]);
+            } else {
+                t.advance(&seq);
+            }
+            if rng.below(30) == 0 {
+                t.resize(2 + rng.below(60), 2 + rng.below(20));
+            }
+        }
+        // Bounded table regardless of gate state and hostility.
+        assert!(
+            t.button_entry_count() <= odytty::core::MAX_BUTTON_ENTRIES,
+            "seed={seed}: button table exceeded the entry ceiling"
+        );
+        if !gate_on {
+            assert_eq!(
+                t.button_entry_count(),
+                0,
+                "seed={seed}: gate off but the button table grew"
+            );
+        }
+        // OSC payloads never write the grid; the parser is not wedged, the
+        // grid stays well-formed, and RIS clears the table.
+        assert_grid_consistent(seed, &t);
+        assert_not_wedged(seed, &mut t);
+        assert_consistent_after_ris(seed, &mut t);
+        assert_eq!(
+            t.button_entry_count(),
+            0,
+            "seed={seed}: RIS left button entries interned"
+        );
+    }
+}
+
+#[test]
+fn protocol_fuzz_button_osc_churn_smoke() {
+    run_button_osc_churn(fuzz_iters());
+}
+
+#[test]
+#[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture"]
+fn protocol_fuzz_button_osc_churn_deep() {
+    run_button_osc_churn(fuzz_iters());
 }
