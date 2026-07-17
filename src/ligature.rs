@@ -393,6 +393,7 @@ mod tests {
         BackgroundTreatmentParams, ChromePin, CursorRenderParams,
         append_cursor_vertices_with_origin, build_cell_vertices_with_focus_dim_and_origin_into,
         build_cell_vertices_with_focus_dim_origin_and_ligatures_into,
+        build_cell_vertices_with_ligatures_and_selection_into,
     };
     use crate::selection::{
         CellPoint, SelectionRange, SelectionStyle, apply_highlight, selected_text,
@@ -782,8 +783,14 @@ mod tests {
                                 None,
                                 ChromePin::NONE,
                             );
+                            // SELECTION-OPACITY: route the selected build through
+                            // the selection-aware entry, passing `opacity` as the
+                            // selection strength too, so selected and unselected
+                            // cells alike composite at `opacity` — the invariant
+                            // this test checks (the marker otherwise forces the
+                            // fully-opaque default on the legacy entry point).
                             let mut selected_vertices = Vec::new();
-                            build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
+                            build_cell_vertices_with_ligatures_and_selection_into(
                                 &mut selected_vertices,
                                 &selected,
                                 &atlas,
@@ -795,6 +802,7 @@ mod tests {
                                 opacity,
                                 None,
                                 ChromePin::NONE,
+                                opacity,
                             );
                             assert_eq!(
                                 glyph_geometry(&selected_vertices),

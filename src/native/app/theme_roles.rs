@@ -27,9 +27,18 @@ impl App {
 
     /// ID1: themed selection treatment, or `None` (today's inverse) when the
     /// operator opts out. The fill is the theme `selection` role verbatim; the
-    /// foreground is the theme foreground floored over that fill through the
-    /// RV1 minimum-contrast machinery, so it stays legible at the active
-    /// `min_contrast` (identity at the default 1.0).
+    /// foreground is the theme foreground floored over the EFFECTIVE composited
+    /// fill through the RV1 minimum-contrast machinery, so it stays legible at
+    /// the active `min_contrast` (identity at the default 1.0) even as
+    /// `selection_opacity` makes the fill translucent (design §3).
+    ///
+    /// The stored `fill` is the opaque role color — the GPU vertex builder
+    /// applies `selection_opacity` to its background quad. Only the FLOOR
+    /// reference uses the effective composited fill so legibility is judged
+    /// against the pixels the operator actually reads text over. At
+    /// `selection_opacity == 1.0` the effective fill equals the opaque fill
+    /// (the `composite_over` endpoint is exact), so the floored fg — and hence
+    /// the whole style — is byte-identical to before.
     pub(super) fn themed_selection_style(&self) -> Option<SelectionStyle> {
         if !self.themed_ui_roles {
             return None;
@@ -39,9 +48,14 @@ impl App {
             self.effective_theme.selection.1,
             self.effective_theme.selection.2,
         ];
+        let effective_fill = effective_selection_fill(
+            fill,
+            self.effective_theme.background,
+            self.settings.selection_opacity,
+        );
         let fg = floor_fg_over(
             self.effective_theme.foreground,
-            fill,
+            effective_fill,
             self.settings.effective_min_contrast(),
         );
         Some(SelectionStyle { fill, fg })
@@ -119,6 +133,29 @@ fn linear_to_srgb_tuple(linear: crate::color::LinearRgb) -> [u8; 3] {
     ]
 }
 
+/// SELECTION-OPACITY: the effective color a translucent selection fill presents
+/// to the eye — the opaque `fill` composited over the theme `backdrop` at
+/// `selection_opacity`, in linear light (design §3). The RV1 floor references
+/// this so foreground legibility holds as the fill goes translucent. The theme
+/// background is the deterministic, worst-case-for-legibility backdrop; under
+/// window transparency the true backdrop is the desktop and is unknowable, so
+/// flooring over the theme background is the conservative choice. At
+/// `selection_opacity == 1.0` this returns `fill` bit-exactly (the
+/// `composite_over` endpoint), keeping the floored fg byte-identical.
+fn effective_selection_fill(
+    fill: [u8; 3],
+    backdrop: (u8, u8, u8),
+    selection_opacity: f32,
+) -> [u8; 3] {
+    let fill_lin = srgb_tuple_to_linear((fill[0], fill[1], fill[2]));
+    let backdrop_lin = srgb_tuple_to_linear(backdrop);
+    linear_to_srgb_tuple(crate::color::composite_over(
+        fill_lin,
+        backdrop_lin,
+        selection_opacity,
+    ))
+}
+
 /// Floor a foreground over a fill so it meets `ratio` WCAG contrast (RV1).
 /// Identity at `ratio <= 1.0` (the default `min_contrast`).
 fn floor_fg_over(fg: (u8, u8, u8), bg: [u8; 3], ratio: f32) -> [u8; 3] {
@@ -129,4 +166,54 @@ fn floor_fg_over(fg: (u8, u8, u8), bg: [u8; 3], ratio: f32) -> [u8; 3] {
         crate::color::srgb_to_linear(bg[2]),
     ];
     linear_to_srgb_tuple(crate::color::enforce_min_contrast(fg_lin, bg_lin, ratio))
+}
+
+#[cfg(test)]
+mod selection_fill_tests {
+    use super::effective_selection_fill;
+
+    #[test]
+    fn opacity_one_returns_the_opaque_fill_exactly() {
+        // Byte-identity underwriting: at full opacity the floor reference is the
+        // opaque fill itself, so the themed fg is unchanged from before.
+        let fill = [40, 90, 200];
+        let backdrop = (12, 12, 16);
+        assert_eq!(effective_selection_fill(fill, backdrop, 1.0), fill);
+    }
+
+    #[test]
+    fn opacity_zero_returns_the_backdrop_exactly() {
+        let fill = [40, 90, 200];
+        let backdrop = (12, 12, 16);
+        assert_eq!(
+            effective_selection_fill(fill, backdrop, 0.0),
+            [backdrop.0, backdrop.1, backdrop.2]
+        );
+    }
+
+    #[test]
+    fn partial_opacity_recedes_toward_the_backdrop() {
+        // A translucent fill over a darker backdrop composites strictly between
+        // the two per channel, so the floor sees the dimmer color the eye reads.
+        let fill = [220, 220, 220];
+        let backdrop = (0, 0, 0);
+        let eff = effective_selection_fill(fill, backdrop, 0.5);
+        for c in eff {
+            assert!(
+                c > 0 && c < 220,
+                "channel {c} must recede toward the backdrop"
+            );
+        }
+    }
+
+    #[test]
+    fn opacity_is_clamped() {
+        let fill = [40, 90, 200];
+        let backdrop = (12, 12, 16);
+        assert_eq!(effective_selection_fill(fill, backdrop, 2.0), fill);
+        assert_eq!(
+            effective_selection_fill(fill, backdrop, -1.0),
+            [backdrop.0, backdrop.1, backdrop.2]
+        );
+    }
 }

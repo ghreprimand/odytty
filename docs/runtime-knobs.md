@@ -84,6 +84,7 @@ environment variable was not set at startup.
 | `window_decorations` | `ODYTTY_WINDOW_DECORATIONS` | `on`, `off` | `on` |
 | `window_transparency` | `ODYTTY_WINDOW_TRANSPARENCY` | `on`, `off` | `off` |
 | `window_opacity` | `ODYTTY_WINDOW_OPACITY` | Percent, `20..=100` (step 5) | `85` |
+| `selection_opacity` | `ODYTTY_SELECTION_OPACITY` | Float, `0.0..=1.0` (step 0.05) | `1.0` |
 | `always_show_tab_bar` | `ODYTTY_ALWAYS_SHOW_TAB_BAR` | `on`, `off` | `off` |
 | `tab_bar_height` | `ODYTTY_TAB_BAR_HEIGHT` | `auto`, or `1..=5` rows | `auto` |
 | `workspace_rail_side` | `ODYTTY_WORKSPACE_RAIL_SIDE` | `left`, `right` | `left` |
@@ -175,11 +176,23 @@ environment variable was not set at startup.
 ### Make The Window Transparent
 
 `window_transparency = on` draws the terminal background at
-`window_opacity` so the desktop shows through. Text, the cursor, selection, and
-every overlay remain opaque.
+`window_opacity` so the desktop shows through. Text, the cursor, and every
+overlay remain opaque. The selection stays opaque by default and has its own
+strength control, `selection_opacity`, independent of the window opacity.
 
 Wayland supports compositing natively, X11 requires a compositor, and Windows
 uses DWM. A display server without alpha compositing shows no visible change.
+
+### Tune The Selection Strength
+
+`selection_opacity` sets how strongly the text-selection highlight paints, from
+`0.0` (invisible) to `1.0` (fully opaque, the default), independent of
+`window_opacity`, the theme colours, and `min_contrast`. Lower it to let a
+transparent or busy backdrop show through behind the selection; keep it at `1.0`
+for a crisp, fully-opaque highlight. Text under the selection stays legible
+through the minimum-contrast floor. On the default per-cell inverse selection
+(when `themed_ui_roles = off`) the translucency applies but per-cell contrast is
+not re-floored.
 
 ### Size The Tab Bar
 

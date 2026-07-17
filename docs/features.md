@@ -789,8 +789,10 @@ image again.
 ### Make The Window Transparent
 
 Window transparency lets the desktop show through the terminal background.
-Text, the cursor, selection, menus, pickers, and the settings panel remain fully
-opaque, so only the background fades.
+Text, the cursor, menus, pickers, and the settings panel remain fully opaque, so
+only the background fades. The selection is opaque by default too, but has its
+own strength control (`selection_opacity`, below) independent of the window
+opacity.
 
 Transparency is off by default and leaves the opaque path unchanged. Enable it
 from Settings → Rendering or in `odytty.conf`:
@@ -799,6 +801,13 @@ from Settings → Rendering or in `odytty.conf`:
 window_transparency = on
 window_opacity = 85
 ```
+
+`selection_opacity` tunes the text-selection highlight strength on its own axis,
+from `0.0` (invisible) through `1.0` (fully opaque, the default), independent of
+`window_opacity`, the theme colours, and `min_contrast`. Lower it to let a
+transparent or busy backdrop show through behind the selection; keep it at `1.0`
+for a crisp, fully-opaque highlight. Text under the selection stays legible
+through the minimum-contrast floor.
 
 `window_opacity` is a percentage from 20 through 100 in steps of 5, with 100
 fully opaque.

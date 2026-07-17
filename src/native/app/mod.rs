@@ -5113,6 +5113,9 @@ impl App {
                 self.settings.cell_bg_opacity,
                 self.effective_theme,
             );
+            // SELECTION-OPACITY: push the independent selection strength so a
+            // settings-panel or config change repaints an on-screen selection.
+            gpu.set_selection_opacity(self.settings.selection_opacity);
         }
 
         if text_rebuilt || padding_changed {
@@ -5612,6 +5615,9 @@ impl ApplicationHandler<UserEvent> for App {
                     self.settings.cell_bg_opacity,
                     self.effective_theme,
                 );
+                // SELECTION-OPACITY: seed the selection strength for the first
+                // frame from the launch config (identity / off path at 1.0).
+                gpu.set_selection_opacity(self.settings.selection_opacity);
                 self.gpu = Some(gpu);
             }
             Err(err) => {

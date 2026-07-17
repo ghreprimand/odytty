@@ -1649,6 +1649,95 @@ fn opaque_region_holds_marked_cells_opaque_only() {
     );
 }
 
+// SELECTION-OPACITY: a cell carrying the render-only selection marker draws its
+// background quad at the independent `selection_opacity`, not the window/cell
+// opacity; an unmarked cell is untouched; a frame with no marked cell is
+// byte-identical to the legacy builder regardless of the selection scalar.
+#[test]
+fn selected_cells_use_selection_opacity_independent_of_cell_opacity() {
+    let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
+    let mut term = Terminal::new(3, 1);
+    term.advance(b"\x1b[?25l");
+    let mut snapshot = term.snapshot();
+    // Mark ONLY the middle cell (col 1) as selected.
+    snapshot.cells[1].attrs.set_selected(true);
+
+    let cell_opacity = 0.4;
+    let selection_opacity = 0.85;
+    let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * VERTS_PER_QUAD].color[3];
+
+    let mut verts = Vec::new();
+    build_cell_vertices_with_ligatures_and_selection_into(
+        &mut verts,
+        &snapshot,
+        &atlas,
+        &[],
+        &[],
+        0.0,
+        [0.0, 0.0],
+        BackgroundTreatmentParams::default(),
+        cell_opacity,
+        None,
+        crate::grid::ChromePin::NONE,
+        selection_opacity,
+    );
+    // Edge cells scale by cell opacity; the selected middle cell by selection
+    // opacity — the two scalars are applied independently.
+    assert!(
+        (bg_alpha(&verts, 0) - cell_opacity).abs() < 1e-6,
+        "an unselected edge cell scales by cell_bg_opacity"
+    );
+    assert!(
+        (bg_alpha(&verts, 1) - selection_opacity).abs() < 1e-6,
+        "the selected cell scales by selection_opacity, not cell_bg_opacity"
+    );
+    assert!(
+        (bg_alpha(&verts, 2) - cell_opacity).abs() < 1e-6,
+        "the other edge cell also scales by cell_bg_opacity"
+    );
+
+    // No marked cell: the selection-aware builder is byte-identical to the
+    // legacy one for ANY selection scalar (the branch is never taken).
+    let plain = {
+        let mut t = Terminal::new(3, 1);
+        t.advance(b"\x1b[?25l");
+        t.snapshot()
+    };
+    let mut legacy = Vec::new();
+    build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
+        &mut legacy,
+        &plain,
+        &atlas,
+        &[],
+        &[],
+        0.0,
+        [0.0, 0.0],
+        BackgroundTreatmentParams::default(),
+        cell_opacity,
+        None,
+        crate::grid::ChromePin::NONE,
+    );
+    let mut aware = Vec::new();
+    build_cell_vertices_with_ligatures_and_selection_into(
+        &mut aware,
+        &plain,
+        &atlas,
+        &[],
+        &[],
+        0.0,
+        [0.0, 0.0],
+        BackgroundTreatmentParams::default(),
+        cell_opacity,
+        None,
+        crate::grid::ChromePin::NONE,
+        0.1,
+    );
+    assert_eq!(
+        legacy, aware,
+        "with no selected cell the selection scalar cannot move a single vertex"
+    );
+}
+
 // SCROLL-CHROME-BOUNCE: the sub-row smooth-scroll offset (folded into
 // `content_origin`'s Y) must move ONLY the terminal content, never the
 // composited chrome (top tab bar / side rail). Before the fix the whole

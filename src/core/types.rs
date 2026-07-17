@@ -305,6 +305,14 @@ impl Attrs {
     const F_STRIKETHROUGH: u16 = 1 << 5;
     const F_INVERSE: u16 = 1 << 6;
     const F_HIDDEN: u16 = 1 << 7;
+    /// Render-only marker: this cell is under the active text selection. Set by
+    /// the selection paint pass (`selection::highlight_cell`) and read by the
+    /// GPU cell-vertex builder so the selection background quad uses the
+    /// independent `selection_opacity` scalar instead of the window/cell
+    /// opacity. Never emitted by the parser and never serialized (the snapshot
+    /// envelope reconstructs SGR flags field-by-field, excluding this bit), so
+    /// it stays a pure render annotation on the frame snapshot.
+    const F_SELECTED: u16 = 1 << 8;
 
     #[inline]
     fn flag(&self, mask: u16) -> bool {
@@ -392,6 +400,18 @@ impl Attrs {
     #[inline]
     pub fn set_hidden(&mut self, value: bool) {
         self.set_flag(Self::F_HIDDEN, value);
+    }
+
+    /// Render-only selection marker (see [`Self::F_SELECTED`]). `true` when the
+    /// selection paint pass has marked this cell; the GPU vertex builder reads
+    /// it to apply the independent `selection_opacity` to the cell background.
+    #[inline]
+    pub fn selected(&self) -> bool {
+        self.flag(Self::F_SELECTED)
+    }
+    #[inline]
+    pub fn set_selected(&mut self, value: bool) {
+        self.set_flag(Self::F_SELECTED, value);
     }
 
     pub fn effective_underline_style(&self) -> UnderlineStyle {

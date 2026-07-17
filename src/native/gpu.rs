@@ -1543,6 +1543,13 @@ pub(super) struct GpuState {
     /// ID3/U5 cell background opacity multiplier fed to the cell-vertex builder.
     /// `1.0` (the default) keeps cells fully opaque — byte-identical output.
     cell_bg_opacity: f32,
+    /// Selection-highlight opacity fed to the cell-vertex builder for cells
+    /// carrying the selection marker. Independent of `cell_bg_opacity` and
+    /// `window_bg_alpha`, so the selection strength is tuned separately and does
+    /// not wash out under window transparency. `1.0` (the default) keeps the
+    /// selection fully opaque; frames with no selected cell are byte-identical
+    /// regardless of this value.
+    selection_opacity: f32,
     /// TRANSPARENCY: effective window background alpha this frame. `1.0`
     /// (the default, and whenever the window-transparency setting is off or the
     /// compositor offers no alpha mode) keeps the opaque render path
@@ -2160,6 +2167,7 @@ impl GpuState {
             // `set_background_image`; cells start fully opaque (identity).
             bg_image: None,
             cell_bg_opacity: crate::settings::DEFAULT_CELL_BG_OPACITY,
+            selection_opacity: crate::settings::DEFAULT_SELECTION_OPACITY,
             window_bg_alpha: 1.0,
             overlay_opaque_region: None,
             atlas,
@@ -2336,6 +2344,19 @@ impl GpuState {
     /// `cell_bg_opacity` is used unchanged (byte-identical opaque path).
     fn content_build_opacity(&self) -> f32 {
         content_build_opacity(self.window_bg_alpha, self.cell_bg_opacity)
+    }
+
+    /// SELECTION-OPACITY: the independent alpha applied to selected cells'
+    /// background quads, unaffected by window transparency or `cell_bg_opacity`.
+    fn selection_build_opacity(&self) -> f32 {
+        self.selection_opacity
+    }
+
+    /// SELECTION-OPACITY: live-update the selection highlight opacity (settings
+    /// panel / config reload). Clamped to `[0,1]`; a change re-keys the frame so
+    /// an on-screen selection repaints at the new strength.
+    pub(super) fn set_selection_opacity(&mut self, opacity: f32) {
+        self.selection_opacity = opacity.clamp(0.0, 1.0);
     }
 
     /// TRANSPARENCY: the color the scene pass clears to. Fully transparent
@@ -2854,7 +2875,7 @@ impl GpuState {
             .zip(pane_ligature_runs.iter())
         {
             pane_buf.clear();
-            grid::build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
+            grid::build_cell_vertices_with_ligatures_and_selection_into(
                 &mut pane_buf,
                 pane.snapshot,
                 &self.atlas,
@@ -2873,6 +2894,9 @@ impl GpuState {
                 // (0.0 on every content pane, so this is `ChromePin::NONE` for
                 // them and the split content frame is byte-identical).
                 pane_chrome_pin(pane),
+                // SELECTION-OPACITY: this pane's selected cells draw at the
+                // independent selection strength (`1.0` = fully opaque default).
+                self.selection_build_opacity(),
             );
             let bg = background_vertex_count(pane.snapshot).min(pane_buf.len() as u32) as usize;
             // PANE-SUBCELL-CLIP: when this pane is mid sub-cell glide, its origin
@@ -3205,9 +3229,10 @@ impl GpuState {
         self.rebuild_color_glyph_segment(snapshot, &color_glyph_runs);
         let origin = self.content_origin();
         let content_opacity = self.content_build_opacity();
+        let selection_opacity = self.selection_build_opacity();
         // SCROLL-CHROME-BOUNCE: hold composited chrome still while content glides.
         let chrome_pin = self.chrome_pin();
-        grid::build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
+        grid::build_cell_vertices_with_ligatures_and_selection_into(
             &mut self.vertices,
             snapshot,
             &self.atlas,
@@ -3224,6 +3249,9 @@ impl GpuState {
             // (set by the caller) is byte-identical.
             self.overlay_opaque_region,
             chrome_pin,
+            // SELECTION-OPACITY: selected cells in this content snapshot draw at
+            // the independent selection strength (`1.0` = fully opaque default).
+            selection_opacity,
         );
         self.color_glyph_runs = color_glyph_runs;
         let background_vertices = background_vertex_count(snapshot).min(self.vertices.len() as u32);

@@ -790,7 +790,7 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
     // `ChromePin::NONE` (every non-single-pane-content caller) is byte-identical.
     chrome_pin: ChromePin,
 ) {
-    build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
+    build_cells_core(
         out,
         snapshot,
         atlas,
@@ -802,12 +802,17 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
         cell_bg_opacity,
         opaque_region,
         chrome_pin,
+        // No selection opacity threaded: selected cells (none on this seam)
+        // stay fully opaque. Byte-identical for the no-selection callers.
+        1.0,
     );
 }
 
 /// Ligature-aware counterpart to
 /// [`build_cell_vertices_with_focus_dim_and_origin_into`]. An empty run slice
-/// takes the same scalar-glyph branches as the legacy entry point.
+/// takes the same scalar-glyph branches as the legacy entry point. Selection
+/// cells stay fully opaque here; the selection-opacity-aware render path uses
+/// [`build_cell_vertices_with_ligatures_and_selection_into`].
 #[allow(clippy::too_many_arguments)]
 pub fn build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
     out: &mut Vec<Vertex>,
@@ -821,6 +826,81 @@ pub fn build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
     cell_bg_opacity: f32,
     opaque_region: Option<CellRegion>,
     chrome_pin: ChromePin,
+) {
+    build_cells_core(
+        out,
+        snapshot,
+        atlas,
+        color_runs,
+        ligature_runs,
+        focus_dim,
+        origin,
+        treatment,
+        cell_bg_opacity,
+        opaque_region,
+        chrome_pin,
+        1.0,
+    );
+}
+
+/// SELECTION-OPACITY: ligature-aware build that threads `selection_opacity` so a
+/// selected cell's background quad draws at that independent alpha instead of
+/// the window/cell opacity. `selection_opacity == 1.0` keeps the selection fully
+/// opaque; lower values let the backdrop show through behind it. Frames with no
+/// selected cell are byte-identical to
+/// [`build_cell_vertices_with_focus_dim_origin_and_ligatures_into`].
+#[allow(clippy::too_many_arguments)]
+pub fn build_cell_vertices_with_ligatures_and_selection_into(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    color_runs: &[ColorGlyphRun],
+    ligature_runs: &[LigatureRun],
+    focus_dim: f32,
+    origin: [f32; 2],
+    treatment: BackgroundTreatmentParams,
+    cell_bg_opacity: f32,
+    opaque_region: Option<CellRegion>,
+    chrome_pin: ChromePin,
+    selection_opacity: f32,
+) {
+    build_cells_core(
+        out,
+        snapshot,
+        atlas,
+        color_runs,
+        ligature_runs,
+        focus_dim,
+        origin,
+        treatment,
+        cell_bg_opacity,
+        opaque_region,
+        chrome_pin,
+        selection_opacity,
+    );
+}
+
+/// Private core of the cell-vertex build. Carries every render parameter,
+/// including `selection_opacity`: the independent alpha applied to a selected
+/// cell's background quad (see [`crate::core::Attrs::selected`]) in place of the
+/// window/cell opacity. All public entry points delegate here; the ones that do
+/// not thread a selection opacity pass `1.0`, which is the fully-opaque
+/// selection contract (and byte-identical for frames with no selected cell,
+/// since the selection branch is only taken when a cell carries the marker).
+#[allow(clippy::too_many_arguments)]
+fn build_cells_core(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    color_runs: &[ColorGlyphRun],
+    ligature_runs: &[LigatureRun],
+    focus_dim: f32,
+    origin: [f32; 2],
+    treatment: BackgroundTreatmentParams,
+    cell_bg_opacity: f32,
+    opaque_region: Option<CellRegion>,
+    chrome_pin: ChromePin,
+    selection_opacity: f32,
 ) {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
@@ -909,8 +989,18 @@ pub fn build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
             // background fully opaque so the panel reads as a solid surface; every
             // other cell scales by `cell_bg_opacity` exactly as before. `None`
             // (the default) leaves `bg[3] * cell_bg_opacity` untouched.
+            //
+            // SELECTION-OPACITY: a cell carrying the selection marker uses the
+            // independent `selection_opacity` scalar instead of the window/cell
+            // opacity, so the selection strength is tuned separately and never
+            // washes out under window transparency. An overlay panel still wins
+            // (readability boundary) if a selection somehow overlaps it. A
+            // non-selected cell is untouched — frames with no selection are
+            // byte-identical.
             let cell_opacity = if opaque_region.is_some_and(|r| r.contains(row, col)) {
                 1.0
+            } else if cell.attrs.selected() {
+                selection_opacity
             } else {
                 cell_bg_opacity
             };

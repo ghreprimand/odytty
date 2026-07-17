@@ -628,6 +628,13 @@ pub fn selected_text_block(snapshot: &Snapshot, range: SelectionRange) -> String
 /// [`apply_highlight_block`] so the two paths can never diverge in how a
 /// selected cell is painted.
 fn highlight_cell(cell: &mut crate::core::Cell, themed: Option<SelectionStyle>) {
+    // Render-only selection marker for the GPU vertex builder: a selected cell
+    // draws its background quad at the independent `selection_opacity` scalar
+    // rather than the window/cell opacity, so the selection can be tuned (and
+    // stays opaque under window transparency) regardless of the path below.
+    // Applied to BOTH paths uniformly so themed and inverse selections composite
+    // consistently. Never serialized (the envelope excludes this bit).
+    cell.attrs.set_selected(true);
     match themed {
         // Themed (opt-in): explicit fill + floored fg. Clear inverse so
         // the role colors are not re-swapped by the renderer.
@@ -636,7 +643,7 @@ fn highlight_cell(cell: &mut crate::core::Cell, themed: Option<SelectionStyle>) 
             cell.attrs.foreground = Color::Rgb(style.fg[0], style.fg[1], style.fg[2]);
             cell.attrs.background = Color::Rgb(style.fill[0], style.fill[1], style.fill[2]);
         }
-        // Default: historical per-cell inverse, byte-identical.
+        // Default: historical per-cell inverse.
         None => cell.attrs.set_inverse(true),
     }
 }

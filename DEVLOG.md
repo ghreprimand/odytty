@@ -46,6 +46,42 @@ grammar and that rejected invocations exit 2 without emitting. `cargo fmt
 Still open on the button track: the settings knob for the master gate, the
 feature-discovery decision, and the feel-gated chip visuals.
 
+## 2026-07-17 -- Selection opacity: render wiring
+
+The `selection_opacity` setting now reaches the pixels. Selected cells carry a
+render-only marker that the GPU cell-vertex builder reads to draw their
+background quad at the independent selection strength instead of the window or
+cell opacity. The selection is therefore tuned on its own axis and no longer
+washes out under window transparency: at full strength it stays fully opaque
+against a transparent or busy backdrop, and lower values let that backdrop show
+through behind it. Both selection paths are covered uniformly — the themed fill
+and the default per-cell inverse — because the marker rides the cell, not the
+style.
+
+The minimum-contrast floor follows the fill honestly. The themed selection
+foreground is floored over the effective composited fill (the opaque fill
+blended over the theme background at the selection strength) rather than the
+opaque fill, so foreground legibility holds as the fill goes translucent. At
+full strength the effective fill equals the opaque fill, so the floored
+foreground — and every frame with no selection — is byte-identical to before.
+The floor references the theme background as the deterministic worst case;
+under window transparency the true backdrop is the desktop and is unknowable,
+so this is the conservative choice. On the default inverse path per-cell
+contrast is not re-floored, consistent with its best-effort swap.
+
+The strength is pushed to the renderer on launch and on every settings or
+config change, so an on-screen selection repaints live. The compositing rides
+the existing per-cell background-quad alpha seam — the same mechanism that
+holds overlay panels opaque — with no new draw pass or z-ordering.
+
+The shipped default and its visual confirmation are held for a release-profile
+build across a transparent theme and an opaque theme; the mechanism is complete
+and logic-tested. Tests cover the independent per-cell alpha, the no-selection
+byte-identity between the legacy and selection-aware builders, and the
+effective-fill blend endpoints and clamping. Platform-neutral GPU and color
+math; no PTY, spawn, path, env, or shell surface, so the windows-latest leg
+exercises the same code.
+
 ## 2026-07-17 -- Selection opacity: settings knob
 
 A new `selection_opacity` setting controls the strength of the text-selection
