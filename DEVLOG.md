@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Selection opacity: color-space tint, decoupled from window opacity
+
+Eye-testing the selection-strength knob surfaced an inverse coupling: as the
+window grew more opaque the selection appeared weaker, and as the window grew
+more transparent it appeared stronger. The selection strength is supposed to be
+independent of window opacity, so this had to be fixed before a default could
+be chosen.
+
+Root cause: a selected cell was painted with `selection_opacity` as its
+background quad's SURFACE alpha, so it composited against the desktop at a fixed
+coverage while its unselected neighbours composited at the window opacity. The
+two sat on different transparency planes, so the selection's apparent strength
+moved opposite to the window opacity.
+
+The fix moves `selection_opacity` entirely into COLOR space and puts the
+selection back on the content's transparency plane. A selected cell now
+composites at the same surface alpha as its neighbours (the content opacity),
+and `selection_opacity` blends the selection fill toward the cell's unselected
+background in linear light (`composite_over`) — a tint strength, not a surface
+coverage. The default per-cell inverse selection recedes both its fill and its
+text symmetrically toward the unselected colours as the knob falls, keeping the
+cell readable throughout; the themed selection pre-composites its fill over the
+theme background at the same factor, so its painted colour and its
+minimum-contrast floor reference are one and the same. At `selection_opacity =
+1.0` the linear-blend endpoints are exact, so a full-strength selection is
+byte-identical to the previous fully-opaque selection, and frames with no
+selection are untouched.
+
+The selection now reads the same against its surround at any window opacity. A
+regression test asserts the invariant directly: at a fixed `selection_opacity`
+the selected cell's surface alpha tracks the content opacity (equal to its
+neighbours) and its tint colour does not move with the window opacity. Pure
+colour math only — no PTY, spawn, path, or platform surface, identical across
+Linux, Windows, and macOS. The shipped default value remains an open eye-test.
+
 ## 2026-07-17 -- Buttons: chip visual pass one — pill caps, hover state, disabled face
 
 First refinement pass on the button chip look, following eye-test feedback

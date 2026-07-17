@@ -1649,28 +1649,23 @@ fn opaque_region_holds_marked_cells_opaque_only() {
     );
 }
 
-// SELECTION-OPACITY: a cell carrying the render-only selection marker draws its
-// background quad at the independent `selection_opacity`, not the window/cell
-// opacity; an unmarked cell is untouched; a frame with no marked cell is
-// byte-identical to the legacy builder regardless of the selection scalar.
-#[test]
-fn selected_cells_use_selection_opacity_independent_of_cell_opacity() {
-    let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
-    let mut term = Terminal::new(3, 1);
-    term.advance(b"\x1b[?25l");
-    let mut snapshot = term.snapshot();
-    // Mark ONLY the middle cell (col 1) as selected.
-    snapshot.cells[1].attrs.set_selected(true);
-
-    let cell_opacity = 0.4;
-    let selection_opacity = 0.85;
-    let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * VERTS_PER_QUAD].color[3];
-
+// SELECTION-OPACITY: `selection_opacity` tunes the selection's tint in COLOR
+// space, NOT the selected cell's surface alpha. A selected cell composites at
+// the same surface alpha as its unselected neighbors (the content opacity), so
+// the selection never couples inversely to window opacity; an unmarked cell is
+// untouched; a frame with no marked cell is byte-identical to the legacy
+// builder for any selection scalar.
+fn selection_test_vertices(
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cell_opacity: f32,
+    selection_opacity: f32,
+) -> Vec<Vertex> {
     let mut verts = Vec::new();
     build_cell_vertices_with_ligatures_and_selection_into(
         &mut verts,
-        &snapshot,
-        &atlas,
+        snapshot,
+        atlas,
         &[],
         &[],
         0.0,
@@ -1681,28 +1676,121 @@ fn selected_cells_use_selection_opacity_independent_of_cell_opacity() {
         crate::grid::ChromePin::NONE,
         selection_opacity,
     );
-    // Edge cells scale by cell opacity; the selected middle cell by selection
-    // opacity — the two scalars are applied independently.
-    assert!(
-        (bg_alpha(&verts, 0) - cell_opacity).abs() < 1e-6,
-        "an unselected edge cell scales by cell_bg_opacity"
+    verts
+}
+
+// ANTI-REGRESSION for the inverse-coupling bug (task 5ef3f27e): at a fixed
+// `selection_opacity`, the selected cell's SURFACE alpha tracks the content
+// opacity (equal to its neighbors) and its TINT color does not move with the
+// window opacity. Before the fix the selected cell's alpha was pinned to
+// `selection_opacity` regardless of window opacity, so the selection appeared
+// stronger as the window grew more transparent.
+#[test]
+fn selection_appearance_is_invariant_to_window_opacity() {
+    let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
+    let mut term = Terminal::new(3, 1);
+    term.advance(b"\x1b[?25l");
+    let mut snapshot = term.snapshot();
+    // Mark ONLY the middle cell (col 1) as an inverse (default-path) selection.
+    snapshot.cells[1].attrs.set_selected(true);
+    snapshot.cells[1].attrs.set_inverse(true);
+
+    let selection_opacity = 0.5;
+    let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * VERTS_PER_QUAD].color[3];
+    let bg_rgb = |verts: &[Vertex], quad: usize| {
+        let c = verts[quad * VERTS_PER_QUAD].color;
+        [c[0], c[1], c[2]]
+    };
+
+    // The selected cell shares the surrounding content's surface alpha at BOTH a
+    // near-opaque and a translucent window — never a fixed selection_opacity.
+    for cell_opacity in [0.4_f32, 0.9] {
+        let verts = selection_test_vertices(&snapshot, &atlas, cell_opacity, selection_opacity);
+        assert!(
+            (bg_alpha(&verts, 0) - cell_opacity).abs() < 1e-6,
+            "an unselected edge cell scales by cell_bg_opacity"
+        );
+        assert!(
+            (bg_alpha(&verts, 1) - cell_opacity).abs() < 1e-6,
+            "the selected cell must share the content surface alpha, not selection_opacity"
+        );
+        assert!(
+            (bg_alpha(&verts, 2) - cell_opacity).abs() < 1e-6,
+            "the other edge cell also scales by cell_bg_opacity"
+        );
+    }
+
+    // The selection tint (RGB) is identical at any window opacity: the color
+    // blend depends only on selection_opacity + the cell colors, never on
+    // cell_bg_opacity. This is the exact invariant the bug violated.
+    let low = selection_test_vertices(&snapshot, &atlas, 0.4, selection_opacity);
+    let high = selection_test_vertices(&snapshot, &atlas, 0.9, selection_opacity);
+    assert_eq!(
+        bg_rgb(&low, 1),
+        bg_rgb(&high, 1),
+        "the selection tint must not move with window opacity"
     );
-    assert!(
-        (bg_alpha(&verts, 1) - selection_opacity).abs() < 1e-6,
-        "the selected cell scales by selection_opacity, not cell_bg_opacity"
+}
+
+// selection_opacity == 1.0 is byte-identical to a fully-opaque selection; below
+// 1.0 the selection background recedes toward the cell's unselected color.
+#[test]
+fn selection_opacity_one_is_byte_identical_and_below_one_tints() {
+    let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
+    let mut term = Terminal::new(3, 1);
+    term.advance(b"\x1b[?25l");
+    let mut snapshot = term.snapshot();
+    snapshot.cells[1].attrs.set_selected(true);
+    snapshot.cells[1].attrs.set_inverse(true);
+
+    let bg_rgb = |verts: &[Vertex], quad: usize| {
+        let c = verts[quad * VERTS_PER_QUAD].color;
+        [c[0], c[1], c[2]]
+    };
+
+    // At 1.0 the blend is skipped (exact endpoint), so the selection-aware build
+    // equals the legacy full-strength selection vertex-for-vertex.
+    let mut legacy = Vec::new();
+    build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
+        &mut legacy,
+        &snapshot,
+        &atlas,
+        &[],
+        &[],
+        0.0,
+        [0.0, 0.0],
+        BackgroundTreatmentParams::default(),
+        1.0,
+        None,
+        crate::grid::ChromePin::NONE,
     );
-    assert!(
-        (bg_alpha(&verts, 2) - cell_opacity).abs() < 1e-6,
-        "the other edge cell also scales by cell_bg_opacity"
+    let aware = selection_test_vertices(&snapshot, &atlas, 1.0, 1.0);
+    assert_eq!(
+        aware, legacy,
+        "selection_opacity 1.0 must be byte-identical to a fully-opaque selection"
     );
 
-    // No marked cell: the selection-aware builder is byte-identical to the
-    // legacy one for ANY selection scalar (the branch is never taken).
+    // Below 1.0 the selected cell's background is tinted toward its unselected
+    // color, so its RGB differs from the full-strength selection.
+    let translucent = selection_test_vertices(&snapshot, &atlas, 1.0, 0.5);
+    assert_ne!(
+        bg_rgb(&translucent, 1),
+        bg_rgb(&aware, 1),
+        "a translucent selection must recede the fill toward the unselected color"
+    );
+}
+
+// No marked cell: the selection-aware builder is byte-identical to the legacy
+// one for ANY selection scalar (the blend is never taken).
+#[test]
+fn no_selection_is_byte_identical_for_any_scalar() {
+    let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
     let plain = {
         let mut t = Terminal::new(3, 1);
         t.advance(b"\x1b[?25l");
         t.snapshot()
     };
+    let cell_opacity = 0.4;
     let mut legacy = Vec::new();
     build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
         &mut legacy,
@@ -1717,21 +1805,7 @@ fn selected_cells_use_selection_opacity_independent_of_cell_opacity() {
         None,
         crate::grid::ChromePin::NONE,
     );
-    let mut aware = Vec::new();
-    build_cell_vertices_with_ligatures_and_selection_into(
-        &mut aware,
-        &plain,
-        &atlas,
-        &[],
-        &[],
-        0.0,
-        [0.0, 0.0],
-        BackgroundTreatmentParams::default(),
-        cell_opacity,
-        None,
-        crate::grid::ChromePin::NONE,
-        0.1,
-    );
+    let aware = selection_test_vertices(&plain, &atlas, cell_opacity, 0.1);
     assert_eq!(
         legacy, aware,
         "with no selected cell the selection scalar cannot move a single vertex"

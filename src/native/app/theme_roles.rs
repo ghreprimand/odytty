@@ -26,36 +26,41 @@ impl App {
     }
 
     /// ID1: themed selection treatment, or `None` (today's inverse) when the
-    /// operator opts out. The fill is the theme `selection` role verbatim; the
-    /// foreground is the theme foreground floored over the EFFECTIVE composited
+    /// operator opts out. The stored `fill` is the theme `selection` role
+    /// COMPOSITED over the theme background at `selection_opacity` (design §3),
+    /// so the painted selection background already carries the tint strength;
+    /// the foreground is the theme foreground floored over that same effective
     /// fill through the RV1 minimum-contrast machinery, so it stays legible at
-    /// the active `min_contrast` (identity at the default 1.0) even as
-    /// `selection_opacity` makes the fill translucent (design §3).
+    /// the active `min_contrast` (identity at the default 1.0) even as the fill
+    /// goes translucent.
     ///
-    /// The stored `fill` is the opaque role color — the GPU vertex builder
-    /// applies `selection_opacity` to its background quad. Only the FLOOR
-    /// reference uses the effective composited fill so legibility is judged
-    /// against the pixels the operator actually reads text over. At
-    /// `selection_opacity == 1.0` the effective fill equals the opaque fill
-    /// (the `composite_over` endpoint is exact), so the floored fg — and hence
-    /// the whole style — is byte-identical to before.
+    /// Baking the composite here (rather than as a surface-alpha scale in the
+    /// GPU builder) keeps the selected cell on the SAME transparency plane as
+    /// surrounding content: the vertex builder draws this fill at the ordinary
+    /// content opacity, so the selection reads the same against its surround at
+    /// any window opacity instead of coupling inversely to it. The floor
+    /// reference and the painted color are now the identical effective fill, so
+    /// legibility is judged against the exact pixels drawn. At
+    /// `selection_opacity == 1.0` the effective fill equals the opaque role
+    /// color (the `composite_over` endpoint is exact), so the whole style — fill
+    /// and floored fg alike — is byte-identical to a fully-opaque selection.
     pub(super) fn themed_selection_style(&self) -> Option<SelectionStyle> {
         if !self.themed_ui_roles {
             return None;
         }
-        let fill = [
+        let role_fill = [
             self.effective_theme.selection.0,
             self.effective_theme.selection.1,
             self.effective_theme.selection.2,
         ];
-        let effective_fill = effective_selection_fill(
-            fill,
+        let fill = effective_selection_fill(
+            role_fill,
             self.effective_theme.background,
             self.settings.selection_opacity,
         );
         let fg = floor_fg_over(
             self.effective_theme.foreground,
-            effective_fill,
+            fill,
             self.settings.effective_min_contrast(),
         );
         Some(SelectionStyle { fill, fg })

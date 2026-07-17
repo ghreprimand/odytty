@@ -803,7 +803,8 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
         opaque_region,
         chrome_pin,
         // No selection opacity threaded: selected cells (none on this seam)
-        // stay fully opaque. Byte-identical for the no-selection callers.
+        // take the full-strength selection tint. Byte-identical for the
+        // no-selection callers.
         1.0,
     );
 }
@@ -811,7 +812,8 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
 /// Ligature-aware counterpart to
 /// [`build_cell_vertices_with_focus_dim_and_origin_into`]. An empty run slice
 /// takes the same scalar-glyph branches as the legacy entry point. Selection
-/// cells stay fully opaque here; the selection-opacity-aware render path uses
+/// cells take the full-strength selection tint here (no color blend); the
+/// selection-opacity-aware render path uses
 /// [`build_cell_vertices_with_ligatures_and_selection_into`].
 #[allow(clippy::too_many_arguments)]
 pub fn build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
@@ -843,11 +845,15 @@ pub fn build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
     );
 }
 
-/// SELECTION-OPACITY: ligature-aware build that threads `selection_opacity` so a
-/// selected cell's background quad draws at that independent alpha instead of
-/// the window/cell opacity. `selection_opacity == 1.0` keeps the selection fully
-/// opaque; lower values let the backdrop show through behind it. Frames with no
-/// selected cell are byte-identical to
+/// SELECTION-OPACITY: ligature-aware build that threads `selection_opacity` as a
+/// COLOR-space tint strength for selected cells. A selected cell composites at
+/// the same surface alpha as its unselected neighbors (`cell_bg_opacity`), so
+/// selection and content share one transparency plane and the selection never
+/// couples inversely to window opacity; `selection_opacity` blends the selection
+/// fill toward the unselected background (`composite_over`) instead of scaling
+/// the surface alpha. `selection_opacity == 1.0` keeps the selection at full
+/// strength; lower values let the cell's own background show through the tint.
+/// Frames with no selected cell are byte-identical to
 /// [`build_cell_vertices_with_focus_dim_origin_and_ligatures_into`].
 #[allow(clippy::too_many_arguments)]
 pub fn build_cell_vertices_with_ligatures_and_selection_into(
@@ -881,12 +887,14 @@ pub fn build_cell_vertices_with_ligatures_and_selection_into(
 }
 
 /// Private core of the cell-vertex build. Carries every render parameter,
-/// including `selection_opacity`: the independent alpha applied to a selected
-/// cell's background quad (see [`crate::core::Attrs::selected`]) in place of the
-/// window/cell opacity. All public entry points delegate here; the ones that do
-/// not thread a selection opacity pass `1.0`, which is the fully-opaque
-/// selection contract (and byte-identical for frames with no selected cell,
-/// since the selection branch is only taken when a cell carries the marker).
+/// including `selection_opacity`: the COLOR-space tint strength applied to a
+/// selected cell (see [`crate::core::Attrs::selected`]). A selected cell keeps
+/// the surrounding content's surface alpha; `selection_opacity` blends its
+/// selection fill toward the unselected background rather than scaling the
+/// background-quad alpha. All public entry points delegate here; the ones that
+/// do not thread a selection opacity pass `1.0`, the full-strength selection
+/// contract (and byte-identical for frames with no selected cell, since the
+/// blend is only taken when a cell carries the marker).
 #[allow(clippy::too_many_arguments)]
 fn build_cells_core(
     out: &mut Vec<Vertex>,
@@ -926,6 +934,29 @@ fn build_cells_core(
         let mut bg = background_linear(&snapshot.colors, cell.attrs.background);
         if cell.attrs.inverse() {
             std::mem::swap(&mut fg, &mut bg);
+        }
+        // SELECTION-OPACITY (default/inverse path): a selected cell painted via
+        // the historical inverse swap blends its selection colors toward the
+        // UNSELECTED appearance in linear color space, so `selection_opacity`
+        // controls the selection's tint STRENGTH while the cell's surface alpha
+        // (Pass 1) stays equal to the surrounding content opacity. Selection and
+        // content then share ONE transparency plane, so the selection reads the
+        // same against its surround at any window opacity (no inverse coupling).
+        // After the swap `bg` is the selection fill (the cell's original
+        // foreground) and `fg` is the backdrop (the cell's original background),
+        // so compositing the fill over the backdrop at `selection_opacity` — and
+        // the text symmetrically back toward the unselected foreground — recedes
+        // the whole cell toward its unselected look as the knob falls. At 1.0 the
+        // `composite_over` endpoints are exact, so a fully-opaque selection is
+        // byte-identical to the plain swap; the themed path pre-composites its
+        // fill upstream (`themed_selection_style`) and needs no blend here.
+        if selection_opacity < 1.0 && cell.attrs.selected() && cell.attrs.inverse() {
+            let fill = [bg[0], bg[1], bg[2]];
+            let backdrop = [fg[0], fg[1], fg[2]];
+            let blended_bg = crate::color::composite_over(fill, backdrop, selection_opacity);
+            let blended_fg = crate::color::composite_over(backdrop, fill, selection_opacity);
+            bg = [blended_bg[0], blended_bg[1], blended_bg[2], bg[3]];
+            fg = [blended_fg[0], blended_fg[1], blended_fg[2], fg[3]];
         }
         if cell.attrs.dim() {
             fg = dim_color(fg);
@@ -990,17 +1021,15 @@ fn build_cells_core(
             // other cell scales by `cell_bg_opacity` exactly as before. `None`
             // (the default) leaves `bg[3] * cell_bg_opacity` untouched.
             //
-            // SELECTION-OPACITY: a cell carrying the selection marker uses the
-            // independent `selection_opacity` scalar instead of the window/cell
-            // opacity, so the selection strength is tuned separately and never
-            // washes out under window transparency. An overlay panel still wins
-            // (readability boundary) if a selection somehow overlaps it. A
-            // non-selected cell is untouched — frames with no selection are
-            // byte-identical.
+            // SELECTION-OPACITY: a selected cell composites at the SAME surface
+            // alpha as its unselected neighbors (`cell_bg_opacity`), so selection
+            // and content share one transparency plane and the selection never
+            // couples inversely to window opacity. The `selection_opacity` knob
+            // acts purely in COLOR space (see `resolve` for the inverse path and
+            // `themed_selection_style` for the themed path), tuning the tint
+            // strength rather than the surface alpha.
             let cell_opacity = if opaque_region.is_some_and(|r| r.contains(row, col)) {
                 1.0
-            } else if cell.attrs.selected() {
-                selection_opacity
             } else {
                 cell_bg_opacity
             };
