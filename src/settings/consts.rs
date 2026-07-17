@@ -383,14 +383,15 @@ pub const MAX_CELL_BG_OPACITY: f32 = 1.0;
 
 /// Selection opacity (`ODYTTY_SELECTION_OPACITY`): the alpha strength of the
 /// text-selection highlight fill, independent of window opacity, theme colours,
-/// and the min-contrast floor. `1.0` (default) keeps the selection fully opaque
-/// — byte-identical to before in the opaque-window path, and the documented
-/// "fully opaque" behaviour under window transparency. Values `< 1.0` make the
-/// selection translucent so a busy or transparent backdrop shows through behind
-/// it; the RV1 min-contrast floor still holds foreground legibility over the
-/// effective composited fill. The chosen default may be revised after visual
-/// tuning; the mechanism clamps to `[0,1]`.
-pub const DEFAULT_SELECTION_OPACITY: f32 = 1.0;
+/// and the min-contrast floor. The default `0.6` is a translucent tint: the
+/// selection reads as a highlight rather than a solid block, yet the
+/// punch-through surface-alpha lerp keeps it clearly visible over a transparent
+/// or busy backdrop (it is never weaker than the surrounding content). Lower
+/// values thin the tint further; `1.0` restores a fully opaque selection,
+/// byte-identical to the historical inverse highlight at any window opacity.
+/// The RV1 min-contrast floor still holds foreground legibility over the
+/// effective composited fill at every setting; the mechanism clamps to `[0,1]`.
+pub const DEFAULT_SELECTION_OPACITY: f32 = 0.6;
 pub const MIN_SELECTION_OPACITY: f32 = 0.0;
 pub const MAX_SELECTION_OPACITY: f32 = 1.0;
 

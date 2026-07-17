@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Selection opacity: default set to 0.6
+
+With the punch-through surface-alpha model settled, eye-testing on
+release-profile builds across a transparent theme and an opaque theme picked the
+shipped default for `selection_opacity`: `0.6`. At this setting the selection
+reads as a translucent tint rather than a solid inverse block, so it feels
+lighter against text, while the surface-alpha lerp keeps it clearly visible over
+window transparency — a selected cell is never weaker than the content around
+it. `1.0` remains available for a fully-opaque highlight and stays byte-identical
+to the historical inverse selection at any window opacity; lower values thin the
+tint further. The minimum-contrast floor still guarantees legible text at every
+setting. The default is the only change here; the mechanism, clamp range, and
+live-apply are unchanged. Pure color math, identical across Linux, Windows, and
+macOS.
+
 ## 2026-07-17 -- Point-button chips: bounded pills with a matching click target
 
 Eye-testing the refined button chips accepted the label-run pills but found

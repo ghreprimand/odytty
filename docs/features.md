@@ -803,11 +803,14 @@ window_opacity = 85
 ```
 
 `selection_opacity` tunes the text-selection highlight strength on its own axis,
-from `0.0` (invisible) through `1.0` (fully opaque, the default), independent of
-`window_opacity`, the theme colours, and `min_contrast`. Lower it to let a
-transparent or busy backdrop show through behind the selection; keep it at `1.0`
-for a crisp, fully-opaque highlight. Text under the selection stays legible
-through the minimum-contrast floor.
+from `0.0` (invisible) through `1.0` (fully opaque), independent of
+`window_opacity`, the theme colours, and `min_contrast`. The default `0.6` is a
+translucent tint that reads as a highlight rather than a solid block yet stays
+clearly visible over a transparent or busy backdrop, because a selected cell's
+surface alpha is lifted toward opaque as the knob rises so the selection never
+falls weaker than the surrounding content. Raise it to `1.0` for a crisp,
+fully-opaque highlight, or lower it to let more of the backdrop through. Text
+under the selection stays legible through the minimum-contrast floor.
 
 `window_opacity` is a percentage from 20 through 100 in steps of 5, with 100
 fully opaque.

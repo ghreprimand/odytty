@@ -57,10 +57,11 @@ window_transparency = off
 window_opacity = 85
 
 # Text-selection highlight strength, 0.0 (invisible) to 1.0 (fully opaque),
-# independent of window_opacity, the theme, and min_contrast. 1.0 by default
-# (crisp, fully-opaque selection that stays opaque under window transparency);
+# independent of window_opacity, the theme, and min_contrast. 0.6 by default
+# (a translucent tint that reads as a highlight yet stays clearly visible over
+# window transparency); raise it to 1.0 for a crisp fully-opaque selection, or
 # lower it to let a transparent or busy backdrop show through behind it.
-selection_opacity = 1.0
+selection_opacity = 0.6
 
 # Show the tab bar even with a single tab. Off by default (a lone unnamed tab
 # hides the bar). A single tab you have renamed always shows the bar regardless.

@@ -2410,7 +2410,10 @@ fn selection_opacity_defaults_parses_and_clamps() {
         default_settings.selection_opacity,
         DEFAULT_SELECTION_OPACITY
     );
-    assert_eq!(DEFAULT_SELECTION_OPACITY, 1.0, "default is fully opaque");
+    assert_eq!(
+        DEFAULT_SELECTION_OPACITY, 0.6,
+        "default is a translucent tint (0.6), not fully opaque"
+    );
     assert!(warnings.is_empty());
 
     let (parsed, warnings) = settings_from([(SELECTION_OPACITY_ENV, "0.5")]);
