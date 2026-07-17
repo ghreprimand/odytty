@@ -84,6 +84,129 @@ pub fn snippet(kind: ShellKind) -> &'static str {
     }
 }
 
+/// How OdyTTY delivers shell integration to a shell family, for the Shell
+/// Integration settings readout. The section renders one row per family from
+/// this so the master switch never over-promises: it says exactly what the
+/// switch does for each shell rather than implying a uniform capability.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntegrationPosture {
+    /// OdyTTY injects its OSC 133 snippet at spawn (bash/zsh/fish).
+    Injected,
+    /// Injected only on Windows. `pwsh` on Unix has no injection surface (the
+    /// Unix injector has no PowerShell arm by design), so the readout hides the
+    /// PowerShell row off-Windows.
+    InjectedWindowsOnly,
+    /// The shell ships its own integration config; OdyTTY detects it and points
+    /// at the native setting but never injects (nushell).
+    ConfigureNatively,
+}
+
+/// A shell family the Shell Integration section can describe. This is the
+/// readout vocabulary and a deliberate superset of the injection-capable
+/// [`ShellKind`]: it also names nushell, which OdyTTY recognizes and documents
+/// but never injects into (nushell loads its own `$env.config.shell_integration`
+/// and there is no clean spawn-time override). Keeping this separate from
+/// [`ShellKind`] keeps the injection path total without an empty-snippet arm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShellFamily {
+    Bash,
+    Zsh,
+    Fish,
+    PowerShell,
+    Nushell,
+}
+
+impl ShellFamily {
+    /// Every family the readout enumerates, in display order.
+    pub const ALL: [ShellFamily; 5] = [
+        ShellFamily::Bash,
+        ShellFamily::Zsh,
+        ShellFamily::Fish,
+        ShellFamily::PowerShell,
+        ShellFamily::Nushell,
+    ];
+
+    /// Classify a shell from a user-supplied name or program basename token.
+    /// Recognizes the four injected families plus `nu`/`nushell` (detection
+    /// only). Leading `-` (login-shell argv) is stripped by the caller side for
+    /// [`ShellKind`]; this readout classifier accepts the bare token.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw
+            .trim()
+            .trim_start_matches('-')
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "bash" => Some(Self::Bash),
+            "zsh" => Some(Self::Zsh),
+            "fish" => Some(Self::Fish),
+            "powershell" | "pwsh" => Some(Self::PowerShell),
+            "nu" | "nushell" => Some(Self::Nushell),
+            _ => None,
+        }
+    }
+
+    /// Human-readable name for the readout row.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Bash => "bash",
+            Self::Zsh => "zsh",
+            Self::Fish => "fish",
+            Self::PowerShell => "PowerShell",
+            Self::Nushell => "nushell",
+        }
+    }
+
+    /// How the switch reaches this family.
+    pub fn posture(self) -> IntegrationPosture {
+        match self {
+            Self::Bash | Self::Zsh | Self::Fish => IntegrationPosture::Injected,
+            Self::PowerShell => IntegrationPosture::InjectedWindowsOnly,
+            Self::Nushell => IntegrationPosture::ConfigureNatively,
+        }
+    }
+
+    /// The injection-capable [`ShellKind`] for this family, or `None` for
+    /// nushell (detected and documented, never injected).
+    pub fn injectable(self) -> Option<ShellKind> {
+        match self {
+            Self::Bash => Some(ShellKind::Bash),
+            Self::Zsh => Some(ShellKind::Zsh),
+            Self::Fish => Some(ShellKind::Fish),
+            Self::PowerShell => Some(ShellKind::PowerShell),
+            Self::Nushell => None,
+        }
+    }
+
+    /// One-line readout summary shown in the Shell Integration section / docs.
+    /// Honest about what the switch does for this family; nushell points at the
+    /// native config rather than promising injection.
+    pub fn readout(self) -> &'static str {
+        match self {
+            Self::Bash => {
+                "OSC 133 prompt marks, OSC 7 cwd, click-to-position, button emitters; \
+                 optional prompt-scoped key enhancement"
+            }
+            Self::Zsh => {
+                "OSC 133 prompt marks, OSC 7 cwd, per-keystroke edit region, \
+                 click-to-position, button emitters; optional prompt-scoped key enhancement"
+            }
+            Self::Fish => {
+                "OSC 133 prompt marks, OSC 7 cwd, edit region, click-to-position, \
+                 button emitters; fish 4+ manages the keyboard protocol itself"
+            }
+            Self::PowerShell => {
+                "Windows only: OSC 133 prompt marks, OSC 7 cwd, button emitters; \
+                 key bindings use the PSReadLine/Console API, not a VT protocol"
+            }
+            Self::Nushell => {
+                "Configure natively: set $env.config.shell_integration.osc133/osc7/osc2 \
+                 and use_kitty_protocol in your nushell config"
+            }
+        }
+    }
+}
+
 /// Windows spawn-time injection. PowerShell is the only supported family
 /// (cmd.exe has no OSC 133 hook surface), so anything else is left unchanged.
 /// The generated profile is injected with `-NoExit -Command <snippet>`: the
@@ -260,6 +383,16 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
     printf '\e]7;file://%s\a' "${PWD//\%/%25}"
     printf '\e]133;A;click_events=1\a'
     unset __ODYTTY_PROMPT_EXECUTING
+    # Prompt-scoped key enhancement (D-b): while the prompt owns the line, push
+    # Kitty keyboard flag 0x1 (disambiguate ONLY -- Ctrl+C stays SIGINT), popped
+    # before the command runs (the DEBUG trap). The __ODYTTY_KEY_PUSHED flag
+    # keeps push/pop balanced across empty Enter (no command, no pop). Only
+    # active when OdyTTY advertises ODYTTY_KEY_ENHANCE; users bind raw CSI-u
+    # sequences via inputrc. Zero effect on programs the shell runs.
+    if [ -n "${ODYTTY_KEY_ENHANCE-}" ] && [ -z "${__ODYTTY_KEY_PUSHED-}" ]; then
+      printf '\e[>1u'
+      __ODYTTY_KEY_PUSHED=1
+    fi
   }
 
   __odytty_debug_trap() {
@@ -269,6 +402,12 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
     case "$BASH_COMMAND" in
       __odytty_status_capture*|__odytty_prompt_command*|__odytty_debug_trap*|__odytty_append_prompt_command*|__odytty_prepend_prompt_command*) return ;;
     esac
+    # Pop the prompt-scoped key enhancement before a real command runs, so the
+    # program the shell launches sees the terminal's default keyboard mode.
+    if [ -n "${__ODYTTY_KEY_PUSHED-}" ]; then
+      printf '\e[<1u'
+      unset __ODYTTY_KEY_PUSHED
+    fi
     printf '\e]133;C\a'
     __ODYTTY_COMMAND_STARTED=1
   }
@@ -384,6 +523,37 @@ const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" ]; then
   fi
   zle -N zle-line-pre-redraw __odytty_line_pre_redraw
 
+  # Prompt-scoped key enhancement (D-b): when OdyTTY advertises
+  # ODYTTY_KEY_ENHANCE, push Kitty keyboard flag 0x1 (disambiguate ONLY --
+  # Ctrl+C stays SIGINT) while the line editor owns the prompt, popped when the
+  # line is accepted or aborted. line-init/line-finish pair once per prompt, so
+  # push/pop stay balanced even on an empty Enter. Users then bind raw CSI-u
+  # sequences (e.g. `bindkey '^[[13;5u' <widget>`). Zero effect on the programs
+  # the shell launches; default off. Chain rather than clobber any existing
+  # init/finish widget, mirroring the pre-redraw wrap above.
+  if [ -n "${ODYTTY_KEY_ENHANCE-}" ]; then
+    if (( ${+widgets[zle-line-init]} )); then
+      zle -A zle-line-init __odytty_wrapped_line_init
+      __odytty_line_init() {
+        printf '\e[>1u'
+        zle __odytty_wrapped_line_init -- "$@"
+      }
+    else
+      __odytty_line_init() { printf '\e[>1u' }
+    fi
+    zle -N zle-line-init __odytty_line_init
+    if (( ${+widgets[zle-line-finish]} )); then
+      zle -A zle-line-finish __odytty_wrapped_line_finish
+      __odytty_line_finish() {
+        printf '\e[<1u'
+        zle __odytty_wrapped_line_finish -- "$@"
+      }
+    else
+      __odytty_line_finish() { printf '\e[<1u' }
+    fi
+    zle -N zle-line-finish __odytty_line_finish
+  fi
+
   # Button protocol emitters (docs/buttons.md); same contract as the bash
   # helpers -- clickable in OdyTTY, plain label anywhere else.
   odytty_button() {
@@ -420,6 +590,26 @@ const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" ]; then
 fi
 "#;
 
+// Duplicate-marks posture (fish >=4.0): fish emits its own OSC 133 A/B/C/D when
+// it detects a cooperating terminal, so with integration on the terminal can
+// receive each mark twice per prompt -- once from fish, once from this snippet.
+// The decision here is TOLERATE, not suppress, for two reasons the consumer
+// already backs:
+//   * Row-anchored last-writer-wins: both emitters fire during the same prompt
+//     render (no intervening newline), so their marks land on the SAME physical
+//     row; the screen stores one mark per row (`prompt_mark = Some(kind)`), so
+//     a doubled A/A, C/C, or D/D on a row collapses to a single mark of that
+//     kind before it ever reaches `prompt_marks()`. See the row-collapse in
+//     `Screen::handle_osc133`.
+//   * Cross-row backstop: `prompt_marks::command_blocks` takes the FIRST
+//     OutputStart/CommandEnd within a block and ignores the rest, so even if a
+//     duplicate landed on an adjacent row (or a divergent duplicate `D`
+//     arrived) the derived block is deterministic. Regression-pinned in
+//     `prompt_marks::tests::doubled_fish_style_marks_derive_one_coherent_block`.
+// Suppression was rejected: fish's native `133;A` does NOT carry
+// `click_events=1`, so dropping the snippet's marks would forfeit the
+// click-to-position advertisement (SH-CLICK) while keeping the doubling on the
+// C/D side. Tolerating keeps click-to-move working and the mark stream stable.
 const FISH_SNIPPET: &str = r#"if not set -q ODYTTY_SHELL_INTEGRATION
     set -gx ODYTTY_SHELL_INTEGRATION 1
 
@@ -501,8 +691,10 @@ end
 // `-NoExit -Command`. Windows PowerShell 5.1 lacks the backtick-e escape, so the
 // ESC/BEL bytes are built from `[char]27`/`[char]7`. The set-once
 // `ODYTTY_SHELL_INTEGRATION` guard mirrors the unix snippets, the wrapped
-// `prompt` emits `133;D` (previous command's `$LASTEXITCODE`) then
-// `133;A;click_events=1` then the user's prompt then `133;B`, and the PSReadLine
+// `prompt` emits `133;D` (previous command's `$LASTEXITCODE`, with a `-not $?`
+// synthetic-nonzero fold so a failed cmdlet that never sets `$LASTEXITCODE`
+// reports a failure instead of `D;0`) then `133;A;click_events=1` then the
+// user's prompt then `133;B`, and the PSReadLine
 // Enter handler emits `133;C` just before the command runs. The OSC 7 path is
 // emitted only when the current location is on a `FileSystem` provider, and it
 // carries `$PWD.ProviderPath` (the native filesystem path) rather than
@@ -530,8 +722,19 @@ const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
     }
 
     function global:prompt {
+        # Capture $? BEFORE any other statement runs -- a variable assignment
+        # succeeds and resets $? to $true, so the success flag of the user's
+        # last command must be read on the very first line. $LASTEXITCODE only
+        # tracks native executables and `exit`; a failed cmdlet (Get-ChildItem
+        # on a missing path) leaves $? false but never touches $LASTEXITCODE, so
+        # reporting the raw code would stamp 133;D;0 on a visible failure. When
+        # the last command failed but the code still reads 0, synthesize 1 so
+        # the command-status gutter never paints a failed cmdlet green. A native
+        # exe's real nonzero code is preserved untouched.
+        $__odytty_ok = $?
         $__odytty_exit = $LASTEXITCODE
         if ($null -eq $__odytty_exit) { $__odytty_exit = 0 }
+        if (-not $__odytty_ok -and $__odytty_exit -eq 0) { $__odytty_exit = 1 }
         $esc = [char]27
         $bel = [char]7
         $out = ""
@@ -787,6 +990,128 @@ mod tests {
     }
 
     #[test]
+    fn shell_family_readout_covers_every_family_honestly() {
+        // D-a/D-e: the Shell Integration readout enumerates one row per family,
+        // and each row's posture matches how the switch actually reaches it.
+        assert_eq!(ShellFamily::ALL.len(), 5);
+
+        // The four injected families map back to an injection-capable ShellKind;
+        // nushell is detection + docs only (no injection surface).
+        assert_eq!(ShellFamily::Bash.injectable(), Some(ShellKind::Bash));
+        assert_eq!(ShellFamily::Zsh.injectable(), Some(ShellKind::Zsh));
+        assert_eq!(ShellFamily::Fish.injectable(), Some(ShellKind::Fish));
+        assert_eq!(
+            ShellFamily::PowerShell.injectable(),
+            Some(ShellKind::PowerShell)
+        );
+        assert_eq!(ShellFamily::Nushell.injectable(), None);
+
+        // Postures: bash/zsh/fish injected everywhere, PowerShell Windows-only,
+        // nushell native-config.
+        assert_eq!(ShellFamily::Bash.posture(), IntegrationPosture::Injected);
+        assert_eq!(
+            ShellFamily::PowerShell.posture(),
+            IntegrationPosture::InjectedWindowsOnly
+        );
+        assert_eq!(
+            ShellFamily::Nushell.posture(),
+            IntegrationPosture::ConfigureNatively
+        );
+
+        // Every readout row is non-empty; the PowerShell row must state the
+        // Windows/Console-API reality (never promise VT key bindings), and the
+        // nushell row must point at the native config, not injection.
+        for family in ShellFamily::ALL {
+            assert!(!family.display_name().is_empty());
+            assert!(!family.readout().is_empty());
+        }
+        assert!(ShellFamily::PowerShell.readout().contains("Windows only"));
+        assert!(ShellFamily::PowerShell.readout().contains("PSReadLine"));
+        assert!(
+            ShellFamily::Nushell
+                .readout()
+                .contains("use_kitty_protocol")
+        );
+    }
+
+    #[test]
+    fn shell_family_detects_nushell_for_the_readout() {
+        // D-e: nushell is recognized for the readout (detection + docs only).
+        assert_eq!(ShellFamily::parse("nu"), Some(ShellFamily::Nushell));
+        assert_eq!(ShellFamily::parse("nushell"), Some(ShellFamily::Nushell));
+        assert_eq!(ShellFamily::parse("-nu"), Some(ShellFamily::Nushell));
+        // The injected families still classify.
+        assert_eq!(ShellFamily::parse("bash"), Some(ShellFamily::Bash));
+        assert_eq!(ShellFamily::parse("pwsh"), Some(ShellFamily::PowerShell));
+        // Unknown shells are None (no readout row, no injection).
+        assert_eq!(ShellFamily::parse("cmd"), None);
+        assert_eq!(ShellFamily::parse("dash"), None);
+    }
+
+    #[test]
+    fn bash_and_zsh_prompt_scoped_key_enhancement_pushes_and_pops_flag_one() {
+        // D-b: bash and zsh push Kitty keyboard flag 0x1 (disambiguate only)
+        // while the prompt owns the line and pop it before the command runs.
+        // The push MUST be flag 0x1 exactly (`>1u`) -- flag 0x8 would stop
+        // Ctrl+C generating SIGINT at the prompt, which the design forbids.
+        let bash = snippet(ShellKind::Bash);
+        let zsh = snippet(ShellKind::Zsh);
+
+        for (name, snip) in [("bash", bash), ("zsh", zsh)] {
+            // Gated on the discovery variable OdyTTY injects only when the knob
+            // is on; without it, no push/pop is emitted (default off).
+            assert!(
+                snip.contains("ODYTTY_KEY_ENHANCE"),
+                "{name}: key enhancement must be gated on the discovery variable"
+            );
+            // Push flag 0x1, pop 1.
+            assert!(
+                snip.contains(r">1u"),
+                "{name}: must push Kitty keyboard flag 0x1 (disambiguate)"
+            );
+            assert!(
+                snip.contains(r"<1u"),
+                "{name}: must pop the pushed flag before the command runs"
+            );
+            // Must NOT push the report-all-keys flag (0x8) -- Ctrl+C stays SIGINT.
+            assert!(
+                !snip.contains(r">8u") && !snip.contains(r">9u"),
+                "{name}: must not push flags that break Ctrl+C SIGINT"
+            );
+        }
+
+        // zsh uses the line-init/line-finish widget pair (chained, not
+        // clobbered), mirroring the pre-redraw edit-region wrap.
+        assert!(
+            zsh.contains("zle -N zle-line-init __odytty_line_init"),
+            "zsh must register a line-init widget for the push"
+        );
+        assert!(
+            zsh.contains("zle -N zle-line-finish __odytty_line_finish"),
+            "zsh must register a line-finish widget for the pop"
+        );
+
+        // bash keeps push/pop balanced across empty Enter via a state flag.
+        assert!(
+            bash.contains("__ODYTTY_KEY_PUSHED"),
+            "bash must track the pushed state to stay balanced across empty Enter"
+        );
+
+        // fish and PowerShell get NO push/pop: fish manages the protocol itself
+        // and PowerShell key bindings use the Console API, not a VT protocol.
+        let fish = snippet(ShellKind::Fish);
+        let ps = snippet(ShellKind::PowerShell);
+        assert!(
+            !fish.contains("ODYTTY_KEY_ENHANCE") && !fish.contains(">1u"),
+            "fish must not carry the prompt-scoped key enhancement (self-managed)"
+        );
+        assert!(
+            !ps.contains("ODYTTY_KEY_ENHANCE") && !ps.contains(">1u"),
+            "PowerShell must not carry the push/pop (Console API path)"
+        );
+    }
+
+    #[test]
     fn unknown_shell_errors_cleanly() {
         // cmd.exe has no OSC 133 hook surface, so it stays unsupported -- its
         // name must not classify, and the error must list only what we ship.
@@ -911,6 +1236,42 @@ mod tests {
         assert!(
             ps.contains("AddLine()"),
             "incomplete input must continue the line, not accept it"
+        );
+    }
+
+    #[test]
+    fn powershell_snippet_folds_failed_cmdlet_into_nonzero_status() {
+        // D-d fails-before/passes-after: `$LASTEXITCODE` only tracks native
+        // executables and `exit`. A failed cmdlet (e.g. Get-ChildItem on a
+        // missing path) leaves `$?` false but never touches `$LASTEXITCODE`, so
+        // the old snippet reported `133;D;0` -- a visible failure painted as
+        // success in the command-status gutter. The refinement captures `$?`
+        // first (before any statement resets it) and, when the last command
+        // failed but the code still reads 0, synthesizes a nonzero.
+        let ps = snippet(ShellKind::PowerShell);
+        assert!(
+            ps.contains("$__odytty_ok = $?"),
+            "must snapshot $? before any statement clobbers it"
+        );
+        assert!(
+            ps.contains("if (-not $__odytty_ok -and $__odytty_exit -eq 0) { $__odytty_exit = 1 }"),
+            "a failed cmdlet with a zero exit code must fold to a synthetic nonzero"
+        );
+        // The success flag must be captured on the FIRST line of the prompt
+        // body, ahead of the `$LASTEXITCODE` read (an assignment resets $?).
+        let ok_at = ps.find("$__odytty_ok = $?").expect("ok capture present");
+        let exit_at = ps
+            .find("$__odytty_exit = $LASTEXITCODE")
+            .expect("exit read present");
+        assert!(
+            ok_at < exit_at,
+            "$? must be read before $LASTEXITCODE, else the read resets it"
+        );
+        // A native exe's real nonzero code must be preserved untouched: the
+        // fold only fires when the reported code is still 0.
+        assert!(
+            ps.contains("$__odytty_exit -eq 0"),
+            "the fold must only apply when the exit code is still 0"
         );
     }
 

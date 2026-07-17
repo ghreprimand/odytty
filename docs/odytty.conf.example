@@ -190,6 +190,13 @@ buttons = off
 buttons_iterm_compat = off
 buttons_sticky = off
 shell_integration = off
+# Prompt-scoped Kitty keyboard enhancement for integrated bash/zsh shells.
+# Requires shell_integration = on. While the prompt is active the shell enables
+# disambiguate mode (Ctrl+C still interrupts) so modified keys like Ctrl+Enter
+# arrive as distinct sequences you can bind in inputrc/bindkey; it is turned off
+# before each command runs. fish self-manages the protocol and PowerShell uses
+# the Console API, so neither is affected. Off by default.
+shell_key_enhancement = off
 keybinds =
 # Example:
 # keybinds = ctrl+shift+y=copy;ctrl+alt+v=paste

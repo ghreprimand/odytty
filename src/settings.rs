@@ -1513,6 +1513,13 @@ pub struct Settings {
     /// receive OdyTTY's prompt-mark hooks without editing user rc files. Off by
     /// default; affects newly spawned shells only.
     pub shell_integration: bool,
+    /// Prompt-scoped Kitty keyboard enhancement for integrated bash/zsh shells.
+    /// When on (and `shell_integration` is on), the shell pushes keyboard flag
+    /// 0x1 (disambiguate only) while the prompt owns the line and pops it before
+    /// each command, so modified keys like Ctrl+Enter become distinct CSI-u
+    /// sequences the user can bind. Zero effect on programs the shell launches;
+    /// fish/PowerShell are unaffected. Off by default.
+    pub shell_key_enhancement: bool,
     /// Restore the previous workspace/tab/pane shape at launch (WP2, sub-ODP
     /// 8a). Off by default; only a bare `odytty` launch restores, and any CLI
     /// argument suppresses it. Shape-only (names/titles/order/split-tree/cwd),
@@ -1774,6 +1781,7 @@ impl Default for Settings {
             buttons_iterm_compat: DEFAULT_BUTTONS_ITERM_COMPAT,
             buttons_sticky: DEFAULT_BUTTONS_STICKY,
             shell_integration: DEFAULT_SHELL_INTEGRATION,
+            shell_key_enhancement: DEFAULT_SHELL_KEY_ENHANCEMENT,
             restore_workspaces: DEFAULT_RESTORE_WORKSPACES,
             new_output_fade: DEFAULT_NEW_OUTPUT_FADE,
             window_border: DEFAULT_WINDOW_BORDER,
@@ -2518,6 +2526,12 @@ impl Settings {
             DEFAULT_SHELL_INTEGRATION,
             &mut warn,
         );
+        let shell_key_enhancement = parse_bool_setting(
+            get(SHELL_KEY_ENHANCEMENT_ENV).as_deref(),
+            SHELL_KEY_ENHANCEMENT_ENV,
+            DEFAULT_SHELL_KEY_ENHANCEMENT,
+            &mut warn,
+        );
         let restore_workspaces = parse_bool_setting(
             get(RESTORE_WORKSPACES_ENV).as_deref(),
             RESTORE_WORKSPACES_ENV,
@@ -2734,6 +2748,7 @@ impl Settings {
             buttons_iterm_compat,
             buttons_sticky,
             shell_integration,
+            shell_key_enhancement,
             restore_workspaces,
             new_output_fade,
             window_border,
@@ -2979,6 +2994,10 @@ impl Settings {
         values.insert(
             SHELL_INTEGRATION_ENV,
             bool_display(self.shell_integration).to_owned(),
+        );
+        values.insert(
+            SHELL_KEY_ENHANCEMENT_ENV,
+            bool_display(self.shell_key_enhancement).to_owned(),
         );
         values.insert(
             RESTORE_WORKSPACES_ENV,

@@ -763,6 +763,43 @@ mod tests {
     }
 
     #[test]
+    fn doubled_fish_style_marks_derive_one_coherent_block() {
+        // D-c (fish >=4.0 duplicate-marks hazard): with shell integration on,
+        // fish emits its own OSC 133 A/B/C/D natively AND the OdyTTY snippet
+        // emits them, so each mark can arrive twice per prompt (possibly a
+        // DIVERGENT duplicate `D`). The decision is TOLERATE.
+        //
+        // The primary defense is at the screen layer: both emitters fire during
+        // the same prompt render, so their marks anchor to the same physical
+        // row, and the row stores one mark per row (last-writer-wins) -- a
+        // same-row A/A, C/C or D/D collapses to a single mark before it ever
+        // reaches `prompt_marks()`. This test pins the cross-row BACKSTOP: even
+        // in the pessimistic case where a duplicate lands on an adjacent row and
+        // a second `D` reports a different exit, `command_blocks` takes the first
+        // OutputStart/CommandEnd within the block, so the derivation stays
+        // deterministic and the divergent duplicate never corrupts the exit.
+        let marks = [
+            (0, A),          // snippet prompt-start
+            (1, A),          // fish native prompt-start (adjacent, pessimistic)
+            (2, C),          // snippet output-start
+            (3, C),          // fish native output-start (adjacent)
+            (5, d(Some(0))), // snippet command-end: the real exit
+            (6, d(Some(1))), // divergent native duplicate: MUST be ignored
+            (7, A),          // next prompt
+        ];
+        let blocks = command_blocks(&marks);
+        assert_eq!(blocks.len(), 3);
+        // The command block spans from the second prompt-start (row 1) to the
+        // next prompt (row 7): first C wins the output start, first D wins the
+        // exit -- the divergent D@6 exit 1 is dropped.
+        assert_eq!(blocks[1].output_start, Some(2));
+        assert_eq!(blocks[1].output, CommandOutput::Rows { start: 2, end: 4 });
+        assert_eq!(blocks[1].exit, Some(0));
+        // Status is derived from that single, deterministic exit.
+        assert_eq!(command_status(&blocks[1]), CommandStatus::Success);
+    }
+
+    #[test]
     fn duplicate_marks_do_not_panic_and_take_the_first() {
         // Defensive: duplicate OutputStart / CommandEnd rows take the first of
         // each and never panic.

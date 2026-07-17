@@ -169,6 +169,12 @@ impl PtySession {
         // env vec lands in the ConPTY environment block via `build_env_block`,
         // so ODYTTY_BUTTONS crosses ConPTY like TERM_PROGRAM does.
         command.apply_buttons_discovery_env(settings.buttons);
+        // Prompt-scoped key-enhancement discovery, same gate as the Unix path.
+        // On Windows this is inert: only the bash/zsh snippets read
+        // ODYTTY_KEY_ENHANCE, and the injected shell here is PowerShell (whose
+        // key bindings use the PSReadLine/Console API, not a VT protocol). The
+        // advertisement crosses ConPTY harmlessly for parity.
+        command.apply_key_enhancement_discovery_env(settings.shell_key_enhancement);
         if let Some(path) = working_directory {
             command.current_dir(path);
         }

@@ -495,6 +495,43 @@ Existing shells do not change until restarted. Bash uses an interactive
 | `powershell` / `pwsh` | Loads an OdyTTY PowerShell profile through `-NoExit -Command`; PSReadLine drives the command-start mark |
 | `cmd.exe` | Unsupported because it has no OSC 133 hook surface |
 
+The single switch means different things per shell, so the Settings section
+lists what each one delivers rather than implying a uniform capability:
+
+| Shell | What the switch delivers |
+| --- | --- |
+| `bash` | Prompt marks, cwd, click-to-position, button emitters; optional prompt key enhancement |
+| `zsh` | The bash set plus per-keystroke edit-region reports; optional prompt key enhancement |
+| `fish` | Prompt marks, cwd, edit region, click-to-position, button emitters; fish 4+ drives the keyboard protocol itself |
+| `powershell` / `pwsh` | Windows only: prompt marks, cwd, button emitters; key bindings use the PSReadLine/Console API, not a VT protocol |
+| `nushell` | Configure natively: set `$env.config.shell_integration.osc133`/`osc7`/`osc2` and `use_kitty_protocol` in your nushell config; OdyTTY injects nothing |
+
+Integration applies only to shells OdyTTY launches. Nested shells, `sudo`, and
+`exec`-swaps are not covered; `fish` survives a plain nested launch through
+`XDG_DATA_DIRS`, and SSH tabs keep the bash bootstrap.
+
+### Prompt Key Enhancement (bash/zsh)
+
+Set `shell_key_enhancement = on` (with `shell_integration` on) to make modified
+keys reachable at the `bash` and `zsh` prompt. While the prompt is active the
+shell enables the Kitty keyboard protocol in disambiguate mode only, so `Ctrl+C`
+still interrupts, then turns it off before each command runs so the programs the
+shell launches see the terminal's default keyboard mode. Modified keys such as
+`Ctrl+Enter`, `Shift+Enter`, and `Ctrl+Backspace` then arrive as distinct
+escape sequences you can bind:
+
+```sh
+# bash (~/.inputrc)
+"\e[13;5u": "run-this-command\n"   # Ctrl+Enter
+
+# zsh (~/.zshrc)
+bindkey '^[[13;5u' accept-line     # Ctrl+Enter
+```
+
+`fish` manages the protocol itself (use `bind ctrl-enter ...`), and PowerShell
+key bindings use `Set-PSReadLineKeyHandler` through the Console API, so neither
+needs this knob. Off by default.
+
 For manual setup, SSH or login shells, or explicit rc management, print and
 source the integration:
 

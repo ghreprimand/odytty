@@ -153,6 +153,25 @@ impl CommandBuilder {
         self
     }
 
+    /// Prompt-scoped key-enhancement discovery (D-b): when the
+    /// `shell_key_enhancement` knob is on, advertise it to an integrated
+    /// bash/zsh shell by setting `ODYTTY_KEY_ENHANCE=1`; the snippet guards its
+    /// prompt-scoped Kitty-keyboard push/pop on this variable, so without it the
+    /// push/pop never fires (default off). When off, set nothing at all, so the
+    /// snippet's `[ -n "$ODYTTY_KEY_ENHANCE" ]` guard tracks the knob exactly.
+    /// Independent of the buttons advertisement; only the bash/zsh snippets read
+    /// it (fish self-manages the protocol, PowerShell uses the Console API), so
+    /// it is inert for every other child. Shared by both platform spawn paths
+    /// like the buttons advertisement; harmless on Windows where no snippet
+    /// consumes it.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    fn apply_key_enhancement_discovery_env(&mut self, key_enhancement_enabled: bool) -> &mut Self {
+        if key_enhancement_enabled {
+            self.env("ODYTTY_KEY_ENHANCE", "1");
+        }
+        self
+    }
+
     pub fn current_dir(&mut self, path: impl Into<PathBuf>) -> &mut Self {
         self.current_dir = Some(path.into());
         self
@@ -204,6 +223,29 @@ mod tests {
         assert!(
             off.env_for_test().is_empty(),
             "gate off must add no environment at all"
+        );
+    }
+
+    /// Prompt-scoped key-enhancement discovery (D-b): the knob on injects
+    /// exactly `ODYTTY_KEY_ENHANCE=1`; off injects nothing, so the bash/zsh
+    /// snippet's `[ -n "$ODYTTY_KEY_ENHANCE" ]` guard tracks the knob. Shared
+    /// injection site for both backends, same as the buttons advertisement.
+    #[test]
+    fn key_enhancement_discovery_env_tracks_the_knob() {
+        let mut on = CommandBuilder::new("sh");
+        on.apply_key_enhancement_discovery_env(true);
+        assert!(
+            on.env_for_test()
+                .iter()
+                .any(|(k, v)| k == "ODYTTY_KEY_ENHANCE" && v == "1"),
+            "knob on must inject ODYTTY_KEY_ENHANCE=1"
+        );
+
+        let mut off = CommandBuilder::new("sh");
+        off.apply_key_enhancement_discovery_env(false);
+        assert!(
+            off.env_for_test().is_empty(),
+            "knob off must add no environment at all"
         );
     }
 }

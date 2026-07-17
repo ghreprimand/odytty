@@ -15,7 +15,7 @@ pub(super) struct Section {
     pub(super) groups: &'static [&'static str],
 }
 
-/// Compile-time section table. Maps 15 raw groups → 10 display sections.
+/// Compile-time section table. Maps 16 raw groups → 11 display sections.
 /// Both the Level-1 section list and the Level-2 entry filter are derived
 /// from this table; filter logic is never duplicated per section.
 pub(super) const SECTIONS: &[Section] = &[
@@ -50,6 +50,14 @@ pub(super) const SECTIONS: &[Section] = &[
     Section {
         name: "Input",
         groups: &["Input", "Clipboard"],
+    },
+    // Shell integration: the master switch plus the sub-features it enables
+    // (click-to-position, clickable buttons, prompt key enhancement). Grouped
+    // separately from Input so the "one switch, per-shell reality" readout has
+    // a home that never over-promises.
+    Section {
+        name: "Shell Integration",
+        groups: &["Shell Integration"],
     },
     Section {
         name: "Sessions",

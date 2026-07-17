@@ -94,6 +94,7 @@ impl PtySession {
             working_directory,
             false,
             false,
+            false,
         )
     }
 
@@ -107,6 +108,7 @@ impl PtySession {
             working_directory,
             settings.shell_integration,
             settings.buttons,
+            settings.shell_key_enhancement,
         )
     }
 
@@ -115,11 +117,13 @@ impl PtySession {
         working_directory: Option<PathBuf>,
         shell_integration: bool,
         buttons: bool,
+        key_enhancement: bool,
     ) -> Result<Self> {
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
         let mut command = CommandBuilder::new(shell);
         command.apply_terminal_env();
         command.apply_buttons_discovery_env(buttons);
+        command.apply_key_enhancement_discovery_env(key_enhancement);
         if shell_integration {
             crate::shell_integration::apply_spawn_integration(&mut command);
         }

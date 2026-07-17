@@ -7,6 +7,72 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Shell Integration settings section, prompt key enhancement, and mark refinements
+
+Shell integration gained a dedicated settings section and a new opt-in knob,
+and three per-shell rough edges were resolved.
+
+**Shell Integration section.** The master switch (`shell_integration`), the
+click-to-position sub-gate (`sh_click`), the clickable-buttons gates, and the
+new key-enhancement knob now live under one "Shell Integration" panel section
+instead of being scattered through Input. The section is honest about what the
+one switch does per shell: bash, zsh, and fish get prompt marks, cwd, and button
+emitters (zsh and fish also report the edited line); PowerShell is Windows-only
+and uses the Console API for key bindings; nushell is configured natively in its
+own config, not injected. The per-shell capability model is a pure, tested
+descriptor so the readout can never over-promise, and it records that
+integration applies only to shells OdyTTY launches (nested shells, sudo, and
+exec-swaps are structurally invisible).
+
+**Prompt key enhancement (bash/zsh), default off.** A new
+`shell_key_enhancement` knob makes modified keys reachable at the bash and zsh
+prompt. When on (and shell integration is on), the integrated shell pushes the
+Kitty keyboard protocol in disambiguate mode only — so Ctrl+C keeps generating
+SIGINT — while the prompt owns the line, and pops it before each command runs so
+the programs the shell launches see the terminal's default keyboard mode.
+Modified keys such as Ctrl+Enter, Shift+Enter, and Ctrl+Backspace then arrive as
+distinct CSI-u sequences bindable through inputrc/bindkey. zsh uses the
+line-init/line-finish widget pair; bash uses the prompt-command and DEBUG-trap
+chokepoints with a state flag that keeps push and pop balanced across an empty
+Enter. Discovery rides an injected `ODYTTY_KEY_ENHANCE=1`, mirroring the buttons
+advertisement. fish manages the protocol itself and PowerShell uses the Console
+API, so neither carries the push/pop. The distinct modified-key sequences depend
+on the shipped CSI-u encoder handling modified Enter/Tab/Backspace under
+disambiguate; the push/pop mechanism and its gating are complete and tested
+independently of that encoder work.
+
+**fish duplicate OSC 133 marks: tolerate.** fish 4.0+ emits its own OSC 133
+A/B/C/D when it detects a cooperating terminal, so with integration on a mark can
+arrive twice per prompt. The resolution is to tolerate, not suppress: both
+emitters fire during the same prompt render, so their marks anchor to the same
+physical row where the row-anchored model keeps a single mark, and the command
+derivation already takes the first output-start/command-end within a block, so a
+divergent duplicate never corrupts the exit. Suppression was rejected because
+fish's native prompt-start does not carry `click_events=1`; dropping the
+snippet's marks would forfeit click-to-position. Pinned with a cross-row backstop
+test.
+
+**PowerShell exit-status accuracy.** The `133;D` mark read `$LASTEXITCODE`, which
+only tracks native executables and `exit`; a failed cmdlet left `$?` false but
+never touched it, so a visible failure reported success. The prompt now captures
+`$?` on its first line (before any statement resets it) and folds a failed
+command with a zero code into a synthetic nonzero, so the command-status gutter
+no longer paints a failed cmdlet green. A native executable's real code is
+preserved.
+
+**nushell.** Recognized for the settings readout and documented with its native
+config pointers (`$env.config.shell_integration.osc133`/`osc7`/`osc2` and
+`use_kitty_protocol`); there is no clean spawn-time injection surface, so OdyTTY
+injects nothing.
+
+Everything here defaults off or is inert until shell integration is enabled.
+Verified: `cargo test` (lib suite green), `cargo fmt --check`, and
+`cargo clippy --all-targets --locked` clean. Windows: the key-enhancement
+advertisement crosses ConPTY but is inert (no snippet consumes it there); the
+PowerShell exit-status refinement rides the windows-latest CI leg.
+
+---
+
 ## 2026-07-17 -- Window opacity: compose wallpaper softening with transparency, no 100% step
 
 Window opacity had a hard visual step at the top of its range. At exactly 100%

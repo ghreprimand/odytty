@@ -104,6 +104,7 @@ pub const BUTTONS_ENV: &str = "ODYTTY_BUTTONS";
 pub const BUTTONS_ITERM_COMPAT_ENV: &str = "ODYTTY_BUTTONS_ITERM_COMPAT";
 pub const BUTTONS_STICKY_ENV: &str = "ODYTTY_BUTTONS_STICKY";
 pub const SHELL_INTEGRATION_ENV: &str = "ODYTTY_SHELL_INTEGRATION";
+pub const SHELL_KEY_ENHANCEMENT_ENV: &str = "ODYTTY_SHELL_KEY_ENHANCEMENT";
 pub const RESTORE_WORKSPACES_ENV: &str = "ODYTTY_RESTORE_WORKSPACES";
 pub const CVD_MODE_ENV: &str = "ODYTTY_CVD_MODE";
 pub const CVD_STRENGTH_ENV: &str = "ODYTTY_CVD_STRENGTH";
@@ -228,6 +229,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     BUTTONS_ITERM_COMPAT_ENV,
     BUTTONS_STICKY_ENV,
     SHELL_INTEGRATION_ENV,
+    SHELL_KEY_ENHANCEMENT_ENV,
     RESTORE_WORKSPACES_ENV,
     CVD_MODE_ENV,
     CVD_STRENGTH_ENV,
@@ -852,6 +854,20 @@ pub const DEFAULT_BUTTONS_STICKY: bool = false;
 /// click-to-position support from cooperating shells) can work without editing
 /// the user's rc files. Off by default; existing shells are never modified.
 pub const DEFAULT_SHELL_INTEGRATION: bool = false;
+
+/// Prompt-scoped key enhancement for bash/zsh (`ODYTTY_SHELL_KEY_ENHANCEMENT`):
+/// when on, integrated bash/zsh shells push Kitty keyboard flag 0x1
+/// (disambiguate only, so Ctrl+C keeps generating SIGINT) while the prompt owns
+/// the line and pop it before each command runs. This makes modified keys like
+/// Ctrl+Enter, Shift+Enter, and Ctrl+Backspace reachable as distinct CSI-u
+/// sequences that users can bind through inputrc/bindkey, with zero effect on
+/// the programs the shell launches. Sub-feature of shell integration: the
+/// push/pop only ships when `shell_integration` is also on, and OdyTTY injects
+/// `ODYTTY_KEY_ENHANCE=1` into the child environment so the snippet can discover
+/// support (mirroring buttons discovery). fish manages the keyboard protocol
+/// itself and PowerShell key bindings use the PSReadLine/Console API, so neither
+/// is affected. Off by default.
+pub const DEFAULT_SHELL_KEY_ENHANCEMENT: bool = false;
 
 /// Remote OSC 133 shell integration for SSH tabs (`ODYTTY_REMOTE_INTEGRATION`):
 /// when on, an SSH tab injects OdyTTY's bash prompt-mark bootstrap on the remote
