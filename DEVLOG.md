@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Launch-session seeding consolidated; headless tests exercise the real startup path
+
+Hardening after the launch-pane button-gate fix below. That bug had a
+structural cause: the launch session's settings-derived model defaults (base
+colors and palette, OSC 52 read policy, kitty named transports, scrollback
+cap, cursor defaults, button gates) were seeded by inline code that only ran
+in production, while the headless test harness built its terminal separately
+and set whatever state each test needed by hand. A default missing from the
+launch path was therefore invisible to the entire suite.
+
+Two changes close that gap. First, the launch-session seeding now lives in one
+shared helper, `seed_launch_session_model`, called by the production startup
+path — any future per-session default belongs in it. Second, the headless test
+harness routes its terminal construction through that same helper, so every
+headless test now exercises the real startup seeding; a default wired into the
+launch path is honored in tests, and one missing there is missing in tests
+too. The two construction paths can no longer drift.
+
+Regression tests pin the fixed bug directly: with `buttons` on in settings and
+no manual gate call anywhere, a click on a button in the launch session writes
+the exact report envelope; the `buttons_iterm_compat` sub-gate rides the same
+seeding; and default settings leave the gate off through the real path. One
+fixture is deliberately exempt: the restore/append tests need a terminal built
+without seeding (that is the very shape they test the re-seeding sweep
+against), so the harness now exposes an explicitly-named unseeded variant for
+them alone.
+
+Behavior note: headless fixtures previously inherited the terminal core's
+construction defaults, which arm the two button sub-gates; seeding from
+settings turns them off by default like production. The armed-fixture helper
+in the click tests now arms all three gates explicitly. No production
+behavior changes; the seeding helper performs the same calls the inline code
+did, in the same order.
+
+`cargo test` green across the lib suite and every integration binary;
+`cargo fmt --check` and `cargo clippy --all-targets --locked` clean.
+
 ## 2026-07-17 -- Buttons: seed the gate on the launch session
 
 Fix: with the buttons setting on, the very first session in a window still

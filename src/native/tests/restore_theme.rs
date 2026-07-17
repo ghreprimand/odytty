@@ -63,7 +63,11 @@ fn unseeded_app(theme: Theme) -> Option<App> {
         theme,
         ..Default::default()
     };
-    let (app, _terminal) = headless_app_with(NativeOptions::default(), dims, settings);
+    let (app, _terminal) = crate::native::test_support::headless_app_unseeded_with(
+        NativeOptions::default(),
+        dims,
+        settings,
+    );
     Some(app)
 }
 

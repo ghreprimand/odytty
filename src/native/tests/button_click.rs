@@ -48,9 +48,12 @@ type TerminalHandle = Arc<Mutex<crate::core::Terminal>>;
 /// The recording writer's captured-bytes handle.
 type CapturedBytes = Arc<Mutex<Vec<u8>>>;
 
-/// Build a headless App over a recording writer, optionally enable the button
-/// master gate, and feed `content`. Returns the app, the terminal handle, and
-/// the captured-bytes handle.
+/// Build a headless App over a recording writer, optionally arm ALL THREE
+/// button gates (the fully-enabled configuration), and feed `content`.
+/// Returns the app, the terminal handle, and the captured-bytes handle.
+/// The harness seeds the terminal from `Settings` (all gates default-off), so
+/// the armed fixture flips them explicitly; per-gate behavior is pinned by the
+/// dedicated gate tests below and by the core suite.
 fn build_app(content: &[u8], buttons_enabled: bool) -> (App, TerminalHandle, CapturedBytes) {
     let dims = Dimensions::new(COLS, ROWS);
     let recorder = RecordingWriter::default();
@@ -62,6 +65,8 @@ fn build_app(content: &[u8], buttons_enabled: bool) -> (App, TerminalHandle, Cap
         let mut t = terminal.lock().expect("terminal");
         if buttons_enabled {
             t.set_buttons_enabled(true);
+            t.set_buttons_iterm_compat(true);
+            t.set_buttons_sticky(true);
         }
         t.advance(content);
     }
@@ -99,6 +104,93 @@ fn settle_focus_click(app: &mut App, bytes: &CapturedBytes) {
 
 fn drain(bytes: &CapturedBytes) -> Vec<u8> {
     std::mem::take(&mut *bytes.lock().expect("bytes"))
+}
+
+/// Build a headless App over a recording writer with the SUPPLIED settings and
+/// NO manual gate mutation: the button gates arrive only through the shared
+/// launch-session seeding (`seed_launch_session_model`) inside the harness,
+/// exactly as production startup seeds the first pane.
+fn build_app_seeded(
+    content: &[u8],
+    settings: crate::settings::Settings,
+) -> (App, TerminalHandle, CapturedBytes) {
+    let dims = Dimensions::new(COLS, ROWS);
+    let recorder = RecordingWriter::default();
+    let bytes = recorder.bytes.clone();
+    let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
+    let (mut app, terminal) =
+        headless_app_with_writer(NativeOptions::default(), dims, settings, writer);
+    terminal.lock().expect("terminal").advance(content);
+    app.set_test_cell_for_test(cell(CELL_W, CELL_H));
+    (app, terminal, bytes)
+}
+
+/// REGRESSION (launch-session gate seeding): with the `buttons` setting on,
+/// the launch session must honor button sequences WITHOUT any manual
+/// `set_buttons_enabled` — the gate arrives purely through the shared launch
+/// seeding that `run_native` and this harness both call. The shipped bug:
+/// new tabs/panes/attaches seeded the gate but the launch pane did not, and
+/// no test noticed because every fixture set the gate by hand.
+#[test]
+fn launch_seeding_honors_the_buttons_setting_without_a_manual_gate() {
+    let settings = crate::settings::Settings {
+        buttons: true,
+        ..crate::settings::Settings::default()
+    };
+    let (mut app, _terminal, bytes) = build_app_seeded(T2_BUTTON, settings);
+    settle_focus_click(&mut app, &bytes);
+    move_to_cell(&mut app, 0, 3);
+    press(&mut app);
+    release(&mut app);
+    assert_eq!(
+        drain(&bytes),
+        T2_ENVELOPE,
+        "settings.buttons alone must arm the launch session's gate"
+    );
+}
+
+/// The `buttons_iterm_compat` sub-gate rides the same launch seeding: a
+/// Tier 1 definition is only accepted when settings carry BOTH the master and
+/// the compat gate, with no manual setter anywhere.
+#[test]
+fn launch_seeding_carries_the_iterm_compat_sub_gate() {
+    let settings = crate::settings::Settings {
+        buttons: true,
+        buttons_iterm_compat: true,
+        ..crate::settings::Settings::default()
+    };
+    let (mut app, _terminal, bytes) = build_app_seeded(
+        b"ab\x1b]1337;Button=type=custom;code=42;icon=star\x07",
+        settings,
+    );
+    settle_focus_click(&mut app, &bytes);
+    move_to_cell(&mut app, 0, 2); // the anchor cell
+    press(&mut app);
+    release(&mut app);
+    assert_eq!(
+        drain(&bytes),
+        [
+            0x1b, 0x5b, 0x3f, 0x31, 0x33, 0x33, 0x37, 0x3b, 0x34, 0x32, 0x7e
+        ],
+        "settings-seeded sub-gate must accept the Tier 1 definition"
+    );
+}
+
+/// Default settings through the same seeding leave the gate off: the label
+/// prints as plain text and a click writes nothing. Pins default-off through
+/// the REAL seeding path rather than through a hand-built terminal.
+#[test]
+fn launch_seeding_leaves_buttons_off_at_default_settings() {
+    let (mut app, _terminal, bytes) =
+        build_app_seeded(T2_BUTTON, crate::settings::Settings::default());
+    settle_focus_click(&mut app, &bytes);
+    move_to_cell(&mut app, 0, 3);
+    press(&mut app);
+    release(&mut app);
+    assert!(
+        drain(&bytes).is_empty(),
+        "default settings must leave the launch session's gate off"
+    );
 }
 
 #[test]

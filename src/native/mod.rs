@@ -179,37 +179,7 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     let mut model = Terminal::new(options.initial_grid.columns, options.initial_grid.rows);
     model.set_local_hostname(local_hostname.clone());
     seed_initial_working_directory(&mut model, options.working_directory.as_deref());
-    model.set_base_colors(
-        rgb(theme.foreground),
-        rgb(theme.background),
-        rgb(if settings.themed_ui_roles {
-            theme.cursor
-        } else {
-            theme.foreground
-        }),
-    );
-    // C29: seed the base 16 ANSI palette so OSC 4 queries report the theme's
-    // colors rather than the hardcoded xterm table.
-    model.set_base_palette(theme.palette.map(rgb));
-    model.set_osc52_read_enabled(settings.osc52_read);
-    model.set_kitty_named_transports_enabled(settings.kitty_named_transports);
-    // Bound scrollback memory from the start so the very first session is capped
-    // before any output streams in (`0` = unbounded). See SCROLLBACK-CAP.
-    model.set_scrollback_limit(settings.scrollback_limit());
-    // Apply the host default cursor shape/blink policy from settings before any
-    // output. An application's DECSCUSR can still override this at runtime; RIS/
-    // DECSTR return to it. Presentation policy only — the grid contents are
-    // unaffected.
-    model.set_cursor_defaults(settings.cursor_style, settings.cursor_blink.enabled());
-    // Button protocol gate (docs/buttons.md). New tabs, panes, and attaches
-    // receive this through `initialize_session_with`; the very first session is
-    // built here, ahead of that path, so its gate must be seeded directly or
-    // the launch pane would silently ignore button sequences while every later
-    // pane honored them. Off by default => byte-identical when the setting is
-    // off. Sub-gates ride the same master.
-    model.set_buttons_enabled(settings.buttons);
-    model.set_buttons_iterm_compat(settings.buttons_iterm_compat);
-    model.set_buttons_sticky(settings.buttons_sticky);
+    seed_launch_session_model(&mut model, &settings);
 
     // Spawn the shell PTY before wrapping the model so the backend capabilities
     // can be applied to the model first. The spawn has no dependency on
@@ -361,6 +331,56 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
 
 fn rgb(color: (u8, u8, u8)) -> RgbColor {
     RgbColor::new(color.0, color.1, color.2)
+}
+
+/// Seed a freshly constructed launch-session `Terminal` with every
+/// settings-derived per-session default: base colors and palette (from the
+/// effective theme, CVD-adjusted), OSC 52 read policy, kitty named transports,
+/// the scrollback cap, host cursor defaults, and the button-protocol gates.
+///
+/// This is the ONE seeding path for the first session in a window. New tabs,
+/// panes, and attaches receive the same defaults through
+/// `initialize_session_with`; the launch session is built ahead of that path,
+/// and the headless test harness (`test_support::headless_app_with_writer`)
+/// builds its terminal through this same function — so a per-session default
+/// added to the launch path is automatically exercised by every headless test,
+/// and the two construction paths cannot drift. The button gate previously
+/// bypassed this coupling and shipped a launch-pane-only regression; keep any
+/// future per-session gate inside this helper.
+///
+/// The effective theme is derived here (not passed in) so both callers resolve
+/// it identically; at the default CVD settings the authored theme is returned
+/// unchanged, so this stays byte-identical with the previous inline seeding.
+pub(in crate::native) fn seed_launch_session_model(model: &mut Terminal, settings: &Settings) {
+    let theme =
+        cvd_theme::effective_theme(&settings.theme, settings.cvd_mode, settings.cvd_strength);
+    model.set_base_colors(
+        rgb(theme.foreground),
+        rgb(theme.background),
+        rgb(if settings.themed_ui_roles {
+            theme.cursor
+        } else {
+            theme.foreground
+        }),
+    );
+    // C29: seed the base 16 ANSI palette so OSC 4 queries report the theme's
+    // colors rather than the hardcoded xterm table.
+    model.set_base_palette(theme.palette.map(rgb));
+    model.set_osc52_read_enabled(settings.osc52_read);
+    model.set_kitty_named_transports_enabled(settings.kitty_named_transports);
+    // Bound scrollback memory from the start so the very first session is capped
+    // before any output streams in (`0` = unbounded). See SCROLLBACK-CAP.
+    model.set_scrollback_limit(settings.scrollback_limit());
+    // Apply the host default cursor shape/blink policy from settings before any
+    // output. An application's DECSCUSR can still override this at runtime; RIS/
+    // DECSTR return to it. Presentation policy only — the grid contents are
+    // unaffected.
+    model.set_cursor_defaults(settings.cursor_style, settings.cursor_blink.enabled());
+    // Button protocol gates (docs/buttons.md). Off by default => byte-identical
+    // when the setting is off. Sub-gates ride the same master.
+    model.set_buttons_enabled(settings.buttons);
+    model.set_buttons_iterm_compat(settings.buttons_iterm_compat);
+    model.set_buttons_sticky(settings.buttons_sticky);
 }
 
 /// Lock a `Mutex`, recovering the guard if a previous holder panicked while

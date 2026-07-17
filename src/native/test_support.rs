@@ -45,10 +45,43 @@ pub(in crate::native) fn headless_app_with_writer(
     settings: Settings,
     writer: PtyWriter,
 ) -> (App, Arc<Mutex<Terminal>>) {
-    let terminal = Arc::new(Mutex::new(Terminal::new(
-        dimensions.columns,
-        dimensions.rows,
-    )));
+    headless_app_built(options, dimensions, settings, writer, true)
+}
+
+/// [`headless_app_with_writer`] whose terminal is deliberately UNSEEDED — a
+/// bare `Terminal::new` with none of the settings-derived per-session
+/// defaults. This is the restore/append spawn shape: sessions those paths
+/// build start outside `initialize_session_with` and rely on the App's
+/// model-state sweep to seed them afterward. Only tests that pin THAT
+/// re-seeding should use this; every other fixture goes through
+/// [`headless_app_with_writer`], which seeds via the production launch path.
+pub(in crate::native) fn headless_app_unseeded_with(
+    options: NativeOptions,
+    dimensions: Dimensions,
+    settings: Settings,
+) -> (App, Arc<Mutex<Terminal>>) {
+    headless_app_built(options, dimensions, settings, headless_writer(), false)
+}
+
+fn headless_app_built(
+    options: NativeOptions,
+    dimensions: Dimensions,
+    settings: Settings,
+    writer: PtyWriter,
+    seed: bool,
+) -> (App, Arc<Mutex<Terminal>>) {
+    let mut model = Terminal::new(dimensions.columns, dimensions.rows);
+    if seed {
+        // Seed the settings-derived per-session defaults through the SAME
+        // helper the production launch path uses
+        // (`seed_launch_session_model`), so the harness exercises real
+        // startup seeding instead of a hand-maintained copy. This is the
+        // regression guard for the launch-pane button-gate gap: a per-session
+        // default wired into the launch path is honored here too, and a
+        // default missing there is missing here — tests catch the drift.
+        super::seed_launch_session_model(&mut model, &settings);
+    }
+    let terminal = Arc::new(Mutex::new(model));
     let headless = Arc::new(HeadlessSession::new(dimensions));
     let app = App::new_headless(
         options,
