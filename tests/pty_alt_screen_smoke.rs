@@ -251,6 +251,7 @@ fn key_modes_from_core(modes: CoreKeyboardModes) -> KeyModes {
         application_cursor: modes.application_cursor,
         application_keypad: modes.application_keypad,
         kitty_keyboard_flags: modes.kitty_keyboard_flags,
+        modify_other_keys: modes.modify_other_keys,
     }
 }
 

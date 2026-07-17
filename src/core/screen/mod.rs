@@ -370,6 +370,7 @@ struct StoredScreen {
     active_hyperlink: Option<LinkId>,
     kitty_keyboard_flags: u16,
     kitty_keyboard_stack: Vec<u16>,
+    modify_other_keys: u8,
     /// OSC 133 `B` input-start from the primary screen, saved on entering the
     /// alternate screen and restored on leaving it. Alternate-screen apps have
     /// no prompt input boundary of their own — storing and clearing the primary
@@ -2433,13 +2434,17 @@ impl Screen {
             'g' => self.clear_tab_stop(param_or(params, 0, 0)),
             'h' | 'l' => self.set_cursor_mode(params, intermediates, action),
             // SGR is `CSI Ps … m` with no private-parameter prefix. `CSI > Ps ; Ps m`
-            // is XTMODKEYS (set modifyOtherKeys), `CSI ? Ps m` / `CSI = Ps m` are
-            // other private forms — none are SGR. Without this gate, the
-            // `CSI > 4 ; 2 m` apps emit at startup to enable modifyOtherKeys was
-            // parsed as SGR 4;2 (underline + dim) and smeared those attributes
-            // across all subsequent text. Private/intermediate `m` forms are not
-            // rendition changes; ignore them.
+            // is XTMODKEYS (set modifyOtherKeys), `CSI ? Ps m` is XTQMODKEYS
+            // (query), `CSI = Ps m` is another private form — none are SGR.
+            // Without this gate, the `CSI > 4 ; 2 m` apps emit at startup to
+            // enable modifyOtherKeys was parsed as SGR 4;2 (underline + dim)
+            // and smeared those attributes across all subsequent text.
+            // Private/intermediate `m` forms are never rendition changes: the
+            // XTMODKEYS/XTQMODKEYS arms below own `>`/`?`, everything else is
+            // ignored.
             'm' if intermediates.is_empty() => self.apply_sgr(params),
+            'm' if intermediates == b">" => self.xtmodkeys_set(params),
+            'm' if intermediates == b"?" => self.xtqmodkeys_report(params),
             'p' if intermediates == b"$" || intermediates == b"?$" => {
                 self.request_mode_report(params, intermediates)
             }
@@ -2996,6 +3001,7 @@ fn blank_stored_primary(dimensions: Dimensions) -> StoredScreen {
         active_hyperlink: None,
         kitty_keyboard_flags: 0,
         kitty_keyboard_stack: Vec::new(),
+        modify_other_keys: 0,
         active_prompt_input_start: None,
         active_edit_region: None,
         active_prompt_start: None,

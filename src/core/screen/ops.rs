@@ -969,6 +969,45 @@ impl Screen {
         }
     }
 
+    /// XTMODKEYS (`CSI > Pp ; Pv m`): set an xterm key-modifier resource.
+    /// Only resource 4 (modifyOtherKeys) is modeled; levels are 0/1/2 and
+    /// anything higher is rejected rather than clamped, matching the
+    /// conservative posture of the kitty arms. `CSI > 4 m` (omitted value) and
+    /// a bare `CSI > m` (xterm's reset-all form) both reset to 0. Other
+    /// resources (modifyKeyboard/CursorKeys/FunctionKeys) are parsed and
+    /// deliberately ignored — cursor and function keys already carry the xterm
+    /// modifier encodings unconditionally.
+    pub(super) fn xtmodkeys_set(&mut self, params: &Params) {
+        let resource = param_or(params, 0, 0);
+        let has_value = params.iter().nth(1).is_some();
+        // A bare `CSI > m` (the parser stores it as a lone 0 param) is xterm's
+        // reset-all form; a `CSI > 0 ; Pv m` addresses resource 0
+        // (modifyKeyboard), which is not modeled.
+        if resource == 0 && !has_value {
+            self.keyboard.modify_other_keys = 0;
+            return;
+        }
+        if resource != 4 {
+            return;
+        }
+        if let level @ 0..=2 = param_or(params, 1, 0) {
+            self.keyboard.modify_other_keys = level as u8;
+        }
+    }
+
+    /// XTQMODKEYS (`CSI ? Pp m`): report a key-modifier resource as
+    /// `CSI > Pp ; Pv m`. Only resource 4 (modifyOtherKeys) is answered;
+    /// unmodeled resources stay silent so nothing is claimed that the encoder
+    /// does not honor.
+    pub(super) fn xtqmodkeys_report(&mut self, params: &Params) {
+        if param_or(params, 0, 0) != 4 {
+            return;
+        }
+        let level = self.keyboard.modify_other_keys;
+        self.host_output
+            .extend_from_slice(format!("\x1b[>4;{level}m").as_bytes());
+    }
+
     pub(super) fn device_attributes(&mut self, params: &Params, intermediates: &[u8]) {
         if intermediates.is_empty() && param_or(params, 0, 0) == 0 {
             self.host_output.extend_from_slice(b"\x1b[?1;2c");
@@ -1099,6 +1138,7 @@ impl Screen {
             active_hyperlink: self.active_hyperlink,
             kitty_keyboard_flags: self.keyboard.kitty_keyboard_flags,
             kitty_keyboard_stack: std::mem::take(&mut self.kitty_keyboard_stack),
+            modify_other_keys: self.keyboard.modify_other_keys,
             // ALT-SCREEN-ISOLATION: save and clear the primary's input boundary
             // so the native editing layer cannot read stale primary state while
             // an alternate-screen TUI is running (D-IN2-ALT-ISOLATION).
@@ -1107,6 +1147,7 @@ impl Screen {
             active_prompt_start: self.active_prompt_start.take(),
         };
         self.keyboard.kitty_keyboard_flags = 0;
+        self.keyboard.modify_other_keys = 0;
 
         if clear_alt {
             self.cursor = Position::default();
@@ -1171,6 +1212,7 @@ impl Screen {
             self.auto_wrap = primary_screen.auto_wrap;
             self.keyboard.kitty_keyboard_flags = primary_screen.kitty_keyboard_flags;
             self.kitty_keyboard_stack = primary_screen.kitty_keyboard_stack;
+            self.keyboard.modify_other_keys = primary_screen.modify_other_keys;
             // ALT-SCREEN-ISOLATION: restore the primary's OSC 133 input
             // boundary. The alternate screen's value (which was already cleared
             // on enter) is discarded; the primary's saved value takes effect so

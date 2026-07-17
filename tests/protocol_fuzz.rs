@@ -370,6 +370,47 @@ fn gen_kitty_keyboard(rng: &mut FuzzRng) -> Vec<u8> {
     s.into_bytes()
 }
 
+/// (2b) xterm modifyOtherKeys: XTMODKEYS set (`CSI > Pp ; Pv m`), the
+/// bare/omitted reset forms, XTQMODKEYS query (`CSI ? Pp m`), and garbled
+/// neighbors that must never be treated as SGR.
+fn gen_modify_other_keys(rng: &mut FuzzRng) -> Vec<u8> {
+    let mut s = String::from("\x1b[");
+    match rng.below(6) {
+        0 => {
+            // Set: CSI > resource ; value m
+            s.push('>');
+            s.push_str(&fuzz_num(rng));
+            s.push(';');
+            s.push_str(&fuzz_num(rng));
+        }
+        1 => {
+            // Omitted value: CSI > resource m
+            s.push('>');
+            s.push_str(&fuzz_num(rng));
+        }
+        2 => s.push('>'), // Bare reset-all: CSI > m
+        3 => {
+            // Query: CSI ? resource m
+            s.push('?');
+            s.push_str(&fuzz_num(rng));
+        }
+        4 => {
+            // Garbled intermediates before m.
+            s.push(*rng.pick(&['>', '<', '=', '?']));
+            s.push(*rng.pick(&['>', '<', '=', '?']));
+            s.push_str(&fuzz_num(rng));
+        }
+        _ => {
+            // Plain SGR-shaped params (no intermediate — must stay SGR).
+            s.push_str(&fuzz_num(rng));
+            s.push(';');
+            s.push_str(&fuzz_num(rng));
+        }
+    }
+    s.push('m');
+    s.into_bytes()
+}
+
 /// (3) Mode 2026 set/reset and DECRQM query, plus neighboring private modes so
 /// the generator exercises the surrounding mode table too.
 fn gen_mode_2026(rng: &mut FuzzRng) -> Vec<u8> {
@@ -805,7 +846,7 @@ fn gen_mixed_stream(rng: &mut FuzzRng) -> Vec<u8> {
     let mut out = Vec::new();
     let chunks = 1 + rng.below(10);
     for _ in 0..chunks {
-        let part = match rng.below(10) {
+        let part = match rng.below(11) {
             0 => gen_underline_sgr(rng),
             1 => gen_kitty_keyboard(rng),
             2 => gen_mode_2026(rng),
@@ -815,6 +856,7 @@ fn gen_mixed_stream(rng: &mut FuzzRng) -> Vec<u8> {
             6 => gen_dcs_interrupted(rng),
             7 => gen_rect_op(rng),
             8 => gen_wide_seed(rng),
+            9 => gen_modify_other_keys(rng),
             _ => gen_interleave(rng),
         };
         out.extend_from_slice(&part);
@@ -871,11 +913,12 @@ fn run_query_flood_bounded(iters: u64) {
         let mut input_len = 0usize;
         let queries = 1 + rng.below(200);
         for _ in 0..queries {
-            let q = match rng.below(5) {
+            let q = match rng.below(6) {
                 0 => gen_decrqm_xtwinops(&mut rng),
                 1 => gen_mode_2026(&mut rng),
                 2 => gen_kitty_keyboard(&mut rng),
                 3 => gen_dcs_query(&mut rng),
+                4 => gen_modify_other_keys(&mut rng),
                 // Color queries return their spec on host_output directly.
                 _ => {
                     let mut s: Vec<u8> = Vec::from(&b"\x1b]"[..]);
@@ -930,7 +973,13 @@ fn run_kitty_stack(iters: u64) {
         // query reply bounded.
         let ops = 1 + rng.below(400);
         for _ in 0..ops {
-            let seq = gen_kitty_keyboard(&mut rng);
+            let seq = if rng.below(4) == 0 {
+                // modifyOtherKeys churn rides the same keyboard-state fuzz:
+                // its level shares the reset ladder with the kitty stack.
+                gen_modify_other_keys(&mut rng)
+            } else {
+                gen_kitty_keyboard(&mut rng)
+            };
             t.advance(&seq);
             if rng.below(10) == 0 {
                 // Occasional reset mid-churn.
@@ -940,6 +989,10 @@ fn run_kitty_stack(iters: u64) {
         }
         // Flags are observable and must be readable without panic.
         let _ = t.keyboard_modes().kitty_keyboard_flags;
+        assert!(
+            t.keyboard_modes().modify_other_keys <= 2,
+            "seed={seed}: modifyOtherKeys level escaped its 0..=2 domain"
+        );
         assert_not_wedged(seed, &mut t);
         // A final RIS must fully normalize keyboard state.
         assert_consistent_after_ris(seed, &mut t);

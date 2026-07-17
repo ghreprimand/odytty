@@ -35,6 +35,9 @@ fn private_prefixed_m_is_not_sgr() {
     // `4;2` (underline + dim) — doing so set those attributes globally and
     // smeared them across all subsequent text. The `>` private prefix arrives
     // in `intermediates`, so the SGR path is gated on empty intermediates.
+    // The sequence now routes to the modifyOtherKeys state (see
+    // kitty_keyboard.rs tests); this test pins that it still never touches
+    // renditions.
     let mut terminal = Terminal::new(10, 2);
     terminal.advance(b"\x1b[>4;2mX");
     let cell = terminal.screen().cell(0, 0).unwrap();

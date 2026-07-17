@@ -7,6 +7,62 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- modifyOtherKeys compatibility layer and ConPTY keyboard probes
+
+**xterm modifyOtherKeys, levels 1 and 2.** OdyTTY ships `TERM=xterm-256color`,
+and that TERM decides which key protocol major applications pick: Vim's
+default `keyprotocol` selects modifyOtherKeys level 2 for `xterm*` (the Kitty
+protocol only for TERMs naming kitty/foot/ghostty/wezterm), emacs auto-enables
+modifyOtherKeys from TERM sniffing, and tmux negotiates extended keys through
+XTMODKEYS only. Without this layer those applications stay on legacy keys no
+matter how complete the Kitty side is. The `CSI > 4 ; n m` XTMODKEYS sequence —
+previously parsed and deliberately dropped (the SGR gate that keeps it from
+smearing underline+dim stands, pinned by the same test) — now sets a
+per-screen level beside the Kitty flags, with the same alternate-screen
+isolation and the same reset ladder (RIS, DECSTR, respawn input-mode reset).
+`XTQMODKEYS` (`CSI ? 4 m`) reports the level; a bare `CSI > m` resets it. The
+level is deliberately not persisted in the session-snapshot wire format:
+restored sessions start at 0 and an attached app re-enables it.
+
+The encoder emits xterm's `CSI 27 ; modifier ; codepoint ~` form. Level 2
+covers every modified ordinary key (printables plus Enter/Tab/Backspace),
+with the codepoint taken from the produced character, so shifted punctuation
+reports the shifted glyph — the interop zone where other implementations
+have broken fish. Shift alone on a printable stays a plain character,
+Shift-Tab keeps `CSI Z`, Escape stays raw, and cursor/navigation/function
+keys keep their unconditional xterm modifier forms. Level 1 encodes only
+combinations that would otherwise lose their modifiers entirely (Ctrl+digit,
+Ctrl+punctuation); well-known encodings such as Ctrl+letter control bytes and
+Alt's ESC prefix stay legacy. Precedence is fixed and table-tested: non-zero
+Kitty flags win, modifyOtherKeys applies only at Kitty flags zero — fish
+enables both protocols and must get the Kitty encoding. modifyOtherKeys has
+no event types: releases produce nothing, repeats encode like presses.
+
+**Windows/ConPTY keyboard probes.** Two `cfg(windows)` tests on the
+windows-latest CI leg document what conhost actually does with keyboard
+protocol traffic, in both directions: an app-side client writes the Kitty
+query, XTQMODKEYS, and DA1 through ConPTY and the test reports whether the
+terminal's parser saw them intact; and the terminal writes a CSI-u key
+encoding into the ConPTY input pipe and the client echoes back the key stream
+conhost delivered, as hex. Both probes pass regardless of outcome and print
+`PROBE-RESULT` lines — they are measurements, not gates, because passthrough
+depends on the conhost build. Documented in `docs/features.md`: Kitty
+keyboard protocol availability on Windows depends on the ConPTY/conhost
+version; crossterm-based TUIs do not request it on Windows;
+win32-input-mode (mode 9001) is not implemented.
+
+**Fuzz coverage.** The protocol fuzz corpus, which already exercised all four
+Kitty CSI-u arms including garbled intermediates, gains an XTMODKEYS/
+XTQMODKEYS generator (set/omitted/bare-reset/query/garbled/SGR-shaped) wired
+into the mixed-soup, query-flood, and keyboard-churn streams; the RIS
+consistency check now covers the modifyOtherKeys level through the
+whole-struct keyboard-modes comparison.
+
+Everything is app-opt-in: with no application request, both protocol levels
+sit at zero and the encoder is byte-identical to the legacy tables.
+Verified: full `cargo test` green, `cargo fmt --check`, and
+`cargo clippy --all-targets --locked` clean.
+
 ## 2026-07-17 -- Modified-key CSI-u encoding fix and function-key input
 
 Two fixes in the shared PTY key encoder, both inert for applications that never

@@ -103,7 +103,22 @@ not track the mouse therefore scroll at the configured `scroll_wheel_lines`
 rows per notch.
 
 The Kitty keyboard protocol is a negotiated overlay. With no Kitty flags
-active, legacy bytes are preserved.
+active, legacy bytes are preserved. Under the disambiguate flag, modified
+`Enter`/`Tab`/`Backspace` (for example `Ctrl+Enter`, `Shift+Enter`,
+`Ctrl+Backspace`) become distinct CSI-u sequences while the unmodified keys
+stay on their legacy bytes.
+
+xterm's modifyOtherKeys (`XTMODKEYS`, levels 1 and 2) is supported as a
+compatibility layer for applications that select it by `TERM` — Vim's default
+`keyprotocol` and emacs both do under `xterm-256color`, and tmux negotiates
+extended keys through it. Modified keys encode as
+`CSI 27 ; modifier ; codepoint ~`, the level is per-screen with the same
+reset behavior as the Kitty flags, and `XTQMODKEYS` reports it. When an
+application enables both protocols (fish does), non-zero Kitty flags win.
+
+Windows: Kitty keyboard protocol availability depends on the ConPTY/conhost
+version; crossterm-based TUIs do not request it on Windows;
+win32-input-mode (mode 9001) is not implemented.
 
 IME pre-edit appears inline at the cursor and committed text is sent to the
 shell. This supports CJK input methods and compose-key or dead-key accents.

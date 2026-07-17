@@ -138,6 +138,13 @@ pub struct KeyboardModes {
     /// Kitty's CSI-u keyboard protocol controls and consumed by front ends when
     /// encoding key presses.
     pub kitty_keyboard_flags: u16,
+    /// xterm modifyOtherKeys level (XTMODKEYS `CSI > 4 ; n m`): 0 off,
+    /// 1 modified keys lacking a legacy encoding, 2 all modified keys.
+    ///
+    /// Applies only while `kitty_keyboard_flags` is zero — an app that enables
+    /// both protocols (fish does) gets the Kitty encoding. Levels above 2 are
+    /// rejected at the parser.
+    pub modify_other_keys: u8,
 }
 /// A mouse button (or wheel direction) for [`encode_mouse_event`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

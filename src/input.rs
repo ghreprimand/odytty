@@ -109,6 +109,12 @@ pub struct KeyModes {
     /// Kitty keyboard protocol progressive enhancement flags active for this
     /// screen. Zero preserves the legacy DEC/xterm encoder byte-for-byte.
     pub kitty_keyboard_flags: u16,
+    /// xterm modifyOtherKeys level (0/1/2). Consulted only while
+    /// `kitty_keyboard_flags` is zero — an app that enables both protocols
+    /// (fish does) gets the Kitty encoding. Level 1 encodes modified keys that
+    /// lack a legacy encoding; level 2 encodes all modified keys as
+    /// `CSI 27 ; modifier ; codepoint ~`.
+    pub modify_other_keys: u8,
 }
 
 /// Kitty keyboard protocol flag: send ambiguous keys as CSI-u forms.
@@ -151,6 +157,17 @@ pub fn encode_key_event(
 
     if event_type == KeyEventType::Release {
         return Vec::new();
+    }
+
+    // xterm modifyOtherKeys: consulted only at kitty flags 0 (non-zero kitty
+    // flags win — apps like fish enable both protocols and expect the kitty
+    // encoding). No event types: releases were dropped above, repeats encode
+    // like presses, matching xterm.
+    if modes.kitty_keyboard_flags == 0
+        && modes.modify_other_keys >= 1
+        && let Some(bytes) = encode_modify_other_key(key, mods, modes.modify_other_keys)
+    {
+        return bytes;
     }
 
     let mut bytes = match key {
@@ -503,6 +520,68 @@ fn encode_tilde_key(code: u8, mods: Modifiers) -> Vec<u8> {
     } else {
         format!("\x1b[{}~", code).into_bytes()
     }
+}
+
+/// xterm modifyOtherKeys encoding: `CSI 27 ; modifier ; codepoint ~`.
+///
+/// Applies to "ordinary" keys — printable characters plus Enter/Tab/Backspace
+/// (Escape stays raw `ESC`: xterm leaves it alone and TUIs depend on that).
+/// Cursor, navigation, and function keys keep their xterm modifier encodings
+/// unconditionally, and Shift-Tab keeps `CSI Z` (kcbt). Returns `None` when
+/// the level does not claim the key, falling through to the legacy encoder.
+///
+/// Level semantics follow xterm:
+/// - Level 1 encodes only modified keys that would otherwise lose their
+///   modifiers entirely — combinations with a well-known legacy encoding
+///   (Ctrl+letter control bytes, Alt's ESC prefix, unshifted printables,
+///   modified Enter/Tab/Backspace) stay legacy.
+/// - Level 2 encodes every modified ordinary key, including the well-known
+///   cases, except Shift-as-the-only-modifier on a printable (Shift is
+///   consumed producing the glyph; xterm sends the plain character).
+///
+/// The codepoint is the produced character's (shifted punctuation reports the
+/// shifted codepoint — `Ctrl+Shift+3` is `CSI 27;6;35~`, `#` not `3`), and the
+/// modifier parameter is the same 1+bitmask the CSI-u forms use.
+fn encode_modify_other_key(key: Key, mods: Modifiers, level: u8) -> Option<Vec<u8>> {
+    let has_mods = mods.ctrl || mods.alt || mods.shift;
+    if !has_mods {
+        return None;
+    }
+
+    let codepoint = match key {
+        Key::Char(ch) => {
+            // Shift alone is consumed producing the glyph.
+            if !mods.ctrl && !mods.alt {
+                return None;
+            }
+            if level == 1 && has_legacy_char_encoding(ch, mods) {
+                return None;
+            }
+            ch as u32
+        }
+        // Modified Enter/Tab/Backspace have well-known legacy behavior, so
+        // level 1 leaves them alone; level 2 encodes them.
+        Key::Enter | Key::Tab | Key::Backspace if level >= 2 => match key {
+            Key::Enter => 13,
+            Key::Tab => 9,
+            _ => 127,
+        },
+        _ => return None,
+    };
+
+    let modifier = kitty_modifier(mods);
+    Some(format!("\x1b[27;{modifier};{codepoint}~").into_bytes())
+}
+
+/// Whether a modified printable already has a well-known legacy encoding that
+/// modifyOtherKeys level 1 must preserve: Ctrl combinations that map to a
+/// control byte, and Alt-only combinations (the ESC prefix carries Alt).
+fn has_legacy_char_encoding(ch: char, mods: Modifiers) -> bool {
+    if mods.ctrl {
+        return ctrl_char(ch).is_some();
+    }
+    // Alt without Ctrl: the ESC-prefix convention encodes it.
+    mods.alt
 }
 
 /// Legacy (non-kitty) function-key encoding: F1..F4 send the DEC SS3 forms
@@ -1380,5 +1459,185 @@ mod tests {
         // Exactly one start and one end marker survive.
         assert_eq!(encoded.windows(6).filter(|w| *w == b"\x1b[201~").count(), 1);
         assert_eq!(encoded.windows(6).filter(|w| *w == b"\x1b[200~").count(), 1);
+    }
+
+    fn mok_modes(level: u8) -> KeyModes {
+        KeyModes {
+            modify_other_keys: level,
+            ..KeyModes::default()
+        }
+    }
+
+    const SHIFT: Modifiers = Modifiers {
+        ctrl: false,
+        alt: false,
+        shift: true,
+    };
+    const CTRL_SHIFT: Modifiers = Modifiers {
+        ctrl: true,
+        alt: false,
+        shift: true,
+    };
+
+    #[test]
+    fn modify_other_keys_level_two_encodes_modified_ordinary_keys() {
+        // Fixtures follow xterm's "Other Modified Keys" table
+        // (CSI 27 ; modifier ; codepoint ~): the codepoint is the produced
+        // character's, so shifted punctuation reports the shifted glyph.
+        let modes = mok_modes(2);
+
+        // The well-known Ctrl combinations are encoded at level 2.
+        assert_eq!(
+            encode_key(Key::Char('c'), Modifiers::CTRL, modes),
+            b"\x1b[27;5;99~"
+        );
+        assert_eq!(
+            encode_key(Key::Char('i'), Modifiers::CTRL, modes),
+            b"\x1b[27;5;105~"
+        );
+        assert_eq!(
+            encode_key(Key::Char('b'), Modifiers::ALT, modes),
+            b"\x1b[27;3;98~"
+        );
+        // Ctrl+Shift+letter carries the produced uppercase glyph.
+        assert_eq!(
+            encode_key(Key::Char('C'), CTRL_SHIFT, modes),
+            b"\x1b[27;6;67~"
+        );
+        // Shifted punctuation: Ctrl+Shift+3 produces '#' (codepoint 35).
+        assert_eq!(
+            encode_key(Key::Char('#'), CTRL_SHIFT, modes),
+            b"\x1b[27;6;35~"
+        );
+        assert_eq!(
+            encode_key(Key::Char(';'), Modifiers::CTRL, modes),
+            b"\x1b[27;5;59~"
+        );
+        // Modified Enter/Tab/Backspace encode at level 2.
+        assert_eq!(
+            encode_key(Key::Enter, Modifiers::CTRL, modes),
+            b"\x1b[27;5;13~"
+        );
+        assert_eq!(encode_key(Key::Enter, SHIFT, modes), b"\x1b[27;2;13~");
+        assert_eq!(
+            encode_key(Key::Tab, Modifiers::CTRL, modes),
+            b"\x1b[27;5;9~"
+        );
+        assert_eq!(
+            encode_key(Key::Backspace, Modifiers::CTRL, modes),
+            b"\x1b[27;5;127~"
+        );
+    }
+
+    #[test]
+    fn modify_other_keys_level_two_leaves_unmodified_and_shift_only_keys_legacy() {
+        let modes = mok_modes(2);
+
+        // Unmodified keys are never touched (mok modifies OTHER keys).
+        assert_eq!(encode_key(Key::Char('a'), Modifiers::NONE, modes), b"a");
+        assert_eq!(encode_key(Key::Enter, Modifiers::NONE, modes), b"\r");
+        assert_eq!(encode_key(Key::Tab, Modifiers::NONE, modes), b"\t");
+        // Shift alone on a printable is consumed producing the glyph — xterm
+        // sends the plain character (the WezTerm/fish fallout zone).
+        assert_eq!(encode_key(Key::Char('A'), SHIFT, modes), b"A");
+        assert_eq!(encode_key(Key::Char('#'), SHIFT, modes), b"#");
+        // Shift-Tab keeps kcbt.
+        assert_eq!(encode_key(Key::BackTab, SHIFT, modes), b"\x1b[Z");
+        // Cursor/navigation/function keys keep their xterm modifier forms.
+        assert_eq!(encode_key(Key::Right, Modifiers::CTRL, modes), b"\x1b[1;5C");
+        assert_eq!(
+            encode_key(Key::Delete, Modifiers::CTRL, modes),
+            b"\x1b[3;5~"
+        );
+        assert_eq!(encode_key(Key::F(5), Modifiers::CTRL, modes), b"\x1b[15;5~");
+        // Escape stays raw.
+        assert_eq!(encode_key(Key::Esc, Modifiers::CTRL, modes), b"\x1b");
+    }
+
+    #[test]
+    fn modify_other_keys_level_one_encodes_only_keys_without_legacy_encodings() {
+        let modes = mok_modes(1);
+
+        // Well-known combinations keep their legacy bytes at level 1.
+        assert_eq!(encode_key(Key::Char('c'), Modifiers::CTRL, modes), vec![3]);
+        assert_eq!(encode_key(Key::Char('b'), Modifiers::ALT, modes), b"\x1bb");
+        assert_eq!(encode_key(Key::Enter, Modifiers::CTRL, modes), b"\r");
+        assert_eq!(encode_key(Key::Tab, Modifiers::CTRL, modes), b"\t");
+        assert_eq!(
+            encode_key(Key::Backspace, Modifiers::CTRL, modes),
+            vec![0x7f]
+        );
+        // Combinations that would otherwise lose their modifiers encode.
+        assert_eq!(
+            encode_key(Key::Char('1'), Modifiers::CTRL, modes),
+            b"\x1b[27;5;49~"
+        );
+        assert_eq!(
+            encode_key(Key::Char('.'), Modifiers::CTRL, modes),
+            b"\x1b[27;5;46~"
+        );
+        assert_eq!(
+            encode_key(Key::Char(';'), Modifiers::CTRL, modes),
+            b"\x1b[27;5;59~"
+        );
+    }
+
+    #[test]
+    fn modify_other_keys_has_no_event_types() {
+        let modes = mok_modes(2);
+
+        // Repeats encode like presses; releases produce nothing.
+        assert_eq!(
+            encode_key_event(Key::Enter, Modifiers::CTRL, modes, KeyEventType::Repeat),
+            b"\x1b[27;5;13~"
+        );
+        assert!(
+            encode_key_event(Key::Enter, Modifiers::CTRL, modes, KeyEventType::Release).is_empty()
+        );
+    }
+
+    #[test]
+    fn nonzero_kitty_flags_take_precedence_over_modify_other_keys() {
+        // Table-driven precedence: kitty flags nonzero => CSI-u forms; kitty
+        // flags zero + mok >= 1 => CSI 27~ forms; both zero => legacy. Apps
+        // (fish) set both protocols; the kitty encoding must win.
+        let cases: [(Key, Modifiers); 4] = [
+            (Key::Enter, Modifiers::CTRL),
+            (Key::Char('i'), Modifiers::CTRL),
+            (Key::Char('#'), CTRL_SHIFT),
+            (Key::Backspace, Modifiers::CTRL),
+        ];
+        for (key, mods) in cases {
+            for mok in [0u8, 1, 2] {
+                let kitty = KeyModes {
+                    kitty_keyboard_flags: KITTY_DISAMBIGUATE,
+                    modify_other_keys: mok,
+                    ..KeyModes::default()
+                };
+                let kitty_only = KeyModes {
+                    kitty_keyboard_flags: KITTY_DISAMBIGUATE,
+                    ..KeyModes::default()
+                };
+                assert_eq!(
+                    encode_key(key, mods, kitty),
+                    encode_key(key, mods, kitty_only),
+                    "kitty flags must win over mok {mok} for {key:?} {mods:?}"
+                );
+                assert!(
+                    encode_key(key, mods, kitty).starts_with(b"\x1b["),
+                    "{key:?} {mods:?} under kitty flags must be CSI-encoded"
+                );
+            }
+        }
+        // And at kitty flags 0, mok owns the encoding.
+        assert_eq!(
+            encode_key(Key::Enter, Modifiers::CTRL, mok_modes(2)),
+            b"\x1b[27;5;13~"
+        );
+        // Both zero: legacy bytes.
+        assert_eq!(
+            encode_key(Key::Enter, Modifiers::CTRL, KeyModes::default()),
+            b"\r"
+        );
     }
 }

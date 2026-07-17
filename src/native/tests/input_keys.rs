@@ -176,11 +176,13 @@ fn key_modes_from_core_preserves_kitty_keyboard_flags() {
         application_cursor: true,
         application_keypad: true,
         kitty_keyboard_flags: 9,
+        modify_other_keys: 2,
     });
 
     assert!(modes.application_cursor);
     assert!(modes.application_keypad);
     assert_eq!(modes.kitty_keyboard_flags, 9);
+    assert_eq!(modes.modify_other_keys, 2);
 }
 
 #[test]

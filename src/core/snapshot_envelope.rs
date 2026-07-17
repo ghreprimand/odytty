@@ -516,6 +516,10 @@ impl SnapshotBasicModes {
                 application_cursor: reader.read_bool()?,
                 application_keypad: reader.read_bool()?,
                 kitty_keyboard_flags: reader.read_u16()?,
+                // modifyOtherKeys is not persisted in the snapshot wire format
+                // (format v2 predates it); restored sessions start at level 0
+                // and an attached app re-enables it with its next XTMODKEYS.
+                modify_other_keys: 0,
             },
         })
     }
