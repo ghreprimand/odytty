@@ -490,6 +490,14 @@ pub(super) struct Session {
     /// kitty/iTerm2/GNOME Terminal). Cleared at the start of every fresh left
     /// press, so a release lost to focus change never swallows a later click.
     pub(super) swallow_open_left_release: bool,
+    /// Button Protocol B3 press latch: the button hit under a consumed plain
+    /// left press, held until the paired release. The release fires the click
+    /// report only when it resolves the SAME span (same id, viewport row, and
+    /// start column) still `Live`; anything else — drag-off, scroll, block
+    /// invalidation, a resize reflow — cancels silently. Cleared at the start
+    /// of every fresh left press, so a release lost to a focus change never
+    /// fires a stale button.
+    pub(super) pressed_button: Option<crate::core::ButtonHit>,
     pub(super) viewport: Viewport,
     pub(super) search: SearchUi,
     pub(super) hints: Option<HintsUi>,
@@ -723,6 +731,7 @@ impl Session {
             last_selection_autoscroll: None,
             report_button: None,
             swallow_open_left_release: false,
+            pressed_button: None,
             viewport: Viewport::default(),
             search: SearchUi::default(),
             hints: None,
@@ -839,6 +848,9 @@ impl Session {
         self.last_selection_autoscroll = None;
         self.report_button = None;
         self.swallow_open_left_release = false;
+        // B3: a reflow strands the latched press's viewport coordinates; the
+        // same-span release check would misfire against re-wrapped rows.
+        self.pressed_button = None;
         self.pointer_cell = None;
         self.pointer_px = None;
         self.hovered_hyperlink = None;

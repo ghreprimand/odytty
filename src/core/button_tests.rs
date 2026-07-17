@@ -7,7 +7,7 @@
 use super::button::{
     ButtonIcon, ButtonScope, ButtonSpan, ButtonState, MAX_BUTTON_ENTRIES, MAX_BUTTON_SPANS_PER_LINE,
 };
-use super::screen::Terminal;
+use super::screen::{SnapshotButton, Terminal};
 use super::types::{Attrs, Cell};
 
 fn enabled_terminal(columns: usize, rows: usize) -> Terminal {
@@ -476,4 +476,245 @@ fn run_left_open_across_alt_screen_switch_is_abandoned() {
     feed(&mut term, b"\x1b[?1049h"); // switch mid-run
     feed_osc(&mut term, T2_END); // stale end: no run to close
     assert_eq!(term.button_entry_count(), 0);
+}
+
+// ---------------------------------------------------------------------------
+// B2: viewport button-span exposure for render (visible_button_spans)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn visible_spans_are_empty_when_the_gate_is_off() {
+    // Gate off (default): even a well-formed definition stream leaves the
+    // render accessor empty and does no row walk — the zero-work guarantee the
+    // byte-identical off path depends on.
+    let mut term = Terminal::new(20, 5);
+    feed_osc(&mut term, "1337;Button=type=custom;code=42;icon=star");
+    feed_osc(&mut term, T2_DEFINE);
+    feed(&mut term, b"Retry");
+    feed_osc(&mut term, T2_END);
+    assert!(
+        term.screen().visible_button_spans(0).is_empty(),
+        "gate off: render accessor exposes nothing"
+    );
+}
+
+#[test]
+fn visible_spans_expose_a_tier1_point_button() {
+    let mut term = enabled_terminal(20, 5);
+    feed(&mut term, b"ab");
+    feed_osc(&mut term, "1337;Button=type=custom;code=42;icon=star.fill");
+    let spans = term.screen().visible_button_spans(0);
+    assert_eq!(spans.len(), 1);
+    let SnapshotButton {
+        row,
+        start_col,
+        len,
+        code,
+        icon,
+        state,
+    } = spans[0];
+    assert_eq!(row, 0);
+    assert_eq!(start_col, 2, "anchored at the cursor column");
+    assert_eq!(len, 0, "point button: no label run");
+    assert_eq!(code, 42);
+    assert_eq!(icon, ButtonIcon::Star);
+    assert_eq!(state, ButtonState::Live);
+}
+
+#[test]
+fn visible_spans_expose_a_tier2_label_run() {
+    let mut term = enabled_terminal(20, 5);
+    feed(&mut term, b"$ ");
+    feed_osc(&mut term, T2_DEFINE);
+    feed(&mut term, b"Retry");
+    feed_osc(&mut term, T2_END);
+    let spans = term.screen().visible_button_spans(0);
+    assert_eq!(spans.len(), 1);
+    assert_eq!(spans[0].row, 0);
+    assert_eq!(spans[0].start_col, 2, "run starts after the '$ ' prompt");
+    assert_eq!(spans[0].len, 5, "\"Retry\" is five label cells");
+    assert_eq!(spans[0].code, 7);
+    assert_eq!(spans[0].state, ButtonState::Live);
+}
+
+#[test]
+fn visible_spans_carry_the_invalidated_state() {
+    // An invalidated button keeps its span (still visible) but reports the
+    // grayed state so the renderer paints it dead instead of live.
+    let mut term = enabled_terminal(20, 5);
+    feed_osc(&mut term, "1337;Button=type=custom;code=1");
+    feed_osc(&mut term, "1337;Button=type=custom"); // empty-code form: invalidate all
+    let spans = term.screen().visible_button_spans(0);
+    assert_eq!(spans.len(), 1);
+    assert_eq!(spans[0].state, ButtonState::Invalidated);
+}
+
+#[test]
+fn visible_spans_track_the_row_a_button_sits_on() {
+    let mut term = enabled_terminal(20, 5);
+    feed(&mut term, b"line0\r\n");
+    feed(&mut term, b"xy");
+    feed_osc(&mut term, "1337;Button=type=custom;code=9;icon=run");
+    let spans = term.screen().visible_button_spans(0);
+    assert_eq!(spans.len(), 1);
+    assert_eq!(spans[0].row, 1, "button anchored on the second visible row");
+    assert_eq!(spans[0].start_col, 2);
+}
+
+#[test]
+fn visible_spans_project_a_button_scrolled_into_scrollback() {
+    // A sticky button defined on the top row, then scrolled up into scrollback,
+    // is re-exposed when the viewport pages back to it. Row/column stay aligned
+    // with the cells snapshot_with_scrollback draws for the same offset.
+    let mut term = enabled_terminal(10, 3);
+    feed(&mut term, b"AB");
+    feed_osc(&mut term, T2_DEFINE_STICKY);
+    feed(&mut term, b"Go");
+    feed_osc(&mut term, T2_END);
+    // Push the defining row up out of the live grid.
+    feed(&mut term, b"\r\n\r\n\r\n\r\n\r\n");
+    assert!(
+        term.screen().visible_button_spans(0).is_empty(),
+        "scrolled out of the live viewport"
+    );
+    // Page back far enough that the defining row is on screen again.
+    let mut found = None;
+    for offset in 1..=6 {
+        let spans = term.screen().visible_button_spans(offset);
+        if let Some(btn) = spans.first() {
+            found = Some((offset, *btn));
+            break;
+        }
+    }
+    let (offset, btn) = found.expect("sticky button re-exposed from scrollback");
+    assert_eq!(btn.start_col, 2, "label run still starts after \"AB\"");
+    assert_eq!(btn.len, 2, "\"Go\" is two label cells");
+    assert_eq!(btn.code, 7);
+    // The exposed row must match the cell grid the render draws at this offset.
+    let snapshot = term.screen().snapshot_with_scrollback(offset);
+    let base = btn.row * snapshot.dimensions.columns + btn.start_col;
+    let label: String = (0..btn.len).map(|i| snapshot.cells[base + i].ch).collect();
+    assert_eq!(label, "Go", "row/col align with the drawn cells");
+}
+
+// ---------------------------------------------------------------------------
+// B3: pointer hit-test (button_at) — the click arm's resolution query
+// ---------------------------------------------------------------------------
+
+#[test]
+fn button_at_resolves_a_labeled_span_on_the_live_grid() {
+    let mut term = enabled_terminal(20, 5);
+    feed(&mut term, b"$ ");
+    feed_osc(&mut term, T2_DEFINE);
+    feed(&mut term, b"Retry");
+    feed_osc(&mut term, T2_END);
+    // Every label cell hits; the cells beside it miss.
+    for col in 2..7 {
+        let hit = term
+            .button_at(0, 0, col)
+            .unwrap_or_else(|| panic!("label cell {col} hits"));
+        assert_eq!(hit.code, 7);
+        assert_eq!(hit.state, ButtonState::Live);
+        assert_eq!(hit.scope, ButtonScope::Block);
+        assert_eq!((hit.row, hit.start_col, hit.len), (0, 2, 5));
+    }
+    assert!(term.button_at(0, 0, 1).is_none(), "cell before the span");
+    assert!(term.button_at(0, 0, 7).is_none(), "cell after the span");
+    assert!(term.button_at(0, 1, 3).is_none(), "other rows miss");
+}
+
+#[test]
+fn button_at_gives_a_point_anchor_a_one_cell_hit_box() {
+    let mut term = enabled_terminal(20, 5);
+    feed(&mut term, b"ab");
+    feed_osc(&mut term, "1337;Button=type=custom;code=42;icon=star");
+    let hit = term.button_at(0, 0, 2).expect("anchor cell hits");
+    assert_eq!(hit.code, 42);
+    assert_eq!(hit.len, 0, "point anchor");
+    assert!(term.button_at(0, 0, 3).is_none(), "one cell only");
+}
+
+#[test]
+fn button_at_resolves_through_scrollback_offsets() {
+    let mut term = enabled_terminal(10, 3);
+    feed(&mut term, b"AB");
+    feed_osc(&mut term, T2_DEFINE_STICKY);
+    feed(&mut term, b"Go");
+    feed_osc(&mut term, T2_END);
+    feed(&mut term, b"\r\n\r\n\r\n\r\n\r\n");
+    // Scrolled out: no hit anywhere in the live viewport at offset 0.
+    assert!(term.button_at(0, 0, 2).is_none());
+    // Page back until the defining row re-enters the viewport; the hit's
+    // viewport row must agree with the query row.
+    let found = (1..=6)
+        .find_map(|offset| {
+            (0..3).find_map(|row| term.button_at(offset, row, 2).map(|hit| (offset, row, hit)))
+        })
+        .expect("sticky button reachable from scrollback");
+    let (_, row, hit) = found;
+    assert_eq!(hit.row, row);
+    assert_eq!((hit.start_col, hit.len), (2, 2));
+    assert_eq!(hit.code, 7);
+    assert_eq!(hit.scope, ButtonScope::Sticky);
+}
+
+#[test]
+fn button_at_dies_when_the_master_gate_turns_off() {
+    // The partial-gate hole class: definitions landed while the gate was on
+    // must not stay CLICKABLE after the gate turns off — the pointer-side
+    // query gates independently of the OSC arm.
+    let mut term = enabled_terminal(20, 5);
+    feed_osc(&mut term, T2_DEFINE);
+    feed(&mut term, b"ok");
+    feed_osc(&mut term, T2_END);
+    assert!(term.button_at(0, 0, 0).is_some(), "hit while gate on");
+    term.set_buttons_enabled(false);
+    assert!(
+        term.button_at(0, 0, 0).is_none(),
+        "gate off kills clickability outright"
+    );
+    term.set_buttons_enabled(true);
+    assert!(
+        term.button_at(0, 0, 0).is_some(),
+        "re-enable restores the still-referenced span"
+    );
+}
+
+#[test]
+fn button_at_reports_invalidated_state_for_dead_spans() {
+    // A block-scoped button whose block ended keeps its span (renders dimmed)
+    // but the hit reports Invalidated — the pointer arm treats it as inert.
+    let mut term = enabled_terminal(20, 5);
+    feed_osc(&mut term, T2_DEFINE);
+    feed(&mut term, b"ok");
+    feed_osc(&mut term, T2_END);
+    feed_osc(&mut term, "133;A"); // prompt boundary: block scope dies
+    let hit = term.button_at(0, 0, 0).expect("span still present");
+    assert_eq!(hit.state, ButtonState::Invalidated);
+}
+
+#[test]
+fn button_at_misses_on_the_alternate_screen() {
+    let mut term = enabled_terminal(20, 5);
+    feed_osc(&mut term, T2_DEFINE);
+    feed(&mut term, b"ok");
+    feed_osc(&mut term, T2_END);
+    assert!(term.button_at(0, 0, 0).is_some());
+    feed(&mut term, b"\x1b[?1049h"); // enter alt screen
+    assert!(
+        term.button_at(0, 0, 0).is_none(),
+        "primary-screen spans are not clickable through alt content"
+    );
+    feed(&mut term, b"\x1b[?1049l"); // back to primary
+    assert!(term.button_at(0, 0, 0).is_some());
+}
+
+#[test]
+fn prompt_active_tracks_osc133_boundaries() {
+    let mut term = enabled_terminal(20, 5);
+    assert!(!term.prompt_active(), "no shell integration: never active");
+    feed_osc(&mut term, "133;A");
+    assert!(term.prompt_active(), "active after A");
+    feed_osc(&mut term, "133;C");
+    assert!(!term.prompt_active(), "cleared at output start");
 }

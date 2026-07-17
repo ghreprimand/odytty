@@ -1447,6 +1447,7 @@ fn render_sig() -> RenderSignature {
                 open_notice: OverlayFragment::Inert,
                 click_hint: OverlayFragment::Inert,
                 armed_path: OverlayFragment::Inert,
+                buttons: OverlayFragment::Inert,
             },
             rail_overlay: crate::native::render_helpers::RailOverlaySignature::default(),
         },

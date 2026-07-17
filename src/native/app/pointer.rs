@@ -320,7 +320,10 @@ impl App {
                 .sessions
                 .active_pane_at_point(content, PANE_DIVIDER_PX, x, y)
             {
-                if self.sessions.set_active_focus(token) {
+                // B3: remember whether THIS press performed the pane focus
+                // change — a focus-transfer click must not fire a button.
+                let pane_focus_changed = self.sessions.set_active_focus(token);
+                if pane_focus_changed {
                     self.on_active_session_changed();
                 }
                 // C11: resolve the anchor from the click coords captured BEFORE
@@ -346,7 +349,18 @@ impl App {
                 self.update_hover_hyperlink();
                 self.update_hover_path();
                 self.update_hover_url();
-                if !self.try_open_hovered_hyperlink()
+                // B3: drop a stale button latch before this press decides
+                // anything (a lost release — e.g. swallowed by chrome — must
+                // never pair with a later release).
+                self.pressed_button = None;
+                // B3 button arm, joining AFTER the hover recompute so it
+                // hit-tests the freshly focused pane's grid. A pane-focusing
+                // click is a focus transfer (#11167 class) and never latches
+                // a button; it runs the historical ladder instead.
+                if !pane_focus_changed && self.try_press_button() {
+                    // Press consumed; the paired release resolves in the
+                    // release arm (fire on same span, cancel otherwise).
+                } else if !self.try_open_hovered_hyperlink()
                     && !self.try_open_hovered_path()
                     && !self.try_open_hovered_url()
                 {
@@ -487,6 +501,20 @@ impl App {
                 _ => {}
             }
         }
+        // B3: a latched button press resolves its paired release HERE — before
+        // the selection finish, the swallow arm (which would eat it), and the
+        // report gate (which would leak an unpaired release to a TUI that
+        // enabled reporting mid-gesture). `finish_button_click` fires only on
+        // the same still-live span; drag-off, scroll, and invalidation cancel.
+        if button == WinitMouseButton::Left
+            && state == ElementState::Released
+            && self.pressed_button.is_some()
+        {
+            self.swallow_open_left_release = false;
+            self.finish_button_click();
+            return;
+        }
+
         if self.pointer_drag.is_selecting() {
             if button == WinitMouseButton::Left && state == ElementState::Released {
                 self.finish_selection();
@@ -542,6 +570,9 @@ impl App {
         // actually opens a target.
         if button == WinitMouseButton::Left && state == ElementState::Pressed {
             self.swallow_open_left_release = false;
+            // B3: a stale button latch (release lost to focus change or
+            // swallowed elsewhere) dies at every fresh press too.
+            self.pressed_button = None;
             if open_modifier_held(
                 self.modifiers,
                 self.super_key,
@@ -597,12 +628,22 @@ impl App {
         if button == WinitMouseButton::Left {
             match state {
                 ElementState::Pressed => {
+                    // B3 button arm — AHEAD of OSC 8: a button is an explicit
+                    // UI chip and wins ties with any hyperlink underneath it.
+                    // Plain click activates (no modifier; Shift only as the
+                    // reporting-TUI override); the arm is a no-op whenever the
+                    // `buttons` gate is off, so the historical ladder below
+                    // stays byte-identical.
+                    if self.try_press_button() {
+                        // Press consumed; the paired release fires or cancels
+                        // in the release arm above.
+                    }
                     // OSC 8 hyperlink wins ties; then a resolved interactive
                     // path (Ctrl+click); then a bare URL (Ctrl+click); else begin
                     // a text selection. Each open helper returns false when its
                     // gate/feature is off, so the selection path stays
                     // byte-identical when none fires.
-                    if !self.try_open_hovered_hyperlink()
+                    else if !self.try_open_hovered_hyperlink()
                         && !self.try_open_hovered_path()
                         && !self.try_open_hovered_url()
                     {
@@ -1218,6 +1259,9 @@ impl App {
         // paired release is then consumed by the overlay, so drop the swallow
         // latch here too and never carry it past the overlay.
         self.swallow_open_left_release = false;
+        // B3: never carry a latched button press past an overlay either — its
+        // release belongs to the overlay now.
+        self.pressed_button = None;
         // WHEEL-SENS (T-reset): clear the wheel carry on overlay entry so a
         // partial grid-scroll notch does not bleed into the overlay list scroll
         // (and vice-versa) once the overlay captures the wheel.

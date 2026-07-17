@@ -165,6 +165,40 @@ pub struct ButtonSpan {
     pub len: usize,
 }
 
+/// A resolved button under a specific visible viewport cell — the pointer
+/// arm's hit-test result (Button Protocol B3). Carries the table entry's
+/// payload plus the span occurrence's viewport geometry, so a press/release
+/// pair can require the *same span* (same row, same start column), not merely
+/// the same interned id: scrolling between press and release moves the span
+/// to a different viewport row and cleanly cancels the click.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ButtonHit {
+    pub id: ButtonId,
+    pub code: u32,
+    pub scope: ButtonScope,
+    pub state: ButtonState,
+    /// Viewport-relative row the hit was resolved on.
+    pub row: usize,
+    /// The hit span's row-local start column.
+    pub start_col: usize,
+    /// The hit span's length. `0` is a Tier 1 point anchor (one-cell hit box
+    /// at `start_col` until the overlay chip publishes a richer rect).
+    pub len: usize,
+}
+
+/// Compose the click report envelope: `CSI ? 1337 ; code ~`.
+///
+/// This is the ONLY place report bytes are born, and its input is the parsed
+/// integer — type-enforced, so an emitter's raw bytes can never be echoed
+/// back into the PTY. The output alphabet is exactly `ESC [ ? 0-9 ; ~`: no
+/// newline, no CR, no control byte any shell or line editor interprets as
+/// "execute". A hostile emitter chooses *which* number arrives, never *what
+/// byte shape* arrives. Matches iTerm2's report for `type=custom` buttons
+/// (code 42 → `1b 5b 3f 31 33 33 37 3b 34 32 7e`).
+pub fn click_report_bytes(code: u32) -> Vec<u8> {
+    format!("\x1b[?1337;{code}~").into_bytes()
+}
+
 /// A parsed button OSC. Parsing is total and side-effect free; acting on the
 /// signal (or ignoring it when the feature gate is off) is the caller's job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -378,9 +412,10 @@ impl ButtonTable {
         Some(id)
     }
 
-    /// Entry lookup. Test-gated in B1; the render/click phases (B2/B3) take
-    /// this gate off when hit-testing needs it.
-    #[cfg(test)]
+    /// Entry lookup. Un-gated in B2: the render path resolves each visible
+    /// span's `code`/`icon`/`state` through this to paint the chip (a live
+    /// button versus a grayed invalidated one) without reaching into the
+    /// private entry map. B3 reuses it for click hit-testing.
     pub(in crate::core) fn get(&self, id: ButtonId) -> Option<&ButtonEntry> {
         self.entries.get(&id)
     }
@@ -630,6 +665,45 @@ impl SpanReprojector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- click report envelope (B3) ---
+
+    #[test]
+    fn click_report_matches_iterm2_example_exactly() {
+        // The published iTerm2 example: code 42 reports CSI ? 1337 ; 42 ~.
+        assert_eq!(
+            click_report_bytes(42),
+            [
+                0x1b, 0x5b, 0x3f, 0x31, 0x33, 0x33, 0x37, 0x3b, 0x34, 0x32, 0x7e
+            ]
+        );
+    }
+
+    #[test]
+    fn click_report_composes_from_the_integer_only() {
+        assert_eq!(click_report_bytes(1), b"\x1b[?1337;1~");
+        assert_eq!(click_report_bytes(4294967295), b"\x1b[?1337;4294967295~");
+    }
+
+    #[test]
+    fn click_report_alphabet_is_csi_safe() {
+        // The written alphabet is ESC [ ? 0-9 ; ~ — never CR/LF or any byte a
+        // line editor executes. Checked across representative codes including
+        // the extremes.
+        for code in [1u32, 7, 42, 999, 65536, u32::MAX] {
+            for byte in click_report_bytes(code) {
+                assert!(
+                    byte == 0x1b
+                        || byte == b'['
+                        || byte == b'?'
+                        || byte == b';'
+                        || byte == b'~'
+                        || byte.is_ascii_digit(),
+                    "unexpected byte {byte:#04x} in report for code {code}"
+                );
+            }
+        }
+    }
 
     fn parts(s: &[&str]) -> Vec<Vec<u8>> {
         s.iter().map(|p| p.as_bytes().to_vec()).collect()

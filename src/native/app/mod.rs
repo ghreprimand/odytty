@@ -86,6 +86,7 @@ use super::viewport::{
 
 mod background_ui;
 mod bell;
+mod button_chip;
 mod chrome_geometry;
 pub(in crate::native) mod click_hint;
 mod connection_probe;
@@ -531,6 +532,15 @@ pub(super) struct App {
     /// Whether the window currently holds focus. Blink pauses (cursor solid)
     /// while unfocused, matching common terminal behavior.
     focused: bool,
+    /// Button Protocol B3 focus-transfer exclusion (the Ghostty #11167 class):
+    /// set on every focus gain, taken by the next content left press. That
+    /// press — the click that activated the window — never latches a button;
+    /// everything else about it (selection, opens, reports) is unchanged. A
+    /// deliberate second click then works normally. Over-approximates for a
+    /// keyboard focus gain followed by a click (that click is excluded too) —
+    /// the safe side: a button fires a PTY write, so a click whose intent was
+    /// "give this window focus" must never trigger one.
+    focus_click_pending: bool,
     /// Whether this unfocused episode has already requested platform user
     /// attention for a bell. Cleared when the window regains focus.
     bell_attention: bell::BellAttentionLatch,
@@ -827,6 +837,9 @@ impl App {
             top_tab_drag: None,
             // Assume focused at startup; the first `Focused` event corrects it.
             focused: true,
+            // Startup counts as a focus gain: the very first click after
+            // launch should not fire a button either.
+            focus_click_pending: true,
             bell_attention: bell::BellAttentionLatch::default(),
             context_menu_opened_at: None,
             #[cfg(test)]
@@ -5794,6 +5807,7 @@ impl ApplicationHandler<UserEvent> for App {
                             cursor_blinking,
                             terminal_revision,
                             visible_graphics,
+                            visible_buttons,
                             image_uploads,
                         ) = {
                             // NF21-6: bell + prompt-marks latches are drained
@@ -5834,6 +5848,11 @@ impl ApplicationHandler<UserEvent> for App {
                                 search.refresh(&terminal);
                             }
                             let visible_graphics = terminal.visible_graphics(offset);
+                            // Button Protocol B2: viewport-projected buttons for
+                            // chip paint + the render-cache fragment. Gate-scoped
+                            // to an empty vec when the protocol is off, so the
+                            // default frame is byte-identical.
+                            let visible_buttons = terminal.visible_button_spans(offset);
                             let image_uploads = image_uploads_for_visible(
                                 &terminal,
                                 &visible_graphics,
@@ -5852,6 +5871,7 @@ impl ApplicationHandler<UserEvent> for App {
                                 cursor_blinking,
                                 terminal_revision,
                                 visible_graphics,
+                                visible_buttons,
                                 image_uploads,
                             )
                         };
@@ -5946,6 +5966,11 @@ impl ApplicationHandler<UserEvent> for App {
                         // + Ctrl + a hovered path; the hint needs to be shown.
                         self.paint_armed_path_underline_cells(&mut snapshot);
                         self.paint_click_hint_cells(&mut snapshot);
+                        // Button Protocol B2: program-defined button chips.
+                        // `visible_buttons` is empty on the gate-off / no-button
+                        // path, so this is a no-op there and the frame stays
+                        // byte-identical.
+                        button_chip::paint_button_cells(&mut snapshot, &visible_buttons);
                         // Frame-overlay quad manifest: scroll indicator, then the
                         // off-by-default SH2 gutter, then the no-op new slots.
                         let mut overlays: Vec<SolidQuad> = Vec::new();
@@ -6046,6 +6071,13 @@ impl ApplicationHandler<UserEvent> for App {
                                     // toggle / span move so it reclassifies Full.
                                     click_hint: self.click_hint_overlay_signature(),
                                     armed_path: self.armed_path_overlay_signature(),
+                                    // Button Protocol B2: Inert on the gate-off /
+                                    // no-button path (composite stays constant);
+                                    // a folded hash otherwise so a define / move
+                                    // / invalidate / scroll re-keys the frame.
+                                    buttons: button_chip::buttons_overlay_signature(
+                                        &visible_buttons,
+                                    ),
                                 },
                                 // F4-P3: fold the revealed rail overlay's
                                 // visibility + geometry + visual state so a pure

@@ -206,6 +206,12 @@ pub(super) enum OverlayFragment {
         start: usize,
         end: usize,
     },
+    /// Button Protocol B2 visible-button set. A folded hash of every visible
+    /// button's row / column / length / code / icon / live-or-dead state, so a
+    /// define, move, invalidate, or scroll re-keys the frame and repaints the
+    /// chips. `Inert` when no button is visible (the gate-off / no-button path),
+    /// so the default cache decision is unchanged.
+    Buttons { state_hash: u64 },
 }
 
 /// Folds the NEW overlay contributors' fragments into one hashable cache key.
@@ -232,6 +238,11 @@ pub(super) struct OverlayCompositeSignature {
     /// UX-A (Phase 11) Ctrl+hover armed underline span. `Inert` unless armed, so
     /// toggling Ctrl while hovering a path reclassifies to a Full rebuild.
     pub(super) armed_path: OverlayFragment,
+    /// Button Protocol B2 visible-button set. `Inert` when no button is visible
+    /// (the gate-off / no-button path), so the composite stays constant there;
+    /// otherwise a folded hash that re-keys the frame on any button define /
+    /// move / invalidate / scroll so the chips repaint.
+    pub(super) buttons: OverlayFragment,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

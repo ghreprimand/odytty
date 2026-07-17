@@ -82,6 +82,7 @@ mod alt_scroll;
 #[cfg(unix)]
 mod attach_e2e;
 mod background_model_sync;
+mod button_click;
 mod click_hint;
 mod clipboard_paste;
 mod close_confirm;

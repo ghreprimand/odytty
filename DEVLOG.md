@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Button protocol: rendering and click-to-PTY reporting
+
+Second slice of program-defined clickable buttons, building on the model spine:
+buttons now paint and respond to clicks. Still behind the master gate that
+defaults off; with the gate off the render path adds no work and frame bytes
+fingerprint identically to plain output.
+
+Rendering exposes button spans per visible row through a side-channel accessor
+alongside the existing prompt-mark and graphics accessors, so no snapshot
+construction site changes. Label runs re-style as chips through the existing
+cell-decoration path; iTerm2-compatible point buttons draw a compact chip at
+the line content-end; invalidated buttons render gray. The render signature
+folds button state in, so a change in button presence or position re-keys
+cached frames.
+
+Clicking a live button composes a terminal-owned report and writes it into the
+PTY: the terminal builds `CSI ? 1337 ; code ~` from the parsed integer alone,
+never from program-supplied bytes, so a button can never inject newlines or
+commands into the input stream. The pointer ladder tests a button hit ahead of
+hyperlink handling; press and release must land on the same span, and dragging
+off cancels. Focus-transfer clicks are excluded, and an active mouse-reporting
+TUI keeps the click.
+
+Chip appearance, content-end placement, and the hover cursor are held for a
+visual pass on a release build before they are considered final.
+
 ## 2026-07-17 -- Button protocol core: parse, intern, span, lifetime
 
 First slice of program-defined clickable buttons: the pure terminal-model

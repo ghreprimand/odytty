@@ -60,8 +60,8 @@ mod search_tests;
 mod tests;
 
 pub use button::{
-    ButtonEntry, ButtonIcon, ButtonId, ButtonScope, ButtonSpan, ButtonState, MAX_BUTTON_ENTRIES,
-    MAX_BUTTON_SPANS_PER_LINE,
+    ButtonEntry, ButtonHit, ButtonIcon, ButtonId, ButtonScope, ButtonSpan, ButtonState,
+    MAX_BUTTON_ENTRIES, MAX_BUTTON_SPANS_PER_LINE, click_report_bytes,
 };
 pub use encoding::{encode_focus_event, encode_mouse_event, encode_mouse_event_pixel};
 pub use hyperlink::{Hyperlink, MAX_URI_BYTES, uri_has_openable_scheme};
@@ -71,7 +71,7 @@ pub use prompt_marks::{
     command_output_cell_range, command_output_range, command_status, jump_target, prompt_jump,
     viewport_offset_for_row,
 };
-pub use screen::{Screen, Terminal, VisibleRow};
+pub use screen::{Screen, SnapshotButton, Terminal, VisibleRow};
 pub use search::{
     AbsolutePoint, SearchMatch, SearchOptions, SearchRow, find_next, find_prev, search_rows,
 };

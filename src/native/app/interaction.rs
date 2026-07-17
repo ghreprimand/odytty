@@ -1105,6 +1105,132 @@ impl App {
             .and_then(|cell| cell.attrs.hyperlink)
     }
 
+    /// Button Protocol B3: resolve the button under the pointer cell against
+    /// the core's viewport hit-test. One terminal lock; `None` whenever the
+    /// master gate is off (the core query gates independently of the OSC arm,
+    /// so disabling `buttons` kills clickability outright, not just new
+    /// definitions).
+    fn visible_cell_button(&self, point: CellPoint) -> Option<crate::core::ButtonHit> {
+        if point.row >= self.grid.rows || point.column >= self.grid.columns {
+            return None;
+        }
+        let terminal = self.terminal.lock().ok()?;
+        terminal.button_at(self.viewport.offset(), point.row, point.column)
+    }
+
+    /// Button Protocol B3 press arm: latch a live button under a plain left
+    /// press. Returns `true` when the press was consumed (no selection, no
+    /// open ladder, no misclick note for this gesture).
+    ///
+    /// Activation is PLAIN click only — buttons are explicit UI chips, so the
+    /// click-hint "the cursor lies" problem does not apply — with exactly one
+    /// modifier exception: while a mouse-reporting TUI owns clicks, Shift is
+    /// the established local-content override (it bypasses the report gate),
+    /// so a Shift+click is how a button stays reachable there, the same
+    /// convention as selection. Outside reporting, Shift keeps its
+    /// selection-extend meaning and Ctrl/Cmd (open) and Alt (block selection)
+    /// keep theirs — those presses skip this arm entirely.
+    ///
+    /// The focus-transfer exclusion (#11167 class) consumes the pending
+    /// focus-click marker even when the press misses every button: whatever
+    /// that first-click-after-focus-gain landed on, it was spent activating
+    /// the window.
+    pub(super) fn try_press_button(&mut self) -> bool {
+        let focus_click = std::mem::take(&mut self.focus_click_pending);
+        let shift_override_active = self.modifiers.shift && self.mouse_reporting_enabled();
+        if open_modifier_held(
+            self.modifiers,
+            self.super_key,
+            super::platform_opener::OpenerOs::host(),
+        ) || self.modifiers.alt
+            || (self.modifiers.shift && !shift_override_active)
+        {
+            return false;
+        }
+        let Some(point) = self.pointer_cell else {
+            return false;
+        };
+        let Some(hit) = self.visible_cell_button(point) else {
+            return false;
+        };
+        if hit.state != crate::core::ButtonState::Live || focus_click {
+            // An invalidated chip renders dimmed and is inert — the press
+            // falls through to selection so the surrounding text stays
+            // selectable. A window-activating click over a button is likewise
+            // never an activation; it falls through byte-identically to the
+            // historical path, matching common focus-click behavior.
+            return false;
+        }
+        self.pressed_button = Some(hit);
+        // Backstop reuse of the open-click latch: if the paired release stops
+        // being routable to the button arm (e.g. the app enables mouse
+        // reporting mid-gesture), the reporting TUI must not see an unpaired
+        // release. The button release arm runs BEFORE the swallow arm and
+        // clears both latches on the normal path.
+        self.swallow_open_left_release = true;
+        true
+    }
+
+    /// Button Protocol B3 release arm: fire or cancel the latched press.
+    ///
+    /// Fires only when the release resolves the SAME span (matching id,
+    /// viewport row, and start column) still `Live` under the release
+    /// position — press+release same-span semantics, so drag-off, scrolling
+    /// between press and release, and mid-gesture invalidation all cancel
+    /// silently.
+    ///
+    /// STICKY PROMPT-ACTIVE SUPPRESSION (the §6 decision, resolved here):
+    /// while a cooperating shell reports an active prompt (OSC 133 `A` with no
+    /// `C`/`D` since), a `scope=sticky` button click is swallowed. A sticky
+    /// button outliving its program has no reader that understands the report
+    /// at a prompt — the bytes would land in the shell's line editor, where
+    /// the best case is "consumed as an unknown escape" and the worst observed
+    /// class is a stray literal `~` on very old readline builds. Nothing can
+    /// act on it, so nothing is sent. Block-scoped buttons are deliberately
+    /// NOT suppressed: a live block button during the prompt phase was defined
+    /// IN that prompt block (a prompt-embedded chip a shell widget emitted),
+    /// and its emitter is exactly the line editor currently reading stdin.
+    /// Without shell integration the prompt state is never active and every
+    /// live button reports.
+    ///
+    /// The report is composed by [`crate::core::click_report_bytes`] from the
+    /// parsed integer only and enters the PTY through [`Self::write_pty_bytes`]
+    /// — the same funnel mouse reports use (on Windows that is the ConPTY
+    /// input pipe; there is no platform-specific surface here). No
+    /// `return_to_live`: clicking a scrollback button must not yank the
+    /// viewport.
+    pub(super) fn finish_button_click(&mut self) {
+        let Some(pressed) = self.pressed_button.take() else {
+            return;
+        };
+        let Some(point) = self.pointer_cell else {
+            return;
+        };
+        let (hit, prompt_active) = {
+            let Ok(terminal) = self.terminal.lock() else {
+                return;
+            };
+            (
+                terminal.button_at(self.viewport.offset(), point.row, point.column),
+                terminal.prompt_active(),
+            )
+        };
+        let Some(hit) = hit else {
+            return;
+        };
+        if hit.id != pressed.id
+            || hit.row != pressed.row
+            || hit.start_col != pressed.start_col
+            || hit.state != crate::core::ButtonState::Live
+        {
+            return;
+        }
+        if hit.scope == crate::core::ButtonScope::Sticky && prompt_active {
+            return;
+        }
+        self.write_pty_bytes(&crate::core::click_report_bytes(hit.code));
+    }
+
     fn hovered_hyperlink_uri(&self) -> Option<String> {
         let id = self.hovered_hyperlink?;
         self.terminal
@@ -1434,6 +1560,10 @@ impl App {
         self.observe_osc52_window_focus();
         self.focused = focused;
         if focused {
+            // B3 focus-transfer exclusion (#11167 class): the click that
+            // activates the window must never fire a button. Arm the marker;
+            // the next content left press consumes it.
+            self.focus_click_pending = true;
             // A focus gain is a fresh visible-hold boundary for the active
             // cursor. This is presentation-only and leaves focus-report bytes
             // below unchanged.
@@ -1467,6 +1597,10 @@ impl App {
             self.rail_ws_drag = None;
             self.top_tab_drag = None;
             self.report_button = None;
+            // B3: a focus loss strands the latched button press (its release
+            // may be delivered to another window); drop it so a later release
+            // can never fire a stale button.
+            self.pressed_button = None;
             // NF21-8: an alt-tab can deliver the button release to another
             // window, stranding the grid selection's held flag. Drop it so a
             // `CursorMoved` on focus regain cannot resume a buttonless drag.

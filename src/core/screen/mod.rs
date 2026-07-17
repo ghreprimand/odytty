@@ -11,8 +11,8 @@ use crate::graphics::{ImageScene, VisiblePlacement};
 use crate::parser::{OdyParser, Params, VtDispatch};
 
 use super::button::{
-    ButtonScope, ButtonSignal, ButtonSpan, ButtonTable, MAX_BUTTON_SPANS_PER_LINE,
-    parse_button_osc_133, parse_button_osc_1337,
+    ButtonHit, ButtonIcon, ButtonScope, ButtonSignal, ButtonSpan, ButtonState, ButtonTable,
+    MAX_BUTTON_SPANS_PER_LINE, parse_button_osc_133, parse_button_osc_1337,
 };
 use super::graphics_routing::{self, DcsCapture, GraphicsStats};
 use super::hyperlink::{Hyperlink, HyperlinkTable};
@@ -94,6 +94,38 @@ impl VisibleRow {
             wrapped: self.wrapped,
         }
     }
+}
+
+/// A button projected onto a viewport row for rendering (Button Protocol B2).
+///
+/// Resolved from a line-anchored [`ButtonSpan`] plus its interned
+/// [`ButtonEntry`](super::button::ButtonEntry) at snapshot time, so the render
+/// layer paints chips without reaching into the private button table. The
+/// coordinates are viewport-relative and column-local, matching the cells the
+/// render [`Snapshot`] draws for the same viewport offset, so a caller can
+/// index straight into the flattened cell grid.
+///
+/// This rides a side-channel accessor ([`Screen::visible_button_spans`]) rather
+/// than a field on [`Snapshot`], mirroring how prompt marks and graphics
+/// placements are exposed for render without widening the text-snapshot
+/// surface (see [`Screen::visible_graphics`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SnapshotButton {
+    /// Viewport row, `0` at the top of the visible grid.
+    pub row: usize,
+    /// Row-local start column: the first label cell, or the anchor column for a
+    /// Tier 1 point button.
+    pub start_col: usize,
+    /// Label-run length in cells. `0` marks a Tier 1 point button, which has no
+    /// label run and renders as an overlay chip anchored at `start_col`.
+    pub len: usize,
+    /// The terminal-composed report code this button carries.
+    pub code: u32,
+    /// Semantic icon for the chip (platform-neutral).
+    pub icon: ButtonIcon,
+    /// Live or invalidated: an invalidated button keeps painting (grayed) while
+    /// visible lines still reference it, but no longer activates.
+    pub state: ButtonState,
 }
 
 impl Line {
@@ -1223,6 +1255,75 @@ impl Screen {
         )
     }
 
+    /// Buttons visible in the current viewport, projected onto viewport rows
+    /// for rendering (Button Protocol B2). `offset_rows` follows
+    /// [`Self::snapshot_with_scrollback`]: `0` is the live screen, positive
+    /// values page upward into scrollback. Row and column coordinates line up
+    /// with the cells the matching [`Snapshot`] draws, so the render layer can
+    /// index straight into its flattened cell grid.
+    ///
+    /// Gate-scoped: when the button protocol is off (the default) this returns
+    /// an empty vector immediately — no row walk, no table lookups, no
+    /// allocation — so the render path does zero extra work and frames stay
+    /// byte-identical. The button table is empty on that path anyway; the gate
+    /// makes the zero-work guarantee explicit rather than incidental.
+    pub fn visible_button_spans(&self, offset_rows: usize) -> Vec<SnapshotButton> {
+        if !self.buttons_enabled {
+            return Vec::new();
+        }
+        let height = self.dimensions.rows;
+        let columns = self.dimensions.columns;
+        let scrollback = self.scrollback.physical(columns);
+        let scrollback_len = scrollback.len();
+        let offset = offset_rows.min(scrollback_len);
+
+        let mut out = Vec::new();
+        if offset == 0 {
+            // Live viewport: the visible rows are `self.rows` verbatim, so their
+            // button spans are already row-local and viewport-aligned.
+            for (row, line) in self.rows.iter().enumerate() {
+                self.collect_row_buttons(row, line, &mut out);
+            }
+        } else {
+            // Scrolled viewport: the same `scrollback ++ live` window
+            // `snapshot_with_scrollback` draws. Physical scrollback rows carry
+            // button spans re-projected to row-local columns by the reflow
+            // projection, so they align with the drawn cells here too.
+            let total = scrollback_len + height;
+            let window_start = total - offset - height;
+            for (row, line) in scrollback
+                .iter()
+                .chain(self.rows.iter())
+                .skip(window_start)
+                .take(height)
+                .enumerate()
+            {
+                self.collect_row_buttons(row, line, &mut out);
+            }
+        }
+        out
+    }
+
+    /// Resolve a line's button spans against the interned table and push the
+    /// live entries onto `out` at viewport `row`. A span whose entry has been
+    /// removed is skipped (defensive; canonical storage and the table stay in
+    /// refcount lockstep, so this should not arise in practice).
+    fn collect_row_buttons(&self, row: usize, line: &Line, out: &mut Vec<SnapshotButton>) {
+        for span in &line.button_spans {
+            let Some(entry) = self.buttons.get(span.id) else {
+                continue;
+            };
+            out.push(SnapshotButton {
+                row,
+                start_col: span.start_col,
+                len: span.len,
+                code: entry.code,
+                icon: entry.icon,
+                state: entry.state,
+            });
+        }
+    }
+
     /// Number of sixel decode failures since power-on (debug diagnostic).
     pub fn sixel_decode_errors(&self) -> u64 {
         self.graphics_stats.sixel_decode_errors
@@ -1489,6 +1590,65 @@ impl Screen {
     #[cfg(test)]
     pub(in crate::core) fn hyperlink_count(&self) -> usize {
         self.hyperlinks.len()
+    }
+
+    /// Resolve the button (if any) under a visible viewport cell — the pointer
+    /// arm's hit-test (Button Protocol B3).
+    ///
+    /// The master gate is enforced HERE as well as at the OSC arm, so turning
+    /// `buttons` off kills clickability outright, not just new definitions —
+    /// spans left in scrollback go inert immediately (the partial-gate hole
+    /// class). The gate-off/button-free fast path is two branches, no row walk.
+    ///
+    /// `offset_rows`/`row`/`column` use the [`Self::visible_search_rows`]
+    /// viewport convention: offset `0` is the live screen, positive offsets
+    /// page upward into scrollback (clamped), `row 0` = top visible row.
+    /// Alt-screen viewports resolve nothing (buttons are refused there and
+    /// primary-screen spans must not be clickable through alt content).
+    ///
+    /// Hit box: a labeled span covers `[start_col, start_col + len)`; a Tier 1
+    /// point anchor (`len == 0`) covers the single anchor cell until the
+    /// overlay chip publishes a richer rect. Pure; never panics.
+    pub fn button_at(&self, offset_rows: usize, row: usize, column: usize) -> Option<ButtonHit> {
+        if !self.buttons_enabled || self.buttons.is_empty() || self.primary_screen.is_some() {
+            return None;
+        }
+        if row >= self.dimensions.rows || column >= self.dimensions.columns {
+            return None;
+        }
+        let scrollback = self.scrollback.physical(self.dimensions.columns);
+        let scrollback_len = scrollback.len();
+        // Same window as visible_search_rows / snapshot_with_scrollback.
+        let offset = offset_rows.min(scrollback_len);
+        let window_start = scrollback_len - offset;
+        let row_index = window_start + row;
+        let line = if row_index < scrollback_len {
+            &scrollback[row_index]
+        } else {
+            self.rows.get(row_index - scrollback_len)?
+        };
+        let span = line.button_spans.iter().find(|span| {
+            let end = span.start_col + span.len.max(1);
+            column >= span.start_col && column < end
+        })?;
+        let entry = self.buttons.get(span.id)?;
+        Some(ButtonHit {
+            id: span.id,
+            code: entry.code,
+            scope: entry.scope,
+            state: entry.state,
+            row,
+            start_col: span.start_col,
+            len: span.len,
+        })
+    }
+
+    /// Whether a cooperating shell currently reports an active prompt (an OSC
+    /// 133 `A` boundary with no `C`/`D` since). Advisory: `false` without
+    /// shell integration. The pointer arm consults this for the sticky-button
+    /// report-suppression policy (B3).
+    pub fn prompt_active(&self) -> bool {
+        self.active_prompt_start.is_some()
     }
 
     /// Search the combined scrollback + visible buffer for `query`, returning
@@ -2479,6 +2639,27 @@ impl Terminal {
     /// Diagnostic/test surface.
     pub fn button_entry_count(&self) -> usize {
         self.screen.button_entry_count()
+    }
+
+    /// Button hit-test under a visible viewport cell (pointer arm, B3). See
+    /// [`Screen::button_at`] — master-gate enforced, so this is `None` for
+    /// every cell whenever the button protocol is off.
+    pub fn button_at(&self, offset_rows: usize, row: usize, column: usize) -> Option<ButtonHit> {
+        self.screen.button_at(offset_rows, row, column)
+    }
+
+    /// Whether a cooperating shell currently reports an active prompt. See
+    /// [`Screen::prompt_active`].
+    pub fn prompt_active(&self) -> bool {
+        self.screen.prompt_active()
+    }
+
+    /// Buttons visible in the current viewport, projected onto viewport rows
+    /// for rendering (Button Protocol B2). See
+    /// [`Screen::visible_button_spans`]; gate-scoped to an empty vector when the
+    /// button protocol is off.
+    pub fn visible_button_spans(&self, offset_rows: usize) -> Vec<SnapshotButton> {
+        self.screen.visible_button_spans(offset_rows)
     }
 
     pub fn scrollback_trim_epoch(&self) -> u64 {
