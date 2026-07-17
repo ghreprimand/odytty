@@ -544,6 +544,8 @@ fn synchronized_output_hold_retains_trail_glow_and_streak_inputs() {
 
 #[test]
 fn cursor_glow_shader_and_pipeline_validate() {
+    // Serialize driver init against every other parallel test creating a device.
+    let init_guard = crate::test_lock::device_creation_lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),
@@ -564,6 +566,7 @@ fn cursor_glow_shader_and_pipeline_validate() {
     else {
         return;
     };
+    drop(init_guard);
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("cursor-glow-pipeline-test-bgl"),
         entries: &[
@@ -603,6 +606,8 @@ fn cursor_glow_shader_and_pipeline_validate() {
 fn cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws() {
     use wgpu::util::DeviceExt as _;
 
+    // Serialize driver init against every other parallel test creating a device.
+    let init_guard = crate::test_lock::device_creation_lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),
@@ -621,6 +626,7 @@ fn cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws() {
     })) else {
         return;
     };
+    drop(init_guard);
     let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("cursor-streak-bound-draw-test-bgl"),
         entries: &[
@@ -775,6 +781,8 @@ fn cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws() {
 fn programming_ligature_vertices_submit_through_the_real_cell_pipeline() {
     use wgpu::util::DeviceExt as _;
 
+    // Serialize driver init against every other parallel test creating a device.
+    let init_guard = crate::test_lock::device_creation_lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),
@@ -793,6 +801,7 @@ fn programming_ligature_vertices_submit_through_the_real_cell_pipeline() {
     })) else {
         return;
     };
+    drop(init_guard);
 
     let font = text::load_bundled_font().expect("bundled font");
     let fonts = StyleFonts::regular(font);

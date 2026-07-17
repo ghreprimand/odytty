@@ -701,6 +701,8 @@ mod tests {
     /// Headless device for pipeline-format tests. `None` (⇒ skip) when the
     /// machine has no usable adapter (e.g. bare CI).
     fn test_device() -> Option<(wgpu::Device, wgpu::Queue)> {
+        // Serialize driver init against every other parallel test creating a device.
+        let _init = crate::test_lock::device_creation_lock();
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::default(),

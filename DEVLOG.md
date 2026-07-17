@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Test suite: serialize headless GPU device creation to end the parallel-run deadlock
+
+The full-parallelism `cargo test` run could intermittently hang forever. Root
+cause: concurrent wgpu instance/adapter/device bring-up on the software Vulkan
+ICD (lavapipe) can deadlock inside the driver during device init. One headless
+device-creation test made that hang catastrophic rather than local — it held
+the process-global render-globals lock across the device bring-up, so when the
+bring-up stalled, every other test waiting on that lock was stranded and the
+whole suite froze.
+
+Two changes remove the hang at its root. First, the background-image pipeline
+test now creates its device *before* taking the render-globals lock, so a
+device stall can never strand the render-globals tests. Second, a shared
+`device_creation_lock` serializes every headless device-creation block in the
+test suite (the two device helpers plus the three inline cursor/ligature
+pipeline tests), making concurrent driver init impossible — which is the actual
+trigger. The lock is acquired strictly around each creation block and released
+before any other test lock is taken, so it never nests with the render-globals
+lock and cannot form a cycle; poison is recovered with `into_inner` so a
+panicking test cannot wedge later device creation.
+
+The suite now runs clean repeatedly at full default parallelism instead of
+relying on a reduced thread count to narrow the race window. This is
+test-infrastructure only, platform-neutral, with no change to any runtime code
+path.
+
 ## 2026-07-17 -- Button protocol: emitter helpers, demo script, protocol doc
 
 Third slice of program-defined clickable buttons: the emitter story. Programs

@@ -65,4 +65,21 @@ pub(crate) mod test_lock {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+
+    static DEVICE_CREATION_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Serialize headless wgpu instance/adapter/device creation across parallel
+    /// test threads. Concurrent driver init on the software Vulkan ICD
+    /// (lavapipe) can deadlock inside the driver during device bring-up; holding
+    /// this lock for the duration of each creation block makes that concurrency
+    /// impossible while leaving the created device free to run in parallel
+    /// afterward. Acquire it strictly around the creation block and release
+    /// before taking any other test lock, so it never nests with
+    /// `render_globals_lock` and cannot form a cycle. Poison is recovered with
+    /// `into_inner` so a panicking test does not wedge later device creation.
+    pub(crate) fn device_creation_lock() -> MutexGuard<'static, ()> {
+        DEVICE_CREATION_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 }

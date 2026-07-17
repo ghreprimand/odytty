@@ -766,12 +766,19 @@ fn post_options_from_settings(settings: &Settings) -> post::PostProcessOptions {
 ///   layout fails the suite rather than only at runtime.
 #[test]
 fn background_image_pipeline_builds_from_png() {
-    // Mutates the process-global floor; serialize against every other floor test.
-    let _guard = crate::test_lock::render_globals_lock();
+    // Create the device BEFORE taking the render-globals lock. Device bring-up
+    // can stall (or historically deadlock) inside the software Vulkan driver; if
+    // that stall happened while holding the process-global render-globals lock it
+    // stranded every other floor test waiting on that lock, freezing the whole
+    // suite rather than just this test. `test_device_with_hdr` serializes its own
+    // creation via the device-creation lock and releases it before returning, so
+    // by the time we take the render-globals lock no device work is in flight.
     let Some((device, queue)) = test_device_with_hdr() else {
         eprintln!("skipping: no GPU adapter available");
         return;
     };
+    // Mutates the process-global floor; serialize against every other floor test.
+    let _guard = crate::test_lock::render_globals_lock();
     // Encode a tiny 4x4 RGBA PNG (a black/white checker) to a temp file.
     let dir = std::env::temp_dir();
     let path = dir.join(format!("odytty-bg-image-smoke-{}.png", std::process::id()));
@@ -1587,6 +1594,8 @@ fn split_pane_inline_image_renders_clipped_to_its_pane() {
 }
 
 fn test_device_with_hdr() -> Option<(wgpu::Device, wgpu::Queue)> {
+    // Serialize driver init against every other parallel test creating a device.
+    let _init = crate::test_lock::device_creation_lock();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
         power_preference: wgpu::PowerPreference::default(),
