@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Window opacity: compose wallpaper softening with transparency, no 100% step
+
+Window opacity had a hard visual step at the top of its range. At exactly 100%
+the in-app wallpaper treatment showed through the cell backgrounds at the
+softening weight (cells are 80% opaque by default, so 20% of the wallpaper read
+through); one step below 100% the wallpaper snapped off entirely and the
+background became a flat near-opaque wash of the desktop. Lowering opacity
+further grew the desktop back, so the background appeared richest at 100,
+nearly gone at 95, and creeping back toward 70 — a discontinuity, not a scale.
+
+Root cause: the content surface alpha was chosen by a hard branch at the
+boundary. At 100% it used the cell softening (0.80); below 100% it used the
+window alpha directly (~0.99 just under the top), which drove the cell
+backgrounds nearly opaque and occluded the wallpaper layer behind them. Window
+opacity was switching between two background models — wallpaper-softening and
+desktop-through — rather than scaling one.
+
+The fix composes the two: the content surface alpha is now the product of the
+cell softening and the window alpha (`cell_bg_opacity * window_bg_alpha`). The
+cells stay at the same softening fraction of the window alpha at every opacity,
+so the wallpaper keeps showing through and fades continuously with the window
+instead of snapping off, and the whole treatment-over-desktop stack composites
+correctly over the transparent clear. The result is continuous across the
+100% boundary (the limit from just below equals the value at 100%), monotonic as
+opacity falls, and byte-identical at 100% (the product there is exactly the
+softening, the unchanged opaque path). Tests pin the boundary continuity, the
+monotonic fall, and the opaque byte-identity. Turning window transparency off
+holds the opaque path unchanged.
+
+Platform: pure GPU/color compositing. On Windows the composited surface alpha is
+handled by DWM exactly as on the Linux/macOS compositors; there is no PTY,
+spawn, path, or environment surface, so behavior is identical across platforms.
+
 ## 2026-07-17 -- Selection opacity: default set to 0.6
 
 With the punch-through surface-alpha model settled, eye-testing on

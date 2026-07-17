@@ -618,23 +618,36 @@ pub(super) fn select_alpha_mode(modes: &[wgpu::CompositeAlphaMode]) -> wgpu::Com
     modes.first().copied().unwrap_or(Opaque)
 }
 
-/// TRANSPARENCY: the opacity fed to the CONTENT cell-vertex builder. At the
-/// opaque default (`window_bg_alpha == 1.0`) the shipped `cell_bg_opacity` is
-/// returned unchanged (byte-identical). While translucent, the window alpha
-/// replaces the wallpaper color-weight so the background surface alpha is
-/// exactly the window alpha (decoupled from the softening).
+/// TRANSPARENCY: the opacity fed to the CONTENT cell-vertex builder. The
+/// wallpaper softening and window transparency COMPOSE — the content surface
+/// alpha is their product, `cell_bg_opacity * window_bg_alpha`, rather than one
+/// regime replacing the other at the 100% boundary.
+///
+/// At the opaque default (`window_bg_alpha == 1.0`) this is exactly
+/// `cell_bg_opacity`, so the opaque path is byte-identical. Below 1.0 the cells
+/// stay at the same softening fraction OF the window alpha, so the wallpaper
+/// layer (a separate pass carrying its own `window_bg_alpha` uniform) keeps
+/// showing through the cells instead of being occluded by a near-opaque cell
+/// quad — the earlier hard branch snapped the cell alpha up to `window_bg_alpha`
+/// (~0.99 just below 100%), which hid the wallpaper entirely one step off the
+/// boundary. The product is continuous as `window_bg_alpha -> 1.0` (the limit
+/// from below, `cell_bg_opacity`, equals the value at 1.0) and monotonic in the
+/// window alpha, so window opacity now scales one continuous stack — wallpaper
+/// treatment fading over the desktop-through — instead of toggling between two
+/// background models.
 pub(super) fn content_build_opacity(window_bg_alpha: f32, cell_bg_opacity: f32) -> f32 {
-    if window_bg_alpha < 1.0 {
-        window_bg_alpha
-    } else {
-        cell_bg_opacity
-    }
+    cell_bg_opacity * window_bg_alpha
 }
 
 /// TRANSPARENCY: the color the scene pass clears to. Fully transparent
-/// (premultiplied zero) while the window is translucent so padding/gaps show
-/// the desktop and cell background quads blend to premultiplied `(rgb·a, a)`
-/// over it; otherwise the opaque theme clear (byte-identical off path).
+/// (premultiplied zero) while the window is translucent, so the desktop shows
+/// through and the whole treatment-over-desktop stack — wallpaper layer then
+/// cell background quads, each premultiplied `(rgb·a, a)` — composites over it
+/// correctly; otherwise the opaque theme clear (byte-identical off path). The
+/// clear stays transparent-when-translucent by design: window transparency is
+/// meant to reveal the DESKTOP, and the wallpaper's own faded contribution now
+/// rides the continuous cell-alpha product (see `content_build_opacity`), so the
+/// clear does not need to carry the theme color while translucent.
 pub(super) fn scene_clear_color(window_bg_alpha: f32, clear_color: wgpu::Color) -> wgpu::Color {
     if window_bg_alpha < 1.0 {
         wgpu::Color {
@@ -2338,10 +2351,9 @@ impl GpuState {
     }
 
     /// TRANSPARENCY: the opacity fed to the cell-vertex builder for terminal
-    /// CONTENT. When translucent, the window alpha replaces the wallpaper
-    /// color-weight so the background surface alpha is exactly `window_bg_alpha`
-    /// (decoupled from the `cell_bg_opacity` softening); otherwise the shipped
-    /// `cell_bg_opacity` is used unchanged (byte-identical opaque path).
+    /// CONTENT. The wallpaper softening and window transparency compose: the
+    /// surface alpha is `cell_bg_opacity * window_bg_alpha`, continuous across
+    /// the 100% boundary and byte-identical (`== cell_bg_opacity`) when opaque.
     fn content_build_opacity(&self) -> f32 {
         content_build_opacity(self.window_bg_alpha, self.cell_bg_opacity)
     }

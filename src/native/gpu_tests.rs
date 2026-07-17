@@ -1816,21 +1816,71 @@ fn opaque_path_is_byte_identical_when_transparency_off() {
 }
 
 #[test]
-fn translucent_path_decouples_surface_alpha_and_clears_transparent() {
-    // Below 1.0 the window alpha becomes the background surface alpha directly,
-    // decoupled from the 0.8 cell_bg_opacity color-weight, so the desktop shows
-    // through at exactly the configured opacity.
+fn translucent_path_composes_softening_with_window_alpha_and_clears_transparent() {
+    // Below 1.0 the content surface alpha is the PRODUCT of the cell softening
+    // and the window alpha, so the wallpaper keeps showing through the cells
+    // (they never snap to a near-opaque quad) and window opacity scales one
+    // continuous stack. cell_bg_opacity 0.8 at window alpha 0.85 -> 0.68.
     let theme_clear = wgpu::Color {
         r: 0.1,
         g: 0.2,
         b: 0.3,
         a: 1.0,
     };
-    assert_eq!(content_build_opacity(0.85, 0.8), 0.85);
-    assert_eq!(content_build_opacity(0.5, 1.0), 0.5);
-    // The scene clears to premultiplied-transparent so cell quads over it blend
-    // to (rgb*a, a) and padding shows the desktop, not the opaque theme color.
+    assert!((content_build_opacity(0.85, 0.8) - 0.68).abs() < 1e-6);
+    assert!((content_build_opacity(0.5, 1.0) - 0.5).abs() < 1e-6);
+    // The scene still clears to premultiplied-transparent so the wallpaper layer
+    // and cell quads blend to (rgb*a, a) over it and the desktop shows through.
     let clear = scene_clear_color(0.85, theme_clear);
     assert_eq!(clear.a, 0.0);
     assert_eq!((clear.r, clear.g, clear.b), (0.0, 0.0, 0.0));
+}
+
+#[test]
+fn content_opacity_is_continuous_across_the_full_opacity_boundary() {
+    // ANTI-REGRESSION for the window-opacity discontinuity at 100%: the earlier
+    // hard branch returned window_bg_alpha (~0.99) just below 100% but
+    // cell_bg_opacity (0.80) exactly at 100%, a jump that snapped the wallpaper
+    // off one step below full opacity. The product is continuous: the limit as
+    // window_bg_alpha -> 1.0 from below equals the value at 1.0.
+    let cell_bg_opacity = 0.8_f32;
+    let at_one = content_build_opacity(1.0, cell_bg_opacity);
+    assert!(
+        (at_one - cell_bg_opacity).abs() < 1e-6,
+        "value at 1.0 is the softening"
+    );
+    // March up toward 1.0; the gap to the boundary value shrinks to zero with no
+    // step. The pre-fix code jumped from ~0.99 to 0.80 across this same span.
+    for &w in &[0.90_f32, 0.99, 0.999, 0.9999] {
+        let v = content_build_opacity(w, cell_bg_opacity);
+        assert!(
+            (v - at_one).abs() <= (1.0 - w) * cell_bg_opacity + 1e-6,
+            "no jump approaching the boundary (w={w}, v={v}, at_one={at_one})"
+        );
+    }
+    // The one-sided limit equals the value at the boundary (continuity).
+    let just_below = content_build_opacity(1.0 - 1e-4, cell_bg_opacity);
+    assert!((just_below - at_one).abs() < 1e-3);
+}
+
+#[test]
+fn content_opacity_is_monotonic_and_never_swaps_background_model() {
+    // Surface alpha decreases smoothly as window opacity falls, and stays a fixed
+    // fraction (cell_bg_opacity) of the window alpha at every step, so the
+    // wallpaper's visible fraction (1 - alpha) grows continuously rather than the
+    // background source swapping models at the boundary.
+    let cell_bg_opacity = 0.8_f32;
+    let mut prev = f32::INFINITY;
+    for &w in &[1.0_f32, 0.95, 0.85, 0.70, 0.50, 0.20] {
+        let v = content_build_opacity(w, cell_bg_opacity);
+        assert!(
+            v <= prev + 1e-6,
+            "surface alpha must not increase as opacity falls (w={w})"
+        );
+        assert!(
+            (v - cell_bg_opacity * w).abs() < 1e-6,
+            "surface alpha stays cell_bg_opacity * window_alpha at every step (w={w})"
+        );
+        prev = v;
+    }
 }
