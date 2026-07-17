@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Buttons: seed the gate on the launch session
+
+Fix: with the buttons setting on, the very first session in a window still
+ignored button sequences — labels printed as plain text and clicks did
+nothing — while every tab, split, or attached session opened afterward
+honored them. The gate is applied to new sessions through the shared
+session-initialization path, but the launch session is constructed ahead of
+that path, alongside the other model defaults (base colors, OSC 52, scrollback
+cap, cursor policy). Those defaults were seeded there; the button gate was not.
+The launch session now seeds `buttons`, `buttons_iterm_compat`, and
+`buttons_sticky` from settings at the same point, so button support is
+consistent across the launch pane and every later pane. Off by default, so the
+default launch stays byte-identical.
+
 ## 2026-07-17 -- Buttons: settings surface and ODYTTY_BUTTONS feature discovery
 
 The button protocol becomes user-reachable. Until now its three gates existed

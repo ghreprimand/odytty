@@ -201,6 +201,15 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // DECSTR return to it. Presentation policy only — the grid contents are
     // unaffected.
     model.set_cursor_defaults(settings.cursor_style, settings.cursor_blink.enabled());
+    // Button protocol gate (docs/buttons.md). New tabs, panes, and attaches
+    // receive this through `initialize_session_with`; the very first session is
+    // built here, ahead of that path, so its gate must be seeded directly or
+    // the launch pane would silently ignore button sequences while every later
+    // pane honored them. Off by default => byte-identical when the setting is
+    // off. Sub-gates ride the same master.
+    model.set_buttons_enabled(settings.buttons);
+    model.set_buttons_iterm_compat(settings.buttons_iterm_compat);
+    model.set_buttons_sticky(settings.buttons_sticky);
 
     // Spawn the shell PTY before wrapping the model so the backend capabilities
     // can be applied to the model first. The spawn has no dependency on
