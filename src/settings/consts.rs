@@ -20,6 +20,7 @@ pub const BACKGROUND_IMAGE_ENV: &str = "ODYTTY_BACKGROUND_IMAGE";
 pub const BACKGROUND_BLUR_RADIUS_ENV: &str = "ODYTTY_BACKGROUND_BLUR_RADIUS";
 pub const BACKGROUND_IMAGE_SCRIM_ENV: &str = "ODYTTY_BACKGROUND_IMAGE_SCRIM";
 pub const CELL_BG_OPACITY_ENV: &str = "ODYTTY_CELL_BG_OPACITY";
+pub const SELECTION_OPACITY_ENV: &str = "ODYTTY_SELECTION_OPACITY";
 pub const WINDOW_PADDING_ENV: &str = "ODYTTY_WINDOW_PADDING";
 pub const BLOOM_ENV: &str = "ODYTTY_BLOOM";
 pub const BLOOM_THRESHOLD_ENV: &str = "ODYTTY_BLOOM_THRESHOLD";
@@ -147,6 +148,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     BACKGROUND_BLUR_RADIUS_ENV,
     BACKGROUND_IMAGE_SCRIM_ENV,
     CELL_BG_OPACITY_ENV,
+    SELECTION_OPACITY_ENV,
     WINDOW_PADDING_ENV,
     BLOOM_ENV,
     BLOOM_THRESHOLD_ENV,
@@ -372,6 +374,19 @@ pub const MAX_WINDOW_PADDING_PX: f32 = 64.0;
 pub const DEFAULT_CELL_BG_OPACITY: f32 = 0.8;
 pub const MIN_CELL_BG_OPACITY: f32 = 0.0;
 pub const MAX_CELL_BG_OPACITY: f32 = 1.0;
+
+/// Selection opacity (`ODYTTY_SELECTION_OPACITY`): the alpha strength of the
+/// text-selection highlight fill, independent of window opacity, theme colours,
+/// and the min-contrast floor. `1.0` (default) keeps the selection fully opaque
+/// — byte-identical to before in the opaque-window path, and the documented
+/// "fully opaque" behaviour under window transparency. Values `< 1.0` make the
+/// selection translucent so a busy or transparent backdrop shows through behind
+/// it; the RV1 min-contrast floor still holds foreground legibility over the
+/// effective composited fill. The chosen default may be revised after visual
+/// tuning; the mechanism clamps to `[0,1]`.
+pub const DEFAULT_SELECTION_OPACITY: f32 = 1.0;
+pub const MIN_SELECTION_OPACITY: f32 = 0.0;
+pub const MAX_SELECTION_OPACITY: f32 = 1.0;
 
 /// Background-image CPU box-blur radius (`ODYTTY_BACKGROUND_BLUR_RADIUS`),
 /// applied once at load time. `0` (default) leaves the image sharp; the radius

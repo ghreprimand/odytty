@@ -7,6 +7,28 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Selection opacity: settings knob
+
+A new `selection_opacity` setting controls the strength of the text-selection
+highlight independently of window opacity, theme colours, and the min-contrast
+floor. It reads from `ODYTTY_SELECTION_OPACITY` or the config aliases
+`selection_opacity` / `selectionopacity` / `selectionalpha` / `highlightopacity`,
+clamps to the 0.0 to 1.0 range, and appears in the Rendering group of the
+settings panel as a bounded stepper. Invalid or out-of-range values warn once
+and fall back to the default.
+
+The default is 1.0, fully opaque. At that value the opaque-window selection is
+unchanged from before, and under window transparency the selection stays fully
+opaque, which is the behaviour the transparency documentation already promised.
+Values below 1.0 make the selection translucent so a busy or transparent
+backdrop shows through behind it.
+
+This slice lands the settings surface only: the knob parses, validates,
+round-trips through the config file, and shows in the panel. Wiring the value
+through the selection paint and the GPU blend, and choosing the shipped default
+after visual tuning, follow in the next slice. The blend math the render path
+will use landed earlier as a pure-core primitive.
+
 ## 2026-07-17 -- Button protocol: rendering and click-to-PTY reporting
 
 Second slice of program-defined clickable buttons, building on the model spine:

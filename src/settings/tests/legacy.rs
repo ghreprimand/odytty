@@ -141,6 +141,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "window_decorations",
             "window_transparency",
             "window_opacity",
+            "selection_opacity",
             "subpixel",
             "synthetic_styles",
             "geometric_boxdraw",
@@ -2397,4 +2398,78 @@ fn window_opacity_row_is_a_bounded_percent_stepper() {
         .expect("window_transparency row present");
     assert_eq!(toggle.kind, SettingKind::Bool);
     assert_eq!(toggle.group, "Rendering");
+}
+
+#[test]
+fn selection_opacity_defaults_parses_and_clamps() {
+    let (default_settings, warnings) = settings_from([]);
+    assert_eq!(
+        default_settings.selection_opacity,
+        DEFAULT_SELECTION_OPACITY
+    );
+    assert_eq!(DEFAULT_SELECTION_OPACITY, 1.0, "default is fully opaque");
+    assert!(warnings.is_empty());
+
+    let (parsed, warnings) = settings_from([(SELECTION_OPACITY_ENV, "0.5")]);
+    assert_eq!(parsed.selection_opacity, 0.5);
+    assert!(warnings.is_empty());
+
+    // Below the floor and above the ceiling both clamp into [0,1].
+    let (low, warnings) = settings_from([(SELECTION_OPACITY_ENV, "-0.3")]);
+    assert_eq!(low.selection_opacity, MIN_SELECTION_OPACITY);
+    assert!(warnings.is_empty());
+    let (high, warnings) = settings_from([(SELECTION_OPACITY_ENV, "2.0")]);
+    assert_eq!(high.selection_opacity, MAX_SELECTION_OPACITY);
+    assert!(warnings.is_empty());
+
+    // Empty/whitespace falls back to the default without warning.
+    let (blank, warnings) = settings_from([(SELECTION_OPACITY_ENV, "  ")]);
+    assert_eq!(blank.selection_opacity, DEFAULT_SELECTION_OPACITY);
+    assert!(warnings.is_empty());
+}
+
+#[test]
+fn garbage_selection_opacity_falls_back_with_one_warning() {
+    let (settings, warnings) = settings_from([(SELECTION_OPACITY_ENV, "faint")]);
+    assert_eq!(settings.selection_opacity, DEFAULT_SELECTION_OPACITY);
+    assert_eq!(warnings.len(), 1);
+    assert!(warnings[0].contains(SELECTION_OPACITY_ENV));
+}
+
+#[test]
+fn selection_opacity_round_trips_through_config_keys() {
+    assert_eq!(
+        config_key_to_env("selection_opacity"),
+        Some(SELECTION_OPACITY_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("selectionopacity"),
+        Some(SELECTION_OPACITY_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("selectionalpha"),
+        Some(SELECTION_OPACITY_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(SELECTION_OPACITY_ENV),
+        Some("selection_opacity")
+    );
+}
+
+#[test]
+fn selection_opacity_row_is_a_bounded_unit_stepper() {
+    let settings = Settings::default();
+    let info = settings.setting_info();
+    let row = info
+        .iter()
+        .find(|r| r.key == "selection_opacity")
+        .expect("selection_opacity row present");
+    assert_eq!(row.kind, SettingKind::Number);
+    assert_eq!(row.group, "Rendering");
+    assert!(row.reloadable, "selection opacity applies live");
+    let spec = row.numeric.expect("selection_opacity has a numeric spec");
+    assert_eq!(spec.min, MIN_SELECTION_OPACITY);
+    assert_eq!(spec.max, MAX_SELECTION_OPACITY);
+    assert_eq!(spec.step, 0.05);
+    assert_eq!(spec.unit, "");
 }

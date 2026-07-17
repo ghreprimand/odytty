@@ -1055,6 +1055,33 @@ pub(super) fn parse_cell_bg_opacity(raw: Option<&OsStr>, warn: &mut impl FnMut(&
     parsed.clamp(MIN_CELL_BG_OPACITY, MAX_CELL_BG_OPACITY)
 }
 
+/// Parse the selection-opacity strength (`ODYTTY_SELECTION_OPACITY`).
+/// `1.0` (default) is the fully-opaque / identity path. Out-of-range or invalid
+/// values warn and fall back to the opaque default; valid values clamp to
+/// `[0,1]`.
+pub(super) fn parse_selection_opacity(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_SELECTION_OPACITY;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_SELECTION_OPACITY;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{SELECTION_OPACITY_ENV}={trimmed:?} is not a valid opacity; using {DEFAULT_SELECTION_OPACITY}"
+            ));
+            return DEFAULT_SELECTION_OPACITY;
+        }
+    };
+
+    parsed.clamp(MIN_SELECTION_OPACITY, MAX_SELECTION_OPACITY)
+}
+
 /// Parse the window opacity percent (TRANSPARENCY). Empty/absent → the
 /// default; non-numeric → a warning and the default; otherwise clamped to
 /// `[MIN_WINDOW_OPACITY, MAX_WINDOW_OPACITY]`.

@@ -466,6 +466,24 @@ impl Settings {
                 }),
             },
             SettingInfo {
+                group: "Rendering",
+                key: "selection_opacity",
+                env: SELECTION_OPACITY_ENV,
+                name: "Selection opacity",
+                value: format_float(self.selection_opacity),
+                description: SELECTION_OPACITY_DESC,
+                kind: SettingKind::Number,
+                range: None,
+                options: &[],
+                reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_SELECTION_OPACITY,
+                    max: MAX_SELECTION_OPACITY,
+                    step: 0.05,
+                    unit: "",
+                }),
+            },
+            SettingInfo {
                 group: "Tabs",
                 key: "always_show_tab_bar",
                 env: ALWAYS_SHOW_TAB_BAR_ENV,
@@ -1835,6 +1853,7 @@ impl Settings {
                 })
                 .unwrap_or_else(|| "none".to_owned()),
             "cell_bg_opacity" => format_float(1.0 - self.cell_bg_opacity),
+            "selection_opacity" => format_float(self.selection_opacity),
             "background_blur_radius" => self.background_blur_radius.to_string(),
             "background_image_scrim" => self
                 .background_image_scrim

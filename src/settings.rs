@@ -1255,6 +1255,14 @@ pub struct Settings {
     /// cells translucent so the image shows through behind text; the RV1 floor
     /// stays safe at any opacity via the readability scrim.
     pub cell_bg_opacity: f32,
+    /// Selection-highlight opacity in `0.0..=1.0`, independent of window opacity,
+    /// theme colours, and the min-contrast floor. `1.0` (the default) keeps the
+    /// selection fully opaque — byte-identical to before in the opaque-window
+    /// path, and the documented "fully opaque" behaviour under window
+    /// transparency. Values `< 1.0` make the selection translucent so a busy or
+    /// transparent backdrop shows through behind it; the RV1 floor still holds
+    /// foreground legibility over the effective composited fill.
+    pub selection_opacity: f32,
     /// Logical pixels of inset between the window edge and terminal grid. `0.0`
     /// preserves the historical edge-to-edge geometry exactly.
     pub window_padding_px: f32,
@@ -1690,6 +1698,7 @@ impl Default for Settings {
             background_blur_radius: 0,
             background_image_scrim: Some(DEFAULT_BACKGROUND_IMAGE_SCRIM),
             cell_bg_opacity: DEFAULT_CELL_BG_OPACITY,
+            selection_opacity: DEFAULT_SELECTION_OPACITY,
             window_padding_px: DEFAULT_WINDOW_PADDING_PX,
             bloom: DEFAULT_BLOOM,
             bloom_threshold: DEFAULT_BLOOM_THRESHOLD,
@@ -2207,6 +2216,8 @@ impl Settings {
             some => parse_background_image_scrim(some.as_deref(), &mut warn),
         };
         let cell_bg_opacity = parse_cell_bg_opacity(get(CELL_BG_OPACITY_ENV).as_deref(), &mut warn);
+        let selection_opacity =
+            parse_selection_opacity(get(SELECTION_OPACITY_ENV).as_deref(), &mut warn);
         let window_padding_px = parse_window_padding(get(WINDOW_PADDING_ENV).as_deref(), &mut warn);
         let bloom = parse_bool_setting(
             get(BLOOM_ENV).as_deref(),
@@ -2626,6 +2637,7 @@ impl Settings {
             background_blur_radius,
             background_image_scrim,
             cell_bg_opacity,
+            selection_opacity,
             window_padding_px,
             bloom,
             bloom_threshold,
@@ -2774,6 +2786,7 @@ impl Settings {
             values.insert(BACKGROUND_IMAGE_SCRIM_ENV, format_float(scrim));
         }
         values.insert(CELL_BG_OPACITY_ENV, format_float(self.cell_bg_opacity));
+        values.insert(SELECTION_OPACITY_ENV, format_float(self.selection_opacity));
         values.insert(WINDOW_PADDING_ENV, format_float(self.window_padding_px));
         values.insert(BLOOM_ENV, bool_display(self.bloom).to_owned());
         values.insert(BLOOM_THRESHOLD_ENV, format_float(self.bloom_threshold));
