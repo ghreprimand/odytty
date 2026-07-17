@@ -127,11 +127,26 @@ impl Screen {
 fn xtgettcap_value(name: &[u8]) -> Option<&'static [u8]> {
     match name {
         // Conservative truth set: term-name compatibility, 256-color indexed
-        // palette, and direct RGB color. OdyTTY does not claim a full terminfo
-        // database through XTGETTCAP.
+        // palette, direct RGB color, and the key encodings the input encoder
+        // actually produces (backspace plus F1..F12 in their unmodified legacy
+        // forms, matching xterm-256color terminfo). OdyTTY does not claim a
+        // full terminfo database through XTGETTCAP.
         b"TN" => Some(XTGETTCAP_TERM_NAME),
         b"Co" => Some(b"256"),
         b"RGB" => Some(b"1"),
+        b"kbs" => Some(b"\x7f"),
+        b"kf1" => Some(b"\x1bOP"),
+        b"kf2" => Some(b"\x1bOQ"),
+        b"kf3" => Some(b"\x1bOR"),
+        b"kf4" => Some(b"\x1bOS"),
+        b"kf5" => Some(b"\x1b[15~"),
+        b"kf6" => Some(b"\x1b[17~"),
+        b"kf7" => Some(b"\x1b[18~"),
+        b"kf8" => Some(b"\x1b[19~"),
+        b"kf9" => Some(b"\x1b[20~"),
+        b"kf10" => Some(b"\x1b[21~"),
+        b"kf11" => Some(b"\x1b[23~"),
+        b"kf12" => Some(b"\x1b[24~"),
         _ => None,
     }
 }

@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Modified-key CSI-u encoding fix and function-key input
+
+Two fixes in the shared PTY key encoder, both inert for applications that never
+opt in to anything.
+
+**Modified Enter, Tab, and Backspace now encode under the Kitty keyboard
+protocol's disambiguate flag.** The recoverability carve-out that keeps
+unmodified Enter/Tab/Backspace on their legacy bytes (so `reset` stays typeable
+after a crashed app leaves the flag set) was applied unconditionally, swallowing
+the modified variants too: Ctrl+Enter arrived as plain `\r`, so shells and TUIs
+that enable the protocol — fish 4.x enables it at the prompt — could never
+distinguish Shift+Enter from Enter or Ctrl+Backspace from Backspace. Per spec
+the carve-out covers only the unmodified keys; with modifiers held they now
+encode (Ctrl+Enter `CSI 13;5u`, Shift+Enter `CSI 13;2u`, Ctrl+Backspace
+`CSI 127;5u`), with repeat/release event types honored when the app requests
+them. Unmodified keys stay byte-identical, and the flags=0 legacy identity is
+untouched. In live terms: Shift+Enter inserts a newline at the fish prompt,
+Ctrl+Backspace deletes a word, and `bind ctrl-enter` works.
+
+**Function keys F1–F12 now reach the PTY.** They previously existed only for
+the terminal's own chord system; htop/mc-class TUIs saw dead keys. The neutral
+key model gained an `F(n)` variant with the full encoding matrix: DEC SS3
+`P..S` for unmodified F1–F4, xterm tilde codes (`CSI 15~` .. `CSI 24~`) for
+F5–F12, xterm modifier forms (`CSI 1;mod P`, `CSI 15;mod ~`) when modifiers are
+held, and the Kitty functional-key table forms when protocol flags are active —
+where F3 becomes `CSI 13~`, since `CSI R` clashes with the Cursor Position
+Report. Chord dispatch still runs first, so user-bound F-key chords win, and no
+default chord claims a plain F key (pinned by test). XTGETTCAP additionally
+answers `kf1..kf12` and `kbs` with the exact bytes the encoder produces,
+keeping the conservative truth-set philosophy. F13+ stay chord-only until an
+encoding is defined for them.
+
+Windows: the encoder is cross-platform with no platform-specific surface;
+ConPTY delivery characteristics are tracked separately. Verified: full
+`cargo test` green (3906 lib tests), `cargo fmt --check`, and
+`cargo clippy --all-targets --locked` clean.
+
 ## 2026-07-17 -- Shell Integration settings section, prompt key enhancement, and mark refinements
 
 Shell integration gained a dedicated settings section and a new opt-in knob,

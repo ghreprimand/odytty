@@ -40,6 +40,10 @@ pub enum Key {
     Delete,
     Insert,
     Esc,
+    /// Function key F1..=F12. Numbers outside that range produce no output;
+    /// higher function keys stay reserved for OdyTTY's own chord system until
+    /// a PTY encoding is defined for them.
+    F(u8),
     /// Numeric keypad digit, distinguishable only when the front end exposes a
     /// physical keypad key.
     KeypadDigit(u8),
@@ -165,6 +169,7 @@ pub fn encode_key_event(
         Key::Delete => encode_tilde_key(3, mods),
         Key::Insert => encode_tilde_key(2, mods),
         Key::Esc => b"\x1b".to_vec(),
+        Key::F(number) => encode_function_key(number, mods),
         Key::KeypadDigit(digit) => encode_keypad_digit(digit, modes),
         Key::KeypadDecimal => encode_keypad(b".", b"n", modes),
         Key::KeypadAdd => encode_keypad(b"+", b"k", modes),
@@ -199,6 +204,7 @@ fn should_encode_kitty_key(
         }
         if matches!(key, Key::Enter | Key::Tab | Key::Backspace)
             && flags & KITTY_REPORT_ALL_KEYS == 0
+            && !is_kitty_escape_key(key, mods, flags)
         {
             return false;
         }
@@ -238,7 +244,11 @@ fn is_kitty_escape_key(key: Key, mods: Modifiers, flags: u16) -> bool {
     match key {
         // The Kitty spec keeps these recoverable in disambiguation-only mode so
         // users can still type `reset` after a crashed app leaves the flag set.
-        Key::Enter | Key::Tab | Key::Backspace => false,
+        // The carve-out covers only the unmodified keys: with modifiers held,
+        // kitty encodes them (Ctrl+Enter `CSI 13;5u`, Shift+Enter `CSI 13;2u`,
+        // Ctrl+Backspace `CSI 127;5u`), which is what lets shells distinguish
+        // Shift+Enter from Enter at the prompt.
+        Key::Enter | Key::Tab | Key::Backspace => mods.ctrl || mods.alt || mods.shift,
         Key::Char(_) => mods.ctrl || mods.alt,
         Key::Esc | Key::BackTab => true,
         _ => true,
@@ -280,6 +290,18 @@ fn encode_kitty_key(key: Key, mods: Modifiers, flags: u16, event_type: KeyEventT
         Key::Esc => {
             encode_kitty_codepoint_key(KittyKeyCode::new(27), modifier, flags, event_type, None)
         }
+        // Functional-key table forms: F1/F2/F4 use the `CSI 1;mod [PQS]` final
+        // letters (parameters omitted when unmodified), F3 uses `CSI 13~`
+        // because `CSI R` clashes with the Cursor Position Report, and F5..F12
+        // keep their xterm tilde codes.
+        Key::F(1) => encode_kitty_final_key(b'P', modifier, flags, event_type),
+        Key::F(2) => encode_kitty_final_key(b'Q', modifier, flags, event_type),
+        Key::F(3) => encode_kitty_tilde_key(13, modifier, flags, event_type),
+        Key::F(4) => encode_kitty_final_key(b'S', modifier, flags, event_type),
+        Key::F(number) => match function_key_tilde_code(number) {
+            Some(code) => encode_kitty_tilde_key(code, modifier, flags, event_type),
+            None => Vec::new(),
+        },
         Key::KeypadDigit(digit) if digit <= 9 => encode_kitty_codepoint_key(
             KittyKeyCode::new(57399 + digit as u32),
             modifier,
@@ -480,6 +502,42 @@ fn encode_tilde_key(code: u8, mods: Modifiers) -> Vec<u8> {
         format!("\x1b[{};{}~", code, modifier).into_bytes()
     } else {
         format!("\x1b[{}~", code).into_bytes()
+    }
+}
+
+/// Legacy (non-kitty) function-key encoding: F1..F4 send the DEC SS3 forms
+/// `ESC O P..S` when unmodified and the xterm modifier forms `CSI 1;mod P..S`
+/// otherwise; F5..F12 use the xterm tilde codes with the shared modified-tilde
+/// encoding. Numbers outside 1..=12 produce no output.
+fn encode_function_key(number: u8, mods: Modifiers) -> Vec<u8> {
+    match number {
+        1..=4 => {
+            let final_byte = b'P' + (number - 1);
+            if let Some(modifier) = xterm_modifier(mods) {
+                format!("\x1b[1;{}{}", modifier, final_byte as char).into_bytes()
+            } else {
+                vec![b'\x1b', b'O', final_byte]
+            }
+        }
+        _ => match function_key_tilde_code(number) {
+            Some(code) => encode_tilde_key(code, mods),
+            None => Vec::new(),
+        },
+    }
+}
+
+/// xterm tilde codes for F5..F12 (the numbering skips 16 and 22).
+fn function_key_tilde_code(number: u8) -> Option<u8> {
+    match number {
+        5 => Some(15),
+        6 => Some(17),
+        7 => Some(18),
+        8 => Some(19),
+        9 => Some(20),
+        10 => Some(21),
+        11 => Some(23),
+        12 => Some(24),
+        _ => None,
     }
 }
 
@@ -799,6 +857,104 @@ mod tests {
     }
 
     #[test]
+    fn function_keys_encode_legacy_forms() {
+        let modes = KeyModes::default();
+        let expected: [&[u8]; 12] = [
+            b"\x1bOP",
+            b"\x1bOQ",
+            b"\x1bOR",
+            b"\x1bOS",
+            b"\x1b[15~",
+            b"\x1b[17~",
+            b"\x1b[18~",
+            b"\x1b[19~",
+            b"\x1b[20~",
+            b"\x1b[21~",
+            b"\x1b[23~",
+            b"\x1b[24~",
+        ];
+
+        for (index, bytes) in expected.iter().enumerate() {
+            let number = index as u8 + 1;
+            assert_eq!(
+                encode_key(Key::F(number), Modifiers::NONE, modes),
+                *bytes,
+                "F{number}"
+            );
+        }
+        // Outside the supported range: no output rather than junk bytes.
+        assert!(encode_key(Key::F(0), Modifiers::NONE, modes).is_empty());
+        assert!(encode_key(Key::F(13), Modifiers::NONE, modes).is_empty());
+    }
+
+    #[test]
+    fn modified_function_keys_use_xterm_modifier_forms() {
+        let modes = KeyModes::default();
+        let shift = Modifiers {
+            ctrl: false,
+            alt: false,
+            shift: true,
+        };
+        let all = Modifiers {
+            ctrl: true,
+            alt: true,
+            shift: true,
+        };
+
+        assert_eq!(encode_key(Key::F(1), Modifiers::CTRL, modes), b"\x1b[1;5P");
+        assert_eq!(encode_key(Key::F(2), shift, modes), b"\x1b[1;2Q");
+        assert_eq!(encode_key(Key::F(3), Modifiers::ALT, modes), b"\x1b[1;3R");
+        assert_eq!(encode_key(Key::F(4), all, modes), b"\x1b[1;8S");
+        assert_eq!(encode_key(Key::F(5), Modifiers::CTRL, modes), b"\x1b[15;5~");
+        assert_eq!(encode_key(Key::F(10), shift, modes), b"\x1b[21;2~");
+        assert_eq!(encode_key(Key::F(12), all, modes), b"\x1b[24;8~");
+    }
+
+    #[test]
+    fn kitty_flags_encode_function_keys_with_functional_table_forms() {
+        // Under active kitty flags the functional-key table applies: F1/F2/F4
+        // use the CSI letter forms (parameters omitted unmodified), F3 uses
+        // CSI 13~ (CSI R clashes with the Cursor Position Report), and F5..F12
+        // keep their tilde codes.
+        let modes = KeyModes {
+            kitty_keyboard_flags: KITTY_DISAMBIGUATE,
+            ..KeyModes::default()
+        };
+
+        assert_eq!(encode_key(Key::F(1), Modifiers::NONE, modes), b"\x1b[P");
+        assert_eq!(encode_key(Key::F(2), Modifiers::NONE, modes), b"\x1b[Q");
+        assert_eq!(encode_key(Key::F(3), Modifiers::NONE, modes), b"\x1b[13~");
+        assert_eq!(encode_key(Key::F(4), Modifiers::NONE, modes), b"\x1b[S");
+        assert_eq!(encode_key(Key::F(5), Modifiers::NONE, modes), b"\x1b[15~");
+        assert_eq!(encode_key(Key::F(12), Modifiers::NONE, modes), b"\x1b[24~");
+        assert_eq!(encode_key(Key::F(1), Modifiers::CTRL, modes), b"\x1b[1;5P");
+        assert_eq!(encode_key(Key::F(3), Modifiers::CTRL, modes), b"\x1b[13;5~");
+
+        let event_modes = KeyModes {
+            kitty_keyboard_flags: KITTY_DISAMBIGUATE | KITTY_REPORT_EVENT_TYPES,
+            ..KeyModes::default()
+        };
+        assert_eq!(
+            encode_key_event(
+                Key::F(5),
+                Modifiers::NONE,
+                event_modes,
+                KeyEventType::Release
+            ),
+            b"\x1b[15;1:3~"
+        );
+        assert_eq!(
+            encode_key_event(
+                Key::F(1),
+                Modifiers::CTRL,
+                event_modes,
+                KeyEventType::Repeat
+            ),
+            b"\x1b[1;5:2P"
+        );
+    }
+
+    #[test]
     fn ctrl_punctuation_controls() {
         assert_eq!(ctrl_char('['), Some(0x1b));
         assert_eq!(ctrl_char(' '), Some(0));
@@ -892,6 +1048,93 @@ mod tests {
         assert_eq!(
             encode_key(Key::Backspace, Modifiers::NONE, modes),
             vec![0x7f]
+        );
+    }
+
+    #[test]
+    fn kitty_disambiguate_encodes_modified_recovery_keys() {
+        // The recoverability carve-out covers only the unmodified keys: with
+        // modifiers held, disambiguate mode must produce CSI-u forms so apps
+        // can tell Ctrl+Enter from Enter and Shift+Enter from Enter.
+        let modes = KeyModes {
+            kitty_keyboard_flags: KITTY_DISAMBIGUATE,
+            ..KeyModes::default()
+        };
+        let ctrl_shift = Modifiers {
+            ctrl: true,
+            alt: false,
+            shift: true,
+        };
+        let shift = Modifiers {
+            ctrl: false,
+            alt: false,
+            shift: true,
+        };
+
+        assert_eq!(
+            encode_key(Key::Enter, Modifiers::CTRL, modes),
+            b"\x1b[13;5u"
+        );
+        assert_eq!(encode_key(Key::Enter, shift, modes), b"\x1b[13;2u");
+        assert_eq!(encode_key(Key::Enter, Modifiers::ALT, modes), b"\x1b[13;3u");
+        assert_eq!(encode_key(Key::Enter, ctrl_shift, modes), b"\x1b[13;6u");
+        assert_eq!(encode_key(Key::Tab, Modifiers::CTRL, modes), b"\x1b[9;5u");
+        assert_eq!(
+            encode_key(Key::Backspace, Modifiers::CTRL, modes),
+            b"\x1b[127;5u"
+        );
+        assert_eq!(
+            encode_key(Key::Backspace, Modifiers::ALT, modes),
+            b"\x1b[127;3u"
+        );
+        assert_eq!(encode_key(Key::Backspace, shift, modes), b"\x1b[127;2u");
+    }
+
+    #[test]
+    fn modified_recovery_keys_stay_legacy_at_flags_zero() {
+        // Byte-identity outside the app-requested flag: with kitty flags 0 the
+        // modified variants keep today's legacy bytes.
+        let modes = KeyModes::default();
+        let shift = Modifiers {
+            ctrl: false,
+            alt: false,
+            shift: true,
+        };
+
+        assert_eq!(encode_key(Key::Enter, Modifiers::CTRL, modes), b"\r");
+        assert_eq!(encode_key(Key::Enter, shift, modes), b"\r");
+        assert_eq!(encode_key(Key::Tab, Modifiers::CTRL, modes), b"\t");
+        assert_eq!(
+            encode_key(Key::Backspace, Modifiers::CTRL, modes),
+            vec![0x7f]
+        );
+    }
+
+    #[test]
+    fn kitty_event_types_report_modified_recovery_key_lifecycle() {
+        let modes = KeyModes {
+            kitty_keyboard_flags: KITTY_DISAMBIGUATE | KITTY_REPORT_EVENT_TYPES,
+            ..KeyModes::default()
+        };
+
+        assert_eq!(
+            encode_key_event(Key::Enter, Modifiers::CTRL, modes, KeyEventType::Press),
+            b"\x1b[13;5u"
+        );
+        assert_eq!(
+            encode_key_event(Key::Enter, Modifiers::CTRL, modes, KeyEventType::Repeat),
+            b"\x1b[13;5:2u"
+        );
+        assert_eq!(
+            encode_key_event(Key::Enter, Modifiers::CTRL, modes, KeyEventType::Release),
+            b"\x1b[13;5:3u"
+        );
+        // The unmodified keys stay carved out even for release reporting.
+        assert!(
+            encode_key_event(Key::Enter, Modifiers::NONE, modes, KeyEventType::Release).is_empty()
+        );
+        assert!(
+            encode_key_event(Key::Tab, Modifiers::NONE, modes, KeyEventType::Release).is_empty()
         );
     }
 

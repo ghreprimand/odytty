@@ -220,6 +220,24 @@ fn xtgettcap_reports_known_and_unknown_capabilities() {
 }
 
 #[test]
+fn xtgettcap_reports_function_key_and_backspace_encodings() {
+    let mut terminal = Terminal::new(10, 4);
+
+    // kf1;kf5;kf12;kbs in ASCII hex.
+    terminal.advance(b"\x1bP+q6b6631;6b6635;6b663132;6b6273\x1b\\");
+
+    // Values are the unmodified legacy encodings the input encoder produces:
+    // kf1=\x1bOP kf5=\x1b[15~ kf12=\x1b[24~ kbs=\x7f.
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1bP1+r6b6631=1b4f50\x1b\\\
+          \x1bP1+r6b6635=1b5b31357e\x1b\\\
+          \x1bP1+r6b663132=1b5b32347e\x1b\\\
+          \x1bP1+r6b6273=7f\x1b\\"
+    );
+}
+
+#[test]
 fn xtgettcap_ignores_malformed_hex_names() {
     let mut terminal = Terminal::new(10, 4);
 

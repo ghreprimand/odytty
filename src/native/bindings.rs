@@ -816,7 +816,7 @@ pub(super) fn is_scroll_down_key(logical: &WinitKey, mods: Modifiers) -> bool {
 /// `shift` is consulted only to turn Tab into [`Key::BackTab`] (Shift-Tab),
 /// while `Space` is mapped to [`Key::Char(' ')`] rather than a named key so
 /// Ctrl-Space encodes to `NUL` via the shared encoder. Named keys the prototype
-/// does not handle (function keys, media keys, etc.) return `None`.
+/// does not handle (media keys, F13+, etc.) return `None`.
 pub(super) fn map_named_key(named: NamedKey, shift: bool) -> Option<Key> {
     Some(match named {
         NamedKey::Enter => Key::Enter,
@@ -835,6 +835,22 @@ pub(super) fn map_named_key(named: NamedKey, shift: bool) -> Option<Key> {
         NamedKey::Insert => Key::Insert,
         NamedKey::Escape => Key::Esc,
         NamedKey::Space => Key::Char(' '),
+        // F1..F12 reach the PTY through the shared encoder. This arm sits
+        // after the chord dispatch in the caller, so user-bound F-key chords
+        // still win; only unbound F keys fall through to the shell. F13+ stay
+        // chord-only until a PTY encoding is defined for them.
+        NamedKey::F1 => Key::F(1),
+        NamedKey::F2 => Key::F(2),
+        NamedKey::F3 => Key::F(3),
+        NamedKey::F4 => Key::F(4),
+        NamedKey::F5 => Key::F(5),
+        NamedKey::F6 => Key::F(6),
+        NamedKey::F7 => Key::F(7),
+        NamedKey::F8 => Key::F(8),
+        NamedKey::F9 => Key::F(9),
+        NamedKey::F10 => Key::F(10),
+        NamedKey::F11 => Key::F(11),
+        NamedKey::F12 => Key::F(12),
         _ => return None,
     })
 }
@@ -888,6 +904,38 @@ mod tests {
                     chord, action, other_action
                 );
             }
+        }
+    }
+
+    #[test]
+    fn function_keys_map_to_pty_encoder_keys() {
+        // F1..F12 reach the PTY through the shared encoder; F13+ stay
+        // chord-only. Shift does not perturb the mapping (no BackTab-style
+        // rewrite for function keys).
+        assert_eq!(map_named_key(NamedKey::F1, false), Some(Key::F(1)));
+        assert_eq!(map_named_key(NamedKey::F5, false), Some(Key::F(5)));
+        assert_eq!(map_named_key(NamedKey::F12, true), Some(Key::F(12)));
+        assert_eq!(map_named_key(NamedKey::F13, false), None);
+        assert_eq!(map_named_key(NamedKey::F24, false), None);
+    }
+
+    #[test]
+    fn plain_function_keys_have_no_default_chords() {
+        // No default binding may shadow a plain F key, or htop/mc-style TUIs
+        // would lose it; user overrides can still claim them deliberately.
+        let bindings = KeyBindings::default();
+        for number in 1..=12 {
+            assert_eq!(
+                bindings.action_for_chord(named_chord(
+                    KeyBindingNamedKey::F(number),
+                    false,
+                    false,
+                    false,
+                    false
+                )),
+                None,
+                "plain F{number} must reach the PTY"
+            );
         }
     }
 

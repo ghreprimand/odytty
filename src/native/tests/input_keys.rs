@@ -138,8 +138,10 @@ fn named_keys_map_to_neutral_model() {
     assert_eq!(map_named_key(NamedKey::Tab, true), Some(Key::BackTab));
     // Space maps to a char so Ctrl-Space can encode to NUL downstream.
     assert_eq!(map_named_key(NamedKey::Space, false), Some(Key::Char(' ')));
+    // F1..F12 reach the PTY encoder; F13+ stay chord-only.
+    assert_eq!(map_named_key(NamedKey::F1, false), Some(Key::F(1)));
     // Unhandled named keys are dropped.
-    assert_eq!(map_named_key(NamedKey::F1, false), None);
+    assert_eq!(map_named_key(NamedKey::F13, false), None);
 }
 
 #[test]
