@@ -289,6 +289,31 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
     esac
   }
 
+  # Button protocol emitters (docs/buttons.md). odytty_button prints a label
+  # bracketed by the private OSC 133;P;odytty-button run, so OdyTTY renders a
+  # clickable chip while any other terminal prints the plain label and drops
+  # the unknown OSCs. odytty_button_clear invalidates all buttons, or every
+  # button carrying one code.
+  odytty_button() {
+    if [ $# -lt 2 ]; then
+      echo 'usage: odytty_button CODE LABEL [ICON] [SCOPE]' >&2
+      return 2
+    fi
+    case "$1" in
+      ''|*[!0-9]*) echo 'odytty_button: CODE must be a positive integer' >&2; return 2 ;;
+    esac
+    if [ "$1" -eq 0 ]; then
+      echo 'odytty_button: CODE must be a positive integer' >&2
+      return 2
+    fi
+    printf '\e]133;P;odytty-button;code=%s%s%s\a%s\e]133;P;odytty-button;end\a' \
+      "$1" "${3:+;icon=$3}" "${4:+;scope=$4}" "$2"
+  }
+
+  odytty_button_clear() {
+    printf '\e]133;P;odytty-button;invalidate%s\a' "${1:+;code=$1}"
+  }
+
   case "$PS1" in
     *'133;B'*) ;;
     *) PS1="${PS1}"'\[\e]133;B\a\]' ;;
@@ -352,6 +377,28 @@ const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" ]; then
   fi
   zle -N zle-line-pre-redraw __odytty_line_pre_redraw
 
+  # Button protocol emitters (docs/buttons.md); same contract as the bash
+  # helpers -- clickable in OdyTTY, plain label anywhere else.
+  odytty_button() {
+    if [ $# -lt 2 ]; then
+      echo 'usage: odytty_button CODE LABEL [ICON] [SCOPE]' >&2
+      return 2
+    fi
+    case "$1" in
+      ''|*[!0-9]*) echo 'odytty_button: CODE must be a positive integer' >&2; return 2 ;;
+    esac
+    if [ "$1" -eq 0 ]; then
+      echo 'odytty_button: CODE must be a positive integer' >&2
+      return 2
+    fi
+    printf '\e]133;P;odytty-button;code=%s%s%s\a%s\e]133;P;odytty-button;end\a' \
+      "$1" "${3:+;icon=$3}" "${4:+;scope=$4}" "$2"
+  }
+
+  odytty_button_clear() {
+    printf '\e]133;P;odytty-button;invalidate%s\a' "${1:+;code=$1}"
+  }
+
   case "$PS1" in
     *'133;B'*) ;;
     *) PS1="${PS1}%{\e]133;B\a%}" ;;
@@ -394,6 +441,39 @@ const FISH_SNIPPET: &str = r#"if not set -q ODYTTY_SHELL_INTEGRATION
 
     function __odytty_postexec --on-event fish_postexec
         printf '\e]133;D;%s\a' $status
+    end
+
+    # Button protocol emitters (docs/buttons.md); same contract as the bash
+    # helpers -- clickable in OdyTTY, plain label anywhere else.
+    function odytty_button --description 'Emit an OdyTTY clickable button label'
+        if test (count $argv) -lt 2
+            echo 'usage: odytty_button CODE LABEL [ICON] [SCOPE]' >&2
+            return 2
+        end
+        if not string match -qr '^[0-9]+$' -- $argv[1]
+            echo 'odytty_button: CODE must be a positive integer' >&2
+            return 2
+        end
+        if test $argv[1] -eq 0
+            echo 'odytty_button: CODE must be a positive integer' >&2
+            return 2
+        end
+        set -l __odytty_params "code=$argv[1]"
+        if test (count $argv) -ge 3; and test -n "$argv[3]"
+            set __odytty_params "$__odytty_params;icon=$argv[3]"
+        end
+        if test (count $argv) -ge 4; and test -n "$argv[4]"
+            set __odytty_params "$__odytty_params;scope=$argv[4]"
+        end
+        printf '\e]133;P;odytty-button;%s\a%s\e]133;P;odytty-button;end\a' "$__odytty_params" "$argv[2]"
+    end
+
+    function odytty_button_clear --description 'Invalidate OdyTTY buttons'
+        if test (count $argv) -ge 1
+            printf '\e]133;P;odytty-button;invalidate;code=%s\a' "$argv[1]"
+        else
+            printf '\e]133;P;odytty-button;invalidate\a'
+        end
     end
 end
 "#;
@@ -450,6 +530,39 @@ const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
         $out
     }
 
+    # Button protocol emitters (docs/buttons.md); the PowerShell spelling of
+    # the unix odytty_button/odytty_button_clear helpers. Declared global: so
+    # they survive the -NoExit -Command injection scope. Clickable in OdyTTY,
+    # plain label anywhere else.
+    function global:Write-OdyttyButton {
+        param(
+            [Parameter(Mandatory=$true)][uint32]$Code,
+            [Parameter(Mandatory=$true)][string]$Label,
+            [string]$Icon,
+            [ValidateSet('block','sticky')][string]$Scope
+        )
+        if ($Code -lt 1) {
+            throw 'Code must be a positive integer'
+        }
+        $esc = [char]27
+        $bel = [char]7
+        $params = "code=$Code"
+        if ($Icon) { $params = "$params;icon=$Icon" }
+        if ($Scope) { $params = "$params;scope=$Scope" }
+        [Console]::Write("$esc]133;P;odytty-button;$params$bel$Label$esc]133;P;odytty-button;end$bel")
+    }
+
+    function global:Clear-OdyttyButton {
+        param([uint32]$Code)
+        $esc = [char]27
+        $bel = [char]7
+        if ($PSBoundParameters.ContainsKey('Code')) {
+            [Console]::Write("$esc]133;P;odytty-button;invalidate;code=$Code$bel")
+        } else {
+            [Console]::Write("$esc]133;P;odytty-button;invalidate$bel")
+        }
+    }
+
     if (Get-Module -ListAvailable -Name PSReadLine) {
         Import-Module PSReadLine -ErrorAction SilentlyContinue
         Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {
@@ -486,6 +599,55 @@ mod tests {
             assert!(snippet.contains("133;D"), "{shell}: missing D");
             assert!(!snippet.trim().is_empty());
         }
+    }
+
+    #[test]
+    fn snippets_define_button_emitter_helpers() {
+        // Button protocol emitters (docs/buttons.md): every integrated shell
+        // gets a define helper and an invalidate helper speaking the Tier 2
+        // `133;P;odytty-button` spelling. The label rides OUTSIDE the OSC (it
+        // is the bracketed cell run), so non-supporting terminals print it as
+        // plain text.
+        for shell in ["bash", "zsh", "fish"] {
+            let snippet = snippet_for_shell(shell).expect("snippet");
+            assert!(
+                snippet.contains("odytty_button"),
+                "{shell}: missing the odytty_button helper"
+            );
+            assert!(
+                snippet.contains("odytty_button_clear"),
+                "{shell}: missing the odytty_button_clear helper"
+            );
+            assert!(
+                snippet.contains("133;P;odytty-button;end"),
+                "{shell}: define helper must close the bracketed run"
+            );
+            assert!(
+                snippet.contains("133;P;odytty-button;invalidate"),
+                "{shell}: clear helper must emit invalidate"
+            );
+        }
+        let powershell = snippet_for_shell("powershell").expect("powershell");
+        assert!(
+            powershell.contains("function global:Write-OdyttyButton"),
+            "powershell: missing the Write-OdyttyButton helper"
+        );
+        assert!(
+            powershell.contains("function global:Clear-OdyttyButton"),
+            "powershell: missing the Clear-OdyttyButton helper"
+        );
+        assert!(
+            powershell.contains("]133;P;odytty-button;end"),
+            "powershell: define helper must close the bracketed run"
+        );
+        assert!(
+            powershell.contains("]133;P;odytty-button;invalidate"),
+            "powershell: clear helper must emit invalidate"
+        );
+        assert!(
+            powershell.contains("[ValidateSet('block','sticky')]"),
+            "powershell: scope must be constrained to the protocol vocabulary"
+        );
     }
 
     #[test]
@@ -894,6 +1056,87 @@ mod tests {
             !out[..first_a].contains("\x1b]133;C"),
             "phantom OutputStart before the first prompt: {out:?}"
         );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_button_helper_emits_exact_wire_bytes() {
+        // The define helper must emit byte-exact Tier 2 runs the B1 parser
+        // accepts: params inside the OSC, label as plain bracketed cells, and
+        // an `end` close. The clear helper covers both invalidate forms.
+        let Some(bash) = find_bash() else {
+            return;
+        };
+        let dir = temp_integration_dir("bash-button");
+        let rc = write_bash_rc_with_user_helper(&dir);
+
+        let out = run_bash_rc(
+            &bash,
+            &rc,
+            "odytty_button 42 Deploy run sticky\n\
+             odytty_button 7 Copy\n\
+             odytty_button_clear\n\
+             odytty_button_clear 9\n\
+             exit\n",
+        );
+        if !out.contains("\x1b]133;A") {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+        assert!(
+            out.contains(
+                "\x1b]133;P;odytty-button;code=42;icon=run;scope=sticky\x07\
+                 Deploy\x1b]133;P;odytty-button;end\x07"
+            ),
+            "full-form define run malformed: {out:?}"
+        );
+        assert!(
+            out.contains("\x1b]133;P;odytty-button;code=7\x07Copy\x1b]133;P;odytty-button;end\x07"),
+            "minimal define run malformed: {out:?}"
+        );
+        assert!(
+            out.contains("\x1b]133;P;odytty-button;invalidate\x07"),
+            "invalidate-all form malformed: {out:?}"
+        );
+        assert!(
+            out.contains("\x1b]133;P;odytty-button;invalidate;code=9\x07"),
+            "invalidate-code form malformed: {out:?}"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_button_helper_rejects_bad_codes_without_emitting() {
+        // Zero, non-numeric, and missing-label invocations must fail (exit 2)
+        // and emit NO button OSC at all -- a half-emitted define would leave
+        // an open bracketed run in the stream.
+        let Some(bash) = find_bash() else {
+            return;
+        };
+        let dir = temp_integration_dir("bash-button-bad");
+        let rc = write_bash_rc_with_user_helper(&dir);
+
+        let out = run_bash_rc(
+            &bash,
+            &rc,
+            "odytty_button 0 Nope; echo rc0=$?\n\
+             odytty_button abc Nope; echo rc1=$?\n\
+             odytty_button 5; echo rc2=$?\n\
+             exit\n",
+        );
+        if !out.contains("\x1b]133;A") {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+        assert!(
+            !out.contains("odytty-button;code="),
+            "rejected invocations must not emit a define: {out:?}"
+        );
+        for marker in ["rc0=2", "rc1=2", "rc2=2"] {
+            assert!(out.contains(marker), "expected {marker} in: {out:?}");
+        }
         let _ = fs::remove_dir_all(dir);
     }
 

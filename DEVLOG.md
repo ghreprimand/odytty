@@ -7,6 +7,45 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Button protocol: emitter helpers, demo script, protocol doc
+
+Third slice of program-defined clickable buttons: the emitter story. Programs
+could already define buttons on the wire; now scripts get first-class helpers
+and the protocol gets public documentation.
+
+The shell-integration snippets define emitters in all four integrated shells.
+bash, zsh, and fish get `odytty_button CODE LABEL [ICON] [SCOPE]` plus
+`odytty_button_clear [CODE]`; PowerShell gets `Write-OdyttyButton` and
+`Clear-OdyttyButton` with a `ValidateSet`-constrained scope. All of them
+validate the code (positive integer, the same domain the parser accepts) and
+emit nothing on misuse, so a bad invocation can never leave a half-open
+bracketed run in the stream. On Windows the PowerShell helpers ride the
+existing `-NoExit -Command` injection and the sequences cross ConPTY unchanged
+in both directions — no new platform surface.
+
+`docs/buttons.md` is the wire-protocol reference for emitters: both spellings
+with their full field grammar, the click-report bytes and interaction rules,
+lifetime and bounds, the icon alias table, helper usage, and the security
+model (the terminal composes the report from the parsed integer alone; the
+reply alphabet contains no byte a shell treats as "execute"). Feature
+discovery is documented as deliberately unspecified — the native spelling
+degrades to plain text everywhere, so emitters need no detection — and
+keyboard activation is listed as a known limitation.
+
+`scripts/button-demo.sh` is a self-contained demo: it prints a panel of
+buttons in both spellings, then raw-reads stdin, decodes `CSI ? 1337 ; code ~`
+reports, and reacts to each click. Verified end-to-end by piping synthetic
+reports through the decode loop.
+
+Tests: a cross-shell snippet assertion (all four shells define both helpers
+and close the bracketed run), plus two behavioral bash tests that drive a real
+interactive bash and assert the emitted runs are byte-exact against the parser
+grammar and that rejected invocations exit 2 without emitting. `cargo fmt
+--check`, clippy, and the full test suite are green.
+
+Still open on the button track: the settings knob for the master gate, the
+feature-discovery decision, and the feel-gated chip visuals.
+
 ## 2026-07-17 -- Selection opacity: settings knob
 
 A new `selection_opacity` setting controls the strength of the text-selection
