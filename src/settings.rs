@@ -1495,6 +1495,20 @@ pub struct Settings {
     /// shell having advertised `click_events=1`, so the off path (and a
     /// non-integrated shell) emits nothing and is byte-identical to today.
     pub sh_click: bool,
+    /// Button protocol master gate (docs/buttons.md). When on, programs can
+    /// define clickable buttons in their output and clicks report an integer
+    /// code back to the program; `ODYTTY_BUTTONS=1` is injected into new
+    /// sessions' environment for emitter discovery. Off by default: sequences
+    /// parse and discard, clicks never report, and the off path is
+    /// byte-identical to plain output.
+    pub buttons: bool,
+    /// Accept the iTerm2 `OSC 1337 ; Button=` spelling. Sub-gate of `buttons`;
+    /// inert while the master gate is off.
+    pub buttons_iterm_compat: bool,
+    /// Honor `scope=sticky` button lifetimes (survive prompt boundaries, live
+    /// from scrollback). When off, sticky requests downgrade to the block
+    /// lifetime. Sub-gate of `buttons`; inert while the master gate is off.
+    pub buttons_sticky: bool,
     /// Automatic OSC 133 shell integration. When on, default local shell spawns
     /// receive OdyTTY's prompt-mark hooks without editing user rc files. Off by
     /// default; affects newly spawned shells only.
@@ -1756,6 +1770,9 @@ impl Default for Settings {
             tab_rail_autohide: DEFAULT_TAB_RAIL_AUTOHIDE,
             tab_rail_reveal_px: DEFAULT_TAB_RAIL_REVEAL_PX,
             sh_click: DEFAULT_SH_CLICK,
+            buttons: DEFAULT_BUTTONS,
+            buttons_iterm_compat: DEFAULT_BUTTONS_ITERM_COMPAT,
+            buttons_sticky: DEFAULT_BUTTONS_STICKY,
             shell_integration: DEFAULT_SHELL_INTEGRATION,
             restore_workspaces: DEFAULT_RESTORE_WORKSPACES,
             new_output_fade: DEFAULT_NEW_OUTPUT_FADE,
@@ -2477,6 +2494,24 @@ impl Settings {
             DEFAULT_SH_CLICK,
             &mut warn,
         );
+        let buttons = parse_bool_setting(
+            get(BUTTONS_ENV).as_deref(),
+            BUTTONS_ENV,
+            DEFAULT_BUTTONS,
+            &mut warn,
+        );
+        let buttons_iterm_compat = parse_bool_setting(
+            get(BUTTONS_ITERM_COMPAT_ENV).as_deref(),
+            BUTTONS_ITERM_COMPAT_ENV,
+            DEFAULT_BUTTONS_ITERM_COMPAT,
+            &mut warn,
+        );
+        let buttons_sticky = parse_bool_setting(
+            get(BUTTONS_STICKY_ENV).as_deref(),
+            BUTTONS_STICKY_ENV,
+            DEFAULT_BUTTONS_STICKY,
+            &mut warn,
+        );
         let shell_integration = parse_bool_setting(
             get(SHELL_INTEGRATION_ENV).as_deref(),
             SHELL_INTEGRATION_ENV,
@@ -2695,6 +2730,9 @@ impl Settings {
             tab_rail_autohide,
             tab_rail_reveal_px,
             sh_click,
+            buttons,
+            buttons_iterm_compat,
+            buttons_sticky,
             shell_integration,
             restore_workspaces,
             new_output_fade,
@@ -2929,6 +2967,15 @@ impl Settings {
             format_float(self.tab_rail_reveal_px),
         );
         values.insert(SH_CLICK_ENV, bool_display(self.sh_click).to_owned());
+        values.insert(BUTTONS_ENV, bool_display(self.buttons).to_owned());
+        values.insert(
+            BUTTONS_ITERM_COMPAT_ENV,
+            bool_display(self.buttons_iterm_compat).to_owned(),
+        );
+        values.insert(
+            BUTTONS_STICKY_ENV,
+            bool_display(self.buttons_sticky).to_owned(),
+        );
         values.insert(
             SHELL_INTEGRATION_ENV,
             bool_display(self.shell_integration).to_owned(),

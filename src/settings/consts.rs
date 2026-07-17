@@ -100,6 +100,9 @@ pub const WORKSPACE_RAIL_REVEAL_PX_ENV: &str = "ODYTTY_WORKSPACE_RAIL_REVEAL_PX"
 // over the legacy key when both are set.
 pub const WORKSPACE_RAIL_SIDE_ENV: &str = "ODYTTY_WORKSPACE_RAIL_SIDE";
 pub const SH_CLICK_ENV: &str = "ODYTTY_SH_CLICK";
+pub const BUTTONS_ENV: &str = "ODYTTY_BUTTONS";
+pub const BUTTONS_ITERM_COMPAT_ENV: &str = "ODYTTY_BUTTONS_ITERM_COMPAT";
+pub const BUTTONS_STICKY_ENV: &str = "ODYTTY_BUTTONS_STICKY";
 pub const SHELL_INTEGRATION_ENV: &str = "ODYTTY_SHELL_INTEGRATION";
 pub const RESTORE_WORKSPACES_ENV: &str = "ODYTTY_RESTORE_WORKSPACES";
 pub const CVD_MODE_ENV: &str = "ODYTTY_CVD_MODE";
@@ -221,6 +224,9 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     WORKSPACE_RAIL_REVEAL_PX_ENV,
     WORKSPACE_RAIL_SIDE_ENV,
     SH_CLICK_ENV,
+    BUTTONS_ENV,
+    BUTTONS_ITERM_COMPAT_ENV,
+    BUTTONS_STICKY_ENV,
     SHELL_INTEGRATION_ENV,
     RESTORE_WORKSPACES_ENV,
     CVD_MODE_ENV,
@@ -813,6 +819,31 @@ pub const MAX_TAB_RAIL_REVEAL_PX: f32 = 32.0;
 /// exactly the shells whose integration opted in. While off (or without an
 /// advertising shell) the pointer path emits no bytes and changes no pixel.
 pub const DEFAULT_SH_CLICK: bool = true;
+
+/// Button protocol master gate (`ODYTTY_BUTTONS`, docs/buttons.md): when on,
+/// programs can define clickable buttons in their output (OSC
+/// `133;P;odytty-button` label runs and iTerm2 `1337;Button=` point buttons)
+/// and clicking a live button reports its integer code back to the program as
+/// `CSI ? 1337 ; code ~`. Off by default: the sequences are parsed and
+/// discarded, nothing is stored or rendered, and clicks never emit a report —
+/// the off path is byte-identical to plain output. The gate is enforced at the
+/// parser and again at the pointer, so turning it off also deadens buttons
+/// already on screen. When on, `ODYTTY_BUTTONS=1` is injected into new
+/// terminal sessions' environment so emitters can discover support.
+pub const DEFAULT_BUTTONS: bool = false;
+
+/// iTerm2-compatible button spelling (`ODYTTY_BUTTONS_ITERM_COMPAT`): accept
+/// `OSC 1337 ; Button=type=custom ; code=N` point buttons in addition to the
+/// native spelling. Sub-gate of `ODYTTY_BUTTONS`; inert while the master gate
+/// is off.
+pub const DEFAULT_BUTTONS_ITERM_COMPAT: bool = false;
+
+/// Sticky button lifetime (`ODYTTY_BUTTONS_STICKY`): honor `scope=sticky`
+/// definitions, which outlive prompt boundaries and keep reporting from
+/// scrollback until invalidated or scrolled off. When off, sticky requests
+/// downgrade to the block lifetime (dead at the next prompt). Sub-gate of
+/// `ODYTTY_BUTTONS`; inert while the master gate is off.
+pub const DEFAULT_BUTTONS_STICKY: bool = false;
 
 /// Automatic OSC 133 shell integration (`ODYTTY_SHELL_INTEGRATION`): when on,
 /// default local shell launches receive OdyTTY's prompt-mark hooks at spawn so

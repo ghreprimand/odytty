@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Buttons: settings surface and ODYTTY_BUTTONS feature discovery
+
+The button protocol becomes user-reachable. Until now its three gates existed
+only inside the terminal model, with nothing user-facing to set them; the
+feature was effectively test-only. This slice adds the settings and the
+feature-discovery story in one piece, since they share a variable.
+
+Three bool settings land in the Input group, all default off: `buttons` (the
+master gate), `buttons_iterm_compat` (accept the iTerm2 spelling), and
+`buttons_sticky` (honor `scope=sticky` lifetimes). Each reads from its
+`ODYTTY_*` environment variable or config alias (`button_protocol`,
+`iterm_buttons`, `sticky_buttons`, ...), round-trips through the config file,
+and shows in the settings panel. The gates push to every open session's
+terminal on launch and on every settings apply or config reload, so flipping
+the knob takes effect live: a headless test proves an inert stream becomes
+clickable after a live apply and goes inert again when the setting turns off,
+without restarting the session.
+
+Feature discovery is environment-based: when the master gate is on, new
+terminal sessions receive `ODYTTY_BUTTONS=1`, so a script's
+`[ -n "$ODYTTY_BUTTONS" ]` guard tracks the setting exactly (absent when off,
+matching the default-off posture). The injection lives on the shared
+CommandBuilder env path, so the Unix fork/exec spawn and the Windows ConPTY
+environment block get identical behavior from one function; a shared unit
+test asserts both the on and off shapes on every platform. Chosen over a
+query escape: zero round-trip, no new escape-parsing surface, and it
+integrates directly with the shell-integration emitters. The documented
+tradeoff is that env discovery does not cross ssh or nested sessions, and a
+session spawned before the setting was enabled keeps its old environment; a
+query escape can come later if remote discovery is ever needed.
+
+The shell-integration emitter helpers now guard on the variable: without it,
+`odytty_button` prints the bare label and `odytty_button_clear` is a no-op,
+so scripts call them unconditionally in any terminal. A behavioral bash test
+covers the degraded path; the byte-exact wire test now runs with the variable
+set. `docs/buttons.md` replaces its "not yet specified" discovery section
+with the real mechanism, gains a settings table, and drops the missing-knob
+limitation; the runtime-knobs reference and the example config list the new
+keys.
+
 ## 2026-07-17 -- Test suite: serialize headless GPU device creation to end the parallel-run deadlock
 
 The full-parallelism `cargo test` run could intermittently hang forever. Root

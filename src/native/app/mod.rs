@@ -313,6 +313,25 @@ impl TabPanelFrameQuads {
     }
 }
 
+/// The three button-protocol gates as one copyable unit (BUTTONS-SETTINGS):
+/// snapshotted from `Settings` and pushed onto every session's `Terminal` at
+/// spawn and on every settings apply/reload, so a panel or config change takes
+/// effect live (the pointer arm reads the terminal-level gate per click).
+#[derive(Debug, Clone, Copy)]
+struct ButtonGates {
+    enabled: bool,
+    iterm_compat: bool,
+    sticky: bool,
+}
+
+impl ButtonGates {
+    fn apply(self, terminal: &mut crate::core::Terminal) {
+        terminal.set_buttons_enabled(self.enabled);
+        terminal.set_buttons_iterm_compat(self.iterm_compat);
+        terminal.set_buttons_sticky(self.sticky);
+    }
+}
+
 /// A clipboard image awaiting the image paste-through confirm prompt (F6-i7).
 /// Holds the PNG bytes off to the side until Enter confirms the upload, so image
 /// data never leaves the machine on the paste keystroke alone. `session` pins
@@ -1002,6 +1021,18 @@ impl App {
         }
     }
 
+    /// Snapshot of the three button-protocol gates (BUTTONS-SETTINGS), copied
+    /// out of `Settings` before a session borrow so the push sites never hold
+    /// `self.settings` across the arena. Named fields rather than three loose
+    /// bools so call sites cannot transpose the sub-gates.
+    fn button_gates(&self) -> ButtonGates {
+        ButtonGates {
+            enabled: self.settings.buttons,
+            iterm_compat: self.settings.buttons_iterm_compat,
+            sticky: self.settings.buttons_sticky,
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn initialize_session_with(
         session: &mut Session,
@@ -1013,6 +1044,7 @@ impl App {
         cursor_blink: crate::settings::CursorBlink,
         cell: Option<CellSize>,
         scrollback_limit: usize,
+        button_gates: ButtonGates,
     ) {
         if let Ok(mut terminal) = session.terminal.lock() {
             let cursor_default = if themed_ui_roles {
@@ -1031,6 +1063,7 @@ impl App {
             terminal.set_kitty_named_transports_enabled(kitty_named_transports);
             terminal.set_scrollback_limit(scrollback_limit);
             terminal.set_cursor_defaults(cursor_style, cursor_blink.enabled());
+            button_gates.apply(&mut terminal);
             if let Some(cell) = cell {
                 terminal.set_cell_metrics(cell.width, cell.height);
             }
@@ -1100,6 +1133,7 @@ impl App {
                 let cursor_blink = self.settings.cursor_blink;
                 let cell = self.gpu.as_ref().map(GpuState::cell);
                 let scrollback_limit = self.settings.scrollback_limit();
+                let button_gates = self.button_gates();
                 if let Some(session) = self.sessions.get_mut(session_id) {
                     Self::initialize_session_with(
                         session,
@@ -1111,6 +1145,7 @@ impl App {
                         cursor_blink,
                         cell,
                         scrollback_limit,
+                        button_gates,
                     );
                 }
                 let _ = self.sessions.switch(session_id);
@@ -1226,6 +1261,7 @@ impl App {
         let cursor_blink = self.settings.cursor_blink;
         let cell = self.gpu.as_ref().map(GpuState::cell);
         let scrollback_limit = self.settings.scrollback_limit();
+        let button_gates = self.button_gates();
         if let Some(session) = self.sessions.get_mut(token) {
             Self::initialize_session_with(
                 session,
@@ -1237,6 +1273,7 @@ impl App {
                 cursor_blink,
                 cell,
                 scrollback_limit,
+                button_gates,
             );
         }
         let _ = self.sessions.switch(token);
@@ -1543,6 +1580,7 @@ impl App {
         let cursor_blink = self.settings.cursor_blink;
         let cell = self.gpu.as_ref().map(GpuState::cell);
         let scrollback_limit = self.settings.scrollback_limit();
+        let button_gates = self.button_gates();
         if let Some(session) = self.sessions.get_mut(token) {
             Self::initialize_session_with(
                 session,
@@ -1554,6 +1592,7 @@ impl App {
                 cursor_blink,
                 cell,
                 scrollback_limit,
+                button_gates,
             );
         }
         self.flash_rail_autohide();
@@ -1588,6 +1627,7 @@ impl App {
         let cursor_blink = self.settings.cursor_blink;
         let cell = self.gpu.as_ref().map(GpuState::cell);
         let scrollback_limit = self.settings.scrollback_limit();
+        let button_gates = self.button_gates();
         if let Some(session) = self.sessions.get_mut(token) {
             Self::initialize_session_with(
                 session,
@@ -1599,6 +1639,7 @@ impl App {
                 cursor_blink,
                 cell,
                 scrollback_limit,
+                button_gates,
             );
         }
         self.flash_rail_autohide();
@@ -1730,6 +1771,7 @@ impl App {
         let cursor_blink = self.settings.cursor_blink;
         let cell = self.gpu.as_ref().map(GpuState::cell);
         let scrollback_limit = self.settings.scrollback_limit();
+        let button_gates = self.button_gates();
         if let Some(session) = self.sessions.get_mut(new_token) {
             Self::initialize_session_with(
                 session,
@@ -1741,6 +1783,7 @@ impl App {
                 cursor_blink,
                 cell,
                 scrollback_limit,
+                button_gates,
             );
         }
         self.reflow_active_panes_and_redraw();
@@ -5222,6 +5265,7 @@ impl App {
         let cursor_style = self.settings.cursor_style;
         let cursor_blink = self.settings.cursor_blink.enabled();
         let scrollback_limit = self.settings.scrollback_limit();
+        let button_gates = self.button_gates();
         for session in self.sessions.iter() {
             if let Ok(mut terminal) = session.terminal.lock() {
                 terminal.set_base_colors(base_fg, base_bg, cursor_default);
@@ -5230,6 +5274,7 @@ impl App {
                 terminal.set_kitty_named_transports_enabled(kitty_named_transports);
                 terminal.set_cursor_defaults(cursor_style, cursor_blink);
                 terminal.set_scrollback_limit(scrollback_limit);
+                button_gates.apply(&mut terminal);
             }
         }
     }

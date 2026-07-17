@@ -170,27 +170,58 @@ Clear-OdyttyButton -Code 42   # or bare Clear-OdyttyButton for all
 ```
 
 The helpers validate the code (positive integer) and emit nothing on misuse,
-so a bad invocation can never leave a half-open bracketed run.
+so a bad invocation can never leave a half-open bracketed run. They also guard
+on the `ODYTTY_BUTTONS` discovery variable (below): without it, the define
+helper prints the bare label and the clear helper is a no-op, so scripts can
+call them unconditionally in any terminal.
+
+## Settings
+
+Buttons are configured by three settings (config file, environment variable,
+or the settings panel, Input group). Changes apply live to every open session.
+
+| setting | env | default | effect |
+|---|---|---|---|
+| `buttons` | `ODYTTY_BUTTONS` | off | Master gate: parse definitions, render chips, report clicks, and advertise support to new sessions. |
+| `buttons_iterm_compat` | `ODYTTY_BUTTONS_ITERM_COMPAT` | off | Also accept the Tier 1 iTerm2 spelling. |
+| `buttons_sticky` | `ODYTTY_BUTTONS_STICKY` | off | Honor `scope=sticky` lifetimes; off downgrades them to `block`. |
+
+The sub-gates do nothing while the master gate is off.
 
 ## Windows
 
 Fully supported. The sequences pass through ConPTY unmodified in both
 directions: definitions parse identically, and the click report reaches the
 program like any other terminal input. The PowerShell helpers above ride the
-standard shell-integration injection.
+standard shell-integration injection, and the `ODYTTY_BUTTONS` discovery
+variable is folded into the ConPTY environment block at spawn like any other
+variable.
 
 ## Feature discovery
 
-Not yet specified. Emitting the Tier 2 spelling unconditionally is safe by
-design — other terminals print the plain label — so emitters do not need to
-detect OdyTTY first. A discovery mechanism for emitters that want to tailor
-output is under consideration.
+When the `buttons` master gate is on, OdyTTY sets `ODYTTY_BUTTONS=1` in the
+environment of every new terminal session. Programs that want to tailor their
+output can test it:
+
+```sh
+if [ -n "${ODYTTY_BUTTONS-}" ]; then
+  # buttons are supported and enabled
+fi
+```
+
+When the gate is off the variable is absent, so the test tracks the setting
+exactly. Testing is optional: emitting the Tier 2 spelling unconditionally is
+safe by design, since other terminals print the plain label and drop the
+unknown sequences.
+
+Known limitation: environment-based discovery does not cross ssh or nested
+sessions (the same tradeoff as `TERM_PROGRAM` and similar variables), and a
+session spawned before the setting was turned on keeps its old environment
+until restarted. A query-escape mechanism may be added later if remote
+discovery is needed.
 
 ## Current limitations
 
-- The master gate is off by default and is not yet surfaced as a first-class
-  configuration setting; the settings knob is planned alongside the 0.9.1
-  settings work. The protocol documented here is stable regardless.
 - Activation is pointer-only; keyboard activation and screen-reader
   affordances are planned but not yet designed.
 - Button definitions are refused on the alternate screen (deliberate, see

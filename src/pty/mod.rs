@@ -99,16 +99,16 @@ impl CommandBuilder {
     // Inspected by the shell-integration injection tests. `args_for_test` is
     // used on BOTH platforms (Unix asserts the rcfile/env args; Windows asserts
     // the PowerShell `-NoExit -Command <snippet>` injection -- there IS Windows
-    // spawn-time injection), so it is `cfg(test)`. `env_for_test` is only read
-    // by the Unix rcfile tests (ZDOTDIR/XDG_DATA_DIRS wiring), so it stays
-    // `cfg(all(test, unix))` -- widening it would make it dead code on the
-    // Windows test target under the `-D warnings` gate.
+    // spawn-time injection), so it is `cfg(test)`. `env_for_test` is likewise
+    // read on both platforms: the Unix rcfile tests assert the
+    // ZDOTDIR/XDG_DATA_DIRS wiring, and the shared buttons-discovery test in
+    // this module asserts the ODYTTY_BUTTONS injection everywhere.
     #[cfg(test)]
     pub(crate) fn args_for_test(&self) -> &[OsString] {
         &self.args
     }
 
-    #[cfg(all(test, unix))]
+    #[cfg(test)]
     pub(crate) fn env_for_test(&self) -> &[(OsString, OsString)] {
         &self.env
     }
@@ -135,6 +135,24 @@ impl CommandBuilder {
         self
     }
 
+    /// Button-protocol feature discovery (docs/buttons.md): when the `buttons`
+    /// master gate is on, advertise support to the spawned child by setting
+    /// `ODYTTY_BUTTONS=1`; when off, set nothing at all, so a program's
+    /// `[ -n "$ODYTTY_BUTTONS" ]` guard tracks the gate exactly. Shared by
+    /// both platform spawn paths: the Unix backend passes `env` to the child
+    /// through fork/exec, and the Windows backend folds the same vec into the
+    /// ConPTY environment block, so the advertisement crosses ConPTY like any
+    /// other variable. Env-based discovery deliberately does not cross
+    /// ssh/nested sessions (a documented limitation; a query escape can come
+    /// later if remote discovery is ever needed).
+    #[cfg_attr(not(unix), allow(dead_code))]
+    fn apply_buttons_discovery_env(&mut self, buttons_enabled: bool) -> &mut Self {
+        if buttons_enabled {
+            self.env("ODYTTY_BUTTONS", "1");
+        }
+        self
+    }
+
     pub fn current_dir(&mut self, path: impl Into<PathBuf>) -> &mut Self {
         self.current_dir = Some(path.into());
         self
@@ -151,5 +169,41 @@ impl CommandBuilder {
             command.env(key, value);
         }
         command
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Buttons feature discovery (docs/buttons.md): gate on injects exactly
+    /// `ODYTTY_BUTTONS=1`; gate off injects nothing, so a child's
+    /// `[ -n "$ODYTTY_BUTTONS" ]` guard tracks the gate. Runs on every
+    /// platform: the same `env` vec feeds Unix fork/exec and the Windows
+    /// ConPTY environment block, so this asserts the injection at the shared
+    /// site both backends consume.
+    #[test]
+    fn buttons_discovery_env_tracks_the_master_gate() {
+        let mut on = CommandBuilder::new("sh");
+        on.apply_buttons_discovery_env(true);
+        assert!(
+            on.env_for_test()
+                .iter()
+                .any(|(k, v)| k == "ODYTTY_BUTTONS" && v == "1"),
+            "gate on must inject ODYTTY_BUTTONS=1"
+        );
+
+        let mut off = CommandBuilder::new("sh");
+        off.apply_buttons_discovery_env(false);
+        assert!(
+            off.env_for_test()
+                .iter()
+                .all(|(k, _)| k != "ODYTTY_BUTTONS"),
+            "gate off must not inject ODYTTY_BUTTONS"
+        );
+        assert!(
+            off.env_for_test().is_empty(),
+            "gate off must add no environment at all"
+        );
     }
 }

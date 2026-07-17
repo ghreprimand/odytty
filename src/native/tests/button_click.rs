@@ -189,6 +189,40 @@ fn turning_the_gate_off_kills_clickability_of_existing_spans() {
 }
 
 #[test]
+fn settings_apply_pushes_the_button_gates_to_the_terminal_live() {
+    // BUTTONS-SETTINGS: the user-facing knobs reach the terminal through the
+    // same settings-apply seam the panel and config reload use. Start from
+    // defaults (gate off), turn `buttons` on via a live apply, and the
+    // previously-inert stream becomes clickable; apply defaults again and
+    // clicks go inert without restarting the session.
+    let (mut app, terminal, bytes) = build_app(b"", false);
+    let on = crate::settings::Settings {
+        buttons: true,
+        ..crate::settings::Settings::default()
+    };
+    app.apply_saved_settings_live_for_test(on);
+    terminal.lock().expect("terminal").advance(T2_BUTTON);
+    settle_focus_click(&mut app, &bytes);
+    move_to_cell(&mut app, 0, 3);
+    press(&mut app);
+    release(&mut app);
+    assert_eq!(
+        drain(&bytes),
+        T2_ENVELOPE,
+        "after a live settings apply the button must click"
+    );
+
+    app.apply_saved_settings_live_for_test(crate::settings::Settings::default());
+    move_to_cell(&mut app, 0, 3);
+    press(&mut app);
+    release(&mut app);
+    assert!(
+        drain(&bytes).is_empty(),
+        "turning the setting off must kill existing buttons live"
+    );
+}
+
+#[test]
 fn an_invalidated_button_is_inert() {
     // A block-scoped button dies at the next OSC 133 A boundary; its dimmed
     // chip must swallow nothing and write nothing.

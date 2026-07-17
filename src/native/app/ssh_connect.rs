@@ -204,6 +204,7 @@ impl App {
         let cursor_blink = self.settings.cursor_blink;
         let cell = self.gpu.as_ref().map(GpuState::cell);
         let scrollback_limit = self.settings.scrollback_limit();
+        let button_gates = self.button_gates();
         if let Some(session) = self.sessions.get_mut(token) {
             Self::initialize_session_with(
                 session,
@@ -215,6 +216,7 @@ impl App {
                 cursor_blink,
                 cell,
                 scrollback_limit,
+                button_gates,
             );
             session.remote_destination = Some(remote_identity);
         }

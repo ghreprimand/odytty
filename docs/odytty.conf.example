@@ -182,6 +182,12 @@ confirm_close = on
 bell = urgent
 command_status_gutter = off
 sh_click = on
+# Program-defined clickable buttons (docs/buttons.md). Off by default; when on,
+# ODYTTY_BUTTONS=1 is set in new sessions so scripts can detect support. The
+# two sub-gates do nothing while the master gate is off.
+buttons = off
+buttons_iterm_compat = off
+buttons_sticky = off
 shell_integration = off
 keybinds =
 # Example:

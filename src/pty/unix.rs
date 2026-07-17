@@ -89,7 +89,12 @@ impl PtySession {
         dimensions: Dimensions,
         working_directory: Option<PathBuf>,
     ) -> Result<Self> {
-        Self::spawn_default_shell_in_with_shell_integration(dimensions, working_directory, false)
+        Self::spawn_default_shell_in_with_shell_integration(
+            dimensions,
+            working_directory,
+            false,
+            false,
+        )
     }
 
     pub fn spawn_default_shell_in_with_settings(
@@ -101,6 +106,7 @@ impl PtySession {
             dimensions,
             working_directory,
             settings.shell_integration,
+            settings.buttons,
         )
     }
 
@@ -108,10 +114,12 @@ impl PtySession {
         dimensions: Dimensions,
         working_directory: Option<PathBuf>,
         shell_integration: bool,
+        buttons: bool,
     ) -> Result<Self> {
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
         let mut command = CommandBuilder::new(shell);
         command.apply_terminal_env();
+        command.apply_buttons_discovery_env(buttons);
         if shell_integration {
             crate::shell_integration::apply_spawn_integration(&mut command);
         }

@@ -29,6 +29,14 @@ echo
 echo "OdyTTY button protocol demo"
 echo "==========================="
 echo
+# Feature discovery (docs/buttons.md): OdyTTY sets ODYTTY_BUTTONS=1 in the
+# session environment when its buttons setting is on. The demo still prints
+# the panel either way (the sequences are safe everywhere); this is a heads-up.
+if [ -z "${ODYTTY_BUTTONS-}" ]; then
+  echo "  note: ODYTTY_BUTTONS is not set, so buttons are off or unsupported"
+  echo "  in this terminal. The labels below will print as plain text."
+  echo
+fi
 printf '  '; btn 1 '[ Run build ]' run
 printf '   '; btn 2 '[ Run tests ]' check
 printf '   '; btn 3 '[ Copy log path ]' copy

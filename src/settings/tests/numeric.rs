@@ -342,6 +342,78 @@ fn sh_click_defaults_on_and_round_trips_through_config_key() {
 }
 
 #[test]
+fn buttons_gates_default_off_and_round_trip_through_config_keys() {
+    // BUTTONS-SETTINGS: all three gates default OFF — the button protocol is
+    // opt-in and the off path is byte-identical to plain output.
+    let (settings, warnings) = settings_from([]);
+    assert!(!settings.buttons);
+    assert!(!settings.buttons_iterm_compat);
+    assert!(!settings.buttons_sticky);
+    assert!(warnings.is_empty());
+
+    let (settings, _) = settings_from([
+        (BUTTONS_ENV, "on"),
+        (BUTTONS_ITERM_COMPAT_ENV, "on"),
+        (BUTTONS_STICKY_ENV, "on"),
+    ]);
+    assert!(settings.buttons);
+    assert!(settings.buttons_iterm_compat);
+    assert!(settings.buttons_sticky);
+
+    let (settings, _) = settings_from([(BUTTONS_ENV, "off")]);
+    assert!(!settings.buttons);
+
+    // Config keys and aliases map to the env keys and back, and the values
+    // survive a to_edit_values round-trip.
+    assert_eq!(config_key_to_env("buttons"), Some(BUTTONS_ENV));
+    assert_eq!(config_key_to_env("button_protocol"), Some(BUTTONS_ENV));
+    assert_eq!(config_key_to_env("clickable_buttons"), Some(BUTTONS_ENV));
+    assert_eq!(
+        config_key_to_env("buttons_iterm_compat"),
+        Some(BUTTONS_ITERM_COMPAT_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("iterm_buttons"),
+        Some(BUTTONS_ITERM_COMPAT_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("buttons_sticky"),
+        Some(BUTTONS_STICKY_ENV)
+    );
+    assert_eq!(
+        config_key_to_env("sticky_buttons"),
+        Some(BUTTONS_STICKY_ENV)
+    );
+    assert_eq!(env_to_config_key(BUTTONS_ENV), Some("buttons"));
+    assert_eq!(
+        env_to_config_key(BUTTONS_ITERM_COMPAT_ENV),
+        Some("buttons_iterm_compat")
+    );
+    assert_eq!(
+        env_to_config_key(BUTTONS_STICKY_ENV),
+        Some("buttons_sticky")
+    );
+    let edit_values = Settings {
+        buttons: true,
+        buttons_iterm_compat: true,
+        buttons_sticky: false,
+        ..Settings::default()
+    }
+    .to_edit_values();
+    assert_eq!(edit_values.get(BUTTONS_ENV).map(String::as_str), Some("on"));
+    assert_eq!(
+        edit_values
+            .get(BUTTONS_ITERM_COMPAT_ENV)
+            .map(String::as_str),
+        Some("on")
+    );
+    assert_eq!(
+        edit_values.get(BUTTONS_STICKY_ENV).map(String::as_str),
+        Some("off")
+    );
+}
+
+#[test]
 fn always_show_tab_bar_defaults_off_and_round_trips_through_config_key() {
     // Absent → off (F4 ODP-7: the tab bar stays hidden for a single unnamed
     // tab; the render path is byte-identical to today).

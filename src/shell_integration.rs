@@ -293,7 +293,9 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
   # bracketed by the private OSC 133;P;odytty-button run, so OdyTTY renders a
   # clickable chip while any other terminal prints the plain label and drops
   # the unknown OSCs. odytty_button_clear invalidates all buttons, or every
-  # button carrying one code.
+  # button carrying one code. Both guard on ODYTTY_BUTTONS (the discovery
+  # variable OdyTTY injects when its buttons setting is on) and degrade to the
+  # plain label / a no-op without it, so scripts can call them unconditionally.
   odytty_button() {
     if [ $# -lt 2 ]; then
       echo 'usage: odytty_button CODE LABEL [ICON] [SCOPE]' >&2
@@ -306,11 +308,16 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
       echo 'odytty_button: CODE must be a positive integer' >&2
       return 2
     fi
+    if [ -z "${ODYTTY_BUTTONS-}" ]; then
+      printf '%s' "$2"
+      return 0
+    fi
     printf '\e]133;P;odytty-button;code=%s%s%s\a%s\e]133;P;odytty-button;end\a' \
       "$1" "${3:+;icon=$3}" "${4:+;scope=$4}" "$2"
   }
 
   odytty_button_clear() {
+    [ -n "${ODYTTY_BUTTONS-}" ] || return 0
     printf '\e]133;P;odytty-button;invalidate%s\a' "${1:+;code=$1}"
   }
 
@@ -391,11 +398,16 @@ const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" ]; then
       echo 'odytty_button: CODE must be a positive integer' >&2
       return 2
     fi
+    if [ -z "${ODYTTY_BUTTONS-}" ]; then
+      printf '%s' "$2"
+      return 0
+    fi
     printf '\e]133;P;odytty-button;code=%s%s%s\a%s\e]133;P;odytty-button;end\a' \
       "$1" "${3:+;icon=$3}" "${4:+;scope=$4}" "$2"
   }
 
   odytty_button_clear() {
+    [ -n "${ODYTTY_BUTTONS-}" ] || return 0
     printf '\e]133;P;odytty-button;invalidate%s\a' "${1:+;code=$1}"
   }
 
@@ -458,6 +470,10 @@ const FISH_SNIPPET: &str = r#"if not set -q ODYTTY_SHELL_INTEGRATION
             echo 'odytty_button: CODE must be a positive integer' >&2
             return 2
         end
+        if not set -q ODYTTY_BUTTONS
+            printf '%s' "$argv[2]"
+            return 0
+        end
         set -l __odytty_params "code=$argv[1]"
         if test (count $argv) -ge 3; and test -n "$argv[3]"
             set __odytty_params "$__odytty_params;icon=$argv[3]"
@@ -469,6 +485,9 @@ const FISH_SNIPPET: &str = r#"if not set -q ODYTTY_SHELL_INTEGRATION
     end
 
     function odytty_button_clear --description 'Invalidate OdyTTY buttons'
+        if not set -q ODYTTY_BUTTONS
+            return 0
+        end
         if test (count $argv) -ge 1
             printf '\e]133;P;odytty-button;invalidate;code=%s\a' "$argv[1]"
         else
@@ -544,6 +563,10 @@ const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
         if ($Code -lt 1) {
             throw 'Code must be a positive integer'
         }
+        if (-not $env:ODYTTY_BUTTONS) {
+            [Console]::Write($Label)
+            return
+        }
         $esc = [char]27
         $bel = [char]7
         $params = "code=$Code"
@@ -554,6 +577,9 @@ const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
 
     function global:Clear-OdyttyButton {
         param([uint32]$Code)
+        if (-not $env:ODYTTY_BUTTONS) {
+            return
+        }
         $esc = [char]27
         $bel = [char]7
         if ($PSBoundParameters.ContainsKey('Code')) {
@@ -648,6 +674,16 @@ mod tests {
             powershell.contains("[ValidateSet('block','sticky')]"),
             "powershell: scope must be constrained to the protocol vocabulary"
         );
+        // Discovery guard: every helper checks the ODYTTY_BUTTONS variable the
+        // terminal injects when its buttons setting is on, degrading to the
+        // plain label (define) or a no-op (clear) without it.
+        for shell in ["bash", "zsh", "fish", "powershell"] {
+            let snippet = snippet_for_shell(shell).expect("snippet");
+            assert!(
+                snippet.contains("ODYTTY_BUTTONS"),
+                "{shell}: helpers must guard on the discovery variable"
+            );
+        }
     }
 
     #[test]
@@ -1074,7 +1110,8 @@ mod tests {
         let out = run_bash_rc(
             &bash,
             &rc,
-            "odytty_button 42 Deploy run sticky\n\
+            "export ODYTTY_BUTTONS=1\n\
+             odytty_button 42 Deploy run sticky\n\
              odytty_button 7 Copy\n\
              odytty_button_clear\n\
              odytty_button_clear 9\n\
@@ -1103,6 +1140,43 @@ mod tests {
             out.contains("\x1b]133;P;odytty-button;invalidate;code=9\x07"),
             "invalidate-code form malformed: {out:?}"
         );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_button_helper_degrades_to_plain_label_without_discovery_env() {
+        // Without ODYTTY_BUTTONS in the environment (any other terminal, or
+        // OdyTTY with the buttons setting off), the define helper prints the
+        // bare label and the clear helper emits nothing, so scripts can call
+        // them unconditionally.
+        let Some(bash) = find_bash() else {
+            return;
+        };
+        let dir = temp_integration_dir("bash-button-degrade");
+        let rc = write_bash_rc_with_user_helper(&dir);
+
+        let out = run_bash_rc(
+            &bash,
+            &rc,
+            "unset ODYTTY_BUTTONS\n\
+             odytty_button 42 PlainLabel run sticky; echo rc=$?\n\
+             odytty_button_clear\n\
+             exit\n",
+        );
+        if !out.contains("\x1b]133;A") {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+        assert!(
+            out.contains("PlainLabel"),
+            "label must still print without the discovery env: {out:?}"
+        );
+        assert!(
+            !out.contains("odytty-button"),
+            "no button OSC may be emitted without the discovery env: {out:?}"
+        );
+        assert!(out.contains("rc=0"), "degraded call must succeed: {out:?}");
         let _ = fs::remove_dir_all(dir);
     }
 

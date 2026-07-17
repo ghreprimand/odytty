@@ -165,6 +165,10 @@ impl PtySession {
     ) -> Result<Self> {
         let mut command = CommandBuilder::new(default_shell().program);
         command.apply_terminal_env();
+        // Buttons feature discovery, same gate as the Unix path: the shared
+        // env vec lands in the ConPTY environment block via `build_env_block`,
+        // so ODYTTY_BUTTONS crosses ConPTY like TERM_PROGRAM does.
+        command.apply_buttons_discovery_env(settings.buttons);
         if let Some(path) = working_directory {
             command.current_dir(path);
         }

@@ -7,8 +7,9 @@ use std::path::Path;
 use super::{
     ALWAYS_SHOW_TAB_BAR_ENV, BACKGROUND_BLUR_RADIUS_ENV, BACKGROUND_IMAGE_ENV,
     BACKGROUND_IMAGE_SCRIM_ENV, BACKGROUND_TREATMENT_ENV, BELL_ENV, BLOOM_ENV, BLOOM_INTENSITY_ENV,
-    BLOOM_RADIUS_ENV, BLOOM_THRESHOLD_ENV, CELL_BG_OPACITY_ENV, COMMAND_STATUS_GUTTER_ENV,
-    CONFIRM_CLOSE_ENV, COPY_ON_SELECT_ENV, CRT_CURVATURE_ENV, CRT_ENV, CRT_SCANLINE_INTENSITY_ENV,
+    BLOOM_RADIUS_ENV, BLOOM_THRESHOLD_ENV, BUTTONS_ENV, BUTTONS_ITERM_COMPAT_ENV,
+    BUTTONS_STICKY_ENV, CELL_BG_OPACITY_ENV, COMMAND_STATUS_GUTTER_ENV, CONFIRM_CLOSE_ENV,
+    COPY_ON_SELECT_ENV, CRT_CURVATURE_ENV, CRT_ENV, CRT_SCANLINE_INTENSITY_ENV,
     CRT_SCANLINE_PERIOD_ENV, CRT_VIGNETTE_STRENGTH_ENV, CURSOR_BLINK_ENV, CURSOR_EASING_ENV,
     CURSOR_GLOW_ENV, CURSOR_GLOW_INTENSITY_ENV, CURSOR_MOTION_ENV, CURSOR_STYLE_ENV,
     CURSOR_TRAIL_ENV, CURSOR_TRAIL_STRENGTH_ENV, CVD_MODE_ENV, CVD_STRENGTH_ENV, FOCUS_DIM_ENV,
@@ -229,6 +230,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
             Some(TAB_RAIL_REVEAL_PX_ENV)
         }
         "shclick" | "clicktoposition" | "clicktomovecursor" | "promptclick" => Some(SH_CLICK_ENV),
+        "buttons" | "buttonprotocol" | "clickablebuttons" => Some(BUTTONS_ENV),
+        "buttonsitermcompat" | "itermbuttons" | "buttonscompat" => Some(BUTTONS_ITERM_COMPAT_ENV),
+        "buttonssticky" | "stickybuttons" => Some(BUTTONS_STICKY_ENV),
         "shellintegration" | "promptmarks" | "osc133" | "osc133integration" => {
             Some(SHELL_INTEGRATION_ENV)
         }
@@ -365,6 +369,9 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         TAB_RAIL_AUTOHIDE_ENV => Some("tab_rail_autohide"),
         TAB_RAIL_REVEAL_PX_ENV => Some("tab_rail_reveal_px"),
         SH_CLICK_ENV => Some("sh_click"),
+        BUTTONS_ENV => Some("buttons"),
+        BUTTONS_ITERM_COMPAT_ENV => Some("buttons_iterm_compat"),
+        BUTTONS_STICKY_ENV => Some("buttons_sticky"),
         SHELL_INTEGRATION_ENV => Some("shell_integration"),
         RESTORE_WORKSPACES_ENV => Some("restore_workspaces"),
         NEW_OUTPUT_FADE_ENV => Some("new_output_fade"),
