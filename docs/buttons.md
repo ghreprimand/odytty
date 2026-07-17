@@ -72,7 +72,9 @@ OSC 1337 ; Button=type=custom ; code=N [; icon=NAME] ST
 ```
 
 This anchors a **point button** at the cursor: there is no label run, and
-OdyTTY renders it as a chip at the end of the line's content. `icon=` accepts
+OdyTTY renders it as a bounded `icon code` pill one column past the end of the
+line's content (never over program output). The whole painted pill is the
+click target. `icon=` accepts
 the SF Symbols identifiers iTerm2 documents (they map onto the semantic icon
 set below). A bare `OSC 1337 ; Button=type=custom ST` with no code invalidates
 all buttons, matching iTerm2. `type=copy` and other `Button=` variants are

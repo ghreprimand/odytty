@@ -164,7 +164,7 @@ fn launch_seeding_carries_the_iterm_compat_sub_gate() {
         settings,
     );
     settle_focus_click(&mut app, &bytes);
-    move_to_cell(&mut app, 0, 2); // the anchor cell
+    move_to_cell(&mut app, 0, 6); // mid-chip (rect cols 3..11 past "ab")
     press(&mut app);
     release(&mut app);
     assert_eq!(
@@ -281,6 +281,33 @@ fn hovering_a_live_button_sets_and_clears_the_hover_state() {
     assert!(app.hovered_button.is_none(), "hover clears off the span");
 }
 
+/// A Tier 1 point button hovers on its painted chip rect, not on the
+/// invisible definition anchor: the anchor cell misses, every chip cell arms.
+#[test]
+fn tier1_hover_arms_on_the_chip_rect_not_the_anchor() {
+    let settings = crate::settings::Settings {
+        buttons: true,
+        buttons_iterm_compat: true,
+        ..crate::settings::Settings::default()
+    };
+    let (mut app, _terminal, _bytes) = build_app_seeded(
+        b"ab\x1b]1337;Button=type=custom;code=42;icon=star\x07",
+        settings,
+    );
+    move_to_cell(&mut app, 0, 2); // the raw anchor cell (blank after "ab")
+    assert!(
+        app.hovered_button.is_none(),
+        "the definition anchor is not the affordance"
+    );
+    move_to_cell(&mut app, 0, 6); // mid-chip: rect cols 3..11
+    let hovered = app.hovered_button.expect("the chip rect under the pointer");
+    assert_eq!(
+        (hovered.row, hovered.start_col, hovered.len),
+        (0, 3, 8),
+        "the hover hit carries the resolved chip rect"
+    );
+}
+
 /// Default settings: the hover probe is gated off before any terminal query,
 /// so the hover state never arms even over would-be button text.
 #[test]
@@ -315,13 +342,15 @@ fn plain_click_on_a_live_button_reports_the_exact_envelope() {
 #[test]
 fn tier1_point_button_click_matches_the_iterm2_example_bytes() {
     // The published example: code 42 must arrive as 1b 5b 3f 31 33 33 37 3b
-    // 34 32 7e. The Tier 1 anchor's hit box is its single anchor cell.
+    // 34 32 7e. The Tier 1 hit box is the painted chip rect: "ab" ends at
+    // col 2, so the pill occupies cols 3..11 (cap, pad, ★, space, 4, 2, pad,
+    // cap) and a click anywhere on it activates.
     let (mut app, _terminal, bytes) = build_app(
         b"ab\x1b]1337;Button=type=custom;code=42;icon=star\x07",
         true,
     );
     settle_focus_click(&mut app, &bytes);
-    move_to_cell(&mut app, 0, 2); // the anchor cell
+    move_to_cell(&mut app, 0, 6); // mid-chip
     press(&mut app);
     release(&mut app);
     assert_eq!(

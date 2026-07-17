@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Point-button chips: bounded pills with a matching click target
+
+Eye-testing the refined button chips accepted the label-run pills but found
+the Tier 1 point chip (the iTerm2-spelled `icon code` affordance at the end of
+a line) rendering with broken geometry: partial highlight, caps that did not
+wrap the body. Digging in exposed a deeper drift with the pointer: the chip
+was painted at the row's content end, but the click and hover hit box was
+still the button's one-cell definition anchor — wherever the cursor happened
+to be when the OSC arrived. In the common emit-then-print shape the anchor
+sits at column 0, so the visible chip was never hoverable or clickable at all.
+
+Chip geometry now lives in core as a single pure resolver
+(`point_chip_rect`): one blank gap column past the row's content end (never
+left of the definition anchor, never over program output — colored-background
+runs and hyperlinked blanks count as content), then a bounded pill of two
+half-block caps around a padded `icon code` body. The interior padding keeps
+ambiguous-width icon glyphs off the caps so the pill stays visually bounded. A
+rect truncated at the right edge still closes with its cap; a row with no room
+drops the chip entirely.
+
+Both consumers share that resolver by construction. `visible_button_spans`
+exposes point buttons as their resolved chip rect (flagged `point`, never
+zero-length), so the render layer paints exactly those cells; `button_at`
+hit-tests clicks and hover against the same rect, so the click target is
+exactly the pill the user sees and cannot drift from it again. The invisible
+anchor cell no longer activates; a chip that cannot be painted is not
+clickable. Docs updated to state the whole pill is the click target.
+
+Verified: `cargo test` 4053 passed / 0 failed with the new geometry, hit-test,
+paint, and hover coverage (core rect math, truncation, no-room refusal,
+content-classification; native anchor-miss/chip-hit hover and click through
+the production pointer ladder). `cargo fmt --check` and `cargo clippy
+--all-targets --locked` clean. The chip look itself stays feel-gated pending
+a release-build eye pass.
+
 ## 2026-07-17 -- Selection opacity: punch-through surface alpha, correcting the over-fix
 
 Eye-testing the color-space selection fix on a translucent window found it had

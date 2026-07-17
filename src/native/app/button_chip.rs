@@ -5,9 +5,11 @@
 //! [`SnapshotButton`]s (see [`crate::core::Screen::visible_button_spans`]). This
 //! module paints them into the snapshot cells using the same cell-decoration
 //! path the click hint and selection highlights use: a label-run button
-//! re-styles its own label cells as a chip; a Tier 1 point button (`len == 0`)
-//! gets a compact `icon code` chip drawn at the row's content end so it never
-//! overwrites command output.
+//! re-styles its own label cells as a chip; a Tier 1 point button
+//! (`point == true`) gets a bounded `▐ icon code ▌` pill painted into the
+//! chip rect core resolved at the row's content end (`point_chip_rect`), so
+//! it never overwrites command output and the pointer hit-test covers exactly
+//! the painted cells.
 //!
 //! The default path is byte-identical: with the `buttons` gate off the projector
 //! returns no spans, so [`paint_button_cells`] is handed an empty slice and is a
@@ -98,18 +100,23 @@ fn cap_claimable(cell: &Cell) -> bool {
     cell.ch == ' ' && cell.attrs.background == Color::Default && cell.attrs.hyperlink.is_none()
 }
 
-/// Paint a pill cap into `col` if that cell is blank: the cap glyph in the
-/// chip's fill color over the cell's own (default) background, so the chip
-/// edge reads as a deliberate half-cell terminator instead of a hard color
-/// cliff at a cell boundary.
+/// A pill-cap cell: the cap glyph in the chip's fill color over the default
+/// background, so the chip edge reads as a deliberate half-cell terminator
+/// instead of a hard color cliff at a cell boundary.
+fn cap_cell(cap: char, fill: Color) -> Cell {
+    let mut attrs = Attrs::default();
+    attrs.foreground = fill;
+    Cell::new(cap, attrs)
+}
+
+/// Paint a pill cap into `col` if that cell is blank (label-run caps grow
+/// into neighboring cells, which may hold program output).
 fn paint_cap(snapshot: &mut Snapshot, base: usize, col: usize, cap: char, fill: Color) {
     let cell = &mut snapshot.cells[base + col];
     if !cap_claimable(cell) {
         return;
     }
-    let mut attrs = Attrs::default();
-    attrs.foreground = fill;
-    *cell = Cell::new(cap, attrs);
+    *cell = cap_cell(cap, fill);
 }
 
 /// Paint visible button chips into the snapshot cells (Button Protocol B2).
@@ -142,7 +149,11 @@ pub(in crate::native) fn paint_button_cells(
         }
         let base = button.row * columns;
         let attrs = button_chip_attrs(chip_visual(button, hovered));
-        if button.len > 0 {
+        if button.point {
+            // Tier 1 point button: paint the bounded pill into the chip rect
+            // core resolved past the row's content end.
+            paint_point_chip(snapshot, button, attrs);
+        } else {
             // Label run: re-style the existing label cells as a chip, keeping
             // each cell's glyph. Clamp to the row so a stale span can never
             // index out of the grid.
@@ -169,46 +180,40 @@ pub(in crate::native) fn paint_button_cells(
             if end < columns && end > start {
                 paint_cap(snapshot, base, end, CAP_RIGHT, attrs.background);
             }
-        } else {
-            // Tier 1 point button: a compact chip at the row content end.
-            paint_point_chip(snapshot, button, attrs);
         }
     }
 }
 
-/// Draw a compact capped `▐icon code▌` chip one cell past the row's content
-/// end (never left of the anchor), so the point button reads as a deliberate,
-/// bounded affordance trailing the line rather than loose text.
+/// Draw the bounded `▐ icon code ▌` pill into the point button's chip rect —
+/// resolved by core (`point_chip_rect`) past the row's content end, so every
+/// rect cell is genuinely blank and the caps paint unconditionally. Interior
+/// padding keeps the icon glyph and the digits off the caps, matching the
+/// label chip's bounded-object read; a rect truncated at the right edge still
+/// closes with its right cap so the pill never trails off ragged.
 fn paint_point_chip(snapshot: &mut Snapshot, button: &SnapshotButton, attrs: Attrs) {
     let columns = snapshot.dimensions.columns;
     let base = button.row * columns;
-    let mut content_end = 0usize;
-    for col in 0..columns {
-        if snapshot.cells[base + col].ch != ' ' {
-            content_end = col + 1;
-        }
+    let start = button.start_col.min(columns);
+    let end = button.start_col.saturating_add(button.len).min(columns);
+    if end <= start {
+        return;
     }
-    // One untouched gap column after the content, then the chip body.
-    let gap = if content_end > 0 { 1 } else { 0 };
-    let anchor = (content_end + gap).max(button.start_col).min(columns);
+    // Interior body between the caps: pad, icon, space, digits, pad.
     let mut body = String::with_capacity(8);
+    body.push(' ');
     body.push(icon_glyph(button.icon));
     body.push(' ');
     body.push_str(&button.code.to_string());
-    let mut col = anchor;
-    if col < columns {
-        paint_cap(snapshot, base, col, CAP_LEFT, attrs.background);
-        col += 1;
-    }
-    for ch in body.chars() {
-        if col >= columns {
-            return;
-        }
-        snapshot.cells[base + col] = Cell::new(ch, attrs);
-        col += 1;
-    }
-    if col < columns {
-        paint_cap(snapshot, base, col, CAP_RIGHT, attrs.background);
+    body.push(' ');
+    let mut body_chars = body.chars();
+    for col in start..end {
+        snapshot.cells[base + col] = if col == start {
+            cap_cell(CAP_LEFT, attrs.background)
+        } else if col + 1 == end {
+            cap_cell(CAP_RIGHT, attrs.background)
+        } else {
+            Cell::new(body_chars.next().unwrap_or(' '), attrs)
+        };
     }
 }
 
@@ -235,6 +240,7 @@ pub(in crate::native) fn buttons_overlay_signature(
         b.len.hash(&mut hasher);
         b.code.hash(&mut hasher);
         (b.icon as u8).hash(&mut hasher);
+        b.point.hash(&mut hasher);
         // ButtonState is a two-variant enum; fold it as a discriminant bit.
         matches!(b.state, ButtonState::Invalidated).hash(&mut hasher);
     }
@@ -265,6 +271,16 @@ mod tests {
             code: 42,
             icon: ButtonIcon::Run,
             state,
+            point: false,
+        }
+    }
+
+    /// A Tier 1 point button whose chip rect core resolved to
+    /// `[start_col, start_col + len)` (see `point_chip_rect`).
+    fn point_btn(row: usize, start_col: usize, len: usize, state: ButtonState) -> SnapshotButton {
+        SnapshotButton {
+            point: true,
+            ..btn(row, start_col, len, state)
         }
     }
 
@@ -403,33 +419,84 @@ mod tests {
     }
 
     #[test]
-    fn point_button_draws_a_capped_chip_past_content_end() {
-        // "abc" then a point button anchored at col 3 (the cursor). The chip
-        // sits one gap column past the content: gap at 3, then ▐▶ 42▌.
+    fn point_chip_paints_a_bounded_padded_pill_into_its_rect() {
+        // "abc", chip rect resolved at cols 4..12 (code 42: caps + padded
+        // "▶ 42" body). The pill: ▐, pad, ▶, space, 4, 2, pad, ▌.
         let mut snap = snapshot_with_text(20, 3, "abc");
-        paint_button_cells(&mut snap, &[btn(0, 3, 0, ButtonState::Live)], None);
-        // "abc" is preserved.
+        paint_button_cells(&mut snap, &[point_btn(0, 4, 8, ButtonState::Live)], None);
+        // "abc" and the gap column are untouched.
         assert_eq!(snap.cells[0].ch, 'a');
         assert_eq!(snap.cells[1].ch, 'b');
         assert_eq!(snap.cells[2].ch, 'c');
-        // Gap column untouched, then the capped chip body.
-        assert_eq!(snap.cells[3].ch, ' ', "one deliberate gap column");
+        assert_eq!(snap.cells[3].ch, ' ', "gap column stays blank");
+        assert_eq!(snap.cells[3].attrs, Attrs::default());
+        // The capped, padded body.
         assert_eq!(snap.cells[4].ch, CAP_LEFT);
-        assert_eq!(snap.cells[5].ch, icon_glyph(ButtonIcon::Run));
-        assert_eq!(snap.cells[6].ch, ' ');
-        assert_eq!(snap.cells[7].ch, '4');
-        assert_eq!(snap.cells[8].ch, '2');
-        assert_eq!(snap.cells[9].ch, CAP_RIGHT);
+        assert_eq!(snap.cells[5].ch, ' ', "pad between cap and icon");
+        assert_eq!(snap.cells[6].ch, icon_glyph(ButtonIcon::Run));
+        assert_eq!(snap.cells[7].ch, ' ');
+        assert_eq!(snap.cells[8].ch, '4');
+        assert_eq!(snap.cells[9].ch, '2');
+        assert_eq!(snap.cells[10].ch, ' ', "pad between digits and cap");
+        assert_eq!(snap.cells[11].ch, CAP_RIGHT);
         let live = button_chip_attrs(ChipVisual::Live);
-        assert_eq!(snap.cells[5].attrs.background, live.background);
+        for col in 5..=10 {
+            assert_eq!(
+                snap.cells[col].attrs.background, live.background,
+                "body cell {col} carries the fill"
+            );
+        }
         assert_eq!(snap.cells[4].attrs.foreground, live.background);
+        assert_eq!(snap.cells[4].attrs.background, Color::Default);
+        assert_eq!(snap.cells[11].attrs.foreground, live.background);
+    }
+
+    #[test]
+    fn a_truncated_point_chip_still_closes_with_its_right_cap() {
+        // Core clamped the rect at the row edge (full width 8, room for 5):
+        // the pill must end in a right cap, not trail off ragged.
+        let mut snap = snapshot_with_text(9, 2, "abc");
+        paint_button_cells(&mut snap, &[point_btn(0, 4, 5, ButtonState::Live)], None);
+        assert_eq!(snap.cells[4].ch, CAP_LEFT);
+        assert_eq!(snap.cells[5].ch, ' ');
+        assert_eq!(snap.cells[6].ch, icon_glyph(ButtonIcon::Run));
+        assert_eq!(snap.cells[7].ch, ' ');
+        assert_eq!(snap.cells[8].ch, CAP_RIGHT, "truncated pill still bounded");
+    }
+
+    #[test]
+    fn an_invalidated_point_chip_paints_the_disabled_face() {
+        let mut snap = snapshot_with_text(20, 3, "abc");
+        paint_button_cells(
+            &mut snap,
+            &[point_btn(0, 4, 8, ButtonState::Invalidated)],
+            None,
+        );
+        let dead = button_chip_attrs(ChipVisual::Invalidated);
+        assert_eq!(snap.cells[6].attrs.background, dead.background);
+        assert!(snap.cells[6].attrs.dim());
+        assert_eq!(snap.cells[4].attrs.foreground, dead.background);
+    }
+
+    #[test]
+    fn a_hovered_point_chip_paints_raised() {
+        // The hover key is the chip rect's start (what button_at reports).
+        let mut snap = snapshot_with_text(20, 3, "abc");
+        paint_button_cells(
+            &mut snap,
+            &[point_btn(0, 4, 8, ButtonState::Live)],
+            Some((0, 4)),
+        );
+        let hover = button_chip_attrs(ChipVisual::Hovered);
+        assert_eq!(snap.cells[6].attrs.background, hover.background);
+        assert_eq!(snap.cells[4].attrs.foreground, hover.background);
     }
 
     #[test]
     fn point_chip_clamps_at_the_row_edge_without_panicking() {
-        // A narrow row: the chip is truncated at the right edge, never OOB.
+        // A degenerate rect hanging past the grid: truncated, never OOB.
         let mut snap = snapshot_with_text(4, 2, "abc");
-        paint_button_cells(&mut snap, &[btn(0, 3, 0, ButtonState::Live)], None);
+        paint_button_cells(&mut snap, &[point_btn(0, 3, 8, ButtonState::Live)], None);
         // No panic; the row still has exactly `columns` cells.
         assert_eq!(snap.cells.len(), 4 * 2);
     }

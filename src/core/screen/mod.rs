@@ -12,7 +12,8 @@ use crate::parser::{OdyParser, Params, VtDispatch};
 
 use super::button::{
     ButtonHit, ButtonIcon, ButtonScope, ButtonSignal, ButtonSpan, ButtonState, ButtonTable,
-    MAX_BUTTON_SPANS_PER_LINE, parse_button_osc_133, parse_button_osc_1337,
+    MAX_BUTTON_SPANS_PER_LINE, line_content_end, parse_button_osc_133, parse_button_osc_1337,
+    point_chip_rect,
 };
 use super::graphics_routing::{self, DcsCapture, GraphicsStats};
 use super::hyperlink::{Hyperlink, HyperlinkTable};
@@ -113,11 +114,13 @@ impl VisibleRow {
 pub struct SnapshotButton {
     /// Viewport row, `0` at the top of the visible grid.
     pub row: usize,
-    /// Row-local start column: the first label cell, or the anchor column for a
-    /// Tier 1 point button.
+    /// Row-local start column: the first label cell, or — for a Tier 1 point
+    /// button — the first cell of the resolved chip rect
+    /// ([`super::button::point_chip_rect`]).
     pub start_col: usize,
-    /// Label-run length in cells. `0` marks a Tier 1 point button, which has no
-    /// label run and renders as an overlay chip anchored at `start_col`.
+    /// Rect length in cells: the label-run length, or the resolved chip-rect
+    /// width for a Tier 1 point button. Never `0` — a point chip with no room
+    /// on its row is not emitted at all.
     pub len: usize,
     /// The terminal-composed report code this button carries.
     pub code: u32,
@@ -126,6 +129,10 @@ pub struct SnapshotButton {
     /// Live or invalidated: an invalidated button keeps painting (grayed) while
     /// visible lines still reference it, but no longer activates.
     pub state: ButtonState,
+    /// `true` for a Tier 1 point button: `start_col`/`len` describe the
+    /// resolved chip rect and the render layer draws the `icon code` pill
+    /// into it. `false` for a label run, which re-styles its own label cells.
+    pub point: bool,
 }
 
 impl Line {
@@ -1308,18 +1315,36 @@ impl Screen {
     /// live entries onto `out` at viewport `row`. A span whose entry has been
     /// removed is skipped (defensive; canonical storage and the table stay in
     /// refcount lockstep, so this should not arise in practice).
+    ///
+    /// A Tier 1 point span (`len == 0`) is resolved to its chip rect here —
+    /// the same [`point_chip_rect`] the pointer hit-test uses — so what the
+    /// render layer paints and what [`Self::button_at`] resolves are the same
+    /// cells by construction. A point chip with no room on its row is dropped.
     fn collect_row_buttons(&self, row: usize, line: &Line, out: &mut Vec<SnapshotButton>) {
+        let mut content_end: Option<usize> = None;
         for span in &line.button_spans {
             let Some(entry) = self.buttons.get(span.id) else {
                 continue;
             };
+            let (start_col, len, point) = if span.len > 0 {
+                (span.start_col, span.len, false)
+            } else {
+                let end = *content_end.get_or_insert_with(|| line_content_end(&line.cells));
+                let Some((start, len)) =
+                    point_chip_rect(end, span.start_col, entry.code, self.dimensions.columns)
+                else {
+                    continue;
+                };
+                (start, len, true)
+            };
             out.push(SnapshotButton {
                 row,
-                start_col: span.start_col,
-                len: span.len,
+                start_col,
+                len,
                 code: entry.code,
                 icon: entry.icon,
                 state: entry.state,
+                point,
             });
         }
     }
@@ -1607,8 +1632,10 @@ impl Screen {
     /// primary-screen spans must not be clickable through alt content).
     ///
     /// Hit box: a labeled span covers `[start_col, start_col + len)`; a Tier 1
-    /// point anchor (`len == 0`) covers the single anchor cell until the
-    /// overlay chip publishes a richer rect. Pure; never panics.
+    /// point button covers its resolved chip rect ([`point_chip_rect`], the
+    /// same geometry the render layer paints), so the click target is exactly
+    /// the pill the user sees — a chip with no room on its row is not
+    /// clickable at all. Pure; never panics.
     pub fn button_at(&self, offset_rows: usize, row: usize, column: usize) -> Option<ButtonHit> {
         if !self.buttons_enabled || self.buttons.is_empty() || self.primary_screen.is_some() {
             return None;
@@ -1627,20 +1654,33 @@ impl Screen {
         } else {
             self.rows.get(row_index - scrollback_len)?
         };
-        let span = line.button_spans.iter().find(|span| {
-            let end = span.start_col + span.len.max(1);
-            column >= span.start_col && column < end
-        })?;
-        let entry = self.buttons.get(span.id)?;
-        Some(ButtonHit {
-            id: span.id,
-            code: entry.code,
-            scope: entry.scope,
-            state: entry.state,
-            row,
-            start_col: span.start_col,
-            len: span.len,
-        })
+        let mut content_end: Option<usize> = None;
+        for span in &line.button_spans {
+            let Some(entry) = self.buttons.get(span.id) else {
+                continue;
+            };
+            let (start_col, len) = if span.len > 0 {
+                (span.start_col, span.len)
+            } else {
+                let end = *content_end.get_or_insert_with(|| line_content_end(&line.cells));
+                match point_chip_rect(end, span.start_col, entry.code, self.dimensions.columns) {
+                    Some(rect) => rect,
+                    None => continue,
+                }
+            };
+            if column >= start_col && column < start_col + len {
+                return Some(ButtonHit {
+                    id: span.id,
+                    code: entry.code,
+                    scope: entry.scope,
+                    state: entry.state,
+                    row,
+                    start_col,
+                    len,
+                });
+            }
+        }
+        None
     }
 
     /// Whether a cooperating shell currently reports an active prompt (an OSC

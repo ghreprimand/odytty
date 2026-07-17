@@ -39,6 +39,8 @@
 use std::collections::HashMap;
 use std::num::NonZeroU32;
 
+use super::types::{Cell, Color};
+
 /// Hard cap on button spans carried by a single line. The definition paths
 /// stop accepting new spans on a line past this, so a hostile stream cannot
 /// grow a line's sidecar without bound.
@@ -179,11 +181,73 @@ pub struct ButtonHit {
     pub state: ButtonState,
     /// Viewport-relative row the hit was resolved on.
     pub row: usize,
-    /// The hit span's row-local start column.
+    /// The hit rect's row-local start column. For a labeled span this is the
+    /// first label cell; for a Tier 1 point button it is the resolved chip
+    /// rect's first cell (see [`point_chip_rect`]), so the hit box is exactly
+    /// the pill the user sees.
     pub start_col: usize,
-    /// The hit span's length. `0` is a Tier 1 point anchor (one-cell hit box
-    /// at `start_col` until the overlay chip publishes a richer rect).
+    /// The hit rect's length in cells. Never `0`: a Tier 1 point button
+    /// resolves to its painted chip rect, and an off-screen chip resolves to
+    /// no hit at all.
     pub len: usize,
+}
+
+/// Whether a cell is blank enough for a point chip to claim: a plain space on
+/// the default background, no hyperlink, and not the spacer of a wide glyph.
+/// Anything else — glyphs, colored runs, linked cells, wide-glyph tails — is
+/// program output the chip must never overdraw.
+fn cell_is_chip_blank(cell: &Cell) -> bool {
+    cell.ch == ' '
+        && !cell.wide_continuation
+        && cell.attrs.background == Color::Default
+        && cell.attrs.hyperlink.is_none()
+}
+
+/// One past the last content cell of a row: the first column a point chip may
+/// occupy. Content is anything [`cell_is_chip_blank`] refuses, so a colored
+/// run of trailing spaces counts as content and is never painted over.
+pub fn line_content_end(cells: &[Cell]) -> usize {
+    cells
+        .iter()
+        .rposition(|cell| !cell_is_chip_blank(cell))
+        .map_or(0, |index| index + 1)
+}
+
+/// Cell width of a Tier 1 point chip: two half-block pill caps around a
+/// padded `icon code` body (`cap, pad, icon, space, digits…, pad, cap`). The
+/// interior padding keeps the icon glyph and the code digits off the caps so
+/// the pill reads bounded even with ambiguous-width icon glyphs.
+pub fn point_chip_len(code: u32) -> usize {
+    let digits = code.checked_ilog10().map_or(1, |log| log as usize + 1);
+    6 + digits
+}
+
+/// Resolve where a Tier 1 point button's chip sits on its row: one blank gap
+/// column past the row's content end (never left of the definition anchor
+/// `anchor_col`), truncated at the right edge. Returns the row-local
+/// `(start_col, len)` rect, or `None` when the row has no room — a chip that
+/// cannot be painted is also not clickable.
+///
+/// This is the single source of chip geometry: the render layer paints the
+/// pill into exactly this rect and the pointer hit-test
+/// (`Screen::button_at`) resolves clicks against it, so the click target and
+/// the visible chip cannot drift apart.
+pub fn point_chip_rect(
+    content_end: usize,
+    anchor_col: usize,
+    code: u32,
+    columns: usize,
+) -> Option<(usize, usize)> {
+    if columns == 0 {
+        return None;
+    }
+    let gap = usize::from(content_end > 0);
+    let start = (content_end + gap).max(anchor_col);
+    if start >= columns {
+        return None;
+    }
+    let len = point_chip_len(code).min(columns - start);
+    Some((start, len))
 }
 
 /// Compose the click report envelope: `CSI ? 1337 ; code ~`.
@@ -665,6 +729,62 @@ impl SpanReprojector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- point-chip geometry (shared by render + hit-test) ---
+
+    fn plain(text: &str) -> Vec<Cell> {
+        use super::super::types::Attrs;
+        text.chars()
+            .map(|ch| Cell::new(ch, Attrs::default()))
+            .collect()
+    }
+
+    #[test]
+    fn chip_len_counts_caps_padding_icon_and_digits() {
+        // cap + pad + icon + space + digits + pad + cap.
+        assert_eq!(point_chip_len(0), 7, "code 0 is one digit");
+        assert_eq!(point_chip_len(5), 7);
+        assert_eq!(point_chip_len(42), 8);
+        assert_eq!(point_chip_len(u32::MAX), 16, "u32::MAX is ten digits");
+    }
+
+    #[test]
+    fn chip_rect_sits_one_gap_column_past_content() {
+        assert_eq!(point_chip_rect(3, 0, 5, 80), Some((4, 7)));
+        // A blank row needs no gap; the rect honors the anchor column.
+        assert_eq!(point_chip_rect(0, 0, 5, 80), Some((0, 7)));
+        assert_eq!(point_chip_rect(0, 6, 5, 80), Some((6, 7)));
+        // The anchor never pulls the chip left of the content end.
+        assert_eq!(point_chip_rect(10, 2, 5, 80), Some((11, 7)));
+    }
+
+    #[test]
+    fn chip_rect_truncates_at_the_row_edge_and_refuses_no_room() {
+        // Room for only 3 of the 7 cells: truncated, still painted.
+        assert_eq!(point_chip_rect(3, 0, 5, 7), Some((4, 3)));
+        // No cell to start on: no rect, so no paint and no click.
+        assert_eq!(point_chip_rect(7, 0, 5, 7), None);
+        assert_eq!(point_chip_rect(0, 9, 5, 7), None);
+        assert_eq!(point_chip_rect(0, 0, 5, 0), None, "zero-width viewport");
+    }
+
+    #[test]
+    fn content_end_sees_glyphs_colored_runs_and_links_as_content() {
+        assert_eq!(line_content_end(&plain("ab ")), 2);
+        assert_eq!(line_content_end(&plain("   ")), 0);
+        assert_eq!(line_content_end(&[]), 0);
+        // A trailing run of colored-background spaces is program output (a
+        // bar, a status segment) — the chip must not claim it.
+        let mut colored = plain("ab   ");
+        colored[4].attrs.background = Color::Indexed(1);
+        assert_eq!(line_content_end(&colored), 5);
+        // A hyperlinked blank cell is content too.
+        let mut linked = plain("ab   ");
+        linked[3].attrs.hyperlink = Some(super::super::types::LinkId::new(
+            NonZeroU32::new(1).expect("nonzero"),
+        ));
+        assert_eq!(line_content_end(&linked), 4);
+    }
 
     // --- click report envelope (B3) ---
 

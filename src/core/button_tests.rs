@@ -499,7 +499,7 @@ fn visible_spans_are_empty_when_the_gate_is_off() {
 }
 
 #[test]
-fn visible_spans_expose_a_tier1_point_button() {
+fn visible_spans_expose_a_tier1_point_button_as_its_chip_rect() {
     let mut term = enabled_terminal(20, 5);
     feed(&mut term, b"ab");
     feed_osc(&mut term, "1337;Button=type=custom;code=42;icon=star.fill");
@@ -512,13 +512,32 @@ fn visible_spans_expose_a_tier1_point_button() {
         code,
         icon,
         state,
+        point,
     } = spans[0];
     assert_eq!(row, 0);
-    assert_eq!(start_col, 2, "anchored at the cursor column");
-    assert_eq!(len, 0, "point button: no label run");
+    // Content "ab" ends at col 2; one gap column, then the padded pill
+    // (cap, pad, icon, space, "42", pad, cap) = 8 cells starting at col 3.
+    assert_eq!(start_col, 3, "chip rect starts one gap past content end");
+    assert_eq!(len, 8, "resolved chip rect, not the zero-length anchor");
     assert_eq!(code, 42);
     assert_eq!(icon, ButtonIcon::Star);
     assert_eq!(state, ButtonState::Live);
+    assert!(point, "flagged as a point chip for the render layer");
+}
+
+#[test]
+fn a_point_chip_with_no_room_on_its_row_is_not_exposed() {
+    // The cursor parks at the last column: content fills the row, so the
+    // resolved rect has no cell to start on and the chip is dropped rather
+    // than painted over content or off-grid.
+    let mut term = enabled_terminal(6, 3);
+    feed(&mut term, b"abcdef");
+    feed_osc(&mut term, "1337;Button=type=custom;code=42;icon=star");
+    assert_eq!(term.button_entry_count(), 1, "the definition itself lands");
+    assert!(
+        term.screen().visible_button_spans(0).is_empty(),
+        "no room: no chip rect to expose"
+    );
 }
 
 #[test]
@@ -558,7 +577,10 @@ fn visible_spans_track_the_row_a_button_sits_on() {
     let spans = term.screen().visible_button_spans(0);
     assert_eq!(spans.len(), 1);
     assert_eq!(spans[0].row, 1, "button anchored on the second visible row");
-    assert_eq!(spans[0].start_col, 2);
+    assert_eq!(
+        spans[0].start_col, 3,
+        "chip rect one gap column past the row's \"xy\" content"
+    );
 }
 
 #[test]
@@ -624,14 +646,36 @@ fn button_at_resolves_a_labeled_span_on_the_live_grid() {
 }
 
 #[test]
-fn button_at_gives_a_point_anchor_a_one_cell_hit_box() {
-    let mut term = enabled_terminal(20, 5);
-    feed(&mut term, b"ab");
-    feed_osc(&mut term, "1337;Button=type=custom;code=42;icon=star");
-    let hit = term.button_at(0, 0, 2).expect("anchor cell hits");
-    assert_eq!(hit.code, 42);
-    assert_eq!(hit.len, 0, "point anchor");
-    assert!(term.button_at(0, 0, 3).is_none(), "one cell only");
+fn button_at_aligns_the_point_hit_box_to_the_chip_rect() {
+    // The demo shape that exposed the drift: the definition lands at the
+    // cursor BEFORE the line text prints, so the anchor cell (col 0) and the
+    // painted chip (past content end) are far apart. The hit box must be the
+    // chip the user sees, not the invisible anchor.
+    let mut term = enabled_terminal(30, 5);
+    feed_osc(&mut term, "1337;Button=type=custom;code=5;icon=star");
+    feed(&mut term, b"  point button line");
+    // Content ends at col 19; gap col 19... content "  point button line" is
+    // 19 cells (cols 0..19), so the chip rect is cols 20..27 (len 6 + 1 digit).
+    for col in 20..27 {
+        let hit = term
+            .button_at(0, 0, col)
+            .unwrap_or_else(|| panic!("chip cell {col} hits"));
+        assert_eq!(hit.code, 5);
+        assert_eq!(
+            (hit.row, hit.start_col, hit.len),
+            (0, 20, 7),
+            "the hit carries the resolved chip rect"
+        );
+    }
+    assert!(
+        term.button_at(0, 0, 0).is_none(),
+        "the raw anchor cell no longer hits: it is line text, not chip"
+    );
+    assert!(term.button_at(0, 0, 19).is_none(), "gap column misses");
+    assert!(
+        term.button_at(0, 0, 27).is_none(),
+        "cell past the chip misses"
+    );
 }
 
 #[test]
