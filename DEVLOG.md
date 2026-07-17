@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-17 -- Buttons: chip visual pass one — pill caps, hover state, disabled face
+
+First refinement pass on the button chip look, following eye-test feedback
+that the flat re-colored label run read as a background highlight rather than
+a designed control. The chip should read as a discrete, bounded, tactile
+object. Still feel-gated: this is a candidate look for release-build
+eye-testing, not a settled design.
+
+What changed visually:
+
+- **Pill caps.** A label-run chip now grows half-block caps (`▐` … `▌`) into
+  its neighboring cells — the cap paints in the chip fill color over the
+  cell's own background, so the chip ends in a deliberate half-cell terminator
+  instead of a hard color cliff at a cell boundary. Caps are strictly
+  opportunistic: only a genuinely blank cell (space glyph, default background,
+  no hyperlink) is claimed, so program output is never overdrawn by chrome.
+- **A designed face per state.** Live: theme blue fill, bright-white bold
+  label. Hovered: the fill brightens (palette bright blue) so the chip reads
+  raised under the pointer. Invalidated: gray fill with a dim face — reads
+  disabled, not merely faded. The chip normalizes SGR styling that would
+  fight the fill (inverse, blink) on its own cells.
+- **Chip hover is now real.** The pointer over a live button records a hovered
+  button, shows the hand cursor (same affordance as hyperlinks), and restyles
+  the chip raised; hover is part of the render signature, so hover in/out
+  repaints the frame. The probe is gated on the `buttons` setting before any
+  terminal query and never arms on an invalidated button — a dead chip must
+  not invite a click it will swallow.
+- **Tier 1 point chips look placed, not appended.** The content-end chip is
+  now a gap column followed by a capped `▐icon code▌` body, so the trailing
+  affordance reads deliberate.
+
+Indexed palette colors throughout, so every theme supplies its own chip RGB.
+Gate-off remains byte-identical: no visible buttons means the painter and the
+hover probe are both inert. The full suite, formatting, and lints are green;
+the look now goes to release-build eye-testing for iteration.
+
 ## 2026-07-17 -- Buttons: chips no longer bleed through overlay panels
 
 Fix: with an overlay panel open (settings, pickers), button chip styling was

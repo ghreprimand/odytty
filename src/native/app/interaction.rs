@@ -826,6 +826,30 @@ impl App {
         }
     }
 
+    /// Button Protocol chip hover: recompute the LIVE button under the pointer.
+    /// Drives the hand cursor and the chip's hovered visual state; a change
+    /// forces a rebuild so the hover restyle paints this frame. Gated on the
+    /// `buttons` setting BEFORE any terminal query, so with the protocol off
+    /// (the default) this is a single bool test and the hover path stays
+    /// byte-identical. Invalidated buttons never hover — a dead chip is inert
+    /// and must not invite a click it will swallow.
+    pub(super) fn update_hover_button(&mut self) {
+        let hovered = if self.settings.buttons {
+            self.pointer_cell
+                .and_then(|point| self.visible_cell_button(point))
+                .filter(|hit| hit.state == crate::core::ButtonState::Live)
+        } else {
+            None
+        };
+        if self.hovered_button != hovered {
+            self.hovered_button = hovered;
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+    }
+
     /// INTERACTIVE-PATHS (Phase 7): recompute the resolved path span under the
     /// pointer and update the hover state that drives the pointer (hand) cursor.
     ///
@@ -1768,7 +1792,8 @@ impl App {
             || self.hovered_path.is_some()
             || self.hovered_path_cells.is_some()
             || self.hovered_url.is_some()
-            || self.hovered_url_cells.is_some();
+            || self.hovered_url_cells.is_some()
+            || self.hovered_button.is_some();
         if !had_span {
             return;
         }
@@ -1777,6 +1802,7 @@ impl App {
         self.hovered_path_cells = None;
         self.hovered_url = None;
         self.hovered_url_cells = None;
+        self.hovered_button = None;
         self.needs_rebuild = true;
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
@@ -2047,6 +2073,10 @@ impl App {
             self.clear_hovered_link_spans();
         } else {
             self.update_hover_hyperlink();
+            // Button Protocol chip hover: gated on the `buttons` setting inside
+            // `update_hover_button`, so with the feature off (the default) this
+            // is a single bool test and the hover path stays byte-identical.
+            self.update_hover_button();
             // INTERACTIVE-PATHS (Phase 7): recompute the hovered path span. Gated
             // on the `interactive_paths` setting inside `update_hover_path`, so
             // with the feature off (the default) it returns before scanning and
@@ -2067,6 +2097,7 @@ impl App {
         let grid_icon = if self.hovered_hyperlink.is_some()
             || self.hovered_path.is_some()
             || self.hovered_url.is_some()
+            || self.hovered_button.is_some()
         {
             CursorIcon::Pointer
         } else if self.mouse_reporting_enabled() {

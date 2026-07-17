@@ -472,6 +472,13 @@ pub(super) struct Session {
     /// exactly those cells. Kept in lockstep with `hovered_url` (set/cleared
     /// together), so it is permanently `None` while the feature is off.
     pub(super) hovered_url_cells: Option<super::app::click_hint::HoverPathCells>,
+    /// Button Protocol chip hover: the LIVE button currently under the pointer,
+    /// or `None`. Drives the pointer (hand) cursor and the chip's hovered
+    /// visual state. Recomputed per pointer move, gated on the `buttons`
+    /// setting before any terminal query, so the default hover path is
+    /// byte-identical. Never holds an invalidated button (a dead chip is inert
+    /// and must not invite a click).
+    pub(super) hovered_button: Option<crate::core::ButtonHit>,
     /// Test seam (INTERACTIVE-PATHS): synthetic stat-gate so headless hover
     /// tests resolve path spans against an injected fs map, never the real
     /// filesystem. Production builds compile this out and use `FsResolveProbe`.
@@ -722,6 +729,7 @@ impl Session {
             hovered_path_cells: None,
             hovered_url: None,
             hovered_url_cells: None,
+            hovered_button: None,
             #[cfg(test)]
             test_path_probe: super::app::interactive_paths::MapProbe::default(),
             pointer_drag: PointerDrag::None,

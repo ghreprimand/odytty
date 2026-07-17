@@ -234,7 +234,7 @@ fn an_open_overlay_panel_fully_occludes_button_chips() {
     // Production order: the chip paints at the content layer, then the panel
     // composites over it.
     let mut with_chip = base.clone();
-    crate::native::app::button_chip::paint_button_cells(&mut with_chip, &visible);
+    crate::native::app::button_chip::paint_button_cells(&mut with_chip, &visible, None);
     assert_ne!(with_chip, base, "fixture: the chip must actually paint");
     app.paint_overlay_cells(&mut with_chip, &ctx);
 
@@ -262,6 +262,36 @@ fn an_open_overlay_panel_fully_occludes_button_chips() {
             "no chip decoration may bleed through the open panel (cell {i})"
         );
     }
+}
+
+/// Chip hover: the pointer over a live button span records the hovered button
+/// (driving the hand cursor and the raised chip restyle); moving off clears
+/// it. Settings-seeded, no manual gate calls.
+#[test]
+fn hovering_a_live_button_sets_and_clears_the_hover_state() {
+    let settings = crate::settings::Settings {
+        buttons: true,
+        ..crate::settings::Settings::default()
+    };
+    let (mut app, _terminal, _bytes) = build_app_seeded(T2_BUTTON, settings);
+    move_to_cell(&mut app, 0, 3); // inside the "Run!" span
+    let hovered = app.hovered_button.expect("a live span under the pointer");
+    assert_eq!((hovered.row, hovered.start_col), (0, 2));
+    move_to_cell(&mut app, 3, 30); // empty cell far away
+    assert!(app.hovered_button.is_none(), "hover clears off the span");
+}
+
+/// Default settings: the hover probe is gated off before any terminal query,
+/// so the hover state never arms even over would-be button text.
+#[test]
+fn button_hover_stays_off_at_default_settings() {
+    let (mut app, _terminal, _bytes) =
+        build_app_seeded(T2_BUTTON, crate::settings::Settings::default());
+    move_to_cell(&mut app, 0, 3);
+    assert!(
+        app.hovered_button.is_none(),
+        "the gate-off hover path must stay inert"
+    );
 }
 
 #[test]

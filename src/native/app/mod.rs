@@ -6008,7 +6008,15 @@ impl ApplicationHandler<UserEvent> for App {
                         // (chips once painted last and bled through overlays).
                         // The point-chip content-end scan also depends on this
                         // spot: it must read terminal content, not panel cells.
-                        button_chip::paint_button_cells(&mut snapshot, &visible_buttons);
+                        let hovered_button_key = self
+                            .hovered_button
+                            .as_ref()
+                            .map(|hit| (hit.row, hit.start_col));
+                        button_chip::paint_button_cells(
+                            &mut snapshot,
+                            &visible_buttons,
+                            hovered_button_key,
+                        );
                         self.paint_overlay_cells(&mut snapshot, &ctx);
                         self.paint_hyperlink_cells(&mut snapshot, &ctx);
                         self.paint_hints_cells(&mut snapshot, &ctx);
@@ -6133,6 +6141,7 @@ impl ApplicationHandler<UserEvent> for App {
                                     // / invalidate / scroll re-keys the frame.
                                     buttons: button_chip::buttons_overlay_signature(
                                         &visible_buttons,
+                                        hovered_button_key,
                                     ),
                                 },
                                 // F4-P3: fold the revealed rail overlay's
