@@ -795,9 +795,9 @@ pub const MAX_TAB_PANEL_STRENGTH: f32 = 1.0;
 
 /// Tab-panel seam line (`ODYTTY_TAB_SEAM`, F4-P1): when on, one hairline
 /// separates the panel from the content on both axes, derived from the inactive
-/// TEXT role at α0.45 and luma-capped so it can never bloom. On by default; off
-/// removes the line only (the panel stays). Both axes, hot-reloadable.
-pub const DEFAULT_TAB_SEAM: bool = true;
+/// TEXT role at α0.45 and luma-capped so it can never bloom. Off by default; on
+/// adds the line only (the panel stays regardless). Both axes, hot-reloadable.
+pub const DEFAULT_TAB_SEAM: bool = false;
 
 /// Rail auto-hide (`ODYTTY_TAB_RAIL_AUTOHIDE`, F4-P1/P3): the reveal/hide
 /// behavior is provided by rail autohide. Off by default,

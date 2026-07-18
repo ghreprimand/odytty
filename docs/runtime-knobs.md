@@ -94,7 +94,7 @@ environment variable was not set at startup.
 | `workspace_rail_gap` | `ODYTTY_WORKSPACE_RAIL_GAP` | `0..=3` rows | `1` |
 | `workspace_rail_slot_rows` | `ODYTTY_WORKSPACE_RAIL_SLOT_ROWS` | `1`, `2` rows | `2` |
 | `tab_panel_strength` | `ODYTTY_TAB_PANEL_STRENGTH` | Float, `0.0..=1.0` (`0` = panel off) | `1.0` |
-| `tab_seam` | `ODYTTY_TAB_SEAM` | `on`, `off` | `on` |
+| `tab_seam` | `ODYTTY_TAB_SEAM` | `on`, `off` | `off` |
 | `workspace_rail_autohide` | `ODYTTY_WORKSPACE_RAIL_AUTOHIDE` | `on`, `off` | `off` |
 | `workspace_rail_reveal_px` | `ODYTTY_WORKSPACE_RAIL_REVEAL_PX` | `1..=32` logical px | `16` |
 | `background_treatment` | `ODYTTY_BACKGROUND_TREATMENT` | `off`/`color`, `gradient`, `vignette`, `image` | `image` |

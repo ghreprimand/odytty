@@ -97,7 +97,7 @@ workspace_rail_slot_rows = 2
 # higher values mute the wallpaper more. The seam is the thin hairline between
 # the panel and the terminal content.
 tab_panel_strength = 1.0
-tab_seam = on
+tab_seam = off
 
 # Rail auto-hide: hide the vertical rail until the pointer reaches its window
 # edge, then reveal it as a floating overlay (content never reflows on reveal).

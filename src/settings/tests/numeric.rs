@@ -756,7 +756,7 @@ fn rail_width_cols_resolves_auto_and_manual() {
 #[test]
 fn tab_seam_and_autohide_bools_default_and_parse() {
     let (d, _) = settings_from([]);
-    assert!(d.tab_seam, "seam on by default");
+    assert!(!d.tab_seam, "seam off by default");
     assert!(!d.tab_rail_autohide, "autohide off by default");
     let (s, _) = settings_from([(TAB_SEAM_ENV, "off"), (TAB_RAIL_AUTOHIDE_ENV, "on")]);
     assert!(!s.tab_seam);

@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Tab panel seam defaults off
+
+The hairline seam between the tab panel and the terminal content now defaults
+to off. With the current band treatment and panel wash, the extra separator
+line reads as visual noise rather than a helpful boundary; the panel already
+carries the edge on its own. The setting itself is unchanged and remains fully
+available (`tab_seam = on`, `ODYTTY_TAB_SEAM`, live-reloadable) for anyone who
+prefers the explicit line. Byte-identical rendering when the seam is left at
+its new default; only the out-of-the-box value moved.
+
+---
+
 ## 2026-07-18 -- Windows open-dispatch test aligned with the explorer opener
 
 With the Windows clippy failure fixed, the windows-latest test step ran for
