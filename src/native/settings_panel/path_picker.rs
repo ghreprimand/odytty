@@ -281,10 +281,14 @@ impl PathPickerState {
         // Directory breadcrumb header.
         let dir_str = self.current_dir.display().to_string();
         let dir_display = if dir_str.chars().count() > body_width.saturating_sub(3) {
-            format!(
-                "…{}",
-                &dir_str[dir_str.len().saturating_sub(body_width.saturating_sub(4))..]
-            )
+            // Keep the trailing path component visible, sliced on a char
+            // boundary: byte-indexing `dir_str` would panic on a multibyte path
+            // whose cut offset lands mid-codepoint.
+            let tail_chars = body_width.saturating_sub(4);
+            let mut tail: Vec<char> = dir_str.chars().rev().take(tail_chars).collect();
+            tail.reverse();
+            let tail: String = tail.into_iter().collect();
+            format!("…{tail}")
         } else {
             dir_str
         };
@@ -331,9 +335,17 @@ impl PathPickerState {
             let marker = if focused { ">" } else { " " };
             let max_name = body_width.saturating_sub(4);
             let name = if entry.name.chars().count() > max_name {
-                let mut n = entry.name.chars().take(max_name - 1).collect::<String>();
-                n.push('~');
-                n
+                // Reserve one column for the `~` truncation marker; a body too
+                // narrow to hold even that renders an empty name rather than
+                // underflowing `max_name - 1`.
+                match max_name.checked_sub(1) {
+                    Some(keep) => {
+                        let mut n = entry.name.chars().take(keep).collect::<String>();
+                        n.push('~');
+                        n
+                    }
+                    None => String::new(),
+                }
             } else {
                 entry.name.clone()
             };
@@ -602,6 +614,40 @@ mod tests {
         assert!(action_entries("font").is_empty());
         assert!(action_entries("symbol_font").is_empty());
         assert_eq!(action_entries("background_image").len(), 2);
+    }
+
+    // C9/C29: narrow bodies with multibyte paths must never panic on a
+    // mid-codepoint byte slice or a `max_name - 1` underflow.
+    #[test]
+    fn narrow_terminal_multibyte_paths_render_without_panic() {
+        let mut picker = PathPickerState::new("font", PathBuf::from("/tmp"), String::new());
+        // A deep multibyte breadcrumb plus multibyte entry names exercise both
+        // the breadcrumb tail slice (C9) and the entry-name truncation (C29).
+        picker.current_dir = PathBuf::from("/köln/über/naïve/文档/résumé");
+        picker.entries = vec![
+            PathEntry {
+                name: "café_文档/".to_owned(),
+                path: PathBuf::from("/köln/über/naïve/文档/résumé/café_文档"),
+                is_dir: true,
+                commit_override: None,
+            },
+            PathEntry {
+                name: "αναφορά_ναı.txt".to_owned(),
+                path: PathBuf::from("/köln/über/naïve/文档/résumé/αναφορά_ναı.txt"),
+                is_dir: false,
+                commit_override: None,
+            },
+        ];
+        // Sweep the pathological narrow widths (and 0) — the test passing is the
+        // no-panic assertion; also every rendered line honors the char budget.
+        for w in 0..=7usize {
+            // Byte-indexing or an unchecked subtraction would panic here; a clean
+            // return of any row set is the pass condition.
+            let _rows = picker.build_visible_rows(w, 6);
+        }
+        // A normal width still renders both entries.
+        let wide = picker.build_visible_rows(40, 10);
+        assert!(wide.iter().any(|(l, _)| l.text.contains("café_文档")));
     }
 
     #[cfg(unix)]

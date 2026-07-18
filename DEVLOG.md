@@ -7,6 +7,17 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Path picker survives narrow terminals and multibyte paths
+
+The settings path picker truncated its breadcrumb by byte offset, which would
+panic on a multibyte path whose cut landed mid-codepoint, and computed the
+entry-name budget with an unchecked subtraction that underflowed when the body
+was four columns or narrower. Both truncations are now char-boundary aware and
+saturating: the breadcrumb keeps its trailing component sliced on a boundary,
+and an over-narrow body renders an empty name rather than panicking. A test
+sweeps the pathological 0-to-7 column widths with multibyte directory and entry
+names.
+
 ## 2026-07-18 -- Overlay and picker viewport hardening
 
 Several native-UI viewport fixes surfaced by the deep audit:
