@@ -31,6 +31,16 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Report a probe finding so it reaches the CI log even when the test PASSES.
+/// libtest captures the `print!`/`println!` macro output of passing tests
+/// unless `--nocapture` is given (CI does not pass it), but writes issued
+/// directly against the stderr handle bypass that capture. These probes are
+/// designed to pass with either passthrough outcome — the printed finding IS
+/// the result, so it must be visible in a green run's log.
+fn report(finding: &str) {
+    let _ = writeln!(std::io::stderr(), "{finding}");
+}
+
 /// App → terminal: a client writes the Kitty keyboard query (`CSI ? u`), an
 /// XTQMODKEYS query (`CSI ? 4 m`), and DA1 (`CSI c`) through ConPTY. If the
 /// sequences reach the terminal intact, OdyTTY's parser answers the kitty
@@ -83,16 +93,16 @@ fn conpty_keyboard_queries_app_to_terminal() {
     let replies = terminal.take_host_output();
     let kitty_query_survived = replies.windows(5).any(|w| w == b"\x1b[?0u");
     let xtqmodkeys_survived = replies.windows(7).any(|w| w == b"\x1b[>4;0m");
-    println!(
+    report(&format!(
         "PROBE-RESULT app->terminal: kitty CSI-u query passthrough = {kitty_query_survived}, \
          XTQMODKEYS passthrough = {xtqmodkeys_survived}"
-    );
+    ));
     if !(kitty_query_survived && xtqmodkeys_survived) {
-        println!(
+        report(&format!(
             "PROBE-RESULT raw ConPTY stream ({} bytes) hex = {}",
             bytes.len(),
             hex(&bytes)
-        );
+        ));
     }
 }
 
@@ -162,8 +172,8 @@ fn conpty_csi_u_terminal_to_app() {
     // The finding: identity would be 1b5b31333b3575 (ESC [ 1 3 ; 5 u) plus the
     // 0d terminator. Anything else is conhost's INPUT_RECORD translation.
     let identity = observed.starts_with("1b5b31333b3575");
-    println!(
+    report(&format!(
         "PROBE-RESULT terminal->app: CSI-u input survives ConPTY = {identity}, \
          observed key stream hex = <{observed}>"
-    );
+    ));
 }

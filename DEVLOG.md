@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Keyboard probe findings surface in green CI runs
+
+The std-handle fix turned the `windows-latest` leg green: all four ConPTY
+probes pass, including the button passthrough that had failed since it
+landed. But the keyboard probes are designed to pass with either passthrough
+outcome — their printed `PROBE-RESULT` lines are the actual finding — and
+libtest captures a passing test's `println!` output unless `--nocapture` is
+given, which CI does not pass. The findings were therefore invisible in
+exactly the runs that matter. Probe findings now go through a direct write to
+the stderr handle, which bypasses libtest's capture (the capture hooks the
+`print!` macro machinery, not the raw stream), so a green run's log carries
+the passthrough verdicts.
+
+---
+
 ## 2026-07-18 -- Fix: ConPTY children leaked output to a redirected parent stdout
 
 Root cause found and fixed. The discrimination round returned `redir=True`
