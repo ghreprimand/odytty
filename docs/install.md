@@ -485,9 +485,9 @@ release; the Windows build opens local ConPTY-backed tabs and panes.
 The Windows build carries the full rendering, theme, effect, and inline-graphics
 stack. It opens local ConPTY-backed tabs and panes, stores persistent
 configuration under `%APPDATA%\odytty\`, discovers host fonts in
-`%WINDIR%\Fonts` and `%LOCALAPPDATA%\Microsoft\Windows\Fonts`, recognizes
-clickable drive-letter and UNC paths, opens or reveals files through `cmd` and
-Explorer, and runs SSH connections inside local pseudoconsole-backed tabs.
+`%WINDIR%\Fonts` and `%LOCALAPPDATA%\Microsoft\Windows\Fonts`, opens and reveals
+files through Explorer, and runs SSH connections inside local
+pseudoconsole-backed tabs.
 
 Detached and resumable session hosting, detached SSH, and headless
 `--interactive` mode remain Unix-only. The full Open With application list is

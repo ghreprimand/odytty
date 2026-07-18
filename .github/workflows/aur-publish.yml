@@ -57,19 +57,28 @@ jobs:
 
       - name: Derive version
         id: ver
+        # C40: route the untrusted workflow input through env: so it reaches the
+        # shell as data in a quoted "$INPUT_VERSION" rather than being spliced
+        # into the script text via ${{ ... }} (injection-safe).
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          in="${{ inputs.version }}"
+          in="$INPUT_VERSION"
           if [ -n "$in" ]; then
             version="${in#v}"
           else
             version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Expose the derived version to later run: steps as a quoted env var so
+          # they reference "$VERSION" instead of interpolating the step output
+          # expression directly into the shell.
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Stamp PKGBUILD, fill checksum, regenerate .SRCINFO, lint
         run: |
           set -euo pipefail
-          version="${{ steps.ver.outputs.version }}"
+          version="${VERSION}"
           # makepkg and updpkgsums refuse to run as root, so do all packaging
           # work as an unprivileged build user that owns the template dir.
           useradd -m builder
@@ -97,7 +106,7 @@ jobs:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          version="${{ steps.ver.outputs.version }}"
+          version="${VERSION}"
           if [ -z "${AUR_SSH_PRIVATE_KEY:-}" ]; then
             echo "AUR publish skipped: no AUR_SSH_PRIVATE_KEY configured."
             echo "Nothing to do; the PKGBUILD was stamped and linted as a validation gate."

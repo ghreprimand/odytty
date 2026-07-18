@@ -757,8 +757,13 @@ Dismiss the lightbox with `Esc` or a click outside. A click hint and the path
 menu expose Open, **Open With…**, Copy Path, Copy File, and Reveal in File
 Manager.
 
-Opening uses `xdg-open` on Linux, `open` on macOS, or `cmd /C start` on Windows
-with a scheme allowlist. OdyTTY never interpolates a path into a shell string.
+Path detection currently recognizes POSIX path shapes (`/`, `~/`, `./`, `../`).
+Windows drive-letter (`C:\`, `C:/`) and UNC (`\\server\share`) paths are not yet
+detected as hints, so Ctrl+click does not resolve them on Windows.
+
+Opening uses `xdg-open` on Linux, `open` on macOS, or `explorer` on Windows,
+each with a scheme allowlist. OdyTTY passes the target as a single argument and
+never interpolates a path into a shell command line.
 
 ### Rebind Local Actions
 

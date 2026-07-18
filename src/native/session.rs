@@ -983,12 +983,17 @@ impl Session {
             )
         {
             let (program, args) = command.into_program_args();
-            let _ = std::process::Command::new(program)
+            let mut cleanup = std::process::Command::new(program);
+            cleanup
                 .args(args)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn();
+                .stderr(std::process::Stdio::null());
+            // Fourth console-child spawn site: suppress the Windows console-window
+            // flash on tab close for a remote session that uploaded images. No-op
+            // off Windows. Mirrors the opener/ssh-probe/ssh-upload sites.
+            crate::native::app::win_spawn::apply_no_console_window(&mut cleanup);
+            let _ = cleanup.spawn();
         }
     }
 

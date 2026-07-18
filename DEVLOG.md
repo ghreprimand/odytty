@@ -7,6 +7,36 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Sibling closeout: cleanup-spawn window, private paste temp, AUR workflow, path-hint docs
+
+Final sibling sweep across the remediation, catching sites adjacent to
+already-landed fixes.
+
+The detached remote-cleanup `ssh` fired on closing a remote tab that had
+uploaded images was the fourth console-child spawn that still lacked the
+no-console-window guard; it now runs through the same helper as the opener and
+the ssh probe/upload, so closing such a tab no longer flashes a console window
+on Windows. No-op off Windows.
+
+The pasted-image local temp was written with default permissions while sitting
+briefly in the shared temp directory. On Unix it is now created with an
+exclusive `O_CREAT|O_EXCL` open at mode 0600, so a world-readable file or a
+pre-planted symlink at the target path cannot be reused for the staged image;
+on Windows the per-user temp directory is already ACL'd to the user, and the
+module documentation now states this honestly for both platforms.
+
+The AUR publish workflow still spliced its version input and a derived step
+output directly into `run:` script bodies, in the one job that holds the AUR
+signing key. Those values now flow through step or job `env:` and are read as
+quoted shell variables, closing the same injection path already fixed in the
+release and dev-build workflows.
+
+Documentation: interactive path-hint detection recognizes POSIX path shapes
+only; Windows drive-letter and UNC paths are not yet detected as clickable
+hints, and this limitation is now stated. The Windows open/reveal prose was
+also corrected to describe the current Explorer-based, single-argument opener
+rather than the retired shell-based launcher.
+
 ## 2026-07-18 -- Closeout hardening: client-accept clone ordering and eighth-ladder pixel floors
 
 Two final small fixes from re-verifying the hardening sweep.

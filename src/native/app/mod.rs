@@ -140,7 +140,10 @@ mod tab_rail;
 mod test_seams;
 mod theme_roles;
 mod watchdog_probe;
-mod win_spawn;
+// `pub(in crate::native)` so sibling modules outside `app` (e.g. `session`, whose
+// remote-cleanup ssh spawn is a fourth console-child site) can reach the
+// no-console-window helper; the module stays crate-native-internal.
+pub(in crate::native) mod win_spawn;
 mod window_border;
 
 use self::chrome_geometry::{ChromeSlotGeom, PreviewSource, PxPoint, chrome_accent_color};
