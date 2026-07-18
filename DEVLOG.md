@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- ConPTY probe failure diagnostics: raw stream hex and child exit status
+
+The `windows-latest` CI leg has been red since the button-protocol probe
+landed: `conpty_button_passthrough` panics with a 131-byte raw stream that
+never contains the probe sentinel, and the run aborts before the keyboard
+probes execute. The failure signature carries a telling anomaly — the probe's
+escape payload appears verbatim in the CI console log outside libtest capture,
+meaning the spawned `powershell.exe` wrote to the runner's real console rather
+than (or in addition to) the pseudoconsole pipe. Other Windows ConPTY tests
+pass, but none of them assert child *output* through the ConPTY pipe; the
+probe is the first to do so in CI, so the output path itself has never been
+independently verified there.
+
+131 bytes is far below the payload size and is consistent with several
+distinct failure modes: a bare ConPTY init preamble with the child attached to
+the wrong console, a PowerShell startup error line, or an early EOF racing the
+child's flush. Diagnosing from the panic message alone is impossible because
+it only reported a byte count. Both probe files now carry full failure
+diagnostics: every failure path includes the complete raw ConPTY stream as
+lowercase hex plus the child's exit status (taken after `read_to_end` returns
+EOF, so the wait resolves promptly). An abnormal exit status means the child
+never ran its script; a clean exit 0 with a preamble-only stream means the
+output went somewhere other than the pseudoconsole pipe. There is no local
+Windows machine, so the panic text on the CI leg is the entire debugging
+surface — the next failing run carries the evidence the fix needs.
+
+Unix legs unaffected (`#![cfg(windows)]` files, empty on other targets).
+`cargo fmt --check` and `cargo clippy --all-targets --locked` clean; both
+probe binaries compile.
+
+---
+
 ## 2026-07-17 -- modifyOtherKeys compatibility layer and ConPTY keyboard probes
 
 **xterm modifyOtherKeys, levels 1 and 2.** OdyTTY ships `TERM=xterm-256color`,

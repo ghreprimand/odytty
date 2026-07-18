@@ -24,6 +24,15 @@ use std::ffi::OsString;
 use odytty::core::{Dimensions, Terminal};
 use odytty::pty::PtySession;
 
+/// Render a byte stream as lowercase hex for failure diagnostics. A failing
+/// probe must carry the complete raw ConPTY stream in its panic message:
+/// there is no interactive Windows debugging surface, so the panic text is
+/// the only evidence of what actually traversed (or failed to traverse) the
+/// pseudoconsole pipe.
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 /// Emit both button spellings from PowerShell under the real ConPTY loop and
 /// assert the OdyTTY parser observes them unmodified.
 #[test]
@@ -42,7 +51,7 @@ fn conpty_passes_button_oscs_through_unmodified() {
     );
 
     let dimensions = Dimensions::new(80, 24);
-    let session = PtySession::spawn_exec(
+    let mut session = PtySession::spawn_exec(
         dimensions,
         OsString::from("powershell.exe"),
         vec![
@@ -55,6 +64,13 @@ fn conpty_passes_button_oscs_through_unmodified() {
     )
     .expect("spawn powershell under ConPTY");
     let bytes = session.read_to_end().expect("read ConPTY output");
+    // `read_to_end` only returns at pipe EOF, which the session produces
+    // after the child exits, so this wait resolves promptly. The exit status
+    // discriminates between failure modes: a clean exit 0 with a short
+    // stream means the output went somewhere other than the pseudoconsole
+    // pipe, while an abnormal status (e.g. a DLL-init failure) means the
+    // child never ran its script at all.
+    let exit_status = session.wait().expect("wait for probe child");
 
     let mut terminal = Terminal::new(dimensions.columns, dimensions.rows);
     terminal.set_buttons_enabled(true);
@@ -65,13 +81,18 @@ fn conpty_passes_button_oscs_through_unmodified() {
     let text = terminal.screen().plain_text();
     assert!(
         text.contains("conpty-button-probe-done"),
-        "probe output never reached the terminal; raw ConPTY stream was {} bytes",
-        bytes.len()
+        "probe output never reached the terminal; child exit status {exit_status:?}; \
+         raw ConPTY stream was {} bytes, hex = {}",
+        bytes.len(),
+        hex(&bytes)
     );
     // The label text prints as ordinary cells (the Tier 2 degrade contract).
     assert!(
         text.contains("Retry"),
-        "the bracketed label text must render as plain cells"
+        "the bracketed label text must render as plain cells; child exit status \
+         {exit_status:?}; raw ConPTY stream was {} bytes, hex = {}",
+        bytes.len(),
+        hex(&bytes)
     );
     // Both definitions interned: the OSC payloads arrived byte-intact. If
     // ConPTY stripped or rewrote either sequence, the count drops and this
@@ -79,8 +100,9 @@ fn conpty_passes_button_oscs_through_unmodified() {
     assert_eq!(
         terminal.button_entry_count(),
         2,
-        "expected both button spellings to survive ConPTY passthrough; \
-         raw stream was {} bytes",
-        bytes.len()
+        "expected both button spellings to survive ConPTY passthrough; child exit \
+         status {exit_status:?}; raw stream was {} bytes, hex = {}",
+        bytes.len(),
+        hex(&bytes)
     );
 }

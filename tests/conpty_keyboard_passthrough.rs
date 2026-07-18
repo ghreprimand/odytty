@@ -47,7 +47,7 @@ fn conpty_keyboard_queries_app_to_terminal() {
     );
 
     let dimensions = Dimensions::new(80, 24);
-    let session = PtySession::spawn_exec(
+    let mut session = PtySession::spawn_exec(
         dimensions,
         OsString::from("powershell.exe"),
         vec![
@@ -60,6 +60,9 @@ fn conpty_keyboard_queries_app_to_terminal() {
     )
     .expect("spawn powershell under ConPTY");
     let bytes = session.read_to_end().expect("read ConPTY output");
+    // EOF implies the child exited, so this resolves promptly; the status
+    // discriminates a child that never ran from output that went astray.
+    let exit_status = session.wait().expect("wait for probe child");
 
     let mut terminal = Terminal::new(dimensions.columns, dimensions.rows);
     terminal.advance(&bytes);
@@ -68,8 +71,10 @@ fn conpty_keyboard_queries_app_to_terminal() {
     let text = terminal.screen().plain_text();
     assert!(
         text.contains("conpty-kbd-probe-done"),
-        "probe output never reached the terminal; raw ConPTY stream was {} bytes",
-        bytes.len()
+        "probe output never reached the terminal; child exit status {exit_status:?}; \
+         raw ConPTY stream was {} bytes, hex = {}",
+        bytes.len(),
+        hex(&bytes)
     );
 
     // The finding: did the queries arrive intact? OdyTTY replies `CSI ? 0 u`
@@ -114,7 +119,7 @@ fn conpty_csi_u_terminal_to_app() {
     );
 
     let dimensions = Dimensions::new(80, 24);
-    let session = PtySession::spawn_exec(
+    let mut session = PtySession::spawn_exec(
         dimensions,
         OsString::from("powershell.exe"),
         vec![
@@ -136,6 +141,9 @@ fn conpty_csi_u_terminal_to_app() {
         .expect("write CSI-u bytes into the ConPTY input pipe");
 
     let bytes = session.read_to_end().expect("read ConPTY output");
+    // EOF implies the child exited, so this resolves promptly; the status
+    // discriminates a child that never ran from output that went astray.
+    let exit_status = session.wait().expect("wait for probe child");
     let mut terminal = Terminal::new(dimensions.columns, dimensions.rows);
     terminal.advance(&bytes);
     let text = terminal.screen().plain_text();
@@ -143,8 +151,10 @@ fn conpty_csi_u_terminal_to_app() {
     // The pipeline invariant: the client ran, drained input, and reported.
     let (Some(start), Some(end)) = (text.find("probe<"), text.find(">done")) else {
         panic!(
-            "probe report never reached the terminal; raw ConPTY stream was {} bytes",
-            bytes.len()
+            "probe report never reached the terminal; child exit status {exit_status:?}; \
+             raw ConPTY stream was {} bytes, hex = {}",
+            bytes.len(),
+            hex(&bytes)
         );
     };
     let observed = &text[start + "probe<".len()..end];
