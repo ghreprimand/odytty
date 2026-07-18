@@ -80,10 +80,14 @@ const AUTOHIDE_SEPARATOR_ROWS: usize = 1;
 /// ABOVE this band, so overflow indicators and slots never collide with it.
 const AUTOHIDE_RESERVE_ROWS: usize = AUTOHIDE_CONTROL_ROWS + AUTOHIDE_SEPARATOR_ROWS;
 
-/// Double-chevron glyphs pointing toward the rail edge — the "tuck the rail
-/// away" affordance, mirrored by [`RailSide`].
-const AUTOHIDE_CHEVRON_LEFT: char = '\u{00ab}'; // «
-const AUTOHIDE_CHEVRON_RIGHT: char = '\u{00bb}'; // »
+/// Solid horizontal-triangle glyphs pointing toward the rail edge — the "tuck
+/// the rail away" affordance, mirrored by [`RailSide`]. A full-cell-height
+/// geometric glyph (same Geometric Shapes block as the `▲`/`▼` overflow marks,
+/// so font coverage is guaranteed) reads as a deliberate collapse control at the
+/// rail's own font size, rather than a small punctuation mark floating in the
+/// cell.
+const AUTOHIDE_CHEVRON_LEFT: char = '\u{25c0}'; // ◀
+const AUTOHIDE_CHEVRON_RIGHT: char = '\u{25b6}'; // ▶
 
 /// Marker painted on a bound workspace's rail row (ODP-7B): a compact
 /// bidirectional-link glyph in a text-side accent role that reads as "everything
@@ -480,11 +484,12 @@ impl TabRail {
         }
 
         // RAIL-AUTOHIDE-CTL: the always-visible auto-hide toggle at the rail's
-        // bottom edge. A double-chevron pointing toward the rail edge; the
-        // resting glyph recedes into the inactive floor, hover lifts it to the
-        // panel's hover treatment, and an ACTIVE auto-hide state is held in the
-        // active-label tint with the chevron flipped to point inward (so the
-        // pinned-off and auto-hiding states read distinctly).
+        // bottom edge. A solid horizontal triangle pointing toward the rail edge;
+        // the resting glyph recedes into the inactive floor, hover lifts it to
+        // the panel's hover treatment, and an ACTIVE auto-hide state is held in
+        // the active-label tint with the triangle flipped to point inward (so the
+        // pinned-off and auto-hiding states read distinctly by direction + tint).
+        // Glyph-only: no bold weight, no on-hover text label.
         if let Some(ctl_row) = layout.autohide_row.filter(|&r| r < grid_rows) {
             let is_hovered = matches!(self.hover, Some(TabHit::AutohideToggle));
             // Point toward the rail edge when OFF (tuck away), inward when ON.
@@ -509,27 +514,13 @@ impl TabRail {
             let mut a = Attrs::default();
             a.foreground = ctl_fg;
             a.background = ctl_bg;
-            if autohide_on {
-                a.set_bold(true);
-            }
-            // Glyph at the label column, matching the `+` affordance's alignment.
+            // Glyph-only control at the label column, matching the `+`
+            // affordance's alignment. The on-state reads through the triangle
+            // flip and the active tint alone — no bold weight, no text label.
             let ccol = SLOT_LABEL_START_COL.min(rail_cols.saturating_sub(1));
             let g = &mut cells[ctl_row * rail_cols + ccol];
             g.ch = chevron;
             g.attrs = a;
-            // On-hover label when the rail is wide enough to hold it beside the
-            // glyph without truncation (glyph-only otherwise).
-            if is_hovered {
-                let label = "auto-hide";
-                let start = ccol + 2;
-                if start + label.chars().count() <= rail_cols {
-                    for (i, ch) in label.chars().enumerate() {
-                        let g = &mut cells[ctl_row * rail_cols + start + i];
-                        g.ch = ch;
-                        g.attrs = a;
-                    }
-                }
-            }
         }
 
         // Phosphor Flat draws no chrome quads — the treatment is entirely cell
@@ -1911,17 +1902,22 @@ mod tests {
         let on = render_state(true);
         let off_g = off.glyphs[ctl_row * RAIL_COLS + col];
         let on_g = on.glyphs[ctl_row * RAIL_COLS + col];
-        // A chevron glyph is present in both states.
+        // A directional triangle glyph is present in both states.
         assert!(
             off_g.ch == AUTOHIDE_CHEVRON_LEFT || off_g.ch == AUTOHIDE_CHEVRON_RIGHT,
-            "control paints a chevron when auto-hide is off"
+            "control paints a directional triangle when auto-hide is off"
         );
-        // The on state is visually distinct: the chevron flips direction AND the
-        // active state is bold (pinned-off vs auto-hiding read differently).
+        // The on state is visually distinct through direction + tint (glyph-only,
+        // never bold): the triangle flips and the active tint replaces the
+        // resting dim, so pinned-off and auto-hiding read differently.
+        assert_ne!(off_g.ch, on_g.ch, "the on-state glyph flips direction");
         assert_ne!(
-            (off_g.ch, off_g.attrs.bold()),
-            (on_g.ch, on_g.attrs.bold()),
-            "the auto-hide-on control is distinct from the off control"
+            off_g.attrs.foreground, on_g.attrs.foreground,
+            "the on-state control carries the active tint, not the resting dim"
+        );
+        assert!(
+            !off_g.attrs.bold() && !on_g.attrs.bold(),
+            "the control is glyph-only, never bold in either state"
         );
     }
 

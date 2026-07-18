@@ -2024,6 +2024,79 @@ fn rail_autohide_control_click_toggles_and_persists() {
 }
 
 #[test]
+fn rail_autohide_chevron_toggle_keeps_settings_panel_row_in_sync() {
+    // RAIL-AUTOHIDE-CTL panel coherence: an external chevron toggle routes
+    // through the reload seam as an ExternalChrome mutation, so the settings
+    // panel's Layout row must reflect the live value in BOTH directions:
+    //   (a) panel already open when the toggle fires -> the row updates live;
+    //   (b) toggle fires first, panel opened afterwards -> the row shows current.
+    // Fails-before: the toggle used OverlayEdit, whose panel path re-derives from
+    // the panel's own (stale) edit overlay and ignores the external value.
+
+    // Direction (a): panel open, then toggle.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    add_workspace(&mut app);
+    let conf = temp_rail_conf("autohide-panel-a");
+    app.set_config_path_for_test(conf.clone());
+
+    app.open_settings_overlay_for_test();
+    assert_eq!(
+        app.settings_panel_displayed_value_for_test("tab_rail_autohide"),
+        Some("off".to_owned()),
+        "row starts off with the open panel"
+    );
+    app.toggle_tab_rail_autohide_for_test();
+    assert!(
+        app.tab_rail_autohide_setting_for_test(),
+        "the external toggle turned auto-hide on"
+    );
+    assert_eq!(
+        app.settings_panel_displayed_value_for_test("tab_rail_autohide"),
+        Some("on".to_owned()),
+        "(a) the open panel's row updates live to the external toggle"
+    );
+    // Toggling back is likewise reflected.
+    app.toggle_tab_rail_autohide_for_test();
+    assert_eq!(
+        app.settings_panel_displayed_value_for_test("tab_rail_autohide"),
+        Some("off".to_owned()),
+        "(a) the open panel's row tracks the reverse toggle too"
+    );
+    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
+
+    // Direction (b): toggle first (panel closed), then open the panel.
+    let Some(mut app) = tab_bar_app() else {
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    add_workspace(&mut app);
+    let conf = temp_rail_conf("autohide-panel-b");
+    app.set_config_path_for_test(conf.clone());
+
+    assert!(
+        !app.overlay_open_for_test(),
+        "panel closed for direction (b)"
+    );
+    app.toggle_tab_rail_autohide_for_test();
+    assert!(app.tab_rail_autohide_setting_for_test());
+    app.open_settings_overlay_for_test();
+    assert_eq!(
+        app.settings_panel_displayed_value_for_test("tab_rail_autohide"),
+        Some("on".to_owned()),
+        "(b) a panel opened after the toggle shows the current value, not a stale copy"
+    );
+    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
+}
+
+#[test]
 fn autohide_only_applies_to_side_rails_not_the_top_bar() {
     // Auto-hide is a rail feature; the top bar keeps `always_show_tab_bar`
     // semantics, so the knob is inert (and the reservation unchanged) on top.

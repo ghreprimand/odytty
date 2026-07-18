@@ -78,6 +78,26 @@ impl App {
         self.toggle_settings_overlay();
     }
 
+    /// Test seam (RAIL-AUTOHIDE-CTL panel coherence): the value string the open
+    /// settings panel would render for `key`. Used to prove an external chevron
+    /// toggle keeps the panel's Layout row in sync with the live setting.
+    #[cfg(test)]
+    pub(in crate::native) fn settings_panel_displayed_value_for_test(
+        &self,
+        key: &str,
+    ) -> Option<String> {
+        self.overlay.settings_panel_value_for_test(key)
+    }
+
+    /// Test seam (RAIL-AUTOHIDE-CTL panel coherence): drive the exact production
+    /// external-chrome toggle the pointer arm invokes, without routing a pointer
+    /// press through a possibly-open overlay. The click->toggle wiring itself is
+    /// covered separately; this isolates the settings-panel reconciliation.
+    #[cfg(test)]
+    pub(in crate::native) fn toggle_tab_rail_autohide_for_test(&mut self) {
+        self.toggle_tab_rail_autohide();
+    }
+
     /// Test seam: open the production Layout settings target so keyboard edits
     /// can exercise the same deep-link and input route as chrome Settings.
     #[cfg(test)]

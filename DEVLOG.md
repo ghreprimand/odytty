@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Rail auto-hide control: larger glyph and settings-panel coherence
+
+The rail auto-hide control is refined to read unambiguously as a control and to
+keep the settings panel in step with it. The affordance is now a solid
+horizontal triangle pointing toward the rail edge, a full-cell-height geometric
+glyph (the same family as the overflow marks, so font coverage is guaranteed)
+that reads at the rail's own text height rather than as a small punctuation
+mark. The control is glyph-only: the transient on-hover text label is removed
+(it was gated on both hover and width, which flickered inconsistently), hover
+is a background lift alone, and the engaged state reads through the triangle
+flipping direction and taking the active tint, with no bold weight.
+
+A coherence fix accompanies it. Toggling auto-hide from the rail is an external
+change applied through the full reload seam, but that path previously assumed
+any change arriving while the settings panel was open originated from the panel
+itself, so it kept the panel's own edit copy as the source of truth and left the
+Layout row showing the pre-toggle value. Both a panel that was already open and
+a panel opened after the toggle showed the stale value. The reload seam now
+distinguishes a native-chrome mutation from a panel commit: an external change
+rebases the open panel onto the live value as a fresh clean baseline while
+preserving any unsaved edits, so the row reflects the current state in both
+cases. The distinction is a seam-level property, so any future out-of-panel
+toggle routed through the same seam stays coherent without a per-control fix.
+Cross-platform UI with no platform-specific behavior.
+
 ## 2026-07-18 -- Auto-hide toggle control on the workspace rail
 
 The workspace rail gains a small always-visible control pinned at its bottom

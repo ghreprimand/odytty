@@ -848,6 +848,19 @@ impl SettingsPanel {
         self.drill_into_section(section_index);
     }
 
+    /// Test seam: the value string the panel would RENDER for `key`, read from
+    /// the master inventory (`all_entries`) the filtered view derives from. Pins
+    /// the panel-coherence bug: an external-chrome mutation applied while the
+    /// panel is open (or before it opens) must leave this reflecting the live
+    /// value, not a stale pre-toggle copy.
+    #[cfg(test)]
+    pub(super) fn displayed_value_for_test(&self, key: &str) -> Option<String> {
+        self.all_entries
+            .iter()
+            .find(|entry| entry.key == key)
+            .map(|entry| entry.value.clone())
+    }
+
     #[cfg(test)]
     pub(super) fn active_section_name_for_test(&self) -> Option<&'static str> {
         match self.level {

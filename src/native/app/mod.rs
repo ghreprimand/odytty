@@ -277,6 +277,15 @@ pub(super) struct RenameState {
 enum SettingsApplySource {
     ConfigReload,
     OverlayEdit,
+    /// A setting mutated by native chrome (a rail/tab-bar affordance) rather
+    /// than by the settings panel, but applied through the SAME full reload
+    /// seam so the rail reflow / grid recompute run. Unlike [`OverlayEdit`]
+    /// (which assumes the panel itself committed the value and keeps the
+    /// panel's edit overlay as the source of truth), this rebases the open
+    /// panel onto the external value as a fresh clean baseline, so its row
+    /// reflects the change instead of showing a stale copy. Any future
+    /// out-of-panel toggle that needs the seam uses this variant.
+    ExternalChrome,
 }
 
 #[cfg(test)]
@@ -3919,15 +3928,21 @@ impl App {
     }
 
     /// RAIL-AUTOHIDE-CTL: flip `tab_rail_autohide` from the rail's bottom-edge
-    /// toggle control. Routes the change through the same reload seam a settings
-    /// panel edit uses, so the panel row, the rail visibility reconciliation, and
-    /// the grid reflow all stay coherent, then writes it back to `odytty.conf` so
-    /// it survives a restart. No new settings key: this is the existing
-    /// `tab_rail_autohide` gate, reachable from the rail itself.
+    /// toggle control. Routes the change through the full reload seam (as an
+    /// [`SettingsApplySource::ExternalChrome`] mutation) so the panel row, the
+    /// rail visibility reconciliation, and the grid reflow all stay coherent,
+    /// then writes it back to `odytty.conf` so it survives a restart. No new
+    /// settings key: this is the existing `tab_rail_autohide` gate, reachable
+    /// from the rail itself.
     pub(super) fn toggle_tab_rail_autohide(&mut self) {
         let mut next = self.settings.clone();
         next.tab_rail_autohide = !next.tab_rail_autohide;
-        self.apply_settings_through_reload_seam(next, SettingsApplySource::OverlayEdit);
+        // ExternalChrome, not OverlayEdit: the toggle originates from the rail
+        // affordance, not the panel, so the open settings panel must rebase its
+        // Layout row onto the new value (a fresh clean baseline) rather than
+        // keeping its own stale edit copy. Routing through the full reload seam
+        // still runs the rail visibility reconciliation and grid reflow.
+        self.apply_settings_through_reload_seam(next, SettingsApplySource::ExternalChrome);
         self.persist_tab_rail_autohide();
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
@@ -5167,6 +5182,9 @@ impl App {
         match source {
             SettingsApplySource::ConfigReload => self.overlay.refresh_settings(&self.settings),
             SettingsApplySource::OverlayEdit => self.overlay.apply_settings(&self.settings),
+            SettingsApplySource::ExternalChrome => self
+                .overlay
+                .rebase_settings_panel_onto_external(&self.settings),
         }
         // U4: all theme publishes read `effective_theme` (the authored theme
         // after CVD adaptation; identical to it when off), so the renderer sees

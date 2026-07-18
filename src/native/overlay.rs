@@ -241,6 +241,11 @@ impl OverlayUi {
         self.panel.active_section_name_for_test()
     }
 
+    #[cfg(test)]
+    pub(super) fn settings_panel_value_for_test(&self, key: &str) -> Option<String> {
+        self.panel.displayed_value_for_test(key)
+    }
+
     /// Refresh the read-only About data on the settings panel (ABOUT). Called by
     /// the App when toggling the settings overlay so the About view reflects the
     /// live GPU adapter (available once the renderer is up).
