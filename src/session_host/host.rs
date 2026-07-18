@@ -604,12 +604,16 @@ fn handle_attach(
 
     let id = *next_client_id;
     *next_client_id += 1;
+    // Clone BOTH fds before spawning the reader thread. If the writer-side
+    // clone were attempted after the spawn and failed (fd exhaustion is the
+    // exact stress this path faces), the `?` would return with the reader
+    // thread already running and no ClientConnection entry to evict it
+    // through the teardown path, orphaning the thread and its cloned fd.
+    // With both clones up front, a clone failure leaves nothing behind.
+    let writer = stream.try_clone().context("clone session-host writer")?;
     let reader = stream.try_clone().context("clone session-host client")?;
     spawn_client_reader(id, reader, client_tx.clone());
-    clients.push(ClientConnection {
-        id,
-        stream: stream.try_clone().context("clone session-host writer")?,
-    });
+    clients.push(ClientConnection { id, stream: writer });
     Ok(())
 }
 

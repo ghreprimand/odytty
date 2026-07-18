@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Closeout hardening: client-accept clone ordering and eighth-ladder pixel floors
+
+Two final small fixes from re-verifying the hardening sweep.
+
+Fixed: the session host's client-accept path spawned the per-client reader
+thread between its two socket clones. If the second (writer-side) clone
+failed, which fd exhaustion can cause under exactly the load this path
+serves, the error returned with the reader thread already running and no
+client entry to evict it through the teardown path, orphaning the thread and
+its cloned fd. Both clones now happen before the spawn, so a clone failure
+leaves nothing behind. No behavior change on the success path. Unix-only
+surface (the session host is Unix domain sockets).
+
+Fixed: the eighth-ladder block fills (lower U+2581..U+2587, left
+U+2589..U+258F, upper U+1FB82..U+1FB86, right U+1FB87..U+1FB8B) computed
+their partial extent as round(dim * n / 8) with no floor, so on degenerate
+cells the fill could round empty and the glyph vanished entirely; at a
+4px-tall cell U+2581 disappeared. Each ladder arm now floors its thin
+dimension to at least one pixel, matching the eighth-strip clamps landed
+earlier, and the singular one-eighth blocks U+2594/U+2595 carry the same
+floor so both spellings of an eighth render consistently. A sweep test
+covers all four ladder families plus the singular blocks over degenerate
+cell sizes, including the exact 4px repro. Cross-platform rendering logic,
+identical on all platforms.
+
 ## 2026-07-18 -- Residue hardening: prompt-mark reserve cap and attach-pump EINTR
 
 Two small siblings of already-landed fixes, closing out the hardening sweep.

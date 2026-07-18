@@ -1090,19 +1090,26 @@ fn render_block(c: &mut Canvas, block: Block) {
     match block {
         Block::UpperHalf => c.fill(0, w as i32, 0, (hf / 2.0).round() as i32),
         Block::LowerEighths(n) => {
-            let y0 = (hf * (8 - n) as f32 / 8.0).round() as i32;
+            // Floor the fill to >=1px in the thin dimension, like the eighth
+            // strips: on short cells the rounded start can land on the far
+            // edge (U+2581 at a 4px-tall cell rounds to an empty fill) and
+            // the glyph would vanish.
+            let y0 = ((hf * (8 - n) as f32 / 8.0).round() as i32).min(h as i32 - 1);
             c.fill(0, w as i32, y0, h as i32);
         }
         Block::LeftEighths(n) => {
-            let x1 = (wf * n as f32 / 8.0).round() as i32;
+            // Same >=1px floor for narrow cells.
+            let x1 = ((wf * n as f32 / 8.0).round() as i32).max(1);
             c.fill(0, x1, 0, h as i32);
         }
         Block::UpperEighths(n) => {
-            let y1 = (hf * n as f32 / 8.0).round() as i32;
+            // Same >=1px floor for short cells.
+            let y1 = ((hf * n as f32 / 8.0).round() as i32).max(1);
             c.fill(0, w as i32, 0, y1);
         }
         Block::RightEighths(n) => {
-            let x0 = (wf * (8 - n) as f32 / 8.0).round() as i32;
+            // Same >=1px floor for narrow cells.
+            let x0 = ((wf * (8 - n) as f32 / 8.0).round() as i32).min(w as i32 - 1);
             c.fill(x0, w as i32, 0, h as i32);
         }
         Block::VerticalEighthStrip(col) => {
@@ -1124,8 +1131,16 @@ fn render_block(c: &mut Canvas, block: Block) {
             c.fill(0, w as i32, y0.min(h as i32 - 1), y1);
         }
         Block::RightHalf => c.fill((wf / 2.0).round() as i32, w as i32, 0, h as i32),
-        Block::UpperEighth => c.fill(0, w as i32, 0, (hf / 8.0).round() as i32),
-        Block::RightEighth => c.fill((wf * 7.0 / 8.0).round() as i32, w as i32, 0, h as i32),
+        // The singular one-eighth blocks carry the same >=1px floor as the
+        // ladder arms above; U+2594 must stay consistent with UpperEighths(1)
+        // (U+1FB82) on degenerate cells.
+        Block::UpperEighth => c.fill(0, w as i32, 0, ((hf / 8.0).round() as i32).max(1)),
+        Block::RightEighth => c.fill(
+            ((wf * 7.0 / 8.0).round() as i32).min(w as i32 - 1),
+            w as i32,
+            0,
+            h as i32,
+        ),
         Block::Shade(v) => c.fill_value(v),
         Block::HalfShade(half, v) => {
             let (x0, x1, y0, y1) = match half {

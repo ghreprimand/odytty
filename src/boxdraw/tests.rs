@@ -723,3 +723,44 @@ fn eighth_strips_never_vanish_on_tiny_cells() {
         }
     }
 }
+
+#[test]
+fn eighth_ladders_never_vanish_on_tiny_cells() {
+    // Same degenerate-cell class as the strips: an eighth-ladder fill's
+    // rounded start can land on the far edge of a small cell (U+2581 at a
+    // 4px-tall cell rounds to an empty fill). The >=1px floor keeps every
+    // ladder step visible. Sweep all four ladder families plus the singular
+    // one-eighth blocks over degenerate cell sizes, including the exact
+    // 4px-tall repro.
+    let ladders = [
+        // Lower eighths U+2581..U+2587 (U+2588 full block rides along).
+        ('\u{2581}', '\u{2588}'),
+        // Left eighths U+2589..U+258F.
+        ('\u{2589}', '\u{258F}'),
+        // Upper eighth ladder U+1FB82..U+1FB86.
+        ('\u{1FB82}', '\u{1FB86}'),
+        // Right eighth ladder U+1FB87..U+1FB8B.
+        ('\u{1FB87}', '\u{1FB8B}'),
+    ];
+    for (w, h) in [(4u32, 4u32), (3, 5), (5, 7), (2, 2), (7, 3)] {
+        for (lo, hi) in ladders {
+            for ch in lo..=hi {
+                let buf = coverage(ch, w, h).expect("covered");
+                assert!(
+                    buf.iter().any(|&p| p > 0),
+                    "eighth ladder U+{:04X} vanished at {w}x{h}",
+                    ch as u32
+                );
+            }
+        }
+        // Singular one-eighth blocks stay consistent with the ladders.
+        for ch in ['\u{2594}', '\u{2595}'] {
+            let buf = coverage(ch, w, h).expect("covered");
+            assert!(
+                buf.iter().any(|&p| p > 0),
+                "one-eighth block U+{:04X} vanished at {w}x{h}",
+                ch as u32
+            );
+        }
+    }
+}
