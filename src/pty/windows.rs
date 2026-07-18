@@ -165,6 +165,12 @@ impl PtySession {
     ) -> Result<Self> {
         let mut command = CommandBuilder::new(default_shell().program);
         command.apply_terminal_env();
+        // Scrub any inherited ODYTTY_SHELL_INTEGRATION so a nested odytty does
+        // not disable integration in the PowerShell it spawns; the snippet
+        // re-exports the marker itself. On Windows the removal is honored by
+        // dropping the matching entry from the ConPTY environment block
+        // (`build_env_block`), the same path the buttons/key advertisements use.
+        command.apply_shell_integration_scrub();
         // Buttons feature discovery, same gate as the Unix path: the shared
         // env vec lands in the ConPTY environment block via `build_env_block`,
         // so ODYTTY_BUTTONS crosses ConPTY like TERM_PROGRAM does.
@@ -331,7 +337,7 @@ impl PtySession {
             //    global process-env mutation — the latent cross-session leak/race
             //    the moment any per-session env (per-profile TERM, SSH-in-a-tab)
             //    exists. `env_block` must outlive the `CreateProcessW` call below.
-            let env_block = build_env_block(&command.env);
+            let env_block = build_env_block(&command.env, &command.env_remove);
             let mut command_line = build_command_line(&command);
             let cwd_wide = command
                 .current_dir
@@ -1248,19 +1254,32 @@ fn append_arg(line: &mut Vec<u16>, arg: &OsStr) {
 /// environment and inheriting — keeps every override scoped to the child it
 /// targets, eliminating the global-mutation cross-session leak/race that would
 /// appear the moment per-session env (per-profile TERM, SSH-in-a-tab) exists.
-fn build_env_block(overrides: &[(OsString, OsString)]) -> Vec<u16> {
+///
+/// `removals` names variables to strip from the inherited base entirely (no
+/// replacement entry is emitted). This is the Windows half of the nested-launch
+/// scrub: stale OdyTTY discovery advertisements (`ODYTTY_SHELL_INTEGRATION` and
+/// the off-gate `ODYTTY_BUTTONS`/`ODYTTY_KEY_ENHANCE`) inherited from an outer
+/// integrated session are dropped so a nested odytty's PowerShell sees them
+/// absent. Matching is case-insensitive like the override shadowing.
+fn build_env_block(overrides: &[(OsString, OsString)], removals: &[OsString]) -> Vec<u16> {
     let override_keys: Vec<Vec<u16>> = overrides
         .iter()
         .map(|(key, _)| key.encode_wide().collect())
         .collect();
+    let removal_keys: Vec<Vec<u16>> = removals
+        .iter()
+        .map(|key| key.encode_wide().collect())
+        .collect();
 
-    // Collect the final `KEY=VALUE` entries: base entries whose key is not
-    // shadowed by an override, plus one entry per override.
+    // Collect the final `KEY=VALUE` entries: base entries whose key is neither
+    // shadowed by an override nor scrubbed by a removal, plus one entry per
+    // override.
     let mut entries: Vec<Vec<u16>> = Vec::new();
     for entry in current_process_env() {
         let key = env_entry_key(&entry);
         if override_keys
             .iter()
+            .chain(removal_keys.iter())
             .any(|candidate| utf16_eq_ignore_ascii_case(candidate, key))
         {
             continue;
@@ -1726,7 +1745,7 @@ mod tests {
         // The override must REPLACE any inherited `TERM`, appearing exactly once,
         // and the block must end with the terminating NUL.
         let overrides = vec![(OsString::from("TERM"), OsString::from("xterm-256color"))];
-        let block = build_env_block(&overrides);
+        let block = build_env_block(&overrides, &[]);
         assert_eq!(block.last(), Some(&0));
 
         let mut entries: Vec<String> = Vec::new();
@@ -1766,7 +1785,7 @@ mod tests {
             (OsString::from("ZZZ_ODYTTY_SORT"), OsString::from("1")),
             (OsString::from("AAA_ODYTTY_SORT"), OsString::from("1")),
         ];
-        let block = build_env_block(&overrides);
+        let block = build_env_block(&overrides, &[]);
 
         // Split the double-NUL-terminated block into raw key slices.
         let mut keys: Vec<Vec<u16>> = Vec::new();
@@ -1799,6 +1818,62 @@ mod tests {
         let zzz = keys.iter().position(|k| lower(k) == "zzz_odytty_sort");
         assert!(aaa.is_some() && zzz.is_some(), "overrides must be present");
         assert!(aaa < zzz, "AAA override must sort before ZZZ override");
+    }
+
+    #[test]
+    fn build_env_block_scrubs_removed_inherited_variable() {
+        // Nested-launch scrub (Windows half): a variable inherited from this
+        // process (as an outer integrated odytty would leak
+        // ODYTTY_SHELL_INTEGRATION) must be ABSENT from the child block when
+        // named in `removals`. Uses a uniquely named marker so the case-
+        // insensitive drop is provable without depending on ambient env.
+        let marker = format!("ODYTTY_SCRUB_PROBE_{}", std::process::id());
+        // SAFETY: single-threaded assertion window; the marker name is unique to
+        // this process so no other test observes it.
+        unsafe {
+            std::env::set_var(&marker, "leaked");
+        }
+
+        let split_keys = |block: &[u16]| -> Vec<String> {
+            let mut keys = Vec::new();
+            let mut current: Vec<u16> = Vec::new();
+            for &unit in block {
+                if unit == 0 {
+                    if current.is_empty() {
+                        break;
+                    }
+                    keys.push(
+                        String::from_utf16_lossy(env_entry_key(&current)).to_ascii_uppercase(),
+                    );
+                    current.clear();
+                } else {
+                    current.push(unit);
+                }
+            }
+            keys
+        };
+
+        // Without a removal the inherited marker is present (proves the probe).
+        let present = split_keys(&build_env_block(&[], &[]));
+        assert!(
+            present.iter().any(|k| k == &marker.to_ascii_uppercase()),
+            "probe marker must be inherited into the base block"
+        );
+
+        // Naming it in `removals` (case-insensitively) drops it entirely.
+        let scrubbed = split_keys(&build_env_block(
+            &[],
+            &[OsString::from(marker.to_ascii_lowercase())],
+        ));
+        assert!(
+            scrubbed.iter().all(|k| k != &marker.to_ascii_uppercase()),
+            "removed variable must not survive into the child block"
+        );
+
+        // SAFETY: same single-threaded window; undo the marker.
+        unsafe {
+            std::env::remove_var(&marker);
+        }
     }
 
     #[test]

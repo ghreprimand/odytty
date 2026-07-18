@@ -122,6 +122,10 @@ impl PtySession {
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
         let mut command = CommandBuilder::new(shell);
         command.apply_terminal_env();
+        // Scrub any inherited ODYTTY_SHELL_INTEGRATION so a nested odytty (one
+        // launched from an already-integrated session) does not disable
+        // integration in the shell it spawns; the snippet re-exports it itself.
+        command.apply_shell_integration_scrub();
         command.apply_buttons_discovery_env(buttons);
         command.apply_key_enhancement_discovery_env(key_enhancement);
         if shell_integration {
