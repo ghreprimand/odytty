@@ -21,7 +21,11 @@ pub fn run_interactive() -> Result<()> {
     let mut terminal = Terminal::new(dimensions.columns, dimensions.rows);
     terminal.set_local_hostname(crate::local_hostname::get());
     let mut session = PtySession::spawn_default_shell(dimensions)?;
-    let mut writer = session.take_writer()?;
+    // Master writes go through the bounded drop-oldest writer queue, the same
+    // shim the session host uses: a wedged shell (stopped, full slave buffer)
+    // parks the dedicated writer thread, never this loop — input decoding and
+    // rendering stay responsive and queued memory stays capped.
+    let writer = crate::session_host::HostPtyWriter::spawn(session.take_writer()?);
     let (pty_tx, pty_rx) = mpsc::channel();
     let (input_tx, input_rx) = mpsc::channel();
 
@@ -41,10 +45,7 @@ pub fn run_interactive() -> Result<()> {
                     terminal.advance(&bytes);
                     let host_output = terminal.take_host_output();
                     if !host_output.is_empty() {
-                        writer
-                            .write_all(&host_output)
-                            .context("write terminal response to pty")?;
-                        writer.flush().context("flush terminal response")?;
+                        writer.write(&host_output);
                     }
                     saw_output = true;
                 }
@@ -62,8 +63,7 @@ pub fn run_interactive() -> Result<()> {
                 for action in input_decoder.decode(&bytes, terminal.bracketed_paste_enabled()) {
                     match action {
                         InputAction::Bytes(bytes) => {
-                            writer.write_all(&bytes).context("write input to pty")?;
-                            writer.flush().context("flush pty input")?;
+                            writer.write(&bytes);
                         }
                         InputAction::Quit => {
                             let _ = session.kill();
@@ -124,6 +124,9 @@ fn spawn_pty_reader(mut reader: Box<dyn Read + Send>, tx: Sender<PtyMessage>) {
                         break;
                     }
                 }
+                // EINTR is a retry, not an error: a signal delivery mid-read
+                // must not kill the output pump.
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
                 Err(error) => {
                     let _ = tx.send(PtyMessage::Error(error));
                     break;

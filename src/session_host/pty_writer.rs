@@ -26,7 +26,6 @@
 use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
-use std::thread::JoinHandle;
 
 /// Maximum bytes buffered before drop-oldest engages. Generous enough that a
 /// legitimate large paste into a healthy shell drains far faster than it fills;
@@ -85,7 +84,6 @@ impl Shared {
 /// dedicated writer thread performs the blocking fd write off the loop.
 pub(crate) struct HostPtyWriter {
     shared: Arc<Shared>,
-    handle: Option<JoinHandle<()>>,
 }
 
 impl HostPtyWriter {
@@ -106,14 +104,11 @@ impl HostPtyWriter {
             ready: Condvar::new(),
         });
         let thread_shared = Arc::clone(&shared);
-        let handle = std::thread::Builder::new()
+        std::thread::Builder::new()
             .name("odytty-host-pty-writer".to_owned())
             .spawn(move || writer_loop(&thread_shared, &mut writer))
             .expect("spawn session-host pty writer thread");
-        Self {
-            shared,
-            handle: Some(handle),
-        }
+        Self { shared }
     }
 
     /// Enqueue `bytes` for the hosted PTY. Non-blocking: returns as soon as the
@@ -131,14 +126,17 @@ impl HostPtyWriter {
 
 impl Drop for HostPtyWriter {
     fn drop(&mut self) {
+        // Signal close and detach, without joining: the writer thread may be
+        // parked in a blocking fd write on a wedged PTY slave, and a join
+        // here would transfer that unbounded wait onto whoever drops the
+        // handle (the host teardown path). The thread exits on its own when
+        // the write returns or errors and it observes `closed` — the same
+        // non-joining teardown the app-side writer shim uses.
         {
             let mut queue = self.shared.lock();
             queue.closed = true;
         }
         self.shared.ready.notify_all();
-        if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
-        }
     }
 }
 

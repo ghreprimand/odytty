@@ -16,6 +16,10 @@ mod host;
 pub mod protocol;
 #[cfg(unix)]
 mod pty_writer;
+// The bounded PTY writer is shared with the CLI interactive mode (`crate::app`)
+// so its master writes also go through the non-blocking drop-oldest queue.
+#[cfg(unix)]
+pub(crate) use pty_writer::HostPtyWriter;
 #[cfg(unix)]
 mod registry;
 #[cfg(unix)]

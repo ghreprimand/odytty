@@ -102,7 +102,12 @@ pub fn list_live_sessions(runtime_base: Option<&Path>) -> Result<Vec<ListedSessi
     for entry in fs::read_dir(&runtime_dir)
         .with_context(|| format!("read session runtime dir {}", runtime_dir.display()))?
     {
-        let entry = entry?;
+        // Per-entry failures skip THAT entry: one unreadable dirent, invalid
+        // socket path, or corrupt metadata file must not abort the whole
+        // listing and hide every other live session.
+        let Ok(entry) = entry else {
+            continue;
+        };
         let file_name = entry.file_name();
         let Some(file_name) = file_name.to_str() else {
             continue;
@@ -110,13 +115,17 @@ pub fn list_live_sessions(runtime_base: Option<&Path>) -> Result<Vec<ListedSessi
         let Some(id) = session_id_from_socket_name(file_name) else {
             continue;
         };
-        let socket_path = session_socket_path(&runtime_dir, id)?;
+        let Ok(socket_path) = session_socket_path(&runtime_dir, id) else {
+            continue;
+        };
         let Ok(mut client) = SessionHostClient::connect(&socket_path, id) else {
             continue;
         };
         let _ = client.read_frame(Duration::from_millis(200));
         let _ = client.detach();
-        let metadata = read_session_metadata(&runtime_dir, id)?;
+        // A live session with unreadable metadata still lists, using the
+        // id-derived fallbacks below, rather than failing the whole listing.
+        let metadata = read_session_metadata(&runtime_dir, id).unwrap_or(None);
         let created_unix_ms = metadata
             .as_ref()
             .map(|metadata| metadata.created_unix_ms)

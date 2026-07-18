@@ -2312,7 +2312,7 @@ impl WorkspaceSet {
         let terminal = Arc::new(Mutex::new(terminal));
         let client = Arc::new(Mutex::new(client));
         let writer = attach_input_writer(client.clone(), token)?;
-        let pump_thread = spawn_attach_pump(reader, terminal.clone(), sink, token);
+        let pump_thread = spawn_attach_pump(reader, terminal.clone(), sink, token)?;
         self.sessions.insert(
             token,
             Session::new_attached(

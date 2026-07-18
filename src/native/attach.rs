@@ -373,11 +373,14 @@ pub(super) fn spawn_attach_pump(
     terminal: Arc<Mutex<Terminal>>,
     sink: impl AttachEventSink,
     session: SessionToken,
-) -> JoinHandle<()> {
+) -> io::Result<JoinHandle<()>> {
+    // A spawn failure (thread ceiling / address-space exhaustion) is a
+    // per-attach condition returned to the caller — one failed attach, not a
+    // process panic (the same recoverable-error contract as the writer-shim
+    // spawn).
     std::thread::Builder::new()
         .name("odytty-attach-pump".to_owned())
         .spawn(move || run_attach_pump(reader, terminal, sink, session))
-        .expect("spawn attach pump thread")
 }
 
 /// The pump loop body (separated so tests can run it inline). Blocks on the

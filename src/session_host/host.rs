@@ -814,7 +814,19 @@ fn latest_resize_in(batch: &[ClientEvent], clients: &[ClientConnection]) -> Opti
 }
 
 fn broadcast(clients: &mut Vec<ClientConnection>, frame: &HostFrame) {
-    clients.retain_mut(|client| write_host_frame(&mut client.stream, frame).is_ok());
+    clients.retain_mut(|client| {
+        if write_host_frame(&mut client.stream, frame).is_ok() {
+            return true;
+        }
+        // A failed write evicts the client, but dropping the write-side clone
+        // alone leaves the reader thread's clone open: that thread would spin
+        // on its idle-timeout poll forever, orphaning a thread and two fds
+        // every time a client is evicted here — repeatable past the client
+        // cap. shutdown(Both) closes the shared socket, so the reader
+        // observes the disconnect and exits, releasing thread and fds.
+        let _ = client.stream.shutdown(std::net::Shutdown::Both);
+        false
+    });
 }
 
 fn has_client(clients: &[ClientConnection], id: u64) -> bool {
@@ -835,6 +847,9 @@ fn spawn_pty_reader(mut reader: Box<dyn Read + Send>, tx: Sender<PtyEvent>) {
                         break;
                     }
                 }
+                // EINTR is a retry, not an error: a signal delivery mid-read
+                // must not tear down the whole session's output pump.
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
                 Err(error) => {
                     let _ = tx.send(PtyEvent::Error(error));
                     break;

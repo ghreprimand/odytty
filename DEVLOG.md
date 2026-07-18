@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Session-host and PTY reliability: teardown leaks, EINTR, zombie window, bounded CLI writes
+
+A batch of reliability fixes across the session host, the attach client, and
+the PTY layer. All of these are Unix-only surfaces (Unix domain sockets and
+the Unix PTY backend); no Windows behavior changes.
+
+Fixed: evicting a client on a failed broadcast write leaked its reader thread
+and both socket fds. The eviction dropped the write-side clone only, leaving
+the reader thread polling its idle timeout forever — repeatable past the
+client cap by a flapping client. The eviction now shuts the shared socket
+down both ways, so the reader observes the disconnect and exits.
+
+Fixed: dropping the host's PTY writer handle joined the writer thread, which
+can be parked in a blocking fd write on a wedged slave — transferring that
+unbounded wait onto host teardown. Drop now signals close and detaches,
+matching the app-side writer shim's non-joining teardown; the thread exits on
+its own when the write returns.
+
+Fixed: a PTY read returning EINTR tore down the whole output pump (both the
+session host's and the CLI interactive mode's). Interrupted reads now retry.
+
+Fixed: the attach pump thread spawn panicked the process under thread
+exhaustion. It now returns the error, failing that one attach.
+
+Fixed: the PTY spawn's reader-wake pipe was created after the child spawn, so
+a pipe failure (fd exhaustion) returned early with a live child no one waits
+on — a zombie until process exit. The pipe is created before the spawn.
+
+Fixed: one bad entry in the session runtime directory (unreadable dirent,
+corrupt metadata) aborted the entire session listing. Per-entry failures now
+skip that entry; a live session with unreadable metadata lists under its
+id-derived fallbacks.
+
+Changed: the CLI interactive mode's master writes now go through the same
+bounded drop-oldest writer queue the session host uses, so a wedged shell
+parks the writer thread instead of freezing input and rendering.
+
 ## 2026-07-18 -- Input and render polish: Ctrl-@/Ctrl-?, CJK double-click, emoji width keying, eighth-strip floor
 
 Four small correctness fixes on the input and render surfaces.

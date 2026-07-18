@@ -195,11 +195,14 @@ impl PtySession {
             });
         }
 
-        let child = command.spawn().context("spawn pty command")?;
-
         // Self-pipe for forcing a wedged reader to EOF at close. CLOEXEC so the
-        // shell child never inherits either end.
+        // shell child never inherits either end. Created BEFORE the spawn: a
+        // pipe failure (fd exhaustion) after a successful spawn would return
+        // early with a live child no one waits on — a zombie until the whole
+        // process exits.
         let (reader_wake_read, reader_wake_write) = make_reader_wake_pipe()?;
+
+        let child = command.spawn().context("spawn pty command")?;
 
         Ok(Self {
             master,
