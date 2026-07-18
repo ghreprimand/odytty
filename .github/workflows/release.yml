@@ -41,7 +41,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
-          # ${{ ... }} expression directly into the shell (injection-safe).
+          # workflow expression directly into the shell (injection-safe).
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Create source archive
@@ -83,7 +83,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
-          # ${{ ... }} expression directly into the shell (injection-safe).
+          # workflow expression directly into the shell (injection-safe).
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Install build dependencies
@@ -139,7 +139,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
-          # ${{ ... }} expression directly into the shell (injection-safe).
+          # workflow expression directly into the shell (injection-safe).
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Build release binary
@@ -201,7 +201,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
-          # ${{ ... }} expression directly into the shell (injection-safe).
+          # workflow expression directly into the shell (injection-safe).
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Build release binary
@@ -265,7 +265,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
-          # ${{ ... }} expression directly into the shell (injection-safe).
+          # workflow expression directly into the shell (injection-safe).
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Install build dependencies
@@ -333,7 +333,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
-          # ${{ ... }} expression directly into the shell (injection-safe).
+          # workflow expression directly into the shell (injection-safe).
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Install build dependencies
@@ -402,7 +402,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
-          # ${{ ... }} expression directly into the shell (injection-safe).
+          # workflow expression directly into the shell (injection-safe).
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Install build dependencies
@@ -486,7 +486,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
-          # ${{ ... }} expression directly into the shell (injection-safe).
+          # workflow expression directly into the shell (injection-safe).
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Collect artifacts and checksum
@@ -583,7 +583,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
-          # ${{ ... }} expression directly into the shell (injection-safe).
+          # workflow expression directly into the shell (injection-safe).
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Download SHA256SUMS from the published release
@@ -688,7 +688,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # C40: also expose the version as an env var so run: steps
           # reference a quoted "$VERSION" instead of interpolating the
-          # ${{ ... }} expression directly into the shell (injection-safe).
+          # workflow expression directly into the shell (injection-safe).
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Download SHA256SUMS from the published release

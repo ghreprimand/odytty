@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Release workflow validity and a Windows-only match arm
+
+Two continuous-integration regressions from the workflow-hardening and
+cell-metric changes are corrected.
+
+The release workflow failed validation outright. Comment lines added inside
+`run:` script blocks contained an illustrative interpolation token; inside a
+run block a comment is part of the step's shell string, so the expression
+parser tried to evaluate it, found no valid expression, and rejected the whole
+file. Every push logged a path-named run with no jobs, and a tag push would
+have failed to publish. The comments are reworded to describe the pattern
+without embedding a literal expression token. The equivalent comments in the
+dev-build and AUR-publish workflows sit at the step level, outside any run
+string, so they were harmless; they are aligned to the same wording so a
+repository-wide search for the token stays clean.
+
+Separately, the all-session cell-metric apply closed its source match with a
+wildcard arm. On Windows the attached-session variant does not exist (it is
+Unix-only), which made the wildcard unreachable and tripped the deny-level lint
+on the Windows build. The wildcard is replaced with an explicit Unix-gated
+attached arm, matching the convention every sibling match in the file already
+uses, so the match is exhaustive on every platform with no behavior change.
+
 ## 2026-07-18 -- Rail auto-hide control: larger glyph and settings-panel coherence
 
 The rail auto-hide control is refined to read unambiguously as a control and to

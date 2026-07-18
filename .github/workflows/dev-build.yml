@@ -40,7 +40,7 @@ jobs:
       - name: Package Windows dev zip
         shell: pwsh
         # C40: pass the ref-derived values through env so the pwsh script
-        # references quoted $env:VARs instead of interpolating the ${{ ... }}
+        # references quoted $env:VARs instead of interpolating the workflow
         # expressions directly (a branch name is attacker-influenceable).
         env:
           COMMIT_SHA: ${{ github.sha }}

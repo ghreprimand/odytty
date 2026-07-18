@@ -1945,11 +1945,12 @@ impl WorkspaceSet {
                         pty.set_cell_metrics(crate::core::CellMetrics::new(cell_w, cell_h));
                     }
                 }
+                #[cfg(unix)]
+                SessionSource::Attached { .. } => {}
                 #[cfg(test)]
                 SessionSource::Headless { session } => {
                     session.record_cell_metrics(crate::core::CellMetrics::new(cell_w, cell_h));
                 }
-                _ => {}
             }
         }
     }

@@ -59,7 +59,7 @@ jobs:
         id: ver
         # C40: route the untrusted workflow input through env: so it reaches the
         # shell as data in a quoted "$INPUT_VERSION" rather than being spliced
-        # into the script text via ${{ ... }} (injection-safe).
+        # into the script text as a raw workflow expression (injection-safe).
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
