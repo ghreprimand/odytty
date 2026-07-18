@@ -746,10 +746,22 @@ fn broken_pipe_on_input_write_stays_fatal() {
         detached: true,
     }));
     let mut writer = AttachInputWriter { client };
-    assert!(
-        writer.write(b"ls\n").is_err(),
-        "a dead link must surface as an error"
-    );
+    // Bounded retry rather than a single write: under a parallel test run,
+    // a concurrent fork (PTY-spawning tests) can transiently duplicate the
+    // dropped peer fd in the pre-exec window, letting one small write buffer
+    // successfully. The duplicate closes at exec; the error must surface
+    // within the deadline and the drop-and-continue path must never eat it.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let surfaced = loop {
+        if writer.write(b"ls\n").is_err() {
+            break true;
+        }
+        if Instant::now() >= deadline {
+            break false;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(surfaced, "a dead link must surface as an error");
 }
 
 /// Kind classification for the drop-vs-fatal split, including the anyhow
