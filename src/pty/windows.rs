@@ -838,19 +838,28 @@ fn spawn_child_waiter(
             let mut code: u32 = 0;
             // SAFETY: live owned process handle; the child has exited.
             let got_code = unsafe { GetExitCodeProcess(handle, &mut code) }.is_ok();
-            if got_code
-                && should_report_startup_failure(code, elapsed, pcon.is_teardown_requested())
-            {
+            // Close the pseudoconsole FIRST: it is the teardown edge the rest
+            // of the session waits on (reader EOF → ShellExited). Diagnostics
+            // come after, so a blocked or dead stderr can never delay or wedge
+            // session teardown behind console I/O.
+            let teardown_requested = pcon.is_teardown_requested();
+            pcon.close_once();
+            if got_code && should_report_startup_failure(code, elapsed, teardown_requested) {
                 let line = describe_immediate_exit(code);
                 // stderr (routed to the launching console via AttachConsole) is
                 // the durable channel; the pane copy is best-effort (the tab may
-                // close before a frame draws).
-                eprintln!("odytty:{}", line.replace(['\r', '\n'], " ").trim());
+                // close before a frame draws). Non-panicking write: a failed
+                // stderr write in a detached-console session must not panic the
+                // waiter thread.
+                let _ = writeln!(
+                    io::stderr(),
+                    "odytty:{}",
+                    line.replace(['\r', '\n'], " ").trim()
+                );
                 if let Ok(mut slot) = diagnostic.lock() {
                     *slot = Some(line);
                 }
             }
-            pcon.close_once();
         })
         .ok()
 }

@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Hardening: id-wrap collisions, ConPTY teardown ordering, snapshot reserve cap
+
+Three defensive fixes for edge conditions that are cheap to close.
+
+Hardened: the hyperlink and button id allocators handled u32 wrap by
+restarting at 1 — an id that can still belong to a live entry, which the new
+insert would overwrite, silently retargeting every span referencing it. Both
+allocators now loop past ids still held by live entries to the next free id;
+both tables are bounded, so a free id always exists. Wrap tests pin the skip
+behavior and the survival of the original entry.
+
+Hardened (Windows): the ConPTY child-waiter closed the pseudoconsole after
+writing its startup-failure diagnostic to stderr. The close is the teardown
+edge the session waits on (reader EOF), so a blocked or dead stderr could
+delay teardown behind console I/O — and `eprintln!` panics outright if the
+stderr write fails in a detached-console session. The close now runs first
+and the diagnostic uses a non-panicking write. Unix backends are untouched.
+
+Hardened: the snapshot-envelope row decoder reserved capacity for the
+declared row count before reading any row. A corrupt or hostile count far
+beyond the actual payload could force a large up-front allocation before the
+first short read failed; the reserve is now capped by what the remaining
+payload could possibly encode.
+
 ## 2026-07-18 -- Session-host and PTY reliability: teardown leaks, EINTR, zombie window, bounded CLI writes
 
 A batch of reliability fixes across the session host, the attach client, and

@@ -459,9 +459,19 @@ impl ButtonTable {
         if self.entries.len() >= MAX_BUTTON_ENTRIES {
             return None;
         }
-        let next = self.next_id.checked_add(1).unwrap_or(1).max(1);
+        // On u32 wrap, advance PAST ids still held by live entries instead of
+        // restarting blindly at 1 — reusing a live id would overwrite that
+        // entry and retarget every span referencing it. The entry cap above
+        // guarantees a free id exists, so the loop terminates.
+        let mut next = self.next_id;
+        let id = loop {
+            next = next.checked_add(1).unwrap_or(1).max(1);
+            let candidate = ButtonId::new(NonZeroU32::new(next).expect("next button id nonzero"));
+            if !self.entries.contains_key(&candidate) {
+                break candidate;
+            }
+        };
         self.next_id = next;
-        let id = ButtonId::new(NonZeroU32::new(next).expect("next button id is nonzero"));
         self.entries.insert(
             id,
             ButtonEntry {
@@ -729,6 +739,31 @@ impl SpanReprojector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn id_wrap_skips_ids_still_held_by_live_entries() {
+        let mut table = ButtonTable::default();
+        let first = table
+            .define(7, ButtonIcon::Run, ButtonScope::Block)
+            .unwrap();
+        assert_eq!(first.get(), 1, "first id is 1");
+        // Force the allocator to the wrap point: after u32::MAX the next
+        // candidate is 1, still live — it must be skipped, not overwritten.
+        table.next_id = u32::MAX - 1;
+        let pre_wrap = table
+            .define(8, ButtonIcon::Run, ButtonScope::Block)
+            .unwrap();
+        assert_eq!(pre_wrap.get(), u32::MAX);
+        let post_wrap = table
+            .define(9, ButtonIcon::Run, ButtonScope::Block)
+            .unwrap();
+        assert_ne!(post_wrap, first, "live id 1 must not be reused");
+        assert_eq!(post_wrap.get(), 2, "1 is skipped, 2 is free");
+        assert!(
+            table.get(first).is_some(),
+            "the original entry survives the wrap"
+        );
+    }
 
     // --- point-chip geometry (shared by render + hit-test) ---
 

@@ -81,9 +81,19 @@ impl HyperlinkTable {
             return Some(id);
         }
 
-        let next = self.next_id.checked_add(1).unwrap_or(1).max(1);
+        // On u32 wrap, advance PAST ids still held by live entries instead of
+        // restarting blindly at 1 — reusing a live id would overwrite that
+        // entry and silently retarget every span referencing it. The table is
+        // budget-bounded, so a free id always exists and the loop terminates.
+        let mut next = self.next_id;
+        let id = loop {
+            next = next.checked_add(1).unwrap_or(1).max(1);
+            let candidate = LinkId::new(NonZeroU32::new(next).expect("next hyperlink id nonzero"));
+            if !self.entries.contains_key(&candidate) {
+                break candidate;
+            }
+        };
         self.next_id = next;
-        let id = LinkId::new(NonZeroU32::new(next).expect("next hyperlink id is nonzero"));
         let link = Hyperlink { id, uri, osc_id };
         self.total_bytes = self.total_bytes.saturating_add(Self::entry_cost(&link));
         self.entries.insert(id, link);
@@ -189,6 +199,32 @@ pub fn uri_has_openable_scheme(uri: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn id_wrap_skips_ids_still_held_by_live_entries() {
+        let mut table = HyperlinkTable::default();
+        let first = table
+            .open(b"id=keep", &[b"https://example.com/keep".as_slice()])
+            .unwrap();
+        assert_eq!(first.get(), 1, "first id is 1");
+        // Force the allocator to the wrap point: after u32::MAX the next
+        // candidate is 1, which is still live — it must be skipped, not
+        // overwritten.
+        table.next_id = u32::MAX - 1;
+        let wrapped = table
+            .open(b"id=new", &[b"https://example.com/new".as_slice()])
+            .unwrap();
+        assert_eq!(wrapped.get(), u32::MAX, "pre-wrap id still free");
+        let after_wrap = table
+            .open(b"id=post", &[b"https://example.com/post".as_slice()])
+            .unwrap();
+        assert_ne!(after_wrap, first, "live id 1 must not be reused");
+        assert_eq!(after_wrap.get(), 2, "1 is skipped, 2 is free");
+        assert!(
+            table.get(first).is_some(),
+            "the original entry survives the wrap"
+        );
+    }
 
     #[test]
     fn id_dedups_only_when_id_and_uri_match() {

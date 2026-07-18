@@ -906,7 +906,12 @@ fn read_rows(
             max: max_rows,
         });
     }
-    let mut rows = Vec::with_capacity(count);
+    // Reserve no more than the remaining payload could possibly encode: a row
+    // costs at least 5 wire bytes (wrapped flag + width u32), so a declared
+    // count far beyond the actual payload cannot force a huge up-front
+    // allocation before the first short read fails. The Vec grows normally if
+    // the honest count exceeds the estimate.
+    let mut rows = Vec::with_capacity(count.min(reader.remaining() / 5));
     for _ in 0..count {
         let wrapped = reader.read_bool()?;
         let width = reader.read_u32()? as usize;
