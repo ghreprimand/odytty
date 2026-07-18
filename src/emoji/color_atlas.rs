@@ -26,15 +26,27 @@ pub struct ColorGlyphKey {
     pub glyph_id: ColorGlyphId,
     pub px_bits: u32,
     pub scale_bits: u32,
+    /// Cell span the bitmap was rendered for. Part of the identity: the same
+    /// glyph id requested at a different span must rasterize its own slot —
+    /// without this, whichever width rendered first would be returned for
+    /// every later width (a one- vs two-cell presentation collision).
+    pub width_cells: u8,
 }
 
 impl ColorGlyphKey {
-    pub fn new(font_id: u64, glyph_id: ColorGlyphId, px_size: f32, scale: f32) -> Self {
+    pub fn new(
+        font_id: u64,
+        glyph_id: ColorGlyphId,
+        px_size: f32,
+        scale: f32,
+        width_cells: u8,
+    ) -> Self {
         Self {
             font_id,
             glyph_id,
             px_bits: px_size.to_bits(),
             scale_bits: scale.to_bits(),
+            width_cells,
         }
     }
 }
@@ -254,11 +266,11 @@ mod tests {
     }
 
     fn key(id: u32) -> ColorGlyphKey {
-        ColorGlyphKey::new(7, ColorGlyphId::Glyph(id), 16.0, 1.0)
+        ColorGlyphKey::new(7, ColorGlyphId::Glyph(id), 16.0, 1.0, 1)
     }
 
     fn cluster_key(id: u32) -> ColorGlyphKey {
-        ColorGlyphKey::new(7, ColorGlyphId::Cluster(u64::from(id)), 16.0, 1.0)
+        ColorGlyphKey::new(7, ColorGlyphId::Cluster(u64::from(id)), 16.0, 1.0, 1)
     }
 
     fn rgba(width_cells: u8, color: [u8; 4]) -> Vec<u8> {
@@ -285,9 +297,31 @@ mod tests {
     }
 
     #[test]
+    fn same_glyph_at_different_widths_gets_distinct_slots() {
+        // width_cells is part of the key identity: the same glyph id rendered
+        // for a one-cell and a two-cell presentation must occupy separate
+        // slots, not return whichever width happened to rasterize first.
+        let mut atlas = ColorGlyphAtlas::new(cell());
+        let narrow = ColorGlyphKey::new(7, ColorGlyphId::Glyph(11), 16.0, 1.0, 1);
+        let wide = ColorGlyphKey::new(7, ColorGlyphId::Glyph(11), 16.0, 1.0, 2);
+        assert_ne!(narrow, wide, "width_cells must differentiate the keys");
+        let nb = atlas
+            .insert_premultiplied(narrow, 1, &rgba(1, [1, 2, 3, 4]))
+            .expect("narrow insert");
+        let wb = atlas
+            .insert_premultiplied(wide, 2, &rgba(2, [5, 6, 7, 8]))
+            .expect("wide insert");
+        assert_eq!(atlas.lookup(narrow), Some(nb));
+        assert_eq!(atlas.lookup(wide), Some(wb));
+        assert_eq!(nb.width_cells, 1);
+        assert_eq!(wb.width_cells, 2);
+        assert_ne!(nb.uv, wb.uv, "distinct slots, distinct UVs");
+    }
+
+    #[test]
     fn two_cell_slot_uses_double_width_uv_without_char_keying() {
         let mut atlas = ColorGlyphAtlas::new(cell());
-        let cluster = ColorGlyphKey::new(9, ColorGlyphId::Cluster(55), 18.0, 2.0);
+        let cluster = ColorGlyphKey::new(9, ColorGlyphId::Cluster(55), 18.0, 2.0, 2);
         let bounds = atlas
             .insert_premultiplied(cluster, 2, &rgba(2, [4, 8, 12, 16]))
             .expect("insert");

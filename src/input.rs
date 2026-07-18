@@ -655,18 +655,23 @@ fn encode_keypad(normal: &[u8], application_final: &[u8], modes: KeyModes) -> Ve
 /// Map a character to its ASCII control byte, if one exists.
 ///
 /// Covers Ctrl-A..Z (case-insensitive) and the classic punctuation controls
-/// (`Ctrl-[`, `Ctrl-\`, `Ctrl-]`, `Ctrl-^`, `Ctrl-_`, `Ctrl-Space`). Anything
-/// without a control mapping returns `None`, which [`encode_key`] treats as no
-/// output.
+/// (`Ctrl-@`, `Ctrl-[`, `Ctrl-\`, `Ctrl-]`, `Ctrl-^`, `Ctrl-_`, `Ctrl-?`,
+/// `Ctrl-Space`). Anything without a control mapping returns `None`, which
+/// [`encode_key`] treats as no output.
 pub fn ctrl_char(ch: char) -> Option<u8> {
     match ch {
         'a'..='z' => Some((ch as u8) - b'a' + 1),
         'A'..='Z' => Some((ch as u8) - b'A' + 1),
+        // Ctrl-@ is NUL (the xterm/VT classic alongside Ctrl-Space); Ctrl-?
+        // is DEL. Both were missing while every neighboring punctuation
+        // control was mapped.
+        '@' => Some(0x00),
         '[' => Some(0x1b),
         '\\' => Some(0x1c),
         ']' => Some(0x1d),
         '^' => Some(0x1e),
         '_' => Some(0x1f),
+        '?' => Some(0x7f),
         ' ' => Some(0),
         _ => None,
     }
@@ -1039,6 +1044,10 @@ mod tests {
         assert_eq!(ctrl_char(' '), Some(0));
         assert_eq!(ctrl_char('a'), Some(1));
         assert_eq!(ctrl_char('1'), None);
+        // The classic NUL / DEL pair: Ctrl-@ (NUL, like Ctrl-Space) and
+        // Ctrl-? (DEL) round out the xterm punctuation ladder.
+        assert_eq!(ctrl_char('@'), Some(0x00));
+        assert_eq!(ctrl_char('?'), Some(0x7f));
     }
 
     #[test]

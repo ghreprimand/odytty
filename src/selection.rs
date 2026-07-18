@@ -409,14 +409,34 @@ fn snapshot_cell_char(snapshot: &Snapshot, point: CellPoint) -> Option<char> {
         .map(|cell| cell.ch)
 }
 
+/// The character a cell CONTRIBUTES to word selection: a wide-continuation
+/// spacer is transparent, resolving to its lead's character, so the word walk
+/// sees a CJK run as consecutive word characters instead of stopping at the
+/// blank spacer after every lead. A double-click on either half of a wide
+/// glyph behaves identically.
+fn word_walk_char(snapshot: &Snapshot, point: CellPoint) -> Option<char> {
+    if point.row >= snapshot.dimensions.rows || point.column >= snapshot.dimensions.columns {
+        return None;
+    }
+    let index = point.row * snapshot.dimensions.columns + point.column;
+    let cell = snapshot.cells.get(index)?;
+    if cell.wide_continuation && point.column > 0 {
+        return snapshot.cells.get(index - 1).map(|lead| lead.ch);
+    }
+    Some(cell.ch)
+}
+
 pub fn word_range_at(snapshot: &Snapshot, point: CellPoint) -> Option<SelectionRange> {
-    if !is_selection_word_char(snapshot_cell_char(snapshot, point)?) {
+    // `word_walk_char` (not the raw cell char) throughout: a click on a
+    // wide-continuation spacer resolves to its lead, and the walks look
+    // through spacers so a run of wide word characters selects whole.
+    if !is_selection_word_char(word_walk_char(snapshot, point)?) {
         return None;
     }
 
     let mut start = point.column;
     while start > 0
-        && snapshot_cell_char(
+        && word_walk_char(
             snapshot,
             CellPoint {
                 row: point.row,
@@ -430,7 +450,7 @@ pub fn word_range_at(snapshot: &Snapshot, point: CellPoint) -> Option<SelectionR
 
     let mut end = point.column;
     while end + 1 < snapshot.dimensions.columns
-        && snapshot_cell_char(
+        && word_walk_char(
             snapshot,
             CellPoint {
                 row: point.row,
@@ -1333,6 +1353,48 @@ mod tests {
 
         assert_eq!(selected_text_block(&snapshot, range), "bcd\nhij\nnop");
         assert_eq!(selected_text(&snapshot, range), "bcdef\nghijkl\nmnop");
+    }
+
+    #[test]
+    fn word_selection_walks_through_wide_continuation_spacers() {
+        // "a" | wide lead | spacer | wide lead | spacer | "b": a CJK word.
+        // The spacers are transparent to the word walk (they resolve to their
+        // lead), so a double-click anywhere in the run selects the whole run,
+        // including a click landing on a spacer cell.
+        let snapshot = Snapshot {
+            dimensions: Dimensions::new(8, 1),
+            cursor: Position::default(),
+            cursor_visible: true,
+            colors: crate::core::DynamicColors::default(),
+            cells: vec![
+                Cell::new(' ', Attrs::default()),
+                Cell::new('\u{6f22}', Attrs::default()),
+                Cell::wide_spacer(Attrs::default()),
+                Cell::new('\u{5b57}', Attrs::default()),
+                Cell::wide_spacer(Attrs::default()),
+                Cell::new('b', Attrs::default()),
+                Cell::new(' ', Attrs::default()),
+                Cell::new(' ', Attrs::default()),
+            ],
+        };
+        let expected = Some(SelectionRange {
+            start: CellPoint { row: 0, column: 1 },
+            end: CellPoint { row: 0, column: 5 },
+        });
+        // Click the first lead, a spacer, and the trailing narrow char: all
+        // resolve to the same full-run range.
+        for column in [1, 2, 4, 5] {
+            assert_eq!(
+                word_range_at(&snapshot, CellPoint { row: 0, column }),
+                expected,
+                "click on column {column} must select the whole run"
+            );
+        }
+        // The leading blank is still not a word.
+        assert_eq!(
+            word_range_at(&snapshot, CellPoint { row: 0, column: 0 }),
+            None
+        );
     }
 
     #[test]

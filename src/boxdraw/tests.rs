@@ -697,3 +697,29 @@ fn segmented_digit_masks_are_distinct_per_digit() {
         }
     }
 }
+
+#[test]
+fn eighth_strips_never_vanish_on_tiny_cells() {
+    // On cells narrower/shorter than 8px, a 1/8 strip's two rounded bounds
+    // can land on the same pixel; the >=1px floor keeps every strip visible,
+    // matching the EighthEdges strips. Sweep all six vertical strip columns
+    // and all six horizontal strip rows over degenerate cell sizes.
+    for (w, h) in [(3u32, 5u32), (5, 7), (2, 2), (7, 3)] {
+        for ch in '\u{1FB70}'..='\u{1FB75}' {
+            let buf = coverage(ch, w, h).expect("covered");
+            assert!(
+                buf.iter().any(|&p| p > 0),
+                "vertical strip U+{:04X} vanished at {w}x{h}",
+                ch as u32
+            );
+        }
+        for ch in '\u{1FB76}'..='\u{1FB7B}' {
+            let buf = coverage(ch, w, h).expect("covered");
+            assert!(
+                buf.iter().any(|&p| p > 0),
+                "horizontal strip U+{:04X} vanished at {w}x{h}",
+                ch as u32
+            );
+        }
+    }
+}

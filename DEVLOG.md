@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Input and render polish: Ctrl-@/Ctrl-?, CJK double-click, emoji width keying, eighth-strip floor
+
+Four small correctness fixes on the input and render surfaces.
+
+Fixed: `Ctrl-@` and `Ctrl-?` produced nothing. The control-character ladder
+covered A-Z and the classic punctuation controls but skipped the two ends of
+the set: `Ctrl-@` now sends NUL (matching `Ctrl-Space`) and `Ctrl-?` sends
+DEL, completing the xterm ladder.
+
+Fixed: double-click word selection stopped at wide characters. A wide glyph
+occupies a lead cell plus a blank continuation spacer, and the word walk read
+the spacer's literal blank as a word boundary — so double-clicking a CJK run
+selected at most one character. Continuation spacers are now transparent to
+the walk (they resolve to their lead's character), so a CJK word selects
+whole from a click on either half of any of its glyphs.
+
+Fixed: the color-glyph atlas keyed bitmaps without their cell span. The same
+glyph id requested at a different width (one- vs two-cell presentation)
+returned whichever bitmap rasterized first, at the first width. `width_cells`
+is now part of the key identity, so each presentation owns its slot.
+
+Fixed: one-eighth block strips could vanish on small cells. The vertical and
+horizontal 1/8-strip glyphs computed both edges by rounding, and on cells
+narrower or shorter than 8px the two bounds could land on the same pixel,
+producing an empty fill. Strips now carry the same >=1px floor the
+eighth-edge combos already had, swept by a degenerate-cell-size test across
+all twelve strip glyphs.
+
+All four are cross-platform; the input ladder feeds every PTY backend and the
+render fixes live in shared glyph modules.
+
 ## 2026-07-18 -- Parser and core-screen hardening: EL2 button release, invalid DECSTBM, kitty row clamp, linear garbage sweep
 
 Four fixes in the escape-sequence core, from a wide correctness audit of the

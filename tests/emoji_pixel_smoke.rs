@@ -290,7 +290,7 @@ fn cluster_run_suppresses_all_covered_source_foregrounds() {
         return;
     };
     let snapshot = snapshot_for("AB", 4);
-    let key = odytty::emoji::ColorGlyphKey::new(1, ColorGlyphId::Cluster(9), 24.0, 1.0);
+    let key = odytty::emoji::ColorGlyphKey::new(1, ColorGlyphId::Cluster(9), 24.0, 1.0, 2);
     let runs = [odytty::grid::ColorGlyphRun::cluster(0, 0, key, 2)];
 
     let mut plain = Vec::<Vertex>::new();

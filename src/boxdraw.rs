@@ -1106,14 +1106,22 @@ fn render_block(c: &mut Canvas, block: Block) {
             c.fill(x0, w as i32, 0, h as i32);
         }
         Block::VerticalEighthStrip(col) => {
+            // At least one pixel wide, like the EighthEdges strips: on cells
+            // narrower than 8px both bounds can round to the same column and
+            // the glyph would vanish entirely.
             let x0 = (wf * (col - 1) as f32 / 8.0).round() as i32;
-            let x1 = (wf * col as f32 / 8.0).round() as i32;
-            c.fill(x0, x1, 0, h as i32);
+            let x1 = ((wf * col as f32 / 8.0).round() as i32)
+                .max(x0 + 1)
+                .min(w as i32);
+            c.fill(x0.min(w as i32 - 1), x1, 0, h as i32);
         }
         Block::HorizontalEighthStrip(row) => {
+            // Same >=1px floor as the vertical strip, for short cells.
             let y0 = (hf * (row - 1) as f32 / 8.0).round() as i32;
-            let y1 = (hf * row as f32 / 8.0).round() as i32;
-            c.fill(0, w as i32, y0, y1);
+            let y1 = ((hf * row as f32 / 8.0).round() as i32)
+                .max(y0 + 1)
+                .min(h as i32);
+            c.fill(0, w as i32, y0.min(h as i32 - 1), y1);
         }
         Block::RightHalf => c.fill((wf / 2.0).round() as i32, w as i32, 0, h as i32),
         Block::UpperEighth => c.fill(0, w as i32, 0, (hf / 8.0).round() as i32),

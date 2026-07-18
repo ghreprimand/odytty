@@ -91,6 +91,7 @@ impl EmojiRasterizer {
             identity.color_glyph_id(*glyph_id, text),
             atlas.cell.height as f32,
             1.0,
+            width_cells,
         );
         if atlas.lookup(key).is_some() {
             return Some(key);

@@ -159,7 +159,7 @@ pub(crate) fn composite_image_layer(
 }
 
 pub(crate) fn color_key(id: u32) -> ColorGlyphKey {
-    ColorGlyphKey::new(1, ColorGlyphId::Glyph(id), PX, 1.0)
+    ColorGlyphKey::new(1, ColorGlyphId::Glyph(id), PX, 1.0, 1)
 }
 
 pub(crate) fn premul_solid(cell: CellSize, width_cells: u8, rgba: [u8; 4]) -> Vec<u8> {
