@@ -66,6 +66,25 @@ const DEFAULT_SLOT_GAP: usize = 1;
 /// affordance — no ring at rest, so it never competes with a real tab slot).
 const NEW_TAB_ROWS: usize = 1;
 
+/// Rows the always-visible auto-hide toggle control occupies at the rail's
+/// bottom edge (RAIL-AUTOHIDE-CTL): a single glyph row. It is pinned below the
+/// workspace slots and the `+` affordance so the escape hatch for the rail lives
+/// on the rail itself.
+pub(super) const AUTOHIDE_CONTROL_ROWS: usize = 1;
+/// Blank spacer rows between the slot/overflow region and the control, so the
+/// control reads as set apart (mirrors the RAIL-PLUS-GAP treatment above the
+/// `+`). Non-interactive.
+const AUTOHIDE_SEPARATOR_ROWS: usize = 1;
+/// Total rows the control reserves at the bottom of the rail region: the control
+/// row plus its separator. The slot/overflow placement runs against the region
+/// ABOVE this band, so overflow indicators and slots never collide with it.
+const AUTOHIDE_RESERVE_ROWS: usize = AUTOHIDE_CONTROL_ROWS + AUTOHIDE_SEPARATOR_ROWS;
+
+/// Double-chevron glyphs pointing toward the rail edge — the "tuck the rail
+/// away" affordance, mirrored by [`RailSide`].
+const AUTOHIDE_CHEVRON_LEFT: char = '\u{00ab}'; // «
+const AUTOHIDE_CHEVRON_RIGHT: char = '\u{00bb}'; // »
+
 /// Marker painted on a bound workspace's rail row (ODP-7B): a compact
 /// bidirectional-link glyph in a text-side accent role that reads as "everything
 /// opened here is remote". Placed in the rail-edge inset column (the outer,
@@ -217,8 +236,17 @@ pub(super) struct RailLayout {
     /// indicator paints in row 0 and is informational-only in R1.
     overflow_above: Option<usize>,
     /// When some tabs are scrolled off the BOTTOM: `Some(hidden_count)`. The `▼`
-    /// indicator paints in the last row and is informational-only in R1.
+    /// indicator paints in the last row of the SLOT REGION (above the reserved
+    /// control band) and is informational-only in R1.
     overflow_below: Option<usize>,
+    /// Row of the always-visible auto-hide toggle control at the rail's bottom
+    /// edge (RAIL-AUTOHIDE-CTL), or `None` on a degenerate (empty) region. The
+    /// slot/overflow region is bounded ABOVE this so nothing collides with it.
+    pub(super) autohide_row: Option<usize>,
+    /// Height (rows) of the slot/overflow region — the window rows the rail
+    /// spans MINUS the reserved control band. Slot placement and the `▼`
+    /// overflow indicator are bounded by this, not by the full rail height.
+    slot_region_rows: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -260,6 +288,7 @@ impl TabRail {
         geom: RailGeom,
         panel_strength: f32,
         bound_accent: Srgb,
+        autohide_on: bool,
     ) -> TabRailOutput {
         self.render_with_pressed(
             source,
@@ -273,6 +302,7 @@ impl TabRail {
             geom,
             panel_strength,
             bound_accent,
+            autohide_on,
         )
     }
 
@@ -290,6 +320,7 @@ impl TabRail {
         geom: RailGeom,
         panel_strength: f32,
         bound_accent: Srgb,
+        autohide_on: bool,
     ) -> TabRailOutput {
         let _ = origin_px;
         if rail_cols == 0 || grid_rows == 0 || cell.width == 0 || cell.height == 0 {
@@ -436,20 +467,69 @@ impl TabRail {
         }
 
         // Overflow indicators (informational-only in R1): `▲N` in row 0, `▼N` in
-        // the last row. Painted as dim-foreground glyphs over the wallpaper.
+        // the last row of the SLOT REGION (above the reserved control band).
+        // Painted as dim-foreground glyphs over the wallpaper.
         if let Some(hidden) = layout.overflow_above {
             paint_overflow_indicator(&mut cells, 0, rail_cols, grid_rows, '▲', hidden, dim_plus);
         }
         if let Some(hidden) = layout.overflow_below {
+            let below_row = layout.slot_region_rows.saturating_sub(1);
             paint_overflow_indicator(
-                &mut cells,
-                grid_rows - 1,
-                rail_cols,
-                grid_rows,
-                '▼',
-                hidden,
-                dim_plus,
+                &mut cells, below_row, rail_cols, grid_rows, '▼', hidden, dim_plus,
             );
+        }
+
+        // RAIL-AUTOHIDE-CTL: the always-visible auto-hide toggle at the rail's
+        // bottom edge. A double-chevron pointing toward the rail edge; the
+        // resting glyph recedes into the inactive floor, hover lifts it to the
+        // panel's hover treatment, and an ACTIVE auto-hide state is held in the
+        // active-label tint with the chevron flipped to point inward (so the
+        // pinned-off and auto-hiding states read distinctly).
+        if let Some(ctl_row) = layout.autohide_row.filter(|&r| r < grid_rows) {
+            let is_hovered = matches!(self.hover, Some(TabHit::AutohideToggle));
+            // Point toward the rail edge when OFF (tuck away), inward when ON.
+            let toward_edge = matches!(placement, RailSide::Left);
+            let chevron = if autohide_on ^ toward_edge {
+                AUTOHIDE_CHEVRON_RIGHT
+            } else {
+                AUTOHIDE_CHEVRON_LEFT
+            };
+            let (ctl_bg, ctl_fg) = if is_hovered {
+                (hover_fill, hover_lbl)
+            } else if autohide_on {
+                (panel_surface, active_lbl)
+            } else {
+                (panel_surface, dim_plus)
+            };
+            if is_hovered {
+                for col in 0..rail_cols {
+                    cells[ctl_row * rail_cols + col].attrs.background = ctl_bg;
+                }
+            }
+            let mut a = Attrs::default();
+            a.foreground = ctl_fg;
+            a.background = ctl_bg;
+            if autohide_on {
+                a.set_bold(true);
+            }
+            // Glyph at the label column, matching the `+` affordance's alignment.
+            let ccol = SLOT_LABEL_START_COL.min(rail_cols.saturating_sub(1));
+            let g = &mut cells[ctl_row * rail_cols + ccol];
+            g.ch = chevron;
+            g.attrs = a;
+            // On-hover label when the rail is wide enough to hold it beside the
+            // glyph without truncation (glyph-only otherwise).
+            if is_hovered {
+                let label = "auto-hide";
+                let start = ccol + 2;
+                if start + label.chars().count() <= rail_cols {
+                    for (i, ch) in label.chars().enumerate() {
+                        let g = &mut cells[ctl_row * rail_cols + start + i];
+                        g.ch = ch;
+                        g.attrs = a;
+                    }
+                }
+            }
         }
 
         // Phosphor Flat draws no chrome quads — the treatment is entirely cell
@@ -482,11 +562,19 @@ pub(super) fn compute_rail_layout(
     if rail_cols == 0 || grid_rows == 0 {
         return layout;
     }
+    // RAIL-AUTOHIDE-CTL: reserve the bottom band for the always-visible auto-hide
+    // toggle, then place slots/overflow against the region ABOVE it. The control
+    // pins to the true bottom row; the slot region loses the reserved rows so
+    // overflow indicators and slots can never collide with the control.
+    let reserve = AUTOHIDE_RESERVE_ROWS.min(grid_rows);
+    let region_rows = grid_rows - reserve;
+    layout.autohide_row = Some(grid_rows - 1);
+    layout.slot_region_rows = region_rows;
     let top_margin = geom.top_margin();
     let stride = geom.stride();
     let tab_count = source.tab_count();
     if tab_count == 0 {
-        if grid_rows >= top_margin + NEW_TAB_ROWS {
+        if region_rows >= top_margin + NEW_TAB_ROWS {
             layout.new_tab_rows = Some((top_margin, top_margin + NEW_TAB_ROWS));
         }
         return layout;
@@ -504,7 +592,7 @@ pub(super) fn compute_rail_layout(
     let nt_start = last_slot_end + plus_gap;
     let total_needed = nt_start + NEW_TAB_ROWS;
 
-    if total_needed <= grid_rows {
+    if total_needed <= region_rows {
         for i in 0..tab_count {
             let start = top_margin + i * stride;
             layout
@@ -541,7 +629,7 @@ pub(super) fn compute_rail_layout(
     // scroll the active tab out of view. For the default 1-row gap this is
     // arithmetically identical to the previous `grid_rows - 2` band.
     let top_offset = top_margin.max(1);
-    let band = grid_rows.saturating_sub(1 + top_offset);
+    let band = region_rows.saturating_sub(1 + top_offset);
     // n slots need n*slot_rows + (n-1)*slot_gap = n*stride - slot_gap rows.
     let capacity = ((band + geom.slot_gap) / stride).max(1).min(tab_count);
     let max_first = tab_count - capacity;
@@ -554,8 +642,9 @@ pub(super) fn compute_rail_layout(
     let mut row = top;
     for j in 0..(tab_count - first) {
         let end = row + geom.slot_rows;
-        // Always keep the last region row free for a potential `▼`.
-        if end > grid_rows.saturating_sub(1) {
+        // Always keep the last region row free for a potential `▼` (the region
+        // excludes the reserved control band at the rail's bottom edge).
+        if end > region_rows.saturating_sub(1) {
             break;
         }
         layout
@@ -780,6 +869,7 @@ mod tests {
             GEOM,
             PANEL_STRENGTH,
             ACCENT,
+            false,
         )
     }
 
@@ -863,6 +953,7 @@ mod tests {
                 GEOM,
                 strength,
                 ACCENT,
+                false,
             );
             let marker = out.glyphs[slot.label_row * RAIL_COLS + SLOT_LABEL_START_COL].attrs;
             assert!(marker.bold());
@@ -886,6 +977,7 @@ mod tests {
             GEOM,
             PANEL_STRENGTH,
             ACCENT,
+            false,
         );
         assert!(out.glyphs.is_empty(), "zero rail_cols → empty");
         let out = rail().render(
@@ -899,6 +991,7 @@ mod tests {
             GEOM,
             PANEL_STRENGTH,
             ACCENT,
+            false,
         );
         assert!(out.glyphs.is_empty(), "zero grid_rows → empty");
     }
@@ -1049,6 +1142,7 @@ mod tests {
             GEOM,
             0.5,
             ACCENT,
+            false,
         );
         // An inter-slot gap cell is the panel surface.
         let gap_row = RAIL_TOP_MARGIN_ROWS + SLOT_ROWS;
@@ -1336,6 +1430,7 @@ mod tests {
             GEOM,
             PANEL_STRENGTH,
             ACCENT,
+            false,
         );
         let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
         let slot = &layout.slots[0];
@@ -1650,7 +1745,10 @@ mod tests {
     #[test]
     fn hit_below_all_slots_is_none() {
         let src = MockSource::new(&["a"], 0);
-        let hit = hit_at(GRID_ROWS - 1, RAIL_LABEL_PAD, &src);
+        // A mid-region empty row below the slots and the `+`, but above the
+        // reserved auto-hide control band, is non-interactive. (The true bottom
+        // row is now the auto-hide toggle; see `bottom_row_is_the_autohide_toggle`.)
+        let hit = hit_at(GRID_ROWS - 5, RAIL_LABEL_PAD, &src);
         assert_eq!(hit, TabHit::None, "empty band below slots → None");
     }
 
@@ -1683,7 +1781,10 @@ mod tests {
             assert_eq!(hit, TabHit::None, "▲ indicator row → None");
         }
         if layout.overflow_below.is_some() {
-            let hit = hit_at(GRID_ROWS - 1, RAIL_LABEL_PAD, &src);
+            // The `▼` indicator now sits at the bottom of the SLOT REGION, above
+            // the reserved control band, not the true last row.
+            let below_row = layout.slot_region_rows - 1;
+            let hit = hit_at(below_row, RAIL_LABEL_PAD, &src);
             assert_eq!(hit, TabHit::None, "▼ indicator row → None");
         }
     }
@@ -1696,6 +1797,159 @@ mod tests {
         assert!(
             out.glyphs.iter().any(|g| g.ch == '▲' || g.ch == '▼'),
             "an overflow indicator glyph is painted"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // RAIL-AUTOHIDE-CTL: bottom-edge auto-hide toggle control
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn autohide_control_pins_to_the_bottom_row_and_reserves_a_separator() {
+        let src = MockSource::new(&["a", "b"], 0);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
+        assert_eq!(
+            layout.autohide_row,
+            Some(GRID_ROWS - 1),
+            "the control pins to the true bottom row"
+        );
+        assert_eq!(
+            layout.slot_region_rows,
+            GRID_ROWS - AUTOHIDE_RESERVE_ROWS,
+            "the slot region shrinks by the reserved control band"
+        );
+        // No slot may occupy the reserved band (region bottom .. rail bottom).
+        for slot in &layout.slots {
+            assert!(
+                slot.end_row <= layout.slot_region_rows,
+                "slot {} ends at {} inside the reserved control band",
+                slot.idx,
+                slot.end_row
+            );
+        }
+    }
+
+    #[test]
+    fn autohide_control_reserves_rows_without_overflow_collision() {
+        // Many tabs force the overflow path; the `▼` indicator and the last
+        // visible slot must both stay above the reserved control band.
+        let titles: Vec<&'static str> = vec!["t"; 100];
+        let src = MockSource::new(&titles, 80);
+        let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
+        assert_eq!(layout.autohide_row, Some(GRID_ROWS - 1));
+        assert!(layout.overflow_below.is_some(), "bottom tabs hidden → ▼");
+        for slot in &layout.slots {
+            assert!(
+                slot.end_row <= layout.slot_region_rows,
+                "overflow slot {} collides with the control band",
+                slot.idx
+            );
+        }
+    }
+
+    #[test]
+    fn bottom_row_hits_the_autohide_toggle_and_the_separator_is_inert() {
+        let src = MockSource::new(&["a", "b"], 0);
+        assert_eq!(
+            hit_at(GRID_ROWS - 1, RAIL_LABEL_PAD, &src),
+            TabHit::AutohideToggle,
+            "the bottom row toggles auto-hide"
+        );
+        assert_eq!(
+            hit_at(GRID_ROWS - 2, RAIL_LABEL_PAD, &src),
+            TabHit::None,
+            "the separator row above the control is inert"
+        );
+    }
+
+    #[test]
+    fn autohide_toggle_is_armed_ahead_of_a_slot_at_the_boundary() {
+        // A single compact slot placed to end exactly at the region bottom must
+        // not swallow a click on the control row directly below it.
+        let src = MockSource::new(&["only"], 0);
+        assert_eq!(
+            hit_at(GRID_ROWS - 1, RAIL_LABEL_PAD, &src),
+            TabHit::AutohideToggle
+        );
+    }
+
+    #[test]
+    fn autohide_control_absent_on_a_degenerate_region() {
+        let src = MockSource::new(&["a"], 0);
+        // Zero width or zero height => no rail region, hence no control.
+        assert_eq!(
+            compute_rail_layout(&src, 0, GRID_ROWS, GEOM).autohide_row,
+            None
+        );
+        assert_eq!(
+            compute_rail_layout(&src, RAIL_COLS, 0, GEOM).autohide_row,
+            None
+        );
+    }
+
+    #[test]
+    fn autohide_control_glyph_reads_state_distinctly() {
+        let src = MockSource::new(&["a", "b"], 0);
+        let ctl_row = GRID_ROWS - 1;
+        let col = SLOT_LABEL_START_COL;
+        let render_state = |on: bool| {
+            rail().render(
+                &src,
+                RAIL_COLS,
+                GRID_ROWS,
+                ORIGIN,
+                CELL,
+                RailSide::Left,
+                COLORS,
+                GEOM,
+                PANEL_STRENGTH,
+                ACCENT,
+                on,
+            )
+        };
+        let off = render_state(false);
+        let on = render_state(true);
+        let off_g = off.glyphs[ctl_row * RAIL_COLS + col];
+        let on_g = on.glyphs[ctl_row * RAIL_COLS + col];
+        // A chevron glyph is present in both states.
+        assert!(
+            off_g.ch == AUTOHIDE_CHEVRON_LEFT || off_g.ch == AUTOHIDE_CHEVRON_RIGHT,
+            "control paints a chevron when auto-hide is off"
+        );
+        // The on state is visually distinct: the chevron flips direction AND the
+        // active state is bold (pinned-off vs auto-hiding read differently).
+        assert_ne!(
+            (off_g.ch, off_g.attrs.bold()),
+            (on_g.ch, on_g.attrs.bold()),
+            "the auto-hide-on control is distinct from the off control"
+        );
+    }
+
+    #[test]
+    fn autohide_control_hover_lifts_the_row() {
+        let src = MockSource::new(&["a", "b"], 0);
+        let hovered = hovered_rail(TabHit::AutohideToggle);
+        let out = hovered.render(
+            &src,
+            RAIL_COLS,
+            GRID_ROWS,
+            ORIGIN,
+            CELL,
+            RailSide::Left,
+            COLORS,
+            GEOM,
+            PANEL_STRENGTH,
+            ACCENT,
+            false,
+        );
+        let ctl_row = GRID_ROWS - 1;
+        let hover_bg = bg_at(&out, ctl_row, 0);
+        let rest = render_default(&src);
+        let rest_bg = bg_at(&rest, ctl_row, 0);
+        assert_ne!(
+            luma(hover_bg),
+            luma(rest_bg),
+            "hover lifts the control row background"
         );
     }
 
@@ -1829,6 +2083,7 @@ mod tests {
                 GEOM,
                 PANEL_STRENGTH,
                 ACCENT,
+                false,
             )
             .glyphs;
         let grabbed = glyphs[4 * RAIL_COLS + 2];
@@ -1854,6 +2109,7 @@ mod tests {
             },
             PANEL_STRENGTH,
             ACCENT,
+            false,
         );
         assert!(output.glyphs.iter().all(|glyph| !glyph.attrs.underline()));
     }

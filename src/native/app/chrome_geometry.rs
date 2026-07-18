@@ -147,6 +147,10 @@ pub(super) struct ChromeSlotGeom {
     pub(super) axis: Axis,
     pub(super) slots: Vec<SlotGeom>,
     pub(super) new_slot: Option<PxRect>,
+    /// RAIL-AUTOHIDE-CTL: the auto-hide toggle rect at the rail's bottom edge, or
+    /// `None` for the top bar (which has no such control). Hit-tested ahead of
+    /// the slots so a click on it toggles rather than switching a workspace.
+    pub(super) autohide: Option<PxRect>,
     pub(super) cell: CellSize,
 }
 
@@ -207,6 +211,7 @@ impl ChromeSlotGeom {
             axis: Axis::Horizontal,
             slots,
             new_slot,
+            autohide: None,
             cell,
         }
     }
@@ -257,6 +262,13 @@ impl ChromeSlotGeom {
             width: rail_cols as f64 * cw,
             height: (end - start) as f64 * ch,
         });
+        // RAIL-AUTOHIDE-CTL: one-row rect at the rail's bottom edge.
+        let autohide = layout.autohide_row.map(|row| PxRect {
+            x: ox,
+            y: oy + row as f64 * ch,
+            width: rail_cols as f64 * cw,
+            height: tab_rail::AUTOHIDE_CONTROL_ROWS as f64 * ch,
+        });
         Self {
             band: PxRect {
                 x: ox,
@@ -267,6 +279,7 @@ impl ChromeSlotGeom {
             axis: Axis::Vertical,
             slots,
             new_slot,
+            autohide,
             cell,
         }
     }
@@ -274,6 +287,12 @@ impl ChromeSlotGeom {
     pub(super) fn hit(&self, point: PxPoint) -> TabHit {
         if !self.band.contains(point) {
             return TabHit::None;
+        }
+        // RAIL-AUTOHIDE-CTL: the toggle is armed ahead of the slot hits (same
+        // laddering discipline as the button/OSC-8 arms), so a click on the
+        // bottom-edge control toggles auto-hide rather than switching a slot.
+        if self.autohide.is_some_and(|rect| rect.contains(point)) {
+            return TabHit::AutohideToggle;
         }
         if self.new_slot.is_some_and(|rect| rect.contains(point)) {
             return TabHit::NewTab;

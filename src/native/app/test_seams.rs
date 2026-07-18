@@ -761,6 +761,7 @@ impl App {
             TabHit::Switch(_) => Some("switch"),
             TabHit::Close(_) => Some("close"),
             TabHit::NewTab => Some("new"),
+            TabHit::AutohideToggle => Some("autohide"),
             TabHit::None => None,
         }
     }
@@ -1013,6 +1014,25 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn rail_autohide_active_for_test(&self) -> bool {
         self.rail_autohide_active()
+    }
+
+    /// Test seam (RAIL-AUTOHIDE-CTL): the raw `tab_rail_autohide` setting value,
+    /// independent of whether the rail is currently shown.
+    #[cfg(test)]
+    pub(in crate::native) fn tab_rail_autohide_setting_for_test(&self) -> bool {
+        self.settings.tab_rail_autohide
+    }
+
+    /// Test seam (RAIL-AUTOHIDE-CTL): center pixel of the rail's bottom-edge
+    /// auto-hide toggle control this frame, or `None` when the rail (or its
+    /// revealed overlay) is not present. Built from the same geometry the live
+    /// pointer hit path uses, so a click placed here exercises the real arm.
+    #[cfg(test)]
+    pub(in crate::native) fn rail_autohide_center_px_for_test(&self) -> Option<(f64, f64)> {
+        let cell = self.resolved_cell()?;
+        let geom = self.rail_geom_px(cell)?;
+        let rect = geom.autohide?;
+        Some((rect.x + rect.width / 2.0, rect.y + rect.height / 2.0))
     }
 
     /// Test seam (F4-P3 reveal-paint gate): read/reset the frame-rebuild flag the
@@ -1944,7 +1964,7 @@ impl App {
         let geometry = self.top_strip_geom(self.resolved_cell()?)?;
         let hit_idx = match geometry.hit(PxPoint::new(x, y)) {
             TabHit::Switch(idx) | TabHit::Close(idx) => idx,
-            TabHit::NewTab | TabHit::None => return None,
+            TabHit::NewTab | TabHit::AutohideToggle | TabHit::None => return None,
         };
         let drop_idx = geometry.drop_index(x, drag_origin)?;
         let boundary = geometry.insertion_boundary_px(drop_idx, drag_origin);

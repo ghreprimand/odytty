@@ -25,8 +25,8 @@ use crate::selection::{
 use crate::settings::{
     BindableAction, MAX_TAB_BAR_ROWS, MAX_TAB_RAIL_WIDTH, MIN_TAB_BAR_ROWS, MIN_TAB_RAIL_WIDTH,
     SettingEdit, Settings, SettingsReloadOutcome, SettingsReloader, TAB_BAR_HEIGHT_ENV,
-    TAB_RAIL_WIDTH_ENV, THEME_ENV, TabBarHeight, TabBarPlacement, apply_reloadable_values,
-    ensure_config_file_exists_at, write_settings_changes_to_path,
+    TAB_RAIL_AUTOHIDE_ENV, TAB_RAIL_WIDTH_ENV, THEME_ENV, TabBarHeight, TabBarPlacement,
+    apply_reloadable_values, ensure_config_file_exists_at, write_settings_changes_to_path,
 };
 use crate::text::{self, CellSize};
 use crate::theme::{Theme, VisualEffect};
@@ -3463,6 +3463,7 @@ impl App {
             self.rail_geom(),
             self.tab_panel_strength(),
             self.effective_theme.cursor,
+            self.settings.tab_rail_autohide,
         );
         let colors = self.tab_bar_colors();
         let panel = tab_chrome::panel_tint(colors, self.tab_panel_strength());
@@ -3914,6 +3915,45 @@ impl App {
         self.needs_rebuild = true;
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
+        }
+    }
+
+    /// RAIL-AUTOHIDE-CTL: flip `tab_rail_autohide` from the rail's bottom-edge
+    /// toggle control. Routes the change through the same reload seam a settings
+    /// panel edit uses, so the panel row, the rail visibility reconciliation, and
+    /// the grid reflow all stay coherent, then writes it back to `odytty.conf` so
+    /// it survives a restart. No new settings key: this is the existing
+    /// `tab_rail_autohide` gate, reachable from the rail itself.
+    pub(super) fn toggle_tab_rail_autohide(&mut self) {
+        let mut next = self.settings.clone();
+        next.tab_rail_autohide = !next.tab_rail_autohide;
+        self.apply_settings_through_reload_seam(next, SettingsApplySource::OverlayEdit);
+        self.persist_tab_rail_autohide();
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
+    }
+
+    /// Write the live `tab_rail_autohide` value through to `odytty.conf` so the
+    /// rail-toggle choice survives a restart. The in-memory setting is already
+    /// applied; a missing config path or write error is logged, not fatal.
+    fn persist_tab_rail_autohide(&mut self) {
+        let value = if self.settings.tab_rail_autohide {
+            "on"
+        } else {
+            "off"
+        }
+        .to_owned();
+        let Some(path) = self.settings_reloader.config_path() else {
+            return;
+        };
+        let changes = [SettingEdit {
+            key: "tab_rail_autohide",
+            env: TAB_RAIL_AUTOHIDE_ENV,
+            value,
+        }];
+        if let Err(error) = write_settings_changes_to_path(path, &changes) {
+            tracing::warn!(error = %error, "could not persist tab rail autohide");
         }
     }
 

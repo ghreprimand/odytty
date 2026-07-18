@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Auto-hide toggle control on the workspace rail
+
+The workspace rail gains a small always-visible control pinned at its bottom
+edge that toggles rail auto-hide in place, so the escape hatch for the rail is
+discoverable on the rail itself rather than only in settings. It renders as a
+double-chevron pointing toward the rail edge, receding into the inactive floor
+at rest, lifting to the panel hover treatment under the pointer, and reading
+distinctly (a flipped, emphasized chevron) while auto-hide is engaged. An
+on-hover label appears when the rail is wide enough to hold it.
+
+The rail layout reserves the control's row plus a separator at the bottom of
+the region, and slot placement and the overflow indicators now run against the
+region above that band, so a full or overflowing rail never collides with the
+control. Hit-testing arms the control ahead of the workspace slots, so a click
+on the bottom edge toggles rather than switching a workspace; the top tab bar
+has no such control and is unchanged.
+
+Clicking the control flips the existing `tab_rail_autohide` setting through the
+same live-apply and config-writeback path a settings-panel edit uses, so the
+panel row, the environment alias, and `odytty.conf` stay coherent, and the
+choice survives a restart. On the revealed overlay the same control turns
+auto-hide back off. No new settings key, no change to the auto-hide semantics or
+the reveal zone, and byte-identical output when the workspace rail is off.
+Cross-platform UI with no platform-specific behavior.
+
 ## 2026-07-18 -- Window transparency ships on by default
 
 The default presentation now draws the terminal background at 80 percent

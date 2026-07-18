@@ -221,6 +221,12 @@ With autohide on, the pointer entering the configured edge zone reveals the
 rail as a floating overlay without reflowing terminal content. Workspace
 switch, create, and close shortcuts also reveal it briefly.
 
+A small chevron control pinned at the rail's bottom edge toggles auto-hide in
+place, so the escape hatch for the rail lives on the rail itself rather than only
+in settings. Clicking it flips `tab_rail_autohide` and writes the choice back to
+`odytty.conf`; on the revealed overlay the same control turns auto-hide back off.
+Cross-platform UI with no platform-specific behavior.
+
 Legacy rail names remain accepted without warnings:
 
 | Canonical config key | Canonical environment variable | Legacy config key | Legacy environment variable |

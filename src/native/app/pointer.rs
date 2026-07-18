@@ -443,6 +443,16 @@ impl App {
                     self.handle_new_workspace();
                     return;
                 }
+                // RAIL-AUTOHIDE-CTL: the bottom-edge toggle flips auto-hide. Plain
+                // click only, no drag semantics.
+                (
+                    WinitMouseButton::Left,
+                    ElementState::Pressed,
+                    Some((ChromeBand::WorkspaceRail, TabHit::AutohideToggle)),
+                ) => {
+                    self.toggle_tab_rail_autohide();
+                    return;
+                }
                 (WinitMouseButton::Left, ElementState::Released, Some(_)) => return,
                 // ----- Right press: per-surface context menu (F7) -----
                 (
@@ -459,9 +469,10 @@ impl App {
                             .token_at_position(idx)
                             .map(ContextMenuSurface::TabSlot)
                             .unwrap_or(ContextMenuSurface::TabStripEmpty),
-                        TabHit::Close(_) | TabHit::NewTab | TabHit::None => {
-                            ContextMenuSurface::TabStripEmpty
-                        }
+                        TabHit::Close(_)
+                        | TabHit::NewTab
+                        | TabHit::AutohideToggle
+                        | TabHit::None => ContextMenuSurface::TabStripEmpty,
                     };
                     self.open_context_menu(surface);
                     return;
@@ -478,7 +489,9 @@ impl App {
                         TabHit::Switch(idx) | TabHit::Close(idx) => {
                             ContextMenuSurface::WorkspaceSlot(idx)
                         }
-                        TabHit::NewTab | TabHit::None => ContextMenuSurface::WorkspaceRailEmpty,
+                        TabHit::NewTab | TabHit::AutohideToggle | TabHit::None => {
+                            ContextMenuSurface::WorkspaceRailEmpty
+                        }
                     };
                     self.open_context_menu(surface);
                     return;

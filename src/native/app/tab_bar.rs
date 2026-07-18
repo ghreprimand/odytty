@@ -112,6 +112,10 @@ pub(in crate::native) enum TabHit {
     Close(usize),
     /// The pointer is over the `+` new-tab affordance.
     NewTab,
+    /// The pointer is over the workspace rail's bottom-edge auto-hide toggle
+    /// (RAIL-AUTOHIDE-CTL). Only the vertical rail ever produces this; the top
+    /// bar has no such control.
+    AutohideToggle,
     /// The pointer is outside all interactive tab-bar regions.
     None,
 }

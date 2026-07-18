@@ -1958,6 +1958,72 @@ fn autohide_removes_the_rail_reservation() {
 }
 
 #[test]
+fn rail_autohide_control_click_toggles_and_persists() {
+    // RAIL-AUTOHIDE-CTL: clicking the bottom-edge control flips the real
+    // `tab_rail_autohide` setting through the live-apply + config-writeback path,
+    // both directions, so the panel/env/config stay coherent.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    add_workspace(&mut app);
+    let conf = temp_rail_conf("autohide-ctl");
+    app.set_config_path_for_test(conf.clone());
+    assert!(
+        !app.tab_rail_autohide_setting_for_test(),
+        "auto-hide starts off"
+    );
+
+    // The pinned rail shows the control at its bottom edge: a click there hits
+    // the toggle (armed ahead of the workspace slots), not a slot.
+    let (cx, cy) = app
+        .rail_autohide_center_px_for_test()
+        .expect("pinned rail exposes the auto-hide control");
+    app.set_pointer_px_for_test(cx, cy);
+    assert_eq!(
+        app.tab_bar_hit_for_test(),
+        Some("autohide"),
+        "the bottom-edge control hit-tests as the auto-hide toggle"
+    );
+    app.mouse_left_press_for_test();
+
+    assert!(
+        app.tab_rail_autohide_setting_for_test(),
+        "the click turned auto-hide on"
+    );
+    assert!(app.rail_autohide_active_for_test());
+    let written = std::fs::read_to_string(&conf).unwrap();
+    assert!(written.contains("# kept"), "existing config preserved");
+    assert!(
+        written.contains("tab_rail_autohide = on"),
+        "auto-hide-on persisted; got: {written:?}"
+    );
+
+    // With auto-hide on the rail floats; the reveal-zone summons it, and the
+    // control on the revealed overlay toggles it back off.
+    app.force_rail_reveal_for_test();
+    let (rx, ry) = app
+        .rail_autohide_center_px_for_test()
+        .expect("revealed rail overlay exposes the control");
+    app.set_pointer_px_for_test(rx, ry);
+    app.mouse_left_press_for_test();
+
+    assert!(
+        !app.tab_rail_autohide_setting_for_test(),
+        "clicking the control again turned auto-hide back off"
+    );
+    let written = std::fs::read_to_string(&conf).unwrap();
+    assert!(
+        written.contains("tab_rail_autohide = off"),
+        "auto-hide-off persisted; got: {written:?}"
+    );
+    let _ = std::fs::remove_dir_all(conf.parent().unwrap());
+}
+
+#[test]
 fn autohide_only_applies_to_side_rails_not_the_top_bar() {
     // Auto-hide is a rail feature; the top bar keeps `always_show_tab_bar`
     // semantics, so the knob is inert (and the reservation unchanged) on top.
