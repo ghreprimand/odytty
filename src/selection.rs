@@ -399,16 +399,6 @@ pub fn is_selection_word_char(ch: char) -> bool {
     ch.is_alphanumeric() || matches!(ch, '_' | '.' | '/' | '-' | '~')
 }
 
-fn snapshot_cell_char(snapshot: &Snapshot, point: CellPoint) -> Option<char> {
-    if point.row >= snapshot.dimensions.rows || point.column >= snapshot.dimensions.columns {
-        return None;
-    }
-    snapshot
-        .cells
-        .get(point.row * snapshot.dimensions.columns + point.column)
-        .map(|cell| cell.ch)
-}
-
 /// The character a cell CONTRIBUTES to word selection: a wide-continuation
 /// spacer is transparent, resolving to its lead's character, so the word walk
 /// sees a CJK run as consecutive word characters instead of stopping at the
