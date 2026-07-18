@@ -119,6 +119,38 @@ impl TabReserve {
             0
         }
     }
+
+    /// CHROME-GAP: the pixel gap between the content grid and each PINNED
+    /// chrome band this reservation describes. "Content never touches chrome":
+    /// the same `window_padding_px` value that separates content from the
+    /// window edges also separates it from the rail's content-facing edge and
+    /// from the tab bar's bottom edge — one padding value, no extra knob. A
+    /// side is zero when its band is absent, and every side is zero at zero
+    /// padding, so the padding-0 frame stays byte-identical (flush) and the
+    /// auto-hidden rail (which reserves nothing) keeps full-bleed content.
+    pub(super) fn chrome_gap(&self, padding: WindowPadding) -> ChromeGap {
+        let pad = padding.as_f32();
+        ChromeGap {
+            left: if self.left_cols > 0 { pad } else { 0.0 },
+            right: if self.right_cols > 0 { pad } else { 0.0 },
+            top: if self.top_rows > 0 { pad } else { 0.0 },
+        }
+    }
+}
+
+/// CHROME-GAP: per-side pixel gap between the content grid and the pinned
+/// chrome bands (left rail / right rail / top bar). Produced by
+/// [`TabReserve::chrome_gap`]; all-zero (`Default`) whenever no band is shown
+/// or the window padding is zero, which keeps every legacy geometry path
+/// byte-identical.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(super) struct ChromeGap {
+    /// Gap right of a pinned LEFT rail band (content shifts right by this).
+    pub(super) left: f32,
+    /// Gap left of a pinned RIGHT rail band (the band shifts right by this).
+    pub(super) right: f32,
+    /// Gap below the top tab-bar band (content shifts down by this).
+    pub(super) top: f32,
 }
 
 /// The pixel rectangle available to panes: the surface minus window padding on
@@ -142,9 +174,13 @@ pub(super) fn pane_content_rect(
     // so older serialized/test geometry stays well-defined.
     let left_w = cell.width as f32 * reserve.left_reserved_cols() as f32;
     let right_w = cell.width as f32 * reserve.right_reserved_cols() as f32;
-    let w = (width_px as f32 - 2.0 * pad - left_w - right_w).max(0.0);
-    let h = (height_px as f32 - 2.0 * pad - tab_h).max(0.0);
-    PaneRect::new(pad + left_w, pad + tab_h, w, h)
+    // CHROME-GAP: the window padding also separates content from each pinned
+    // chrome band ("content never touches chrome"). All-zero when no band is
+    // shown or padding is zero, so those paths remain byte-identical.
+    let gap = reserve.chrome_gap(padding);
+    let w = (width_px as f32 - 2.0 * pad - left_w - right_w - gap.left - gap.right).max(0.0);
+    let h = (height_px as f32 - 2.0 * pad - tab_h - gap.top).max(0.0);
+    PaneRect::new(pad + left_w + gap.left, pad + tab_h + gap.top, w, h)
 }
 
 /// Map a physical pointer position to a cell in **window-overlay space** — the
@@ -1182,20 +1218,23 @@ mod tests {
         let (w, h) = (1280u32, 800u32);
         let without = pane_content_rect(w, h, cell, padding, TabReserve::NONE);
         let with = pane_content_rect(w, h, cell, padding, TabReserve::top());
-        // Same width and x; the strip eats `TAB_BAR_ROWS` cell-heights off the
-        // top, shifting y down and reducing height by the same amount.
+        // Same width and x; the strip eats `TAB_BAR_ROWS` cell-heights PLUS the
+        // chrome-facing padding gap off the top, shifting y down and reducing
+        // height by the same amount (CHROME-GAP: content never touches chrome).
         assert!((without.w - with.w).abs() < f32::EPSILON);
         assert!((without.x - with.x).abs() < f32::EPSILON);
-        let strip = cell.height as f32 * TAB_BAR_ROWS as f32;
+        let strip = cell.height as f32 * TAB_BAR_ROWS as f32 + padding.as_f32();
         assert!((with.y - (without.y + strip)).abs() < f32::EPSILON);
         assert!((with.h - (without.h - strip)).abs() < f32::EPSILON);
     }
 
     #[test]
-    fn left_rail_shrinks_the_content_rect_by_exactly_the_rail_width() {
-        // F4-V2: a left rail reserves `left_cols` off the LEFT — content width
-        // shrinks and its x-origin shifts right by the rail width; height and y
-        // are unchanged (the rail reserves columns, not rows).
+    fn left_rail_shrinks_the_content_rect_by_the_rail_width_plus_the_gap() {
+        // F4-V2 + CHROME-GAP: a left rail reserves `left_cols` off the LEFT and
+        // the window padding opens between band and content — the content
+        // x-origin shifts right by rail + gap and the width shrinks by the
+        // same; height and y are unchanged (the rail reserves columns, not
+        // rows).
         let cell = cell();
         let padding = WindowPadding::from_logical(8.0, 1.0);
         let (w, h) = (1280u32, 800u32);
@@ -1207,7 +1246,7 @@ mod tests {
             gap_cols: 0,
         };
         let with = pane_content_rect(w, h, cell, padding, reserve);
-        let rail = cell.width as f32 * 16.0;
+        let rail = cell.width as f32 * 16.0 + padding.as_f32();
         assert!((with.y - without.y).abs() < f32::EPSILON, "y unchanged");
         assert!(
             (with.h - without.h).abs() < f32::EPSILON,
@@ -1215,20 +1254,21 @@ mod tests {
         );
         assert!(
             (with.x - (without.x + rail)).abs() < f32::EPSILON,
-            "x shifts right by the rail width"
+            "x shifts right by the rail width plus the gap"
         );
         assert!(
             (with.w - (without.w - rail)).abs() < f32::EPSILON,
-            "width shrinks by the rail width"
+            "width shrinks by the rail width plus the gap"
         );
     }
 
     #[test]
-    fn zero_gap_right_rail_shrinks_content_from_the_right() {
-        // F4-P2 layout mirror: a right rail reserves `right_cols` off the
-        // RIGHT — the content width shrinks but its x-origin stays put (content on
-        // the LEFT), the mirror of the left rail (which shifts the origin right).
-        // y/height are unchanged (a rail reserves columns, not rows).
+    fn right_rail_shrinks_content_from_the_right_with_the_band_a_gap_away() {
+        // F4-P2 layout mirror + CHROME-GAP: a right rail reserves `right_cols`
+        // off the RIGHT plus the chrome-facing gap — the content width shrinks
+        // by band + gap but its x-origin stays put (content on the LEFT), the
+        // mirror of the left rail (which shifts the origin right). y/height are
+        // unchanged (a rail reserves columns, not rows).
         let cell = cell();
         let padding = WindowPadding::from_logical(8.0, 1.0);
         let (w, h) = (1280u32, 800u32);
@@ -1240,7 +1280,7 @@ mod tests {
             gap_cols: 0,
         };
         let with = pane_content_rect(w, h, cell, padding, reserve);
-        let reserved = cell.width as f32 * 16.0;
+        let reserved = cell.width as f32 * 16.0 + padding.as_f32();
         assert!(
             (with.x - without.x).abs() < f32::EPSILON,
             "x-origin stays put (content on the left)"
@@ -1252,36 +1292,87 @@ mod tests {
         );
         assert!(
             (with.w - (without.w - reserved)).abs() < f32::EPSILON,
-            "width shrinks from the right by the rail band"
+            "width shrinks from the right by the rail band plus the gap"
         );
         assert_eq!(reserve.left_reserved_cols(), 0);
         assert_eq!(reserve.right_reserved_cols(), 16);
     }
 
     #[test]
-    fn zero_gap_left_rail_shifts_content_by_the_band_only() {
+    fn zero_padding_keeps_every_chrome_band_flush() {
+        // CHROME-GAP flush identity: at zero window padding there is no
+        // chrome-facing gap either — every reserve reproduces the historical
+        // flush geometry exactly (byte-identical at padding 0).
         let cell = cell();
-        let padding = WindowPadding::from_logical(8.0, 1.0);
+        let padding = WindowPadding::ZERO;
         let (w, h) = (1280u32, 800u32);
         let without = pane_content_rect(w, h, cell, padding, TabReserve::NONE);
-        let reserve = TabReserve {
-            top_rows: 0,
+        for reserve in [
+            TabReserve::top(),
+            TabReserve {
+                top_rows: 0,
+                left_cols: 16,
+                right_cols: 0,
+                gap_cols: 0,
+            },
+            TabReserve {
+                top_rows: 2,
+                left_cols: 0,
+                right_cols: 16,
+                gap_cols: 0,
+            },
+        ] {
+            assert_eq!(reserve.chrome_gap(padding), ChromeGap::default());
+            let with = pane_content_rect(w, h, cell, padding, reserve);
+            let rail_w = cell.width as f32
+                * (reserve.left_reserved_cols() + reserve.right_reserved_cols()) as f32;
+            let bar_h = cell.height as f32 * reserve.top_rows as f32;
+            assert!((with.w - (without.w - rail_w)).abs() < f32::EPSILON);
+            assert!((with.h - (without.h - bar_h)).abs() < f32::EPSILON);
+            let left_w = cell.width as f32 * reserve.left_reserved_cols() as f32;
+            assert!((with.x - (without.x + left_w)).abs() < f32::EPSILON);
+            assert!((with.y - (without.y + bar_h)).abs() < f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn chrome_gap_tracks_each_shown_band_at_the_padding_value() {
+        // CHROME-GAP: each SHOWN band gets a gap equal to the window padding;
+        // absent bands get none, so nothing changes where no chrome is pinned.
+        let padding = WindowPadding::from_logical(8.0, 1.0);
+        assert_eq!(
+            TabReserve::NONE.chrome_gap(padding),
+            ChromeGap::default(),
+            "no chrome, no gap"
+        );
+        let both = TabReserve {
+            top_rows: 2,
             left_cols: 16,
             right_cols: 0,
             gap_cols: 0,
         };
-        let with = pane_content_rect(w, h, cell, padding, reserve);
-        let reserved = cell.width as f32 * 16.0;
-        assert!(
-            (with.x - (without.x + reserved)).abs() < f32::EPSILON,
-            "x shifts by the rail band"
+        assert_eq!(
+            both.chrome_gap(padding),
+            ChromeGap {
+                left: 8.0,
+                right: 0.0,
+                top: 8.0,
+            }
         );
-        assert!(
-            (with.w - (without.w - reserved)).abs() < f32::EPSILON,
-            "width shrinks by the rail band"
+        let right = TabReserve {
+            top_rows: 0,
+            left_cols: 0,
+            right_cols: 12,
+            gap_cols: 0,
+        };
+        assert_eq!(
+            right.chrome_gap(padding),
+            ChromeGap {
+                left: 0.0,
+                right: 8.0,
+                top: 0.0,
+            }
         );
-        assert_eq!(reserve.right_reserved_cols(), 0);
-        assert_eq!(reserve.left_reserved_cols(), 16);
     }
 
     #[test]

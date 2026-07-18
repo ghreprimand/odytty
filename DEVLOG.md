@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Window padding now separates content from chrome bands
+
+`window_padding` previously applied only at the window edges, so with a pinned
+workspace rail the terminal text sat flush against the rail's edge, and the
+same adjacency existed under the top tab bar band. The padding value now
+applies between the content grid and every hard chrome boundary — window
+edges, the rail's content-facing edge, and the tab bar's bottom edge. One
+value, one rule: content never touches chrome. No new knob was added; a
+divergent per-band override can be introduced compatibly later if feel-testing
+ever wants one.
+
+The gap goes through the shared geometry seam rather than per-band offsets.
+`pane_content_rect` folds the chrome-facing gap into the content rect, and the
+grid fit derives from that rect, so the grid gives up whatever whole cells the
+gap displaces and text is never clipped against a band. In the composited
+single-pane frame the `ChromePin` carries the gap: columns past the rail seam
+shift right (the top bar shifts with the content, keeping one uniform column
+basis for rendering and hit-testing), content rows below the bar shift down,
+and the full-height rail band stays put. A right rail mirrors this by shifting
+the band instead of the content. The single placement-aware pointer transform,
+SGR-pixel mouse reports, drag autoscroll, the scrollbar, overlay painters,
+inline graphics, cursor glow/streak, the panel wash/seam, and the translucent
+edge wash (which now also washes the interior gap strips) all follow the same
+gap-aware origins. The IME candidate-window anchor was chrome-unaware and is
+now routed through the same transform.
+
+Boundaries: at `window_padding = 0` every band is flush and frames are
+byte-identical to before. The auto-hidden rail reserves nothing and its
+revealed overlay still floats over full-bleed content with no reflow and no
+gap. Toggling auto-hide or seam-dragging the rail width with nonzero padding
+re-fits the grid deterministically (the fit is a pure function of the inputs;
+a round-trip toggle test pins the absence of column oscillation). Geometry
+unit tests cover the gap-inset content rect per band, the vertex-level shifts,
+the gap-clamped glide seam, the edge-wash strips, and the flush-at-zero
+identity. Cross-platform render/geometry change with no platform-specific
+surface; the Windows and macOS CI legs are the verification for those
+platforms.
+
+---
+
 ## 2026-07-18 -- Tab panel seam defaults off
 
 The hairline seam between the tab panel and the terminal content now defaults

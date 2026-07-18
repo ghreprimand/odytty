@@ -115,6 +115,7 @@ fn placement_geometry_is_offset_by_reserved_top_rows() {
         WindowPadding::ZERO,
         reserved_rows,
         0,
+        [0.0, 0.0],
     )
     .expect("quad");
 
@@ -147,6 +148,7 @@ fn placement_geometry_is_offset_by_reserved_left_cols() {
         WindowPadding::ZERO,
         0,
         reserved_cols,
+        [0.0, 0.0],
     )
     .expect("quad");
 

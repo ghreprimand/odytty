@@ -79,9 +79,8 @@ use super::search_ui::{SearchStyle, apply_search_matches, apply_search_ui};
 use super::session::{Session, SessionToken, WorkspaceSet};
 use super::viewport::{
     OverlayWheelDamper, SELECTION_AUTOSCROLL_INTERVAL, WheelAccumulator, WindowPadding,
-    grid_dimensions_for_with_padding, scroll_indicator_hit_with_padding,
-    scroll_indicator_quad_with_padding, scrollbar_offset_for_drag_with_padding, wheel_lines,
-    wheel_lines_scaled, wheel_zoom_steps,
+    scroll_indicator_hit_with_padding, scroll_indicator_quad_with_padding,
+    scrollbar_offset_for_drag_with_padding, wheel_lines, wheel_lines_scaled, wheel_zoom_steps,
 };
 
 mod background_ui;
@@ -956,23 +955,34 @@ impl App {
         width_px: u32,
         height_px: u32,
     ) -> bool {
-        let mut new_grid = grid_dimensions_for_with_padding(width_px, height_px, cell, padding);
         // Reserve the tab chrome off the grid: rows off the top for the
         // horizontal bar, or columns off the side for the vertical rail (F4-V2).
         // `reserve` is `NONE` when the bar is hidden, so the plain path is
         // byte-identical; the resize path and the snapshot-grow path
         // (`decorate_snapshot_with_tab_bar` / `..._rail`) read the SAME reserve so
         // the grid, cursor, and pointer can never desync (ODP-8).
+        //
+        // CHROME-GAP: derive the grid straight from `pane_content_rect`, the one
+        // seam that folds in window padding, the chrome reservation, AND the
+        // chrome-facing padding gap. With no gap this is exactly the historical
+        // cell arithmetic (`floor((extent - 2*pad)/cell) - reserved`, since the
+        // reservation is a whole-cell multiple), so the plain and gap-free paths
+        // are byte-identical; with a pinned band and nonzero padding the grid
+        // loses whatever whole cells the gap displaces, so text is never clipped
+        // against a chrome edge.
         let reserve = self.tab_reserve();
+        let content = pane_content_rect(width_px, height_px, cell, padding, reserve);
+        let mut new_grid = Dimensions::new(
+            (content.w.max(0.0) as u32 / cell.width.max(1)) as usize,
+            (content.h.max(0.0) as u32 / cell.height.max(1)) as usize,
+        );
+        // Historical clamp parity: the reserve paths never let the content grid
+        // collapse to zero; the no-chrome path keeps its legacy unclamped value.
         if reserve.top_rows > 0 {
-            new_grid.rows = new_grid.rows.saturating_sub(reserve.top_rows).max(1);
+            new_grid.rows = new_grid.rows.max(1);
         }
-        // Reserve the rail band off the content columns, so the grid the
-        // terminal reflows into matches the shrunken
-        // content rect `pane_content_rect` returns.
-        let reserved_cols = reserve.left_reserved_cols() + reserve.right_reserved_cols();
-        if reserved_cols > 0 {
-            new_grid.columns = new_grid.columns.saturating_sub(reserved_cols).max(1);
+        if reserve.left_reserved_cols() + reserve.right_reserved_cols() > 0 {
+            new_grid.columns = new_grid.columns.max(1);
         }
         if new_grid == self.grid {
             return false;
@@ -983,7 +993,6 @@ impl App {
         // single-pane world each tab's lone leaf spans the whole content rect,
         // so this resizes each session to exactly `new_grid` — byte-identical to
         // the old per-session loop. Multi-pane tabs get per-pane sizing (#1).
-        let content = pane_content_rect(width_px, height_px, cell, padding, reserve);
         self.sessions
             .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
         true
@@ -3554,12 +3563,14 @@ impl App {
         surface_width: f32,
         padding: WindowPadding,
     ) -> Option<[f32; 2]> {
+        let reserve = self.tab_reserve();
         let mut span = tab_panel::joined_top_span(
             surface_width,
             padding.as_f32(),
             cell.width as f32,
             self.tab_bar_grid_cols(),
-            self.tab_reserve(),
+            reserve,
+            reserve.chrome_gap(padding).left,
         );
         if span.is_none()
             && self.rail_autohide_active()
@@ -3650,6 +3661,13 @@ impl App {
                     None
                 },
                 lead_cells,
+                // CHROME-GAP: only a RIGHT rail band sits past a content-facing
+                // gap on its lead side; every other band keeps a zero lead gap.
+                lead_gap_px: if matches!(axis, tab_panel::PanelAxis::Right) {
+                    self.tab_reserve().chrome_gap(padding).right
+                } else {
+                    0.0
+                },
                 scale_factor: gpu.scale(),
                 panel_color,
                 wash_alpha,
@@ -3780,14 +3798,20 @@ impl App {
     /// shifted right past a left workspace rail. A
     /// right rail / no rail leaves it at `[pad, pad]`, byte-identical to the
     /// top-only strip.
+    ///
+    /// CHROME-GAP: past a pinned LEFT rail the bar shifts by the rail band PLUS
+    /// the chrome-facing gap, keeping the bar's columns pixel-aligned with the
+    /// gap-inset content columns below it (one uniform column basis for render,
+    /// hit-testing, and the composited decorated snapshot).
     fn top_bar_origin_px(&self, cell: CellSize) -> [f32; 2] {
-        let pad = self
+        let padding = self
             .resolved_surface()
             .map(|(_, _, padding)| padding)
-            .unwrap_or(WindowPadding::ZERO)
-            .as_f32();
-        let left_off = self.tab_reserve().left_reserved_cols() as f32 * cell.width as f32;
-        [pad + left_off, pad]
+            .unwrap_or(WindowPadding::ZERO);
+        let pad = padding.as_f32();
+        let reserve = self.tab_reserve();
+        let left_off = reserve.left_reserved_cols() as f32 * cell.width as f32;
+        [pad + left_off + reserve.chrome_gap(padding).left, pad]
     }
 
     /// The physical-pixel top-left of the rail band this frame — the origin the
@@ -3798,13 +3822,20 @@ impl App {
     /// is the same grid basis the reserve/decorate/panel-seam paths use, so the
     /// rail's glyphs, seam, and click targets stay pixel-aligned (F4-P2).
     fn rail_origin_px(&self, cell: CellSize) -> [f32; 2] {
-        let pad = self
+        let padding = self
             .resolved_surface()
             .map(|(_, _, padding)| padding)
-            .unwrap_or(WindowPadding::ZERO)
-            .as_f32();
+            .unwrap_or(WindowPadding::ZERO);
+        let pad = padding.as_f32();
+        // CHROME-GAP: a RIGHT rail band sits past the content columns AND the
+        // chrome-facing padding gap (the gap opens between content and band; a
+        // left rail stays at the padded window edge and the CONTENT shifts
+        // instead). Zero gap keeps the historical origin exactly.
         let x = match self.rail_side() {
-            Some(RailSide::Right) => pad + self.grid.columns as f32 * cell.width as f32,
+            Some(RailSide::Right) => {
+                pad + self.grid.columns as f32 * cell.width as f32
+                    + self.tab_reserve().chrome_gap(padding).right
+            }
             _ => pad,
         };
         [x, pad]
@@ -4548,17 +4579,28 @@ impl App {
     }
 
     /// Pixels to subtract from a raw pointer `(x, y)` before mapping it to a grid
-    /// cell, accounting for tab chrome. Top bar → `(0, tab_h)`; left rail →
-    /// `(rail_w, 0)`; right rail / none → `(0, 0)` (content origin
+    /// cell, accounting for tab chrome. Top bar → `(0, tab_h + gap)`; left rail →
+    /// `(rail_w + gap, 0)`; right rail / none → `(0, 0)` (content origin
     /// unmoved). This is the single placement-aware pointer transform every
     /// single-pane hit path applies; on the top path `left_reserved_cols() == 0`
     /// so it is byte-identical. The content pointer stays registered with the
     /// shifted content origin.
+    ///
+    /// CHROME-GAP: each shown band's offset includes the chrome-facing padding
+    /// gap (`TabReserve::chrome_gap`), so hit-testing, selection, drag
+    /// autoscroll, SGR-pixel mouse reports, and every overlay painter shifted by
+    /// this transform stay registered with the gap-inset content origin. Zero
+    /// gap (no band / zero padding) keeps the historical values exactly.
     fn tab_chrome_offset_px(&self, cell: CellSize) -> (f64, f64) {
         let r = self.tab_reserve();
+        let padding = self
+            .resolved_surface()
+            .map(|(_, _, padding)| padding)
+            .unwrap_or(WindowPadding::ZERO);
+        let gap = r.chrome_gap(padding);
         (
-            cell.width as f64 * r.left_reserved_cols() as f64,
-            cell.height as f64 * r.top_rows as f64,
+            cell.width as f64 * r.left_reserved_cols() as f64 + f64::from(gap.left),
+            cell.height as f64 * r.top_rows as f64 + f64::from(gap.top),
         )
     }
 
@@ -4811,12 +4853,24 @@ impl App {
             } else {
                 0.0
             };
+            // CHROME-GAP: the chrome-facing padding gaps for the composited
+            // single-pane frame. The vertex builders use these to shift the
+            // content (and, past a left rail, the top bar) off the pinned band
+            // by the same padding that separates content from the window edges.
+            // Both zero when padding is zero, keeping that frame byte-identical.
+            let padding = self
+                .resolved_surface()
+                .map(|(_, _, padding)| padding)
+                .unwrap_or(WindowPadding::ZERO);
+            let gap = reserve.chrome_gap(padding);
             Some(ChromePinGeom {
                 top_rows,
                 rail_col_start,
                 rail_col_end,
                 band_glyph_dy_rows,
                 rail_glyph_dy_rows,
+                gap_x: gap.left + gap.right,
+                gap_y: gap.top,
             })
         }
     }

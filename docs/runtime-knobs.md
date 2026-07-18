@@ -177,6 +177,16 @@ environment variable was not set at startup.
 
 ## Setting Details
 
+### Pad The Content Away From Window And Chrome
+
+`window_padding` inserts a pixel gap between the content grid and every hard
+boundary around it — not just the window edges. A pinned workspace rail's
+content-facing edge and the tab bar's bottom edge get the same gap, so content
+never touches chrome. The grid gives up whatever whole cells the gap displaces,
+keeping text clear of every band. At `0` everything is flush, exactly as
+before. The auto-hidden rail is unaffected: its revealed overlay floats over
+full-bleed content without reflowing it.
+
 ### Make The Window Transparent
 
 `window_transparency = on` draws the terminal background at

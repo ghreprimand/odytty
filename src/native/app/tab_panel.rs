@@ -63,6 +63,11 @@ pub(super) struct PanelQuadSpec {
     /// band is flush to the padding and the surface- and grid-derived edges
     /// coincide.
     pub(super) lead_cells: usize,
+    /// CHROME-GAP: extra pixels between the lead (content) cells and a RIGHT
+    /// rail band — the chrome-facing padding gap that shifts the band away from
+    /// the content columns. `0.0` for `Top`/`Left` bands and at zero padding,
+    /// keeping those seams byte-identical.
+    pub(super) lead_gap_px: f32,
     /// Surface scale factor (for the seam thickness: `max(1, round(scale))` px).
     pub(super) scale_factor: f32,
     /// The panel-tint color the wash quad paints (same color as the cell tint,
@@ -86,18 +91,25 @@ fn linear_rgba(c: Srgb, alpha: f32) -> [f32; 4] {
 }
 
 /// Resolve the top panel's horizontal span when a pinned workspace rail is
-/// present. The top seam joins the rail's content-facing seam at the shared,
-/// zero-gap panel junction.
+/// present. The top seam joins the rail's content-facing seam at the shared
+/// panel junction.
+///
+/// CHROME-GAP: past a pinned LEFT rail the bar (and thus its panel span) shifts
+/// right by `left_gap_px` — the chrome-facing padding gap — so the span stays
+/// pixel-aligned with the bar's shifted columns. A right rail leaves the bar's
+/// content-aligned span untouched (the RAIL shifts instead). `0.0` reproduces
+/// the historical zero-gap junction exactly.
 pub(super) fn joined_top_span(
     surface_width: f32,
     padding: f32,
     cell_width: f32,
     content_cols: usize,
     reserve: TabReserve,
+    left_gap_px: f32,
 ) -> Option<[f32; 2]> {
     if reserve.left_cols > 0 {
         Some([
-            padding + reserve.left_cols as f32 * cell_width,
+            padding + reserve.left_cols as f32 * cell_width + left_gap_px,
             surface_width,
         ])
     } else if reserve.right_cols > 0 {
@@ -128,7 +140,10 @@ fn seam_coord(spec: &PanelQuadSpec) -> f32 {
         // Grid-aligned to the rail's actual (left-aligned, grid-embedded) band
         // edge rather than surface-derived, so the seam sits exactly on the
         // rail↔content boundary regardless of the sub-cell horizontal remainder.
-        PanelAxis::Right => spec.pad[0] + spec.lead_cells as f32 * spec.cell[0],
+        // CHROME-GAP: past the content columns the chrome-facing padding gap
+        // shifts the band (and thus its content-facing seam) further right;
+        // `lead_gap_px == 0.0` reproduces the historical seam exactly.
+        PanelAxis::Right => spec.pad[0] + spec.lead_cells as f32 * spec.cell[0] + spec.lead_gap_px,
     }
 }
 
@@ -351,6 +366,7 @@ mod tests {
             // (800 = 4 + (83 + 16)·8 + 4), so the grid-aligned right seam lands at
             // the same 668 px a surface-derived edge would — no remainder.
             lead_cells: 83,
+            lead_gap_px: 0.0,
             scale_factor: 1.0,
             panel_color: PANEL,
             wash_alpha: 0.10,
@@ -431,14 +447,16 @@ mod tests {
     }
 
     #[test]
-    fn joined_left_seam_meets_zero_gap_content_edge() {
+    fn joined_left_seam_meets_gap_inset_content_edge() {
         let reserve = TabReserve {
             top_rows: 1,
             left_cols: 16,
             right_cols: 0,
             gap_cols: 0,
         };
-        let span = joined_top_span(800.0, 4.0, 8.0, 80, reserve).expect("left rail");
+        let padding = WindowPadding::from_logical(4.0, 1.0);
+        let gap = reserve.chrome_gap(padding).left;
+        let span = joined_top_span(800.0, 4.0, 8.0, 80, reserve, gap).expect("left rail");
         let content = pane_content_rect(
             800,
             600,
@@ -447,28 +465,33 @@ mod tests {
                 height: 16,
                 baseline: 0,
             },
-            WindowPadding::from_logical(4.0, 1.0),
+            padding,
             reserve,
         );
 
-        assert_eq!(span, [132.0, 800.0], "top seam meets the rail seam");
+        // CHROME-GAP: the bar (and content) sit one padding gap past the rail
+        // band's content-facing edge (132 = pad + band), so the bar's columns
+        // stay pixel-aligned with the content columns below it.
+        assert_eq!(gap, 4.0, "left gap equals the window padding");
+        assert_eq!(span, [136.0, 800.0], "top span starts a gap past the rail");
         assert_eq!(reserve.left_reserved_cols(), 16, "rail band reserved");
-        assert_eq!(content.x, 132.0, "content begins at the rail seam");
-        assert_eq!(content.x, span[0], "no exposed gutter remains");
+        assert_eq!(content.x, 136.0, "content begins a gap past the rail");
+        assert_eq!(content.x, span[0], "bar and content share a left edge");
     }
 
     #[test]
-    fn joined_right_seam_meets_zero_gap_content_edge() {
+    fn joined_right_seam_meets_content_edge_with_the_band_a_gap_away() {
         let reserve = TabReserve {
             top_rows: 1,
             left_cols: 0,
             right_cols: 16,
             gap_cols: 0,
         };
-        // Exact grid width: padding + content + rail + padding.
-        let surface_width = 4 + (80 + 16) * 8 + 4;
+        let padding = WindowPadding::from_logical(4.0, 1.0);
+        // Exact grid width: padding + content + gap + rail + padding.
+        let surface_width = 4 + 80 * 8 + 4 + 16 * 8 + 4;
         let span =
-            joined_top_span(surface_width as f32, 4.0, 8.0, 80, reserve).expect("right rail");
+            joined_top_span(surface_width as f32, 4.0, 8.0, 80, reserve, 0.0).expect("right rail");
         let content = pane_content_rect(
             surface_width,
             600,
@@ -477,29 +500,42 @@ mod tests {
                 height: 16,
                 baseline: 0,
             },
-            WindowPadding::from_logical(4.0, 1.0),
+            padding,
             reserve,
         );
         let content_right = content.x + content.w;
 
-        assert_eq!(span, [0.0, 644.0], "top seam meets the rail seam");
+        // CHROME-GAP: the bar still ends flush with the content's right edge
+        // (they share columns); it is the RAIL band that sits a gap further
+        // right, so the bar never reaches under it.
+        assert_eq!(span, [0.0, 644.0], "top span ends at the content edge");
         assert_eq!(reserve.right_reserved_cols(), 16, "rail band reserved");
-        assert_eq!(content_right, 644.0, "content ends at the rail seam");
-        assert_eq!(span[1], content_right, "no exposed gutter remains");
+        assert_eq!(
+            reserve.chrome_gap(padding).right,
+            4.0,
+            "right gap = padding"
+        );
+        assert_eq!(content_right, 644.0, "content ends at the shared edge");
+        assert_eq!(span[1], content_right, "bar and content share a right edge");
     }
 
     #[test]
-    fn joined_top_span_hit_owns_the_zero_gap_junction_on_both_sides() {
+    fn joined_top_span_hit_owns_the_gap_aware_junction_on_both_sides() {
         let left = TabReserve {
             top_rows: 1,
             left_cols: 16,
             right_cols: 0,
             gap_cols: 0,
         };
-        let left_span = joined_top_span(800.0, 4.0, 8.0, 80, left);
+        let left_gap = left.chrome_gap(WindowPadding::from_logical(4.0, 1.0)).left;
+        let left_span = joined_top_span(800.0, 4.0, 8.0, 80, left, left_gap);
         assert!(
-            top_span_contains_x(left_span, 800.0, 132.0),
-            "left junction begins at the rail seam"
+            !top_span_contains_x(left_span, 800.0, 135.0),
+            "the gap strip past the rail belongs to no band"
+        );
+        assert!(
+            top_span_contains_x(left_span, 800.0, 136.0),
+            "left junction begins a gap past the rail seam"
         );
 
         let right = TabReserve {
@@ -508,11 +544,11 @@ mod tests {
             right_cols: 16,
             gap_cols: 0,
         };
-        let surface_width = (4 + (80 + 16) * 8 + 4) as f32;
-        let right_span = joined_top_span(surface_width, 4.0, 8.0, 80, right);
+        let surface_width = (4 + 80 * 8 + 4 + 16 * 8 + 4) as f32;
+        let right_span = joined_top_span(surface_width, 4.0, 8.0, 80, right, 0.0);
         assert!(
             top_span_contains_x(right_span, surface_width, 643.0),
-            "right junction ends at the rail seam"
+            "right junction ends at the content edge"
         );
         assert!(!top_span_contains_x(right_span, surface_width, 644.0));
     }

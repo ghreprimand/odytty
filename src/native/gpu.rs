@@ -93,6 +93,13 @@ pub(super) struct ChromePinGeom {
     /// TAB-LABEL-CENTERING: the rail analog for the side workspace rail's slot
     /// label, including its descender guard.
     pub(super) rail_glyph_dy_rows: f32,
+    /// CHROME-GAP: pixels between the pinned rail band and the content columns
+    /// (the window padding value; 0.0 with no rail or zero padding). See
+    /// [`grid::ChromePin::gap_x`] for which cells carry the shift.
+    pub(super) gap_x: f32,
+    /// CHROME-GAP: pixels between the pinned top band and the content rows
+    /// below it (0.0 with no bar or zero padding).
+    pub(super) gap_y: f32,
 }
 
 /// One pane's render inputs for [`GpuState::update_from_panes`] (design doc
@@ -574,6 +581,10 @@ fn pane_chrome_pin(pane: &PaneRender) -> grid::ChromePin {
         },
         band_glyph_dy_rows: pane.band_glyph_dy_rows,
         rail_glyph_dy_rows: pane.rail_glyph_dy_rows,
+        // CHROME-GAP: multi-pane chrome strips render at their own gap-aware
+        // pixel origins; no per-cell shift is composited into a strip snapshot.
+        gap_x: 0.0,
+        gap_y: 0.0,
     }
 }
 
@@ -588,6 +599,10 @@ pub(super) fn rail_overlay_chrome_pin(columns: usize, rail_glyph_dy_rows: f32) -
         rail_col_end: columns,
         band_glyph_dy_rows: 0.0,
         rail_glyph_dy_rows,
+        // CHROME-GAP: the floating auto-hide overlay is full-bleed by design
+        // (no reflow, no gap) — it never composites a chrome-facing gap.
+        gap_x: 0.0,
+        gap_y: 0.0,
     }
 }
 
@@ -1065,6 +1080,10 @@ fn linear_rgba(color: RgbColor, alpha: f32) -> [f32; 4] {
     ]
 }
 
+/// CHROME-GAP: test-only legacy entry — the production wash routes through
+/// [`wallpaper_edge_wash_quads_with_pin`]; a `ChromePin::NONE` pin reproduces
+/// this four-strip wash byte-for-byte (pinned by the gpu tests).
+#[cfg(test)]
 pub(super) fn wallpaper_edge_wash_quads(
     snapshot: &Snapshot,
     cell: atlas::CellSize,
@@ -1072,17 +1091,47 @@ pub(super) fn wallpaper_edge_wash_quads(
     surface_size: [u32; 2],
     opacity: f32,
 ) -> Vec<SolidQuad> {
+    wallpaper_edge_wash_quads_with_pin(
+        snapshot,
+        cell,
+        origin,
+        surface_size,
+        opacity,
+        grid::ChromePin::NONE,
+    )
+}
+
+/// CHROME-GAP-aware edge wash. With a zero-gap pin this is exactly the legacy
+/// four-strip wash (byte-identical). With a chrome-facing gap in play the
+/// decorated frame's true pixel extent grows by the gap on each affected axis
+/// (so the outer strips cannot overlap the shifted cells), and the interior gap
+/// strips — the rail↔content column and the below-bar row that now read as
+/// padding — are washed too, so a translucent window shows the themed wash
+/// there instead of raw wallpaper.
+pub(super) fn wallpaper_edge_wash_quads_with_pin(
+    snapshot: &Snapshot,
+    cell: atlas::CellSize,
+    origin: [f32; 2],
+    surface_size: [u32; 2],
+    opacity: f32,
+    pin: grid::ChromePin,
+) -> Vec<SolidQuad> {
     let color = linear_rgba(snapshot.colors.background, opacity);
     let surface_w = surface_size[0] as f32;
     let surface_h = surface_size[1] as f32;
+    let cell_w = cell.width as f32;
+    let cell_h = cell.height as f32;
+    let cols = snapshot.dimensions.columns;
+    let rows = snapshot.dimensions.rows;
+    let has_rail = pin.rail_col_start != pin.rail_col_end;
+    let gap_x = if has_rail { pin.gap_x } else { 0.0 };
+    let gap_y = if pin.top_rows > 0 { pin.gap_y } else { 0.0 };
     let grid_x0 = origin[0].clamp(0.0, surface_w);
     let grid_y0 = origin[1].clamp(0.0, surface_h);
-    let grid_x1 =
-        (origin[0] + snapshot.dimensions.columns as f32 * cell.width as f32).clamp(0.0, surface_w);
-    let grid_y1 =
-        (origin[1] + snapshot.dimensions.rows as f32 * cell.height as f32).clamp(0.0, surface_h);
+    let grid_x1 = (origin[0] + cols as f32 * cell_w + gap_x).clamp(0.0, surface_w);
+    let grid_y1 = (origin[1] + rows as f32 * cell_h + gap_y).clamp(0.0, surface_h);
 
-    let mut quads = Vec::with_capacity(4);
+    let mut quads = Vec::with_capacity(6);
     let mut push = |rect: [f32; 4]| {
         if rect[2] > rect[0] && rect[3] > rect[1] {
             quads.push(SolidQuad { rect, color });
@@ -1093,6 +1142,44 @@ pub(super) fn wallpaper_edge_wash_quads(
     push([0.0, grid_y0, grid_x0, grid_y1]);
     push([grid_x1, grid_y0, surface_w, grid_y1]);
     push([0.0, grid_y1, surface_w, surface_h]);
+
+    if gap_x > 0.0 {
+        // The full-height rail↔content gap column: right of a LEFT rail band,
+        // left of a RIGHT rail band (the seam column is where the shift begins).
+        let seam_col = if pin.rail_col_start == 0 {
+            pin.rail_col_end
+        } else {
+            pin.rail_col_start
+        };
+        let seam_x = origin[0] + seam_col as f32 * cell_w;
+        push([
+            seam_x.clamp(0.0, surface_w),
+            grid_y0,
+            (seam_x + gap_x).clamp(0.0, surface_w),
+            grid_y1,
+        ]);
+    }
+    if gap_y > 0.0 {
+        // The below-bar gap row, spanning the CONTENT columns only: the
+        // full-height rail band (unshifted in y) bounds it on its side.
+        let content_x0 = if has_rail && pin.rail_col_start == 0 {
+            origin[0] + pin.rail_col_end as f32 * cell_w + gap_x
+        } else {
+            grid_x0
+        };
+        let content_x1 = if has_rail && pin.rail_col_start > 0 {
+            origin[0] + pin.rail_col_start as f32 * cell_w
+        } else {
+            grid_x1
+        };
+        let band_bottom = origin[1] + pin.top_rows as f32 * cell_h;
+        push([
+            content_x0.clamp(0.0, surface_w),
+            band_bottom.clamp(0.0, surface_h),
+            content_x1.clamp(0.0, surface_w),
+            (band_bottom + gap_y).clamp(0.0, surface_h),
+        ]);
+    }
     quads
 }
 
@@ -2430,7 +2517,21 @@ impl GpuState {
             rail_col_end: geom.rail_col_end,
             band_glyph_dy_rows: geom.band_glyph_dy_rows,
             rail_glyph_dy_rows: geom.rail_glyph_dy_rows,
+            gap_x: geom.gap_x,
+            gap_y: geom.gap_y,
         }
+    }
+
+    /// CHROME-GAP: the origin for CONTENT-anchored cursor geometry — the
+    /// content origin plus the chrome-facing gap shifts the content cells carry
+    /// in the composited single-pane frame. The decorated snapshot's cursor is
+    /// always a content cell, so one uniform offset (no per-cell dispatch)
+    /// keeps the cursor block, glow, and streak registered with the shifted
+    /// cells. Identical to [`Self::content_origin`] when no gap is in play.
+    fn cursor_content_origin(&self) -> [f32; 2] {
+        let origin = self.content_origin();
+        let pin = self.chrome_pin();
+        [origin[0] + pin.content_dx(), origin[1] + pin.content_dy()]
     }
 
     fn refresh_window_padding(&mut self) -> bool {
@@ -3135,6 +3236,12 @@ impl GpuState {
         row_offset: usize,
         col_offset: usize,
     ) {
+        // CHROME-GAP: single-pane inline graphics anchor at CONTENT cells, so
+        // their quads carry the same content gap shifts the cell vertices do
+        // ([0.0, 0.0] with no gap — byte-identical). The pin geometry is set
+        // before the image layer updates on every Full rebuild.
+        let pin = self.chrome_pin();
+        let content_gap_px = [pin.content_dx(), pin.content_dy()];
         self.image_layer.update_with_padding(
             &self.device,
             &self.queue,
@@ -3145,6 +3252,7 @@ impl GpuState {
             self.window_padding,
             row_offset,
             col_offset,
+            content_gap_px,
         );
     }
 
@@ -3268,12 +3376,17 @@ impl GpuState {
         self.color_glyph_runs = color_glyph_runs;
         let background_vertices = background_vertex_count(snapshot).min(self.vertices.len() as u32);
         if self.needs_edge_wash() {
-            let edge_quads = wallpaper_edge_wash_quads(
+            // CHROME-GAP: the pin-aware wash covers the gap strips between the
+            // chrome bands and the shifted content, and widens the washed frame
+            // extent to match; a zero-gap pin is byte-identical to the legacy
+            // four-strip wash.
+            let edge_quads = wallpaper_edge_wash_quads_with_pin(
                 snapshot,
                 self.atlas.cell,
                 origin,
                 [self.config.width, self.config.height],
                 self.content_build_opacity(),
+                chrome_pin,
             );
             let edge_quads = quads_excluding(&edge_quads, panel.base_gaps);
             if !edge_quads.is_empty() {
@@ -3322,24 +3435,29 @@ impl GpuState {
         // Cursor-layer solid overlays (including the motion trail) are appended
         // before the cursor block. The analytic aura uses its dedicated
         // below-glyph pass and is rebuilt from the same cursor inputs below.
+        // CHROME-GAP: the cursor anchors at a CONTENT cell of the decorated
+        // snapshot, so its origin carries the content gap shifts (identity with
+        // no gap). Overlay quads arrive pre-shifted in absolute pixels and are
+        // unaffected by this origin.
+        let cursor_origin = self.cursor_content_origin();
         append_cursor_layer_vertices(
             &mut self.vertices,
             snapshot,
             &self.atlas,
             cursor_style,
-            origin,
+            cursor_origin,
             overlays,
             cursor_params,
         );
         self.rebuild_cursor_glow(
             snapshot,
             cursor_style,
-            origin,
+            cursor_origin,
             cursor_params,
             cursor_glow,
             cursor_streak,
         );
-        self.rebuild_cursor_streak(snapshot, origin, cursor_streak);
+        self.rebuild_cursor_streak(snapshot, cursor_origin, cursor_streak);
         self.retained_cursor_overlays.clear();
         self.retained_cursor_overlays.extend_from_slice(overlays);
         self.retained_cursor_glow = cursor_glow;
@@ -3528,7 +3646,10 @@ impl GpuState {
         params: CursorRenderParams,
     ) {
         self.cursor_vertices.clear();
-        let origin = self.content_origin();
+        // CHROME-GAP: same content-anchored cursor origin as the Full rebuild
+        // (identity with no gap), so a CursorOnly blink frame cannot desync the
+        // cursor from the gap-shifted content cells.
+        let origin = self.cursor_content_origin();
         // Cursor-layer solid overlays precede the cursor block in
         // `cursor_vertices`. The analytic aura is rebuilt independently into
         // its dedicated below-glyph buffer from these same live inputs.

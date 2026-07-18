@@ -28,6 +28,10 @@ impl WindowPadding {
         self.physical_px as f32
     }
 
+    /// CHROME-GAP: test-only since the production grid fit derives from
+    /// `pane_content_rect` (the seam that also folds in the chrome-facing
+    /// gap); the legacy cell arithmetic remains as the parity oracle in tests.
+    #[cfg(test)]
     fn content_extent(self, extent: u32) -> u32 {
         extent.saturating_sub(self.physical_px.saturating_mul(2))
     }
@@ -38,6 +42,8 @@ pub(super) fn grid_dimensions_for(width_px: u32, height_px: u32, cell: CellSize)
     grid_dimensions_for_with_padding(width_px, height_px, cell, WindowPadding::ZERO)
 }
 
+/// CHROME-GAP: test-only legacy grid fit (see `content_extent` above).
+#[cfg(test)]
 pub(super) fn grid_dimensions_for_with_padding(
     width_px: u32,
     height_px: u32,

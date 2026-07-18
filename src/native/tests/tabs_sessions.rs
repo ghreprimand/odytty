@@ -964,18 +964,20 @@ fn top_chrome_geometry_agrees_in_window_space_with_a_wide_left_rail() {
     app.set_test_cell_for_test(cell);
     app.set_test_surface_for_test(900, 400, padding);
 
-    // The top strip begins at pad + 32 rail columns = 260px. With two tabs,
-    // slot 1 begins 24 columns later at 452px. A pointer just inside that slot
-    // must hit slot 1, resolve a drag of slot 0 before slot 1, and report the
-    // same 452px insertion boundary. This failed when drag math interpreted
-    // raw window X as bar-local X.
-    let pointer_x = 453.0;
+    // The top strip begins at pad + 32 rail columns + the chrome-facing gap
+    // (CHROME-GAP: one window padding between the rail band and the bar's
+    // content-aligned columns) = 4 + 256 + 4 = 264px. With two tabs, slot 1
+    // begins 24 columns later at 456px. A pointer just inside that slot must
+    // hit slot 1, resolve a drag of slot 0 before slot 1, and report the same
+    // 456px insertion boundary. This failed when drag math interpreted raw
+    // window X as bar-local X.
+    let pointer_x = 457.0;
     let (hit_idx, drop_idx, boundary, slot_start) = app
         .top_chrome_geometry_probe_for_test(pointer_x, 12.0, 0)
         .expect("pointer resolves inside the shifted top strip");
     assert_eq!(hit_idx, 1);
     assert_eq!(drop_idx, 1);
-    assert_eq!(boundary, 452.0);
+    assert_eq!(boundary, 456.0);
     assert_eq!(boundary, slot_start);
 }
 
@@ -1955,6 +1957,108 @@ fn autohide_removes_the_rail_reservation() {
     // Toggling back off restores the reservation (the reverse reflow).
     app.set_tab_rail_autohide_for_test(false);
     assert_eq!(app.tab_reserve_for_test(), (0, 16));
+}
+
+#[test]
+fn pinned_rail_gap_consumes_grid_columns_and_the_autohide_toggle_is_stable() {
+    // CHROME-GAP grid sizing: with a pinned left rail and nonzero window
+    // padding, the chrome-facing gap comes out of the content's pixel budget,
+    // so the grid loses whatever whole cells the gap displaces (here exactly
+    // one 8px column for an 8px padding). Toggling auto-hide reflows to
+    // full-bleed and back to the SAME gap-inset width every time — the fit is a
+    // pure function of the inputs, so no column oscillation is possible.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let cell = cell(8, 16);
+    let padding = WindowPadding::from_logical(8.0, 1.0);
+    app.set_test_cell_for_test(cell);
+    app.set_test_surface_for_test(1280, 800, padding);
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    add_workspace(&mut app);
+    assert_eq!(app.tab_reserve_for_test(), (0, 16), "pinned left rail");
+
+    // Pinned: (1280 - 2*8 - 16*8 - 8) / 8 = 141 columns — one column fewer
+    // than the flush historical fit (142), consumed by the 8px gap.
+    app.resize_grid_with_padding_for_test(cell, padding, 1280, 800);
+    assert_eq!(app.grid_dims_for_test(), (141, 49), "gap costs one column");
+
+    // Auto-hidden: no reservation, no gap — full-bleed content.
+    app.set_tab_rail_autohide_for_test(true);
+    app.resize_grid_with_padding_for_test(cell, padding, 1280, 800);
+    assert_eq!(
+        app.grid_dims_for_test(),
+        (158, 49),
+        "full-bleed under autohide"
+    );
+
+    // Re-pinned: the same 141 columns again; repeat the round trip to pin the
+    // no-oscillation contract (requirement: seam toggles converge in one step).
+    for _ in 0..2 {
+        app.set_tab_rail_autohide_for_test(false);
+        app.resize_grid_with_padding_for_test(cell, padding, 1280, 800);
+        assert_eq!(app.grid_dims_for_test(), (141, 49), "stable re-pinned fit");
+        app.set_tab_rail_autohide_for_test(true);
+        app.resize_grid_with_padding_for_test(cell, padding, 1280, 800);
+        assert_eq!(app.grid_dims_for_test(), (158, 49), "stable full-bleed fit");
+    }
+
+    // Flush-at-zero identity: with zero padding there is no gap and the fit is
+    // the historical `(width / cell) - reserved` exactly.
+    app.set_tab_rail_autohide_for_test(false);
+    app.set_test_surface_for_test(1280, 800, WindowPadding::ZERO);
+    app.resize_grid_with_padding_for_test(cell, WindowPadding::ZERO, 1280, 800);
+    assert_eq!(
+        app.grid_dims_for_test(),
+        (144, 50),
+        "padding 0 keeps the flush fit (1280/8 - 16, 800/16)"
+    );
+}
+
+#[test]
+fn chrome_offsets_grow_by_exactly_the_padding_gap_per_shown_band() {
+    // CHROME-GAP hit-test alignment: the single placement-aware pointer
+    // transform (`tab_chrome_offset_px`) grows by exactly one window padding on
+    // each axis that has a pinned band, and not otherwise. Every single-pane
+    // hit path (cell mapping, selection, drag autoscroll, SGR-pixel reports,
+    // scrollbar) subtracts this transform, so asserting it here pins the whole
+    // family to the gap-inset content origin.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let cell = cell(8, 16);
+    app.set_test_cell_for_test(cell);
+    app.set_tab_bar_placement_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    add_workspace(&mut app);
+
+    // Zero padding: the offset is the bare rail band (flush identity).
+    app.set_test_surface_for_test(1280, 800, WindowPadding::ZERO);
+    let (dx_flush, dy_flush) = app
+        .tab_chrome_offset_px_for_test()
+        .expect("left-rail chrome offset");
+    assert_eq!(dx_flush, 128.0, "16 cols * 8 px, no gap at padding 0");
+    assert_eq!(dy_flush, 0.0, "a rail never shifts content down");
+
+    // 8px padding: the same reservation now carries an 8px chrome-facing gap.
+    app.set_test_surface_for_test(1280, 800, WindowPadding::from_logical(8.0, 1.0));
+    let (dx_gap, dy_gap) = app
+        .tab_chrome_offset_px_for_test()
+        .expect("left-rail chrome offset with padding");
+    assert_eq!(dx_gap, dx_flush + 8.0, "the gap equals the window padding");
+    assert_eq!(dy_gap, 0.0, "no top band, no vertical gap");
+
+    // A right rail keeps the content origin unmoved: no offset, no gap (the
+    // BAND moves instead; the content-side transform stays zero).
+    app.set_tab_bar_placement_for_test("right");
+    assert_eq!(
+        app.tab_chrome_offset_px_for_test(),
+        Some((0.0, 0.0)),
+        "right rail: content origin unmoved even with padding"
+    );
 }
 
 #[test]

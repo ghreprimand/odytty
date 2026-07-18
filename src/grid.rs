@@ -248,8 +248,11 @@ pub fn build_color_glyph_vertices_with_origin_into(
             continue;
         }
 
-        let x0 = origin[0] + run.column as f32 * cell_w;
-        let y0 = origin[1] + run.row as f32 * cell_h;
+        // CHROME-GAP: color glyphs ride the same per-cell chrome-gap shifts as
+        // the mono builder (content past a left rail / below the bar; the rail
+        // band past a right rail). Zero-gap pins leave both terms at 0.0.
+        let x0 = origin[0] + run.column as f32 * cell_w + chrome_pin.cell_dx(run.column);
+        let y0 = origin[1] + run.row as f32 * cell_h + chrome_pin.cell_dy(run.row, run.column);
         let x1 = x0 + bounds.pixel_width as f32;
         if chrome_pin.active() && chrome_pin.top_rows > 0 {
             push_color_glyph_quad_clipped_top(
@@ -674,6 +677,19 @@ pub struct ChromePin {
     /// slots, so this offset is the opposite sign of the top band's. `0.0` is
     /// inert.
     pub rail_glyph_dy_rows: f32,
+    /// CHROME-GAP: pixels inserted at the rail↔content seam ("content never
+    /// touches chrome" — the window padding value, applied between the pinned
+    /// rail band and the content columns). Cells at/right of the seam column
+    /// shift right by this: past a LEFT rail that is the content (and the top
+    /// bar above it, keeping one uniform column basis); past the content of a
+    /// RIGHT rail it is the rail band itself. `0.0` (no rail / zero padding) is
+    /// byte-identical.
+    pub gap_x: f32,
+    /// CHROME-GAP: pixels inserted below the pinned top tab-bar band. Content
+    /// cells (rows at/below `top_rows`, outside the rail band) shift down by
+    /// this; the full-height rail band and the bar itself stay put. `0.0` is
+    /// byte-identical.
+    pub gap_y: f32,
 }
 
 impl ChromePin {
@@ -687,6 +703,8 @@ impl ChromePin {
         rail_col_end: 0,
         band_glyph_dy_rows: 0.0,
         rail_glyph_dy_rows: 0.0,
+        gap_x: 0.0,
+        gap_y: 0.0,
     };
 
     /// Whether the pin is doing anything this frame (a glide is in flight).
@@ -699,25 +717,88 @@ impl ChromePin {
     /// which must stay pinned rather than glide with the content.
     #[inline]
     fn is_chrome(&self, row: usize, col: usize) -> bool {
-        row < self.top_rows || (col >= self.rail_col_start && col < self.rail_col_end)
+        row < self.top_rows || self.in_rail_band(col)
+    }
+
+    /// Whether `col` lies inside the composited rail column band.
+    #[inline]
+    fn in_rail_band(&self, col: usize) -> bool {
+        col >= self.rail_col_start && col < self.rail_col_end
+    }
+
+    /// CHROME-GAP: the horizontal shift of cell column `col`. Columns at/right
+    /// of the rail↔content seam shift by `gap_x`: past a LEFT rail band
+    /// (`rail_col_start == 0`) that is every non-rail column — content and the
+    /// top bar share one shifted column basis; with a RIGHT rail
+    /// (`rail_col_start > 0`) it is the rail band itself that moves off the
+    /// content. `0.0` whenever no rail band exists or the gap is zero.
+    #[inline]
+    fn cell_dx(&self, col: usize) -> f32 {
+        if self.gap_x == 0.0 || self.rail_col_start == self.rail_col_end {
+            return 0.0;
+        }
+        let seam_col = if self.rail_col_start == 0 {
+            self.rail_col_end
+        } else {
+            self.rail_col_start
+        };
+        if col >= seam_col { self.gap_x } else { 0.0 }
+    }
+
+    /// CHROME-GAP: the vertical shift of cell `(row, col)` — content rows below
+    /// the top band shift down by `gap_y`; the bar itself and the full-height
+    /// rail band stay put. `0.0` whenever there is no top band or no gap.
+    #[inline]
+    fn cell_dy(&self, row: usize, col: usize) -> f32 {
+        if self.gap_y != 0.0 && row >= self.top_rows && !self.in_rail_band(col) {
+            self.gap_y
+        } else {
+            0.0
+        }
+    }
+
+    /// CHROME-GAP: the horizontal shift the CONTENT columns carry — `gap_x`
+    /// past a pinned LEFT rail, `0.0` otherwise (a right rail shifts the band,
+    /// not the content). For cursor-anchored geometry built without per-cell
+    /// dispatch.
+    #[inline]
+    pub fn content_dx(&self) -> f32 {
+        if self.rail_col_start == 0 && self.rail_col_end > 0 {
+            self.gap_x
+        } else {
+            0.0
+        }
+    }
+
+    /// CHROME-GAP: the vertical shift the CONTENT rows carry below a pinned top
+    /// band (`gap_y`; `0.0` without one).
+    #[inline]
+    pub fn content_dy(&self) -> f32 {
+        self.gap_y
     }
 
     /// The un-shifted top-of-content Y (the seam below the pinned top bar) for a
-    /// build whose `origin[1]` already carries `scroll_offset_y`.
+    /// build whose `origin[1]` already carries `scroll_offset_y`. CHROME-GAP:
+    /// includes `gap_y`, so gliding content clamps at the gap-inset content top
+    /// and the gap strip below the bar stays clean, exactly like the padding
+    /// band.
     #[inline]
     fn seam_y(&self, shifted_origin_y: f32, cell_h: f32) -> f32 {
-        (shifted_origin_y - self.scroll_offset_y) + self.top_rows as f32 * cell_h
+        (shifted_origin_y - self.scroll_offset_y) + self.top_rows as f32 * cell_h + self.gap_y
     }
 
     /// The top-left Y of cell `(row, col)`: pinned (un-shifted) for chrome,
-    /// glide-shifted for content. Inert (plain shifted origin) when `!active()`.
+    /// glide-shifted for content. Inert (plain shifted origin) when `!active()`
+    /// and no chrome gap is in play. CHROME-GAP: content cells additionally
+    /// carry `cell_dy` (the below-band gap); chrome cells never do.
     #[inline]
     fn cell_top_y(&self, shifted_origin_y: f32, cell_h: f32, row: usize, col: usize) -> f32 {
-        if self.active() && self.is_chrome(row, col) {
+        let base = if self.active() && self.is_chrome(row, col) {
             (shifted_origin_y - self.scroll_offset_y) + row as f32 * cell_h
         } else {
             shifted_origin_y + row as f32 * cell_h
-        }
+        };
+        base + self.cell_dy(row, col)
     }
 
     /// TAB-LABEL-CENTERING: the sub-cell glyph Y shift (pixels) for a chrome
@@ -1054,7 +1135,7 @@ fn build_cells_core(
             };
             let bg = [bg[0], bg[1], bg[2], bg[3] * cell_opacity];
             let span = span_of(row, col);
-            let x0 = origin[0] + col as f32 * cell_w;
+            let x0 = origin[0] + col as f32 * cell_w + chrome_pin.cell_dx(col);
             let y0 = chrome_pin.cell_top_y(origin[1], cell_h, row, col);
             let (bg_top, bg_bottom) =
                 content_bg_span(&chrome_pin, chrome_seam_y, y0, cell_h, row, col);
@@ -1079,7 +1160,7 @@ fn build_cells_core(
             }
             let (fg, bg) = resolve(cell, row, col);
             let span = span_of(row, col);
-            let x0 = origin[0] + col as f32 * cell_w;
+            let x0 = origin[0] + col as f32 * cell_w + chrome_pin.cell_dx(col);
             let y0 = chrome_pin.cell_top_y(origin[1], cell_h, row, col);
             let decoration_y0 = y0 + chrome_pin.glyph_center_dy(row, col, cell_h);
 
@@ -1154,8 +1235,12 @@ fn build_cells_core(
             // never move grid columns. Horizontal clipping prevents ink from
             // reaching the following logical cell or an adjacent pane.
             if let Some(run) = ligature.filter(|run| run.start == col) {
-                let span_x0 = origin[0] + run.start as f32 * cell_w;
-                let span_x1 = origin[0] + run.end as f32 * cell_w;
+                // CHROME-GAP: the run shares its lead cell's horizontal shift
+                // (a shaping run never crosses the rail↔content seam — the band
+                // and content carry distinct attrs — so one dx spans the run).
+                let run_dx = chrome_pin.cell_dx(run.start);
+                let span_x0 = origin[0] + run.start as f32 * cell_w + run_dx;
+                let span_x1 = origin[0] + run.end as f32 * cell_w + run_dx;
                 let grid_top = if chrome_pin.active()
                     && chrome_pin.top_rows > 0
                     && !chrome_pin.is_chrome(row, col)
@@ -1164,7 +1249,9 @@ fn build_cells_core(
                 } else {
                     origin[1]
                 };
-                let grid_bottom = origin[1] + rows as f32 * cell_h;
+                // CHROME-GAP: the content grid's pixel bottom rides the same
+                // below-band shift its cells do (0.0 for chrome and no-gap).
+                let grid_bottom = origin[1] + rows as f32 * cell_h + chrome_pin.cell_dy(row, col);
                 for glyph in run.glyphs.iter() {
                     if let Some(bounds) = atlas.shaped_glyph_quad(glyph.key) {
                         push_glyph_quad_clipped_rect(

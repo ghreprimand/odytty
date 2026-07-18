@@ -1474,6 +1474,8 @@ fn bg_treatment_skips_chrome_cells_but_still_modulates_content() {
             rail_col_end: 0,
             band_glyph_dy_rows: 0.0,
             rail_glyph_dy_rows: 0.0,
+            gap_x: 0.0,
+            gap_y: 0.0,
         },
     );
     assert_eq!(treated[0].color, plain[0].color, "chrome stays untreated");
@@ -1903,6 +1905,8 @@ mod chrome_pin {
             rail_col_end: 0,
             band_glyph_dy_rows: 0.0,
             rail_glyph_dy_rows: 0.0,
+            gap_x: 0.0,
+            gap_y: 0.0,
         };
         let verts = build(&snapshot, &atlas, origin, pin);
 
@@ -1949,6 +1953,8 @@ mod chrome_pin {
             rail_col_end: 1,
             band_glyph_dy_rows: 0.0,
             rail_glyph_dy_rows: 0.0,
+            gap_x: 0.0,
+            gap_y: 0.0,
         };
         let verts = build(&snapshot, &atlas, origin, pin);
 
@@ -1983,6 +1989,8 @@ mod chrome_pin {
             rail_col_end: 1,
             band_glyph_dy_rows: 0.0,
             rail_glyph_dy_rows: 0.0,
+            gap_x: 0.0,
+            gap_y: 0.0,
         };
         let with_inert = build(&snapshot, &atlas, origin, inert);
         let with_none = build(&snapshot, &atlas, origin, ChromePin::NONE);
@@ -1994,6 +2002,158 @@ mod chrome_pin {
         let cell_h = atlas.cell.height as f32;
         assert!((bg_top(&with_none, 0, 0) - pad).abs() < 1e-3);
         assert!((bg_top(&with_none, 1, 0) - (pad + cell_h)).abs() < 1e-3);
+    }
+
+    // CHROME-GAP -------------------------------------------------------------
+
+    /// Background quad rect for cell `(row, col)` (2-col grid).
+    fn bg_rect(verts: &[Vertex], row: usize, col: usize) -> [f32; 4] {
+        quad_rect(verts, row * 2 + col)
+    }
+
+    #[test]
+    fn chrome_gap_shifts_content_and_bar_off_a_left_rail_but_never_the_band() {
+        // CHROME-GAP: with a left rail in column 0 plus a one-row top bar, the
+        // rail band keeps its flush position; every column at/right of the seam
+        // (the bar AND the content — one uniform column basis) shifts right by
+        // `gap_x`; content rows additionally shift down by `gap_y`, while the
+        // bar row and the full-height rail band do not.
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let snapshot = blank_snapshot(3);
+        let cell_w = atlas.cell.width as f32;
+        let cell_h = atlas.cell.height as f32;
+        let pad = 8.0_f32;
+        let origin = [pad, pad];
+        let (gap_x, gap_y) = (8.0_f32, 8.0_f32);
+        let pin = ChromePin {
+            scroll_offset_y: 0.0,
+            top_rows: 1,
+            rail_col_start: 0,
+            rail_col_end: 1,
+            band_glyph_dy_rows: 0.0,
+            rail_glyph_dy_rows: 0.0,
+            gap_x,
+            gap_y,
+        };
+        let verts = build(&snapshot, &atlas, origin, pin);
+
+        // Row 0 col 0: the rail∧bar corner — fully flush.
+        assert_eq!(bg_rect(&verts, 0, 0)[0], pad);
+        assert_eq!(bg_rect(&verts, 0, 0)[1], pad);
+        // Row 0 col 1: a bar cell right of the rail — shifted in X only.
+        assert_eq!(bg_rect(&verts, 0, 1)[0], pad + cell_w + gap_x);
+        assert_eq!(bg_rect(&verts, 0, 1)[1], pad);
+        // Row 1 col 0: a rail cell below the bar — flush in X, un-gapped in Y
+        // (the band is a continuous full-height sidebar).
+        assert_eq!(bg_rect(&verts, 1, 0)[0], pad);
+        assert_eq!(bg_rect(&verts, 1, 0)[1], pad + cell_h);
+        // Row 1 col 1: a content cell — shifted on both axes.
+        assert_eq!(bg_rect(&verts, 1, 1)[0], pad + cell_w + gap_x);
+        assert_eq!(bg_rect(&verts, 1, 1)[1], pad + cell_h + gap_y);
+        // Row 2 col 1: the shift is a constant offset, not cumulative.
+        assert_eq!(bg_rect(&verts, 2, 1)[1], pad + 2.0 * cell_h + gap_y);
+    }
+
+    #[test]
+    fn chrome_gap_right_rail_moves_the_band_and_leaves_content_flush() {
+        // CHROME-GAP mirror: with a RIGHT rail (band in column 1, content in
+        // column 0) the CONTENT stays at the padded origin and the BAND shifts
+        // right by `gap_x`, opening the gap between them.
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let snapshot = blank_snapshot(2);
+        let cell_w = atlas.cell.width as f32;
+        let pad = 8.0_f32;
+        let origin = [pad, pad];
+        let gap_x = 8.0_f32;
+        let pin = ChromePin {
+            scroll_offset_y: 0.0,
+            top_rows: 0,
+            rail_col_start: 1,
+            rail_col_end: 2,
+            band_glyph_dy_rows: 0.0,
+            rail_glyph_dy_rows: 0.0,
+            gap_x,
+            gap_y: 0.0,
+        };
+        let verts = build(&snapshot, &atlas, origin, pin);
+
+        assert_eq!(bg_rect(&verts, 0, 0)[0], pad, "content flush at the origin");
+        assert_eq!(
+            bg_rect(&verts, 0, 1)[0],
+            pad + cell_w + gap_x,
+            "the right-rail band sits a gap past the content columns"
+        );
+        assert_eq!(pin.content_dx(), 0.0, "content carries no X shift");
+        assert_eq!(pin.content_dy(), 0.0, "no top band, no Y shift");
+    }
+
+    #[test]
+    fn chrome_gap_content_origin_helpers_track_the_rail_side() {
+        // `content_dx`/`content_dy` feed cursor/image/content-anchored origins:
+        // a LEFT rail shifts content by `gap_x`; a RIGHT rail does not; `gap_y`
+        // passes through whenever a top band exists.
+        let left = ChromePin {
+            scroll_offset_y: 0.0,
+            top_rows: 2,
+            rail_col_start: 0,
+            rail_col_end: 4,
+            band_glyph_dy_rows: 0.0,
+            rail_glyph_dy_rows: 0.0,
+            gap_x: 6.0,
+            gap_y: 5.0,
+        };
+        assert_eq!(left.content_dx(), 6.0);
+        assert_eq!(left.content_dy(), 5.0);
+        let right = ChromePin {
+            rail_col_start: 10,
+            rail_col_end: 12,
+            ..left
+        };
+        assert_eq!(right.content_dx(), 0.0, "a right rail moves the band");
+        assert_eq!(right.content_dy(), 5.0);
+        assert_eq!(ChromePin::NONE.content_dx(), 0.0);
+        assert_eq!(ChromePin::NONE.content_dy(), 0.0);
+    }
+
+    #[test]
+    fn chrome_gap_seam_clamps_gliding_content_at_the_gap_inset_top() {
+        // During a glide the content clamps at the BAR BOTTOM + GAP (the
+        // content's true top), so the gap strip below the bar stays clean like
+        // the padding band.
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let snapshot = blank_snapshot(3);
+        let cell_h = atlas.cell.height as f32;
+        let pad = 8.0_f32;
+        let gap_y = 8.0_f32;
+        let frac = cell_h * 0.4;
+        let origin = [pad, pad + frac];
+        let pin = ChromePin {
+            scroll_offset_y: frac,
+            top_rows: 1,
+            rail_col_start: 0,
+            rail_col_end: 0,
+            band_glyph_dy_rows: 0.0,
+            rail_glyph_dy_rows: 0.0,
+            gap_x: 0.0,
+            gap_y,
+        };
+        let verts = build(&snapshot, &atlas, origin, pin);
+        // The first content row (row 1) is pulled flush to the gap-inset seam:
+        // pad + bar height + gap, NOT pad + bar height.
+        assert!(
+            (bg_top(&verts, 1, 0) - (pad + cell_h + gap_y)).abs() < 1e-3,
+            "first content row clamps at the gap-inset seam, got {}",
+            bg_top(&verts, 1, 0)
+        );
     }
 
     // TAB-LABEL-CENTERING ---------------------------------------------------
@@ -2056,6 +2216,8 @@ mod chrome_pin {
                 rail_col_end: 0,
                 band_glyph_dy_rows: dy_rows,
                 rail_glyph_dy_rows: 0.0,
+                gap_x: 0.0,
+                gap_y: 0.0,
             };
             let verts = build(&band, &atlas, origin, pin);
             let got = glyph_top(&verts, rows, 0);
@@ -2095,6 +2257,8 @@ mod chrome_pin {
                 rail_col_end: 0,
                 band_glyph_dy_rows: dy_rows,
                 rail_glyph_dy_rows: 0.0,
+                gap_x: 0.0,
+                gap_y: 0.0,
             };
             let verts2 = build(&deco, &atlas, origin, pin2);
             let band_glyph = glyph_top(&verts2, total, 0);
@@ -2149,6 +2313,8 @@ mod chrome_pin {
             rail_col_end: 1,
             band_glyph_dy_rows: 0.0,
             rail_glyph_dy_rows: rail_dy,
+            gap_x: 0.0,
+            gap_y: 0.0,
         };
         let got = glyph_top(&build(&band, &atlas, origin, pin), slot_rows, 0);
         // Label was on row 0 (top ref_top); shifted down to the slot center means
@@ -2213,6 +2379,8 @@ mod chrome_pin {
                     rail_col_end: 0,
                     band_glyph_dy_rows: safe,
                     rail_glyph_dy_rows: 0.0,
+                    gap_x: 0.0,
+                    gap_y: 0.0,
                 },
             ),
             1,

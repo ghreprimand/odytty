@@ -6,6 +6,7 @@ use super::gpu::{
     multi_pane_wallpaper_edge_wash_quads, physical_font_px, post, quads_excluding,
     rail_overlay_chrome_pin, required_limits_for_adapter, rescue_adapter_index, scene_clear_color,
     scene_target_format, select_alpha_mode, wallpaper_edge_wash_quads,
+    wallpaper_edge_wash_quads_with_pin,
 };
 use crate::atlas::CellSize;
 use crate::core::Terminal;
@@ -355,6 +356,61 @@ fn wallpaper_edge_wash_covers_only_non_grid_regions() {
             .iter()
             .all(|quad| (quad.color[3] - 0.6).abs() < f32::EPSILON)
     );
+}
+
+#[test]
+fn chrome_gap_edge_wash_covers_the_gap_strips_and_widens_the_frame() {
+    // CHROME-GAP: with a left rail (cols 0..2), a one-row top bar, and 4px gaps,
+    // the pin-aware wash must (1) treat the decorated frame as 4px wider/taller
+    // (the shifted cells), (2) wash the full-height rail↔content gap column,
+    // and (3) wash the below-bar gap row across the content columns only.
+    let term = Terminal::new(10, 4);
+    let snapshot = term.snapshot();
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    };
+    let pin = crate::grid::ChromePin {
+        scroll_offset_y: 0.0,
+        top_rows: 1,
+        rail_col_start: 0,
+        rail_col_end: 2,
+        band_glyph_dy_rows: 0.0,
+        rail_glyph_dy_rows: 0.0,
+        gap_x: 4.0,
+        gap_y: 4.0,
+    };
+    let quads =
+        wallpaper_edge_wash_quads_with_pin(&snapshot, cell, [4.0, 4.0], [200, 100], 0.6, pin);
+    let rects = quads.iter().map(|quad| quad.rect).collect::<Vec<_>>();
+
+    assert_eq!(
+        rects,
+        vec![
+            // Outer frame, around the gap-widened 88x72 extent.
+            [0.0, 0.0, 200.0, 4.0],
+            [0.0, 4.0, 4.0, 72.0],
+            [88.0, 4.0, 200.0, 72.0],
+            [0.0, 72.0, 200.0, 100.0],
+            // Full-height rail↔content gap column at the seam (col 2).
+            [20.0, 4.0, 24.0, 72.0],
+            // Below-bar gap row across the shifted content columns.
+            [24.0, 20.0, 88.0, 24.0],
+        ]
+    );
+
+    // Zero-gap pin identity: byte-identical to the legacy four-strip wash.
+    let legacy = wallpaper_edge_wash_quads(&snapshot, cell, [4.0, 4.0], [200, 100], 0.6);
+    let none = wallpaper_edge_wash_quads_with_pin(
+        &snapshot,
+        cell,
+        [4.0, 4.0],
+        [200, 100],
+        0.6,
+        crate::grid::ChromePin::NONE,
+    );
+    assert_eq!(legacy, none);
 }
 
 #[test]

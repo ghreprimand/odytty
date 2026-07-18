@@ -103,6 +103,7 @@ pub(super) fn placement_quad(
         WindowPadding::ZERO,
         0,
         0,
+        [0.0, 0.0],
     )
 }
 
@@ -122,9 +123,11 @@ pub(super) fn placement_quad_with_padding(
         padding,
         0,
         0,
+        [0.0, 0.0],
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn placement_quad_with_padding_and_row_offset(
     placement: &VisiblePlacement,
     image_width: u32,
@@ -133,6 +136,9 @@ pub(super) fn placement_quad_with_padding_and_row_offset(
     padding: WindowPadding,
     row_offset: usize,
     col_offset: usize,
+    // CHROME-GAP: the content cells' chrome-facing gap shift in pixels
+    // (`[0.0, 0.0]` with no pinned chrome or zero padding — byte-identical).
+    content_gap_px: [f32; 2],
 ) -> Option<ImageQuad> {
     if image_width == 0 || image_height == 0 || placement.display_columns == 0 {
         return None;
@@ -170,9 +176,11 @@ pub(super) fn placement_quad_with_padding_and_row_offset(
 
     let pad = padding.as_f32();
     let x0 = pad
+        + content_gap_px[0]
         + (placement.column + col_offset) as f32 * cell.width as f32
         + placement.pixel_offset_x as f32;
     let y0 = pad
+        + content_gap_px[1]
         + (placement.row + row_offset) as f32 * cell.height as f32
         + placement.pixel_offset_y as f32;
     let x1 = x0 + visible_w as f32;
@@ -747,6 +755,7 @@ impl ImageLayer {
         padding: WindowPadding,
         row_offset: usize,
         col_offset: usize,
+        content_gap_px: [f32; 2],
     ) {
         // Single-pane frame: it owns the image layer, so drop any multipane
         // placement geometry left over from a prior split frame. The pane
@@ -781,7 +790,14 @@ impl ImageLayer {
         }
 
         self.rebuild_vertices_with_padding(
-            device, queue, placements, cell, padding, row_offset, col_offset,
+            device,
+            queue,
+            placements,
+            cell,
+            padding,
+            row_offset,
+            col_offset,
+            content_gap_px,
         );
     }
 
@@ -795,6 +811,7 @@ impl ImageLayer {
         padding: WindowPadding,
         row_offset: usize,
         col_offset: usize,
+        content_gap_px: [f32; 2],
     ) {
         self.vertices.clear();
         self.draws.clear();
@@ -811,6 +828,7 @@ impl ImageLayer {
                 padding,
                 row_offset,
                 col_offset,
+                content_gap_px,
             ) else {
                 continue;
             };

@@ -50,6 +50,20 @@ impl App {
         self.resize_grid_with_padding(cell, WindowPadding::ZERO, width_px, height_px)
     }
 
+    /// Padding-aware sibling of [`Self::resize_grid`] (CHROME-GAP): drives the
+    /// real grid-fit path with a nonzero window padding so the chrome-facing
+    /// gap's whole-cell displacement is assertable headlessly.
+    #[cfg(test)]
+    pub(in crate::native) fn resize_grid_with_padding_for_test(
+        &mut self,
+        cell: CellSize,
+        padding: WindowPadding,
+        width_px: u32,
+        height_px: u32,
+    ) -> bool {
+        self.resize_grid_with_padding(cell, padding, width_px, height_px)
+    }
+
     /// Drive the same debounced model-resize path used by window resize events.
     #[cfg(test)]
     pub(in crate::native) fn record_pending_resize_for_test(

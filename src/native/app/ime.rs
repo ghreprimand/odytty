@@ -137,14 +137,20 @@ impl App {
         };
         let cell = gpu.cell();
         let pad = gpu.window_padding().as_f32();
+        // CHROME-GAP sweep: the candidate window anchors at the CONTENT cursor
+        // cell, so the tab-chrome offset (band cells plus the chrome-facing
+        // padding gap) shifts it exactly like every other content-registered
+        // coordinate. Both components are 0 with no chrome shown, keeping the
+        // plain path byte-identical.
+        let (chrome_dx, chrome_dy) = self.tab_chrome_offset_px(cell);
         let cursor = self
             .terminal
             .lock()
             .ok()
             .map(|terminal| terminal.snapshot().cursor)
             .unwrap_or_default();
-        let x = pad + cursor.column as f32 * cell.width as f32;
-        let y = pad + cursor.row as f32 * cell.height as f32;
+        let x = pad + chrome_dx as f32 + cursor.column as f32 * cell.width as f32;
+        let y = pad + chrome_dy as f32 + cursor.row as f32 * cell.height as f32;
         window.set_ime_cursor_area(
             PhysicalPosition::new(x, y),
             PhysicalSize::new(cell.width, cell.height),
