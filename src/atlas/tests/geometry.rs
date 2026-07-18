@@ -297,3 +297,96 @@ fn full_row_shaped_span_allocates_within_row_bounds() {
     assert!(uv[0] >= 0.0 && uv[2] <= 1.0, "u range in bounds: {uv:?}");
     assert!(uv[1] >= 0.0 && uv[3] <= 1.0, "v range in bounds: {uv:?}");
 }
+
+/// A 3..=16-cell span whose lead would land near the row edge must burn
+/// fillers to the NEXT ROW BOUNDARY, not just one slot: with the allocator at
+/// column 14, a 3-cell span burning a single filler would start at column 15
+/// and still cross the row — reserved cells wrapping onto the next row, ink
+/// overwriting other glyphs' pixels, and a UV rect past the right atlas edge
+/// (u1 > 1.0). The run must instead start at column 0 of the next row with
+/// fully in-bounds UVs, and the burned fillers must keep the slot bookkeeping
+/// dense so existing UVs stay valid.
+#[test]
+fn midrow_multi_cell_span_advances_to_the_next_row_boundary() {
+    let Some(font) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    // Advance the allocator to column 14 of a row.
+    while atlas.next_slot % atlas.cols != 14 {
+        atlas.allocate_slots(1).expect("single-slot filler");
+    }
+    let at_column_14 = atlas.next_slot;
+    let lead = atlas.allocate_slots(3).expect("3-cell span");
+    assert_eq!(lead % atlas.cols, 0, "lead must start a fresh row");
+    assert_eq!(
+        lead,
+        at_column_14 + 2,
+        "columns 14 and 15 are burned as fillers"
+    );
+    assert_eq!(
+        atlas.next_slot,
+        lead + 3,
+        "bookkeeping stays dense past the reserved cells"
+    );
+    assert_eq!(
+        atlas.slot_ink.len() as u32,
+        atlas.next_slot,
+        "every consumed slot (fillers included) has a dense ink entry"
+    );
+    assert_eq!(atlas.slot_span[lead as usize], 3);
+    let uv = atlas.slot_uv(lead);
+    assert!(
+        uv[0] >= 0.0 && uv[2] <= 1.0,
+        "u range must stay in bounds: {uv:?}"
+    );
+    assert!(
+        uv[1] >= 0.0 && uv[3] <= 1.0,
+        "v range must stay in bounds: {uv:?}"
+    );
+}
+
+/// The boundary-adjacent case that must NOT burn fillers: a span that exactly
+/// fits the remaining columns of the current row allocates in place.
+#[test]
+fn multi_cell_span_exactly_fitting_the_row_allocates_in_place() {
+    let Some(font) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    while atlas.next_slot % atlas.cols != 13 {
+        atlas.allocate_slots(1).expect("single-slot filler");
+    }
+    let at_column_13 = atlas.next_slot;
+    let lead = atlas.allocate_slots(3).expect("3-cell span");
+    assert_eq!(lead, at_column_13, "columns 13..16 fit without wrapping");
+    let uv = atlas.slot_uv(lead);
+    assert!(uv[2] <= 1.0, "u1 in bounds at the exact fit: {uv:?}");
+}
+
+/// Exhaustion stays clean through the filler-burn loop: when the hard slot cap
+/// lands mid-burn, the allocation reports `None` without panicking and without
+/// corrupting the dense bookkeeping.
+#[test]
+fn filler_burn_hitting_the_slot_cap_fails_cleanly() {
+    let Some(font) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    while atlas.next_slot % atlas.cols != 15 {
+        atlas.allocate_slots(1).expect("single-slot filler");
+    }
+    // Cap the atlas at one slot of headroom: the 3-cell span at column 15
+    // needs a filler burn plus three slots — the cap must stop it cleanly
+    // (whether the burn or the span reservation trips it).
+    atlas.max_slots = atlas.next_slot + 1;
+    assert_eq!(atlas.allocate_slots(3), None);
+    assert_eq!(
+        atlas.slot_ink.len() as u32,
+        atlas.next_slot,
+        "bookkeeping stays dense after a failed allocation"
+    );
+}

@@ -1334,13 +1334,15 @@ impl GlyphAtlas {
     /// the lead slot index, appending pages of rows (zero-filled) as capacity is
     /// exhausted. Returns `None` once [`MAX_ATLAS_SLOTS`] would be exceeded.
     ///
-    /// A `span == 2` (wide / East Asian) allocation never straddles a row
-    /// boundary: if the lead would land in the last column, one filler slot is
-    /// burned so the pair starts at column 0 of the next row, keeping the two
-    /// cells' inked region horizontally contiguous. Every consumed slot (filler +
-    /// lead + reserved) gets a dense placeholder `slot_ink`/`slot_span` entry —
-    /// the caller overwrites the lead's ink — so existing slots never move and UV
-    /// rects handed out before a growth stay valid.
+    /// A multi-cell (`span > 1`) allocation never straddles a row boundary:
+    /// if the span would cross the row edge, filler slots are burned up to the
+    /// next row boundary so the run starts at column 0 of the next row,
+    /// keeping the inked region horizontally contiguous. One filler suffices
+    /// for a wide (East Asian) pair; a longer contextual span burns as many as
+    /// its overhang requires. Every consumed slot (filler + lead + reserved)
+    /// gets a dense placeholder `slot_ink`/`slot_span` entry — the caller
+    /// overwrites the lead's ink — so existing slots never move and UV rects
+    /// handed out before a growth stay valid.
     fn allocate_slots(&mut self, span: u32) -> Option<u32> {
         debug_assert!(span >= 1);
         // Defense-in-depth: a span wider than a full atlas row can never be
@@ -1349,9 +1351,16 @@ impl GlyphAtlas {
         if span > self.cols {
             return None;
         }
-        // A wide pair must not wrap across a row: burn a filler slot first.
-        if span > 1 && self.next_slot % self.cols + span > self.cols {
-            self.push_placeholder_slot(1)?;
+        // A multi-cell span must not wrap across a row: burn fillers to the
+        // next row boundary. A single filler is only sufficient for span == 2;
+        // a longer span whose lead lands within span-1 columns of the row edge
+        // needs every remaining column of the row burned, or the reserved
+        // cells wrap onto the next row and the rasterized ink strip overwrites
+        // other glyphs' pixels while the UV rect runs past the atlas edge.
+        if span > 1 {
+            while self.next_slot % self.cols + span > self.cols {
+                self.push_placeholder_slot(1)?;
+            }
         }
         if self.next_slot + span > self.max_slots {
             return None;

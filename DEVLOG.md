@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Atlas row-wrap guard now covers all multi-cell spans
+
+Fixed: the known gap recorded with the over-wide-span guard. The atlas
+allocator's row-wrap guard burned exactly one filler slot before a multi-cell
+allocation, which is only sufficient for two-cell (East Asian wide) spans. A
+contextual ligature span of 3 to 16 cells whose lead landed within span-1
+columns of the row edge still wrapped: a 3-cell span arriving at column 14
+burned one filler, started at column 15, and crossed the row anyway — reserved
+cells wrapping onto the next atlas row, rasterized ink overwriting other
+glyphs' pixels, and a UV rectangle extending past the right atlas edge
+(u1 = 1.0375 in the reproduced case). The guard now burns fillers up to the
+next row boundary whenever a span would cross it, so every multi-cell run
+starts fully contiguous within one row. Filler slots keep the dense
+placeholder bookkeeping, so existing slots never move and previously handed
+out UV rects stay valid; allocation failure at the hard slot cap mid-burn
+stays a clean refusal. Tests pin the column-14 span-3 case landing at the next
+row's column 0 with in-bounds UVs, the exact-fit case burning nothing, and the
+clean failure at the cap. Cross-platform: the atlas is shared by every
+backend.
+
 ## 2026-07-18 -- Windows opener hardening, console-flash suppression, and custom-theme editability
 
 Security fix (Windows): the default file/URI opener no longer routes untrusted
