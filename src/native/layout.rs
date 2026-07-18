@@ -517,27 +517,38 @@ pub(super) fn pane_glide_origin_and_clip(
 /// Cut 1 (inline graphics in splits): the scissor rect (physical px
 /// `[x, y, w, h]`) an inline image is clipped to inside a split pane — the
 /// pane's at-rest grid rect (`base_origin` from [`pane_grid_origin`] plus the
-/// pane's grid extent), clamped to the surface. Bounds BOTH axes, so an image
+/// pane's grid extent), clamped to the pane rect and the surface. Bounds BOTH
+/// axes, so an image
 /// rasterized wider or taller than its pane cannot bleed across a vertical OR
 /// horizontal divider into a neighbour (a vertical-only clip could not stop the
 /// horizontal case). Pure, so the no-bleed geometry is unit-testable without a
 /// GPU. A zero-area pane (no cols/rows, or fully off-surface) yields a zero
 /// width/height, which the draw path skips.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn pane_image_scissor(
     base_origin: [f32; 2],
     cols: usize,
     rows: usize,
     cell_w: f32,
     cell_h: f32,
+    pane_rect: PaneRect,
     surface_w: f32,
     surface_h: f32,
 ) -> [u32; 4] {
     let grid_w = cols as f32 * cell_w;
     let grid_h = rows as f32 * cell_h;
-    let sx = base_origin[0].max(0.0);
-    let sy = base_origin[1].max(0.0);
-    let sx1 = (base_origin[0] + grid_w).min(surface_w);
-    let sy1 = (base_origin[1] + grid_h).min(surface_h);
+    // Bound the scissor by the pane's OWN rect as well as the surface: an image
+    // rasterized larger than its grid, or a glide origin nudged a hair past the
+    // pane edge, must still be cropped at the pane boundary so it cannot bleed
+    // across a divider into a neighbour before the surface edge would stop it.
+    let sx = base_origin[0].max(pane_rect.x).max(0.0);
+    let sy = base_origin[1].max(pane_rect.y).max(0.0);
+    let sx1 = (base_origin[0] + grid_w)
+        .min(pane_rect.right())
+        .min(surface_w);
+    let sy1 = (base_origin[1] + grid_h)
+        .min(pane_rect.bottom())
+        .min(surface_h);
     [
         sx as u32,
         sy as u32,
@@ -824,7 +835,8 @@ mod tests {
     fn pane_image_scissor_bounds_the_pane_grid_rect() {
         // A pane whose grid sits at (100, 50) spanning 40 cols x 20 rows of an
         // 8x16 cell => 320 x 320 px. The scissor is exactly that rect.
-        let scissor = pane_image_scissor([100.0, 50.0], 40, 20, 8.0, 16.0, 2000.0, 2000.0);
+        let pane = PaneRect::new(100.0, 50.0, 320.0, 320.0);
+        let scissor = pane_image_scissor([100.0, 50.0], 40, 20, 8.0, 16.0, pane, 2000.0, 2000.0);
         assert_eq!(scissor, [100, 50, 320, 320]);
     }
 
@@ -832,9 +844,21 @@ mod tests {
     fn pane_image_scissor_clamps_to_the_surface() {
         // A pane grid extending past the surface right/bottom is clamped so the
         // scissor never exceeds the render target (wgpu would reject it).
-        let scissor = pane_image_scissor([700.0, 500.0], 40, 20, 8.0, 16.0, 900.0, 700.0);
+        let pane = PaneRect::new(700.0, 500.0, 320.0, 320.0);
+        let scissor = pane_image_scissor([700.0, 500.0], 40, 20, 8.0, 16.0, pane, 900.0, 700.0);
         // right: min(700+320, 900) = 900 -> w = 200; bottom: min(500+320,700)=700 -> h=200
         assert_eq!(scissor, [700, 500, 200, 200]);
+    }
+
+    #[test]
+    fn pane_image_scissor_clamps_to_a_pane_smaller_than_its_grid() {
+        // C21: a grid extent (320x320) larger than the pane rect it belongs to
+        // (200x160) is cropped at the pane edge, well inside the surface, so an
+        // over-large image cannot bleed past the pane boundary.
+        let pane = PaneRect::new(100.0, 50.0, 200.0, 160.0);
+        let scissor = pane_image_scissor([100.0, 50.0], 40, 20, 8.0, 16.0, pane, 2000.0, 2000.0);
+        // right: min(100+320, 300, 2000) = 300 -> w = 200; bottom: min(50+320, 210, 2000) = 210 -> h = 160
+        assert_eq!(scissor, [100, 50, 200, 160]);
     }
 
     #[test]
@@ -848,7 +872,7 @@ mod tests {
         for (_, rect) in &rects {
             let (cols, rows) = grid_dims_for_rect(*rect, cell_w as u32, cell_h as u32);
             let base = pane_grid_origin(*rect, content(), cell_w as u32, cell_h as u32);
-            let sc = pane_image_scissor(base, cols, rows, cell_w, cell_h, 800.0, 600.0);
+            let sc = pane_image_scissor(base, cols, rows, cell_w, cell_h, *rect, 800.0, 600.0);
             boxes.push(sc);
         }
         let left = boxes[0];
@@ -874,7 +898,7 @@ mod tests {
         for (_, rect) in &rects {
             let (cols, rows) = grid_dims_for_rect(*rect, cell_w as u32, cell_h as u32);
             let base = pane_grid_origin(*rect, content(), cell_w as u32, cell_h as u32);
-            let sc = pane_image_scissor(base, cols, rows, cell_w, cell_h, 800.0, 600.0);
+            let sc = pane_image_scissor(base, cols, rows, cell_w, cell_h, *rect, 800.0, 600.0);
             boxes.push(sc);
         }
         let top = boxes[0];

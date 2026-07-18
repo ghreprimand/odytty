@@ -2999,9 +2999,11 @@ impl App {
         // until switch-back and then silently replace the system clipboard —
         // minutes-stale, from a program the user is not looking at. Policy: a
         // WRITE authority requires the active session, a confirmed OS-focused
-        // window, and the live `osc52_write` policy. A READ independently
-        // requires the existing `osc52_read` gate and active session, so a
-        // background program cannot exfiltrate clipboard contents. Every
+        // window, and the live `osc52_write` policy. A READ requires the same
+        // active session AND OS-focused window (C41) plus the `osc52_read` gate,
+        // so a background program -- or a foreground one in the active tab while
+        // the window itself is unfocused -- cannot exfiltrate clipboard
+        // contents. Every
         // session is drained each pass so nothing queues indefinitely and a
         // discarded request is never applied on switch-back.
         let focused = self.sessions.active_id();
@@ -3020,8 +3022,14 @@ impl App {
                         writes.push((session.id, selection, text));
                     }
                     ClipboardRequest::Read { selection } => {
-                        if !is_focused {
-                            // A background requester must not learn clipboard
+                        // C41: a READ needs the active session AND a confirmed
+                        // OS-focused window -- the same authority the WRITE path
+                        // demands. Without the window-focus gate a foreground
+                        // program in the active tab could read the clipboard
+                        // while the user is working in another application.
+                        let window_authority = self.focused && self.osc52_write.focus_observed();
+                        if !is_focused || !window_authority {
+                            // A denied requester must not learn clipboard
                             // contents, but an explicit empty reply lets it
                             // finish immediately instead of hanging to its own
                             // timeout.
@@ -5791,6 +5799,13 @@ impl ApplicationHandler<UserEvent> for App {
                     self.needs_rebuild = true;
                     self.last_render_signature = None;
                     self.presentation_epoch = self.presentation_epoch.wrapping_add(1);
+                    // C18: apply the new per-cell metrics to every pane now. The
+                    // debounced grid resize is a model no-op when the scale change
+                    // keeps the same cols/rows, which would strand pixel-space
+                    // consumers (SGR-pixel mouse, inline-image sizing) on the old
+                    // scale. Metrics-only: no reflow, no SIGWINCH.
+                    self.sessions
+                        .apply_cell_metrics_all(resize.cell.width, resize.cell.height);
                     self.record_pending_resize(resize, Instant::now());
                 }
                 if let Some(window) = self.window.as_ref() {

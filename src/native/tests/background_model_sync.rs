@@ -321,8 +321,44 @@ fn background_osc52_read_never_reaches_clipboard() {
     );
 
     // Positive control: the same request from the focused session reaches the
-    // clipboard policy after the opt-in gate.
+    // clipboard policy after the opt-in gate -- but only once the window itself
+    // holds OS focus (C41). Grant that authority, then drive the read.
+    app.set_window_focus_for_test(true);
     app.advance_session_bytes_for_test(1, OSC52_READ);
+    app.drain_clipboard_requests_for_test();
+    assert_eq!(app.clipboard_read_text_calls_for_test(), 1);
+}
+
+#[cfg_attr(
+    target_os = "macos",
+    ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"
+)]
+#[test]
+fn active_session_osc52_read_denied_while_window_unfocused() {
+    // C41: even the active session must not read the clipboard while the OdyTTY
+    // window itself is unfocused -- otherwise a foreground program in the active
+    // tab could exfiltrate the clipboard while the user works elsewhere.
+    let (mut app, _event_loop) = app_or_skip!();
+    app.enable_osc52_read_for_test("private text");
+    app.set_window_focus_for_test(false);
+
+    app.advance_session_bytes_for_test(0, OSC52_READ);
+    app.drain_clipboard_requests_for_test();
+    assert_eq!(
+        app.clipboard_read_text_calls_for_test(),
+        0,
+        "an unfocused window must not inspect the clipboard even for the active session"
+    );
+    assert_eq!(
+        app.osc52_background_empty_replies_for_test(),
+        1,
+        "the denied requester still receives an explicit empty reply"
+    );
+
+    // Positive control: granting window focus lets the same active-session read
+    // reach the clipboard policy.
+    app.set_window_focus_for_test(true);
+    app.advance_session_bytes_for_test(0, OSC52_READ);
     app.drain_clipboard_requests_for_test();
     assert_eq!(app.clipboard_read_text_calls_for_test(), 1);
 }

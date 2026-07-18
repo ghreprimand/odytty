@@ -1913,6 +1913,42 @@ impl WorkspaceSet {
         }
     }
 
+    /// C18: push new per-cell pixel metrics to every pane WITHOUT a column
+    /// reflow or a PTY resize. A DPI scale change can alter the cell's
+    /// physical-pixel size while the grid still floors to the same cols/rows,
+    /// which the debounced grid resize skips entirely; pixel-space consumers
+    /// (SGR-pixel mouse reports, inline-image sizing) would otherwise stay on the
+    /// stale metric. No `terminal.resize` (no reflow) and no `pty.resize` (no
+    /// SIGWINCH), so the shell sees nothing — only the metric changes.
+    pub(super) fn apply_cell_metrics_all(&mut self, cell_w: u32, cell_h: u32) {
+        let tokens: Vec<SessionToken> = self
+            .workspaces
+            .iter()
+            .flat_map(|ws| ws.tabs.iter())
+            .flat_map(|tab| tab.layout.leaves())
+            .collect();
+        for token in tokens {
+            let Some(session) = self.sessions.get_mut(&token) else {
+                continue;
+            };
+            if let Ok(mut terminal) = session.terminal.lock() {
+                terminal.set_cell_metrics(cell_w, cell_h);
+            }
+            match &session.source {
+                SessionSource::Local { pty } => {
+                    if let Ok(pty) = pty.lock() {
+                        pty.set_cell_metrics(crate::core::CellMetrics::new(cell_w, cell_h));
+                    }
+                }
+                #[cfg(test)]
+                SessionSource::Headless { session } => {
+                    session.record_cell_metrics(crate::core::CellMetrics::new(cell_w, cell_h));
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// The effective display title of the tab that contains `token`: the tab's
     /// user override if set, otherwise the focused pane's shell-derived title
     /// (design doc §2.4). Returns an owned string for the rename UI / test

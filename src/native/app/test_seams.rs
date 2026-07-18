@@ -2793,6 +2793,18 @@ impl App {
         }
     }
 
+    /// Test seam (C41): set the OS window-focus authority the OSC 52 read/write
+    /// gates consult. `true` also records a confirmed focus observation (as a
+    /// real `WindowEvent::Focused(true)` would) so the gate grants authority;
+    /// `false` drops window focus while leaving any prior observation intact.
+    #[cfg(test)]
+    pub(in crate::native) fn set_window_focus_for_test(&mut self, focused: bool) {
+        self.focused = focused;
+        if focused {
+            self.observe_osc52_window_focus();
+        }
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn session_dimensions_for_test(
         &self,

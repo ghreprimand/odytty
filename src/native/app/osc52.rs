@@ -57,6 +57,13 @@ pub(in crate::native) struct Osc52WriteState {
 }
 
 impl Osc52WriteState {
+    /// Whether a real OS focus event has been observed since launch. The
+    /// OSC 52 read authority (C41) consults this alongside `App::focused`,
+    /// mirroring the write path, so a read is denied until focus is confirmed.
+    pub(super) fn focus_observed(&self) -> bool {
+        self.focus_observed
+    }
+
     fn disposition(
         &self,
         policy: Osc52WritePolicy,

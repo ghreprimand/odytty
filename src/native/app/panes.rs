@@ -692,6 +692,7 @@ impl App {
                     snapshot.dimensions.rows,
                     cell.width as f32,
                     cell.height as f32,
+                    *rect,
                     surface_w as f32,
                     surface_h as f32,
                 );

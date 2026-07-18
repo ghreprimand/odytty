@@ -1505,10 +1505,12 @@ impl App {
     /// Encode an SGR-pixel (1016) mouse report from the cached physical pointer
     /// position. Returns `None` until a cursor position and GPU cell metrics are
     /// available, or when the active tracking gate drops the event (the core
-    /// encoder applies the same gating as the cell path). The grid is drawn at
-    /// the window origin, so the cached physical position is already
-    /// grid-relative; [`pixel_coords_for_report`] floors it to a 1-based pixel
-    /// and clamps to the grid's pixel extent after removing any window padding.
+    /// encoder applies the same gating as the cell path). The cached position is
+    /// window-absolute, so it is first mapped grid-relative the same way the cell
+    /// path maps it (subtract the tab-chrome offset on a single-pane tab, or the
+    /// focused pane's rect origin in a multi-pane tab); [`pixel_coords_for_report`]
+    /// then floors it to a 1-based pixel and clamps to the grid's pixel extent
+    /// after removing any window padding.
     fn encode_pixel_mouse_report(
         &self,
         protocol: MouseProtocol,
@@ -1518,7 +1520,43 @@ impl App {
         let (x_px, y_px) = self.pointer_px?;
         let gpu = self.gpu.as_ref()?;
         let cell = gpu.cell();
-        let (px, py) = pixel_coords_for_report(x_px, y_px, cell, self.grid, gpu.window_padding());
+        // Map the absolute pointer into grid-relative pixels, mirroring the cell
+        // path: a top bar / left rail shifts the grid origin, and in a multi-pane
+        // tab the focused pane's content rect is offset from the window origin.
+        // Without this the SGR-pixel (1016) report would leak the chrome / pane
+        // offset to the application (a left rail reporting X too large, a top bar
+        // reporting Y too large).
+        let (px, py) = if let Some((content, _)) = self.multipane_geometry() {
+            let focused = self.sessions.active_id();
+            let rect = self
+                .sessions
+                .active_pane_rects(content, PANE_DIVIDER_PX)
+                .into_iter()
+                .find(|(token, _)| *token == focused)
+                .map(|(_, rect)| rect)?;
+            // The focused pane's rect origin already folds in the tab-chrome and
+            // window padding, so no separate padding subtraction here (parity with
+            // `pane_relative_cell`).
+            pixel_coords_for_report(
+                x_px - f64::from(rect.x),
+                y_px - f64::from(rect.y),
+                cell,
+                self.grid,
+                WindowPadding::ZERO,
+            )
+        } else {
+            // Single-pane: subtract the tab-chrome offset (both 0 on the plain
+            // path, keeping it byte-identical there); padding is removed inside
+            // `pixel_coords_for_report`, matching the cell path.
+            let (chrome_dx, chrome_dy) = self.tab_chrome_offset_px(cell);
+            pixel_coords_for_report(
+                x_px - chrome_dx,
+                y_px - chrome_dy,
+                cell,
+                self.grid,
+                gpu.window_padding(),
+            )
+        };
         let mods = MouseModifiers {
             // Shift stays reserved for local selection while reporting is active,
             // matching the cell path's modifier policy.

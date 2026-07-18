@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Pointer, scale, scissor, and clipboard-read hardening
+
+Four input and window fixes from the deep audit:
+
+- The SGR-pixel (1016) mouse report now maps the pointer grid-relative the same
+  way the cell path does, subtracting the tab-chrome offset on a single-pane tab
+  or the focused pane's rect origin in a multi-pane tab, so a left rail or top
+  bar no longer leaks its offset into the reported coordinates.
+- A DPI scale change now pushes the new per-cell pixel metrics to every pane
+  even when the grid keeps the same rows and columns, so pixel-space consumers
+  no longer strand on the old scale. The push is metrics-only: no column reflow,
+  no PTY resize.
+- The inline-image scissor is clamped to the pane's own rect as well as the
+  surface, so an image rasterized larger than its grid cannot bleed across a
+  divider into a neighbour.
+- An OSC 52 clipboard READ now requires a confirmed OS-focused window in
+  addition to the active session, matching the write authority, so a foreground
+  program in the active tab cannot read the clipboard while the window is
+  unfocused. Windows behavior is unchanged (the focus and pane geometry paths
+  are platform-neutral).
+
 ## 2026-07-18 -- Path picker survives narrow terminals and multibyte paths
 
 The settings path picker truncated its breadcrumb by byte offset, which would
