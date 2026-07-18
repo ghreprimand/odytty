@@ -83,7 +83,7 @@ environment variable was not set at startup.
 | `window_border` | `ODYTTY_WINDOW_BORDER` | `on`, `off` | `off` |
 | `window_decorations` | `ODYTTY_WINDOW_DECORATIONS` | `on`, `off` | `on` |
 | `window_transparency` | `ODYTTY_WINDOW_TRANSPARENCY` | `on`, `off` | `off` |
-| `window_opacity` | `ODYTTY_WINDOW_OPACITY` | Percent, `20..=100` (step 5) | `85` |
+| `window_opacity` | `ODYTTY_WINDOW_OPACITY` | Percent, `20..=100` (step 5) | `80` |
 | `selection_opacity` | `ODYTTY_SELECTION_OPACITY` | Float, `0.0..=1.0` (step 0.05) | `0.6` |
 | `always_show_tab_bar` | `ODYTTY_ALWAYS_SHOW_TAB_BAR` | `on`, `off` | `off` |
 | `tab_bar_height` | `ODYTTY_TAB_BAR_HEIGHT` | `auto`, or `1..=5` rows | `auto` |
@@ -145,8 +145,8 @@ environment variable was not set at startup.
 | `wheel_zoom` | `ODYTTY_WHEEL_ZOOM` | `on`, `off` | `on` |
 | `command_status_gutter` | `ODYTTY_COMMAND_STATUS_GUTTER` | `on`, `off` | `off` |
 | `sh_click` | `ODYTTY_SH_CLICK` | `on`, `off` | `on` |
-| `buttons` | `ODYTTY_BUTTONS` | `on`, `off` | `off` |
-| `buttons_iterm_compat` | `ODYTTY_BUTTONS_ITERM_COMPAT` | `on`, `off` | `off` |
+| `buttons` | `ODYTTY_BUTTONS` | `on`, `off` | `on` |
+| `buttons_iterm_compat` | `ODYTTY_BUTTONS_ITERM_COMPAT` | `on`, `off` | `on` |
 | `buttons_sticky` | `ODYTTY_BUTTONS_STICKY` | `on`, `off` | `off` |
 | `shell_integration` | `ODYTTY_SHELL_INTEGRATION` | `on`, `off` | `off` |
 | `shell_key_enhancement` | `ODYTTY_SHELL_KEY_ENHANCEMENT` | `on`, `off` | `off` |

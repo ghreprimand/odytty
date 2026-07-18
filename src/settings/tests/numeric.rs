@@ -342,12 +342,15 @@ fn sh_click_defaults_on_and_round_trips_through_config_key() {
 }
 
 #[test]
-fn buttons_gates_default_off_and_round_trip_through_config_keys() {
-    // BUTTONS-SETTINGS: all three gates default OFF — the button protocol is
-    // opt-in and the off path is byte-identical to plain output.
+fn buttons_gates_default_and_round_trip_through_config_keys() {
+    // BUTTONS-SETTINGS: the master gate and the iTerm2-compat spelling default
+    // ON (click reports are terminal-composed from the parsed code, clicks are
+    // suppressed under an active mouse app, same risk class as OSC 8 links);
+    // sticky stays OFF because a button surviving a scroll-away is the one
+    // surprising variant.
     let (settings, warnings) = settings_from([]);
-    assert!(!settings.buttons);
-    assert!(!settings.buttons_iterm_compat);
+    assert!(settings.buttons);
+    assert!(settings.buttons_iterm_compat);
     assert!(!settings.buttons_sticky);
     assert!(warnings.is_empty());
 
@@ -360,6 +363,7 @@ fn buttons_gates_default_off_and_round_trip_through_config_keys() {
     assert!(settings.buttons_iterm_compat);
     assert!(settings.buttons_sticky);
 
+    // Explicit off overrides the on-by-default master gate.
     let (settings, _) = settings_from([(BUTTONS_ENV, "off")]);
     assert!(!settings.buttons);
 

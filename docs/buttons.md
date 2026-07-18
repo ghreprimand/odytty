@@ -13,11 +13,12 @@ example run `scripts/button-demo.sh`.
 
 ## Design guarantees
 
-- **Default-off, byte-identical.** With the `buttons` master gate off (the
-  default), OdyTTY parses and discards the sequences below. Nothing is stored,
-  nothing renders differently, and clicks never produce a report. The gate is
-  enforced independently at the parser and at the pointer, so turning it off
-  also kills clickability of anything already on screen.
+- **Byte-identical when off.** The `buttons` master gate ships on by default,
+  but with it off OdyTTY parses and discards the sequences below. Nothing is
+  stored, nothing renders differently, and clicks never produce a report. The
+  gate is enforced independently at the parser and at the pointer, so turning it
+  off also kills clickability of anything already on screen. Shipping on matches
+  the risk class of OSC 8 hyperlinks, which are also enabled by default.
 - **The terminal owns the report.** The click report is composed by OdyTTY
   from the parsed integer code alone. A program cannot supply report bytes:
   the reply alphabet is exactly `ESC [ ? 0-9 ; ~` — no newline, no carriage
@@ -117,8 +118,10 @@ Interaction rules:
 | `sticky` | explicitly invalidated, or the last line referencing it leaves scrollback. |
 
 Sticky buttons keep working from scrollback: a `[ Retry ]` printed 500 lines
-ago still reports when clicked. The `buttons_sticky` sub-gate (on by default)
-downgrades `sticky` definitions to `block` when disabled.
+ago still reports when clicked. The `buttons_sticky` sub-gate (off by default)
+downgrades `sticky` definitions to `block` when disabled — a button surviving a
+scroll-away is the one surprising variant, so sticky stays opt-in even with the
+master gate on.
 
 Bounds: at most 16 button spans per line and 8192 distinct buttons overall.
 At the ceiling, **new definitions are refused** — OdyTTY never evicts a button

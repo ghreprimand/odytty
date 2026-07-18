@@ -603,9 +603,10 @@ pub const DEFAULT_WINDOW_DECORATIONS: bool = true;
 /// opaque render path is byte-identical to the historical presentation.
 pub const DEFAULT_WINDOW_TRANSPARENCY: bool = false;
 /// Default window opacity as a percentage of full opacity, used when
-/// `window_transparency` is on. 85% keeps text firmly readable while letting
-/// the desktop show through the terminal background.
-pub const DEFAULT_WINDOW_OPACITY: f32 = 85.0;
+/// `window_transparency` is on. 80% keeps text firmly readable while letting
+/// the desktop show through the terminal background a little more generously
+/// than a near-opaque value would.
+pub const DEFAULT_WINDOW_OPACITY: f32 = 80.0;
 /// Minimum window opacity percent: a deliberate deep-transparency floor (20%)
 /// for maximum desktop bleed-through. Text, cursor, and selection stay legible
 /// regardless — only the background scales toward this value, and the
@@ -833,19 +834,27 @@ pub const DEFAULT_SH_CLICK: bool = true;
 /// parser and again at the pointer, so turning it off also deadens buttons
 /// already on screen. When on, `ODYTTY_BUTTONS=1` is injected into new
 /// terminal sessions' environment so emitters can discover support.
-pub const DEFAULT_BUTTONS: bool = false;
+///
+/// On by default: click reports are composed by the terminal from the parsed
+/// integer code, so a program can never inject report bytes; clicks are
+/// suppressed while a mouse-reporting application owns the pointer; and the
+/// risk class matches OSC 8 hyperlinks, which already ship enabled.
+pub const DEFAULT_BUTTONS: bool = true;
 
 /// iTerm2-compatible button spelling (`ODYTTY_BUTTONS_ITERM_COMPAT`): accept
 /// `OSC 1337 ; Button=type=custom ; code=N` point buttons in addition to the
 /// native spelling. Sub-gate of `ODYTTY_BUTTONS`; inert while the master gate
-/// is off.
-pub const DEFAULT_BUTTONS_ITERM_COMPAT: bool = false;
+/// is off. On by default so the common iTerm2 spelling is recognized wherever
+/// the master gate is on.
+pub const DEFAULT_BUTTONS_ITERM_COMPAT: bool = true;
 
 /// Sticky button lifetime (`ODYTTY_BUTTONS_STICKY`): honor `scope=sticky`
 /// definitions, which outlive prompt boundaries and keep reporting from
 /// scrollback until invalidated or scrolled off. When off, sticky requests
 /// downgrade to the block lifetime (dead at the next prompt). Sub-gate of
-/// `ODYTTY_BUTTONS`; inert while the master gate is off.
+/// `ODYTTY_BUTTONS`; inert while the master gate is off. Off by default: a
+/// button surviving a scroll-away is the one surprising variant, so sticky
+/// stays opt-in even with the master gate on.
 pub const DEFAULT_BUTTONS_STICKY: bool = false;
 
 /// Automatic OSC 133 shell integration (`ODYTTY_SHELL_INTEGRATION`): when on,

@@ -552,6 +552,15 @@ escape sequences you can bind:
 bindkey '^[[13;5u' accept-line     # Ctrl+Enter
 ```
 
+When the knob is on, the integration also ships default bindings so the keys do
+something out of the box: `Ctrl+Backspace` deletes the previous word,
+`Shift+Enter` inserts a literal newline for multi-line edits, and `Ctrl+Enter`
+submits the line. Each default is skipped when you have already bound the
+sequence — your `~/.bashrc`/`~/.inputrc` and `~/.zshrc` are read before the
+integration, so a personal rebind always wins. To override afterwards, rebind
+the sequence with `bind`/`bindkey` (for example
+`bind '"\e[127;5u": kill-whole-line'`).
+
 `fish` manages the protocol itself (use `bind ctrl-enter ...`), and PowerShell
 key bindings use `Set-PSReadLineKeyHandler` through the Console API, so neither
 needs this knob. Off by default.
@@ -860,7 +869,7 @@ from Settings → Rendering or in `odytty.conf`:
 
 ```conf
 window_transparency = on
-window_opacity = 85
+window_opacity = 80
 ```
 
 `selection_opacity` tunes the text-selection highlight strength on its own axis,

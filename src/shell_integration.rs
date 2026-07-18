@@ -460,6 +460,29 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
     printf '\e]133;P;odytty-button;invalidate%s\a' "${1:+;code=$1}"
   }
 
+  # Default key-enhancement bindings (D-b): give the prompt-scoped CSI-u keys
+  # visible out-of-box behavior when OdyTTY advertises ODYTTY_KEY_ENHANCE. These
+  # are ordinary readline (process-global) binds, but the sequences only ever
+  # arrive while the prompt owns the line and the 0x1 flag is pushed, so binding
+  # them globally is safe. Each bind is skipped when the user has already bound
+  # the sequence: ~/.bashrc is sourced BEFORE this snippet, so a user rebind in
+  # inputrc or .bashrc wins. To override afterwards, rebind the sequence with
+  # `bind` (e.g. `bind '"\e[127;5u": kill-whole-line'`).
+  if [ -n "${ODYTTY_KEY_ENHANCE-}" ]; then
+    __odytty_bind_if_unbound() {
+      if ! { bind -p; bind -s; } 2>/dev/null | grep -qF -- "\"$1\""; then
+        bind "\"$1\": $2" 2>/dev/null
+      fi
+    }
+    # Ctrl+Backspace: delete the word before the cursor.
+    __odytty_bind_if_unbound '\e[127;5u' 'backward-kill-word'
+    # Shift+Enter: insert a literal newline (quoted-insert then LF) for
+    # multi-line edits instead of submitting the line.
+    __odytty_bind_if_unbound '\e[13;2u' '"\C-v\C-j"'
+    # Ctrl+Enter: submit the line (safe placeholder; rebind as desired).
+    __odytty_bind_if_unbound '\e[13;5u' 'accept-line'
+  fi
+
   case "$PS1" in
     *'133;B'*) ;;
     *) PS1="${PS1}"'\[\e]133;B\a\]' ;;
@@ -552,6 +575,26 @@ const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" ]; then
       __odytty_line_finish() { printf '\e[<1u' }
     fi
     zle -N zle-line-finish __odytty_line_finish
+
+    # Default key bindings (D-b): give the prompt-scoped CSI-u keys visible
+    # out-of-box behavior. Each bind is skipped when the user has already bound
+    # the sequence (a ~/.zshrc `bindkey`, sourced before this snippet, wins); to
+    # override afterwards, rebind with `bindkey '\e[127;5u' <widget>`.
+    __odytty_bindkey_if_unbound() {
+      local existing="${$(bindkey "$1")##* }"
+      if [[ "$existing" == "undefined-key" || -z "$existing" ]]; then
+        bindkey "$1" "$2"
+      fi
+    }
+    # Shift+Enter: insert a literal newline into the edit buffer (multi-line
+    # edits) rather than submitting. A small widget keeps this clean in ZLE.
+    __odytty_insert_newline() { LBUFFER+=$'\n' }
+    zle -N __odytty_insert_newline
+    # Ctrl+Backspace: delete the word before the cursor.
+    __odytty_bindkey_if_unbound '\e[127;5u' backward-kill-word
+    __odytty_bindkey_if_unbound '\e[13;2u' __odytty_insert_newline
+    # Ctrl+Enter: submit the line (safe placeholder; rebind as desired).
+    __odytty_bindkey_if_unbound '\e[13;5u' accept-line
   fi
 
   # Button protocol emitters (docs/buttons.md); same contract as the bash
@@ -1112,6 +1155,65 @@ mod tests {
     }
 
     #[test]
+    fn bash_and_zsh_key_enhancement_ship_default_binds() {
+        // D-b follow-up: the knob must have visible out-of-box behavior, so the
+        // bash/zsh snippets bind the prompt-scoped CSI-u keys under the
+        // ODYTTY_KEY_ENHANCE guard -- Ctrl+Backspace (\e[127;5u) kills the
+        // previous word, Shift+Enter (\e[13;2u) inserts a literal newline,
+        // Ctrl+Enter (\e[13;5u) submits. Each is skipped when the user already
+        // bound the sequence so a ~/.bashrc / ~/.zshrc rebind wins.
+        let bash = snippet(ShellKind::Bash);
+        let zsh = snippet(ShellKind::Zsh);
+
+        // bash: readline binds via a skip-if-already-bound helper.
+        assert!(
+            bash.contains("__odytty_bind_if_unbound"),
+            "bash must guard binds so a user rebind wins"
+        );
+        assert!(
+            bash.contains(r"\e[127;5u") && bash.contains("backward-kill-word"),
+            "bash must bind Ctrl+Backspace to backward-kill-word"
+        );
+        assert!(bash.contains(r"\e[13;2u"), "bash must bind Shift+Enter");
+        assert!(
+            bash.contains(r"\e[13;5u") && bash.contains("accept-line"),
+            "bash must bind Ctrl+Enter to accept-line"
+        );
+
+        // zsh: bindkey via the same skip-if-bound guard + a newline widget.
+        assert!(
+            zsh.contains("__odytty_bindkey_if_unbound"),
+            "zsh must guard binds so a user rebind wins"
+        );
+        assert!(
+            zsh.contains(r"\e[127;5u") && zsh.contains("backward-kill-word"),
+            "zsh must bind Ctrl+Backspace to backward-kill-word"
+        );
+        assert!(
+            zsh.contains("__odytty_insert_newline") && zsh.contains(r"LBUFFER+=$'\n'"),
+            "zsh must bind Shift+Enter to a literal-newline widget"
+        );
+        assert!(
+            zsh.contains(r"\e[13;5u") && zsh.contains("accept-line"),
+            "zsh must bind Ctrl+Enter to accept-line"
+        );
+
+        // All binds live under the key-enhancement guard, so a knob-off shell
+        // installs nothing. fish (self-manages the protocol) and PowerShell
+        // (Console API) carry no CSI-u default binds at all.
+        let fish = snippet(ShellKind::Fish);
+        let ps = snippet(ShellKind::PowerShell);
+        assert!(
+            !fish.contains(r"\e[127;5u") && !fish.contains("__odytty_bind"),
+            "fish must not carry CSI-u default binds"
+        );
+        assert!(
+            !ps.contains(r"\e[127;5u") && !ps.contains("bind_if_unbound"),
+            "PowerShell must not carry CSI-u default binds"
+        );
+    }
+
+    #[test]
     fn unknown_shell_errors_cleanly() {
         // cmd.exe has no OSC 133 hook surface, so it stays unsupported -- its
         // name must not classify, and the error must list only what we ship.
@@ -1367,7 +1469,46 @@ mod tests {
             .arg("--rcfile")
             .arg(rc)
             .arg("-i")
+            // This harness spawns bash DIRECTLY, bypassing the CommandBuilder
+            // spawn path, so it models the product's nested-launch scrub itself:
+            // strip an inherited ODYTTY_SHELL_INTEGRATION so the snippet guard
+            // engages regardless of the test runner's own environment (the
+            // runner may itself be an integrated odytty session). The product
+            // scrub proper lives in the spawn path and is asserted at the
+            // CommandBuilder/into_command layer (see pty::tests).
             .env_remove("ODYTTY_SHELL_INTEGRATION")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn bash");
+        child
+            .stdin
+            .take()
+            .expect("stdin")
+            .write_all(input.as_bytes())
+            .expect("write stdin");
+        let output = child.wait_with_output().expect("wait bash");
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    }
+
+    /// Like [`run_bash_rc`] but with extra environment variables set on the
+    /// child (e.g. `ODYTTY_KEY_ENHANCE=1` to exercise the default key binds).
+    #[cfg(unix)]
+    fn run_bash_rc_env(bash: &Path, rc: &Path, input: &str, env: &[(&str, &str)]) -> String {
+        use std::io::Write as _;
+        use std::process::{Command, Stdio};
+
+        let mut command = Command::new(bash);
+        command
+            .arg("--rcfile")
+            .arg(rc)
+            .arg("-i")
+            .env_remove("ODYTTY_SHELL_INTEGRATION");
+        for (key, value) in env {
+            command.env(key, value);
+        }
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -1428,6 +1569,46 @@ mod tests {
             "must not report success for a failed command: {out:?}"
         );
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_key_enhancement_default_bind_kills_previous_word() {
+        // D-b follow-up acceptance: with the knob advertised
+        // (ODYTTY_KEY_ENHANCE=1), the default Ctrl+Backspace (\e[127;5u) bind
+        // must delete the previous word. Typing `printf 'OUT<%s>\n' one two`,
+        // feeding the sequence, then Enter runs `printf ... one` -- so `OUT<one>`
+        // is emitted and `OUT<two>` is not (the format brackets appear only in
+        // the command's OUTPUT, never in readline's echo of the typed input, so
+        // the assertion is immune to the echo stream).
+        let Some(bash) = find_bash() else {
+            return;
+        };
+        let dir = temp_integration_dir("bash-keyenh");
+        fs::create_dir_all(&dir).expect("dir");
+        let rc = dir.join("rc.bash");
+        fs::write(&rc, format!("PS1='P\\$ '\n{BASH_SNIPPET}")).expect("write rc");
+
+        let out = run_bash_rc_env(
+            &bash,
+            &rc,
+            "printf 'OUT<%s>\\n' one two\x1b[127;5u\nexit\n",
+            &[("ODYTTY_KEY_ENHANCE", "1")],
+        );
+        // Self-skip if interactive integration/readline did not engage.
+        if !out.contains("\x1b]133;A") {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+        assert!(
+            out.contains("OUT<one>"),
+            "the surviving word must run: {out:?}"
+        );
+        assert!(
+            !out.contains("OUT<two"),
+            "Ctrl+Backspace must kill the last word before submit: {out:?}"
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[cfg(unix)]

@@ -54,7 +54,7 @@ window_decorations = on
 # default. Needs a compositing WM (Wayland native; X11 needs a compositor;
 # Windows uses DWM). window_opacity is a 20..=100 percent (100 = fully opaque).
 window_transparency = off
-window_opacity = 85
+window_opacity = 80
 
 # Text-selection highlight strength, 0.0 (invisible) to 1.0 (fully opaque),
 # independent of window_opacity, the theme, and min_contrast. 0.6 by default
@@ -183,19 +183,25 @@ confirm_close = on
 bell = urgent
 command_status_gutter = off
 sh_click = on
-# Program-defined clickable buttons (docs/buttons.md). Off by default; when on,
-# ODYTTY_BUTTONS=1 is set in new sessions so scripts can detect support. The
-# two sub-gates do nothing while the master gate is off.
-buttons = off
-buttons_iterm_compat = off
+# Program-defined clickable buttons (docs/buttons.md). On by default (same risk
+# class as OSC 8 hyperlinks; reports are terminal-composed from the parsed code
+# and suppressed under an active mouse app); when on, ODYTTY_BUTTONS=1 is set in
+# new sessions so scripts can detect support. The iTerm2-compat spelling is on
+# by default too; sticky stays off (a button surviving a scroll-away is the one
+# surprising variant). The sub-gates do nothing while the master gate is off.
+buttons = on
+buttons_iterm_compat = on
 buttons_sticky = off
 shell_integration = off
 # Prompt-scoped Kitty keyboard enhancement for integrated bash/zsh shells.
 # Requires shell_integration = on. While the prompt is active the shell enables
 # disambiguate mode (Ctrl+C still interrupts) so modified keys like Ctrl+Enter
-# arrive as distinct sequences you can bind in inputrc/bindkey; it is turned off
-# before each command runs. fish self-manages the protocol and PowerShell uses
-# the Console API, so neither is affected. Off by default.
+# arrive as distinct sequences; it is turned off before each command runs. When
+# on it ships default binds (Ctrl+Backspace deletes the previous word,
+# Shift+Enter inserts a newline, Ctrl+Enter submits), each skipped when you have
+# already bound the sequence, so a personal inputrc/bindkey always wins. fish
+# self-manages the protocol and PowerShell uses the Console API, so neither is
+# affected. Off by default.
 shell_key_enhancement = off
 keybinds =
 # Example:

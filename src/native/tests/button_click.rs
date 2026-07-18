@@ -63,11 +63,13 @@ fn build_app(content: &[u8], buttons_enabled: bool) -> (App, TerminalHandle, Cap
         headless_app_with_writer(NativeOptions::default(), dims, Settings::default(), writer);
     {
         let mut t = terminal.lock().expect("terminal");
-        if buttons_enabled {
-            t.set_buttons_enabled(true);
-            t.set_buttons_iterm_compat(true);
-            t.set_buttons_sticky(true);
-        }
+        // Set the gate deterministically in BOTH directions: the default gate
+        // seeding now turns buttons on, so a `false` request must actively
+        // disable them rather than merely skip the on-path, or the "gate off"
+        // fixtures would inherit the on-by-default state.
+        t.set_buttons_enabled(buttons_enabled);
+        t.set_buttons_iterm_compat(buttons_enabled);
+        t.set_buttons_sticky(buttons_enabled);
         t.advance(content);
     }
     app.set_test_cell_for_test(cell(CELL_W, CELL_H));
@@ -176,20 +178,22 @@ fn launch_seeding_carries_the_iterm_compat_sub_gate() {
     );
 }
 
-/// Default settings through the same seeding leave the gate off: the label
-/// prints as plain text and a click writes nothing. Pins default-off through
-/// the REAL seeding path rather than through a hand-built terminal.
+/// Default settings through the same seeding arm the gate: the button protocol
+/// ships on by default, so the launch session honors button definitions with no
+/// manual setter. Pins the default through the REAL seeding path rather than a
+/// hand-built terminal.
 #[test]
-fn launch_seeding_leaves_buttons_off_at_default_settings() {
+fn launch_seeding_activates_buttons_at_default_settings() {
     let (mut app, _terminal, bytes) =
         build_app_seeded(T2_BUTTON, crate::settings::Settings::default());
     settle_focus_click(&mut app, &bytes);
     move_to_cell(&mut app, 0, 3);
     press(&mut app);
     release(&mut app);
-    assert!(
-        drain(&bytes).is_empty(),
-        "default settings must leave the launch session's gate off"
+    assert_eq!(
+        drain(&bytes),
+        T2_ENVELOPE,
+        "default settings must arm the launch session's gate (buttons ship on)"
     );
 }
 
@@ -308,12 +312,17 @@ fn tier1_hover_arms_on_the_chip_rect_not_the_anchor() {
     );
 }
 
-/// Default settings: the hover probe is gated off before any terminal query,
-/// so the hover state never arms even over would-be button text.
+/// Gate off: the hover probe is gated off before any terminal query, so the
+/// hover state never arms even over would-be button text. Uses an explicit
+/// buttons-off settings (the protocol now ships on by default) to pin the
+/// inert hover path.
 #[test]
-fn button_hover_stays_off_at_default_settings() {
-    let (mut app, _terminal, _bytes) =
-        build_app_seeded(T2_BUTTON, crate::settings::Settings::default());
+fn button_hover_stays_off_when_the_gate_is_off() {
+    let settings = crate::settings::Settings {
+        buttons: false,
+        ..crate::settings::Settings::default()
+    };
+    let (mut app, _terminal, _bytes) = build_app_seeded(T2_BUTTON, settings);
     move_to_cell(&mut app, 0, 3);
     assert!(
         app.hovered_button.is_none(),
@@ -413,11 +422,18 @@ fn turning_the_gate_off_kills_clickability_of_existing_spans() {
 #[test]
 fn settings_apply_pushes_the_button_gates_to_the_terminal_live() {
     // BUTTONS-SETTINGS: the user-facing knobs reach the terminal through the
-    // same settings-apply seam the panel and config reload use. Start from
-    // defaults (gate off), turn `buttons` on via a live apply, and the
-    // previously-inert stream becomes clickable; apply defaults again and
-    // clicks go inert without restarting the session.
-    let (mut app, terminal, bytes) = build_app(b"", false);
+    // same settings-apply seam the panel and config reload use. Start from a
+    // buttons-off settings (app state and terminal gate consistent), turn
+    // `buttons` on via a live apply, and the previously-inert stream becomes
+    // clickable; apply a buttons-off settings and clicks go inert without
+    // restarting the session. Seeding through settings (not a manual terminal
+    // mutation) keeps the app's tracked state in sync, so the live apply sees a
+    // real change to push.
+    let off = crate::settings::Settings {
+        buttons: false,
+        ..crate::settings::Settings::default()
+    };
+    let (mut app, terminal, bytes) = build_app_seeded(b"", off);
     let on = crate::settings::Settings {
         buttons: true,
         ..crate::settings::Settings::default()
@@ -434,7 +450,11 @@ fn settings_apply_pushes_the_button_gates_to_the_terminal_live() {
         "after a live settings apply the button must click"
     );
 
-    app.apply_saved_settings_live_for_test(crate::settings::Settings::default());
+    let off = crate::settings::Settings {
+        buttons: false,
+        ..crate::settings::Settings::default()
+    };
+    app.apply_saved_settings_live_for_test(off);
     move_to_cell(&mut app, 0, 3);
     press(&mut app);
     release(&mut app);

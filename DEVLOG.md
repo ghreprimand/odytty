@@ -7,6 +7,52 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Nested-launch integration fix, default key binds, and shipped defaults
+
+Shell integration now survives nested launches. An odytty started from inside an
+already-integrated odytty session inherited `ODYTTY_SHELL_INTEGRATION=1` in its
+own environment and passed it straight through to the shell it spawned, whose
+snippet guard then skipped the entire integration body — no prompt marks, no
+OSC 7, no button emitters, no keyboard push. The spawn path now scrubs that
+stale marker from the child environment at spawn; the snippet re-exports it
+itself when it runs, so the guard still prevents double-sourcing within one
+shell. The two discovery advertisements got the same treatment: when the buttons
+gate or the key-enhancement knob is off, the spawn path actively removes
+`ODYTTY_BUTTONS` / `ODYTTY_KEY_ENHANCE` from the child environment rather than
+merely declining to set them, so a stale value inherited from an outer session
+can never leak into an inner session whose gate is off. The scrub is honored by
+both backends: the Unix backend maps each removal to `Command::env_remove`, and
+the Windows ConPTY backend drops the matching entry from the per-child
+environment block.
+
+The prompt key-enhancement knob now has visible out-of-box behavior. Previously
+it pushed the Kitty disambiguate flag at the prompt but bound nothing to the
+resulting sequences, so the feature did nothing observable. The bash and zsh
+integrations now ship default bindings under the key-enhancement guard:
+`Ctrl+Backspace` deletes the previous word, `Shift+Enter` inserts a literal
+newline for multi-line edits, and `Ctrl+Enter` submits the line. Each binding is
+skipped when the sequence is already bound — the user's rc files are read before
+the integration, so a personal rebind always wins — and the standard `bind` /
+`bindkey` mechanisms override afterwards. fish and PowerShell are unchanged.
+
+Two defaults are updated from the feel-test pass. The default window opacity
+moves from 85% to 80%, letting the desktop show through a little more generously
+while keeping text firmly readable. The button protocol now ships on by default,
+with the iTerm2-compatible spelling on alongside it; sticky buttons stay off.
+Enabling buttons matches the risk class of OSC 8 hyperlinks, which already ship
+enabled: click reports are composed by the terminal from the parsed integer code
+so a program can never inject report bytes, and clicks are suppressed while a
+mouse-reporting application owns the pointer. Sticky stays opt-in because a
+button surviving a scroll-away is the one surprising variant.
+
+Windows behavior: the environment scrub folds into the ConPTY environment block
+through the shared command builder; the bash/zsh default binds are Unix-only
+snippet content with no Windows surface (the PowerShell path is untouched); the
+opacity and buttons defaults are cross-platform. `cargo test` (full suite),
+`cargo fmt --check`, and `cargo clippy --all-targets --locked` are green.
+
+---
+
 ## 2026-07-18 -- Keyboard protocol demo script and the Windows finding in docs
 
 The keyboard protocol work now has a hands-on verification surface:
