@@ -116,8 +116,17 @@ extended keys through it. Modified keys encode as
 reset behavior as the Kitty flags, and `XTQMODKEYS` reports it. When an
 application enables both protocols (fish does), non-zero Kitty flags win.
 
-Windows: Kitty keyboard protocol availability depends on the ConPTY/conhost
-version; crossterm-based TUIs do not request it on Windows;
+Windows: measured on the CI `windows-latest` ConPTY, queries and protocol
+negotiation pass through intact in the app-to-terminal direction — the Kitty
+flags query and `XTQMODKEYS` both arrive at the terminal unmodified and are
+answered. On the input path, however, conhost's input converter normalizes
+enhanced key encodings before applications see them (a `CSI 13;5u` written to
+the input pipe is delivered as a bare `0d`), so applications in native
+Windows sessions receive legacy key bytes regardless of the requested
+protocol. This is an upstream conhost limitation, not specific to OdyTTY —
+Windows Terminal ships its own conhost plumbing for the same reason. WSL
+sessions are unaffected: their input path bypasses conhost's converter.
+crossterm-based TUIs do not request the Kitty protocol on Windows;
 win32-input-mode (mode 9001) is not implemented.
 
 IME pre-edit appears inline at the cursor and committed text is sent to the

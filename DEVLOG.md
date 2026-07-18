@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Keyboard protocol demo script and the Windows finding in docs
+
+The keyboard protocol work now has a hands-on verification surface:
+`scripts/keyboard-demo.sh`, next to the buttons demo and in the same
+self-contained style. Stage 1 queries the terminal and prints the Kitty
+keyboard flags and the `XTQMODKEYS` modifyOtherKeys level as received. Stage
+2 pushes the Kitty disambiguate flag and echoes the raw bytes of every
+keypress as hex, so Shift+Enter, Ctrl+Enter, Ctrl+Backspace, the F-keys, and
+Ctrl+I-versus-Tab can be checked by eye against the expected CSI-u forms.
+Stage 3 pops the flag (non-zero Kitty flags take precedence, so it must be
+off), sets modifyOtherKeys level 2, and echoes again — the same chords now
+arrive as `CSI 27;modifier;codepoint~`. Every exit path, including Ctrl+C,
+pops the pushed flag, resets the mok level, and restores the tty settings.
+The script is safe in terminals without either protocol: the queries time
+out and the echo stages show legacy bytes.
+
+`docs/features.md` now records the empirical Windows finding from the ConPTY
+probes: app-to-terminal passthrough is clean (queries and negotiation arrive
+intact), but conhost's input converter normalizes enhanced key encodings on
+the input path — a `CSI 13;5u` written to the input pipe is delivered to the
+application as a bare `0d` — so native Windows sessions receive legacy key
+bytes regardless of the requested protocol. An upstream conhost limitation;
+WSL sessions are unaffected. The demo script carries the same note.
+
+---
+
 ## 2026-07-18 -- Keyboard probe findings surface in green CI runs
 
 The std-handle fix turned the `windows-latest` leg green: all four ConPTY
