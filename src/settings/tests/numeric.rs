@@ -458,9 +458,12 @@ fn always_show_tab_bar_defaults_off_and_round_trips_through_config_key() {
 }
 
 #[test]
-fn shell_integration_defaults_off_and_round_trips_through_config_key() {
+fn shell_integration_defaults_on_and_round_trips_through_config_key() {
+    // Shipped default: on out of the box (opt-out). The integration only adds
+    // prompt-mark hooks to OdyTTY's own default-shell launches and never edits
+    // the user's rc files.
     let (settings, warnings) = settings_from([]);
-    assert!(!settings.shell_integration);
+    assert!(settings.shell_integration);
     assert!(warnings.is_empty());
 
     let (settings, _) = settings_from([(SHELL_INTEGRATION_ENV, "on")]);

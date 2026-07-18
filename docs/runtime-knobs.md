@@ -148,7 +148,7 @@ environment variable was not set at startup.
 | `buttons` | `ODYTTY_BUTTONS` | `on`, `off` | `on` |
 | `buttons_iterm_compat` | `ODYTTY_BUTTONS_ITERM_COMPAT` | `on`, `off` | `on` |
 | `buttons_sticky` | `ODYTTY_BUTTONS_STICKY` | `on`, `off` | `off` |
-| `shell_integration` | `ODYTTY_SHELL_INTEGRATION` | `on`, `off` | `off` |
+| `shell_integration` | `ODYTTY_SHELL_INTEGRATION` | `on`, `off` | `on` |
 | `shell_key_enhancement` | `ODYTTY_SHELL_KEY_ENHANCEMENT` | `on`, `off` | `off` |
 | `interactive_urls` | `ODYTTY_INTERACTIVE_URLS` | `on`, `off` | `on` |
 | `interactive_paths` | `ODYTTY_INTERACTIVE_PATHS` | `on`, `off` | `off` |
@@ -181,8 +181,9 @@ environment variable was not set at startup.
 
 `window_transparency = on` draws the terminal background at
 `window_opacity` so the desktop shows through. Text, the cursor, and every
-overlay remain opaque. The selection stays opaque by default and has its own
-strength control, `selection_opacity`, independent of the window opacity.
+overlay remain opaque. The selection is slightly translucent by default and
+has its own strength control, `selection_opacity`, independent of the window
+opacity.
 
 Wayland supports compositing natively, X11 requires a compositor, and Windows
 uses DWM. A display server without alpha compositing shows no visible change.
@@ -190,10 +191,10 @@ uses DWM. A display server without alpha compositing shows no visible change.
 ### Tune The Selection Strength
 
 `selection_opacity` sets how strongly the text-selection highlight paints, from
-`0.0` (invisible) to `1.0` (fully opaque, the default), independent of
-`window_opacity`, the theme colours, and `min_contrast`. Lower it to let a
-transparent or busy backdrop show through behind the selection; keep it at `1.0`
-for a crisp, fully-opaque highlight. Text under the selection stays legible
+`0.0` (invisible) to `1.0` (fully opaque), independent of `window_opacity`, the
+theme colours, and `min_contrast`. The default is `0.6`, a lightly translucent
+highlight. Lower it to let a transparent or busy backdrop show through behind
+the selection; raise it toward `1.0` for a crisp, fully-opaque highlight. Text under the selection stays legible
 through the minimum-contrast floor. On the default per-cell inverse selection
 (when `themed_ui_roles = off`) the translucency applies but per-cell contrast is
 not re-floored.

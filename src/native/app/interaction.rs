@@ -1280,11 +1280,14 @@ impl App {
         }
 
         // Security: OdyTTY never auto-opens OSC 8 links. A URI is opened only
-        // after an explicit modifier+click (Ctrl on Linux, Cmd on macOS),
-        // scheme allowlist filtering, and direct
-        // argv passing to the platform default opener. No shell interpolation is
-        // involved. Routed through the single argv-only spawn point shared with
-        // path opens; a failed/missing opener surfaces a transient notice (P0-2).
+        // after an explicit modifier+click (Ctrl on Linux, Cmd on macOS) and
+        // scheme allowlist filtering, then passed as a single inert argv element
+        // to the platform default opener. No shell command line is constructed
+        // on any platform: Linux uses `xdg-open`, macOS `open`, and Windows
+        // `explorer.exe <target>` (NOT `cmd /C start`, whose command line would
+        // split an attacker-supplied URI on `&`/`%VAR%`). Routed through the
+        // single argv-only spawn point shared with path opens; a failed/missing
+        // opener surfaces a transient notice (P0-2).
         let argv = super::platform_opener::open_default_argv(
             super::platform_opener::OpenerOs::host(),
             &uri,

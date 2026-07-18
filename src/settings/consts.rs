@@ -861,8 +861,11 @@ pub const DEFAULT_BUTTONS_STICKY: bool = false;
 /// default local shell launches receive OdyTTY's prompt-mark hooks at spawn so
 /// features that need prompt/input boundaries (selection-delete, prompt jumps,
 /// click-to-position support from cooperating shells) can work without editing
-/// the user's rc files. Off by default; existing shells are never modified.
-pub const DEFAULT_SHELL_INTEGRATION: bool = false;
+/// the user's rc files. On by default: the integration is opt-out and only ever
+/// adds prompt-mark hooks to OdyTTY's own default-shell launches at spawn; it
+/// never edits the user's rc files and leaves shells started by other means
+/// untouched.
+pub const DEFAULT_SHELL_INTEGRATION: bool = true;
 
 /// Prompt-scoped key enhancement for bash/zsh (`ODYTTY_SHELL_KEY_ENHANCEMENT`):
 /// when on, integrated bash/zsh shells push Kitty keyboard flag 0x1

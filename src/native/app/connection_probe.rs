@@ -48,11 +48,16 @@ pub(super) fn spawn_connection_probe(
 /// Run the probe child to completion (or the hard timeout) and classify it.
 fn run_probe(command: SshCommand) -> Result<ProbeClass, String> {
     let (program, args) = command.into_program_args();
-    let mut child = Command::new(&program)
+    let mut command = Command::new(&program);
+    command
         .args(&args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    // C13: the probe spawns console `ssh.exe`; suppress its console window on
+    // the GUI-subsystem binary (no-op on non-Windows).
+    super::win_spawn::apply_no_console_window(&mut command);
+    let mut child = command
         .spawn()
         .map_err(|err| format!("could not run ssh: {err}"))?;
 

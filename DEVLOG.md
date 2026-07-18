@@ -7,6 +7,49 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Windows opener hardening, console-flash suppression, and custom-theme editability
+
+Security fix (Windows): the default file/URI opener no longer routes untrusted
+targets through `cmd.exe`. A modifier+click on an OSC 8 hyperlink or a bare URL
+built `cmd /C start "" <target>`, and because Rust's argv quoting does not
+escape `cmd` metacharacters, a URI any program can print over a pipe or SSH
+(`http://x/&calc.exe&`) reached the command line unquoted and `cmd` split it on
+`&`, running the trailing token; `%VAR%` also expanded. The Windows arm now
+launches `explorer <target>` with the target as a single inert argv element, so
+no untrusted string ever reaches a `cmd.exe` command line. The mechanism keeps
+the module's argv-only, single-spawn-point contract, and a regression test pins
+that a metacharacter-laden URI produces `["explorer", <uri>]` with no `cmd`
+program and no token splitting. The stale "no shell interpolation is involved"
+comment now states the per-platform opener explicitly.
+
+Windows polish: OdyTTY is a GUI-subsystem binary, so spawning a console child
+with no creation flags flashed a black console window — brief for the SSH
+connection probe, several seconds for an image-paste upload that streams over
+`ssh`. A shared helper now sets `CREATE_NO_WINDOW` on those spawns (the opener,
+the connection probe, and the remote upload); the flag is a harmless no-op for
+the GUI launcher and on non-Windows targets.
+
+Fixed: a theme loaded from a file made the settings panel read-only. A file
+theme projects to the placeholder runtime name "custom", which resolves to no
+built-in and no file on a later re-parse; persisting that placeholder as the
+writeback baseline turned the fallback warning into a hard error on every edit,
+so custom-theme users could not change any setting. Settings now keep the raw
+theme-config string alongside the resolved theme (mirroring the explicit-font
+path field) and round-trip it through writeback and the panel display, so a
+file theme re-reads its file instead of the placeholder. Non-fatal parse
+warnings are also decoupled from edit validation — a single warnable value can
+no longer block editing every other key — while genuinely actionable failures
+(an unresolvable font family) keep their precise error.
+
+Default change: shell integration ships on out of the box. It is opt-out and
+only adds prompt-mark hooks to OdyTTY's own default-shell launches at spawn; it
+never edits rc files and leaves shells started by other means untouched. The
+prompt-scoped key-enhancement sub-feature stays off by default. Settings
+reference docs and the example config updated to match.
+
+Docs: the selection-strength guidance is corrected to state the shipped default
+of `0.6` (a lightly translucent highlight) rather than the old `1.0`.
+
 ## 2026-07-18 -- Attach input survives a wedged session host
 
 Fixed: a transient send timeout on an attached session permanently killed its

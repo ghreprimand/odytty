@@ -1195,6 +1195,17 @@ impl ShellExitCloses {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Settings {
     pub theme: Theme,
+    /// The RAW `theme` config string the user set (a built-in name, a user
+    /// theme name, or a theme file path), or `None` when unset. Kept distinct
+    /// from [`Settings::theme`] the way [`Settings::explicit_font_path`] is kept
+    /// distinct from the resolved font: a theme loaded from a FILE projects to
+    /// the `&'static` placeholder name `"custom"` ([`crate::theme::ThemeSpec::to_theme`]),
+    /// which resolves to no built-in and no file on a later re-parse. Persisting
+    /// that placeholder as the writeback baseline made every settings edit fail
+    /// for custom-theme users (the fallback warning was promoted to a hard
+    /// error). Preserving the original config string here lets the writeback and
+    /// panel display round-trip the real value so the file re-reads instead.
+    pub theme_config: Option<String>,
     pub visual: VisualEffect,
     /// The EFFECTIVE regular-face path the renderer loads: either the explicit
     /// `font` key, or — when only `font_family` is set — the regular face
@@ -1702,6 +1713,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             theme: DEFAULT_THEME,
+            theme_config: None,
             visual: DEFAULT_VISUAL,
             font_path: None,
             explicit_font_path: None,
@@ -2034,7 +2046,20 @@ impl Settings {
         if let Some(error) = font_family_error {
             return Err(error);
         }
-        if let Some(message) = warnings.into_iter().next() {
+        // C4: THEME resolution/parse warnings must not block the edit. A theme
+        // loaded from a file (or one that resolves with a tolerable warning like
+        // an unknown key) would otherwise make every OTHER key read-only, since
+        // each edit re-parses the whole value map including the theme. These are
+        // treated as tolerant here, matching startup/reload semantics (which
+        // only print them). All other warnings — an invalid numeric value, an
+        // out-of-range knob — stay hard edit errors so the panel still rejects
+        // bad input with a precise message. Theme warnings are identified by the
+        // `theme <name>: ...` per-file prefix or the THEME_ENV token in the
+        // fallback message.
+        let promotable = warnings
+            .into_iter()
+            .find(|message| !(message.starts_with("theme ") || message.contains(THEME_ENV)));
+        if let Some(message) = promotable {
             return Err(SettingEditError { key: "", message });
         }
         Ok(settings)
@@ -2135,6 +2160,12 @@ impl Settings {
             };
         }
         let mut theme_is_system = false;
+        // The raw `theme` config string, preserved verbatim ONLY for a
+        // file-loaded theme so the writeback/display round-trip re-reads the
+        // file instead of the non-resolving `"custom"` placeholder the runtime
+        // `Theme` carries. Built-ins round-trip fine via `Theme::name`, so this
+        // stays `None` for them (and for the unset/system/fallback cases).
+        let mut theme_config: Option<String> = None;
         let theme = match get(THEME_ENV)
             .and_then(|value| value.into_string().ok())
             .map(|value| value.trim().to_string())
@@ -2151,6 +2182,10 @@ impl Settings {
                     let spec = ThemeSpec::parse(&contents, |message| {
                         warn(&format!("theme {value:?}: {message}"))
                     });
+                    // Preserve the exact config string (path or user-theme name)
+                    // so `to_edit_values`/`setting_info` never persist the
+                    // placeholder `"custom"` name the projected theme carries.
+                    theme_config = Some(value);
                     spec.to_theme()
                 } else {
                     warn(&format!(
@@ -2669,6 +2704,7 @@ impl Settings {
 
         Self {
             theme,
+            theme_config,
             visual,
             font_path,
             explicit_font_path,
@@ -2786,17 +2822,29 @@ impl Settings {
 }
 
 impl Settings {
+    /// The `theme` value as it should round-trip to config and display in the
+    /// panel: the `system` alias token when the OS-following alias is active,
+    /// else the raw `theme` config string the user set (a file path or user
+    /// theme name, preserved so a file-loaded theme re-reads its file rather
+    /// than the non-resolving `"custom"` placeholder), else the resolved
+    /// theme's own name. Shared by `to_edit_values` and `setting_info` so the
+    /// writeback baseline and the displayed value never diverge (C4).
+    pub(crate) fn theme_config_value(&self) -> String {
+        if self.theme_is_system {
+            crate::settings::SYSTEM_THEME_NAME.to_owned()
+        } else if let Some(cfg) = self.theme_config.as_deref() {
+            cfg.to_owned()
+        } else {
+            self.theme.name.to_owned()
+        }
+    }
+
     fn to_edit_values(&self) -> BTreeMap<&'static str, String> {
         let mut values = BTreeMap::new();
         // When the `system` alias is active, write back the alias token (not the
         // internal fallback theme name) so the config round-trips as `theme =
         // system` and the user's intent is preserved.
-        let theme_value = if self.theme_is_system {
-            crate::settings::SYSTEM_THEME_NAME.to_owned()
-        } else {
-            self.theme.name.to_owned()
-        };
-        values.insert(THEME_ENV, theme_value);
+        values.insert(THEME_ENV, self.theme_config_value());
         values.insert(VISUAL_ENV, self.visual.as_str().to_owned());
         // The `font` config key reflects the RAW explicit override, never the
         // face resolved from `font_family` (RC4): a family pick must not make the

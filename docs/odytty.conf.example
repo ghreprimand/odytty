@@ -192,7 +192,8 @@ sh_click = on
 buttons = on
 buttons_iterm_compat = on
 buttons_sticky = off
-shell_integration = off
+# Shell integration is on by default; set to off to disable prompt-mark hooks.
+shell_integration = on
 # Prompt-scoped Kitty keyboard enhancement for integrated bash/zsh shells.
 # Requires shell_integration = on. While the prompt is active the shell enables
 # disambiguate mode (Ctrl+C still interrupts) so modified keys like Ctrl+Enter

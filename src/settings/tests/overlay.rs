@@ -64,6 +64,76 @@ fn settings_from_theme(
 }
 
 #[test]
+fn custom_theme_file_keeps_settings_editable() {
+    // C4 regression: a theme loaded from a FILE projects to the placeholder
+    // runtime name "custom", which resolves to no built-in and no file on a
+    // later re-parse. Persisting that placeholder as the writeback baseline made
+    // the whole settings panel read-only for custom-theme users — the fallback
+    // warning was promoted to a hard error on every edit. Preserving the raw
+    // theme-config string keeps the writeback round-tripping the real file path,
+    // and decoupling non-fatal parse warnings from edit validation keeps every
+    // other key editable.
+    let path = std::env::temp_dir().join(format!(
+        "odytty-c4-{}-{}.theme",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    // The unknown key makes the file resolve WITH a tolerable parse warning,
+    // so this also covers that a theme warning does not block other edits.
+    std::fs::write(
+        &path,
+        "name = My Personal Theme\nbackground = #010101\nunknown_key = 1\n",
+    )
+    .expect("write temp theme file");
+    let path_str = path.to_string_lossy().into_owned();
+
+    // Load settings with the file-path theme active. A path-like value is read
+    // directly by the real resolver, so this exercises the true file path.
+    let mut values = Settings::default().to_edit_values();
+    values.insert(THEME_ENV, path_str.clone());
+    let base = Settings::from_edit_values(&values).expect("file theme loads");
+    assert_eq!(
+        base.theme.name, "custom",
+        "a file-loaded theme carries the placeholder name"
+    );
+    assert_eq!(
+        base.theme_config.as_deref(),
+        Some(path_str.as_str()),
+        "the raw config path is preserved for round-trip"
+    );
+    // The writeback baseline round-trips the file path, never the placeholder.
+    assert_eq!(
+        base.to_edit_values().get(THEME_ENV).map(String::as_str),
+        Some(path_str.as_str()),
+        "to_edit_values persists the real path, not \"custom\""
+    );
+
+    // Editing an unrelated key must succeed (previously rejected outright) and
+    // preserve the custom theme.
+    let mut overlay = SettingsEditOverlay::new(&base);
+    let changed = overlay
+        .apply_raw("font_size", "24")
+        .expect("editing font_size must not be blocked by a custom theme");
+    assert!(changed.is_some(), "the edit changed settings");
+    let after = overlay.settings();
+    assert_eq!(after.font_size_px, 24.0, "the unrelated edit applied");
+    assert_eq!(
+        after.theme.name, "custom",
+        "the custom theme is preserved across the edit"
+    );
+    assert_eq!(
+        after.theme_config.as_deref(),
+        Some(path_str.as_str()),
+        "the theme file path still round-trips after the edit"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
 fn apply_reloadable_values_ignores_native_autoclose_ms() {
     let _guard = RELOAD_GLOBAL_TEST_LOCK.lock().unwrap();
     let mut current = Settings {

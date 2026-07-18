@@ -504,12 +504,13 @@ keybinds = ctrl+alt+p=command-palette
 
 OSC 133 prompt marks enable prompt jumps, deleting selected editable prompt
 input, command-status gutters, and click-to-position support when the shell
-advertises it. OdyTTY parses these marks by default but injects no hooks until
-you opt in.
+advertises it.
 
-Set `shell_integration = on` in Settings or `odytty.conf`. Newly spawned local
-`bash`, `zsh`, and `fish` shells then load OdyTTY's wrapper after their normal
-shell config.
+Shell integration is on by default. Newly spawned local `bash`, `zsh`, and
+`fish` shells load OdyTTY's wrapper after their normal shell config; the
+wrapper only adds prompt-mark hooks and never edits your rc files. Set
+`shell_integration = off` in Settings or `odytty.conf` to disable it, in which
+case OdyTTY still parses marks a shell emits on its own but injects no hooks.
 
 Existing shells do not change until restarted. Bash uses an interactive
 `--rcfile`, so login-shell-only startup files remain the shell's responsibility.

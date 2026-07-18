@@ -140,6 +140,7 @@ mod tab_rail;
 mod test_seams;
 mod theme_roles;
 mod watchdog_probe;
+mod win_spawn;
 mod window_border;
 
 use self::chrome_geometry::{ChromeSlotGeom, PreviewSource, PxPoint, chrome_accent_color};
@@ -8116,8 +8117,10 @@ mod tests {
         let Some(mut app) = build_idle_app() else {
             return;
         };
-        // `build_idle_app` starts shell_integration OFF (the default) with one
-        // live session, so flipping it ON is the genuine transition.
+        // Force shell_integration OFF as the precondition (it now ships ON by
+        // default) so flipping it ON is the genuine OFF->ON transition this
+        // seam must announce. `build_idle_app` seeds one live session.
+        app.settings.shell_integration = false;
         assert!(!app.settings.shell_integration);
         assert!(!app.sessions.is_empty());
         assert!(

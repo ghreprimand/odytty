@@ -90,11 +90,16 @@ fn stream_upload(
     );
     let (program, args) = command.into_program_args();
     let stdin = std::fs::File::open(local).map_err(|err| format!("temp open: {err}"))?;
-    let status = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .stdin(Stdio::from(stdin))
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stderr(Stdio::null());
+    // C13: the upload streams over console `ssh.exe` for seconds; suppress its
+    // console window on the GUI-subsystem binary (no-op on non-Windows).
+    super::win_spawn::apply_no_console_window(&mut command);
+    let status = command
         .status()
         .map_err(|err| format!("ssh spawn: {err}"))?;
     if status.success() {

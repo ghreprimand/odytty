@@ -105,13 +105,11 @@ impl Settings {
                 env: THEME_ENV,
                 name: "Theme",
                 // When the `system` alias is active the displayed value is the
-                // alias token, matching the config writeback, so the panel
-                // reads "system" instead of the internal fallback theme name.
-                value: if self.theme_is_system {
-                    crate::settings::SYSTEM_THEME_NAME.to_owned()
-                } else {
-                    self.theme.name.to_owned()
-                },
+                // alias token, matching the config writeback; a file-loaded
+                // theme shows its original config string, never the `"custom"`
+                // placeholder — the shared round-trip helper keeps the panel and
+                // the writeback baseline in lockstep (C4).
+                value: self.theme_config_value(),
                 description: "Full appearance profile: default colors, ANSI palette, semantic role colors, and optional user theme files.",
                 kind: SettingKind::Enum,
                 range: None,
@@ -1466,7 +1464,7 @@ impl Settings {
                 env: SHELL_INTEGRATION_ENV,
                 name: "Shell integration",
                 value: bool_display(self.shell_integration).to_owned(),
-                description: "Master switch: when on, new local shell tabs receive OdyTTY's integration at spawn, enabling prompt-aware editing and navigation (OSC 133 marks, OSC 7 cwd, click-to-position) without modifying shell rc files. What it delivers depends on the shell: bash, zsh, and fish get prompt marks, cwd, and button emitters (zsh and fish also report the edited line); PowerShell is supported on Windows only, where key bindings use the Console API rather than a VT protocol; nushell is configured natively in its own config, not injected. Applies only to shells OdyTTY launches (nested shells, sudo, and exec-swaps are not covered). Off by default; existing shells are unchanged until restarted.",
+                description: "Master switch: when on, new local shell tabs receive OdyTTY's integration at spawn, enabling prompt-aware editing and navigation (OSC 133 marks, OSC 7 cwd, click-to-position) without modifying shell rc files. What it delivers depends on the shell: bash, zsh, and fish get prompt marks, cwd, and button emitters (zsh and fish also report the edited line); PowerShell is supported on Windows only, where key bindings use the Console API rather than a VT protocol; nushell is configured natively in its own config, not injected. Applies only to shells OdyTTY launches (nested shells, sudo, and exec-swaps are not covered). On by default (opt-out); existing shells are unchanged until restarted.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],
@@ -1843,7 +1841,7 @@ impl Settings {
     /// rebuild if the inventory changes shape.
     pub fn display_value_for_key(&self, key: &str) -> Option<String> {
         let value = match key {
-            "theme" => self.theme.name.to_owned(),
+            "theme" => self.theme_config_value(),
             "follow_os_theme" => bool_display(self.follow_os_theme).to_owned(),
             "os_theme_dark" => self
                 .os_theme_dark

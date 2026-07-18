@@ -95,12 +95,17 @@ pub(crate) fn spawn_detached(argv: &[String]) -> std::io::Result<()> {
             "empty argv",
         ));
     };
-    let mut child = Command::new(program)
+    let mut command = Command::new(program);
+    command
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
+        .stderr(Stdio::null());
+    // C13: a GUI-subsystem binary spawning a console child (a console editor, or
+    // the old-style opener) would flash a console window; suppress it. Harmless
+    // no-op for the GUI launcher (`explorer.exe`) and on non-Windows.
+    super::win_spawn::apply_no_console_window(&mut command);
+    let mut child = command.spawn()?;
     let _ = std::thread::Builder::new()
         .name("odytty-open-reaper".to_owned())
         .spawn(move || {

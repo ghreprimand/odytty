@@ -38,8 +38,8 @@ pub(in crate::native) enum OpenerOs {
     Linux,
     /// macOS: the `open` command (and, for reveal, `open -R`).
     Macos,
-    /// Windows: `cmd /C start` for default-open, `explorer /select,` for reveal.
-    /// Like [`OpenerOs::Macos`], this variant is always present (not
+    /// Windows: `explorer <target>` for default-open, `explorer /select,`
+    /// for reveal. Like [`OpenerOs::Macos`], this variant is always present (not
     /// `cfg`-gated) so its argv branches are unit-tested on any CI host — the
     /// v0.4.0 lesson that an unexercised platform branch silently rots.
     Windows,
@@ -68,32 +68,30 @@ impl OpenerOs {
 ///
 /// * Linux → `["xdg-open", target]`
 /// * macOS → `["open", target]`
-/// * Windows → `["cmd", "/C", "start", "", target]`
+/// * Windows → `["explorer", target]`
 ///
 /// `target` is always a single inert argv element — a path/URI containing `;`,
 /// `$()`, backticks, or spaces is never shell-interpreted.
 ///
-/// Windows note: `cmd /C start` is the launcher (the built-in `start` verb has
-/// no standalone executable). The empty `""` after `start` is its mandatory
-/// TITLE argument — without it, `start "C:\with space\x"` treats a quoted target
-/// as a window title and opens nothing. `target` remains a SEPARATE argv element
-/// (the single spawn point passes the vector to `CreateProcessW`-style spawn,
-/// never a shell string), so `start` receives it as one inert token and a
-/// target with spaces/metacharacters is not re-parsed as a command. The argv-vec
-/// form (rather than a `ShellExecuteW` FFI call) is deliberate: it keeps every
-/// branch a pure `Vec<String>` asserted by the cross-host unit tests, matching
-/// the module's "argv-only, single spawn point" contract.
+/// Windows note: the launcher is `explorer.exe`, invoked with `target` as one
+/// argv element (`explorer <target>`). Explorer hands the argument to the shell
+/// open verb, launching a `file:`/`http`/`https`/`mailto` URI with its default
+/// handler and a filesystem path with its associated app — the same effect the
+/// old `cmd /C start "" <target>` had, WITHOUT a `cmd.exe` command line. That
+/// distinction is a security boundary: `cmd` splits its command line on `&`,
+/// `|`, `%VAR%` and other metacharacters, and Rust's argv quoting escapes none
+/// of them, so a URI printed by any program (`http://x/&calc.exe&`) reaching
+/// `cmd` executed the trailing token. `explorer.exe` takes the target as a
+/// single non-shell parameter (dispatched through `CreateProcessW`-style spawn),
+/// so no untrusted string ever reaches a `cmd.exe` command line. The argv-vec
+/// form (rather than a `ShellExecuteW` FFI call) keeps every branch a pure
+/// `Vec<String>` asserted by the cross-host unit tests, matching the module's
+/// "argv-only, single spawn point" contract.
 pub(in crate::native) fn open_default_argv(os: OpenerOs, target: &str) -> Vec<String> {
     match os {
         OpenerOs::Linux => vec!["xdg-open".to_owned(), target.to_owned()],
         OpenerOs::Macos => vec!["open".to_owned(), target.to_owned()],
-        OpenerOs::Windows => vec![
-            "cmd".to_owned(),
-            "/C".to_owned(),
-            "start".to_owned(),
-            String::new(),
-            target.to_owned(),
-        ],
+        OpenerOs::Windows => vec!["explorer".to_owned(), target.to_owned()],
     }
 }
 
@@ -239,35 +237,45 @@ mod tests {
             open_default_argv(OpenerOs::Macos, "/proj/a.png"),
             vec!["open".to_owned(), "/proj/a.png".to_owned()]
         );
-        // Windows: `cmd /C start "" <target>` — the empty title arg is mandatory
-        // and `target` stays a single inert element.
+        // Windows: `explorer <target>` — no `cmd.exe` command line, so a URI
+        // with shell metacharacters can never be re-parsed as a command.
         assert_eq!(
             open_default_argv(OpenerOs::Windows, "C:\\proj\\a.png"),
-            vec![
-                "cmd".to_owned(),
-                "/C".to_owned(),
-                "start".to_owned(),
-                String::new(),
-                "C:\\proj\\a.png".to_owned()
-            ]
+            vec!["explorer".to_owned(), "C:\\proj\\a.png".to_owned()]
         );
     }
 
     #[test]
     fn open_default_argv_windows_keeps_spaces_and_uri_as_one_element() {
-        // A target with spaces stays a single inert argv element after the
-        // mandatory empty start-title arg.
+        // A target with spaces stays a single inert argv element passed to
+        // `explorer`.
         let spaced = "C:\\my dir\\a.png";
         assert_eq!(
             open_default_argv(OpenerOs::Windows, spaced),
-            vec![
-                "cmd".to_owned(),
-                "/C".to_owned(),
-                "start".to_owned(),
-                String::new(),
-                spaced.to_owned()
-            ]
+            vec!["explorer".to_owned(), spaced.to_owned()]
         );
+    }
+
+    #[test]
+    fn open_default_argv_windows_never_routes_a_uri_through_cmd() {
+        // C1 regression: a URI carrying `cmd.exe` metacharacters (`&` command
+        // chaining, `%VAR%` expansion) must never reach a `cmd.exe` command
+        // line. The argv is `["explorer", <uri>]` with the URI kept as one
+        // inert element, so there is no `cmd` program and no shell to split on
+        // `&` — `calc.exe` is never a separate token.
+        let hostile = "http://x/&calc.exe&%USERPROFILE%";
+        let argv = open_default_argv(OpenerOs::Windows, hostile);
+        assert_eq!(argv, vec!["explorer".to_owned(), hostile.to_owned()]);
+        assert_eq!(argv[0], "explorer");
+        assert!(
+            !argv
+                .iter()
+                .any(|a| a.eq_ignore_ascii_case("cmd") || a.eq_ignore_ascii_case("cmd.exe")),
+            "no cmd program may appear in the Windows open argv"
+        );
+        // The whole hostile URI is a single argv element — nothing was split.
+        assert_eq!(argv.len(), 2);
+        assert_eq!(argv[1], hostile);
     }
 
     #[test]
