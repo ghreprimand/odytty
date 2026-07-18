@@ -533,7 +533,15 @@ pub(super) fn compute_rail_layout(
     // visible capacity assuming both indicator rows are present, so the greedy
     // placement below can never overrun the region.
     let active = source.active_tab().min(tab_count - 1);
-    let band = grid_rows.saturating_sub(2);
+    // Measure capacity against the region the greedy placement below actually
+    // fills: it starts at `top_margin` (== slot_gap) when the active tab is near
+    // the top, or at row 1 once scrolled, and always reserves the final row for
+    // the bottom overflow indicator. Using the larger top offset keeps the
+    // estimate conservative, so the placement can neither overrun the region nor
+    // scroll the active tab out of view. For the default 1-row gap this is
+    // arithmetically identical to the previous `grid_rows - 2` band.
+    let top_offset = top_margin.max(1);
+    let band = grid_rows.saturating_sub(1 + top_offset);
     // n slots need n*slot_rows + (n-1)*slot_gap = n*stride - slot_gap rows.
     let capacity = ((band + geom.slot_gap) / stride).max(1).min(tab_count);
     let max_first = tab_count - capacity;

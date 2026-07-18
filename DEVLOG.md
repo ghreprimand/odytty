@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Overlay and picker viewport hardening
+
+Several native-UI viewport fixes surfaced by the deep audit:
+
+- Hint badges now stride and clamp by the snapshot's own geometry rather than
+  the live grid, so a resize that leaves the grid ahead of the painted snapshot
+  can no longer index past the cell buffer.
+- The font and theme pickers memoize the real visible row capacity from each
+  render and page against it instead of a hardcoded slack; before the first
+  frame they fall back to the historical slack so opening a picker never scrolls
+  the first group header off screen.
+- The font picker's scroll indicator measures the filtered list, not the full
+  model, so an active filter no longer reports phantom rows below.
+- The tab rail's overflow capacity is measured against the region the placement
+  loop actually fills (byte-identical for the default one-row gap).
+- A failed settings or keybind save clears the close-after-save latch, so a
+  later successful save can no longer close a panel that was never asked to
+  close.
+
 ## 2026-07-18 -- Bracketed paste survives an END marker split across reads
 
 Fixed: in the CLI interactive mode, a bracketed-paste END marker split across

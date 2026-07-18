@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
+use std::cell::Cell;
+
 use crate::settings::{SYSTEM_THEME_NAME, SettingEdit, Settings, THEME_ENV};
 use crate::theme::{Theme, all as built_in_themes, relative_luminance};
 
@@ -14,6 +16,11 @@ pub(super) struct ThemePicker {
     /// `original` marker lands on the system alias row.
     original_is_system: bool,
     message: Option<String>,
+    /// Real number of entry rows the last render could show (the theme_builder
+    /// `last_role_capacity` precedent). `clamp` reads it so paging tracks the
+    /// true viewport instead of a hardcoded slack. Interior-mutable because
+    /// `visible_lines` records it behind `&self`.
+    last_capacity: Cell<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,6 +93,7 @@ impl ThemePicker {
             original: settings.theme,
             original_is_system: settings.theme_is_system,
             message: None,
+            last_capacity: Cell::new(0),
         };
         picker.select_theme(settings);
         picker
@@ -189,6 +197,9 @@ impl ThemePicker {
         body_width: usize,
         body_height: usize,
     ) -> Vec<ThemePickerLine> {
+        // Any early return must not leave a stale capacity behind (theme_builder
+        // precedent): reset first, then record the real value below.
+        self.last_capacity.set(0);
         if body_width == 0 || body_height == 0 {
             return Vec::new();
         }
@@ -214,6 +225,10 @@ impl ThemePicker {
             }
         }
 
+        // Header hint + any wrapped message occupy the prefix rows; the rest of
+        // the body is the entry viewport. Record its true capacity for clamp().
+        self.last_capacity
+            .set(body_height.saturating_sub(lines.len()));
         for (index, entry) in self.entries.iter().enumerate().skip(self.scroll) {
             if lines.len() >= body_height {
                 break;
@@ -366,7 +381,14 @@ impl ThemePicker {
         if self.selected < self.scroll {
             self.scroll = self.selected;
         }
-        let visible_slack = 8;
+        // Before the first render `last_capacity` is 0; fall back to the
+        // historical paging slack so opening the picker (which clamps before
+        // any frame is drawn) does not scroll the first group header off. Once
+        // a frame records the real viewport, paging tracks it exactly.
+        let visible_slack = match self.last_capacity.get() {
+            0 => 8,
+            n => n,
+        };
         if self.selected >= self.scroll + visible_slack {
             self.scroll = self.selected.saturating_sub(visible_slack - 1);
         }

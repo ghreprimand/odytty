@@ -22,7 +22,7 @@
 //! is `Inert`, and `hints_selecting` is `false` — so `active_modal()` is `None`
 //! and the frame bytes + input routing are byte-identical to before HINTS landed.
 
-use crate::core::{AbsolutePoint, Attrs, Cell, Color, Dimensions, Snapshot};
+use crate::core::{AbsolutePoint, Attrs, Cell, Color, Snapshot};
 use crate::hints::{self, HintKinds, HintMatch};
 use crate::selection;
 
@@ -162,7 +162,6 @@ impl App {
             &self.hints,
             ctx.viewport_offset,
             ctx.scrollback_len,
-            ctx.grid,
             self.themed_hint_style(),
         );
     }
@@ -267,13 +266,20 @@ pub(super) fn apply_hints_ui(
     hints: &Option<HintsUi>,
     viewport_offset: usize,
     scrollback_len: usize,
-    dimensions: Dimensions,
     themed: Option<HintStyle>,
 ) {
     let Some(hints) = hints else {
         return;
     };
     if !hints.is_selecting() {
+        return;
+    }
+    // Bound and stride by the snapshot's own geometry, never the live grid: a
+    // resize can leave the caller's grid ahead of the snapshot actually being
+    // painted, and an out-of-range stride would corrupt or panic on
+    // `snapshot.cells`. Mirrors `apply_search_matches`.
+    let dims = snapshot.dimensions;
+    if dims.rows == 0 || dims.columns == 0 {
         return;
     }
 
@@ -293,21 +299,21 @@ pub(super) fn apply_hints_ui(
     // directly — NOT via `visible_range_from_absolute`, whose `normalize_range`
     // collapses a zero-length (single-cell) range to `None`.
     let top = selection::viewport_top_absolute_row(viewport_offset, scrollback_len);
-    let bottom = top.saturating_add(dimensions.rows.saturating_sub(1));
+    let bottom = top.saturating_add(dims.rows.saturating_sub(1));
 
     for (label, m) in hints.candidates() {
         if m.start.row < top || m.start.row > bottom {
             continue; // scrolled out of the viewport
         }
-        let row = (m.start.row - top).min(dimensions.rows - 1);
-        let start_col = m.start.column.min(dimensions.columns - 1);
-        let offset = row * dimensions.columns;
+        let row = (m.start.row - top).min(dims.rows - 1);
+        let start_col = m.start.column.min(dims.columns - 1);
+        let offset = row * dims.columns;
         // The visible-suffix the user still has to type (full label when typed
         // is empty); painted left-to-right from the badge anchor.
         let suffix = &label[hints.typed.len().min(label.len())..];
         for (i, ch) in suffix.chars().enumerate() {
             let col = start_col + i;
-            if col >= dimensions.columns {
+            if col >= dims.columns {
                 break;
             }
             let mut attrs = Attrs::default();
@@ -322,7 +328,7 @@ pub(super) fn apply_hints_ui(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::Terminal;
+    use crate::core::{Dimensions, Terminal};
     use crate::hints::HintKind;
 
     fn dims(cols: usize, rows: usize) -> Dimensions {
@@ -365,7 +371,7 @@ mod tests {
     fn none_hints_is_pixel_identical_noop() {
         let before = snapshot_of("see http://example.com now", 40);
         let mut after = before.clone();
-        apply_hints_ui(&mut after, &None, 0, 0, dims(40, 2), None);
+        apply_hints_ui(&mut after, &None, 0, 0, None);
         assert_eq!(before, after, "hints=None must mutate zero cells");
     }
 
@@ -374,7 +380,7 @@ mod tests {
         let before = snapshot_of("plain text", 40);
         let mut after = before.clone();
         let hints = hints_with(Vec::new(), "");
-        apply_hints_ui(&mut after, &hints, 0, 0, dims(40, 2), None);
+        apply_hints_ui(&mut after, &hints, 0, 0, None);
         assert_eq!(before, after, "a non-selecting HintsUi must paint nothing");
     }
 
@@ -384,7 +390,7 @@ mod tests {
     fn badge_paints_label_glyphs_at_match_start() {
         let mut snapshot = snapshot_of("xx http://x", 40);
         let hints = hints_with(vec![("a".to_owned(), url_match(3, "http://x"))], "");
-        apply_hints_ui(&mut snapshot, &hints, 0, 0, dims(40, 2), None);
+        apply_hints_ui(&mut snapshot, &hints, 0, 0, None);
         // Label 'a' overwrites the start cell (col 3) as a bold badge glyph.
         assert_eq!(snapshot.cells[3].ch, 'a');
         assert!(snapshot.cells[3].attrs.bold());
@@ -396,9 +402,24 @@ mod tests {
     fn multi_char_label_paints_left_to_right() {
         let mut snapshot = snapshot_of("xxx http://y", 40);
         let hints = hints_with(vec![("sd".to_owned(), url_match(4, "http://y"))], "");
-        apply_hints_ui(&mut snapshot, &hints, 0, 0, dims(40, 2), None);
+        apply_hints_ui(&mut snapshot, &hints, 0, 0, None);
         assert_eq!(snapshot.cells[4].ch, 's');
         assert_eq!(snapshot.cells[5].ch, 'd');
+    }
+
+    // --- C7: stride/clamp bound by the snapshot, never the caller's grid ---
+
+    #[test]
+    fn badge_at_right_edge_clips_to_snapshot_bounds() {
+        // Anchor a multi-char label at the last column of a narrow snapshot.
+        // The stride and clamp come from the snapshot's own geometry, so the
+        // run truncates at the edge instead of indexing past `cells`.
+        let mut snapshot = snapshot_of("abcde", 5);
+        let hints = hints_with(vec![("wx".to_owned(), url_match(4, "e"))], "");
+        apply_hints_ui(&mut snapshot, &hints, 0, 0, None);
+        // The first label glyph lands on the last column; the second is clipped.
+        assert_eq!(snapshot.cells[4].ch, 'w');
+        assert_eq!(snapshot.cells.len(), 10, "no cells appended and no panic");
     }
 
     // --- typed prefix narrows + shows the remaining suffix ---
@@ -412,7 +433,7 @@ mod tests {
             ("fj".to_owned(), url_match(9, "ftp")),
         ];
         let hints = hints_with(labeled, "s");
-        apply_hints_ui(&mut snapshot, &hints, 0, 0, dims(40, 2), None);
+        apply_hints_ui(&mut snapshot, &hints, 0, 0, None);
         // The "sd" badge shows its remaining suffix 'd' at its start cell.
         assert_eq!(snapshot.cells[2].ch, 'd');
         // The eliminated "fj" label is not painted — its start cell is original.

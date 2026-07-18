@@ -17,6 +17,8 @@
 //! the picker is apply-on-Enter only. The user sees the family name, selects
 //! it, and presses Enter; the reload path then fires normally.
 
+use std::cell::Cell;
+
 use crate::settings::{FONT_FAMILY_ENV, SettingEdit, Settings};
 
 use super::overlay::OverlayInput;
@@ -63,6 +65,11 @@ pub(super) struct FontPicker {
     /// The font_family value when the picker was opened (restored on cancel).
     original: String,
     message: Option<String>,
+    /// Real number of family/header rows the last render could show (the
+    /// theme_builder `last_role_capacity` precedent). `clamp` reads it so paging
+    /// tracks the true viewport instead of a hardcoded slack. Interior-mutable
+    /// because `visible_lines` records it behind `&self`.
+    last_capacity: Cell<usize>,
 }
 
 /// Cache-invalidation key for the font picker overlay render.
@@ -111,6 +118,7 @@ impl FontPicker {
             scroll: 0,
             original: current_font_family(settings),
             message: None,
+            last_capacity: Cell::new(0),
         };
         picker.rebuild_filter();
         picker
@@ -215,9 +223,12 @@ impl FontPicker {
     /// everything fits.
     pub(super) fn scroll_indicator(&self, body_height: usize) -> (bool, bool) {
         let window = body_height.saturating_sub(1);
+        // The scroll window pages over `filtered`, not the full `entries` model:
+        // an active filter shrinks the list, so measuring `entries.len()` would
+        // report rows "below" that no longer exist.
         (
             self.scroll > 0,
-            window > 0 && self.scroll + window < self.entries.len(),
+            window > 0 && self.scroll + window < self.filtered.len(),
         )
     }
 
@@ -226,6 +237,9 @@ impl FontPicker {
         body_width: usize,
         body_height: usize,
     ) -> Vec<FontPickerLine> {
+        // Any early return must not leave a stale capacity behind (theme_builder
+        // precedent): reset first, then record the real value below.
+        self.last_capacity.set(0);
         if body_width == 0 || body_height == 0 {
             return Vec::new();
         }
@@ -266,6 +280,10 @@ impl FontPicker {
             return lines;
         }
 
+        // Header hint + any wrapped message occupy the prefix rows; the rest of
+        // the body is the entry viewport. Record its true capacity for clamp().
+        self.last_capacity
+            .set(body_height.saturating_sub(lines.len()));
         for (vis_index, &entry_index) in self.filtered.iter().enumerate().skip(self.scroll) {
             if lines.len() >= body_height {
                 break;
@@ -516,7 +534,14 @@ impl FontPicker {
         if self.selected < self.scroll {
             self.scroll = self.selected;
         }
-        let visible_slack = 8;
+        // Before the first render `last_capacity` is 0; fall back to the
+        // historical paging slack so opening the picker (which clamps before
+        // any frame is drawn) does not scroll the first group header off. Once
+        // a frame records the real viewport, paging tracks it exactly.
+        let visible_slack = match self.last_capacity.get() {
+            0 => 8,
+            n => n,
+        };
         if self.selected >= self.scroll + visible_slack {
             self.scroll = self.selected.saturating_sub(visible_slack - 1);
         }
@@ -624,6 +649,35 @@ mod tests {
             .filter(|e| !e.starts_with("# "))
             .cloned()
             .collect()
+    }
+
+    // C24: the scroll "more below" indicator pages over the filtered list, not
+    // the full model, so an active filter never reports phantom rows below.
+    #[test]
+    fn scroll_indicator_below_measures_filtered_not_entries() {
+        let settings = Settings::default();
+        let mut names: Vec<String> = (0..18).map(|n| format!("Fam{n:02}")).collect();
+        names.push("UniqueAlpha".to_owned());
+        names.push("UniqueBeta".to_owned());
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        let mut picker = FontPicker::new(&settings);
+        picker.open(&settings, make_families(&refs));
+        // Render once so the picker records its real viewport capacity, exactly
+        // as the running app does before any key input reaches the picker.
+        let _ = picker.visible_lines(60, 10);
+
+        // Filter down to the two "Unique*" families (plus their group header).
+        for ch in "Unique".chars() {
+            let _ = picker.handle_input(OverlayInput::Char(ch));
+        }
+        let _ = picker.visible_lines(60, 10);
+        assert_eq!(picker.filtered.len(), 3, "header + two filtered families");
+
+        // With a body taller than the filtered list, nothing is below. The old
+        // code compared against entries.len() (== 21) and wrongly reported below.
+        let (above, below) = picker.scroll_indicator(10);
+        assert!(!above, "not scrolled, nothing above");
+        assert!(!below, "filtered list fits, no phantom rows below");
     }
 
     // T-empty: an empty family list opens without panic; list is empty.

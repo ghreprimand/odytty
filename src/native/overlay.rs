@@ -2241,11 +2241,22 @@ impl OverlayUi {
 
     pub(super) fn save_failed(&mut self, message: String) {
         match self.mode {
-            OverlayMode::Settings => self.panel.save_failed(message),
+            OverlayMode::Settings => {
+                // A failed save must clear the close-after-save latch: otherwise a
+                // later successful save would close the panel the user never asked
+                // to close (the SaveAndClose latch outliving its failed attempt).
+                self.close_after_save = false;
+                self.panel.save_failed(message);
+            }
             OverlayMode::ThemePicker => self.theme_picker.save_failed(message),
             OverlayMode::ThemeBuilder => self.theme_builder.save_failed(message),
             OverlayMode::FontPicker => self.font_picker.save_failed(message),
-            OverlayMode::KeyBindings => self.key_remap.save_failed(message),
+            OverlayMode::KeyBindings => {
+                // Same latch-clear for the keybind-editor lane: a failed save leaves
+                // no armed close-after-save behind.
+                self.key_remap_close_after_save = false;
+                self.key_remap.save_failed(message);
+            }
             OverlayMode::Onboarding
             | OverlayMode::ContextMenu
             | OverlayMode::CommandPalette
@@ -4474,6 +4485,38 @@ fn dim_attrs() -> Attrs {
 mod tests {
     use super::*;
     use crate::core::{Dimensions, Position};
+
+    // --- C22/C23: a failed save must disarm the close-after-save latches ---
+
+    #[test]
+    fn settings_save_failure_disarms_close_after_save() {
+        // SaveAndClose arms `close_after_save`; if the write fails, the latch
+        // must clear so a later plain save cannot close the panel unbidden.
+        let mut overlay = OverlayUi {
+            mode: OverlayMode::Settings,
+            close_after_save: true,
+            ..OverlayUi::default()
+        };
+        overlay.save_failed("disk full".to_owned());
+        assert!(
+            !overlay.close_after_save,
+            "a failed settings save must not leave close-after-save armed"
+        );
+    }
+
+    #[test]
+    fn keybind_save_failure_disarms_close_after_save() {
+        let mut overlay = OverlayUi {
+            mode: OverlayMode::KeyBindings,
+            key_remap_close_after_save: true,
+            ..OverlayUi::default()
+        };
+        overlay.save_failed("disk full".to_owned());
+        assert!(
+            !overlay.key_remap_close_after_save,
+            "a failed keybind save must not leave close-after-save armed"
+        );
+    }
 
     fn snapshot(columns: usize, rows: usize) -> Snapshot {
         Snapshot {
