@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Windows open-dispatch test aligned with the explorer opener
+
+With the Windows clippy failure fixed, the windows-latest test step ran for
+the first time since the opener hardening and surfaced a stale expectation:
+the dispatch-level ctrl-click test still asserted the old `cmd /C start ""`
+argv, while the opener itself was deliberately changed to `explorer <path>`
+(argv form, never routed through `cmd.exe`, so shell metacharacters in a
+clicked path or URI are inert). The test and its doc comments now describe
+the explorer form. Production behavior is unchanged; the earlier clippy
+failure had masked this because the leg died before its test step. One more
+instance of the sibling-drift pattern: the hardening updated the opener's own
+builder tests but missed the dispatch-level twin, which only compiles on
+Windows.
+
+`cargo fmt --check` and the cursor-icon test module pass locally; the
+windows-latest leg is the authoritative check for the cfg(windows) arm.
+
+---
+
 ## 2026-07-18 -- Release workflow validity and a Windows-only match arm
 
 Two continuous-integration regressions from the workflow-hardening and
