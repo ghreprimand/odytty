@@ -39,16 +39,22 @@ jobs:
 
       - name: Package Windows dev zip
         shell: pwsh
+        # C40: pass the ref-derived values through env so the pwsh script
+        # references quoted $env:VARs instead of interpolating the ${{ ... }}
+        # expressions directly (a branch name is attacker-influenceable).
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          $sha = "${{ github.sha }}".Substring(0, 9)
+          $sha = "$env:COMMIT_SHA".Substring(0, 9)
           New-Item -ItemType Directory -Force dist/windows/package | Out-Null
           New-Item -ItemType Directory -Force dist/build | Out-Null
           Copy-Item target/release/odytty.exe dist/windows/package/
           Copy-Item README.md, LICENSE, NOTICE dist/windows/package/
           Set-Content -Path dist/windows/package/DEV-BUILD.txt -Value @"
           Unreleased development build of OdyTTY.
-          Commit: ${{ github.sha }}
-          Ref:    ${{ github.ref_name }}
+          Commit: $env:COMMIT_SHA
+          Ref:    $env:REF_NAME
           Not a release artifact; do not redistribute.
           "@
           Compress-Archive `

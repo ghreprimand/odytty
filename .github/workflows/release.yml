@@ -39,13 +39,17 @@ jobs:
             version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # C40: also expose the version as an env var so run: steps
+          # reference a quoted "$VERSION" instead of interpolating the
+          # ${{ ... }} expression directly into the shell (injection-safe).
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Create source archive
         run: |
           mkdir -p dist/build
           git archive --format=tar.gz \
-            --prefix="odytty-${{ steps.ver.outputs.version }}/" \
-            -o "dist/build/odytty-${{ steps.ver.outputs.version }}.tar.gz" HEAD
+            --prefix="odytty-${VERSION}/" \
+            -o "dist/build/odytty-${VERSION}.tar.gz" HEAD
 
       - name: Upload source artifact
         # v4.6.2
@@ -77,6 +81,10 @@ jobs:
             version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # C40: also expose the version as an env var so run: steps
+          # reference a quoted "$VERSION" instead of interpolating the
+          # ${{ ... }} expression directly into the shell (injection-safe).
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Install build dependencies
         run: |
@@ -89,14 +97,14 @@ jobs:
         run: cargo build --release --locked
 
       - name: Build AppImage
-        run: dist/appimage/build-appimage.sh "${{ steps.ver.outputs.version }}"
+        run: dist/appimage/build-appimage.sh "${VERSION}"
 
       - name: Smoke test the AppImage
         # --version exits before any GPU/window init, so it runs headlessly in
         # CI; this confirms the bundle's loader, libs, and entrypoint are sound.
         run: |
           APPIMAGE_EXTRACT_AND_RUN=1 \
-            ./odytty-${{ steps.ver.outputs.version }}-x86_64.AppImage --version
+            ./odytty-${VERSION}-x86_64.AppImage --version
 
       - name: Upload AppImage artifact
         # v4.6.2
@@ -129,6 +137,10 @@ jobs:
             version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # C40: also expose the version as an env var so run: steps
+          # reference a quoted "$VERSION" instead of interpolating the
+          # ${{ ... }} expression directly into the shell (injection-safe).
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Build release binary
         run: cargo build --release --locked
@@ -140,7 +152,7 @@ jobs:
       - name: Package Windows zip
         shell: pwsh
         run: |
-          $version = "${{ steps.ver.outputs.version }}"
+          $version = "$env:VERSION"
           New-Item -ItemType Directory -Force dist/windows/package | Out-Null
           New-Item -ItemType Directory -Force dist/build | Out-Null
           Copy-Item target/release/odytty.exe dist/windows/package/
@@ -187,6 +199,10 @@ jobs:
             version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # C40: also expose the version as an env var so run: steps
+          # reference a quoted "$VERSION" instead of interpolating the
+          # ${{ ... }} expression directly into the shell (injection-safe).
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Build release binary
         run: cargo build --release --locked
@@ -197,7 +213,7 @@ jobs:
 
       - name: Assemble and sign OdyTTY.app
         run: |
-          version="${{ steps.ver.outputs.version }}"
+          version="${VERSION}"
           mkdir -p dist/build
           cp target/release/odytty dist/build/odytty
           bash dist/macos/make-app.sh "$version"
@@ -209,7 +225,7 @@ jobs:
 
       - name: Package macOS zip
         run: |
-          version="${{ steps.ver.outputs.version }}"
+          version="${VERSION}"
           # ditto -c -k --keepParent produces a macOS-correct zip that preserves
           # the .app bundle's structure; a plain `zip -r` can corrupt bundles.
           ditto -c -k --sequesterRsrc --keepParent dist/build/OdyTTY.app \
@@ -247,6 +263,10 @@ jobs:
             version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # C40: also expose the version as an env var so run: steps
+          # reference a quoted "$VERSION" instead of interpolating the
+          # ${{ ... }} expression directly into the shell (injection-safe).
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Install build dependencies
         run: |
@@ -260,7 +280,7 @@ jobs:
 
       - name: Assemble tarball
         run: |
-          version="${{ steps.ver.outputs.version }}"
+          version="${VERSION}"
           stage="odytty-${version}-linux-x86_64"
           mkdir -p "dist/build/${stage}/share/applications" \
                    "dist/build/${stage}/share/metainfo" \
@@ -279,7 +299,7 @@ jobs:
 
       - name: Smoke test the packaged binary
         # --version exits before any GPU/window init, so it runs headlessly.
-        run: ./dist/build/odytty-${{ steps.ver.outputs.version }}-linux-x86_64/odytty --version
+        run: ./dist/build/odytty-${VERSION}-linux-x86_64/odytty --version
 
       - name: Upload tarball artifact
         # v4.6.2
@@ -311,6 +331,10 @@ jobs:
             version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # C40: also expose the version as an env var so run: steps
+          # reference a quoted "$VERSION" instead of interpolating the
+          # ${{ ... }} expression directly into the shell (injection-safe).
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Install build dependencies
         run: |
@@ -330,7 +354,7 @@ jobs:
 
       - name: Build .deb
         run: |
-          version="${{ steps.ver.outputs.version }}"
+          version="${VERSION}"
           # Reuse the already-built release binary (--no-build); cargo-deb strips
           # it and derives $auto shared-lib deps from it.
           cargo deb --no-build
@@ -376,6 +400,10 @@ jobs:
             version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # C40: also expose the version as an env var so run: steps
+          # reference a quoted "$VERSION" instead of interpolating the
+          # ${{ ... }} expression directly into the shell (injection-safe).
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Install build dependencies
         run: |
@@ -392,7 +420,7 @@ jobs:
 
       - name: Build .rpm
         run: |
-          version="${{ steps.ver.outputs.version }}"
+          version="${VERSION}"
           # cargo-generate-rpm does not strip; do it first so the payload is slim.
           strip -s target/release/odytty
           cargo generate-rpm
@@ -436,7 +464,10 @@ jobs:
         run: RUSTUP_TOOLCHAIN=stable cargo install cargo-audit --version 0.22.2 --locked
 
       - name: Audit locked dependency graph
-        run: .github/scripts/rustsec-audit.sh
+        # --release: the RustSec early-warning window passes on a tag build so a
+        # release is never blocked by the 14-day pre-expiry nag (PR/scheduled
+        # runs still fail then, and the hard expiry fails everywhere).
+        run: .github/scripts/rustsec-audit.sh --release
 
       - name: Download artifacts
         # v4.3.0
@@ -453,6 +484,10 @@ jobs:
             version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # C40: also expose the version as an env var so run: steps
+          # reference a quoted "$VERSION" instead of interpolating the
+          # ${{ ... }} expression directly into the shell (injection-safe).
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Collect artifacts and checksum
         run: |
@@ -465,7 +500,7 @@ jobs:
           # stable URL the README can use without ever naming a version. These
           # are copies of the versioned artifacts (same bytes), checksummed
           # alongside them in SHA256SUMS.
-          version="${{ steps.ver.outputs.version }}"
+          version="${VERSION}"
           cp "odytty-${version}.tar.gz" "odytty.tar.gz"
           cp "odytty-${version}-x86_64.AppImage" "odytty-x86_64.AppImage"
           cp "odytty-${version}-windows-x86_64.zip" "odytty-windows-x86_64.zip"
@@ -546,6 +581,10 @@ jobs:
             version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # C40: also expose the version as an env var so run: steps
+          # reference a quoted "$VERSION" instead of interpolating the
+          # ${{ ... }} expression directly into the shell (injection-safe).
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Download SHA256SUMS from the published release
         env:
@@ -562,7 +601,7 @@ jobs:
         id: manifest
         run: |
           set -euo pipefail
-          version="${{ steps.ver.outputs.version }}"
+          version="${VERSION}"
           zip="odytty-${version}-windows-x86_64.zip"
           hash="$(awk -v f="$zip" '$2 == f { print $1 }' SHA256SUMS)"
           if [ -z "$hash" ]; then
@@ -590,7 +629,7 @@ jobs:
         if: steps.manifest.outputs.changed == 'true'
         run: |
           set -euo pipefail
-          version="${{ steps.ver.outputs.version }}"
+          version="${VERSION}"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add bucket/odytty.json
@@ -647,6 +686,10 @@ jobs:
             version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          # C40: also expose the version as an env var so run: steps
+          # reference a quoted "$VERSION" instead of interpolating the
+          # ${{ ... }} expression directly into the shell (injection-safe).
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Download SHA256SUMS from the published release
         env:
@@ -662,7 +705,7 @@ jobs:
       - name: Stamp the canonical recipes
         run: |
           set -euo pipefail
-          version="${{ steps.ver.outputs.version }}"
+          version="${VERSION}"
           cask_zip="odytty-${version}-macos-arm64.zip"
           src_tarball="odytty-${version}.tar.gz"
           cask_hash="$(awk -v f="$cask_zip" '$2 == f { print $1 }' SHA256SUMS)"
@@ -694,7 +737,7 @@ jobs:
           HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
         run: |
           set -euo pipefail
-          version="${{ steps.ver.outputs.version }}"
+          version="${VERSION}"
           if [ -z "${HOMEBREW_TAP_DEPLOY_KEY:-}" ]; then
             echo "Homebrew publish skipped: no HOMEBREW_TAP_DEPLOY_KEY configured."
             echo "The tap is operator-gated; create ghreprimand/homebrew-odytty and add the deploy key to activate. Nothing to do."

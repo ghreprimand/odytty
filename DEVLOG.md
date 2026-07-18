@@ -7,6 +7,18 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Release workflow injection hardening and RustSec early warning
+
+Tag-derived and ref-derived values in the release and dev-build workflows now
+flow through step or job `env:` and are referenced as quoted shell variables
+instead of being interpolated directly into run scripts, closing a script
+injection path from a crafted tag or branch name. The RustSec advisory gate
+renews its quick-xml exception window and adds a fourteen-day early warning:
+pull-request and scheduled runs fail once inside the window so a renewal is
+prompted ahead of time, while a release-tag build still passes until the hard
+expiry, so a tag push is never ambushed. The removal trigger (a wayland-scanner
+release taking quick-xml 0.41 or newer) is documented inline.
+
 ## 2026-07-18 -- Config value quoting and clipboard test hermeticity
 
 Three settings and clipboard fixes:

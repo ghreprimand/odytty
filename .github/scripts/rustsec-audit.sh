@@ -3,11 +3,36 @@
 # RustSec policy gate shared by the PR, scheduled, and release-tag workflows.
 set -euo pipefail
 
-exception_expiry=2026-08-15
+# quick-xml advisories RUSTSEC-2026-0194/-0195 are fixed in quick-xml 0.41.0,
+# but wayland-scanner 0.31.10 (the sole dependent, a compile-time proc macro)
+# pins ^0.39, and no upstream release takes 0.41 yet. Removal trigger: a
+# `cargo update` resolves this the moment a wayland-scanner 0.31.x ships with
+# quick-xml >= 0.41 -- at which point drop the --ignore flags and this fuse.
+exception_expiry=2026-10-15
+# Fourteen-day early-warning window: PR/scheduled runs fail once inside it so a
+# renewal is prompted well before a tag push could be ambushed; release-tag runs
+# still pass until the hard expiry. Dates are UTC %F strings, so a lexicographic
+# compare is also a chronological one.
+warn_start="$(date -u -d "${exception_expiry} - 14 days" +%F)"
 today="$(date -u +%F)"
+
+# Release context is passed explicitly by the release-tag workflow so the
+# early-warning window can pass there while still failing PR/scheduled runs.
+release_context=0
+if [[ "${1:-}" == "--release" ]]; then
+  release_context=1
+fi
+
 if [[ "$today" > "$exception_expiry" ]]; then
   echo "::error::quick-xml exceptions expired on ${exception_expiry}; remove or renew them" >&2
   exit 1
+elif [[ ! "$today" < "$warn_start" ]]; then
+  if [[ "$release_context" -eq 1 ]]; then
+    echo "::warning::quick-xml exceptions expire on ${exception_expiry} (within 14 days); renew the expiry or upgrade wayland-scanner past quick-xml 0.41 soon. Release builds still pass until expiry." >&2
+  else
+    echo "::error::quick-xml exceptions expire on ${exception_expiry} (within 14 days); renew the expiry or upgrade wayland-scanner past quick-xml 0.41. This early warning fails PR and scheduled runs 14 days ahead so a tag push is never ambushed." >&2
+    exit 1
+  fi
 fi
 
 # Keep the exception graph explicit. quick-xml 0.39.4 must remain the
