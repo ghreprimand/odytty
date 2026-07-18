@@ -33,6 +33,40 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// Baseline output-path probe: plain `cmd.exe /C echo` under the same spawn
+/// path. cmd writes through its standard output handle with no host layer in
+/// between, so this discriminates a general std-handle binding defect (this
+/// fails too) from behavior specific to PowerShell's console host (this
+/// passes while the PowerShell probe fails). Runs before the PowerShell
+/// probe (libtest executes tests in name order within a binary).
+#[test]
+fn conpty_cmd_echo_reaches_the_pty_stream() {
+    let dimensions = Dimensions::new(80, 24);
+    let mut session = PtySession::spawn_exec(
+        dimensions,
+        OsString::from("cmd.exe"),
+        vec![
+            OsString::from("/C"),
+            OsString::from("echo conpty-cmd-probe-done"),
+        ],
+        None,
+    )
+    .expect("spawn cmd under ConPTY");
+    let bytes = session.read_to_end().expect("read ConPTY output");
+    let exit_status = session.wait().expect("wait for probe child");
+
+    let mut terminal = Terminal::new(dimensions.columns, dimensions.rows);
+    terminal.advance(&bytes);
+    let text = terminal.screen().plain_text();
+    assert!(
+        text.contains("conpty-cmd-probe-done"),
+        "plain cmd.exe echo never reached the terminal; child exit status \
+         {exit_status:?}; raw ConPTY stream was {} bytes, hex = {}",
+        bytes.len(),
+        hex(&bytes)
+    );
+}
+
 /// Emit both button spellings from PowerShell under the real ConPTY loop and
 /// assert the OdyTTY parser observes them unmodified.
 #[test]
@@ -41,8 +75,17 @@ fn conpty_passes_button_oscs_through_unmodified() {
     // byte appears literally in the command line. BEL termination avoids any
     // quoting interaction with the ST (`ESC \`) form; both terminators are
     // legal for these OSCs.
+    //
+    // The leading diagnostics discriminate output paths when the probe fails:
+    // `IsOutputRedirected` reports whether the child's standard output handle
+    // is a console handle at all (it wraps `GetFileType`), and `Write-Host`
+    // goes through the console API (the host UI) rather than the standard
+    // handle, so its marker appearing in the pseudoconsole stream while the
+    // `[Console]::Out` payload does not would pin the defect to std-handle
+    // binding rather than console attachment.
     let script = concat!(
         "$e=[char]27;$b=[char]7;",
+        "Write-Host \"wh-marker redir=$([Console]::IsOutputRedirected)\";",
         "[Console]::Out.Write(\"$e]1337;Button=type=custom;code=42;icon=star$b\");",
         "[Console]::Out.Write(\"$e]133;P;odytty-button;code=7$b\");",
         "[Console]::Out.Write('Retry');",

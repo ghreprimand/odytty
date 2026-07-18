@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- ConPTY probe path discrimination: cmd baseline, console-API marker
+
+The instrumented run answered the first round of questions. Decoded, the
+131-byte stream is a complete conhost lifecycle: init modes (win32-input,
+focus reporting, cursor hide/clear/home), a window-title OSC naming
+`powershell.exe` — proof the child attached to the pseudoconsole, since
+conhost learns the title from its client — and the symmetric mode teardown of
+a clean close-flush. Child exit status 0. So the child attached correctly,
+ran its script to completion, and exited cleanly, yet not one byte of its
+`[Console]::Out` output entered the pseudoconsole pipe; the payload surfaced
+on the parent's real standard output instead. The early-EOF and spawn-failure
+hypotheses are dead; what remains is a standard-handle question: the child's
+stdout is bound to something other than its attached console.
+
+This round narrows that. The PowerShell probe script now leads with two
+diagnostics: `[Console]::IsOutputRedirected` (wraps `GetFileType` — is the
+child's stdout a console handle at all?) and a `Write-Host` marker, which
+goes through the console API rather than the standard handle. If the marker
+reaches the pseudoconsole stream while the `[Console]::Out` payload does not,
+the defect is std-handle binding, not console attachment. A new baseline
+probe runs first: plain `cmd.exe /C echo` through the same spawn path, with
+no host layer between the process and its stdout — separating a general
+binding defect from PowerShell-host-specific behavior.
+
+---
+
 ## 2026-07-18 -- ConPTY probe failure diagnostics: raw stream hex and child exit status
 
 The `windows-latest` CI leg has been red since the button-protocol probe
