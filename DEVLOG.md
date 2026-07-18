@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Window transparency ships on by default
+
+The default presentation now draws the terminal background at 80 percent
+opacity so the desktop shows through a little out of the box, with text, the
+cursor, and every overlay staying fully opaque. Previously the transparency
+master toggle shipped off, which left the ratified 80 percent opacity inert:
+the opaque path rendered and the setting never engaged unless turned on.
+
+The transparency-capable surface was already requested unconditionally, so the
+compositor honors a translucent background wherever alpha compositing is
+available and simply presents opaque where it is not. A fully-opaque window
+remains one setting away: `window_transparency = off`, or `window_opacity =
+100`, which matches the opaque render path exactly. The 100 percent opacity
+byte-identity invariant is unchanged; it keys on the opacity value and the
+compositor capability, not on the master toggle.
+
+Settings reference, the feature guide, and the example config were updated to
+describe the on-by-default presentation and how to return to a fully-opaque
+window.
+
 ## 2026-07-18 -- Attach partial-write desync made fatal, plus three small residues
 
 Fixed: the session-host frame writer used a single `write_all` per frame,

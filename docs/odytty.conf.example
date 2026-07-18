@@ -50,10 +50,12 @@ window_padding = 4
 window_border = off
 window_decorations = on
 # Whole-window transparency: draw the terminal background translucent so the
-# desktop shows through (text/cursor/selection/overlays stay opaque). Off by
-# default. Needs a compositing WM (Wayland native; X11 needs a compositor;
-# Windows uses DWM). window_opacity is a 20..=100 percent (100 = fully opaque).
-window_transparency = off
+# desktop shows through (text/cursor/selection/overlays stay opaque). On by
+# default at window_opacity = 80. Needs a compositing WM (Wayland native; X11
+# needs a compositor; Windows uses DWM); without one the window presents opaque.
+# window_opacity is a 20..=100 percent (100 = fully opaque, matching the opaque
+# render path). Set window_transparency = off for a fully-opaque window.
+window_transparency = on
 window_opacity = 80
 
 # Text-selection highlight strength, 0.0 (invisible) to 1.0 (fully opaque),

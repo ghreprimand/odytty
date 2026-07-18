@@ -870,12 +870,15 @@ only the background fades. The selection is opaque by default too, but has its
 own strength control (`selection_opacity`, below) independent of the window
 opacity.
 
-Transparency is off by default and leaves the opaque path unchanged. Enable it
-from Settings → Rendering or in `odytty.conf`:
+Transparency is on by default at `window_opacity = 80`, so the desktop shows
+through the background a little out of the box. Where the display server offers
+no alpha compositing the window simply presents opaque. Turn it off, or set a
+fully-opaque look, from Settings → Rendering or in `odytty.conf`:
 
 ```conf
-window_transparency = on
-window_opacity = 80
+window_transparency = off
+# or keep it on and go fully opaque, which matches the opaque render path:
+window_opacity = 100
 ```
 
 `selection_opacity` tunes the text-selection highlight strength on its own axis,

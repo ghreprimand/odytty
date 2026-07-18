@@ -2296,9 +2296,9 @@ fn crt_curvature_round_trips_through_config_key_mapping() {
 }
 
 #[test]
-fn window_transparency_defaults_off_and_parses_on_off() {
+fn window_transparency_defaults_on_and_parses_on_off() {
     let (default_settings, warnings) = settings_from([]);
-    assert!(!default_settings.window_transparency);
+    assert!(default_settings.window_transparency);
     assert!(warnings.is_empty());
 
     let (on, warnings) = settings_from([(WINDOW_TRANSPARENCY_ENV, "on")]);
@@ -2311,9 +2311,10 @@ fn window_transparency_defaults_off_and_parses_on_off() {
 }
 
 #[test]
-fn garbage_window_transparency_falls_back_off_with_warning() {
+fn garbage_window_transparency_falls_back_to_default_with_warning() {
+    // Unparseable input falls back to the compiled default, which is now on.
     let (settings, warnings) = settings_from([(WINDOW_TRANSPARENCY_ENV, "maybe")]);
-    assert!(!settings.window_transparency);
+    assert!(settings.window_transparency);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains(WINDOW_TRANSPARENCY_ENV));
 }

@@ -5612,10 +5612,10 @@ impl ApplicationHandler<UserEvent> for App {
             .with_window_icon(super::window_icon::load())
             // TRANSPARENCY: request a transparency-CAPABLE surface unconditionally.
             // With `window_transparency` off the presented output is fully opaque
-            // (the background alpha stays 1.0), so today's appearance is preserved;
-            // the flag only lets the compositor honor a translucent background when
-            // the setting is enabled. A no-op where the display server offers no
-            // alpha compositing.
+            // (the background alpha stays 1.0); the flag only lets the compositor
+            // honor a translucent background when the setting is enabled, which it
+            // is by default. A no-op where the display server offers no alpha
+            // compositing.
             .with_transparent(true);
         #[cfg(all(unix, not(target_os = "macos")))]
         let attributes = {
@@ -6969,7 +6969,7 @@ mod tests {
     /// the panel is held opaque per-surface elsewhere.
     #[test]
     fn window_bg_alpha_gates_on_setting_and_capability() {
-        // Off by default => fully opaque regardless of the opacity percent.
+        // Transparency off => fully opaque regardless of the opacity percent.
         assert_eq!(window_bg_alpha_for(false, true, 85.0), 1.0);
         // On + capable => the configured percent as a 0..=1 fraction.
         assert!((window_bg_alpha_for(true, true, 85.0) - 0.85).abs() < 1e-6);

@@ -82,7 +82,7 @@ environment variable was not set at startup.
 | `window_padding` | `ODYTTY_WINDOW_PADDING` | Float, `0.0..=64.0` px | `4.0` |
 | `window_border` | `ODYTTY_WINDOW_BORDER` | `on`, `off` | `off` |
 | `window_decorations` | `ODYTTY_WINDOW_DECORATIONS` | `on`, `off` | `on` |
-| `window_transparency` | `ODYTTY_WINDOW_TRANSPARENCY` | `on`, `off` | `off` |
+| `window_transparency` | `ODYTTY_WINDOW_TRANSPARENCY` | `on`, `off` | `on` |
 | `window_opacity` | `ODYTTY_WINDOW_OPACITY` | Percent, `20..=100` (step 5) | `80` |
 | `selection_opacity` | `ODYTTY_SELECTION_OPACITY` | Float, `0.0..=1.0` (step 0.05) | `0.6` |
 | `always_show_tab_bar` | `ODYTTY_ALWAYS_SHOW_TAB_BAR` | `on`, `off` | `off` |

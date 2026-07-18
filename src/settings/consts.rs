@@ -599,9 +599,14 @@ pub const DEFAULT_WINDOW_BORDER: bool = false;
 /// X11 the request is sent to the window manager as a hint and is honored on a
 /// best-effort basis — never a hard guarantee.
 pub const DEFAULT_WINDOW_DECORATIONS: bool = true;
-/// Window transparency master toggle (TRANSPARENCY). Off by default so the
-/// opaque render path is byte-identical to the historical presentation.
-pub const DEFAULT_WINDOW_TRANSPARENCY: bool = false;
+/// Window transparency master toggle (TRANSPARENCY). On by default: the default
+/// presentation draws the terminal background at `DEFAULT_WINDOW_OPACITY`, so the
+/// desktop shows through a little while text, the cursor, and every overlay stay
+/// fully opaque. The compositor request is unconditional, so a display server
+/// without alpha compositing simply presents opaque; a fully-opaque look is one
+/// setting away (`window_transparency = off`, or `window_opacity = 100`, which is
+/// byte-identical to the opaque path).
+pub const DEFAULT_WINDOW_TRANSPARENCY: bool = true;
 /// Default window opacity as a percentage of full opacity, used when
 /// `window_transparency` is on. 80% keeps text firmly readable while letting
 /// the desktop show through the terminal background a little more generously
