@@ -981,7 +981,12 @@ fn decode_prompt_marks(
     if count > max {
         return Err(SnapshotEnvelopeError::TooManyRows { count, max });
     }
-    let mut marks = Vec::with_capacity(count);
+    // Reserve no more than the remaining payload could possibly encode: a
+    // mark costs at least 5 wire bytes (row u32 + kind byte), so a declared
+    // count far beyond the actual payload cannot force a huge up-front
+    // allocation before the first short read fails — the same cap the row
+    // decoder applies. The Vec grows normally for an honest count.
+    let mut marks = Vec::with_capacity(count.min(reader.remaining() / 5));
     for _ in 0..count {
         marks.push(SnapshotPromptMark {
             row: reader.read_u32()? as usize,
@@ -1340,6 +1345,35 @@ fn default_tab_stops(columns: usize) -> Vec<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hostile_prompt_mark_count_fails_cleanly_without_over_reserve() {
+        // A declared mark count at the cap with a near-empty payload must fail
+        // on the first short read, not force a count-sized up-front
+        // allocation. The capped reserve keeps the attempt bounded by what
+        // the payload could actually encode; behavior (a clean error) is
+        // unchanged for hostile and honest inputs alike.
+        let caps = SnapshotEnvelopeCaps::default();
+        let max = caps.max_scrollback_rows.saturating_add(caps.max_rows);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&(max as u32).to_be_bytes());
+        // One truncated mark's worth of payload, nowhere near `max` marks.
+        bytes.extend_from_slice(&[0, 0]);
+        assert!(
+            decode_prompt_marks(&bytes, caps).is_err(),
+            "a short payload behind a huge count must error"
+        );
+
+        // An honest small section still decodes.
+        let marks = [SnapshotPromptMark {
+            row: 3,
+            kind: PromptKind::PromptStart,
+        }];
+        let encoded = encode_prompt_marks(&marks);
+        let decoded = decode_prompt_marks(&encoded, caps).expect("honest section decodes");
+        assert_eq!(decoded.len(), 1);
+        assert_eq!(decoded[0].row, 3);
+    }
 
     fn sample_terminal() -> Terminal {
         let mut terminal = Terminal::new(16, 3);

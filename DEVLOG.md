@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Residue hardening: prompt-mark reserve cap and attach-pump EINTR
+
+Two small siblings of already-landed fixes, closing out the hardening sweep.
+
+Hardened: the snapshot prompt-mark decoder reserved capacity for the declared
+mark count before reading any mark, the same hostile-count over-reserve shape
+fixed in the row decoder earlier today. The reserve is now capped by what the
+remaining payload could possibly encode; a test pins the clean error on a
+short payload behind a cap-sized count and the honest round-trip.
+
+Hardened: the attach pump treated an interrupted read as a fatal error,
+surfacing a spurious session disconnect on a signal delivery. It now retries,
+matching the local PTY output pumps; frame-body reads already retried
+internally, so an escaping interrupt can only land at a frame boundary where
+resuming is safe. Unix-only (the attach subsystem is Unix domain sockets).
+
 ## 2026-07-18 -- Release workflow injection hardening and RustSec early warning
 
 Tag-derived and ref-derived values in the release and dev-build workflows now

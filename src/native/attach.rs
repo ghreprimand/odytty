@@ -456,6 +456,12 @@ fn run_attach_pump(
                 break;
             }
             Err(err) if is_would_block(&err) => continue,
+            // EINTR is a retry, not an error: a signal delivery mid-read must
+            // not surface as a spurious session disconnect. Frame-body reads
+            // already retry internally (`read_exact`), so an escaping
+            // interrupt can only land at a frame boundary, where resuming is
+            // safe. Same arm the local PTY output pumps use.
+            Err(err) if is_interrupted(&err) => continue,
             Err(err) => {
                 eprintln!("odytty: attach pump read error: {err}");
                 sink.exited(session);
@@ -470,6 +476,13 @@ fn is_would_block(err: &ProtocolError) -> bool {
         err,
         ProtocolError::Io(io_err)
             if matches!(io_err.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
+    )
+}
+
+fn is_interrupted(err: &ProtocolError) -> bool {
+    matches!(
+        err,
+        ProtocolError::Io(io_err) if io_err.kind() == io::ErrorKind::Interrupted
     )
 }
 
