@@ -762,3 +762,26 @@ fn prompt_active_tracks_osc133_boundaries() {
     feed_osc(&mut term, "133;C");
     assert!(!term.prompt_active(), "cleared at output start");
 }
+
+#[test]
+fn el2_full_line_erase_frees_the_lines_button_refs() {
+    // EL2 replaces the row wholesale (unlike EL0/EL1, which blank cells in
+    // place), so the replaced row's span references must be released exactly
+    // like the ED paths that replace rows — otherwise the table entry leaks
+    // and its id never frees.
+    let mut term = enabled_terminal(20, 3);
+    feed_osc(&mut term, T2_DEFINE);
+    feed(&mut term, b"go");
+    feed_osc(&mut term, T2_END);
+    assert_eq!(term.button_entry_count(), 1);
+    feed(&mut term, b"\x1b[2K");
+    assert_eq!(
+        term.button_entry_count(),
+        0,
+        "EL2 must release the erased line's button references"
+    );
+    assert!(
+        term.screen().visible_row_button_spans(0).is_empty(),
+        "the fresh blank row carries no spans"
+    );
+}

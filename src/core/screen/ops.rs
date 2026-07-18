@@ -546,7 +546,13 @@ impl Screen {
                 // Full-line erase replaces the row with a fresh blank one,
                 // dropping its mark; flag the change if it held one.
                 self.prompt_marks_changed |= self.rows[self.cursor.row].prompt_mark.is_some();
-                self.rows[self.cursor.row] = self.current_blank_row();
+                // The replaced row's button spans surrender their table
+                // references, matching every sibling erase path that replaces
+                // rows wholesale — without the release, an EL2 over a button
+                // row leaks its refcount and the id never frees.
+                let blank_row = self.current_blank_row();
+                let removed = std::mem::replace(&mut self.rows[self.cursor.row], blank_row);
+                self.release_line_buttons(&removed);
                 // C16 seam: the row above must not claim the fresh blank as
                 // its wrap continuation (the erased content it wrapped into is
                 // gone). NF10: at row 0 the predecessor is the scrollback
@@ -1235,11 +1241,14 @@ impl Screen {
             bottom_param.saturating_sub(1).min(self.dimensions.rows - 1)
         };
 
-        self.scroll_region = if top < bottom {
-            Some(ScrollRegion { top, bottom })
-        } else {
-            None
-        };
+        // An invalid region (top >= bottom) is a full no-op, matching xterm:
+        // the existing region, the cursor, and the dirty state stay untouched
+        // rather than silently resetting to the full screen and homing the
+        // cursor, which would let a malformed sequence destroy layout state.
+        if top >= bottom {
+            return;
+        }
+        self.scroll_region = Some(ScrollRegion { top, bottom });
 
         // DECSTBM homes the cursor: to the region top-left when origin mode is
         // on, otherwise to the screen top-left (consistent with prior behavior).

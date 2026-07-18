@@ -796,3 +796,42 @@ fn kitty_eviction_removes_old_visible_placements() {
         .unwrap();
     assert_eq!(image.protocol_id, Some(2));
 }
+
+#[test]
+fn kitty_display_rows_clamp_to_screen_like_columns() {
+    // `r=` (and an extreme pixel height) clamps to the rows below the cursor,
+    // mirroring the `c=` clamp: an attacker-chosen extent must not dwarf the
+    // screen or feed unbounded values into downstream signed row arithmetic.
+    let mut t = Terminal::new(20, 4);
+    t.advance(b"\x1b[2;1H");
+    t.advance(&kitty_apc(
+        "f=32,a=T,t=d,s=2,v=1,c=2,r=9999999999999,i=61",
+        &rgba_2x1(),
+    ));
+
+    let visible = t.visible_graphics(0);
+    assert_eq!(visible.len(), 1);
+    assert_eq!(
+        visible[0].display_rows, 3,
+        "rows clamp to the space below the cursor (4 rows, cursor on row 2)"
+    );
+}
+
+#[test]
+fn kitty_extreme_display_params_survive_and_stay_bounded() {
+    // Both extents huge at the bottom-right corner: each clamps to 1 (the
+    // remaining cell), placement succeeds, and cursor-movement mode c=1 with
+    // a huge extent still lands inside the screen.
+    let mut t = Terminal::new(6, 3);
+    t.advance(b"\x1b[3;6H");
+    t.advance(&kitty_apc(
+        "f=32,a=T,t=d,s=2,v=1,c=9999999999999,r=9999999999999,C=0,i=62",
+        &rgba_2x1(),
+    ));
+    let visible = t.visible_graphics(0);
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].display_columns, 1);
+    assert_eq!(visible[0].display_rows, 1);
+    let cursor = t.screen().cursor();
+    assert!(cursor.row < 3, "cursor stays on screen: {cursor:?}");
+}

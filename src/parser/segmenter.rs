@@ -120,52 +120,62 @@ impl Segmenter {
         // architecture (segmenter / control machine) is preserved because the
         // ESC byte still hands the buffer off to Layer 2 at chunk boundaries.
         while i < n {
+            // The ESC scan runs ONCE per chunk, hoisted out of the
+            // invalid-subpart loop below. Re-scanning after every invalid
+            // subpart (as the loop previously did via `continue`) made
+            // garbage-heavy input quadratic: each bad byte re-walked the
+            // whole remainder looking for an ESC whose position never
+            // changed.
             let rel = bytes[i..].iter().position(|&b| b == 0x1B);
             let chunk_end = rel.map(|p| i + p).unwrap_or(n);
             let chunk_has_esc = rel.is_some();
-            let chunk = &bytes[i..chunk_end];
 
-            match std::str::from_utf8(chunk) {
-                Ok(text) => {
-                    dispatch_run(sink, text);
-                    i = chunk_end;
-                }
-                Err(err) => {
-                    let valid = err.valid_up_to();
-                    if valid > 0 {
-                        // SAFETY: `valid_up_to` is `from_utf8`'s contract.
-                        let prefix = unsafe { std::str::from_utf8_unchecked(&chunk[..valid]) };
-                        dispatch_run(sink, prefix);
+            // Consume the pre-ESC chunk: valid runs bulk-dispatch, invalid
+            // subparts emit their replacement and loop within the same chunk.
+            while i < chunk_end {
+                let chunk = &bytes[i..chunk_end];
+                match std::str::from_utf8(chunk) {
+                    Ok(text) => {
+                        dispatch_run(sink, text);
+                        i = chunk_end;
                     }
-                    match err.error_len() {
-                        Some(len) => {
-                            // Definitively invalid subpart. A lone invalid
-                            // byte in `0x80..=0x9F` is a C1 control execute;
-                            // everything else emits one U+FFFD.
-                            let b0 = chunk[valid];
-                            if len == 1 && (0x80..=0x9F).contains(&b0) {
-                                sink.execute(b0);
-                            } else {
-                                sink.print('\u{FFFD}');
-                            }
-                            i += valid + len;
-                            // continue loop — more bytes may follow before ESC.
-                            continue;
+                    Err(err) => {
+                        let valid = err.valid_up_to();
+                        if valid > 0 {
+                            // SAFETY: `valid_up_to` is `from_utf8`'s contract.
+                            let prefix = unsafe { std::str::from_utf8_unchecked(&chunk[..valid]) };
+                            dispatch_run(sink, prefix);
                         }
-                        None => {
-                            // Incomplete codepoint at end of chunk.
-                            if chunk_has_esc {
-                                // ESC interrupts the partial: emit U+FFFD and
-                                // consume the ESC.
-                                sink.print('\u{FFFD}');
-                                return (GroundResult::SawEsc, chunk_end + 1);
-                            } else {
-                                // Genuine buffer end: stash the tail.
-                                let tail = &chunk[valid..];
-                                let take = tail.len().min(4);
-                                self.partial_buf[..take].copy_from_slice(&tail[..take]);
-                                self.partial_len = take as u8;
-                                return (GroundResult::Drained, n);
+                        match err.error_len() {
+                            Some(len) => {
+                                // Definitively invalid subpart. A lone invalid
+                                // byte in `0x80..=0x9F` is a C1 control execute;
+                                // everything else emits one U+FFFD.
+                                let b0 = chunk[valid];
+                                if len == 1 && (0x80..=0x9F).contains(&b0) {
+                                    sink.execute(b0);
+                                } else {
+                                    sink.print('\u{FFFD}');
+                                }
+                                i += valid + len;
+                                // Inner loop continues — more bytes may remain
+                                // in the chunk; the ESC position is known.
+                            }
+                            None => {
+                                // Incomplete codepoint at end of chunk.
+                                if chunk_has_esc {
+                                    // ESC interrupts the partial: emit U+FFFD
+                                    // and consume the ESC.
+                                    sink.print('\u{FFFD}');
+                                    return (GroundResult::SawEsc, chunk_end + 1);
+                                } else {
+                                    // Genuine buffer end: stash the tail.
+                                    let tail = &chunk[valid..];
+                                    let take = tail.len().min(4);
+                                    self.partial_buf[..take].copy_from_slice(&tail[..take]);
+                                    self.partial_len = take as u8;
+                                    return (GroundResult::Drained, n);
+                                }
                             }
                         }
                     }

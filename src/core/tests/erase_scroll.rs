@@ -630,3 +630,47 @@ fn insert_and_delete_lines_outside_region_are_noops() {
 
     assert_eq!(terminal.screen().plain_text(), "r0\nr1\nr2\nr3");
 }
+
+#[test]
+fn invalid_scroll_region_is_a_full_no_op() {
+    // DECSTBM with top >= bottom is invalid; xterm ignores it entirely. It
+    // must not reset an existing region to the full screen and must not home
+    // the cursor — a malformed sequence cannot be allowed to destroy layout
+    // state a full-screen app set up deliberately.
+    let mut terminal = Terminal::new(4, 4);
+    // Valid partial region rows 2..=3 (1-based), then park the cursor away
+    // from home.
+    terminal.advance(b"\x1b[2;3r");
+    terminal.advance(b"\x1b[3;2H");
+    let before = terminal.screen().cursor();
+    // Invalid: top 3 >= bottom 2.
+    terminal.advance(b"\x1b[3;2r");
+    assert_eq!(
+        terminal.screen().cursor(),
+        before,
+        "invalid DECSTBM must not move the cursor"
+    );
+    // The partial region must still be in force: lines scrolled out of a
+    // partial region are discarded, never fed to scrollback. Had the invalid
+    // sequence reset the region, this scroll would feed scrollback.
+    terminal.advance(b"\x1b[3;1H");
+    for i in 1..=6 {
+        terminal.advance(format!("R{i}\r\n").as_bytes());
+    }
+    assert_eq!(
+        terminal.screen().scrollback_len(),
+        0,
+        "the partial region must survive the invalid DECSTBM"
+    );
+}
+
+#[test]
+fn degenerate_scroll_region_on_one_row_screen_is_ignored() {
+    // On a 1-row screen even `CSI r` (full reset) degenerates to top == bottom
+    // — a region needs two rows, so the sequence is ignored without panicking.
+    let mut terminal = Terminal::new(4, 1);
+    terminal.advance(b"ab");
+    let before = terminal.screen().cursor();
+    terminal.advance(b"\x1b[r");
+    assert_eq!(terminal.screen().cursor(), before);
+}

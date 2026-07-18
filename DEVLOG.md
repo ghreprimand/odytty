@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Parser and core-screen hardening: EL2 button release, invalid DECSTBM, kitty row clamp, linear garbage sweep
+
+Four fixes in the escape-sequence core, from a wide correctness audit of the
+parser and screen-op families.
+
+Fixed: EL2 (full-line erase) leaked button-table references. EL2 replaces the
+row wholesale, unlike EL0/EL1 which blank cells in place, but it was the one
+row-replacing erase path that did not release the outgoing row's button span
+references — the table entry's refcount never dropped and the id never freed.
+It now releases exactly like the ED paths.
+
+Fixed: an invalid DECSTBM (top margin >= bottom margin) reset the scroll
+region to the full screen and homed the cursor. xterm ignores invalid margins
+entirely; a malformed sequence could previously destroy layout state a
+full-screen app had set up deliberately. Invalid margins are now a complete
+no-op: region, cursor, and dirty state untouched.
+
+Fixed: the kitty graphics `r=` display-rows parameter was unclamped. Columns
+already clamped to the space right of the cursor, but rows accepted any value
+— an extreme `r=` (or a huge pixel height) flowed into downstream signed row
+arithmetic as an unbounded extent. Rows now clamp to the space below the
+cursor, mirroring the column clamp; a directed extreme-parameter sweep pins
+placements and cursor to the grid across overflow values at every screen
+position.
+
+Fixed: quadratic scan on garbage-heavy output. The Ground-state sweep
+re-scanned the remaining buffer for the next ESC after every invalid UTF-8
+subpart, so a chunk of n bad bytes cost n scans of the remainder. The ESC scan
+is now hoisted to once per chunk and the invalid-subpart loop consumes within
+the chunk; replacement-character and C1-execute semantics are byte-identical,
+pinned by ordering tests over consecutive invalid subparts with and without a
+trailing ESC.
+
+All four are cross-platform core paths shared by every backend.
+
 ## 2026-07-18 -- Atlas row-wrap guard now covers all multi-cell spans
 
 Fixed: the known gap recorded with the over-wide-span guard. The atlas

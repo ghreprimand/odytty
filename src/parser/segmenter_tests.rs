@@ -175,3 +175,35 @@ fn reset_clears_partial() {
     s.reset();
     assert!(!s.has_partial());
 }
+
+/// A garbage-heavy chunk — many consecutive invalid subparts before an ESC —
+/// dispatches every replacement in order and still hands off at the ESC. This
+/// pins the hoisted-ESC-scan restructuring: the invalid-subpart loop consumes
+/// within one chunk without rescanning, and the chunk boundary semantics are
+/// unchanged.
+#[test]
+fn consecutive_invalid_subparts_before_esc_dispatch_in_order() {
+    // 0xFE/0xFF are never valid UTF-8 (one U+FFFD each); 0x85 is a C1
+    // execute; 'A' is plain text; then ESC.
+    let (r, result, consumed) = run(b"\xFF\xFE\x85A\xFF\x1bZtail");
+    assert_eq!(result, GroundResult::SawEsc);
+    assert_eq!(consumed, 6, "everything through the ESC byte is consumed");
+    assert_eq!(
+        r.prints,
+        vec!['\u{FFFD}', '\u{FFFD}', 'A', '\u{FFFD}'],
+        "each invalid subpart emits exactly one replacement, in order"
+    );
+    assert_eq!(r.executes, vec![0x85]);
+}
+
+/// Same garbage-heavy shape with no ESC at all: the chunk drains fully.
+#[test]
+fn consecutive_invalid_subparts_without_esc_drain() {
+    let (r, result, consumed) = run(b"\xFF\xFF\xFFx\xFE");
+    assert_eq!(result, GroundResult::Drained);
+    assert_eq!(consumed, 5);
+    assert_eq!(
+        r.prints,
+        vec!['\u{FFFD}', '\u{FFFD}', '\u{FFFD}', 'x', '\u{FFFD}']
+    );
+}

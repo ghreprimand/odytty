@@ -501,7 +501,7 @@ fn place_image(
     let effective_h = control.source_h.unwrap_or(height).min(height).max(1);
     let display_columns =
         display_columns(control, effective_w, cursor_col, screen_cols, cell_metrics);
-    let display_rows = display_rows(control, effective_h, cell_metrics);
+    let display_rows = display_rows(control, effective_h, cursor_row, screen_rows, cell_metrics);
 
     let request = PlacementRequest::new(
         stored_id,
@@ -643,11 +643,21 @@ fn display_columns(
     requested.min(screen_cols.saturating_sub(cursor_col)).max(1)
 }
 
-fn display_rows(control: &ControlData, height: u32, cell_metrics: CellMetrics) -> usize {
-    control
+fn display_rows(
+    control: &ControlData,
+    height: u32,
+    cursor_row: usize,
+    screen_rows: usize,
+    cell_metrics: CellMetrics,
+) -> usize {
+    // Clamped to the rows below the cursor, mirroring `display_columns`: an
+    // attacker-chosen `r=` parameter (or an extreme pixel height) must not
+    // produce a placement extent that overflows downstream signed row
+    // arithmetic or dwarfs the screen.
+    let requested = control
         .display_rows
-        .unwrap_or_else(|| height.div_ceil(cell_metrics.height_px) as usize)
-        .max(1)
+        .unwrap_or_else(|| height.div_ceil(cell_metrics.height_px) as usize);
+    requested.min(screen_rows.saturating_sub(cursor_row)).max(1)
 }
 
 /// Exact byte length of a fixed-size raw payload (`f=24` / `f=32`) given the

@@ -770,3 +770,54 @@ fn graphics_fuzz_self_shm_roundtrip_deep() {
     }
     assert_store_bounded(0, &t);
 }
+
+/// Directed extreme-parameter placement soup: huge / overflowing `c=` and `r=`
+/// display extents at every screen position, mixed with extreme source-crop
+/// and offset values. The clamps must keep every accepted placement bounded by
+/// the screen and the cursor on the grid — no wrap, no wedge, no panic.
+#[test]
+fn graphics_fuzz_extreme_display_extents_stay_bounded() {
+    let extremes = [
+        "4294967295",
+        "4294967296",
+        "18446744073709551615",
+        "18446744073709551616",
+        "999999999999999999999999",
+    ];
+    for (i, extreme) in extremes.iter().enumerate() {
+        let seed = i as u64; // directed corpus: index doubles as the seed tag
+        let mut t = capped_terminal(8, 4);
+        for row in 1..=4u32 {
+            for col in 1..=8u32 {
+                t.advance(format!("\x1b[{row};{col}H").as_bytes());
+                // Real 2x1 RGBA payload so accepted placements actually land
+                // (a control-only line would exercise nothing downstream).
+                let payload = b64_encode(&[255, 0, 0, 255, 0, 255, 0, 255]);
+                let apc = format!(
+                    "\x1b_Ga=T,t=d,f=32,s=2,v=1,c={extreme},r={extreme},X={extreme},Y={extreme},C={};{payload}\x1b\\",
+                    i % 2
+                );
+                t.advance(apc.as_bytes());
+                let _ = t.take_host_output();
+            }
+        }
+        let (rows, cols) = (4usize, 8usize);
+        for placement in t.visible_graphics(0) {
+            assert!(
+                placement.row < rows && placement.column < cols,
+                "seed={seed}: anchor off screen: {placement:?}"
+            );
+            assert!(
+                placement.display_rows <= rows && placement.display_columns <= cols,
+                "seed={seed}: extent exceeds screen: {placement:?}"
+            );
+        }
+        let cursor = t.screen().cursor();
+        assert!(
+            cursor.row < rows && cursor.column <= cols,
+            "seed={seed}: cursor escaped the grid: {cursor:?}"
+        );
+        assert_store_bounded(seed, &t);
+        assert_parser_not_wedged(seed, &mut t);
+    }
+}
