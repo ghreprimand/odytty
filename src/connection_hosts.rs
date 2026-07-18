@@ -163,9 +163,17 @@ pub fn read_odytty_hosts_with_limits(
     if limits.max_bytes == 0 || limits.max_entries == 0 || limits.max_field_chars == 0 {
         return Vec::new();
     }
-    let Ok(bytes) = fs::read(path.as_ref()) else {
+    // C14: stream only a bounded prefix so an oversized or adversarial hosts
+    // file can never be read whole into memory. The parser already treats the
+    // capped prefix as authoritative, so `max_bytes` here is the same bound.
+    let mut bytes = Vec::new();
+    let read = fs::File::open(path.as_ref()).and_then(|file| {
+        use io::Read as _;
+        file.take(limits.max_bytes).read_to_end(&mut bytes)
+    });
+    if read.is_err() {
         return Vec::new();
-    };
+    }
     parse_odytty_hosts_bytes_with_limits(&bytes, limits)
 }
 

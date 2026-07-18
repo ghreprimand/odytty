@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Persistence and hosts-file reliability
+
+Three reliability fixes:
+
+- Layout names that collide with a Windows reserved device stem (CON, PRN, AUX,
+  NUL, COM1-9, LPT1-9) are now mangled cross-platform, so a saved layout file
+  can never resolve to a device on Windows. The check is case-insensitive and
+  runs on every platform for portability.
+- A crash between an atomic write's temp creation and its rename leaves a hidden
+  temporary behind. A startup sweep on the primary instance removes those
+  orphaned temporaries from the state and layouts directories once they exceed a
+  conservative age, so an in-flight temporary from a concurrent instance is
+  never disturbed. The sweep is Windows-safe (the atomic-write temp path is
+  cross-platform).
+- The connection hosts reader now streams only a bounded prefix of the file
+  instead of reading it whole and then capping, so an oversized or adversarial
+  hosts file can no longer be slurped into memory. The write-back readers, which
+  need the full file to preserve unknown content, are unchanged.
+
 ## 2026-07-18 -- Pointer, scale, scissor, and clipboard-read hardening
 
 Four input and window fixes from the deep audit:

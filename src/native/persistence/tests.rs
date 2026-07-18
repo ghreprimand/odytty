@@ -658,6 +658,64 @@ fn sanitize_layout_name_blocks_traversal_and_empties() {
     assert_eq!(sanitize_layout_name(""), None);
 }
 
+/// C26: Windows reserved device stems are mangled cross-platform so a layout
+/// file can never resolve to a device (`CON.json` opens the console on Windows).
+#[test]
+fn sanitize_layout_name_mangles_windows_reserved_device_stems() {
+    // Bare reserved names (any case) get an underscore prefix.
+    assert_eq!(sanitize_layout_name("CON"), Some("_CON".to_owned()));
+    assert_eq!(sanitize_layout_name("nul"), Some("_nul".to_owned()));
+    assert_eq!(sanitize_layout_name("Aux"), Some("_Aux".to_owned()));
+    assert_eq!(sanitize_layout_name("COM1"), Some("_COM1".to_owned()));
+    assert_eq!(sanitize_layout_name("LPT9"), Some("_LPT9".to_owned()));
+    // A reserved stem with an extension is still reserved on Windows -- but the
+    // dot is neutralized to `_` first, so "con.bak" becomes the non-device
+    // "con_bak" and needs no mangling.
+    assert_eq!(sanitize_layout_name("con.bak"), Some("con_bak".to_owned()));
+    // Non-reserved lookalikes are left untouched.
+    assert_eq!(sanitize_layout_name("COM0"), Some("COM0".to_owned()));
+    assert_eq!(sanitize_layout_name("LPT0"), Some("LPT0".to_owned()));
+    assert_eq!(sanitize_layout_name("console"), Some("console".to_owned()));
+    assert_eq!(sanitize_layout_name("COM10"), Some("COM10".to_owned()));
+}
+
+/// C27: the startup sweep removes crash-orphaned `.<...>.tmp` siblings that are
+/// older than the stale threshold, while keeping fresh temporaries and any
+/// non-temp files untouched.
+#[test]
+fn sweep_stale_temp_siblings_removes_only_aged_temporaries() {
+    use std::time::{Duration, SystemTime};
+    let nanos = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!(
+        "odytty-c27-tmpsweep-{}-{nanos}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+
+    let orphan = dir.join(".shape.json.1234.567.0.tmp");
+    let keep_json = dir.join("layout.json");
+    std::fs::write(&orphan, b"partial").expect("write orphan");
+    std::fs::write(&keep_json, b"{}").expect("write json");
+
+    // A `now` far in the future makes every file exceed the threshold, so the
+    // matching temp is swept while the non-temp file survives.
+    let future = SystemTime::now() + Duration::from_secs(24 * 60 * 60);
+    super::sweep_stale_temp_siblings_at(&dir, future, Duration::from_secs(60 * 60));
+    assert!(!orphan.exists(), "an aged .tmp sibling is swept");
+    assert!(keep_json.exists(), "a non-temp file is never swept");
+
+    // A fresh temp (now == its mtime) is below the threshold and preserved.
+    let fresh = dir.join(".shape.json.9999.111.0.tmp");
+    std::fs::write(&fresh, b"in-flight").expect("write fresh");
+    super::sweep_stale_temp_siblings_at(&dir, SystemTime::now(), Duration::from_secs(60 * 60));
+    assert!(fresh.exists(), "a fresh in-flight temp is left alone");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// WP3: a layout saves, lists, loads (equal to what was saved), and deletes —
 /// exercised against an explicit temp directory so the real state dir is never
 /// touched.

@@ -511,10 +511,32 @@ pub(crate) fn sanitize_layout_name(name: &str) -> Option<String> {
     }
     let trimmed = out.trim().to_owned();
     if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed)
+        return None;
     }
+    // C26: Windows reserved device stems (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+    // are illegal filenames on Windows EVEN WITH an extension -- "CON.json"
+    // resolves to the console device, not a file. Mangle them cross-platform so
+    // a layout saved on any OS is portable and can never open a device.
+    if is_windows_reserved_stem(&trimmed) {
+        return Some(format!("_{trimmed}"));
+    }
+    Some(trimmed)
+}
+
+/// Whether `stem` (a filename stem, no extension) collides with a Windows
+/// reserved device name, compared case-insensitively against the segment before
+/// any dot. `create_temp_sibling` and `sanitize_layout_name` both keep files off
+/// these names so persistence stays portable to Windows.
+fn is_windows_reserved_stem(stem: &str) -> bool {
+    let head = stem.split('.').next().unwrap_or(stem).trim();
+    let upper = head.to_ascii_uppercase();
+    if matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL") {
+        return true;
+    }
+    // COM1-COM9 and LPT1-LPT9 (COM0 / LPT0 are not reserved).
+    (upper.starts_with("COM") || upper.starts_with("LPT"))
+        && upper.len() == 4
+        && matches!(upper.as_bytes()[3], b'1'..=b'9')
 }
 
 /// Absolute path of the layout file for `name` under `dir`, or `None` when the
@@ -669,6 +691,62 @@ fn read_sensitive_to_string(path: &Path) -> io::Result<String> {
     let mut text = String::new();
     file.read_to_string(&mut text)?;
     Ok(text)
+}
+
+/// C27: remove crash-orphaned atomic-write temporaries from the state and
+/// layouts directories at startup. A crash between [`create_temp_sibling`] and
+/// its rename leaves a hidden `.<base>...tmp` sibling behind; without a sweep
+/// these accumulate across sessions. Only files matching that shape AND older
+/// than a conservative age are removed, so a temporary mid-write by a concurrent
+/// instance is never disturbed. Best-effort: an unreadable directory is skipped.
+/// Runs on Windows too (the atomic-write temp path is cross-platform).
+pub(crate) fn sweep_stale_temp_files() {
+    let Ok(dir) = crate::logging::prepare_state_log_dir() else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    sweep_stale_temp_siblings_at(&dir, now, STALE_TEMP_AFTER);
+    sweep_stale_temp_siblings_at(&dir.join(LAYOUTS_DIR), now, STALE_TEMP_AFTER);
+}
+
+/// Temporaries older than this are treated as crash-orphaned. Generous, so a
+/// slow atomic write by a concurrent instance is never mistaken for stale.
+const STALE_TEMP_AFTER: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// Age-gated sweep of `.<...>.tmp` siblings in `dir`. Split from
+/// [`sweep_stale_temp_files`] so `now` / `stale_after` are injectable for tests.
+fn sweep_stale_temp_siblings_at(
+    dir: &Path,
+    now: std::time::SystemTime,
+    stale_after: std::time::Duration,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        // Match the `create_temp_sibling` shape: a hidden `.<...>.tmp` sibling.
+        if !(name.starts_with('.') && name.ends_with(".tmp")) {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
+        }
+        let stale = meta
+            .modified()
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= stale_after);
+        if stale {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 /// Where a restored pane should open, plus whether its captured directory was

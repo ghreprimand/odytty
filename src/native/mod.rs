@@ -286,6 +286,11 @@ pub fn run_native(options: NativeOptions, settings: Settings) -> Result<(), Nati
     // (sub-ODPs 8a/8b). Any CLI argument leaves `bare_launch` false and starts
     // fresh; a secondary instance never restores.
     app.set_primary_instance(is_primary);
+    if is_primary {
+        // C27: clear crash-orphaned atomic-write temporaries from the state and
+        // layouts dirs before autosave begins (only the primary writes them).
+        crate::native::persistence::sweep_stale_temp_files();
+    }
     if is_primary && bare_launch && settings.restore_workspaces {
         app.restore_workspaces_on_launch();
     }
