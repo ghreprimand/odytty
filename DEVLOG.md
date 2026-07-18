@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Fix: ConPTY children leaked output to a redirected parent stdout
+
+Root cause found and fixed. The discrimination round returned `redir=True`
+(the child's stdout is a pipe, not a console handle) and the plain `cmd.exe /C
+echo` baseline leaked identically — so the defect was in the spawn path, not
+in any shell's host layer. The mechanism is a legacy `CreateProcess`
+compatibility behavior: when the target is a console-subsystem executable,
+handle inheritance is disabled, `STARTF_USESTDHANDLES` is not set, and none of
+`CREATE_NEW_CONSOLE`/`CREATE_NO_WINDOW`/`DETACHED_PROCESS` is given, Windows
+silently *duplicates* the parent's standard handles into the child. The OS
+closes those copies at pseudoconsole attach only when they are console
+handles; pipes and files survive. So whenever OdyTTY's own stdout is
+redirected — a CI runner, `odytty | tee`, launch from an IDE — every child
+spawned under ConPTY attached its console state to the pseudoconsole
+correctly (window title and all) while writing its actual output through the
+duplicated pipe to OdyTTY's parent. Interactive launches never showed it
+because a console-handle parent stdout takes the OS cleanup path.
+
+The fix is the mitigation the conhost maintainers recommend
+(microsoft/terminal discussion 15814, independently confirmed by a 2026 Vim
+fix): set `STARTF_USESTDHANDLES` with all three std-handle fields null in the
+`STARTUPINFOEXW`. That suppresses the duplication, and the child's console
+init binds fresh handles to the attached pseudoconsole. The `cmd.exe` echo
+baseline probe stays as the permanent regression test for this exact defect
+class; the button and keyboard probes should now see their payloads arrive
+through the pipe.
+
+Windows-only change (`src/pty/windows.rs` is a `cfg(windows)` module; Unix
+targets are untouched). The `windows-latest` CI leg is the verification
+surface.
+
+---
+
 ## 2026-07-18 -- ConPTY probe path discrimination: cmd baseline, console-API marker
 
 The instrumented run answered the first round of questions. Decoded, the

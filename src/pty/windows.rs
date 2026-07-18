@@ -74,8 +74,8 @@ use windows::Win32::System::Threading::{
     CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT, CreateProcessW, DeleteProcThreadAttributeList,
     EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess, GetExitCodeProcess, INFINITE,
     InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST,
-    PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, PROCESS_INFORMATION, ResumeThread, STARTUPINFOEXW,
-    STARTUPINFOW, TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
+    PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES,
+    STARTUPINFOEXW, STARTUPINFOW, TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
 };
 use windows::core::{PCWSTR, PWSTR};
 
@@ -281,9 +281,32 @@ impl PtySession {
             // 4. STARTUPINFOEXW carrying the attribute list. Built as a struct
             //    literal (not default-then-reassign) to satisfy the
             //    `field_reassign_with_default` lint.
+            //
+            //    STD-HANDLE GUARD: `STARTF_USESTDHANDLES` with all three handle
+            //    fields left null is REQUIRED, not optional. Without it,
+            //    `CreateProcess` silently DUPLICATES the parent's standard
+            //    handles into a console-subsystem child whenever inheritance is
+            //    disabled, no `STARTF_USESTDHANDLES` is set, and none of
+            //    `CREATE_NEW_CONSOLE`/`CREATE_NO_WINDOW`/`DETACHED_PROCESS` is
+            //    given — a legacy compatibility path that predates ConPTY. The
+            //    OS closes those copied handles at pseudoconsole attach ONLY
+            //    when they are console handles; when the parent's std handles
+            //    are pipes or files (any redirected parent: CI runners, `odytty
+            //    | tee`, spawn-from-IDE), the duplicated pipe handles survive,
+            //    and the child writes its output to the PARENT'S stdout while
+            //    its console state correctly tracks the pseudoconsole. The
+            //    observed signature is subtle: the child attaches (conhost sets
+            //    the window title from the client), runs, and exits cleanly,
+            //    but the pseudoconsole stream carries only the conhost
+            //    lifecycle and every byte of child output lands on the real
+            //    stdout. Null std handles with the flag set force the child's
+            //    console init to bind fresh handles to the attached
+            //    pseudoconsole instead (the mitigation the conhost maintainers
+            //    recommend; see microsoft/terminal discussion 15814).
             let startup = STARTUPINFOEXW {
                 StartupInfo: STARTUPINFOW {
                     cb: size_of::<STARTUPINFOEXW>() as u32,
+                    dwFlags: STARTF_USESTDHANDLES,
                     ..Default::default()
                 },
                 lpAttributeList: attr_list,
