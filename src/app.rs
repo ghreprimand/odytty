@@ -215,7 +215,16 @@ impl InputDecoder {
                     continue;
                 }
 
-                paste.append(&mut self.pending);
+                // No END marker yet. Retain a partial END-marker suffix in
+                // `pending` (mirroring the START-prefix retention below): if
+                // the marker is split across reads, moving its head into the
+                // paste body would hide it from the next `find_bytes` and the
+                // paste would never terminate — the marker bytes leaking into
+                // the pasted content.
+                let keep = marker_suffix_overlap(&self.pending, BRACKETED_PASTE_END);
+                let take = self.pending.len() - keep;
+                paste.extend_from_slice(&self.pending[..take]);
+                self.pending.drain(..take);
                 self.paste = Some(paste);
                 break;
             }
@@ -260,10 +269,17 @@ fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 fn paste_start_prefix_len(bytes: &[u8]) -> usize {
-    let max = bytes.len().min(BRACKETED_PASTE_START.len() - 1);
+    marker_suffix_overlap(bytes, BRACKETED_PASTE_START)
+}
+
+/// Length of the longest strict prefix of `marker` that the buffer ends with —
+/// the bytes that must be retained across reads because the marker may be
+/// split at the read boundary.
+fn marker_suffix_overlap(bytes: &[u8], marker: &[u8]) -> usize {
+    let max = bytes.len().min(marker.len() - 1);
     (1..=max)
         .rev()
-        .find(|&len| bytes[bytes.len() - len..] == BRACKETED_PASTE_START[..len])
+        .find(|&len| bytes[bytes.len() - len..] == marker[..len])
         .unwrap_or(0)
 }
 
@@ -379,6 +395,38 @@ mod tests {
         assert_eq!(
             decoder.decode(b"\x1b[201~", false),
             vec![InputAction::Bytes(b"split".to_vec())]
+        );
+    }
+
+    #[test]
+    fn bracketed_paste_decoder_handles_end_marker_split_across_reads() {
+        // The END marker split at the read boundary: its head must be retained
+        // in `pending` rather than swallowed into the paste body, or the paste
+        // never terminates and the marker bytes leak into the content.
+        let mut decoder = InputDecoder::default();
+        assert_eq!(
+            decoder.decode(b"\x1b[200~pas", false),
+            vec![InputAction::Ignore]
+        );
+        assert_eq!(
+            decoder.decode(b"te\x1b[201", false),
+            vec![InputAction::Ignore]
+        );
+        assert_eq!(
+            decoder.decode(b"~", false),
+            vec![InputAction::Bytes(b"paste".to_vec())]
+        );
+
+        // An ESC inside the paste body that is NOT a marker prefix still
+        // belongs to the content once the next read disambiguates it.
+        let mut decoder = InputDecoder::default();
+        assert_eq!(
+            decoder.decode(b"\x1b[200~a\x1b[2", false),
+            vec![InputAction::Ignore]
+        );
+        assert_eq!(
+            decoder.decode(b"J\x1b[201~", false),
+            vec![InputAction::Bytes(b"a\x1b[2J".to_vec())]
         );
     }
 

@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Bracketed paste survives an END marker split across reads
+
+Fixed: in the CLI interactive mode, a bracketed-paste END marker split across
+two reads was swallowed into the paste body. While inside a paste, the
+decoder moved every pending byte into the paste buffer when no complete END
+marker was found — including a partial marker head like `ESC [ 2 0 1` at the
+read boundary, which the next scan could then never match, so the paste never
+terminated and the marker bytes leaked into the pasted content. The decoder
+now retains a partial END-marker suffix in the pending buffer across reads,
+exactly mirroring the START-marker prefix retention it already had; the two
+retention paths share one helper. A two-chunk test pins the split-END case
+and a lookalike ESC sequence inside the paste body that must remain content.
+Unix-only surface (the CLI interactive mode is POSIX top-to-bottom).
+
 ## 2026-07-18 -- Hardening: id-wrap collisions, ConPTY teardown ordering, snapshot reserve cap
 
 Three defensive fixes for edge conditions that are cheap to close.
