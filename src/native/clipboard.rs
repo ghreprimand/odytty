@@ -10,7 +10,8 @@ use arboard::Clipboard;
 use arboard::SetExtLinux;
 #[cfg(all(
     unix,
-    not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
+    not(any(target_os = "macos", target_os = "android", target_os = "emscripten")),
+    not(test)
 ))]
 use arboard::{GetExtLinux, LinuxClipboardKind};
 
@@ -182,24 +183,37 @@ impl ClipboardSelectionIo for NativeClipboard {
         not(any(target_os = "macos", target_os = "android", target_os = "emscripten"))
     ))]
     fn read_primary_selection_text(&mut self) -> Option<String> {
-        let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
-            Ok(clipboard) => clipboard,
-            Err(err) => {
-                tracing::warn!("primary selection unavailable for paste: {err}");
-                return None;
-            }
-        };
-
-        match clipboard
-            .get()
-            .clipboard(LinuxClipboardKind::Primary)
-            .text()
+        // P8: keep OSC 52 PRIMARY reads hermetic like the regular clipboard read
+        // and the PRIMARY write. A unit test must never reach the real primary
+        // selection (macOS main-thread NSPasteboard crash + clobbering the
+        // developer's selection). Shares the injected clipboard text and read
+        // counter, exactly as the PRIMARY write shares `last_clipboard_write`.
+        #[cfg(test)]
         {
-            Ok(text) => Some(text),
-            Err(err) => {
-                tracing::warn!("primary selection paste failed: {err}");
-                self.slot.clear();
-                None
+            self.read_text_calls += 1;
+            self.injected_clipboard_text.clone()
+        }
+        #[cfg(not(test))]
+        {
+            let clipboard = match self.slot.get_or_try_init(Clipboard::new) {
+                Ok(clipboard) => clipboard,
+                Err(err) => {
+                    tracing::warn!("primary selection unavailable for paste: {err}");
+                    return None;
+                }
+            };
+
+            match clipboard
+                .get()
+                .clipboard(LinuxClipboardKind::Primary)
+                .text()
+            {
+                Ok(text) => Some(text),
+                Err(err) => {
+                    tracing::warn!("primary selection paste failed: {err}");
+                    self.slot.clear();
+                    None
+                }
             }
         }
     }

@@ -55,11 +55,7 @@ impl ConfigValues {
         let mut values = HashMap::new();
         for (line_index, line) in contents.lines().enumerate() {
             let line_number = line_index + 1;
-            let trimmed = line
-                .split_once('#')
-                .map(|(before_comment, _)| before_comment)
-                .unwrap_or(line)
-                .trim();
+            let trimmed = strip_inline_comment(line).trim();
             if trimmed.is_empty() {
                 continue;
             }
@@ -78,7 +74,7 @@ impl ConfigValues {
                 warn(format!("line {line_number}: unknown key {key:?}; skipping"));
                 continue;
             };
-            values.insert(env_key, OsString::from(value_raw.trim()));
+            values.insert(env_key, OsString::from(unquote_config_value(value_raw)));
         }
         Self { values }
     }
@@ -86,6 +82,81 @@ impl ConfigValues {
     pub(super) fn get(&self, key: &str) -> Option<&OsString> {
         self.values.get(key)
     }
+}
+
+/// Split a config line at its inline `#` comment, honoring double-quoted values
+/// so a `#` inside quotes is data, not a comment. Returns the slice before the
+/// comment (quotes intact). A line with no unquoted `#` is returned whole, so an
+/// ordinary line is byte-identical to the old `split_once('#')`.
+pub(super) fn strip_inline_comment(line: &str) -> &str {
+    let mut in_quotes = false;
+    let mut escaped = false;
+    for (idx, ch) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' if in_quotes => escaped = true,
+            '"' => in_quotes = !in_quotes,
+            '#' if !in_quotes => return &line[..idx],
+            _ => {}
+        }
+    }
+    line
+}
+
+/// Read side of [`quote_config_value`]: a value wrapped in double quotes has the
+/// quotes removed and `\\`/`\"` unescaped; any other value is returned trimmed.
+/// An unquoted value is byte-identical to the old `value.trim()`.
+pub(super) fn unquote_config_value(value: &str) -> String {
+    let trimmed = value.trim();
+    let bytes = trimmed.as_bytes();
+    if bytes.len() >= 2 && bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"' {
+        let inner = &trimmed[1..trimmed.len() - 1];
+        let mut out = String::with_capacity(inner.len());
+        let mut escaped = false;
+        for ch in inner.chars() {
+            if escaped {
+                out.push(ch);
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else {
+                out.push(ch);
+            }
+        }
+        out
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+/// Quote a config value for writing when writing it raw would break the
+/// line-oriented format on read-back: it contains a `#` (comment start) or a
+/// `"`, or it has leading/trailing whitespace (trimmed away on read) or is
+/// empty. Newlines are stripped outright -- a value may never span lines. A
+/// value needing none of this is returned verbatim, so ordinary settings write
+/// exactly as before and round-trip byte-identically.
+pub(super) fn quote_config_value(value: &str) -> String {
+    let sanitized: String = value.chars().filter(|&c| c != '\n' && c != '\r').collect();
+    let needs_quote = sanitized.is_empty()
+        || sanitized.contains('#')
+        || sanitized.contains('"')
+        || sanitized.trim() != sanitized;
+    if !needs_quote {
+        return sanitized;
+    }
+    let mut out = String::with_capacity(sanitized.len() + 2);
+    out.push('"');
+    for ch in sanitized.chars() {
+        if ch == '\\' || ch == '"' {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out.push('"');
+    out
 }
 
 pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {

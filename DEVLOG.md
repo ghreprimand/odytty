@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Config value quoting and clipboard test hermeticity
+
+Three settings and clipboard fixes:
+
+- A config value containing a `#` was written raw, so a read-back truncated it
+  at the `#` as a comment (a path like `/photos/#1/wall.png` lost everything
+  after the hash). Values that contain a `#`, a quote, or edge whitespace are
+  now double-quoted on write and honored on read, with a quote-aware comment
+  scanner; newlines are stripped since the format is line oriented. Ordinary
+  values are written verbatim and round-trip byte-identically.
+- The settings panel's single-row value getter for the theme now routes through
+  the same helper the full table uses, so an active `theme = system` reads back
+  as the alias rather than the underlying preview theme's name.
+- The Unix primary-selection read now carries the same test-mode hermeticity
+  guard as its four clipboard siblings, so a unit test never reaches the real
+  primary selection.
+
 ## 2026-07-18 -- Persistence and hosts-file reliability
 
 Three reliability fixes:

@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use super::{SettingEdit, config::config_key_to_env, config::env_to_config_key, config_file_path};
+use super::{
+    SettingEdit, config::config_key_to_env, config::env_to_config_key, config::quote_config_value,
+    config::strip_inline_comment, config_file_path,
+};
 
 const PANEL_SECTION: &str = "# OdyTTY settings panel";
 
@@ -340,10 +343,7 @@ fn is_rail_side_value(value: &str) -> bool {
 /// The active value of a `key = value` line, trimmed and stripped of any trailing
 /// `# comment`. `None` for comment-only or valueless lines.
 fn line_value(line: &str) -> Option<&str> {
-    let before_comment = line
-        .split_once('#')
-        .map(|(before, _)| before)
-        .unwrap_or(line);
+    let before_comment = strip_inline_comment(line);
     let (key, value) = before_comment.split_once('=')?;
     if key.trim().is_empty() {
         return None;
@@ -407,16 +407,16 @@ fn append_panel_section(output: &mut String, appended: &[(&'static str, String)]
     for (key, value) in appended {
         output.push_str(key);
         output.push_str(" = ");
-        output.push_str(value);
+        // C36: quote a value that would break the line format on read-back
+        // (contains `#`, a quote, or edge whitespace); ordinary values are
+        // written verbatim, so the file stays byte-identical for them.
+        output.push_str(&quote_config_value(value));
         output.push('\n');
     }
 }
 
 fn line_env(line: &str) -> Option<&'static str> {
-    let before_comment = line
-        .split_once('#')
-        .map(|(before, _)| before)
-        .unwrap_or(line);
+    let before_comment = strip_inline_comment(line);
     let (key, _) = before_comment.split_once('=')?;
     let key = key.trim();
     if key.is_empty() {
@@ -426,7 +426,10 @@ fn line_env(line: &str) -> Option<&'static str> {
 }
 
 fn replace_line_value(line: &str, value: &str) -> String {
-    let comment_start = line.find('#');
+    // C36: locate the comment quote-aware, so a `#` inside the existing quoted
+    // value is not mistaken for a comment start.
+    let content = strip_inline_comment(line);
+    let comment_start = (content.len() < line.len()).then_some(content.len());
     let value_end = comment_start.unwrap_or(line.len());
     let Some(eq_index) = line[..value_end].find('=') else {
         return line.to_owned();
@@ -448,7 +451,8 @@ fn replace_line_value(line: &str, value: &str) -> String {
 
     let mut out = String::new();
     out.push_str(&line[..prefix_end]);
-    out.push_str(value);
+    // C36: quote the replacement value when it would otherwise break the format.
+    out.push_str(&quote_config_value(value));
     out.push_str(&line[suffix_start..]);
     out
 }
@@ -542,6 +546,46 @@ mod tests {
         assert!(output.contains("font_size = 16 # keep unit"));
         assert!(output.contains("font_size = 21\n"));
         assert!(output.contains("theme = odyssey\n"));
+    }
+
+    #[test]
+    fn value_with_hash_round_trips_through_write_and_read() {
+        use super::super::config::ConfigValues;
+        // A path value containing '#' must survive a write then a config read
+        // without being truncated at the '#' (C36).
+        let path_value = "/photos/#1 best/wall.png";
+        let changes = canonical_changes(&[SettingEdit {
+            key: "background_image",
+            env: super::super::BACKGROUND_IMAGE_ENV,
+            value: path_value.to_owned(),
+        }]);
+
+        // Append path (no existing line): quoted on write, honored on read.
+        let output = rewrite_config("# existing config\n", &changes);
+        let parsed = ConfigValues::parse(&output, |_| {});
+        assert_eq!(
+            parsed
+                .get(super::super::BACKGROUND_IMAGE_ENV)
+                .and_then(|v| v.to_str()),
+            Some(path_value),
+            "appended '#' value round-trips through write + read: {output:?}"
+        );
+
+        // Replace path (existing line edited in place): same round-trip, and the
+        // trailing comment is preserved because the '#' locator is quote-aware.
+        let output2 = rewrite_config("background_image = /old/path.png # note\n", &changes);
+        let parsed2 = ConfigValues::parse(&output2, |_| {});
+        assert_eq!(
+            parsed2
+                .get(super::super::BACKGROUND_IMAGE_ENV)
+                .and_then(|v| v.to_str()),
+            Some(path_value),
+            "in-place edit with a '#' value round-trips: {output2:?}"
+        );
+        assert!(
+            output2.contains("# note"),
+            "the trailing comment survives the in-place edit: {output2:?}"
+        );
     }
 
     fn side_edit(value: &str) -> Vec<SettingEdit> {

@@ -39,6 +39,27 @@ fn system_alias_is_case_insensitive() {
     assert!(settings.follow_os_theme);
 }
 
+// C37: the panel's single-row value getter must mirror the theme_is_system
+// branch used by the full settings table -- both route through
+// `theme_config_value`, so an active `theme = system` reads back as "system"
+// (the alias), never the underlying preview theme's name.
+#[test]
+fn display_value_for_theme_reflects_the_system_alias() {
+    let (settings, _) = settings_from([(THEME_ENV, SYSTEM_THEME_NAME)]);
+    assert_eq!(
+        settings.display_value_for_key("theme").as_deref(),
+        Some(SYSTEM_THEME_NAME),
+        "the theme row must display the system alias, not the preview theme name"
+    );
+
+    // A plain theme still displays its own name, unchanged.
+    let (plain, _) = settings_from([(THEME_ENV, "odyssey")]);
+    assert_eq!(
+        plain.display_value_for_key("theme").as_deref(),
+        Some(plain.theme.name),
+    );
+}
+
 #[test]
 fn plain_theme_does_not_set_the_alias() {
     let (settings, _) = settings_from([(THEME_ENV, "plain")]);
