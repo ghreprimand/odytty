@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Attach input survives a wedged session host
+
+Fixed: a transient send timeout on an attached session permanently killed its
+input. The attach socket carries a bounded 2-second send timeout so a stopped
+or paging session host can never park the UI thread on a full socket buffer —
+the documented intent being that a wedged host degrades to a dropped frame.
+In practice the degradation was much worse: the timeout error propagated out
+of the attach input sink into the dedicated writer loop, which treats any sink
+error as fd teardown and closes its queue permanently. From then on every
+keystroke was silently discarded while the session stayed on screen, because
+the read pump was still alive. The input sink now classifies the failure:
+a send timeout (`WouldBlock`/`TimedOut` from the socket's send-timeout
+mechanism) drops that one frame and reports success, keeping the writer loop
+alive so input flows again the moment the host resumes; real link errors
+(`BrokenPipe`, `ConnectionReset`, protocol violations) still surface and tear
+the session down. Frame writes are also built as one contiguous buffer flushed
+with a single write instead of three separate header/payload writes, so a
+timeout can no longer strike between them and leave a torn frame that desyncs
+the peer's parser. Tests cover the drop-and-continue path end to end over a
+real socketpair (oversized frame times out, later input arrives as a clean
+frame), the fatal path, and the error classification. The attach subsystem is
+Unix-only (Unix domain sockets); no Windows surface.
+
 ## 2026-07-18 -- Over-wide ligature spans no longer corrupt the glyph atlas
 
 Fixed: a contextual ligature substitution spanning more than 16 source columns

@@ -244,8 +244,22 @@ pub(super) struct AttachInputWriter {
 
 impl Write for AttachInputWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if let Ok(mut client) = self.client.lock() {
-            client.send_input(buf).map_err(io::Error::other)?;
+        if let Ok(mut client) = self.client.lock()
+            && let Err(error) = client.send_input(buf)
+        {
+            if is_transient_send_timeout(&error) {
+                // C-4 degradation: the host is wedged and the send buffer
+                // is full. Drop THIS frame and report success so the
+                // dedicated writer loop stays alive — surfacing the error
+                // would make `run_writer` close the queue permanently,
+                // turning a transient stall into a session whose input is
+                // silently discarded forever. Input to a wedged shell is
+                // moot; when the host resumes, later frames flow again.
+                return Ok(buf.len());
+            }
+            // Real fd errors (BrokenPipe, ConnectionReset, ...) stay
+            // fatal: the link is gone and teardown is correct.
+            return Err(io::Error::other(error));
         }
         Ok(buf.len())
     }
@@ -254,6 +268,22 @@ impl Write for AttachInputWriter {
         // `send_input` already framed-and-flushed each write to the socket.
         Ok(())
     }
+}
+
+/// Whether a `send_input` failure is the bounded send timeout (audit C-4)
+/// rather than a dead link. The `SO_SNDTIMEO` set on the attach stream
+/// surfaces a full-buffer timeout as `WouldBlock` (Linux `EAGAIN`) or
+/// `TimedOut`, wrapped in [`ProtocolError::Io`] under `anyhow` context layers.
+/// Everything else — including every non-IO protocol error — is fatal.
+fn is_transient_send_timeout(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<ProtocolError>(),
+        Some(ProtocolError::Io(io_error))
+            if matches!(
+                io_error.kind(),
+                io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+            )
+    )
 }
 
 /// Build the input [`PtyWriter`] for an attached session: a boxed

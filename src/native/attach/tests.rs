@@ -684,6 +684,99 @@ fn attached_input_writer_forwards_to_socket() {
     assert_eq!(frame, ClientFrame::Input(b"ls\n".to_vec()));
 }
 
+/// The C-4 send timeout must degrade to a DROPPED frame, not a dead session:
+/// `AttachInputWriter::write` returns `Ok` on `WouldBlock`/`TimedOut` so the
+/// dedicated writer loop never tears down its queue over a transient stall,
+/// and input flows again once the host drains. A surfaced error here would
+/// mark the outbound queue closed permanently and silently discard every
+/// later keystroke while the session stays displayed.
+#[test]
+fn transient_send_timeout_drops_frame_and_keeps_input_flowing() {
+    let (ours, theirs) = UnixStream::pair().expect("socketpair");
+    // A short timeout stands in for ATTACH_WRITE_TIMEOUT; same SO_SNDTIMEO
+    // mechanism, test-sized.
+    ours.set_write_timeout(Some(Duration::from_millis(50)))
+        .expect("set write timeout");
+    let client = Arc::new(Mutex::new(AttachClient {
+        stream: ours,
+        detached: true, // suppress the Drop detach frame; irrelevant here
+    }));
+    let mut writer = AttachInputWriter {
+        client: client.clone(),
+    };
+
+    // A frame far larger than any socket buffer: the kernel accepts what fits,
+    // then the send times out mid-frame. The write must report success (frame
+    // dropped) instead of surfacing the timeout.
+    let oversized = vec![b'x'; 8 * 1024 * 1024];
+    assert_eq!(
+        writer.write(&oversized).expect("timeout must not be fatal"),
+        oversized.len()
+    );
+
+    // Host un-wedges: drain everything buffered (the truncated frame's bytes).
+    theirs
+        .set_read_timeout(Some(Duration::from_millis(100)))
+        .expect("set read timeout");
+    let mut drain = [0u8; 64 * 1024];
+    let mut reader = &theirs;
+    while let Ok(n) = std::io::Read::read(&mut reader, &mut drain) {
+        if n == 0 {
+            break;
+        }
+    }
+
+    // The writer is still alive: a later keystroke goes out as a clean,
+    // complete Input frame (single-buffer framing: kind, length, payload).
+    assert_eq!(writer.write(b"ls\n").expect("later input flows"), 3);
+    let mut frame = [0u8; 8];
+    std::io::Read::read_exact(&mut reader, &mut frame).expect("read recovered frame");
+    assert_eq!(&frame, &[101, 0, 0, 0, 3, b'l', b's', b'\n']);
+}
+
+/// Real link errors stay fatal: with the peer gone, `send_input` fails with
+/// `BrokenPipe`, which must surface so the writer loop tears the session
+/// down — only the bounded-timeout kinds are the drop-and-continue path.
+#[test]
+fn broken_pipe_on_input_write_stays_fatal() {
+    let (ours, theirs) = UnixStream::pair().expect("socketpair");
+    drop(theirs);
+    let client = Arc::new(Mutex::new(AttachClient {
+        stream: ours,
+        detached: true,
+    }));
+    let mut writer = AttachInputWriter { client };
+    assert!(
+        writer.write(b"ls\n").is_err(),
+        "a dead link must surface as an error"
+    );
+}
+
+/// Kind classification for the drop-vs-fatal split, including the anyhow
+/// context layers `send_input` wraps around [`ProtocolError`].
+#[test]
+fn transient_send_timeout_classification() {
+    let wrap = |kind: std::io::ErrorKind| {
+        anyhow::Error::new(ProtocolError::Io(std::io::Error::new(kind, "test")))
+            .context("write session-host input frame")
+    };
+    assert!(is_transient_send_timeout(&wrap(
+        std::io::ErrorKind::WouldBlock
+    )));
+    assert!(is_transient_send_timeout(&wrap(
+        std::io::ErrorKind::TimedOut
+    )));
+    assert!(!is_transient_send_timeout(&wrap(
+        std::io::ErrorKind::BrokenPipe
+    )));
+    assert!(!is_transient_send_timeout(&wrap(
+        std::io::ErrorKind::ConnectionReset
+    )));
+    assert!(!is_transient_send_timeout(
+        &anyhow::Error::new(ProtocolError::BadMagic).context("write session-host input frame")
+    ));
+}
+
 #[test]
 fn window_close_detaches_attached_tab_host_survives() {
     let (socket_path, handle) =

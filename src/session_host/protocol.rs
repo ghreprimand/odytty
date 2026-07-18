@@ -403,9 +403,16 @@ fn write_frame(writer: &mut impl Write, kind: u8, payload: &[u8]) -> Result<(), 
             max: MAX_FRAME_LEN,
         });
     }
-    writer.write_all(&[kind])?;
-    writer.write_all(&(payload.len() as u32).to_be_bytes())?;
-    writer.write_all(payload)?;
+    // One contiguous buffer, one `write_all`: with a send timeout armed on the
+    // socket (both attach directions), three separate header/payload writes
+    // could time out between them and leave a truncated frame that desyncs the
+    // peer's parser. A single buffered write narrows that window to the one
+    // unavoidable partial-write case inside the kernel.
+    let mut frame = Vec::with_capacity(1 + 4 + payload.len());
+    frame.push(kind);
+    frame.extend_from_slice(&(payload.len() as u32).to_be_bytes());
+    frame.extend_from_slice(payload);
+    writer.write_all(&frame)?;
     writer.flush()?;
     Ok(())
 }
