@@ -210,3 +210,90 @@ fn styled_ascii_uses_dynamic_region() {
     assert_ne!(Some(bold_a), atlas.uv_rect('A'));
     assert_eq!(atlas.uv_rect_styled(FontStyle::Bold, 'A'), Some(bold_a));
 }
+
+// ----- Over-wide contextual (ligature) spans vs. the row-major slot grid -----
+
+/// A contextual span wider than one atlas row (`ATLAS_COLS` slots) can never
+/// be stored contiguously: the reserved cells would wrap onto later rows, the
+/// rasterized ink strip would overwrite other glyphs' coverage, and `slot_uv`
+/// would hand out u1 > 1.0. `ensure_shaped` must refuse it — leaving the key
+/// non-resident so the renderer keeps scalar per-cell fallback, exactly like
+/// atlas exhaustion — without burning slots or touching pixels.
+#[test]
+fn over_wide_shaped_span_falls_back_to_scalar() {
+    let Some(font) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    let slots_before = atlas.next_slot;
+    let pixels_before = atlas.data.clone();
+    let revision_before = atlas.revision;
+    let key = ShapedGlyphKey {
+        face_fingerprint: 1,
+        style: FontStyle::Regular,
+        glyph_id: font.glyph_id('=').0,
+        span_cells: (ATLAS_COLS + 1) as u8,
+        anchor_cell: 0,
+    };
+    assert_eq!(atlas.ensure_shaped(&font, key), None);
+    assert!(
+        !atlas.contains_shaped(key),
+        "an over-wide span must not become resident"
+    );
+    assert_eq!(atlas.shaped_slot_count(), 0);
+    assert_eq!(
+        atlas.next_slot, slots_before,
+        "a refused span must not burn slots"
+    );
+    assert_eq!(atlas.data, pixels_before, "pixels must be untouched");
+    assert_eq!(atlas.revision, revision_before);
+}
+
+/// Defense-in-depth at the allocator: `allocate_slots` itself rejects a span
+/// wider than the atlas row, independent of the `ensure_shaped` screen.
+#[test]
+fn allocate_slots_rejects_span_wider_than_a_row() {
+    let Some(font) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    let slots_before = atlas.next_slot;
+    assert_eq!(atlas.allocate_slots(ATLAS_COLS + 1), None);
+    assert_eq!(atlas.next_slot, slots_before, "no slots may be consumed");
+}
+
+/// Boundary: a span of exactly `ATLAS_COLS` starting at a row boundary is
+/// storable. The prebuilt fallback + ASCII region ends row-aligned, so a
+/// fresh atlas allocates a full-row span at column 0 with in-range UVs.
+#[test]
+fn full_row_shaped_span_allocates_within_row_bounds() {
+    let Some(font) = test_font() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mut atlas = GlyphAtlas::build(&font, 24.0);
+    assert_eq!(
+        atlas.next_slot % atlas.cols,
+        0,
+        "precondition: the prebuilt region ends row-aligned"
+    );
+    let key = ShapedGlyphKey {
+        face_fingerprint: 1,
+        style: FontStyle::Regular,
+        glyph_id: font.glyph_id('=').0,
+        span_cells: ATLAS_COLS as u8,
+        anchor_cell: 0,
+    };
+    let _ = atlas.ensure_shaped(&font, key);
+    assert!(
+        atlas.contains_shaped(key),
+        "a full-row span at a row boundary must be storable"
+    );
+    let slot = *atlas.shaped.get(&key).expect("resident slot");
+    assert_eq!(slot % atlas.cols, 0, "the lead must sit at column 0");
+    let uv = atlas.slot_uv(slot);
+    assert!(uv[0] >= 0.0 && uv[2] <= 1.0, "u range in bounds: {uv:?}");
+    assert!(uv[1] >= 0.0 && uv[3] <= 1.0, "v range in bounds: {uv:?}");
+}

@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Over-wide ligature spans no longer corrupt the glyph atlas
+
+Fixed: a contextual ligature substitution spanning more than 16 source columns
+corrupted the glyph atlas. Atlas slots are row-major with 16 columns per row;
+the allocator's row-wrap guard burns a filler slot so a wide allocation stays
+horizontally contiguous, but a span wider than a full row can never be made
+contiguous — its reserved cells wrapped onto later rows, the rasterized ink
+strip overwrote other glyphs' coverage bytes (silently: the buffer grows to
+fit, so nothing panicked), and the slot's UV rectangle extended past the right
+atlas edge. Long `====`/arrow rules in ligature-heavy fonts reach such widths,
+ligatures ship on by default, and the trigger is ordinary program output. The
+shaping path now refuses a span wider than one atlas row and degrades to the
+scalar per-cell renderer, exactly as it already does when the atlas is full,
+and the allocator independently rejects such spans as defense in depth. Tests
+pin the fallback, the allocator reject, and the in-bounds UV invariant at the
+exact full-row boundary. Cross-platform: the atlas is shared by every backend.
+
+Found while verifying the fix, not yet addressed: the row-wrap guard burns
+exactly one filler slot, which is only sufficient for two-cell spans. A span
+of 3 to 16 cells whose lead lands near the row edge still wraps (a 3-cell span
+at column 14 burns one filler, starts at column 15, and crosses anyway),
+producing the same out-of-bounds UV. Recorded as a known gap for a follow-up
+allocation fix.
+
 ## 2026-07-18 -- Nested-launch integration fix, default key binds, and shipped defaults
 
 Shell integration now survives nested launches. An odytty started from inside an

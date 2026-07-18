@@ -1257,6 +1257,15 @@ impl GlyphAtlas {
         if key.span_cells == 0 || key.anchor_cell >= key.span_cells {
             return None;
         }
+        // A span wider than one atlas row cannot be stored: slots are
+        // row-major, so the reserved cells would wrap onto later rows and the
+        // rasterized ink strip would overwrite other glyphs' coverage while
+        // `slot_uv` hands out u1 > 1.0. Refuse the allocation and let the
+        // caller degrade to scalar per-cell fallback, exactly as it does on
+        // atlas exhaustion (`contains_shaped` stays false for the key).
+        if u32::from(key.span_cells) > self.cols {
+            return None;
+        }
         if let Some(&slot) = self.shaped.get(&key) {
             return self.shaped_bounds(slot);
         }
@@ -1334,6 +1343,12 @@ impl GlyphAtlas {
     /// rects handed out before a growth stay valid.
     fn allocate_slots(&mut self, span: u32) -> Option<u32> {
         debug_assert!(span >= 1);
+        // Defense-in-depth: a span wider than a full atlas row can never be
+        // made contiguous — it would wrap across rows and corrupt neighboring
+        // slots' pixels. Callers screen this earlier; refuse it here too.
+        if span > self.cols {
+            return None;
+        }
         // A wide pair must not wrap across a row: burn a filler slot first.
         if span > 1 && self.next_slot % self.cols + span > self.cols {
             self.push_placeholder_slot(1)?;
