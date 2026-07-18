@@ -685,11 +685,14 @@ fn attached_input_writer_forwards_to_socket() {
 }
 
 /// The C-4 send timeout must degrade to a DROPPED frame, not a dead session:
-/// `AttachInputWriter::write` returns `Ok` on `WouldBlock`/`TimedOut` so the
-/// dedicated writer loop never tears down its queue over a transient stall,
-/// and input flows again once the host drains. A surfaced error here would
-/// mark the outbound queue closed permanently and silently discard every
-/// later keystroke while the session stays displayed.
+/// `AttachInputWriter::write` returns `Ok` on a ZERO-progress
+/// `WouldBlock`/`TimedOut` so the dedicated writer loop never tears down its
+/// queue over a transient stall, and input flows again once the host drains.
+/// A surfaced error here would mark the outbound queue closed permanently and
+/// silently discard every later keystroke while the session stays displayed.
+/// Zero progress means nothing of the frame reached the wire, so the stream
+/// stays framing-clean and dropping is safe (a PARTIAL write is the fatal
+/// desync path, tested separately below).
 #[test]
 fn transient_send_timeout_drops_frame_and_keeps_input_flowing() {
     let (ours, theirs) = UnixStream::pair().expect("socketpair");
@@ -697,6 +700,28 @@ fn transient_send_timeout_drops_frame_and_keeps_input_flowing() {
     // mechanism, test-sized.
     ours.set_write_timeout(Some(Duration::from_millis(50)))
         .expect("set write timeout");
+    // Wedge the host BEFORE the frame write: fill the socket's send buffer to
+    // capacity with raw junk so the frame write below makes zero progress
+    // before its timeout fires.
+    let fill = ours.try_clone().expect("clone stream for fill");
+    {
+        let mut fill_ref = &fill;
+        let junk = [b'j'; 64 * 1024];
+        loop {
+            match std::io::Write::write(&mut fill_ref, &junk) {
+                Ok(_) => continue,
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    break;
+                }
+                Err(e) => panic!("unexpected fill error: {e}"),
+            }
+        }
+    }
     let client = Arc::new(Mutex::new(AttachClient {
         stream: ours,
         detached: true, // suppress the Drop detach frame; irrelevant here
@@ -705,16 +730,13 @@ fn transient_send_timeout_drops_frame_and_keeps_input_flowing() {
         client: client.clone(),
     };
 
-    // A frame far larger than any socket buffer: the kernel accepts what fits,
-    // then the send times out mid-frame. The write must report success (frame
-    // dropped) instead of surfacing the timeout.
-    let oversized = vec![b'x'; 8 * 1024 * 1024];
-    assert_eq!(
-        writer.write(&oversized).expect("timeout must not be fatal"),
-        oversized.len()
-    );
+    // With the buffer full, the frame write accepts nothing and times out at
+    // zero progress. The write must report success (frame dropped) instead of
+    // surfacing the timeout.
+    assert_eq!(writer.write(b"ls\n").expect("timeout must not be fatal"), 3);
 
-    // Host un-wedges: drain everything buffered (the truncated frame's bytes).
+    // Host un-wedges: drain everything buffered (the junk fill; nothing of
+    // the dropped frame is on the wire).
     theirs
         .set_read_timeout(Some(Duration::from_millis(100)))
         .expect("set read timeout");
@@ -732,6 +754,32 @@ fn transient_send_timeout_drops_frame_and_keeps_input_flowing() {
     let mut frame = [0u8; 8];
     std::io::Read::read_exact(&mut reader, &mut frame).expect("read recovered frame");
     assert_eq!(&frame, &[101, 0, 0, 0, 3, b'l', b's', b'\n']);
+}
+
+/// A send timeout AFTER partial progress is a desynced stream, not a
+/// droppable frame: the truncated frame's length header promises bytes that
+/// never arrived, so any later "clean" frame would be consumed as its payload
+/// by the host parser and forwarded to the shell as garbage. The writer must
+/// surface a fatal error so the session tears down visibly.
+#[test]
+fn partial_write_timeout_tears_session_down() {
+    let (ours, theirs) = UnixStream::pair().expect("socketpair");
+    ours.set_write_timeout(Some(Duration::from_millis(50)))
+        .expect("set write timeout");
+    let client = Arc::new(Mutex::new(AttachClient {
+        stream: ours,
+        detached: true,
+    }));
+    let mut writer = AttachInputWriter { client };
+
+    // Empty socket buffer + a frame far larger than it: the kernel accepts
+    // what fits, then the send times out mid-frame — partial progress.
+    let oversized = vec![b'x'; 8 * 1024 * 1024];
+    let err = writer
+        .write(&oversized)
+        .expect_err("partial write then timeout must be fatal");
+    assert_eq!(err.kind(), std::io::ErrorKind::Other);
+    drop(theirs);
 }
 
 /// Real link errors stay fatal: with the peer gone, `send_input` fails with
@@ -786,6 +834,14 @@ fn transient_send_timeout_classification() {
     )));
     assert!(!is_transient_send_timeout(
         &anyhow::Error::new(ProtocolError::BadMagic).context("write session-host input frame")
+    ));
+    // A partial-progress timeout is NOT transient: the stream is desynced.
+    assert!(!is_transient_send_timeout(
+        &anyhow::Error::new(ProtocolError::TruncatedWrite {
+            written: 3,
+            len: 12
+        })
+        .context("write session-host input frame")
     ));
 }
 

@@ -34,11 +34,26 @@ pub enum ProtocolError {
     BadMagic,
     InvalidStatus(u8),
     InvalidFrameKind(u8),
-    FrameTooLarge { len: usize, max: usize },
-    StringTooLarge { len: usize, max: usize },
+    FrameTooLarge {
+        len: usize,
+        max: usize,
+    },
+    StringTooLarge {
+        len: usize,
+        max: usize,
+    },
     InvalidUtf8,
     InvalidPayload(&'static str),
     Rejected(String),
+    /// A frame write made partial progress and then hit the bounded send
+    /// timeout: the peer has a truncated frame on its wire and the stream is
+    /// permanently desynced. Distinct from a zero-progress timeout (plain
+    /// [`Self::Io`] with `WouldBlock`/`TimedOut`), which callers may safely
+    /// treat as "frame not sent, stream still clean".
+    TruncatedWrite {
+        written: usize,
+        len: usize,
+    },
 }
 
 impl ProtocolError {
@@ -71,6 +86,10 @@ impl fmt::Display for ProtocolError {
             Self::InvalidUtf8 => write!(f, "session-host string is not valid UTF-8"),
             Self::InvalidPayload(name) => write!(f, "invalid {name} payload"),
             Self::Rejected(reason) => write!(f, "session-host rejected attach: {reason}"),
+            Self::TruncatedWrite { written, len } => write!(
+                f,
+                "session-host frame write truncated by send timeout: {written} of {len} bytes sent, stream desynced"
+            ),
         }
     }
 }
@@ -403,16 +422,49 @@ fn write_frame(writer: &mut impl Write, kind: u8, payload: &[u8]) -> Result<(), 
             max: MAX_FRAME_LEN,
         });
     }
-    // One contiguous buffer, one `write_all`: with a send timeout armed on the
-    // socket (both attach directions), three separate header/payload writes
-    // could time out between them and leave a truncated frame that desyncs the
-    // peer's parser. A single buffered write narrows that window to the one
+    // One contiguous buffer: with a send timeout armed on the socket (both
+    // attach directions), three separate header/payload writes could time out
+    // between them and leave a truncated frame that desyncs the peer's
+    // parser. A single buffered write narrows that window to the one
     // unavoidable partial-write case inside the kernel.
     let mut frame = Vec::with_capacity(1 + 4 + payload.len());
     frame.push(kind);
     frame.extend_from_slice(&(payload.len() as u32).to_be_bytes());
     frame.extend_from_slice(payload);
-    writer.write_all(&frame)?;
+    // Manual write loop instead of `write_all`: `write_all` discards HOW MUCH
+    // was written before an error, but that distinction is load-bearing here.
+    // A send timeout with zero progress leaves the stream clean (nothing on
+    // the wire; callers may drop the frame and retry later), while a timeout
+    // AFTER partial progress leaves a truncated frame on the peer's wire —
+    // the stream is permanently desynced and must be torn down, so it
+    // surfaces as the distinct [`ProtocolError::TruncatedWrite`] that no
+    // caller treats as transient.
+    let mut written = 0;
+    while written < frame.len() {
+        match writer.write(&frame[written..]) {
+            Ok(0) => {
+                return Err(ProtocolError::Io(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "session-host stream accepted no bytes",
+                )));
+            }
+            Ok(n) => written += n,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error)
+                if written > 0
+                    && matches!(
+                        error.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
+            {
+                return Err(ProtocolError::TruncatedWrite {
+                    written,
+                    len: frame.len(),
+                });
+            }
+            Err(error) => return Err(ProtocolError::Io(error)),
+        }
+    }
     writer.flush()?;
     Ok(())
 }
@@ -719,6 +771,67 @@ mod tests {
         write_frame(&mut buffer, 104, b"x").expect("write frame");
         let err = read_client_frame(&mut buffer.as_slice()).expect_err("payload must be rejected");
         assert!(matches!(err, ProtocolError::InvalidPayload("shutdown")));
+    }
+
+    /// A scripted `Write`: accepts a fixed byte budget then reports the
+    /// bounded send timeout, modeling `SO_SNDTIMEO` firing after a partial
+    /// kernel write. Deterministic — no sockets, no sleeps.
+    struct StallingWriter {
+        accept: usize,
+        written: Vec<u8>,
+    }
+
+    impl Write for StallingWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if self.accept == 0 {
+                return Err(io::Error::new(io::ErrorKind::WouldBlock, "send timeout"));
+            }
+            let n = buf.len().min(self.accept);
+            self.accept -= n;
+            self.written.extend_from_slice(&buf[..n]);
+            Ok(n)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn zero_progress_send_timeout_stays_plain_io() {
+        // Nothing accepted before the timeout: the stream is framing-clean,
+        // so the error must remain the plain transient Io kind callers may
+        // treat as "frame not sent, drop and continue".
+        let mut writer = StallingWriter {
+            accept: 0,
+            written: Vec::new(),
+        };
+        let err = write_frame(&mut writer, 101, b"payload").expect_err("must time out");
+        assert!(matches!(
+            err,
+            ProtocolError::Io(e) if e.kind() == io::ErrorKind::WouldBlock
+        ));
+        assert!(writer.written.is_empty(), "nothing may reach the wire");
+    }
+
+    #[test]
+    fn partial_progress_send_timeout_is_truncated_write() {
+        // Three bytes of the 12-byte frame (1 kind + 4 length + 7 payload)
+        // land before the timeout: the peer's wire holds a truncated frame,
+        // so the distinct fatal variant must surface with the progress count.
+        let mut writer = StallingWriter {
+            accept: 3,
+            written: Vec::new(),
+        };
+        let err = write_frame(&mut writer, 101, b"payload").expect_err("must time out");
+        assert!(matches!(
+            err,
+            ProtocolError::TruncatedWrite {
+                written: 3,
+                len: 12
+            }
+        ));
+        assert_eq!(writer.written.len(), 3);
     }
 
     #[test]

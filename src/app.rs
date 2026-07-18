@@ -148,6 +148,10 @@ fn spawn_stdin_reader(tx: Sender<Vec<u8>>) {
                         break;
                     }
                 }
+                // EINTR is a retry, not an exit: a signal delivery mid-read
+                // must not silently kill the stdin reader. Same arm the PTY
+                // output pumps use.
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(_) => break,
             }
         }

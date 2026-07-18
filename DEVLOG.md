@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-18 -- Attach partial-write desync made fatal, plus three small residues
+
+Fixed: the session-host frame writer used a single `write_all` per frame,
+which narrowed but did not close the truncated-frame window — the kernel can
+accept part of the buffer and then hit the bounded send timeout, and
+`write_all` discards how much landed. The attach input writer treated every
+send timeout as transient and kept writing, so a large paste against a
+wedged host could leave a truncated frame on the wire and then feed the host
+parser garbage that ends up in the shell. The frame writer now tracks write
+progress explicitly: a zero-progress timeout stays the plain transient error
+(nothing reached the wire; the frame is safely droppable and input flows
+again when the host drains), while a partial-progress timeout surfaces as a
+new distinct protocol error that no caller treats as transient — the stream
+is permanently desynced, so the session tears down visibly instead of
+writing junk. Deterministic scripted-writer tests pin both classifications
+at the protocol layer; socketpair tests cover both writer behaviors
+end-to-end. Unix-only surface (the attach subsystem is Unix domain sockets).
+
+Also landed: the snapshot tab-stops decoder caps its capacity reserve by the
+remaining payload, matching the other length-prefixed decoders (the count
+was already bounded, so this is symmetry, not a fix); the debug harness
+stdin reader retries interrupted reads instead of exiting on a stray signal
+(Unix-only); and the interactive-paths checklist entry now names `explorer`
+as the Windows opener, matching the hardened implementation.
+
 ## 2026-07-18 -- Sibling closeout: cleanup-spawn window, private paste temp, AUR workflow, path-hint docs
 
 Final sibling sweep across the remediation, catching sites adjacent to

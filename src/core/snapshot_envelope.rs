@@ -341,7 +341,10 @@ impl SnapshotLayoutState {
                 expected: caps.max_columns,
             });
         }
-        let mut tab_stops = Vec::with_capacity(count);
+        // `count` is already bounded by `max_columns` (~4 KB worst case), but
+        // cap the reserve by what the remaining payload could actually encode
+        // (one byte per stop), matching the other length-prefixed decoders.
+        let mut tab_stops = Vec::with_capacity(count.min(reader.remaining()));
         for _ in 0..count {
             tab_stops.push(reader.read_bool()?);
         }

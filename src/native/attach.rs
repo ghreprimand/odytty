@@ -249,16 +249,23 @@ impl Write for AttachInputWriter {
         {
             if is_transient_send_timeout(&error) {
                 // C-4 degradation: the host is wedged and the send buffer
-                // is full. Drop THIS frame and report success so the
-                // dedicated writer loop stays alive — surfacing the error
-                // would make `run_writer` close the queue permanently,
-                // turning a transient stall into a session whose input is
-                // silently discarded forever. Input to a wedged shell is
-                // moot; when the host resumes, later frames flow again.
+                // is full, with NOTHING of this frame on the wire (a
+                // partial write surfaces as `TruncatedWrite`, which is not
+                // transient — see below). Drop THIS frame and report
+                // success so the dedicated writer loop stays alive —
+                // surfacing the error would make `run_writer` close the
+                // queue permanently, turning a transient stall into a
+                // session whose input is silently discarded forever. Input
+                // to a wedged shell is moot; when the host resumes, later
+                // frames flow again.
                 return Ok(buf.len());
             }
             // Real fd errors (BrokenPipe, ConnectionReset, ...) stay
-            // fatal: the link is gone and teardown is correct.
+            // fatal: the link is gone and teardown is correct. So does
+            // `ProtocolError::TruncatedWrite`: a send timeout AFTER a
+            // partial kernel write leaves a truncated frame on the wire,
+            // the stream is permanently desynced, and continuing to write
+            // would feed the host parser garbage.
             return Err(io::Error::other(error));
         }
         Ok(buf.len())

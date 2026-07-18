@@ -868,7 +868,7 @@ feature validates against.
 - [x] Interactive / clickable file paths (`interactive_paths`, master gate,
       default off): the renderer scans cells for file/directory paths and
       Ctrl+click (Cmd+click on macOS) opens them through the OS opener
-      (`xdg-open` on Linux, `open` on macOS, `cmd /C start` on Windows) with the
+      (`xdg-open` on Linux, `open` on macOS, `explorer` on Windows) with the
       same scheme-allowlist / argv-only safety as OSC 8.
       Everything below is inert until the master gate is on.
   - [x] Sub-gates default on under the master gate:
