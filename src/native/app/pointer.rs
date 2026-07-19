@@ -502,12 +502,13 @@ impl App {
                 {
                     // NF-F7-2 / NF-F7-4: an empty-chrome right-click opens the
                     // surface for whichever band the pointer sits over instead of
-                    // leaking the grid menu over the bar.
-                    let surface = if self.pointer_in_workspace_rail_band() {
-                        ContextMenuSurface::WorkspaceRailEmpty
-                    } else {
-                        ContextMenuSurface::TabStripEmpty
-                    };
+                    // leaking the grid menu over the bar. The classification is
+                    // shared with the drawn-edge band bounds, so the neutral
+                    // padding strips never take this arm (the guard is false
+                    // there) and the press falls through to the grid menu.
+                    let surface = self
+                        .empty_chrome_menu_surface()
+                        .unwrap_or(ContextMenuSurface::TabStripEmpty);
                     self.open_context_menu(surface);
                     return;
                 }

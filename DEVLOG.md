@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Neutral padding strips route right-clicks to content
+
+A hit-routing refinement closes a gap the chrome-facing window padding opened.
+The coarse band tests behind the empty-area right-click route still bounded
+chrome at the gap-inset content rect, while the bands render only to their
+drawn edges. With a pinned rail and nonzero padding, a right-click in the
+padding-wide neutral strip beside the content (or in the row just below the
+tab bar) opened a chrome empty-area menu, while a left-click in the same strip
+fell through to content selection — inconsistent routing on a strip that reads
+as neither band.
+
+Both band tests now bound at the drawn edge: the rail band ends at its
+content-facing seam, and the top bar band uses its painted extent — its
+joined-band background span horizontally (out to a pinned rail's edge, so the
+chrome-chrome junction strip keeps a chrome menu) and its painted bottom edge
+vertically. The right-press route resolves its menu surface through one shared
+classification helper, so the guard and the surface can never disagree. The
+neutral strips now route to the content grid menu, matching left-click and the
+neutral render; the bands proper keep their menus; zero padding has no strips
+and keeps the historical boundaries exactly. Tests pin the left-rail strip,
+right-rail strip, junction strip, below-bar row, and flush zero-padding cases.
+
+Cross-platform input routing with no platform-specific surface; covered by the
+standard CI matrix. Full suite green (fmt, clippy, tests).
+
 ## 2026-07-19 -- Docs align to window transparency on by default
 
 The reference docs are brought in line with the shipped default: window

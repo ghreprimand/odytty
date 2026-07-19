@@ -3722,6 +3722,12 @@ impl App {
     /// the content menu over the bar (NF-F7-2). Returns `false` off a shown bar,
     /// and — under rail auto-hide — only while the floating rail is actually
     /// revealed under the pointer.
+    ///
+    /// CHROME-GAP: the band is bounded at its DRAWN edge, not at the gap-inset
+    /// content rect — the padding-wide neutral strips between the bands and the
+    /// content route to content, consistently with left-click. The bar's
+    /// horizontal extent is its joined-band background span, which abuts a
+    /// pinned rail band, so the chrome-chrome junction strip stays chrome.
     fn pointer_in_tab_chrome_band(&self) -> bool {
         if !self.any_chrome_shown() {
             return false;
@@ -3746,9 +3752,13 @@ impl App {
             return false;
         };
         let content = pane_content_rect(w, h, cell, padding, self.tab_reserve());
-        (y_px as f32) < content.y
-            && (x_px as f32) >= content.x
-            && (x_px as f32) < content.x + content.w
+        let gap = self.tab_reserve().chrome_gap(padding);
+        // Drawn bar extent: bottom at the band's painted edge (a gap above the
+        // content top), horizontally the joined-band background span (out to a
+        // pinned rail band's edge on either side; the window edge otherwise).
+        (y_px as f32) < content.y - gap.top
+            && (x_px as f32) >= content.x - gap.left
+            && (x_px as f32) < content.x + content.w + gap.right
     }
 
     /// Whether the pointer sits over the workspace-rail column band this frame
@@ -3778,11 +3788,31 @@ impl App {
             return false;
         };
         let content = pane_content_rect(w, h, cell, padding, self.tab_reserve());
-        // The rail band sits outside the content rect on the rail side.
+        let gap = self.tab_reserve().chrome_gap(padding);
+        // CHROME-GAP: the band ends at its DRAWN content-facing edge, a gap
+        // short of the content rect — the neutral strip between them is not
+        // rail chrome (it routes to content, like left-click already does).
         match self.workspace_rail_side() {
-            RailSide::Left => (x_px as f32) < content.x,
-            RailSide::Right => (x_px as f32) >= content.x + content.w,
+            RailSide::Left => (x_px as f32) < content.x - gap.left,
+            RailSide::Right => (x_px as f32) >= content.x + content.w + gap.right,
         }
+    }
+
+    /// The empty-chrome context-menu surface for the current pointer position:
+    /// `WorkspaceRailEmpty` over the rail band, `TabStripEmpty` over the top
+    /// bar band (including the joined-band junction strip its background paints
+    /// up to a pinned rail), or `None` over content — which includes the
+    /// padding-wide neutral gap strips between content and the chrome bands,
+    /// so right-click routing there matches left-click and the neutral render.
+    fn empty_chrome_menu_surface(&self) -> Option<ContextMenuSurface> {
+        if !self.pointer_in_tab_chrome_band() {
+            return None;
+        }
+        Some(if self.pointer_in_workspace_rail_band() {
+            ContextMenuSurface::WorkspaceRailEmpty
+        } else {
+            ContextMenuSurface::TabStripEmpty
+        })
     }
 
     /// Which side the rail occupies this frame, or `None` when no rail is active

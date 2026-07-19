@@ -1534,6 +1534,101 @@ fn top_seam_owns_pinned_rail_junction_on_both_sides_at_common_scales() {
 }
 
 #[test]
+fn gap_strip_right_press_routes_to_content_not_chrome_menus() {
+    // CHROME-GAP hit routing: the padding-wide neutral strips between the
+    // content grid and the chrome bands belong to CONTENT for the empty-area
+    // right-press route (consistent with left-click), while the drawn bands —
+    // including the joined-band junction strip the bar background paints up to
+    // the rail edge — keep their chrome menus.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let cell = cell(8, 16);
+    app.set_test_cell_for_test(cell);
+    app.set_test_surface_for_test(1000, 600, WindowPadding::from_logical(4.0, 1.0));
+    app.set_workspace_rail_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    // Geometry: rail band x < 132 (pad 4 + 16 cols * 8); gap strip [132, 136);
+    // content starts at x = 136, y = 24; bar band bottom (drawn) at y = 20.
+
+    // Rail band proper (content rows) -> workspace chrome menu.
+    app.set_pointer_px_for_test(100.0, 100.0);
+    assert_eq!(app.empty_chrome_menu_surface_for_test(), Some("workspace"));
+    // Neutral gap strip beside the content columns -> content (grid menu).
+    app.set_pointer_px_for_test(133.0, 100.0);
+    assert_eq!(
+        app.empty_chrome_menu_surface_for_test(),
+        None,
+        "the rail-side gap strip routes to content, not a chrome menu"
+    );
+    // Joined-band junction strip (within the bar band rows) stays chrome: the
+    // bar background paints it out to the rail band edge.
+    app.set_pointer_px_for_test(133.0, 10.0);
+    assert_eq!(
+        app.empty_chrome_menu_surface_for_test(),
+        Some("tab"),
+        "the chrome-chrome junction strip keeps a chrome menu"
+    );
+    // Below-bar gap row (content columns) -> content.
+    app.set_pointer_px_for_test(300.0, 22.0);
+    assert_eq!(
+        app.empty_chrome_menu_surface_for_test(),
+        None,
+        "the below-bar gap row routes to content"
+    );
+    // Bar band proper -> tab chrome menu.
+    app.set_pointer_px_for_test(300.0, 10.0);
+    assert_eq!(app.empty_chrome_menu_surface_for_test(), Some("tab"));
+}
+
+#[test]
+fn right_rail_gap_strip_routes_to_content_and_zero_padding_is_flush() {
+    // Right-rail mirror of the gap-strip routing, plus the zero-padding
+    // identity: with no padding there is no strip and the band boundary sits
+    // exactly at the content edge, as before.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let cell = cell(8, 16);
+    app.set_test_cell_for_test(cell);
+    app.set_test_surface_for_test(1000, 600, WindowPadding::from_logical(4.0, 1.0));
+    app.set_workspace_rail_for_test("right");
+    app.set_tab_rail_width_manual_for_test(16);
+    // Geometry: content [4, 864); gap strip [864, 868); rail band x >= 868.
+    app.set_pointer_px_for_test(865.0, 100.0);
+    assert_eq!(
+        app.empty_chrome_menu_surface_for_test(),
+        None,
+        "the right-rail gap strip routes to content"
+    );
+    app.set_pointer_px_for_test(870.0, 100.0);
+    assert_eq!(app.empty_chrome_menu_surface_for_test(), Some("workspace"));
+
+    // Zero padding: no strip; the band starts at the shared flush edge.
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.set_test_cell_for_test(cell);
+    app.set_test_surface_for_test(1000, 600, WindowPadding::ZERO);
+    app.set_workspace_rail_for_test("left");
+    app.set_tab_rail_width_manual_for_test(16);
+    // Rail band x < 128; content flush at x = 128, y = 16.
+    app.set_pointer_px_for_test(127.0, 100.0);
+    assert_eq!(app.empty_chrome_menu_surface_for_test(), Some("workspace"));
+    app.set_pointer_px_for_test(128.0, 100.0);
+    assert_eq!(
+        app.empty_chrome_menu_surface_for_test(),
+        None,
+        "flush layout keeps the historical boundary"
+    );
+    app.set_pointer_px_for_test(300.0, 8.0);
+    assert_eq!(app.empty_chrome_menu_surface_for_test(), Some("tab"));
+}
+
+#[test]
 fn revealed_autohide_rail_clips_and_owns_the_top_seam_junction() {
     for side in ["left", "right"] {
         let Some(mut app) = tab_bar_app() else {

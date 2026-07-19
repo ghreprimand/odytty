@@ -809,6 +809,19 @@ impl App {
         }
     }
 
+    /// Test seam (CHROME-GAP hit routing): the empty-chrome context-menu
+    /// surface the production right-press route resolves for the current
+    /// pointer — `"workspace"` / `"tab"` — or `None` when the press would fall
+    /// through to the content grid menu (including the padding-wide neutral
+    /// gap strips between content and the chrome bands).
+    pub(in crate::native) fn empty_chrome_menu_surface_for_test(&self) -> Option<&'static str> {
+        match self.empty_chrome_menu_surface()? {
+            super::ContextMenuSurface::WorkspaceRailEmpty => Some("workspace"),
+            super::ContextMenuSurface::TabStripEmpty => Some("tab"),
+            _ => None,
+        }
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn tab_bar_row_backgrounds_for_test(&self) -> Option<Vec<Color>> {
         let cell = self.resolved_cell()?;
