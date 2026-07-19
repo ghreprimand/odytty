@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Workspace-state load budgets, opener docs, stem-darken comment
+
+Workspace-state restore gains aggregate load budgets so a corrupt or
+hand-broken snapshot fails closed to a fresh launch instead of exhausting
+memory or spawning an unbounded number of panes. The single sensitive-read
+chokepoint now rejects a state or layout file larger than 8 MiB before reading
+it into memory, bounding both the whole-file read and the parser's char-vector
+clone of the input. After a snapshot parses, an aggregate check rejects one
+that exceeds 512 workspaces, 512 tabs in any workspace, a pane tree deeper than
+48, or 8192 total leaves across the file — the last a hard ceiling on the
+restore batch's per-leaf process fan-out. Every cap sits far above any state
+the interface can produce; over-cap classifies as a malformed snapshot and
+degrades on the existing corruption-fallback path with a state-only notice and
+no file contents logged. The on-disk format and these bounds are identical on
+every platform, Windows included. Unit tests pin acceptance exactly at each cap
+and rejection one past it, including the byte cap through the on-disk read path.
+
+Documentation for the clickable-path opener is corrected to match the shipped
+behavior and its threat model. The Windows default-open launcher is
+`explorer <target>` with the target as a single argv element, never a `cmd.exe`
+command line, so a path or URI carrying shell metacharacters (`&`, `|`,
+`%VAR%`) can never be re-parsed as a command. SPEC, the runtime-knobs reference,
+and the example config previously described the removed `cmd /C start` route;
+all three now state the argv-only launcher with the no-shell rationale.
+
+The `ODYTTY_STEM_DARKEN` doc comment is corrected: it stated a shipped default
+of 0.5 while the constant, the runtime-knobs reference, and the example config
+all ship 0.7.
+
+`cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --locked`
+all clean.
+
+
 ## 2026-07-19 -- Right-rail hit boundary aligned to the painted band edge
 
 The coarse chrome hit helpers bounded a pinned right rail at the content

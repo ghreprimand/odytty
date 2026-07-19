@@ -1384,8 +1384,11 @@ equivalents, all behind `#[cfg]`:
   drive-letter-aware `:line:col` suffix split so `C:\src\main.rs:10:5` peels the
   position without consuming the drive colon.
 
-- **Default-open & reveal** route through `cmd /C start` (open) and
-  `explorer /select,` (reveal) instead of `xdg-open`.
+- **Default-open & reveal** route through `explorer <target>` (open) and
+  `explorer /select,` (reveal) instead of `xdg-open`. The open launcher is
+  `explorer` with the target as a single argv element, never a `cmd.exe`
+  command line, so a path or URI carrying shell metacharacters (`&`, `|`,
+  `%VAR%`) can never be re-parsed as a command.
 
 ### Gate Unix-Only Subsystems
 

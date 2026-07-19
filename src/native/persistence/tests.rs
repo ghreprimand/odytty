@@ -1023,3 +1023,151 @@ fn garbage_and_broken_files_on_disk_degrade_to_a_soft_outcome_never_panic() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ---- PLAUS-01: aggregate load budgets (fail closed, no restore spawn) ----
+
+fn single_leaf_tab() -> TabShape {
+    TabShape {
+        title: None,
+        focused_leaf: 0,
+        layout: leaf(None),
+    }
+}
+
+/// A linear split chain of the requested `depth` (depth 1 == a bare leaf). Its
+/// [`PaneShape::depth`] equals `depth` and its leaf count also equals `depth`.
+fn linear_split_chain(depth: usize) -> PaneShape {
+    let mut node = leaf(None);
+    for _ in 1..depth {
+        node = PaneShape::Split {
+            axis: SplitAxisShape::Rows,
+            ratio: 0.5,
+            first: Box::new(leaf(None)),
+            second: Box::new(node),
+        };
+    }
+    node
+}
+
+fn one_workspace(tabs: Vec<TabShape>) -> ShapeSnapshot {
+    ShapeSnapshot {
+        version: SNAPSHOT_VERSION,
+        active_workspace: 0,
+        workspaces: vec![WorkspaceShape {
+            name: "w".to_owned(),
+            default_profile: None,
+            active_tab: 0,
+            tabs,
+        }],
+    }
+}
+
+#[test]
+fn budget_accepts_realistic_and_at_cap_state() {
+    // A rich but realistic snapshot is nowhere near any cap.
+    assert!(sample_snapshot().check_budgets().is_ok());
+
+    // Exactly at the tab cap in one workspace is accepted.
+    let at_tabs = one_workspace(vec![single_leaf_tab(); MAX_TABS_PER_WORKSPACE]);
+    assert!(
+        at_tabs.check_budgets().is_ok(),
+        "a workspace exactly at the tab cap loads"
+    );
+
+    // A pane tree exactly at the depth cap is accepted.
+    let at_depth = one_workspace(vec![TabShape {
+        title: None,
+        focused_leaf: 0,
+        layout: linear_split_chain(MAX_PANE_DEPTH),
+    }]);
+    assert_eq!(linear_split_chain(MAX_PANE_DEPTH).depth(), MAX_PANE_DEPTH);
+    assert!(
+        at_depth.check_budgets().is_ok(),
+        "a pane tree exactly at the depth cap loads"
+    );
+}
+
+#[test]
+fn budget_rejects_excess_workspaces() {
+    let snap = ShapeSnapshot {
+        version: SNAPSHOT_VERSION,
+        active_workspace: 0,
+        workspaces: (0..=MAX_WORKSPACES)
+            .map(|i| WorkspaceShape {
+                name: format!("w{i}"),
+                default_profile: None,
+                active_tab: 0,
+                tabs: vec![single_leaf_tab()],
+            })
+            .collect(),
+    };
+    assert!(matches!(snap.check_budgets(), Err(LoadError::Malformed(_))));
+}
+
+#[test]
+fn budget_rejects_excess_tabs_in_one_workspace() {
+    let snap = one_workspace(vec![single_leaf_tab(); MAX_TABS_PER_WORKSPACE + 1]);
+    assert!(matches!(snap.check_budgets(), Err(LoadError::Malformed(_))));
+}
+
+#[test]
+fn budget_rejects_pane_tree_deeper_than_the_cap() {
+    let snap = one_workspace(vec![TabShape {
+        title: None,
+        focused_leaf: 0,
+        layout: linear_split_chain(MAX_PANE_DEPTH + 1),
+    }]);
+    assert!(matches!(snap.check_budgets(), Err(LoadError::Malformed(_))));
+}
+
+#[test]
+fn budget_rejects_total_leaves_over_the_spawn_ceiling() {
+    // Spread leaves so neither the workspace, tab, nor depth cap trips first —
+    // only the aggregate leaf ceiling. 512 tabs * 17 leaves = 8704 > 8192, with
+    // tab count exactly at its cap and depth (17) well under its cap.
+    let tab = TabShape {
+        title: None,
+        focused_leaf: 0,
+        layout: linear_split_chain(17),
+    };
+    let snap = one_workspace(vec![tab; MAX_TABS_PER_WORKSPACE]);
+    assert!(matches!(snap.check_budgets(), Err(LoadError::Malformed(_))));
+}
+
+#[test]
+fn over_budget_snapshot_from_json_degrades_to_malformed() {
+    // The budget check runs inside from_json_str, so an over-cap file that
+    // parses cleanly still classifies as Malformed (fail closed) rather than
+    // yielding a restorable snapshot.
+    let snap = one_workspace(vec![single_leaf_tab(); MAX_TABS_PER_WORKSPACE + 1]);
+    let text = snap.to_json_pretty();
+    assert!(matches!(
+        ShapeSnapshot::from_json_str(&text),
+        Err(LoadError::Malformed(_))
+    ));
+}
+
+#[test]
+fn oversized_state_file_is_rejected_before_parsing() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!(
+        "odytty-plaus01-bytes-{}-{nanos}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let name = "state";
+    let path = layout_path_in(&dir, name).expect("a plain name resolves to a path");
+
+    // One byte over the cap -> Corrupt (fail closed), never a full read+parse.
+    let oversized = vec![b' '; (MAX_SNAPSHOT_BYTES as usize) + 1];
+    std::fs::write(&path, &oversized).expect("write oversized state");
+    assert!(
+        matches!(load_layout_in(&dir, name), LoadOutcome::Corrupt(_)),
+        "a state file over the byte budget must degrade to Corrupt, not be read+parsed"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

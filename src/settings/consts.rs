@@ -270,7 +270,7 @@ pub const MAX_TEXT_GAMMA: f32 = 3.0;
 /// Stem-darkening strength (`ODYTTY_STEM_DARKEN`): a coverage boost applied at
 /// glyph raster time so light-on-dark body text holds weight at small sizes
 /// (RV5). `0.0` disables it and is pixel-identical to the pre-feature renderer;
-/// `1.0` is the strongest boost. Ships default-on at `0.5` for a visible
+/// `1.0` is the strongest boost. Ships default-on at `0.7` for a visible
 /// light-on-dark weight boost. Setting `0.0` is the opt-out and fully restores
 /// the classic, pre-feature raster.
 pub const DEFAULT_STEM_DARKEN: f32 = 0.7;

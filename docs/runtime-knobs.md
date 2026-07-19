@@ -729,13 +729,16 @@ to the context menu — Open, Open With…, Copy Path, Copy File, Reveal in File
 Manager ("Open With…" appears only on a regular file, not a directory).
 
 Every open is an **argv vector**, never a shell string, so a path containing
-spaces, `;`, `$()`, or backticks is inert. The dispatch:
+spaces, `;`, `$()`, or backticks is inert. On Windows the launcher is
+`explorer` with the target as a single argv element, so a path or URI carrying
+`cmd.exe` metacharacters (`&`, `|`, `%VAR%`) never reaches a command line. The
+dispatch:
 
 | Span | Action |
 |------|--------|
-| File, no `:line` | Linux: `xdg-open <abs>`; macOS: `open <abs>`; Windows: `cmd /C start "" <abs>` |
+| File, no `:line` | Linux: `xdg-open <abs>`; macOS: `open <abs>`; Windows: `explorer <abs>` |
 | File, `:line[:col]` | editor at that position (see below) |
-| Directory | Linux: `xdg-open <abs>`; macOS: `open <abs>`; Windows: `cmd /C start "" <abs>` |
+| Directory | Linux: `xdg-open <abs>`; macOS: `open <abs>`; Windows: `explorer <abs>` |
 
 "Copy Path" copies the absolute path; "Copy File" copies a `file://<abs>` URI as
 text (the clipboard is text-only — this pastes into file managers as a file

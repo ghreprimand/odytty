@@ -53,6 +53,32 @@ const SNAPSHOT_FILE: &str = "workspaces.json";
 /// hand-broken layout can never poison launch restore (design §10.4).
 const LAYOUTS_DIR: &str = "layouts";
 
+/// Aggregate load budgets (PLAUS-01 hardening). Workspace state is owner-written
+/// and trusted, but a corrupt or hand-broken file must fail closed to a fresh
+/// launch rather than exhaust memory or spawn an unbounded number of restore
+/// processes. Each cap sits far above any state the UI can produce yet well
+/// below a resource-exhaustion threshold; over-cap classifies as
+/// [`LoadError::Malformed`], degrading to a fresh session on the existing
+/// corruption-fallback path (a state-only notice, no file contents logged).
+/// Platform-neutral: the on-disk format and these bounds are identical on every
+/// OS, Windows included.
+///
+/// Max bytes read from a single state/layout file before parsing. Legitimate
+/// snapshots are kilobytes; this bounds both the whole-file read and the
+/// parser's `Vec<char>` clone of the input.
+const MAX_SNAPSHOT_BYTES: u64 = 8 * 1024 * 1024;
+/// Max workspaces accepted from one snapshot.
+const MAX_WORKSPACES: usize = 512;
+/// Max tabs accepted in any one workspace.
+const MAX_TABS_PER_WORKSPACE: usize = 512;
+/// Max pane-tree nesting depth accepted in any one tab (a leaf is depth 1). Sits
+/// under the JSON parser's own nesting-depth guard.
+const MAX_PANE_DEPTH: usize = 48;
+/// Max total leaves (restorable panes) across the whole snapshot. This bounds
+/// the restore batch's process spawns — the restore path spawns one child per
+/// leaf, so this is the hard ceiling on that fan-out.
+const MAX_TOTAL_LEAVES: usize = 8192;
+
 /// The split axis, mirrored off [`SplitAxis`] so the on-disk schema does not
 /// depend on the internal layout enum's representation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -134,6 +160,16 @@ impl PaneShape {
         match self {
             PaneShape::Leaf { .. } => 1,
             PaneShape::Split { first, second, .. } => first.leaf_count() + second.leaf_count(),
+        }
+    }
+
+    /// Nesting depth of this subtree: a leaf is depth 1, a split is one deeper
+    /// than its deeper child. Used to bound restore against a pathologically
+    /// deep pane tree (PLAUS-01).
+    fn depth(&self) -> usize {
+        match self {
+            PaneShape::Leaf { .. } => 1,
+            PaneShape::Split { first, second, .. } => 1 + first.depth().max(second.depth()),
         }
     }
 
@@ -344,14 +380,50 @@ impl ShapeSnapshot {
                 .collect::<Result<Vec<_>, _>>()?,
             None => return Err(LoadError::malformed("missing \"workspaces\" array")),
         };
-        Ok(ShapeSnapshot {
+        let snapshot = ShapeSnapshot {
             version,
             active_workspace: value
                 .get("active_workspace")
                 .and_then(Json::as_usize)
                 .unwrap_or(0),
             workspaces,
-        })
+        };
+        snapshot.check_budgets()?;
+        Ok(snapshot)
+    }
+
+    /// Reject a parsed snapshot that exceeds the aggregate load budgets
+    /// (PLAUS-01). Returns the first budget violated as a
+    /// [`LoadError::Malformed`] so the caller degrades to a fresh launch (fail
+    /// closed) before any restore process is spawned, rather than instantiating
+    /// a pathological tree. The bounds are generous enough that no legitimate
+    /// UI-produced state reaches them. Platform-neutral.
+    fn check_budgets(&self) -> Result<(), LoadError> {
+        if self.workspaces.len() > MAX_WORKSPACES {
+            return Err(LoadError::malformed(
+                "workspace count exceeds the load budget",
+            ));
+        }
+        let mut total_leaves: usize = 0;
+        for ws in &self.workspaces {
+            if ws.tabs.len() > MAX_TABS_PER_WORKSPACE {
+                return Err(LoadError::malformed("tab count exceeds the load budget"));
+            }
+            for tab in &ws.tabs {
+                if tab.layout.depth() > MAX_PANE_DEPTH {
+                    return Err(LoadError::malformed(
+                        "pane nesting depth exceeds the load budget",
+                    ));
+                }
+                total_leaves = total_leaves.saturating_add(tab.layout.leaf_count());
+                if total_leaves > MAX_TOTAL_LEAVES {
+                    return Err(LoadError::malformed(
+                        "total pane count exceeds the load budget",
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -688,7 +760,20 @@ pub(crate) fn load_snapshot() -> LoadOutcome {
 
 fn read_sensitive_to_string(path: &Path) -> io::Result<String> {
     let mut file = crate::state_dir::open_existing_sensitive(path)?;
-    let mut text = String::new();
+    // PLAUS-01: reject an implausibly large state file before reading it into
+    // memory. Legitimate workspace state is kilobytes; this cap bounds both the
+    // whole-file read and the parser's char-vector clone of the input. Over-cap
+    // surfaces as a corrupt-load outcome (fail closed to a fresh launch), never
+    // logging file contents. Platform-neutral: same limit and code path on
+    // every OS.
+    let len = file.metadata()?.len();
+    if len > MAX_SNAPSHOT_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("state file is {len} bytes, over the {MAX_SNAPSHOT_BYTES}-byte load budget"),
+        ));
+    }
+    let mut text = String::with_capacity(len as usize);
     file.read_to_string(&mut text)?;
     Ok(text)
 }
