@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Chrome bands stay joined across the padding gap
+
+Feel-testing the new chrome-facing window padding surfaced a corner defect:
+with a pinned workspace rail and nonzero padding, the top tab bar's band
+shifted right with the content, leaving a washed strip between the rail band
+and the bar band. The two chrome pieces visibly floated apart at their shared
+corner. The rule the padding work established — content never touches chrome —
+gains its complement: chrome always touches chrome. The tabs are objects on
+the band; the band itself is part of one continuous frame.
+
+The fix is paint-extent only. The top band's background (its wash, base-gap
+fill, and bottom seam hairline) now extends across the junction gap strip to
+abut the rail band's edge on either side — leftward to a left rail, rightward
+to a right rail — while the tabs, their labels, and their hit targets keep
+their content-aligned gap inset. Content geometry is untouched: no change to
+the content rect, grid fit, gap values, or any pointer-to-cell math. The strip
+hands off from the wallpaper edge wash to band background through the existing
+overlap-exclusion pass, so translucent windows get no double tint. The bar's
+bottom seam now runs to the rail edge and meets the rail's vertical seam,
+closing the frame; the seam's row-resize grab follows the drawn span, so the
+junction strip is draggable like the rest of the visible seam. The vertical
+gap below the bar and the rail-side gap beside the content columns remain —
+those separate content from chrome, which is exactly what the padding is for.
+
+At padding `0` there is no strip and every band junction is byte-identical to
+the flush layout, pinned by the existing zero-padding tests plus reworked
+exact-rect span tests and a new assertion that the band background reaches the
+rail edge under nonzero padding. Cross-platform geometry with no
+platform-specific surface; Windows and macOS ride the same renderer path,
+covered by the standard CI matrix. Full suite green (fmt, clippy, tests).
+
 ## 2026-07-18 -- Window padding now separates content from chrome bands
 
 `window_padding` previously applied only at the window edges, so with a pinned

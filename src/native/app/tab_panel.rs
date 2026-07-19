@@ -22,7 +22,7 @@
 //! Pure and GPU-device-free: unit-tested without a window. Handles all three
 //! axes (`Top`, `Left`, `Right`) so right-side tab placement rides this unchanged.
 
-use super::panes::TabReserve;
+use super::panes::{ChromeGap, TabReserve};
 use super::*;
 use crate::theme::Srgb;
 
@@ -94,28 +94,32 @@ fn linear_rgba(c: Srgb, alpha: f32) -> [f32; 4] {
 /// present. The top seam joins the rail's content-facing seam at the shared
 /// panel junction.
 ///
-/// CHROME-GAP: past a pinned LEFT rail the bar (and thus its panel span) shifts
-/// right by `left_gap_px` — the chrome-facing padding gap — so the span stays
-/// pixel-aligned with the bar's shifted columns. A right rail leaves the bar's
-/// content-aligned span untouched (the RAIL shifts instead). `0.0` reproduces
-/// the historical zero-gap junction exactly.
+/// CHROME-GAP frame-continuity rule: content never touches chrome, but chrome
+/// always touches chrome. The bar's TABS (and the content below) sit a padding
+/// gap away from the rail band, yet the bar band's BACKGROUND extends across
+/// that gap strip to abut the rail band edge, so the two chrome bands read as
+/// one continuous frame instead of floating apart at the corner. Past a pinned
+/// LEFT rail the span therefore starts at the rail's content-facing band edge
+/// (`padding + rail_cols·cell_w`, no gap inset); past a RIGHT rail it ends a
+/// gap PAST the content edge, at the rail band's near edge. At zero gap both
+/// reproduce the historical junction exactly.
 pub(super) fn joined_top_span(
     surface_width: f32,
     padding: f32,
     cell_width: f32,
     content_cols: usize,
     reserve: TabReserve,
-    left_gap_px: f32,
+    gap: ChromeGap,
 ) -> Option<[f32; 2]> {
     if reserve.left_cols > 0 {
         Some([
-            padding + reserve.left_cols as f32 * cell_width + left_gap_px,
+            padding + reserve.left_cols as f32 * cell_width,
             surface_width,
         ])
     } else if reserve.right_cols > 0 {
         Some([
             0.0,
-            padding + (content_cols + reserve.gap_cols) as f32 * cell_width,
+            padding + (content_cols + reserve.gap_cols) as f32 * cell_width + gap.right,
         ])
     } else {
         None
@@ -447,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn joined_left_seam_meets_gap_inset_content_edge() {
+    fn joined_left_span_abuts_the_rail_band_while_content_keeps_the_gap() {
         let reserve = TabReserve {
             top_rows: 1,
             left_cols: 16,
@@ -455,7 +459,7 @@ mod tests {
             gap_cols: 0,
         };
         let padding = WindowPadding::from_logical(4.0, 1.0);
-        let gap = reserve.chrome_gap(padding).left;
+        let gap = reserve.chrome_gap(padding);
         let span = joined_top_span(800.0, 4.0, 8.0, 80, reserve, gap).expect("left rail");
         let content = pane_content_rect(
             800,
@@ -469,18 +473,23 @@ mod tests {
             reserve,
         );
 
-        // CHROME-GAP: the bar (and content) sit one padding gap past the rail
-        // band's content-facing edge (132 = pad + band), so the bar's columns
-        // stay pixel-aligned with the content columns below it.
-        assert_eq!(gap, 4.0, "left gap equals the window padding");
-        assert_eq!(span, [136.0, 800.0], "top span starts a gap past the rail");
+        // CHROME-GAP frame continuity: the bar BAND starts flush at the rail
+        // band's content-facing edge (132 = pad + band) so the two chrome bands
+        // touch, while the bar's tab columns (and the content below) sit one
+        // padding gap further right, pixel-aligned with each other.
+        assert_eq!(gap.left, 4.0, "left gap equals the window padding");
+        assert_eq!(span, [132.0, 800.0], "band background abuts the rail band");
         assert_eq!(reserve.left_reserved_cols(), 16, "rail band reserved");
         assert_eq!(content.x, 136.0, "content begins a gap past the rail");
-        assert_eq!(content.x, span[0], "bar and content share a left edge");
+        assert_eq!(
+            content.x,
+            span[0] + gap.left,
+            "tabs and content sit one gap inside the band edge"
+        );
     }
 
     #[test]
-    fn joined_right_seam_meets_content_edge_with_the_band_a_gap_away() {
+    fn joined_right_span_extends_to_the_rail_band_edge() {
         let reserve = TabReserve {
             top_rows: 1,
             left_cols: 0,
@@ -488,10 +497,11 @@ mod tests {
             gap_cols: 0,
         };
         let padding = WindowPadding::from_logical(4.0, 1.0);
+        let gap = reserve.chrome_gap(padding);
         // Exact grid width: padding + content + gap + rail + padding.
         let surface_width = 4 + 80 * 8 + 4 + 16 * 8 + 4;
         let span =
-            joined_top_span(surface_width as f32, 4.0, 8.0, 80, reserve, 0.0).expect("right rail");
+            joined_top_span(surface_width as f32, 4.0, 8.0, 80, reserve, gap).expect("right rail");
         let content = pane_content_rect(
             surface_width,
             600,
@@ -505,37 +515,46 @@ mod tests {
         );
         let content_right = content.x + content.w;
 
-        // CHROME-GAP: the bar still ends flush with the content's right edge
-        // (they share columns); it is the RAIL band that sits a gap further
-        // right, so the bar never reaches under it.
-        assert_eq!(span, [0.0, 644.0], "top span ends at the content edge");
+        // CHROME-GAP frame continuity: the bar's tab columns still end flush
+        // with the content's right edge (they share columns), but the band
+        // BACKGROUND extends one gap further right to abut the rail band, so
+        // the two chrome bands touch instead of floating apart at the corner.
+        assert_eq!(gap.right, 4.0, "right gap = padding");
         assert_eq!(reserve.right_reserved_cols(), 16, "rail band reserved");
-        assert_eq!(
-            reserve.chrome_gap(padding).right,
-            4.0,
-            "right gap = padding"
-        );
         assert_eq!(content_right, 644.0, "content ends at the shared edge");
-        assert_eq!(span[1], content_right, "bar and content share a right edge");
+        assert_eq!(
+            span,
+            [0.0, 648.0],
+            "band background reaches the rail band edge"
+        );
+        assert_eq!(
+            span[1],
+            content_right + gap.right,
+            "band edge is one gap past the shared content edge"
+        );
     }
 
     #[test]
-    fn joined_top_span_hit_owns_the_gap_aware_junction_on_both_sides() {
+    fn joined_top_span_hit_owns_the_gap_strip_up_to_the_rail_band() {
+        let padding = WindowPadding::from_logical(4.0, 1.0);
         let left = TabReserve {
             top_rows: 1,
             left_cols: 16,
             right_cols: 0,
             gap_cols: 0,
         };
-        let left_gap = left.chrome_gap(WindowPadding::from_logical(4.0, 1.0)).left;
-        let left_span = joined_top_span(800.0, 4.0, 8.0, 80, left, left_gap);
+        let left_span = joined_top_span(800.0, 4.0, 8.0, 80, left, left.chrome_gap(padding));
         assert!(
-            !top_span_contains_x(left_span, 800.0, 135.0),
-            "the gap strip past the rail belongs to no band"
+            !top_span_contains_x(left_span, 800.0, 131.0),
+            "rail band pixels belong to the rail, not the bar"
         );
         assert!(
-            top_span_contains_x(left_span, 800.0, 136.0),
-            "left junction begins a gap past the rail seam"
+            top_span_contains_x(left_span, 800.0, 132.0),
+            "the bar band (and its gap strip) begins at the rail band edge"
+        );
+        assert!(
+            top_span_contains_x(left_span, 800.0, 135.0),
+            "the junction gap strip is bar band"
         );
 
         let right = TabReserve {
@@ -545,12 +564,65 @@ mod tests {
             gap_cols: 0,
         };
         let surface_width = (4 + 80 * 8 + 4 + 16 * 8 + 4) as f32;
-        let right_span = joined_top_span(surface_width, 4.0, 8.0, 80, right, 0.0);
-        assert!(
-            top_span_contains_x(right_span, surface_width, 643.0),
-            "right junction ends at the content edge"
+        let right_span = joined_top_span(
+            surface_width,
+            4.0,
+            8.0,
+            80,
+            right,
+            right.chrome_gap(padding),
         );
-        assert!(!top_span_contains_x(right_span, surface_width, 644.0));
+        assert!(
+            top_span_contains_x(right_span, surface_width, 647.0),
+            "the junction gap strip is bar band up to the rail edge"
+        );
+        assert!(
+            !top_span_contains_x(right_span, surface_width, 648.0),
+            "the rail band starts where the bar band ends"
+        );
+    }
+
+    #[test]
+    fn top_band_background_reaches_the_rail_edge_with_nonzero_padding() {
+        // Frame-continuity contract: with a pinned left rail and nonzero window
+        // padding, the top band's painted background (wash + seam + base gaps)
+        // must extend leftward across the gap strip to the rail band edge, so
+        // the chrome bands stay joined while the tabs keep their gap inset.
+        let reserve = TabReserve {
+            top_rows: 1,
+            left_cols: 16,
+            right_cols: 0,
+            gap_cols: 0,
+        };
+        let padding = WindowPadding::from_logical(4.0, 1.0);
+        let mut spec = base(PanelAxis::Top);
+        spec.top_span = joined_top_span(800.0, 4.0, 8.0, 80, reserve, reserve.chrome_gap(padding));
+        let rail_edge = 4.0 + 16.0 * 8.0; // pad + rail_cols·cell_w = 132
+        let bottom = 4.0 + 16.0; // pad + bar_rows·cell_h = 20
+
+        let quads = panel_quads(&spec);
+        assert_eq!(quads.len(), 2, "wash + seam");
+        assert_eq!(
+            quads[0].rect,
+            [rail_edge, 0.0, 800.0, bottom],
+            "band wash abuts the rail band edge"
+        );
+        assert_eq!(
+            quads[1].rect,
+            [rail_edge, bottom - 1.0, 800.0, bottom],
+            "bottom seam runs to the rail band edge, joining the rail seam"
+        );
+
+        // The base-gap fill covers the junction gap strip: the bar's cell rect
+        // starts a gap PAST the rail edge (tabs stay content-aligned), so the
+        // strip between rail edge and bar cells is painted band background.
+        let bar_cells_left = rail_edge + 4.0; // one gap inside the band edge
+        let gaps = panel_base_gap_quads(&spec, [bar_cells_left, 4.0, 796.0, bottom], 0.8);
+        assert!(
+            gaps.iter()
+                .any(|quad| quad.rect[0] == rail_edge && quad.rect[2] >= bar_cells_left),
+            "a base-gap quad covers the junction strip from the rail edge: {gaps:?}"
+        );
     }
 
     #[test]

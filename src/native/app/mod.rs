@@ -3556,7 +3556,11 @@ impl App {
 
     /// Horizontal span of the drawn top-panel seam. Hit-testing consumes this
     /// same resolved span so every visible segment owns the row-resize target,
-    /// including the pinned or revealed rail junction.
+    /// including the pinned or revealed rail junction. CHROME-GAP: this is the
+    /// band BACKGROUND extent, which abuts a pinned rail band (chrome always
+    /// touches chrome) — the tabs themselves stay gap-inset with the content
+    /// columns, so the gap strip at the junction is painted band and owns the
+    /// seam row-resize, while tab hits are untouched.
     fn top_panel_span(
         &self,
         cell: CellSize,
@@ -3570,7 +3574,7 @@ impl App {
             cell.width as f32,
             self.tab_bar_grid_cols(),
             reserve,
-            reserve.chrome_gap(padding).left,
+            reserve.chrome_gap(padding),
         );
         if span.is_none()
             && self.rail_autohide_active()

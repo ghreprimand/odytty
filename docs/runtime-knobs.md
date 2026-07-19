@@ -183,9 +183,12 @@ environment variable was not set at startup.
 boundary around it — not just the window edges. A pinned workspace rail's
 content-facing edge and the tab bar's bottom edge get the same gap, so content
 never touches chrome. The grid gives up whatever whole cells the gap displaces,
-keeping text clear of every band. At `0` everything is flush, exactly as
-before. The auto-hidden rail is unaffected: its revealed overlay floats over
-full-bleed content without reflowing it.
+keeping text clear of every band. The chrome bands themselves stay joined:
+where a pinned rail meets the tab bar, the bar band's background extends
+across the gap to the rail edge (the tabs keep their content-aligned inset),
+so the frame reads as one continuous piece. At `0` everything is flush,
+exactly as before. The auto-hidden rail is unaffected: its revealed overlay
+floats over full-bleed content without reflowing it.
 
 ### Make The Window Transparent
 
