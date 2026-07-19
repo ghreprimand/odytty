@@ -104,6 +104,18 @@ fn osc_sets_window_title() {
 }
 
 #[test]
+fn osc_title_with_many_semicolon_fields_is_not_truncated() {
+    // A title whose payload has more semicolon-separated fields than the
+    // parser's parameter table must arrive complete: the final parameter
+    // slot absorbs the tail verbatim, and the rejoin recovers every byte.
+    let mut terminal = Terminal::new(80, 3);
+    let fields: Vec<String> = (0..17).map(|n| n.to_string()).collect();
+    let title = fields.join(";");
+    terminal.advance(format!("\x1b]2;{title}\x07").as_bytes());
+    assert_eq!(terminal.title(), Some(title.as_str()));
+}
+
+#[test]
 fn osc_title_payload_does_not_leak_into_grid() {
     let mut terminal = Terminal::new(20, 2);
     terminal.advance(b"A\x1b]2;NOTONSCREEN\x07B");

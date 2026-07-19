@@ -243,6 +243,65 @@ fn osc_bel_and_st_terminators() {
 }
 
 #[test]
+fn osc_with_exactly_max_params_keeps_every_field_distinct() {
+    // 16 fields fill the parameter table exactly; each stays its own param.
+    let payload: Vec<String> = (0..16).map(|n| n.to_string()).collect();
+    let bytes = format!("\x1b]{}\x07", payload.join(";"));
+    let expected: Vec<Vec<u8>> = payload.iter().map(|f| f.as_bytes().to_vec()).collect();
+    assert_eq!(
+        drive(bytes.as_bytes()),
+        vec![Action::Osc {
+            params: expected,
+            bell: true,
+        }]
+    );
+}
+
+#[test]
+fn osc_overflow_fields_are_absorbed_into_the_final_param() {
+    // More fields than parameter slots: the final slot absorbs the rest of
+    // the payload verbatim (separators included) instead of silently
+    // dropping the tail, so rejoining the params with `;` reconstructs the
+    // exact original payload.
+    let payload: Vec<String> = (0..20).map(|n| n.to_string()).collect();
+    let bytes = format!("\x1b]{}\x07", payload.join(";"));
+    let actions = drive(bytes.as_bytes());
+    let Action::Osc { params, bell: true } = &actions[0] else {
+        panic!("expected an OSC dispatch, got {actions:?}");
+    };
+    assert_eq!(params.len(), 16);
+    for (index, param) in params.iter().take(15).enumerate() {
+        assert_eq!(param, index.to_string().as_bytes());
+    }
+    assert_eq!(params[15], b"15;16;17;18;19".to_vec());
+    let rejoined = params
+        .iter()
+        .map(|p| String::from_utf8_lossy(p).into_owned())
+        .collect::<Vec<_>>()
+        .join(";");
+    assert_eq!(rejoined, payload.join(";"), "exact payload reconstruction");
+}
+
+#[test]
+fn semicolon_rich_osc8_hyperlink_payload_survives_intact() {
+    // An OSC 8 URI with many literal semicolons pushes the field count past
+    // the table; the tail must arrive complete for the URI to be usable.
+    let payload = "8;;http://example.test/a;b;c;d;e;f;g;h;i;j;k;l;m;n;o;p;q;r";
+    let bytes = format!("\x1b]{payload}\x07");
+    let actions = drive(bytes.as_bytes());
+    let Action::Osc { params, bell: true } = &actions[0] else {
+        panic!("expected an OSC dispatch, got {actions:?}");
+    };
+    assert_eq!(params.len(), 16);
+    let rejoined = params
+        .iter()
+        .map(|p| String::from_utf8_lossy(p).into_owned())
+        .collect::<Vec<_>>()
+        .join(";");
+    assert_eq!(rejoined, payload, "the URI tail is not truncated");
+}
+
+#[test]
 fn dcs_hook_put_unhook() {
     assert_eq!(
         drive(b"\x1bP1;2|ab\x1b\\"),

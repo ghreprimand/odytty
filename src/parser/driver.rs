@@ -31,7 +31,8 @@
 //! ## OSC / APC buffering (PA2-r caps)
 //!
 //! - **OSC**: [`MAX_OSC_RAW`] = 128 KiB. Payload accumulated; semicolons split
-//!   into params; terminators BEL / ST. Over-cap → drop further payload bytes
+//!   into params (at most [`MAX_OSC_PARAMS`], the final param absorbing any
+//!   overflow tail verbatim); terminators BEL / ST. Over-cap → drop further payload bytes
 //!   (the OSC still dispatches on terminator with the in-cap prefix, matching
 //!   the first-generation observable behavior). The cap is sized for
 //!   realistic OSC 52 (clipboard base64) and OSC 8 (hyperlinks).
@@ -44,7 +45,10 @@ use super::action::Action;
 use super::machine::{Machine, State};
 use super::segmenter::{GroundResult, Segmenter};
 
-/// Maximum OSC parameters (semicolon-separated fields) retained.
+/// Maximum OSC parameter slots. Payloads with more semicolon-separated fields
+/// than this are NOT truncated: the final slot absorbs the rest of the payload
+/// (separators included) as one bounded tail, so consumers that rejoin params
+/// with `;` recover the exact original bytes.
 const MAX_OSC_PARAMS: usize = 16;
 
 /// Cap on the OSC payload buffer. Raised to 128 KiB from the first-generation
@@ -194,24 +198,53 @@ impl OdyParser {
         self.osc_raw.push(byte);
     }
 
+    /// Record a parameter boundary (a `;` in the OSC payload). Once every
+    /// slot but the last is taken, further separators are kept IN the raw
+    /// buffer instead of being consumed: the final slot then absorbs the rest
+    /// of the payload verbatim at dispatch, so a payload with more than
+    /// [`MAX_OSC_PARAMS`] fields (a semicolon-rich title or OSC 8 URL) is
+    /// delivered complete — consumers that rejoin parameters with `;`
+    /// reconstruct the exact original bytes — rather than silently losing its
+    /// tail. The tail stays bounded by [`MAX_OSC_RAW`] like all OSC payload.
     fn osc_snapshot_param(&mut self) {
         let idx = self.osc_raw.len();
         let param_idx = self.osc_num_params as usize;
-        match param_idx {
-            0 => self.osc_params[param_idx] = (0, idx),
-            MAX_OSC_PARAMS => return,
-            _ => {
-                let begin = self.osc_params[param_idx - 1].1;
-                self.osc_params[param_idx] = (begin, idx);
-            }
+        if param_idx >= MAX_OSC_PARAMS - 1 {
+            self.osc_put(b';');
+            return;
         }
+        let begin = if param_idx == 0 {
+            0
+        } else {
+            self.osc_params[param_idx - 1].1
+        };
+        self.osc_params[param_idx] = (begin, idx);
+        self.osc_num_params += 1;
+    }
+
+    /// Record the final parameter (the bytes between the last recorded
+    /// boundary and the terminator) — including any absorbed overflow tail.
+    fn osc_final_param(&mut self) {
+        let idx = self.osc_raw.len();
+        let param_idx = self.osc_num_params as usize;
+        if param_idx >= MAX_OSC_PARAMS {
+            // Unreachable while boundaries cap at MAX_OSC_PARAMS - 1; kept
+            // defensive so a future cap change cannot index out of bounds.
+            return;
+        }
+        let begin = if param_idx == 0 {
+            0
+        } else {
+            self.osc_params[param_idx - 1].1
+        };
+        self.osc_params[param_idx] = (begin, idx);
         self.osc_num_params += 1;
     }
 
     fn osc_dispatch_now<D: VtDispatch>(&mut self, sink: &mut D, bell: bool) {
         // Snapshot the trailing implicit param (the bytes between the last `;`
-        // and the terminator).
-        self.osc_snapshot_param();
+        // and the terminator), which also carries any absorbed overflow tail.
+        self.osc_final_param();
         let count = self.osc_num_params as usize;
         // `osc_snapshot_param` caps `osc_num_params` at `MAX_OSC_PARAMS`, so the
         // param slices always fit a fixed stack array. Filling it in place avoids

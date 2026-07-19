@@ -7,6 +7,34 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- OSC payloads with many semicolon fields no longer lose their tail
+
+The VT parser records at most 16 OSC parameter ranges. Payloads with more
+semicolon-separated fields than that silently lost everything past the 16th
+field: the overflow bytes accumulated in the raw buffer but no parameter
+range ever exposed them, so consumers that rejoin parameters (window titles,
+OSC 7 working directories, OSC 8 hyperlink URIs with literal semicolons in
+the target) received a truncated prefix with no indication anything was cut.
+
+Chosen: the final parameter slot now absorbs the rest of the payload
+verbatim, separators included, as one bounded tail. Overflow separators are
+kept in the raw buffer instead of being consumed, so rejoining the delivered
+parameters with `;` reconstructs the exact original payload byte for byte.
+Rejecting the whole OSC was considered and dropped on test evidence: a
+semicolon-rich OSC 8 URI is a legitimate sequence, and discarding a valid
+title over field count would be a worse failure than the one being fixed.
+Payloads with 16 or fewer fields dispatch exactly as before, and the tail
+stays bounded by the existing 128 KiB OSC payload cap. Exact-byte tests cover
+the 16-field boundary, a 20-field overflow, a semicolon-rich OSC 8 URI, and
+an end-to-end window title.
+
+The parser is platform-neutral; no platform-specific surface.
+
+`cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --locked`
+all clean.
+
+---
+
 ## 2026-07-19 -- Snapshot capture coupled to decode budgets; host thread spawns made fallible
 
 Session snapshots are now guaranteed self-decodable. Capture limits previously
