@@ -293,9 +293,11 @@ pub(super) fn panel_quads(spec: &PanelQuadSpec) -> Vec<SolidQuad> {
 
 /// Build the F4-P3 rail **auto-hide overlay** wash + seam, returned as two
 /// separate quads so the integration layer can layer them around the floating
-/// strip: the **wash draws UNDER** the strip cells (occluding the live content
-/// the revealed rail floats over — near-opaque, `wash_alpha ≥ 0.85`), and the
-/// **seam draws OVER** the strip (the content-facing edge line).
+/// strip: the **wash draws UNDER** the strip cells (muting the live content the
+/// revealed rail floats over — CHROME-ALPHA: at the same shared panel-wash
+/// alpha as the pinned bands, so the band's translucency does not depend on
+/// the autohide state), and the **seam draws OVER** the strip (the
+/// content-facing edge line).
 ///
 /// Unlike [`panel_quads`], the overlay band is NOT grid-embedded — the caller
 /// supplies the resolved content-facing `seam_x` directly (a left band hugs the
@@ -808,5 +810,59 @@ mod tests {
             w.is_none() && s.is_none(),
             "degenerate surface emits nothing"
         );
+    }
+
+    /// CHROME-ALPHA regression: for the same wash alpha, the pinned band
+    /// builder and the auto-hide overlay builder emit washes at EXACTLY that
+    /// alpha — neither path floors, scales, or otherwise diverges, so a chrome
+    /// band composes the same effective translucency in both autohide states.
+    /// (The old reveal path floored its wash at 0.85, which made toggling
+    /// auto-hide visibly change the band's opacity under a translucent
+    /// window.) Zero alpha suppresses the wash on both paths identically.
+    #[test]
+    fn pinned_and_overlay_band_washes_carry_the_same_alpha() {
+        for alpha in [0.05_f32, 0.2, 0.6, 0.9] {
+            let mut spec = base(PanelAxis::Left);
+            spec.wash_alpha = alpha;
+            spec.seam = None;
+            let pinned = panel_quads(&spec);
+            assert_eq!(pinned.len(), 1, "pinned band: wash only");
+            let (overlay, _) = overlay_band_quads(
+                PanelAxis::Left,
+                132.0,
+                800.0,
+                600.0,
+                1.0,
+                PANEL,
+                alpha,
+                None,
+                0.45,
+            );
+            let overlay = overlay.expect("overlay wash present");
+            assert!(
+                (pinned[0].color[3] - alpha).abs() < 1e-6
+                    && (overlay.color[3] - alpha).abs() < 1e-6,
+                "both washes carry alpha {alpha} exactly: pinned {} overlay {}",
+                pinned[0].color[3],
+                overlay.color[3]
+            );
+        }
+        // Zero alpha: no wash from either path.
+        let mut spec = base(PanelAxis::Left);
+        spec.wash_alpha = 0.0;
+        spec.seam = None;
+        assert!(panel_quads(&spec).is_empty());
+        let (overlay, _) = overlay_band_quads(
+            PanelAxis::Left,
+            132.0,
+            800.0,
+            600.0,
+            1.0,
+            PANEL,
+            0.0,
+            None,
+            0.45,
+        );
+        assert!(overlay.is_none(), "zero-alpha overlay wash suppressed");
     }
 }

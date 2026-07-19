@@ -3594,6 +3594,23 @@ impl App {
         span
     }
 
+    /// CHROME-ALPHA: the one shared paint decision for every chrome-panel
+    /// surface this frame — the panel surface color, the panel-wash alpha, and
+    /// the optional seam color. The pinned top-bar band, the pinned rail band,
+    /// and the auto-hide rail overlay ALL take their wash from here, so the
+    /// chrome bands compose to the same effective translucency regardless of
+    /// the autohide state or placement. Any future divergence must edit this
+    /// chokepoint, not a caller.
+    fn chrome_panel_paint(&self) -> (crate::theme::Srgb, f32, Option<crate::theme::Srgb>) {
+        let strength = self.tab_panel_strength();
+        let colors = self.tab_bar_colors();
+        let panel_color = tab_chrome::panel_tint(colors, strength);
+        let wash_alpha = tab_chrome::panel_wash_alpha(strength, self.settings.cell_bg_opacity);
+        let seam = (self.settings.tab_seam && strength > 0.0)
+            .then(|| tab_chrome::seam_color(colors, panel_color));
+        (panel_color, wash_alpha, seam)
+    }
+
     /// Build the F4-P1 unified-panel background quads (ODP-1 wash + ODP-2 seam)
     /// for the current frame, in surface pixels. Empty when the bar is hidden,
     /// the GPU is not up yet, or the band is degenerate; the caller splices these
@@ -3613,12 +3630,7 @@ impl App {
         }
         let (surface_w, surface_h) = gpu.surface_size();
         let padding = gpu.window_padding();
-        let strength = self.tab_panel_strength();
-        let colors = self.tab_bar_colors();
-        let panel_color = tab_chrome::panel_tint(colors, strength);
-        let wash_alpha = tab_chrome::panel_wash_alpha(strength, self.settings.cell_bg_opacity);
-        let seam = (self.settings.tab_seam && strength > 0.0)
-            .then(|| tab_chrome::seam_color(colors, panel_color));
+        let (panel_color, wash_alpha, seam) = self.chrome_panel_paint();
         let top_span = if show_top {
             self.top_panel_span(cell, surface_w as f32, padding)
         } else {
@@ -4536,10 +4548,15 @@ impl App {
         })
     }
 
-    /// The revealed rail overlay's occluding wash (`p_reveal = max(p, 0.85)`,
-    /// near-opaque so live content never bleeds through the floating band) and
-    /// its content-facing seam, in surface pixels. Reuses the panel colors +
-    /// seam gate; the geometry hugs the window edge (not grid-embedded), so it
+    /// The revealed rail overlay's wash and its content-facing seam, in surface
+    /// pixels. CHROME-ALPHA: the wash takes the SAME panel-wash alpha as the
+    /// pinned bands (via [`Self::chrome_panel_paint`]) — the floating rail is
+    /// the same chrome surface, so toggling auto-hide can no longer change the
+    /// band's effective translucency. The old dedicated near-opaque reveal
+    /// floor (`max(p, 0.85)`) made the revealed band ignore the window's
+    /// translucency entirely, which read as a jarring opacity jump against the
+    /// tab bar and the pinned rail once window transparency shipped on by
+    /// default. The geometry hugs the window edge (not grid-embedded), so it
     /// goes through [`tab_panel::overlay_band_quads`] with the resolved seam x.
     fn build_rail_overlay_quads(
         &self,
@@ -4550,13 +4567,7 @@ impl App {
             return (None, None);
         };
         let (surface_w, surface_h) = gpu.surface_size();
-        let strength = self.tab_panel_strength();
-        let colors = self.tab_bar_colors();
-        let panel_color = tab_chrome::panel_tint(colors, strength);
-        let p = tab_chrome::panel_wash_alpha(strength, self.settings.cell_bg_opacity);
-        let wash_alpha = p.max(rail_autohide::REVEAL_WASH_ALPHA);
-        let seam = (self.settings.tab_seam && strength > 0.0)
-            .then(|| tab_chrome::seam_color(colors, panel_color));
+        let (panel_color, wash_alpha, seam) = self.chrome_panel_paint();
         let seam_x = self.rail_overlay_seam_x(cell, side);
         let axis = match side {
             RailSide::Left => tab_panel::PanelAxis::Left,

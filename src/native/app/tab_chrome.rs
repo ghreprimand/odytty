@@ -724,19 +724,19 @@ mod tests {
 
     #[test]
     fn revealed_autohide_panel_keeps_fills_and_labels_identifiable() {
-        // ODP-6 extra case (F4-P3): the auto-hide reveal draws the panel wash at
-        // `p_reveal = max(p, 0.85)` — near-opaque — over live content. The
+        // ODP-6 extra case (F4-P3): the auto-hide reveal draws the SHARED
+        // panel wash (CHROME-ALPHA: one wash for every chrome surface — the
+        // old dedicated 0.85 reveal floor is gone) over live content. The
         // worst-case backing for readability is mid-gray content (neither dark
-        // nor light). At that alpha over mid-gray, assertions (4)–(6) still hold:
-        // the active fill, active label, and nearest inactive label stay
-        // distinguishable from the revealed panel surface.
+        // nor light). At a strong veil — the band a full-strength panel
+        // composes — assertions (4)–(6) still hold: the active fill, active
+        // label, and nearest inactive label stay distinguishable from the
+        // revealed panel surface. (A deliberately weak panel trades this
+        // occlusion away for a consistent translucency across autohide states;
+        // that is the knob's meaning, not a legibility regression.)
         const STRENGTH: f32 = 0.5;
         const MID_GRAY: Srgb = (0x80, 0x80, 0x80);
-        let p_reveal = super::super::rail_autohide::REVEAL_WASH_ALPHA;
-        assert!(
-            (p_reveal - 0.85).abs() < 1e-6,
-            "the guard is written for the 0.85 reveal floor"
-        );
+        let p_reveal = 0.85_f32;
         for theme in crate::theme::all() {
             let colors = colors_for(theme);
             let panel = panel_tint(colors, STRENGTH);

@@ -47,10 +47,14 @@ pub(super) const HIDE_GRACE: Duration = Duration::from_millis(600);
 /// Keyboard-action flash duration (Zen's new-tab flash): a tab chord reveals the
 /// rail this long regardless of pointer position.
 pub(super) const FLASH: Duration = Duration::from_millis(1000);
-/// Panel-wash alpha floor while revealed (ODP-4 / ODP-6): the overlay sits over
-/// live terminal text and must be readable, so its wash is `max(p, 0.85)` —
-/// near-opaque, unlike the pinned surface's translucent `p`.
-pub(super) const REVEAL_WASH_ALPHA: f32 = 0.85;
+// CHROME-ALPHA: the revealed overlay used to carry its own near-opaque
+// panel-wash floor (`max(p, 0.85)`, ODP-4 / ODP-6) so live content never
+// showed through the floating band. That made the revealed band ignore the
+// window's translucency and visibly diverge from the pinned band and the tab
+// bar under a translucent window. The overlay now shares the pinned bands'
+// wash verbatim (`App::chrome_panel_paint`); at the shipped panel-strength
+// default the band composes near-opaque anyway, preserving the legibility
+// intent without a state-dependent alpha.
 
 /// Pointer-driven reveal phase. Orthogonal to the keyboard `flash` latch: the
 /// rail is visible when EITHER the pointer phase is revealed-ish OR a flash is

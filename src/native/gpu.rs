@@ -501,9 +501,10 @@ pub(super) struct OverlayTop<'a> {
 
 /// The F4-P3 rail **auto-hide overlay**: the revealed rail band drawn as a
 /// floating strip at its window edge, over live content, without any content
-/// reflow. Composited topmost like an [`OverlayTop`], but with a three-layer
-/// stack around the strip snapshot so the near-opaque band reads over the
-/// terminal beneath it:
+/// reflow. Composited topmost like an [`OverlayTop`], but with a layered stack
+/// around the strip snapshot so the band reads over the terminal beneath it
+/// (CHROME-ALPHA: cells and wash compose the same effective translucency as
+/// the pinned bands, so autohide state never changes the band's opacity):
 /// 1. strip cell backgrounds and panel-colored outer remainder strips.
 /// 2. `wash` over cell backgrounds, excluding the already-filled remainders.
 /// 3. strip glyphs and `widget_quads` reorder indicators.
@@ -3530,8 +3531,14 @@ impl GpuState {
             0.0,
             rail.origin,
             rail.treatment,
-            self.cell_bg_opacity,
-            // The rail strip is its own opaque overlay; no merged panel to force.
+            // CHROME-ALPHA: the strip's cell backgrounds compose the window's
+            // translucency exactly like the pinned band cells (and every other
+            // chrome/content cell), so toggling auto-hide cannot change the
+            // band's effective opacity. The raw `cell_bg_opacity` here made the
+            // floating rail ignore window transparency entirely.
+            self.content_build_opacity(),
+            // The rail strip is its own floating overlay; no merged panel to
+            // force.
             None,
             rail_overlay_chrome_pin(rail.snapshot.dimensions.columns, rail.rail_glyph_dy_rows),
         );
