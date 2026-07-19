@@ -25,7 +25,8 @@ pub fn run_interactive() -> Result<()> {
     // shim the session host uses: a wedged shell (stopped, full slave buffer)
     // parks the dedicated writer thread, never this loop — input decoding and
     // rendering stay responsive and queued memory stays capped.
-    let writer = crate::session_host::HostPtyWriter::spawn(session.take_writer()?);
+    let writer = crate::session_host::HostPtyWriter::spawn(session.take_writer()?)
+        .context("spawn pty writer thread")?;
     let (pty_tx, pty_rx) = mpsc::channel();
     let (input_tx, input_rx) = mpsc::channel();
 

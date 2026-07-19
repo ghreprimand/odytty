@@ -50,6 +50,22 @@ impl Default for SnapshotCaptureLimits {
 /// truncated title). It also keeps each length within the `u16` on-wire prefix.
 pub const DEFAULT_MAX_STRING_BYTES: usize = 4096;
 
+/// Worst-case wire bytes for one encoded cell: char scalar (4), attribute
+/// flags (2), underline style (1), optional RGB underline color (1 + 4),
+/// RGB foreground (4), RGB background (4), hyperlink id (4), protected (1),
+/// wide-continuation (1), combining count (1) and `MAX_COMBINING` (4)
+/// combining scalars (4 each). Pinned by `maximal_cell_wire_len_is_pinned` so
+/// a wire format change cannot silently drift the budgets derived from it.
+pub const MAX_CELL_WIRE_BYTES: usize = 43;
+
+/// Wire bytes per row beyond its cells: wrapped flag (1) + width prefix (4).
+pub const ROW_WIRE_OVERHEAD_BYTES: usize = 5;
+
+/// Wire bytes of the terminal-state section ahead of the two row lists:
+/// dimensions (8), cursor (8), cursor visibility/style/blink (3), and basic
+/// modes (11). Pinned by `terminal_state_prelude_wire_len_is_pinned`.
+pub const TERMINAL_STATE_PRELUDE_WIRE_BYTES: usize = 30;
+
 /// Decode-side resource caps. These are separate from capture limits so an
 /// attaching client can reject untrusted or future-expanded files before
 /// allocating large buffers.
@@ -80,6 +96,22 @@ impl Default for SnapshotEnvelopeCaps {
     }
 }
 
+impl SnapshotEnvelopeCaps {
+    /// Largest visible-grid cell count whose terminal-state section is
+    /// guaranteed to decode under these caps even when every cell encodes at
+    /// its worst-case wire size and no scrollback can be shed. Capture can
+    /// truncate scrollback to fit the section budget, but the visible grid is
+    /// structural (the decoder requires exactly `rows` visible rows), so any
+    /// producer accepting untrusted dimensions must bound the visible grid by
+    /// this figure or risk emitting a snapshot its own consumers reject.
+    pub fn max_self_decodable_visible_cells(&self) -> usize {
+        let fixed = TERMINAL_STATE_PRELUDE_WIRE_BYTES
+            .saturating_add(2 * 4)
+            .saturating_add(self.max_rows.saturating_mul(ROW_WIRE_OVERHEAD_BYTES));
+        (self.max_section_len.saturating_sub(fixed) / MAX_CELL_WIRE_BYTES).min(self.max_cells)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotEnvelope {
     pub producer_version: String,
@@ -93,7 +125,19 @@ pub struct SnapshotEnvelope {
 
 impl SnapshotEnvelope {
     pub fn from_terminal(terminal: &Terminal, limits: SnapshotCaptureLimits) -> Self {
-        let terminal_state = terminal.snapshot_state(limits.max_scrollback_rows);
+        let mut terminal_state = terminal.snapshot_state(limits.max_scrollback_rows);
+        terminal_state.bound_to_decode_budget();
+        // Prompt-mark rows index the terminal's FULL history (row 0 = oldest
+        // physical scrollback row), while the captured state holds only the
+        // newest rows that survived both the capture limit and the decode
+        // budget above. Rebase each mark onto the captured window and drop
+        // marks whose rows were truncated away; an unrebased mark would point
+        // at the wrong row, or fail the whole restore as out of range.
+        let dropped = terminal
+            .screen()
+            .scrollback_len()
+            .saturating_sub(terminal_state.scrollback_rows.len());
+        let total_rows = terminal_state.scrollback_rows.len() + terminal_state.visible_rows.len();
         Self {
             producer_version: env!("CARGO_PKG_VERSION").to_owned(),
             protocol_version: SNAPSHOT_PROTOCOL_VERSION,
@@ -103,7 +147,10 @@ impl SnapshotEnvelope {
             prompt_marks: terminal
                 .prompt_marks()
                 .into_iter()
-                .map(|(row, kind)| SnapshotPromptMark { row, kind })
+                .filter_map(|(row, kind)| {
+                    let row = row.checked_sub(dropped)?;
+                    (row < total_rows).then_some(SnapshotPromptMark { row, kind })
+                })
                 .collect(),
             layout: terminal.snapshot_layout_state(),
         }
@@ -401,17 +448,81 @@ pub struct SnapshotTerminalState {
 impl SnapshotTerminalState {
     fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        write_u32(&mut out, self.dimensions.columns as u32);
-        write_u32(&mut out, self.dimensions.rows as u32);
-        write_u32(&mut out, self.cursor.row as u32);
-        write_u32(&mut out, self.cursor.column as u32);
-        write_u8(&mut out, u8::from(self.cursor_visible));
-        write_u8(&mut out, encode_cursor_style(self.cursor_style));
-        write_u8(&mut out, u8::from(self.cursor_blink));
-        self.basic_modes.encode(&mut out);
+        self.encode_prelude(&mut out);
         write_rows(&mut out, &self.scrollback_rows);
         write_rows(&mut out, &self.visible_rows);
         out
+    }
+
+    /// Everything the terminal-state section carries ahead of the two row
+    /// lists. Split out so the capture-side budget check measures the fixed
+    /// cost with the same encoder that produces the wire bytes.
+    fn encode_prelude(&self, out: &mut Vec<u8>) {
+        write_u32(out, self.dimensions.columns as u32);
+        write_u32(out, self.dimensions.rows as u32);
+        write_u32(out, self.cursor.row as u32);
+        write_u32(out, self.cursor.column as u32);
+        write_u8(out, u8::from(self.cursor_visible));
+        write_u8(out, encode_cursor_style(self.cursor_style));
+        write_u8(out, u8::from(self.cursor_blink));
+        self.basic_modes.encode(out);
+    }
+
+    /// Truncate the oldest scrollback rows until this state decodes under the
+    /// DEFAULT decoder caps: the row-count cap, the total-cell cap, and the
+    /// terminal-section byte cap. Capture limits bound only how much history
+    /// is copied out of the terminal; without this coupling a wide session
+    /// with deep scrollback encodes a terminal section larger than the
+    /// decoder's section budget, and the host serves a snapshot every default
+    /// consumer rejects — leaving the session permanently un-attachable.
+    /// Returns the number of scrollback rows dropped so the caller can rebase
+    /// row-indexed metadata (prompt marks) onto the truncated history.
+    ///
+    /// Byte costs are measured with the same row encoder that produces the
+    /// wire bytes, so the bound cannot drift from the format.
+    fn bound_to_decode_budget(&mut self) -> usize {
+        self.bound_to_decode_budget_with(&SnapshotEnvelopeCaps::default())
+    }
+
+    fn bound_to_decode_budget_with(&mut self, caps: &SnapshotEnvelopeCaps) -> usize {
+        let before = self.scrollback_rows.len();
+        let columns = self.dimensions.columns.max(1);
+
+        // Row-count and total-cell budgets (cheap, count arithmetic only).
+        let cell_budget_rows = (caps.max_cells / columns).saturating_sub(self.visible_rows.len());
+        let keep = before.min(caps.max_scrollback_rows).min(cell_budget_rows);
+        if keep < self.scrollback_rows.len() {
+            let drop = self.scrollback_rows.len() - keep;
+            self.scrollback_rows.drain(..drop);
+        }
+
+        // Section byte budget: fixed prelude + both row-count prefixes + the
+        // visible rows are mandatory; the newest scrollback rows that still
+        // fit are kept, oldest first to go.
+        let mut scratch = Vec::new();
+        self.encode_prelude(&mut scratch);
+        let mut used = scratch.len() + 2 * 4;
+        for row in &self.visible_rows {
+            scratch.clear();
+            write_row(&mut scratch, row);
+            used = used.saturating_add(scratch.len());
+        }
+        let mut keep_from = self.scrollback_rows.len();
+        for (index, row) in self.scrollback_rows.iter().enumerate().rev() {
+            scratch.clear();
+            write_row(&mut scratch, row);
+            match used.checked_add(scratch.len()) {
+                Some(total) if total <= caps.max_section_len => {
+                    used = total;
+                    keep_from = index;
+                }
+                _ => break,
+            }
+        }
+        if keep_from > 0 {
+            self.scrollback_rows.drain(..keep_from);
+        }
+        before - self.scrollback_rows.len()
     }
 
     fn decode(bytes: &[u8], caps: SnapshotEnvelopeCaps) -> Result<Self, SnapshotEnvelopeError> {
@@ -889,11 +1000,15 @@ fn encode_sections_for_version(
 fn write_rows(out: &mut Vec<u8>, rows: &[SnapshotRow]) {
     write_u32(out, rows.len() as u32);
     for row in rows {
-        write_u8(out, u8::from(row.wrapped));
-        write_u32(out, row.cells.len() as u32);
-        for cell in &row.cells {
-            cell.encode(out);
-        }
+        write_row(out, row);
+    }
+}
+
+fn write_row(out: &mut Vec<u8>, row: &SnapshotRow) {
+    write_u8(out, u8::from(row.wrapped));
+    write_u32(out, row.cells.len() as u32);
+    for cell in &row.cells {
+        cell.encode(out);
     }
 }
 
@@ -1615,6 +1730,233 @@ mod tests {
             restored.snapshot_state(usize::MAX).scrollback_rows,
             decoded.terminal.scrollback_rows
         );
+    }
+
+    #[test]
+    fn maximal_cell_wire_len_is_pinned() {
+        // Worst-case cell: RGB underline color, RGB foreground/background,
+        // hyperlink id, all boolean payload bytes, and a full complement of
+        // combining marks. Its encoded size must match the constant the
+        // capture/resize budgets are derived from; if the wire format grows,
+        // this test forces the budget constant to move with it.
+        let cell = SnapshotCell {
+            ch: '\u{10FFFD}',
+            attrs: SnapshotAttrs {
+                bold: true,
+                dim: true,
+                italic: true,
+                underline: true,
+                blink: true,
+                strikethrough: true,
+                inverse: true,
+                hidden: true,
+                underline_style: UnderlineStyle::Curly,
+                underline_color: Some(Color::Rgb(1, 2, 3)),
+                foreground: Color::Rgb(4, 5, 6),
+                background: Color::Rgb(7, 8, 9),
+                hyperlink: Some(77),
+            },
+            protected: true,
+            wide_continuation: true,
+            combining: vec!['\u{301}'; super::super::types::MAX_COMBINING],
+        };
+        let mut out = Vec::new();
+        cell.encode(&mut out);
+        assert_eq!(out.len(), MAX_CELL_WIRE_BYTES);
+    }
+
+    #[test]
+    fn terminal_state_prelude_wire_len_is_pinned() {
+        let state = Terminal::new(4, 2).snapshot_state(0);
+        let mut out = Vec::new();
+        state.encode_prelude(&mut out);
+        assert_eq!(out.len(), TERMINAL_STATE_PRELUDE_WIRE_BYTES);
+    }
+
+    /// A blank-padded terminal state with `scrollback` scrollback rows, each
+    /// row's first cell tagged with a row index so truncation order is
+    /// observable.
+    fn synthetic_state(columns: usize, rows: usize, scrollback: usize) -> SnapshotTerminalState {
+        let make_row = |tag: char| {
+            let mut cells: Vec<SnapshotCell> = vec![Cell::blank().into(); columns];
+            cells[0].ch = tag;
+            SnapshotRow {
+                wrapped: false,
+                cells,
+            }
+        };
+        SnapshotTerminalState {
+            dimensions: Dimensions::new(columns, rows),
+            cursor: Position { row: 0, column: 0 },
+            cursor_visible: true,
+            cursor_style: CursorStyle::Block,
+            cursor_blink: true,
+            basic_modes: Terminal::new(4, 2).snapshot_state(0).basic_modes,
+            scrollback_rows: (0..scrollback)
+                .map(|index| make_row(if index + 1 == scrollback { 'N' } else { 'o' }))
+                .collect(),
+            visible_rows: (0..rows).map(|_| make_row('v')).collect(),
+        }
+    }
+
+    #[test]
+    fn capture_bounding_truncates_oldest_scrollback_to_the_section_budget() {
+        // 200 columns x 10k scrollback rows encodes a terminal section past
+        // the decoder's section cap while staying under the frame cap: the
+        // exact shape that made a session permanently un-attachable (the host
+        // served a snapshot its own default consumers rejected). Bounding
+        // must shed the OLDEST rows until the state is self-decodable.
+        let mut state = synthetic_state(200, 50, 10_000);
+        let unbounded = state.clone().encode();
+        assert!(
+            unbounded.len() > SnapshotEnvelopeCaps::default().max_section_len,
+            "repro shape must exceed the section budget to prove the coupling"
+        );
+
+        let dropped = state.bound_to_decode_budget();
+        assert!(dropped > 0, "over-budget state must shed rows");
+        assert!(
+            state.encode().len() <= SnapshotEnvelopeCaps::default().max_section_len,
+            "bounded terminal section fits the decode budget"
+        );
+        // Newest row survives; only the oldest rows were shed.
+        assert_eq!(
+            state.scrollback_rows.last().expect("rows remain").cells[0].ch,
+            'N'
+        );
+
+        // Pairwise invariant: the bounded capture decodes under the same
+        // default caps its consumers use.
+        let envelope = SnapshotEnvelope {
+            producer_version: "test".to_owned(),
+            protocol_version: SNAPSHOT_PROTOCOL_VERSION,
+            terminal: state,
+            dynamic_colors: DynamicColors::default(),
+            metadata: SnapshotMetadata::default(),
+            prompt_marks: Vec::new(),
+            layout: SnapshotLayoutState::defaults_for(Dimensions::new(200, 50)),
+        };
+        let decoded = SnapshotEnvelope::decode(&envelope.encode(), SnapshotEnvelopeCaps::default())
+            .expect("bounded capture output decodes under matching defaults");
+        assert_eq!(
+            decoded.terminal.scrollback_rows.len(),
+            envelope.terminal.scrollback_rows.len()
+        );
+    }
+
+    #[test]
+    fn capture_bounding_enforces_row_and_cell_budgets() {
+        // Small custom caps make the count-based arms observable without
+        // building 100k-row fixtures: the row-count cap and the total-cell
+        // cap must each shed oldest scrollback independently of byte size.
+        let caps = SnapshotEnvelopeCaps {
+            max_scrollback_rows: 3,
+            ..SnapshotEnvelopeCaps::default()
+        };
+        let mut state = synthetic_state(4, 2, 10);
+        assert_eq!(state.bound_to_decode_budget_with(&caps), 7);
+        assert_eq!(state.scrollback_rows.len(), 3);
+        assert_eq!(state.scrollback_rows[2].cells[0].ch, 'N');
+
+        let caps = SnapshotEnvelopeCaps {
+            // 4 columns x (2 visible + 10 scrollback) = 48 cells; a 28-cell
+            // budget leaves room for 5 scrollback rows beside the visible 2.
+            max_cells: 28,
+            ..SnapshotEnvelopeCaps::default()
+        };
+        let mut state = synthetic_state(4, 2, 10);
+        assert_eq!(state.bound_to_decode_budget_with(&caps), 5);
+        assert_eq!(state.scrollback_rows.len(), 5);
+    }
+
+    #[test]
+    fn deep_wide_session_snapshot_decodes_and_restores_end_to_end() {
+        // End-to-end regression for the 200-column repro: a real terminal
+        // with capture-limit-deep scrollback and prompt marks near the tail
+        // must produce an envelope that decodes AND restores under default
+        // caps, with marks rebased onto the truncated history.
+        let mut terminal = Terminal::new(200, 50);
+        terminal.set_scrollback_limit(SnapshotCaptureLimits::default().max_scrollback_rows);
+        for index in 0..10_100u32 {
+            terminal.advance(format!("row {index}\r\n").as_bytes());
+        }
+        terminal.advance(b"\x1b]133;A\x07tail prompt\r\n");
+
+        let envelope = SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default());
+        let bytes = envelope.encode();
+        let decoded = SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default())
+            .expect("deep wide capture decodes under default caps");
+        assert!(
+            decoded.terminal.scrollback_rows.len() < 10_000,
+            "scrollback was truncated to fit the decode budget"
+        );
+        let total_rows =
+            decoded.terminal.scrollback_rows.len() + decoded.terminal.visible_rows.len();
+        assert!(!decoded.prompt_marks.is_empty(), "tail mark survives");
+        assert!(
+            decoded
+                .prompt_marks
+                .iter()
+                .all(|mark| mark.row < total_rows),
+            "marks are rebased inside the truncated history"
+        );
+        let restored =
+            Terminal::from_snapshot_envelope(&decoded).expect("bounded snapshot restores");
+        assert!(!restored.prompt_marks().is_empty());
+    }
+
+    #[test]
+    fn capture_limit_truncation_rebases_prompt_marks() {
+        // Marks on rows older than the capture window are dropped; marks on
+        // captured rows shift down by the number of rows cut ahead of them.
+        let mut terminal = Terminal::new(8, 2);
+        terminal.set_scrollback_limit(0);
+        terminal.advance(b"\x1b]133;A\x07p0\n");
+        for index in 0..10 {
+            terminal.advance(format!("line{index:02}\n").as_bytes());
+        }
+        terminal.advance(b"\x1b]133;A\x07p1\n");
+
+        let limits = SnapshotCaptureLimits {
+            max_scrollback_rows: 4,
+        };
+        let envelope = SnapshotEnvelope::from_terminal(&terminal, limits);
+        assert_eq!(envelope.terminal.scrollback_rows.len(), 4);
+        let full_marks = terminal.prompt_marks();
+        assert_eq!(full_marks.len(), 2, "both marks live in full history");
+        let dropped = terminal.screen().scrollback_len() - 4;
+        let expected: Vec<_> = full_marks
+            .into_iter()
+            .filter_map(|(row, kind)| {
+                row.checked_sub(dropped)
+                    .map(|row| SnapshotPromptMark { row, kind })
+            })
+            .collect();
+        assert_eq!(expected.len(), 1, "the pre-window mark is dropped");
+        assert_eq!(envelope.prompt_marks, expected);
+        // The rebased envelope restores cleanly (an unrebased mark would be
+        // rejected as out of range or land on the wrong row).
+        Terminal::from_snapshot_envelope(&envelope).expect("rebased marks restore");
+    }
+
+    #[test]
+    fn resize_budget_guarantees_worst_case_visible_grid_decodes() {
+        // The advertised visible-cell budget must be honest: a grid at the
+        // budget filled entirely with worst-case cells still encodes within
+        // the section cap, with zero scrollback room required.
+        let caps = SnapshotEnvelopeCaps::default();
+        let budget = caps.max_self_decodable_visible_cells();
+        assert!(budget >= 500_000, "budget covers any realistic display");
+        assert!(budget <= caps.max_cells);
+        // Worst-case per-cell wire size at the budget fits the section cap.
+        let worst = budget
+            .checked_mul(MAX_CELL_WIRE_BYTES)
+            .and_then(|cells| {
+                cells.checked_add(caps.max_rows.checked_mul(ROW_WIRE_OVERHEAD_BYTES)?)
+            })
+            .and_then(|total| total.checked_add(TERMINAL_STATE_PRELUDE_WIRE_BYTES + 8))
+            .expect("budget arithmetic stays in range");
+        assert!(worst <= caps.max_section_len);
     }
 
     #[test]

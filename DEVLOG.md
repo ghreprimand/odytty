@@ -7,6 +7,54 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Snapshot capture coupled to decode budgets; host thread spawns made fallible
+
+Session snapshots are now guaranteed self-decodable. Capture limits previously
+bounded only the scrollback row count, while the decoder enforces separate
+section-byte, total-cell, and row-count caps — so a wide session with deep
+history (about 200 columns at the 10k-row capture default) encoded a terminal
+section larger than the decoder's section budget while staying under the frame
+cap. The host happily served that snapshot, every default consumer (native
+attach and the CLI alike) rejected it as too large, and the session became
+permanently un-attachable until its state shrank or the host restarted.
+Capture now truncates the OLDEST scrollback rows until the encoded state fits
+the same default budgets the decoder applies, measuring byte costs with the
+exact row encoder that produces the wire bytes so the bound can never drift
+from the format. Prompt marks are rebased onto the truncated history in the
+same pass — marks on shed rows are dropped, surviving marks shift with the
+window — where an unrebased mark would previously have restored onto the wrong
+row or failed the whole restore as out of range once any history was cut.
+
+Client resizes get the matching producer-side bound: the per-axis clamp alone
+admitted a grid of ~16.7M visible cells, four times the decoder's total-cell
+cap and far past what a worst-case encoding fits into the section budget.
+Resize dimensions are now additionally clamped to a total-cell budget derived
+from the decoder caps at worst-case per-cell wire size (still ~780k cells,
+comfortably above any real display; columns are preserved and rows give way).
+The worst-case cell wire size and section prelude size are pinned by tests so
+a wire-format change forces the derived budgets to move with it.
+
+The detached host's three helper-thread spawns (PTY writer, PTY reader, and
+the per-client frame reader) no longer panic on thread-spawn failure. The
+per-client reader was the sharpest edge: it spawns in the host main loop after
+the handshake has already accepted the client, so a spawn failure under
+resource exhaustion unwound the host and killed the hosted shell for every
+attached client at exactly the moment the machine was under stress. All three
+spawns are now fallible; startup failures surface as visible host errors, and
+a per-client reader failure evicts only that client — its socket is shut down
+so the far side observes a clean disconnect, and everyone else keeps their
+session. The admission step is split into a seam so the failure arm is unit
+tested without exhausting real OS threads.
+
+Windows: the session host and its socket protocol are Unix-only, no Windows
+surface; the snapshot envelope changes are platform-neutral encode/decode
+logic covered by the full suite on every CI leg.
+
+`cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --locked`
+all clean.
+
+---
+
 ## 2026-07-19 -- Workspace-state load budgets, opener docs, stem-darken comment
 
 Workspace-state restore gains aggregate load budgets so a corrupt or

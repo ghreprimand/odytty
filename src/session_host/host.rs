@@ -15,7 +15,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::core::{
     Dimensions, SNAPSHOT_FORMAT_VERSION, SNAPSHOT_PROTOCOL_VERSION, SnapshotCaptureLimits,
-    SnapshotEnvelope, Terminal,
+    SnapshotEnvelope, SnapshotEnvelopeCaps, Terminal,
 };
 use crate::pty::PtySession;
 
@@ -61,7 +61,12 @@ const STARTUP_CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
 /// (e.g. `0xFFFFFFFF × 0xFFFFFFFF`) drives `Terminal::resize` into a
 /// multi-exabyte grid allocation that aborts the host and kills the session for
 /// every attached client. 4096 columns/rows comfortably exceeds any real
-/// display while keeping the worst-case grid a few hundred MB.
+/// display while keeping the worst-case grid a few hundred MB. The per-axis
+/// bound alone is not enough: 4096 x 4096 is ~16.7M visible cells, four times
+/// the default snapshot decoder's total-cell cap, so an accepted resize could
+/// make the host emit snapshots its own consumers reject. Resizes are therefore
+/// also clamped to the total-cell budget derived from the decoder caps
+/// ([`SnapshotEnvelopeCaps::max_self_decodable_visible_cells`]).
 const MAX_CLIENT_RESIZE_DIM: usize = 4096;
 
 #[derive(Debug, Clone)]
@@ -304,10 +309,12 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
     // single host loop lets a hosted job that stopped reading its stdin wedge the
     // whole host (no broadcast, no accept, no Shutdown drain). Route every
     // PTY-master write through a bounded writer thread so the loop only enqueues.
-    let pty_writer = HostPtyWriter::spawn(session.take_writer()?);
+    let pty_writer = HostPtyWriter::spawn(session.take_writer()?)
+        .context("spawn session-host pty writer thread")?;
 
     let (pty_tx, pty_rx) = mpsc::channel();
-    spawn_pty_reader(session.try_clone_reader()?, pty_tx);
+    spawn_pty_reader(session.try_clone_reader()?, pty_tx)
+        .context("spawn session-host pty reader thread")?;
 
     let (client_tx, client_rx) = mpsc::channel();
     let mut clients = Vec::new();
@@ -612,9 +619,36 @@ fn handle_attach(
     // With both clones up front, a clone failure leaves nothing behind.
     let writer = stream.try_clone().context("clone session-host writer")?;
     let reader = stream.try_clone().context("clone session-host client")?;
-    spawn_client_reader(id, reader, client_tx.clone());
-    clients.push(ClientConnection { id, stream: writer });
+    admit_client(
+        clients,
+        id,
+        writer,
+        spawn_client_reader(id, reader, client_tx.clone()),
+    );
     Ok(())
+}
+
+/// Final admission step for an accepted client: on a successful reader spawn
+/// the connection joins the broadcast set; on a spawn failure ONLY this client
+/// is evicted (its socket is shut down so the far side observes a disconnect
+/// instead of a silent wedge) and the host keeps serving everyone else. Split
+/// from [`handle_attach`] so the failure arm is unit-testable without
+/// exhausting real OS threads.
+fn admit_client(
+    clients: &mut Vec<ClientConnection>,
+    id: u64,
+    writer: UnixStream,
+    spawn_result: io::Result<()>,
+) {
+    match spawn_result {
+        Ok(()) => clients.push(ClientConnection { id, stream: writer }),
+        Err(_) => {
+            // Both fd clones close: `writer` drops here and the shutdown
+            // reaches the reader clone through the shared socket, mirroring
+            // the eviction path in `broadcast`.
+            let _ = writer.shutdown(std::net::Shutdown::Both);
+        }
+    }
 }
 
 /// The observable state of the hosted child while reaping it after PTY EOF.
@@ -795,12 +829,21 @@ fn drain_client_events(
 
 /// Clamp untrusted wire dimensions to the model bound. The socket is reachable
 /// by any same-user process, so raw `u32` columns/rows must be bounded before a
-/// resize allocates the grid.
+/// resize allocates the grid. Beyond the per-axis bound, the total cell count
+/// is clamped to the largest visible grid the default snapshot decoder is
+/// guaranteed to accept — a grid past that budget would make every future
+/// snapshot of this session undecodable for its own attach/CLI consumers.
+/// Rows give way (columns are kept) because a shell reflows to narrow heights
+/// far more gracefully than to sub-width columns.
 fn clamp_client_dimensions(columns: u32, rows: u32) -> Dimensions {
-    Dimensions::new(
-        (columns as usize).min(MAX_CLIENT_RESIZE_DIM),
-        (rows as usize).min(MAX_CLIENT_RESIZE_DIM),
-    )
+    let columns = (columns as usize).min(MAX_CLIENT_RESIZE_DIM);
+    let rows = (rows as usize).min(MAX_CLIENT_RESIZE_DIM);
+    let budget = SnapshotEnvelopeCaps::default().max_self_decodable_visible_cells();
+    let rows = match columns.checked_mul(rows) {
+        Some(cells) if cells <= budget => rows,
+        _ => (budget / columns.max(1)).clamp(1, rows),
+    };
+    Dimensions::new(columns, rows)
 }
 
 /// Select the final resize in a drained batch whose client is still attached,
@@ -837,79 +880,93 @@ fn has_client(clients: &[ClientConnection], id: u64) -> bool {
     clients.iter().any(|client| client.id == id)
 }
 
-fn spawn_pty_reader(mut reader: Box<dyn Read + Send>, tx: Sender<PtyEvent>) {
-    thread::spawn(move || {
-        let mut buffer = [0; 8192];
-        loop {
-            match reader.read(&mut buffer) {
-                Ok(0) => {
-                    let _ = tx.send(PtyEvent::Eof);
-                    break;
-                }
-                Ok(len) => {
-                    if tx.send(PtyEvent::Output(buffer[..len].to_vec())).is_err() {
+/// Spawn the PTY output pump. Fallible: thread creation can fail under
+/// resource exhaustion, and a startup spawn failure must surface as a visible
+/// host error rather than a panic unwinding the caller.
+fn spawn_pty_reader(mut reader: Box<dyn Read + Send>, tx: Sender<PtyEvent>) -> io::Result<()> {
+    thread::Builder::new()
+        .name("odytty-host-pty-reader".to_owned())
+        .spawn(move || {
+            let mut buffer = [0; 8192];
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) => {
+                        let _ = tx.send(PtyEvent::Eof);
                         break;
                     }
-                }
-                // EINTR is a retry, not an error: a signal delivery mid-read
-                // must not tear down the whole session's output pump.
-                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-                Err(error) => {
-                    let _ = tx.send(PtyEvent::Error(error));
-                    break;
+                    Ok(len) => {
+                        if tx.send(PtyEvent::Output(buffer[..len].to_vec())).is_err() {
+                            break;
+                        }
+                    }
+                    // EINTR is a retry, not an error: a signal delivery mid-read
+                    // must not tear down the whole session's output pump.
+                    Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                    Err(error) => {
+                        let _ = tx.send(PtyEvent::Error(error));
+                        break;
+                    }
                 }
             }
-        }
-    });
+        })
+        .map(|_| ())
 }
 
-fn spawn_client_reader(id: u64, mut stream: UnixStream, tx: Sender<ClientEvent>) {
-    thread::spawn(move || {
-        // Poll with a bounded read timeout instead of blocking forever. A client
-        // that sends a frame header and then withholds the body would otherwise
-        // pin this thread and its client slot indefinitely (repeatable to the
-        // client cap to wedge every slot). Idle time BETWEEN frames stays
-        // legitimate: a timeout with no partial frame is ignored, so a quiet
-        // attached client is never detached. Best-effort: if the socket rejects
-        // the timeout the reader falls back to blocking (the prior behavior).
-        let _ = stream.set_read_timeout(Some(CLIENT_READ_POLL_TIMEOUT));
-        let mut reader = ClientFrameReader::default();
-        let mut frame_started: Option<Instant> = None;
-        loop {
-            match reader.read(&mut stream) {
-                Ok(ClientFramePoll::Frame(frame)) => {
-                    frame_started = None;
-                    // Both Detach and Shutdown are terminal for this reader: the
-                    // client is going away (detach) or the whole host is (kill).
-                    let last = matches!(frame, ClientFrame::Detach | ClientFrame::Shutdown);
-                    if tx.send(ClientEvent::Frame(id, frame)).is_err() || last {
+/// Spawn the per-client frame reader. Fallible: this runs in the host main
+/// loop AFTER the handshake accepted the client, so a thread-spawn failure
+/// under resource exhaustion must reject only this client — a panic here
+/// would take down the hosted shell for every attached client at exactly the
+/// moment the machine is under stress.
+fn spawn_client_reader(id: u64, mut stream: UnixStream, tx: Sender<ClientEvent>) -> io::Result<()> {
+    thread::Builder::new()
+        .name(format!("odytty-host-client-{id}"))
+        .spawn(move || {
+            // Poll with a bounded read timeout instead of blocking forever. A client
+            // that sends a frame header and then withholds the body would otherwise
+            // pin this thread and its client slot indefinitely (repeatable to the
+            // client cap to wedge every slot). Idle time BETWEEN frames stays
+            // legitimate: a timeout with no partial frame is ignored, so a quiet
+            // attached client is never detached. Best-effort: if the socket rejects
+            // the timeout the reader falls back to blocking (the prior behavior).
+            let _ = stream.set_read_timeout(Some(CLIENT_READ_POLL_TIMEOUT));
+            let mut reader = ClientFrameReader::default();
+            let mut frame_started: Option<Instant> = None;
+            loop {
+                match reader.read(&mut stream) {
+                    Ok(ClientFramePoll::Frame(frame)) => {
+                        frame_started = None;
+                        // Both Detach and Shutdown are terminal for this reader: the
+                        // client is going away (detach) or the whole host is (kill).
+                        let last = matches!(frame, ClientFrame::Detach | ClientFrame::Shutdown);
+                        if tx.send(ClientEvent::Frame(id, frame)).is_err() || last {
+                            break;
+                        }
+                    }
+                    Ok(ClientFramePoll::PartialTimeout) => {
+                        // A frame is half-received. Start (or continue) the stall
+                        // clock; reclaim the slot if the body stays withheld too long.
+                        let started = *frame_started.get_or_insert_with(Instant::now);
+                        if started.elapsed() >= CLIENT_FRAME_STALL_DEADLINE {
+                            let _ = tx.send(ClientEvent::Error(id));
+                            break;
+                        }
+                    }
+                    Ok(ClientFramePoll::IdleTimeout) => {
+                        // Idle between frames: keep waiting, do not detach.
+                        frame_started = None;
+                    }
+                    Err(error) if error.is_disconnect() => {
+                        let _ = tx.send(ClientEvent::Disconnected(id));
                         break;
                     }
-                }
-                Ok(ClientFramePoll::PartialTimeout) => {
-                    // A frame is half-received. Start (or continue) the stall
-                    // clock; reclaim the slot if the body stays withheld too long.
-                    let started = *frame_started.get_or_insert_with(Instant::now);
-                    if started.elapsed() >= CLIENT_FRAME_STALL_DEADLINE {
+                    Err(_) => {
                         let _ = tx.send(ClientEvent::Error(id));
                         break;
                     }
                 }
-                Ok(ClientFramePoll::IdleTimeout) => {
-                    // Idle between frames: keep waiting, do not detach.
-                    frame_started = None;
-                }
-                Err(error) if error.is_disconnect() => {
-                    let _ = tx.send(ClientEvent::Disconnected(id));
-                    break;
-                }
-                Err(_) => {
-                    let _ = tx.send(ClientEvent::Error(id));
-                    break;
-                }
             }
-        }
-    });
+        })
+        .map(|_| ())
 }
 
 fn wait_for_socket(socket_path: &std::path::Path, timeout: Duration) -> Result<()> {
@@ -1239,11 +1296,61 @@ mod hardening_tests {
 
     #[test]
     fn client_resize_dimensions_are_clamped_to_the_model_bound() {
-        assert_eq!(
-            clamp_client_dimensions(u32::MAX, u32::MAX),
-            Dimensions::new(MAX_CLIENT_RESIZE_DIM, MAX_CLIENT_RESIZE_DIM)
-        );
+        // Per-axis clamp holds, and the total-cell budget then reduces rows:
+        // a 4096 x 4096 request is ~16.7M cells, past what the default
+        // snapshot decoder accepts, so accepting it would make every future
+        // snapshot of the session undecodable for its own consumers.
+        let budget = SnapshotEnvelopeCaps::default().max_self_decodable_visible_cells();
+        let clamped = clamp_client_dimensions(u32::MAX, u32::MAX);
+        assert_eq!(clamped.columns, MAX_CLIENT_RESIZE_DIM);
+        assert!(clamped.rows >= 1);
+        assert!(clamped.columns * clamped.rows <= budget);
+        // Realistic sizes pass through untouched.
         assert_eq!(clamp_client_dimensions(100, 40), Dimensions::new(100, 40));
+        assert_eq!(clamp_client_dimensions(500, 200), Dimensions::new(500, 200));
+        // Columns are preserved at the expense of rows.
+        let wide = clamp_client_dimensions(4096, 4096);
+        assert_eq!(wide.columns, 4096);
+        assert_eq!(wide.rows, budget / 4096);
+    }
+
+    #[test]
+    fn admit_client_pushes_the_connection_on_successful_reader_spawn() {
+        let (writer, _peer) = UnixStream::pair().expect("socketpair");
+        let mut clients = Vec::new();
+        admit_client(&mut clients, 7, writer, Ok(()));
+        assert_eq!(clients.len(), 1);
+        assert_eq!(clients[0].id, 7);
+    }
+
+    #[test]
+    fn admit_client_evicts_only_the_failed_client_on_reader_spawn_error() {
+        // A reader-thread spawn failure (resource exhaustion) must reject
+        // ONLY the new client: the connection is dropped with a visible
+        // shutdown, and every already-attached client keeps its slot. A panic
+        // here would kill the hosted shell for everyone at exactly the moment
+        // the machine is under stress.
+        let (existing_writer, _existing_peer) = UnixStream::pair().expect("socketpair");
+        let mut clients = vec![ClientConnection {
+            id: 1,
+            stream: existing_writer,
+        }];
+        let (writer, peer) = UnixStream::pair().expect("socketpair");
+        admit_client(
+            &mut clients,
+            2,
+            writer,
+            Err(io::Error::other("thread spawn failed")),
+        );
+        assert_eq!(clients.len(), 1, "existing client keeps its slot");
+        assert_eq!(clients[0].id, 1);
+        // The failed client's socket was shut down: the far side observes a
+        // clean disconnect instead of a silently wedged attach.
+        peer.set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("set peer timeout");
+        let mut buffer = [0u8; 8];
+        let read = (&peer).read(&mut buffer).expect("peer read");
+        assert_eq!(read, 0, "far side sees EOF");
     }
 
     // ---- F9: total-handshake deadline ----

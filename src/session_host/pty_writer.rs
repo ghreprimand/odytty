@@ -88,11 +88,15 @@ pub(crate) struct HostPtyWriter {
 
 impl HostPtyWriter {
     /// Spawn the writer thread that owns `writer` (the raw blocking master fd).
-    pub(crate) fn spawn(writer: Box<dyn Write + Send>) -> Self {
+    ///
+    /// Fallible: OS thread creation can fail under resource exhaustion, and a
+    /// panic here would unwind host startup instead of reporting a spawn
+    /// error. Mirrors the native writer shim's fallible spawn.
+    pub(crate) fn spawn(writer: Box<dyn Write + Send>) -> std::io::Result<Self> {
         Self::spawn_with_cap(writer, QUEUE_BYTE_CAP)
     }
 
-    fn spawn_with_cap(mut writer: Box<dyn Write + Send>, byte_cap: usize) -> Self {
+    fn spawn_with_cap(mut writer: Box<dyn Write + Send>, byte_cap: usize) -> std::io::Result<Self> {
         let shared = Arc::new(Shared {
             byte_cap,
             queue: Mutex::new(Queue {
@@ -106,9 +110,8 @@ impl HostPtyWriter {
         let thread_shared = Arc::clone(&shared);
         std::thread::Builder::new()
             .name("odytty-host-pty-writer".to_owned())
-            .spawn(move || writer_loop(&thread_shared, &mut writer))
-            .expect("spawn session-host pty writer thread");
-        Self { shared }
+            .spawn(move || writer_loop(&thread_shared, &mut writer))?;
+        Ok(Self { shared })
     }
 
     /// Enqueue `bytes` for the hosted PTY. Non-blocking: returns as soon as the
@@ -218,7 +221,7 @@ mod tests {
             started: started_tx,
             block: Arc::clone(&block),
         };
-        let pty = HostPtyWriter::spawn_with_cap(Box::new(writer), 64 * 1024);
+        let pty = HostPtyWriter::spawn_with_cap(Box::new(writer), 64 * 1024).expect("spawn writer");
 
         // Prime the wedge: the first chunk enters the fd write and parks.
         pty.write(b"first");
@@ -254,7 +257,7 @@ mod tests {
             block: Arc::clone(&block),
         };
         let cap = 4096;
-        let pty = HostPtyWriter::spawn_with_cap(Box::new(writer), cap);
+        let pty = HostPtyWriter::spawn_with_cap(Box::new(writer), cap).expect("spawn writer");
 
         pty.write(b"prime the wedge");
         started_rx
