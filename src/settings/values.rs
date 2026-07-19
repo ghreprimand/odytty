@@ -1234,6 +1234,29 @@ pub(super) fn parse_cursor_glow_intensity(raw: Option<&OsStr>, warn: &mut impl F
     parsed.clamp(MIN_CURSOR_GLOW_INTENSITY, MAX_CURSOR_GLOW_INTENSITY)
 }
 
+pub(super) fn parse_new_output_fade_ms(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_NEW_OUTPUT_FADE_MS;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_NEW_OUTPUT_FADE_MS;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{NEW_OUTPUT_FADE_MS_ENV}={trimmed:?} is not a valid new-output fade duration; using {DEFAULT_NEW_OUTPUT_FADE_MS}"
+            ));
+            return DEFAULT_NEW_OUTPUT_FADE_MS;
+        }
+    };
+
+    parsed.clamp(MIN_NEW_OUTPUT_FADE_MS, MAX_NEW_OUTPUT_FADE_MS)
+}
+
 pub(super) fn parse_bloom_radius(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     let Some(raw) = raw else {
         return DEFAULT_BLOOM_RADIUS;

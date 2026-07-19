@@ -27,9 +27,6 @@
 use super::overlay_registry::OverlayCtx;
 use super::*;
 
-/// Hard cap on the fade ramp (D-VE4F-5): a freshly arrived row is fully revealed
-/// 120 ms after it appears.
-pub(super) const FADE_DURATION: Duration = Duration::from_millis(120);
 /// Animation cadence (~60 fps): the wake interval while a fade is in flight.
 const FADE_FRAME: Duration = Duration::from_millis(16);
 
@@ -42,6 +39,15 @@ fn ease_out_cubic(p: f32) -> f32 {
 }
 
 impl App {
+    /// Fade ramp length from the live `new_output_fade_ms` setting (D-VE4F-5): a
+    /// freshly arrived row is fully revealed this long after it appears. Single
+    /// source for the settle test, the wake deadline, and the quad alpha math.
+    /// Changing the slider mid-fade retimes any in-flight fades on the next
+    /// rebuild, which is accepted: the ramp is short and the retime is harmless.
+    fn new_output_fade_duration(&self) -> Duration {
+        Duration::from_millis(self.settings.new_output_fade_ms as u64)
+    }
+
     /// Refresh the per-row fade-start instants once per rebuild, before the
     /// overlay-quad emission. Off / scrolled-back / geometry-changed all snap
     /// (clear, no fade); only the live tail with the feature on stamps new
@@ -87,10 +93,11 @@ impl App {
         // Settle finished rows so the deadline + signature go idle once every
         // fade completes (bounded wake: the loop stops waking when nothing is
         // animating).
+        let fade = self.new_output_fade_duration();
         let mut any_active = false;
         for entry in self.row_fade_starts.iter_mut() {
             if let Some(start) = *entry {
-                if now.saturating_duration_since(start) >= FADE_DURATION {
+                if now.saturating_duration_since(start) >= fade {
                     *entry = None;
                 } else {
                     any_active = true;
@@ -110,10 +117,11 @@ impl App {
         if self.settings.reduced_motion || self.row_fade_starts.is_empty() {
             return None;
         }
+        let fade = self.new_output_fade_duration();
         self.row_fade_starts
             .iter()
             .flatten()
-            .map(|&start| (start + FADE_DURATION).min(Instant::now() + FADE_FRAME))
+            .map(|&start| (start + fade).min(Instant::now() + FADE_FRAME))
             .min()
     }
 
@@ -132,7 +140,8 @@ impl App {
     }
 
     /// Emit one background-color [`SolidQuad`] per fading row, alpha decaying
-    /// from opaque (just arrived) to transparent (settled) over [`FADE_DURATION`]
+    /// from opaque (just arrived) to transparent (settled) over the
+    /// `new_output_fade_ms` ramp
     /// on an ease-out cubic curve. The cursor's row is never obscured
     /// (D-VE4F-9) so the live prompt stays visible. No-op while
     /// `row_fade_starts` is empty (the off path), so the default render path
@@ -150,6 +159,7 @@ impl App {
         if cols == 0 || rows == 0 {
             return;
         }
+        let fade = self.new_output_fade_duration();
         let pad = ctx.window_padding.as_f32();
         let cell_w = ctx.cell.width as f32;
         let cell_h = ctx.cell.height as f32;
@@ -162,10 +172,10 @@ impl App {
                 continue;
             }
             let elapsed = ctx.now.saturating_duration_since(start);
-            if elapsed >= FADE_DURATION {
+            if elapsed >= fade {
                 continue;
             }
-            let p = (elapsed.as_secs_f32() / FADE_DURATION.as_secs_f32()).min(1.0);
+            let p = (elapsed.as_secs_f32() / fade.as_secs_f32()).min(1.0);
             let alpha = 1.0 - ease_out_cubic(p);
             let mut color = ctx.clear_color;
             color[3] = alpha;
@@ -445,8 +455,8 @@ mod tests {
         // A frame still mid-fade bumps the epoch (forces reclassification).
         app.update_row_fade(t1 + Duration::from_millis(16), 2);
         assert!(app.row_fade_epoch > epoch_a, "epoch advances while fading");
-        // Past the 120 ms cap every row settles → idle.
-        app.update_row_fade(t1 + Duration::from_millis(200), 2);
+        // Past the fade ramp (default 250 ms) every row settles → idle.
+        app.update_row_fade(t1 + Duration::from_millis(300), 2);
         assert!(
             app.row_fade_starts.iter().all(Option::is_none),
             "settled rows clear"
@@ -456,6 +466,61 @@ mod tests {
             app.new_row_fade_overlay_signature(),
             OverlayFragment::Inert,
             "idle: signature back to Inert"
+        );
+    }
+
+    #[test]
+    fn fade_duration_setting_drives_the_settle_and_deadline_boundary() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.settings.new_output_fade = true;
+        // A non-default ramp: the settle boundary and the deadline must track it,
+        // not the old fixed 120 ms.
+        app.settings.new_output_fade_ms = 500.0;
+        let t0 = Instant::now();
+        app.update_row_fade(t0, 0);
+        let t1 = t0 + Duration::from_millis(1);
+        app.update_row_fade(t1, 2);
+        assert!(app.new_row_fade_deadline().is_some(), "fade live at 500 ms");
+
+        // 300 ms in is still mid-ramp for a 500 ms fade: rows stay active.
+        app.update_row_fade(t1 + Duration::from_millis(300), 2);
+        assert!(
+            app.row_fade_starts.iter().any(Option::is_some),
+            "rows still fading before the 500 ms ramp ends"
+        );
+
+        // Past 500 ms every row settles.
+        app.update_row_fade(t1 + Duration::from_millis(600), 2);
+        assert!(
+            app.row_fade_starts.iter().all(Option::is_none),
+            "rows settle once the configured ramp elapses"
+        );
+        assert_eq!(app.new_row_fade_deadline(), None, "idle after the ramp");
+    }
+
+    #[test]
+    fn fade_duration_setting_scales_the_quad_alpha() {
+        let Some(mut app) = build_app() else {
+            return;
+        };
+        app.settings.new_output_fade = true;
+        app.settings.new_output_fade_ms = 500.0;
+        let t0 = Instant::now();
+        app.update_row_fade(t0, 0);
+        app.update_row_fade(t0, 1); // one fresh row stamped t0
+        // At 120 ms the row is 24% through a 500 ms ramp, so it is still clearly
+        // obscured; under the old fixed 120 ms it would already be revealed.
+        let mut quads = Vec::new();
+        app.paint_new_row_fade_quads(
+            &ctx_at(&app, 0, t0 + Duration::from_millis(120)),
+            &mut quads,
+        );
+        assert_eq!(quads.len(), 1);
+        assert!(
+            quads[0].color[3] > 0.3,
+            "still substantially obscured partway through the longer ramp"
         );
     }
 

@@ -1544,6 +1544,11 @@ pub struct Settings {
     /// fully rendered and never drops below the RV1 floor mid-fade. Only at the
     /// live tail; scrollback and resize snap. Purely presentational.
     pub new_output_fade: bool,
+    /// New-output fade ramp length in milliseconds (VE4). Only acts while
+    /// [`Self::new_output_fade`] is on; a longer value makes the fade-in more
+    /// perceptible, a shorter one restores the original quick ramp. Clamped to
+    /// `[MIN_NEW_OUTPUT_FADE_MS, MAX_NEW_OUTPUT_FADE_MS]`. Purely presentational.
+    pub new_output_fade_ms: f32,
     /// Whether a thin themed border is drawn around the grid (ID4). Off by
     /// default; the off path emits no border quads and is byte-identical to
     /// before. The border is painted in the theme `border` role color within the
@@ -1796,6 +1801,7 @@ impl Default for Settings {
             shell_key_enhancement: DEFAULT_SHELL_KEY_ENHANCEMENT,
             restore_workspaces: DEFAULT_RESTORE_WORKSPACES,
             new_output_fade: DEFAULT_NEW_OUTPUT_FADE,
+            new_output_fade_ms: DEFAULT_NEW_OUTPUT_FADE_MS,
             window_border: DEFAULT_WINDOW_BORDER,
             window_decorations: DEFAULT_WINDOW_DECORATIONS,
             window_transparency: DEFAULT_WINDOW_TRANSPARENCY,
@@ -2579,6 +2585,8 @@ impl Settings {
             DEFAULT_NEW_OUTPUT_FADE,
             &mut warn,
         );
+        let new_output_fade_ms =
+            parse_new_output_fade_ms(get(NEW_OUTPUT_FADE_MS_ENV).as_deref(), &mut warn);
         let window_border = parse_bool_setting(
             get(WINDOW_BORDER_ENV).as_deref(),
             WINDOW_BORDER_ENV,
@@ -2787,6 +2795,7 @@ impl Settings {
             shell_key_enhancement,
             restore_workspaces,
             new_output_fade,
+            new_output_fade_ms,
             window_border,
             window_decorations,
             window_transparency,
@@ -3054,6 +3063,10 @@ impl Settings {
         values.insert(
             NEW_OUTPUT_FADE_ENV,
             bool_display(self.new_output_fade).to_owned(),
+        );
+        values.insert(
+            NEW_OUTPUT_FADE_MS_ENV,
+            format_float(self.new_output_fade_ms),
         );
         values.insert(
             WINDOW_BORDER_ENV,

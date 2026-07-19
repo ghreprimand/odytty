@@ -154,6 +154,8 @@ cursor_trail = on
 cursor_trail_strength = balanced
 reduced_motion = off
 new_output_fade = off
+# Fade-in ramp length in milliseconds; only acts while new_output_fade is on.
+new_output_fade_ms = 250
 
 # Input, selection, and tabs. Tab rename is available from the tab context menu.
 scroll_wheel_lines = 6

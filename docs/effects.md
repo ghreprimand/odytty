@@ -321,6 +321,11 @@ each new row, so the text is always fully rendered and readable. Scrollback and
 resize snap. Off by default; only at the live tail. `reduced_motion = on`
 suppresses it.
 
+`new_output_fade_ms` sets how long that ramp takes, from `50` to `1000`
+milliseconds (default `250`). A longer value makes the fade easy to see; a
+shorter one restores the original quick ramp. It only acts while
+`new_output_fade` is on and is purely presentational.
+
 ---
 
 ## Background treatments

@@ -177,6 +177,7 @@ fn setting_info_covers_every_field_with_descriptions() {
             "background_blur_radius",
             "background_image_scrim",
             "new_output_fade",
+            "new_output_fade_ms",
             "cursor_style",
             "cursor_blink",
             "cursor_easing",
@@ -345,6 +346,64 @@ fn cursor_glow_intensity_round_trips_through_edit_values() {
 
     let (reparsed, _) = settings_from([(CURSOR_GLOW_INTENSITY_ENV, value)]);
     assert_eq!(reparsed.cursor_glow_intensity, 0.4);
+}
+
+#[test]
+fn new_output_fade_ms_defaults_parses_and_clamps() {
+    // Absent env → default (chosen so the ramp is perceptible).
+    let (settings, warnings) = settings_from([]);
+    assert_eq!(settings.new_output_fade_ms, DEFAULT_NEW_OUTPUT_FADE_MS);
+    assert_eq!(settings.new_output_fade_ms, 250.0);
+    assert!(warnings.is_empty());
+
+    // A valid in-range value parses.
+    let (settings, _) = settings_from([(NEW_OUTPUT_FADE_MS_ENV, "400")]);
+    assert_eq!(settings.new_output_fade_ms, 400.0);
+
+    // Out-of-range values clamp to the bounds at both ends.
+    let (settings, _) = settings_from([(NEW_OUTPUT_FADE_MS_ENV, "5000")]);
+    assert_eq!(settings.new_output_fade_ms, MAX_NEW_OUTPUT_FADE_MS);
+    let (settings, _) = settings_from([(NEW_OUTPUT_FADE_MS_ENV, "0")]);
+    assert_eq!(settings.new_output_fade_ms, MIN_NEW_OUTPUT_FADE_MS);
+
+    // Garbage warns and falls back to the default rather than aborting.
+    let (settings, warnings) = settings_from([(NEW_OUTPUT_FADE_MS_ENV, "slow")]);
+    assert_eq!(settings.new_output_fade_ms, DEFAULT_NEW_OUTPUT_FADE_MS);
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("new-output fade duration"))
+    );
+}
+
+#[test]
+fn new_output_fade_ms_round_trips_through_config_key_and_edit_values() {
+    // Config alias maps to the env key and back.
+    assert_eq!(
+        config_key_to_env("new_output_fade_ms"),
+        Some(NEW_OUTPUT_FADE_MS_ENV)
+    );
+    assert_eq!(
+        env_to_config_key(NEW_OUTPUT_FADE_MS_ENV),
+        Some("new_output_fade_ms")
+    );
+
+    // The panel edit-value writeback surfaces and re-parses the duration, so a
+    // slider change survives a Save + reload without drifting.
+    let settings = Settings {
+        new_output_fade_ms: 325.0,
+        ..Settings::default()
+    };
+    let info = settings.setting_info();
+    let value = info
+        .iter()
+        .find(|row| row.key == "new_output_fade_ms")
+        .map(|row| row.value.as_str())
+        .unwrap();
+    assert_eq!(value, "325");
+
+    let (reparsed, _) = settings_from([(NEW_OUTPUT_FADE_MS_ENV, value)]);
+    assert_eq!(reparsed.new_output_fade_ms, 325.0);
 }
 
 #[test]

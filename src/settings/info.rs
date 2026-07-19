@@ -945,6 +945,24 @@ impl Settings {
                 numeric: None,
             },
             SettingInfo {
+                group: "Post-process",
+                key: "new_output_fade_ms",
+                env: NEW_OUTPUT_FADE_MS_ENV,
+                name: "New-output fade duration",
+                value: format_float(self.new_output_fade_ms),
+                description: "How long the new-output fade-in takes, in milliseconds. A longer value makes the ramp easy to see; a shorter one restores the original quick fade. Only acts while New-output fade-in is on. Purely visual.",
+                kind: SettingKind::Number,
+                range: None,
+                options: &[],
+                reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_NEW_OUTPUT_FADE_MS,
+                    max: MAX_NEW_OUTPUT_FADE_MS,
+                    step: 25.0,
+                    unit: "ms",
+                }),
+            },
+            SettingInfo {
                 group: "Rendering",
                 key: "subpixel",
                 env: SUBPIXEL_ENV,
@@ -1910,6 +1928,7 @@ impl Settings {
                 .map(format_float)
                 .unwrap_or_else(|| "auto".to_owned()),
             "new_output_fade" => bool_display(self.new_output_fade).to_owned(),
+            "new_output_fade_ms" => format_float(self.new_output_fade_ms),
             "reduced_motion" => bool_display(self.reduced_motion).to_owned(),
             "subpixel" => subpixel_display(self.subpixel).to_owned(),
             "line_height" => format_float(self.line_height),

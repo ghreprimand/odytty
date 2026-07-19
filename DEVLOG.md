@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- New-output fade-in ramp length is adjustable
+
+The new-output fade-in ran on a fixed short ramp that was hard to perceive. The
+duration is now a slider, `new_output_fade_ms`, spanning 50 to 1000 milliseconds
+in 25 ms steps. The default is 250 ms, chosen so the fade is clearly visible
+when the effect is on; the original quick ramp stays reachable near the bottom
+of the range.
+
+The setting is a single source: the settle check, the animation wake deadline,
+and the per-row quad alpha all derive the ramp length from it, so the toggle and
+the duration never drift. It only acts while `new_output_fade` is on; with the
+toggle off the render path is unchanged and emits no fade work regardless of the
+value. Changing the slider mid-fade retimes any in-flight fades on the next
+rebuild, which is harmless given the short ramp. Purely presentational and
+platform-neutral. The knob sits next to the fade toggle in the settings panel.
+
+---
+
 ## 2026-07-19 -- Command-status gutter on by default; settings row moves to Shell Integration
 
 The per-command success/fail gutter now ships on out of the box. Command-boundary
