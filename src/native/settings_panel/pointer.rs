@@ -1282,6 +1282,41 @@ mod tests {
     }
 
     #[test]
+    fn pointer_opened_edit_replaces_prefill_like_the_keyboard_path() {
+        // Parity with the keyboard-opened edit: a readout click opens the edit
+        // pre-filled with the current value, and the first typed char replaces
+        // it (both paths construct through RowEdit::for_entry, so the
+        // replace-on-first-char arm covers pointer and keyboard identically).
+        use crate::native::overlay::OverlayInput;
+        let mut p = panel();
+        let (row, zone) = stepper_row(&p, "new_output_fade_ms");
+        let RowZone::Stepper { readout_x0, .. } = zone else {
+            unreachable!()
+        };
+        assert_eq!(
+            p.handle_pointer_press(W, H, row, readout_x0, PointerButton::Left, None),
+            SettingsPanelOutcome::Consumed
+        );
+        assert_eq!(p.render_signature().editing_key, Some("new_output_fade_ms"));
+        assert_eq!(
+            p.render_signature().editing_buffer.as_deref(),
+            Some("250"),
+            "the pointer-opened edit pre-fills the current value"
+        );
+
+        for ch in "500".chars() {
+            let _ = p.handle_input(OverlayInput::Char(ch));
+        }
+        let SettingsPanelOutcome::Apply(settings) = p.handle_input(OverlayInput::Activate) else {
+            panic!("Enter commits the typed value");
+        };
+        assert_eq!(
+            settings.new_output_fade_ms, 500.0,
+            "the pointer path commits the exact typed value, not a concatenated clamp"
+        );
+    }
+
+    #[test]
     fn clicking_stepper_up_increments_once_without_dragging() {
         let mut p = panel();
         let (row, zone) = stepper_row(&p, "font_size");

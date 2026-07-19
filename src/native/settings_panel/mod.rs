@@ -105,6 +105,11 @@ pub(super) struct SettingsPanelSignature {
     pub(super) selected: usize,
     pub(super) scroll: usize,
     pub(super) editing_key: Option<&'static str>,
+    /// Live contents of the in-progress row edit. MUST be in the signature so
+    /// each typed character (and Backspace) reclassifies the render cache to a
+    /// repaint; without it the edited row's `[buffer]` echo stayed frozen until
+    /// Enter/Esc because `entries` carries the committed value, not the buffer.
+    pub(super) editing_buffer: Option<String>,
     pub(super) changed_count: usize,
     pub(super) message: Option<String>,
     pub(super) entries: Vec<SettingsPanelEntrySignature>,
@@ -172,7 +177,11 @@ pub(super) enum SettingsPanelOutcome {
 struct RowEdit {
     key: &'static str,
     buffer: String,
-    /// Replace the displayed `auto` sentinel on the first typed character.
+    /// Replace the pre-filled current value on the first typed character.
+    /// The buffer opens holding the current value as a hint; the first
+    /// keystroke (or a Backspace) clears it, giving a select-all-on-focus
+    /// feel. Without this, typed characters append to the pre-filled value
+    /// and a re-typed numeric value concatenates and clamps to the range max.
     replace_on_char: bool,
 }
 
@@ -181,7 +190,7 @@ impl RowEdit {
         Self {
             key: entry.key,
             buffer: entry.value.clone(),
-            replace_on_char: entry.key == "tab_bar_height",
+            replace_on_char: true,
         }
     }
 }
@@ -932,6 +941,7 @@ impl SettingsPanel {
             selected: self.selected,
             scroll: self.scroll,
             editing_key: self.editing.as_ref().map(|edit| edit.key),
+            editing_buffer: self.editing.as_ref().map(|edit| edit.buffer.clone()),
             changed_count: self.edits.changed_count(),
             message: self.message.clone(),
             entries: self
@@ -1732,6 +1742,129 @@ mod tests {
             panic!("Enter commits the typed auto sentinel");
         };
         assert_eq!(settings.tab_bar_height, TabBarHeight::Auto);
+    }
+
+    #[test]
+    fn click_to_type_edit_replaces_the_prefilled_value_on_the_first_char() {
+        // A numeric readout opens pre-filled with the current value shown as a
+        // hint. Re-typing a full value must REPLACE the prefill, not append to
+        // it: without the replace-on-first-char arm, "500" typed onto "250"
+        // concatenated to "250500" and clamped to the range max (1000).
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "new_output_fade_ms");
+        assert_eq!(
+            panel.handle_input(OverlayInput::Activate),
+            SettingsPanelOutcome::Consumed
+        );
+        assert_eq!(
+            panel.editing.as_ref().map(|edit| edit.buffer.as_str()),
+            Some("250"),
+            "the edit opens holding the current value as a hint"
+        );
+
+        for ch in "500".chars() {
+            let _ = panel.handle_input(OverlayInput::Char(ch));
+        }
+        assert_eq!(
+            panel.editing.as_ref().map(|edit| edit.buffer.as_str()),
+            Some("500"),
+            "the first digit replaces the prefill; the rest append"
+        );
+
+        let SettingsPanelOutcome::Apply(settings) = panel.handle_input(OverlayInput::Activate)
+        else {
+            panic!("Enter commits the typed value");
+        };
+        assert_eq!(
+            settings.new_output_fade_ms, 500.0,
+            "the exact typed value applies, not the concatenated clamp"
+        );
+        assert!(panel.editing.is_none());
+    }
+
+    #[test]
+    fn click_to_type_edit_backspace_first_clears_the_prefill() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "new_output_fade_ms");
+        let _ = panel.handle_input(OverlayInput::Activate);
+        assert_eq!(
+            panel.editing.as_ref().map(|edit| edit.buffer.as_str()),
+            Some("250")
+        );
+
+        // Backspace as the first edit clears the whole prefill (select-all feel),
+        // not just the trailing character.
+        let _ = panel.handle_input(OverlayInput::Backspace);
+        assert_eq!(
+            panel.editing.as_ref().map(|edit| edit.buffer.as_str()),
+            Some(""),
+            "the first Backspace clears the prefill entirely"
+        );
+
+        for ch in "300".chars() {
+            let _ = panel.handle_input(OverlayInput::Char(ch));
+        }
+        let SettingsPanelOutcome::Apply(settings) = panel.handle_input(OverlayInput::Activate)
+        else {
+            panic!("Enter commits the typed value");
+        };
+        assert_eq!(settings.new_output_fade_ms, 300.0);
+    }
+
+    #[test]
+    fn click_to_type_edit_appends_after_the_first_char_replaces() {
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "new_output_fade_ms");
+        let _ = panel.handle_input(OverlayInput::Activate);
+
+        let _ = panel.handle_input(OverlayInput::Char('4'));
+        assert_eq!(
+            panel.editing.as_ref().map(|edit| edit.buffer.as_str()),
+            Some("4"),
+            "the first char replaces the prefill"
+        );
+        let _ = panel.handle_input(OverlayInput::Char('0'));
+        let _ = panel.handle_input(OverlayInput::Char('0'));
+        assert_eq!(
+            panel.editing.as_ref().map(|edit| edit.buffer.as_str()),
+            Some("400"),
+            "subsequent chars append normally"
+        );
+    }
+
+    #[test]
+    fn render_signature_changes_on_every_typed_char_while_editing() {
+        // Pins Bug B: the overlay repaints only on signature change, so the
+        // in-progress edit buffer MUST be part of the signature or the typed
+        // echo stays frozen until Enter/Esc.
+        let mut panel = SettingsPanel::new(&Settings::default());
+        select_key(&mut panel, "new_output_fade_ms");
+        let _ = panel.handle_input(OverlayInput::Activate);
+
+        let opened = panel.render_signature();
+        assert_eq!(opened.editing_buffer.as_deref(), Some("250"));
+
+        let _ = panel.handle_input(OverlayInput::Char('5'));
+        let after_first = panel.render_signature();
+        assert_ne!(
+            opened, after_first,
+            "the first keystroke changes the signature"
+        );
+        assert_eq!(after_first.editing_buffer.as_deref(), Some("5"));
+
+        let _ = panel.handle_input(OverlayInput::Char('0'));
+        let after_second = panel.render_signature();
+        assert_ne!(
+            after_first, after_second,
+            "each subsequent keystroke changes the signature"
+        );
+
+        let _ = panel.handle_input(OverlayInput::Backspace);
+        let after_backspace = panel.render_signature();
+        assert_ne!(
+            after_second, after_backspace,
+            "Backspace while editing also changes the signature"
+        );
     }
 
     #[test]

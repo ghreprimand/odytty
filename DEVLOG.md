@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Settings click-to-type edits replace the prefill and echo live
+
+Clicking a numeric readout (or pressing the edit key on a value row) opened an
+edit pre-filled with the current value, but typing then appended to that value
+instead of replacing it: re-typing `500` onto a `250` field produced `250500`,
+which clamped to the range maximum. Two compounding defects sat behind this.
+First, the replace-on-first-character behavior was armed for only a single row
+(the tab-bar-height `auto` sentinel); every other numeric, string, and list
+edit appended. Second, the in-progress edit buffer was left out of the panel's
+render signature, and the overlay repaints only when that signature changes, so
+typed characters produced no visible update until the edit was committed or
+cancelled.
+
+Both are fixed. Every value edit now opens with the current value shown as a
+hint and replaces it on the first keystroke, giving a select-all-on-focus feel;
+a leading Backspace clears the whole prefill, and subsequent characters append
+normally. The edit buffer joined the render signature, so each keystroke and
+Backspace repaints the row and the typed value echoes immediately. Enter still
+applies the typed value through the existing range clamp and Esc still cancels.
+
+A sweep of the other text-entry overlays confirmed each already folds its typed
+state into its own repaint key (the theme builder's edit buffers, the
+connection form's fields and key browser, and the font, command, workspace,
+connection, and session pickers' query strings), so the settings panel was the
+sole surface missing live echo. Platform-neutral panel logic with no
+platform-specific surface.
+
+---
+
 ## 2026-07-19 -- New-output fade-in on by default
 
 With the fade reworked to a text-only foreground ramp that never darkens a row,

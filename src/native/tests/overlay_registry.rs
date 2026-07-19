@@ -65,6 +65,7 @@ fn closed_overlay_sig() -> OverlayRenderSignature {
             selected: 0,
             scroll: 0,
             editing_key: None,
+            editing_buffer: None,
             changed_count: 0,
             message: None,
             entries: Vec::new(),
