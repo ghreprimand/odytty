@@ -402,13 +402,31 @@ fn extension_filter(key: &str) -> &'static [&'static str] {
 
 fn spawn_read_dir(dir: PathBuf, ext_filter: &'static [&'static str]) -> PendingRead {
     let (tx, rx) = mpsc::channel();
-    let thread_dir = dir.clone();
-    std::thread::spawn(move || {
-        let _ = tx.send((
-            thread_dir.clone(),
-            read_dir_entries(&thread_dir, ext_filter),
-        ));
-    });
+    // Spawn a named worker so a slow directory read never blocks the UI thread.
+    // `Builder::spawn` is fallible: under thread exhaustion it returns `Err`
+    // instead of the panic `std::thread::spawn` raises in the caller, which
+    // would crash the whole app just from opening a path picker. The worker
+    // gets its own clones of the sender and path; the originals stay here for
+    // the fallback. Platform-neutral; no Windows-specific surface.
+    let spawn_result = std::thread::Builder::new()
+        .name("odytty-path-picker-read".to_owned())
+        .spawn({
+            let tx = tx.clone();
+            let thread_dir = dir.clone();
+            move || {
+                let _ = tx.send((
+                    thread_dir.clone(),
+                    read_dir_entries(&thread_dir, ext_filter),
+                ));
+            }
+        });
+    if spawn_result.is_err() {
+        // No worker thread was created, so read synchronously into the same
+        // channel. `poll_pending` then resolves it identically on the next
+        // tick — the picker fills in one frame later instead of asynchronously,
+        // never crashing. Exactly one message reaches the channel either way.
+        let _ = tx.send((dir.clone(), read_dir_entries(&dir, ext_filter)));
+    }
     PendingRead {
         rx: Arc::new(Mutex::new(rx)),
     }
@@ -648,6 +666,40 @@ mod tests {
         // A normal width still renders both entries.
         let wide = picker.build_visible_rows(40, 10);
         assert!(wide.iter().any(|(l, _)| l.text.contains("café_文档")));
+    }
+
+    #[test]
+    fn spawn_read_dir_delivers_entries_through_the_channel() {
+        // Whichever mechanism runs — the spawned worker on the success path or
+        // the synchronous fallback when a thread cannot be created — the
+        // directory's entries must reach the channel exactly once, so
+        // `poll_pending` always resolves the picker. This pins that contract
+        // against a regression in the spawn/fallback seam.
+        let dir = temp_dir("spawn-channel");
+        fs::create_dir(dir.join("sub")).expect("create child dir");
+        fs::write(dir.join("pic.png"), b"png").expect("write png");
+
+        let pending = spawn_read_dir(dir.clone(), extension_filter("background_image"));
+        let rx = pending.rx.lock().expect("lock receiver");
+        let (got_dir, entries) = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the channel yields the read result");
+        assert_eq!(got_dir, dir);
+        // Same result the direct read produces — the async path adds nothing.
+        let direct = read_dir_entries(&dir, extension_filter("background_image"));
+        let got_names = entries.iter().map(|e| e.name.as_str()).collect::<Vec<_>>();
+        let direct_names = direct.iter().map(|e| e.name.as_str()).collect::<Vec<_>>();
+        assert_eq!(got_names, direct_names);
+        assert!(got_names.contains(&"sub/"));
+        assert!(got_names.contains(&"pic.png"));
+        // Exactly one message: no double-send across the spawn/fallback split.
+        assert!(
+            rx.try_recv().is_err(),
+            "the channel carries a single result"
+        );
+
+        drop(rx);
+        fs::remove_dir_all(dir).expect("remove temp dir");
     }
 
     #[cfg(unix)]

@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Path-picker directory read tolerates thread exhaustion
+
+The settings path picker read each directory on a worker thread spawned with
+the infallible `std::thread::spawn`, which panics in the calling thread when
+the process cannot create another thread. That turned a transient
+thread-exhaustion condition into a whole-app crash triggered by opening a path
+picker. The read now spawns through `std::thread::Builder`, whose `spawn`
+returns an error instead of panicking; on that error the directory is read
+synchronously into the same result channel, so the picker fills in one frame
+later rather than crashing. The success path is unchanged, exactly one result
+reaches the channel either way, and a new test pins that delivery contract.
+Platform-neutral: the picker and its worker exist identically on every OS,
+Windows included.
+
+`cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --locked`
+all clean.
+
+
 ## 2026-07-19 -- Snapshot envelopes encode without an intermediate full-size copy
 
 Encoding a session snapshot previously built the terminal-state section —
