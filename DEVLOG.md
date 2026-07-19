@@ -7,6 +7,51 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Command-status gutter: the verdict survives the next prompt
+
+The success/fail gutter bar appeared for a moment after a command finished
+and then vanished. Root cause: the OSC 133 mark model stores one mark per
+physical row, and real shells emit `133;D` (command finished, with the exit
+status) and the next prompt's `133;A` back to back in the same prompt hook
+with no newline between — so the next prompt always lands on the `D` row and
+the unconditional last-write-wins stamp destroyed the exit. The block then
+re-derived with no exit, the status degraded to Unknown, and the gutter
+(correctly) drew nothing. The bar could only ever render in the milliseconds
+between `D` and `A`.
+
+Fix: the stamp now merges instead of overwriting. A prompt landing on a row
+that carries a `CommandEnd` produces a new mark, `PromptStartAfterEnd`, that
+is a prompt for every prompt-shaped question (block delimiting, jump targets)
+while carrying the displaced exit; block derivation attributes that exit to
+the command the `D` was closing. A second prompt stamp on the same row (`A`
+then `B`, which shells always send) preserves the displaced exit. Everything
+else stays last-write-wins, including the `C`+`D` no-output collapse, and
+output-region bounds are unchanged — the merged row bounds the previous
+block's output exactly where a next-prompt row always did. Per-row mark
+storage is untouched, so marks continue to ride reflow, scroll-out, and
+resize for free.
+
+The snapshot envelope gains one appended `PromptKind` wire tag for the merged
+mark (same optional-exit shape as `CommandEnd`), with exact-byte and
+round-trip tests. Cross-version note: a client older than this change that
+decodes a snapshot containing the new tag fails with a clean invalid-enum
+error rather than misreading the stream; reattaching with a current build
+succeeds.
+
+The transcript test that pinned the old behavior modeled an extra newline
+between `D` and `A` that real shells never emit; it now models the true
+same-row sequence, with a separated-rows variant kept alongside. New tests
+cover the merge table, displaced-exit attribution (including a real interior
+`D` taking precedence), the silent-command single-row collapse ending in a
+verdict rather than Unknown, merged rows as jump targets, and a gutter-level
+pin that the bar persists after the next prompt appears.
+
+Platform-neutral: core parser and envelope, no platform surface.
+
+`cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --locked`
+all clean.
+
+
 ## 2026-07-19 -- Tab-panel strength default lowered to 0.8
 
 The default `tab_panel_strength` changes from `1.0` to `0.8` following a

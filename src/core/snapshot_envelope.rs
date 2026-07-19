@@ -1461,14 +1461,25 @@ fn encode_prompt_kind(out: &mut Vec<u8>, kind: PromptKind) {
         PromptKind::OutputStart => write_u8(out, 1),
         PromptKind::CommandEnd { exit } => {
             write_u8(out, 2);
-            match exit {
-                Some(exit) => {
-                    write_u8(out, 1);
-                    out.extend_from_slice(&exit.to_le_bytes());
-                }
-                None => write_u8(out, 0),
-            }
+            encode_optional_exit(out, exit);
         }
+        // Appended tag (same optional-exit shape as CommandEnd). An older
+        // decoder reading a snapshot that contains this tag fails cleanly
+        // with InvalidEnum rather than misreading the stream.
+        PromptKind::PromptStartAfterEnd { prev_exit } => {
+            write_u8(out, 3);
+            encode_optional_exit(out, prev_exit);
+        }
+    }
+}
+
+fn encode_optional_exit(out: &mut Vec<u8>, exit: Option<i32>) {
+    match exit {
+        Some(exit) => {
+            write_u8(out, 1);
+            out.extend_from_slice(&exit.to_le_bytes());
+        }
+        None => write_u8(out, 0),
     }
 }
 
@@ -1476,18 +1487,24 @@ fn decode_prompt_kind(reader: &mut Reader<'_>) -> Result<PromptKind, SnapshotEnv
     match reader.read_u8()? {
         0 => Ok(PromptKind::PromptStart),
         1 => Ok(PromptKind::OutputStart),
-        2 => {
-            let exit = match reader.read_u8()? {
-                0 => None,
-                1 => {
-                    let raw = reader.read_bytes(4)?;
-                    Some(i32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]))
-                }
-                value => return Err(SnapshotEnvelopeError::InvalidBool(value)),
-            };
-            Ok(PromptKind::CommandEnd { exit })
-        }
+        2 => Ok(PromptKind::CommandEnd {
+            exit: decode_optional_exit(reader)?,
+        }),
+        3 => Ok(PromptKind::PromptStartAfterEnd {
+            prev_exit: decode_optional_exit(reader)?,
+        }),
         value => Err(SnapshotEnvelopeError::InvalidEnum("PromptKind", value)),
+    }
+}
+
+fn decode_optional_exit(reader: &mut Reader<'_>) -> Result<Option<i32>, SnapshotEnvelopeError> {
+    match reader.read_u8()? {
+        0 => Ok(None),
+        1 => {
+            let raw = reader.read_bytes(4)?;
+            Ok(Some(i32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]])))
+        }
+        value => Err(SnapshotEnvelopeError::InvalidBool(value)),
     }
 }
 
@@ -1530,6 +1547,82 @@ mod tests {
         let decoded = decode_prompt_marks(&encoded, caps).expect("honest section decodes");
         assert_eq!(decoded.len(), 1);
         assert_eq!(decoded[0].row, 3);
+    }
+
+    #[test]
+    fn prompt_kind_wire_bytes_are_exact() {
+        // Exact-byte pins for every PromptKind tag, including the appended
+        // merged-prompt tag 3 (same optional-exit shape as CommandEnd). These
+        // bytes are the cross-version contract; a drift here breaks decode on
+        // the other side of an attach.
+        let mut out = Vec::new();
+        encode_prompt_kind(&mut out, PromptKind::PromptStart);
+        assert_eq!(out, [0]);
+
+        out.clear();
+        encode_prompt_kind(&mut out, PromptKind::OutputStart);
+        assert_eq!(out, [1]);
+
+        out.clear();
+        encode_prompt_kind(&mut out, PromptKind::CommandEnd { exit: None });
+        assert_eq!(out, [2, 0]);
+
+        out.clear();
+        encode_prompt_kind(&mut out, PromptKind::CommandEnd { exit: Some(7) });
+        assert_eq!(out, [2, 1, 7, 0, 0, 0]);
+
+        out.clear();
+        encode_prompt_kind(
+            &mut out,
+            PromptKind::PromptStartAfterEnd { prev_exit: None },
+        );
+        assert_eq!(out, [3, 0]);
+
+        out.clear();
+        encode_prompt_kind(
+            &mut out,
+            PromptKind::PromptStartAfterEnd {
+                prev_exit: Some(258),
+            },
+        );
+        assert_eq!(out, [3, 1, 2, 1, 0, 0]);
+    }
+
+    #[test]
+    fn merged_prompt_mark_round_trips_through_the_section() {
+        let caps = SnapshotEnvelopeCaps::default();
+        let marks = [
+            SnapshotPromptMark {
+                row: 0,
+                kind: PromptKind::PromptStart,
+            },
+            SnapshotPromptMark {
+                row: 2,
+                kind: PromptKind::PromptStartAfterEnd { prev_exit: Some(1) },
+            },
+            SnapshotPromptMark {
+                row: 5,
+                kind: PromptKind::PromptStartAfterEnd { prev_exit: None },
+            },
+        ];
+        let encoded = encode_prompt_marks(&marks);
+        let decoded = decode_prompt_marks(&encoded, caps).expect("section decodes");
+        assert_eq!(decoded, marks);
+    }
+
+    #[test]
+    fn unknown_prompt_kind_tag_fails_cleanly() {
+        // Defensive decode: a future/corrupt tag is a clean InvalidEnum, not a
+        // misread stream. This is what an older decoder reports when handed a
+        // snapshot containing a tag it does not know.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // count
+        bytes.extend_from_slice(&3u32.to_le_bytes()); // row
+        bytes.push(200); // unknown kind tag
+        assert!(matches!(
+            decode_prompt_marks(&bytes, SnapshotEnvelopeCaps::default()),
+            Err(SnapshotEnvelopeError::InvalidEnum("PromptKind", 200))
+        ));
     }
 
     fn sample_terminal() -> Terminal {

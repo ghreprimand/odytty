@@ -43,6 +43,51 @@ pub enum PromptKind {
     /// The command finished (OSC 133 `D`); `exit` is its status when the shell
     /// reported a numeric code (absent / non-numeric → `None`).
     CommandEnd { exit: Option<i32> },
+    /// The row begins a shell prompt AND carried the previous command's end
+    /// before the prompt was stamped. Real shells emit `D` (command finished)
+    /// and the next prompt's `A` back to back in the same hook with no
+    /// intervening newline, so both land on one physical row; the row-anchored
+    /// model holds one mark per row, and a plain last-write-wins stamp would
+    /// destroy the exit status. This variant is produced by [`merge_mark`] at
+    /// stamp time: the prompt wins the row, and the displaced exit rides along
+    /// as `prev_exit` so [`command_blocks`] can attribute it to the block the
+    /// `D` was closing. For every prompt-shaped question (jump targets, block
+    /// delimiting) this row IS a [`PromptKind::PromptStart`].
+    PromptStartAfterEnd { prev_exit: Option<i32> },
+}
+
+/// Merge a freshly parsed OSC 133 mark into a row's existing mark (SH1 stamps
+/// one mark per physical row).
+///
+/// The default is last-write-wins, matching the row-anchored model's original
+/// behavior. The exception is a prompt landing on a row that already carries a
+/// command's exit status: real shells emit `133;D` then `133;A` consecutively
+/// in the same prompt hook with no newline between, so the next prompt ALWAYS
+/// lands on the finished command's `D` row. Overwriting would destroy the exit
+/// (the success/fail gutter could then never show a verdict once the next
+/// prompt appeared); instead the row becomes
+/// [`PromptKind::PromptStartAfterEnd`] carrying the displaced exit.
+///
+/// A prompt stamped onto an existing merged mark preserves the displaced exit:
+/// shells emit `A` (prompt start) and `B` (command start) as separate
+/// sequences on the same row, and the second stamp must not drop what the
+/// first preserved.
+///
+/// Deliberately last-write-wins everywhere else, preserving existing
+/// semantics: `D` over `C` on one row is the no-output collapse (the exit is
+/// the more useful fact), and the remaining combinations only occur in
+/// malformed or partial transcripts where the freshest mark is the best guess.
+/// Pure and total.
+pub(in crate::core) fn merge_mark(existing: Option<PromptKind>, new: PromptKind) -> PromptKind {
+    match (existing, new) {
+        (Some(PromptKind::CommandEnd { exit }), PromptKind::PromptStart) => {
+            PromptKind::PromptStartAfterEnd { prev_exit: exit }
+        }
+        (Some(PromptKind::PromptStartAfterEnd { prev_exit }), PromptKind::PromptStart) => {
+            PromptKind::PromptStartAfterEnd { prev_exit }
+        }
+        (_, new) => new,
+    }
 }
 
 /// Parse an OSC 133 payload — the `;`-split parts *after* the leading `133` — into
@@ -210,11 +255,18 @@ pub struct CommandBlock {
 /// The function is pure and never panics on any mark sequence (out-of-order,
 /// missing, or duplicate marks degrade gracefully).
 pub fn command_blocks(marks: &[(usize, PromptKind)]) -> Vec<CommandBlock> {
-    // Indices of the PromptStart marks — the block delimiters.
+    // Indices of the prompt marks — the block delimiters. A merged
+    // PromptStartAfterEnd row is a prompt for delimiting purposes; its
+    // displaced exit is consumed by the PREVIOUS block below.
     let prompt_indices: Vec<usize> = marks
         .iter()
         .enumerate()
-        .filter(|(_, (_, kind))| matches!(kind, PromptKind::PromptStart))
+        .filter(|(_, (_, kind))| {
+            matches!(
+                kind,
+                PromptKind::PromptStart | PromptKind::PromptStartAfterEnd { .. }
+            )
+        })
         .map(|(index, _)| index)
         .collect();
 
@@ -238,6 +290,19 @@ pub fn command_blocks(marks: &[(usize, PromptKind)]) -> Vec<CommandBlock> {
                 }
                 _ => {}
             }
+        }
+        // A next prompt that merged over this block's `D` (the universal
+        // same-row `D`+`A` shape) carries the displaced exit: treat it as a
+        // virtual CommandEnd on the next prompt's row. It bounds the output
+        // exactly where the next prompt row already did, so output regions
+        // are unchanged. A real interior `D` (first-wins, as ever) takes
+        // precedence over the displaced one.
+        if command_end_row.is_none()
+            && let Some(&next_index) = prompt_indices.get(slot + 1)
+            && let (row, PromptKind::PromptStartAfterEnd { prev_exit }) = marks[next_index]
+        {
+            command_end_row = Some(row);
+            exit = prev_exit;
         }
 
         let output = match output_start {
@@ -307,7 +372,12 @@ pub fn jump_target(
 ) -> Option<usize> {
     marks
         .iter()
-        .filter(|(_, kind)| matches!(kind, PromptKind::PromptStart))
+        .filter(|(_, kind)| {
+            matches!(
+                kind,
+                PromptKind::PromptStart | PromptKind::PromptStartAfterEnd { .. }
+            )
+        })
         .map(|&(row, _)| row)
         .filter(|&row| match direction {
             JumpDirection::Prev => row < current_row,
@@ -390,8 +460,10 @@ pub fn command_output_cell_range(
 /// Deliberately conservative: it **never assumes success** from absence. A
 /// command only reads [`CommandStatus::Success`] on an explicit `exit 0`; a
 /// missing exit degrades to [`CommandStatus::Running`] (output still open) or
-/// [`CommandStatus::Unknown`] (the exit was lost — e.g. the SH1 row-collapse
-/// where `D` and the next prompt's `A` land on one row and the exit is dropped).
+/// [`CommandStatus::Unknown`] (no exit was ever recorded — e.g. a shell that
+/// emits prompts but no `D`, or a transcript truncated mid-block). The
+/// same-row `D`+`A` stamp no longer loses the exit: [`merge_mark`] preserves
+/// it as [`PromptKind::PromptStartAfterEnd`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandStatus {
     /// The command finished with an explicit exit status of `0`.
@@ -402,8 +474,9 @@ pub enum CommandStatus {
     /// (or may be) still running.
     Running,
     /// No exit status and no open output: either a prompt awaiting input, or a
-    /// finished command whose exit was lost to the SH1 row collapse. The gutter
-    /// must not present this as success or failure.
+    /// finished command whose exit was never reported (no `D` arrived, or the
+    /// transcript was truncated mid-block). The gutter must not present this
+    /// as success or failure.
     Unknown,
 }
 
@@ -646,10 +719,104 @@ mod tests {
     fn d(exit: Option<i32>) -> PromptKind {
         PromptKind::CommandEnd { exit }
     }
+    fn merged(prev_exit: Option<i32>) -> PromptKind {
+        PromptKind::PromptStartAfterEnd { prev_exit }
+    }
 
     #[test]
     fn no_marks_yield_no_blocks() {
         assert_eq!(command_blocks(&[]), Vec::new());
+    }
+
+    // --- merge_mark (same-row stamp collisions) ---
+
+    #[test]
+    fn prompt_over_command_end_preserves_the_exit() {
+        // The universal shell shape: `D` then the next prompt's `A` land on
+        // one row. The prompt wins the row; the exit rides along.
+        assert_eq!(merge_mark(Some(d(Some(0))), A), merged(Some(0)));
+        assert_eq!(merge_mark(Some(d(Some(127))), A), merged(Some(127)));
+        assert_eq!(merge_mark(Some(d(None)), A), merged(None));
+    }
+
+    #[test]
+    fn second_prompt_stamp_keeps_the_displaced_exit() {
+        // Shells emit `A` then `B` on the prompt row (both map to
+        // PromptStart); the second stamp must not drop what the first merge
+        // preserved.
+        assert_eq!(merge_mark(Some(merged(Some(2))), A), merged(Some(2)));
+    }
+
+    #[test]
+    fn all_other_stamp_collisions_stay_last_write_wins() {
+        // Empty row: plain stamp.
+        assert_eq!(merge_mark(None, A), A);
+        assert_eq!(merge_mark(None, d(Some(0))), d(Some(0)));
+        // C then D on one row: the no-output collapse, D wins (as ever).
+        assert_eq!(merge_mark(Some(C), d(Some(1))), d(Some(1)));
+        // D then C, duplicate D, prompt then C/D: freshest mark wins,
+        // matching the original row-anchored semantics.
+        assert_eq!(merge_mark(Some(d(Some(1))), C), C);
+        assert_eq!(merge_mark(Some(d(Some(1))), d(Some(2))), d(Some(2)));
+        assert_eq!(merge_mark(Some(A), C), C);
+        assert_eq!(merge_mark(Some(A), d(Some(3))), d(Some(3)));
+        assert_eq!(merge_mark(Some(merged(Some(1))), C), C);
+        assert_eq!(merge_mark(Some(merged(Some(1))), d(Some(4))), d(Some(4)));
+    }
+
+    // --- command_blocks with merged prompt rows ---
+
+    #[test]
+    fn merged_next_prompt_supplies_the_previous_blocks_exit() {
+        // A@0 → C@1 → merged A/D@3: the displaced exit closes block 0 and the
+        // output is bounded exactly as a next-prompt row always bounded it.
+        let marks = [(0, A), (1, C), (3, merged(Some(0)))];
+        let blocks = command_blocks(&marks);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].prompt_row, 0);
+        assert_eq!(blocks[0].output, CommandOutput::Rows { start: 1, end: 2 });
+        assert_eq!(blocks[0].exit, Some(0));
+        // The merged row also opens the next block, awaiting input.
+        assert_eq!(blocks[1].prompt_row, 3);
+        assert_eq!(blocks[1].output, CommandOutput::Empty);
+        assert_eq!(blocks[1].exit, None);
+    }
+
+    #[test]
+    fn merged_prompt_failure_exit_reaches_the_previous_block() {
+        let marks = [(0, A), (1, C), (4, merged(Some(127)))];
+        let blocks = command_blocks(&marks);
+        assert_eq!(blocks[0].exit, Some(127));
+        assert_eq!(command_status(&blocks[0]), CommandStatus::Fail);
+    }
+
+    #[test]
+    fn interior_command_end_wins_over_a_displaced_exit() {
+        // A real interior D (first-wins, as ever) takes precedence over the
+        // next prompt's displaced exit — the displaced one belongs to a
+        // duplicate/malformed D in that case.
+        let marks = [(0, A), (1, C), (3, d(Some(0))), (5, merged(Some(9)))];
+        let blocks = command_blocks(&marks);
+        assert_eq!(blocks[0].exit, Some(0));
+        assert_eq!(blocks[0].output, CommandOutput::Rows { start: 1, end: 2 });
+    }
+
+    #[test]
+    fn leading_merged_prompt_ignores_its_displaced_exit() {
+        // The first mark being a merged prompt means the block that exit
+        // belonged to was trimmed away; nothing to attach it to.
+        let marks = [(2, merged(Some(1))), (3, C)];
+        let blocks = command_blocks(&marks);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].prompt_row, 2);
+        assert_eq!(blocks[0].exit, None);
+    }
+
+    #[test]
+    fn merged_prompt_rows_are_jump_targets() {
+        let marks = [(0, A), (1, C), (5, merged(Some(0)))];
+        assert_eq!(jump_target(&marks, 3, JumpDirection::Next), Some(5));
+        assert_eq!(jump_target(&marks, 5, JumpDirection::Prev), Some(0));
     }
 
     #[test]

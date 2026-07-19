@@ -1847,7 +1847,10 @@ impl Screen {
             row -= 1;
         }
         if let Some(line) = self.rows.get_mut(row) {
-            line.prompt_mark = Some(kind);
+            // Merge, not overwrite: shells emit `D` and the next prompt's `A`
+            // back to back on one row, and the prompt stamp must preserve the
+            // displaced exit status (see `prompt_marks::merge_mark`).
+            line.prompt_mark = Some(prompt_marks::merge_mark(line.prompt_mark, kind));
             self.prompt_marks_changed = true;
         }
         if code == Some(b'A') {

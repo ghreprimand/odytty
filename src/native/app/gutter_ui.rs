@@ -235,6 +235,34 @@ mod tests {
     }
 
     #[test]
+    fn bar_persists_after_the_next_prompt_merges_over_the_command_end() {
+        // The universal shell shape: `D` and the next prompt's `A` land on one
+        // row, stamped as a merged PromptStartAfterEnd. The finished block's
+        // bar must still draw once the next prompt exists — this is the
+        // flash-then-vanish regression case.
+        let green = text::foreground_linear(Color::Rgb(0, 255, 0));
+        let marks = vec![
+            (0, PromptKind::PromptStart),
+            (1, PromptKind::OutputStart),
+            (2, PromptKind::PromptStartAfterEnd { prev_exit: Some(0) }),
+        ];
+        let quads = command_status_gutter_quads(
+            &marks,
+            0,
+            0,
+            dims(),
+            CELL,
+            WindowPadding::ZERO,
+            &palette(),
+        );
+        assert_eq!(quads.len(), 1, "the finished block keeps its bar");
+        assert_eq!(quads[0].color, [green[0], green[1], green[2], GUTTER_ALPHA]);
+        // The bar sits on the finished block's prompt row, not the new one.
+        let inset = CELL.height as f32 * GUTTER_ROW_INSET_FRAC;
+        assert_eq!(quads[0].rect[1], inset);
+    }
+
+    #[test]
     fn running_and_unknown_blocks_draw_nothing() {
         // `A` + `C` with no `D` → Open output → Running → no bar.
         let running = vec![(0, PromptKind::PromptStart), (1, PromptKind::OutputStart)];

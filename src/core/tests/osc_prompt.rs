@@ -555,6 +555,11 @@ fn prompt_marks_empty_on_alt_screen_consistent_with_point_query() {
 fn command_blocks_derive_from_a_real_transcript() {
     // End-to-end: a full prompt cycle through the parser, enumerated, then
     // derived into a command block. Anchors the core derivation to live marks.
+    //
+    // Real shells emit `D` and the next prompt's `A` back to back in the same
+    // prompt hook with NO newline between, so both land on the same row: the
+    // prompt stamp merges over the exit instead of destroying it, and the
+    // finished block keeps its verdict after the next prompt appears.
     let mut terminal = Terminal::new(20, 6);
     terminal.advance(&osc133("A"));
     terminal.advance(b"user@host:~$ ");
@@ -563,8 +568,14 @@ fn command_blocks_derive_from_a_real_transcript() {
     terminal.advance(&osc133("C"));
     terminal.advance(b"hi\r\n");
     terminal.advance(&osc133("D;0"));
-    terminal.advance(b"\r\n"); // shell advances before printing the next prompt
-    terminal.advance(&osc133("A")); // next prompt on its own row
+    terminal.advance(&osc133("A")); // same row as D: the merge case
+    terminal.advance(b"user@host:~$ ");
+    terminal.advance(&osc133("B")); // second same-row prompt stamp keeps the exit
+
+    assert_eq!(
+        terminal.prompt_mark_at(2),
+        Some(PromptKind::PromptStartAfterEnd { prev_exit: Some(0) })
+    );
 
     let blocks = command_blocks(&terminal.prompt_marks());
     assert_eq!(blocks.len(), 2);
@@ -572,7 +583,57 @@ fn command_blocks_derive_from_a_real_transcript() {
     assert_eq!(blocks[0].output_start, Some(1));
     assert_eq!(blocks[0].output, CommandOutput::Rows { start: 1, end: 1 });
     assert_eq!(blocks[0].exit, Some(0));
-    // The trailing prompt opens a fresh block awaiting input.
+    assert_eq!(command_status(&blocks[0]), CommandStatus::Success);
+    // The merged row also opens a fresh block awaiting input.
+    assert_eq!(blocks[1].prompt_row, 2);
+    assert_eq!(blocks[1].output, CommandOutput::Empty);
+    assert_eq!(blocks[1].exit, None);
+}
+
+#[test]
+fn command_blocks_derive_when_the_next_prompt_sits_on_its_own_row() {
+    // The separated variant: a shell (or prompt theme) that advances a line
+    // before printing the next prompt keeps a plain CommandEnd row, and the
+    // derivation is unchanged.
+    let mut terminal = Terminal::new(20, 6);
+    terminal.advance(&osc133("A"));
+    terminal.advance(b"$ ");
+    terminal.advance(&osc133("B"));
+    terminal.advance(b"echo hi\r\n");
+    terminal.advance(&osc133("C"));
+    terminal.advance(b"hi\r\n");
+    terminal.advance(&osc133("D;0"));
+    terminal.advance(b"\r\n");
+    terminal.advance(&osc133("A")); // next prompt on its own row
+
+    let blocks = command_blocks(&terminal.prompt_marks());
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(blocks[0].output, CommandOutput::Rows { start: 1, end: 1 });
+    assert_eq!(blocks[0].exit, Some(0));
+    assert_eq!(command_status(&blocks[0]), CommandStatus::Success);
+}
+
+#[test]
+fn silent_command_keeps_its_exit_through_the_single_row_collapse() {
+    // A command that prints nothing lands C, D, and the next prompt's A all
+    // on one row: C is collapsed by D (no output — as ever), and the prompt
+    // stamp preserves the exit, so the verdict survives.
+    let mut terminal = Terminal::new(20, 6);
+    terminal.advance(&osc133("A"));
+    terminal.advance(b"$ ");
+    terminal.advance(&osc133("B"));
+    terminal.advance(b"false\r\n");
+    terminal.advance(&osc133("C"));
+    terminal.advance(&osc133("D;1"));
+    terminal.advance(&osc133("A"));
+    terminal.advance(b"$ ");
+    terminal.advance(&osc133("B"));
+
+    let blocks = command_blocks(&terminal.prompt_marks());
+    assert_eq!(blocks.len(), 2);
+    assert_eq!(blocks[0].output, CommandOutput::Empty);
+    assert_eq!(blocks[0].exit, Some(1));
+    assert_eq!(command_status(&blocks[0]), CommandStatus::Fail);
     assert_eq!(blocks[1].output, CommandOutput::Empty);
     assert_eq!(blocks[1].exit, None);
 }
