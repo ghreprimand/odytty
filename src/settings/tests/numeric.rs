@@ -81,8 +81,8 @@ fn numeric_spec_bounds_match_the_parser_clamp_constants() {
         (csi.min, csi.max),
         (MIN_CRT_SCANLINE_INTENSITY, MAX_CRT_SCANLINE_INTENSITY)
     );
-    let cc = spec("crt_curvature");
-    assert_eq!((cc.min, cc.max), (MIN_CRT_CURVATURE, MAX_CRT_CURVATURE));
+    // crt_curvature has no panel row (config/env-only knob); its parser clamp
+    // is pinned separately in legacy.rs::crt_curvature_clamps_to_supported_range.
     let swl = spec("scroll_wheel_lines");
     assert_eq!(
         (swl.min, swl.max, swl.step, swl.unit),
@@ -117,7 +117,6 @@ fn numeric_spec_steps_preserve_the_folded_keyboard_steps() {
         ("crt_scanline_intensity", 0.01),
         ("crt_scanline_period", 0.5),
         ("crt_vignette_strength", 0.01),
-        ("crt_curvature", 0.005),
         ("scroll_wheel_lines", 1.0),
     ] {
         assert_eq!(step(key), expected, "{key} keyboard step");

@@ -820,24 +820,11 @@ impl Settings {
                     unit: "",
                 }),
             },
-            SettingInfo {
-                group: "Post-process",
-                key: "crt_curvature",
-                env: CRT_CURVATURE_ENV,
-                name: "CRT curvature",
-                value: format_float(self.crt_curvature),
-                description: CRT_CURVATURE_DESC,
-                kind: SettingKind::Number,
-                range: None,
-                options: &[],
-                reloadable: true,
-                numeric: Some(NumericSpec {
-                    min: MIN_CRT_CURVATURE,
-                    max: MAX_CRT_CURVATURE,
-                    step: 0.005,
-                    unit: "",
-                }),
-            },
+            // CRT curvature is intentionally absent from the settings panel: it
+            // is a niche barrel-distortion tweak that stays available through
+            // the `crt_curvature` config key / ODYTTY_CRT_CURVATURE env only.
+            // The knob, its parse/clamp, aliases, and the retro-preset override
+            // are unchanged; only its panel row is withheld.
             SettingInfo {
                 group: "Post-process",
                 key: "background_treatment",

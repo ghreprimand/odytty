@@ -111,7 +111,7 @@ environment variable was not set at startup.
 | `crt_scanline_intensity` | `ODYTTY_CRT_SCANLINE_INTENSITY` | Float, `0.0..=0.35` | `0.17` |
 | `crt_scanline_period` | `ODYTTY_CRT_SCANLINE_PERIOD` | Float, `2.0..=12.0` px | `7.0` |
 | `crt_vignette_strength` | `ODYTTY_CRT_VIGNETTE_STRENGTH` | Float, `0.0..=0.45` | `0.45` |
-| `crt_curvature` | `ODYTTY_CRT_CURVATURE` | Float, `0.0..=0.12` | `0.0` |
+| `crt_curvature` [^curvature-config-only] | `ODYTTY_CRT_CURVATURE` | Float, `0.0..=0.12` | `0.0` |
 | `subpixel` | `ODYTTY_SUBPIXEL` | `off`, `rgb`, `bgr` | `off` |
 | `synthetic_styles` | `ODYTTY_SYNTHETIC_STYLES` | `on`, `off` | `on` |
 | `ligatures` | `ODYTTY_LIGATURES` | `on`, `off` | `on` |
@@ -175,6 +175,12 @@ environment variable was not set at startup.
 | `cvd_mode` | `ODYTTY_CVD_MODE` | `off`, `protan`, `deutan`, `tritan` | `off` |
 | `cvd_strength` | `ODYTTY_CVD_STRENGTH` | Float, `0.0..=1.0` | `1.0` |
 | `native_autoclose_ms` | `ODYTTY_NATIVE_AUTOCLOSE_MS` | Positive integer ms | unset |
+
+[^curvature-config-only]: `crt_curvature` is a config-file / environment-only
+    knob and is not shown in the in-app settings panel. It still parses,
+    clamps, and hot-reloads from `odytty.conf` or `ODYTTY_CRT_CURVATURE` as
+    documented; the default `0.0` is flat and pixel-identical to the
+    no-curvature path.
 
 ## Setting Details
 

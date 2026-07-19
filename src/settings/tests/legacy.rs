@@ -170,7 +170,6 @@ fn setting_info_covers_every_field_with_descriptions() {
             "crt_scanline_intensity",
             "crt_scanline_period",
             "crt_vignette_strength",
-            "crt_curvature",
             "background_treatment",
             "background_image",
             "cell_bg_opacity",
@@ -291,9 +290,11 @@ fn setting_info_covers_every_field_with_descriptions() {
     assert!(info.iter().any(
         |row| row.key == "crt_vignette_strength" && row.range.as_deref() == Some("0.0..=0.45")
     ));
+    // crt_curvature is a config/env-only knob with no settings-panel row; the
+    // setting still parses and clamps (see crt_curvature_* tests below).
     assert!(
-        info.iter()
-            .any(|row| row.key == "crt_curvature" && row.range.as_deref() == Some("0.0..=0.12"))
+        !info.iter().any(|row| row.key == "crt_curvature"),
+        "crt_curvature must not appear as a settings-panel row"
     );
     assert!(info.iter().any(|row| row.key == "background_treatment"
         && row.options == ["off", "gradient", "vignette", "image"]));

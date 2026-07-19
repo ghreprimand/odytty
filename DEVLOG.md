@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- CRT curvature leaves the settings panel
+
+The `crt_curvature` knob no longer appears as a row in the settings panel. The
+subtle barrel-distortion curve is a niche visual tweak that invited fiddling in
+the panel without earning a place beside the effects people actually reach for,
+so its row is withheld to keep the Post-process section focused.
+
+The setting itself is unchanged and fully available: `crt_curvature` (and its
+`curvature` alias / `ODYTTY_CRT_CURVATURE` environment variable) still parse,
+clamp to `0.0..=0.12`, and hot-reload from `odytty.conf`, the default stays
+`0.0` (flat, pixel-identical to the no-curvature path), and the retro preset's
+light `0.025` override is untouched. Only the panel row was removed; the
+single-key value derivation used by the panel's in-place refresh is kept so the
+inventory stays internally consistent. Documentation now marks the knob as
+config-file / environment only. Platform-neutral panel-table change.
+
+---
+
 ## 2026-07-19 -- Settings click-to-type edits replace the prefill and echo live
 
 Clicking a numeric readout (or pressing the edit key on a value row) opened an
