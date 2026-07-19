@@ -1002,13 +1002,16 @@ pub(super) fn ensure_snapshot_glyphs_excluding_color_runs(
     color_runs: &[ColorGlyphRun],
 ) {
     let cols = snapshot.dimensions.columns;
+    // O(cells / 64 + runs) coverage mask instead of a per-cell scan of the
+    // run list; the skip decisions are identical.
+    let coverage = grid::ColorRunCoverage::new(color_runs, cols, snapshot.dimensions.rows);
     for (idx, cell) in snapshot.cells.iter().enumerate() {
         let row = idx / cols;
         let column = idx % cols;
         if cell.wide_continuation || cell.attrs.hidden() {
             continue;
         }
-        if color_runs.iter().any(|run| run.covers(row, column)) {
+        if coverage.covers(row, column) {
             continue;
         }
         let style = grid::font_style_for_attrs(&cell.attrs);

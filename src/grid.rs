@@ -143,6 +143,74 @@ impl ColorGlyphRun {
     }
 }
 
+/// Per-cell color-run coverage mask.
+///
+/// Every render-preparation consumer (atlas warm-up, ligature shaping, cell
+/// vertex build) needs the same predicate — "is this cell covered by a color
+/// glyph run?" — for every visible cell. Answering it by scanning the run
+/// list per cell is O(cells x runs), which explodes on emoji-heavy screens
+/// where the run count grows with the cell count. This mask is built once per
+/// consumer pass in O(cells / 64 + runs) and answers each query in O(1),
+/// producing exactly the same answers as
+/// `runs.iter().any(|run| run.covers(row, column))` for every in-grid cell
+/// (pinned by an equivalence test).
+pub struct ColorRunCoverage {
+    columns: usize,
+    rows: usize,
+    /// One bit per cell, row-major. Left empty when there are no runs so the
+    /// common emoji-free frame skips the allocation entirely.
+    bits: Vec<u64>,
+}
+
+impl ColorRunCoverage {
+    pub fn new(runs: &[ColorGlyphRun], columns: usize, rows: usize) -> Self {
+        if runs.is_empty() || columns == 0 || rows == 0 {
+            return Self {
+                columns,
+                rows,
+                bits: Vec::new(),
+            };
+        }
+        let mut bits = vec![0u64; (columns * rows).div_ceil(64)];
+        for run in runs {
+            if run.row >= rows {
+                continue;
+            }
+            let start = run.column.min(columns);
+            let end = run
+                .column
+                .saturating_add(run.covered_columns as usize)
+                .min(columns);
+            for column in start..end {
+                let index = run.row * columns + column;
+                bits[index / 64] |= 1 << (index % 64);
+            }
+        }
+        Self {
+            columns,
+            rows,
+            bits,
+        }
+    }
+
+    /// Whether no run covers any cell (the common emoji-free frame).
+    pub fn is_empty(&self) -> bool {
+        self.bits.is_empty()
+    }
+
+    /// Whether any run covers cell `(row, column)`. Out-of-grid coordinates
+    /// answer `false`; runs are grid-derived, so no in-grid query differs from
+    /// the linear scan.
+    #[inline]
+    pub fn covers(&self, row: usize, column: usize) -> bool {
+        if self.bits.is_empty() || row >= self.rows || column >= self.columns {
+            return false;
+        }
+        let index = row * self.columns + column;
+        self.bits[index / 64] & (1 << (index % 64)) != 0
+    }
+}
+
 /// Push a pixel-space rectangle as two triangles into `out`.
 ///
 /// `rect` is `[x0, y0, x1, y1]` in pixels; `uv` is `[u0, v0, u1, v1]`. For
@@ -1165,6 +1233,11 @@ fn build_cells_core(
     // Pass 2: glyph quads (sized from bearing-aware atlas bounds, so overflow ink
     // renders uncropped) plus underline/strikethrough decorations, all drawn over
     // every background from pass 1.
+    //
+    // Color-run coverage is answered from a per-cell mask built once in
+    // O(cells / 64 + runs) instead of scanning the run list for every cell;
+    // the answers, and therefore the emitted vertices, are identical.
+    let color_coverage = ColorRunCoverage::new(color_runs, cols, rows);
     for row in 0..rows {
         for col in 0..cols {
             let cell = &snapshot.cells[row * cols + col];
@@ -1193,7 +1266,7 @@ fn build_cells_core(
                 });
             if !cell.attrs.hidden()
                 && cell.ch != ' '
-                && !has_color_glyph_run(color_runs, row, col)
+                && !color_coverage.covers(row, col)
                 && ligature.is_none()
                 && let Some(bounds) =
                     atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), cell.ch)
@@ -1222,10 +1295,7 @@ fn build_cells_core(
             // follow the base glyph's seam-clipping rule. Wide bases and
             // stacked multi-mark clusters render at the same single-cell
             // anchor — a bounded approximation, not full mark positioning.
-            if !cell.attrs.hidden()
-                && !has_color_glyph_run(color_runs, row, col)
-                && ligature.is_none()
-            {
+            if !cell.attrs.hidden() && !color_coverage.covers(row, col) && ligature.is_none() {
                 for &mark in cell.combining() {
                     let Some(bounds) =
                         atlas.combining_mark_quad(font_style_for_attrs(&cell.attrs), mark)
@@ -1313,10 +1383,6 @@ fn build_cells_core(
             }
         }
     }
-}
-
-fn has_color_glyph_run(runs: &[ColorGlyphRun], row: usize, column: usize) -> bool {
-    runs.iter().any(|run| run.covers(row, column))
 }
 
 /// Maximum background-luminance attenuation an ID3/U5 treatment may apply, at

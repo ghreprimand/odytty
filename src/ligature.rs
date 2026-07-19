@@ -17,7 +17,7 @@ use swash::{FontRef, GlyphId};
 
 use crate::atlas::{FontStyle, ShapedGlyphKey};
 use crate::core::{Cell, Snapshot};
-use crate::grid::{ColorGlyphRun, font_style_for_attrs};
+use crate::grid::{ColorGlyphRun, ColorRunCoverage, font_style_for_attrs};
 
 /// Maximum number of exact row plans retained by the live renderer.
 pub const LIGATURE_ROW_CACHE_CAPACITY: usize = 512;
@@ -64,11 +64,11 @@ struct RowKey {
 }
 
 impl RowKey {
-    fn matches(&self, cells: &[Cell], row: usize, color_runs: &[ColorGlyphRun]) -> bool {
+    fn matches(&self, cells: &[Cell], row: usize, coverage: &ColorRunCoverage) -> bool {
         if self.cells != cells {
             return false;
         }
-        if color_runs.is_empty() {
+        if coverage.is_empty() {
             return self.color_glyphs.is_empty();
         }
         self.color_glyphs.len() == cells.len()
@@ -76,9 +76,7 @@ impl RowKey {
                 .color_glyphs
                 .iter()
                 .enumerate()
-                .all(|(column, color_glyph)| {
-                    *color_glyph == color_runs.iter().any(|run| run.covers(row, column))
-                })
+                .all(|(column, color_glyph)| *color_glyph == coverage.covers(row, column))
     }
 }
 
@@ -151,20 +149,24 @@ impl LigatureShaper {
             return Vec::new();
         }
         let cols = snapshot.dimensions.columns;
+        // One O(cells / 64 + runs) coverage mask serves the fingerprint,
+        // cache-key comparison, and eligibility passes for every row, instead
+        // of each of those scanning the whole run list per cell.
+        let coverage = ColorRunCoverage::new(color_runs, cols, snapshot.dimensions.rows);
         let mut output = Vec::new();
         for (row, cells) in snapshot.cells.chunks(cols).enumerate() {
-            let fingerprint = row_fingerprint(cells, row, color_runs);
+            let fingerprint = row_fingerprint(cells, row, &coverage);
             let cached = self.entries.get(&fingerprint).and_then(|bucket| {
                 bucket
                     .iter()
-                    .find(|(key, _)| key.matches(cells, row, color_runs))
+                    .find(|(key, _)| key.matches(cells, row, &coverage))
                     .map(|(_, plan)| Arc::clone(plan))
             });
             let plan = if let Some(plan) = cached {
                 plan
             } else {
                 self.shape_calls += 1;
-                let plan = Arc::new(self.shape_row(cells, fonts, row, color_runs));
+                let plan = Arc::new(self.shape_row(cells, fonts, row, &coverage));
                 if self.entry_count == LIGATURE_ROW_CACHE_CAPACITY
                     && let Some((oldest_fingerprint, oldest_key)) = self.fifo.pop_front()
                 {
@@ -182,13 +184,13 @@ impl LigatureShaper {
                 }
                 let key = Arc::new(RowKey {
                     cells: cells.to_vec(),
-                    color_glyphs: if color_runs.is_empty() {
+                    color_glyphs: if coverage.is_empty() {
                         Vec::new()
                     } else {
                         cells
                             .iter()
                             .enumerate()
-                            .map(|(column, _)| color_runs.iter().any(|run| run.covers(row, column)))
+                            .map(|(column, _)| coverage.covers(row, column))
                             .collect()
                     },
                 });
@@ -215,19 +217,19 @@ impl LigatureShaper {
         cells: &[Cell],
         fonts: &F,
         row: usize,
-        color_runs: &[ColorGlyphRun],
+        coverage: &ColorRunCoverage,
     ) -> RowPlan {
         let mut runs = Vec::new();
         let mut start = 0;
         while start < cells.len() {
-            if !eligible_cell(&cells[start], row, start, color_runs) {
+            if !eligible_cell(&cells[start], row, start, coverage) {
                 start += 1;
                 continue;
             }
             let style = font_style_for_attrs(&cells[start].attrs);
             let mut end = start + 1;
             while end < cells.len()
-                && eligible_cell(&cells[end], row, end, color_runs)
+                && eligible_cell(&cells[end], row, end, coverage)
                 // Selection and search treatments change foreground,
                 // background, and inverse attributes cell by cell. Those are
                 // compositing inputs, not shaping inputs: splitting here would
@@ -326,12 +328,12 @@ fn font_style_index(style: FontStyle) -> usize {
     }
 }
 
-fn row_fingerprint(cells: &[Cell], row: usize, color_runs: &[ColorGlyphRun]) -> u64 {
+fn row_fingerprint(cells: &[Cell], row: usize, coverage: &ColorRunCoverage) -> u64 {
     // Candidate lookup only. `RowKey::matches` exactly verifies every cell and
     // color-glyph bit before accepting a cached plan, so collisions can cost a
     // bucket scan but can never reuse incorrect presentation data.
     let mut fingerprint = 0xcbf2_9ce4_8422_2325_u64 ^ cells.len() as u64;
-    if color_runs.is_empty() {
+    if coverage.is_empty() {
         for cell in cells {
             let value = cell.ch as u64 | ((cell.wide_continuation as u64) << 32);
             fingerprint ^= value;
@@ -339,7 +341,7 @@ fn row_fingerprint(cells: &[Cell], row: usize, color_runs: &[ColorGlyphRun]) -> 
         }
     } else {
         for (column, cell) in cells.iter().enumerate() {
-            let color_glyph = color_runs.iter().any(|run| run.covers(row, column));
+            let color_glyph = coverage.covers(row, column);
             let value = cell.ch as u64
                 | ((cell.wide_continuation as u64) << 32)
                 | ((color_glyph as u64) << 33);
@@ -350,12 +352,12 @@ fn row_fingerprint(cells: &[Cell], row: usize, color_runs: &[ColorGlyphRun]) -> 
     fingerprint
 }
 
-fn eligible_cell(cell: &Cell, row: usize, column: usize, color_runs: &[ColorGlyphRun]) -> bool {
+fn eligible_cell(cell: &Cell, row: usize, column: usize, coverage: &ColorRunCoverage) -> bool {
     cell.ch.is_ascii_graphic()
         && !cell.wide_continuation
         && cell.combining().is_empty()
         && !cell.attrs.hidden()
-        && !color_runs.iter().any(|run| run.covers(row, column))
+        && !coverage.covers(row, column)
 }
 
 fn shape(context: &mut ShapeContext, font: FontRef<'_>, text: &str, calt: u16) -> Vec<ShapedGlyph> {

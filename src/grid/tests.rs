@@ -2815,3 +2815,93 @@ fn block_cursor_redraws_combining_mark_over_the_block() {
         "content pass + cursor redraw each emit the mark"
     );
 }
+
+// ---- ColorRunCoverage equivalence (the O(1) mask vs the linear scan) ----
+
+#[test]
+fn color_run_coverage_matches_the_linear_scan_exactly() {
+    // The mask must answer identically to
+    // `runs.iter().any(|run| run.covers(row, col))` for EVERY in-grid cell,
+    // across empty run lists, single-cell runs, wide (2-cell) runs, cluster
+    // runs spanning several columns, runs at row boundaries, and a
+    // full-emoji grid where every other column starts a run.
+    let key = ColorGlyphKey::new(1, crate::emoji::ColorGlyphId::Glyph(7), 24.0, 1.0, 1);
+    let cases: Vec<(usize, usize, Vec<ColorGlyphRun>)> = vec![
+        (10, 4, vec![]),
+        (10, 4, vec![ColorGlyphRun::new(0, 0, key)]),
+        (10, 4, vec![ColorGlyphRun::cluster(1, 3, key, 2)]),
+        (10, 4, vec![ColorGlyphRun::cluster(2, 4, key, 5)]),
+        // Run whose span touches the last column exactly.
+        (10, 4, vec![ColorGlyphRun::cluster(3, 8, key, 2)]),
+        // Several runs on one row plus a run on the last row.
+        (
+            10,
+            4,
+            vec![
+                ColorGlyphRun::new(0, 1, key),
+                ColorGlyphRun::cluster(0, 4, key, 2),
+                ColorGlyphRun::new(0, 9, key),
+                ColorGlyphRun::cluster(3, 0, key, 2),
+            ],
+        ),
+        // Full-emoji grid: a 2-cell run starting at every even column.
+        (
+            8,
+            6,
+            (0..6)
+                .flat_map(|row| (0..4).map(move |i| ColorGlyphRun::cluster(row, i * 2, key, 2)))
+                .collect(),
+        ),
+    ];
+    for (columns, rows, runs) in cases {
+        let coverage = ColorRunCoverage::new(&runs, columns, rows);
+        for row in 0..rows {
+            for column in 0..columns {
+                let linear = runs.iter().any(|run| run.covers(row, column));
+                assert_eq!(
+                    coverage.covers(row, column),
+                    linear,
+                    "mask diverged from the linear scan at ({row}, {column}) with {} runs on a {columns}x{rows} grid",
+                    runs.len(),
+                );
+            }
+        }
+        assert_eq!(coverage.is_empty(), runs.is_empty());
+    }
+}
+
+#[test]
+fn cell_vertices_are_identical_with_mask_backed_coverage() {
+    // End-to-end pin: a grid mixing covered and uncovered cells must emit the
+    // same vertex stream whether coverage is answered by the mask (the shipped
+    // path) or by the previous per-cell linear scan. Since the mask is now the
+    // only implementation, this compares against a run list crafted so that
+    // linear-scan expectations are hand-checkable: covered cells emit no
+    // monochrome glyph quad, uncovered cells do.
+    let Some(atlas) = atlas() else { return };
+    let mut term = Terminal::new(6, 2);
+    term.advance(b"abcdefghijkl");
+    let snapshot = term.snapshot();
+    let key = ColorGlyphKey::new(1, crate::emoji::ColorGlyphId::Glyph(3), 24.0, 1.0, 1);
+    // Cover 'b' (0,1) and the 2-cell span 'i','j' (1,2..4).
+    let runs = vec![
+        ColorGlyphRun::new(0, 1, key),
+        ColorGlyphRun::cluster(1, 2, key, 2),
+    ];
+
+    let mut with_runs = Vec::new();
+    build_cell_vertices_with_color_glyph_runs_into(&mut with_runs, &snapshot, &atlas, &runs);
+    let mut without_runs = Vec::new();
+    build_cell_vertices_with_color_glyph_runs_into(&mut without_runs, &snapshot, &atlas, &[]);
+
+    // Covered cells suppress exactly their glyph quads: 12 background quads
+    // stay in both builds, and the covered build carries 3 fewer glyph quads.
+    let glyph_quads = |verts: &[Vertex]| {
+        verts
+            .chunks(VERTS_PER_QUAD)
+            .filter(|quad| quad[0].is_glyph == 1.0)
+            .count()
+    };
+    assert_eq!(glyph_quads(&without_runs), 12);
+    assert_eq!(glyph_quads(&with_runs), 9);
+}

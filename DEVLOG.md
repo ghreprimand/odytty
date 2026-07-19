@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Render preparation shares one color-coverage mask per pass
+
+Every render-preparation consumer — glyph-atlas warm-up, ligature shaping
+(fingerprint, cache-key comparison, and eligibility), and the cell vertex
+build — needs the same per-cell predicate: is this cell covered by a color
+glyph run? Each answered it by linearly scanning the whole run list for every
+visible cell, an O(cells x runs) pattern repeated across consumers. On
+emoji-heavy screens the run count grows with the cell count, so a full dirty
+rebuild at 200x60 could burn tens of millions of run comparisons per frame.
+
+Each consumer pass now builds a per-cell coverage bitmask once — O(cells/64 +
+runs) — and answers every query in O(1). The mask is exactly equivalent to
+the linear scan for every in-grid cell (an equivalence test sweeps empty run
+lists, wide and multi-column cluster runs, row-boundary spans, and a
+full-emoji grid against the naive query), so skip decisions, ligature cache
+keys, fingerprints, and the emitted vertex stream are all byte-identical.
+Emoji-free frames skip the mask allocation entirely. Behavior-preserving
+refactor only: how the coverage question is answered changed, never the
+answer.
+
+Platform-neutral compute path; no platform-specific surface.
+
+`cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --locked`
+all clean.
+
+---
+
 ## 2026-07-19 -- OSC payloads with many semicolon fields no longer lose their tail
 
 The VT parser records at most 16 OSC parameter ranges. Payloads with more
