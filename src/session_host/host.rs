@@ -1336,6 +1336,12 @@ mod hardening_tests {
             stream: existing_writer,
         }];
         let (writer, peer) = UnixStream::pair().expect("socketpair");
+        // Install the read timeout BEFORE the eviction closes the far end:
+        // macOS rejects setsockopt(SO_RCVTIMEO) with EINVAL once the peer has
+        // been shutdown(Both) and dropped, while Linux accepts it. Setting it
+        // while the pair is still connected is deterministic on both.
+        peer.set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("set peer timeout");
         admit_client(
             &mut clients,
             2,
@@ -1350,8 +1356,6 @@ mod hardening_tests {
         // reports Ok(0) EOF, while macOS/BSD reports ECONNRESET for the same
         // clean teardown. Both count as "disconnect observed"; anything else
         // (data, a timeout, a different error) still fails.
-        peer.set_read_timeout(Some(Duration::from_secs(5)))
-            .expect("set peer timeout");
         let mut buffer = [0u8; 8];
         match (&peer).read(&mut buffer) {
             Ok(0) => {}
