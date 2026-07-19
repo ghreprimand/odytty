@@ -234,6 +234,15 @@ With autohide on, the pointer entering the configured edge zone reveals the
 rail as a floating overlay without reflowing terminal content. Workspace
 switch, create, and close shortcuts also reveal it briefly.
 
+`tab_panel_strength` sets the opacity of the unified panel behind the rail and
+tab bar directly: `1.0` (the default) composes the chrome bands nearly fully
+opaque at any window opacity, `0.0` turns the panel off (bare labels over the
+window background), and the ramp between is linear. The revealed autohide
+overlay, the pinned rail, and the top bar all share one panel translucency, so
+toggling autohide never changes how solid the band looks. (Earlier releases
+scaled the panel from the window's remaining opacity headroom, which made even
+a maxed panel weak on a translucent window.)
+
 A small chevron control pinned at the rail's bottom edge toggles auto-hide in
 place, so the escape hatch for the rail lives on the rail itself rather than only
 in settings. Clicking it flips `tab_rail_autohide` and writes the choice back to

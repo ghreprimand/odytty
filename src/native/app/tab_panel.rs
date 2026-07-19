@@ -10,10 +10,12 @@
 //! the fills, and the seam sits over the panel — both still under every glyph).
 //!
 //! Two coupled quads, in this order:
-//! 1. **panel wash** — one translucent quad over the whole panel rect, alpha
-//!    `p = strength × (1 − cell_bg_opacity)`. Emitted only when `p > 0`; at
-//!    `cell_bg_opacity = 1` the [`super::tab_chrome::panel_tint`] cell layer is
-//!    the whole panel and no wash is needed.
+//! 1. **panel wash** — one translucent quad over the whole panel rect, at the
+//!    [`super::tab_chrome::panel_wash_alpha`] that tops the band's cell fill
+//!    up to the strength-driven coverage target. Emitted only when `p > 0`;
+//!    when the cells already compose at or above the target, the
+//!    [`super::tab_chrome::panel_tint`] cell layer is the whole panel and no
+//!    wash is needed.
 //! 2. **seam** — one hairline flush inside the panel's content-facing edge,
 //!    `max(1, round(scale))` px, at [`super::tab_chrome::SEAM_ALPHA`]. Emitted
 //!    only when a seam color is supplied (caller gates on the seam knob AND a

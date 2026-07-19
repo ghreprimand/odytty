@@ -389,6 +389,12 @@ bands scale toward `window_opacity` — text, cursor, selection, and every overl
 depends on the opacity value. `window_opacity` is a percent: `100` is fully
 opaque and lower values let more of the desktop through.
 
+The chrome bands (tab bar and workspace rail) additionally carry the unified
+panel, whose opacity is set by `tab_panel_strength` independently of
+`window_opacity`: at the default `1.0` the bands compose nearly fully opaque
+even on a very translucent window, and one panel translucency is shared by the
+top bar, the pinned rail, and the revealed autohide overlay alike.
+
 Transparency needs a compositing window manager: Wayland composites natively,
 X11 needs a running compositor, and Windows uses DWM. Where no alpha compositing
 is available the toggle has no visible effect and the window stays opaque.

@@ -3605,7 +3605,19 @@ impl App {
         let strength = self.tab_panel_strength();
         let colors = self.tab_bar_colors();
         let panel_color = tab_chrome::panel_tint(colors, strength);
-        let wash_alpha = tab_chrome::panel_wash_alpha(strength, self.settings.cell_bg_opacity);
+        // The wash tops the band's own cell fill up to the strength-driven
+        // target, so it needs the alpha those cells actually compose this
+        // frame (window translucency × wallpaper softening — the same value
+        // the content build uses).
+        let capable = self
+            .gpu
+            .as_ref()
+            .is_some_and(crate::native::gpu::GpuState::transparency_capable);
+        let band_cell_alpha = crate::native::gpu::content_build_opacity(
+            self.effective_window_bg_alpha(capable),
+            self.settings.cell_bg_opacity,
+        );
+        let wash_alpha = tab_chrome::panel_wash_alpha(strength, band_cell_alpha);
         let seam = (self.settings.tab_seam && strength > 0.0)
             .then(|| tab_chrome::seam_color(colors, panel_color));
         (panel_color, wash_alpha, seam)
@@ -3615,8 +3627,9 @@ impl App {
     /// for the current frame, in surface pixels. Empty when the bar is hidden,
     /// the GPU is not up yet, or the band is degenerate; the caller splices these
     /// into the GPU background segment (after the NF11 edge wash). The panel wash
-    /// is emitted only when `p = strength × (1 − cell_bg_opacity) > 0`; the seam
-    /// only when the seam knob is on AND the panel is live (`strength > 0`).
+    /// is emitted only when the shared [`Self::chrome_panel_paint`] alpha is
+    /// positive; the seam only when the seam knob is on AND the panel is live
+    /// (`strength > 0`).
     fn tab_panel_bg_quads(&self, cell: CellSize) -> TabPanelFrameQuads {
         let Some(gpu) = self.gpu.as_ref() else {
             return TabPanelFrameQuads::default();

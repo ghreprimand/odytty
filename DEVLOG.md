@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- One chrome translucency across autohide states; panel strength decoupled from window opacity
+
+Two coupled fixes to how the chrome bands (tab bar, workspace rail) compose
+under a translucent window.
+
+First, consistency: the revealed rail auto-hide overlay ignored the window's
+translucency entirely — its strip cells painted at the raw cell background
+opacity instead of the composed content opacity, and its wash carried a
+dedicated near-opaque 0.85 floor. The pinned rail band and the tab bar composed
+the window alpha correctly, so toggling auto-hide visibly changed how solid the
+band looked — a divergence exposed once window transparency shipped on by
+default. Every chrome panel surface now takes its wash from one shared paint
+decision and the overlay strip composes the window translucency exactly like
+the pinned bands; the multipane chrome strips already composed correctly, so
+the floating overlay was the only divergent surface. A builder-level test pins
+that the pinned band and overlay washes carry an identical alpha in both
+autohide states.
+
+Second, the `tab_panel_strength` knob is rescaled: strength now sets the
+panel's opacity directly rather than a fraction of the window's remaining
+opacity headroom. The old mapping capped the wash at
+`strength × (1 − opacity)`, so the achievable panel collapsed exactly when a
+translucent window left it nothing to work with — at low window opacity even a
+maxed knob composed a weak, washed-out band. Now the wash tops the band's own
+cell fill up to a strength-driven coverage target: `1.0` (the default)
+composes the band nearly fully opaque (0.92) at any window opacity, `0.0`
+keeps the exact panel-off identity, and the ramp between is linear with no
+dead zone. Cells already at or above the target are never dimmed, so the panel
+can never be less opaque than the body. Both panel axes follow the semantic:
+the wash carries the new mapping and the tint lift was already
+opacity-independent. Name, env alias, range, default, and hot-reload are
+unchanged. Tests pin the full-strength target across cell alphas, the
+strength-0 identity, and a strictly monotonic ramp; docs describe the new
+semantic.
+
+Cross-platform GPU vertex geometry with no platform-specific surface; covered
+by the standard CI matrix. Full suite green (fmt, clippy, tests).
+
 ## 2026-07-19 -- Chrome label glyphs snap to whole pixels, fixing per-monitor baseline clipping
 
 Workspace rail slot labels could render with the bottom row of their ink

@@ -253,13 +253,33 @@ pub(super) fn panel_tint(colors: TabBarColors, strength: f32) -> Srgb {
     )
 }
 
-/// The alpha of the F4-P1 panel **wash** quad (Layer 2 of ODP-1):
-/// `p = strength × (1 − cell_bg_opacity)`. At `cell_bg_opacity = 1` this is `0`
-/// (no overdraw — the tint layer is the whole panel); as opacity drops, the wash
-/// mutes the wallpaper behind the tabs. Always `≥ 0`, so the panel is never
-/// *less* opaque than the body.
-pub(super) fn panel_wash_alpha(strength: f32, cell_bg_opacity: f32) -> f32 {
-    (strength.clamp(0.0, 1.0) * (1.0 - cell_bg_opacity.clamp(0.0, 1.0))).clamp(0.0, 1.0)
+/// The panel's target effective alpha at full strength: nearly opaque, with a
+/// whisper of the desktop still reading through. Strength `1.0` composes the
+/// chrome band to this coverage at ANY window opacity.
+pub(super) const PANEL_MAX_ALPHA: f32 = 0.92;
+
+/// The alpha of the F4-P1 panel **wash** quad (Layer 2 of ODP-1), given the
+/// alpha the band's CELL BACKGROUNDS already compose (`band_cell_alpha` — the
+/// window translucency × wallpaper softening product, the same value content
+/// cells draw at).
+///
+/// Strength sets the band's effective opacity DIRECTLY rather than a fraction
+/// of the remaining headroom: the composed band coverage is
+/// `band_cell_alpha + strength × (PANEL_MAX_ALPHA − band_cell_alpha)`, so
+/// `1.0` reaches [`PANEL_MAX_ALPHA`] regardless of the window opacity (the old
+/// `strength × (1 − opacity)` cap collapsed exactly when a translucent window
+/// left the panel nothing to work with), `0.0` adds nothing (panel off — the
+/// band shows its bare cell fill, byte-identical), and the ramp between is
+/// linear with no dead zone. Cells already at or above the target keep their
+/// own coverage — the wash only ever adds, so the panel is never *less* opaque
+/// than the body.
+pub(super) fn panel_wash_alpha(strength: f32, band_cell_alpha: f32) -> f32 {
+    let strength = strength.clamp(0.0, 1.0);
+    let alpha = band_cell_alpha.clamp(0.0, 1.0);
+    if alpha >= PANEL_MAX_ALPHA {
+        return 0.0;
+    }
+    (strength * (PANEL_MAX_ALPHA - alpha) / (1.0 - alpha)).clamp(0.0, 1.0)
 }
 
 /// The F4-P1 seam color (ODP-2): derived from the **inactive TEXT role only**
@@ -528,12 +548,44 @@ mod tests {
         assert!((panel_tint_lift(0.5) - PANEL_TINT_LIFT).abs() < 1e-6);
     }
 
+    /// The strength → band-coverage semantic: `1.0` composes the band to
+    /// [`PANEL_MAX_ALPHA`] no matter what the cells already carry (decoupled
+    /// from window opacity); `0.0` is the exact panel-off identity; the ramp
+    /// is monotonic with no dead zone; cells at or above the target are never
+    /// dimmed.
     #[test]
-    fn panel_wash_alpha_is_zero_at_full_opacity_and_grows_as_opacity_drops() {
-        assert_eq!(panel_wash_alpha(0.5, 1.0), 0.0, "opaque cells → no wash");
-        assert!((panel_wash_alpha(0.5, 0.8) - 0.10).abs() < 1e-6);
-        assert!((panel_wash_alpha(0.5, 0.5) - 0.25).abs() < 1e-6);
-        assert_eq!(panel_wash_alpha(0.0, 0.5), 0.0, "strength 0 → no wash");
+    fn panel_wash_alpha_decouples_full_strength_from_window_opacity() {
+        // Composed band coverage after the wash: 1 − (1 − a)(1 − w).
+        let coverage = |strength: f32, a: f32| {
+            let w = panel_wash_alpha(strength, a);
+            1.0 - (1.0 - a) * (1.0 - w)
+        };
+        // Strength 1: the band reaches the near-opaque target at ANY cell
+        // alpha — a fully translucent window no longer collapses the ceiling.
+        for a in [0.0f32, 0.16, 0.24, 0.5, 0.8] {
+            assert!(
+                (coverage(1.0, a) - PANEL_MAX_ALPHA).abs() < 1e-6,
+                "strength 1 at cell alpha {a} must compose {PANEL_MAX_ALPHA}"
+            );
+        }
+        // Strength 0: no wash — the panel-off band keeps its bare cell fill.
+        for a in [0.16f32, 0.5, 0.8] {
+            assert_eq!(panel_wash_alpha(0.0, a), 0.0, "strength 0 → no wash");
+        }
+        // Monotonic, dead-zone-free ramp at a representative low opacity.
+        let a = 0.24;
+        let mut last = coverage(0.0, a);
+        for step in 1..=10 {
+            let next = coverage(step as f32 / 10.0, a);
+            assert!(
+                next > last + 1e-4,
+                "coverage must strictly grow with strength (step {step})"
+            );
+            last = next;
+        }
+        // Cells already at/above the target: the wash only ever adds.
+        assert_eq!(panel_wash_alpha(1.0, 1.0), 0.0, "opaque cells → no wash");
+        assert_eq!(panel_wash_alpha(1.0, 0.95), 0.0, "above-target cells kept");
     }
 
     #[test]
@@ -728,15 +780,22 @@ mod tests {
         // panel wash (CHROME-ALPHA: one wash for every chrome surface — the
         // old dedicated 0.85 reveal floor is gone) over live content. The
         // worst-case backing for readability is mid-gray content (neither dark
-        // nor light). At a strong veil — the band a full-strength panel
-        // composes — assertions (4)–(6) still hold: the active fill, active
-        // label, and nearest inactive label stay distinguishable from the
-        // revealed panel surface. (A deliberately weak panel trades this
-        // occlusion away for a consistent translucency across autohide states;
-        // that is the knob's meaning, not a legibility regression.)
+        // nor light). At the veil the SHIPPED DEFAULT actually composes under
+        // a translucent window (full strength over a low band cell alpha),
+        // assertions (4)–(6) still hold: the active fill, active label, and
+        // nearest inactive label stay distinguishable from the revealed panel
+        // surface. (A deliberately weak panel trades this occlusion away for a
+        // consistent translucency across autohide states; that is the knob's
+        // meaning, not a legibility regression.)
         const STRENGTH: f32 = 0.5;
         const MID_GRAY: Srgb = (0x80, 0x80, 0x80);
-        let p_reveal = 0.85_f32;
+        // Default strength over a representative translucent band cell alpha
+        // (window opacity 30 × wallpaper softening 0.8).
+        let p_reveal = panel_wash_alpha(crate::settings::DEFAULT_TAB_PANEL_STRENGTH, 0.24);
+        assert!(
+            p_reveal > 0.8,
+            "the shipped default must veil strongly under a translucent window"
+        );
         for theme in crate::theme::all() {
             let colors = colors_for(theme);
             let panel = panel_tint(colors, STRENGTH);
