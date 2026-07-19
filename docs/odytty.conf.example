@@ -183,7 +183,7 @@ confirm_close = on
 # Terminal bell (BEL) handling. There is no audible bell; off/visual/urgent/all
 # are the accepted values (urgent raises the window's urgency hint).
 bell = urgent
-command_status_gutter = off
+command_status_gutter = on
 sh_click = on
 # Program-defined clickable buttons (docs/buttons.md). On by default (same risk
 # class as OSC 8 hyperlinks; reports are terminal-composed from the parsed code

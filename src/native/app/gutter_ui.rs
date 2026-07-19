@@ -13,10 +13,12 @@
 //! ([`CommandStatus::Unknown`]) deliberately shows nothing, so the gutter never
 //! presents ambiguity as a verdict.
 //!
-//! Ships off by default behind the `command_status_gutter` setting. While off,
+//! Ships on by default behind the `command_status_gutter` setting; command
+//! marks are on out of the box, so the verdict bars appear wherever an
+//! integrated shell emits them. While off,
 //! [`App::command_status_gutter_overlays`] returns no quads before touching the
-//! terminal, so the composed overlay list is byte-identical to today and the
-//! default render path is unchanged.
+//! terminal, so the composed overlay list is byte-identical to a plain margin
+//! and that render path is unchanged.
 
 use super::*;
 

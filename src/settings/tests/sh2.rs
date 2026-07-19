@@ -24,9 +24,9 @@ fn settings_from<const N: usize>(values: [(&str, &str); N]) -> (Settings, Vec<St
 }
 
 #[test]
-fn command_status_gutter_defaults_off() {
+fn command_status_gutter_defaults_on() {
     let (settings, warnings) = settings_from([]);
-    assert!(!settings.command_status_gutter);
+    assert!(settings.command_status_gutter);
     assert!(warnings.is_empty());
 }
 
@@ -70,7 +70,10 @@ fn command_status_gutter_is_persisted_in_edit_values() {
 #[test]
 fn command_status_gutter_is_live_reloadable() {
     let _guard = RELOAD_GLOBAL_TEST_LOCK.lock().unwrap();
-    let mut current = Settings::default();
+    let mut current = Settings {
+        command_status_gutter: false,
+        ..Settings::default()
+    };
     assert!(!current.command_status_gutter);
 
     let reloaded = Settings {

@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Command-status gutter on by default; settings row moves to Shell Integration
+
+The per-command success/fail gutter now ships on out of the box. Command-boundary
+marks are enabled by default, so the verdict bars appear wherever an integrated
+shell emits them; where no marks exist the left margin simply stays empty, and
+the render path with the gutter off is still pixel-identical to a plain margin.
+
+The settings-panel row for the gutter moved from the Input group to Shell
+Integration, sitting next to the other command-mark features. It is a
+mark-driven feature and inert without shell integration, so grouping it with
+the shell surface makes it discoverable where its dependencies live. The panel
+description and the runtime-knobs default column were updated to match the new
+default.
+
+---
+
 ## 2026-07-19 -- Command-status gutter: the verdict survives the next prompt
 
 The success/fail gutter bar appeared for a moment after a command finished

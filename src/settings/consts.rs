@@ -714,10 +714,12 @@ pub const DEFAULT_WHEEL_ZOOM: bool = true;
 /// on, a thin coloured bar at the left edge of each finished command's prompt
 /// row reads green for an explicit `exit 0` and red for a non-zero exit, sourced
 /// from the OSC 133 command blocks and coloured from the active ANSI palette.
-/// Off by default — while off the gutter draws nothing and the render path is
-/// pixel-identical to today. With shell integration absent no command marks
-/// exist, so the gutter is empty regardless of the setting.
-pub const DEFAULT_COMMAND_STATUS_GUTTER: bool = false;
+/// On by default — command-boundary marks ship on out of the box, so the verdict
+/// bars appear wherever an integrated shell emits them. While off the gutter
+/// draws nothing and the render path is pixel-identical to a plain margin. With
+/// shell integration absent no command marks exist, so the gutter is empty
+/// regardless of the setting.
+pub const DEFAULT_COMMAND_STATUS_GUTTER: bool = true;
 
 /// Always show the tab bar (`ODYTTY_ALWAYS_SHOW_TAB_BAR`, F4 ODP-7): when on,
 /// the tab strip renders even with a single tab. Off by default — with one

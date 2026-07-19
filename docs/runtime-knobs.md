@@ -143,7 +143,7 @@ environment variable was not set at startup.
 | `selection_drag_extend` | `ODYTTY_SELECTION_DRAG_EXTEND` | `on`, `off` | `on` |
 | `scrollbar_drag` | `ODYTTY_SCROLLBAR_DRAG` | `on`, `off` | `on` |
 | `wheel_zoom` | `ODYTTY_WHEEL_ZOOM` | `on`, `off` | `on` |
-| `command_status_gutter` | `ODYTTY_COMMAND_STATUS_GUTTER` | `on`, `off` | `off` |
+| `command_status_gutter` | `ODYTTY_COMMAND_STATUS_GUTTER` | `on`, `off` | `on` |
 | `sh_click` | `ODYTTY_SH_CLICK` | `on`, `off` | `on` |
 | `buttons` | `ODYTTY_BUTTONS` | `on`, `off` | `on` |
 | `buttons_iterm_compat` | `ODYTTY_BUTTONS_ITERM_COMPAT` | `on`, `off` | `on` |
