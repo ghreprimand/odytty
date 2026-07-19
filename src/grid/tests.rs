@@ -2221,8 +2221,10 @@ mod chrome_pin {
             };
             let verts = build(&band, &atlas, origin, pin);
             let got = glyph_top(&verts, rows, 0);
+            // PIXEL-SNAP: the composed shift rounds to a whole pixel, so an odd
+            // cell height may sit half a pixel off the exact center.
             assert!(
-                (got - expected).abs() < 1e-3,
+                (got - expected).abs() <= 0.5 + 1e-3,
                 "height {rows} multipane: glyph top {got} != band-center {expected}",
             );
 
@@ -2264,7 +2266,7 @@ mod chrome_pin {
             let band_glyph = glyph_top(&verts2, total, 0);
             let content_glyph = glyph_top(&verts2, total, 1);
             assert!(
-                (band_glyph - expected).abs() < 1e-3,
+                (band_glyph - expected).abs() <= 0.5 + 1e-3,
                 "height {rows} single-pane: band glyph not centered",
             );
             assert!(
@@ -2320,8 +2322,10 @@ mod chrome_pin {
         // Label was on row 0 (top ref_top); shifted down to the slot center means
         // its cell center is at pad + slot_rows*cell_h/2 = pad + cell_h.
         let expected = ref_top + cell_h / 2.0;
+        // PIXEL-SNAP: the composed shift rounds to a whole pixel, so an odd
+        // cell height may sit half a pixel off the exact center.
         assert!(
-            (got - expected).abs() < 1e-3,
+            (got - expected).abs() <= 0.5 + 1e-3,
             "rail slot label must center: got {got}, expected {expected}",
         );
     }
@@ -2415,6 +2419,92 @@ mod chrome_pin {
         assert!(
             ((band_label_center_dy_rows(2, 0) - rail) * cell_h as f32 - 2.0).abs() < 1e-3,
             "rail chrome receives the stronger guard"
+        );
+    }
+
+    /// PIXEL-SNAP regression: even-height chrome bands center their label by
+    /// half a cell, so an ODD physical cell height composed a half-pixel glyph
+    /// origin and texture sampling bled the label's bottom ink row into the row
+    /// below (a digit's flat baseline stroke visibly thinned on the dim rail
+    /// band; cell-height parity follows font size x monitor scale, so only some
+    /// monitors clipped). The composed shift must land on a whole pixel for
+    /// every parity, stay within half a pixel of the exact center, and keep
+    /// whole-pixel shifts at their historical values.
+    #[test]
+    fn chrome_label_shift_lands_on_whole_pixels_for_every_cell_height_parity() {
+        for cell_h in [20u32, 25, 33, 34, 35] {
+            let rail_dy_rows = rail_label_descender_safe_dy_rows(2, 0, cell_h);
+            let band_dy_rows = band_label_descender_safe_dy_rows(2, 1, cell_h);
+            let pin = ChromePin {
+                scroll_offset_y: 0.0,
+                top_rows: 1,
+                rail_col_start: 5,
+                rail_col_end: 6,
+                band_glyph_dy_rows: band_dy_rows,
+                rail_glyph_dy_rows: rail_dy_rows,
+                gap_x: 0.0,
+                gap_y: 0.0,
+            };
+            let h = cell_h as f32;
+            for (label, snapped, raw) in [
+                ("rail", pin.glyph_center_dy(3, 5, h), rail_dy_rows * h),
+                ("band", pin.glyph_center_dy(0, 0, h), band_dy_rows * h),
+            ] {
+                assert_eq!(
+                    snapped.fract(),
+                    0.0,
+                    "{label} shift must be a whole pixel at cell_h {cell_h}"
+                );
+                assert!(
+                    (snapped - raw).abs() <= 0.5 + 1e-3,
+                    "{label} snap moved more than half a pixel at cell_h {cell_h}: raw {raw} snapped {snapped}"
+                );
+            }
+            if cell_h % 2 == 0 {
+                assert!(
+                    (pin.glyph_center_dy(3, 5, h) - (0.5 * h - 2.0)).abs() < 1e-3,
+                    "even cell_h {cell_h} keeps the exact centered-plus-guard shift"
+                );
+            }
+            // Content cells stay on the exact 0.0 arm regardless of parity.
+            assert_eq!(pin.glyph_center_dy(3, 0, h), 0.0);
+        }
+    }
+
+    /// PIXEL-SNAP at the vertex level: a rail label glyph's quad top lands on a
+    /// whole pixel from an integral origin, under a zero-gap pin AND a nonzero
+    /// chrome-gap pin (rail cells are excluded from gap shifts, so the gap must
+    /// neither move the label nor reintroduce a fractional origin).
+    #[test]
+    fn rail_label_glyph_top_is_whole_pixel_with_and_without_chrome_gap() {
+        let Some(atlas) = atlas() else {
+            eprintln!("skipping: no system font available");
+            return;
+        };
+        let cell_h = atlas.cell.height;
+        let rail_dy_rows = rail_label_descender_safe_dy_rows(2, 0, cell_h);
+        let snap = snapshot_with_ink(2, &[0]);
+        let pin = |gap: f32| ChromePin {
+            scroll_offset_y: 0.0,
+            top_rows: 0,
+            rail_col_start: 0,
+            rail_col_end: 1,
+            band_glyph_dy_rows: 0.0,
+            rail_glyph_dy_rows: rail_dy_rows,
+            gap_x: gap,
+            gap_y: gap,
+        };
+        let origin = [8.0_f32, 8.0];
+        let flush = glyph_top(&build(&snap, &atlas, origin, pin(0.0)), 2, 0);
+        let gapped = glyph_top(&build(&snap, &atlas, origin, pin(6.0)), 2, 0);
+        assert_eq!(
+            flush.fract(),
+            0.0,
+            "zero-gap rail label glyph top must be a whole pixel (got {flush})"
+        );
+        assert_eq!(
+            flush, gapped,
+            "chrome gap must not move the pinned rail label"
         );
     }
 }

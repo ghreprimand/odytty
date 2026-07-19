@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Chrome label glyphs snap to whole pixels, fixing per-monitor baseline clipping
+
+Workspace rail slot labels could render with the bottom row of their ink
+visibly thinned — a digit's flat baseline stroke looked cut — but only on some
+monitors, and less so on the selected slot than on dim ones. The root cause is
+geometric, not a paint-order or guard regression: even-height chrome bands
+center their single label row by half a cell, so the composed glyph shift is
+`0.5 x cell_height` minus the two-pixel descender guard. Whenever the physical
+cell height is ODD, that lands every label glyph quad on a half-pixel origin,
+and texture sampling bleeds the glyph's bottom ink row 50/50 into the row
+below. Halved, the row still reads against a bright selected-slot fill but
+drops below visibility against the dim rail band — which made the artifact
+look state-dependent. Cell-height parity follows `font_size x monitor_scale`,
+which made it monitor-dependent: at the 20px default, scale 1.0 gives a 20px
+cell and scale 1.667 a 34px cell (both even, clean), while scale 1.25 gives a
+25px cell (odd, clipped). A/B captures of the same build across scales and
+across the last two release candidates confirmed the artifact predates the
+recent chrome-gap work and reproduces identically on older builds — it was
+never a code regression, only an odd-parity monitor making a long-standing
+half-pixel origin visible.
+
+The fix snaps the composed label shift to a whole physical pixel at the single
+chokepoint every consumer shares (mono glyphs, color/emoji labels, and
+underline/strikethrough decorations all route through it). Rounding moves the
+label at most half a pixel, so at least 1.5px of the two-pixel descender guard
+always survives; whole-pixel shifts round to themselves, so even-cell-height
+configurations render as before, and content cells keep their exact zero arm.
+Regression tests pin the whole-pixel landing across odd and even cell heights
+for both band conventions, pin the vertex-level glyph top under zero and
+nonzero chrome padding (rail cells are gap-excluded, so padding must not move
+a pinned label), and the pre-existing centering tests now tolerate the
+half-pixel snap so they hold on any font's cell parity.
+
+Cross-platform vertex geometry with no platform-specific surface; covered by
+the standard CI matrix. Full suite green (fmt, clippy, tests).
+
 ## 2026-07-19 -- Neutral padding strips route right-clicks to content
 
 A hit-routing refinement closes a gap the chrome-facing window padding opened.

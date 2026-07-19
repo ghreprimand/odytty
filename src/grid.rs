@@ -808,12 +808,25 @@ impl ChromePin {
     /// the rail first). `0.0` for every content cell and every inert (single-row
     /// / odd-height) band, so the plain and single-row-chrome paths stay
     /// byte-identical.
+    ///
+    /// PIXEL-SNAP: the composed shift is rounded to a whole physical pixel.
+    /// Even-height bands center their label by half a cell, so an ODD physical
+    /// cell height lands the shift on a half-pixel origin; texture sampling then
+    /// bleeds every label glyph's bottom ink row 50/50 into the row below, which
+    /// visibly thins baseline strokes (a digit's flat bottom) on the dim rail
+    /// band. Cell-height parity follows `font_size x monitor_scale`, so the
+    /// artifact was per-monitor: 20px cells (scale 1.0) and 34px cells (1.67)
+    /// were clean while 25px cells (scale 1.25) clipped. Rounding moves the
+    /// label by at most half a pixel, so at least 1.5px of the two-pixel
+    /// descender guard always survives; whole-pixel shifts (even cell heights,
+    /// single-row bands) round to themselves, so clean configurations render
+    /// identically. Content cells keep the exact `0.0` arm.
     #[inline]
     fn glyph_center_dy(&self, row: usize, col: usize, cell_h: f32) -> f32 {
         if self.rail_glyph_dy_rows != 0.0 && col >= self.rail_col_start && col < self.rail_col_end {
-            self.rail_glyph_dy_rows * cell_h
+            (self.rail_glyph_dy_rows * cell_h).round()
         } else if self.band_glyph_dy_rows != 0.0 && row < self.top_rows {
-            self.band_glyph_dy_rows * cell_h
+            (self.band_glyph_dy_rows * cell_h).round()
         } else {
             0.0
         }
