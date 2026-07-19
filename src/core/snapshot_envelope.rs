@@ -156,39 +156,61 @@ impl SnapshotEnvelope {
         }
     }
 
+    /// Encode the envelope into one contiguous buffer.
+    ///
+    /// The terminal-state section (by far the largest payload; tens of MB for
+    /// a wide, deep session) is encoded DIRECTLY into the output buffer, with
+    /// its section-table length backpatched afterwards, instead of being
+    /// encoded into its own vector and then copied into the envelope. That
+    /// removes one full copy and one transient full-size allocation from
+    /// every snapshot broadcast/save. The wire bytes are identical to the
+    /// table-driven encoder (`encode_sections`), pinned by
+    /// `direct_encode_matches_the_table_driven_encoder`.
     pub fn encode(&self) -> Vec<u8> {
-        let terminal = self.terminal.encode();
-        encode_sections(
-            &self.producer_version,
-            self.protocol_version,
-            &[
-                SectionPayload {
-                    id: SECTION_TERMINAL_STATE,
-                    flags: SECTION_FLAG_REQUIRED,
-                    payload: terminal,
-                },
-                SectionPayload {
-                    id: SECTION_DYNAMIC_COLORS,
-                    flags: 0,
-                    payload: encode_dynamic_colors(&self.dynamic_colors),
-                },
-                SectionPayload {
-                    id: SECTION_METADATA,
-                    flags: 0,
-                    payload: self.metadata.encode(),
-                },
-                SectionPayload {
-                    id: SECTION_PROMPT_MARKS,
-                    flags: 0,
-                    payload: encode_prompt_marks(&self.prompt_marks),
-                },
-                SectionPayload {
-                    id: SECTION_LAYOUT_STATE,
-                    flags: 0,
-                    payload: self.layout.encode(),
-                },
-            ],
-        )
+        const TABLE: [(u16, u8); 5] = [
+            (SECTION_TERMINAL_STATE, SECTION_FLAG_REQUIRED),
+            (SECTION_DYNAMIC_COLORS, 0),
+            (SECTION_METADATA, 0),
+            (SECTION_PROMPT_MARKS, 0),
+            (SECTION_LAYOUT_STATE, 0),
+        ];
+        // Section table entry wire size: id u16 + flags u8 + reserved u8 +
+        // len u64.
+        const TABLE_ENTRY_BYTES: usize = 12;
+        const LEN_OFFSET_IN_ENTRY: usize = 4;
+
+        let mut out = Vec::new();
+        out.extend_from_slice(SNAPSHOT_MAGIC);
+        write_u16(&mut out, SNAPSHOT_FORMAT_VERSION);
+        write_u16(&mut out, self.protocol_version);
+        write_string(&mut out, &self.producer_version);
+        write_u16(&mut out, TABLE.len() as u16);
+        let table_start = out.len();
+        for (id, flags) in TABLE {
+            write_u16(&mut out, id);
+            write_u8(&mut out, flags);
+            write_u8(&mut out, 0);
+            write_u64(&mut out, 0); // Backpatched once the payload is written.
+        }
+        for (index, (id, _)) in TABLE.iter().enumerate() {
+            let payload_start = out.len();
+            match *id {
+                SECTION_TERMINAL_STATE => self.terminal.encode_into(&mut out),
+                SECTION_DYNAMIC_COLORS => {
+                    out.extend_from_slice(&encode_dynamic_colors(&self.dynamic_colors));
+                }
+                SECTION_METADATA => out.extend_from_slice(&self.metadata.encode()),
+                SECTION_PROMPT_MARKS => {
+                    out.extend_from_slice(&encode_prompt_marks(&self.prompt_marks));
+                }
+                SECTION_LAYOUT_STATE => out.extend_from_slice(&self.layout.encode()),
+                _ => unreachable!("fixed section table"),
+            }
+            let len = (out.len() - payload_start) as u64;
+            let entry = table_start + index * TABLE_ENTRY_BYTES + LEN_OFFSET_IN_ENTRY;
+            out[entry..entry + 8].copy_from_slice(&len.to_le_bytes());
+        }
+        out
     }
 
     pub fn decode(bytes: &[u8], caps: SnapshotEnvelopeCaps) -> Result<Self, SnapshotEnvelopeError> {
@@ -446,12 +468,22 @@ pub struct SnapshotTerminalState {
 }
 
 impl SnapshotTerminalState {
+    /// Standalone section encode; production writes through [`Self::encode_into`],
+    /// tests use this for section-level fixtures and size measurements.
+    #[cfg(test)]
     fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
-        self.encode_prelude(&mut out);
-        write_rows(&mut out, &self.scrollback_rows);
-        write_rows(&mut out, &self.visible_rows);
+        self.encode_into(&mut out);
         out
+    }
+
+    /// Append the encoded terminal-state section to `out`. The envelope
+    /// encoder writes the (large) section straight into the frame buffer
+    /// through this seam instead of copying an intermediate vector.
+    fn encode_into(&self, out: &mut Vec<u8>) {
+        self.encode_prelude(out);
+        write_rows(out, &self.scrollback_rows);
+        write_rows(out, &self.visible_rows);
     }
 
     /// Everything the terminal-state section carries ahead of the two row
@@ -947,6 +979,7 @@ impl fmt::Display for SnapshotEnvelopeError {
 
 impl std::error::Error for SnapshotEnvelopeError {}
 
+#[cfg(test)]
 struct SectionPayload {
     id: u16,
     flags: u8,
@@ -960,6 +993,11 @@ struct SectionHeader {
     len: usize,
 }
 
+/// Table-driven envelope encoder retained as the byte-format oracle: the
+/// shipping `SnapshotEnvelope::encode` writes the large terminal section
+/// directly into the output buffer, and the equivalence test pins its bytes
+/// against this straightforward copy-based construction.
+#[cfg(test)]
 fn encode_sections(
     producer_version: &str,
     protocol_version: u16,
@@ -973,6 +1011,7 @@ fn encode_sections(
     )
 }
 
+#[cfg(test)]
 fn encode_sections_for_version(
     format_version: u16,
     producer_version: &str,
@@ -1730,6 +1769,48 @@ mod tests {
             restored.snapshot_state(usize::MAX).scrollback_rows,
             decoded.terminal.scrollback_rows
         );
+    }
+
+    #[test]
+    fn direct_encode_matches_the_table_driven_encoder() {
+        // The shipping encoder writes the terminal section straight into the
+        // frame buffer with a backpatched section table; its bytes must match
+        // the retained copy-based table-driven construction exactly, for a
+        // richly populated envelope (marks, metadata, scroll region, colors).
+        let terminal = sample_terminal();
+        let envelope = SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default());
+        let oracle = encode_sections(
+            &envelope.producer_version,
+            envelope.protocol_version,
+            &[
+                SectionPayload {
+                    id: SECTION_TERMINAL_STATE,
+                    flags: SECTION_FLAG_REQUIRED,
+                    payload: envelope.terminal.encode(),
+                },
+                SectionPayload {
+                    id: SECTION_DYNAMIC_COLORS,
+                    flags: 0,
+                    payload: encode_dynamic_colors(&envelope.dynamic_colors),
+                },
+                SectionPayload {
+                    id: SECTION_METADATA,
+                    flags: 0,
+                    payload: envelope.metadata.encode(),
+                },
+                SectionPayload {
+                    id: SECTION_PROMPT_MARKS,
+                    flags: 0,
+                    payload: encode_prompt_marks(&envelope.prompt_marks),
+                },
+                SectionPayload {
+                    id: SECTION_LAYOUT_STATE,
+                    flags: 0,
+                    payload: envelope.layout.encode(),
+                },
+            ],
+        );
+        assert_eq!(envelope.encode(), oracle);
     }
 
     #[test]

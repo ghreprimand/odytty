@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Snapshot envelopes encode without an intermediate full-size copy
+
+Encoding a session snapshot previously built the terminal-state section —
+by far the largest payload, tens of megabytes for a wide session with deep
+scrollback — into its own vector and then copied it wholesale into the
+envelope buffer. The envelope encoder now writes the header and a
+placeholder section table first, encodes every section directly into the
+output buffer, and backpatches each table entry's length once its payload is
+written. One full copy and one transient full-size allocation disappear from
+every snapshot broadcast, attach handshake, and save.
+
+The wire format is unchanged byte for byte: the table-driven copy-based
+encoder is retained as a test oracle and an equivalence test pins the direct
+encoder's output against it on a richly populated envelope, alongside the
+existing byte-stable round-trip test. The frame writer's single contiguous
+write and its partial-write progress contract (zero-progress timeouts drop
+the frame; partial-progress timeouts tear down visibly) are untouched, and
+the stalling-writer suite passes unchanged.
+
+Platform-neutral encode path; no platform-specific surface.
+
+`cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --locked`
+all clean.
+
+---
+
 ## 2026-07-19 -- Cursor-frame bookkeeping stops deep-copying cell content
 
 Three per-frame full-snapshot copies in the single-window frame path carried
