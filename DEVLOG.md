@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- A failed swapchain recreate no longer strands a background window
+
+Follow-up to the surface-recreate escalation below: the recreate attempt's own
+error path logged the failure and returned without scheduling any wake — no
+redraw, no timed retry. A background window with no incoming events would
+strand there until an external event arrived, the exact freeze class the
+escalation rung was built to close, reachable on its error path (and
+pre-existing on the lost-surface path, which shares the arm).
+
+A failed recreate now keeps the error log and schedules a slow bounded timed
+retry at the existing 1-second keep-alive cadence instead of redrawing into
+the same broken surface. The spent escalation attempt is not refunded, so
+repeated failures still bottom out at the keep-alive plus watchdog fallback
+rather than recreate-looping. The follow-up decision is a pure seam pinned by
+tests: every recreate attempt leaves either an immediate repaint or a
+scheduled wake, and repeated failures spend the per-episode budget exactly
+once each.
+
+Sibling sweep: surface reconfiguration is infallible (no error path to
+strand); the device-lost arm deliberately stops without a wake, since no timed
+retry can rebuild device-owned state. Windows behavior: the decision sits at
+the same backend-agnostic frame-outcome layer as the escalation policy — no
+platform-specific surface.
+
 ## 2026-07-19 -- Surface acquisition that times out persistently now recreates the swapchain instead of retrying forever
 
 A long-running window froze hard when its compositor stranded an in-flight

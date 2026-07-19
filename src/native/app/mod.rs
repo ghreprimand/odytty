@@ -6517,7 +6517,7 @@ impl ApplicationHandler<UserEvent> for App {
                         self.needs_rebuild = pane_dims_reconciled;
                     }
                 }
-                let action = {
+                let (action, recreate_failed) = {
                     let Some(gpu) = self.gpu.as_mut() else {
                         return;
                     };
@@ -6552,15 +6552,24 @@ impl ApplicationHandler<UserEvent> for App {
                         );
                         action = FrameAction::RecreateSurfaceThenRedraw;
                     }
-                    // Recover outdated surfaces by reconfiguring and lost
-                    // surfaces by recreating them. Both request a redraw below;
-                    // under `ControlFlow::Wait` there is no automatic next frame.
+                    // Recover outdated surfaces by reconfiguring (infallible —
+                    // no error path to strand on) and lost surfaces by
+                    // recreating them. Both request a redraw below; under
+                    // `ControlFlow::Wait` there is no automatic next frame.
+                    let mut recreate_failed = false;
                     match action {
                         FrameAction::ReconfigureThenRedraw => gpu.reconfigure(),
                         FrameAction::RecreateSurfaceThenRedraw => {
                             if let Err(err) = gpu.recreate_surface() {
+                                // ANTI-FREEZE: a failed recreate must NOT
+                                // dead-end the loop wake-less (a background
+                                // window with no incoming events would strand
+                                // until an external event — the same freeze
+                                // class the escalation rung closes). Record the
+                                // failure; the post-borrow arm schedules a slow
+                                // timed retry instead of the immediate redraw.
                                 tracing::error!("failed to recreate GPU surface: {err}");
-                                return;
+                                recreate_failed = true;
                             }
                         }
                         FrameAction::DeviceLost => {
@@ -6568,13 +6577,16 @@ impl ApplicationHandler<UserEvent> for App {
                             // Rebuilding every GPU-owned atlas, texture, and
                             // pipeline needs an explicit state reconstruction;
                             // stop cleanly instead of spinning on a dead device.
+                            // Deliberately NO wake: no timed retry can rebuild
+                            // device-owned state, so scheduling one would only
+                            // re-log the same dead-device error forever.
                             tracing::error!(
                                 "GPU device was lost; rendering is paused until the window is restarted"
                             );
                         }
                         FrameAction::Idle | FrameAction::RetryAfter(_) => {}
                     }
-                    action
+                    (action, recreate_failed)
                 };
                 // Drop the `gpu` borrow before touching `self.window` (disjoint
                 // fields, but `self.gpu.as_mut()` borrows all of `self`).
@@ -6609,9 +6621,24 @@ impl ApplicationHandler<UserEvent> for App {
                     }
                     FrameAction::RecreateSurfaceThenRedraw => {
                         self.consecutive_skipped_frames = 0;
-                        self.skipped_frame_retry_deadline = None;
-                        if let Some(window) = self.window.as_ref() {
-                            window.request_redraw();
+                        match after_recreate_attempt(recreate_failed) {
+                            RecreateFollowUp::Redraw => {
+                                self.skipped_frame_retry_deadline = None;
+                                if let Some(window) = self.window.as_ref() {
+                                    window.request_redraw();
+                                }
+                            }
+                            RecreateFollowUp::RetryAfter(delay) => {
+                                // The recreate itself failed: an immediate
+                                // redraw would just re-attempt against the same
+                                // broken surface. A slow timed retry keeps a
+                                // guaranteed wake (`about_to_wait` consumes the
+                                // deadline and requests the redraw) without
+                                // spinning; the spent escalation budget is NOT
+                                // refunded, so repeated failures still bottom
+                                // out at the keep-alive + watchdog fallback.
+                                self.skipped_frame_retry_deadline = Some(Instant::now() + delay);
+                            }
                         }
                     }
                     FrameAction::DeviceLost => {
@@ -7058,6 +7085,33 @@ impl SkipEscalation {
     }
 }
 
+/// Follow-up after a surface-recreate attempt. Pure (no GPU/winit) so the
+/// failed-recreate wake guarantee is unit-testable: the loop must NEVER leave
+/// a recreate attempt without either an immediate redraw or a scheduled timed
+/// wake — a wake-less exit strands a background window with no incoming events
+/// (the same freeze class the skip-escalation rung closes).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum RecreateFollowUp {
+    /// The recreate succeeded: repaint the fresh surface immediately.
+    Redraw,
+    /// The recreate failed: retry after a slow bounded delay rather than
+    /// redrawing into the same broken surface. The delay reuses the
+    /// [`SKIPPED_FRAME_SLOW_RETRY`] keep-alive cadence (≤1 wake/sec, never a
+    /// busy-spin), and the spent escalation budget is not refunded, so
+    /// repeated failures bottom out at the keep-alive + watchdog fallback.
+    RetryAfter(Duration),
+}
+
+/// Decide the post-recreate follow-up. Split out of the event arm so the
+/// "every recreate attempt leaves a wake" invariant is pinned by tests.
+fn after_recreate_attempt(failed: bool) -> RecreateFollowUp {
+    if failed {
+        RecreateFollowUp::RetryAfter(SKIPPED_FRAME_SLOW_RETRY)
+    } else {
+        RecreateFollowUp::Redraw
+    }
+}
+
 /// State-only escalation record (same privacy discipline as the stall and
 /// skip-episode records: counters and flags, never terminal content).
 fn format_skip_escalation_record(attempt: u32, consecutive_skips: u32, focused: bool) -> String {
@@ -7403,6 +7457,64 @@ mod tests {
             "minimized skips must never escalate"
         );
         assert_eq!(esc.attempts(), 0, "exempt skips must not spend budget");
+    }
+
+    /// A recreate attempt must never leave the loop wake-less: success
+    /// repaints immediately; failure schedules a slow bounded timed retry
+    /// (the keep-alive cadence) instead of dead-ending until an external
+    /// event arrives. This pins the fix for the failed-recreate strand.
+    #[test]
+    fn recreate_attempt_always_leaves_a_wake() {
+        assert_eq!(
+            after_recreate_attempt(false),
+            RecreateFollowUp::Redraw,
+            "a successful recreate must repaint the fresh surface immediately"
+        );
+        match after_recreate_attempt(true) {
+            RecreateFollowUp::RetryAfter(delay) => {
+                assert_eq!(
+                    delay, SKIPPED_FRAME_SLOW_RETRY,
+                    "a failed recreate must retry at the slow keep-alive cadence"
+                );
+            }
+            RecreateFollowUp::Redraw => {
+                panic!("a failed recreate must not redraw into the broken surface")
+            }
+        }
+    }
+
+    /// Repeated recreate FAILURES respect the per-episode escalation budget:
+    /// the attempt is spent when escalation fires (before the recreate runs),
+    /// so a failing recreate never refunds itself. After the budget, chronic
+    /// skips fall back to the keep-alive — with a wake scheduled at every step
+    /// of the sequence, so the loop can never strand.
+    #[test]
+    fn repeated_recreate_failures_spend_the_budget_then_keep_alive() {
+        let mut esc = SkipEscalation::default();
+        for attempt in 1..=MAX_SKIPPED_FRAME_RECREATES {
+            assert!(
+                esc.should_recreate(false, false, SKIPPED_FRAME_ESCALATE_AFTER),
+                "attempt {attempt}: escalation fires within budget"
+            );
+            // The recreate FAILS: the follow-up still schedules a wake, and
+            // the spent attempt stays spent.
+            assert_eq!(
+                after_recreate_attempt(true),
+                RecreateFollowUp::RetryAfter(SKIPPED_FRAME_SLOW_RETRY),
+            );
+            assert_eq!(
+                esc.attempts(),
+                attempt,
+                "failure must not refund the budget"
+            );
+        }
+        // Budget exhausted: no further recreates, keep-alive still wakes.
+        assert!(!esc.should_recreate(false, false, SKIPPED_FRAME_ESCALATE_AFTER * 2));
+        assert_eq!(
+            next_skipped_retry_delay(false, SKIPPED_FRAME_ESCALATE_AFTER * 2),
+            Some(SKIPPED_FRAME_SLOW_RETRY),
+            "past the budget the ladder's keep-alive wake must still schedule"
+        );
     }
 
     /// The escalation record is state-only: counters and flags, no terminal
