@@ -70,7 +70,7 @@ use self::panes::{DIVIDER_GRAB_PX, PANE_DIVIDER_PX, pane_content_rect};
 #[cfg(test)]
 pub(super) use super::cursor::{CURSOR_ACTIVITY_HOLD, CURSOR_BLINK_STOP_AFTER};
 pub(super) use super::cursor::{CURSOR_BLINK_INTERVAL, CursorBlinkState};
-use super::layout::{FocusDir, SplitAxis};
+use super::layout::{FocusDir, PaneRect, SplitAxis};
 pub(super) use super::resize::{
     PendingResize, RESIZE_DEBOUNCE_INTERVAL, ResizeDebouncer, pending_resize_for_surface,
     scale_factor_changed,
@@ -3787,9 +3787,37 @@ impl App {
         // Drawn bar extent: bottom at the band's painted edge (a gap above the
         // content top), horizontally the joined-band background span (out to a
         // pinned rail band's edge on either side; the window edge otherwise).
+        // The right bound uses the same grid basis the bands are painted from
+        // (see `chrome_right_hit_boundary_px`): the content rect's pixel width
+        // carries a sub-cell remainder the drawn seam does not.
         (y_px as f32) < content.y - gap.top
             && (x_px as f32) >= content.x - gap.left
-            && (x_px as f32) < content.x + content.w + gap.right
+            && (x_px as f32) < self.chrome_right_hit_boundary_px(content, gap.right, cell)
+    }
+
+    /// The right-hand hit boundary of the chrome bands, in physical px. With a
+    /// pinned RIGHT rail this is the band's painted origin
+    /// ([`Self::rail_origin_px`], grid basis: `pad + columns·cell_w + gap`), so
+    /// the hit test meets the drawn seam exactly — the content rect's
+    /// un-floored pixel width carries a sub-cell remainder (`width % cell_w`),
+    /// and bounding at `content.x + content.w` would put the boundary that
+    /// remainder RIGHT of the painted edge, routing the innermost sliver of
+    /// the drawn band to the content menu. The left twin has no such drift: a
+    /// left band's whole-column reserve keeps `content.x` grid-exact, with the
+    /// remainder accumulating on the content's right edge. Without a pinned
+    /// right rail the historical content-rect bound is kept byte-identically
+    /// (`gap.right` is 0 there).
+    fn chrome_right_hit_boundary_px(
+        &self,
+        content: PaneRect,
+        gap_right: f32,
+        cell: CellSize,
+    ) -> f32 {
+        if self.tab_reserve().right_cols > 0 {
+            self.rail_origin_px(cell)[0]
+        } else {
+            content.x + content.w + gap_right
+        }
     }
 
     /// Whether the pointer sits over the workspace-rail column band this frame
@@ -3823,9 +3851,15 @@ impl App {
         // CHROME-GAP: the band ends at its DRAWN content-facing edge, a gap
         // short of the content rect — the neutral strip between them is not
         // rail chrome (it routes to content, like left-click already does).
+        // The Right arm binds at the band's painted origin (grid basis) via
+        // the shared boundary helper, not at the content rect's pixel edge —
+        // see `chrome_right_hit_boundary_px` for the sub-cell remainder this
+        // avoids annexing from the drawn band.
         match self.workspace_rail_side() {
             RailSide::Left => (x_px as f32) < content.x - gap.left,
-            RailSide::Right => (x_px as f32) >= content.x + content.w + gap.right,
+            RailSide::Right => {
+                (x_px as f32) >= self.chrome_right_hit_boundary_px(content, gap.right, cell)
+            }
         }
     }
 

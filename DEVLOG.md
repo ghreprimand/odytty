@@ -7,6 +7,35 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Right-rail hit boundary aligned to the painted band edge
+
+The coarse chrome hit helpers bounded a pinned right rail at the content
+rect's pixel edge (`content.x + content.w + gap`), but the band itself is
+painted from the grid-basis origin (`pad + columns·cell_width + gap`). The
+content rect's un-floored pixel width carries a sub-cell remainder
+(`width % cell_width`), so with a right rail and a non-cell-multiple window
+width the hit boundary sat that remainder to the right of the drawn seam —
+a right-click in the innermost sliver of the painted band routed to the
+content menu instead of the rail's. The left twin never drifted: a left
+band's whole-column reserve keeps the content origin grid-exact, with the
+remainder accumulating harmlessly on the content's right edge.
+
+Both right edges (the top bar's joined-band span and the rail band arm) now
+bind at the band's painted origin through one shared boundary helper, so the
+hit test meets the drawn seam exactly. Without a pinned right rail the
+historical content-rect bound is kept byte-identically. The right-rail
+routing test now pins the true painted geometry — gap strip to content, the
+band sliver (content rows and bar rows alike) to the rail menu — and a new
+test pins that cell-multiple widths keep the exact historical boundary.
+
+Also corrected in the pixel-snap entry below: the shared label chokepoint
+carries mono glyphs, color/emoji labels, and underline decorations;
+strikethrough draws its own rect from the raw cell origin and never routed
+through it.
+
+Pointer-routing geometry only, backend- and platform-agnostic; covered by
+the standard CI matrix.
+
 ## 2026-07-19 -- A failed swapchain recreate no longer strands a background window
 
 Follow-up to the surface-recreate escalation below: the recreate attempt's own
@@ -132,7 +161,7 @@ half-pixel origin visible.
 
 The fix snaps the composed label shift to a whole physical pixel at the single
 chokepoint every consumer shares (mono glyphs, color/emoji labels, and
-underline/strikethrough decorations all route through it). Rounding moves the
+underline decorations all route through it). Rounding moves the
 label at most half a pixel, so at least 1.5px of the two-pixel descender guard
 always survives; whole-pixel shifts round to themselves, so even-cell-height
 configurations render as before, and content cells keep their exact zero arm.

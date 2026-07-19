@@ -1592,19 +1592,42 @@ fn right_rail_gap_strip_routes_to_content_and_zero_padding_is_flush() {
         return;
     };
     let cell = cell(8, 16);
+    let padding = WindowPadding::from_logical(4.0, 1.0);
     app.set_test_cell_for_test(cell);
-    app.set_test_surface_for_test(1000, 600, WindowPadding::from_logical(4.0, 1.0));
+    app.set_test_surface_for_test(1000, 600, padding);
     app.set_workspace_rail_for_test("right");
     app.set_tab_rail_width_manual_for_test(16);
-    // Geometry: content [4, 864); gap strip [864, 868); rail band x >= 868.
-    app.set_pointer_px_for_test(865.0, 100.0);
+    // Sync the live grid to the injected surface: the band is painted from the
+    // grid's column count, and the hit boundary now shares that basis.
+    app.resize_grid_with_padding_for_test(cell, padding, 1000, 600);
+    // Geometry (grid basis, matching the painted band): content columns end at
+    // 4 + 107*8 = 860; gap strip [860, 864); rail band painted from
+    // rail_origin = 4 + 107*8 + 4 = 864. The content rect's pixel width
+    // carries a 4px sub-cell remainder (860 = 107*8 + 4), so a boundary at
+    // content.x + content.w + gap (= 868) would misroute the innermost 4px of
+    // the PAINTED band to content — the hit test must bind at the drawn seam.
+    app.set_pointer_px_for_test(861.0, 100.0);
     assert_eq!(
         app.empty_chrome_menu_surface_for_test(),
         None,
         "the right-rail gap strip routes to content"
     );
+    app.set_pointer_px_for_test(865.0, 100.0);
+    assert_eq!(
+        app.empty_chrome_menu_surface_for_test(),
+        Some("workspace"),
+        "the innermost sliver of the painted band is rail chrome, not content"
+    );
     app.set_pointer_px_for_test(870.0, 100.0);
     assert_eq!(app.empty_chrome_menu_surface_for_test(), Some("workspace"));
+    // The chrome-chrome junction over the band sliver stays chrome too: at bar
+    // rows the rail owns its full-height column band from the same boundary.
+    app.set_pointer_px_for_test(865.0, 10.0);
+    assert_eq!(
+        app.empty_chrome_menu_surface_for_test(),
+        Some("workspace"),
+        "the band sliver at bar rows keeps the rail menu"
+    );
 
     // Zero padding: no strip; the band starts at the shared flush edge.
     let Some(mut app) = tab_bar_app() else {
@@ -1626,6 +1649,38 @@ fn right_rail_gap_strip_routes_to_content_and_zero_padding_is_flush() {
     );
     app.set_pointer_px_for_test(300.0, 8.0);
     assert_eq!(app.empty_chrome_menu_surface_for_test(), Some("tab"));
+}
+
+#[test]
+fn right_rail_hit_boundary_is_grid_exact_at_cell_multiple_width() {
+    // When the content width is an exact cell multiple there is no sub-cell
+    // remainder, so the grid-basis boundary and the content-rect edge agree —
+    // the historical routing is byte-identical. (The remainder case is pinned
+    // in `right_rail_gap_strip_routes_to_content_and_zero_padding_is_flush`.)
+    let Some(mut app) = tab_bar_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let cell = cell(8, 16);
+    app.set_test_cell_for_test(cell);
+    // Zero padding, right rail 16 cols: content.w = 1000 - 128 = 872 = 109*8
+    // exactly. Band painted (and hit) from x = 872, flush at the shared edge.
+    app.set_test_surface_for_test(1000, 600, WindowPadding::ZERO);
+    app.set_workspace_rail_for_test("right");
+    app.set_tab_rail_width_manual_for_test(16);
+    app.resize_grid_with_padding_for_test(cell, WindowPadding::ZERO, 1000, 600);
+    app.set_pointer_px_for_test(871.0, 100.0);
+    assert_eq!(
+        app.empty_chrome_menu_surface_for_test(),
+        None,
+        "flush cell-multiple layout keeps the historical content boundary"
+    );
+    app.set_pointer_px_for_test(872.0, 100.0);
+    assert_eq!(
+        app.empty_chrome_menu_surface_for_test(),
+        Some("workspace"),
+        "the band starts exactly at the shared grid edge"
+    );
 }
 
 #[test]
