@@ -785,14 +785,16 @@ pub const MAX_TAB_RAIL_SLOT_ROWS: f32 = 2.0;
 
 /// Tab-panel strength (`ODYTTY_TAB_PANEL_STRENGTH`, F4-P1): sets the opacity
 /// of the unified panel behind the rail/bar DIRECTLY. `0.0` = panel fully off
-/// (the pre-panel bare-labels look); `1.0` (default) = the band composes
-/// nearly fully opaque at ANY window opacity (the strength → coverage ramp is
-/// linear in between). Drives both the panel-tint lift (cell backgrounds) and
-/// the panel-wash quad alpha, which tops the band's own cell fill up to the
-/// strength target (`tab_chrome::panel_wash_alpha`; the earlier
-/// `strength × (1 − opacity)` cap collapsed under a translucent window,
-/// leaving even a maxed knob weak). Both axes, hot-reloadable.
-pub const DEFAULT_TAB_PANEL_STRENGTH: f32 = 1.0;
+/// (the pre-panel bare-labels look); `1.0` = the band composes nearly fully
+/// opaque at ANY window opacity (the strength → coverage ramp is linear in
+/// between). Defaults to `0.8`: a strong, clearly-present panel that still
+/// lets a hint of the window through, short of the maximal endpoint. Drives
+/// both the panel-tint lift (cell backgrounds) and the panel-wash quad alpha,
+/// which tops the band's own cell fill up to the strength target
+/// (`tab_chrome::panel_wash_alpha`; the earlier `strength × (1 − opacity)` cap
+/// collapsed under a translucent window, leaving even a maxed knob weak). Both
+/// axes, hot-reloadable.
+pub const DEFAULT_TAB_PANEL_STRENGTH: f32 = 0.8;
 pub const MIN_TAB_PANEL_STRENGTH: f32 = 0.0;
 pub const MAX_TAB_PANEL_STRENGTH: f32 = 1.0;
 

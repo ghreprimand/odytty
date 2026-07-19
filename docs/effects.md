@@ -391,8 +391,9 @@ opaque and lower values let more of the desktop through.
 
 The chrome bands (tab bar and workspace rail) additionally carry the unified
 panel, whose opacity is set by `tab_panel_strength` independently of
-`window_opacity`: at the default `1.0` the bands compose nearly fully opaque
-even on a very translucent window, and one panel translucency is shared by the
+`window_opacity`: at the default `0.8` the bands compose strongly opaque even
+on a very translucent window (`1.0` reaches the near-fully-opaque endpoint),
+and one panel translucency is shared by the
 top bar, the pinned rail, and the revealed autohide overlay alike.
 
 Transparency needs a compositing window manager: Wayland composites natively,

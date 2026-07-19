@@ -93,7 +93,7 @@ environment variable was not set at startup.
 | `workspace_rail_max_width` | `ODYTTY_WORKSPACE_RAIL_MAX_WIDTH` | `8..=32` cells | `24` |
 | `workspace_rail_gap` | `ODYTTY_WORKSPACE_RAIL_GAP` | `0..=3` rows | `1` |
 | `workspace_rail_slot_rows` | `ODYTTY_WORKSPACE_RAIL_SLOT_ROWS` | `1`, `2` rows | `2` |
-| `tab_panel_strength` | `ODYTTY_TAB_PANEL_STRENGTH` | Float, `0.0..=1.0` (`0` = panel off) | `1.0` |
+| `tab_panel_strength` | `ODYTTY_TAB_PANEL_STRENGTH` | Float, `0.0..=1.0` (`0` = panel off) | `0.8` |
 | `tab_seam` | `ODYTTY_TAB_SEAM` | `on`, `off` | `off` |
 | `workspace_rail_autohide` | `ODYTTY_WORKSPACE_RAIL_AUTOHIDE` | `on`, `off` | `off` |
 | `workspace_rail_reveal_px` | `ODYTTY_WORKSPACE_RAIL_REVEAL_PX` | `1..=32` logical px | `16` |
@@ -235,9 +235,10 @@ rail as a floating overlay without reflowing terminal content. Workspace
 switch, create, and close shortcuts also reveal it briefly.
 
 `tab_panel_strength` sets the opacity of the unified panel behind the rail and
-tab bar directly: `1.0` (the default) composes the chrome bands nearly fully
-opaque at any window opacity, `0.0` turns the panel off (bare labels over the
-window background), and the ramp between is linear. The revealed autohide
+tab bar directly: `1.0` composes the chrome bands nearly fully opaque at any
+window opacity, `0.0` turns the panel off (bare labels over the window
+background), and the ramp between is linear. The default is `0.8` — a strong,
+clearly-present panel that still lets a hint of the window through. The revealed autohide
 overlay, the pinned rail, and the top bar all share one panel translucency, so
 toggling autohide never changes how solid the band looks. (Earlier releases
 scaled the panel from the window's remaining opacity headroom, which made even

@@ -791,9 +791,15 @@ mod tests {
         const MID_GRAY: Srgb = (0x80, 0x80, 0x80);
         // Default strength over a representative translucent band cell alpha
         // (window opacity 30 × wallpaper softening 0.8).
+        // The shipped default (0.8) still composes a strong panel wash over a
+        // translucent band cell: panel_wash_alpha(0.8, 0.24) is about 0.72 — a
+        // touch below the maxed 0.92 endpoint but heavy enough to veil. The
+        // default was 1.0 (a full 0.92 wash) before the strength rescale feel
+        // pass; assertions (4)-(6) below confirm the fills and labels stay
+        // distinguishable through the softer veil.
         let p_reveal = panel_wash_alpha(crate::settings::DEFAULT_TAB_PANEL_STRENGTH, 0.24);
         assert!(
-            p_reveal > 0.8,
+            p_reveal > 0.7,
             "the shipped default must veil strongly under a translucent window"
         );
         for theme in crate::theme::all() {

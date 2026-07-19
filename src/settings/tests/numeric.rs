@@ -660,6 +660,12 @@ fn tab_rail_numeric_knobs_default_parse_and_clamp() {
     assert_eq!(d.tab_rail_gap, DEFAULT_TAB_RAIL_GAP);
     assert_eq!(d.tab_rail_slot_rows, DEFAULT_TAB_RAIL_SLOT_ROWS);
     assert_eq!(d.tab_panel_strength, DEFAULT_TAB_PANEL_STRENGTH);
+    // Pin the shipped panel-strength default: a strong but not maximal
+    // panel picked in the strength-rescale feel pass (was 1.0).
+    assert!(
+        (d.tab_panel_strength - 0.8).abs() < 1e-6,
+        "panel strength defaults to 0.8"
+    );
     assert_eq!(d.tab_rail_reveal_px, DEFAULT_TAB_RAIL_REVEAL_PX);
     assert!(warnings.is_empty());
     // The rounding accessors return the shipped defaults.

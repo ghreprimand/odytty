@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Tab-panel strength default lowered to 0.8
+
+The default `tab_panel_strength` changes from `1.0` to `0.8` following a
+slider-sweep feel pass. `1.0` remains the maximal endpoint — a nearly fully
+opaque chrome band at any window opacity — while `0.8` gives a strong,
+clearly-present panel that still lets a hint of the window through. The knob's
+name, range, mapping, and hot-reload behavior are unchanged; only the shipped
+default moves. Documentation (runtime-knobs reference, effects notes, example
+config) and the default-value tests are updated to the new number, and the
+revealed-autohide legibility test tracks the softer-but-still-strong default
+veil that the lower default composes.
+
+`cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --locked`
+all clean.
+
+
 ## 2026-07-19 -- TUI reader threads spawn fallibly; eviction test made portable
 
 Two related hardening items in the interactive (headless TUI) path plus one
