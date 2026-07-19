@@ -1345,12 +1345,20 @@ mod hardening_tests {
         assert_eq!(clients.len(), 1, "existing client keeps its slot");
         assert_eq!(clients[0].id, 1);
         // The failed client's socket was shut down: the far side observes a
-        // clean disconnect instead of a silently wedged attach.
+        // clean disconnect instead of a silently wedged attach. Platforms
+        // differ on how a shutdown(Both)+drop surfaces to the reader: Linux
+        // reports Ok(0) EOF, while macOS/BSD reports ECONNRESET for the same
+        // clean teardown. Both count as "disconnect observed"; anything else
+        // (data, a timeout, a different error) still fails.
         peer.set_read_timeout(Some(Duration::from_secs(5)))
             .expect("set peer timeout");
         let mut buffer = [0u8; 8];
-        let read = (&peer).read(&mut buffer).expect("peer read");
-        assert_eq!(read, 0, "far side sees EOF");
+        match (&peer).read(&mut buffer) {
+            Ok(0) => {}
+            Err(error) if error.kind() == io::ErrorKind::ConnectionReset => {}
+            Ok(n) => panic!("far side must see a disconnect, got {n} bytes"),
+            Err(error) => panic!("far side must see a disconnect, got {error}"),
+        }
     }
 
     // ---- F9: total-handshake deadline ----
