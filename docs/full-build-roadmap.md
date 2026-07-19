@@ -406,8 +406,8 @@ plain bypass.
   the contrast floor. Blur-behind remains future.
 - **Shipped — Window-chrome identity.** Themed padding and optional thin
   semantic-role border.
-- **Shipped — Window transparency.** An opt-in translucent window, off by
-  default, draws the terminal background and chrome bands at a configurable
+- **Shipped — Window transparency.** A translucent window, on by
+  default at `window_opacity` 80, draws the terminal background and chrome bands at a configurable
   opacity while text, cursor, selection, and overlays remain fully opaque.
   A compositing window manager is required; Windows uses DWM, while X11 without
   a compositor degrades to opaque. Blur or acrylic behind the window remains

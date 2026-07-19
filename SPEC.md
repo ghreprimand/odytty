@@ -1540,7 +1540,7 @@ be **structurally unable** to harm body-text legibility by construction:
 
   The knob is forced off under the plain renderer profile. Whole-window
   transparency ships separately (`window_transparency` / `window_opacity`,
-  default off): only background layers scale toward the desktop while text,
+  on by default at opacity 80): only background layers scale toward the desktop while text,
   cursor, selection, and overlays stay fully opaque. Blur-behind (acrylic)
   compositing remains a planned future extension.
 

@@ -846,8 +846,8 @@ feature validates against.
         panel uses an inline path picker for `background_image` without blocking
         overlay navigation while directories are enumerated. Blur-behind
         transparency remains future work.
-  - [x] Window transparency (`window_transparency`, default off; `window_opacity`
-        percent, default 85): the terminal background and chrome bands draw
+  - [x] Window transparency (`window_transparency`, default on; `window_opacity`
+        percent, default 80): the terminal background and chrome bands draw
         translucent so the desktop shows through, while text, cursor, selection,
         and every overlay stay fully opaque — the readability boundary. The
         surface alpha mode is chosen explicitly (premultiplied → postmultiplied →

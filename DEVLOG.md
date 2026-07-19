@@ -7,6 +7,16 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Docs align to window transparency on by default
+
+The reference docs are brought in line with the shipped default: window
+transparency is on out of the box, translucent at `window_opacity` 80 and one
+step from a fully-opaque look. The settings table, the accessibility and
+effects prose, the roadmap status line, and the SPEC/TODO records that still
+described the feature as off by default (and one that still named the old 85
+opacity default) now match reality. Docs only; no behavior change.
+
+
 ## 2026-07-19 -- Chrome bands stay joined across the padding gap
 
 Feel-testing the new chrome-facing window padding surfaced a corner defect:

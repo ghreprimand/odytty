@@ -203,7 +203,7 @@ signal, so set `ODYTTY_APPEARANCE=dark|light` to seed it. See
 
 ## Window transparency and the contrast floor
 
-`window_transparency` (off by default) lets the desktop show through the window
+`window_transparency` (on by default, translucent at `window_opacity` 80) lets the desktop show through the window
 background, but it is designed to leave legibility untouched: only backgrounds
 and chrome bands scale toward `window_opacity`, while text, cursor, selection,
 and every overlay stay fully opaque. The minimum-contrast floor is computed
