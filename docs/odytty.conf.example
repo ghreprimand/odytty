@@ -153,7 +153,7 @@ cursor_trail = on
 # the nearby echo and the large-jump follower stretch/settle.
 cursor_trail_strength = balanced
 reduced_motion = off
-new_output_fade = off
+new_output_fade = on
 # Fade-in ramp length in milliseconds; only acts while new_output_fade is on.
 new_output_fade_ms = 250
 

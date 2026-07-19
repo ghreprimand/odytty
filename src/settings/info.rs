@@ -937,7 +937,7 @@ impl Settings {
                 env: NEW_OUTPUT_FADE_ENV,
                 name: "New-output fade-in",
                 value: bool_display(self.new_output_fade).to_owned(),
-                description: "When on, the text of freshly arrived output rows fades in over a short ramp at the live tail instead of appearing instantly. Only the text ramps, from a visible floor to full strength; backgrounds render as normal from the first frame, so nothing darkens. Off by default; only at the live tail — scrollback and resize snap. Purely visual.",
+                description: "When on, the text of freshly arrived output rows fades in over a short ramp at the live tail instead of appearing instantly. Only the text ramps, from a visible floor to full strength; backgrounds render as normal from the first frame, so nothing darkens. On by default; only at the live tail — scrollback and resize snap. Purely visual.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],

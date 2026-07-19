@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- New-output fade-in on by default
+
+With the fade reworked to a text-only foreground ramp that never darkens a row,
+the new-output fade-in now ships on out of the box. Freshly arrived output at
+the live tail eases its glyphs, decorations, and emoji up from a visible floor
+to full strength as the screen scrolls; cell backgrounds render as normal from
+the first frame, so the effect reads as polish rather than a flash. The ramp
+length stays adjustable through `new_output_fade_ms` (default 250 ms).
+
+`reduced_motion` still vetoes the fade, snapping new output in instantly, and
+the render path with the toggle off is unchanged. The effect applies to output
+scrolling into a full screen; fresh or partially filled screens do not fade.
+Purely presentational and identical on every supported platform.
+
+---
+
 ## 2026-07-19 -- New-output fade reworked: text fades in, no background veil
 
 The new-output fade previously painted an opaque background-color quad over

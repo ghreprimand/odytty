@@ -131,7 +131,7 @@ environment variable was not set at startup.
 | `cursor_trail` | `ODYTTY_CURSOR_TRAIL` | `on`, `off` | `on` |
 | `cursor_trail_strength` | `ODYTTY_CURSOR_TRAIL_STRENGTH` | `subtle`, `balanced`, `expressive` | `balanced` |
 | `reduced_motion` | `ODYTTY_REDUCED_MOTION` | `on`, `off` | `off` |
-| `new_output_fade` | `ODYTTY_NEW_OUTPUT_FADE` | `on`, `off` | `off` |
+| `new_output_fade` | `ODYTTY_NEW_OUTPUT_FADE` | `on`, `off` | `on` |
 | `new_output_fade_ms` | `ODYTTY_NEW_OUTPUT_FADE_MS` | Float, `50..=1000` ms | `250` |
 | `keybinds` | `ODYTTY_KEYBINDS` | `chord=action` list | empty |
 | `pane_prefix` | `ODYTTY_PANE_PREFIX` | Key chord, or `off` to disable | `ctrl+b` |
@@ -439,7 +439,7 @@ audible bell.
 - `reduced_motion = on` is the master static override for cursor slide, trail,
   glow, easing, and new-output fade. It preserves the stored settings while
   forcing those paths to their static or instant forms. `new_output_fade`
-  remains off by default.
+  is on by default and is one of the paths this override suppresses.
 
 - `background_treatment = image` draws a PNG, JPEG, or WebP behind the grid. Use
   `cell_bg_opacity < 1.0` to show it through cells; otherwise it is only visible

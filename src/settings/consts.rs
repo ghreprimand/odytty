@@ -570,12 +570,13 @@ pub const DEFAULT_REDUCED_MOTION: bool = false;
 /// alpha ramp — glyphs, decorations, and emoji rise from a visible floor to
 /// full strength while cell backgrounds render exactly as normal from the
 /// first frame (a background veil read as a dark flash on translucent
-/// windows). Off by default; while off no multipliers are exposed, no extra
-/// wakes are scheduled, and the render path is byte-identical to before. Only
-/// fades at the live tail (`viewport_offset == 0`); scrolling back or resizing
-/// snaps instantly. The row carrying the cursor never fades. Purely
-/// presentational.
-pub const DEFAULT_NEW_OUTPUT_FADE: bool = false;
+/// windows). On by default now that the ramp is text-only and never darkens a
+/// row; while off no multipliers are exposed, no extra wakes are scheduled, and
+/// that render path is byte-identical to before the feature existed. Only fades
+/// at the live tail (`viewport_offset == 0`) as output scrolls in; scrolling
+/// back or resizing snaps instantly. The row carrying the cursor never fades.
+/// `reduced_motion` suppresses it. Purely presentational.
+pub const DEFAULT_NEW_OUTPUT_FADE: bool = true;
 
 /// New-output fade ramp length (`ODYTTY_NEW_OUTPUT_FADE_MS`, VE4): how long a
 /// freshly arrived row's text takes to rise from the fade floor to full

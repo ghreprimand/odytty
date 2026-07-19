@@ -31,8 +31,9 @@
 //! the vector is always empty, [`App::new_row_fade_deadline`] is `None` (no
 //! extra wakes), [`App::new_row_fade_text_multipliers`] answers `None` (the
 //! vertex builders take their exact inert path), and
-//! [`App::new_row_fade_overlay_signature`] is constant `Inert` — the default
-//! render path is byte-identical to before this feature existed.
+//! [`App::new_row_fade_overlay_signature`] is constant `Inert` — that render
+//! path is byte-identical to before this feature existed. The feature is on by
+//! default; the off contract above is what a user who turns it off gets.
 
 use super::*;
 
@@ -262,7 +263,10 @@ mod tests {
         let Some(mut app) = build_app() else {
             return;
         };
-        assert!(!app.settings.new_output_fade, "off by default");
+        // The feature ships on by default, so seed the off state explicitly to
+        // pin the off-path contract.
+        app.settings.new_output_fade = false;
+        assert!(!app.settings.new_output_fade);
         // Even a large scrollback advance must not stamp any fade while off.
         app.update_row_fade(Instant::now(), 50);
         assert!(

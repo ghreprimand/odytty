@@ -377,6 +377,22 @@ fn new_output_fade_ms_defaults_parses_and_clamps() {
 }
 
 #[test]
+fn new_output_fade_defaults_on_and_parses_off() {
+    // Ships on out of the box now that the ramp is text-only and never darkens
+    // a row.
+    let (settings, warnings) = settings_from([]);
+    assert!(settings.new_output_fade, "on by default");
+    assert_eq!(settings.new_output_fade, DEFAULT_NEW_OUTPUT_FADE);
+    assert!(warnings.is_empty());
+
+    // An explicit off is still honoured.
+    let (off, _) = settings_from([(NEW_OUTPUT_FADE_ENV, "off")]);
+    assert!(!off.new_output_fade);
+    let (on, _) = settings_from([(NEW_OUTPUT_FADE_ENV, "on")]);
+    assert!(on.new_output_fade);
+}
+
+#[test]
 fn new_output_fade_ms_round_trips_through_config_key_and_edit_values() {
     // Config alias maps to the env key and back.
     assert_eq!(

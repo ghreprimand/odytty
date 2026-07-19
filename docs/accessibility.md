@@ -93,8 +93,8 @@ immediate, and the bounded follower schedules no wake after it settles.
 Cursor glow (`cursor_glow`) is on by default and follows the same static
 override. Its strength is adjustable through `cursor_glow_intensity` on a
 `0.0..=1.0` scale; setting it to `0.0` removes the aura entirely while leaving
-the glow toggle on. The new-output fade (`new_output_fade`) remains off unless
-you turn it on.
+the glow toggle on. The new-output fade (`new_output_fade`) is on by
+default and is suppressed under reduced motion like the cursor animations.
 
 Four additional motion behaviors are on by default, because none adds input
 latency:
@@ -162,8 +162,8 @@ bloom = off
 crt = off
 visual = off
 background_treatment = color
-# cursor glow is on by default; the new-output fade is already off.
-# reduced_motion makes the default cursor slide, trail, glow, and blink fade static.
+# cursor glow and the new-output fade are on by default.
+# reduced_motion makes the default cursor slide, trail, glow, blink fade, and new-output fade static.
 # Add cursor_blink = off, scroll_glide = off, and pixel_scroll = off for a
 # fully static terminal (see above).
 ```

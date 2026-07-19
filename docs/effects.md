@@ -323,8 +323,8 @@ ease-out curve. Cell backgrounds render exactly as normal from the first frame,
 so the fade never darkens the window; on a translucent window a background
 veil would read as a dark flash, which is why the effect is a text ramp. The
 cursor's row never fades, so the live prompt stays at full strength.
-Scrollback and resize snap. Off by default; only at the live tail.
-`reduced_motion = on` suppresses it.
+Scrollback and resize snap. On by default; only at the live tail, so it applies
+to output scrolling into a full screen. `reduced_motion = on` suppresses it.
 
 `new_output_fade_ms` sets how long that ramp takes, from `50` to `1000`
 milliseconds (default `250`). A longer value makes the fade easy to see; a
