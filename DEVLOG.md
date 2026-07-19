@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Surface acquisition that times out persistently now recreates the swapchain instead of retrying forever
+
+A long-running window froze hard when its compositor stranded an in-flight
+buffer: the driver-side explicit-sync fence never signalled, so every surface
+acquire returned Timeout, and the frame loop's retry ladder — a bounded burst
+of fast retries, then a 1-second keep-alive — retried for minutes without ever
+escalating. The recreate machinery already existed for lost and outdated
+surfaces; chronic timeout was simply never routed into it. The freeze watchdog
+logged the stall (over two minutes of pending work with no presented frame)
+while the window stayed frozen until restarted.
+
+The skip ladder now carries an escalation rung. After 32 consecutive skipped
+frames with paint work pending — roughly 24 seconds into a persistent episode,
+far beyond any transient acquire hiccup — the loop forces a surface recreate
+and repaints. The escalation is bounded to two recreate attempts per skip
+episode: if the surface still will not acquire, the loop falls back to the
+existing event-driven keep-alive plus watchdog logging rather than
+recreate-looping on a wedged driver. The budget re-arms only on a successful
+present, the same boundary the freeze watchdog uses, so failed recreates can
+never refill their own budget. Each escalation emits a state-only log record
+(attempt number, consecutive skips, focus flag — no terminal content).
+
+Occluded surfaces are exempt. The acquire path previously conflated Timeout
+and Occluded into one skipped outcome; they are now reported separately, and
+an occluded window — whose surface is correctly unavailable — keeps today's
+retry ladder exactly, since recreating the swapchain of every covered window
+on a timer would be churn, not recovery. A minimized window remains fully
+vetoed as before.
+
+Windows behavior: the escalation lives at the backend-agnostic frame-outcome
+layer, not in any platform present path. On Windows, DXGI occlusion reports
+through the exempt Occluded arm, so covered or minimized windows never trigger
+a recreate; a genuinely chronic acquire timeout would take the same bounded
+recreate path already used for lost surfaces. No platform-specific code was
+added; the policy tests run on every CI leg.
+
+The whole policy is pure state (no GPU or event loop required), so tests pin
+the threshold, the per-episode bound and fallback, the re-arm-on-present
+semantics, the occluded/minimized exemptions, and the state-only log format.
+
 ## 2026-07-19 -- One chrome translucency across autohide states; panel strength decoupled from window opacity
 
 Two coupled fixes to how the chrome bands (tab bar, workspace rail) compose

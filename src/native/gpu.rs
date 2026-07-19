@@ -4005,9 +4005,15 @@ impl GpuState {
                 return FrameOutcome::Reconfigure;
             }
             wgpu::CurrentSurfaceTexture::Lost => return FrameOutcome::RecreateSurface,
-            // Transient: drop this frame and try again later.
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                return FrameOutcome::Skipped;
+            // Transient: drop this frame and try again later. The two arms are
+            // reported separately so the event loop's escalation policy can
+            // tell a chronic acquire timeout (candidate for a bounded surface
+            // recreate) from a legitimately occluded window (never recreated).
+            wgpu::CurrentSurfaceTexture::Timeout => {
+                return FrameOutcome::Skipped { occluded: false };
+            }
+            wgpu::CurrentSurfaceTexture::Occluded => {
+                return FrameOutcome::Skipped { occluded: true };
             }
         };
         let view = frame
@@ -4113,5 +4119,8 @@ pub(super) enum FrameOutcome {
     /// The device-lost callback signalled the event-loop thread.
     RecreateDevice,
     /// The frame was intentionally skipped (transient surface state).
-    Skipped,
+    /// `occluded` distinguishes an occluded surface (platform reports the
+    /// window as not visible; retrying is all that is ever appropriate) from an
+    /// acquire timeout (which, when chronic, escalates to a surface recreate).
+    Skipped { occluded: bool },
 }

@@ -486,6 +486,11 @@ pub(super) struct App {
     /// counter before the eventual successful present. The episode therefore
     /// retains the true duration and skip total for one end-of-episode record.
     skip_episode: SkipEpisode,
+    /// ANTI-FREEZE ESCALATION: bounded surface-recreate budget for a chronic
+    /// acquire-timeout episode (see [`SkipEscalation`]). Re-armed only by a
+    /// successful present, mirroring the freeze watchdog's semantics, so the
+    /// budget cannot be refilled by the very retries that are failing.
+    skip_escalation: SkipEscalation,
     /// A restore signal arrived while a skip episode was active. Consumed once
     /// immediately before the next render to retire the starved swapchain using
     /// the same non-blocking reconfigure primitive as surface recovery.
@@ -851,6 +856,7 @@ impl App {
             resize_debounce: ResizeDebouncer::new(RESIZE_DEBOUNCE_INTERVAL),
             skipped_frame_retry_deadline: None,
             skip_episode: SkipEpisode::default(),
+            skip_escalation: SkipEscalation::default(),
             pending_surface_reconfigure: false,
             consecutive_skipped_frames: 0,
             window_minimized: false,
@@ -6519,7 +6525,33 @@ impl ApplicationHandler<UserEvent> for App {
                         gpu.reconfigure();
                     }
                     let outcome = gpu.render();
-                    let action = after_frame(outcome);
+                    let mut action = after_frame(outcome);
+                    // ANTI-FREEZE ESCALATION: a chronic acquire timeout (the
+                    // retry ladder exhausted many consecutive skips with paint
+                    // work still pending — every retry here IS a pending paint)
+                    // escalates to the surface-recreate path instead of
+                    // retrying forever. Bounded per episode, exempt while
+                    // occluded or minimized, re-armed only by a present.
+                    if let FrameOutcome::Skipped { occluded } = outcome
+                        && self.skip_escalation.should_recreate(
+                            occluded,
+                            self.window_minimized,
+                            self.consecutive_skipped_frames,
+                        )
+                    {
+                        // The frame WAS skipped; keep the episode totals true
+                        // even though the action below leaves the retry arm.
+                        self.skip_episode.note_skipped(Instant::now());
+                        tracing::warn!(
+                            "{}",
+                            format_skip_escalation_record(
+                                self.skip_escalation.recreate_attempts,
+                                self.consecutive_skipped_frames,
+                                self.focused,
+                            )
+                        );
+                        action = FrameAction::RecreateSurfaceThenRedraw;
+                    }
                     // Recover outdated surfaces by reconfiguring and lost
                     // surfaces by recreating them. Both request a redraw below;
                     // under `ControlFlow::Wait` there is no automatic next frame.
@@ -6562,6 +6594,9 @@ impl ApplicationHandler<UserEvent> for App {
                         // future transient skip gets a fresh set of retries.
                         self.consecutive_skipped_frames = 0;
                         self.skipped_frame_retry_deadline = None;
+                        // ...and re-arms the bounded surface-recreate budget
+                        // (the only place it refills — see `SkipEscalation`).
+                        self.skip_escalation.note_presented();
                     }
                     FrameAction::ReconfigureThenRedraw => {
                         self.consecutive_skipped_frames = 0;
@@ -6584,6 +6619,7 @@ impl ApplicationHandler<UserEvent> for App {
                         // pauses, so discard it without reporting a false
                         // self-heal and drop any deferred surface work.
                         self.skip_episode = SkipEpisode::default();
+                        self.skip_escalation = SkipEscalation::default();
                         self.pending_surface_reconfigure = false;
                         self.consecutive_skipped_frames = 0;
                         self.skipped_frame_retry_deadline = None;
@@ -6916,7 +6952,9 @@ enum FrameAction {
     /// The frame was transiently skipped (`get_current_texture` returned
     /// Timeout/Occluded — e.g. the first frame as a Windows DX12 surface
     /// recovers on restore). Retry the frame after a bounded delay rather than
-    /// busy-spinning. Subject to the call-site spin guards.
+    /// busy-spinning. Subject to the call-site spin guards, and to the
+    /// [`SkipEscalation`] rung that upgrades a *chronic* timeout run to
+    /// [`FrameAction::RecreateSurfaceThenRedraw`] instead of retrying forever.
     RetryAfter(Duration),
 }
 
@@ -6947,6 +6985,85 @@ impl SkipEpisode {
     fn is_active(&self) -> bool {
         self.started.is_some()
     }
+}
+
+/// Consecutive skipped frames before a chronic acquire timeout escalates to a
+/// surface recreate. With the retry ladder ([`MAX_SKIPPED_RETRIES`] fast tries
+/// at [`SKIPPED_FRAME_RETRY`], then the [`SKIPPED_FRAME_SLOW_RETRY`] keep-alive)
+/// this puts the first recreate roughly 24 seconds into a persistent episode —
+/// far beyond any transient acquire hiccup, and comfortably before the freeze
+/// watchdog's multi-minute stall records. Chosen so a briefly-unavailable
+/// surface never sees a recreate, while a stranded swapchain (an explicit-sync
+/// fence that will never signal) recovers without user intervention.
+const SKIPPED_FRAME_ESCALATE_AFTER: u32 = 32;
+
+/// Cap on surface-recreate attempts per skip episode. If the surface still will
+/// not acquire after this many recreates, the driver (not the swapchain) is
+/// wedged: fall back permanently to the event-driven keep-alive plus watchdog
+/// logging rather than recreate-looping. Re-armed only by a successful present.
+const MAX_SKIPPED_FRAME_RECREATES: u32 = 2;
+
+/// ANTI-FREEZE ESCALATION: policy state for routing a *chronic* acquire timeout
+/// into the existing surface-recreate path. The retry ladder alone can strand a
+/// window forever: when the compositor leaves an in-flight buffer's fence
+/// unsignalled, every `get_current_texture` returns Timeout, the ladder retries
+/// (fast, then the 1s keep-alive), and nothing ever escalates — a live window
+/// froze for minutes exactly this way while the watchdog logged the stall. The
+/// recreate machinery already existed for Lost/Outdated surfaces; this routes
+/// persistent Timeout into it, bounded and re-armed on present.
+///
+/// Occluded skips never escalate: an occluded window's surface is *correctly*
+/// unavailable, and recreating it on a timer would churn the swapchain of every
+/// covered window (the Windows DXGI occlusion signal in particular). One edge
+/// is accepted: the consecutive-skip counter is shared, so a genuine timeout
+/// right after a long occlusion episode may escalate on its first skip — that
+/// is bounded by the per-episode budget and self-corrects on present.
+#[derive(Default)]
+struct SkipEscalation {
+    recreate_attempts: u32,
+}
+
+impl SkipEscalation {
+    /// Decide whether this skipped frame escalates to a surface recreate, and
+    /// spend one unit of the per-episode budget if so. Pure state machine (no
+    /// GPU/winit) so the whole policy is unit-testable: only a non-occluded,
+    /// non-minimized skip past [`SKIPPED_FRAME_ESCALATE_AFTER`] consecutive
+    /// skips escalates, and only while the budget lasts.
+    fn should_recreate(
+        &mut self,
+        occluded: bool,
+        minimized: bool,
+        consecutive_skipped: u32,
+    ) -> bool {
+        let escalate = !occluded
+            && !minimized
+            && consecutive_skipped >= SKIPPED_FRAME_ESCALATE_AFTER
+            && self.recreate_attempts < MAX_SKIPPED_FRAME_RECREATES;
+        if escalate {
+            self.recreate_attempts = self.recreate_attempts.saturating_add(1);
+        }
+        escalate
+    }
+
+    /// Re-arm the recreate budget. Called only when a frame actually presents
+    /// (the same re-arm boundary as the freeze watchdog), so failed recreates
+    /// cannot refill their own budget.
+    fn note_presented(&mut self) {
+        self.recreate_attempts = 0;
+    }
+
+    #[cfg(test)]
+    fn attempts(&self) -> u32 {
+        self.recreate_attempts
+    }
+}
+
+/// State-only escalation record (same privacy discipline as the stall and
+/// skip-episode records: counters and flags, never terminal content).
+fn format_skip_escalation_record(attempt: u32, consecutive_skips: u32, focused: bool) -> String {
+    format!(
+        "skip_escalation_recreate attempt={attempt} consecutive_skips={consecutive_skips} focused={focused}"
+    )
 }
 
 fn episode_log_level(duration: Duration) -> tracing::Level {
@@ -7024,7 +7141,7 @@ fn after_frame(outcome: FrameOutcome) -> FrameAction {
         FrameOutcome::Reconfigure => FrameAction::ReconfigureThenRedraw,
         FrameOutcome::RecreateSurface => FrameAction::RecreateSurfaceThenRedraw,
         FrameOutcome::RecreateDevice => FrameAction::DeviceLost,
-        FrameOutcome::Skipped => FrameAction::RetryAfter(SKIPPED_FRAME_RETRY),
+        FrameOutcome::Skipped { .. } => FrameAction::RetryAfter(SKIPPED_FRAME_RETRY),
     }
 }
 
@@ -7186,15 +7303,117 @@ mod tests {
         );
         // The load-bearing assertion here: a skipped frame must
         // schedule a bounded retry, not dead-end (the black-screen residual).
-        match after_frame(FrameOutcome::Skipped) {
-            FrameAction::RetryAfter(delay) => {
-                assert!(
-                    delay > Duration::ZERO && delay <= Duration::from_millis(100),
-                    "a skipped frame must retry after a bounded, non-zero delay, got {delay:?}"
-                );
+        // Both skip kinds map to the same bounded retry — escalation is a
+        // separate, stateful decision layered on top at the call site.
+        for occluded in [false, true] {
+            match after_frame(FrameOutcome::Skipped { occluded }) {
+                FrameAction::RetryAfter(delay) => {
+                    assert!(
+                        delay > Duration::ZERO && delay <= Duration::from_millis(100),
+                        "a skipped frame must retry after a bounded, non-zero delay, got {delay:?}"
+                    );
+                }
+                other => panic!("a skipped frame must schedule a bounded retry, got {other:?}"),
             }
-            other => panic!("a skipped frame must schedule a bounded retry, got {other:?}"),
         }
+    }
+
+    /// ANTI-FREEZE ESCALATION: a chronic acquire timeout reaching the
+    /// consecutive-skip threshold escalates to a surface recreate — the episode
+    /// that previously retried forever (an explicit-sync fence that never
+    /// signals left a live window frozen for minutes with the watchdog logging
+    /// the stall) now routes into the existing recreate machinery.
+    #[test]
+    fn chronic_timeout_escalates_to_recreate_at_threshold() {
+        let mut esc = SkipEscalation::default();
+        assert!(
+            !esc.should_recreate(false, false, SKIPPED_FRAME_ESCALATE_AFTER - 1),
+            "below the threshold the ladder keeps its ordinary retry"
+        );
+        assert_eq!(
+            esc.attempts(),
+            0,
+            "a declined escalation must not spend budget"
+        );
+        assert!(
+            esc.should_recreate(false, false, SKIPPED_FRAME_ESCALATE_AFTER),
+            "reaching the threshold must escalate to a surface recreate"
+        );
+        assert_eq!(esc.attempts(), 1);
+    }
+
+    /// The recreate budget is bounded per episode: after `MAX` attempts a
+    /// still-unacquirable surface falls back to the event-driven keep-alive
+    /// (never a recreate-loop on a wedged driver), and the existing slow-retry
+    /// ladder keeps scheduling wakes underneath.
+    #[test]
+    fn escalation_is_bounded_then_falls_back_to_keepalive() {
+        let mut esc = SkipEscalation::default();
+        // Each successful escalation resets the consecutive counter at the call
+        // site, so the episode re-earns the threshold before the next attempt.
+        for attempt in 1..=MAX_SKIPPED_FRAME_RECREATES {
+            assert!(
+                esc.should_recreate(false, false, SKIPPED_FRAME_ESCALATE_AFTER),
+                "attempt {attempt} is within the per-episode budget"
+            );
+        }
+        for _ in 0..4 {
+            assert!(
+                !esc.should_recreate(false, false, SKIPPED_FRAME_ESCALATE_AFTER * 2),
+                "budget spent: chronic skips must fall back, never recreate-loop"
+            );
+        }
+        assert_eq!(
+            next_skipped_retry_delay(false, SKIPPED_FRAME_ESCALATE_AFTER * 2),
+            Some(SKIPPED_FRAME_SLOW_RETRY),
+            "the keep-alive wake must still schedule under the fallback"
+        );
+    }
+
+    /// A successful present re-arms the recreate budget (same boundary as the
+    /// freeze watchdog) so a later, unrelated episode gets fresh attempts.
+    #[test]
+    fn present_rearms_the_escalation_budget() {
+        let mut esc = SkipEscalation::default();
+        for _ in 0..MAX_SKIPPED_FRAME_RECREATES {
+            assert!(esc.should_recreate(false, false, SKIPPED_FRAME_ESCALATE_AFTER));
+        }
+        assert!(!esc.should_recreate(false, false, SKIPPED_FRAME_ESCALATE_AFTER));
+        esc.note_presented();
+        assert_eq!(esc.attempts(), 0);
+        assert!(
+            esc.should_recreate(false, false, SKIPPED_FRAME_ESCALATE_AFTER),
+            "a present must re-arm the budget for the next episode"
+        );
+    }
+
+    /// Legitimate unavailability never escalates: an occluded surface is
+    /// correctly unacquirable (recreating it on a timer would churn every
+    /// covered window's swapchain), and a minimized window has nothing to
+    /// paint. Both keep today's retry ladder exactly.
+    #[test]
+    fn occluded_and_minimized_skips_never_escalate() {
+        let mut esc = SkipEscalation::default();
+        assert!(
+            !esc.should_recreate(true, false, SKIPPED_FRAME_ESCALATE_AFTER * 4),
+            "occluded skips must never escalate, however chronic"
+        );
+        assert!(
+            !esc.should_recreate(false, true, SKIPPED_FRAME_ESCALATE_AFTER * 4),
+            "minimized skips must never escalate"
+        );
+        assert_eq!(esc.attempts(), 0, "exempt skips must not spend budget");
+    }
+
+    /// The escalation record is state-only: counters and flags, no terminal
+    /// content — same privacy discipline as the stall and episode records.
+    #[test]
+    fn skip_escalation_record_is_state_only() {
+        let record = format_skip_escalation_record(2, 33, true);
+        assert_eq!(
+            record,
+            "skip_escalation_recreate attempt=2 consecutive_skips=33 focused=true"
+        );
     }
 
     /// Pins the spin guards on the skipped-frame retry: a minimized window never
