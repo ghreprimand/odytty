@@ -341,8 +341,9 @@ impl App {
 
         let mut presented = snapshot.clone();
         presented.cursor_visible = base_cursor_visible;
-        self.last_presented_snapshot = Some(presented.clone());
-        self.last_cursor_comparison_snapshot = Some(presented);
+        self.last_cursor_comparison_snapshot =
+            Some(crate::native::session::CursorComparison::of(&presented));
+        self.last_presented_snapshot = Some(presented);
         self.last_presented_cursor_style = cursor_style;
         self.last_presented_cursor_blinking = cursor_blinking;
         effects

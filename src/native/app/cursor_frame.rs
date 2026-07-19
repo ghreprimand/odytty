@@ -100,7 +100,6 @@ impl App {
         let to = snapshot.cursor;
         let prior = self
             .last_cursor_comparison_snapshot
-            .as_ref()
             .map(|s| (s.cursor, s.dimensions));
         // Discontinuities that must teleport rather than glide.
         let snap = match prior {
@@ -155,14 +154,15 @@ impl App {
     /// end).
     #[cfg(test)]
     pub(in crate::native) fn set_last_presented_snapshot_for_test(&mut self, snapshot: Snapshot) {
-        self.last_presented_snapshot = Some(snapshot.clone());
-        self.last_cursor_comparison_snapshot = Some(snapshot);
+        self.last_cursor_comparison_snapshot =
+            Some(crate::native::session::CursorComparison::of(&snapshot));
+        self.last_presented_snapshot = Some(snapshot);
     }
 
     pub(super) fn update_held_cursor_frame(&mut self, now: Instant) -> bool {
-        let Some(mut snapshot) = self.last_presented_snapshot.clone() else {
+        if self.last_presented_snapshot.is_none() {
             return false;
-        };
+        }
         let Some(previous_signature) = self.last_render_signature.clone() else {
             return false;
         };
@@ -175,7 +175,18 @@ impl App {
         // Easing keeps the cursor visible through the blink off-phase (the
         // precomputed alpha carries the fade); the hard-hide applies only when
         // easing is off, matching the main rebuild path so the two stay in sync.
-        if !cursor_on && (!self.settings.cursor_easing || self.settings.reduced_motion) {
+        //
+        // The held snapshot's cells are immutable across a blink tick; only
+        // `cursor_visible` toggles. Flip it in place on the retained snapshot
+        // (restored below) instead of deep-copying every cell each tick.
+        let hide_cursor =
+            !cursor_on && (!self.settings.cursor_easing || self.settings.reduced_motion);
+        // Detach the held snapshot for the duration of the tick (a pointer
+        // move, not a cell copy) so the GPU call below can borrow it while
+        // `self.gpu` is borrowed mutably through the session deref.
+        let mut snapshot = self.last_presented_snapshot.take().expect("checked above");
+        let saved_cursor_visible = snapshot.cursor_visible;
+        if hide_cursor {
             snapshot.cursor_visible = false;
         }
 
@@ -209,6 +220,11 @@ impl App {
                 GeometryUpdate::Retained => {}
             }
         }
+        // Reattach the held snapshot with its real visibility so the next tick
+        // (or a content rebuild) starts from the presented state, not the
+        // blink off-phase.
+        snapshot.cursor_visible = saved_cursor_visible;
+        self.last_presented_snapshot = Some(snapshot);
         self.last_render_signature = Some(signature);
         true
     }

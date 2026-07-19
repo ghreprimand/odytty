@@ -4739,7 +4739,7 @@ impl App {
 
     fn decorate_snapshot_with_tab_bar(
         &self,
-        snapshot: &Snapshot,
+        snapshot: Snapshot,
         cursor_visible: bool,
         cell: CellSize,
     ) -> (Snapshot, Vec<SolidQuad>) {
@@ -4750,20 +4750,22 @@ impl App {
         // pinned regardless.
         let show_rail = self.should_show_workspace_rail() && !self.rail_autohide_active();
         if !show_top && !show_rail {
-            return (snapshot.clone(), Vec::new());
+            // No chrome: the undecorated snapshot IS the render snapshot; move
+            // it out instead of deep-copying every cell.
+            return (snapshot, Vec::new());
         }
         // Rail-only frame (a background workspace pair whose active tab needs no
         // top bar): grow columns off the side directly.
         if !show_top {
             let side = self.workspace_rail_side();
-            return self.decorate_snapshot_with_tab_rail(snapshot, cursor_visible, cell, side);
+            return self.decorate_snapshot_with_tab_rail(&snapshot, cursor_visible, cell, side);
         }
         // Top bar always grows rows off the top. The workspace rail then grows
         // columns off its side, spanning the FULL height (including the tab bar)
         // for a VS Code-style full-height sidebar. Each band alone reproduces its
         // single-band behaviour byte-for-byte.
         let (mut decorated, mut quads) =
-            self.decorate_snapshot_with_top_bar(snapshot, cursor_visible, cell);
+            self.decorate_snapshot_with_top_bar(&snapshot, cursor_visible, cell);
         if show_rail {
             let side = self.workspace_rail_side();
             let (deco, rail_quads) =
@@ -4783,16 +4785,20 @@ impl App {
     /// forces cursor effects to snap.
     fn prepare_single_pane_snapshots(
         &self,
-        snapshot: &Snapshot,
+        snapshot: Snapshot,
         cursor_visible: bool,
-        base_cursor_visible: bool,
         cell: CellSize,
-    ) -> (Snapshot, Vec<SolidQuad>, Snapshot) {
-        let mut content_snapshot = snapshot.clone();
-        content_snapshot.cursor_visible = base_cursor_visible;
+    ) -> (
+        Snapshot,
+        Vec<SolidQuad>,
+        crate::native::session::CursorComparison,
+    ) {
+        // Cursor motion needs only the undecorated cursor and dimensions, not
+        // the cells, so the comparison keeps metadata instead of a full clone.
+        let comparison = crate::native::session::CursorComparison::of(&snapshot);
         let (decorated, quads) =
             self.decorate_snapshot_with_tab_bar(snapshot, cursor_visible, cell);
-        (decorated, quads, content_snapshot)
+        (decorated, quads, comparison)
     }
 
     /// Top tab-bar decoration: grow the snapshot by [`TAB_BAR_ROWS`] rows off the
@@ -5868,8 +5874,10 @@ impl ApplicationHandler<UserEvent> for App {
                 if let Ok(mut term) = self.terminal.lock() {
                     term.set_cell_metrics(cell.width, cell.height);
                 }
+                self.last_cursor_comparison_snapshot = Some(
+                    crate::native::session::CursorComparison::of(&initial_snapshot),
+                );
                 self.last_presented_snapshot = Some(initial_snapshot.clone());
-                self.last_cursor_comparison_snapshot = Some(initial_snapshot.clone());
                 // ID3/U5: seed the background-image pass from the launch config
                 // so the very first frame already reflects an `image` treatment
                 // (no-op / off path when no image is configured).
@@ -6309,13 +6317,9 @@ impl ApplicationHandler<UserEvent> for App {
                                 content_y0 + self.grid.rows as f32 * cell.height as f32,
                             ],
                         );
-                        let (snapshot, tab_bar_quads, content_snapshot) = self
-                            .prepare_single_pane_snapshots(
-                                &snapshot,
-                                snapshot.cursor_visible,
-                                base_cursor_visible,
-                                cell,
-                            );
+                        let cursor_visible = snapshot.cursor_visible;
+                        let (snapshot, tab_bar_quads, cursor_comparison) =
+                            self.prepare_single_pane_snapshots(snapshot, cursor_visible, cell);
                         overlays.extend(tab_bar_quads);
                         // R3 call-site parity + A2 cache observability: compute
                         // the live cursor params ONCE so focus, animation key,
@@ -6541,7 +6545,7 @@ impl ApplicationHandler<UserEvent> for App {
                         let mut held_snapshot = snapshot;
                         held_snapshot.cursor_visible = base_cursor_visible;
                         self.last_presented_snapshot = Some(held_snapshot);
-                        self.last_cursor_comparison_snapshot = Some(content_snapshot);
+                        self.last_cursor_comparison_snapshot = Some(cursor_comparison);
                         self.last_presented_cursor_style = cursor_style;
                         self.last_presented_cursor_blinking = cursor_blinking;
                         // A drifted snapshot was captured before reconciliation,

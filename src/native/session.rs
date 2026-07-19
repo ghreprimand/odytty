@@ -11,6 +11,23 @@ use crate::connection_hosts::ConnectionHost;
 use crate::core::{LinkId, Snapshot, Terminal};
 #[cfg(test)]
 use crate::native::WindowPadding;
+
+/// Cursor-motion comparison metadata: the undecorated content snapshot's
+/// cursor and dimensions. See `last_cursor_comparison_snapshot`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::native) struct CursorComparison {
+    pub(in crate::native) cursor: crate::core::Position,
+    pub(in crate::native) dimensions: crate::core::Dimensions,
+}
+
+impl CursorComparison {
+    pub(in crate::native) fn of(snapshot: &Snapshot) -> Self {
+        Self {
+            cursor: snapshot.cursor,
+            dimensions: snapshot.dimensions,
+        }
+    }
+}
 use crate::pty::{ForegroundJob, PtySession};
 use crate::selection::{
     AbsoluteSelectionRange, AbsoluteSelectionState, CellPoint, ClickTracker, PointerDrag,
@@ -422,9 +439,12 @@ pub(super) struct Session {
     /// Last GPU-presented snapshot. Single-pane tab chrome is included so a
     /// held blink or synchronized-output frame retains its rendered geometry.
     pub(super) last_presented_snapshot: Option<Snapshot>,
-    /// Last terminal-content snapshot in undecorated grid coordinates. Cursor
-    /// motion compares against this rather than the chrome-shifted render copy.
-    pub(super) last_cursor_comparison_snapshot: Option<Snapshot>,
+    /// Cursor and dimensions of the last terminal-content snapshot in
+    /// undecorated grid coordinates. Cursor motion compares against this
+    /// rather than the chrome-shifted render copy. Metadata only, by type:
+    /// the comparison never reads cell content, so retaining a full snapshot
+    /// clone here was a pure per-frame copy cost.
+    pub(super) last_cursor_comparison_snapshot: Option<CursorComparison>,
     pub(super) last_presented_cursor_style: crate::core::CursorStyle,
     pub(super) last_presented_cursor_blinking: bool,
     pub(super) selection: AbsoluteSelectionState,

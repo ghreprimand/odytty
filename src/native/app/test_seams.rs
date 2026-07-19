@@ -831,7 +831,7 @@ impl App {
             .ok()?
             .snapshot_with_scrollback(self.viewport.offset());
         let (decorated, _) =
-            self.decorate_snapshot_with_tab_bar(&snapshot, snapshot.cursor_visible, cell);
+            self.decorate_snapshot_with_tab_bar(snapshot.clone(), snapshot.cursor_visible, cell);
         Some(
             decorated.cells[..decorated.dimensions.columns]
                 .iter()
@@ -852,7 +852,7 @@ impl App {
             .ok()?
             .snapshot_with_scrollback(self.viewport.offset());
         let (decorated, _) =
-            self.decorate_snapshot_with_tab_bar(&snapshot, snapshot.cursor_visible, cell);
+            self.decorate_snapshot_with_tab_bar(snapshot.clone(), snapshot.cursor_visible, cell);
         let columns = decorated.dimensions.columns;
         let rows = self.tab_bar_rows();
         Some(
@@ -1227,7 +1227,7 @@ impl App {
             .ok()?
             .snapshot_with_scrollback(self.viewport.offset());
         let (decorated, _) =
-            self.decorate_snapshot_with_tab_bar(&snapshot, snapshot.cursor_visible, cell);
+            self.decorate_snapshot_with_tab_bar(snapshot.clone(), snapshot.cursor_visible, cell);
         Some((decorated.dimensions.columns, decorated.dimensions.rows))
     }
 
@@ -1282,16 +1282,13 @@ impl App {
                 content_y0 + snapshot.dimensions.rows as f32 * cell.height as f32,
             ],
         );
-        let (decorated, _, content) = self.prepare_single_pane_snapshots(
-            snapshot,
-            snapshot.cursor_visible,
-            snapshot.cursor_visible,
-            cell,
-        );
+        let content = snapshot.clone();
+        let (decorated, _, comparison) =
+            self.prepare_single_pane_snapshots(snapshot.clone(), snapshot.cursor_visible, cell);
         let mut held = decorated.clone();
         held.cursor_visible = snapshot.cursor_visible;
         self.last_presented_snapshot = Some(held);
-        self.last_cursor_comparison_snapshot = Some(content.clone());
+        self.last_cursor_comparison_snapshot = Some(comparison);
         self.last_presented_cursor_style = crate::core::CursorStyle::Block;
         (decorated, content, self.cursor_render_params(), streak)
     }

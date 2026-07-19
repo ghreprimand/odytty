@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- Cursor-frame bookkeeping stops deep-copying cell content
+
+Three per-frame full-snapshot copies in the single-window frame path carried
+cell payloads nothing ever read. The cursor-motion comparison state retained
+an entire cloned snapshot but only its cursor position and dimensions were
+ever consulted; it now stores exactly that metadata, and the type change
+makes the guarantee structural — the comparison state can no longer own
+cells at all. The no-chrome decoration path cloned the terminal snapshot
+just to hand it back unchanged; decoration now takes the snapshot by value
+and the chrome-free arm moves it through. A held blink tick cloned the whole
+presented snapshot to toggle one boolean; the tick now detaches the retained
+snapshot (a pointer move), flips `cursor_visible` in place for the rebuild,
+and reattaches it with the original visibility restored. The multi-pane
+present path likewise drops its second full presented copy.
+
+Presented frames, render signatures, cursor glide/snap decisions, and blink
+behavior are unchanged — the full render-signature and cursor-frame suites
+pass untouched. Behavior-preserving refactor of a platform-neutral path.
+
+`cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --locked`
+all clean.
+
+---
+
 ## 2026-07-19 -- Render preparation shares one color-coverage mask per pass
 
 Every render-preparation consumer — glyph-atlas warm-up, ligature shaping
