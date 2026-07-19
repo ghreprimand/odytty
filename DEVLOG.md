@@ -7,6 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- TUI reader threads spawn fallibly; eviction test made portable
+
+Two related hardening items in the interactive (headless TUI) path plus one
+test portability fix.
+
+The client-eviction test for reader-spawn failure asserted that the evicted
+peer socket reads `Ok(0)` EOF after `shutdown(Both)` plus drop. That is Linux
+behavior; macOS/BSD surfaces the same clean teardown as `ECONNRESET`, which
+made the test fail deterministically on macOS while the product behavior was
+correct everywhere. The assertion now accepts EOF or `ConnectionReset` as
+"disconnect observed" and still fails on data, timeouts, or any other error.
+
+The interactive TUI's two pump threads (`spawn_pty_reader`,
+`spawn_stdin_reader` in `src/app.rs`) used the infallible
+`std::thread::spawn`, which panics in the caller under thread exhaustion.
+Both now spawn through named `std::thread::Builder`s and propagate a startup
+spawn failure as a visible session error, matching the pattern already used
+by the PTY writer and the session-host pumps. Sweep note: the remaining bare
+`thread::spawn` in `src/pty/unix.rs` is inside test code, where a spawn
+failure is a test failure by definition; it stays as is. The `app` module is
+Unix-only (`#[cfg(unix)]`), so this change has no Windows surface.
+
+`cargo test`, `cargo fmt --check`, and `cargo clippy --all-targets --locked`
+all clean.
+
+
 ## 2026-07-19 -- Path-picker directory read tolerates thread exhaustion
 
 The settings path picker read each directory on a worker thread spawned with

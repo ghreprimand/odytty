@@ -30,8 +30,8 @@ pub fn run_interactive() -> Result<()> {
     let (pty_tx, pty_rx) = mpsc::channel();
     let (input_tx, input_rx) = mpsc::channel();
 
-    spawn_pty_reader(session.try_clone_reader()?, pty_tx);
-    spawn_stdin_reader(input_tx);
+    spawn_pty_reader(session.try_clone_reader()?, pty_tx).context("spawn pty reader thread")?;
+    spawn_stdin_reader(input_tx).context("spawn stdin reader thread")?;
 
     let _guard = TerminalModeGuard::enter()?;
     let mut stdout = stdout();
@@ -111,52 +111,67 @@ fn dimensions_from_winsize(winsize: Winsize) -> Dimensions {
     Dimensions::new(columns, rows)
 }
 
-fn spawn_pty_reader(mut reader: Box<dyn Read + Send>, tx: Sender<PtyMessage>) {
-    thread::spawn(move || {
-        let mut buffer = [0; 8192];
-        loop {
-            match reader.read(&mut buffer) {
-                Ok(0) => {
-                    let _ = tx.send(PtyMessage::Eof);
-                    break;
-                }
-                Ok(len) => {
-                    if tx.send(PtyMessage::Output(buffer[..len].to_vec())).is_err() {
+/// Spawn the PTY output pump. Fallible: thread creation can fail under
+/// resource exhaustion, and a startup spawn failure must surface as a visible
+/// session error rather than a panic unwinding the caller.
+fn spawn_pty_reader(
+    mut reader: Box<dyn Read + Send>,
+    tx: Sender<PtyMessage>,
+) -> std::io::Result<()> {
+    thread::Builder::new()
+        .name("odytty-tui-pty-reader".to_owned())
+        .spawn(move || {
+            let mut buffer = [0; 8192];
+            loop {
+                match reader.read(&mut buffer) {
+                    Ok(0) => {
+                        let _ = tx.send(PtyMessage::Eof);
+                        break;
+                    }
+                    Ok(len) => {
+                        if tx.send(PtyMessage::Output(buffer[..len].to_vec())).is_err() {
+                            break;
+                        }
+                    }
+                    // EINTR is a retry, not an error: a signal delivery mid-read
+                    // must not kill the output pump.
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(error) => {
+                        let _ = tx.send(PtyMessage::Error(error));
                         break;
                     }
                 }
-                // EINTR is a retry, not an error: a signal delivery mid-read
-                // must not kill the output pump.
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(error) => {
-                    let _ = tx.send(PtyMessage::Error(error));
-                    break;
-                }
             }
-        }
-    });
+        })?;
+    Ok(())
 }
 
-fn spawn_stdin_reader(tx: Sender<Vec<u8>>) {
-    thread::spawn(move || {
-        let mut stdin = stdin();
-        let mut buffer = [0; 1024];
-        loop {
-            match stdin.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(len) => {
-                    if tx.send(buffer[..len].to_vec()).is_err() {
-                        break;
+/// Spawn the stdin input pump. Fallible for the same reason as the PTY
+/// output pump: a spawn failure at startup must be a reported error, not a
+/// panic.
+fn spawn_stdin_reader(tx: Sender<Vec<u8>>) -> std::io::Result<()> {
+    thread::Builder::new()
+        .name("odytty-tui-stdin-reader".to_owned())
+        .spawn(move || {
+            let mut stdin = stdin();
+            let mut buffer = [0; 1024];
+            loop {
+                match stdin.read(&mut buffer) {
+                    Ok(0) => break,
+                    Ok(len) => {
+                        if tx.send(buffer[..len].to_vec()).is_err() {
+                            break;
+                        }
                     }
+                    // EINTR is a retry, not an exit: a signal delivery mid-read
+                    // must not silently kill the stdin reader. Same arm the PTY
+                    // output pumps use.
+                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(_) => break,
                 }
-                // EINTR is a retry, not an exit: a signal delivery mid-read
-                // must not silently kill the stdin reader. Same arm the PTY
-                // output pumps use.
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(_) => break,
             }
-        }
-    });
+        })?;
+    Ok(())
 }
 
 fn render_debug_screen(stdout: &mut Stdout, terminal: &Terminal) -> Result<()> {
