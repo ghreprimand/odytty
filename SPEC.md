@@ -991,8 +991,10 @@ its first stable layer.
   their independent terminal output behavior but never receive cursor-animation
   wakes without an active consumer.
 
-- New-output fade (`new_output_fade`, off by default): rows of freshly arrived
-  output fade in over a short ramp at the live tail; scrollback and resize snap.
+- New-output fade (`new_output_fade`, off by default): the text of freshly
+  arrived rows fades in over a short ramp at the live tail — foreground ink
+  only, from a visible floor; backgrounds render as normal from the first
+  frame. Scrollback and resize snap.
 
 - Themed window border (`window_border`, off by default): an optional thin
   border around the terminal grid in the theme's `border` role color, drawn
@@ -1498,9 +1500,9 @@ Cursor motion trail (`cursor_trail`, on by default since v0.6.0): a short fading
 after-image that trails the cursor as it glides between cells, drawn behind the cursor block
 in the theme cursor color. Only visible while cursor slide (`cursor_motion`) is
 also on; fully decays as the glide settles. New-output fade (`new_output_fade`,
-off by default): rows of freshly arrived output fade in over a short ramp at the
-live tail. Both effects landed in the Tier-3 sequencing after bloom and CRT
-profile were proven.
+off by default): the text of freshly arrived rows fades in over a short ramp at
+the live tail (foreground ink only; backgrounds are never veiled). Both effects
+landed in the Tier-3 sequencing after bloom and CRT profile were proven.
 
 GPU quality / per-effect settings panel controls follow.
 

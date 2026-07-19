@@ -564,24 +564,25 @@ pub const DEFAULT_CURSOR_TRAIL: bool = true;
 /// supported platform; OS preference discovery remains future work.
 pub const DEFAULT_REDUCED_MOTION: bool = false;
 
-/// New-output fade-in (`ODYTTY_NEW_OUTPUT_FADE`, VE4): when on, rows of freshly
-/// arrived output at the live tail fade in over a short ease-out ramp instead of
-/// appearing instantly. Implemented as a background-color overlay quad that
-/// decays from opaque to transparent over each new row, so the underlying cell
-/// content is always rendered at full opacity and never drops below the RV1
-/// readability floor mid-fade — the quad only *obscures then reveals*. Off by
-/// default; while off no fade quads are emitted, no extra wakes are scheduled,
-/// and the render path is byte-identical to before. Only fades at the live tail
-/// (`viewport_offset == 0`); scrolling back or resizing snaps instantly. The
-/// row carrying the cursor is never obscured. Purely presentational.
+/// New-output fade-in (`ODYTTY_NEW_OUTPUT_FADE`, VE4): when on, the TEXT of
+/// freshly arrived output rows at the live tail fades in over a short ease-out
+/// ramp instead of appearing instantly. Implemented as a per-row foreground
+/// alpha ramp — glyphs, decorations, and emoji rise from a visible floor to
+/// full strength while cell backgrounds render exactly as normal from the
+/// first frame (a background veil read as a dark flash on translucent
+/// windows). Off by default; while off no multipliers are exposed, no extra
+/// wakes are scheduled, and the render path is byte-identical to before. Only
+/// fades at the live tail (`viewport_offset == 0`); scrolling back or resizing
+/// snaps instantly. The row carrying the cursor never fades. Purely
+/// presentational.
 pub const DEFAULT_NEW_OUTPUT_FADE: bool = false;
 
 /// New-output fade ramp length (`ODYTTY_NEW_OUTPUT_FADE_MS`, VE4): how long a
-/// freshly arrived row takes to fade from fully obscured to fully revealed, in
-/// milliseconds. Only acts while `new_output_fade` is on; while the toggle is
-/// off this value is inert and no fade quads are emitted. The default is chosen
-/// so the ramp is clearly perceptible; the shorter historical ramp stays
-/// reachable near the bottom of the range. Purely presentational.
+/// freshly arrived row's text takes to rise from the fade floor to full
+/// strength, in milliseconds. Only acts while `new_output_fade` is on; while
+/// the toggle is off this value is inert. The default is chosen so the ramp is
+/// clearly perceptible; the shorter historical ramp stays reachable near the
+/// bottom of the range. Purely presentational.
 pub const DEFAULT_NEW_OUTPUT_FADE_MS: f32 = 250.0;
 pub const MIN_NEW_OUTPUT_FADE_MS: f32 = 50.0;
 pub const MAX_NEW_OUTPUT_FADE_MS: f32 = 1000.0;

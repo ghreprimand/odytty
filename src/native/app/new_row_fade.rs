@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! VE4 new-output fade-in — rows of freshly arrived output at the live tail
-//! fade in over a short ease-out ramp instead of appearing instantly.
+//! fade their TEXT in over a short ease-out ramp instead of appearing
+//! instantly. Cell backgrounds render exactly as normal from the first frame;
+//! only the foreground ink (glyphs, combining marks, ligatures, underline and
+//! strikethrough decorations, color glyphs) ramps. The original mechanism — an
+//! opaque background-color veil quad decaying over each new row — read as a
+//! dark from-black flash on translucent windows (the veil started at alpha 1.0
+//! while the surrounding cell backgrounds composed the window opacity), so it
+//! was replaced by this per-row foreground alpha ramp.
 //!
 //! Row tracking is app-side scrollback-delta (D-VE4F-1): at the live tail
 //! (`viewport_offset == 0`) every new line of output grows `scrollback_len` by
@@ -10,25 +17,33 @@
 //! bottom `delta` entries of [`App::row_fade_starts`] are stamped `Some(now)`;
 //! older entries shift upward to follow their rows.
 //!
-//! RV1 safety is by construction (D-VE4F-4 / T7): the fade is painted as a
-//! background-color [`SolidQuad`] overlay that decays from opaque to
-//! transparent over each fading row. The underlying cell content is always
-//! rendered at full opacity (already RV1-floored); the quad merely *obscures
-//! then reveals* it, so no intermediate frame ever drops the foreground below
-//! the floor.
+//! RV1 interaction (D-VE4F-4 revised): the veil satisfied the readability
+//! floor by construction (fully rendered ink underneath, merely obscured). The
+//! text ramp instead starts at [`NEW_ROW_FADE_MIN_ALPHA`] — never 0 — and
+//! resolves to the exact RV1-floored color within the configured ramp
+//! (`new_output_fade_ms`, 1s max). A short, bounded, operator-opt-in ramp from
+//! a visible floor to the floored steady state satisfies the RV1 contract's
+//! intent: steady-state readability is untouched, and no frame ever renders
+//! invisible ink.
 //!
 //! Off-path contract (D-VE4F-6 / §7): with `new_output_fade` off,
 //! [`App::update_row_fade`] clears `row_fade_starts` and returns immediately, so
 //! the vector is always empty, [`App::new_row_fade_deadline`] is `None` (no
-//! extra wakes), [`App::paint_new_row_fade_quads`] emits nothing, and
+//! extra wakes), [`App::new_row_fade_text_multipliers`] answers `None` (the
+//! vertex builders take their exact inert path), and
 //! [`App::new_row_fade_overlay_signature`] is constant `Inert` — the default
 //! render path is byte-identical to before this feature existed.
 
-use super::overlay_registry::OverlayCtx;
 use super::*;
 
 /// Animation cadence (~60 fps): the wake interval while a fade is in flight.
 const FADE_FRAME: Duration = Duration::from_millis(16);
+
+/// The foreground alpha a freshly arrived row starts at. The ramp runs
+/// `floor -> 1.0` on the ease-out curve — never from 0 — so new text is
+/// visible from its very first frame and the fade reads as ink developing,
+/// not content blinking into existence (RV1 interaction, module docs).
+pub(in crate::native) const NEW_ROW_FADE_MIN_ALPHA: f32 = 0.25;
 
 /// Ease-out cubic: fast departure, gentle arrival. Maps `0.0..=1.0` to itself.
 /// Local copy (the cursor-slide module's identical helper is module-private) so
@@ -139,58 +154,50 @@ impl App {
         }
     }
 
-    /// Emit one background-color [`SolidQuad`] per fading row, alpha decaying
-    /// from opaque (just arrived) to transparent (settled) over the
-    /// `new_output_fade_ms` ramp
-    /// on an ease-out cubic curve. The cursor's row is never obscured
-    /// (D-VE4F-9) so the live prompt stays visible. No-op while
-    /// `row_fade_starts` is empty (the off path), so the default render path
-    /// emits zero quads.
-    pub(in crate::native) fn paint_new_row_fade_quads(
+    /// Per-content-row FOREGROUND alpha multipliers for this frame, or `None`
+    /// when no row is mid-fade (the off path, reduced motion, and every
+    /// settled frame — the vertex builders then take their exact inert path).
+    ///
+    /// A fading row's multiplier ramps [`NEW_ROW_FADE_MIN_ALPHA`]` -> 1.0` on
+    /// the ease-out cubic over the `new_output_fade_ms` ramp; non-fading rows
+    /// answer `1.0`. The cursor's row is never faded (D-VE4F-9) so the live
+    /// prompt renders at full strength. Index = viewport content row; the
+    /// render dispatch maps it into decorated-snapshot coordinates via the
+    /// chrome row/column offsets.
+    pub(in crate::native) fn new_row_fade_text_multipliers(
         &self,
-        ctx: &OverlayCtx,
-        out: &mut Vec<SolidQuad>,
-    ) {
+        now: Instant,
+        cursor_row: usize,
+    ) -> Option<Vec<f32>> {
         if self.settings.reduced_motion || self.row_fade_starts.is_empty() {
-            return;
-        }
-        let cols = ctx.grid.columns;
-        let rows = ctx.grid.rows;
-        if cols == 0 || rows == 0 {
-            return;
+            return None;
         }
         let fade = self.new_output_fade_duration();
-        let pad = ctx.window_padding.as_f32();
-        let cell_w = ctx.cell.width as f32;
-        let cell_h = ctx.cell.height as f32;
-        let content_w = cols as f32 * cell_w;
-        let cursor_row = ctx.cursor.row;
+        let mut multipliers = vec![1.0_f32; self.row_fade_starts.len()];
+        let mut any_active = false;
         for (row, &start_opt) in self.row_fade_starts.iter().enumerate() {
             let Some(start) = start_opt else { continue };
-            // Defensive clamp + cursor-row exception.
-            if row >= rows || row == cursor_row {
+            // Cursor-row exception (D-VE4F-9).
+            if row == cursor_row {
                 continue;
             }
-            let elapsed = ctx.now.saturating_duration_since(start);
+            let elapsed = now.saturating_duration_since(start);
             if elapsed >= fade {
                 continue;
             }
             let p = (elapsed.as_secs_f32() / fade.as_secs_f32()).min(1.0);
-            let alpha = 1.0 - ease_out_cubic(p);
-            let mut color = ctx.clear_color;
-            color[3] = alpha;
-            let y0 = pad + row as f32 * cell_h;
-            out.push(SolidQuad {
-                rect: [pad, y0, pad + content_w, y0 + cell_h],
-                color,
-            });
+            multipliers[row] =
+                NEW_ROW_FADE_MIN_ALPHA + (1.0 - NEW_ROW_FADE_MIN_ALPHA) * ease_out_cubic(p);
+            any_active = true;
         }
+        any_active.then_some(multipliers)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::native::app::overlay_registry::OverlayCtx;
 
     const CELL_W: u32 = 8;
     const CELL_H: u32 = 16;
@@ -268,9 +275,11 @@ mod tests {
             OverlayFragment::Inert,
             "signature constant-Inert while off"
         );
-        let mut quads = Vec::new();
-        app.paint_new_row_fade_quads(&ctx_at(&app, 0, Instant::now()), &mut quads);
-        assert!(quads.is_empty(), "off path emits zero quads");
+        assert_eq!(
+            app.new_row_fade_text_multipliers(Instant::now(), 0),
+            None,
+            "off path exposes no text-ramp multipliers"
+        );
     }
 
     #[test]
@@ -307,6 +316,11 @@ mod tests {
             app.new_row_fade_overlay_signature(),
             OverlayFragment::Inert,
             "reduced motion makes the overlay inert"
+        );
+        assert_eq!(
+            app.new_row_fade_text_multipliers(t0 + Duration::from_millis(3), 0),
+            None,
+            "reduced motion exposes no text-ramp multipliers"
         );
     }
 
@@ -467,6 +481,14 @@ mod tests {
             OverlayFragment::Inert,
             "idle: signature back to Inert"
         );
+        // Settle-to-identical: once every row settles the render dispatch hands
+        // the builders `None`, whose vertex output is byte-identical to a
+        // never-faded frame (pinned at the grid layer).
+        assert_eq!(
+            app.new_row_fade_text_multipliers(t1 + Duration::from_millis(300), 0),
+            None,
+            "settled: no multipliers, builders take the inert path"
+        );
     }
 
     #[test]
@@ -501,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn fade_duration_setting_scales_the_quad_alpha() {
+    fn fade_duration_setting_scales_the_text_multiplier() {
         let Some(mut app) = build_app() else {
             return;
         };
@@ -509,18 +531,21 @@ mod tests {
         app.settings.new_output_fade_ms = 500.0;
         let t0 = Instant::now();
         app.update_row_fade(t0, 0);
-        app.update_row_fade(t0, 1); // one fresh row stamped t0
-        // At 120 ms the row is 24% through a 500 ms ramp, so it is still clearly
-        // obscured; under the old fixed 120 ms it would already be revealed.
-        let mut quads = Vec::new();
-        app.paint_new_row_fade_quads(
-            &ctx_at(&app, 0, t0 + Duration::from_millis(120)),
-            &mut quads,
-        );
-        assert_eq!(quads.len(), 1);
+        app.update_row_fade(t0, 1); // one fresh row stamped t0 (bottom row)
+        // At 120 ms the row is 24% through a 500 ms ramp, so its text is still
+        // clearly mid-ramp; under the old fixed 120 ms it would already be at
+        // full strength. Cursor parked on row 0 so the fading row is not exempt.
+        let m = app
+            .new_row_fade_text_multipliers(t0 + Duration::from_millis(120), 0)
+            .expect("fade in flight");
+        let fading = m[ROWS - 1];
         assert!(
-            quads[0].color[3] > 0.3,
-            "still substantially obscured partway through the longer ramp"
+            fading < 0.9,
+            "still substantially mid-ramp partway through the longer ramp: {fading}"
+        );
+        assert!(
+            fading >= NEW_ROW_FADE_MIN_ALPHA,
+            "never below the readability floor: {fading}"
         );
     }
 
@@ -592,7 +617,7 @@ mod tests {
     // --- T4: cursor-row exception -------------------------------------------
 
     #[test]
-    fn cursor_row_is_never_obscured() {
+    fn cursor_row_is_never_faded() {
         let Some(mut app) = build_app() else {
             return;
         };
@@ -602,23 +627,23 @@ mod tests {
         // Fade every row.
         app.update_row_fade(t0 + Duration::from_millis(1), 1000);
         let cursor_row = 4;
-        let mut quads = Vec::new();
         let now = t0 + Duration::from_millis(2);
-        app.paint_new_row_fade_quads(&ctx_at(&app, cursor_row, now), &mut quads);
-        // One quad per fading row except the cursor's row.
-        assert_eq!(quads.len(), ROWS - 1, "cursor row skipped");
-        let pad = 0.0_f32;
-        let cursor_y0 = pad + cursor_row as f32 * CELL_H as f32;
-        assert!(
-            quads.iter().all(|q| (q.rect[1] - cursor_y0).abs() > 0.5),
-            "no quad sits on the cursor row"
-        );
+        let m = app
+            .new_row_fade_text_multipliers(now, cursor_row)
+            .expect("fade in flight");
+        assert_eq!(m.len(), ROWS);
+        assert_eq!(m[cursor_row], 1.0, "cursor row renders at full strength");
+        for (row, &mul) in m.iter().enumerate() {
+            if row != cursor_row {
+                assert!(mul < 1.0, "row {row} is mid-ramp: {mul}");
+            }
+        }
     }
 
-    // --- T2/T7: RV1-safe by construction ------------------------------------
+    // --- T2/T7: floor-start + monotonic ramp (RV1 interaction) --------------
 
     #[test]
-    fn fade_quad_is_background_color_with_decaying_alpha() {
+    fn text_ramp_starts_at_floor_and_rises_monotonically() {
         let Some(mut app) = build_app() else {
             return;
         };
@@ -626,28 +651,31 @@ mod tests {
         let t0 = Instant::now();
         app.update_row_fade(t0, 0);
         app.update_row_fade(t0, 1); // one fresh row at the bottom, stamped t0
-        let ctx = ctx_at(&app, 0, t0);
-        let clear = ctx.clear_color;
-        // Fresh (t == now): fully opaque obscuring quad.
-        let mut quads = Vec::new();
-        app.paint_new_row_fade_quads(&ctx, &mut quads);
-        assert_eq!(quads.len(), 1);
-        assert_eq!(
-            [quads[0].color[0], quads[0].color[1], quads[0].color[2]],
-            [clear[0], clear[1], clear[2]]
-        );
-        assert!((quads[0].color[3] - 1.0).abs() < 1e-3, "starts opaque");
-
-        // Later in the ramp: alpha strictly lower (revealing the content).
-        let mut quads_mid = Vec::new();
-        let ctx_mid = ctx_at(&app, 0, t0 + Duration::from_millis(60));
-        app.paint_new_row_fade_quads(&ctx_mid, &mut quads_mid);
-        assert_eq!(quads_mid.len(), 1);
+        let row = ROWS - 1;
+        // Fresh (t == now): the multiplier starts AT the floor — never 0, so
+        // new text is visible from its very first frame.
+        let m0 = app
+            .new_row_fade_text_multipliers(t0, 0)
+            .expect("fade in flight")[row];
         assert!(
-            quads_mid[0].color[3] < quads[0].color[3],
-            "alpha decays toward transparent"
+            (m0 - NEW_ROW_FADE_MIN_ALPHA).abs() < 1e-3,
+            "starts at floor"
         );
-        assert!((0.0..=1.0).contains(&quads_mid[0].color[3]));
+        // The ramp rises monotonically toward 1.0 and never dips below floor.
+        let mut prev = m0;
+        for ms in [30_u64, 60, 90, 120, 180, 240] {
+            let Some(m) = app.new_row_fade_text_multipliers(t0 + Duration::from_millis(ms), 0)
+            else {
+                break; // past the ramp: settled to the identical frame
+            };
+            let cur = m[row];
+            assert!(cur >= prev - 1e-4, "ramp rises: {cur} >= {prev}");
+            assert!(
+                (NEW_ROW_FADE_MIN_ALPHA..=1.0).contains(&cur),
+                "within [floor, 1.0]: {cur}"
+            );
+            prev = cur;
+        }
     }
 
     // --- NF21-P4: switch-back / multipane viewport bookkeeping --------------

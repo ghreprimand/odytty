@@ -1537,12 +1537,14 @@ pub struct Settings {
     /// never grid content or commands. The autosave that feeds restore runs on
     /// the primary instance regardless of this flag.
     pub restore_workspaces: bool,
-    /// Whether freshly arrived output rows fade in at the live tail (VE4). Off
-    /// by default; the off path emits no fade quads, schedules no extra wakes,
-    /// and is byte-identical to before. The fade is a background-color overlay
-    /// quad that decays to transparent, so the underlying content is always
-    /// fully rendered and never drops below the RV1 floor mid-fade. Only at the
-    /// live tail; scrollback and resize snap. Purely presentational.
+    /// Whether freshly arrived output rows fade their TEXT in at the live tail
+    /// (VE4). Off by default; the off path schedules no extra wakes and is
+    /// byte-identical to before. The fade is a per-row foreground alpha ramp —
+    /// glyphs, decorations, and emoji rise from a visible floor to full
+    /// strength while cell backgrounds render exactly as normal from the first
+    /// frame (a background veil read as a dark flash on translucent windows).
+    /// Only at the live tail; scrollback and resize snap; the cursor's row
+    /// never fades. Purely presentational.
     pub new_output_fade: bool,
     /// New-output fade ramp length in milliseconds (VE4). Only acts while
     /// [`Self::new_output_fade`] is on; a longer value makes the fade-in more

@@ -102,6 +102,39 @@ pub(super) struct ChromePinGeom {
     pub(super) gap_y: f32,
 }
 
+/// VE4 new-output fade: the App-computed per-content-row FOREGROUND alpha ramp
+/// for one single-pane frame, plus the decorated-snapshot chrome offsets that
+/// map decorated rows/columns back to content cells (chrome band + rail cells
+/// never fade). Stored on [`GpuState`] via [`GpuState::set_row_fade`] and
+/// consumed as a [`grid::RowFade`] by the cell + color-glyph vertex builds.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct RowFadeSpec {
+    /// Per-content-row foreground alpha multipliers (index = viewport row;
+    /// `1.0` = not fading, floor..1.0 = mid-ramp).
+    pub(super) multipliers: Vec<f32>,
+    /// Decorated-snapshot rows above the first content row (tab bar band).
+    pub(super) row_offset: usize,
+    /// First decorated-snapshot column carrying content (left rail width).
+    pub(super) col_start: usize,
+    /// One past the last content column.
+    pub(super) col_end: usize,
+}
+
+/// The `grid::RowFade` view of a stored [`RowFadeSpec`] for a frame's builds.
+/// Free function (not a `GpuState` method) so the borrow is scoped to the spec
+/// local, not `*self`, at the vertex-build call sites.
+fn row_fade_view(spec: Option<&RowFadeSpec>) -> grid::RowFade<'_> {
+    match spec {
+        Some(spec) => grid::RowFade {
+            multipliers: &spec.multipliers,
+            row_offset: spec.row_offset,
+            col_start: spec.col_start,
+            col_end: spec.col_end,
+        },
+        None => grid::RowFade::NONE,
+    }
+}
+
 /// One pane's render inputs for [`GpuState::update_from_panes`] (design doc
 /// §3.2). All geometry is physical pixels in the same origin-top-left basis as
 /// `grid.rs` vertices. The caller (the App multi-pane render dispatch) owns
@@ -1520,6 +1553,7 @@ pub(super) fn create_color_glyph_pipeline(
     let vertex_attrs = wgpu::vertex_attr_array![
         0 => Float32x2, // pos_px
         1 => Float32x2, // uv
+        2 => Float32,   // fade alpha (VE4 new-output fade; 1.0 off-path)
     ];
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("odytty-color-glyph-pipeline"),
@@ -1672,6 +1706,13 @@ pub(super) struct GpuState {
     /// multi-pane frame — where the overlay is a separate opaque layer) is the
     /// byte-identical path.
     overlay_opaque_region: Option<grid::CellRegion>,
+    /// VE4 new-output fade: per-content-row FOREGROUND alpha multipliers plus
+    /// the decorated-snapshot chrome offsets, set by the single-pane render
+    /// dispatch each frame (`None` = inert, the off path and every settled
+    /// frame). Consumed by the single-pane cell + color-glyph builds only; the
+    /// multi-pane path passes `RowFade::NONE` (parity with the prior overlay
+    /// mechanism, which was single-pane only).
+    row_fade: Option<RowFadeSpec>,
     /// The glyph atlas, kept so vertices can be rebuilt from new snapshots as
     /// live PTY output arrives.
     pub(super) atlas: GlyphAtlas,
@@ -2203,6 +2244,7 @@ impl GpuState {
             &initial_color_glyph_runs,
             origin,
             grid::ChromePin::NONE,
+            grid::RowFade::NONE,
         );
         let color_glyph_vertex_count = color_glyph_vertices.len() as u32;
         let initial_color_glyph_bytes =
@@ -2274,6 +2316,7 @@ impl GpuState {
             selection_opacity: crate::settings::DEFAULT_SELECTION_OPACITY,
             window_bg_alpha: 1.0,
             overlay_opaque_region: None,
+            row_fade: None,
             atlas,
             color_glyph_atlas,
             emoji_rasterizer,
@@ -2431,6 +2474,14 @@ impl GpuState {
     /// next update.
     pub(super) fn set_overlay_opaque_region(&mut self, region: Option<grid::CellRegion>) {
         self.overlay_opaque_region = region;
+    }
+
+    /// VE4 new-output fade: set the per-row foreground alpha ramp for the
+    /// upcoming single-pane frame, or `None` when no row is mid-fade (the off
+    /// path and every settled frame — the builders then take the exact inert
+    /// `RowFade::NONE` path). A cheap store — read on the next update.
+    pub(super) fn set_row_fade(&mut self, fade: Option<RowFadeSpec>) {
+        self.row_fade = fade;
     }
 
     /// TRANSPARENCY: whether the configured swapchain can present a transparent
@@ -3042,6 +3093,9 @@ impl GpuState {
                 // TAB-LABEL-CENTERING: a chrome strip's emoji label centers with
                 // the same offset as its mono glyphs; `ChromePin::NONE` for panes.
                 pane_chrome_pin(pane),
+                // VE4 new-output fade: single-pane only (parity with the prior
+                // overlay mechanism); split panes never fade.
+                grid::RowFade::NONE,
             );
             // Colour glyphs (emoji) obey the same per-pane clip so a gliding
             // emoji's partial row is cropped, not smeared across the divider.
@@ -3354,9 +3408,12 @@ impl GpuState {
         let origin = self.content_origin();
         let content_opacity = self.content_build_opacity();
         let selection_opacity = self.selection_build_opacity();
+        // VE4 new-output fade: cheap Option clone (None off-path / settled) so
+        // the borrow is scoped to a local, away from `&mut self.vertices`.
+        let row_fade_spec = self.row_fade.clone();
         // SCROLL-CHROME-BOUNCE: hold composited chrome still while content glides.
         let chrome_pin = self.chrome_pin();
-        grid::build_cell_vertices_with_ligatures_and_selection_into(
+        grid::build_cell_vertices_with_ligatures_selection_and_row_fade_into(
             &mut self.vertices,
             snapshot,
             &self.atlas,
@@ -3376,6 +3433,9 @@ impl GpuState {
             // SELECTION-OPACITY: selected cells in this content snapshot draw at
             // the independent selection strength (`1.0` = fully opaque default).
             selection_opacity,
+            // VE4 new-output fade: freshly arrived rows ramp their text ink in;
+            // `RowFade::NONE` (off / settled) is the byte-identical plain path.
+            row_fade_view(row_fade_spec.as_ref()),
         );
         self.color_glyph_runs = color_glyph_runs;
         let background_vertices = background_vertex_count(snapshot).min(self.vertices.len() as u32);
@@ -3571,6 +3631,8 @@ impl GpuState {
         let origin = self.content_origin();
         // SCROLL-CHROME-BOUNCE: crop content color glyphs at the tab-bar seam.
         let chrome_pin = self.chrome_pin();
+        // VE4 new-output fade: cheap Option clone, borrow scoped to the local.
+        let row_fade_spec = self.row_fade.clone();
         grid::build_color_glyph_vertices_with_origin_into(
             &mut self.color_glyph_vertices,
             snapshot,
@@ -3578,6 +3640,8 @@ impl GpuState {
             runs,
             origin,
             chrome_pin,
+            // VE4 new-output fade: emoji on a fading row ramp in with mono ink.
+            row_fade_view(row_fade_spec.as_ref()),
         );
         self.color_glyph_vertex_count = self.color_glyph_vertices.len() as u32;
 
@@ -4085,11 +4149,13 @@ var color_glyph_sampler: sampler;
 struct VsIn {
     @location(0) pos_px: vec2<f32>,
     @location(1) uv: vec2<f32>,
+    @location(2) alpha: f32,
 };
 
 struct VsOut {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
+    @location(1) alpha: f32,
 };
 
 @vertex
@@ -4101,12 +4167,16 @@ fn vs_main(input: VsIn) -> VsOut {
     );
     out.pos = vec4<f32>(ndc, 0.0, 1.0);
     out.uv = input.uv;
+    out.alpha = input.alpha;
     return out;
 }
 
 @fragment
 fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
-    return textureSample(color_glyph_tex, color_glyph_sampler, input.uv);
+    // VE4 new-output fade: the texel is premultiplied RGBA, so one uniform
+    // multiply on all four channels fades the glyph without fringing.
+    // alpha = 1.0 (everywhere off the fade path) is the exact identity.
+    return textureSample(color_glyph_tex, color_glyph_sampler, input.uv) * input.alpha;
 }
 "#;
 

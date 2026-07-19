@@ -1819,7 +1819,11 @@ fn color_quad_vertices(rect: [f32; 4]) -> [ColorGlyphVertex; 6] {
 }
 
 fn color_vertex(pos: [f32; 2], uv: [f32; 2]) -> ColorGlyphVertex {
-    ColorGlyphVertex { pos, uv }
+    ColorGlyphVertex {
+        pos,
+        uv,
+        alpha: 1.0,
+    }
 }
 
 // --- TRANSPARENCY: window transparency (alpha-mode selection + off-path equality) ---

@@ -315,11 +315,16 @@ animation wake and are not changed by `reduced_motion`.
 
 ## New-output fade
 
-`new_output_fade = on` fades freshly arrived output rows in over a short ramp
-at the live tail instead of appearing instantly. The fade obscures then reveals
-each new row, so the text is always fully rendered and readable. Scrollback and
-resize snap. Off by default; only at the live tail. `reduced_motion = on`
-suppresses it.
+`new_output_fade = on` fades the text of freshly arrived output rows in over a
+short ramp at the live tail instead of appearing instantly. Only the foreground
+ink ramps — glyphs, underline/strikethrough decorations, and emoji — starting
+from a visible floor (never invisible) and resolving to full strength on an
+ease-out curve. Cell backgrounds render exactly as normal from the first frame,
+so the fade never darkens the window; on a translucent window a background
+veil would read as a dark flash, which is why the effect is a text ramp. The
+cursor's row never fades, so the live prompt stays at full strength.
+Scrollback and resize snap. Off by default; only at the live tail.
+`reduced_motion = on` suppresses it.
 
 `new_output_fade_ms` sets how long that ramp takes, from `50` to `1000`
 milliseconds (default `250`). A longer value makes the fade easy to see; a

@@ -94,11 +94,15 @@ pub struct ColorGlyphVertex {
     pub pos: [f32; 2],
     /// Color glyph atlas UV coordinates.
     pub uv: [f32; 2],
+    /// VE4 new-output fade: uniform multiplier applied to the sampled
+    /// premultiplied texel (all four channels), so a color glyph on a fading
+    /// row ramps in exactly like mono ink. `1.0` everywhere off the fade path.
+    pub alpha: f32,
 }
 
 impl ColorGlyphVertex {
-    fn new(pos: [f32; 2], uv: [f32; 2]) -> Self {
-        Self { pos, uv }
+    fn new(pos: [f32; 2], uv: [f32; 2], alpha: f32) -> Self {
+        Self { pos, uv, alpha }
     }
 }
 
@@ -211,6 +215,61 @@ impl ColorRunCoverage {
     }
 }
 
+/// VE4 new-output fade: per-row FOREGROUND alpha multipliers for the cell
+/// vertex build. Freshly arrived rows ramp their text ink (glyphs, combining
+/// marks, ligature runs, underline/strikethrough decorations, color glyphs) in
+/// over the configured ease-out curve while cell BACKGROUNDS render exactly as
+/// normal from the first frame — the fade never darkens or veils anything.
+///
+/// `multipliers` is indexed by CONTENT row (the terminal viewport row);
+/// `row_offset` maps a decorated-snapshot row to it (chrome band rows above
+/// the content answer `1.0`), and `[col_start, col_end)` bounds the content
+/// columns so chrome rail cells sharing a row never fade. [`Self::NONE`]
+/// (empty multipliers) is the inert value: [`Self::multiplier`] answers `1.0`
+/// for every cell, the apply sites skip their blend entirely, and the built
+/// vertices are byte-identical to a build without the parameter.
+#[derive(Debug, Clone, Copy)]
+pub struct RowFade<'a> {
+    /// Per-content-row foreground alpha multipliers (`1.0` = fully revealed).
+    /// Empty = inert (the off path and every settled frame).
+    pub multipliers: &'a [f32],
+    /// Decorated-snapshot rows above the first content row (tab bar band).
+    pub row_offset: usize,
+    /// First decorated-snapshot column carrying content (left rail width).
+    pub col_start: usize,
+    /// One past the last content column (right rail cells are exempt).
+    pub col_end: usize,
+}
+
+impl RowFade<'_> {
+    /// The inert value: every cell answers `1.0`.
+    pub const NONE: RowFade<'static> = RowFade {
+        multipliers: &[],
+        row_offset: 0,
+        col_start: 0,
+        col_end: usize::MAX,
+    };
+
+    /// Whether this fade can affect any cell (false = skip all fade math).
+    #[inline]
+    pub fn is_inert(&self) -> bool {
+        self.multipliers.is_empty()
+    }
+
+    /// Foreground alpha multiplier for decorated-snapshot cell `(row, col)`.
+    /// Chrome rows/columns and out-of-range rows answer `1.0`.
+    #[inline]
+    pub fn multiplier(&self, row: usize, col: usize) -> f32 {
+        if self.multipliers.is_empty() || col < self.col_start || col >= self.col_end {
+            return 1.0;
+        }
+        match row.checked_sub(self.row_offset) {
+            Some(content_row) => self.multipliers.get(content_row).copied().unwrap_or(1.0),
+            None => 1.0,
+        }
+    }
+}
+
 /// Push a pixel-space rectangle as two triangles into `out`.
 ///
 /// `rect` is `[x0, y0, x1, y1]` in pixels; `uv` is `[u0, v0, u1, v1]`. For
@@ -242,13 +301,18 @@ pub fn push_solid_quad_with_origin(out: &mut Vec<Vertex>, quad: SolidQuad, origi
     push_quad(out, rect, [0.0, 0.0, 0.0, 0.0], quad.color, 0.0);
 }
 
-fn push_color_glyph_quad(out: &mut Vec<ColorGlyphVertex>, rect: [f32; 4], uv: [f32; 4]) {
+fn push_color_glyph_quad(
+    out: &mut Vec<ColorGlyphVertex>,
+    rect: [f32; 4],
+    uv: [f32; 4],
+    alpha: f32,
+) {
     let [x0, y0, x1, y1] = rect;
     let [u0, v0, u1, v1] = uv;
-    let tl = ColorGlyphVertex::new([x0, y0], [u0, v0]);
-    let tr = ColorGlyphVertex::new([x1, y0], [u1, v0]);
-    let bl = ColorGlyphVertex::new([x0, y1], [u0, v1]);
-    let br = ColorGlyphVertex::new([x1, y1], [u1, v1]);
+    let tl = ColorGlyphVertex::new([x0, y0], [u0, v0], alpha);
+    let tr = ColorGlyphVertex::new([x1, y0], [u1, v0], alpha);
+    let bl = ColorGlyphVertex::new([x0, y1], [u0, v1], alpha);
+    let br = ColorGlyphVertex::new([x1, y1], [u1, v1], alpha);
     out.extend_from_slice(&[tl, bl, tr, tr, bl, br]);
 }
 
@@ -272,6 +336,7 @@ pub fn build_color_glyph_vertices_into(
         runs,
         [0.0, 0.0],
         ChromePin::NONE,
+        RowFade::NONE,
     );
 }
 
@@ -283,6 +348,9 @@ pub fn build_color_glyph_vertices_with_origin_into(
     origin: [f32; 2],
     // SCROLL-CHROME-BOUNCE: crop content color glyphs at the tab-bar seam.
     chrome_pin: ChromePin,
+    // VE4 new-output fade: a color glyph on a fading row rides the same
+    // foreground alpha ramp as mono ink (`RowFade::NONE` = every alpha 1.0).
+    row_fade: RowFade,
 ) {
     out.clear();
     out.reserve(runs.len() * VERTS_PER_QUAD);
@@ -322,6 +390,7 @@ pub fn build_color_glyph_vertices_with_origin_into(
         let x0 = origin[0] + run.column as f32 * cell_w + chrome_pin.cell_dx(run.column);
         let y0 = origin[1] + run.row as f32 * cell_h + chrome_pin.cell_dy(run.row, run.column);
         let x1 = x0 + bounds.pixel_width as f32;
+        let fade_alpha = row_fade.multiplier(run.row, run.column);
         if chrome_pin.active() && chrome_pin.top_rows > 0 {
             push_color_glyph_quad_clipped_top(
                 out,
@@ -331,6 +400,7 @@ pub fn build_color_glyph_vertices_with_origin_into(
                 bounds.pixel_height as f32,
                 bounds.uv,
                 chrome_seam_y,
+                fade_alpha,
             );
         } else {
             // TAB-LABEL-CENTERING: an emoji tab/rail label rides the same sub-cell
@@ -341,6 +411,7 @@ pub fn build_color_glyph_vertices_with_origin_into(
                 out,
                 [x0, glyph_y0, x1, glyph_y0 + bounds.pixel_height as f32],
                 bounds.uv,
+                fade_alpha,
             );
         }
     }
@@ -968,6 +1039,7 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
         // take the full-strength selection tint. Byte-identical for the
         // no-selection callers.
         1.0,
+        RowFade::NONE,
     );
 }
 
@@ -1004,6 +1076,7 @@ pub fn build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
         opaque_region,
         chrome_pin,
         1.0,
+        RowFade::NONE,
     );
 }
 
@@ -1045,6 +1118,47 @@ pub fn build_cell_vertices_with_ligatures_and_selection_into(
         opaque_region,
         chrome_pin,
         selection_opacity,
+        RowFade::NONE,
+    );
+}
+
+/// VE4 new-output fade: the full-parameter build used by the single-pane GPU
+/// path — [`build_cell_vertices_with_ligatures_and_selection_into`] plus a
+/// per-row FOREGROUND alpha ramp for freshly arrived rows. `row_fade` scales
+/// only pass-2 ink (glyphs, combining marks, ligature runs, underline and
+/// strikethrough decorations); pass-1 cell backgrounds are untouched, so a
+/// fading row's backdrop renders exactly as normal from its first frame.
+/// [`RowFade::NONE`] is byte-identical to the selection entry point.
+#[allow(clippy::too_many_arguments)]
+pub fn build_cell_vertices_with_ligatures_selection_and_row_fade_into(
+    out: &mut Vec<Vertex>,
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    color_runs: &[ColorGlyphRun],
+    ligature_runs: &[LigatureRun],
+    focus_dim: f32,
+    origin: [f32; 2],
+    treatment: BackgroundTreatmentParams,
+    cell_bg_opacity: f32,
+    opaque_region: Option<CellRegion>,
+    chrome_pin: ChromePin,
+    selection_opacity: f32,
+    row_fade: RowFade,
+) {
+    build_cells_core(
+        out,
+        snapshot,
+        atlas,
+        color_runs,
+        ligature_runs,
+        focus_dim,
+        origin,
+        treatment,
+        cell_bg_opacity,
+        opaque_region,
+        chrome_pin,
+        selection_opacity,
+        row_fade,
     );
 }
 
@@ -1077,6 +1191,7 @@ fn build_cells_core(
     opaque_region: Option<CellRegion>,
     chrome_pin: ChromePin,
     selection_opacity: f32,
+    row_fade: RowFade,
 ) {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
@@ -1245,6 +1360,20 @@ fn build_cells_core(
                 continue;
             }
             let (fg, bg) = resolve(cell, row, col);
+            // VE4 new-output fade: freshly arrived rows ramp their FOREGROUND
+            // ink in (glyphs, marks, ligatures, decorations below) while the
+            // pass-1 background stays untouched. Applied after the RV1 floor:
+            // the floored color is the ramp's destination, and the ramp starts
+            // at the caller's floor multiplier (never 0), so the transient is a
+            // bounded, operator-opted dip below steady-state contrast that
+            // resolves to the exact floored color. `1.0` (inert / settled /
+            // chrome / cursor row) skips the blend and is byte-identical.
+            let fade_mul = row_fade.multiplier(row, col);
+            let fg = if fade_mul < 1.0 {
+                [fg[0], fg[1], fg[2], fg[3] * fade_mul]
+            } else {
+                fg
+            };
             let span = span_of(row, col);
             let x0 = origin[0] + col as f32 * cell_w + chrome_pin.cell_dx(col);
             let y0 = chrome_pin.cell_top_y(origin[1], cell_h, row, col);
@@ -1358,7 +1487,15 @@ fn build_cells_core(
                 // (OKLab-L bisect, hue+chroma preserved, exact passthrough at the
                 // default floor of 1.0 so plain frames stay byte-identical).
                 let underline_color = cell.attrs.underline_color.map_or(fg, |color| {
-                    text::enforce_contrast_rgba(foreground_linear(&snapshot.colors, color), bg)
+                    let floored =
+                        text::enforce_contrast_rgba(foreground_linear(&snapshot.colors, color), bg);
+                    // VE4 new-output fade: an explicit SGR underline color rides
+                    // the same foreground ramp as the cell `fg` default above.
+                    if fade_mul < 1.0 {
+                        [floored[0], floored[1], floored[2], floored[3] * fade_mul]
+                    } else {
+                        floored
+                    }
                 });
                 push_underline_decoration(
                     out,
@@ -1674,6 +1811,7 @@ fn push_glyph_quad_clipped_top(
 /// SCROLL-CHROME-BOUNCE: color-glyph analogue of [`push_glyph_quad_clipped_top`]
 /// — crop the emoji quad's top at the seam via UV so a gliding color glyph never
 /// paints into the pinned tab bar.
+#[allow(clippy::too_many_arguments)]
 fn push_color_glyph_quad_clipped_top(
     out: &mut Vec<ColorGlyphVertex>,
     x0: f32,
@@ -1682,6 +1820,7 @@ fn push_color_glyph_quad_clipped_top(
     pixel_height: f32,
     uv: [f32; 4],
     clip_top_y: f32,
+    alpha: f32,
 ) {
     let mut gy0 = y0;
     let gy1 = y0 + pixel_height;
@@ -1694,7 +1833,7 @@ fn push_color_glyph_quad_clipped_top(
         v0 += t * (v1 - v0);
         gy0 = clip_top_y;
     }
-    push_color_glyph_quad(out, [x0, gy0, x1, gy1], [u0, v0, u1, v1]);
+    push_color_glyph_quad(out, [x0, gy0, x1, gy1], [u0, v0, u1, v1], alpha);
 }
 
 /// PANE-SUBCELL-CLIP: a vertical clip band `[top_y, bottom_y)` in physical

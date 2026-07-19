@@ -2699,7 +2699,12 @@ mod pane_subcell_clip {
         // The clip is generic over the colour-glyph vertex too: a bottom overhang
         // is cropped with a proportional UV.
         let mut verts = Vec::new();
-        push_color_glyph_quad(&mut verts, [10.0, 0.0, 20.0, 10.0], [0.0, 0.0, 1.0, 1.0]);
+        push_color_glyph_quad(
+            &mut verts,
+            [10.0, 0.0, 20.0, 10.0],
+            [0.0, 0.0, 1.0, 1.0],
+            1.0,
+        );
         let clip = VClip {
             top_y: f32::NEG_INFINITY,
             bottom_y: 6.0,
@@ -2904,4 +2909,215 @@ fn cell_vertices_are_identical_with_mask_backed_coverage() {
     };
     assert_eq!(glyph_quads(&without_runs), 12);
     assert_eq!(glyph_quads(&with_runs), 9);
+}
+
+// VE4 NEW-OUTPUT FADE (text ramp) ------------------------------------------
+
+/// Pure mapping pin for [`RowFade::multiplier`]: chrome band rows above the
+/// content, rail columns beside it, and rows past the multiplier vector all
+/// answer `1.0`; only in-bounds content cells read their row's multiplier.
+#[test]
+fn row_fade_multiplier_maps_chrome_offsets_and_bounds() {
+    let fade = RowFade {
+        multipliers: &[0.5],
+        row_offset: 1,
+        col_start: 1,
+        col_end: 2,
+    };
+    assert!(!fade.is_inert());
+    assert_eq!(fade.multiplier(0, 1), 1.0, "chrome band row is exempt");
+    assert_eq!(fade.multiplier(1, 0), 1.0, "rail column is exempt");
+    assert_eq!(fade.multiplier(1, 1), 0.5, "content cell reads its row");
+    assert_eq!(fade.multiplier(1, 2), 1.0, "past col_end is exempt");
+    assert_eq!(fade.multiplier(2, 1), 1.0, "past the vector answers 1.0");
+    assert!(RowFade::NONE.is_inert());
+    assert_eq!(RowFade::NONE.multiplier(0, 0), 1.0);
+}
+
+/// A 1-column x 2-row snapshot with an underlined, struck-through `X` on each
+/// row (cursor hidden), so pass 2 emits glyph + underline + strikethrough ink
+/// for both rows.
+fn fade_ink_snapshot() -> Snapshot {
+    let mut term = Terminal::new(1, 2);
+    term.advance(b"\x1b[?25l");
+    term.advance(b"\x1b[4;9mX");
+    term.advance(b"\x1b[2;1H\x1b[4;9mX");
+    term.snapshot()
+}
+
+fn build_with_fade(snapshot: &Snapshot, atlas: &GlyphAtlas, fade: RowFade) -> Vec<Vertex> {
+    let mut out = Vec::new();
+    build_cell_vertices_with_ligatures_selection_and_row_fade_into(
+        &mut out,
+        snapshot,
+        atlas,
+        &[],
+        &[],
+        0.0,
+        [0.0, 0.0],
+        BackgroundTreatmentParams::default(),
+        1.0,
+        None,
+        ChromePin::NONE,
+        1.0,
+        fade,
+    );
+    out
+}
+
+/// Off-path byte-identity: `RowFade::NONE` and an all-ones multiplier vector
+/// both build the exact same vertices as the plain selection entry point.
+#[test]
+fn row_fade_inert_and_all_ones_are_byte_identical() {
+    let Some(atlas) = atlas() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let snapshot = fade_ink_snapshot();
+    let mut plain = Vec::new();
+    build_cell_vertices_with_ligatures_and_selection_into(
+        &mut plain,
+        &snapshot,
+        &atlas,
+        &[],
+        &[],
+        0.0,
+        [0.0, 0.0],
+        BackgroundTreatmentParams::default(),
+        1.0,
+        None,
+        ChromePin::NONE,
+        1.0,
+    );
+    let inert = build_with_fade(&snapshot, &atlas, RowFade::NONE);
+    assert_eq!(plain, inert, "RowFade::NONE is byte-identical");
+    let ones = build_with_fade(
+        &snapshot,
+        &atlas,
+        RowFade {
+            multipliers: &[1.0, 1.0],
+            row_offset: 0,
+            col_start: 0,
+            col_end: usize::MAX,
+        },
+    );
+    assert_eq!(plain, ones, "all-ones multipliers are byte-identical");
+}
+
+/// The vertex-level fade pin: a mid-ramp row scales ONLY its foreground ink
+/// alpha (glyph coverage quads AND underline/strikethrough decorations), pass-1
+/// backgrounds are byte-identical, positions/UVs/RGB never move, and the
+/// settled row's ink is byte-identical to the never-faded build.
+#[test]
+fn row_fade_scales_only_foreground_ink_alpha() {
+    let Some(atlas) = atlas() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let snapshot = fade_ink_snapshot();
+    let plain = build_with_fade(&snapshot, &atlas, RowFade::NONE);
+    let faded = build_with_fade(
+        &snapshot,
+        &atlas,
+        RowFade {
+            multipliers: &[0.4, 1.0],
+            row_offset: 0,
+            col_start: 0,
+            col_end: usize::MAX,
+        },
+    );
+    assert_eq!(plain.len(), faded.len(), "same vertex count");
+    // Pass 1: one background quad per cell (1x2 grid), byte-identical.
+    let bg_verts = 2 * VERTS_PER_QUAD;
+    assert_eq!(
+        &plain[..bg_verts],
+        &faded[..bg_verts],
+        "backgrounds untouched"
+    );
+    // Pass 2 ink: geometry and RGB identical everywhere; alpha either exact
+    // (row 1, settled) or scaled by exactly 0.4 (row 0, mid-ramp). Row 0's ink
+    // is emitted before row 1's, so the scaled set is a non-empty prefix.
+    let mut scaled = 0usize;
+    let mut exact = 0usize;
+    let mut seen_exact = false;
+    for (p, f) in plain[bg_verts..].iter().zip(&faded[bg_verts..]) {
+        assert_eq!(p.pos, f.pos, "ink position never moves");
+        assert_eq!(p.uv, f.uv, "ink UV never moves");
+        assert_eq!(p.is_glyph, f.is_glyph);
+        assert_eq!(&p.color[..3], &f.color[..3], "ink RGB never changes");
+        if (f.color[3] - p.color[3] * 0.4).abs() < 1e-6 && p.color[3] > 0.0 {
+            assert!(!seen_exact, "scaled ink is a prefix (row 0 before row 1)");
+            scaled += 1;
+        } else {
+            assert_eq!(p.color[3], f.color[3], "settled ink alpha is exact");
+            seen_exact = true;
+            exact += 1;
+        }
+    }
+    assert!(scaled > 0, "row 0's ink is mid-ramp");
+    assert!(exact > 0, "row 1's ink is untouched");
+    // Both rows carry identical ink shapes, so the counts match.
+    assert_eq!(scaled, exact, "same ink quads per row");
+}
+
+/// Color glyphs (emoji) ride the same per-row foreground ramp: the fade scales
+/// the new per-vertex alpha (the shader multiplies the premultiplied texel),
+/// while geometry and UVs are untouched; the inert build carries alpha 1.0.
+#[test]
+fn row_fade_scales_color_glyph_vertex_alpha() {
+    use crate::emoji::ColorGlyphId;
+    use crate::text::CellSize;
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    };
+    let mut color_atlas = ColorGlyphAtlas::new(cell);
+    let key = ColorGlyphKey::new(1, ColorGlyphId::Glyph(7), 16.0, 1.0, 1);
+    let rgba = vec![0u8; 8 * 16 * 4];
+    color_atlas
+        .insert_premultiplied(key, 1, &rgba)
+        .expect("synthetic color glyph slot");
+    let mut term = Terminal::new(2, 1);
+    term.advance(b"\x1b[?25lA");
+    let snapshot = term.snapshot();
+    let runs = [ColorGlyphRun::new(0, 0, key)];
+
+    let mut inert = Vec::new();
+    build_color_glyph_vertices_with_origin_into(
+        &mut inert,
+        &snapshot,
+        &color_atlas,
+        &runs,
+        [0.0, 0.0],
+        ChromePin::NONE,
+        RowFade::NONE,
+    );
+    assert_eq!(inert.len(), VERTS_PER_QUAD);
+    assert!(
+        inert.iter().all(|v| v.alpha == 1.0),
+        "inert build carries alpha 1.0 (exact shader identity)"
+    );
+
+    let mut faded = Vec::new();
+    build_color_glyph_vertices_with_origin_into(
+        &mut faded,
+        &snapshot,
+        &color_atlas,
+        &runs,
+        [0.0, 0.0],
+        ChromePin::NONE,
+        RowFade {
+            multipliers: &[0.4],
+            row_offset: 0,
+            col_start: 0,
+            col_end: usize::MAX,
+        },
+    );
+    assert_eq!(faded.len(), VERTS_PER_QUAD);
+    for (i, f) in faded.iter().enumerate() {
+        assert_eq!(f.pos, inert[i].pos, "geometry untouched");
+        assert_eq!(f.uv, inert[i].uv, "UV untouched");
+        assert!((f.alpha - 0.4).abs() < 1e-6, "alpha rides the row ramp");
+    }
 }

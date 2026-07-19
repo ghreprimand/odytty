@@ -49,6 +49,7 @@ use super::clipboard::{NativeClipboard, read_clipboard_selection, write_paste_te
 use super::cvd_theme::CvdThemeCache;
 use super::gpu::{
     BloomOptions, ChromePinGeom, CrtOptions, FrameOutcome, GpuState, PanelFrameQuads, RailOverlay,
+    RowFadeSpec,
 };
 use super::options::{NativeError, NativeOptions};
 use super::overlay::{
@@ -6283,11 +6284,14 @@ impl ApplicationHandler<UserEvent> for App {
                         // band, drawn over any background treatment; empty on the
                         // off path.
                         self.paint_window_border_quads(&ctx, &mut overlays);
-                        // VE4 new-output fade quads — last so they obscure the
-                        // freshly arrived rows on top of all other overlays;
-                        // empty on the off path. The cursor block draws after
-                        // overlays (ID1 reorder), so it is never hidden.
-                        self.paint_new_row_fade_quads(&ctx, &mut overlays);
+                        // VE4 new-output fade — a per-row FOREGROUND alpha ramp
+                        // applied inside the cell/color-glyph vertex builds (no
+                        // veil quads): capture this frame's multipliers here,
+                        // where the pre-decoration cursor row is known; handed
+                        // to the GPU below with the chrome offsets. `None` on
+                        // the off path and every settled frame.
+                        let new_row_fade_text =
+                            self.new_row_fade_text_multipliers(now, ctx.cursor.row);
                         // BELL visual flash — a full-viewport decaying tint over
                         // everything; empty on the off / urgent-only path.
                         self.paint_bell_flash_quad(&ctx, &mut overlays);
@@ -6470,6 +6474,17 @@ impl ApplicationHandler<UserEvent> for App {
                         } else {
                             None
                         };
+                        // VE4 new-output fade: map the content-row multipliers
+                        // captured above into decorated-snapshot coordinates —
+                        // chrome band rows above and rail columns beside the
+                        // content never fade. `None` (off / settled) keeps the
+                        // builders on their exact inert path.
+                        let row_fade_spec = new_row_fade_text.map(|multipliers| RowFadeSpec {
+                            multipliers,
+                            row_offset: tab_bar_row_offset,
+                            col_start: tab_bar_col_offset,
+                            col_end: tab_bar_col_offset + self.grid.columns,
+                        });
                         if let Some(gpu) = self.gpu.as_mut() {
                             let rail_overlay = rail_overlay_data.as_ref().map(|data| RailOverlay {
                                 snapshot: &data.snapshot,
@@ -6489,6 +6504,7 @@ impl ApplicationHandler<UserEvent> for App {
                             gpu.set_chrome_pin_geom(chrome_pin_geom);
                             gpu.set_window_bg_alpha(win_bg_alpha);
                             gpu.set_overlay_opaque_region(overlay_opaque_region);
+                            gpu.set_row_fade(row_fade_spec);
                             match update {
                                 GeometryUpdate::Full => {
                                     gpu.update_image_layer(

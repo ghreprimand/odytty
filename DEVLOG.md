@@ -7,6 +7,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-19 -- New-output fade reworked: text fades in, no background veil
+
+The new-output fade previously painted an opaque background-color quad over
+each freshly arrived row and decayed it to transparent. On a translucent
+window — the default since the transparency flip — that read as a dark
+from-black flash: normal cell backgrounds compose the window opacity while the
+veil started fully opaque, so a new row was briefly the darkest band on
+screen.
+
+The mechanism is now a per-row foreground alpha ramp. Only the text fades in:
+glyphs, combining marks, ligature runs, underline and strikethrough
+decorations, and color emoji all rise from a visible floor (0.25) to full
+strength on the same ease-out curve, while cell backgrounds render exactly as
+normal from the first frame. Nothing darkens, nothing is veiled. The ramp
+starts at the floor rather than zero, so new text is readable from its very
+first frame and steady-state readability (the minimum-contrast floor) is
+untouched — the transient is a short, bounded, opt-in ramp that resolves to
+the exact floored color.
+
+All row bookkeeping is unchanged: scrollback-delta tracking, the settle and
+wake deadlines, the cursor-row exemption (the live prompt never fades),
+reduced-motion suppression, and the snap rules for scrollback, resize, and
+session switches. The multipliers enter the vertex build as a per-row scale on
+foreground ink; mono glyphs reuse the existing per-vertex color alpha, and the
+color-glyph pipeline gains a per-vertex alpha that multiplies the
+premultiplied texel uniformly, so emoji fade without fringing. Chrome cells
+(tab bar band, workspace rail) sharing a decorated frame never fade. With the
+toggle off, or once every row settles, the builders take their exact inert
+path and the frame is byte-identical to a never-faded build — pinned by
+vertex-level tests, alongside pins for background untouchability, the floor
+start, monotonic rise, the cursor-row exemption, and non-default ramp lengths.
+
+Platform-neutral render path: identical behavior on Linux, Windows, and macOS.
+The toggle stays off by default; the `new_output_fade_ms` knob, range, and
+default are unchanged.
+
+---
+
 ## 2026-07-19 -- New-output fade-in ramp length is adjustable
 
 The new-output fade-in ran on a fixed short ramp that was hard to perceive. The
