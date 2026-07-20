@@ -137,6 +137,20 @@ pub(crate) enum WriteMode {
     Config,
 }
 
+/// Clamp an existing config-file mode to the 0644 baseline unless it is already
+/// no more permissive than 0644.
+///
+/// A mode whose permission bits are a subset of 0644 (for example 0640 or 0600,
+/// which only tighten access) is preserved verbatim. Any mode that grants a bit
+/// 0644 does not -- a wider group/other read-or-write bit, or ANY execute bit --
+/// is replaced with 0644, so a terminal-driven writeback never keeps or widens a
+/// permissive or executable config. Execute bits always force the clamp because
+/// a config file has no reason to be executable.
+#[cfg(unix)]
+fn clamp_config_mode(mode: u32) -> u32 {
+    if mode & !0o644 == 0 { mode } else { 0o644 }
+}
+
 /// Atomically write `bytes` to `path` under `mode`.
 ///
 /// Creates the parent directory, writes a uniquely-named exclusive sibling temp,
@@ -169,15 +183,20 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: WriteMode) -> io::Re
         }
     }
 
-    // Preserve a stricter existing config mode: read it before the write, while
-    // the target still exists. A new file (no existing target) falls back to
-    // 0644, matching the previous config-writeback behavior.
+    // Preserve an existing config mode only when it is no more permissive than
+    // the 0644 baseline; read it before the write, while the target still
+    // exists. A stricter owner/group-limited mode (0640, 0600) is kept, but any
+    // mode that adds a bit 0644 lacks -- a wider group/other write bit or ANY
+    // execute bit -- is clamped back to 0644 rather than preserved, so a
+    // pre-existing 0666/0755/0777 config cannot keep a terminal writeback
+    // permissive. A new file (no existing target) falls back to 0644, matching
+    // the previous config-writeback behavior.
     #[cfg(unix)]
     let preserved_config_mode: Option<u32> = if matches!(mode, WriteMode::Config) {
         use std::os::unix::fs::PermissionsExt as _;
         Some(
             fs::metadata(path)
-                .map(|meta| meta.permissions().mode() & 0o777)
+                .map(|meta| clamp_config_mode(meta.permissions().mode() & 0o777))
                 .unwrap_or(0o644),
         )
     } else {
@@ -531,6 +550,39 @@ mod tests {
 
         assert_eq!(mode(&path), 0o600, "stricter existing mode must survive");
         assert_eq!(fs::read_to_string(&path).expect("read"), "new = 2\n");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_config_clamps_permissive_modes_but_keeps_stricter_ones() {
+        // A config writeback preserves only a mode no more permissive than 0644:
+        // stricter owner/group-limited modes survive, but any wider read/write
+        // bit or ANY execute bit is clamped back to the 0644 baseline so a
+        // terminal-driven write never keeps a permissive or executable config.
+        let root = temp_dir("cfg-clamp");
+        // (seeded mode, expected mode after writeback)
+        let cases = [
+            (0o666, 0o644), // group+other write -> clamp
+            (0o777, 0o644), // world rwx -> clamp
+            (0o755, 0o644), // execute bits -> clamp
+            (0o640, 0o640), // stricter (no other read) -> preserve
+            (0o600, 0o600), // owner-only -> preserve
+        ];
+        for (seed, expected) in cases {
+            let path = root.join(format!("odytty-{seed:o}.conf"));
+            fs::write(&path, "old = 1\n").expect("seed config");
+            fs::set_permissions(&path, fs::Permissions::from_mode(seed)).expect("chmod seed");
+
+            write_atomic(&path, b"new = 2\n", WriteMode::Config).expect("write config");
+
+            assert_eq!(
+                mode(&path),
+                expected,
+                "seed {seed:o} must land at {expected:o} after writeback",
+            );
+            assert_eq!(fs::read_to_string(&path).expect("read"), "new = 2\n");
+        }
         let _ = fs::remove_dir_all(root);
     }
 
