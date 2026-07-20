@@ -1518,7 +1518,7 @@ impl Settings {
                 env: SHELL_KEY_ENHANCEMENT_ENV,
                 name: "Prompt key enhancement (bash/zsh)",
                 value: bool_display(self.shell_key_enhancement).to_owned(),
-                description: "When on, integrated bash and zsh shells enable the Kitty keyboard protocol (disambiguate mode only, so Ctrl+C still interrupts) while the prompt is active, then turn it off before each command runs. This makes modified keys like Ctrl+Enter, Shift+Enter, and Ctrl+Backspace arrive as distinct sequences you can bind in inputrc or with bindkey; programs the shell launches are unaffected. Requires shell integration to be on. fish manages the protocol itself and PowerShell uses the Console API, so neither is changed. Off by default.",
+                description: "When on, integrated bash and zsh shells enable the Kitty keyboard protocol (disambiguate mode only, so Ctrl+C still interrupts) while the prompt is active, then turn it off before each command runs. Modified keys become distinct sequences and ship working default binds out of the box: Ctrl+Backspace deletes the previous word, Shift+Enter inserts a newline, Ctrl+Enter submits. Each default is skipped when you have already bound the sequence in inputrc or with bindkey, so a personal bind wins; programs the shell launches are unaffected. Requires shell integration to be on. fish drives the protocol itself and PowerShell uses the Console API, so neither needs this. Off by default.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],

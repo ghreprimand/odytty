@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Prompt key-enhancement help reflects the shipped default binds
+
+The settings-panel help and the internal default-constant note for
+`shell_key_enhancement` still described the enhancement as merely making
+modified keys "arrive as distinct sequences you can bind," written before the
+integration began shipping working default bindings. Both now state the real
+behavior, matching the configuration example and the feature guide: with the
+enhancement on, the bash and zsh snippets bind the prompt-scoped keys out of the
+box -- Ctrl+Backspace deletes the previous word, Shift+Enter inserts a newline,
+Ctrl+Enter submits -- and each default is skipped when the sequence is already
+bound in inputrc or with bindkey, so a personal bind wins. fish drives the
+keyboard protocol itself and needs nothing; PowerShell uses the Console API.
+
+A real-shell check confirms the path end to end: bash 5.3.0 registers the
+Ctrl+Backspace bind from the sourced snippet through readline and word-deletes
+on the CSI 127;5u sequence, and the guard leaves a pre-existing user bind
+untouched. No behavior or default changed; the enhancement stays off by default.
+
+---
+
 ## 2026-07-20 -- Retro preset no longer forces screen curvature
 
 Screen curvature is now driven only by the `crt_curvature` configuration and

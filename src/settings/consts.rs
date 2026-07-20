@@ -933,8 +933,11 @@ pub const DEFAULT_SHELL_INTEGRATION: bool = true;
 /// (disambiguate only, so Ctrl+C keeps generating SIGINT) while the prompt owns
 /// the line and pop it before each command runs. This makes modified keys like
 /// Ctrl+Enter, Shift+Enter, and Ctrl+Backspace reachable as distinct CSI-u
-/// sequences that users can bind through inputrc/bindkey, with zero effect on
-/// the programs the shell launches. Sub-feature of shell integration: the
+/// sequences; the snippets ship working default binds for them (Ctrl+Backspace
+/// word-deletes, Shift+Enter inserts a newline, Ctrl+Enter submits), each
+/// skipped when the user has already bound the sequence through inputrc/bindkey,
+/// with zero effect on the programs the shell launches. Sub-feature of shell
+/// integration: the
 /// push/pop only ships when `shell_integration` is also on, and OdyTTY injects
 /// `ODYTTY_KEY_ENHANCE=1` into the child environment so the snippet can discover
 /// support (mirroring buttons discovery). fish manages the keyboard protocol
