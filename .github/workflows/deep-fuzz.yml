@@ -1,0 +1,86 @@
+name: Deep fuzz
+
+# Extended fuzzing sweep of the graphics and protocol tiers. The fast,
+# deterministic fuzz smoke tiers run in the normal CI matrix on every push and
+# are unchanged; this workflow runs the heavy, #[ignore]d discovery tiers
+# (ODYTTY_FUZZ_ITERS = 40000) on a weekly schedule and on demand. No secrets are
+# used: the job only reads the checked-out source and uploads its logs so a
+# failing seed can be reproduced offline.
+on:
+  schedule:
+    - cron: "37 5 * * 2"
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: "Fuzz iterations per deep tier (default 40000)."
+        required: false
+        default: "40000"
+
+permissions:
+  contents: read
+
+jobs:
+  deep-fuzz:
+    name: Deep fuzz tiers
+    runs-on: ubuntu-latest
+    # Bounded so a wedged tier fails the job rather than spinning to the runner
+    # backstop. The 40k-iteration sweep finishes well inside this on a green run.
+    timeout-minutes: 60
+    steps:
+      # v4.2.2
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Resolve iteration budget
+        # Route the untrusted dispatch input through env: so it reaches the shell
+        # as data in a quoted var, never spliced into the script text.
+        env:
+          INPUT_ITERS: ${{ inputs.iterations }}
+        shell: bash
+        run: |
+          iters="$INPUT_ITERS"
+          # Empty on a scheduled run (no inputs) or a dispatch that cleared it.
+          if [ -z "$iters" ]; then
+            iters="40000"
+          fi
+          # Reject anything but a plain positive integer before exporting it, so a
+          # malformed input cannot inject a workflow record or a shell argument
+          # into the test invocation. Anchors match the whole string, so a newline
+          # cannot slip past.
+          if [[ ! "$iters" =~ ^[0-9]+$ ]] || [ "$iters" -lt 1 ]; then
+            echo "::error::invalid iterations '$iters' (expected a positive integer)"
+            exit 1
+          fi
+          # Later steps read ODYTTY_FUZZ_ITERS from the environment; the test
+          # harness clamps it to its own floor.
+          echo "ODYTTY_FUZZ_ITERS=$iters" >> "$GITHUB_ENV"
+
+      - name: Graphics deep fuzz
+        env:
+          RUST_BACKTRACE: "1"
+        run: |
+          set -o pipefail
+          mkdir -p fuzz-logs
+          cargo test -p odytty graphics_fuzz --locked -- --ignored --nocapture \
+            2>&1 | tee fuzz-logs/graphics-fuzz.log
+
+      - name: Protocol deep fuzz
+        env:
+          RUST_BACKTRACE: "1"
+        run: |
+          set -o pipefail
+          mkdir -p fuzz-logs
+          cargo test --test protocol_fuzz --locked -- --ignored --nocapture \
+            2>&1 | tee fuzz-logs/protocol-fuzz.log
+
+      # v4.6.2
+      - name: Upload fuzz logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: deep-fuzz-logs
+          path: fuzz-logs/
+          retention-days: 14
+          if-no-files-found: warn
