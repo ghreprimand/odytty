@@ -161,6 +161,97 @@ fn keypad_physical_keys_map_to_neutral_model() {
 }
 
 #[test]
+fn win32_physical_mapping_distinguishes_ctrl_backspace() {
+    let plain = map_win32_key_event(
+        PhysicalKey::Code(KeyCode::Backspace),
+        &WinitKey::Named(NamedKey::Backspace),
+        &WinitKey::Named(NamedKey::Backspace),
+        Modifiers::NONE,
+        KeyEventType::Press,
+    )
+    .expect("Backspace maps");
+    let ctrl = map_win32_key_event(
+        PhysicalKey::Code(KeyCode::Backspace),
+        &WinitKey::Named(NamedKey::Backspace),
+        &WinitKey::Named(NamedKey::Backspace),
+        Modifiers::CTRL,
+        KeyEventType::Press,
+    )
+    .expect("Ctrl+Backspace maps");
+
+    assert_eq!(
+        input::encode_win32_key_event(plain, KeyEventType::Press),
+        b"\x1b[8;14;8;1;0;1_"
+    );
+    assert_eq!(
+        input::encode_win32_key_event(ctrl, KeyEventType::Press),
+        b"\x1b[8;14;8;1;8;1_"
+    );
+}
+
+#[test]
+fn win32_physical_mapping_covers_shift_enter_char_and_modifier_release() {
+    let shift = Modifiers {
+        shift: true,
+        ..Modifiers::NONE
+    };
+    let enter = map_win32_key_event(
+        PhysicalKey::Code(KeyCode::Enter),
+        &WinitKey::Named(NamedKey::Enter),
+        &WinitKey::Named(NamedKey::Enter),
+        shift,
+        KeyEventType::Press,
+    )
+    .expect("Enter maps");
+    assert_eq!(
+        input::encode_win32_key_event(enter, KeyEventType::Press),
+        b"\x1b[13;28;13;1;16;1_"
+    );
+
+    let letter = map_win32_key_event(
+        PhysicalKey::Code(KeyCode::KeyA),
+        &WinitKey::Character("a".into()),
+        &WinitKey::Character("a".into()),
+        Modifiers::NONE,
+        KeyEventType::Press,
+    )
+    .expect("A maps");
+    assert_eq!(
+        input::encode_win32_key_event(letter, KeyEventType::Press),
+        b"\x1b[65;30;97;1;0;1_"
+    );
+
+    let ctrl_up = map_win32_key_event(
+        PhysicalKey::Code(KeyCode::ControlRight),
+        &WinitKey::Named(NamedKey::Control),
+        &WinitKey::Named(NamedKey::Control),
+        Modifiers::CTRL,
+        KeyEventType::Release,
+    )
+    .expect("right Control maps");
+    assert_eq!(
+        input::encode_win32_key_event(ctrl_up, KeyEventType::Release),
+        b"\x1b[17;29;0;0;256;1_"
+    );
+}
+
+#[test]
+fn win32_mapping_keeps_layout_virtual_key_separate_from_physical_scan() {
+    // AZERTY's physical KeyQ position produces logical A: Windows reports
+    // VK_A with the KeyQ/set-1 scan code (0x10).
+    let event = map_win32_key_event(
+        PhysicalKey::Code(KeyCode::KeyQ),
+        &WinitKey::Character("a".into()),
+        &WinitKey::Character("a".into()),
+        Modifiers::NONE,
+        KeyEventType::Press,
+    )
+    .expect("layout-remapped key maps");
+    assert_eq!(event.virtual_key, 0x41);
+    assert_eq!(event.scan_code, 0x10);
+}
+
+#[test]
 fn space_named_key_encodes_nul_under_ctrl() {
     // Full path: Space named key -> neutral Key -> shared encoder, with Ctrl.
     let key = map_named_key(NamedKey::Space, false).expect("space maps");
@@ -175,12 +266,14 @@ fn key_modes_from_core_preserves_kitty_keyboard_flags() {
     let modes = key_modes_from_core(CoreKeyboardModes {
         application_cursor: true,
         application_keypad: true,
+        win32_input: true,
         kitty_keyboard_flags: 9,
         modify_other_keys: 2,
     });
 
     assert!(modes.application_cursor);
     assert!(modes.application_keypad);
+    assert_eq!(modes.win32_input, cfg!(windows));
     assert_eq!(modes.kitty_keyboard_flags, 9);
     assert_eq!(modes.modify_other_keys, 2);
 }

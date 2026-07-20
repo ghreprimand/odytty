@@ -20,6 +20,7 @@ mod reporting;
 mod reset_osc_mouse;
 mod sgr_cursor;
 mod visible_search_rows;
+mod win32_input;
 mod wrapped_flag_scroll;
 
 pub(super) fn assert_blank_with_background(

@@ -12,8 +12,8 @@ use super::app::{
 use super::bindings::{
     KeyBindings, changed_window_title, encode_native_focus_report, encode_native_mouse_report,
     is_copy_shortcut, is_overlay_shortcut, is_paste_shortcut, is_scroll_down_key, is_scroll_up_key,
-    is_theme_picker_shortcut, map_keypad_physical_key, map_named_key, map_winit_mouse_button,
-    motion_report_button, wheel_report_button,
+    is_theme_picker_shortcut, map_keypad_physical_key, map_named_key, map_win32_key_event,
+    map_winit_mouse_button, motion_report_button, wheel_report_button,
 };
 use super::clipboard::{ClipboardSlot, encode_paste_chunks, flatten_chunks};
 use super::connection_overlay::ConnectionOverlaySignature;

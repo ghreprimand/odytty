@@ -21,6 +21,10 @@ pub(super) fn key_modes_from_core(modes: CoreKeyboardModes) -> KeyModes {
     KeyModes {
         application_cursor: modes.application_cursor,
         application_keypad: modes.application_keypad,
+        // CSI ? 9001 h is meaningful only to the Windows ConPTY transport.
+        // Unix still parses and reports it, but must preserve its existing VT
+        // input bytes.
+        win32_input: cfg!(windows) && modes.win32_input,
         kitty_keyboard_flags: modes.kitty_keyboard_flags,
         modify_other_keys: modes.modify_other_keys,
     }

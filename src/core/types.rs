@@ -132,18 +132,23 @@ pub struct KeyboardModes {
     /// DECKPAM/DECKPNM (`ESC =` / `ESC >`): keypad keys use application keypad
     /// SS3 forms while enabled.
     pub application_keypad: bool,
+    /// ConPTY Win32 input mode (`CSI ? 9001 h/l`). While enabled, a Windows
+    /// front end sends serialized `KEY_EVENT_RECORD` fields instead of legacy
+    /// VT key sequences. Other platforms track the request but leave their
+    /// input encoder unchanged.
+    pub win32_input: bool,
     /// Kitty keyboard protocol flags active on the current screen buffer.
     ///
     /// Zero preserves legacy DEC/xterm key encoding. Nonzero values are set by
     /// Kitty's CSI-u keyboard protocol controls and consumed by front ends when
-    /// encoding key presses.
+    /// encoding key presses while Win32 input mode is inactive.
     pub kitty_keyboard_flags: u16,
     /// xterm modifyOtherKeys level (XTMODKEYS `CSI > 4 ; n m`): 0 off,
     /// 1 modified keys lacking a legacy encoding, 2 all modified keys.
     ///
-    /// Applies only while `kitty_keyboard_flags` is zero — an app that enables
-    /// both protocols (fish does) gets the Kitty encoding. Levels above 2 are
-    /// rejected at the parser.
+    /// Applies only while `win32_input` is false and `kitty_keyboard_flags` is
+    /// zero. An app that enables Kitty and modifyOtherKeys (fish does) gets the
+    /// Kitty encoding. Levels above 2 are rejected at the parser.
     pub modify_other_keys: u8,
 }
 /// G0/G1 character-set designations and the SO/SI GL selection — the state

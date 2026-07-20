@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- ConPTY receives lossless Win32 keyboard events
+
+Windows ConPTY sessions now honor the Win32 input-mode handshake emitted by
+conhost (`CSI ? 9001 h/l`). While the mode is active, otherwise-unconsumed
+hardware key events are serialized as `CSI Vk;Sc;Uc;Kd;Cs;Rc _` records ahead
+of Kitty keyboard and modifyOtherKeys encoding. Virtual-key and Unicode
+identities come from winit's layout-resolved logical key, scan identity comes
+from its physical key, and press, repeat, release, modifier, and enhanced-key
+state are retained. This gives Windows console applications the distinction
+legacy VT bytes could not express, including Backspace versus Ctrl+Backspace in
+PSReadLine.
+
+The parser tracks and reports mode 9001 on every platform. RIS and fresh-session
+reset clear it; DECSTR preserves it to match Microsoft Terminal and ConPTY's
+negotiation lifecycle; alternate-screen changes leave the session-global mode
+intact. Only the Windows native encoder acts on the mode, so Unix input remains
+byte-identical. Paste keeps its independent path and application shortcuts still
+take precedence over PTY input.
+
+Windows behavior is authoritative on the `windows-latest` CI leg. The protocol,
+physical-key mapping, lifecycle, precedence, and Unix-inert boundary are also
+covered by platform-neutral tests.
+
+---
+
 ## 2026-07-20 -- Prompt key-enhancement help reflects the shipped default binds
 
 The settings-panel help and the internal default-constant note for

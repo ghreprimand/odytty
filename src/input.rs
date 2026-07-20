@@ -106,16 +106,39 @@ pub struct KeyModes {
     pub application_cursor: bool,
     /// DECKPAM/DECKPNM: keypad keys use application keypad SS3 forms.
     pub application_keypad: bool,
+    /// ConPTY Win32 input mode (`CSI ? 9001 h/l`). Native Windows input uses
+    /// [`encode_win32_key_event`] while this is active, ahead of Kitty and
+    /// modifyOtherKeys. Non-Windows front ends must leave this false.
+    pub win32_input: bool,
     /// Kitty keyboard protocol progressive enhancement flags active for this
-    /// screen. Zero preserves the legacy DEC/xterm encoder byte-for-byte.
+    /// screen. Consulted after Win32 input mode; zero preserves the legacy
+    /// DEC/xterm encoder byte-for-byte.
     pub kitty_keyboard_flags: u16,
     /// xterm modifyOtherKeys level (0/1/2). Consulted only while
-    /// `kitty_keyboard_flags` is zero — an app that enables both protocols
-    /// (fish does) gets the Kitty encoding. Level 1 encodes modified keys that
-    /// lack a legacy encoding; level 2 encodes all modified keys as
-    /// `CSI 27 ; modifier ; codepoint ~`.
+    /// Win32 input mode is off and `kitty_keyboard_flags` is zero. An app that
+    /// enables Kitty and modifyOtherKeys (fish does) gets the Kitty encoding.
+    /// Level 1 encodes modified keys that lack a legacy encoding; level 2
+    /// encodes all modified keys as `CSI 27 ; modifier ; codepoint ~`.
     pub modify_other_keys: u8,
 }
+
+/// The fields of a Windows `KEY_EVENT_RECORD` carried by ConPTY's Win32 input
+/// mode. Values are already narrowed to the protocol's 16-bit parameter range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Win32KeyEvent {
+    pub virtual_key: u16,
+    pub scan_code: u16,
+    pub unicode_char: u16,
+    pub control_key_state: u16,
+}
+
+/// Win32 `dwControlKeyState` bits used by the neutral and native mappers.
+pub const WIN32_RIGHT_ALT: u16 = 0x0001;
+pub const WIN32_LEFT_ALT: u16 = 0x0002;
+pub const WIN32_RIGHT_CTRL: u16 = 0x0004;
+pub const WIN32_LEFT_CTRL: u16 = 0x0008;
+pub const WIN32_SHIFT: u16 = 0x0010;
+pub const WIN32_ENHANCED_KEY: u16 = 0x0100;
 
 /// Kitty keyboard protocol flag: send ambiguous keys as CSI-u forms.
 pub const KITTY_DISAMBIGUATE: u16 = 0b1;
@@ -151,6 +174,16 @@ pub fn encode_key_event(
     modes: KeyModes,
     event_type: KeyEventType,
 ) -> Vec<u8> {
+    // W32IM represents the complete Windows key event and therefore takes
+    // precedence over both Kitty and modifyOtherKeys. The native Windows path
+    // supplies physical VK/scan data directly; this neutral mapping keeps
+    // synthesized terminal keys (alternate scroll, click-to-position) on the
+    // same protocol.
+    if modes.win32_input {
+        return win32_event_from_neutral_key(key, mods)
+            .map_or_else(Vec::new, |event| encode_win32_key_event(event, event_type));
+    }
+
     if should_encode_kitty_key(key, mods, modes.kitty_keyboard_flags, event_type) {
         return encode_kitty_key(key, mods, modes.kitty_keyboard_flags, event_type);
     }
@@ -207,6 +240,108 @@ pub fn encode_key_event(
     }
 
     bytes
+}
+
+/// Encode one Win32 input-mode key record as the full, explicit ConPTY form:
+/// `CSI Vk;Sc;Uc;Kd;Cs;Rc _`.
+///
+/// Winit reports each repeat separately, so every sequence carries a repeat
+/// count of one. Press and repeat are key-down records; release is key-up.
+pub fn encode_win32_key_event(event: Win32KeyEvent, event_type: KeyEventType) -> Vec<u8> {
+    let key_down = u8::from(event_type != KeyEventType::Release);
+    format!(
+        "\x1b[{};{};{};{};{};1_",
+        event.virtual_key, event.scan_code, event.unicode_char, key_down, event.control_key_state
+    )
+    .into_bytes()
+}
+
+fn win32_event_from_neutral_key(key: Key, mods: Modifiers) -> Option<Win32KeyEvent> {
+    let (virtual_key, scan_code, unicode_char, enhanced) = match key {
+        Key::Backspace => (0x08, 0x0e, 0x08, false),
+        Key::Tab | Key::BackTab => (0x09, 0x0f, 0x09, false),
+        Key::Enter => (0x0d, 0x1c, 0x0d, false),
+        Key::Esc => (0x1b, 0x01, 0x1b, false),
+        Key::Left => (0x25, 0x4b, 0, true),
+        Key::Up => (0x26, 0x48, 0, true),
+        Key::Right => (0x27, 0x4d, 0, true),
+        Key::Down => (0x28, 0x50, 0, true),
+        Key::PageUp => (0x21, 0x49, 0, true),
+        Key::PageDown => (0x22, 0x51, 0, true),
+        Key::End => (0x23, 0x4f, 0, true),
+        Key::Home => (0x24, 0x47, 0, true),
+        Key::Insert => (0x2d, 0x52, 0, true),
+        Key::Delete => (0x2e, 0x53, 0, true),
+        Key::F(number @ 1..=10) => (0x6f + u16::from(number), 0x3a + u16::from(number), 0, false),
+        Key::F(11) => (0x7a, 0x57, 0, false),
+        Key::F(12) => (0x7b, 0x58, 0, false),
+        Key::F(_) => return None,
+        Key::KeypadDigit(digit @ 0..=9) => {
+            let scans = [0x52, 0x4f, 0x50, 0x51, 0x4b, 0x4c, 0x4d, 0x47, 0x48, 0x49];
+            (
+                0x60 + u16::from(digit),
+                scans[usize::from(digit)],
+                u16::from(b'0' + digit),
+                false,
+            )
+        }
+        Key::KeypadDigit(_) => return None,
+        Key::KeypadMultiply => (0x6a, 0x37, u16::from(b'*'), false),
+        Key::KeypadAdd => (0x6b, 0x4e, u16::from(b'+'), false),
+        Key::KeypadSubtract => (0x6d, 0x4a, u16::from(b'-'), false),
+        Key::KeypadDecimal => (0x6e, 0x53, u16::from(b'.'), false),
+        Key::KeypadDivide => (0x6f, 0x35, u16::from(b'/'), true),
+        Key::KeypadEnter => (0x0d, 0x1c, 0x0d, true),
+        Key::Char(ch) => win32_char_identity(ch, mods)?,
+    };
+
+    let mut control_key_state = 0;
+    if mods.ctrl {
+        control_key_state |= WIN32_LEFT_CTRL;
+    }
+    if mods.alt {
+        control_key_state |= WIN32_LEFT_ALT;
+    }
+    if mods.shift {
+        control_key_state |= WIN32_SHIFT;
+    }
+    if enhanced {
+        control_key_state |= WIN32_ENHANCED_KEY;
+    }
+
+    Some(Win32KeyEvent {
+        virtual_key,
+        scan_code,
+        unicode_char,
+        control_key_state,
+    })
+}
+
+fn win32_char_identity(ch: char, mods: Modifiers) -> Option<(u16, u16, u16, bool)> {
+    let lower = ch.to_ascii_lowercase();
+    let (virtual_key, scan_code) = match lower {
+        'a'..='z' => {
+            const SCANS: [u16; 26] = [
+                0x1e, 0x30, 0x2e, 0x20, 0x12, 0x21, 0x22, 0x23, 0x17, 0x24, 0x25, 0x26, 0x32, 0x31,
+                0x18, 0x19, 0x10, 0x13, 0x1f, 0x14, 0x16, 0x2f, 0x11, 0x2d, 0x15, 0x2c,
+            ];
+            let index = usize::try_from(u32::from(lower) - u32::from('a')).ok()?;
+            (u16::from(b'A') + u16::try_from(index).ok()?, SCANS[index])
+        }
+        '0'..='9' => {
+            const SCANS: [u16; 10] = [0x0b, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a];
+            let index = usize::try_from(u32::from(lower) - u32::from('0')).ok()?;
+            (u16::from(b'0') + u16::try_from(index).ok()?, SCANS[index])
+        }
+        ' ' => (0x20, 0x39),
+        _ => return None,
+    };
+    let unicode_char = if mods.ctrl {
+        ctrl_char(ch).map_or(0, u16::from)
+    } else {
+        u16::try_from(u32::from(ch)).ok()?
+    };
+    Some((virtual_key, scan_code, unicode_char, false))
 }
 
 fn should_encode_kitty_key(
@@ -1646,6 +1781,84 @@ mod tests {
         // Both zero: legacy bytes.
         assert_eq!(
             encode_key(Key::Enter, Modifiers::CTRL, KeyModes::default()),
+            b"\r"
+        );
+    }
+
+    #[test]
+    fn win32_input_encodes_key_record_fields_and_event_lifecycle() {
+        let modes = KeyModes {
+            win32_input: true,
+            ..KeyModes::default()
+        };
+        let shift = Modifiers {
+            shift: true,
+            ..Modifiers::NONE
+        };
+        let cases = [
+            (
+                Key::Backspace,
+                Modifiers::NONE,
+                KeyEventType::Press,
+                b"\x1b[8;14;8;1;0;1_".as_slice(),
+            ),
+            (
+                Key::Backspace,
+                Modifiers::CTRL,
+                KeyEventType::Press,
+                b"\x1b[8;14;8;1;8;1_".as_slice(),
+            ),
+            (
+                Key::Enter,
+                shift,
+                KeyEventType::Press,
+                b"\x1b[13;28;13;1;16;1_".as_slice(),
+            ),
+            (
+                Key::Char('a'),
+                Modifiers::NONE,
+                KeyEventType::Press,
+                b"\x1b[65;30;97;1;0;1_".as_slice(),
+            ),
+            (
+                Key::Char('a'),
+                Modifiers::NONE,
+                KeyEventType::Release,
+                b"\x1b[65;30;97;0;0;1_".as_slice(),
+            ),
+        ];
+        for (key, mods, event_type, expected) in cases {
+            assert_eq!(encode_key_event(key, mods, modes, event_type), expected);
+        }
+    }
+
+    #[test]
+    fn win32_input_precedes_kitty_and_modify_other_keys() {
+        let modes = KeyModes {
+            win32_input: true,
+            kitty_keyboard_flags: KITTY_DISAMBIGUATE | KITTY_REPORT_EVENT_TYPES,
+            modify_other_keys: 2,
+            ..KeyModes::default()
+        };
+        assert_eq!(
+            encode_key_event(
+                Key::Backspace,
+                Modifiers::CTRL,
+                modes,
+                KeyEventType::Release
+            ),
+            b"\x1b[8;14;8;0;8;1_"
+        );
+    }
+
+    #[test]
+    fn disabled_win32_input_preserves_legacy_fallback() {
+        assert_eq!(
+            encode_key(Key::Backspace, Modifiers::CTRL, KeyModes::default()),
+            vec![0x7f]
+        );
+        assert_eq!(
+            encode_key(Key::Enter, Modifiers::NONE, KeyModes::default()),
             b"\r"
         );
     }

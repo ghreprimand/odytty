@@ -3,7 +3,10 @@ use crate::core::{
     MouseButton as CoreMouseButton, MouseEventKind, MouseModifiers as CoreMouseModifiers,
     MouseProtocol, MouseTracking, Terminal, encode_focus_event, encode_mouse_event,
 };
-use crate::input::{Key, Modifiers};
+use crate::input::{
+    Key, KeyEventType, Modifiers, WIN32_ENHANCED_KEY, WIN32_LEFT_ALT, WIN32_LEFT_CTRL,
+    WIN32_RIGHT_ALT, WIN32_RIGHT_CTRL, WIN32_SHIFT, Win32KeyEvent,
+};
 use crate::selection::CellPoint;
 use crate::settings::{
     BindableAction, KeyBindingKey, KeyBindingModifiers, KeyBindingNamedKey, KeyBindingOverride,
@@ -876,6 +879,244 @@ pub(super) fn map_keypad_physical_key(physical: PhysicalKey) -> Option<Key> {
         PhysicalKey::Code(KeyCode::NumpadMultiply) => Key::KeypadMultiply,
         PhysicalKey::Code(KeyCode::NumpadDivide) => Key::KeypadDivide,
         PhysicalKey::Code(KeyCode::NumpadEnter) => Key::KeypadEnter,
+        _ => return None,
+    })
+}
+
+/// Map winit's hardware identity onto the Win32 fields ConPTY transports.
+///
+/// Winit intentionally exposes USB-position-like [`KeyCode`] values rather
+/// than native `VK_*` values. This table reconstructs the standard Win32 VK and
+/// set-1 scan identities for the keys OdyTTY accepts. The logical keys supply
+/// the layout-resolved virtual key and UTF-16 code unit; the physical key
+/// supplies the scan code, so non-US layouts retain both pieces of information.
+pub(super) fn map_win32_key_event(
+    physical: PhysicalKey,
+    logical: &WinitKey,
+    base_logical: &WinitKey,
+    mods: Modifiers,
+    event_type: KeyEventType,
+) -> Option<Win32KeyEvent> {
+    let PhysicalKey::Code(code) = physical else {
+        return None;
+    };
+    let (physical_virtual_key, scan_code, enhanced) = win32_vk_scan(code)?;
+    // Windows VK identities follow the active keyboard layout while scan codes
+    // follow the hardware position. Winit exposes those halves separately:
+    // key_without_modifiers is the layout-resolved base identity and KeyCode is
+    // the physical key. Fall back to the physical VK for named/non-ASCII keys.
+    let virtual_key = win32_virtual_key_from_logical(base_logical).unwrap_or(physical_virtual_key);
+    let mut control_key_state = 0;
+    if mods.ctrl {
+        control_key_state |= WIN32_LEFT_CTRL;
+    }
+    if mods.alt {
+        control_key_state |= WIN32_LEFT_ALT;
+    }
+    if mods.shift {
+        control_key_state |= WIN32_SHIFT;
+    }
+    if enhanced {
+        control_key_state |= WIN32_ENHANCED_KEY;
+    }
+
+    // ModifiersChanged can trail KeyboardInput. Make the modifier's own record
+    // self-consistent from its physical identity instead of depending on that
+    // event ordering. Aggregate winit state cannot identify the side for other
+    // held modifiers, so those deliberately use the left-hand Win32 bit.
+    let key_down = event_type != KeyEventType::Release;
+    match code {
+        KeyCode::ControlLeft => set_control_bit(&mut control_key_state, WIN32_LEFT_CTRL, key_down),
+        KeyCode::ControlRight => {
+            control_key_state &= !WIN32_LEFT_CTRL;
+            set_control_bit(&mut control_key_state, WIN32_RIGHT_CTRL, key_down);
+        }
+        KeyCode::AltLeft => set_control_bit(&mut control_key_state, WIN32_LEFT_ALT, key_down),
+        KeyCode::AltRight => {
+            control_key_state &= !WIN32_LEFT_ALT;
+            set_control_bit(&mut control_key_state, WIN32_RIGHT_ALT, key_down);
+        }
+        KeyCode::ShiftLeft | KeyCode::ShiftRight => {
+            set_control_bit(&mut control_key_state, WIN32_SHIFT, key_down);
+        }
+        _ => {}
+    }
+
+    Some(Win32KeyEvent {
+        virtual_key,
+        scan_code,
+        unicode_char: win32_unicode_char(logical, mods),
+        control_key_state,
+    })
+}
+
+fn win32_virtual_key_from_logical(logical: &WinitKey) -> Option<u16> {
+    let WinitKey::Character(text) = logical else {
+        return None;
+    };
+    let ch = text.chars().next()?;
+    match ch.to_ascii_lowercase() {
+        'a'..='z' => u16::try_from(u32::from(ch.to_ascii_uppercase())).ok(),
+        '0'..='9' => u16::try_from(u32::from(ch)).ok(),
+        ';' => Some(0xba),
+        '=' => Some(0xbb),
+        ',' => Some(0xbc),
+        '-' => Some(0xbd),
+        '.' => Some(0xbe),
+        '/' => Some(0xbf),
+        '`' => Some(0xc0),
+        '[' => Some(0xdb),
+        '\\' => Some(0xdc),
+        ']' => Some(0xdd),
+        '\'' => Some(0xde),
+        _ => None,
+    }
+}
+
+fn set_control_bit(state: &mut u16, bit: u16, set: bool) {
+    if set {
+        *state |= bit;
+    } else {
+        *state &= !bit;
+    }
+}
+
+fn win32_unicode_char(logical: &WinitKey, mods: Modifiers) -> u16 {
+    match logical {
+        WinitKey::Character(text) => {
+            let Some(ch) = text.chars().next() else {
+                return 0;
+            };
+            if mods.ctrl {
+                match ch {
+                    '@' | ' ' => 0,
+                    'a'..='z' | 'A'..='Z' => u16::from((ch.to_ascii_uppercase() as u8) & 0x1f),
+                    '[' => 0x1b,
+                    '\\' => 0x1c,
+                    ']' => 0x1d,
+                    '^' => 0x1e,
+                    '_' => 0x1f,
+                    '?' => 0x7f,
+                    _ => text.encode_utf16().next().unwrap_or(0),
+                }
+            } else {
+                text.encode_utf16().next().unwrap_or(0)
+            }
+        }
+        WinitKey::Named(NamedKey::Backspace) => 0x08,
+        WinitKey::Named(NamedKey::Tab) => 0x09,
+        WinitKey::Named(NamedKey::Enter) => 0x0d,
+        WinitKey::Named(NamedKey::Escape) => 0x1b,
+        WinitKey::Named(NamedKey::Space) => 0x20,
+        _ => 0,
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn win32_vk_scan(code: KeyCode) -> Option<(u16, u16, bool)> {
+    Some(match code {
+        KeyCode::Escape => (0x1b, 0x01, false),
+        KeyCode::Digit1 => (0x31, 0x02, false),
+        KeyCode::Digit2 => (0x32, 0x03, false),
+        KeyCode::Digit3 => (0x33, 0x04, false),
+        KeyCode::Digit4 => (0x34, 0x05, false),
+        KeyCode::Digit5 => (0x35, 0x06, false),
+        KeyCode::Digit6 => (0x36, 0x07, false),
+        KeyCode::Digit7 => (0x37, 0x08, false),
+        KeyCode::Digit8 => (0x38, 0x09, false),
+        KeyCode::Digit9 => (0x39, 0x0a, false),
+        KeyCode::Digit0 => (0x30, 0x0b, false),
+        KeyCode::Minus => (0xbd, 0x0c, false),
+        KeyCode::Equal => (0xbb, 0x0d, false),
+        KeyCode::Backspace => (0x08, 0x0e, false),
+        KeyCode::Tab => (0x09, 0x0f, false),
+        KeyCode::KeyQ => (0x51, 0x10, false),
+        KeyCode::KeyW => (0x57, 0x11, false),
+        KeyCode::KeyE => (0x45, 0x12, false),
+        KeyCode::KeyR => (0x52, 0x13, false),
+        KeyCode::KeyT => (0x54, 0x14, false),
+        KeyCode::KeyY => (0x59, 0x15, false),
+        KeyCode::KeyU => (0x55, 0x16, false),
+        KeyCode::KeyI => (0x49, 0x17, false),
+        KeyCode::KeyO => (0x4f, 0x18, false),
+        KeyCode::KeyP => (0x50, 0x19, false),
+        KeyCode::BracketLeft => (0xdb, 0x1a, false),
+        KeyCode::BracketRight => (0xdd, 0x1b, false),
+        KeyCode::Enter => (0x0d, 0x1c, false),
+        KeyCode::ControlLeft => (0x11, 0x1d, false),
+        KeyCode::KeyA => (0x41, 0x1e, false),
+        KeyCode::KeyS => (0x53, 0x1f, false),
+        KeyCode::KeyD => (0x44, 0x20, false),
+        KeyCode::KeyF => (0x46, 0x21, false),
+        KeyCode::KeyG => (0x47, 0x22, false),
+        KeyCode::KeyH => (0x48, 0x23, false),
+        KeyCode::KeyJ => (0x4a, 0x24, false),
+        KeyCode::KeyK => (0x4b, 0x25, false),
+        KeyCode::KeyL => (0x4c, 0x26, false),
+        KeyCode::Semicolon => (0xba, 0x27, false),
+        KeyCode::Quote => (0xde, 0x28, false),
+        KeyCode::Backquote => (0xc0, 0x29, false),
+        KeyCode::ShiftLeft => (0x10, 0x2a, false),
+        KeyCode::Backslash | KeyCode::IntlBackslash => (0xdc, 0x2b, false),
+        KeyCode::KeyZ => (0x5a, 0x2c, false),
+        KeyCode::KeyX => (0x58, 0x2d, false),
+        KeyCode::KeyC => (0x43, 0x2e, false),
+        KeyCode::KeyV => (0x56, 0x2f, false),
+        KeyCode::KeyB => (0x42, 0x30, false),
+        KeyCode::KeyN => (0x4e, 0x31, false),
+        KeyCode::KeyM => (0x4d, 0x32, false),
+        KeyCode::Comma => (0xbc, 0x33, false),
+        KeyCode::Period => (0xbe, 0x34, false),
+        KeyCode::Slash => (0xbf, 0x35, false),
+        KeyCode::ShiftRight => (0x10, 0x36, false),
+        KeyCode::NumpadMultiply => (0x6a, 0x37, false),
+        KeyCode::AltLeft => (0x12, 0x38, false),
+        KeyCode::Space => (0x20, 0x39, false),
+        KeyCode::CapsLock => (0x14, 0x3a, false),
+        KeyCode::F1 => (0x70, 0x3b, false),
+        KeyCode::F2 => (0x71, 0x3c, false),
+        KeyCode::F3 => (0x72, 0x3d, false),
+        KeyCode::F4 => (0x73, 0x3e, false),
+        KeyCode::F5 => (0x74, 0x3f, false),
+        KeyCode::F6 => (0x75, 0x40, false),
+        KeyCode::F7 => (0x76, 0x41, false),
+        KeyCode::F8 => (0x77, 0x42, false),
+        KeyCode::F9 => (0x78, 0x43, false),
+        KeyCode::F10 => (0x79, 0x44, false),
+        KeyCode::NumLock => (0x90, 0x45, true),
+        KeyCode::ScrollLock => (0x91, 0x46, false),
+        KeyCode::Numpad7 => (0x67, 0x47, false),
+        KeyCode::Numpad8 => (0x68, 0x48, false),
+        KeyCode::Numpad9 => (0x69, 0x49, false),
+        KeyCode::NumpadSubtract => (0x6d, 0x4a, false),
+        KeyCode::Numpad4 => (0x64, 0x4b, false),
+        KeyCode::Numpad5 => (0x65, 0x4c, false),
+        KeyCode::Numpad6 => (0x66, 0x4d, false),
+        KeyCode::NumpadAdd => (0x6b, 0x4e, false),
+        KeyCode::Numpad1 => (0x61, 0x4f, false),
+        KeyCode::Numpad2 => (0x62, 0x50, false),
+        KeyCode::Numpad3 => (0x63, 0x51, false),
+        KeyCode::Numpad0 => (0x60, 0x52, false),
+        KeyCode::NumpadDecimal => (0x6e, 0x53, false),
+        KeyCode::F11 => (0x7a, 0x57, false),
+        KeyCode::F12 => (0x7b, 0x58, false),
+        KeyCode::NumpadEnter => (0x0d, 0x1c, true),
+        KeyCode::ControlRight => (0x11, 0x1d, true),
+        KeyCode::NumpadDivide => (0x6f, 0x35, true),
+        KeyCode::AltRight => (0x12, 0x38, true),
+        KeyCode::Home => (0x24, 0x47, true),
+        KeyCode::ArrowUp => (0x26, 0x48, true),
+        KeyCode::PageUp => (0x21, 0x49, true),
+        KeyCode::ArrowLeft => (0x25, 0x4b, true),
+        KeyCode::ArrowRight => (0x27, 0x4d, true),
+        KeyCode::End => (0x23, 0x4f, true),
+        KeyCode::ArrowDown => (0x28, 0x50, true),
+        KeyCode::PageDown => (0x22, 0x51, true),
+        KeyCode::Insert => (0x2d, 0x52, true),
+        KeyCode::Delete => (0x2e, 0x53, true),
+        KeyCode::SuperLeft => (0x5b, 0x5b, true),
+        KeyCode::SuperRight => (0x5c, 0x5c, true),
+        KeyCode::ContextMenu => (0x5d, 0x5d, true),
         _ => return None,
     })
 }

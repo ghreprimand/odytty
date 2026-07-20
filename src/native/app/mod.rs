@@ -42,8 +42,8 @@ use winit::window::{CursorIcon, Window, WindowId};
 
 use super::bindings::{
     KeyBindings, PrefixEngine, PrefixOutcome, changed_window_title, encode_native_focus_report,
-    encode_native_mouse_report, map_keypad_physical_key, map_named_key, map_winit_mouse_button,
-    motion_report_button, prefix_chord_from_winit, wheel_report_button,
+    encode_native_mouse_report, map_keypad_physical_key, map_named_key, map_win32_key_event,
+    map_winit_mouse_button, motion_report_button, prefix_chord_from_winit, wheel_report_button,
 };
 use super::clipboard::{NativeClipboard, read_clipboard_selection, write_paste_text};
 use super::cvd_theme::CvdThemeCache;
@@ -2394,7 +2394,17 @@ impl App {
         }
 
         let mut bytes = Vec::new();
-        if let Some(key) = map_keypad_physical_key(physical) {
+        if key_modes.win32_input {
+            // W32IM owns all otherwise-unconsumed physical events, including
+            // modifier releases. It therefore precedes Kitty and
+            // modifyOtherKeys; application chords and modal UI were already
+            // consumed above, and paste uses its separate byte path.
+            if let Some(event) =
+                map_win32_key_event(physical, &logical, &binding_key, mods, event_type)
+            {
+                bytes = input::encode_win32_key_event(event, event_type);
+            }
+        } else if let Some(key) = map_keypad_physical_key(physical) {
             bytes = input::encode_key_event(key, mods, key_modes, event_type);
         } else {
             match logical {

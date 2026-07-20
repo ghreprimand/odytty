@@ -828,6 +828,12 @@ impl Screen {
                 2004 => {
                     self.bracketed_paste = action == 'h';
                 }
+                // W32IM: ConPTY asks its hosting terminal to serialize Windows
+                // KEY_EVENT_RECORD fields as CSI ... _. Core tracks the mode on
+                // every platform; only the native Windows encoder acts on it.
+                9001 => {
+                    self.keyboard.win32_input = action == 'h';
+                }
                 2026 => {
                     self.synchronized_output = action == 'h';
                 }
@@ -913,6 +919,7 @@ impl Screen {
             1016 => mode_status(self.mouse.encoding == MouseEncoding::SgrPixel),
             2004 => mode_status(self.bracketed_paste),
             2026 => mode_status(self.synchronized_output),
+            9001 => mode_status(self.keyboard.win32_input),
             1007 => mode_status(self.alternate_scroll),
             // Known xterm private modes that OdyTTY does not implement.
             1001 => 4,
@@ -1392,7 +1399,14 @@ impl Screen {
         self.auto_wrap = true;
         self.insert_mode = false;
         self.bracketed_paste = false;
-        self.keyboard = KeyboardModes::default();
+        // Microsoft Terminal preserves W32IM across DECSTR. Conhost relies on
+        // that mode for its INPUT_RECORD transport; it re-negotiates only after
+        // RIS, which does reset it.
+        let win32_input = self.keyboard.win32_input;
+        self.keyboard = KeyboardModes {
+            win32_input,
+            ..KeyboardModes::default()
+        };
         self.kitty_keyboard_stack.clear();
         // DECSTR resets the character sets to their power-on defaults (ASCII
         // G0/G1, GL=G0), matching xterm's soft reset.
