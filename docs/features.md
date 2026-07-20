@@ -898,9 +898,10 @@ Two controls keep content readable as the window grows more transparent.
 `colored_bg_opacity` (default `0.9`) holds a minimum background strength for
 cells whose colour differs from the theme default, so colored blocks — prompt
 powerline segments, button chips, and highlighted status runs — stay solid
-while the plain background still lets the desktop through; `1.0` keeps colored
-backgrounds fully opaque, `0.0` disables the floor, and it has no effect at
-`window_opacity = 100`. `text_brightness` (default `1.0`) lifts glyph ink
+while the plain background still lets the desktop through; `1.0` removes the
+window-opacity attenuation from those cells so they keep their full configured
+background opacity (literally opaque only where the cell background already is),
+`0.0` disables the floor, and it has no effect at `window_opacity = 100`. `text_brightness` (default `1.0`) lifts glyph ink
 toward white so text stays legible over busy backdrops, applied after the
 minimum-contrast floor and leaving colour emoji unchanged. Both live in
 Settings → Rendering.

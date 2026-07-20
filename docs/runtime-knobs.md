@@ -217,8 +217,10 @@ segments, button chips, and highlighted status blocks — fade along with the
 window and can wash out. `colored_bg_opacity` sets a minimum background
 strength for any cell whose colour differs from the theme default, so those
 blocks stay solid while the plain background still shows the desktop through.
-The default is `0.9`; `1.0` keeps colored backgrounds fully opaque, and `0.0`
-disables the floor and restores the uniform behaviour. It has no effect at
+The default is `0.9`; `1.0` removes the window-opacity attenuation so those
+cells keep their full configured background opacity (literally opaque only where
+the cell background itself is opaque), and `0.0` disables the floor and restores
+the uniform behaviour. It has no effect at
 `window_opacity = 100`, where nothing is translucent. Default-background cells
 are never touched, and the selection, cursor, and window chrome are exempt.
 

@@ -457,12 +457,13 @@ PRIMARY selection; an empty selector defaults to the regular clipboard. Decoded
 payloads are capped at 64 KiB and invalid base64 or non-UTF-8 payloads are
 dropped without grid leakage or a host reply.
 
-Writes use the `osc52_write` policy (`on` by default; `ask` or `off` available)
+Writes use the `osc52_write` policy (`ask` by default; `on` or `off` available)
 at the native authority boundary. Every permitted write must originate from the
 active PTY while an OS-focused window has been observed; unknown or lost focus
-fails closed. The default-on path emits only a bounded, content-free notice.
-`ask` stores consent only for the lifetime of the emitting PTY session and
-rechecks authority when the response is accepted. Linux PRIMARY remains a
+fails closed. The default `ask` path requests consent, stores that consent only
+for the lifetime of the emitting PTY session, and rechecks authority when the
+response is accepted. `on` is a compatibility opt-in that permits writes without
+a prompt and emits only a bounded, content-free notice. Linux PRIMARY remains a
 separate target; macOS and Windows have no PRIMARY surface.
 
 OSC 52 reads (`... ; ? ST`) are disabled by default because replying with

@@ -71,8 +71,9 @@ selection_opacity = 0.6
 
 # Minimum background strength for cells whose color differs from the theme
 # default, so colored blocks (prompt segments, button chips, status runs) stay
-# solid as window_opacity drops. 0.9 by default; 1.0 keeps colored backgrounds
-# fully opaque, 0.0 disables the floor. No effect at window_opacity = 100.
+# solid as window_opacity drops. 0.9 by default; 1.0 removes window_opacity
+# attenuation (full configured cell-bg opacity), 0.0 disables the floor. No
+# effect at window_opacity = 100.
 colored_bg_opacity = 0.9
 
 # Show the tab bar even with a single tab. Off by default (a lone unnamed tab

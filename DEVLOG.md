@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Config-mode clamp and legibility/consent prose corrections
+
+Config-file writeback now clamps a permissive existing mode to the 0644
+baseline instead of preserving it verbatim. The atomic config writer previously
+read back whatever mode an existing file carried, so a config left at 0666,
+0755, or 0777 kept that permissive mode across a writeback; only a stricter,
+owner-limited mode should survive. The writer now preserves an existing mode
+only when it is no more permissive than 0644 -- 0640 and 0600 are kept -- and
+clamps anything wider, including any execute bit a config file never needs, back
+to 0644. A brand-new file still lands at 0644. Sensitive owner-private writes
+are untouched, and the mode logic stays a Unix-only no-op on Windows, where
+files inherit the parent ACL. Table-driven tests pin 0666/0777/0755 to 0644 and
+0640/0600 to themselves.
+
+Documentation caught up with two settled behaviors. The specification still
+described OSC 52 clipboard writes as on by default; the default is ask, a
+session-scoped consent path, with on retained as a compatibility opt-in, so the
+spec now says so. And the colored-background-strength prose in the settings
+panel and three docs claimed a value of 1.0 keeps colored backgrounds "fully
+opaque"; the real composite multiplies the configured cell-background opacity by
+the larger of the window alpha and the knob, so 1.0 removes the window-opacity
+attenuation and restores the full configured cell-background opacity -- literally
+opaque only where that background already is. The four descriptions now state it
+that way.
+
+---
+
 ## 2026-07-20 -- Settings panel and docs for the low-opacity legibility knobs
 
 The colored-background floor and the text-brightness lift are now adjustable

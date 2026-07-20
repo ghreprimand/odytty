@@ -505,7 +505,7 @@ impl Settings {
                 env: COLORED_BG_OPACITY_ENV,
                 name: "Colored background strength",
                 value: format_float(self.colored_bg_opacity),
-                description: "Minimum background strength for cells whose color differs from the theme default, so colored blocks like prompt segments and button chips stay solid as Window opacity drops. 0.9 by default; 1 keeps colored backgrounds fully opaque while 0 disables the floor. No effect when Window opacity is 100.",
+                description: "Minimum background strength for cells whose color differs from the theme default, so colored blocks like prompt segments and button chips stay solid as Window opacity drops. 0.9 by default; 1 removes Window-opacity attenuation from those cells, restoring their full configured background opacity, while 0 disables the floor. No effect when Window opacity is 100.",
                 kind: SettingKind::Number,
                 range: None,
                 options: &[],
