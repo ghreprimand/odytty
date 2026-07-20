@@ -269,6 +269,9 @@ ODYTTY_FUZZ_ITERS=40000 cargo test -p odytty graphics_fuzz -- --ignored --nocapt
 ```
 
 The quick smoke tiers (`*_smoke` suffix) run in the default suite.
+The scheduled `.github/workflows/deep-fuzz.yml` workflow runs both 40,000-case
+tiers weekly and supports manual dispatch for an additional parser or graphics
+check between code changes.
 
 ## Pre-commit gate
 

@@ -1,8 +1,8 @@
 # Idle Wakeups — wgpu/Vulkan Driver Threads (Investigation)
 
-Status: **open / tracked**. Not a committed fix. Recorded so the public claim
-"I'll look into whether those can be quieted further" is on record rather than
-hand-waved.
+Status: **open / tracked**. This is a v0.5.5 measurement record, not a committed
+fix or a description of current renderer internals. It preserves the remaining
+driver-thread question and the evidence available at the time.
 
 ## Context
 

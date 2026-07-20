@@ -44,6 +44,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.9.2" date="2026-07-20">
+      <description>
+        <p>Windows console applications can now request complete ConPTY Win32 key records, preserving input such as Ctrl+Backspace and Shift+Enter. Prompt key enhancement is enabled by default for word-wise editing in integrated Bash and Zsh, with existing bindings taking priority. The retro preset no longer forces curvature; the separate curvature setting remains flat by default.</p>
+      </description>
+    </release>
+    <release version="0.9.1" date="2026-07-20">
+      <description>
+        <p>The workspace rail gains an always-available auto-hide control. New transparency legibility controls strengthen colored cell backgrounds and optionally brighten text, while DEC Special Graphics, atomic bracketed paste, shell working-directory encoding, clipboard consent, and atomic configuration writes improve compatibility and safety.</p>
+      </description>
+    </release>
     <release version="0.9.0" date="2026-07-16">
       <description>
         <p>Visual-polish release. The cursor comes alive: it glides smoothly between cells with a short fading trail, eases across its blink, and carries one soft shape-aware glow matched to the Block, Bar, or Underline shape. The glow strength is now adjustable on its own scale, independent of the scene bloom. Large jumps leave a brief elastic streak that settles into the destination, blinking yields to active typing and parks visibly when idle, and an unfocused window shows a hollow Block outline. A reduced-motion master switch makes every one of these effects static or instant for accessibility. Programming ligatures are enabled by default for the bundled font, so sequences render as their designed glyphs while copy, selection, and cursor positions stay per-character. Text with combining accents now renders and copies correctly, and the legacy double-underline attribute is honored. The workspace rail and tab bar were refined into one continuous, aligned surface. This release also hardens local behavior: terminal-directed file, temporary-file, and shared-memory graphics transports are off by default, clipboard writes require an active focused session, and private state and log files are owner-only on Unix. Windows and macOS ship from the same verified build matrix.</p>
