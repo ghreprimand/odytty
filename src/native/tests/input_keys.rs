@@ -3,6 +3,25 @@
 
 use super::*;
 
+#[derive(Clone, Default)]
+struct KeyRecordingWriter {
+    bytes: Arc<Mutex<Vec<u8>>>,
+}
+
+impl Write for KeyRecordingWriter {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.bytes
+            .lock()
+            .expect("key bytes")
+            .extend_from_slice(buffer);
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 #[test]
 fn changed_window_title_reports_only_on_core_change() {
     let mut terminal = Terminal::new(10, 2);
@@ -142,6 +161,55 @@ fn named_keys_map_to_neutral_model() {
     assert_eq!(map_named_key(NamedKey::F1, false), Some(Key::F(1)));
     // Unhandled named keys are dropped.
     assert_eq!(map_named_key(NamedKey::F13, false), None);
+}
+
+#[test]
+fn fedora_wayland_ctrl_backspace_reaches_the_pty_through_the_real_key_path() {
+    let dimensions = Dimensions::new(80, 24);
+    let recorder = KeyRecordingWriter::default();
+    let recorded = recorder.bytes.clone();
+    let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
+    let (mut app, terminal) = headless_app_with_writer(
+        NativeOptions::default(),
+        dimensions,
+        Settings::default(),
+        writer,
+    );
+
+    let backspace = WinitKey::Named(NamedKey::Backspace);
+    app.drive_raw_key_event_for_test(
+        backspace.clone(),
+        backspace.clone(),
+        PhysicalKey::Code(KeyCode::Backspace),
+        Modifiers::CTRL,
+        KeyEventType::Press,
+    );
+    app.drive_raw_key_event_for_test(
+        backspace.clone(),
+        backspace.clone(),
+        PhysicalKey::Code(KeyCode::Backspace),
+        Modifiers::CTRL,
+        KeyEventType::Release,
+    );
+    assert_eq!(&*recorded.lock().expect("legacy bytes"), b"\x7f");
+
+    recorded.lock().expect("clear legacy bytes").clear();
+    terminal.lock().expect("terminal").advance(b"\x1b[>1u");
+    app.drive_raw_key_event_for_test(
+        backspace.clone(),
+        backspace.clone(),
+        PhysicalKey::Code(KeyCode::Backspace),
+        Modifiers::CTRL,
+        KeyEventType::Press,
+    );
+    app.drive_raw_key_event_for_test(
+        backspace.clone(),
+        backspace,
+        PhysicalKey::Code(KeyCode::Backspace),
+        Modifiers::CTRL,
+        KeyEventType::Release,
+    );
+    assert_eq!(&*recorded.lock().expect("kitty bytes"), b"\x1b[127;5u");
 }
 
 #[test]

@@ -2469,6 +2469,23 @@ impl App {
         self.modifiers = prev;
     }
 
+    /// Drive a raw winit key identity through the production routing and
+    /// PTY-write path with an explicit modifier snapshot.
+    #[cfg(test)]
+    pub(in crate::native) fn drive_raw_key_event_for_test(
+        &mut self,
+        logical: WinitKey,
+        binding_key: WinitKey,
+        physical: PhysicalKey,
+        modifiers: crate::input::Modifiers,
+        event_type: KeyEventType,
+    ) {
+        let previous = self.modifiers;
+        self.modifiers = modifiers;
+        self.handle_key_event(logical, binding_key, physical, event_type);
+        self.modifiers = previous;
+    }
+
     /// Test seam (§7 K2): drive a character key with explicit ctrl/shift
     /// modifiers through the production `handle_key_event` path (so the prefix
     /// engine sees the real chord). Restores the prior modifier state after.

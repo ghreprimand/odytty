@@ -23,6 +23,10 @@ use crate::core::{Attrs, Cell, Snapshot, UnderlineStyle};
 
 use super::*;
 
+fn preedit_needs_cursor_area(text: &str) -> bool {
+    !text.is_empty()
+}
+
 impl App {
     /// Route a `winit` IME event. Commits write to the PTY; pre-edits update the
     /// inline composition; enable/disable edges clear stale state.
@@ -33,6 +37,7 @@ impl App {
                 self.set_ime_preedit(String::new());
             }
             Ime::Preedit(text, _cursor) => {
+                let has_preedit = preedit_needs_cursor_area(&text);
                 if !text.is_empty() {
                     // Some platforms do not expose every composition keystroke
                     // through KeyboardInput. A meaningful pre-edit still counts
@@ -45,7 +50,13 @@ impl App {
                     self.ime_session = Some(self.sessions.active_id());
                 }
                 self.set_ime_preedit(text);
-                self.update_ime_cursor_area();
+                // KDE/Wayland can answer a cursor-area update with another
+                // empty Preedit. Reissuing the update for that empty edge
+                // creates an unbounded event feedback loop. Candidate-window
+                // placement matters only while composition text exists.
+                if has_preedit {
+                    self.update_ime_cursor_area();
+                }
             }
             Ime::Commit(text) => {
                 let origin = self.ime_session.take();
@@ -317,6 +328,12 @@ mod tests {
             None,
             "a delayed commit from another pane cannot wake the active cursor"
         );
+    }
+
+    #[test]
+    fn empty_preedit_does_not_require_candidate_window_positioning() {
+        assert!(!preedit_needs_cursor_area(""));
+        assert!(preedit_needs_cursor_area("x"));
     }
 
     #[test]

@@ -9,16 +9,18 @@
 use std::ffi::OsStr;
 use std::fmt;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use winit::event::{Ime, KeyEvent};
 use winit::keyboard::{Key as WinitKey, NativeKey};
 use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
 
-use crate::input::Modifiers;
+use crate::input::{KeyEventType, KeyModes, Modifiers};
 
 pub(super) const KEY_EVENT_DIAGNOSTICS_ENV: &str = "ODYTTY_KEY_EVENT_DIAGNOSTICS";
 
 static ENABLED: OnceLock<bool> = OnceLock::new();
+static EMPTY_PREEDIT_EVENTS: AtomicU64 = AtomicU64::new(0);
 
 fn enabled() -> bool {
     *ENABLED.get_or_init(|| {
@@ -79,7 +81,86 @@ pub(super) fn log_ime_event(ime: &Ime) {
         return;
     }
 
+    if matches!(ime, Ime::Preedit(text, _) if text.is_empty()) {
+        let occurrence = EMPTY_PREEDIT_EVENTS.fetch_add(1, Ordering::Relaxed) + 1;
+        if !should_log_empty_preedit(occurrence) {
+            return;
+        }
+        tracing::warn!(
+            "key-event diagnostic: ime={} occurrence={occurrence}",
+            SafeIme(ime)
+        );
+        return;
+    }
+
     tracing::warn!("key-event diagnostic: ime={}", SafeIme(ime));
+}
+
+fn should_log_empty_preedit(occurrence: u64) -> bool {
+    occurrence.is_power_of_two()
+}
+
+pub(super) fn is_backspace_target(key: &WinitKey) -> bool {
+    match key {
+        WinitKey::Named(winit::keyboard::NamedKey::Backspace) => true,
+        WinitKey::Character(text) => matches!(text.as_str(), "\u{8}" | "\u{7f}"),
+        _ => false,
+    }
+}
+
+pub(super) fn log_backspace_stage(key: &WinitKey, stage: &'static str) {
+    if !enabled() || !is_backspace_target(key) {
+        return;
+    }
+    tracing::warn!(
+        "key-event diagnostic: backspace-route stage={stage} logical={}",
+        SafeKey(key)
+    );
+}
+
+pub(super) fn log_backspace_modes(key: &WinitKey, modes: KeyModes, event_type: KeyEventType) {
+    if !enabled() || !is_backspace_target(key) {
+        return;
+    }
+    tracing::warn!(
+        "key-event diagnostic: backspace-route stage=encoder-enter logical={} win32_input={} kitty_flags={} modify_other_keys={} event_type={event_type:?}",
+        SafeKey(key),
+        modes.win32_input,
+        modes.kitty_keyboard_flags,
+        modes.modify_other_keys,
+    );
+}
+
+pub(super) fn log_backspace_encoding(key: &WinitKey, bytes: &[u8]) {
+    if !enabled() || !is_backspace_target(key) {
+        return;
+    }
+    tracing::warn!(
+        "key-event diagnostic: backspace-route stage=encoder-output logical={} bytes={} hex={}",
+        SafeKey(key),
+        bytes.len(),
+        HexBytes(bytes),
+    );
+}
+
+pub(super) fn log_backspace_write(key: &WinitKey, write_ok: bool, flush_ok: bool) {
+    if !enabled() || !is_backspace_target(key) {
+        return;
+    }
+    tracing::warn!(
+        "key-event diagnostic: backspace-route stage=pty-write logical={} write_ok={write_ok} flush_ok={flush_ok}",
+        SafeKey(key),
+    );
+}
+
+pub(super) fn log_backspace_writer_lock_failed(key: &WinitKey) {
+    if !enabled() || !is_backspace_target(key) {
+        return;
+    }
+    tracing::warn!(
+        "key-event diagnostic: backspace-route stage=pty-writer-lock-failed logical={}",
+        SafeKey(key),
+    );
 }
 
 struct SafeKey<'a>(&'a WinitKey);
@@ -152,6 +233,20 @@ impl fmt::Display for Text<'_> {
     }
 }
 
+struct HexBytes<'a>(&'a [u8]);
+
+impl fmt::Display for HexBytes<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for byte in self.0.iter().take(32) {
+            write!(formatter, "{byte:02X}")?;
+        }
+        if self.0.len() > 32 {
+            formatter.write_str("...")?;
+        }
+        Ok(())
+    }
+}
+
 struct SafeIme<'a>(&'a Ime);
 
 impl fmt::Display for SafeIme<'_> {
@@ -215,5 +310,19 @@ mod tests {
             SafeKey(&web).to_string(),
             "Unidentified(native=web chars=15 utf8_bytes=15)"
         );
+    }
+
+    #[test]
+    fn empty_preedit_logging_is_exponentially_bounded() {
+        let logged = (1..=20)
+            .filter(|occurrence| should_log_empty_preedit(*occurrence))
+            .collect::<Vec<_>>();
+        assert_eq!(logged, [1, 2, 4, 8, 16]);
+    }
+
+    #[test]
+    fn backspace_output_hex_is_bounded_and_contains_no_text() {
+        assert_eq!(HexBytes(b"\x1b[127;5u").to_string(), "1B5B3132373B3575");
+        assert_eq!(HexBytes(&[0x7f]).to_string(), "7F");
     }
 }

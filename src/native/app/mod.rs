@@ -2035,6 +2035,7 @@ impl App {
         // behavior.
         let logical = normalize_winit_editing_key(logical, physical);
         let binding_key = normalize_winit_editing_key(binding_key, physical);
+        key_event_diagnostics::log_backspace_stage(&logical, "normalized");
         // A physical press or repeat is keyboard activity even when chrome,
         // an overlay, or a pane command consumes it below. Record it before
         // routing or PTY encoding so cursor presentation never changes input
@@ -2402,6 +2403,7 @@ impl App {
             return;
         }
 
+        key_event_diagnostics::log_backspace_modes(&logical, key_modes, event_type);
         let mut bytes = Vec::new();
         if key_modes.win32_input {
             // W32IM owns all otherwise-unconsumed physical events, including
@@ -2416,7 +2418,7 @@ impl App {
         } else if let Some(key) = map_keypad_physical_key(physical) {
             bytes = input::encode_key_event(key, mods, key_modes, event_type);
         } else {
-            match logical {
+            match &logical {
                 // `Key::Character` may carry more than one char (composed input);
                 // encode each so multi-char text still reaches the shell intact.
                 WinitKey::Character(text) => {
@@ -2430,7 +2432,7 @@ impl App {
                     }
                 }
                 WinitKey::Named(named) => {
-                    if let Some(key) = map_named_key(named, mods.shift) {
+                    if let Some(key) = map_named_key(*named, mods.shift) {
                         bytes = input::encode_key_event(key, mods, key_modes, event_type);
                     }
                 }
@@ -2439,6 +2441,7 @@ impl App {
             }
         }
 
+        key_event_diagnostics::log_backspace_encoding(&logical, &bytes);
         if bytes.is_empty() {
             return;
         }
@@ -2446,8 +2449,11 @@ impl App {
         // so typing always returns to the prompt at the bottom.
         self.return_to_live();
         if let Ok(mut writer) = self.writer.lock() {
-            let _ = writer.write_all(&bytes);
-            let _ = writer.flush();
+            let write_ok = writer.write_all(&bytes).is_ok();
+            let flush_ok = writer.flush().is_ok();
+            key_event_diagnostics::log_backspace_write(&logical, write_ok, flush_ok);
+        } else {
+            key_event_diagnostics::log_backspace_writer_lock_failed(&logical);
         }
     }
 

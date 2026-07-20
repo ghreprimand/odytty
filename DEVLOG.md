@@ -84,6 +84,12 @@ reduced to character and byte counts; single control codes retain only their
 numeric identity. The trace is off by default and does not change Windows input
 routing.
 
+Empty KDE/Wayland preedit notifications no longer retrigger IME candidate-area
+placement, avoiding an event feedback loop that could produce hundreds of
+thousands of empty notifications. Diagnostic output also samples repeated
+empty preedits exponentially and traces Backspace through protocol selection,
+encoded bytes, and the PTY writer without exposing typed text.
+
 ---
 
 ## 2026-07-20 -- Release v0.9.2 — Windows key fidelity under ConPTY, word-wise editing everywhere
