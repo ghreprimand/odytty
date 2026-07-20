@@ -3591,3 +3591,92 @@ fn text_brightness_and_row_fade_ride_disjoint_channels() {
         );
     }
 }
+
+// MENU-OPACITY / MENU-THEME PARITY regression (board 46195bed): a window-level
+// overlay panel (Settings / context menu / palette / connections / replay) is
+// chrome, not terminal content. Its fill/border/title use `Color::Default` with
+// inverse (see `panel_attrs`), so the fill resolves against the snapshot's
+// `DynamicColors`, and `GpuState::update_from_panes` builds the panel at a fixed
+// opaque `1.0` -- NOT `cell_bg_opacity`. Before the fix the multi-pane path built
+// the "opaque" overlay at `cell_bg_opacity` (default `0.8`), so the panes behind
+// bled through, and seeded the overlay snapshot with `DynamicColors::default()`
+// so the panel took an off-theme gray. Single-pane never had either problem
+// (it forces `overlay_opaque_region` and paints onto the themed terminal
+// snapshot). This pins both halves at the real vertex seam.
+#[test]
+fn overlay_panel_cell_is_opaque_and_themed_regardless_of_cell_bg_opacity() {
+    let Some(atlas) = atlas() else {
+        return;
+    };
+    // A distinctive theme palette, NOT `DynamicColors::default()` (which is
+    // light-gray `0xCCCCCC` on near-black `0x0B0C10`).
+    let theme = DynamicColors {
+        foreground: RgbColor::new(0x2E, 0xE6, 0x9A),
+        background: RgbColor::new(0x10, 0x20, 0x18),
+        cursor: RgbColor::new(0x2E, 0xE6, 0x9A),
+        palette: [None; 256],
+    };
+    // A single overlay-panel fill cell: inverse + `Color::Default` fg/bg, exactly
+    // what `panel_attrs()` paints.
+    let panel_cell = |colors: DynamicColors| -> Snapshot {
+        let term = Terminal::new(1, 1);
+        let mut snap = term.snapshot();
+        snap.colors = colors;
+        snap.cells[0].attrs.foreground = Color::Default;
+        snap.cells[0].attrs.background = Color::Default;
+        snap.cells[0].attrs.set_inverse(true);
+        snap
+    };
+    let build = |snap: &Snapshot, cell_bg_opacity: f32| -> Vec<Vertex> {
+        let mut verts = Vec::new();
+        build_cell_vertices_with_focus_dim_and_origin_into(
+            &mut verts,
+            snap,
+            &atlas,
+            &[],
+            0.0,
+            [0.0, 0.0],
+            BackgroundTreatmentParams::default(),
+            cell_bg_opacity,
+            1.0,
+            None,
+            ChromePin::NONE,
+        );
+        verts
+    };
+    let bg_alpha = |verts: &[Vertex]| verts[0].color[3];
+    let bg_rgb = |verts: &[Vertex]| [verts[0].color[0], verts[0].color[1], verts[0].color[2]];
+
+    let themed = panel_cell(theme.clone());
+
+    // OPACITY: the fixed overlay build passes `1.0`, so the panel background is
+    // fully opaque even though `cell_bg_opacity` is below 1.
+    let opaque = build(&themed, 1.0);
+    assert!(
+        (bg_alpha(&opaque) - 1.0).abs() < 1e-6,
+        "overlay panel background must be fully opaque at build opacity 1.0 (a={})",
+        bg_alpha(&opaque)
+    );
+    // REGRESSION GUARD: building at `cell_bg_opacity` (the default `0.8`, the
+    // pre-fix multi-pane path) left the panel translucent so panes bled through.
+    let translucent = build(&themed, 0.8);
+    assert!(
+        (bg_alpha(&translucent) - 0.8).abs() < 1e-6,
+        "cell_bg_opacity would leave the panel at 0.8 -- exactly the multi-pane \
+         translucency the fixed 1.0 build avoids (a={})",
+        bg_alpha(&translucent)
+    );
+
+    // THEME: the fill inverts, so the panel background renders the theme's
+    // foreground. Seeding `DynamicColors::default()` (the pre-fix multi-pane
+    // path) produces a visibly different, off-theme background.
+    let defaulted = build(&panel_cell(DynamicColors::default()), 1.0);
+    let themed_rgb = bg_rgb(&opaque);
+    let default_rgb = bg_rgb(&defaulted);
+    let differs = (0..3).any(|ch| (themed_rgb[ch] - default_rgb[ch]).abs() > 1e-4);
+    assert!(
+        differs,
+        "the panel background must follow the seeded palette; themed {themed_rgb:?} \
+         must differ from the DynamicColors::default() gray {default_rgb:?}"
+    );
+}

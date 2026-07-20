@@ -6426,3 +6426,64 @@ fn switching_back_to_a_live_bottom_tab_stays_live() {
         "a live-bottom tab stays live across a background switch"
     );
 }
+
+// MENU-THEME PARITY regression (board 46195bed): the multi-pane window overlay
+// (Settings / context menu / palette / connections / replay) is built by
+// `build_overlay_top`, which must seed its snapshot from the live terminal
+// palette -- the same colors the single-pane path resolves the panel's
+// `Color::Default` fill against -- so the panel is the same themed color in both
+// pane layouts. It previously seeded `DynamicColors::default()`, so the panel
+// took an off-theme gray only after a split.
+#[test]
+fn multipane_overlay_top_uses_the_live_terminal_palette_not_default() {
+    let Some((mut app, _fixtures)) = app_with_two_sessions() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    // Split the active tab so the multi-pane overlay path is exercised.
+    let dims = NativeOptions::default().initial_grid;
+    let Some((terminal, writer, pty, _bytes)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    app.seed_split_pane_for_test(true, terminal, writer, pty);
+    assert_eq!(app.active_pane_count_for_test(), 2);
+
+    // Headless geometry so `multipane_geometry()` resolves without a GPU.
+    app.set_test_cell_for_test(cell(10, 20));
+    app.set_test_surface_for_test(
+        dims.columns as u32 * 10,
+        dims.rows as u32 * 20,
+        WindowPadding::ZERO,
+    );
+
+    // Install a distinctive default background on the primary terminal (OSC 11),
+    // so a stale `DynamicColors::default()` seed would be detectable.
+    app.advance_primary_terminal_for_test(b"\x1b]11;rgb:10/20/18\x1b\\");
+    let distinctive = crate::core::RgbColor::new(0x10, 0x20, 0x18);
+
+    // Open the settings overlay so `build_overlay_top` produces a snapshot.
+    app.open_settings_overlay_for_test();
+
+    let (overlay_colors, terminal_colors) = app
+        .overlay_top_colors_for_test()
+        .expect("multi-pane overlay snapshot with an open panel");
+
+    // PARITY: the overlay snapshot resolves `Color::Default` against the SAME
+    // palette the single-pane path uses (the live terminal).
+    assert_eq!(
+        overlay_colors, terminal_colors,
+        "the overlay snapshot must be seeded from the live terminal palette"
+    );
+    // ...and that palette carries the distinctive background, proving the seed is
+    // the theme, not the off-theme `DynamicColors::default()`.
+    assert_eq!(
+        overlay_colors.background, distinctive,
+        "the overlay must follow the live terminal background"
+    );
+    assert_ne!(
+        overlay_colors.background,
+        crate::core::DynamicColors::default().background,
+        "the overlay must NOT fall back to the default off-theme palette"
+    );
+}

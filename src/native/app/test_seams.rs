@@ -131,6 +131,33 @@ impl App {
         self.overlay.close();
     }
 
+    /// Test seam (MENU-THEME PARITY, board 46195bed): feed bytes to the primary
+    /// terminal handle the window overlay resolves its palette against, so a test
+    /// can install a distinctive theme (e.g. via OSC 10/11) before asserting the
+    /// overlay picked it up.
+    #[cfg(test)]
+    pub(in crate::native) fn advance_primary_terminal_for_test(&mut self, bytes: &[u8]) {
+        crate::native::lock_recover(&self.terminal).advance(bytes);
+    }
+
+    /// Test seam (MENU-THEME PARITY, board 46195bed): the `DynamicColors` the
+    /// multi-pane window overlay snapshot is seeded with, alongside the live
+    /// terminal palette the single-pane path resolves the same panel against.
+    /// The two must match so the overlay panel is the same themed color in both
+    /// pane layouts. `None` when no overlay is open or the window has no
+    /// multi-pane geometry.
+    #[cfg(test)]
+    pub(in crate::native) fn overlay_top_colors_for_test(
+        &mut self,
+    ) -> Option<(crate::core::DynamicColors, crate::core::DynamicColors)> {
+        let (content, cell) = self.multipane_geometry()?;
+        let (snapshot, _origin) = self.build_overlay_top(content, cell)?;
+        let terminal_colors = crate::native::lock_recover(&self.terminal)
+            .dynamic_colors()
+            .clone();
+        Some((snapshot.colors, terminal_colors))
+    }
+
     /// Test seam (OVERLAY-SMALL-WINDOW): open the connection-manager overlay
     /// pre-loaded with `count` SYNTHETIC OdyTTY-owned hosts, bypassing the real
     /// `~/.ssh` / `hosts.conf` load path entirely. Synthetic data only — no real

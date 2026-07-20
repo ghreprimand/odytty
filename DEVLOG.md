@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Window overlays stay themed and opaque after a split
+
+A window-level overlay panel (Settings, the context menu, the command palette,
+the connection manager, and session replay) looked different depending on how
+many panes the tab held. On a single-pane tab the panel was an opaque, themed
+surface; after splitting into multiple panes the same panel turned translucent
+and off-theme, letting the terminal text behind it bleed through. The overlay is
+chrome, not terminal content, so its appearance must not depend on the pane
+layout.
+
+Two separate multi-pane-only defects were behind it. The compositor built the
+supposedly opaque overlay layer at the configurable cell-background opacity
+(default 0.8) instead of fully opaque, so the panes behind showed through; the
+single-pane path had always forced that region opaque. And the multi-pane
+overlay snapshot was seeded with the default palette rather than the live theme,
+so its default-colored fill resolved to an off-theme gray instead of the themed
+color the single-pane path resolves against. Both are now fixed at the one place
+that assembles the overlay layer: the panel background composites fully opaque,
+and its snapshot is seeded from the live terminal palette. That single seam
+feeds every window-level overlay, so the whole family regains single- and
+multi-pane parity in one change while the surrounding panes keep their own
+translucency. A vertex-level regression pins the panel opaque and themed with a
+translucent cell-background setting, and a headless split-pane regression pins
+the overlay palette to the live terminal colors.
+
+---
+
 ## 2026-07-20 -- Control-text editing keys no longer disappear
 
 Backspace chords now encode identically regardless of how the window system

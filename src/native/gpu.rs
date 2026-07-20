@@ -3321,12 +3321,20 @@ impl GpuState {
                 0.0,
                 overlay.origin,
                 overlay.treatment,
-                self.cell_bg_opacity,
+                // MENU-OPACITY PARITY: a window-level overlay panel is chrome, not
+                // terminal content, so its background is fully opaque regardless of
+                // `cell_bg_opacity` or window transparency -- exactly what the
+                // single-pane path guarantees by forcing `overlay_opaque_region`
+                // to `1.0`. Building at `self.cell_bg_opacity` (default `0.8`) let
+                // the panes behind the panel bleed through only in the multi-pane
+                // path; `1.0` restores single/multi parity while the surrounding
+                // panes keep their own translucency.
+                1.0,
                 // TEXT-BRIGHTNESS: overlay panel text lifts with the rest of
                 // the window's ink (`1.0` = identity).
                 self.text_brightness,
-                // The overlay-top snapshot IS the panel; it is already built at
-                // the opaque `cell_bg_opacity` on its own layer.
+                // The overlay-top snapshot IS the panel; its own opaque layer is
+                // composited last, so no per-cell force is needed here.
                 None,
                 grid::ChromePin::NONE,
             );

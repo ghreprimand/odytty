@@ -484,7 +484,7 @@ impl App {
     /// snapshot plus its physical-pixel window-space origin, or `None` when no
     /// overlay is open. The cell math matches [`Self::overlay_grid_dims`] /
     /// [`Self::overlay_pointer_cell`] so render and hit-test agree exactly.
-    fn build_overlay_top(
+    pub(super) fn build_overlay_top(
         &mut self,
         content: PaneRect,
         cell: CellSize,
@@ -498,11 +498,23 @@ impl App {
         }
         // A blank window-content-grid snapshot; `apply_overlay` paints the panel
         // box into it at the rect it computes from these same dims.
+        //
+        // MENU-THEME PARITY: the panel fill/border/title use `Color::Default`
+        // with inverse (see `panel_attrs`), so they resolve against this
+        // snapshot's `DynamicColors`. Seed those from the live terminal palette
+        // -- the exact colors the single-pane path resolves against, since it
+        // paints the overlay onto the terminal snapshot -- so the panel is the
+        // same themed color in both paths. `DynamicColors::default()` (light-gray
+        // on near-black) resolved the panel to an off-theme gray only in the
+        // multi-pane path.
+        let overlay_colors = crate::native::lock_recover(&self.terminal)
+            .dynamic_colors()
+            .clone();
         let mut overlay_snap = Snapshot {
             dimensions: Dimensions::new(cols, rows),
             cursor: Position { row: 0, column: 0 },
             cursor_visible: false,
-            colors: crate::core::DynamicColors::default(),
+            colors: overlay_colors,
             cells: vec![crate::core::Cell::default(); cols * rows],
         };
         apply_overlay(&mut overlay_snap, &mut self.overlay);
