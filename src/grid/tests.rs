@@ -3356,8 +3356,58 @@ fn brightness_vertices(
     out
 }
 
+/// Composite the first grayscale glyph quad over its cell background using the
+/// same atlas coverage and straight-alpha equation as `cell.wgsl`. Keeping this
+/// at the vertex/atlas seam catches color-range bugs that vertex-only assertions
+/// miss while remaining deterministic across GPU adapters.
+fn composite_first_glyph_pixels(verts: &[Vertex], atlas: &GlyphAtlas) -> Vec<[f32; 3]> {
+    assert_eq!(atlas.subpixel_mode(), crate::atlas::SubpixelMode::Off);
+    let background = verts
+        .chunks_exact(VERTS_PER_QUAD)
+        .find(|quad| quad[0].is_glyph == 0.0)
+        .expect("cell background quad")[0]
+        .color;
+    let glyph = verts
+        .chunks_exact(VERTS_PER_QUAD)
+        .find(|quad| quad[0].is_glyph == 1.0)
+        .expect("glyph quad");
+    let color = glyph[0].color;
+    let u0 = glyph.iter().map(|v| v.uv[0]).fold(f32::INFINITY, f32::min);
+    let v0 = glyph.iter().map(|v| v.uv[1]).fold(f32::INFINITY, f32::min);
+    let u1 = glyph
+        .iter()
+        .map(|v| v.uv[0])
+        .fold(f32::NEG_INFINITY, f32::max);
+    let v1 = glyph
+        .iter()
+        .map(|v| v.uv[1])
+        .fold(f32::NEG_INFINITY, f32::max);
+    let x0 = (u0 * atlas.width as f32).round() as usize;
+    let y0 = (v0 * atlas.height as f32).round() as usize;
+    let x1 = (u1 * atlas.width as f32).round() as usize;
+    let y1 = (v1 * atlas.height as f32).round() as usize;
+    let mut pixels = Vec::new();
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let coverage = atlas.data[y * atlas.width as usize + x] as f32 / 255.0;
+            if coverage == 0.0 {
+                continue;
+            }
+            let alpha = color[3] * coverage;
+            pixels.push([
+                color[0] * alpha + background[0] * (1.0 - alpha),
+                color[1] * alpha + background[1] * (1.0 - alpha),
+                color[2] * alpha + background[2] * (1.0 - alpha),
+            ]);
+        }
+    }
+    assert!(!pixels.is_empty(), "the real glyph raster must contain ink");
+    pixels
+}
+
 #[test]
 fn text_brightness_lifts_ink_only_and_pins_identity() {
+    let _guard = crate::test_lock::render_globals_lock();
     let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
     let mut term = Terminal::new(2, 1);
     // A colored glyph (red foreground) so the lift has room in every channel.
@@ -3447,7 +3497,61 @@ fn text_brightness_applies_after_the_min_contrast_floor() {
 }
 
 #[test]
+fn text_brightness_never_darkens_floored_hdr_glyph_pixels() {
+    // The shipped default theme at the shipped 17:1 floor produces an
+    // out-of-gamut linear foreground that remains meaningful in the float scene
+    // target used by bloom/CRT. This exact combination exposed the regression:
+    // enabling the lift clamped that HDR component before compositing.
+    let _guard = crate::test_lock::render_globals_lock();
+    let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
+    let theme = crate::theme::Theme::ODYSSEY_DEFAULT;
+    let mut term = Terminal::new(1, 1);
+    term.set_base_colors(
+        crate::core::RgbColor::new(theme.foreground.0, theme.foreground.1, theme.foreground.2),
+        crate::core::RgbColor::new(theme.background.0, theme.background.1, theme.background.2),
+        crate::core::RgbColor::new(theme.cursor.0, theme.cursor.1, theme.cursor.2),
+    );
+    term.advance(b"\x1b[?25lA");
+    let snapshot = term.snapshot();
+
+    crate::text::set_min_contrast(17.0);
+    let identity = brightness_vertices(&snapshot, &atlas, 1.0, RowFade::NONE);
+    let raised = brightness_vertices(&snapshot, &atlas, 1.05, RowFade::NONE);
+    crate::text::set_min_contrast(1.0);
+
+    let identity_color = identity
+        .iter()
+        .find(|vertex| vertex.is_glyph == 1.0)
+        .expect("glyph vertex")
+        .color;
+    assert!(
+        identity_color[..3].iter().any(|&channel| channel > 1.0),
+        "precondition: the shipped floor must produce HDR glyph ink"
+    );
+    let identity_pixels = composite_first_glyph_pixels(&identity, &atlas);
+    let raised_pixels = composite_first_glyph_pixels(&raised, &atlas);
+    assert_eq!(identity_pixels.len(), raised_pixels.len());
+    let mut visibly_lifted = false;
+    for (pixel_index, (base, lift)) in identity_pixels.iter().zip(&raised_pixels).enumerate() {
+        for channel in 0..3 {
+            assert!(
+                lift[channel] >= base[channel] - 1e-7,
+                "glyph pixel {pixel_index} channel {channel} darkened: {} -> {}",
+                base[channel],
+                lift[channel]
+            );
+            visibly_lifted |= lift[channel] > base[channel] + 1e-6;
+        }
+    }
+    assert!(
+        visibly_lifted,
+        "1.05 must brighten at least one ink channel"
+    );
+}
+
+#[test]
 fn text_brightness_and_row_fade_ride_disjoint_channels() {
+    let _guard = crate::test_lock::render_globals_lock();
     let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
     let mut term = Terminal::new(1, 1);
     term.advance(b"\x1b[?25l\x1b[31mA");

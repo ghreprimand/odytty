@@ -1757,20 +1757,30 @@ pub fn enforce_contrast_rgba(fg: [f32; 4], bg: [f32; 4]) -> [f32; 4] {
 /// TEXT-BRIGHTNESS: lift a linear-RGBA glyph foreground toward white with a
 /// soft knee, preserving alpha.
 ///
-/// Per channel `c' = 1 - (1 - c)^b` for `b >= 1.0`: identity at `b == 1.0`
-/// (early-returned, exact — the plain path stays byte-identical), monotonic in
-/// both the channel and the knob, and `c' < 1` whenever `c < 1`, so near-white
-/// ink compresses smoothly instead of clipping flat and channel ordering is
-/// preserved — colors lighten without fully desaturating. Black is a fixed
-/// point: the curve lifts mid-tones and dim colors, not `#000` ink, which
-/// would only lose contrast on light backgrounds. Applied by the vertex build
-/// AFTER [`enforce_contrast_rgba`], so a floor-corrected color is the lift's
-/// input and the ramp cannot undo the floor's direction of correction.
+/// For in-gamut channels, `c' = 1 - (1 - c)^b` for `b >= 1.0`: identity at
+/// `b == 1.0` (early-returned, exact — the plain path stays byte-identical),
+/// monotonic in both the channel and the knob, and `c' < 1` whenever `c < 1`,
+/// so near-white ink compresses smoothly instead of clipping flat and channel
+/// ordering is preserved — colors lighten without fully desaturating. Black is
+/// a fixed point: the curve lifts mid-tones and dim colors, not `#000` ink,
+/// which would only lose contrast on light backgrounds.
+///
+/// Out-of-gamut channels are preserved exactly. The minimum-contrast floor can
+/// produce values above `1.0`; those carry useful energy in the float scene
+/// target used by bloom/CRT. Clamping them only when brightness is enabled
+/// would make the raised setting darker than the identity path. Applied by the
+/// vertex build AFTER [`enforce_contrast_rgba`], so a floor-corrected color is
+/// the lift's input and the ramp cannot undo the floor's direction of correction.
 pub fn lift_brightness_rgba(color: [f32; 4], brightness: f32) -> [f32; 4] {
     if brightness <= 1.0 {
         return color;
     }
-    let lift = |c: f32| 1.0 - (1.0 - c.clamp(0.0, 1.0)).powf(brightness);
+    let lift = |c: f32| {
+        if !(0.0..=1.0).contains(&c) {
+            return c;
+        }
+        1.0 - (1.0 - c).powf(brightness)
+    };
     [lift(color[0]), lift(color[1]), lift(color[2]), color[3]]
 }
 
@@ -2073,6 +2083,16 @@ mod tests {
         // White and black are fixed points.
         assert_eq!(lift_brightness_rgba([1.0, 1.0, 1.0, 1.0], b)[0], 1.0);
         assert_eq!(lift_brightness_rgba([0.0, 0.0, 0.0, 1.0], b)[0], 0.0);
+    }
+
+    #[test]
+    fn lift_brightness_preserves_out_of_gamut_scene_energy() {
+        let c = [-0.04, 1.08, 0.5, 0.7];
+        let lifted = lift_brightness_rgba(c, 1.05);
+        assert_eq!(lifted[0], c[0], "negative scene-linear channel preserved");
+        assert_eq!(lifted[1], c[1], "HDR scene-linear channel preserved");
+        assert!(lifted[2] > c[2], "in-gamut channel still lifts");
+        assert_eq!(lifted[3], c[3], "alpha preserved");
     }
 
     #[test]

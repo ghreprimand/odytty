@@ -7,6 +7,31 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Text brightness preserves HDR contrast-floor energy
+
+Raising `text_brightness` no longer darkens the shipped default theme when the
+17:1 minimum-contrast floor and float post-process scene are active. Contrast
+enforcement can legitimately produce an out-of-gamut linear channel above 1.0;
+the brightness curve previously clamped that channel only on the raised path,
+discarding scene energy before bloom/CRT compositing. The curve now lifts only
+its defined in-gamut interval and preserves out-of-gamut channels exactly, so
+every glyph channel is non-decreasing from the 1.0 identity path.
+
+A pixel-level regression renders a real default-theme glyph through the grid
+vertex builder, the 17:1 floor, the real glyph atlas coverage, and the cell
+shader's straight-alpha blend at 1.0 and 1.05. It pins the HDR precondition and
+checks every ink pixel channel for non-decrease, covering the output seam that
+the original helper and vertex-only tests missed. The render-global readers in
+the sibling brightness tests now share the established serialization lock.
+
+Windows behavior is unchanged: this is the platform-neutral glyph color path
+with no platform-specific surface.
+
+Verified with `cargo fmt --check`, `cargo clippy --all-targets --locked`, and
+the full `RUST_TEST_THREADS=32 cargo test` suite.
+
+---
+
 ## 2026-07-20 -- OSC 7 percent-encoder is portable to bash 3.2
 
 The bash and zsh shell-integration snippets encoded each unsafe cwd byte with
