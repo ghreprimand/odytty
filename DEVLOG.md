@@ -31,6 +31,13 @@ Windows is unaffected: native Windows events use the ConPTY Win32 input path,
 which maps the physical and logical event directly before the neutral character
 encoder. Win32 input precedence and its key-up records are unchanged.
 
+An opt-in `ODYTTY_KEY_EVENT_DIAGNOSTICS=on` trace records the raw key identities,
+physical code, modifier state, press state, repeat flag, and IME event variant
+needed to compare compositor delivery. Printable key and IME text is always
+reduced to character and byte counts; single control codes retain only their
+numeric identity. The trace is off by default and does not change Windows input
+routing.
+
 ---
 
 ## 2026-07-20 -- Release v0.9.2 — Windows key fidelity under ConPTY, word-wise editing everywhere

@@ -67,6 +67,7 @@ mod gpu;
 mod image_decode;
 mod image_layer;
 mod instance_lock;
+mod key_event_diagnostics;
 mod key_remap_ui;
 mod layout;
 #[cfg(target_os = "macos")]

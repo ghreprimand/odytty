@@ -52,6 +52,7 @@ use super::gpu::{
     BloomOptions, ChromePinGeom, CrtOptions, FrameOutcome, GpuState, PanelFrameQuads, RailOverlay,
     RowFadeSpec,
 };
+use super::key_event_diagnostics;
 use super::options::{NativeError, NativeOptions};
 use super::overlay::{
     LayoutSaveKind, OverlayInput, OverlayOutcome, OverlayPointer, OverlayUi, PointerButton,
@@ -6798,6 +6799,7 @@ impl ApplicationHandler<UserEvent> for App {
                     shift: state.shift_key(),
                 };
                 self.super_key = state.super_key();
+                key_event_diagnostics::log_modifiers_changed(self.modifiers, self.super_key);
                 // UX-A (Phase 11): the Ctrl+hover armed underline appears/clears
                 // as Ctrl toggles while a path is hovered, so a Ctrl transition
                 // there must trigger a rebuild + redraw to repaint the span.
@@ -6857,6 +6859,12 @@ impl ApplicationHandler<UserEvent> for App {
                     ElementState::Released => KeyEventType::Release,
                 };
                 let binding_key = event.key_without_modifiers();
+                key_event_diagnostics::log_keyboard_event(
+                    &event,
+                    &binding_key,
+                    self.modifiers,
+                    self.super_key,
+                );
                 self.handle_key_event(
                     event.logical_key,
                     binding_key,
@@ -6865,6 +6873,7 @@ impl ApplicationHandler<UserEvent> for App {
                 );
             }
             WindowEvent::Ime(ime) => {
+                key_event_diagnostics::log_ime_event(&ime);
                 self.handle_ime(ime);
             }
             _ => {}
