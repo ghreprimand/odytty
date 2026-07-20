@@ -7,6 +7,62 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Paste framing atomicity, button spans under row edits, child reaping, ConPTY waiter
+
+Four reliability fixes from a full-tree review, in one batch.
+
+**Bracketed paste is now an atomic outbound-queue transaction.** A bracketed
+paste used to enqueue as separate chunks — start marker, 16 KiB body pieces,
+end marker — on the bounded per-session outbound queue, whose overflow policy
+drops oldest whole chunks when a wedged remote stops draining. That could shed
+the start marker while retaining the body tail and end marker, letting the
+surviving newlines arrive *outside* bracketed-paste mode, where an interactive
+shell would execute them. The whole framed paste now travels as one
+indivisible chunk: overflow either delivers it intact or discards it entirely,
+and on an attached session the same single write becomes a single protocol
+frame, so the transient send-timeout frame drop is whole-paste atomic too.
+Pastes over 32 MiB are refused with a logged warning (comfortably under the
+64 MiB attach frame limit); plain paste keeps its documented chunked
+degradation. The paste path is shared across platforms — ConPTY receives the
+coalesced paste from the same writer thread.
+
+**Button spans now transform in lockstep with in-row cell edits.** ICH/DCH
+shifted cells while their button-span sidecars stayed put, and ECH, partial
+EL, DECSEL, DECERA, DECSERA, DECFRA, and DECCRA overwrote cells while leaving
+overlapping spans clickable — a label could render in one place with its
+button live in another, or a live button could sit over blank cells. All
+in-place row mutations now route through one shared sidecar transform: shifts
+move spans with their cells (clipping at the right edge, releasing spans
+shifted fully off or torn through the interior), overwrites release any
+overlapping labeled span, and DECCRA deliberately does not copy spans to the
+destination — a clickable region only exists where the button sequence placed
+it. Point anchors survive overwrites (their chips re-resolve against blank
+cells) and move under shifts. Per-sequence tests pin span state and that
+destroyed spans free their table references. Platform-neutral core change.
+
+**Remote upload cleanup children are reaped.** Closing a remote tab that had
+uploaded images fired a detached cleanup `ssh` and dropped the child handle,
+which never waits on Unix — one zombie process per such close until the app
+exited. The child now goes to a detached reaper thread; tab close stays
+instant, and a failed spawn is logged instead of silently discarded. On
+Windows there is no zombie concept (dropping a child closes the process
+handle); the reaper is harmless there and keeps one behavior on both
+platforms.
+
+**ConPTY waiter establishment is part of session creation.** The Windows
+child-waiter (which detects natural shell exit, closes the pseudoconsole, and
+records startup diagnostics) silently returned nothing when its process-handle
+duplication or thread spawn failed, leaving a session that never auto-closed
+and lost its startup diagnostics. Waiter establishment failure now terminates
+the child, closes the pseudoconsole, and surfaces the error as one failed
+session instead of a silently degraded one. Windows-only change, verified by
+the windows CI leg.
+
+Gate: full `cargo test` suite, `cargo fmt --check`, and workspace clippy clean
+before push.
+
+---
+
 ## 2026-07-19 -- CRT curvature leaves the settings panel
 
 The `crt_curvature` knob no longer appears as a row in the settings panel. The

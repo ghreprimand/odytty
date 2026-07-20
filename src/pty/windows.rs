@@ -414,13 +414,31 @@ impl PtySession {
             // startup-failure diagnostic into `pending_diagnostic` if the exit
             // was abnormal AND immediate, then (b) closes the pseudoconsole so a
             // self-exiting shell tears its session down via the same reader-EOF
-            // path a `kill` uses (the pump drains the diagnostic on that EOF). A
-            // dup failure is non-fatal — the session still works; only natural-
-            // exit auto-close + diagnostic is lost — so the waiter is `None` then.
+            // path a `kill` uses (the pump drains the diagnostic on that EOF).
+            // Waiter establishment is PART of successful session creation: a
+            // session without it never auto-closes on natural shell exit and
+            // loses startup diagnostics, and the only failure causes (handle
+            // duplication, thread spawn) are resource exhaustion that would
+            // degrade the session invisibly. On failure the child is
+            // terminated, the pseudoconsole closed, and the error surfaced as
+            // one failed session instead of a silently degraded one.
             let pcon = Arc::new(PconShared::new(hpcon.0));
             let pending_diagnostic = Arc::new(Mutex::new(None));
-            let waiter =
-                spawn_child_waiter(&process, Arc::clone(&pcon), Arc::clone(&pending_diagnostic));
+            let waiter = match spawn_child_waiter(
+                &process,
+                Arc::clone(&pcon),
+                Arc::clone(&pending_diagnostic),
+            ) {
+                Ok(waiter) => Some(waiter),
+                Err(error) => {
+                    // Still inside the spawn sequence's enclosing `unsafe`
+                    // block. The process handle is live and owned; the child
+                    // must not outlive the failed session creation.
+                    let _ = TerminateProcess(HANDLE(process.as_raw_handle()), KILL_EXIT_CODE);
+                    pcon.close_once();
+                    return Err(error.context("establish ConPTY child waiter"));
+                }
+            };
 
             Ok(Self {
                 pcon,
@@ -814,15 +832,18 @@ fn should_report_startup_failure(code: u32, elapsed: Duration, teardown_requeste
 ///      session down through its single existing `ShellExited` path, and the
 ///      pump writes any recorded diagnostic into the pane on that EOF.
 ///
-/// The thread then exits and its duplicated handle closes. Returns `None` if the
-/// handle could not be duplicated (non-fatal: the session still works, only
-/// natural-exit auto-close + the diagnostic are lost).
+/// The thread then exits and its duplicated handle closes. Errors when the
+/// process handle cannot be duplicated or the thread cannot spawn (resource
+/// exhaustion); the caller treats waiter establishment as part of session
+/// creation and fails the spawn visibly rather than running a session that
+/// silently lost natural-exit auto-close and its startup diagnostics.
 fn spawn_child_waiter(
     process: &OwnedHandle,
     pcon: Arc<PconShared>,
     diagnostic: Arc<Mutex<Option<String>>>,
-) -> Option<JoinHandle<()>> {
-    let dup = duplicate_owned_handle(process).ok()?;
+) -> Result<JoinHandle<()>> {
+    let dup =
+        duplicate_owned_handle(process).context("duplicate process handle for child waiter")?;
     std::thread::Builder::new()
         .name("odytty-conpty-waiter".to_string())
         .spawn(move || {
@@ -861,7 +882,7 @@ fn spawn_child_waiter(
                 }
             }
         })
-        .ok()
+        .context("spawn ConPTY child-waiter thread")
 }
 
 /// Output-pipe reader that maps a closed ConPTY/child (surfaced as
