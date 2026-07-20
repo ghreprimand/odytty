@@ -63,6 +63,63 @@ before push.
 
 ---
 
+## 2026-07-19 -- Path reporting, background-worker failures, and file URIs hardened
+
+A round of correctness and safety fixes across shell integration, the connection
+paths, and packaging.
+
+**OSC 7 working-directory reporting now percent-encodes every unsafe byte.** A
+directory name can legally contain a BEL or ESC byte; embedded raw in the
+`file://` payload it would close the OSC 7 sequence early and let the tail inject
+a second, attacker-chosen control sequence (a title change was demonstrated; an
+OSC 52 clipboard write is reachable under the configured policy). All four shell
+integration snippets now encode the reported path: bash and zsh use a byte-wise
+`LC_ALL=C` loop cached per `$PWD` (so an unchanged directory adds no prompt-time
+cost and nothing forks), fish routes through `string escape --style=url` with the
+path separators restored, and PowerShell escapes each path segment. Only the
+RFC 3986 unreserved set plus the path separator and drive colon stay literal;
+every other byte becomes `%XX`, so the payload is always exactly one well-formed
+sequence that round-trips back to the literal path. A real-shell test drives a
+directory whose name carries the full injection payload and confirms no injected
+sequence reaches the wire.
+
+**Background-worker thread creation is now fallible and visible.** The image
+paste-through upload and the Test Connection probe each spawned a worker with the
+result discarded; under thread exhaustion the confirmed paste vanished silently
+and the connection form sat on "Testing…" forever. Both worker factories now
+return their spawn result: a failed upload writes a one-line pane notice, and a
+failed probe drives the form to a visible error state.
+
+**SSH connect failures raise a one-line notice.** Connect, connect-and-save,
+open-in-new-workspace, connect-after, replace-tab, and bound-workspace New Tab
+all discarded the connect result, so a missing `ssh` binary or a resource
+exhaustion read as a dead click or an unexplained local-tab fallback. A shared
+helper now surfaces a redacted, actionable notice (naming only the host label)
+and lets each caller pick its fallback, matching the convention the local
+open/spawn paths already follow.
+
+**The connection probe drains stderr concurrently.** Verbose `ssh -v` output
+could fill the OS pipe and block the child until the kill deadline, misreporting
+a reachable host as unreachable. The probe now drains stderr on its own thread
+into a bounded buffer while it polls, so the child never blocks on backpressure.
+
+**A single file-URI encoder now backs every producer.** The interactive-path
+"Copy File" action and the Desktop-Entry `%u`/`%U` expander built `file://` URIs
+inline, and the Unix arms skipped percent-encoding entirely, so a path with a
+space, `%`, control byte, or non-ASCII byte produced a malformed URI. Both now
+route through one pure library-layer encoder (kept out of the windowing layer so
+the desktop module never reaches into it), preserving the path separator and
+encoding every other unsafe byte. Ordinary paths are byte-identical.
+
+**Documentation and packaging corrections.** The window-transparency and
+clickable-buttons descriptions (and a stale buttons comment) said "off by
+default" after those defaults flipped on; the selection is now described as a
+translucent tint (its `0.6` default) rather than opaque. The AUR `.SRCINFO` is
+regenerated to match the `0.9.0` PKGBUILD, and the AUR publish workflow validates
+its version input against the release grammar before writing any workflow record.
+
+---
+
 ## 2026-07-19 -- CRT curvature leaves the settings panel
 
 The `crt_curvature` knob no longer appears as a row in the settings panel. The

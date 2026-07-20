@@ -374,13 +374,41 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
     __ODYTTY_PROMPT_EXECUTING=1
   }
 
+  # Percent-encode $PWD into an OSC 7 path. A directory name may contain BEL or
+  # ESC bytes; embedded raw they would close the OSC 7 sequence and let the
+  # tail inject a second, attacker-chosen control sequence. Every byte outside
+  # the RFC 3986 unreserved set (plus '/' and ':' so path structure and drive
+  # colons survive) is percent-encoded, so the payload is always exactly one
+  # well-formed sequence. LC_ALL=C forces byte-wise iteration (multibyte runes
+  # encode per UTF-8 byte). The result is cached and only recomputed when $PWD
+  # changes, so the byte loop never runs on an unchanged directory.
+  __odytty_encode_osc7() {
+    if [ "${__ODYTTY_OSC7_PWD-}" = "$PWD" ]; then
+      return
+    fi
+    __ODYTTY_OSC7_PWD="$PWD"
+    local LC_ALL=C __odytty_str="$PWD" __odytty_out="" __odytty_safe __odytty_hex
+    while [ -n "$__odytty_str" ]; do
+      __odytty_safe="${__odytty_str%%[!a-zA-Z0-9/:._~-]*}"
+      __odytty_out="$__odytty_out$__odytty_safe"
+      __odytty_str="${__odytty_str#"$__odytty_safe"}"
+      if [ -n "$__odytty_str" ]; then
+        printf -v __odytty_hex '%%%02X' "'$__odytty_str"
+        __odytty_out="$__odytty_out$__odytty_hex"
+        __odytty_str="${__odytty_str#?}"
+      fi
+    done
+    __ODYTTY_OSC7_ENC="$__odytty_out"
+  }
+
   __odytty_prompt_command() {
     local __odytty_status=${__ODYTTY_LAST_STATUS:-$?}
     if [ -n "${__ODYTTY_COMMAND_STARTED-}" ]; then
       printf '\e]133;D;%s\a' "$__odytty_status"
       unset __ODYTTY_COMMAND_STARTED
     fi
-    printf '\e]7;file://%s\a' "${PWD//\%/%25}"
+    __odytty_encode_osc7
+    printf '\e]7;file://%s\a' "$__ODYTTY_OSC7_ENC"
     printf '\e]133;A;click_events=1\a'
     unset __ODYTTY_PROMPT_EXECUTING
     # Prompt-scoped key enhancement (D-b): while the prompt owns the line, push
@@ -497,13 +525,38 @@ const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" ]; then
   export ODYTTY_SHELL_INTEGRATION=1
   autoload -Uz add-zsh-hook
 
+  # Percent-encode $PWD into an OSC 7 path (see the bash snippet for the
+  # injection rationale): raw BEL/ESC in a dirname would close the sequence and
+  # inject a second one. Preserves RFC 3986 unreserved plus '/' and ':';
+  # LC_ALL=C forces byte-wise iteration; cached per $PWD so the loop is skipped
+  # on an unchanged directory.
+  __odytty_encode_osc7() {
+    if [ "${__ODYTTY_OSC7_PWD:-}" = "$PWD" ]; then
+      return
+    fi
+    __ODYTTY_OSC7_PWD="$PWD"
+    local LC_ALL=C __odytty_str="$PWD" __odytty_out="" __odytty_safe __odytty_hex
+    while [ -n "$__odytty_str" ]; do
+      __odytty_safe="${__odytty_str%%[!a-zA-Z0-9/:._~-]*}"
+      __odytty_out="$__odytty_out$__odytty_safe"
+      __odytty_str="${__odytty_str#"$__odytty_safe"}"
+      if [ -n "$__odytty_str" ]; then
+        printf -v __odytty_hex '%%%02X' "'$__odytty_str"
+        __odytty_out="$__odytty_out$__odytty_hex"
+        __odytty_str="${__odytty_str#?}"
+      fi
+    done
+    __ODYTTY_OSC7_ENC="$__odytty_out"
+  }
+
   __odytty_precmd() {
     local __odytty_status=$?
     if [ -n "${__ODYTTY_COMMAND_STARTED:-}" ]; then
       printf '\e]133;D;%s\a' "$__odytty_status"
       unset __ODYTTY_COMMAND_STARTED
     fi
-    printf '\e]7;file://%s\a' "${PWD//\%/%25}"
+    __odytty_encode_osc7
+    printf '\e]7;file://%s\a' "$__ODYTTY_OSC7_ENC"
     printf '\e]133;A;click_events=1\a'
   }
 
@@ -673,7 +726,12 @@ const FISH_SNIPPET: &str = r#"if not set -q ODYTTY_SHELL_INTEGRATION
     end
 
     function fish_prompt
-        printf '\e]7;file://%s\a' (string replace -a '%' '%25' -- "$PWD")
+        # Percent-encode $PWD into an OSC 7 path. `string escape --style=url`
+        # keeps only RFC 3986 unreserved bytes, so a BEL/ESC in a dirname (which
+        # would otherwise close the sequence and inject a second one) is encoded;
+        # it also encodes '/', so '%2F' is restored to '/' to keep the path
+        # structure. Builtins only -- no external forks.
+        printf '\e]7;file://%s\a' (string escape --style=url -- $PWD | string replace -a '%2F' '/')
         printf '\e]133;A;click_events=1\a'
         __odytty_original_fish_prompt
         printf '\e]133;B\a'
@@ -786,7 +844,14 @@ const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
             $global:__odytty_command_started = $false
         }
         if ($PWD.Provider.Name -eq 'FileSystem') {
-            $p = $PWD.ProviderPath -replace '%','%25' -replace '\\','/'
+            # Percent-encode each path segment so a control byte in a name cannot
+            # close the OSC 7 sequence and inject a second one (parity with the
+            # unix snippets; Windows forbids control chars in names, so this
+            # closes the formal gap and also encodes spaces / non-ASCII).
+            # Splitting on both separators and rejoining with '/' preserves the
+            # path structure; the drive colon rides along percent-encoded and the
+            # consumer decodes it before stripping the leading slash.
+            $p = (($PWD.ProviderPath -split '[\\/]') | ForEach-Object { [uri]::EscapeDataString($_) }) -join '/'
             $out += "$esc]7;file:///$p$bel"
         }
         $out += "$esc]133;A;click_events=1$bel"
@@ -1261,31 +1326,64 @@ mod tests {
 
     #[test]
     fn snippets_percent_encode_osc7_cwd() {
-        // D-2 fails-before/passes-after: every emitter must percent-encode `%`
-        // in the reported cwd. The OSC 7 parser treats a `%` not followed by
-        // two hex digits as a malformed escape and drops the whole sequence, so
-        // a raw `%` in a directory name would silently freeze cwd tracking at
-        // the previous value. Encoding `%` -> `%25` at the source makes the
-        // wire form a valid escape that round-trips back to the literal `%`.
+        // Every emitter must percent-encode EVERY unsafe byte in the reported
+        // cwd, not just `%`. A directory name may contain BEL or ESC bytes;
+        // embedded raw they close the OSC 7 sequence and let the tail inject a
+        // second control sequence (title change, OSC 52 write). The encoders
+        // preserve only RFC 3986 unreserved plus the path separators and encode
+        // everything else, so the payload is always exactly one well-formed
+        // sequence that round-trips back to the literal path.
         let bash = snippet(ShellKind::Bash);
         assert!(
-            bash.contains("${PWD//\\%/%25}"),
-            "bash must percent-encode % in the OSC 7 cwd"
+            bash.contains("__odytty_encode_osc7")
+                && bash.contains("printf -v __odytty_hex '%%%02X'"),
+            "bash must byte-encode the OSC 7 cwd via the cached encoder"
+        );
+        assert!(
+            !bash.contains("${PWD//\\%/%25}"),
+            "bash must not fall back to the %-only replacement"
         );
         let zsh = snippet(ShellKind::Zsh);
         assert!(
-            zsh.contains("${PWD//\\%/%25}"),
-            "zsh must percent-encode % in the OSC 7 cwd"
+            zsh.contains("__odytty_encode_osc7") && zsh.contains("printf -v __odytty_hex '%%%02X'"),
+            "zsh must byte-encode the OSC 7 cwd via the cached encoder"
+        );
+        assert!(
+            !zsh.contains("${PWD//\\%/%25}"),
+            "zsh must not fall back to the %-only replacement"
         );
         let fish = snippet(ShellKind::Fish);
         assert!(
-            fish.contains("string replace -a '%' '%25'"),
-            "fish must percent-encode % in the OSC 7 cwd"
+            fish.contains("string escape --style=url -- $PWD"),
+            "fish must url-encode the OSC 7 cwd"
+        );
+        assert!(
+            !fish.contains("string replace -a '%' '%25'"),
+            "fish must not fall back to the %-only replacement"
         );
         let ps = snippet(ShellKind::PowerShell);
         assert!(
-            ps.contains("-replace '%','%25'"),
-            "powershell must percent-encode % in the OSC 7 cwd"
+            ps.contains("[uri]::EscapeDataString"),
+            "powershell must percent-encode each OSC 7 path segment"
+        );
+        assert!(
+            !ps.contains("-replace '%','%25'"),
+            "powershell must not fall back to the %-only replacement"
+        );
+    }
+
+    #[test]
+    fn bash_encode_osc7_is_cached_by_pwd() {
+        // The byte loop is skipped when $PWD is unchanged so the encoder adds no
+        // per-prompt cost on a stable directory.
+        let bash = snippet(ShellKind::Bash);
+        assert!(
+            bash.contains("if [ \"${__ODYTTY_OSC7_PWD-}\" = \"$PWD\" ]; then"),
+            "bash encoder must short-circuit on an unchanged PWD"
+        );
+        assert!(
+            bash.contains("local LC_ALL=C"),
+            "bash encoder must force byte-wise iteration with LC_ALL=C"
         );
     }
 
@@ -1303,11 +1401,11 @@ mod tests {
             "OSC 7 emission must be gated on the FileSystem provider"
         );
         assert!(
-            ps.contains("$PWD.ProviderPath -replace '%','%25'"),
+            ps.contains("$PWD.ProviderPath -split"),
             "OSC 7 must use ProviderPath (native filesystem path), not Path"
         );
         assert!(
-            !ps.contains("$PWD.Path -replace"),
+            !ps.contains("$PWD.Path"),
             "OSC 7 must not derive the cwd from $PWD.Path (provider-qualified)"
         );
     }
@@ -1407,6 +1505,91 @@ mod tests {
         assert!(
             !out.contains("file://") || !out.contains("/50%off\x07"),
             "the raw unencoded % form must not reach the wire: {out:?}"
+        );
+        let _ = fs::remove_dir_all(base);
+    }
+
+    /// Minimal percent-decoder mirroring the OSC 7 consumer's `%XX` rule, used
+    /// to confirm the encoders round-trip. The production decoder
+    /// (`core::screen::osc::percent_decode_path`) is module-private; this test
+    /// copy keeps the same contract without widening its visibility.
+    #[cfg(unix)]
+    fn percent_decode_for_test(bytes: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(bytes.len());
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'%' && i + 2 < bytes.len() {
+                let hi = (bytes[i + 1] as char).to_digit(16);
+                let lo = (bytes[i + 2] as char).to_digit(16);
+                if let (Some(h), Some(l)) = (hi, lo) {
+                    out.push(((h << 4) | l) as u8);
+                    i += 3;
+                    continue;
+                }
+            }
+            out.push(bytes[i]);
+            i += 1;
+        }
+        out
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_encodes_hostile_osc7_cwd_end_to_end() {
+        // MED-01 end-to-end: a directory name carrying a full injection payload.
+        // The BEL after "a b" would close OSC 7, then the `ESC]2;INJECT` title
+        // change would ride the tail; a space and a non-ASCII byte prove general
+        // byte encoding. With the encoder every unsafe byte is percent-encoded,
+        // so the emitted OSC 7 is exactly one well-formed sequence that decodes
+        // back to the real path and no injected sequence reaches the wire.
+        let Some(bash) = find_bash() else {
+            return;
+        };
+        let base = temp_integration_dir("bash-hostile");
+        let name = "a b\x07\x1b]2;INJECT\x07\u{e9}";
+        let dir = base.join(name);
+        fs::create_dir_all(&dir).expect("mkdir");
+        let rc = base.join("rc.bash");
+        fs::write(&rc, format!("PS1='P\\$ '\n{BASH_SNIPPET}")).expect("write rc");
+
+        // Feed bash pure-ASCII input that reconstructs the hostile leaf via
+        // printf octal escapes, then `cd` into it. The raw control bytes never
+        // pass through the interactive readline (which would mangle a `cd`
+        // argument that literally contained an ESC); bash builds the exact bytes
+        // internally. The base dir is ASCII, so single-quoting it is safe. The
+        // octal escapes spell `a b <BEL> <ESC> ]2;INJECT <BEL> é` — byte-for-byte
+        // the `name` created above.
+        let input = format!(
+            "cd \"$(printf '%s/a b\\007\\033]2;INJECT\\007\\303\\251' '{}')\"\nexit\n",
+            base.display()
+        );
+        let out = run_bash_rc(&bash, &rc, &input);
+        if !out.contains("\x1b]133;A") {
+            // Interactive integration did not engage in this environment.
+            let _ = fs::remove_dir_all(&base);
+            return;
+        }
+
+        // The injected control sequence must never appear as raw bytes.
+        assert!(
+            !out.contains("\x1b]2;INJECT"),
+            "hostile dirname leaked a raw title sequence onto the wire: {out:?}"
+        );
+
+        // The OSC 7 payload must be exactly one well-formed sequence that
+        // decodes back to the real path. bash emits an OSC 7 at the first prompt
+        // (the initial cwd) before `cd` runs, so take the LAST occurrence — the
+        // prompt after the `cd` into the hostile directory.
+        let marker = "\x1b]7;file://";
+        let start = out.rfind(marker).expect("OSC 7 emitted");
+        let rest = &out[start + marker.len()..];
+        let end = rest.find('\x07').expect("OSC 7 BEL terminator");
+        let payload = &rest[..end];
+        let decoded = percent_decode_for_test(payload.as_bytes());
+        let decoded = String::from_utf8_lossy(&decoded).into_owned();
+        assert!(
+            decoded.ends_with(name),
+            "decoded OSC 7 path must round-trip the hostile dirname: got {decoded:?}"
         );
         let _ = fs::remove_dir_all(base);
     }
