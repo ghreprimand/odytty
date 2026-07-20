@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- OSC 7 percent-encoder is portable to bash 3.2
+
+The bash and zsh shell-integration snippets encoded each unsafe cwd byte with
+`printf '%02X' "'$char"`, which reads the character's ordinal. On bash 3.2 --
+still the system bash on macOS -- a byte at or above 0x80 is taken as a signed
+char and comes back negative, so the format print sign-extends it to a 64-bit
+value and the OSC 7 payload carried a long run of F's instead of the single
+byte. A non-ASCII directory name therefore failed to round-trip on that shell
+(bash 5.x prints the unsigned byte, so Linux was unaffected). The ordinal is now
+masked to one byte before formatting, which is portable back to bash 3.2 and
+leaves the already-correct shells unchanged. Injection safety was never at risk:
+BEL and ESC are ASCII and always encoded correctly. The fish and PowerShell
+generators use their platforms' own encoders (`string escape --style=url` and
+`[uri]::EscapeDataString`) and carry no ordinal idiom, so neither changed.
+
+---
+
 ## 2026-07-20 -- Snapshot header validation covers the producer version length
 
 `SnapshotEnvelope::validate_wire_bounds` now checks the producer-version

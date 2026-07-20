@@ -387,13 +387,14 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
       return
     fi
     __ODYTTY_OSC7_PWD="$PWD"
-    local LC_ALL=C __odytty_str="$PWD" __odytty_out="" __odytty_safe __odytty_hex
+    local LC_ALL=C __odytty_str="$PWD" __odytty_out="" __odytty_safe __odytty_hex __odytty_ord
     while [ -n "$__odytty_str" ]; do
       __odytty_safe="${__odytty_str%%[!a-zA-Z0-9/:._~-]*}"
       __odytty_out="$__odytty_out$__odytty_safe"
       __odytty_str="${__odytty_str#"$__odytty_safe"}"
       if [ -n "$__odytty_str" ]; then
-        printf -v __odytty_hex '%%%02X' "'$__odytty_str"
+        printf -v __odytty_ord '%d' "'$__odytty_str"
+        printf -v __odytty_hex '%%%02X' "$(( __odytty_ord & 0xFF ))"
         __odytty_out="$__odytty_out$__odytty_hex"
         __odytty_str="${__odytty_str#?}"
       fi
@@ -535,13 +536,14 @@ const ZSH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION:-}" ]; then
       return
     fi
     __ODYTTY_OSC7_PWD="$PWD"
-    local LC_ALL=C __odytty_str="$PWD" __odytty_out="" __odytty_safe __odytty_hex
+    local LC_ALL=C __odytty_str="$PWD" __odytty_out="" __odytty_safe __odytty_hex __odytty_ord
     while [ -n "$__odytty_str" ]; do
       __odytty_safe="${__odytty_str%%[!a-zA-Z0-9/:._~-]*}"
       __odytty_out="$__odytty_out$__odytty_safe"
       __odytty_str="${__odytty_str#"$__odytty_safe"}"
       if [ -n "$__odytty_str" ]; then
-        printf -v __odytty_hex '%%%02X' "'$__odytty_str"
+        printf -v __odytty_ord '%d' "'$__odytty_str"
+        printf -v __odytty_hex '%%%02X' "$(( __odytty_ord & 0xFF ))"
         __odytty_out="$__odytty_out$__odytty_hex"
         __odytty_str="${__odytty_str#?}"
       fi
@@ -1336,8 +1338,9 @@ mod tests {
         let bash = snippet(ShellKind::Bash);
         assert!(
             bash.contains("__odytty_encode_osc7")
-                && bash.contains("printf -v __odytty_hex '%%%02X'"),
-            "bash must byte-encode the OSC 7 cwd via the cached encoder"
+                && bash.contains("printf -v __odytty_hex '%%%02X' \"$(( __odytty_ord & 0xFF ))\""),
+            "bash must byte-encode the OSC 7 cwd via the cached encoder, masking \
+             the ordinal to one byte so bash 3.2 does not sign-extend bytes >= 0x80"
         );
         assert!(
             !bash.contains("${PWD//\\%/%25}"),
@@ -1345,8 +1348,10 @@ mod tests {
         );
         let zsh = snippet(ShellKind::Zsh);
         assert!(
-            zsh.contains("__odytty_encode_osc7") && zsh.contains("printf -v __odytty_hex '%%%02X'"),
-            "zsh must byte-encode the OSC 7 cwd via the cached encoder"
+            zsh.contains("__odytty_encode_osc7")
+                && zsh.contains("printf -v __odytty_hex '%%%02X' \"$(( __odytty_ord & 0xFF ))\""),
+            "zsh must byte-encode the OSC 7 cwd via the cached encoder, masking \
+             the ordinal to one byte to match the bash-3.2-portable form"
         );
         assert!(
             !zsh.contains("${PWD//\\%/%25}"),
