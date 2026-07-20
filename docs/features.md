@@ -26,7 +26,8 @@ For installation and a shorter overview, start with the
 
 Most customization happens inside OdyTTY. Hand-editing a config file is
 optional: the settings panel, pickers, and command palette provide the primary
-in-app paths.
+in-app paths. For a shorter tour of what ships enabled and which opt-ins fit
+particular workflows, start with the [settings guide](settings-guide.md).
 
 | Task | Where to do it | What happens |
 | --- | --- | --- |
@@ -40,7 +41,8 @@ in-app paths.
 
 The settings panel is keyboard- and pointer-driven. Arrow keys move through
 sections and rows, `Enter` activates a choice, and `Esc` clears a search or
-closes the panel.
+closes the panel. Clicking a numeric row starts text entry; the first keystroke
+replaces the prefilled value so a new number can be typed directly.
 
 `Ctrl+Shift+,` and Settings from the terminal content menu open the section
 list. Settings from the empty tab strip, a workspace slot, or the empty
@@ -51,6 +53,11 @@ Saving uses a preservation-first writeback: comments, blank lines, key order,
 and unknown or future keys stay in place, while changed keys are rewritten and
 missing changed keys are appended. OdyTTY saves through a same-directory
 temporary file and rename instead of truncating the file in place.
+
+`odytty.conf` and `hosts.conf` share a single-writer, temporary-file, sync, and
+atomic-rename path. On Unix, a new file is created with mode `0644`; a stricter
+existing mode is preserved, while group/other-write and execute bits are
+clamped back to that `0644` ceiling. Windows preserves inherited ACLs.
 
 Settings resolve in this order:
 
@@ -91,6 +98,7 @@ shells and full-screen terminal applications:
 | Text and attributes | Printing, UTF-8 chunking, SGR attributes including legacy SGR 21 double underline, 256-color, and truecolor |
 | Cursor and editing | Cursor movement, erase, insert/delete character and line, insert/replace mode (IRM), repeat, and reverse index |
 | Screen state | Scroll regions, origin mode, tab stops, bracketed paste, focus reporting, and alternate-screen modes 47/1047/1048/1049 |
+| Character sets | G0/G1 designation, SO/SI selection, and DEC Special Graphics mapping for ncurses ACS line drawing |
 | OSC sequences | OSC 0/2 titles, OSC 7 working directories, OSC 8 hyperlinks, OSC 52 clipboard write plus opt-in read, OSC 133 prompt marks, and OSC 4/10/11/12 dynamic colors |
 | Queries and controls | DECRQM/DECRPM, XTWINOPS, XTGETTCAP, DECRQSS, rectangle operations, selective erase, and synchronized output mode 2026 |
 | Pointer input | Broad mouse reporting, including X10, normal, button-event, any-event, focus events, UTF-8, SGR, urxvt, legacy encodings, and SGR-pixel mode 1016 |
@@ -116,18 +124,19 @@ extended keys through it. Modified keys encode as
 reset behavior as the Kitty flags, and `XTQMODKEYS` reports it. When an
 application enables both protocols (fish does), non-zero Kitty flags win.
 
-Windows: measured on the CI `windows-latest` ConPTY, queries and protocol
-negotiation pass through intact in the app-to-terminal direction — the Kitty
-flags query and `XTQMODKEYS` both arrive at the terminal unmodified and are
-answered. On the input path, however, conhost's input converter normalizes
-enhanced key encodings before applications see them (a `CSI 13;5u` written to
-the input pipe is delivered as a bare `0d`), so applications in native
-Windows sessions receive legacy key bytes regardless of the requested
-protocol. This is an upstream conhost limitation, not specific to OdyTTY —
-Windows Terminal ships its own conhost plumbing for the same reason. WSL
-sessions are unaffected: their input path bypasses conhost's converter.
-crossterm-based TUIs do not request the Kitty protocol on Windows;
-win32-input-mode (mode 9001) is not implemented.
+On Windows, a console application can request ConPTY Win32 input with DEC
+private mode 9001. While that mode is active, OdyTTY sends complete Win32 key
+records, including key-up state, virtual-key and scan codes, Unicode text,
+modifier flags, and repeat counts. This preserves input such as
+`Ctrl+Backspace` word deletion in PowerShell and distinct `Shift+Enter`.
+The application requests the mode; there is no OdyTTY setting, and the mode is
+inert on Unix. When it is inactive, Kitty, modifyOtherKeys, and legacy input
+continue through their normal selection rules.
+
+A bracketed paste is queued as one transaction containing the opening marker,
+sanitized text, and closing marker, so unrelated input cannot split the frame.
+Pastes larger than 32 MiB are refused. Plain, non-bracketed paste remains
+deliberately chunked.
 
 IME pre-edit appears inline at the cursor and committed text is sent to the
 shell. This supports CJK input methods and compose-key or dead-key accents.
@@ -342,6 +351,10 @@ The vertical workspace rail appears when a second workspace exists. Its `+`
 slot rests at a visible brightness, and a dead gap row above it prevents clicks
 past the last workspace from opening one accidentally.
 
+An always-visible chevron at the rail's bottom edge toggles auto-hide and saves
+the choice. The same control remains available while an auto-hidden rail is
+temporarily revealed, so it can be pinned again without opening Settings.
+
 Drag the rail's inner edge to adjust its width.
 
 | `workspace_rail` value | Rail placement |
@@ -535,6 +548,10 @@ Integration applies only to shells OdyTTY launches. Nested shells, `sudo`, and
 `exec`-swaps are not covered; `fish` survives a plain nested launch through
 `XDG_DATA_DIRS`, and SSH tabs keep the bash bootstrap.
 
+All four injected shell snippets percent-encode OSC 7 working-directory paths,
+including non-ASCII names. The Bash path is compatible with the Bash 3.2 that
+ships on older macOS systems.
+
 ### Prompt Key Enhancement (bash/zsh)
 
 Set `shell_key_enhancement = on` (with `shell_integration` on) to make modified
@@ -673,6 +690,9 @@ reachable but requiring interactive authentication, host-key mismatch, or
 unreachable. OdyTTY never handles a password, and normal connection still works
 for an interactive-auth host.
 
+Connection-launch and probe-start failures are shown in the pane or form rather
+than leaving a selection with no visible result.
+
 **Use the host-row menu.** Right-click a row for **Open in New Tab**, **Open in
 New Workspace**, or **Bind Current Workspace**. A new host workspace is
 pre-bound so its later tabs use that host too.
@@ -745,6 +765,10 @@ Attaching reconnects the live PTY and terminal model. The session host keeps
 both alive through detach and attach cycles until the child exits or the idle
 timeout reaps it.
 
+Snapshot format v3 preserves G0/G1 character-set designation and SO/SI
+selection, so an ACS box-drawing run survives reattach. Older v1 and v2
+snapshots remain readable and restore the power-on ASCII character-set state.
+
 On Windows, Manage Sessions opens an empty list and attach is unavailable.
 
 ### Open Interactive Paths
@@ -759,8 +783,10 @@ menu expose Open, **Open With…**, Copy Path, Copy File, and Reveal in File
 Manager.
 
 Path detection currently recognizes POSIX path shapes (`/`, `~/`, `./`, `../`).
-Windows drive-letter (`C:\`, `C:/`) and UNC (`\\server\share`) paths are not yet
-detected as hints, so Ctrl+click does not resolve them on Windows.
+Windows drive-absolute (`C:\`, `C:/`), UNC (`\\server\share`), and
+backslash-relative paths are also recognized. Drive-relative forms such as
+`C:folder` are deliberately not detected because their meaning depends on
+per-drive process state.
 
 Opening uses `xdg-open` on Linux, `open` on macOS, or `explorer` on Windows,
 each with a scheme allowlist. OdyTTY passes the target as a single argument and

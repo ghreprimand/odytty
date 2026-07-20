@@ -417,7 +417,8 @@ plain bypass.
   bounded, and fully disable-able.
 - **Shipped — Cohesive opt-in retro mode.** A single switch raises bloom, scanlines,
   and vignette into a stronger phosphor reference look. Subtle screen curvature
-  is delivered as a setting; chromatic aberration remains deferred.
+  is a separate config/environment-only setting, flat by default; the retro
+  switch does not force it. Chromatic aberration remains deferred.
 
 ## Track 5 — Shell And Prompt Integration
 

@@ -14,6 +14,11 @@ This document is the contract those phases implement against.
 *This is a design record: sections marked "shipped" are implemented; the rest is
 the contract they build toward.*
 
+Implementation status (2026-07-20): Windows now recognizes drive-absolute, UNC,
+and backslash-relative paths, and launches Explorer directly with one argv
+element. The `cmd` launcher described in the design-time dispatch table below
+is retained as historical context, not current behavior.
+
 ## Contents
 
 - [Goal](#goal)

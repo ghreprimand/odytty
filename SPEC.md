@@ -494,6 +494,14 @@ colors live in terminal state and are included in render snapshots. The active
 theme remains the base presentation; resets return to that theme rather than
 rewriting the theme itself.
 
+### DEC G0/G1 Character Sets
+
+`ESC (` and `ESC )` designate the G0 and G1 sets, while SO and SI select which
+set supplies GL characters. ASCII and DEC Special Graphics are modeled, so
+terminfo and ncurses ACS output becomes real box-drawing glyphs. Reset restores
+ASCII in both slots with G0 selected; save/restore and session snapshots retain
+the designation and shift state.
+
 ### Kitty Keyboard Protocol
 
 #### Track Negotiated Flags
@@ -525,6 +533,15 @@ base-layout key-code subfields for character CSI-u events where OdyTTY can
 derive them from the logical key. Associated-text reporting appends printable
 generated text code points as the third CSI-u parameter when combined with
 report-all.
+
+### ConPTY Win32 Input Mode
+
+On Windows, DEC private mode 9001 switches native input to complete Win32
+`KEY_EVENT_RECORD` values, including key-up state, virtual-key and scan codes,
+Unicode text, modifier flags, and repeat counts. Application-requested Win32
+input takes precedence over Kitty and modifyOtherKeys encoding while active,
+which preserves inputs such as `Ctrl+Backspace` and `Shift+Enter` for console
+applications. The mode has no user setting and is inert on Unix.
 
 ### Synchronized Output (DEC Private Mode 2026)
 
@@ -574,7 +591,8 @@ become `None`, while malformed payloads are consumed without a reply.
 #### Inject Shell Hooks
 
 The supported way to enable marks for local shells is `shell_integration = on`.
-The setting is off by default. For a one-off Bash hook, run:
+The setting is on by default. Set it to `off` to stop injecting hooks into new
+shells. For a one-off Bash hook, run:
 
 ```console
 odytty shell-integration bash
@@ -650,10 +668,11 @@ keymap; they reach the PTY.
 They are bound only as the pane-multiplexer prefix's
 second key (default `Ctrl-B`, then an arrow, focuses the adjacent pane), and copy
 mode or an open overlay consumes arrows only while explicitly active. Bracketed
-paste is emitted as a single envelope — one `ESC[200~`, the whole payload (chunked
-for transport but never split into per-line paste events), one `ESC[201~` — with
-embedded end markers stripped so a paste cannot self-terminate early. Because the
-correct cursor-key bytes and a single paste envelope reach the PTY, Up/Down
+paste is emitted as one write-queue transaction: `ESC[200~`, the sanitized
+payload, and `ESC[201~`. Embedded end markers are stripped so a paste cannot
+self-terminate early, and payloads larger than 32 MiB are refused. Plain paste
+remains deliberately chunked. Because the correct cursor-key bytes and a single
+paste envelope reach the PTY, Up/Down
 navigation inside a pasted multiline buffer is owned by readline/zle/PSReadLine/
 fish, which is working as designed rather than a terminal defect.
 
@@ -741,8 +760,9 @@ its first stable layer.
 - Refined selection: double-click word, triple-click line, drag-scroll,
   scrollback-aware anchors
 
-- Clipboard hardening: chunked paste, bracketed-paste sanitization, PRIMARY
-  selection, OSC 52 write support, and default-deny OSC 52 read policy
+- Clipboard hardening: atomic bracketed paste with a 32 MiB ceiling, chunked
+  plain paste, PRIMARY selection, consent-gated OSC 52 write support, and
+  default-deny OSC 52 read policy
 
 - OSC 8 hyperlinks: hover underline, Ctrl+click on Linux/Windows or Cmd+click on
   macOS through the platform opener, scheme allowlist
@@ -1109,7 +1129,9 @@ its first stable layer.
   per-user Unix-domain socket under `$XDG_RUNTIME_DIR/odytty/`, requires a
   `0700` current-user runtime directory, rejects incompatible protocol/snapshot
   versions, sends a current `SnapshotEnvelope` on every attach, streams
-  output/invalidation frames, and reaps the child process. Runtime-dir
+  output/invalidation frames, and reaps the child process. Snapshot format v3
+  retains G0/G1 designation and SO/SI selection; v1 and v2 remain readable and
+  restore the power-on ASCII character-set state. Runtime-dir
   resolution: an explicitly-set `XDG_RUNTIME_DIR` always wins on Unix
   (Linux uses its standard `/run/user/<uid>`, byte-identical). On macOS, which
   has no `XDG_RUNTIME_DIR`, the host falls back to the per-user Darwin temp

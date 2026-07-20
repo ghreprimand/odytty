@@ -15,6 +15,7 @@ paths, which uses Cmd+click on macOS because Ctrl+click is a secondary click.
 - [How OdyTTY's shortcuts stay out of the shell's way](#how-odyttys-shortcuts-stay-out-of-the-shells-way)
 - [Global shortcuts](#global-shortcuts)
 - [Shell Integration](#shell-integration)
+- [Windows Console Input](#windows-console-input)
 - [Panes: the tmux-style prefix](#panes-the-tmux-style-prefix)
 - [Copy mode](#copy-mode)
 - [Keyboard hints (quick-select)](#keyboard-hints-quick-select)
@@ -91,6 +92,8 @@ Notes that trip people up:
 - With `osc52_write = ask`, a terminal clipboard consent prompt captures
   `Ctrl+Shift+1` to allow once, `Ctrl+Shift+S` to allow for the current PTY
   session, `Ctrl+Shift+D` to deny for that session, and `Esc` to cancel.
+- Bracketed paste queues its markers and sanitized text as one transaction and
+  refuses input larger than 32 MiB. Plain paste remains deliberately chunked.
 - A printed `https://…` URL is clickable by default (Ctrl+click on
   Linux/Windows or Cmd+click on macOS, with the same modifier for the hover
   underline); toggle with `interactive_urls`.
@@ -145,6 +148,18 @@ Connect to Host, Replace with Host, optional Move to Workspace, and New Window;
 the empty tab strip offers New Tab, New Workspace, Open Layout, Command Palette,
 and Settings. The terminal grid opens the selection- and path-aware content
 menu. Items with a bound chord show it.
+
+## Windows Console Input
+
+A native Windows console application can request ConPTY Win32 input with DEC
+private mode 9001. While active, OdyTTY sends complete Win32 key records rather
+than normalized legacy bytes, preserving input such as `Ctrl+Backspace` word
+deletion in PowerShell and distinct `Shift+Enter`. The application requests the
+mode; it has no setting or local shortcut, and it is inert on Unix.
+
+OdyTTY's own global shortcuts are still resolved first. When Win32 input mode
+is inactive, Kitty, modifyOtherKeys, and legacy encoding use their normal
+selection rules.
 
 ## Panes: the tmux-style prefix
 

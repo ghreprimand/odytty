@@ -340,7 +340,7 @@ Distinctive treatments that direct attention without harming legibility.
 - **Window chrome / padding identity (landed):** themed padding, optional thin
   semantic-role border, and a live window-decoration toggle.
 
-### Tier 3 — Atmospheric effects (opt-in post-process)
+### Tier 3 — Atmospheric effects
 
 These require a post-process pipeline (offscreen render target + composite
 pass), which now exists (VE1) and carries the first effect (VE2). For user-facing
@@ -356,9 +356,11 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
   bright-pass threshold + half-res separable blur + additive composite. Enabled
   in the fresh-install ambient baseline behind the `bloom` setting and
   adapter-gated.
-- **CRT / retro profile (landed):** refined scanlines, vignette, subtle
-  curvature, and a separate `retro=on` preset for a stronger phosphor reference
-  look. Chromatic aberration remains deferred.
+- **CRT / retro profile (landed):** refined scanlines and vignette, plus a
+  separate `retro=on` preset for a stronger phosphor reference look. Optional
+  curvature comes only from the config/environment `crt_curvature` knob and is
+  flat by default; the retro preset does not force it. Chromatic aberration
+  remains deferred.
 - **Subtle motion (landed):** optional cursor glow, blink fade, slide, trail,
   and fade-in of new output; bounded and disable-able.
 - **GPU quality + effect settings:** per-effect toggles in the settings
