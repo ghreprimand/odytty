@@ -74,6 +74,7 @@ environment variable was not set at startup.
 | `font_size` | `ODYTTY_FONT_SIZE` | Float, `6.0..=72.0` px | `20.0` |
 | `line_height` | `ODYTTY_LINE_HEIGHT` | Float, `1.0..=2.0` | `1.0` |
 | `text_gamma` | `ODYTTY_TEXT_GAMMA` | Float, `0.5..=3.0` | `1.2` |
+| `text_brightness` | `ODYTTY_TEXT_BRIGHTNESS` | Float, `1.0..=1.5` (step 0.05) | `1.0` |
 | `stem_darken` | `ODYTTY_STEM_DARKEN` | Float, `0.0..=1.0` | `0.7` |
 | `min_contrast` | `ODYTTY_MIN_CONTRAST` | WCAG contrast ratio, `1.0..=21.0` | `17.0` |
 | `focus_dim` | `ODYTTY_FOCUS_DIM` | Float, `0.0..=1.0` | `0.0` |
@@ -85,6 +86,7 @@ environment variable was not set at startup.
 | `window_transparency` | `ODYTTY_WINDOW_TRANSPARENCY` | `on`, `off` | `on` |
 | `window_opacity` | `ODYTTY_WINDOW_OPACITY` | Percent, `20..=100` (step 5) | `80` |
 | `selection_opacity` | `ODYTTY_SELECTION_OPACITY` | Float, `0.0..=1.0` (step 0.05) | `0.6` |
+| `colored_bg_opacity` | `ODYTTY_COLORED_BG_OPACITY` | Float, `0.0..=1.0` (step 0.05) | `0.9` |
 | `always_show_tab_bar` | `ODYTTY_ALWAYS_SHOW_TAB_BAR` | `on`, `off` | `off` |
 | `tab_bar_height` | `ODYTTY_TAB_BAR_HEIGHT` | `auto`, or `1..=5` rows | `auto` |
 | `workspace_rail_side` | `ODYTTY_WORKSPACE_RAIL_SIDE` | `left`, `right` | `left` |
@@ -207,6 +209,24 @@ opacity.
 
 Wayland supports compositing natively, X11 requires a compositor, and Windows
 uses DWM. A display server without alpha compositing shows no visible change.
+
+### Keep Colored Blocks And Text Legible At Low Opacity
+
+As `window_opacity` drops, colored cell backgrounds — prompt powerline
+segments, button chips, and highlighted status blocks — fade along with the
+window and can wash out. `colored_bg_opacity` sets a minimum background
+strength for any cell whose colour differs from the theme default, so those
+blocks stay solid while the plain background still shows the desktop through.
+The default is `0.9`; `1.0` keeps colored backgrounds fully opaque, and `0.0`
+disables the floor and restores the uniform behaviour. It has no effect at
+`window_opacity = 100`, where nothing is translucent. Default-background cells
+are never touched, and the selection, cursor, and window chrome are exempt.
+
+`text_brightness` lifts glyph ink toward white in linear light so text stays
+readable over busy or colored backdrops. The default `1.0` keeps the exact
+theme colours; raising it toward `1.5` brightens strokes with a soft knee. The
+lift is applied after the `min_contrast` floor and leaves colour emoji
+unchanged.
 
 ### Tune The Selection Strength
 

@@ -7,6 +7,26 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Settings panel and docs for the low-opacity legibility knobs
+
+The colored-background floor and the text-brightness lift are now adjustable
+from Settings -> Rendering, not env/config only. Two rows join the Rendering
+group: "Colored background strength" (`colored_bg_opacity`) beside Window
+opacity and Selection opacity, and "Text brightness" (`text_brightness`) beside
+Text gamma, each a live float slider across its full range (0.0..=1.0 and
+1.0..=1.5). The panel descriptions state the real defaults — 0.9 for the
+colored-background floor, 1.0 identity for the brightness lift — and the
+mechanics: the floor keeps colored blocks like prompt segments and button chips
+solid as window opacity drops and has no effect at full opacity, and the lift
+raises glyph ink toward white after the minimum-contrast floor without touching
+color emoji.
+
+Reference docs follow in lockstep: the runtime-knobs table plus a new
+transparency-section paragraph, the features guide's transparency section, and
+`odytty.conf.example` all carry both keys with matching ranges and defaults.
+
+---
+
 ## 2026-07-20 -- Text brightness lift for busy backdrops
 
 Low-opacity legibility, part two. Even with colored backgrounds floored, glyph

@@ -305,6 +305,24 @@ impl Settings {
             },
             SettingInfo {
                 group: "Rendering",
+                key: "text_brightness",
+                env: TEXT_BRIGHTNESS_ENV,
+                name: "Text brightness",
+                value: format_float(self.text_brightness),
+                description: "Lifts glyph ink toward white in linear light so text stays legible over busy or colored backdrops. 1.0 keeps the exact theme colors; higher values brighten strokes up to 1.5. Applies after the minimum-contrast floor and does not affect color emoji.",
+                kind: SettingKind::Number,
+                range: None,
+                options: &[],
+                reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_TEXT_BRIGHTNESS,
+                    max: MAX_TEXT_BRIGHTNESS,
+                    step: 0.05,
+                    unit: "",
+                }),
+            },
+            SettingInfo {
+                group: "Rendering",
                 key: "stem_darken",
                 env: STEM_DARKEN_ENV,
                 name: "Stem darkening",
@@ -477,6 +495,24 @@ impl Settings {
                 numeric: Some(NumericSpec {
                     min: MIN_SELECTION_OPACITY,
                     max: MAX_SELECTION_OPACITY,
+                    step: 0.05,
+                    unit: "",
+                }),
+            },
+            SettingInfo {
+                group: "Rendering",
+                key: "colored_bg_opacity",
+                env: COLORED_BG_OPACITY_ENV,
+                name: "Colored background strength",
+                value: format_float(self.colored_bg_opacity),
+                description: "Minimum background strength for cells whose color differs from the theme default, so colored blocks like prompt segments and button chips stay solid as Window opacity drops. 0.9 by default; 1 keeps colored backgrounds fully opaque while 0 disables the floor. No effect when Window opacity is 100.",
+                kind: SettingKind::Number,
+                range: None,
+                options: &[],
+                reloadable: true,
+                numeric: Some(NumericSpec {
+                    min: MIN_COLORED_BG_OPACITY,
+                    max: MAX_COLORED_BG_OPACITY,
                     step: 0.05,
                     unit: "",
                 }),
@@ -1875,6 +1911,7 @@ impl Settings {
             }
             "font_size" => format_float(self.font_size_px),
             "text_gamma" => format_float(self.text_gamma),
+            "text_brightness" => format_float(self.text_brightness),
             "stem_darken" => format_float(self.stem_darken),
             "min_contrast" => format_float(self.min_contrast),
             "focus_dim" => format_float(self.focus_dim),
@@ -1908,6 +1945,7 @@ impl Settings {
                 })
                 .unwrap_or_else(|| "none".to_owned()),
             "cell_bg_opacity" => format_float(1.0 - self.cell_bg_opacity),
+            "colored_bg_opacity" => format_float(self.colored_bg_opacity),
             "selection_opacity" => format_float(self.selection_opacity),
             "background_blur_radius" => self.background_blur_radius.to_string(),
             "background_image_scrim" => self

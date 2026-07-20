@@ -24,6 +24,10 @@ font_family = Victor Mono
 font_size = 20
 line_height = 1.0
 text_gamma = 1.2
+# Lift glyph ink toward white for legibility over busy or colored backdrops.
+# 1.0 keeps the exact theme colors (default); raise toward 1.5 to brighten
+# strokes. Applied after min_contrast; color emoji are unaffected.
+text_brightness = 1.0
 stem_darken = 0.7
 subpixel = off
 synthetic_styles = on
@@ -64,6 +68,12 @@ window_opacity = 80
 # window transparency); raise it to 1.0 for a crisp fully-opaque selection, or
 # lower it to let a transparent or busy backdrop show through behind it.
 selection_opacity = 0.6
+
+# Minimum background strength for cells whose color differs from the theme
+# default, so colored blocks (prompt segments, button chips, status runs) stay
+# solid as window_opacity drops. 0.9 by default; 1.0 keeps colored backgrounds
+# fully opaque, 0.0 disables the floor. No effect at window_opacity = 100.
+colored_bg_opacity = 0.9
 
 # Show the tab bar even with a single tab. Off by default (a lone unnamed tab
 # hides the bar). A single tab you have renamed always shows the bar regardless.

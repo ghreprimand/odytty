@@ -894,6 +894,17 @@ under the selection stays legible through the minimum-contrast floor.
 `window_opacity` is a percentage from 20 through 100 in steps of 5, with 100
 fully opaque.
 
+Two controls keep content readable as the window grows more transparent.
+`colored_bg_opacity` (default `0.9`) holds a minimum background strength for
+cells whose colour differs from the theme default, so colored blocks — prompt
+powerline segments, button chips, and highlighted status runs — stay solid
+while the plain background still lets the desktop through; `1.0` keeps colored
+backgrounds fully opaque, `0.0` disables the floor, and it has no effect at
+`window_opacity = 100`. `text_brightness` (default `1.0`) lifts glyph ink
+toward white so text stays legible over busy backdrops, applied after the
+minimum-contrast floor and leaving colour emoji unchanged. Both live in
+Settings → Rendering.
+
 Wayland supports compositing natively, X11 requires a compositor, and Windows
 uses DWM. On a display server without alpha compositing, the setting has no
 visible effect.
