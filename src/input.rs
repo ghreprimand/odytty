@@ -153,12 +153,13 @@ pub const KITTY_REPORT_ASSOCIATED_TEXT: u16 = 0b10000;
 
 /// Encode a key press into the bytes to write to the PTY.
 ///
-/// Returns an empty vector when the key produces no output (e.g. a bare
-/// Ctrl with a character that has no control mapping); callers should treat an
-/// empty result as "ignore". Alt prefixes printable characters with `ESC`,
-/// matching xterm's meta-sends-escape convention; named keys carry Alt through
-/// the xterm modifier table instead. Ctrl turns [`Key::Char`] letters into
-/// control bytes and named keys into modified CSI forms.
+/// Returns an empty vector when the key has no defined encoding; callers should
+/// treat an empty result as "ignore". Alt prefixes printable characters with
+/// `ESC`, matching xterm's meta-sends-escape convention; named keys carry Alt
+/// through the xterm modifier table instead. Ctrl turns [`Key::Char`] letters
+/// into control bytes and named keys into modified CSI forms. If a windowing
+/// system has already translated a Ctrl chord into text, that text is retained
+/// rather than silently discarded.
 pub fn encode_key(key: Key, mods: Modifiers, modes: KeyModes) -> Vec<u8> {
     encode_key_event(key, mods, modes, KeyEventType::Press)
 }
@@ -174,6 +175,14 @@ pub fn encode_key_event(
     modes: KeyModes,
     event_type: KeyEventType,
 ) -> Vec<u8> {
+    // Some Wayland stacks report editing keys as their translated control-text
+    // value instead of a named key. Normalize before every protocol decision so
+    // Kitty, W32IM's neutral/synthetic path, and legacy VT all see the same key
+    // identity. DEL is treated as Backspace here because it is the alternate
+    // text form observed for that physical key; a named forward Delete remains
+    // Key::Delete and keeps CSI 3~.
+    let key = normalize_control_text_key(key, mods);
+
     // W32IM represents the complete Windows key event and therefore takes
     // precedence over both Kitty and modifyOtherKeys. The native Windows path
     // supplies physical VK/scan data directly; this neutral mapping keeps
@@ -227,7 +236,7 @@ pub fn encode_key_event(
         Key::KeypadMultiply => encode_keypad(b"*", b"j", modes),
         Key::KeypadDivide => encode_keypad(b"/", b"o", modes),
         Key::KeypadEnter => encode_keypad(b"\r", b"M", modes),
-        Key::Char(ch) if mods.ctrl => ctrl_char(ch).map_or_else(Vec::new, |byte| vec![byte]),
+        Key::Char(ch) if mods.ctrl => encode_legacy_ctrl_char(ch),
         Key::Char(ch) => ch.to_string().into_bytes(),
     };
 
@@ -240,6 +249,28 @@ pub fn encode_key_event(
     }
 
     bytes
+}
+
+fn normalize_control_text_key(key: Key, mods: Modifiers) -> Key {
+    match key {
+        Key::Char('\u{8}' | '\u{7f}') => Key::Backspace,
+        Key::Char('\t') if mods.shift => Key::BackTab,
+        Key::Char('\t') => Key::Tab,
+        Key::Char('\r' | '\n') => Key::Enter,
+        Key::Char('\u{1b}') => Key::Esc,
+        _ => key,
+    }
+}
+
+fn encode_legacy_ctrl_char(ch: char) -> Vec<u8> {
+    ctrl_char(ch).map_or_else(
+        // A Character event is already layout/window-system translated text.
+        // When no classic Ctrl mapping exists, forwarding that text matches
+        // xterm's pass-through behavior and prevents a valid key event from
+        // becoming an invisible zero-byte write.
+        || ch.to_string().into_bytes(),
+        |byte| vec![byte],
+    )
 }
 
 /// Encode one Win32 input-mode key record as the full, explicit ConPTY form:
@@ -791,8 +822,8 @@ fn encode_keypad(normal: &[u8], application_final: &[u8], modes: KeyModes) -> Ve
 ///
 /// Covers Ctrl-A..Z (case-insensitive) and the classic punctuation controls
 /// (`Ctrl-@`, `Ctrl-[`, `Ctrl-\`, `Ctrl-]`, `Ctrl-^`, `Ctrl-_`, `Ctrl-?`,
-/// `Ctrl-Space`). Anything without a control mapping returns `None`, which
-/// [`encode_key`] treats as no output.
+/// `Ctrl-Space`). Anything without a classic mapping returns `None`; the legacy
+/// encoder forwards the window system's translated character unchanged.
 pub fn ctrl_char(ch: char) -> Option<u8> {
     match ch {
         'a'..='z' => Some((ch as u8) - b'a' + 1),
@@ -934,9 +965,14 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_without_mapping_is_ignored() {
-        // A digit has no control byte; encode produces nothing (ignore).
-        assert!(encode_key(Key::Char('1'), Modifiers::CTRL, KeyModes::default()).is_empty());
+    fn ctrl_without_mapping_forwards_translated_text() {
+        // A digit has no classic control byte. The Character event is already
+        // translated text, so legacy mode forwards it instead of swallowing a
+        // valid key event.
+        assert_eq!(
+            encode_key(Key::Char('1'), Modifiers::CTRL, KeyModes::default()),
+            b"1"
+        );
     }
 
     #[test]
@@ -1331,6 +1367,60 @@ mod tests {
             encode_key(Key::Backspace, Modifiers::CTRL, modes),
             vec![0x7f]
         );
+    }
+
+    #[test]
+    fn control_text_editing_forms_match_named_keys_in_legacy_and_kitty_modes() {
+        let kitty = KeyModes {
+            kitty_keyboard_flags: KITTY_DISAMBIGUATE,
+            ..KeyModes::default()
+        };
+        let cases = [
+            ('\u{8}', Key::Backspace),
+            ('\u{7f}', Key::Backspace),
+            ('\t', Key::Tab),
+            ('\r', Key::Enter),
+            ('\n', Key::Enter),
+            ('\u{1b}', Key::Esc),
+        ];
+
+        for modes in [KeyModes::default(), kitty] {
+            for (reported, named) in cases {
+                assert_eq!(
+                    encode_key(Key::Char(reported), Modifiers::CTRL, modes),
+                    encode_key(named, Modifiers::CTRL, modes),
+                    "control-text {reported:?} must encode like {named:?} in {modes:?}"
+                );
+            }
+        }
+
+        let shift = Modifiers {
+            shift: true,
+            ..Modifiers::NONE
+        };
+        assert_eq!(
+            encode_key(Key::Char('\t'), shift, KeyModes::default()),
+            encode_key(Key::BackTab, shift, KeyModes::default())
+        );
+    }
+
+    #[test]
+    fn ctrl_character_deliveries_never_silently_encode_to_zero_bytes() {
+        let kitty = KeyModes {
+            kitty_keyboard_flags: KITTY_DISAMBIGUATE,
+            ..KeyModes::default()
+        };
+        let mut reported = (0..=0x1f).filter_map(char::from_u32).collect::<Vec<_>>();
+        reported.extend(['\u{7f}', '1', '.', 'é']);
+
+        for modes in [KeyModes::default(), kitty] {
+            for ch in &reported {
+                assert!(
+                    !encode_key(Key::Char(*ch), Modifiers::CTRL, modes).is_empty(),
+                    "Ctrl Character({ch:?}) silently vanished in {modes:?}"
+                );
+            }
+        }
     }
 
     #[test]

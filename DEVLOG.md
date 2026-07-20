@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Control-text editing keys no longer disappear
+
+Backspace chords now encode identically regardless of how the window system
+reports the key. Some Wayland environments deliver Ctrl+Backspace as the
+already-translated control character BS instead of a named Backspace event;
+that character previously missed the Kitty named-key path and then produced no
+legacy bytes. BS and DEL text forms now normalize to Backspace before protocol
+selection, so prompt key enhancement emits `CSI 127;5u` and plain legacy input
+emits DEL in either delivery shape.
+
+The same normalization covers control-text Tab, Enter, line feed, and Escape,
+including Shift+Tab. Other Ctrl-modified Character events with no classic
+control mapping now forward the translated character instead of silently
+discarding a valid key event. Named-key behavior is unchanged.
+
+Windows is unaffected: native Windows events use the ConPTY Win32 input path,
+which maps the physical and logical event directly before the neutral character
+encoder. Win32 input precedence and its key-up records are unchanged.
+
+---
+
 ## 2026-07-20 -- Release v0.9.2 — Windows key fidelity under ConPTY, word-wise editing everywhere
 
 Version 0.9.2 is released. The headline is full keyboard fidelity on Windows:
