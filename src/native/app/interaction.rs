@@ -1526,17 +1526,11 @@ impl App {
         // Without this the SGR-pixel (1016) report would leak the chrome / pane
         // offset to the application (a left rail reporting X too large, a top bar
         // reporting Y too large).
-        let (px, py) = if let Some((content, _)) = self.multipane_geometry() {
-            let focused = self.sessions.active_id();
-            let rect = self
-                .sessions
-                .active_pane_rects(content, PANE_DIVIDER_PX)
-                .into_iter()
-                .find(|(token, _)| *token == focused)
-                .map(|(_, rect)| rect)?;
-            // The focused pane's rect origin already folds in the tab-chrome and
-            // window padding, so no separate padding subtraction here (parity with
-            // `pane_relative_cell`).
+        let (px, py) = if let Some((rect, _)) = self.focused_pane_inner_rect() {
+            // PANE-PADDING: the focused pane's PADDED rect origin already folds in
+            // the tab-chrome, window padding, AND the per-divider inset, so the
+            // report maps to the same cell the glyph renders at (parity with
+            // `pane_relative_cell`); no separate padding subtraction here.
             pixel_coords_for_report(
                 x_px - f64::from(rect.x),
                 y_px - f64::from(rect.y),
@@ -2671,19 +2665,10 @@ impl App {
         let cell_w = f64::from(cell.width.max(1));
         // Origin of the column axis in the same physical-x basis the cell was
         // resolved against.
-        let origin_x = if let Some((content, _)) = self.multipane_geometry() {
-            // Multi-pane: the focused pane's content sub-rect x origin.
-            let focused = self.sessions.active_id();
-            let Some(rect_x) = self
-                .sessions
-                .active_pane_rects(content, PANE_DIVIDER_PX)
-                .into_iter()
-                .find(|(token, _)| *token == focused)
-                .map(|(_, rect)| f64::from(rect.x))
-            else {
-                return false;
-            };
-            rect_x
+        let origin_x = if let Some((rect, _)) = self.focused_pane_inner_rect() {
+            // Multi-pane: the focused pane's PADDED content sub-rect x origin
+            // (matches the render origin's per-divider inset).
+            f64::from(rect.x)
         } else {
             // Single-pane: window padding after the tab-chrome dx. Both are 0 on
             // the plain top-bar path, so this is the bare padding there.

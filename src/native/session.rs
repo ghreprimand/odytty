@@ -47,7 +47,7 @@ use super::copy_mode::CopyModeState;
 use super::layout::{
     EVEN_RATIO, FocusDir, PaneNode, PaneRect, SplitAxis, divider_at_point, divider_axis_at_point,
     divider_rects_with_axis, drag_divider_to, focus_move, grid_dims_for_rect, layout_rects,
-    pane_at_point, snap_divider_to_cells,
+    pane_at_point, pane_inner_rect, snap_divider_to_cells,
 };
 use super::output_recorder::RecorderHandle;
 use super::pty::{PtyWriter, UserEvent, spawn_pty_pump};
@@ -1831,14 +1831,20 @@ impl WorkspaceSet {
     /// is sized to exactly the dimensions the old per-session resize loop
     /// produced — the single-pane path stays byte-identical. Multi-pane tabs get
     /// each pane sized to its own sub-rect (design doc §2.5 audit row #1).
+    ///
+    /// `pad` is the physical window-padding inset applied to every divider-facing
+    /// pane edge (`0.0` and the single-pane path stay byte-identical); it sizes
+    /// each pane's PTY/grid to its padded drawable rect so glyphs never sit flush
+    /// against a divider.
     pub(super) fn resize_all_panes(
         &mut self,
         content: PaneRect,
         cell_w: u32,
         cell_h: u32,
         divider_px: f32,
+        pad: f32,
     ) {
-        self.resize_all_panes_impl(content, cell_w, cell_h, divider_px, true);
+        self.resize_all_panes_impl(content, cell_w, cell_h, divider_px, pad, true);
     }
 
     /// Reflow every pane's terminal **model + cell metrics** to the laid-out
@@ -1861,8 +1867,9 @@ impl WorkspaceSet {
         cell_w: u32,
         cell_h: u32,
         divider_px: f32,
+        pad: f32,
     ) {
-        self.resize_all_panes_impl(content, cell_w, cell_h, divider_px, false);
+        self.resize_all_panes_impl(content, cell_w, cell_h, divider_px, pad, false);
     }
 
     /// Shared body of [`resize_all_panes`] (`resize_pty = true`) and
@@ -1875,6 +1882,7 @@ impl WorkspaceSet {
         cell_w: u32,
         cell_h: u32,
         divider_px: f32,
+        pad: f32,
         resize_pty: bool,
     ) {
         for tab in self.workspaces.iter().flat_map(|ws| ws.tabs.iter()) {
@@ -1888,6 +1896,13 @@ impl WorkspaceSet {
                 } else {
                     rect
                 };
+                // PANE-PADDING: size the PTY/grid to the pane's padded drawable
+                // rect (inset by `pad` on divider-facing edges), so the reported
+                // "first glyph flush against the divider" regression is fixed and
+                // the grid never overflows into the divider gap. `pad == 0`, the
+                // single-pane path, and a zoomed full-bleed pane all yield an
+                // inner rect equal to `rect`, so those paths stay byte-identical.
+                let rect = pane_inner_rect(rect, content, pad);
                 let (cols, rows) = grid_dims_for_rect(rect, cell_w, cell_h);
                 let Some(session) = self.sessions.get_mut(&token) else {
                     continue;
@@ -4585,7 +4600,7 @@ mod tests {
             Position { row: 1, column: 3 },
             "pre-resize wrapped state must put the cursor on the continuation row"
         );
-        translate.resize_all_panes(content, cell_w, cell_h, divider_px);
+        translate.resize_all_panes(content, cell_w, cell_h, divider_px, 0.0);
         let translated = {
             let session = translate.active();
             let terminal = session.terminal.lock().expect("terminal lock");
@@ -4605,7 +4620,7 @@ mod tests {
         // ignores the flag.
         let (mut defer, incoming_defer) = setup(true);
         assert_eq!(incoming_defer, incoming, "identical pre-resize state");
-        defer.resize_all_panes(content, cell_w, cell_h, divider_px);
+        defer.resize_all_panes(content, cell_w, cell_h, divider_px, 0.0);
         let (deferred, flag_survived) = {
             let session = defer.active();
             let terminal = session.terminal.lock().expect("terminal lock");
@@ -5327,7 +5342,7 @@ mod tests {
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         let content = PaneRect::new(0.0, 0.0, 801.0, 400.0);
         assert!(set.toggle_active_zoom());
-        set.resize_all_panes(content, 10, 20, 1.0);
+        set.resize_all_panes(content, 10, 20, 1.0, 0.0);
         // The focused (zoomed) pane fills the whole content → 80 cols, 20 rows.
         assert_eq!(pane_dims(&set, right), (80, 20));
         // The background pane keeps its split sub-rect (40 cols) so un-zoom is
@@ -5341,7 +5356,7 @@ mod tests {
         let focused =
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         let content = PaneRect::new(0.0, 0.0, 801.0, 400.0);
-        set.resize_all_panes(content, 10, 20, 1.0);
+        set.resize_all_panes(content, 10, 20, 1.0, 0.0);
         set.get_mut(SessionToken(0))
             .expect("background pane")
             .selection
@@ -5352,7 +5367,7 @@ mod tests {
             .set_range(test_selection());
 
         assert!(set.toggle_active_zoom());
-        set.resize_all_panes(content, 10, 20, 1.0);
+        set.resize_all_panes(content, 10, 20, 1.0, 0.0);
 
         assert!(
             set.get(focused)
@@ -5412,7 +5427,7 @@ mod tests {
         let mut set = WorkspaceSet::new(build_session(), None);
         // 800x400 content, 10x20 cell → 80 cols, 20 rows; one pane fills it.
         let content = PaneRect::new(0.0, 0.0, 800.0, 400.0);
-        set.resize_all_panes(content, 10, 20, 1.0);
+        set.resize_all_panes(content, 10, 20, 1.0, 0.0);
         assert_eq!(pane_dims(&set, SessionToken(0)), (80, 20));
     }
 
@@ -5432,7 +5447,7 @@ mod tests {
         // arm is the identical `pty.lock().resize(...)` call.
         let mut set = WorkspaceSet::new(build_local_session_with_id(SessionToken(0)), None);
         let content = PaneRect::new(0.0, 0.0, 800.0, 400.0);
-        set.resize_all_panes(content, 10, 20, 1.0);
+        set.resize_all_panes(content, 10, 20, 1.0, 0.0);
         let pty_dims = set
             .active()
             .local_pty()
@@ -5452,7 +5467,7 @@ mod tests {
         // 801px wide, 1px divider → 800 usable, even split → 400/400 → 40 cols
         // each at a 10px cell. Heights are the full 400px → 20 rows.
         let content = PaneRect::new(0.0, 0.0, 801.0, 400.0);
-        set.resize_all_panes(content, 10, 20, 1.0);
+        set.resize_all_panes(content, 10, 20, 1.0, 0.0);
         assert_eq!(pane_dims(&set, SessionToken(0)), (40, 20));
         assert_eq!(pane_dims(&set, right), (40, 20));
     }
@@ -5471,7 +5486,7 @@ mod tests {
             set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
         // Settle both panes at 40x20 (801px wide, 1px divider, 10x20 cell).
         let content = PaneRect::new(0.0, 0.0, 801.0, 400.0);
-        set.resize_all_panes(content, 10, 20, 1.0);
+        set.resize_all_panes(content, 10, 20, 1.0, 0.0);
         assert_eq!(pane_dims(&set, SessionToken(0)), (40, 20));
 
         // Print a fish-style prompt with its trailing space into the left pane:
@@ -5497,7 +5512,7 @@ mod tests {
         // Re-run the exact same layout pass (what a split of the OTHER column
         // does to this untouched pane: identical 40x20 dims). With the no-op
         // guard the cursor and the trailing blank are byte-identical.
-        set.resize_all_panes(content, 10, 20, 1.0);
+        set.resize_all_panes(content, 10, 20, 1.0, 0.0);
         assert_eq!(pane_dims(&set, SessionToken(0)), (40, 20));
 
         let after = set

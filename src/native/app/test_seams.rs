@@ -158,6 +158,29 @@ impl App {
         Some((snapshot.colors, terminal_colors))
     }
 
+    /// Test seam (PANE-PADDING, board 4c8856ae): the focused pane's TILED rect
+    /// and its PADDED inner (drawable grid) rect in the active multi-pane tab,
+    /// each as `[x, y, w, h]`. Lets a regression assert that every divider-facing
+    /// edge is inset by exactly the window padding while outer-margin edges keep
+    /// the tiled geometry. `None` on a single-pane tab / without resolved
+    /// geometry.
+    #[cfg(test)]
+    pub(in crate::native) fn focused_pane_rects_for_test(&self) -> Option<([f32; 4], [f32; 4])> {
+        let (content, _cell) = self.multipane_geometry()?;
+        let focused = self.sessions.active_id();
+        let tiled = self
+            .sessions
+            .active_pane_rects(content, super::panes::PANE_DIVIDER_PX)
+            .into_iter()
+            .find(|(t, _)| *t == focused)
+            .map(|(_, r)| r)?;
+        let (inner, _cell) = self.focused_pane_inner_rect()?;
+        Some((
+            [tiled.x, tiled.y, tiled.w, tiled.h],
+            [inner.x, inner.y, inner.w, inner.h],
+        ))
+    }
+
     /// Test seam (OVERLAY-SMALL-WINDOW): open the connection-manager overlay
     /// pre-loaded with `count` SYNTHETIC OdyTTY-owned hosts, bypassing the real
     /// `~/.ssh` / `hosts.conf` load path entirely. Synthetic data only — no real

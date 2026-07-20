@@ -7,6 +7,45 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Window padding now applies at every split-pane divider
+
+`window_padding` is documented as breathing room against every hard boundary,
+but split panes were an exception: after a vertical or horizontal split, a
+pane's grid sat flush against the divider, and the first glyph of the pane
+touching the divider's near edge began right on it. The rule that placed each
+pane's grid deliberately pushed the divider-facing edge flush to the divider,
+absorbing only the sub-cell remainder onto the outer margin — so a split lost
+the configured inset that the window edges kept.
+
+Each pane's drawable grid is now inset by the configured padding on every edge
+that faces a divider, matching the inset the window edges already carry. Outer
+window-margin edges are untouched (their padding was already applied when the
+content rect was inset from the window), so the change is confined to
+divider-facing edges. The classification is purely geometric per edge, so
+vertical, horizontal, and nested splits all behave identically, and a
+sandwiched pane in a three-way split gets the inset on both of its divider
+sides.
+
+The inset flows through one derived rectangle that every coupled system reads:
+the pane's PTY/grid dimensions, the drawn origin, the inline-image scissor, and
+pointer-to-cell mapping (selection anchoring, hover resolution, and pixel mouse
+reports) all shrink together, so a click still lands on the cell its glyph is
+drawn at. The gap opened between a pane's grid and its divider is filled by the
+same themed background wash that already covers the window padding and the
+sub-cell remainders, so under a translucent window it reads as consistent
+breathing room rather than raw wallpaper. Dividers stay a crisp single pixel at
+their existing positions, and their grab bands are unchanged, so divider drag,
+snap-on-release, and directional focus movement are byte-identical.
+
+Identity is preserved where it must be: at `window_padding = 0`, and for a
+single-pane or zoomed full-bleed pane, the derived rectangle equals the pane's
+tiled rectangle exactly, so those frames are bit-for-bit unchanged. New pure
+layout tests pin the per-edge inset across column, row, and 2x2 grids and the
+two identity paths; new headless multi-pane tests confirm the focused pane's
+grid is inset by exactly the padding at nonzero padding and flush at zero.
+Windows: platform-neutral geometry, no OS-specific surface. `cargo fmt`,
+`cargo clippy --all-targets --locked`, and the full test suite pass.
+
 ## 2026-07-20 -- Selection strength gains an opt-in boost above full opacity
 
 The text-selection control now defaults to a fully opaque selection and reaches

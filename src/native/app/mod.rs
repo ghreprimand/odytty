@@ -1002,8 +1002,13 @@ impl App {
         // single-pane world each tab's lone leaf spans the whole content rect,
         // so this resizes each session to exactly `new_grid` — byte-identical to
         // the old per-session loop. Multi-pane tabs get per-pane sizing (#1).
-        self.sessions
-            .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
+        self.sessions.resize_all_panes(
+            content,
+            cell.width,
+            cell.height,
+            PANE_DIVIDER_PX,
+            padding.as_f32(),
+        );
         true
     }
 
@@ -1021,8 +1026,13 @@ impl App {
             return;
         };
         let content = pane_content_rect(width_px, height_px, cell, padding, self.tab_reserve());
-        self.sessions
-            .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
+        self.sessions.resize_all_panes(
+            content,
+            cell.width,
+            cell.height,
+            PANE_DIVIDER_PX,
+            padding.as_f32(),
+        );
     }
 
     fn apply_grid_resize(&mut self, resize: PendingResize) {
@@ -1866,8 +1876,9 @@ impl App {
     /// the window-resize path.
     fn reflow_active_panes_and_redraw(&mut self) {
         if let Some((content, cell)) = self.multipane_geometry() {
+            let pad = self.window_pad_px();
             self.sessions
-                .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
+                .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX, pad);
         } else if let (Some(cell), Some((width_px, height_px, padding))) =
             (self.resolved_cell(), self.resolved_surface())
         {
@@ -1888,8 +1899,13 @@ impl App {
             // current (wrapping + selection read it); it no-ops when unchanged,
             // so a genuinely single-pane tab is byte-identical here.
             let content = pane_content_rect(width_px, height_px, cell, padding, self.tab_reserve());
-            self.sessions
-                .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
+            self.sessions.resize_all_panes(
+                content,
+                cell.width,
+                cell.height,
+                PANE_DIVIDER_PX,
+                padding.as_f32(),
+            );
             let _ = self.resize_grid_with_padding(cell, padding, width_px, height_px);
         }
         self.on_active_session_changed();

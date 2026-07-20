@@ -384,6 +384,14 @@ impl App {
         Some((w, h, gpu.window_padding()))
     }
 
+    /// PANE-PADDING: the current physical window-padding inset in pixels (`0.0`
+    /// when no GPU/surface is resolved). Per-divider pane breathing room reuses
+    /// the exact value the outer content inset already applies, so there is one
+    /// padding knob and the padding-0 / single-pane paths stay byte-identical.
+    pub(super) fn window_pad_px(&self) -> f32 {
+        self.resolved_surface().map_or(0.0, |(_, _, p)| p.as_f32())
+    }
+
     /// The cell dimensions a **window-level overlay** (context menu / settings /
     /// palette / connections / replay) centers within. Overlays are window-level,
     /// so in a multi-pane tab they use the whole content grid, NOT the focused
@@ -466,7 +474,23 @@ impl App {
     /// coords BEFORE the focus switch and pass them here so the selection anchor
     /// lands under the actual click.
     pub(super) fn active_pane_pointer_cell_at(&self, x_px: f64, y_px: f64) -> Option<CellPoint> {
+        let (rect, cell) = self.focused_pane_inner_rect()?;
+        Some(pane_relative_cell(rect, cell, self.grid, x_px, y_px))
+    }
+
+    /// PANE-PADDING: the focused pane's **padded drawable rect** (grid region)
+    /// plus cell metrics for the active multi-pane tab, or `None` on a single-
+    /// pane tab / when the geometry is unavailable. The tiled sub-rect is inset
+    /// from every divider-facing edge by [`Self::window_pad_px`], exactly matching
+    /// the render origin `rebuild_multipane` derives from
+    /// [`layout::pane_inner_rect`], so a pointer maps to the same cell the glyph
+    /// is drawn at. Zero padding / a zoomed full-bleed pane yields the tiled rect
+    /// unchanged (byte-identical pointer mapping). The origin already folds in the
+    /// tab-chrome/rail offset (it comes off the content rect), so consumers need
+    /// no separate padding subtraction.
+    pub(super) fn focused_pane_inner_rect(&self) -> Option<(PaneRect, CellSize)> {
         let (content, cell) = self.multipane_geometry()?;
+        let pad = self.window_pad_px();
         let focused = self.sessions.active_id();
         let rect = self
             .sessions
@@ -474,7 +498,10 @@ impl App {
             .into_iter()
             .find(|(token, _)| *token == focused)
             .map(|(_, rect)| rect)?;
-        Some(pane_relative_cell(rect, cell, self.grid, x_px, y_px))
+        Some((
+            crate::native::layout::pane_inner_rect(rect, content, pad),
+            cell,
+        ))
     }
 
     /// Build the topmost window-level overlay panel for the multi-pane render
@@ -554,6 +581,7 @@ impl App {
         let Some((x, y)) = self.pointer_px else {
             return;
         };
+        let pad = self.window_pad_px();
         if self
             .sessions
             .drag_active_divider(content, PANE_DIVIDER_PX, target, x as f32, y as f32)
@@ -564,6 +592,7 @@ impl App {
                 cell.width,
                 cell.height,
                 PANE_DIVIDER_PX,
+                pad,
             );
             self.sessions.active_mut().needs_rebuild = true;
             if let Some(window) = self.window.as_ref() {
@@ -704,8 +733,17 @@ impl App {
             // zero offset, so the byte-identical path is unchanged). The divider
             // position itself is untouched — only the grid content shifts within
             // the pane — so smooth per-pixel divider drag is preserved.
+            // PANE-PADDING: inset the pane by the window padding on every
+            // divider-facing edge so its grid gains breathing room from the
+            // divider (the reported "flush against the divider" regression). The
+            // render origin, the image scissor, and the PTY size
+            // (`resize_all_panes_impl`) all derive from this same inner rect, so
+            // the grid, cursor, hit-testing, and shell dimensions stay consistent.
+            // Zero padding / single-pane / a zoomed pane yields `inner == *rect`,
+            // so those frames are byte-identical.
+            let inner = crate::native::layout::pane_inner_rect(*rect, content, padding.as_f32());
             let base_origin =
-                crate::native::layout::pane_grid_origin(*rect, content, cell.width, cell.height);
+                crate::native::layout::pane_grid_origin(inner, content, cell.width, cell.height);
             // PANE-SUBCELL-CLIP: bake the sub-cell remainder into the pane's
             // render origin and clamp its vertices to the at-rest grid rect so
             // the partial row the shift pushes out cannot cross the divider.
@@ -741,7 +779,7 @@ impl App {
                     snapshot.dimensions.rows,
                     cell.width as f32,
                     cell.height as f32,
-                    *rect,
+                    inner,
                     surface_w as f32,
                     surface_h as f32,
                 );

@@ -485,6 +485,49 @@ pub(super) fn pane_grid_origin(
     [rect.x + off_x, rect.y + off_y]
 }
 
+/// PANE-PADDING: inset a pane's tiled `rect` by the configured window padding
+/// `pad` on every **divider-facing** edge, returning the pane's drawable grid
+/// rect. An edge flush with the `content` boundary is an outer window-margin
+/// edge — its padding was already applied when `content` was inset from the
+/// window, so it is left untouched. An edge that abuts a divider gets `pad`
+/// physical pixels of breathing room, so a pane's glyphs no longer sit flush
+/// against the divider after a split (the reported regression). Horizontal and
+/// nested splits are handled uniformly because the classification is purely
+/// geometric per edge.
+///
+/// Every downstream per-pane geometry — grid cell dimensions
+/// ([`grid_dims_for_rect`]), the drawn origin ([`pane_grid_origin`]), the image
+/// scissor ([`pane_image_scissor`]), and pointer→cell mapping — derives from
+/// this inner rect, so the PTY size, the rendered grid, and hit-testing all stay
+/// consistent. The tiled `rect`, the divider positions, and the divider grab
+/// bands are unchanged (they keep using the full tiled rects), so divider drag
+/// and focus movement are byte-identical.
+///
+/// Identity paths:
+/// - **`pad == 0`**: no edge moves → inner rect == `rect` → byte-identical.
+/// - **Single-pane / zoomed** (`rect == content`): every edge is a window
+///   margin → nothing is inset → inner rect == `rect` → byte-identical.
+pub(super) fn pane_inner_rect(rect: PaneRect, content: PaneRect, pad: f32) -> PaneRect {
+    if pad <= 0.0 {
+        return rect;
+    }
+    // A divider-facing edge is one NOT flush with the content boundary; those
+    // are the only edges that gain per-pane padding (outer margins already have
+    // it, folded into `content`).
+    let left_div = rect.x > content.x + EDGE_EPS;
+    let right_div = rect.right() < content.right() - EDGE_EPS;
+    let top_div = rect.y > content.y + EDGE_EPS;
+    let bottom_div = rect.bottom() < content.bottom() - EDGE_EPS;
+
+    let x = rect.x + if left_div { pad } else { 0.0 };
+    let y = rect.y + if top_div { pad } else { 0.0 };
+    let w =
+        (rect.w - if left_div { pad } else { 0.0 } - if right_div { pad } else { 0.0 }).max(0.0);
+    let h =
+        (rect.h - if top_div { pad } else { 0.0 } - if bottom_div { pad } else { 0.0 }).max(0.0);
+    PaneRect::new(x, y, w, h)
+}
+
 /// PANE-SUBCELL-CLIP: resolve a gliding pane's RENDER origin and its vertical
 /// clip band from its at-rest `base_origin` (from [`pane_grid_origin`]) and the
 /// current sub-cell remainder `frac_px` (in `[0, cell_h)`, from the glide
@@ -1229,6 +1272,116 @@ mod tests {
             let col = ((px - ox).max(0.0) as u32 / cell_w) as usize;
             let row = ((py - oy).max(0.0) as u32 / cell_h) as usize;
             assert_eq!((col, row), (c, r), "round-trip failed at cell ({c},{r})");
+        }
+    }
+
+    // ----- pane_inner_rect: per-divider padding (breathing room) -----
+
+    /// Zero padding is a strict identity: the inner rect equals the tiled rect
+    /// on every pane of a split, so the padding-0 frame is byte-identical.
+    #[test]
+    fn pane_inner_rect_zero_padding_is_identity() {
+        let content = PaneRect::new(4.0, 4.0, 800.0, 600.0);
+        let tree = PaneNode::leaf(tok(0)).split_leaf(tok(0), SplitAxis::Columns, 0.5, tok(1));
+        for (_, rect) in layout_rects(&tree, content, 1.0) {
+            assert_eq!(pane_inner_rect(rect, content, 0.0), rect);
+        }
+    }
+
+    /// A single-pane / zoomed pane (`rect == content`) never has a divider-facing
+    /// edge, so even at nonzero padding the inner rect equals the tiled rect —
+    /// the single-pane path keeps its full outer-padded content unchanged.
+    #[test]
+    fn pane_inner_rect_single_pane_is_identity() {
+        let content = PaneRect::new(4.0, 4.0, 800.0, 600.0);
+        assert_eq!(pane_inner_rect(content, content, 8.0), content);
+    }
+
+    /// A column split insets the left pane's RIGHT edge and the right pane's
+    /// LEFT edge by `pad`, and nothing else: outer margins (left of left pane,
+    /// right of right pane) and both full-height edges keep the tiled geometry.
+    /// The gap between the two panes' drawable rects becomes `2*pad + divider`.
+    #[test]
+    fn pane_inner_rect_column_split_pads_the_divider_facing_edges() {
+        let content = PaneRect::new(4.0, 4.0, 801.0, 600.0);
+        let pad = 8.0;
+        let tree = PaneNode::leaf(tok(0)).split_leaf(tok(0), SplitAxis::Columns, 0.5, tok(1));
+        let rects = layout_rects(&tree, content, 1.0);
+        let (left, right) = (rects[0].1, rects[1].1);
+        let li = pane_inner_rect(left, content, pad);
+        let ri = pane_inner_rect(right, content, pad);
+        // Left pane: outer-left edge untouched, right edge pulled in by pad.
+        assert_eq!(li.x, left.x, "outer-left edge keeps the window margin");
+        assert_eq!(li.w, left.w - pad, "left pane's divider edge gains pad");
+        assert_eq!(li.y, left.y);
+        assert_eq!(li.h, left.h, "full-height edges are outer margins");
+        // Right pane: left edge pushed in by pad, outer-right edge untouched.
+        assert_eq!(ri.x, right.x + pad, "right pane's divider edge gains pad");
+        assert_eq!(ri.w, right.w - pad, "outer-right edge keeps the margin");
+        // The visible gap between drawable rects is pad + divider + pad.
+        let gap = ri.x - (li.x + li.w);
+        assert_eq!(gap, 2.0 * pad + 1.0, "gap = pad + 1px divider + pad");
+        // Both drawable rects stay clear of the 1px divider strip on both sides.
+        let divider_x = left.right(); // == content.x-relative divider left edge
+        assert!(li.x + li.w <= divider_x - pad + 0.001);
+        assert!(ri.x >= divider_x + 1.0 + pad - 0.001);
+    }
+
+    /// A row split is the exact vertical analogue: the top pane's BOTTOM edge and
+    /// the bottom pane's TOP edge each gain `pad`; the full-width edges (outer
+    /// margins) are untouched.
+    #[test]
+    fn pane_inner_rect_row_split_pads_the_divider_facing_edges() {
+        let content = PaneRect::new(4.0, 4.0, 800.0, 601.0);
+        let pad = 6.0;
+        let tree = PaneNode::leaf(tok(0)).split_leaf(tok(0), SplitAxis::Rows, 0.5, tok(1));
+        let rects = layout_rects(&tree, content, 1.0);
+        let (top, bottom) = (rects[0].1, rects[1].1);
+        let ti = pane_inner_rect(top, content, pad);
+        let bi = pane_inner_rect(bottom, content, pad);
+        assert_eq!(ti.y, top.y, "outer-top edge keeps the margin");
+        assert_eq!(ti.h, top.h - pad, "top pane's divider edge gains pad");
+        assert_eq!(ti.x, top.x);
+        assert_eq!(ti.w, top.w, "full-width edges are outer margins");
+        assert_eq!(bi.y, bottom.y + pad, "bottom pane's divider edge gains pad");
+        assert_eq!(bi.h, bottom.h - pad, "outer-bottom edge keeps the margin");
+    }
+
+    /// A 2x2 grid's inner (sandwiched) corners: every pane touches the outer
+    /// window margin on exactly two sides and a divider on the other two, so each
+    /// pane is inset by `pad` on precisely its two divider-facing edges — uniform
+    /// across the whole grid regardless of nesting order.
+    #[test]
+    fn pane_inner_rect_2x2_pads_every_interior_edge() {
+        let content = PaneRect::new(0.0, 0.0, 800.0, 600.0);
+        let pad = 5.0;
+        let rects = layout_rects(&grid_2x2(), content, 1.0);
+        for (_, rect) in &rects {
+            let inner = pane_inner_rect(*rect, content, pad);
+            // Each corner pane is a window margin on two sides and a divider on
+            // the other two: exactly one of {x margin, x divider} per axis.
+            let left_margin = rect.x <= content.x + EDGE_EPS;
+            let top_margin = rect.y <= content.y + EDGE_EPS;
+            assert_eq!(inner.x, rect.x + if left_margin { 0.0 } else { pad });
+            assert_eq!(inner.y, rect.y + if top_margin { 0.0 } else { pad });
+            // Total width/height each lose exactly one pad (one divider edge per
+            // axis in a 2x2), so the drawable area shrinks by pad on both axes.
+            assert_eq!(inner.w, rect.w - pad, "one divider edge on the x axis");
+            assert_eq!(inner.h, rect.h - pad, "one divider edge on the y axis");
+        }
+    }
+
+    /// Padding larger than a small pane clamps the drawable extent at zero rather
+    /// than going negative (the grid then floors to a 1x1 via `grid_dims_for_rect`).
+    #[test]
+    fn pane_inner_rect_oversized_padding_clamps_at_zero() {
+        let content = PaneRect::new(0.0, 0.0, 40.0, 40.0);
+        let tree = PaneNode::leaf(tok(0)).split_leaf(tok(0), SplitAxis::Columns, 0.5, tok(1));
+        let rects = layout_rects(&tree, content, 1.0);
+        // pad far exceeds each pane's ~19px width.
+        for (_, rect) in &rects {
+            let inner = pane_inner_rect(*rect, content, 100.0);
+            assert!(inner.w >= 0.0 && inner.h >= 0.0);
         }
     }
 

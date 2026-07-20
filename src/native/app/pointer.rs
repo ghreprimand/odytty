@@ -245,6 +245,7 @@ impl App {
             // grabs a divider), so the byte-identical single-pane path is
             // untouched.
             if let Some((content, cell)) = self.multipane_geometry() {
+                let pad = self.window_pad_px();
                 self.sessions.snap_active_divider(
                     content,
                     PANE_DIVIDER_PX,
@@ -252,8 +253,13 @@ impl App {
                     cell.width,
                     cell.height,
                 );
-                self.sessions
-                    .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX);
+                self.sessions.resize_all_panes(
+                    content,
+                    cell.width,
+                    cell.height,
+                    PANE_DIVIDER_PX,
+                    pad,
+                );
                 self.sessions.active_mut().needs_rebuild = true;
                 if let Some(window) = self.window.as_ref() {
                     window.request_redraw();

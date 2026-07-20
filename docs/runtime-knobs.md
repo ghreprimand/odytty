@@ -191,8 +191,10 @@ environment variable was not set at startup.
 `window_padding` inserts a pixel gap between the content grid and every hard
 boundary around it — not just the window edges. A pinned workspace rail's
 content-facing edge and the tab bar's bottom edge get the same gap, so content
-never touches chrome. The grid gives up whatever whole cells the gap displaces,
-keeping text clear of every band. The chrome bands themselves stay joined:
+never touches chrome. Split-pane dividers count too: each pane keeps the same
+gap on every edge that faces a divider, so a pane's text never sits flush
+against the split. The grid gives up whatever whole cells the gap displaces,
+keeping text clear of every band and divider. The chrome bands themselves stay joined:
 where a pinned rail meets the tab bar, the bar band's background extends
 across the gap to the rail edge (the tabs keep their content-aligned inset),
 so the frame reads as one continuous piece. At `0` everything is flush,

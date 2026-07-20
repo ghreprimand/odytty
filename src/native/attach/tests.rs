@@ -656,7 +656,7 @@ fn attached_tab_resize_forwards_to_socket() {
     let session = attached_session_over(&socket_path, "resize-tab");
     let mut set = WorkspaceSet::new(session, None);
     // 800x400 content, 10x20 cell → 80 cols, 20 rows: routed to a `Resize` frame.
-    set.resize_all_panes(PaneRect::new(0.0, 0.0, 800.0, 400.0), 10, 20, 1.0);
+    set.resize_all_panes(PaneRect::new(0.0, 0.0, 800.0, 400.0), 10, 20, 1.0, 0.0);
     let frame = handle.join().expect("host thread");
     assert_eq!(
         frame,

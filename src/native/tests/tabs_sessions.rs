@@ -4997,6 +4997,122 @@ fn fill_grid_with_url(terminal: &Arc<Mutex<Terminal>>, rows: usize) {
 }
 
 #[test]
+fn split_pane_grid_is_inset_from_the_divider_by_window_padding() {
+    // PANE-PADDING (board 4c8856ae): with window_padding > 0, a split pane's
+    // drawable grid must gain the configured breathing room from the divider it
+    // faces — matching the outer-window inset — instead of the first glyph
+    // sitting flush against the divider (the reported regression). Every
+    // divider-facing edge is inset by exactly the padding; outer-margin edges
+    // keep the tiled geometry, so the PTY size, render origin, and pointer
+    // mapping all shrink together and stay consistent.
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    const PAD: f32 = 8.0;
+    let dims = Dimensions::new(COLS, ROWS);
+    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal_a,
+        writer_a,
+        pty_a,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    let padding = WindowPadding::from_logical(PAD, 1.0);
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(1000, 600, padding);
+    // Column split: the new pane B is the RIGHT half and takes focus. Its LEFT
+    // edge faces the divider; its RIGHT edge is the outer window margin.
+    let _pane_b = app.seed_split_pane_for_test(true, terminal_b.clone(), writer_b, pty_b);
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(1000, 600, padding);
+    app.reflow_active_panes_for_test();
+
+    let (tiled, inner) = app
+        .focused_pane_rects_for_test()
+        .expect("multi-pane focused rects available");
+    // Divider-facing LEFT edge inset by exactly PAD.
+    assert!(
+        (inner[0] - (tiled[0] + PAD)).abs() < 0.01,
+        "focused pane's divider-facing left edge must inset by the window padding: tiled {tiled:?} inner {inner:?}"
+    );
+    // Outer-margin RIGHT edge unchanged (right edge = x + w).
+    assert!(
+        ((inner[0] + inner[2]) - (tiled[0] + tiled[2])).abs() < 0.01,
+        "outer-margin right edge must keep the tiled geometry"
+    );
+    // Full-height edges are outer margins → top/height untouched.
+    assert!((inner[1] - tiled[1]).abs() < 0.01, "top margin unchanged");
+    assert!(
+        (inner[3] - tiled[3]).abs() < 0.01,
+        "height unchanged (both y edges are margins)"
+    );
+    // The padded drawable grid is strictly narrower than the tiled sub-rect.
+    assert!(
+        inner[2] < tiled[2],
+        "padded grid must be narrower than the tiled rect (breathing room taken)"
+    );
+    // Grid columns reflect the padded width, not the tiled width: the divider
+    // inset costs the pane whole cells so glyphs never overflow the gap.
+    let cols_padded = (inner[2] as u32 / CW) as usize;
+    let cols_tiled = (tiled[2] as u32 / CW) as usize;
+    assert!(
+        cols_padded < cols_tiled,
+        "the divider-facing inset must cost the focused pane at least one column"
+    );
+}
+
+#[test]
+fn split_pane_zero_padding_grid_is_flush_with_the_divider() {
+    // PANE-PADDING identity: at window_padding == 0 the drawable grid equals the
+    // tiled sub-rect exactly (the pre-existing flush-to-divider behaviour), so
+    // the padding-0 frame is byte-identical.
+    const COLS: usize = 80;
+    const ROWS: usize = 24;
+    const CW: u32 = 8;
+    const CH: u32 = 16;
+    let dims = Dimensions::new(COLS, ROWS);
+    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal_a,
+        writer_a,
+        pty_a,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(1000, 600, WindowPadding::ZERO);
+    let _pane_b = app.seed_split_pane_for_test(true, terminal_b.clone(), writer_b, pty_b);
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(1000, 600, WindowPadding::ZERO);
+    app.reflow_active_panes_for_test();
+    let (tiled, inner) = app
+        .focused_pane_rects_for_test()
+        .expect("multi-pane focused rects available");
+    assert_eq!(
+        tiled, inner,
+        "zero padding keeps the grid flush with the divider"
+    );
+}
+
+#[test]
 fn hover_over_a_non_focused_pane_does_not_resolve_a_link_in_the_focused_pane() {
     // Hover analog of focus-follows-click. After a column split focus is on the
     // RIGHT pane (B); moving the pointer over the LEFT pane (A) must NOT map the
