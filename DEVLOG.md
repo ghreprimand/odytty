@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Restore shell integration when desktop sessions omit SHELL
+
+Some graphical Linux sessions do not export `SHELL`. OdyTTY previously fell
+straight back to `/bin/sh`; on Fedora that path is a Bash symlink, so the prompt
+looked like Bash while spawn-time integration classified the requested name as
+unsupported `sh`. OSC 133 command marks were never installed, leaving the
+command-status gutter empty even though both related settings were on.
+
+The Unix default-shell resolver now uses the effective user's NSS/passwd login
+shell when `SHELL` is absent or empty, retaining `/bin/sh` only as the final
+failure fallback. Explicit `SHELL` values still win. A real interactive Bash
+regression models Fedora's array-valued `PROMPT_COMMAND` and title helper, runs
+successful and failing commands, feeds the emitted stream through the terminal
+core, and verifies the corresponding green and red gutter bars. The Bash
+prompt-scoped keyboard lifecycle remains intact; Fish, zsh, PowerShell, and the
+Windows W32IM path are unchanged.
+
+---
+
 ## 2026-07-20 -- Ctrl+Backspace stays distinct when prompt negotiation drops
 
 Ctrl+Backspace now uses the established legacy BS byte when no application

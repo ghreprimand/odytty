@@ -209,6 +209,94 @@ mod tests {
         assert_eq!(fail[0].color, [red[0], red[1], red[2], GUTTER_ALPHA]);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn fedora_style_bash_stream_reaches_success_and_fail_gutter_bars() {
+        use std::process::{Command, Stdio};
+
+        let Some(bash) = ["/bin/bash", "/usr/bin/bash"]
+            .into_iter()
+            .map(std::path::PathBuf::from)
+            .find(|path| path.exists())
+        else {
+            return;
+        };
+        let dir =
+            std::env::temp_dir().join(format!("odytty-fedora-bash-gutter-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create Fedora Bash fixture directory");
+
+        // Fedora's /etc/bashrc declares PROMPT_COMMAND as an array and, under
+        // xterm-256color, installs a title helper. Model that startup shape in
+        // the user rcfile which OdyTTY's generated wrapper sources first.
+        // Merge stderr before Bash starts prompting so the capture preserves
+        // the exact PTY-equivalent order of prompts, marks, and command echo.
+        std::fs::write(
+            dir.join(".bashrc"),
+            "exec 2>&1\n\
+             declare -a PROMPT_COMMAND\n\
+             PROMPT_COMMAND='printf \\\"TITLE:%s\\\\n\\\" \\\"$PWD\\\"'\n\
+             PS1='P\\$ '\n",
+        )
+        .expect("write Fedora Bash fixture");
+        let wrapper = dir.join("odytty.bash");
+        std::fs::write(&wrapper, crate::shell_integration::bash_integration_rc())
+            .expect("write OdyTTY Bash wrapper");
+
+        let mut child = Command::new(bash)
+            .arg("--rcfile")
+            .arg(&wrapper)
+            .arg("-i")
+            .env("HOME", &dir)
+            .env("TERM", "xterm-256color")
+            .env_remove("ODYTTY_SHELL_INTEGRATION")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn Bash");
+        child
+            .stdin
+            .take()
+            .expect("Bash stdin")
+            .write_all(b"true\nfalse\nexit\n")
+            .expect("drive Bash");
+        let output = child.wait_with_output().expect("wait for Bash");
+        if !output.stdout.windows(6).any(|window| window == b"]133;A") {
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let mut terminal = crate::core::Terminal::new(COLS, ROWS);
+        terminal.advance(&output.stdout);
+        let marks = terminal.prompt_marks();
+        let quads = command_status_gutter_quads(
+            &marks,
+            0,
+            terminal.screen().scrollback_len(),
+            dims(),
+            CELL,
+            WindowPadding::ZERO,
+            &palette(),
+        );
+
+        let green = text::foreground_linear(Color::Rgb(0, 255, 0));
+        let red = text::foreground_linear(Color::Rgb(255, 0, 0));
+        assert!(
+            quads
+                .iter()
+                .any(|quad| quad.color == [green[0], green[1], green[2], GUTTER_ALPHA]),
+            "true must produce a green gutter bar; marks={marks:?}"
+        );
+        assert!(
+            quads
+                .iter()
+                .any(|quad| quad.color == [red[0], red[1], red[2], GUTTER_ALPHA]),
+            "false must produce a red gutter bar; marks={marks:?}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn bar_sits_at_the_prompt_row_left_edge_with_inset() {
         // Prompt on absolute row 3, viewport at the live tail (offset 0,

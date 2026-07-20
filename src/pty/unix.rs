@@ -7,10 +7,11 @@
 //! owns the platform-neutral [`CommandBuilder`]/[`ForegroundJob`] contract this
 //! backend builds on.
 use std::env;
-use std::ffi::OsString;
+use std::ffi::{CStr, OsString};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd};
+use std::os::unix::ffi::OsStringExt;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, ExitStatus, Stdio};
@@ -80,6 +81,77 @@ fn unpack_cell_metrics(packed: u64) -> CellMetrics {
     CellMetrics::new((packed >> 32) as u32, (packed & 0xffff_ffff) as u32)
 }
 
+/// Resolve the interactive shell without assuming a desktop session exported
+/// `SHELL`. Graphical launchers are allowed to omit it; on Fedora `/bin/sh` is
+/// Bash, so the old fallback looked like Bash after exec while its `sh`
+/// program name made the integration classifier skip the Bash rcfile.
+fn default_shell_program() -> OsString {
+    resolve_default_shell(env::var_os("SHELL"), login_shell_from_passwd())
+}
+
+fn resolve_default_shell(shell_env: Option<OsString>, login_shell: Option<OsString>) -> OsString {
+    shell_env
+        .filter(|shell| !shell.is_empty())
+        .or_else(|| login_shell.filter(|shell| !shell.is_empty()))
+        .unwrap_or_else(|| OsString::from("/bin/sh"))
+}
+
+/// Read the effective user's login shell through NSS. `getpwuid_r` covers
+/// local passwd files and directory-backed accounts without a subprocess or a
+/// UTF-8 assumption. Failure remains non-fatal and falls through to `/bin/sh`.
+fn login_shell_from_passwd() -> Option<OsString> {
+    const DEFAULT_BUFFER: usize = 16 * 1024;
+    const MAX_BUFFER: usize = 1024 * 1024;
+
+    // SAFETY: `geteuid` has no pointer preconditions or mutable shared state.
+    let uid = unsafe { libc::geteuid() };
+    // POSIX permits -1 when no bound is known. Clamp an advertised size so a
+    // hostile NSS configuration cannot force an excessive allocation.
+    // SAFETY: `sysconf` is called with a valid POSIX selector.
+    let suggested = unsafe { libc::sysconf(libc::_SC_GETPW_R_SIZE_MAX) };
+    let mut capacity = usize::try_from(suggested)
+        .ok()
+        .filter(|size| *size > 0)
+        .unwrap_or(DEFAULT_BUFFER)
+        .clamp(1024, MAX_BUFFER);
+
+    loop {
+        let mut record = std::mem::MaybeUninit::<libc::passwd>::uninit();
+        let mut result = std::ptr::null_mut();
+        let mut buffer = vec![0_u8; capacity];
+        // SAFETY: every output pointer is valid for the duration of the call,
+        // `buffer` owns `capacity` writable bytes, and `result` receives either
+        // null or the initialized `record` pointer per getpwuid_r's contract.
+        let code = unsafe {
+            libc::getpwuid_r(
+                uid,
+                record.as_mut_ptr(),
+                buffer.as_mut_ptr().cast(),
+                buffer.len(),
+                &mut result,
+            )
+        };
+        if code == libc::ERANGE && capacity < MAX_BUFFER {
+            capacity = capacity.saturating_mul(2).min(MAX_BUFFER);
+            continue;
+        }
+        if code != 0 || result.is_null() {
+            return None;
+        }
+
+        // SAFETY: a zero return with non-null `result` initializes `record`;
+        // `pw_shell` points into `buffer`, which remains alive until copied.
+        let record = unsafe { record.assume_init() };
+        if record.pw_shell.is_null() {
+            return None;
+        }
+        // SAFETY: getpwuid_r returns passwd string fields as NUL-terminated
+        // strings inside its caller-provided buffer.
+        let shell = unsafe { CStr::from_ptr(record.pw_shell) }.to_bytes();
+        return (!shell.is_empty()).then(|| OsString::from_vec(shell.to_vec()));
+    }
+}
+
 impl PtySession {
     pub fn spawn_default_shell(dimensions: Dimensions) -> Result<Self> {
         Self::spawn_default_shell_in(dimensions, None)
@@ -119,7 +191,7 @@ impl PtySession {
         buttons: bool,
         key_enhancement: bool,
     ) -> Result<Self> {
-        let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
+        let shell = default_shell_program();
         let mut command = CommandBuilder::new(shell);
         command.apply_terminal_env();
         // Scrub any inherited ODYTTY_SHELL_INTEGRATION so a nested odytty (one
@@ -138,7 +210,7 @@ impl PtySession {
     }
 
     pub fn spawn_shell_command(dimensions: Dimensions, command: &str) -> Result<Self> {
-        let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
+        let shell = default_shell_program();
         let mut command_builder = CommandBuilder::new(shell);
         command_builder.arg("-lc");
         command_builder.arg(command);
@@ -561,6 +633,30 @@ mod tests {
         rows: 24,
         columns: 80,
     };
+
+    #[test]
+    fn default_shell_resolution_uses_login_shell_when_desktop_omits_shell() {
+        assert_eq!(
+            resolve_default_shell(None, Some(OsString::from("/bin/bash"))),
+            OsString::from("/bin/bash")
+        );
+        assert_eq!(
+            resolve_default_shell(Some(OsString::new()), Some(OsString::from("/usr/bin/fish"))),
+            OsString::from("/usr/bin/fish")
+        );
+    }
+
+    #[test]
+    fn default_shell_resolution_preserves_env_and_has_safe_final_fallback() {
+        assert_eq!(
+            resolve_default_shell(
+                Some(OsString::from("/usr/bin/zsh")),
+                Some(OsString::from("/bin/bash"))
+            ),
+            OsString::from("/usr/bin/zsh")
+        );
+        assert_eq!(resolve_default_shell(None, None), OsString::from("/bin/sh"));
+    }
 
     #[test]
     fn force_reader_eof_unblocks_a_reader_the_slave_keeps_open() {
