@@ -161,6 +161,52 @@ fn keypad_physical_keys_map_to_neutral_model() {
 }
 
 #[test]
+fn physical_editing_keys_normalize_compositor_specific_logical_forms() {
+    let cases = [
+        (KeyCode::Backspace, "\u{8}", NamedKey::Backspace),
+        (KeyCode::NumpadBackspace, "\u{7f}", NamedKey::Backspace),
+        (KeyCode::Tab, "\t", NamedKey::Tab),
+        (KeyCode::Enter, "\r", NamedKey::Enter),
+        (KeyCode::Escape, "\u{1b}", NamedKey::Escape),
+        (KeyCode::Delete, "\u{7f}", NamedKey::Delete),
+    ];
+    for (physical, reported, expected) in cases {
+        assert_eq!(
+            normalize_winit_editing_key(
+                WinitKey::Character(reported.into()),
+                PhysicalKey::Code(physical),
+            ),
+            WinitKey::Named(expected),
+            "physical {physical:?} must override compositor logical {reported:?}"
+        );
+    }
+
+    // A control character from a non-editing physical key is not rewritten at
+    // this layer; the shared encoder retains its control-text fallback policy.
+    let ctrl_h = WinitKey::Character("\u{8}".into());
+    assert_eq!(
+        normalize_winit_editing_key(ctrl_h.clone(), PhysicalKey::Code(KeyCode::KeyH)),
+        ctrl_h
+    );
+    // Keep keypad Enter distinct for DECKPAM/DECKPNM handling.
+    assert_eq!(
+        normalize_winit_editing_key(
+            WinitKey::Named(NamedKey::Enter),
+            PhysicalKey::Code(KeyCode::NumpadEnter),
+        ),
+        WinitKey::Named(NamedKey::Enter)
+    );
+    assert_eq!(
+        normalize_winit_editing_key(
+            WinitKey::Named(NamedKey::Backspace),
+            PhysicalKey::Code(KeyCode::Enter),
+        ),
+        WinitKey::Named(NamedKey::Backspace),
+        "an already-named logical key remains authoritative"
+    );
+}
+
+#[test]
 fn win32_physical_mapping_distinguishes_ctrl_backspace() {
     let plain = map_win32_key_event(
         PhysicalKey::Code(KeyCode::Backspace),

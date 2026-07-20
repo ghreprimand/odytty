@@ -43,7 +43,8 @@ use winit::window::{CursorIcon, Window, WindowId};
 use super::bindings::{
     KeyBindings, PrefixEngine, PrefixOutcome, changed_window_title, encode_native_focus_report,
     encode_native_mouse_report, map_keypad_physical_key, map_named_key, map_win32_key_event,
-    map_winit_mouse_button, motion_report_button, prefix_chord_from_winit, wheel_report_button,
+    map_winit_mouse_button, motion_report_button, normalize_winit_editing_key,
+    prefix_chord_from_winit, wheel_report_button,
 };
 use super::clipboard::{NativeClipboard, read_clipboard_selection, write_paste_text};
 use super::cvd_theme::CvdThemeCache;
@@ -2026,6 +2027,13 @@ impl App {
         physical: PhysicalKey,
         event_type: KeyEventType,
     ) {
+        // Physical identity is the stable source for editing keys. KDE/KWin can
+        // report Ctrl+Backspace as Character(BS), while Mutter and other stacks
+        // report Named(Backspace). Canonicalize both logical views before any
+        // prompt, chord, modal, or PTY routing so compositor choice cannot alter
+        // behavior.
+        let logical = normalize_winit_editing_key(logical, physical);
+        let binding_key = normalize_winit_editing_key(binding_key, physical);
         // A physical press or repeat is keyboard activity even when chrome,
         // an overlay, or a pane command consumes it below. Record it before
         // routing or PTY encoding so cursor presentation never changes input

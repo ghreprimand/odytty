@@ -858,6 +858,34 @@ pub(super) fn map_named_key(named: NamedKey, shift: bool) -> Option<Key> {
     })
 }
 
+/// Canonicalize editing keys from their physical identity before application
+/// routing. Winit's logical identity is compositor-dependent for Ctrl chords:
+/// some Wayland stacks report Ctrl+Backspace as Character(BS), while others
+/// report Named(Backspace). The physical code is stable across those delivery
+/// shapes, so bindings, modal handling, and PTY encoding all receive the same
+/// named key. Numpad Enter is deliberately excluded so the keypad encoder keeps
+/// its distinct application-mode identity.
+pub(super) fn normalize_winit_editing_key(logical: WinitKey, physical: PhysicalKey) -> WinitKey {
+    // A named logical identity is already canonical and must win. Besides
+    // preserving synthetic callers that do not carry a meaningful physical
+    // code, this avoids rewriting a platform event that explicitly identifies
+    // a different named key. The compositor divergence being repaired is the
+    // Character(...) delivery shape.
+    if !matches!(logical, WinitKey::Character(_)) {
+        return logical;
+    }
+    match physical {
+        PhysicalKey::Code(KeyCode::Backspace | KeyCode::NumpadBackspace) => {
+            WinitKey::Named(NamedKey::Backspace)
+        }
+        PhysicalKey::Code(KeyCode::Tab) => WinitKey::Named(NamedKey::Tab),
+        PhysicalKey::Code(KeyCode::Enter) => WinitKey::Named(NamedKey::Enter),
+        PhysicalKey::Code(KeyCode::Escape) => WinitKey::Named(NamedKey::Escape),
+        PhysicalKey::Code(KeyCode::Delete) => WinitKey::Named(NamedKey::Delete),
+        _ => logical,
+    }
+}
+
 /// Translate a `winit` physical key into the neutral keypad identities that
 /// logical keys cannot preserve. Returns `None` for non-keypad keys so callers
 /// can fall back to logical-key mapping.

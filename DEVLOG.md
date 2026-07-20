@@ -17,6 +17,11 @@ legacy bytes. BS and DEL text forms now normalize to Backspace before protocol
 selection, so prompt key enhancement emits `CSI 127;5u` and plain legacy input
 emits DEL in either delivery shape.
 
+The native event path also canonicalizes Backspace, Tab, Enter, Escape, and
+forward Delete from their physical key codes before shortcuts, modals, and PTY
+encoding. Physical identity stays stable when compositor-specific logical-key
+reporting changes, while keypad Enter keeps its separate application-mode path.
+
 The same normalization covers control-text Tab, Enter, line feed, and Escape,
 including Shift+Tab. Other Ctrl-modified Character events with no classic
 control mapping now forward the translated character instead of silently
