@@ -854,12 +854,12 @@ pub const DEFAULT_SH_CLICK: bool = true;
 /// programs can define clickable buttons in their output (OSC
 /// `133;P;odytty-button` label runs and iTerm2 `1337;Button=` point buttons)
 /// and clicking a live button reports its integer code back to the program as
-/// `CSI ? 1337 ; code ~`. Off by default: the sequences are parsed and
-/// discarded, nothing is stored or rendered, and clicks never emit a report —
-/// the off path is byte-identical to plain output. The gate is enforced at the
-/// parser and again at the pointer, so turning it off also deadens buttons
-/// already on screen. When on, `ODYTTY_BUTTONS=1` is injected into new
-/// terminal sessions' environment so emitters can discover support.
+/// `CSI ? 1337 ; code ~`. When off, the sequences are parsed and discarded,
+/// nothing is stored or rendered, and clicks never emit a report — the off path
+/// is byte-identical to plain output. The gate is enforced at the parser and
+/// again at the pointer, so turning it off also deadens buttons already on
+/// screen. When on, `ODYTTY_BUTTONS=1` is injected into new terminal sessions'
+/// environment so emitters can discover support.
 ///
 /// On by default: click reports are composed by the terminal from the parsed
 /// integer code, so a program can never inject report bytes; clicks are

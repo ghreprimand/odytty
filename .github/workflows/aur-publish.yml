@@ -62,12 +62,23 @@ jobs:
         # into the script text as a raw workflow expression (injection-safe).
         env:
           INPUT_VERSION: ${{ inputs.version }}
+        shell: bash
         run: |
           in="$INPUT_VERSION"
           if [ -n "$in" ]; then
             version="${in#v}"
           else
             version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          fi
+          # LOW-10: validate the normalized version against the release grammar
+          # BEFORE writing any workflow record. A malformed or newline-bearing
+          # dispatch input could otherwise append extra GITHUB_OUTPUT/GITHUB_ENV
+          # records. The bash regex anchors reject any string that is not exactly
+          # X.Y.Z (a newline cannot slip past, since the anchors match only the
+          # whole string, not per line).
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::invalid version '$version' (expected X.Y.Z)"
+            exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # Expose the derived version to later run: steps as a quoted env var so

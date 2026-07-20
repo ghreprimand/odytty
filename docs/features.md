@@ -866,9 +866,9 @@ image again.
 
 Window transparency lets the desktop show through the terminal background.
 Text, the cursor, menus, pickers, and the settings panel remain fully opaque, so
-only the background fades. The selection is opaque by default too, but has its
-own strength control (`selection_opacity`, below) independent of the window
-opacity.
+only the background fades. The selection is a translucent tint by default
+(`selection_opacity = 0.6`), tuned by its own strength control
+(`selection_opacity`, below) independent of the window opacity.
 
 Transparency is on by default at `window_opacity = 80`, so the desktop shows
 through the background a little out of the box. Where the display server offers
