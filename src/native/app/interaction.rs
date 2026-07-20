@@ -471,18 +471,18 @@ impl App {
             // Phase 4: the connection-manager overlay closed itself before
             // emitting this; spawn the chosen host through the connect action
             // (system `ssh`, name-only argv). A spawn failure must never panic
-            // the UI — surface nothing for now beyond the dropped result; the
-            // overlay is already closed and the user can retry.
+            // the UI; it raises a one-line notice (a missing `ssh` or PTY
+            // exhaustion otherwise reads as a dead click) and the user can retry.
             OverlayOutcome::Connect(host) => {
                 self.flush_pending_overlay_settings();
-                let _ = self.connect_ssh_host_in_new_tab(&host);
+                self.connect_or_notice(&host);
             }
             // ADHOC-CONNECT: connect to a typed host AND append it to hosts.conf.
             // The connect and the save are independent — a save failure never
             // blocks the connection, and vice versa.
             OverlayOutcome::ConnectAndSave(host) => {
                 self.flush_pending_overlay_settings();
-                let _ = self.connect_ssh_host_in_new_tab(&host);
+                self.connect_or_notice(&host);
                 self.save_adhoc_host(&host);
             }
             // REMOTE-UX P4: the Add / Edit connection form closed itself before

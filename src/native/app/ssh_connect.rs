@@ -116,7 +116,18 @@ impl App {
         self.connection_probe = Some(rx);
         let proxy = self.sessions.event_proxy();
         let session = self.sessions.active_id();
-        super::connection_probe::spawn_connection_probe(command, session, proxy, tx);
+        if let Err(error) =
+            super::connection_probe::spawn_connection_probe(command, session, proxy, tx)
+        {
+            // Thread exhaustion: the probe worker could not start. Without this
+            // the form would spin on "Testing…" forever (the sender drops but
+            // polling never sets a state). Surface a visible error and drop the
+            // now-dead receiver (LOW-02).
+            tracing::warn!("connection probe spawn failed: {error}");
+            self.connection_probe = None;
+            self.overlay
+                .set_connection_form_test_result(Err("couldn't start the probe".to_owned()));
+        }
     }
 
     /// Drain a completed Test Connection probe (if any) into the open form and
@@ -225,6 +236,39 @@ impl App {
         Ok(token)
     }
 
+    /// Connect `host` in a new tab, surfacing a one-line notice on failure
+    /// instead of silently dropping the error. A missing `ssh` binary or a
+    /// PTY/thread exhaustion otherwise reads as a dead click or an unexplained
+    /// local-tab fallback. The notice names only the host label (never the full
+    /// destination or any credential). Returns the new session token on success
+    /// so callers can reposition/close around it, or `None` on failure so each
+    /// caller picks its own fallback (retain a placeholder vs open a local tab).
+    /// This matches the notice convention the local open/spawn paths already
+    /// follow (`spawn_open_or_notice`).
+    pub(in crate::native) fn connect_or_notice(
+        &mut self,
+        host: &ConnectionHost,
+    ) -> Option<SessionToken> {
+        match self.connect_ssh_host_in_new_tab(host) {
+            Ok(token) => Some(token),
+            Err(error) => {
+                tracing::warn!("ssh connect failed: {error}");
+                let label = if host.alias.trim().is_empty() {
+                    host.host_name.as_deref().unwrap_or("host")
+                } else {
+                    host.alias.as_str()
+                };
+                let message = if error.kind() == std::io::ErrorKind::NotFound {
+                    format!("Couldn't connect to \"{label}\" — 'ssh' not found (is it installed?)")
+                } else {
+                    format!("Couldn't connect to \"{label}\" — {error}")
+                };
+                self.raise_open_notice(message);
+                None
+            }
+        }
+    }
+
     /// Open `host` in a fresh workspace pre-bound to it (ODP-2C "Open in New
     /// Workspace"). Creates a new workspace (which spawns a placeholder local
     /// first tab), sets its `default_profile` so future New Tabs there route
@@ -239,7 +283,7 @@ impl App {
         let placeholder = self.sessions.active_id();
         self.sessions
             .set_active_workspace_default_profile(Some(host.alias.clone()));
-        if self.connect_ssh_host_in_new_tab(host).is_ok() {
+        if self.connect_or_notice(host).is_some() {
             self.close_tab_by_token(placeholder);
             self.on_active_session_changed();
         }
@@ -408,7 +452,7 @@ impl App {
         host: &ConnectionHost,
         anchor: SessionToken,
     ) {
-        if self.connect_ssh_host_in_new_tab(host).is_ok() {
+        if self.connect_or_notice(host).is_some() {
             self.sessions.reposition_active_tab_after(anchor);
             self.on_active_session_changed();
         }
@@ -441,7 +485,7 @@ impl App {
         host: &ConnectionHost,
         target: SessionToken,
     ) {
-        if self.connect_ssh_host_in_new_tab(host).is_ok() {
+        if self.connect_or_notice(host).is_some() {
             self.sessions.reposition_active_tab_after(target);
             self.close_tab_by_token(target);
             self.on_active_session_changed();

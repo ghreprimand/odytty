@@ -1127,8 +1127,14 @@ impl App {
             .into_iter()
             .find(|entry| entry.alias == alias);
         match host {
-            Some(host) if self.connect_ssh_host_in_new_tab(&host).is_ok() => {}
-            Some(_) => self.handle_new_local_tab(),
+            Some(host) => {
+                // A connect failure raises its own one-line notice inside
+                // connect_or_notice (LOW-03); fall back to a local tab so New Tab
+                // never dead-ends on a bad binding.
+                if self.connect_or_notice(&host).is_none() {
+                    self.handle_new_local_tab();
+                }
+            }
             None => {
                 self.raise_open_notice(format!(
                     "Host \"{alias}\" is no longer configured; opened a local tab"
@@ -2767,7 +2773,15 @@ impl App {
                 );
                 return;
             };
-            image_paste::spawn_upload_worker(job, pending.png);
+            if let Err(error) = image_paste::spawn_upload_worker(job, pending.png) {
+                // Thread exhaustion: the worker could not start, so the confirmed
+                // paste is dropped. Surface it in the pane rather than losing it
+                // silently (LOW-02).
+                tracing::warn!("image upload worker spawn failed: {error}");
+                self.write_active_banner(
+                    "\r\n\x1b[1;31m image upload failed \x1b[0m too many threads; try again\r\n",
+                );
+            }
         }
     }
 
