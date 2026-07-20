@@ -764,9 +764,10 @@ a floor; surpassing it is the standing ambition.
         trails the cursor as it glides (rides cursor slide; fully decays on
         settle); themed window border (`window_border`, off by default): a thin
         DPI-scaled frame in the theme border color inside the padding band.
-  - [x] New-output fade (`new_output_fade`, off by default): freshly arrived
-        output rows fade in over a short ramp at the live tail; scrollback and
-        resize snap.
+  - [x] New-output fade (`new_output_fade`, on by default): the foreground ink
+        of freshly arrived output rows fades in over a 250 ms ramp at the live
+        tail; backgrounds render normally from the first frame, and scrollback
+        and resize snap.
 - [x] Follow-OS dark/light theme (`follow_os_theme`, off by default):
       switches between `os_theme_dark` and `os_theme_light` based on the
       desktop color-scheme signal. Live on Wayland; on X11 seed direction at

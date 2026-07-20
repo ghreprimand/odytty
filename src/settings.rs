@@ -670,9 +670,10 @@ impl ScrollDragSpeed {
 
 /// What plain `Ctrl+C` does in the focused terminal (SMART-CTRLC).
 ///
-/// `Off` (default) is the historical, byte-identical behavior: plain `Ctrl+C`
-/// is never intercepted and always encodes the interrupt byte (`0x03`) to the
-/// PTY. `CopyOrInterrupt` overloads it on a single unambiguous signal — the
+/// `Off` is the historical, byte-identical opt-out: plain `Ctrl+C` is never
+/// intercepted and always encodes the interrupt byte (`0x03`) to the PTY.
+/// `CopyOrInterrupt` is the shipped default and overloads it on a single
+/// unambiguous signal — the
 /// presence of a local OdyTTY selection: with text selected, `Ctrl+C` copies
 /// the selection to the clipboard and clears it; with no selection, it sends
 /// `0x03` exactly as before. The interrupt is always reachable (no selection,
@@ -1498,15 +1499,15 @@ pub struct Settings {
     /// default. Stored as `f32`; [`Settings::rail_slot_rows`] rounds and clamps
     /// it to `{1, 2}`.
     pub tab_rail_slot_rows: f32,
-    /// Unified tab-panel strength (F4-P1): `0.0` = panel off, `1.0` default
-    /// and strongest. Drives both the panel tint lift and the panel-wash quad
-    /// alpha. Both axes.
+    /// Unified tab-panel strength (F4-P1): `0.0` = panel off, `1.0` = strongest,
+    /// and `0.8` is the default. Drives both the panel tint lift and the
+    /// panel-wash quad alpha. Both axes.
     pub tab_panel_strength: f32,
     /// Tab-panel seam line (F4-P1): one content-boundary hairline on both axes.
-    /// On by default; off removes only the line (the panel stays).
+    /// Off by default; off removes only the line (the panel stays).
     pub tab_seam: bool,
-    /// Rail auto-hide (F4-P1/P3): parsed and stored now; the reveal/hide behavior
-    /// lands in the P-AUTOHIDE packet. Off by default, rail-only.
+    /// Rail auto-hide (F4-P1/P3): reveals a floating rail from the configured
+    /// edge zone without content reflow. Off by default, rail-only.
     pub tab_rail_autohide: bool,
     /// Rail auto-hide reveal-zone width in **logical** px (F4-P3): how close to
     /// the rail's window edge the pointer summons an auto-hidden rail. Scaled by
@@ -1516,16 +1517,15 @@ pub struct Settings {
     /// Click-to-position-cursor on the live prompt (SH-CLICK). When on, a plain
     /// left click on the shell prompt line moves the shell's input cursor to the
     /// clicked column by emitting Left/Right cursor keys — the click slice of
-    /// OSC 133 `click_events`. Off by default and additionally gated on the
-    /// shell having advertised `click_events=1`, so the off path (and a
-    /// non-integrated shell) emits nothing and is byte-identical to today.
+    /// OSC 133 `click_events`. On by default and gated on the shell having
+    /// advertised `click_events=1`, so a non-integrated shell emits nothing.
     pub sh_click: bool,
     /// Button protocol master gate (docs/buttons.md). When on, programs can
     /// define clickable buttons in their output and clicks report an integer
     /// code back to the program; `ODYTTY_BUTTONS=1` is injected into new
-    /// sessions' environment for emitter discovery. Off by default: sequences
-    /// parse and discard, clicks never report, and the off path is
-    /// byte-identical to plain output.
+    /// sessions' environment for emitter discovery. On by default; turning it
+    /// off parses and discards sequences, prevents click reports, and restores
+    /// the byte-identical plain path.
     pub buttons: bool,
     /// Accept the iTerm2 `OSC 1337 ; Button=` spelling. Sub-gate of `buttons`;
     /// inert while the master gate is off.
@@ -1535,7 +1535,7 @@ pub struct Settings {
     /// lifetime. Sub-gate of `buttons`; inert while the master gate is off.
     pub buttons_sticky: bool,
     /// Automatic OSC 133 shell integration. When on, default local shell spawns
-    /// receive OdyTTY's prompt-mark hooks without editing user rc files. Off by
+    /// receive OdyTTY's prompt-mark hooks without editing user rc files. On by
     /// default; affects newly spawned shells only.
     pub shell_integration: bool,
     /// Prompt-scoped Kitty keyboard enhancement for integrated bash/zsh shells.
@@ -1543,7 +1543,7 @@ pub struct Settings {
     /// 0x1 (disambiguate only) while the prompt owns the line and pops it before
     /// each command, so modified keys like Ctrl+Enter become distinct CSI-u
     /// sequences the user can bind. Zero effect on programs the shell launches;
-    /// fish/PowerShell are unaffected. Off by default.
+    /// fish/PowerShell are unaffected. On by default.
     pub shell_key_enhancement: bool,
     /// Restore the previous workspace/tab/pane shape at launch (WP2, sub-ODP
     /// 8a). Off by default; only a bare `odytty` launch restores, and any CLI
@@ -1552,8 +1552,8 @@ pub struct Settings {
     /// the primary instance regardless of this flag.
     pub restore_workspaces: bool,
     /// Whether freshly arrived output rows fade their TEXT in at the live tail
-    /// (VE4). Off by default; the off path schedules no extra wakes and is
-    /// byte-identical to before. The fade is a per-row foreground alpha ramp —
+    /// (VE4). On by default; the off path schedules no extra wakes. The fade is
+    /// a per-row foreground alpha ramp —
     /// glyphs, decorations, and emoji rise from a visible floor to full
     /// strength while cell backgrounds render exactly as normal from the first
     /// frame (a background veil read as a dark flash on translucent windows).
@@ -1653,7 +1653,7 @@ pub struct Settings {
     /// On by default; the dialog only appears when a program is actively running
     /// in the terminal, so the common idle-shell close path is unaffected.
     pub confirm_close: bool,
-    /// Opt-in OpenSSH config host import for the future connection manager.
+    /// Opt-in OpenSSH config host import for the connection manager.
     /// Off by default: OdyTTY's owned hosts list works without touching
     /// `~/.ssh/config`. When on, the data layer reads a caller-supplied
     /// OpenSSH config path read-only and name-only through bounded parsing.

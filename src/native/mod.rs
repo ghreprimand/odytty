@@ -381,8 +381,9 @@ pub(in crate::native) fn seed_launch_session_model(model: &mut Terminal, setting
     // DECSTR return to it. Presentation policy only — the grid contents are
     // unaffected.
     model.set_cursor_defaults(settings.cursor_style, settings.cursor_blink.enabled());
-    // Button protocol gates (docs/buttons.md). Off by default => byte-identical
-    // when the setting is off. Sub-gates ride the same master.
+    // Button protocol gates (docs/buttons.md). Turning the default-on master
+    // off restores the byte-identical plain path. Sub-gates ride the same
+    // master.
     model.set_buttons_enabled(settings.buttons);
     model.set_buttons_iterm_compat(settings.buttons_iterm_compat);
     model.set_buttons_sticky(settings.buttons_sticky);

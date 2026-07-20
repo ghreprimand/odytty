@@ -653,7 +653,7 @@ impl Settings {
                 env: TAB_PANEL_STRENGTH_ENV,
                 name: "Tab panel strength",
                 value: format_float(self.tab_panel_strength),
-                description: "Strength of the translucent panel behind the tab bar/rail. 0 turns the panel off (bare labels over the wallpaper); higher values mute the wallpaper more so tab labels read against a quiet surface. Both placements. Applies live.",
+                description: "Sets the opacity of the panel behind the tab bar and rail directly. 0 turns the panel off for bare labels over the window background; 1 makes the band nearly opaque at any window opacity. The default 0.8 keeps a strong panel with a hint of the window showing through. Both placements. Applies live.",
                 kind: SettingKind::Number,
                 range: None,
                 options: &[],
@@ -859,8 +859,8 @@ impl Settings {
             // CRT curvature is intentionally absent from the settings panel: it
             // is a niche barrel-distortion tweak that stays available through
             // the `crt_curvature` config key / ODYTTY_CRT_CURVATURE env only.
-            // The knob, its parse/clamp, aliases, and the retro-preset override
-            // are unchanged; only its panel row is withheld.
+            // The knob is the only source of curvature; the retro preset does
+            // not override it.
             SettingInfo {
                 group: "Post-process",
                 key: "background_treatment",
@@ -1639,7 +1639,7 @@ impl Settings {
                 env: SSH_CONFIG_HOSTS_ENV,
                 name: "Import OpenSSH host names",
                 value: bool_display(self.ssh_config_hosts).to_owned(),
-                description: "Opt-in source for the future connection manager. Off by default, so OdyTTY never reads OpenSSH config. When on, OdyTTY reads the caller-resolved ~/.ssh/config path read-only and name-only through a bounded parser; key directives and credentials are not surfaced.",
+                description: "Opt-in source for the connection manager. Off by default, so OdyTTY never reads OpenSSH config. When on, OdyTTY reads the caller-resolved ~/.ssh/config path read-only and name-only through a bounded parser; key directives and credentials are not surfaced.",
                 kind: SettingKind::Bool,
                 range: None,
                 options: &["on", "off"],

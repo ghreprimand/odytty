@@ -366,7 +366,8 @@ pane_prefix = ctrl+b
 #                                  in-app lightbox (dismiss with Esc or by
 #                                  clicking outside)
 #   interactive_paths_editor       editor command template for :line:col jumps
-#                                  (empty = fall back to the system opener)
+#                                  (empty = use $EDITOR/$VISUAL, then the system
+#                                  opener when neither is set)
 # Clickable bare URLs (on by default): a printed http(s):// URL gets a hand
 # cursor + modifier-hover underline and opens in the browser on Ctrl+click
 # (Cmd+click on macOS). Only

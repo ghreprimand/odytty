@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Bounded, name-only OpenSSH config reader for the future connection manager.
+//! Bounded, name-only OpenSSH config reader for the connection manager.
 //!
 //! Privacy boundary: this module never discovers a user's SSH config path on
 //! its own and never follows `Include`. Callers must pass the exact path or

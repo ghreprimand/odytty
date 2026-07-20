@@ -5,7 +5,7 @@ Clicking the button sends a small, terminal-composed escape sequence back to
 the program — an integer code, nothing else — so command-line tools can offer
 "click to retry", "click to copy", or "click to open" affordances without a
 GUI. Buttons survive scrollback, degrade to plain text in other terminals, and
-are **off by default**.
+are **on by default**.
 
 This document is the wire-protocol reference for emitters. For the
 shell-integration helper functions see [Helpers](#helpers); for a working
@@ -129,6 +129,11 @@ that is still visible, because a visibly dead button is worse than a refused
 new one. Definitions on the alternate screen are refused (full-screen
 applications have real mouse protocols already).
 
+In-row terminal edits keep button geometry aligned with the cells. Insert and
+delete-character operations move intact spans with their labels; an edit or
+erase that cuts through a label invalidates that span instead of leaving a
+click target over unrelated text. Rectangle copies do not duplicate buttons.
+
 ## Icons
 
 Icon names are semantic and platform-neutral. Accepted names and aliases
@@ -183,12 +188,13 @@ call them unconditionally in any terminal.
 ## Settings
 
 Buttons are configured by three settings (config file, environment variable,
-or the settings panel, Input group). Changes apply live to every open session.
+or the settings panel, Shell Integration group). Changes apply live to every
+open session.
 
 | setting | env | default | effect |
 |---|---|---|---|
-| `buttons` | `ODYTTY_BUTTONS` | off | Master gate: parse definitions, render chips, report clicks, and advertise support to new sessions. |
-| `buttons_iterm_compat` | `ODYTTY_BUTTONS_ITERM_COMPAT` | off | Also accept the Tier 1 iTerm2 spelling. |
+| `buttons` | `ODYTTY_BUTTONS` | on | Master gate: parse definitions, render chips, report clicks, and advertise support to new sessions. |
+| `buttons_iterm_compat` | `ODYTTY_BUTTONS_ITERM_COMPAT` | on | Also accept the Tier 1 iTerm2 spelling. |
 | `buttons_sticky` | `ODYTTY_BUTTONS_STICKY` | off | Honor `scope=sticky` lifetimes; off downgrades them to `block`. |
 
 The sub-gates do nothing while the master gate is off.

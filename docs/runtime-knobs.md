@@ -846,7 +846,7 @@ Settings panel's Input section.
 resolves to a real file or directory from the pane cwd. Bare filenames from
 plain `ls` output require `interactive_paths_barewords = on`. If Open or Reveal
 fails, Linux needs `xdg-open` available on `PATH`; macOS uses `open`; Windows
-uses `cmd` and Explorer.
+uses Explorer directly.
 
 If Open With is empty on Linux or macOS, the file type was not recognized or no
 matching application was registered. Windows application enumeration is not
@@ -858,7 +858,8 @@ implemented, so its picker always shows the empty state.
   group. `Esc` clears the filter or closes the panel. `Ctrl+S` persists changes.
 - Theme, font, and path rows open pickers. Mouse wheel scrolls pickers; title
   back affordances return to Settings when launched from Settings.
-- Numeric rows use discrete steppers and click-to-type entry.
+- Numeric rows use discrete steppers and click-to-type entry. The first typed
+  key replaces the prefilled value.
 - Right-click opens the context menu. On OSC 133-aware prompts it can copy, cut,
   delete, clear input, open settings, and create, rename, or close tabs. A
   custom tab name is session-local; it overrides shell title updates until an
