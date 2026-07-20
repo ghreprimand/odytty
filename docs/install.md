@@ -245,19 +245,72 @@ below.
 
 ### Updating
 
-The `.deb` and `.rpm` assets are direct GitHub Release downloads, not packages
-from an apt or dnf repository. Update by downloading and reinstalling the
-always-latest asset, or re-run the one-line installer:
+Use the same method that installed OdyTTY. The stable download aliases always
+point at the newest release.
+
+**One-line installer.** Re-run it; the script downloads, verifies, and installs
+the newest artifact for the detected system:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
 ```
 
-The AUR package updates with a normal `paru -Syu` / `yay -Syu`.
+**Direct `.deb`.** OdyTTY does not publish an apt repository, so `apt upgrade`
+cannot discover a new release. Repeat the verified download and install:
 
-The AppImage and binary tarball have no package manager, so an update is a
-re-download of the always-latest alias (it resolves to the newest release). For
-the AppImage:
+```sh
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-amd64.deb
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+sudo apt install ./odytty-amd64.deb
+```
+
+**Direct `.rpm`.** OdyTTY does not publish a dnf repository. Repeat the
+verified download and install:
+
+```sh
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.rpm
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+sudo dnf install ./odytty-x86_64.rpm
+```
+
+**AUR.** An AUR helper updates OdyTTY during the normal system upgrade:
+
+```sh
+paru -Syu
+# or: yay -Syu
+```
+
+A manual AUR checkout updates in place:
+
+```sh
+cd odytty
+git pull --ff-only
+makepkg -si
+```
+
+**Binary tarball.** Download and verify the always-latest tarball, extract it
+into a new directory, and run the bundled installer with the same `PREFIX` used
+originally. Its default remains `~/.local`:
+
+```sh
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-linux-x86_64.tar.gz
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+sha256sum -c SHA256SUMS --ignore-missing
+tar -xzf odytty-linux-x86_64.tar.gz
+cd odytty-*-linux-x86_64
+./install.sh
+```
+
+For a previous system-wide install, use the same system prefix again:
+
+```sh
+sudo env PREFIX=/usr/local ./install.sh
+```
+
+**AppImage.** Replace the old file with the always-latest alias, verify it, and
+restore the executable bit:
 
 ```sh
 curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
@@ -266,8 +319,14 @@ sha256sum -c SHA256SUMS --ignore-missing
 chmod +x odytty-x86_64.AppImage
 ```
 
-For the binary tarball, re-download `odytty-linux-x86_64.tar.gz`, verify, and
-re-run its bundled `./install.sh` with the same `PREFIX` as before.
+**Source build.** A release archive is a fixed snapshot; download the newest
+source archive into a new directory. A git checkout can instead run
+`git pull --ff-only`. Then rebuild and repeat the same
+[user-local](#user-local-install) or [system](#system-install) installation:
+
+```sh
+cargo build --release --locked
+```
 
 ## macOS (Apple Silicon)
 

@@ -129,15 +129,24 @@ the `Ctrl+Shift+P` command palette. No config file needed.
 <details>
 <summary><strong>Updating</strong></summary>
 
-**Linux native package** installs from GitHub Releases are not connected to an
-apt or dnf repository. Re-download and reinstall the always-latest `.deb` or
-`.rpm`, or re-run the one-line installer to pull the newest package:
+Linux updates follow the original install method:
+
+| Installed with | Update |
+| --- | --- |
+| One-line installer | Re-run the installer below. |
+| Direct `.deb` or `.rpm` | Re-run the installer, or repeat the download, checksum, and `apt install` / `dnf install` commands above. OdyTTY does not publish an apt or dnf repository. |
+| AUR | Run `paru -Syu` or `yay -Syu`; a manual checkout uses `git pull --ff-only` followed by `makepkg -si`. |
+| Binary tarball | Download the always-latest tarball, verify it, and run its `install.sh` with the same `PREFIX` as before. |
+| AppImage | Replace it with the always-latest alias and verify it as shown below. |
+| Source build | Update or replace the source tree, rebuild with `cargo build --release --locked`, and repeat the same user-local or system install. |
+
+The one-line installer pulls the newest applicable native package or tarball:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
 ```
 
-**Linux AppImage** updates are a re-download of the always-latest alias:
+For an AppImage, replace the old file with the stable always-latest alias:
 
 ```sh
 curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
@@ -160,8 +169,8 @@ scoop update
 scoop update odytty
 ```
 
-The [full update guide](docs/install.md) also covers the AUR, Homebrew source
-formula, portable zip, and source-build paths.
+The [full update guide](docs/install.md#updating) gives exact commands for every
+Linux method, plus the Homebrew and Scoop paths below.
 
 </details>
 
@@ -182,6 +191,8 @@ formula, portable zip, and source-build paths.
   focus reporting, IME composition, search, refined and PRIMARY selection,
   bracketed-paste hardening, copy mode, keyboard hints, prompt navigation, OSC 8
   hyperlinks, and clickable files and URLs support daily shell and TUI work.
+  Native Windows console applications can request complete ConPTY Win32 key
+  records, preserving input such as `Ctrl+Backspace` and `Shift+Enter`.
   [See terminal compatibility](docs/features.md#terminal-compatibility).
 - **Workspaces for real sessions.** Tabs contain resizable panes and named
   workspaces, with a configurable tmux-style pane prefix, session restore,
@@ -284,7 +295,8 @@ This index is the complete map of OdyTTY's tracked project documentation.
 
 ### Use and customize
 
-[Runtime knobs](docs/runtime-knobs.md) for settings and CLI surfaces;
+[Settings guide](docs/settings-guide.md) for shipped defaults and useful
+opt-ins; [Runtime knobs](docs/runtime-knobs.md) for every setting and CLI surface;
 [Keybindings](docs/keybindings.md) for shortcuts and rebinding;
 [Accessibility](docs/accessibility.md) for readability and motion controls; and
 [Diagnostics](docs/diagnostics.md) for logs, recovery, and support information.
