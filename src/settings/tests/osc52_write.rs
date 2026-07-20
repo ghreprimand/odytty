@@ -20,9 +20,9 @@ fn settings_from<const N: usize>(values: [(&str, &str); N]) -> (Settings, Vec<St
 }
 
 #[test]
-fn osc52_write_defaults_on_and_parses_every_policy() {
+fn osc52_write_defaults_ask_and_parses_every_policy() {
     let (default, warnings) = settings_from([]);
-    assert_eq!(default.osc52_write, Osc52WritePolicy::On);
+    assert_eq!(default.osc52_write, Osc52WritePolicy::Ask);
     assert!(warnings.is_empty());
 
     for (raw, expected) in [
@@ -42,14 +42,16 @@ fn osc52_write_config_panel_and_reload_are_tri_state() {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut warnings = Vec::new();
-    let config = ConfigValues::parse("osc52_write = ask", |message| warnings.push(message));
+    // Use a non-default value (`on`) so the reload is a real change over the
+    // `ask` default and `apply_reloadable_values` reports it.
+    let config = ConfigValues::parse("osc52_write = on", |message| warnings.push(message));
     let reloaded = Settings::from_source(
         |key| config.get(key).cloned(),
         |message| warnings.push(message.to_owned()),
         |_| None,
         |_| None,
     );
-    assert_eq!(reloaded.osc52_write, Osc52WritePolicy::Ask);
+    assert_eq!(reloaded.osc52_write, Osc52WritePolicy::On);
     assert!(warnings.is_empty());
 
     let row = reloaded
@@ -58,13 +60,13 @@ fn osc52_write_config_panel_and_reload_are_tri_state() {
         .find(|row| row.key == "osc52_write")
         .expect("OSC 52 write panel row");
     assert_eq!(row.env, OSC52_WRITE_ENV);
-    assert_eq!(row.value, "ask");
+    assert_eq!(row.value, "on");
     assert_eq!(row.options, &["off", "ask", "on"]);
     assert!(row.reloadable);
 
     let mut current = Settings::default();
     assert!(apply_reloadable_values(&mut current, reloaded));
-    assert_eq!(current.osc52_write, Osc52WritePolicy::Ask);
+    assert_eq!(current.osc52_write, Osc52WritePolicy::On);
     assert!(
         !current.osc52_read,
         "write policy is independent from reads"
@@ -72,9 +74,9 @@ fn osc52_write_config_panel_and_reload_are_tri_state() {
 }
 
 #[test]
-fn invalid_osc52_write_policy_warns_and_falls_back_on() {
+fn invalid_osc52_write_policy_warns_and_falls_back_ask() {
     let (settings, warnings) = settings_from([(OSC52_WRITE_ENV, "sometimes")]);
-    assert_eq!(settings.osc52_write, Osc52WritePolicy::On);
+    assert_eq!(settings.osc52_write, Osc52WritePolicy::Ask);
     assert_eq!(warnings.len(), 1);
     assert!(warnings[0].contains(OSC52_WRITE_ENV));
 }

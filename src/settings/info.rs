@@ -1720,7 +1720,7 @@ impl Settings {
                 env: OSC52_WRITE_ENV,
                 name: "Terminal clipboard writes (OSC 52)",
                 value: self.osc52_write.as_str().to_owned(),
-                description: "Controls clipboard writes requested by terminal output. On (default) preserves copy workflows, Ask requires ephemeral per-session approval, and Off discards writes. Every mode permanently discards requests from background sessions or while the OS window is unfocused.",
+                description: "Controls clipboard writes requested by terminal output. Ask (default) requires ephemeral per-session approval before a program replaces the clipboard, On preserves copy workflows by applying focused writes immediately, and Off discards writes. Every mode permanently discards requests from background sessions or while the OS window is unfocused.",
                 kind: SettingKind::Enum,
                 range: None,
                 options: &["off", "ask", "on"],

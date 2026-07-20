@@ -168,7 +168,7 @@ environment variable was not set at startup.
 | `remote_image_paste` | `ODYTTY_REMOTE_IMAGE_PASTE` | `ask`, `off` | `ask` |
 | `session_replay` | `ODYTTY_SESSION_REPLAY` | `on`, `off` | `off` |
 | `restore_workspaces` | `ODYTTY_RESTORE_WORKSPACES` | `on`, `off` | `off` |
-| `osc52_write` | `ODYTTY_OSC52_WRITE` | `off`, `ask`, `on` | `on` |
+| `osc52_write` | `ODYTTY_OSC52_WRITE` | `off`, `ask`, `on` | `ask` |
 | `osc52_read` | `ODYTTY_OSC52_READ` | `on`, `off` | `off` |
 | `copy_on_select` | `ODYTTY_COPY_ON_SELECT` | `on`, `off` | `off` |
 | `smart_ctrl_c` | `ODYTTY_SMART_CTRL_C` | `off`, `copy-or-interrupt` | `copy-or-interrupt` |
@@ -466,18 +466,21 @@ audible bell.
 
 ### Gate Terminal Clipboard And Named Graphics Authority
 
-`osc52_write = on` is the default compatibility policy for terminal-requested
-clipboard writes. OdyTTY still accepts a write only from the active PTY after
-the window has reported OS focus; requests are discarded while focus is absent
-or has not yet been observed. A compact, rate-limited notice identifies only
-the clipboard target and byte count, never the copied content.
+`osc52_write = ask` is the default policy for terminal-requested clipboard
+writes: a program that tries to set the system clipboard prompts for consent
+first, so an unattended write cannot silently replace what you have copied. The
+consent overlay offers allow once, allow for that session, deny for that
+session, or cancel; remembered choices disappear when the PTY closes.
 
-Set `osc52_write = ask` to require a choice for each PTY session. The consent
-overlay offers allow once, allow for that session, deny for that session, or
-cancel; remembered choices disappear when the PTY closes. `off` drains and
-discards all write requests. OSC 52 reads are independent and remain off by
-default through `osc52_read = off`. On Linux, selector `p` targets PRIMARY;
-macOS and Windows have no PRIMARY surface, so that target is a no-op there.
+Set `osc52_write = on` for the older compatibility behavior, which applies a
+focused write immediately with a compact, rate-limited notice that identifies
+only the clipboard target and byte count, never the copied content. `off` drains
+and discards all write requests. In every mode OdyTTY accepts a write only from
+the active PTY after the window has reported OS focus; requests are discarded
+while focus is absent or has not yet been observed. OSC 52 reads are independent
+and remain off by default through `osc52_read = off`. On Linux, selector `p`
+targets PRIMARY; macOS and Windows have no PRIMARY surface, so that target is a
+no-op there.
 
 Kitty direct and chunked-inline image transfers remain available. File,
 temporary-file, and POSIX shared-memory transports named by terminal output

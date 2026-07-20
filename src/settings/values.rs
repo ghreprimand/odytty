@@ -714,7 +714,7 @@ pub(super) fn parse_osc52_write(
         Some(policy) => policy,
         None => {
             warn(&format!(
-                "{OSC52_WRITE_ENV}={trimmed:?} is not off|ask|on; using on"
+                "{OSC52_WRITE_ENV}={trimmed:?} is not off|ask|on; using ask (default)"
             ));
             Osc52WritePolicy::default()
         }

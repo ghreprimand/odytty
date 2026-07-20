@@ -788,10 +788,12 @@ pub enum RemoteImagePaste {
 pub enum Osc52WritePolicy {
     /// Drain and discard all OSC 52 writes.
     Off,
-    /// Require an explicit, ephemeral per-session decision.
+    /// Require an explicit, ephemeral per-session decision. This is the default:
+    /// a program setting the system clipboard first asks for consent, so an
+    /// unattended write cannot silently replace the clipboard.
+    #[default]
     Ask,
     /// Apply focused writes immediately and show a bounded neutral notice.
-    #[default]
     On,
 }
 
