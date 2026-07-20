@@ -15,12 +15,15 @@
 //!
 //! Pure and std-only — tested directly by asserting the vector, never spawning.
 
-/// The `file://<abs>` URI used for the `%u`/`%U` field codes. Mirrors
-/// `crate::native::app::interactive_paths::file_uri`; duplicated here (one line)
-/// rather than imported so this library-side module never reaches into `native/`
-/// (the SPEC layering rule: `src/desktop/` imports no windowing/GPU).
+/// The `file://<abs>` URI used for the `%u`/`%U` field codes. Routes through the
+/// shared library-layer encoder (`crate::paths::file_uri`), so a `%u` path with
+/// a space, `%`, control byte, or non-ASCII byte is percent-encoded rather than
+/// emitted raw (a malformed URI otherwise). Desktop entries are Unix-only, so the
+/// Unix convention applies. The encoder lives under `src/paths/` (std-only), so
+/// this stays within the SPEC layering rule: `src/desktop/` never reaches into
+/// `native/`.
 fn file_uri(abs: &str) -> String {
-    format!("file://{abs}")
+    crate::paths::file_uri::file_uri(abs, crate::paths::file_uri::UriOs::Unix)
 }
 
 /// Expand a Desktop-Entry `Exec=` string into an argv vector for opening `abs`.

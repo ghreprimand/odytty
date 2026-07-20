@@ -166,34 +166,15 @@ pub(crate) fn path_open_argv(
 /// parsed as the URL authority (`file://C:/…` would read `C:` as the host), and
 /// bytes unsafe in a URI path (spaces, `%`, non-ASCII) are percent-encoded.
 pub(crate) fn file_uri(abs: &str, os: OpenerOs) -> String {
-    match os {
-        OpenerOs::Windows => {
-            let slashed = abs.replace('\\', "/");
-            let rooted = if slashed.starts_with('/') {
-                slashed
-            } else {
-                format!("/{slashed}")
-            };
-            format!("file://{}", percent_encode_uri_path(&rooted))
-        }
-        OpenerOs::Linux | OpenerOs::Macos => format!("file://{abs}"),
-    }
-}
-
-/// Percent-encode the bytes of a URI path, preserving the RFC 3986 unreserved
-/// set plus the path/drive separators `/` and `:`. Every other byte (space,
-/// `%`, control, non-ASCII UTF-8) is emitted as `%XX`. Pure.
-fn percent_encode_uri_path(path: &str) -> String {
-    let mut out = String::with_capacity(path.len());
-    for &byte in path.as_bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' | b':' => {
-                out.push(byte as char)
-            }
-            _ => out.push_str(&format!("%{byte:02X}")),
-        }
-    }
-    out
+    // Delegate to the shared library-layer encoder so both producers (this and
+    // the Desktop-Entry `%u/%U` expander) percent-encode identically. The Unix
+    // arm now encodes too (it previously emitted the raw path), closing the
+    // malformed-URI gap for paths with spaces / `%` / control / non-ASCII bytes.
+    let uri_os = match os {
+        OpenerOs::Windows => crate::paths::file_uri::UriOs::Windows,
+        OpenerOs::Linux | OpenerOs::Macos => crate::paths::file_uri::UriOs::Unix,
+    };
+    crate::paths::file_uri::file_uri(abs, uri_os)
 }
 
 /// The argv vector to open `abs` at `line`(`:col`) with the given editor `spec`

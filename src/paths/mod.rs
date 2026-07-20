@@ -24,6 +24,7 @@
 //! behavior. Phases 7–9 wire hover/click/menu/viewer onto it.
 
 pub mod detect;
+pub mod file_uri;
 
 pub use detect::{
     DetectionOptions, PathSpan, detect_path_candidates_at, detect_paths, detect_paths_with_options,
