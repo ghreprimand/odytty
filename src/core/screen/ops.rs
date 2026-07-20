@@ -1115,6 +1115,7 @@ impl Screen {
             auto_wrap: self.auto_wrap,
             protected: self.current_protected,
             active_hyperlink: self.active_hyperlink,
+            charsets: self.charsets,
         });
     }
 
@@ -1133,6 +1134,7 @@ impl Screen {
             self.auto_wrap = saved_cursor.auto_wrap;
             self.current_protected = saved_cursor.protected;
             self.active_hyperlink = saved_cursor.active_hyperlink;
+            self.charsets = saved_cursor.charsets;
             self.mark_dirty();
         }
     }
@@ -1182,6 +1184,7 @@ impl Screen {
             kitty_keyboard_flags: self.keyboard.kitty_keyboard_flags,
             kitty_keyboard_stack: std::mem::take(&mut self.kitty_keyboard_stack),
             modify_other_keys: self.keyboard.modify_other_keys,
+            charsets: self.charsets,
             // ALT-SCREEN-ISOLATION: save and clear the primary's input boundary
             // so the native editing layer cannot read stale primary state while
             // an alternate-screen TUI is running (D-IN2-ALT-ISOLATION).
@@ -1191,6 +1194,9 @@ impl Screen {
         };
         self.keyboard.kitty_keyboard_flags = 0;
         self.keyboard.modify_other_keys = 0;
+        // Fresh alternate screen starts at the charset power-on state (ASCII
+        // G0/G1, GL=G0) — the TUI designates its own graphics if it wants ACS.
+        self.charsets = CharsetModes::default();
 
         if clear_alt {
             self.cursor = Position::default();
@@ -1256,6 +1262,9 @@ impl Screen {
             self.keyboard.kitty_keyboard_flags = primary_screen.kitty_keyboard_flags;
             self.kitty_keyboard_stack = primary_screen.kitty_keyboard_stack;
             self.keyboard.modify_other_keys = primary_screen.modify_other_keys;
+            // Per-screen charset isolation: the alt-screen TUI's designations
+            // are discarded; the primary's saved state takes effect again.
+            self.charsets = primary_screen.charsets;
             // ALT-SCREEN-ISOLATION: restore the primary's OSC 133 input
             // boundary. The alternate screen's value (which was already cleared
             // on enter) is discarded; the primary's saved value takes effect so
@@ -1346,6 +1355,7 @@ impl Screen {
         self.mouse = MouseProtocol::default();
         self.keyboard = KeyboardModes::default();
         self.kitty_keyboard_stack.clear();
+        self.charsets = CharsetModes::default();
         self.focus_reporting = false;
         self.click_events_enabled = false;
         // DEC private mode 1007 (alternate scroll) powers on enabled, so RIS
@@ -1384,6 +1394,9 @@ impl Screen {
         self.bracketed_paste = false;
         self.keyboard = KeyboardModes::default();
         self.kitty_keyboard_stack.clear();
+        // DECSTR resets the character sets to their power-on defaults (ASCII
+        // G0/G1, GL=G0), matching xterm's soft reset.
+        self.charsets = CharsetModes::default();
         self.current_attrs = Attrs::default();
         self.current_protected = false;
         self.rect_attr_extent = RectAttributeExtent::default();
@@ -1419,6 +1432,12 @@ impl Screen {
         self.mouse = MouseProtocol::default();
         self.keyboard = KeyboardModes::default();
         self.kitty_keyboard_stack.clear();
+        // Charsets are output-interpretation state, not input encoding, but
+        // they share the staleness argument exactly: a session dropped while
+        // a TUI had DEC Special Graphics designated would otherwise render
+        // the fresh shell's lowercase output as line-drawing glyphs, and a
+        // new login shell never re-designates charsets on its own.
+        self.charsets = CharsetModes::default();
         self.focus_reporting = false;
         self.click_events_enabled = false;
         // Alternate scroll powers on ENABLED (RIS default, not DECSTR), so its

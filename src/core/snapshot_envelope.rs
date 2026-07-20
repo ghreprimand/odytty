@@ -13,12 +13,12 @@ use std::num::NonZeroU32;
 use super::prompt_marks::PromptKind;
 use super::screen::Terminal;
 use super::types::{
-    Attrs, Cell, Color, CursorStyle, Dimensions, DynamicColors, KeyboardModes, LinkId,
-    MouseEncoding, MouseProtocol, MouseTracking, Position, RgbColor, UnderlineStyle,
+    Attrs, Cell, CharsetModes, Color, CursorStyle, Dimensions, DynamicColors, KeyboardModes,
+    LinkId, MouseEncoding, MouseProtocol, MouseTracking, Position, RgbColor, UnderlineStyle,
 };
 
 pub const SNAPSHOT_MAGIC: &[u8; 15] = b"ODYTTY-SNAPSHOT";
-pub const SNAPSHOT_FORMAT_VERSION: u16 = 2;
+pub const SNAPSHOT_FORMAT_VERSION: u16 = 3;
 pub const SNAPSHOT_PROTOCOL_VERSION: u16 = 1;
 
 const SECTION_TERMINAL_STATE: u16 = 1;
@@ -63,8 +63,8 @@ pub const ROW_WIRE_OVERHEAD_BYTES: usize = 5;
 
 /// Wire bytes of the terminal-state section ahead of the two row lists:
 /// dimensions (8), cursor (8), cursor visibility/style/blink (3), and basic
-/// modes (11). Pinned by `terminal_state_prelude_wire_len_is_pinned`.
-pub const TERMINAL_STATE_PRELUDE_WIRE_BYTES: usize = 30;
+/// modes (12). Pinned by `terminal_state_prelude_wire_len_is_pinned`.
+pub const TERMINAL_STATE_PRELUDE_WIRE_BYTES: usize = 31;
 
 /// Decode-side resource caps. These are separate from capture limits so an
 /// attaching client can reject untrusted or future-expanded files before
@@ -267,7 +267,7 @@ impl SnapshotEnvelope {
             let payload = reader.read_bytes(section.len)?;
             match section.id {
                 SECTION_TERMINAL_STATE => {
-                    let state = SnapshotTerminalState::decode(payload, caps)?;
+                    let state = SnapshotTerminalState::decode(payload, caps, format_version)?;
                     terminal = Some(state);
                 }
                 SECTION_DYNAMIC_COLORS => {
@@ -557,7 +557,11 @@ impl SnapshotTerminalState {
         before - self.scrollback_rows.len()
     }
 
-    fn decode(bytes: &[u8], caps: SnapshotEnvelopeCaps) -> Result<Self, SnapshotEnvelopeError> {
+    fn decode(
+        bytes: &[u8],
+        caps: SnapshotEnvelopeCaps,
+        format_version: u16,
+    ) -> Result<Self, SnapshotEnvelopeError> {
         let mut reader = Reader::new(bytes);
         let columns = reader.read_u32()? as usize;
         let rows = reader.read_u32()? as usize;
@@ -575,7 +579,7 @@ impl SnapshotTerminalState {
         let cursor_visible = reader.read_bool()?;
         let cursor_style = decode_cursor_style(reader.read_u8()?)?;
         let cursor_blink = reader.read_bool()?;
-        let basic_modes = SnapshotBasicModes::decode(&mut reader)?;
+        let basic_modes = SnapshotBasicModes::decode(&mut reader, format_version)?;
         let scrollback_rows = read_rows(&mut reader, dimensions, caps.max_scrollback_rows)?;
         let visible_rows = read_rows(&mut reader, dimensions, caps.max_rows)?;
         if visible_rows.len() != rows {
@@ -619,6 +623,7 @@ pub struct SnapshotBasicModes {
     pub focus_reporting: bool,
     pub mouse: MouseProtocol,
     pub keyboard: KeyboardModes,
+    pub charsets: CharsetModes,
 }
 
 impl SnapshotBasicModes {
@@ -631,6 +636,7 @@ impl SnapshotBasicModes {
             focus_reporting: terminal.focus_reporting(),
             mouse: terminal.mouse_protocol(),
             keyboard: terminal.keyboard_modes(),
+            charsets: terminal.charset_modes(),
         }
     }
 
@@ -645,9 +651,13 @@ impl SnapshotBasicModes {
         write_u8(out, u8::from(self.keyboard.application_cursor));
         write_u8(out, u8::from(self.keyboard.application_keypad));
         write_u16(out, self.keyboard.kitty_keyboard_flags);
+        // Format v3 appended field: G0/G1 charset designations + GL selection,
+        // packed into one byte so a mid-ACS-run session round-trips its
+        // line-drawing state across snapshot/attach.
+        write_u8(out, encode_charset_modes(self.charsets));
     }
 
-    fn decode(reader: &mut Reader<'_>) -> Result<Self, SnapshotEnvelopeError> {
+    fn decode(reader: &mut Reader<'_>, format_version: u16) -> Result<Self, SnapshotEnvelopeError> {
         Ok(Self {
             bracketed_paste: reader.read_bool()?,
             alternate_scroll: reader.read_bool()?,
@@ -667,8 +677,37 @@ impl SnapshotBasicModes {
                 // and an attached app re-enables it with its next XTMODKEYS.
                 modify_other_keys: 0,
             },
+            // Appended in format v3; older snapshots restore at the charset
+            // power-on state (ASCII G0/G1, GL=G0).
+            charsets: if format_version >= 3 {
+                decode_charset_modes(reader.read_u8()?)?
+            } else {
+                CharsetModes::default()
+            },
         })
     }
+}
+
+/// Pack [`CharsetModes`] into the format v3 wire byte: bit 0 = GL selects G1
+/// (SO latched), bit 1 = G0 designated DEC Special Graphics, bit 2 = G1
+/// designated DEC Special Graphics. Bits 3..=7 are reserved and must be zero.
+fn encode_charset_modes(charsets: CharsetModes) -> u8 {
+    u8::from(charsets.gl_g1)
+        | (u8::from(charsets.g0_graphics) << 1)
+        | (u8::from(charsets.g1_graphics) << 2)
+}
+
+fn decode_charset_modes(byte: u8) -> Result<CharsetModes, SnapshotEnvelopeError> {
+    if byte & !0b111 != 0 {
+        // Defensive decode: reserved bits from a future/corrupt producer fail
+        // cleanly rather than silently dropping unknown charset state.
+        return Err(SnapshotEnvelopeError::InvalidEnum("charset modes", byte));
+    }
+    Ok(CharsetModes {
+        gl_g1: byte & 0b001 != 0,
+        g0_graphics: byte & 0b010 != 0,
+        g1_graphics: byte & 0b100 != 0,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1791,10 +1830,13 @@ mod tests {
     #[test]
     fn v1_envelope_restores_with_current_defaults() {
         let terminal = sample_terminal();
-        let terminal_payload =
+        let mut terminal_payload =
             SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default())
                 .terminal
                 .encode();
+        // A v1 terminal payload predates the format v3 charset byte (the
+        // last prelude byte, offset 30); strip it so the fixture is v1-shaped.
+        terminal_payload.remove(30);
         let bytes = encode_sections_for_version(
             1,
             "v1-test",
@@ -2247,10 +2289,13 @@ mod tests {
     #[test]
     fn v1_envelope_decodes_with_v2_defaults() {
         let terminal = sample_terminal();
-        let terminal_payload =
+        let mut terminal_payload =
             SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default())
                 .terminal
                 .encode();
+        // A v1 terminal payload predates the format v3 charset byte (the
+        // last prelude byte, offset 30); strip it so the fixture is v1-shaped.
+        terminal_payload.remove(30);
         let bytes = encode_sections_for_version(
             1,
             "v1-test",

@@ -146,6 +146,38 @@ pub struct KeyboardModes {
     /// rejected at the parser.
     pub modify_other_keys: u8,
 }
+/// G0/G1 character-set designations and the SO/SI GL selection — the state
+/// behind classic terminfo/ncurses ACS line drawing.
+///
+/// `ESC ( Final` designates G0 and `ESC ) Final` designates G1; the only
+/// non-ASCII designation modeled is DEC Special Graphics (`Final` = `0`), the
+/// ~30-glyph box/line/symbol set alternate-charset (ACS) applications use.
+/// Every other final — including the explicit ASCII designation `B` — selects
+/// ASCII, a safe fallback for the national replacement sets OdyTTY does not
+/// model. SO (`0x0E`) selects G1 into GL, SI (`0x0F`) selects G0 (the
+/// power-on state). The mapping applies to printed characters in
+/// `0x5F..=0x7E` only; multi-byte UTF-8 input decodes to scalars above that
+/// range and is never affected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct CharsetModes {
+    /// `true` while SO has selected G1 into GL; `false` (power-on) = G0.
+    pub gl_g1: bool,
+    /// `true` when G0 is designated DEC Special Graphics (`ESC ( 0`).
+    pub g0_graphics: bool,
+    /// `true` when G1 is designated DEC Special Graphics (`ESC ) 0`).
+    pub g1_graphics: bool,
+}
+
+impl CharsetModes {
+    /// Whether the currently selected GL charset is DEC Special Graphics.
+    pub fn active_graphics(&self) -> bool {
+        if self.gl_g1 {
+            self.g1_graphics
+        } else {
+            self.g0_graphics
+        }
+    }
+}
 /// A mouse button (or wheel direction) for [`encode_mouse_event`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseButton {

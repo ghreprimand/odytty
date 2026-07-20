@@ -7,6 +7,43 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- DEC G0/G1 charsets and SO/SI: ncurses ACS line drawing renders correctly
+
+Classic terminfo alternate-charset line drawing (`smacs`/`rmacs` under vt100-
+family terminfo entries, ncurses menus and boxes) rendered as ASCII letters —
+`q`, `x`, `l`, `k` instead of `─`, `│`, `┌`, `┐` — because the terminal model
+ignored charset designation entirely: `ESC ( 0` / `ESC ) 0` were discarded at
+the escape dispatcher and SO/SI were unhandled control bytes.
+
+The model now carries G0/G1 designations plus the SO/SI GL selection. The only
+non-ASCII designation modeled is DEC Special Graphics (`0`), the ~30-glyph
+box/line/symbol set; every other final — including `B` (ASCII) and the
+national replacement sets — designates ASCII as a safe, documented fallback,
+so an unknown designator can never wedge the state (parser totality holds).
+Translation happens at the print seam for characters in `0x5F..=0x7E` only:
+the grid stores the already-translated Unicode glyph, so search, selection,
+reflow, and snapshots see plain text with no charset awareness, and multi-byte
+UTF-8 (which decodes above that range) is untouched. Every mapped glyph is
+narrow, so ACS drawing never creates wide pairs.
+
+Interaction matrix, all pinned by tests: DECSC/DECRC save and restore the
+designations and GL selection with the cursor; RIS and DECSTR reset them; the
+alternate screen gets per-screen isolation (a TUI's graphics designation is
+discarded on exit, the primary's restored — the same pattern as the kitty
+keyboard flags); REP repeats the translated glyph; wrap carries the state
+across rows; a respawned session resets charset state with the other latched
+modes so a session dropped mid-TUI cannot render the fresh shell's output as
+line glyphs.
+
+Snapshot format v3: one appended byte in the basic-modes prelude packs the
+designations + GL selection so an attach or restore mid-ACS-run keeps
+translating without re-designation. Older (v1/v2) snapshots decode with the
+charset power-on state; reserved bits in the new byte fail decode cleanly.
+
+Platform-neutral core change; no Windows-specific surface.
+
+---
+
 ## 2026-07-20 -- Paste framing atomicity, button spans under row edits, child reaping, ConPTY waiter
 
 Four reliability fixes from a full-tree review, in one batch.

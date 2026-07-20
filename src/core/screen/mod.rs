@@ -30,6 +30,7 @@ use super::snapshot_envelope::{
 };
 use super::types::*;
 
+mod charset;
 mod ops;
 mod osc;
 mod query;
@@ -355,6 +356,12 @@ pub struct Screen {
     mouse: MouseProtocol,
     /// Active keyboard reporting modes (DECCKM cursor keys and DECKPAM keypad).
     keyboard: KeyboardModes,
+    /// G0/G1 charset designations + SO/SI GL selection (ACS line drawing).
+    /// Kept per active screen (saved/reset on alternate-screen entry, restored
+    /// on exit — the kitty-flag pattern) so a TUI's graphics designation never
+    /// leaks into the primary prompt. Saved/restored by DECSC/DECRC; reset by
+    /// RIS and DECSTR.
+    charsets: CharsetModes,
     /// Saved Kitty keyboard protocol flags for CSI > / CSI <. Bounded in
     /// `ops.rs`; kept per active screen so alternate-screen apps cannot leak
     /// their negotiated keyboard protocol into the primary prompt.
@@ -450,6 +457,11 @@ struct StoredScreen {
     kitty_keyboard_flags: u16,
     kitty_keyboard_stack: Vec<u16>,
     modify_other_keys: u8,
+    /// Charset designations + GL selection saved with the primary screen
+    /// (same per-screen isolation rationale as the kitty keyboard flags: an
+    /// alternate-screen TUI's `ESC ( 0` must not leak line-drawing mode into
+    /// the primary prompt on exit).
+    charsets: CharsetModes,
     /// OSC 133 `B` input-start from the primary screen, saved on entering the
     /// alternate screen and restored on leaving it. Alternate-screen apps have
     /// no prompt input boundary of their own — storing and clearing the primary
@@ -471,6 +483,9 @@ struct SavedCursor {
     auto_wrap: bool,
     protected: bool,
     active_hyperlink: Option<LinkId>,
+    /// DECSC saves the G0/G1 designations and GL selection alongside the
+    /// cursor (VT100 behavior); DECRC restores them.
+    charsets: CharsetModes,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ScrollRegion {
@@ -552,6 +567,7 @@ impl Screen {
             prompt_marks_changed: false,
             mouse: MouseProtocol::default(),
             keyboard: KeyboardModes::default(),
+            charsets: CharsetModes::default(),
             kitty_keyboard_stack: Vec::new(),
             focus_reporting: false,
             click_events_enabled: false,
@@ -1181,6 +1197,7 @@ impl Screen {
                 focus_reporting: self.focus_reporting,
                 mouse: self.mouse,
                 keyboard: self.keyboard,
+                charsets: self.charsets,
             },
             scrollback_rows,
             visible_rows,
@@ -1239,6 +1256,7 @@ impl Screen {
         restored.focus_reporting = envelope.terminal.basic_modes.focus_reporting;
         restored.mouse = envelope.terminal.basic_modes.mouse;
         restored.keyboard = envelope.terminal.basic_modes.keyboard;
+        restored.charsets = envelope.terminal.basic_modes.charsets;
         restored.dynamic_colors = envelope.dynamic_colors.clone();
         restored.title = envelope.metadata.title.clone();
         restored.title_changed = envelope.metadata.title.is_some();
@@ -1600,6 +1618,11 @@ impl Screen {
     /// Keyboard modes that affect front-end key encoding.
     pub fn keyboard_modes(&self) -> KeyboardModes {
         self.keyboard
+    }
+
+    /// G0/G1 charset designations and the SO/SI GL selection.
+    pub fn charset_modes(&self) -> CharsetModes {
+        self.charsets
     }
 
     /// Whether DECSET 1004 focus reporting is enabled. When true, a front end
@@ -2260,6 +2283,18 @@ impl Screen {
     }
 
     fn print_char(&mut self, ch: char) {
+        // Charset seam: translate through DEC Special Graphics BEFORE width
+        // computation and `last_graphic_char` capture, so the grid, wrap
+        // logic, and REP all operate on the final Unicode glyph. Only
+        // single-byte-range characters (`0x5F..=0x7E`) can map; multi-byte
+        // UTF-8 decodes above that range and passes through untouched. The
+        // map is idempotent, so a REP replay of a stored translated glyph is
+        // unaffected even if the charset changed in between.
+        let ch = if self.charsets.active_graphics() && matches!(ch, '\x5f'..='\x7e') {
+            charset::dec_special_graphics(ch)
+        } else {
+            ch
+        };
         let width = UnicodeWidthChar::width(ch).unwrap_or(1);
         if width == 0 {
             // Zero-width combining mark: attach to the preceding base cell
@@ -2470,6 +2505,11 @@ impl Screen {
             b'\n' | b'\x0b' | b'\x0c' => self.line_feed(),
             b'\r' => self.carriage_return(),
             b'\x07' => self.bell_pending = true,
+            // SO/SI (LS1/LS0): select G1/G0 into GL for subsequent printed
+            // characters. Pure charset-state switches — no cursor, wrap, or
+            // grid effect, so the grid is not marked dirty.
+            b'\x0e' => self.charsets.gl_g1 = true,
+            b'\x0f' => self.charsets.gl_g1 = false,
             _ => {}
         }
     }
@@ -2595,8 +2635,27 @@ impl Screen {
     }
 
     fn dispatch_esc(&mut self, intermediates: &[u8], ignore: bool, byte: u8) {
-        if ignore || !intermediates.is_empty() {
+        if ignore {
             return;
+        }
+
+        // Charset designation: `ESC ( Final` designates G0, `ESC ) Final`
+        // designates G1. Only DEC Special Graphics (`0`) is modeled; every
+        // other final — `B` (ASCII) and the national replacement sets alike —
+        // designates ASCII as the safe fallback, so an unknown designator can
+        // never wedge the charset state or panic (parser totality).
+        match intermediates {
+            b"(" => {
+                self.charsets.g0_graphics = byte == b'0';
+                return;
+            }
+            b")" => {
+                self.charsets.g1_graphics = byte == b'0';
+                return;
+            }
+            [] => {}
+            // Other intermediates (ESC # 8 DECALN etc.) remain unhandled.
+            _ => return,
         }
 
         match byte {
@@ -2943,6 +3002,11 @@ impl Terminal {
         self.screen.keyboard_modes()
     }
 
+    /// G0/G1 charset designations and the SO/SI GL selection.
+    pub fn charset_modes(&self) -> CharsetModes {
+        self.screen.charset_modes()
+    }
+
     /// Whether DECSET 1004 focus reporting is enabled.
     pub fn focus_reporting(&self) -> bool {
         self.screen.focus_reporting()
@@ -3125,6 +3189,7 @@ fn blank_stored_primary(dimensions: Dimensions) -> StoredScreen {
         kitty_keyboard_flags: 0,
         kitty_keyboard_stack: Vec::new(),
         modify_other_keys: 0,
+        charsets: CharsetModes::default(),
         active_prompt_input_start: None,
         active_edit_region: None,
         active_prompt_start: None,

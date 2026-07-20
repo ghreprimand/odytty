@@ -35,6 +35,8 @@ mod alt_screen_tests;
 #[cfg(test)]
 mod button_tests;
 #[cfg(test)]
+mod charset_tests;
+#[cfg(test)]
 mod cursor_tests;
 #[cfg(test)]
 mod encoding_tests;
@@ -82,8 +84,8 @@ pub use snapshot_envelope::{
     SnapshotPromptMark, SnapshotRow, SnapshotScrollRegion, SnapshotTerminalState,
 };
 pub use types::{
-    Attrs, Cell, CellMetrics, ClipboardRequest, ClipboardSelection, Color, CursorStyle, Dimensions,
-    DirtyRegion, DynamicColors, KeyboardModes, LinkId, MouseButton, MouseEncoding, MouseEventKind,
-    MouseModifiers, MouseProtocol, MouseTracking, Position, RgbColor, Snapshot, TerminalModel,
-    UnderlineStyle,
+    Attrs, Cell, CellMetrics, CharsetModes, ClipboardRequest, ClipboardSelection, Color,
+    CursorStyle, Dimensions, DirtyRegion, DynamicColors, KeyboardModes, LinkId, MouseButton,
+    MouseEncoding, MouseEventKind, MouseModifiers, MouseProtocol, MouseTracking, Position,
+    RgbColor, Snapshot, TerminalModel, UnderlineStyle,
 };
