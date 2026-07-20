@@ -7,6 +7,50 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Release v0.9.1 — rail auto-hide control, low-opacity legibility, hardening
+
+Version 0.9.1 is released. The headline is the rail auto-hide control: the
+workspace rail now carries a small always-visible chevron control pinned at its
+bottom edge that toggles rail auto-hide in place, discoverable on the rail
+itself rather than only in settings, wired through the same live-apply and
+config-writeback path as the settings panel row.
+
+Alongside it, this release makes a translucent window genuinely usable at low
+opacity. Chrome translucency is unified across autohide states, panel strength
+is decoupled from window opacity and rescaled onto a usable ramp, and two new
+Rendering knobs keep content readable as the glass gets clearer:
+`colored_bg_opacity` (default 0.9) floors the strength of colored cell
+backgrounds — prompt segments, button chips, highlight runs — while the plain
+background stays transparent, and `text_brightness` (default 1.0) lifts glyph
+ink toward white over busy backdrops, applied after the minimum-contrast floor.
+
+Terminal correctness grew as well: DEC G0/G1 charset designation with the DEC
+Special Graphics map and SO/SI selection, so classic ncurses line drawing
+renders as real box glyphs; bracketed paste travels the write queue as one
+indivisible framed chunk so overflow can never tear the framing and leak paste
+bytes as executable input; clickable button spans now transform with in-row
+edits (insert/delete/erase families) instead of surviving over the wrong
+cells; and shell-integration OSC 7 percent-encodes the working directory in
+all four shells, closing an escape-sequence injection via hostile directory
+names and round-tripping non-ASCII paths on every supported bash, including
+the 3.2 shipped with macOS.
+
+Consent and durability hardening: OSC 52 clipboard writes now default to a
+per-session consent prompt (`ask`), with `on` retained as a compatibility
+opt-in and reads still off by default; configuration and host files share one
+atomic writer with exclusive temp creation, fsync durability, and file modes
+clamped to a 0644 ceiling; SSH connect failures and connection-probe errors
+surface as visible notices instead of dead clicks; and child processes from
+upload cleanup are reaped rather than left as zombies. Snapshot envelopes
+validate every wire-width field before encode, and the format's v3 revision
+persists charset state in one appended byte while older snapshots still
+decode. CI now runs on SHA-pinned actions with a scheduled deep-fuzz workflow.
+
+Defaults shipped by this release: window transparency on at 80, command
+status gutter on, new-output fade on at 250 ms, buttons on with iTerm2
+compatibility, shell integration on, OSC 52 writes ask, colored background
+strength 0.9, text brightness 1.0.
+
 ## 2026-07-20 -- Text brightness preserves HDR contrast-floor energy
 
 Raising `text_brightness` no longer darkens the shipped default theme when the
