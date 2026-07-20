@@ -539,6 +539,8 @@ mod tests {
             [0.0, 0.0],
             BackgroundTreatmentParams::default(),
             1.0,
+            // TEXT-BRIGHTNESS identity.
+            1.0,
             None,
             ChromePin::NONE,
         );
@@ -552,6 +554,8 @@ mod tests {
             0.0,
             [0.0, 0.0],
             BackgroundTreatmentParams::default(),
+            1.0,
+            // TEXT-BRIGHTNESS identity.
             1.0,
             None,
             ChromePin::NONE,
@@ -595,6 +599,8 @@ mod tests {
             [0.0, 0.0],
             BackgroundTreatmentParams::default(),
             1.0,
+            // TEXT-BRIGHTNESS identity.
+            1.0,
             None,
             ChromePin::NONE,
         );
@@ -631,6 +637,8 @@ mod tests {
             [0.0, 0.0],
             BackgroundTreatmentParams::default(),
             1.0,
+            // TEXT-BRIGHTNESS identity.
+            1.0,
             None,
             ChromePin::NONE,
         );
@@ -644,6 +652,8 @@ mod tests {
             0.0,
             [0.0, 0.0],
             BackgroundTreatmentParams::default(),
+            1.0,
+            // TEXT-BRIGHTNESS identity.
             1.0,
             None,
             ChromePin::NONE,
@@ -684,6 +694,8 @@ mod tests {
             0.0,
             [0.0, 0.0],
             BackgroundTreatmentParams::default(),
+            1.0,
+            // TEXT-BRIGHTNESS identity.
             1.0,
             None,
             ChromePin::NONE,
@@ -782,6 +794,8 @@ mod tests {
                                 origin,
                                 BackgroundTreatmentParams::default(),
                                 opacity,
+                                // TEXT-BRIGHTNESS identity.
+                                1.0,
                                 None,
                                 ChromePin::NONE,
                             );
@@ -806,6 +820,8 @@ mod tests {
                                 opacity,
                                 // COLORED-BG-FLOOR inert: equal alphas.
                                 opacity,
+                                // TEXT-BRIGHTNESS identity.
+                                1.0,
                                 None,
                                 ChromePin::NONE,
                                 opacity,
@@ -888,6 +904,8 @@ mod tests {
                 0.0,
                 origin,
                 BackgroundTreatmentParams::default(),
+                1.0,
+                // TEXT-BRIGHTNESS identity.
                 1.0,
                 None,
                 ChromePin::NONE,

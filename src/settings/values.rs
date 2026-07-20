@@ -1110,6 +1110,32 @@ pub(super) fn parse_selection_opacity(raw: Option<&OsStr>, warn: &mut impl FnMut
     parsed.clamp(MIN_SELECTION_OPACITY, MAX_SELECTION_OPACITY)
 }
 
+/// Parse the text-brightness lift (`ODYTTY_TEXT_BRIGHTNESS`). `1.0` (default)
+/// is the exact identity path. Out-of-range or invalid values warn and fall
+/// back to identity; valid values clamp to `[1.0, 1.5]`.
+pub(super) fn parse_text_brightness(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
+    let Some(raw) = raw else {
+        return DEFAULT_TEXT_BRIGHTNESS;
+    };
+    let value = raw.to_string_lossy();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return DEFAULT_TEXT_BRIGHTNESS;
+    }
+
+    let parsed = match trimmed.parse::<f32>() {
+        Ok(value) if value.is_finite() => value,
+        _ => {
+            warn(&format!(
+                "{TEXT_BRIGHTNESS_ENV}={trimmed:?} is not a valid brightness; using {DEFAULT_TEXT_BRIGHTNESS}"
+            ));
+            return DEFAULT_TEXT_BRIGHTNESS;
+        }
+    };
+
+    parsed.clamp(MIN_TEXT_BRIGHTNESS, MAX_TEXT_BRIGHTNESS)
+}
+
 /// Parse the window opacity percent (TRANSPARENCY). Empty/absent → the
 /// default; non-numeric → a warning and the default; otherwise clamped to
 /// `[MIN_WINDOW_OPACITY, MAX_WINDOW_OPACITY]`.

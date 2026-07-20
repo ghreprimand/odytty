@@ -5413,6 +5413,8 @@ impl App {
             // COLORED-BG-FLOOR: push the colored-background opacity floor so a
             // settings-panel or config change repaints colored blocks live.
             gpu.set_colored_bg_opacity(self.settings.colored_bg_opacity);
+            // TEXT-BRIGHTNESS: push the glyph-foreground lift live.
+            gpu.set_text_brightness(self.settings.text_brightness);
         }
 
         if text_rebuilt || padding_changed {
@@ -5922,6 +5924,9 @@ impl ApplicationHandler<UserEvent> for App {
                 // COLORED-BG-FLOOR: seed the colored-background opacity floor
                 // from the launch config so the first frame already floors.
                 gpu.set_colored_bg_opacity(self.settings.colored_bg_opacity);
+                // TEXT-BRIGHTNESS: seed the glyph-foreground lift from the
+                // launch config (identity / off path at 1.0).
+                gpu.set_text_brightness(self.settings.text_brightness);
                 self.gpu = Some(gpu);
             }
             Err(err) => {

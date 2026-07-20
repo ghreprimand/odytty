@@ -1456,6 +1456,8 @@ fn bg_treatment_skips_chrome_cells_but_still_modulates_content() {
             [0.0, 0.0],
             treatment,
             1.0,
+            // TEXT-BRIGHTNESS identity.
+            1.0,
             None,
             pin,
         );
@@ -1606,6 +1608,8 @@ fn opaque_region_holds_marked_cells_opaque_only() {
         [0.0, 0.0],
         BackgroundTreatmentParams::default(),
         opacity,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         Some(region),
         crate::grid::ChromePin::NONE,
     );
@@ -1638,6 +1642,8 @@ fn opaque_region_holds_marked_cells_opaque_only() {
         [0.0, 0.0],
         BackgroundTreatmentParams::default(),
         opacity,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         None,
         crate::grid::ChromePin::NONE,
     );
@@ -1676,6 +1682,8 @@ fn selection_test_vertices(
         cell_opacity,
         // COLORED-BG-FLOOR inert: equal alphas keep this harness byte-identical.
         cell_opacity,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         None,
         crate::grid::ChromePin::NONE,
         selection_opacity,
@@ -1793,6 +1801,8 @@ fn selection_opacity_one_is_byte_identical_and_below_one_tints() {
         [0.0, 0.0],
         BackgroundTreatmentParams::default(),
         1.0,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         None,
         crate::grid::ChromePin::NONE,
     );
@@ -1834,6 +1844,8 @@ fn no_selection_is_byte_identical_for_any_scalar() {
         [0.0, 0.0],
         BackgroundTreatmentParams::default(),
         cell_opacity,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         None,
         crate::grid::ChromePin::NONE,
     );
@@ -1881,6 +1893,8 @@ mod chrome_pin {
             0.0,
             origin,
             BackgroundTreatmentParams::default(),
+            1.0,
+            // TEXT-BRIGHTNESS identity.
             1.0,
             None,
             pin,
@@ -2961,6 +2975,8 @@ fn build_with_fade(snapshot: &Snapshot, atlas: &GlyphAtlas, fade: RowFade) -> Ve
         1.0,
         // COLORED-BG-FLOOR inert: equal alphas.
         1.0,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         None,
         ChromePin::NONE,
         1.0,
@@ -2990,6 +3006,8 @@ fn row_fade_inert_and_all_ones_are_byte_identical() {
         BackgroundTreatmentParams::default(),
         1.0,
         // COLORED-BG-FLOOR inert: equal alphas.
+        1.0,
+        // TEXT-BRIGHTNESS identity.
         1.0,
         None,
         ChromePin::NONE,
@@ -3153,6 +3171,8 @@ fn colored_floor_vertices(
         BackgroundTreatmentParams::default(),
         cell_opacity,
         colored_opacity,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         None,
         pin,
         1.0,
@@ -3287,6 +3307,8 @@ fn colored_bg_floor_exempts_chrome_selection_and_forced_opaque_cells() {
         BackgroundTreatmentParams::default(),
         content,
         floored,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         Some(CellRegion {
             left: 0,
             top: 1,
@@ -3300,4 +3322,168 @@ fn colored_bg_floor_exempts_chrome_selection_and_forced_opaque_cells() {
         (bg_alpha(&overlay_verts, 2) - 1.0).abs() < 1e-6,
         "forced-opaque overlay cell wins over the floor"
     );
+}
+
+// TEXT-BRIGHTNESS: the soft-knee glyph-foreground lift rides `resolve` after
+// the RV1 floor. These pin: ink-only scope (backgrounds byte-identical),
+// identity at 1.0, application of the exact `lift_brightness_rgba` curve,
+// ordering after the min-contrast floor, and alpha/rgb channel independence
+// from the VE4 row fade.
+fn brightness_vertices(
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    text_brightness: f32,
+    fade: RowFade,
+) -> Vec<Vertex> {
+    let mut out = Vec::new();
+    build_cell_vertices_with_ligatures_selection_and_row_fade_into(
+        &mut out,
+        snapshot,
+        atlas,
+        &[],
+        &[],
+        0.0,
+        [0.0, 0.0],
+        BackgroundTreatmentParams::default(),
+        1.0,
+        1.0,
+        text_brightness,
+        None,
+        ChromePin::NONE,
+        1.0,
+        fade,
+    );
+    out
+}
+
+#[test]
+fn text_brightness_lifts_ink_only_and_pins_identity() {
+    let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
+    let mut term = Terminal::new(2, 1);
+    // A colored glyph (red foreground) so the lift has room in every channel.
+    term.advance(b"\x1b[?25l\x1b[31mA");
+    let snapshot = term.snapshot();
+
+    let base = brightness_vertices(&snapshot, &atlas, 1.0, RowFade::NONE);
+    let lifted = brightness_vertices(&snapshot, &atlas, 1.5, RowFade::NONE);
+    let mid = brightness_vertices(&snapshot, &atlas, 1.2, RowFade::NONE);
+
+    // Backgrounds (pass 1: one quad per cell) are byte-identical — the lift
+    // touches ink only.
+    let bg_verts = 2 * VERTS_PER_QUAD;
+    assert_eq!(
+        &base[..bg_verts],
+        &lifted[..bg_verts],
+        "background quads must not move under the lift"
+    );
+
+    let glyphs = |verts: &[Vertex]| -> Vec<[f32; 4]> {
+        verts
+            .iter()
+            .filter(|vertex| vertex.is_glyph == 1.0)
+            .map(|vertex| vertex.color)
+            .collect()
+    };
+    let base_ink = glyphs(&base);
+    let lifted_ink = glyphs(&lifted);
+    let mid_ink = glyphs(&mid);
+    assert!(!base_ink.is_empty(), "the glyph must emit ink");
+    for ((b, l), m) in base_ink.iter().zip(&lifted_ink).zip(&mid_ink) {
+        // The exact curve, not an approximation of it.
+        let expected = crate::text::lift_brightness_rgba(*b, 1.5);
+        for ch in 0..3 {
+            assert!(
+                (l[ch] - expected[ch]).abs() < 1e-6,
+                "lift must equal lift_brightness_rgba (ch={ch})"
+            );
+            assert!(
+                b[ch] <= m[ch] + 1e-7 && m[ch] <= l[ch] + 1e-7,
+                "lift monotonic in the knob (ch={ch})"
+            );
+        }
+        assert_eq!(l[3], b[3], "alpha untouched by the lift");
+    }
+}
+
+#[test]
+fn text_brightness_applies_after_the_min_contrast_floor() {
+    // Serialized on the shared render-globals lock (the floor is process
+    // global); restores the passthrough baseline before releasing.
+    let _guard = crate::test_lock::render_globals_lock();
+    let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
+    let mut term = Terminal::new(1, 1);
+    // Dim ink so the 4.5:1 floor must correct it.
+    term.advance(b"\x1b[?25l\x1b[38;2;40;40;40mA");
+    let snapshot = term.snapshot();
+
+    crate::text::set_min_contrast(4.5);
+    let floored = brightness_vertices(&snapshot, &atlas, 1.0, RowFade::NONE);
+    let both = brightness_vertices(&snapshot, &atlas, 1.5, RowFade::NONE);
+    crate::text::set_min_contrast(1.0);
+
+    let ink = |verts: &[Vertex]| -> Vec<[f32; 4]> {
+        verts
+            .iter()
+            .filter(|vertex| vertex.is_glyph == 1.0)
+            .map(|vertex| vertex.color)
+            .collect()
+    };
+    let floored_ink = ink(&floored);
+    let both_ink = ink(&both);
+    assert!(!floored_ink.is_empty(), "the glyph must emit ink");
+    for (f, b) in floored_ink.iter().zip(&both_ink) {
+        // lift(floor(x)) — the floored color is the lift's input, so the lift
+        // can only push a corrected color FURTHER from the (dark) background,
+        // never undo the fix.
+        let expected = crate::text::lift_brightness_rgba(*f, 1.5);
+        for ch in 0..3 {
+            assert!(
+                (b[ch] - expected[ch]).abs() < 1e-6,
+                "brightness must be applied to the floored color (ch={ch})"
+            );
+            assert!(b[ch] >= f[ch] - 1e-7, "lift never darkens (ch={ch})");
+        }
+    }
+}
+
+#[test]
+fn text_brightness_and_row_fade_ride_disjoint_channels() {
+    let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
+    let mut term = Terminal::new(1, 1);
+    term.advance(b"\x1b[?25l\x1b[31mA");
+    let snapshot = term.snapshot();
+    let fade = RowFade {
+        multipliers: &[0.5],
+        row_offset: 0,
+        col_start: 0,
+        col_end: usize::MAX,
+    };
+
+    let plain = brightness_vertices(&snapshot, &atlas, 1.0, RowFade::NONE);
+    let lifted = brightness_vertices(&snapshot, &atlas, 1.5, RowFade::NONE);
+    let both = brightness_vertices(&snapshot, &atlas, 1.5, fade);
+
+    let ink = |verts: &[Vertex]| -> Vec<[f32; 4]> {
+        verts
+            .iter()
+            .filter(|vertex| vertex.is_glyph == 1.0)
+            .map(|vertex| vertex.color)
+            .collect()
+    };
+    let plain_ink = ink(&plain);
+    let lifted_ink = ink(&lifted);
+    let both_ink = ink(&both);
+    assert!(!plain_ink.is_empty(), "the glyph must emit ink");
+    for ((p, l), fb) in plain_ink.iter().zip(&lifted_ink).zip(&both_ink) {
+        for ch in 0..3 {
+            assert_eq!(
+                fb[ch], l[ch],
+                "the fade must not shift the lifted rgb (ch={ch})"
+            );
+        }
+        assert!(
+            (fb[3] - p[3] * 0.5).abs() < 1e-6,
+            "the lift must not shift the fade's alpha ramp"
+        );
+    }
 }

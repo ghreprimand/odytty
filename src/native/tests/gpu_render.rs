@@ -840,6 +840,8 @@ fn programming_ligature_vertices_submit_through_the_real_cell_pipeline() {
         [0.0, 0.0],
         crate::grid::BackgroundTreatmentParams::default(),
         1.0,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         None,
         crate::grid::ChromePin::NONE,
     );
@@ -1113,6 +1115,8 @@ fn padded_cell_vertices_start_at_window_padding_origin() {
         origin,
         crate::grid::BackgroundTreatmentParams::default(),
         crate::settings::DEFAULT_CELL_BG_OPACITY,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         None,
         crate::grid::ChromePin::NONE,
     );
@@ -1166,6 +1170,8 @@ fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
         origin,
         crate::grid::BackgroundTreatmentParams::default(),
         crate::settings::DEFAULT_CELL_BG_OPACITY,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         None,
         crate::grid::ChromePin::NONE,
     );
@@ -1234,6 +1240,8 @@ fn full_rebuild_cursor_layer_matches_cursor_only_during_large_jump_follower() {
         origin,
         crate::grid::BackgroundTreatmentParams::default(),
         crate::settings::DEFAULT_CELL_BG_OPACITY,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         None,
         crate::grid::ChromePin::NONE,
     );
@@ -1290,6 +1298,8 @@ fn full_rebuild_cursor_layer_matches_cursor_only_when_unfocused() {
         origin,
         crate::grid::BackgroundTreatmentParams::default(),
         crate::settings::DEFAULT_CELL_BG_OPACITY,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         None,
         crate::grid::ChromePin::NONE,
     );

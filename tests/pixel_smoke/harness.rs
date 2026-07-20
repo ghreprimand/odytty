@@ -167,6 +167,8 @@ pub(crate) fn composite_with_padding(
         grid::BackgroundTreatmentParams::default(),
         // Identity opacity: padding smoke keeps cells fully opaque.
         1.0,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         None,
         grid::ChromePin::NONE,
     );
@@ -262,6 +264,8 @@ pub(crate) fn composite_background_image(
         [0.0, 0.0],
         grid::BackgroundTreatmentParams::default(),
         cell_bg_opacity,
+        // TEXT-BRIGHTNESS identity.
+        1.0,
         None,
         grid::ChromePin::NONE,
     );

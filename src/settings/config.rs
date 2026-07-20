@@ -25,11 +25,12 @@ use super::{
     SYMBOL_MAP_ENV, SYNTHETIC_STYLES_ENV, TAB_BAR_HEIGHT_ENV, TAB_BAR_PLACEMENT_ENV,
     TAB_PANEL_STRENGTH_ENV, TAB_RAIL_AUTOHIDE_ENV, TAB_RAIL_GAP_ENV, TAB_RAIL_MAX_WIDTH_ENV,
     TAB_RAIL_REVEAL_PX_ENV, TAB_RAIL_SLOT_ROWS_ENV, TAB_RAIL_WIDTH_ENV, TAB_SEAM_ENV,
-    TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV, WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV,
-    WINDOW_DECORATIONS_ENV, WINDOW_OPACITY_ENV, WINDOW_PADDING_ENV, WINDOW_TRANSPARENCY_ENV,
-    WORKSPACE_RAIL_AUTOHIDE_ENV, WORKSPACE_RAIL_ENV, WORKSPACE_RAIL_GAP_ENV,
-    WORKSPACE_RAIL_MAX_WIDTH_ENV, WORKSPACE_RAIL_REVEAL_PX_ENV, WORKSPACE_RAIL_SIDE_ENV,
-    WORKSPACE_RAIL_SLOT_ROWS_ENV, WORKSPACE_RAIL_WIDTH_ENV, normalize_name,
+    TEXT_BRIGHTNESS_ENV, TEXT_GAMMA_ENV, THEME_ENV, THEMED_UI_ROLES_ENV, VISUAL_ENV,
+    WHEEL_ZOOM_ENV, WINDOW_BORDER_ENV, WINDOW_DECORATIONS_ENV, WINDOW_OPACITY_ENV,
+    WINDOW_PADDING_ENV, WINDOW_TRANSPARENCY_ENV, WORKSPACE_RAIL_AUTOHIDE_ENV, WORKSPACE_RAIL_ENV,
+    WORKSPACE_RAIL_GAP_ENV, WORKSPACE_RAIL_MAX_WIDTH_ENV, WORKSPACE_RAIL_REVEAL_PX_ENV,
+    WORKSPACE_RAIL_SIDE_ENV, WORKSPACE_RAIL_SLOT_ROWS_ENV, WORKSPACE_RAIL_WIDTH_ENV,
+    normalize_name,
 };
 use super::{
     BOX_THICKNESS_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV, INTERACTIVE_PATHS_CLICK_HINT_ENV,
@@ -209,6 +210,7 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "selectionopacity" | "selectionalpha" | "selopacity" | "highlightopacity" => {
             Some(SELECTION_OPACITY_ENV)
         }
+        "textbrightness" | "textlift" | "brightness" => Some(TEXT_BRIGHTNESS_ENV),
         "windowpadding" | "padding" | "windowpaddingpx" => Some(WINDOW_PADDING_ENV),
         "geometricboxdraw" | "boxdraw" => Some(GEOMETRIC_BOXDRAW_ENV),
         "symbolfallback" | "symbols" | "nerdfont" => Some(SYMBOL_FALLBACK_ENV),
@@ -396,6 +398,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         CELL_BG_OPACITY_ENV => Some("cell_bg_opacity"),
         COLORED_BG_OPACITY_ENV => Some("colored_bg_opacity"),
         SELECTION_OPACITY_ENV => Some("selection_opacity"),
+        TEXT_BRIGHTNESS_ENV => Some("text_brightness"),
         WINDOW_PADDING_ENV => Some("window_padding"),
         GEOMETRIC_BOXDRAW_ENV => Some("geometric_boxdraw"),
         SYMBOL_FALLBACK_ENV => Some("symbol_fallback"),

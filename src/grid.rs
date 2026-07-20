@@ -691,6 +691,8 @@ pub fn build_cell_vertices_with_focus_dim_into(
         // — the shipped default is 0.8 since v0.6.0, but this seam's contract is
         // opaque cells regardless of that default.
         1.0,
+        // TEXT-BRIGHTNESS identity: this seam never carries the lift.
+        1.0,
         // No overlay panel rides this seam, so no cell is force-opaque.
         None,
         // Off-screen `[0.0, 0.0]` origin build: no chrome to pin.
@@ -1014,6 +1016,9 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
     origin: [f32; 2],
     treatment: BackgroundTreatmentParams,
     cell_bg_opacity: f32,
+    // TEXT-BRIGHTNESS: glyph-foreground lift toward white (`1.0` = exact
+    // identity). Uniform across all mono-glyph ink this builder emits.
+    text_brightness: f32,
     // TRANSPARENCY (MENU-OPACITY): cells inside this span draw their background
     // fully opaque, ignoring `cell_bg_opacity`, so an overlay panel painted into
     // a translucent snapshot stays a readable opaque surface. `None` is the
@@ -1039,6 +1044,7 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
         // floor rides only the content entry points below. Equal values are the
         // exact inert path in `build_cells_core`.
         cell_bg_opacity,
+        text_brightness,
         opaque_region,
         chrome_pin,
         // No selection opacity threaded: selected cells (none on this seam)
@@ -1066,6 +1072,8 @@ pub fn build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
     origin: [f32; 2],
     treatment: BackgroundTreatmentParams,
     cell_bg_opacity: f32,
+    // TEXT-BRIGHTNESS: glyph-foreground lift (`1.0` = exact identity).
+    text_brightness: f32,
     opaque_region: Option<CellRegion>,
     chrome_pin: ChromePin,
 ) {
@@ -1082,6 +1090,7 @@ pub fn build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
         // COLORED-BG-FLOOR EXEMPT: legacy/no-selection seam (initial blank
         // buffer, ligature harnesses) — equal values are the exact inert path.
         cell_bg_opacity,
+        text_brightness,
         opaque_region,
         chrome_pin,
         1.0,
@@ -1114,6 +1123,8 @@ pub fn build_cell_vertices_with_ligatures_and_selection_into(
     // differs from the theme default (see `build_cells_core`). Passing the same
     // value as `cell_bg_opacity` is the exact inert path (chrome strips do).
     colored_bg_opacity: f32,
+    // TEXT-BRIGHTNESS: glyph-foreground lift (`1.0` = exact identity).
+    text_brightness: f32,
     opaque_region: Option<CellRegion>,
     chrome_pin: ChromePin,
     selection_opacity: f32,
@@ -1129,6 +1140,7 @@ pub fn build_cell_vertices_with_ligatures_and_selection_into(
         treatment,
         cell_bg_opacity,
         colored_bg_opacity,
+        text_brightness,
         opaque_region,
         chrome_pin,
         selection_opacity,
@@ -1157,6 +1169,8 @@ pub fn build_cell_vertices_with_ligatures_selection_and_row_fade_into(
     // COLORED-BG-FLOOR: surface alpha for resolved-non-default backgrounds;
     // `== cell_bg_opacity` is the exact inert path.
     colored_bg_opacity: f32,
+    // TEXT-BRIGHTNESS: glyph-foreground lift (`1.0` = exact identity).
+    text_brightness: f32,
     opaque_region: Option<CellRegion>,
     chrome_pin: ChromePin,
     selection_opacity: f32,
@@ -1173,6 +1187,7 @@ pub fn build_cell_vertices_with_ligatures_selection_and_row_fade_into(
         treatment,
         cell_bg_opacity,
         colored_bg_opacity,
+        text_brightness,
         opaque_region,
         chrome_pin,
         selection_opacity,
@@ -1214,6 +1229,18 @@ fn build_cells_core(
     // weakens) and equals it exactly when the knob is 0.0 or the window is
     // opaque — both byte-identical inert paths, as is passing equal values.
     colored_bg_opacity: f32,
+    // TEXT-BRIGHTNESS: soft-knee lift of every glyph foreground toward white
+    // (`text::lift_brightness_rgba`), applied in `resolve` AFTER the RV1
+    // min-contrast floor so a floor-corrected color is the lift's input and
+    // the lift cannot undo the fix. Uniform across all mono ink this builder
+    // emits — glyphs, combining marks, ligature runs, and the underline/
+    // strikethrough decorations that reuse `fg`. Color emoji ride the separate
+    // color-glyph pipeline with their intrinsic palette (exempt by design).
+    // Operates on COLOR channels only, so it composes with the VE4 fade's
+    // per-row ALPHA ramp independently and deterministically in either order.
+    // `1.0` is an exact identity (early return), keeping the plain path
+    // byte-identical.
+    text_brightness: f32,
     opaque_region: Option<CellRegion>,
     chrome_pin: ChromePin,
     selection_opacity: f32,
@@ -1313,6 +1340,11 @@ fn build_cells_core(
             // it sees the post-inverse, post-dim color. Exact passthrough at the
             // default floor of 1.0, so the plain path is byte-identical.
             fg = text::enforce_contrast_rgba(fg, bg);
+            // TEXT-BRIGHTNESS: lift the final ink color toward white, after the
+            // RV1 floor (see the parameter note). `1.0` is an exact identity.
+            if text_brightness > 1.0 {
+                fg = text::lift_brightness_rgba(fg, text_brightness);
+            }
             (fg, bg, colored_bg)
         };
     let span_of = |row: usize, col: usize| -> f32 {

@@ -1754,6 +1754,26 @@ pub fn enforce_contrast_rgba(fg: [f32; 4], bg: [f32; 4]) -> [f32; 4] {
     [r, g, b, fg[3]]
 }
 
+/// TEXT-BRIGHTNESS: lift a linear-RGBA glyph foreground toward white with a
+/// soft knee, preserving alpha.
+///
+/// Per channel `c' = 1 - (1 - c)^b` for `b >= 1.0`: identity at `b == 1.0`
+/// (early-returned, exact — the plain path stays byte-identical), monotonic in
+/// both the channel and the knob, and `c' < 1` whenever `c < 1`, so near-white
+/// ink compresses smoothly instead of clipping flat and channel ordering is
+/// preserved — colors lighten without fully desaturating. Black is a fixed
+/// point: the curve lifts mid-tones and dim colors, not `#000` ink, which
+/// would only lose contrast on light backgrounds. Applied by the vertex build
+/// AFTER [`enforce_contrast_rgba`], so a floor-corrected color is the lift's
+/// input and the ramp cannot undo the floor's direction of correction.
+pub fn lift_brightness_rgba(color: [f32; 4], brightness: f32) -> [f32; 4] {
+    if brightness <= 1.0 {
+        return color;
+    }
+    let lift = |c: f32| 1.0 - (1.0 - c.clamp(0.0, 1.0)).powf(brightness);
+    [lift(color[0]), lift(color[1]), lift(color[2]), color[3]]
+}
+
 /// Linear-RGBA (opaque) for an sRGB triple.
 fn linear_rgba(srgb: (u8, u8, u8)) -> [f32; 4] {
     [
@@ -2000,6 +2020,59 @@ mod tests {
 
         // Restore the passthrough baseline for sibling tests.
         set_min_contrast(1.0);
+    }
+
+    // TEXT-BRIGHTNESS: contract tests for the soft-knee lift.
+
+    #[test]
+    fn lift_brightness_identity_at_one_is_exact() {
+        let c = [0.123, 0.456, 0.789, 0.5];
+        assert_eq!(lift_brightness_rgba(c, 1.0), c, "b=1.0 is exact identity");
+        assert_eq!(lift_brightness_rgba(c, 0.5), c, "b<=1.0 clamps to identity");
+    }
+
+    #[test]
+    fn lift_brightness_is_monotonic_and_never_clips() {
+        let c = [0.05, 0.4, 0.99, 0.8];
+        let mut prev = c;
+        for &b in &[1.1_f32, 1.2, 1.3, 1.4, 1.5] {
+            let lifted = lift_brightness_rgba(c, b);
+            for ch in 0..3 {
+                assert!(
+                    lifted[ch] >= prev[ch] - 1e-7,
+                    "monotonic in the knob (b={b}, ch={ch})"
+                );
+                assert!(
+                    lifted[ch] < 1.0,
+                    "sub-white input must stay sub-white (b={b}, ch={ch})"
+                );
+                assert!(
+                    lifted[ch] >= c[ch],
+                    "lift never darkens a channel (b={b}, ch={ch})"
+                );
+            }
+            assert_eq!(lifted[3], c[3], "alpha preserved (b={b})");
+            prev = lifted;
+        }
+    }
+
+    #[test]
+    fn lift_brightness_soft_knee_preserves_order_near_white_and_saturation() {
+        // Soft knee: two near-white channels must not flatten to the same
+        // value (no clip), and channel ordering is preserved so a color's hue
+        // relationship survives the lift (it lightens, it does not fully
+        // desaturate).
+        let b = 1.5;
+        let hi = lift_brightness_rgba([0.99, 0.95, 0.5, 1.0], b);
+        assert!(hi[0] < 1.0 && hi[1] < 1.0, "near-white does not clip flat");
+        assert!(hi[0] > hi[1], "channel order preserved at the knee");
+        assert!(
+            hi[1] > hi[2],
+            "channel separation survives (not desaturated)"
+        );
+        // White and black are fixed points.
+        assert_eq!(lift_brightness_rgba([1.0, 1.0, 1.0, 1.0], b)[0], 1.0);
+        assert_eq!(lift_brightness_rgba([0.0, 0.0, 0.0, 1.0], b)[0], 0.0);
     }
 
     #[test]

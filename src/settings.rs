@@ -1283,6 +1283,11 @@ pub struct Settings {
     /// transparent backdrop shows through behind it; the RV1 floor still holds
     /// foreground legibility over the effective composited fill.
     pub selection_opacity: f32,
+    /// Text-brightness lift in `1.0..=1.5`: glyph foregrounds are lifted toward
+    /// white in linear space with a soft knee, for legibility over a busy
+    /// backdrop at low window opacity. `1.0` (the default) is exact identity.
+    /// Applied after the min-contrast floor; color emoji are exempt.
+    pub text_brightness: f32,
     /// Logical pixels of inset between the window edge and terminal grid. `0.0`
     /// preserves the historical edge-to-edge geometry exactly.
     pub window_padding_px: f32,
@@ -1749,6 +1754,7 @@ impl Default for Settings {
             cell_bg_opacity: DEFAULT_CELL_BG_OPACITY,
             colored_bg_opacity: DEFAULT_COLORED_BG_OPACITY,
             selection_opacity: DEFAULT_SELECTION_OPACITY,
+            text_brightness: DEFAULT_TEXT_BRIGHTNESS,
             window_padding_px: DEFAULT_WINDOW_PADDING_PX,
             bloom: DEFAULT_BLOOM,
             bloom_threshold: DEFAULT_BLOOM_THRESHOLD,
@@ -2298,6 +2304,7 @@ impl Settings {
             parse_colored_bg_opacity(get(COLORED_BG_OPACITY_ENV).as_deref(), &mut warn);
         let selection_opacity =
             parse_selection_opacity(get(SELECTION_OPACITY_ENV).as_deref(), &mut warn);
+        let text_brightness = parse_text_brightness(get(TEXT_BRIGHTNESS_ENV).as_deref(), &mut warn);
         let window_padding_px = parse_window_padding(get(WINDOW_PADDING_ENV).as_deref(), &mut warn);
         let bloom = parse_bool_setting(
             get(BLOOM_ENV).as_deref(),
@@ -2746,6 +2753,7 @@ impl Settings {
             cell_bg_opacity,
             colored_bg_opacity,
             selection_opacity,
+            text_brightness,
             window_padding_px,
             bloom,
             bloom_threshold,
@@ -2916,6 +2924,7 @@ impl Settings {
             format_float(self.colored_bg_opacity),
         );
         values.insert(SELECTION_OPACITY_ENV, format_float(self.selection_opacity));
+        values.insert(TEXT_BRIGHTNESS_ENV, format_float(self.text_brightness));
         values.insert(WINDOW_PADDING_ENV, format_float(self.window_padding_px));
         values.insert(BLOOM_ENV, bool_display(self.bloom).to_owned());
         values.insert(BLOOM_THRESHOLD_ENV, format_float(self.bloom_threshold));

@@ -1723,6 +1723,11 @@ pub(super) struct GpuState {
     /// selection fully opaque; frames with no selected cell are byte-identical
     /// regardless of this value.
     selection_opacity: f32,
+    /// TEXT-BRIGHTNESS: glyph-foreground lift toward white fed to the
+    /// cell-vertex builder. `1.0` (the default) is an exact identity —
+    /// byte-identical vertex output. Applied uniformly to all mono-glyph ink
+    /// (content and chrome labels alike); color emoji are exempt by pipeline.
+    text_brightness: f32,
     /// TRANSPARENCY: effective window background alpha this frame. `1.0`
     /// (the default, and whenever the window-transparency setting is off or the
     /// compositor offers no alpha mode) keeps the opaque render path
@@ -2249,6 +2254,9 @@ impl GpuState {
             // Initial buffer is the blank snapshot; cells stay fully opaque until
             // a live `set_cell_bg_opacity` arrives (identity / byte-identical).
             crate::settings::DEFAULT_CELL_BG_OPACITY,
+            // TEXT-BRIGHTNESS identity for the blank initial snapshot; live
+            // values arrive with the first real frame's `set_text_brightness`.
+            crate::settings::DEFAULT_TEXT_BRIGHTNESS,
             // No overlay panel is merged into the initial snapshot.
             None,
             grid::ChromePin::NONE,
@@ -2350,6 +2358,7 @@ impl GpuState {
             cell_bg_opacity: crate::settings::DEFAULT_CELL_BG_OPACITY,
             colored_bg_opacity: crate::settings::DEFAULT_COLORED_BG_OPACITY,
             selection_opacity: crate::settings::DEFAULT_SELECTION_OPACITY,
+            text_brightness: crate::settings::DEFAULT_TEXT_BRIGHTNESS,
             window_bg_alpha: 1.0,
             overlay_opaque_region: None,
             row_fade: None,
@@ -2553,6 +2562,13 @@ impl GpuState {
     /// repaints colored blocks at the new floor.
     pub(super) fn set_colored_bg_opacity(&mut self, opacity: f32) {
         self.colored_bg_opacity = opacity.clamp(0.0, 1.0);
+    }
+
+    /// TEXT-BRIGHTNESS: live-update the glyph-foreground lift (settings panel /
+    /// config reload). Clamped to `[1.0, 1.5]`; the next rebuild repaints ink
+    /// at the new lift. `1.0` is the exact-identity plain path.
+    pub(super) fn set_text_brightness(&mut self, brightness: f32) {
+        self.text_brightness = brightness.clamp(1.0, 1.5);
     }
 
     /// SELECTION-OPACITY: the independent alpha applied to selected cells'
@@ -3117,6 +3133,9 @@ impl GpuState {
                 } else {
                     self.colored_content_build_opacity()
                 },
+                // TEXT-BRIGHTNESS: uniform lift across content panes and chrome
+                // strip labels alike (`1.0` = identity).
+                self.text_brightness,
                 // Multi-pane panes never carry an overlay panel: it is composited
                 // as a separate opaque `OverlayTop` layer, so no cell is forced.
                 None,
@@ -3303,6 +3322,9 @@ impl GpuState {
                 overlay.origin,
                 overlay.treatment,
                 self.cell_bg_opacity,
+                // TEXT-BRIGHTNESS: overlay panel text lifts with the rest of
+                // the window's ink (`1.0` = identity).
+                self.text_brightness,
                 // The overlay-top snapshot IS the panel; it is already built at
                 // the opaque `cell_bg_opacity` on its own layer.
                 None,
@@ -3495,6 +3517,9 @@ impl GpuState {
             treatment,
             content_opacity,
             colored_opacity,
+            // TEXT-BRIGHTNESS: uniform lift across content and composited
+            // chrome ink (`1.0` = identity).
+            self.text_brightness,
             // TRANSPARENCY (MENU-OPACITY): while the window is translucent an open
             // overlay panel is painted into this very snapshot; its cell span is
             // forced opaque so the panel stays readable while the terminal cells
@@ -3677,6 +3702,9 @@ impl GpuState {
             // the plain alpha for colored cells too, keeping the floating rail
             // identical to the pinned rail band under `tab_panel_strength`.
             self.content_build_opacity(),
+            // TEXT-BRIGHTNESS: the floating rail's labels lift with every other
+            // glyph so autohide cannot change label ink (`1.0` = identity).
+            self.text_brightness,
             // The rail strip is its own floating overlay; no merged panel to
             // force.
             None,

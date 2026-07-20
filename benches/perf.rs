@@ -755,6 +755,8 @@ fn main() {
                     [0.0, 0.0],
                     BackgroundTreatmentParams::default(),
                     1.0,
+                    // TEXT-BRIGHTNESS identity.
+                    1.0,
                     None,
                     ChromePin::NONE,
                 );
@@ -777,6 +779,8 @@ fn main() {
                     0.0,
                     [0.0, 0.0],
                     BackgroundTreatmentParams::default(),
+                    1.0,
+                    // TEXT-BRIGHTNESS identity.
                     1.0,
                     None,
                     ChromePin::NONE,

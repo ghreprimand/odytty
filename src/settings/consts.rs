@@ -22,6 +22,7 @@ pub const BACKGROUND_IMAGE_SCRIM_ENV: &str = "ODYTTY_BACKGROUND_IMAGE_SCRIM";
 pub const CELL_BG_OPACITY_ENV: &str = "ODYTTY_CELL_BG_OPACITY";
 pub const COLORED_BG_OPACITY_ENV: &str = "ODYTTY_COLORED_BG_OPACITY";
 pub const SELECTION_OPACITY_ENV: &str = "ODYTTY_SELECTION_OPACITY";
+pub const TEXT_BRIGHTNESS_ENV: &str = "ODYTTY_TEXT_BRIGHTNESS";
 pub const WINDOW_PADDING_ENV: &str = "ODYTTY_WINDOW_PADDING";
 pub const BLOOM_ENV: &str = "ODYTTY_BLOOM";
 pub const BLOOM_THRESHOLD_ENV: &str = "ODYTTY_BLOOM_THRESHOLD";
@@ -156,6 +157,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     CELL_BG_OPACITY_ENV,
     COLORED_BG_OPACITY_ENV,
     SELECTION_OPACITY_ENV,
+    TEXT_BRIGHTNESS_ENV,
     WINDOW_PADDING_ENV,
     BLOOM_ENV,
     BLOOM_THRESHOLD_ENV,
@@ -418,6 +420,19 @@ pub const MAX_COLORED_BG_OPACITY: f32 = 1.0;
 pub const DEFAULT_SELECTION_OPACITY: f32 = 0.6;
 pub const MIN_SELECTION_OPACITY: f32 = 0.0;
 pub const MAX_SELECTION_OPACITY: f32 = 1.0;
+
+/// Text brightness (`ODYTTY_TEXT_BRIGHTNESS`): lifts every glyph's foreground
+/// toward white in linear space with a soft knee, for legibility over a busy
+/// backdrop at low window opacity. Per channel `c' = 1 - (1 - c)^b`, so
+/// near-white ink cannot clip flat, colors never fully desaturate, and the
+/// lift is monotonic in the knob. `1.0` (default) is exact identity —
+/// byte-identical vertex output. Applied AFTER the RV1 min-contrast floor (it
+/// cannot undo a contrast fix) and independent of the new-output fade, which
+/// ramps alpha while this shifts color. Color emoji keep their intrinsic
+/// palette (exempt by design). The mechanism clamps to `[1.0, 1.5]`.
+pub const DEFAULT_TEXT_BRIGHTNESS: f32 = 1.0;
+pub const MIN_TEXT_BRIGHTNESS: f32 = 1.0;
+pub const MAX_TEXT_BRIGHTNESS: f32 = 1.5;
 
 /// Background-image CPU box-blur radius (`ODYTTY_BACKGROUND_BLUR_RADIUS`),
 /// applied once at load time. `0` (default) leaves the image sharp; the radius

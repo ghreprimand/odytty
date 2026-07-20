@@ -7,6 +7,42 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Text brightness lift for busy backdrops
+
+Low-opacity legibility, part two. Even with colored backgrounds floored, glyph
+ink can read dim over a bright or busy desktop showing through a translucent
+window — the colors are unchanged, but the backdrop robs them of apparent
+brightness. `text_gamma`, `stem_darken`, and `min_contrast` all shape text
+against the THEME background, so none of them can compensate for what is
+behind the window.
+
+New knob: `text_brightness` (env `ODYTTY_TEXT_BRIGHTNESS`, default 1.0, range
+1.0..=1.5, live-applied). Every glyph foreground is lifted toward white in
+linear space with a soft knee: per channel `c' = 1 - (1 - c)^b`. Near-white ink
+compresses smoothly instead of clipping flat, channel ordering is preserved so
+colors lighten without fully desaturating, black is a fixed point (lifting
+`#000` ink would only cost contrast on light backgrounds), and the curve is
+monotonic in the knob. `1.0` is an exact identity — byte-identical vertex
+output, early-returned.
+
+Placement and interactions, all pinned by tests: the lift is applied at the
+vertex build's color-resolution seam AFTER the min-contrast floor, so a
+floor-corrected color is the lift's input and the lift cannot undo the
+correction (test derives `lift(floor(x))` from the floored build and asserts
+the combined build matches exactly). It rides the CPU vertex path — the same
+seam the new-output fade uses — but touches only the rgb channels while the
+fade ramps alpha, so the two compose deterministically in either order. It is
+uniform across all mono ink: glyphs, combining marks, ligature runs,
+underline/strikethrough decorations, chrome labels, and overlay panel text.
+Color emoji keep their intrinsic palette (the separate color-glyph pipeline is
+exempt by design). Backgrounds are untouched — pass-1 quads are byte-identical
+at every knob value.
+
+Windows: platform-neutral GPU vertex path; no platform-specific surface.
+
+Settings-panel row, docs, and `odytty.conf.example` entry follow separately;
+the knob is reachable via env/config now.
+
 ## 2026-07-20 -- Colored backgrounds hold their own under a translucent window
 
 Low-opacity legibility, part one. At low `window_opacity` every cell background
