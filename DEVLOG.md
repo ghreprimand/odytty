@@ -7,6 +7,33 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Release v0.9.2 — Windows key fidelity under ConPTY, word-wise editing everywhere
+
+Version 0.9.2 is released. The headline is full keyboard fidelity on Windows:
+OdyTTY now implements ConPTY's Win32 input mode, answering conhost's request
+by encoding keystrokes as complete Win32 key records — virtual-key code, scan
+code, character, key state, and modifier state — instead of plain VT bytes.
+Modifier chords that ConPTY previously could not distinguish now reach console
+applications intact, so Ctrl+Backspace word-deletes in PowerShell out of the
+box, Shift+Enter and similar chords carry through, and PSReadLine's default
+bindings work as they do under Windows Terminal. The mode is app-requested and
+protocol-scoped: it engages only when the console host asks for it, takes
+precedence over other keyboard encodings while active, leaves paste paths
+untouched, and is inert on Unix.
+
+Word-wise editing is now uniform across every supported shell. The
+prompt-scoped key enhancement (`shell_key_enhancement`) defaults on: bash and
+zsh prompts enable the Kitty keyboard protocol in disambiguate-only mode while
+the prompt owns the line, with default bindings so Ctrl+Backspace word-deletes
+out of the box — existing user bindings always win, the enhancement is popped
+before each command runs, and Ctrl+C keeps interrupting. Fish drives the
+protocol itself and needs no enhancement. Setting `shell_key_enhancement = off`
+restores plain byte-for-byte input.
+
+Also in this release: the retro preset no longer forces screen curvature —
+curvature is driven only by the `crt_curvature` configuration knob, flat by
+default, while the preset keeps its scanlines, bloom, and vignette.
+
 ## 2026-07-20 -- Prompt key enhancement is on by default
 
 `shell_key_enhancement` now defaults on. Integrated bash and zsh prompts enable
