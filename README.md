@@ -297,7 +297,9 @@ This index is the complete map of OdyTTY's tracked project documentation.
 
 [Settings guide](docs/settings-guide.md) for shipped defaults and useful
 opt-ins; [Runtime knobs](docs/runtime-knobs.md) for every setting and CLI surface;
+[Annotated config](docs/odytty.conf.example) for a commented starting file;
 [Keybindings](docs/keybindings.md) for shortcuts and rebinding;
+[Buttons](docs/buttons.md) for the program-defined clickable-output protocol;
 [Accessibility](docs/accessibility.md) for readability and motion controls; and
 [Diagnostics](docs/diagnostics.md) for logs, recovery, and support information.
 
