@@ -57,7 +57,9 @@ fn sample_host_terminal() -> Terminal {
 }
 
 fn snapshot_bytes(terminal: &Terminal) -> Vec<u8> {
-    SnapshotEnvelope::from_terminal(terminal, SnapshotCaptureLimits::default()).encode()
+    SnapshotEnvelope::from_terminal(terminal, SnapshotCaptureLimits::default())
+        .encode()
+        .expect("encode")
 }
 
 /// The trimmed text of one visible row of a terminal's snapshot.

@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Snapshot encode validates wire bounds instead of truncating
+
+Snapshot envelope encoding narrowed `usize` fields — dimensions, cursor,
+row/mark counts, scroll-region bounds, string lengths, per-cell combining
+counts — into their on-wire `u32`/`u16`/`u8` widths with plain `as` casts.
+The capture path bounds every value structurally, but the envelope DTOs have
+public fields: an externally constructed envelope with an oversized field
+would truncate silently into bytes its own decoder rejects (or worse, decodes
+into different values than were encoded).
+
+`encode()` is now fallible: it validates every narrowed field up front and
+refuses with a named `ValueTooLarge` error identifying the offending field,
+instead of truncating. The writers themselves stay infallible — after
+validation each cast is provably lossless — so the capture-side scrollback
+budget measurement is untouched and `from_terminal` remains the ergonomic,
+never-failing producer. Its encoded bytes are unchanged, now pinned by a
+full-envelope byte-identity fixture; boundary values at the exact wire maxima
+(a 65535-byte title, a `u32::MAX` prompt-mark row) encode and round-trip.
+
+Platform-neutral serialization change; no Windows-specific surface.
+
+---
+
 ## 2026-07-20 -- DEC G0/G1 charsets and SO/SI: ncurses ACS line drawing renders correctly
 
 Classic terminfo alternate-charset line drawing (`smacs`/`rmacs` under vt100-

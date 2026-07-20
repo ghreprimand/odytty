@@ -156,7 +156,31 @@ impl SnapshotEnvelope {
         }
     }
 
+    /// Validate every field the wire format narrows before it is truncated
+    /// into its on-wire width: `u32` dimensions/cursor/row-and-mark counts and
+    /// scroll-region bounds, `u16` string lengths, and the `u8` per-cell
+    /// combining count. [`Self::from_terminal`] output always passes (capture
+    /// bounds every value structurally), so this exists for externally
+    /// constructed envelopes, whose oversized `usize` fields would otherwise
+    /// truncate silently into bytes the envelope's own decoder cannot read.
+    pub fn validate_wire_bounds(&self) -> Result<(), SnapshotEnvelopeError> {
+        self.terminal.validate_wire_bounds()?;
+        self.metadata.validate_wire_bounds()?;
+        check_u32(self.prompt_marks.len(), "prompt mark count")?;
+        for mark in &self.prompt_marks {
+            check_u32(mark.row, "prompt mark row")?;
+        }
+        self.layout.validate_wire_bounds()?;
+        Ok(())
+    }
+
     /// Encode the envelope into one contiguous buffer.
+    ///
+    /// Fallible: encoding validates wire bounds first
+    /// ([`Self::validate_wire_bounds`]) and refuses an envelope whose fields
+    /// cannot be represented losslessly, instead of truncating them into a
+    /// buffer that fails to decode. The writers themselves are infallible —
+    /// after validation every narrowing cast is provably lossless.
     ///
     /// The terminal-state section (by far the largest payload; tens of MB for
     /// a wide, deep session) is encoded DIRECTLY into the output buffer, with
@@ -166,7 +190,8 @@ impl SnapshotEnvelope {
     /// every snapshot broadcast/save. The wire bytes are identical to the
     /// table-driven encoder (`encode_sections`), pinned by
     /// `direct_encode_matches_the_table_driven_encoder`.
-    pub fn encode(&self) -> Vec<u8> {
+    pub fn encode(&self) -> Result<Vec<u8>, SnapshotEnvelopeError> {
+        self.validate_wire_bounds()?;
         const TABLE: [(u16, u8); 5] = [
             (SECTION_TERMINAL_STATE, SECTION_FLAG_REQUIRED),
             (SECTION_DYNAMIC_COLORS, 0),
@@ -210,7 +235,7 @@ impl SnapshotEnvelope {
             let entry = table_start + index * TABLE_ENTRY_BYTES + LEN_OFFSET_IN_ENTRY;
             out[entry..entry + 8].copy_from_slice(&len.to_le_bytes());
         }
-        out
+        Ok(out)
     }
 
     pub fn decode(bytes: &[u8], caps: SnapshotEnvelopeCaps) -> Result<Self, SnapshotEnvelopeError> {
@@ -335,6 +360,18 @@ impl SnapshotMetadata {
         }
     }
 
+    /// The metadata half of [`SnapshotEnvelope::validate_wire_bounds`]: both
+    /// strings carry a `u16` length prefix on the wire.
+    fn validate_wire_bounds(&self) -> Result<(), SnapshotEnvelopeError> {
+        if let Some(title) = &self.title {
+            check_u16(title.len(), "title length")?;
+        }
+        if let Some(cwd) = &self.working_directory {
+            check_u16(cwd.len(), "working directory length")?;
+        }
+        Ok(())
+    }
+
     fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
         write_optional_string(&mut out, self.title.as_deref());
@@ -374,6 +411,17 @@ impl SnapshotLayoutState {
             scroll_region: None,
             tab_stops: default_tab_stops(dimensions.columns),
         }
+    }
+
+    /// The layout half of [`SnapshotEnvelope::validate_wire_bounds`]: the
+    /// scroll-region bounds and the tab-stop count travel as `u32`.
+    fn validate_wire_bounds(&self) -> Result<(), SnapshotEnvelopeError> {
+        if let Some(region) = self.scroll_region {
+            check_u32(region.top, "scroll region top")?;
+            check_u32(region.bottom, "scroll region bottom")?;
+        }
+        check_u32(self.tab_stops.len(), "tab stop count")?;
+        Ok(())
     }
 
     fn encode(&self) -> Vec<u8> {
@@ -555,6 +603,25 @@ impl SnapshotTerminalState {
             self.scrollback_rows.drain(..keep_from);
         }
         before - self.scrollback_rows.len()
+    }
+
+    /// The terminal-state half of [`SnapshotEnvelope::validate_wire_bounds`]:
+    /// dimensions, cursor, row counts, per-row cell counts, and per-cell
+    /// combining counts must all fit their on-wire widths.
+    fn validate_wire_bounds(&self) -> Result<(), SnapshotEnvelopeError> {
+        check_u32(self.dimensions.columns, "columns")?;
+        check_u32(self.dimensions.rows, "rows")?;
+        check_u32(self.cursor.row, "cursor row")?;
+        check_u32(self.cursor.column, "cursor column")?;
+        check_u32(self.scrollback_rows.len(), "scrollback row count")?;
+        check_u32(self.visible_rows.len(), "visible row count")?;
+        for row in self.scrollback_rows.iter().chain(&self.visible_rows) {
+            check_u32(row.cells.len(), "row cell count")?;
+            for cell in &row.cells {
+                check_u8(cell.combining.len(), "combining mark count")?;
+            }
+        }
+        Ok(())
     }
 
     fn decode(
@@ -884,6 +951,13 @@ pub enum SnapshotEnvelopeError {
     InvalidChar(u32),
     InvalidBool(u8),
     InvalidEnum(&'static str, u8),
+    /// An externally constructed field exceeds its on-wire integer width;
+    /// encoding refuses rather than truncating into undecodable bytes.
+    ValueTooLarge {
+        what: &'static str,
+        value: usize,
+        max: usize,
+    },
     TotalTooLarge {
         len: usize,
         max: usize,
@@ -952,6 +1026,9 @@ impl fmt::Display for SnapshotEnvelopeError {
             Self::InvalidChar(value) => write!(f, "invalid char scalar value {value}"),
             Self::InvalidBool(value) => write!(f, "invalid bool value {value}"),
             Self::InvalidEnum(name, value) => write!(f, "invalid {name} value {value}"),
+            Self::ValueTooLarge { what, value, max } => {
+                write!(f, "snapshot {what} {value} exceeds the wire maximum {max}")
+            }
             Self::TotalTooLarge { len, max } => {
                 write!(f, "snapshot is too large: {len} bytes exceeds cap {max}")
             }
@@ -1281,6 +1358,40 @@ impl<'a> Reader<'a> {
             value => Err(SnapshotEnvelopeError::InvalidBool(value)),
         }
     }
+}
+
+/// Wire-bound checks backing [`SnapshotEnvelope::validate_wire_bounds`]: a
+/// `usize` field must fit its narrowed on-wire integer. Portable across
+/// pointer widths via `try_from` (on 32-bit targets the u32 check is
+/// vacuously true and compiles without a lint suppression).
+fn check_u32(value: usize, what: &'static str) -> Result<(), SnapshotEnvelopeError> {
+    u32::try_from(value)
+        .map(|_| ())
+        .map_err(|_| SnapshotEnvelopeError::ValueTooLarge {
+            what,
+            value,
+            max: u32::MAX as usize,
+        })
+}
+
+fn check_u16(value: usize, what: &'static str) -> Result<(), SnapshotEnvelopeError> {
+    u16::try_from(value)
+        .map(|_| ())
+        .map_err(|_| SnapshotEnvelopeError::ValueTooLarge {
+            what,
+            value,
+            max: u16::MAX as usize,
+        })
+}
+
+fn check_u8(value: usize, what: &'static str) -> Result<(), SnapshotEnvelopeError> {
+    u8::try_from(value)
+        .map(|_| ())
+        .map_err(|_| SnapshotEnvelopeError::ValueTooLarge {
+            what,
+            value,
+            max: u8::MAX as usize,
+        })
 }
 
 fn write_u8(out: &mut Vec<u8>, value: u8) {
@@ -1697,7 +1808,7 @@ mod tests {
         terminal.advance(b"grid stays intact\n");
 
         let envelope = SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default());
-        let bytes = envelope.encode();
+        let bytes = envelope.encode().expect("encode");
         let decoded = SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default())
             .expect("an oversized title/cwd must still decode, truncated");
 
@@ -1739,9 +1850,9 @@ mod tests {
     fn envelope_round_trip_is_byte_stable() {
         let terminal = sample_terminal();
         let envelope = SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default());
-        let bytes = envelope.encode();
+        let bytes = envelope.encode().expect("encode");
         let decoded = SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default()).unwrap();
-        assert_eq!(decoded.encode(), bytes);
+        assert_eq!(decoded.encode().expect("encode"), bytes);
         assert_eq!(decoded.terminal.dimensions, Dimensions::new(16, 3));
         assert!(decoded.terminal.basic_modes.bracketed_paste);
         assert!(decoded.terminal.basic_modes.focus_reporting);
@@ -1780,7 +1891,7 @@ mod tests {
         let original = sample_terminal();
         let limits = SnapshotCaptureLimits::default();
         let envelope = SnapshotEnvelope::from_terminal(&original, limits);
-        let bytes = envelope.encode();
+        let bytes = envelope.encode().expect("encode");
         let decoded = SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default()).unwrap();
 
         let restored = Terminal::from_snapshot_envelope(&decoded).unwrap();
@@ -1812,7 +1923,9 @@ mod tests {
     fn restore_into_existing_terminal_replaces_state_and_resets_parser() {
         let original = sample_terminal();
         let decoded = SnapshotEnvelope::decode(
-            &SnapshotEnvelope::from_terminal(&original, SnapshotCaptureLimits::default()).encode(),
+            &SnapshotEnvelope::from_terminal(&original, SnapshotCaptureLimits::default())
+                .encode()
+                .expect("encode"),
             SnapshotEnvelopeCaps::default(),
         )
         .unwrap();
@@ -1870,7 +1983,9 @@ mod tests {
     fn minimal_terminal_restores() {
         let terminal = Terminal::new(1, 1);
         let decoded = SnapshotEnvelope::decode(
-            &SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default()).encode(),
+            &SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default())
+                .encode()
+                .expect("encode"),
             SnapshotEnvelopeCaps::default(),
         )
         .unwrap();
@@ -1891,7 +2006,9 @@ mod tests {
             max_scrollback_rows: 4,
         };
         let decoded = SnapshotEnvelope::decode(
-            &SnapshotEnvelope::from_terminal(&terminal, limits).encode(),
+            &SnapshotEnvelope::from_terminal(&terminal, limits)
+                .encode()
+                .expect("encode"),
             SnapshotEnvelopeCaps::default(),
         )
         .unwrap();
@@ -1945,7 +2062,7 @@ mod tests {
                 },
             ],
         );
-        assert_eq!(envelope.encode(), oracle);
+        assert_eq!(envelope.encode().expect("encode"), oracle);
     }
 
     #[test]
@@ -2052,8 +2169,11 @@ mod tests {
             prompt_marks: Vec::new(),
             layout: SnapshotLayoutState::defaults_for(Dimensions::new(200, 50)),
         };
-        let decoded = SnapshotEnvelope::decode(&envelope.encode(), SnapshotEnvelopeCaps::default())
-            .expect("bounded capture output decodes under matching defaults");
+        let decoded = SnapshotEnvelope::decode(
+            &envelope.encode().expect("encode"),
+            SnapshotEnvelopeCaps::default(),
+        )
+        .expect("bounded capture output decodes under matching defaults");
         assert_eq!(
             decoded.terminal.scrollback_rows.len(),
             envelope.terminal.scrollback_rows.len()
@@ -2099,7 +2219,7 @@ mod tests {
         terminal.advance(b"\x1b]133;A\x07tail prompt\r\n");
 
         let envelope = SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default());
-        let bytes = envelope.encode();
+        let bytes = envelope.encode().expect("encode");
         let decoded = SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default())
             .expect("deep wide capture decodes under default caps");
         assert!(
@@ -2181,7 +2301,9 @@ mod tests {
         terminal.advance(b"primary\nhistory\n");
         terminal.advance(b"\x1b[?1049h\x1b[2J\x1b[Halt-one\nalt-two\x1b[4 q");
         let decoded = SnapshotEnvelope::decode(
-            &SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default()).encode(),
+            &SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default())
+                .encode()
+                .expect("encode"),
             SnapshotEnvelopeCaps::default(),
         )
         .unwrap();
@@ -2262,7 +2384,9 @@ mod tests {
     fn version_mismatch_is_rejected_cleanly() {
         let terminal = sample_terminal();
         let mut bytes =
-            SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default()).encode();
+            SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default())
+                .encode()
+                .expect("encode");
         bytes[SNAPSHOT_MAGIC.len()] = 99;
         assert_eq!(
             SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default()),
@@ -2276,8 +2400,9 @@ mod tests {
     #[test]
     fn oversized_section_is_rejected_by_cap() {
         let terminal = sample_terminal();
-        let bytes =
-            SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default()).encode();
+        let bytes = SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default())
+            .encode()
+            .expect("encode");
         let caps = SnapshotEnvelopeCaps {
             max_section_len: 1,
             ..SnapshotEnvelopeCaps::default()
@@ -2315,5 +2440,136 @@ mod tests {
             decoded.layout,
             SnapshotLayoutState::defaults_for(decoded.terminal.dimensions)
         );
+    }
+}
+
+/// Wire-bound validation (fallible encode) and byte-identity coverage: encode
+/// refuses externally constructed envelopes whose `usize` fields exceed their
+/// narrowed on-wire integer widths instead of truncating them into bytes the
+/// envelope's own decoder cannot read, while the capture path
+/// (`from_terminal`) remains structurally bounded and byte-identical.
+#[cfg(test)]
+mod wire_bound_tests {
+    use super::*;
+
+    fn sample_envelope() -> SnapshotEnvelope {
+        let mut terminal = Terminal::new(4, 2);
+        terminal.advance(b"hi");
+        SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default())
+    }
+
+    fn expect_too_large(envelope: &SnapshotEnvelope, what: &str) {
+        match envelope.encode() {
+            Err(SnapshotEnvelopeError::ValueTooLarge { what: got, .. }) => {
+                assert_eq!(got, what);
+            }
+            Err(other) => panic!("expected ValueTooLarge({what}), got {other:?}"),
+            Ok(_) => panic!("expected ValueTooLarge({what}), got Ok"),
+        }
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn oversized_u32_fields_refuse_to_encode() {
+        const OVER: usize = u32::MAX as usize + 1;
+
+        let mut envelope = sample_envelope();
+        envelope.terminal.cursor.row = OVER;
+        expect_too_large(&envelope, "cursor row");
+
+        let mut envelope = sample_envelope();
+        envelope.terminal.dimensions = Dimensions::new(OVER, 2);
+        expect_too_large(&envelope, "columns");
+
+        let mut envelope = sample_envelope();
+        envelope.prompt_marks.push(SnapshotPromptMark {
+            row: OVER,
+            kind: PromptKind::PromptStart,
+        });
+        expect_too_large(&envelope, "prompt mark row");
+
+        let mut envelope = sample_envelope();
+        envelope.layout.scroll_region = Some(SnapshotScrollRegion {
+            top: OVER,
+            bottom: OVER,
+        });
+        expect_too_large(&envelope, "scroll region top");
+    }
+
+    #[test]
+    fn oversized_title_refuses_to_encode() {
+        let mut envelope = sample_envelope();
+        envelope.metadata.title = Some("t".repeat(u16::MAX as usize + 1));
+        expect_too_large(&envelope, "title length");
+    }
+
+    #[test]
+    fn oversized_combining_count_refuses_to_encode() {
+        let mut envelope = sample_envelope();
+        envelope.terminal.visible_rows[0].cells[0].combining =
+            vec!['\u{0301}'; u8::MAX as usize + 1];
+        expect_too_large(&envelope, "combining mark count");
+    }
+
+    #[test]
+    fn title_at_the_u16_wire_maximum_round_trips() {
+        let mut envelope = sample_envelope();
+        envelope.metadata.title = Some("t".repeat(u16::MAX as usize));
+        let bytes = envelope.encode().expect("boundary title encodes");
+        let caps = SnapshotEnvelopeCaps {
+            max_string_bytes: 80_000,
+            ..SnapshotEnvelopeCaps::default()
+        };
+        let decoded = SnapshotEnvelope::decode(&bytes, caps).expect("boundary title decodes");
+        assert_eq!(decoded.metadata.title, envelope.metadata.title);
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn prompt_mark_row_at_the_u32_wire_maximum_round_trips() {
+        let mut envelope = sample_envelope();
+        envelope.prompt_marks.push(SnapshotPromptMark {
+            row: u32::MAX as usize,
+            kind: PromptKind::PromptStart,
+        });
+        let bytes = envelope.encode().expect("boundary mark encodes");
+        let decoded =
+            SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default()).expect("decodes");
+        assert_eq!(decoded.prompt_marks, envelope.prompt_marks);
+    }
+
+    #[test]
+    fn from_terminal_encode_bytes_are_pinned() {
+        // Full-envelope byte identity for a fixed capture: any change to this
+        // fixture is a deliberate wire-format change (bump the snapshot format
+        // version and regenerate), never an accident of refactoring.
+        let mut terminal = Terminal::new(4, 2);
+        terminal.advance(b"hi");
+        let mut envelope =
+            SnapshotEnvelope::from_terminal(&terminal, SnapshotCaptureLimits::default());
+        envelope.producer_version = "pin".to_owned();
+        let bytes = envelope.encode().expect("encode");
+        let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let expected = concat!(
+            "4f44595454592d534e415053484f5403000100030070696e050001000100b900",
+            "0000000000000200000009010000000000000300000002000000000000000400",
+            "0000040000000000000005000000090000000000000004000000020000000000",
+            "0000020000000100010001000000000000000000000000000002000000000400",
+            "0000680000000000000000000000000000000069000000000000000000000000",
+            "0000000020000000000000000000000000000000002000000000000000000000",
+            "0000000000000004000000200000000000000000000000000000000020000000",
+            "0000000000000000000000000020000000000000000000000000000000002000",
+            "000000000000000000000000000000cccccc0b0c10cccccc0000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000004",
+            "00000000000000",
+        );
+        assert_eq!(hex, expected);
     }
 }

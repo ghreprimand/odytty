@@ -229,7 +229,7 @@ fn charset_state_round_trips_through_the_snapshot_envelope() {
     let mut term = Terminal::new(20, 3);
     term.advance(b"\x1b)0\x0eq");
     let envelope = SnapshotEnvelope::from_terminal(&term, SnapshotCaptureLimits::default());
-    let bytes = envelope.encode();
+    let bytes = envelope.encode().expect("encode");
     let decoded =
         SnapshotEnvelope::decode(&bytes, SnapshotEnvelopeCaps::default()).expect("decode");
     let mut restored = Terminal::from_snapshot_envelope(&decoded).expect("restore");
@@ -259,7 +259,7 @@ fn pre_charset_snapshots_decode_with_default_charset_state() {
     let mut term = Terminal::new(10, 2);
     term.advance(b"ok");
     let envelope = SnapshotEnvelope::from_terminal(&term, SnapshotCaptureLimits::default());
-    let mut bytes = envelope.encode();
+    let mut bytes = envelope.encode().expect("encode");
 
     // Rewrite the header version 3 -> 2 and strip the appended charset byte
     // from the terminal-state section, shrinking its table length by one.
@@ -303,7 +303,7 @@ fn reserved_charset_bits_fail_decode_cleanly() {
     let mut term = Terminal::new(10, 2);
     term.advance(b"x");
     let envelope = SnapshotEnvelope::from_terminal(&term, SnapshotCaptureLimits::default());
-    let mut bytes = envelope.encode();
+    let mut bytes = envelope.encode().expect("encode");
     // Locate the charset byte (last prelude byte of the terminal-state
     // payload, directly after the section table) and set a reserved bit.
     // Layout notes in `pre_charset_snapshots_decode_with_default_charset_state`.

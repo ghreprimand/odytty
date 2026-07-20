@@ -594,7 +594,12 @@ fn handle_attach(
     }
 
     write_host_hello(stream, &super::protocol::HostHello::accepted())?;
-    let envelope = SnapshotEnvelope::from_terminal(terminal, config.snapshot_limits).encode();
+    // Encoding is fallible for externally constructed envelopes with fields
+    // exceeding their wire widths; a capture-derived envelope is structurally
+    // bounded, so this only propagates on a genuine invariant break.
+    let envelope = SnapshotEnvelope::from_terminal(terminal, config.snapshot_limits)
+        .encode()
+        .context("encode session snapshot")?;
     write_host_frame(stream, &HostFrame::Snapshot(envelope))?;
 
     // Handshake done. Drop the read deadline now: the per-client reader thread
