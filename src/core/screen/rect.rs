@@ -154,6 +154,16 @@ impl Screen {
 
         for (row_offset, cells) in copied.into_iter().enumerate() {
             let row = dest_top + row_offset;
+            // The destination is a plain overwrite for button-span sidecars:
+            // overlapping spans are released and spans are NOT copied from the
+            // source (see `transform_row_button_spans` for the rationale).
+            self.transform_row_button_spans(
+                row,
+                RowButtonMutation::Overwrite {
+                    start: dest_left,
+                    end: dest_left + width,
+                },
+            );
             for (column_offset, cell) in cells.into_iter().enumerate() {
                 self.rows[row][dest_left + column_offset] = cell;
             }
@@ -174,6 +184,14 @@ impl Screen {
         let blank = self.current_blank();
 
         for row in rect.top..=rect.bottom {
+            // Labeled button spans overlapping the filled range are released.
+            self.transform_row_button_spans(
+                row,
+                RowButtonMutation::Overwrite {
+                    start: rect.left,
+                    end: rect.right + 1,
+                },
+            );
             for column in rect.left..=rect.right {
                 self.rows[row][column] = cell;
             }
@@ -233,6 +251,16 @@ impl Screen {
     fn erase_rect_inner(&mut self, rect: Rect, selective: bool) {
         let blank = self.current_blank();
         for row in rect.top..=rect.bottom {
+            // Labeled button spans overlapping the erased range are released,
+            // in the selective (DECSERA) case too: even when protected cells
+            // survive, a partially erased label no longer matches its span.
+            self.transform_row_button_spans(
+                row,
+                RowButtonMutation::Overwrite {
+                    start: rect.left,
+                    end: rect.right + 1,
+                },
+            );
             for column in rect.left..=rect.right {
                 if !selective || !self.rows[row][column].protected {
                     self.rows[row][column] = blank;
@@ -258,6 +286,14 @@ impl Screen {
 
     fn selective_erase_row_range(&mut self, row: usize, left: usize, right: usize) {
         let blank = self.current_blank();
+        // Same in-place erase family as DECSERA: overlapping labeled spans die.
+        self.transform_row_button_spans(
+            row,
+            RowButtonMutation::Overwrite {
+                start: left,
+                end: right + 1,
+            },
+        );
         for column in left..=right {
             if !self.rows[row][column].protected {
                 self.rows[row][column] = blank;

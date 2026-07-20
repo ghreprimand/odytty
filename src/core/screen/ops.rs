@@ -313,6 +313,12 @@ impl Screen {
         let count = count.max(1).min(columns - column);
         let blank = self.current_blank();
 
+        // Button-span sidecars shift with their cells (or die torn/off-edge).
+        self.transform_row_button_spans(
+            self.cursor.row,
+            RowButtonMutation::InsertShift { at: column, count },
+        );
+
         let row = &mut self.rows[self.cursor.row];
         for _ in 0..count {
             row.insert(column, blank);
@@ -334,6 +340,12 @@ impl Screen {
         let column = self.cursor.column;
         let count = count.max(1).min(columns - column);
         let blank = self.current_blank();
+
+        // Button-span sidecars shift with their cells; overlapped spans die.
+        self.transform_row_button_spans(
+            self.cursor.row,
+            RowButtonMutation::DeleteShift { at: column, count },
+        );
 
         let row = &mut self.rows[self.cursor.row];
         for _ in 0..count {
@@ -358,6 +370,15 @@ impl Screen {
         let column = self.cursor.column;
         let count = count.max(1).min(columns - column);
         let blank = self.current_blank();
+
+        // Labeled button spans overlapping the erased range are released.
+        self.transform_row_button_spans(
+            self.cursor.row,
+            RowButtonMutation::Overwrite {
+                start: column,
+                end: column + count,
+            },
+        );
 
         let row_index = self.cursor.row;
         let row = &mut self.rows[row_index];
@@ -567,6 +588,14 @@ impl Screen {
     pub(super) fn erase_line_from_cursor(&mut self) {
         let blank = self.current_blank();
         let row = self.cursor.row;
+        // Labeled button spans overlapping the erased tail are released.
+        self.transform_row_button_spans(
+            row,
+            RowButtonMutation::Overwrite {
+                start: self.cursor.column,
+                end: self.dimensions.columns,
+            },
+        );
         for column in self.cursor.column..self.dimensions.columns {
             self.rows[row][column] = blank;
         }
@@ -583,6 +612,14 @@ impl Screen {
     pub(super) fn erase_line_to_cursor(&mut self) {
         let blank = self.current_blank();
         let row = self.cursor.row;
+        // Labeled button spans overlapping the erased head are released.
+        self.transform_row_button_spans(
+            row,
+            RowButtonMutation::Overwrite {
+                start: 0,
+                end: self.cursor.column + 1,
+            },
+        );
         for column in 0..=self.cursor.column {
             self.rows[row][column] = blank;
         }

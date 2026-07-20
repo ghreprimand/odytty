@@ -156,6 +156,85 @@ impl Line {
         }
     }
 }
+/// How an in-place row mutation moved or destroyed cell content, for
+/// transforming the row's button-span sidecars in lockstep — see
+/// [`Screen::transform_row_button_spans`]. Shaped as a description of the
+/// cell edit (not a per-sequence variant) so future sidecars can ride the
+/// same mutation description.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum RowButtonMutation {
+    /// `count` blank cells inserted at `at` (ICH): cells at and right of `at`
+    /// shift right, overflow past the right edge is discarded.
+    InsertShift { at: usize, count: usize },
+    /// `count` cells deleted at `at` (DCH): cells right of the deleted range
+    /// shift left, blanks fill at the right edge.
+    DeleteShift { at: usize, count: usize },
+    /// Cells in `[start, end)` overwritten or erased in place with no
+    /// shifting (ECH, EL 0/1, DECSEL, DECERA, DECSERA, DECFRA, and the
+    /// DECCRA destination rectangle).
+    Overwrite { start: usize, end: usize },
+}
+
+/// The pure per-span half of [`Screen::transform_row_button_spans`]: the
+/// span's new coordinates after `mutation`, or `None` when the mutation
+/// destroys it and its table reference must be released. `columns` bounds the
+/// row; spans shifted fully past it die, spans shifted partially past it are
+/// clipped to the surviving label cells.
+fn transform_button_span(
+    span: ButtonSpan,
+    mutation: RowButtonMutation,
+    columns: usize,
+) -> Option<ButtonSpan> {
+    match mutation {
+        RowButtonMutation::InsertShift { at, count } => {
+            if span.start_col >= at {
+                let start_col = span.start_col.saturating_add(count);
+                if start_col >= columns {
+                    return None;
+                }
+                let len = span.len.min(columns - start_col);
+                Some(ButtonSpan {
+                    start_col,
+                    len,
+                    ..span
+                })
+            } else if span.len > 0 && span.start_col + span.len > at {
+                // The insertion point pierces the label interior: the label is
+                // torn in two and no longer matches the span.
+                None
+            } else {
+                Some(span)
+            }
+        }
+        RowButtonMutation::DeleteShift { at, count } => {
+            // A zero-length point anchor occupies its anchor cell for
+            // deletion purposes: deleting that cell deletes the anchor.
+            let occupied_end = span.start_col + span.len.max(1);
+            if occupied_end <= at {
+                Some(span)
+            } else if span.start_col >= at.saturating_add(count) {
+                Some(ButtonSpan {
+                    start_col: span.start_col - count,
+                    ..span
+                })
+            } else {
+                // Any overlap with the deleted range destroys label cells.
+                None
+            }
+        }
+        RowButtonMutation::Overwrite { start, end } => {
+            if span.len > 0 && span.start_col < end && span.start_col + span.len > start {
+                None
+            } else {
+                // Point anchors survive: their chips re-resolve against blank
+                // cells at render and hit-test time, so overwritten cells
+                // stop showing the chip without a stale clickable region.
+                Some(span)
+            }
+        }
+    }
+}
+
 impl std::ops::Deref for Line {
     type Target = Vec<Cell>;
 
@@ -2058,6 +2137,47 @@ impl Screen {
         for span in &line.button_spans {
             self.buttons.release(span.id);
         }
+    }
+
+    /// Transform one row's button-span sidecars in lockstep with an in-place
+    /// cell mutation, releasing the table reference of every span the
+    /// mutation destroys. Every row-range mutation that moves or overwrites
+    /// cells WITHOUT replacing the row wholesale must route through this
+    /// helper — the wholesale paths (EL2, ED, IL/DL, region scrolls) already
+    /// release via [`Self::release_line_buttons`], and reflow re-projects.
+    /// Without it, a shifted or erased label leaves the button clickable over
+    /// the wrong cells.
+    ///
+    /// Semantics per mutation, applied span-by-span:
+    /// - shift (ICH/DCH): a span at or right of the edit point moves with its
+    ///   cells; a shift past the right edge clips the label and releases a
+    ///   span pushed fully off. A span whose interior the edit point pierces
+    ///   (insert into the label, delete overlapping it) is released — its
+    ///   cells no longer form the label it was anchored to.
+    /// - overwrite/erase (ECH, EL 0/1, DECSEL, DECERA, DECSERA, DECFRA, and
+    ///   the DECCRA destination): any labeled span overlapping the written
+    ///   range is released, including the DECSERA case where protected cells
+    ///   survive — a partially surviving label no longer matches its span. A
+    ///   zero-length point anchor is kept: its chip re-resolves against blank
+    ///   cells at render time, so overwritten cells simply stop showing it.
+    /// - copy (DECCRA): spans are NOT copied to the destination — a button is
+    ///   defined by its protocol sequence, and silently duplicating clickable
+    ///   regions from a rectangle copy would mint activations the program
+    ///   never placed. The destination is treated as a plain overwrite.
+    pub(super) fn transform_row_button_spans(&mut self, row: usize, mutation: RowButtonMutation) {
+        if self.rows[row].button_spans.is_empty() {
+            return;
+        }
+        let columns = self.dimensions.columns;
+        let spans = std::mem::take(&mut self.rows[row].button_spans);
+        let mut kept = Vec::with_capacity(spans.len());
+        for span in spans {
+            match transform_button_span(span, mutation, columns) {
+                Some(span) => kept.push(span),
+                None => self.buttons.release(span.id),
+            }
+        }
+        self.rows[row].button_spans = kept;
     }
 
     /// Decrement table refcounts for span references the scrollback store

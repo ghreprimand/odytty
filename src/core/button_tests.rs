@@ -763,6 +763,201 @@ fn prompt_active_tracks_osc133_boundaries() {
     assert!(!term.prompt_active(), "cleared at output start");
 }
 
+// ---------------------------------------------------------------------------
+// In-row mutations transform span sidecars in lockstep with their cells
+// (ICH/DCH shift, ECH/EL/DECSEL/rect ops overwrite, DECCRA destination).
+// ---------------------------------------------------------------------------
+
+/// A terminal whose row 0 carries the labeled span `Retry` at columns 2..7.
+fn labeled_terminal(columns: usize) -> Terminal {
+    let mut term = enabled_terminal(columns, 5);
+    feed(&mut term, b"$ ");
+    feed_osc(&mut term, T2_DEFINE);
+    feed(&mut term, b"Retry");
+    feed_osc(&mut term, T2_END);
+    assert_eq!(row0_spans(&term), vec![(2, 5)]);
+    term
+}
+
+/// Row 0's spans as `(start_col, len)` pairs.
+fn row0_spans(term: &Terminal) -> Vec<(usize, usize)> {
+    term.screen()
+        .visible_row_button_spans(0)
+        .iter()
+        .map(|span| (span.start_col, span.len))
+        .collect()
+}
+
+#[test]
+fn ich_before_the_label_shifts_the_span_with_its_cells() {
+    let mut term = labeled_terminal(20);
+    feed(&mut term, b"\x1b[1;1H\x1b[2@");
+    assert_eq!(row0_spans(&term), vec![(4, 5)]);
+    assert_eq!(term.button_entry_count(), 1);
+}
+
+#[test]
+fn ich_clips_a_span_at_the_right_edge_and_releases_it_once_fully_off() {
+    let mut term = labeled_terminal(10);
+    feed(&mut term, b"\x1b[1;1H\x1b[5@");
+    assert_eq!(
+        row0_spans(&term),
+        vec![(7, 3)],
+        "partially shifted off: clipped to the surviving label cells"
+    );
+    feed(&mut term, b"\x1b[3@");
+    assert!(row0_spans(&term).is_empty(), "fully shifted off: released");
+    assert_eq!(term.button_entry_count(), 0, "table reference freed");
+}
+
+#[test]
+fn ich_into_the_label_interior_releases_the_torn_span() {
+    let mut term = labeled_terminal(20);
+    feed(&mut term, b"\x1b[1;5H\x1b[@");
+    assert!(row0_spans(&term).is_empty());
+    assert_eq!(term.button_entry_count(), 0, "table reference freed");
+}
+
+#[test]
+fn dch_before_the_label_shifts_the_span_left() {
+    let mut term = labeled_terminal(20);
+    feed(&mut term, b"\x1b[1;1H\x1b[2P");
+    assert_eq!(row0_spans(&term), vec![(0, 5)]);
+    assert_eq!(term.button_entry_count(), 1);
+}
+
+#[test]
+fn dch_overlapping_the_label_releases_the_span() {
+    let mut term = labeled_terminal(20);
+    feed(&mut term, b"\x1b[1;3H\x1b[2P");
+    assert!(row0_spans(&term).is_empty());
+    assert_eq!(term.button_entry_count(), 0, "table reference freed");
+}
+
+#[test]
+fn ech_beside_the_label_keeps_the_span_and_over_it_releases() {
+    let mut term = labeled_terminal(20);
+    feed(&mut term, b"\x1b[1;1H\x1b[2X");
+    assert_eq!(row0_spans(&term), vec![(2, 5)], "erase left of the label");
+    feed(&mut term, b"\x1b[1;3H\x1b[1X");
+    assert!(
+        row0_spans(&term).is_empty(),
+        "erase over the first label cell"
+    );
+    assert_eq!(term.button_entry_count(), 0, "table reference freed");
+}
+
+#[test]
+fn el0_from_inside_the_label_releases_the_span() {
+    let mut term = labeled_terminal(20);
+    feed(&mut term, b"\x1b[1;9H\x1b[K");
+    assert_eq!(row0_spans(&term), vec![(2, 5)], "erase right of the label");
+    feed(&mut term, b"\x1b[1;5H\x1b[K");
+    assert!(row0_spans(&term).is_empty());
+    assert_eq!(term.button_entry_count(), 0, "table reference freed");
+}
+
+#[test]
+fn el1_through_the_label_start_releases_the_span() {
+    let mut term = labeled_terminal(20);
+    feed(&mut term, b"\x1b[1;2H\x1b[1K");
+    assert_eq!(row0_spans(&term), vec![(2, 5)], "erase left of the label");
+    feed(&mut term, b"\x1b[1;3H\x1b[1K");
+    assert!(row0_spans(&term).is_empty());
+    assert_eq!(term.button_entry_count(), 0, "table reference freed");
+}
+
+#[test]
+fn decsel_inside_the_label_releases_the_span() {
+    let mut term = labeled_terminal(20);
+    feed(&mut term, b"\x1b[1;5H\x1b[?K");
+    assert!(row0_spans(&term).is_empty());
+    assert_eq!(term.button_entry_count(), 0, "table reference freed");
+}
+
+#[test]
+fn decera_over_the_label_releases_the_span_and_elsewhere_keeps_it() {
+    let mut term = labeled_terminal(20);
+    feed(&mut term, b"\x1b[2;1;2;9$z");
+    assert_eq!(row0_spans(&term), vec![(2, 5)], "rectangle on another row");
+    feed(&mut term, b"\x1b[1;3;1;7$z");
+    assert!(row0_spans(&term).is_empty());
+    assert_eq!(term.button_entry_count(), 0, "table reference freed");
+}
+
+#[test]
+fn decsera_releases_the_span_even_when_protected_cells_survive() {
+    // The label is printed under DECSCA protection, so DECSERA erases none of
+    // its cells — but the span is still released: any overlap with an erase
+    // rectangle releases, because a partially or nominally surviving label no
+    // longer tracks what the erase meant to clear.
+    let mut term = enabled_terminal(20, 5);
+    feed(&mut term, b"$ \x1b[1\"q");
+    feed_osc(&mut term, T2_DEFINE);
+    feed(&mut term, b"Retry");
+    feed_osc(&mut term, T2_END);
+    feed(&mut term, b"\x1b[0\"q");
+    assert_eq!(row0_spans(&term), vec![(2, 5)]);
+    feed(&mut term, b"\x1b[1;3;1;7${");
+    assert!(row0_spans(&term).is_empty());
+    assert_eq!(term.button_entry_count(), 0, "table reference freed");
+}
+
+#[test]
+fn decfra_over_the_label_releases_the_span() {
+    let mut term = labeled_terminal(20);
+    feed(&mut term, b"\x1b[65;1;3;1;7$x");
+    assert!(row0_spans(&term).is_empty());
+    assert_eq!(term.button_entry_count(), 0, "table reference freed");
+}
+
+#[test]
+fn deccra_destination_overwrite_releases_the_covered_span() {
+    let mut term = labeled_terminal(20);
+    // Copy a blank rectangle from row 3 onto the label cells of row 1.
+    feed(&mut term, b"\x1b[3;1;3;5;1;1;3;1$v");
+    assert!(row0_spans(&term).is_empty());
+    assert_eq!(term.button_entry_count(), 0, "table reference freed");
+}
+
+#[test]
+fn deccra_copies_cells_but_never_button_spans() {
+    let mut term = labeled_terminal(20);
+    // Copy the label row onto row 3: the copied cells show the label text but
+    // the button is deliberately NOT duplicated — a clickable region only
+    // exists where the program's button sequence placed it.
+    feed(&mut term, b"\x1b[1;1;1;10;1;3;1;1$v");
+    assert_eq!(row0_spans(&term), vec![(2, 5)], "source span intact");
+    assert!(
+        term.screen().visible_row_button_spans(2).is_empty(),
+        "destination row gained no span"
+    );
+    assert_eq!(term.button_entry_count(), 1);
+}
+
+#[test]
+fn point_anchor_shifts_with_ich_and_dch_and_survives_overwrites() {
+    let mut term = enabled_terminal(20, 5);
+    feed(&mut term, b"ab");
+    feed_osc(&mut term, "1337;Button=type=custom;code=42;icon=star.fill");
+    assert_eq!(row0_spans(&term), vec![(2, 0)]);
+
+    // Overwrite keeps the anchor: its chip re-resolves against blank cells.
+    feed(&mut term, b"\x1b[1;1H\x1b[5X");
+    assert_eq!(row0_spans(&term), vec![(2, 0)]);
+
+    // Shifts move it with its cell.
+    feed(&mut term, b"\x1b[1;1H\x1b[2@");
+    assert_eq!(row0_spans(&term), vec![(4, 0)]);
+    feed(&mut term, b"\x1b[1;1H\x1b[2P");
+    assert_eq!(row0_spans(&term), vec![(2, 0)]);
+
+    // Deleting the anchor cell deletes the anchor.
+    feed(&mut term, b"\x1b[1;1H\x1b[3P");
+    assert!(row0_spans(&term).is_empty());
+    assert_eq!(term.button_entry_count(), 0, "table reference freed");
+}
+
 #[test]
 fn el2_full_line_erase_frees_the_lines_button_refs() {
     // EL2 replaces the row wholesale (unlike EL0/EL1, which blank cells in
