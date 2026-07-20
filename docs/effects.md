@@ -166,8 +166,10 @@ retro = on
 # bloom_radius = 8.0
 # crt_scanline_intensity = 0.35
 # crt_vignette_strength = 0.35
-# crt_curvature = 0.025
 ```
+
+The preset does not touch `crt_curvature`; screen curvature stays at whatever
+the configuration file or environment sets it to (`0.0`, flat, by default).
 
 The preset forces bloom and CRT on at runtime even if either individual switch
 is explicitly off; turning `retro` off restores the individual settings.
@@ -220,7 +222,9 @@ residual 8-bit posterization. Lit cells are never zeroed by the vignette.
 
 **`crt_curvature`** — subtle barrel-distortion screen curvature. `0.0` is flat
 and pixel-identical to the no-curvature path. The cap is intentionally low
-(`0.12`) and the retro preset uses a light `0.025` curve.
+(`0.12`). It is a configuration-file and environment knob only, with no
+settings-panel control, and applies while either CRT profile is active; the
+retro preset does not force a curve of its own.
 
 ### Enabling via odytty.conf
 

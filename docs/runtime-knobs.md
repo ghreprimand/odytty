@@ -356,7 +356,9 @@ audible bell.
   adapters fall back to the plain direct path with one stderr notice.
 - `retro = on` promotes effective bloom/CRT settings to a stronger phosphor
   profile without overwriting individual values: threshold `0.70`, intensity
-  `1.0`, radius `8.0`, scanlines `0.35`, vignette `0.35`, curvature `0.025`.
+  `1.0`, radius `8.0`, scanlines `0.35`, vignette `0.35`. It does not force
+  screen curvature; `crt_curvature` stays at its configured value (`0.0` by
+  default).
 - `geometric_boxdraw = on` renders supported box-drawing, block and shade
   elements, Braille (`U+2800..=U+28FF`), all four Powerline separators, and
   Symbols for Legacy Computing sextants and octants from cell geometry instead

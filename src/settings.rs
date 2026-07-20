@@ -1952,10 +1952,13 @@ impl Settings {
         }
     }
     pub fn effective_crt_curvature(&self) -> f32 {
+        // Curvature is a configuration/environment knob only, flat by default,
+        // with no settings-panel control. The retro preset raises the other CRT
+        // treatments but deliberately does not force curvature, so it falls
+        // through to the configured knob exactly like the plain CRT profile. The
+        // direct render path still zeroes it.
         if self.plain_render_quality() {
             0.0
-        } else if self.retro {
-            RETRO_CRT_CURVATURE
         } else {
             self.crt_curvature
         }

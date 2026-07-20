@@ -2352,8 +2352,10 @@ fn crt_curvature_forced_off_on_plain_render_quality() {
 }
 
 #[test]
-fn crt_curvature_retro_preset_overrides_to_subtle_curve() {
-    // Explicit knob is set lower than the retro override; retro must win.
+fn crt_curvature_retro_preset_does_not_force_curvature() {
+    // The retro preset raises the other CRT treatments but must NOT force any
+    // curvature: with the preset on, the configured knob is what applies.
+    // Explicit knob under retro wins unchanged.
     let (settings, warnings) = settings_from([
         (RETRO_ENV, "on"),
         (CRT_ENV, "off"),
@@ -2362,7 +2364,16 @@ fn crt_curvature_retro_preset_overrides_to_subtle_curve() {
     assert!(settings.retro);
     assert!(settings.effective_crt_enabled());
     assert_eq!(settings.crt_curvature, 0.01);
-    assert_eq!(settings.effective_crt_curvature(), RETRO_CRT_CURVATURE);
+    assert_eq!(settings.effective_crt_curvature(), 0.01);
+    assert!(warnings.is_empty());
+
+    // Retro on with no curvature configured stays flat (the default knob), not
+    // a forced curve.
+    let (settings, warnings) = settings_from([(RETRO_ENV, "on"), (CRT_ENV, "off")]);
+    assert!(settings.retro);
+    assert!(settings.effective_crt_enabled());
+    assert_eq!(settings.crt_curvature, DEFAULT_CRT_CURVATURE);
+    assert_eq!(settings.effective_crt_curvature(), 0.0);
     assert!(warnings.is_empty());
 }
 

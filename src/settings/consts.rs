@@ -1006,7 +1006,6 @@ pub const RETRO_BLOOM_INTENSITY: f32 = 1.0;
 pub const RETRO_BLOOM_RADIUS: f32 = 8.0;
 pub const RETRO_CRT_SCANLINE_INTENSITY: f32 = 0.35;
 pub const RETRO_CRT_VIGNETTE_STRENGTH: f32 = 0.35;
-pub const RETRO_CRT_CURVATURE: f32 = 0.025;
 
 pub fn default_bloom_threshold_for_theme(theme: Theme) -> f32 {
     (crate::theme::relative_luminance(theme.foreground) as f32 + BLOOM_THRESHOLD_MARGIN)

@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Retro preset no longer forces screen curvature
+
+Screen curvature is now driven only by the `crt_curvature` configuration and
+environment knob, which is flat (`0.0`) by default and has no settings-panel
+control. The retro preset previously overrode that knob with a light `0.025`
+curve, which meant a panel-reachable switch could turn on an effect intended to
+be configuration-only. The preset keeps all of its other treatments -- the
+stronger bloom, scanlines, and vignette -- but leaves curvature at whatever the
+configuration sets. `effective_crt_curvature` falls through to the configured
+knob exactly like the plain CRT profile, and the direct render path still zeroes
+it. Anyone who relied on the retro preset for the subtle curve now sets
+`crt_curvature` explicitly to keep it.
+
+---
+
 ## 2026-07-20 -- Release v0.9.1 — rail auto-hide control, low-opacity legibility, hardening
 
 Version 0.9.1 is released. The headline is the rail auto-hide control: the

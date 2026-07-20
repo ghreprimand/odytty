@@ -1493,9 +1493,11 @@ Tier-3 atmospheric effects land in this order:
    post-composite dimming cannot feed back into the CPU minimum-contrast
    resolver, the shader clamps scanline/vignette strength and enforces a
    brightness floor so lit cells are never zeroed.
-   `retro=on` is a stronger preset over the same bloom/CRT path and applies a
-   subtle `0.025` curvature. Configurable curvature ships as `crt_curvature`
-   (`0.0`–`0.12`, default `0.0`); chromatic aberration is deferred.
+   `retro=on` is a stronger preset over the same bloom/CRT path but does not
+   force any screen curvature. Configurable curvature ships as `crt_curvature`
+   (`0.0`–`0.12`, default `0.0`), a configuration-file / environment-only knob
+   with no settings-panel control that takes effect while either CRT profile is
+   active; chromatic aberration is deferred.
 
 Cursor motion trail (`cursor_trail`, on by default since v0.6.0): a short fading
 after-image that trails the cursor as it glides between cells, drawn behind the cursor block
