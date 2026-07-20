@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Ctrl+Backspace stays distinct when prompt negotiation drops
+
+Ctrl+Backspace now uses the established legacy BS byte when no application
+keyboard protocol is active, while ordinary Backspace remains DEL. This keeps
+the modifier distinction without sending CSI-u into arbitrary applications.
+When Kitty disambiguation is active, the chord still emits `CSI 127;5u`.
+
+Bash prompt enhancement now adds the disambiguation flag when readline owns the
+line and removes that exact flag through `PS0`, after a command is accepted but
+before it executes. The previous DEBUG-trap pop could mistake a command run by
+the prompt itself for the user's command and disable enhancement before input.
+The new lifecycle is idempotent across empty prompts and leaves child programs
+in legacy mode. Zsh keeps its line-editor push/pop lifecycle, and Windows keeps
+the native ConPTY Win32 input path and key-up records unchanged.
+
+Regressions drive the captured Fedora Backspace event through the real native
+route in both modes, pin BS versus DEL in legacy mode, pin the enhanced CSI-u
+form, and verify the Bash add/remove controls around a real interactive shell.
+
+---
+
 ## 2026-07-20 -- Window padding now applies at every split-pane divider
 
 `window_padding` is documented as breathing room against every hard boundary,

@@ -188,9 +188,10 @@ impl CommandBuilder {
     /// Prompt-scoped key-enhancement discovery (D-b): when the
     /// `shell_key_enhancement` knob is on, advertise it to an integrated
     /// bash/zsh shell by setting `ODYTTY_KEY_ENHANCE=1`; the snippet guards its
-    /// prompt-scoped Kitty-keyboard push/pop on this variable, so without it the
-    /// push/pop never fires (default off). When off, set nothing at all, so the
-    /// snippet's `[ -n "$ODYTTY_KEY_ENHANCE" ]` guard tracks the knob exactly.
+    /// prompt-scoped Kitty-keyboard lifecycle on this variable, so without it
+    /// Bash's add/remove and zsh's push/pop never fire. When off, set nothing at
+    /// all, so the snippet's `[ -n "$ODYTTY_KEY_ENHANCE" ]` guard tracks the
+    /// knob exactly.
     /// Independent of the buttons advertisement; only the bash/zsh snippets read
     /// it (fish self-manages the protocol, PowerShell uses the Console API), so
     /// it is inert for every other child. Shared by both platform spawn paths

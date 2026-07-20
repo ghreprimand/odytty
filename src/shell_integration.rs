@@ -412,15 +412,15 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
     printf '\e]7;file://%s\a' "$__ODYTTY_OSC7_ENC"
     printf '\e]133;A;click_events=1\a'
     unset __ODYTTY_PROMPT_EXECUTING
-    # Prompt-scoped key enhancement (D-b): while the prompt owns the line, push
-    # Kitty keyboard flag 0x1 (disambiguate ONLY -- Ctrl+C stays SIGINT), popped
-    # before the command runs (the DEBUG trap). The __ODYTTY_KEY_PUSHED flag
-    # keeps push/pop balanced across empty Enter (no command, no pop). Only
-    # active when OdyTTY advertises ODYTTY_KEY_ENHANCE; users bind raw CSI-u
-    # sequences via inputrc. Zero effect on programs the shell runs.
-    if [ -n "${ODYTTY_KEY_ENHANCE-}" ] && [ -z "${__ODYTTY_KEY_PUSHED-}" ]; then
-      printf '\e[>1u'
-      __ODYTTY_KEY_PUSHED=1
+    # Prompt-scoped key enhancement (D-b): while the prompt owns the line, add
+    # Kitty keyboard flag 0x1 (disambiguate ONLY -- Ctrl+C stays SIGINT). PS0
+    # removes exactly that flag after readline accepts a real command and before
+    # the command starts. Unlike the DEBUG trap, PS0 is not confused by commands
+    # a Fedora prompt executes while rendering itself. Empty Enter prints no PS0,
+    # and the idempotent add remains active for the next prompt. Only active when
+    # OdyTTY advertises ODYTTY_KEY_ENHANCE; zero effect on launched programs.
+    if [ -n "${ODYTTY_KEY_ENHANCE-}" ]; then
+      printf '\e[=1;2u'
     fi
   }
 
@@ -431,12 +431,6 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
     case "$BASH_COMMAND" in
       __odytty_status_capture*|__odytty_prompt_command*|__odytty_debug_trap*|__odytty_append_prompt_command*|__odytty_prepend_prompt_command*) return ;;
     esac
-    # Pop the prompt-scoped key enhancement before a real command runs, so the
-    # program the shell launches sees the terminal's default keyboard mode.
-    if [ -n "${__ODYTTY_KEY_PUSHED-}" ]; then
-      printf '\e[<1u'
-      unset __ODYTTY_KEY_PUSHED
-    fi
     printf '\e]133;C\a'
     __ODYTTY_COMMAND_STARTED=1
   }
@@ -498,6 +492,12 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
   # inputrc or .bashrc wins. To override afterwards, rebind the sequence with
   # `bind` (e.g. `bind '"\e[127;5u": kill-whole-line'`).
   if [ -n "${ODYTTY_KEY_ENHANCE-}" ]; then
+    # Bash expands and prints PS0 after readline accepts a non-empty command but
+    # before executing it. Prefix the user's existing PS0 with a removal of only
+    # the disambiguate bit, so arbitrary child applications never inherit the
+    # prompt protocol and prompt-rendering commands cannot disable it early.
+    PS0=$'\e[=1;3u'"${PS0-}"
+
     __odytty_bind_if_unbound() {
       if ! { bind -p; bind -s; } 2>/dev/null | grep -qF -- "\"$1\""; then
         bind "\"$1\": $2" 2>/dev/null
@@ -1159,29 +1159,20 @@ mod tests {
     }
 
     #[test]
-    fn bash_and_zsh_prompt_scoped_key_enhancement_pushes_and_pops_flag_one() {
-        // D-b: bash and zsh push Kitty keyboard flag 0x1 (disambiguate only)
-        // while the prompt owns the line and pop it before the command runs.
-        // The push MUST be flag 0x1 exactly (`>1u`) -- flag 0x8 would stop
-        // Ctrl+C generating SIGINT at the prompt, which the design forbids.
+    fn bash_and_zsh_prompt_scoped_key_enhancement_scopes_flag_one() {
+        // D-b: bash and zsh enable Kitty keyboard flag 0x1 (disambiguate only)
+        // while the prompt owns the line and remove it before the command runs.
+        // Flag 0x8 would stop Ctrl+C generating SIGINT at the prompt, which the
+        // design forbids.
         let bash = snippet(ShellKind::Bash);
         let zsh = snippet(ShellKind::Zsh);
 
         for (name, snip) in [("bash", bash), ("zsh", zsh)] {
             // Gated on the discovery variable OdyTTY injects only when the knob
-            // is on; without it, no push/pop is emitted (default off).
+            // is on; without it, no enhancement lifecycle is emitted.
             assert!(
                 snip.contains("ODYTTY_KEY_ENHANCE"),
                 "{name}: key enhancement must be gated on the discovery variable"
-            );
-            // Push flag 0x1, pop 1.
-            assert!(
-                snip.contains(r">1u"),
-                "{name}: must push Kitty keyboard flag 0x1 (disambiguate)"
-            );
-            assert!(
-                snip.contains(r"<1u"),
-                "{name}: must pop the pushed flag before the command runs"
             );
             // Must NOT push the report-all-keys flag (0x8) -- Ctrl+C stays SIGINT.
             assert!(
@@ -1190,8 +1181,20 @@ mod tests {
             );
         }
 
+        // Bash uses idempotent add/remove operations. PS0 runs after readline
+        // accepts a command but before it executes, so prompt-rendering commands
+        // cannot trigger an early DEBUG-trap pop.
+        assert!(bash.contains(r"=1;2u"), "bash must add disambiguate mode");
+        assert!(
+            bash.contains(r"=1;3u"),
+            "bash PS0 must remove disambiguate mode"
+        );
+        assert!(bash.contains("PS0="), "bash must scope removal through PS0");
+
         // zsh uses the line-init/line-finish widget pair (chained, not
         // clobbered), mirroring the pre-redraw edit-region wrap.
+        assert!(zsh.contains(r">1u"), "zsh must push disambiguate mode");
+        assert!(zsh.contains(r"<1u"), "zsh must pop disambiguate mode");
         assert!(
             zsh.contains("zle -N zle-line-init __odytty_line_init"),
             "zsh must register a line-init widget for the push"
@@ -1199,12 +1202,6 @@ mod tests {
         assert!(
             zsh.contains("zle -N zle-line-finish __odytty_line_finish"),
             "zsh must register a line-finish widget for the pop"
-        );
-
-        // bash keeps push/pop balanced across empty Enter via a state flag.
-        assert!(
-            bash.contains("__ODYTTY_KEY_PUSHED"),
-            "bash must track the pushed state to stay balanced across empty Enter"
         );
 
         // fish and PowerShell get NO push/pop: fish manages the protocol itself
@@ -1797,6 +1794,61 @@ mod tests {
             "Ctrl+Backspace must kill the last word before submit: {out:?}"
         );
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_key_enhancement_adds_at_prompt_and_removes_before_commands() {
+        let Some(bash) = find_bash() else {
+            return;
+        };
+        let dir = temp_integration_dir("bash-keyenh-lifecycle");
+        fs::create_dir_all(&dir).expect("dir");
+        let rc = dir.join("rc.bash");
+        // Interactive Bash writes prompts (including PS0) to stderr. Merge it
+        // into stdout inside the child so this harness sees the exact ordered
+        // PTY-equivalent stream, and seed a user PS0 to pin coexistence.
+        fs::write(
+            &rc,
+            format!("exec 2>&1\nPS0='USER-PS0'\nPS1='P\\$ '\n{BASH_SNIPPET}"),
+        )
+        .expect("write rc");
+
+        let out = run_bash_rc_env(
+            &bash,
+            &rc,
+            "printf 'OUT\\n'\nexit\n",
+            &[("ODYTTY_KEY_ENHANCE", "1")],
+        );
+        if !out.contains("\x1b]133;A") {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let add = out
+            .find("\x1b[=1;2u")
+            .expect("prompt must add Kitty disambiguation");
+        let remove = out[add..]
+            .find("\x1b[=1;3u")
+            .map(|offset| add + offset)
+            .expect("PS0 must remove Kitty disambiguation");
+        assert!(
+            remove > add,
+            "removal must follow prompt activation: {out:?}"
+        );
+        assert!(
+            out.contains("USER-PS0"),
+            "the user's PS0 must survive: {out:?}"
+        );
+
+        let mut terminal = crate::core::Terminal::new(80, 24);
+        terminal.advance(out.as_bytes());
+        assert_eq!(
+            terminal.keyboard_modes().kitty_keyboard_flags,
+            0,
+            "the real Bash stream must leave the exiting child in legacy mode"
+        );
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[cfg(unix)]

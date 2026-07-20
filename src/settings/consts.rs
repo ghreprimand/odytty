@@ -932,20 +932,22 @@ pub const DEFAULT_BUTTONS_STICKY: bool = false;
 pub const DEFAULT_SHELL_INTEGRATION: bool = true;
 
 /// Prompt-scoped key enhancement for bash/zsh (`ODYTTY_SHELL_KEY_ENHANCEMENT`):
-/// when on, integrated bash/zsh shells push Kitty keyboard flag 0x1
+/// when on, integrated bash/zsh shells enable Kitty keyboard flag 0x1
 /// (disambiguate only, so Ctrl+C keeps generating SIGINT) while the prompt owns
-/// the line and pop it before each command runs. This makes modified keys like
+/// the line and remove it before each command runs. Bash uses idempotent
+/// add/remove controls around readline; zsh uses its line-editor push/pop hooks.
+/// This makes modified keys like
 /// Ctrl+Enter, Shift+Enter, and Ctrl+Backspace reachable as distinct CSI-u
 /// sequences; the snippets ship working default binds for them (Ctrl+Backspace
 /// word-deletes, Shift+Enter inserts a newline, Ctrl+Enter submits), each
 /// skipped when the user has already bound the sequence through inputrc/bindkey,
 /// with zero effect on the programs the shell launches. Sub-feature of shell
 /// integration: the
-/// push/pop only ships when `shell_integration` is also on, and OdyTTY injects
-/// `ODYTTY_KEY_ENHANCE=1` into the child environment so the snippet can discover
-/// support (mirroring buttons discovery). fish manages the keyboard protocol
-/// itself and PowerShell key bindings use the PSReadLine/Console API, so neither
-/// is affected. On by default.
+/// prompt scoping only ships when `shell_integration` is also on, and OdyTTY
+/// injects `ODYTTY_KEY_ENHANCE=1` into the child environment so the snippet can
+/// discover support (mirroring buttons discovery). fish manages the keyboard
+/// protocol itself and PowerShell key bindings use the PSReadLine/Console API,
+/// so neither is affected. On by default.
 pub const DEFAULT_SHELL_KEY_ENHANCEMENT: bool = true;
 
 /// Remote OSC 133 shell integration for SSH tabs (`ODYTTY_REMOTE_INTEGRATION`):

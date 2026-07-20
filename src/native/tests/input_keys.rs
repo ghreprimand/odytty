@@ -191,10 +191,10 @@ fn fedora_wayland_ctrl_backspace_reaches_the_pty_through_the_real_key_path() {
         Modifiers::CTRL,
         KeyEventType::Release,
     );
-    assert_eq!(&*recorded.lock().expect("legacy bytes"), b"\x7f");
+    assert_eq!(&*recorded.lock().expect("legacy bytes"), b"\x08");
 
     recorded.lock().expect("clear legacy bytes").clear();
-    terminal.lock().expect("terminal").advance(b"\x1b[>1u");
+    terminal.lock().expect("terminal").advance(b"\x1b[=1;2u");
     app.drive_raw_key_event_for_test(
         backspace.clone(),
         backspace.clone(),
@@ -210,6 +210,17 @@ fn fedora_wayland_ctrl_backspace_reaches_the_pty_through_the_real_key_path() {
         KeyEventType::Release,
     );
     assert_eq!(&*recorded.lock().expect("kitty bytes"), b"\x1b[127;5u");
+
+    terminal.lock().expect("terminal").advance(b"\x1b[=1;3u");
+    assert_eq!(
+        terminal
+            .lock()
+            .expect("terminal")
+            .keyboard_modes()
+            .kitty_keyboard_flags,
+        0,
+        "the Bash PS0 removal must restore legacy mode before a child runs"
+    );
 }
 
 #[test]

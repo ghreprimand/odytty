@@ -213,6 +213,11 @@ pub fn encode_key_event(
     }
 
     let mut bytes = match key {
+        // Legacy terminals conventionally distinguish Ctrl+Backspace from the
+        // ordinary key as BS versus DEL. Keep that compatibility path when no
+        // application keyboard protocol is active; Kitty/modifyOtherKeys were
+        // already consulted above and retain their explicit modifier forms.
+        Key::Backspace if mods.ctrl => vec![0x08],
         Key::Backspace => vec![0x7f],
         Key::Enter => b"\r".to_vec(),
         Key::Left => encode_cursor_key(b'D', mods, modes),
@@ -1350,9 +1355,10 @@ mod tests {
     }
 
     #[test]
-    fn modified_recovery_keys_stay_legacy_at_flags_zero() {
-        // Byte-identity outside the app-requested flag: with kitty flags 0 the
-        // modified variants keep today's legacy bytes.
+    fn modified_recovery_keys_use_compatible_legacy_forms_at_flags_zero() {
+        // Outside an app-requested protocol, modified recovery keys use their
+        // established VT forms. Ctrl+Backspace is BS so it stays distinct from
+        // ordinary Backspace's DEL without sending CSI-u to arbitrary apps.
         let modes = KeyModes::default();
         let shift = Modifiers {
             ctrl: false,
@@ -1365,8 +1371,9 @@ mod tests {
         assert_eq!(encode_key(Key::Tab, Modifiers::CTRL, modes), b"\t");
         assert_eq!(
             encode_key(Key::Backspace, Modifiers::CTRL, modes),
-            vec![0x7f]
+            vec![0x08]
         );
+        assert_eq!(encode_key(Key::Backspace, Modifiers::NONE, modes), b"\x7f");
     }
 
     #[test]
@@ -1799,7 +1806,7 @@ mod tests {
         assert_eq!(encode_key(Key::Tab, Modifiers::CTRL, modes), b"\t");
         assert_eq!(
             encode_key(Key::Backspace, Modifiers::CTRL, modes),
-            vec![0x7f]
+            vec![0x08]
         );
         // Combinations that would otherwise lose their modifiers encode.
         assert_eq!(
@@ -1945,7 +1952,7 @@ mod tests {
     fn disabled_win32_input_preserves_legacy_fallback() {
         assert_eq!(
             encode_key(Key::Backspace, Modifiers::CTRL, KeyModes::default()),
-            vec![0x7f]
+            vec![0x08]
         );
         assert_eq!(
             encode_key(Key::Enter, Modifiers::NONE, KeyModes::default()),
