@@ -26,6 +26,14 @@
 //! but that only happens once a remote is already wedged; a live UI is the
 //! higher priority.
 //!
+//! The chunk is the atomicity unit of that policy: overflow drops whole
+//! chunks, never partial ones, and the newest chunk is never dropped. Anything
+//! whose framing must not tear therefore travels as ONE chunk — a bracketed
+//! paste (start marker + body + end marker) is enqueued as a single write, so
+//! an overflow either delivers the paste intact or discards it entirely. It
+//! can never drop the start marker while keeping the tail, which would let the
+//! surviving newlines execute outside bracketed-paste mode in the shell.
+//!
 //! Telemetry (default-on, privacy-safe — counters and a numeric session id only,
 //! never PTY bytes): the writer thread stamps [`OutboundShared::write_started_ms`]
 //! before each fd write and clears it after. One detached monitor thread polls
@@ -444,6 +452,111 @@ mod tests {
         assert_eq!(queue.dropped_bytes, 4);
         let remaining: Vec<&[u8]> = queue.chunks.iter().map(Vec::as_slice).collect();
         assert_eq!(remaining, vec![b"bbbb".as_slice(), b"cccc".as_slice()]);
+    }
+
+    fn contains_subslice(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack.windows(needle.len()).any(|w| w == needle)
+    }
+
+    #[test]
+    fn bracketed_paste_survives_overflow_intact_when_it_is_the_newest_chunk() {
+        // Stalled-writer framing test, delivery half. The writer thread is
+        // parked in a blocked fd write; the queue is pre-filled past the cap
+        // and then a multiline bracketed paste (ONE chunk, see
+        // `clipboard::encode_paste_chunks`) is enqueued over it. Drop-oldest
+        // sheds the pre-fill but never the newest chunk, so once the fd
+        // releases the sink must see the COMPLETE framed paste, contiguous,
+        // with both markers.
+        let paste_chunks =
+            crate::native::clipboard::encode_paste_chunks("line one\nline two\n", true, 4);
+        assert_eq!(paste_chunks.len(), 1, "bracketed paste must be one chunk");
+        let paste = &paste_chunks[0];
+
+        let shared = Arc::new(OutboundShared::with_cap(SessionToken(11), 16));
+        let gate = new_gate();
+        let started = Arc::new(AtomicUsize::new(0));
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let fd = BlockingWriter {
+            gate: gate.clone(),
+            started: started.clone(),
+            written: written.clone(),
+            error_on_release: false,
+        };
+        let thread_shared = shared.clone();
+        let handle = std::thread::spawn(move || run_writer(thread_shared, Box::new(fd)));
+
+        // Park the writer thread in a blocked fd write; the queue is now empty.
+        shared.enqueue(b"first");
+        wait_until(|| started.load(Ordering::SeqCst) >= 1);
+
+        // Pre-fill past the cap, then enqueue the paste over it.
+        shared.enqueue(b"fill-fill-fill-fill");
+        shared.enqueue(paste);
+
+        shared.close();
+        open_gate(&gate);
+        handle.join().expect("writer thread joins");
+
+        let sink = written.lock().unwrap_or_else(PoisonError::into_inner);
+        assert!(
+            contains_subslice(&sink, paste),
+            "sink must contain the complete framed paste contiguously"
+        );
+    }
+
+    #[test]
+    fn bracketed_paste_dropped_by_overflow_leaves_no_fragment() {
+        // Stalled-writer framing test, discard half. The paste is enqueued
+        // first and NEWER traffic overflows the queue past the cap: the paste
+        // is dropped as a whole chunk. The sink must then contain no paste
+        // bytes at all — no start marker, no end marker, no body — because a
+        // surviving tail without its start marker would execute outside
+        // bracketed-paste mode.
+        let paste_chunks =
+            crate::native::clipboard::encode_paste_chunks("rm -rf /tmp/x\necho done\n", true, 4);
+        assert_eq!(paste_chunks.len(), 1, "bracketed paste must be one chunk");
+        let paste = &paste_chunks[0];
+
+        let shared = Arc::new(OutboundShared::with_cap(SessionToken(12), 16));
+        let gate = new_gate();
+        let started = Arc::new(AtomicUsize::new(0));
+        let written = Arc::new(Mutex::new(Vec::new()));
+        let fd = BlockingWriter {
+            gate: gate.clone(),
+            started: started.clone(),
+            written: written.clone(),
+            error_on_release: false,
+        };
+        let thread_shared = shared.clone();
+        let handle = std::thread::spawn(move || run_writer(thread_shared, Box::new(fd)));
+
+        // Park the writer thread in a blocked fd write; the queue is now empty.
+        shared.enqueue(b"first");
+        wait_until(|| started.load(Ordering::SeqCst) >= 1);
+
+        // Enqueue the paste, then enough newer input to push far past the cap
+        // so drop-oldest discards the paste chunk whole.
+        shared.enqueue(paste);
+        shared.enqueue(b"newer-key-input-1");
+        shared.enqueue(b"newer-key-input-2");
+
+        shared.close();
+        open_gate(&gate);
+        handle.join().expect("writer thread joins");
+
+        let sink = written.lock().unwrap_or_else(PoisonError::into_inner);
+        assert!(
+            !contains_subslice(&sink, b"\x1b[200~"),
+            "no orphaned start marker in the sink"
+        );
+        assert!(
+            !contains_subslice(&sink, b"\x1b[201~"),
+            "no orphaned end marker in the sink"
+        );
+        assert!(
+            !contains_subslice(&sink, b"rm -rf"),
+            "no paste body fragment in the sink"
+        );
     }
 
     #[test]

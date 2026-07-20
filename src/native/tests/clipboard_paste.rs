@@ -112,38 +112,25 @@ fn paste_chunks_split_large_plain_payload_without_data_loss() {
 }
 
 #[test]
-fn bracketed_paste_chunks_wrap_once_around_full_payload() {
+fn bracketed_paste_is_one_indivisible_framed_chunk() {
+    // Framing atomicity: the start marker, body, and end marker travel as ONE
+    // chunk regardless of the chunk-size hint, so no downstream drop-whole-
+    // chunk policy (outbound queue overflow, attached-session frame drop) can
+    // ever separate a marker from the body.
     let chunks = encode_paste_chunks("abcdefghi", true, 3);
 
+    assert_eq!(chunks.len(), 1);
     assert_eq!(
         chunks.first().map(Vec::as_slice),
-        Some(b"\x1b[200~".as_slice())
+        Some(b"\x1b[200~abcdefghi\x1b[201~".as_slice())
     );
-    assert_eq!(
-        chunks.last().map(Vec::as_slice),
-        Some(b"\x1b[201~".as_slice())
-    );
-    assert_eq!(
-        chunks
-            .iter()
-            .filter(|chunk| chunk.as_slice() == b"\x1b[200~")
-            .count(),
-        1
-    );
-    assert_eq!(
-        chunks
-            .iter()
-            .filter(|chunk| chunk.as_slice() == b"\x1b[201~")
-            .count(),
-        1
-    );
-    assert_eq!(&flatten_chunks(&chunks), b"\x1b[200~abcdefghi\x1b[201~");
 }
 
 #[test]
 fn bracketed_paste_chunks_strip_embedded_end_marker_only_from_payload() {
     let chunks = encode_paste_chunks("safe\x1b[201~tail\r\nkept", true, 4);
 
+    assert_eq!(chunks.len(), 1);
     assert_eq!(
         &flatten_chunks(&chunks),
         b"\x1b[200~safetail\r\nkept\x1b[201~"

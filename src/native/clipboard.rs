@@ -378,6 +378,15 @@ pub(super) fn read_clipboard_selection(
     }
 }
 
+/// Hard size ceiling for one bracketed paste (start marker + sanitized body +
+/// end marker). A bracketed paste travels as a single indivisible write so its
+/// framing can never tear (see [`encode_paste_chunks`]); this cap bounds the
+/// memory that single write may pin and keeps it comfortably under the 64 MiB
+/// attach-protocol frame limit, where an oversized frame would tear the session
+/// down. A paste over the cap is refused whole — delivering a truncated body
+/// would silently corrupt the pasted content.
+const MAX_BRACKETED_PASTE_BYTES: usize = 32 * 1024 * 1024;
+
 pub(super) fn write_paste_text(
     terminal: &Arc<Mutex<Terminal>>,
     writer: &PtyWriter,
@@ -388,6 +397,20 @@ pub(super) fn write_paste_text(
         .map(|terminal| terminal.bracketed_paste_enabled())
         .unwrap_or(false);
     let chunks = encode_paste_chunks(text, bracketed_paste, PASTE_CHUNK_SIZE);
+    if bracketed_paste
+        && let Some(paste) = chunks.first()
+        && paste.len() > MAX_BRACKETED_PASTE_BYTES
+    {
+        tracing::warn!(
+            "bracketed paste refused: {} bytes exceeds the {} byte limit",
+            paste.len(),
+            MAX_BRACKETED_PASTE_BYTES,
+        );
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "bracketed paste exceeds the size limit",
+        ));
+    }
     write_chunks_blocking(writer, &chunks)
 }
 
@@ -398,16 +421,28 @@ pub(super) fn encode_paste_chunks(
 ) -> Vec<Vec<u8>> {
     let chunk_size = chunk_size.max(1);
     if bracketed_paste {
-        let mut chunks = Vec::new();
-        chunks.push(BRACKETED_PASTE_START.to_vec());
-        push_chunked(
-            &mut chunks,
-            &sanitize_bracketed_paste(text.as_bytes()),
-            chunk_size,
+        // The whole framed paste — start marker, sanitized body, end marker —
+        // is one indivisible chunk. Every downstream sink treats one write as
+        // one atomic unit: the outbound queue's drop-oldest overflow policy
+        // drops whole chunks (so a paste is retained or discarded entire,
+        // never torn at a marker boundary), and the attached-session input
+        // writer sends one write as one protocol frame (so a transient
+        // send-timeout drop likewise discards the paste whole). Splitting the
+        // markers and body into separate writes let an overflow drop the start
+        // marker while keeping the tail: the surviving newlines then arrived
+        // OUTSIDE bracketed-paste mode and could execute in the shell.
+        let mut paste = Vec::with_capacity(
+            BRACKETED_PASTE_START.len() + text.len() + BRACKETED_PASTE_END.len(),
         );
-        chunks.push(BRACKETED_PASTE_END.to_vec());
-        chunks
+        paste.extend_from_slice(BRACKETED_PASTE_START);
+        paste.extend_from_slice(&sanitize_bracketed_paste(text.as_bytes()));
+        paste.extend_from_slice(BRACKETED_PASTE_END);
+        vec![paste]
     } else {
+        // Plain paste has no framing to protect; it stays chunked so the
+        // bounded outbound queue can shed oldest chunks under a wedged
+        // consumer (documented bounded degradation) without pinning the whole
+        // payload.
         let normalized = normalize_plain_paste(text);
         let mut chunks = Vec::new();
         push_chunked(&mut chunks, &normalized, chunk_size);
