@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Snapshot header validation covers the producer version length
+
+`SnapshotEnvelope::validate_wire_bounds` now checks the producer-version
+string against its u16 on-wire length prefix, closing the one header field
+the fallible-encode work missed. Previously an externally constructed
+envelope with a producer version longer than 65,535 bytes passed validation,
+encoded with a zero-truncated length prefix, and produced bytes the
+envelope's own decoder rejected downstream — the exact silent-narrowing
+class the validated-encode change was built to refuse at the source. The
+capture path is unaffected: `from_terminal` fills the field from the
+compile-time package version. New boundary tests pin 65,535 bytes round-
+tripping through validate/encode/decode and 65,536 refusing with a named
+`ValueTooLarge` error; the encode byte-identity fixture is unchanged (no
+wire-format change). Unix and Windows behavior identical — pure in-memory
+serialization with no platform surface.
+
+---
+
 ## 2026-07-20 -- Config-mode clamp and legibility/consent prose corrections
 
 Config-file writeback now clamps a permissive existing mode to the 0644

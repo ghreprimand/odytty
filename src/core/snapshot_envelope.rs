@@ -164,6 +164,10 @@ impl SnapshotEnvelope {
     /// constructed envelopes, whose oversized `usize` fields would otherwise
     /// truncate silently into bytes the envelope's own decoder cannot read.
     pub fn validate_wire_bounds(&self) -> Result<(), SnapshotEnvelopeError> {
+        // The producer version rides the header with a u16 length prefix.
+        // `from_terminal` fills it from the compile-time package version, so
+        // only externally constructed envelopes can exceed the width.
+        check_u16(self.producer_version.len(), "producer version length")?;
         self.terminal.validate_wire_bounds()?;
         self.metadata.validate_wire_bounds()?;
         check_u32(self.prompt_marks.len(), "prompt mark count")?;
@@ -2501,6 +2505,44 @@ mod wire_bound_tests {
         let mut envelope = sample_envelope();
         envelope.metadata.title = Some("t".repeat(u16::MAX as usize + 1));
         expect_too_large(&envelope, "title length");
+    }
+
+    #[test]
+    fn oversized_producer_version_refuses_to_encode() {
+        // Header sibling of the section-string checks: without validation a
+        // producer version one past the u16 width would encode with a
+        // zero-truncated length prefix and desync every byte after the
+        // header. `from_terminal` cannot hit this (compile-time package
+        // version), so only externally constructed envelopes are affected.
+        let mut envelope = sample_envelope();
+        envelope.producer_version = "v".repeat(u16::MAX as usize + 1);
+        assert!(matches!(
+            envelope.validate_wire_bounds(),
+            Err(SnapshotEnvelopeError::ValueTooLarge {
+                what: "producer version length",
+                ..
+            })
+        ));
+        expect_too_large(&envelope, "producer version length");
+    }
+
+    #[test]
+    fn producer_version_at_the_u16_wire_maximum_round_trips() {
+        let mut envelope = sample_envelope();
+        envelope.producer_version = "v".repeat(u16::MAX as usize);
+        envelope
+            .validate_wire_bounds()
+            .expect("boundary producer version validates");
+        let bytes = envelope
+            .encode()
+            .expect("boundary producer version encodes");
+        let caps = SnapshotEnvelopeCaps {
+            max_string_bytes: 80_000,
+            ..SnapshotEnvelopeCaps::default()
+        };
+        let decoded =
+            SnapshotEnvelope::decode(&bytes, caps).expect("boundary producer version decodes");
+        assert_eq!(decoded.producer_version, envelope.producer_version);
     }
 
     #[test]
