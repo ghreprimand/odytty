@@ -844,45 +844,43 @@ fn spawn_child_waiter(
 ) -> Result<JoinHandle<()>> {
     let dup =
         duplicate_owned_handle(process).context("duplicate process handle for child waiter")?;
-    std::thread::Builder::new()
-        .name("odytty-conpty-waiter".to_string())
-        .spawn(move || {
-            let started = Instant::now();
-            let handle = HANDLE(dup.as_raw_handle());
-            // SAFETY: `dup` is a live owned process handle for the wait's whole
-            // duration (it is moved into this closure and dropped only after).
-            // `INFINITE` parks the thread at zero CPU until the child exits.
-            let _ = unsafe { WaitForSingleObject(handle, INFINITE) };
-            // The child has signalled exit; read its code and decide whether it
-            // was an immediate startup failure worth surfacing.
-            let elapsed = started.elapsed();
-            let mut code: u32 = 0;
-            // SAFETY: live owned process handle; the child has exited.
-            let got_code = unsafe { GetExitCodeProcess(handle, &mut code) }.is_ok();
-            // Close the pseudoconsole FIRST: it is the teardown edge the rest
-            // of the session waits on (reader EOF → ShellExited). Diagnostics
-            // come after, so a blocked or dead stderr can never delay or wedge
-            // session teardown behind console I/O.
-            let teardown_requested = pcon.is_teardown_requested();
-            pcon.close_once();
-            if got_code && should_report_startup_failure(code, elapsed, teardown_requested) {
-                let line = describe_immediate_exit(code);
-                // stderr (routed to the launching console via AttachConsole) is
-                // the durable channel; the pane copy is best-effort (the tab may
-                // close before a frame draws). Non-panicking write: a failed
-                // stderr write in a detached-console session must not panic the
-                // waiter thread.
-                let _ = writeln!(
-                    io::stderr(),
-                    "odytty:{}",
-                    line.replace(['\r', '\n'], " ").trim()
-                );
-                if let Ok(mut slot) = diagnostic.lock() {
-                    *slot = Some(line);
-                }
+    crate::spawn_util::spawn_named("odytty-conpty-waiter", move || {
+        let started = Instant::now();
+        let handle = HANDLE(dup.as_raw_handle());
+        // SAFETY: `dup` is a live owned process handle for the wait's whole
+        // duration (it is moved into this closure and dropped only after).
+        // `INFINITE` parks the thread at zero CPU until the child exits.
+        let _ = unsafe { WaitForSingleObject(handle, INFINITE) };
+        // The child has signalled exit; read its code and decide whether it
+        // was an immediate startup failure worth surfacing.
+        let elapsed = started.elapsed();
+        let mut code: u32 = 0;
+        // SAFETY: live owned process handle; the child has exited.
+        let got_code = unsafe { GetExitCodeProcess(handle, &mut code) }.is_ok();
+        // Close the pseudoconsole FIRST: it is the teardown edge the rest
+        // of the session waits on (reader EOF → ShellExited). Diagnostics
+        // come after, so a blocked or dead stderr can never delay or wedge
+        // session teardown behind console I/O.
+        let teardown_requested = pcon.is_teardown_requested();
+        pcon.close_once();
+        if got_code && should_report_startup_failure(code, elapsed, teardown_requested) {
+            let line = describe_immediate_exit(code);
+            // stderr (routed to the launching console via AttachConsole) is
+            // the durable channel; the pane copy is best-effort (the tab may
+            // close before a frame draws). Non-panicking write: a failed
+            // stderr write in a detached-console session must not panic the
+            // waiter thread.
+            let _ = writeln!(
+                io::stderr(),
+                "odytty:{}",
+                line.replace(['\r', '\n'], " ").trim()
+            );
+            if let Ok(mut slot) = diagnostic.lock() {
+                *slot = Some(line);
             }
-        })
-        .context("spawn ConPTY child-waiter thread")
+        }
+    })
+    .context("spawn ConPTY child-waiter thread")
 }
 
 /// Output-pipe reader that maps a closed ConPTY/child (surfaced as

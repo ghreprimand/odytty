@@ -296,9 +296,9 @@ pub(super) fn writer_shim(
     // it as a recoverable error so the caller reports one failed session rather
     // than aborting the whole process through the panic hook. The registry
     // `Weak` for `shared` expires on its own when `shared` drops here.
-    std::thread::Builder::new()
-        .name(format!("odytty-pty-writer-{}", session.0))
-        .spawn(move || run_writer(thread_shared, fd))?;
+    crate::spawn_util::spawn_named(format!("odytty-pty-writer-{}", session.0), move || {
+        run_writer(thread_shared, fd)
+    })?;
     Ok(Box::new(OutboundShim { shared }))
 }
 
@@ -322,32 +322,40 @@ fn register(shared: &Arc<OutboundShared>) {
         guard.entries.retain(|weak| weak.strong_count() > 0);
         guard.entries.push(Arc::downgrade(shared));
     }
-    if !MONITOR_STARTED.swap(true, Ordering::SeqCst) {
-        spawn_monitor(registry);
+    // Claim the right to spawn the monitor atomically. If the spawn then fails
+    // (resource exhaustion), release the claim so a later session retries,
+    // rather than latching "started" on a monitor thread that never ran (which
+    // would silence stall/overflow reporting for the whole process).
+    if MONITOR_STARTED
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+        && let Err(err) = spawn_monitor(registry)
+    {
+        MONITOR_STARTED.store(false, Ordering::SeqCst);
+        tracing::warn!("pty write stall monitor spawn failed: {err}");
     }
 }
 
-fn spawn_monitor(registry: &'static Mutex<Registry>) {
-    let _ = std::thread::Builder::new()
-        .name("odytty-pty-write-monitor".to_owned())
-        .spawn(move || {
-            loop {
-                std::thread::sleep(MONITOR_POLL);
-                let live: Vec<Arc<OutboundShared>> = {
-                    let mut guard = registry.lock().unwrap_or_else(PoisonError::into_inner);
-                    guard.entries.retain(|weak| weak.strong_count() > 0);
-                    guard.entries.iter().filter_map(Weak::upgrade).collect()
-                };
-                for shared in live {
-                    if let Some(record) = shared.stall_record(shared.now_ms()) {
-                        tracing::warn!("{record}");
-                    }
-                    if let Some(record) = shared.overflow_record() {
-                        tracing::warn!("{record}");
-                    }
+fn spawn_monitor(registry: &'static Mutex<Registry>) -> std::io::Result<()> {
+    crate::spawn_util::spawn_named("odytty-pty-write-monitor", move || {
+        loop {
+            std::thread::sleep(MONITOR_POLL);
+            let live: Vec<Arc<OutboundShared>> = {
+                let mut guard = registry.lock().unwrap_or_else(PoisonError::into_inner);
+                guard.entries.retain(|weak| weak.strong_count() > 0);
+                guard.entries.iter().filter_map(Weak::upgrade).collect()
+            };
+            for shared in live {
+                if let Some(record) = shared.stall_record(shared.now_ms()) {
+                    tracing::warn!("{record}");
+                }
+                if let Some(record) = shared.overflow_record() {
+                    tracing::warn!("{record}");
                 }
             }
-        });
+        }
+    })?;
+    Ok(())
 }
 
 #[cfg(test)]

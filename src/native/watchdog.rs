@@ -225,19 +225,19 @@ impl WatchdogShared {
 /// unwinds naturally when the event loop (and its `Arc`) is gone.
 pub(super) fn spawn_monitor(shared: &Arc<WatchdogShared>) {
     let weak = Arc::downgrade(shared);
-    let _ = std::thread::Builder::new()
-        .name("odytty-freeze-watchdog".to_owned())
-        .spawn(move || {
-            loop {
-                std::thread::sleep(POLL_EVERY);
-                let Some(shared) = weak.upgrade() else {
-                    return;
-                };
-                if let Some(record) = shared.evaluate(shared.now_ms()) {
-                    tracing::warn!("{record}");
-                }
+    // Fire-and-forget: a failed spawn here just means no freeze diagnostics, not
+    // a broken session, so the error is intentionally dropped.
+    let _ = crate::spawn_util::spawn_named("odytty-freeze-watchdog", move || {
+        loop {
+            std::thread::sleep(POLL_EVERY);
+            let Some(shared) = weak.upgrade() else {
+                return;
+            };
+            if let Some(record) = shared.evaluate(shared.now_ms()) {
+                tracing::warn!("{record}");
             }
-        });
+        }
+    });
 }
 
 /// The stall record: STATE ONLY, single line, fixed key set. See the module

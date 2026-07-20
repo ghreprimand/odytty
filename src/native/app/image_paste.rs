@@ -27,9 +27,7 @@ use crate::native::lock_recover;
 /// be created, and the confirmed paste would otherwise be lost with no sign.
 /// The caller surfaces a visible failure notice in that case (LOW-02).
 pub(super) fn spawn_upload_worker(job: RemoteUploadJob, png: Vec<u8>) -> std::io::Result<()> {
-    std::thread::Builder::new()
-        .name("odytty-image-upload".to_owned())
-        .spawn(move || run_upload(job, png))?;
+    crate::spawn_util::spawn_named("odytty-image-upload", move || run_upload(job, png))?;
     Ok(())
 }
 

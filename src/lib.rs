@@ -33,6 +33,7 @@ pub mod selection;
 pub mod session_host;
 pub mod settings;
 pub mod shell_integration;
+pub mod spawn_util;
 pub mod ssh_config;
 pub mod ssh_connect;
 pub(crate) mod state_dir;

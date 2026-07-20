@@ -7,6 +7,50 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Shared spawn + atomic-write seams, OSC 52 consent default, CI hardening
+
+Internal-consistency work: unify a few duplicated system seams, tighten a
+clipboard default, and harden the workflow files.
+
+**One policy-driven atomic file writer.** Three writers built their own
+write-temp-then-rename dance with different guarantees: the session-state writer
+was the strong reference (private-dir prep, an exclusively created owner-only
+temp, data and directory fsync, target repair); the config writeback was close
+but forced mode `0644`, widening a config a user had tightened; and the
+hosts.conf writer used a predictable temp name with a plain non-exclusive write
+and no fsync. All three now route through a single `write_atomic` with a
+Sensitive/Config policy: the Sensitive path is the former session-state behavior
+unchanged, and the Config path creates the temp exclusively, fsyncs data and the
+parent directory, and PRESERVES a stricter existing mode (a `0600` config stays
+`0600`) while a new file still lands at `0644`. Ordinary writes are unchanged.
+
+**Terminal clipboard writes now ask by default.** `osc52_write` defaults to
+`ask` rather than `on`, so a program that sets the system clipboard prompts for
+consent for the session instead of replacing the clipboard unattended. The
+consent machinery already existed; only the default moved. Reads remain off.
+Focus and active-PTY gating are unchanged, and `on` still selects the immediate
+compatibility behavior.
+
+**Shared thread-spawn ownership helpers.** Background threads were created in
+many places with ad-hoc handling of the (rare, resource-exhaustion) spawn
+failure. Two small helpers now carry one convention: "spawn a task or return the
+error" (the caller decides fatal vs degradable) and "spawn a detached child
+reaper" (fire-and-forget with a fixed degrade-to-drop on reaper-spawn failure).
+The PTY writer/monitor, freeze watchdog, image-upload and connection-probe
+workers, opener and upload-cleanup reapers, and the ConPTY child waiter all use
+them, preserving each site's established failure contract. One real fix rides
+along: the PTY stall monitor latched a "started" flag before its spawn could
+fail, so a failed monitor spawn silenced stall reporting permanently; the flag
+is now claimed atomically and released on failure so a later session retries.
+
+**Workflow hardening.** The remaining mutable `@v4` action tags in the CI and
+dev-build workflows are pinned to reviewed commit SHAs with version comments,
+matching the release workflow. A new scheduled (and on-demand) deep-fuzz workflow
+runs the heavy ignored fuzz tiers with a bounded timeout and uploads its logs, so
+the extended sweep runs regularly without slowing the per-push CI.
+
+---
+
 ## 2026-07-20 -- Snapshot encode validates wire bounds instead of truncating
 
 Snapshot envelope encoding narrowed `usize` fields — dimensions, cursor,

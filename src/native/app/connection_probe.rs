@@ -37,17 +37,15 @@ pub(super) fn spawn_connection_probe(
     proxy: Option<EventLoopProxy<UserEvent>>,
     tx: Sender<Result<ProbeClass, String>>,
 ) -> std::io::Result<()> {
-    std::thread::Builder::new()
-        .name("odytty-connection-probe".to_owned())
-        .spawn(move || {
-            let result = run_probe(command);
-            let _ = tx.send(result);
-            // Wake a redraw so the tri-state result renders promptly even when
-            // the loop was idle waiting for input.
-            if let Some(proxy) = proxy {
-                let _ = proxy.send_event(UserEvent::Redraw { session });
-            }
-        })?;
+    crate::spawn_util::spawn_named("odytty-connection-probe", move || {
+        let result = run_probe(command);
+        let _ = tx.send(result);
+        // Wake a redraw so the tri-state result renders promptly even when
+        // the loop was idle waiting for input.
+        if let Some(proxy) = proxy {
+            let _ = proxy.send_event(UserEvent::Redraw { session });
+        }
+    })?;
     Ok(())
 }
 
@@ -80,10 +78,7 @@ fn run_probe(command: SshCommand) -> Result<ProbeClass, String> {
     // and if it cannot start the probe classifies from the exit status alone
     // (stderr is unavailable, but the tri-state is still driven, never hung).
     let reader = child.stderr.take().and_then(|pipe| {
-        match std::thread::Builder::new()
-            .name("odytty-probe-stderr".to_owned())
-            .spawn(move || drain_bounded(pipe))
-        {
+        match crate::spawn_util::spawn_named("odytty-probe-stderr", move || drain_bounded(pipe)) {
             Ok(handle) => Some(handle),
             Err(err) => {
                 tracing::warn!("probe stderr reader spawn failed: {err}");

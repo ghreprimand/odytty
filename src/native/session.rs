@@ -1014,32 +1014,18 @@ impl Session {
             // off Windows. Mirrors the opener/ssh-probe/ssh-upload sites.
             crate::native::app::win_spawn::apply_no_console_window(&mut cleanup);
             match cleanup.spawn() {
-                Ok(mut child) => {
-                    // Hand the child to a detached reaper that blocks in
-                    // `Child::wait` until the cleanup `ssh` exits. Dropping the
-                    // `Child` never waits, so on Unix every cleanup left a
-                    // ZOMBIE process until the whole app exited — one per
-                    // closed remote tab that uploaded images. The reaper is
-                    // cheap (tab closes are rare, user-initiated), never
-                    // joined here (close stays instant), and never delays
-                    // process exit (teardown does not join detached threads).
-                    // On Windows there is no zombie concept — dropping a
-                    // `Child` just closes the process handle — but the reaper
-                    // is harmless and keeps one behavior on both platforms.
-                    if std::thread::Builder::new()
-                        .name("odytty-upload-cleanup-reaper".to_owned())
-                        .spawn(move || {
-                            let _ = child.wait();
-                        })
-                        .is_err()
-                    {
-                        // Thread exhaustion: degrade to the old
-                        // drop-without-wait behavior (one zombie until process
-                        // exit) rather than blocking or failing the close.
-                        tracing::warn!(
-                            "upload cleanup reaper thread unavailable; child not reaped"
-                        );
-                    }
+                Ok(child) => {
+                    // Hand the child to the shared detached reaper: it blocks in
+                    // `Child::wait` until the cleanup `ssh` exits (Dropping the
+                    // `Child` never waits, so on Unix every cleanup otherwise
+                    // left a ZOMBIE until the whole app exited, one per closed
+                    // remote tab that uploaded images). The reaper is never
+                    // joined here (close stays instant), never delays process
+                    // exit, and degrades to drop-without-wait if the reaper
+                    // thread cannot be created. On Windows there is no zombie
+                    // concept, but the reaper is harmless and keeps one behavior
+                    // on both platforms.
+                    crate::spawn_util::spawn_child_reaper("odytty-upload-cleanup-reaper", child);
                 }
                 Err(error) => {
                     // Best-effort by design, but a failed spawn is at least

@@ -105,12 +105,10 @@ pub(crate) fn spawn_detached(argv: &[String]) -> std::io::Result<()> {
     // the old-style opener) would flash a console window; suppress it. Harmless
     // no-op for the GUI launcher (`explorer.exe`) and on non-Windows.
     super::win_spawn::apply_no_console_window(&mut command);
-    let mut child = command.spawn()?;
-    let _ = std::thread::Builder::new()
-        .name("odytty-open-reaper".to_owned())
-        .spawn(move || {
-            let _ = child.wait();
-        });
+    let child = command.spawn()?;
+    // Hand the opener child to the shared detached reaper (degrade-to-drop on
+    // reaper-spawn failure, one diagnostic convention).
+    crate::spawn_util::spawn_child_reaper("odytty-open-reaper", child);
     Ok(())
 }
 
