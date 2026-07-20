@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+#[cfg(test)]
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
-
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
 
 use super::{
     SettingEdit, config::config_key_to_env, config::env_to_config_key, config::quote_config_value,
@@ -465,57 +463,16 @@ fn comment_out_setting(line: &str) -> String {
 }
 
 fn atomic_write(path: &Path, bytes: &[u8]) -> Result<(), ConfigWritebackError> {
-    let parent = path.parent().ok_or_else(|| {
-        ConfigWritebackError::new(format!(
-            "could not resolve parent directory for {}",
-            path.display()
-        ))
-    })?;
-    fs::create_dir_all(parent).map_err(|error| {
-        ConfigWritebackError::with_source(format!("could not create {}", parent.display()), error)
-    })?;
-
-    let temp_path = create_temp_path(path);
-    let write_result = (|| -> io::Result<()> {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp_path)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-        #[cfg(unix)]
-        {
-            fs::set_permissions(&temp_path, fs::Permissions::from_mode(0o644))?;
-        }
-        fs::rename(&temp_path, path)?;
-        if let Ok(dir) = fs::File::open(parent) {
-            let _ = dir.sync_all();
-        }
-        Ok(())
-    })();
-
-    if let Err(error) = write_result {
-        let _ = fs::remove_file(&temp_path);
-        return Err(ConfigWritebackError::with_source(
-            format!("could not write {}", path.display()),
-            error,
-        ));
-    }
-    Ok(())
-}
-
-fn create_temp_path(path: &Path) -> PathBuf {
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("odytty.conf");
-    let counter = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    path.with_file_name(format!(
-        ".{file_name}.tmp.{}.{}",
-        std::process::id(),
-        counter
-    ))
+    // Route through the shared policy-driven writer under the Config policy: an
+    // exclusively-created temp, data + parent-directory fsync, and an atomic
+    // rename. Unlike the previous local writer this PRESERVES a stricter existing
+    // mode (a config the user tightened to 0600 is no longer widened to 0644);
+    // a new file still lands at 0644.
+    crate::state_dir::write_atomic(path, bytes, crate::state_dir::WriteMode::Config).map_err(
+        |error| {
+            ConfigWritebackError::with_source(format!("could not write {}", path.display()), error)
+        },
+    )
 }
 
 #[cfg(test)]

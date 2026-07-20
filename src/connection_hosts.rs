@@ -416,34 +416,13 @@ pub fn append_adhoc_host(
     Ok(AppendHostOutcome::Appended)
 }
 
-/// Atomically write `bytes` to `path`: create the parent dir, write a temp
-/// sibling, then rename it over the target (atomic on Unix and Windows). A crash
-/// mid-write can only leave the temp file behind, never a half-written target.
+/// Atomically write `bytes` to `path` through the shared policy-driven writer
+/// under the Config policy: an exclusively-created sibling temp (so a pre-planted
+/// name cannot be followed), data + parent-directory fsync, a stricter existing
+/// mode preserved, then an atomic rename over the target (Unix and Windows). A
+/// crash mid-write can only leave the temp behind, never a half-written target.
 fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-        fs::create_dir_all(parent)?;
-    }
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let base = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("hosts.conf");
-    let tmp_name = format!(".{base}.{}.{nanos}.tmp", std::process::id());
-    let tmp = match path.parent() {
-        Some(parent) if !parent.as_os_str().is_empty() => parent.join(tmp_name),
-        _ => PathBuf::from(tmp_name),
-    };
-    fs::write(&tmp, bytes)?;
-    match fs::rename(&tmp, path) {
-        Ok(()) => Ok(()),
-        Err(err) => {
-            let _ = fs::remove_file(&tmp);
-            Err(err)
-        }
-    }
+    crate::state_dir::write_atomic(path, bytes, crate::state_dir::WriteMode::Config)
 }
 
 /// A `Host` block located by byte span in the source file, for in-place edit

@@ -477,63 +477,14 @@ pub(crate) fn layouts_dir() -> PathBuf {
 /// path. The rename is atomic and replaces an existing target on both Unix and
 /// Windows. Creates the parent directory if absent.
 pub(crate) fn write_atomic(path: &Path, contents: &str) -> io::Result<()> {
-    use std::io::Write as _;
-
-    if let Some(parent) = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-    {
-        crate::state_dir::prepare_private_dir(parent)?;
-    }
-    let (tmp, mut file) = create_temp_sibling(path)?;
-    let write_result = (|| -> io::Result<()> {
-        file.write_all(contents.as_bytes())?;
-        // Flush the temp file's data to disk BEFORE the rename, so a crash right
-        // after the rename cannot expose a renamed-but-empty file.
-        file.sync_all()?;
-        // An existing snapshot/layout must be a known owner-owned regular file
-        // before replacement.  Absence is valid for a first write.
-        crate::state_dir::repair_existing_sensitive(path)?;
-        std::fs::rename(&tmp, path)?;
-        crate::state_dir::repair_existing_sensitive(path)?;
-        // fsync the parent directory so the rename itself survives a crash.
-        if let Some(parent) = path.parent()
-            && let Ok(dir) = std::fs::File::open(parent)
-        {
-            let _ = dir.sync_all();
-        }
-        Ok(())
-    })();
-    if let Err(err) = write_result {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(err);
-    }
-    Ok(())
-}
-
-fn create_temp_sibling(path: &Path) -> io::Result<(PathBuf, std::fs::File)> {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let base = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(SNAPSHOT_FILE);
-    let parent = path.parent().unwrap_or_else(|| Path::new(""));
-    for attempt in 0..128_u32 {
-        let tmp_name = format!(".{base}.{}.{nanos}.{attempt}.tmp", std::process::id());
-        let tmp = parent.join(tmp_name);
-        match crate::state_dir::create_new_sensitive(&tmp) {
-            Ok(file) => return Ok((tmp, file)),
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error),
-        }
-    }
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "could not reserve a unique persistence temporary file",
-    ))
+    // Session state is owner-private; route through the shared policy-driven
+    // writer under the Sensitive policy (private-dir prep, exclusive 0600 temp,
+    // owner/regular-file target repair, data + directory fsync).
+    crate::state_dir::write_atomic(
+        path,
+        contents.as_bytes(),
+        crate::state_dir::WriteMode::Sensitive,
+    )
 }
 
 /// Serialize and atomically write the whole-app snapshot to its state-dir path.

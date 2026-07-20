@@ -121,6 +121,143 @@ pub(crate) fn repair_existing_sensitive(path: &Path) -> io::Result<()> {
     }
 }
 
+/// Write policy for [`write_atomic`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WriteMode {
+    /// Owner-private state (session snapshots, layouts). The parent leaf is
+    /// prepared owner-private, the temp is created exclusively at `0600`
+    /// (`O_NOFOLLOW`), and the target is validated/repaired to an owner-owned
+    /// regular file before and after the rename.
+    Sensitive,
+    /// Ordinary config a user may inspect or share (`odytty.conf`,
+    /// `hosts.conf`). The temp is still created exclusively so a pre-planted
+    /// name cannot be followed, but no owner/symlink enforcement is applied to
+    /// the target; a stricter existing target mode is preserved (else `0644`
+    /// for a new file), rather than being forced wider.
+    Config,
+}
+
+/// Atomically write `bytes` to `path` under `mode`.
+///
+/// Creates the parent directory, writes a uniquely-named exclusive sibling temp,
+/// `sync_all`s it, renames it over the target, then fsyncs the parent directory
+/// so the rename is durable across a power loss. A crash mid-write can only leave
+/// the temp behind (removed on the error path), never a half-written or
+/// renamed-but-empty target. The rename is atomic and replaces an existing target
+/// on both Unix and Windows.
+///
+/// Windows: mode bits do not apply (files inherit the parent ACL), so the
+/// permission-preservation step is a Unix-only no-op there; the parent-directory
+/// fsync is best-effort (opening a directory handle for fsync is not supported,
+/// so it is silently skipped) exactly as the persistence writer already behaves.
+pub(crate) fn write_atomic(path: &Path, bytes: &[u8], mode: WriteMode) -> io::Result<()> {
+    use std::io::Write as _;
+
+    let parent = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty());
+    match mode {
+        WriteMode::Sensitive => {
+            if let Some(parent) = parent {
+                prepare_private_dir(parent)?;
+            }
+        }
+        WriteMode::Config => {
+            if let Some(parent) = parent {
+                fs::create_dir_all(parent)?;
+            }
+        }
+    }
+
+    // Preserve a stricter existing config mode: read it before the write, while
+    // the target still exists. A new file (no existing target) falls back to
+    // 0644, matching the previous config-writeback behavior.
+    #[cfg(unix)]
+    let preserved_config_mode: Option<u32> = if matches!(mode, WriteMode::Config) {
+        use std::os::unix::fs::PermissionsExt as _;
+        Some(
+            fs::metadata(path)
+                .map(|meta| meta.permissions().mode() & 0o777)
+                .unwrap_or(0o644),
+        )
+    } else {
+        None
+    };
+
+    let (tmp, mut file) = create_temp_sibling(path, mode)?;
+    let write_result = (|| -> io::Result<()> {
+        file.write_all(bytes)?;
+        // Flush the temp's data BEFORE the rename so a crash right after the
+        // rename cannot expose a renamed-but-empty file.
+        file.sync_all()?;
+        #[cfg(unix)]
+        if let Some(target_mode) = preserved_config_mode {
+            use std::os::unix::fs::PermissionsExt as _;
+            fs::set_permissions(&tmp, fs::Permissions::from_mode(target_mode))?;
+        }
+        if matches!(mode, WriteMode::Sensitive) {
+            // An existing target must be a known owner-owned regular file before
+            // replacement; absence is valid for a first write.
+            repair_existing_sensitive(path)?;
+        }
+        fs::rename(&tmp, path)?;
+        if matches!(mode, WriteMode::Sensitive) {
+            repair_existing_sensitive(path)?;
+        }
+        // fsync the parent directory so the rename itself survives a crash.
+        if let Some(parent) = parent
+            && let Ok(dir) = File::open(parent)
+        {
+            let _ = dir.sync_all();
+        }
+        Ok(())
+    })();
+    if let Err(err) = write_result {
+        let _ = fs::remove_file(&tmp);
+        return Err(err);
+    }
+    Ok(())
+}
+
+/// Reserve a uniquely-named sibling temp next to `path` and return it with an
+/// open write handle. The name mixes pid, a nanosecond timestamp, a
+/// process-lifetime counter, and an attempt index; combined with exclusive
+/// creation, a colliding or pre-planted name is retried rather than followed.
+fn create_temp_sibling(path: &Path, mode: WriteMode) -> io::Result<(std::path::PathBuf, File)> {
+    static TEMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let counter = TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let base = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("odytty.tmp");
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    for attempt in 0..128_u32 {
+        let tmp_name = format!(
+            ".{base}.{}.{nanos}.{counter}.{attempt}.tmp",
+            std::process::id()
+        );
+        let tmp = parent.join(&tmp_name);
+        let created = match mode {
+            WriteMode::Sensitive => create_new_sensitive(&tmp),
+            WriteMode::Config => OpenOptions::new().create_new(true).write(true).open(&tmp),
+        };
+        match created {
+            Ok(file) => return Ok((tmp, file)),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "could not reserve a unique temporary file",
+    ))
+}
+
 #[cfg(unix)]
 mod unix {
     use super::*;
@@ -378,6 +515,98 @@ mod tests {
         assert!(!unix::owner_policy_accepts_only_the_effective_uid(
             uid.wrapping_add(1)
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_config_preserves_a_stricter_existing_mode() {
+        // A config file the user tightened to 0600 must not be widened by a
+        // writeback (the previous config writer forced 0644).
+        let root = temp_dir("cfg-preserve");
+        let path = root.join("odytty.conf");
+        fs::write(&path, "old = 1\n").expect("seed config");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).expect("chmod 600");
+
+        write_atomic(&path, b"new = 2\n", WriteMode::Config).expect("write config");
+
+        assert_eq!(mode(&path), 0o600, "stricter existing mode must survive");
+        assert_eq!(fs::read_to_string(&path).expect("read"), "new = 2\n");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_config_new_file_defaults_to_0644() {
+        // A fresh config file (no existing target) lands at 0644, matching the
+        // previous new-file behavior, regardless of the caller's umask.
+        let root = temp_dir("cfg-new");
+        let path = root.join("odytty.conf");
+
+        write_atomic(&path, b"a = 1\n", WriteMode::Config).expect("write config");
+
+        assert_eq!(mode(&path), 0o644);
+        assert_eq!(fs::read_to_string(&path).expect("read"), "a = 1\n");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_sensitive_creates_owner_private_target() {
+        // Sensitive writes land 0600 owner-private (the snapshot/layout policy).
+        let root = temp_dir("sensitive");
+        let leaf = root.join("state");
+        prepare_private_dir(&leaf).expect("prepare leaf");
+        let path = leaf.join("snapshot.json");
+
+        write_atomic(&path, b"{}", WriteMode::Sensitive).expect("write sensitive");
+
+        assert_eq!(mode(&path), PRIVATE_FILE_MODE);
+        assert_eq!(fs::read_to_string(&path).expect("read"), "{}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_atomic_leaves_no_temp_and_survives_a_pre_planted_temp_name() {
+        // The write must complete atomically (no temp residue) even when a file
+        // already occupies a plausible temp name; exclusive creation retries.
+        let root = temp_dir("temp-collision");
+        let path = root.join("odytty.conf");
+        // Pre-plant a decoy temp sibling so the first attempt could collide.
+        let decoy = root.join(format!(".odytty.conf.{}.0.0.0.tmp", std::process::id()));
+        fs::write(&decoy, "decoy").expect("seed decoy");
+
+        write_atomic(&path, b"real\n", WriteMode::Config).expect("write config");
+
+        assert_eq!(fs::read_to_string(&path).expect("read"), "real\n");
+        // No .tmp residue from our write remains beyond the decoy we planted.
+        let residue: Vec<_> = fs::read_dir(&root)
+            .expect("read dir")
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| {
+                name.ends_with(".tmp") && name != decoy.file_name().unwrap().to_str().unwrap()
+            })
+            .collect();
+        assert!(residue.is_empty(), "unexpected temp residue: {residue:?}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn write_atomic_config_and_sensitive_write_on_windows() {
+        // Both policies write and rename atomically on Windows (mode bits N/A).
+        let root = temp_dir("win-write");
+        let cfg = root.join("odytty.conf");
+        write_atomic(&cfg, b"a = 1\n", WriteMode::Config).expect("config write");
+        assert_eq!(fs::read_to_string(&cfg).expect("read cfg"), "a = 1\n");
+
+        let leaf = root.join("state");
+        prepare_private_dir(&leaf).expect("prepare leaf");
+        let snap = leaf.join("snapshot.json");
+        write_atomic(&snap, b"{}", WriteMode::Sensitive).expect("sensitive write");
+        assert_eq!(fs::read_to_string(&snap).expect("read snap"), "{}");
+        let _ = fs::remove_dir_all(root);
     }
 
     #[cfg(windows)]
