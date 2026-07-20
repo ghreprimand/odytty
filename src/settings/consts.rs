@@ -407,19 +407,22 @@ pub const DEFAULT_COLORED_BG_OPACITY: f32 = 0.9;
 pub const MIN_COLORED_BG_OPACITY: f32 = 0.0;
 pub const MAX_COLORED_BG_OPACITY: f32 = 1.0;
 
-/// Selection opacity (`ODYTTY_SELECTION_OPACITY`): the alpha strength of the
-/// text-selection highlight fill, independent of window opacity, theme colours,
-/// and the min-contrast floor. The default `0.6` is a translucent tint: the
-/// selection reads as a highlight rather than a solid block, yet the
-/// punch-through surface-alpha lerp keeps it clearly visible over a transparent
-/// or busy backdrop (it is never weaker than the surrounding content). Lower
-/// values thin the tint further; `1.0` restores a fully opaque selection,
-/// byte-identical to the historical inverse highlight at any window opacity.
-/// The RV1 min-contrast floor still holds foreground legibility over the
-/// effective composited fill at every setting; the mechanism clamps to `[0,1]`.
-pub const DEFAULT_SELECTION_OPACITY: f32 = 0.6;
+/// Selection opacity (`ODYTTY_SELECTION_OPACITY`): the strength of the
+/// text-selection highlight, independent of window opacity, theme colours, and
+/// the min-contrast floor. The default `1.0` is the authored fully opaque
+/// selection, byte-identical to the historical inverse highlight at any window
+/// opacity. Below `1.0` the fill recedes toward the surrounding content: a
+/// translucent tint that reads as a highlight rather than a solid block, while
+/// the punch-through surface-alpha lerp keeps it clearly visible over a
+/// transparent or busy backdrop (never weaker than the surround). Above `1.0`
+/// (up to `1.5`) the surface stays fully opaque and the fill colour is pushed
+/// further along the backdrop-to-selection vector, clamped in gamut, so the
+/// highlight reads stronger without the surface alpha ever exceeding `1.0`. The
+/// RV1 min-contrast floor still holds foreground legibility over the effective
+/// fill at every setting.
+pub const DEFAULT_SELECTION_OPACITY: f32 = 1.0;
 pub const MIN_SELECTION_OPACITY: f32 = 0.0;
-pub const MAX_SELECTION_OPACITY: f32 = 1.0;
+pub const MAX_SELECTION_OPACITY: f32 = 1.5;
 
 /// Text brightness (`ODYTTY_TEXT_BRIGHTNESS`): lifts every glyph's foreground
 /// toward white in linear space with a soft knee, for legibility over a busy

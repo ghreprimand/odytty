@@ -74,14 +74,14 @@ pub const CELL_BG_OPACITY_DESC: &str = "Wallpaper visibility: how much of the wa
      entirely for the original solid terminal look. Higher values reveal more of \
      the image; the config/env key stores the inverse as cell background opacity.";
 
-pub const SELECTION_OPACITY_DESC: &str = "Selection opacity: strength of the text-selection highlight, from 0.0 \
-     (invisible) to 1.0 (fully opaque). Independent of window opacity, theme \
-     colours, and the contrast floor. 0.6 (default) is a translucent tint that \
-     reads as a highlight rather than a solid block while staying clearly \
-     visible over a transparent or busy backdrop; 1.0 restores a fully opaque \
-     selection, and lower values thin the tint further. Text stays legible via \
-     the min-contrast floor; on the default (inverse) selection path the \
-     translucency applies but per-cell contrast is not re-floored. Applies live.";
+pub const SELECTION_OPACITY_DESC: &str = "Selection strength: strength of the text-selection highlight, from 0.0 \
+     (invisible) to 1.5 (strongest). Independent of window opacity, theme \
+     colours, and the contrast floor. 1.0 (default) is the authored fully \
+     opaque selection; below 1.0 is a translucent tint that reads as a \
+     highlight rather than a solid block while staying clearly visible over a \
+     transparent or busy backdrop; above 1.0 keeps the surface fully opaque and \
+     pushes the highlight colour stronger (bounded, in gamut). Text stays \
+     legible via the min-contrast floor. Applies live.";
 
 pub const WINDOW_PADDING_DESC: &str = "Window padding: logical pixels of inset between the window edge and the \
      terminal grid. Accepts 0.0-64.0; 0.0 restores the historical edge-to-edge \

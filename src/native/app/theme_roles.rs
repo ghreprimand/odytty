@@ -154,11 +154,17 @@ fn effective_selection_fill(
 ) -> [u8; 3] {
     let fill_lin = srgb_tuple_to_linear((fill[0], fill[1], fill[2]));
     let backdrop_lin = srgb_tuple_to_linear(backdrop);
-    linear_to_srgb_tuple(crate::color::composite_over(
-        fill_lin,
-        backdrop_lin,
-        selection_opacity,
-    ))
+    // SELECTION-STRENGTH: below 1.0 the fill composites toward the backdrop
+    // (translucent tint); at 1.0 this is the authored fill bit-exactly; above
+    // 1.0 the fill is pushed further along the backdrop-to-fill vector so the
+    // highlight reads stronger (surface alpha stays saturated at 1.0 in the cell
+    // builder). Parity with the inverse selection path's `boost_over` branch.
+    let blended = if selection_opacity > 1.0 {
+        crate::color::boost_over(fill_lin, backdrop_lin, selection_opacity)
+    } else {
+        crate::color::composite_over(fill_lin, backdrop_lin, selection_opacity)
+    };
+    linear_to_srgb_tuple(blended)
 }
 
 /// Floor a foreground over a fill so it meets `ratio` WCAG contrast (RV1).
@@ -212,10 +218,26 @@ mod selection_fill_tests {
     }
 
     #[test]
-    fn opacity_is_clamped() {
+    fn strength_above_one_pushes_past_the_fill_in_gamut() {
+        // Above 1.0 the fill extrapolates further from the backdrop (a stronger
+        // highlight), clamped into gamut. With a fill brighter than the backdrop
+        // each channel moves at or past the authored fill and never exceeds 255.
         let fill = [40, 90, 200];
         let backdrop = (12, 12, 16);
-        assert_eq!(effective_selection_fill(fill, backdrop, 2.0), fill);
+        let boosted = effective_selection_fill(fill, backdrop, 1.5);
+        for (b, f) in boosted.iter().zip(&fill) {
+            assert!(*b >= *f, "channel {b} must push at or past the fill {f}");
+        }
+        assert_ne!(
+            boosted, fill,
+            "1.5 must strengthen the fill beyond the authored color"
+        );
+    }
+
+    #[test]
+    fn negative_opacity_clamps_to_the_backdrop() {
+        let fill = [40, 90, 200];
+        let backdrop = (12, 12, 16);
         assert_eq!(
             effective_selection_fill(fill, backdrop, -1.0),
             [backdrop.0, backdrop.1, backdrop.2]

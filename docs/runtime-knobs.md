@@ -85,7 +85,7 @@ environment variable was not set at startup.
 | `window_decorations` | `ODYTTY_WINDOW_DECORATIONS` | `on`, `off` | `on` |
 | `window_transparency` | `ODYTTY_WINDOW_TRANSPARENCY` | `on`, `off` | `on` |
 | `window_opacity` | `ODYTTY_WINDOW_OPACITY` | Percent, `20..=100` (step 5) | `80` |
-| `selection_opacity` | `ODYTTY_SELECTION_OPACITY` | Float, `0.0..=1.0` (step 0.05) | `0.6` |
+| `selection_opacity` | `ODYTTY_SELECTION_OPACITY` | Float, `0.0..=1.5` (step 0.05) | `1.0` |
 | `colored_bg_opacity` | `ODYTTY_COLORED_BG_OPACITY` | Float, `0.0..=1.0` (step 0.05) | `0.9` |
 | `always_show_tab_bar` | `ODYTTY_ALWAYS_SHOW_TAB_BAR` | `on`, `off` | `off` |
 | `tab_bar_height` | `ODYTTY_TAB_BAR_HEIGHT` | `auto`, or `1..=5` rows | `auto` |
@@ -203,9 +203,8 @@ floats over full-bleed content without reflowing it.
 
 `window_transparency = on` draws the terminal background at
 `window_opacity` so the desktop shows through. Text, the cursor, and every
-overlay remain opaque. The selection is slightly translucent by default and
-has its own strength control, `selection_opacity`, independent of the window
-opacity.
+overlay remain opaque. The selection is fully opaque by default and has its own
+strength control, `selection_opacity`, independent of the window opacity.
 
 Wayland supports compositing natively, X11 requires a compositor, and Windows
 uses DWM. A display server without alpha compositing shows no visible change.
@@ -233,13 +232,13 @@ unchanged.
 ### Tune The Selection Strength
 
 `selection_opacity` sets how strongly the text-selection highlight paints, from
-`0.0` (invisible) to `1.0` (fully opaque), independent of `window_opacity`, the
-theme colours, and `min_contrast`. The default is `0.6`, a lightly translucent
-highlight. Lower it to let a transparent or busy backdrop show through behind
-the selection; raise it toward `1.0` for a crisp, fully-opaque highlight. Text under the selection stays legible
-through the minimum-contrast floor. On the default per-cell inverse selection
-(when `themed_ui_roles = off`) the translucency applies but per-cell contrast is
-not re-floored.
+`0.0` (invisible) to `1.5` (strongest), independent of `window_opacity`, the
+theme colours, and `min_contrast`. The default is `1.0`, the authored fully
+opaque selection. Lower it toward `0.0` for a translucent tint that lets a
+transparent or busy backdrop show through behind the selection; raise it toward
+`1.5` to keep the surface fully opaque while pushing the highlight colour
+stronger (bounded and in gamut). Text under the selection stays legible through
+the minimum-contrast floor.
 
 ### Size The Tab Bar
 

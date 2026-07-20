@@ -62,12 +62,12 @@ window_decorations = on
 window_transparency = on
 window_opacity = 80
 
-# Text-selection highlight strength, 0.0 (invisible) to 1.0 (fully opaque),
-# independent of window_opacity, the theme, and min_contrast. 0.6 by default
-# (a translucent tint that reads as a highlight yet stays clearly visible over
-# window transparency); raise it to 1.0 for a crisp fully-opaque selection, or
-# lower it to let a transparent or busy backdrop show through behind it.
-selection_opacity = 0.6
+# Text-selection highlight strength, 0.0 (invisible) to 1.5 (strongest),
+# independent of window_opacity, the theme, and min_contrast. 1.0 by default
+# (the authored fully-opaque selection); lower it toward 0.0 for a translucent
+# tint that lets a transparent or busy backdrop show through, or raise it toward
+# 1.5 to keep the surface opaque while pushing the highlight colour stronger.
+selection_opacity = 1.0
 
 # Minimum background strength for cells whose color differs from the theme
 # default, so colored blocks (prompt segments, button chips, status runs) stay

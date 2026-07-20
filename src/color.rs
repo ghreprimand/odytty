@@ -226,6 +226,25 @@ pub fn composite_over(top: LinearRgb, bottom: LinearRgb, alpha: f32) -> LinearRg
     mix_linear(bottom, top, alpha.clamp(0.0, 1.0))
 }
 
+/// Extrapolate the `backdrop -> fill` color vector past the authored `fill`,
+/// clamped per channel to the displayable `[0, 1]` range.
+///
+/// This is the `strength > 1.0` continuation of the selection blend: where
+/// [`composite_over`] walks from the backdrop toward the authored fill as its
+/// alpha rises to `1.0`, this keeps walking along the SAME linear-light vector
+/// for `strength > 1.0`, so the selection color pushes further away from the
+/// backdrop and the highlight reads stronger. `strength == 1.0` returns `fill`
+/// exactly (the identity endpoint), and every channel is clamped so no value
+/// leaves gamut. The surface alpha is handled separately and saturates at
+/// `1.0`; this only shapes COLOR, so nothing here can drive an alpha above 1.
+pub fn boost_over(fill: LinearRgb, backdrop: LinearRgb, strength: f32) -> LinearRgb {
+    [
+        (backdrop[0] + strength * (fill[0] - backdrop[0])).clamp(0.0, 1.0),
+        (backdrop[1] + strength * (fill[1] - backdrop[1])).clamp(0.0, 1.0),
+        (backdrop[2] + strength * (fill[2] - backdrop[2])).clamp(0.0, 1.0),
+    ]
+}
+
 /// Perceptually-uniform interpolation between two colors through OKLab.
 ///
 /// `t` is clamped to `[0, 1]` with exact endpoints. Equal steps in `t` look

@@ -893,8 +893,8 @@ image again.
 
 Window transparency lets the desktop show through the terminal background.
 Text, the cursor, menus, pickers, and the settings panel remain fully opaque, so
-only the background fades. The selection is a translucent tint by default
-(`selection_opacity = 0.6`), tuned by its own strength control
+only the background fades. The selection is fully opaque by default
+(`selection_opacity = 1.0`), tuned by its own strength control
 (`selection_opacity`, below) independent of the window opacity.
 
 Transparency is on by default at `window_opacity = 80`, so the desktop shows
@@ -909,14 +909,16 @@ window_opacity = 100
 ```
 
 `selection_opacity` tunes the text-selection highlight strength on its own axis,
-from `0.0` (invisible) through `1.0` (fully opaque), independent of
-`window_opacity`, the theme colours, and `min_contrast`. The default `0.6` is a
-translucent tint that reads as a highlight rather than a solid block yet stays
-clearly visible over a transparent or busy backdrop, because a selected cell's
-surface alpha is lifted toward opaque as the knob rises so the selection never
-falls weaker than the surrounding content. Raise it to `1.0` for a crisp,
-fully-opaque highlight, or lower it to let more of the backdrop through. Text
-under the selection stays legible through the minimum-contrast floor.
+from `0.0` (invisible) through `1.5` (strongest), independent of
+`window_opacity`, the theme colours, and `min_contrast`. The default `1.0` is
+the authored fully opaque selection. Below `1.0` is a translucent tint that
+reads as a highlight rather than a solid block yet stays clearly visible over a
+transparent or busy backdrop, because a selected cell's surface alpha is lifted
+toward opaque as the knob rises so the selection never falls weaker than the
+surrounding content. Above `1.0` the surface stays fully opaque and the
+highlight colour is pushed stronger along the backdrop-to-selection vector,
+bounded and in gamut. Text under the selection stays legible through the
+minimum-contrast floor.
 
 `window_opacity` is a percentage from 20 through 100 in steps of 5, with 100
 fully opaque.

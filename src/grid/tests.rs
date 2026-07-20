@@ -3680,3 +3680,64 @@ fn overlay_panel_cell_is_opaque_and_themed_regardless_of_cell_bg_opacity() {
          must differ from the DynamicColors::default() gray {default_rgb:?}"
     );
 }
+
+// SELECTION-STRENGTH boost regression (board 6238907d): above 1.0 the selection
+// keeps a fully opaque surface (its alpha saturates at 1.0, never higher) while
+// its COLOR pushes further along the backdrop->fill vector so the highlight
+// reads stronger. `1.0` remains the authored fully opaque selection.
+#[test]
+fn selection_strength_above_one_saturates_alpha_and_strengthens_color() {
+    let Some(atlas) = atlas() else {
+        return;
+    };
+    let mut term = Terminal::new(1, 1);
+    term.advance(b"\x1b[?25l");
+    let mut snapshot = term.snapshot();
+    // Distinct fg/bg so the inverse selection has a clear fill (the fg, after the
+    // inverse swap) over a dark backdrop (the bg).
+    snapshot.cells[0].attrs.foreground = Color::Rgb(40, 200, 90);
+    snapshot.cells[0].attrs.background = Color::Rgb(10, 12, 16);
+    snapshot.cells[0].attrs.set_selected(true);
+    snapshot.cells[0].attrs.set_inverse(true);
+
+    let bg_alpha = |v: &[Vertex]| v[0].color[3];
+    let bg_rgb = |v: &[Vertex]| [v[0].color[0], v[0].color[1], v[0].color[2]];
+    // cell_bg_opacity 0.8 so the surface-alpha lerp is meaningful (an opaque
+    // window would pin every selected alpha to 1.0 regardless).
+    let at = |k: f32| selection_test_vertices(&snapshot, &atlas, 0.8, k);
+
+    let one = at(1.0);
+    let boosted = at(1.5);
+
+    // Surface alpha saturates at 1.0 at strength 1.0 AND above -- the boost must
+    // never drive a background alpha above 1.0 into GPU blending.
+    assert!(
+        (bg_alpha(&one) - 1.0).abs() < 1e-6,
+        "authored selection is fully opaque at 1.0 (a={})",
+        bg_alpha(&one)
+    );
+    assert!(
+        (bg_alpha(&boosted) - 1.0).abs() < 1e-6,
+        "strength 1.5 keeps the surface opaque, never above 1.0 (a={})",
+        bg_alpha(&boosted)
+    );
+
+    // Color strengthens: the fill is brighter than the backdrop in every channel,
+    // so the boost pushes each channel at or past the authored fill, and visibly
+    // so overall.
+    let one_rgb = bg_rgb(&one);
+    let boost_rgb = bg_rgb(&boosted);
+    for ch in 0..3 {
+        assert!(
+            boost_rgb[ch] >= one_rgb[ch] - 1e-6,
+            "channel {ch} must push at or past the authored fill \
+             (one={one_rgb:?}, boosted={boost_rgb:?})"
+        );
+    }
+    let strengthened = (0..3).any(|ch| boost_rgb[ch] - one_rgb[ch] > 1e-4);
+    assert!(
+        strengthened,
+        "strength 1.5 must visibly strengthen the selection color \
+         (one={one_rgb:?}, boosted={boost_rgb:?})"
+    );
+}

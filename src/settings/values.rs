@@ -1083,10 +1083,11 @@ pub(super) fn parse_colored_bg_opacity(raw: Option<&OsStr>, warn: &mut impl FnMu
     parsed.clamp(MIN_COLORED_BG_OPACITY, MAX_COLORED_BG_OPACITY)
 }
 
-/// Parse the selection-opacity strength (`ODYTTY_SELECTION_OPACITY`).
-/// `1.0` (default) is the fully-opaque / identity path. Out-of-range or invalid
-/// values warn and fall back to the opaque default; valid values clamp to
-/// `[0,1]`.
+/// Parse the selection-strength control (`ODYTTY_SELECTION_OPACITY`).
+/// `1.0` (default) is the authored fully-opaque selection. Out-of-range or
+/// invalid values warn and fall back to that default; valid values clamp to
+/// `[0.0, 1.5]` -- below `1.0` a translucent tint, above `1.0` a bounded
+/// color-strength boost with the surface alpha saturated at `1.0`.
 pub(super) fn parse_selection_opacity(raw: Option<&OsStr>, warn: &mut impl FnMut(&str)) -> f32 {
     let Some(raw) = raw else {
         return DEFAULT_SELECTION_OPACITY;

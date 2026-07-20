@@ -2506,8 +2506,8 @@ fn selection_opacity_defaults_parses_and_clamps() {
         DEFAULT_SELECTION_OPACITY
     );
     assert_eq!(
-        DEFAULT_SELECTION_OPACITY, 0.6,
-        "default is a translucent tint (0.6), not fully opaque"
+        DEFAULT_SELECTION_OPACITY, 1.0,
+        "default is the authored fully opaque selection (1.0)"
     );
     assert!(warnings.is_empty());
 
@@ -2515,12 +2515,18 @@ fn selection_opacity_defaults_parses_and_clamps() {
     assert_eq!(parsed.selection_opacity, 0.5);
     assert!(warnings.is_empty());
 
-    // Below the floor and above the ceiling both clamp into [0,1].
+    // A value in the boost band (above 1.0, up to 1.5) is preserved verbatim.
+    let (boost, warnings) = settings_from([(SELECTION_OPACITY_ENV, "1.3")]);
+    assert_eq!(boost.selection_opacity, 1.3);
+    assert!(warnings.is_empty());
+
+    // Below the floor clamps to 0.0; above the 1.5 ceiling clamps to 1.5.
     let (low, warnings) = settings_from([(SELECTION_OPACITY_ENV, "-0.3")]);
     assert_eq!(low.selection_opacity, MIN_SELECTION_OPACITY);
     assert!(warnings.is_empty());
     let (high, warnings) = settings_from([(SELECTION_OPACITY_ENV, "2.0")]);
     assert_eq!(high.selection_opacity, MAX_SELECTION_OPACITY);
+    assert_eq!(MAX_SELECTION_OPACITY, 1.5, "the strength ceiling is 1.5");
     assert!(warnings.is_empty());
 
     // Empty/whitespace falls back to the default without warning.

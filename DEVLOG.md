@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Selection strength gains an opt-in boost above full opacity
+
+The text-selection control now defaults to a fully opaque selection and reaches
+past it. `selection_opacity` defaults to `1.0` (was `0.6`) and its range widens
+to `0.0..=1.5`. From `0.0` to `1.0` the behavior is unchanged: the fill
+composites from the surrounding content up to the authored selection color, and
+`1.0` remains bit-for-bit the historical fully opaque highlight. Above `1.0`,
+where a literal alpha cannot go, the value becomes a strength boost instead: the
+selection surface stays fully opaque while its color is pushed further along the
+backdrop-to-selection vector, clamped in gamut, so the highlight reads stronger
+without ever handing an alpha above `1.0` to the GPU. The boost is applied
+identically on the inverse and themed selection paths, the surface alpha
+saturates at `1.0` in the cell builder, and the minimum-contrast floor still
+lifts the selected text over the strengthened fill. Regressions pin the opaque
+surface and the stronger color at `1.5`, the byte-identical selection at `1.0`,
+and the new default and `1.5` clamp ceiling through the parser and panel.
+
+---
+
 ## 2026-07-20 -- Window overlays stay themed and opaque after a split
 
 A window-level overlay panel (Settings, the context menu, the command palette,

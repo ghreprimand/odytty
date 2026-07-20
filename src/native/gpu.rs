@@ -2571,17 +2571,21 @@ impl GpuState {
         self.text_brightness = brightness.clamp(1.0, 1.5);
     }
 
-    /// SELECTION-OPACITY: the independent alpha applied to selected cells'
-    /// background quads, unaffected by window transparency or `cell_bg_opacity`.
+    /// SELECTION-OPACITY: the independent selection strength fed to the cell
+    /// builder for selected cells, unaffected by window transparency or
+    /// `cell_bg_opacity`. Carries the full `0.0..=1.5` knob range; the builder
+    /// saturates the surface ALPHA at `1.0` and shapes only COLOR above `1.0`,
+    /// so no alpha above 1 ever reaches GPU blending.
     fn selection_build_opacity(&self) -> f32 {
         self.selection_opacity
     }
 
-    /// SELECTION-OPACITY: live-update the selection highlight opacity (settings
-    /// panel / config reload). Clamped to `[0,1]`; a change re-keys the frame so
-    /// an on-screen selection repaints at the new strength.
+    /// SELECTION-OPACITY: live-update the selection highlight strength (settings
+    /// panel / config reload). Clamped to `[0, MAX_SELECTION_OPACITY]` (the
+    /// `1.5` strength ceiling); a change re-keys the frame so an on-screen
+    /// selection repaints at the new strength.
     pub(super) fn set_selection_opacity(&mut self, opacity: f32) {
-        self.selection_opacity = opacity.clamp(0.0, 1.0);
+        self.selection_opacity = opacity.clamp(0.0, crate::settings::MAX_SELECTION_OPACITY);
     }
 
     /// TRANSPARENCY: the color the scene pass clears to. Fully transparent

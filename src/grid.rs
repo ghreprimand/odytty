@@ -1310,6 +1310,18 @@ fn build_cells_core(
                 let blended_fg = crate::color::composite_over(backdrop, fill, selection_opacity);
                 bg = [blended_bg[0], blended_bg[1], blended_bg[2], bg[3]];
                 fg = [blended_fg[0], blended_fg[1], blended_fg[2], fg[3]];
+            } else if selection_opacity > 1.0 && cell.attrs.selected() && cell.attrs.inverse() {
+                // SELECTION-STRENGTH boost: the surface stays fully opaque (Pass 1
+                // saturates its alpha at 1.0); the selection COLOR is pushed
+                // further along the backdrop->fill vector so the highlight reads
+                // stronger. The text keeps its authored backdrop color -- the RV1
+                // floor below re-lifts it over the strengthened fill, so
+                // readability is preserved by construction. Parity with the themed
+                // path, which boosts the same vector in `effective_selection_fill`.
+                let fill = [bg[0], bg[1], bg[2]];
+                let backdrop = [fg[0], fg[1], fg[2]];
+                let boosted = crate::color::boost_over(fill, backdrop, selection_opacity);
+                bg = [boosted[0], boosted[1], boosted[2], bg[3]];
             }
             if cell.attrs.dim() {
                 fg = dim_color(fg);
@@ -1412,7 +1424,13 @@ fn build_cells_core(
             let cell_opacity = if opaque_region.is_some_and(|r| r.contains(row, col)) {
                 1.0
             } else if cell.attrs.selected() {
-                cell_bg_opacity + selection_opacity * (1.0 - cell_bg_opacity)
+                // SELECTION-OPACITY surface alpha, saturated at 1.0: at strength
+                // <= 1.0 the lerp is already <= 1.0 (byte-identical), and at
+                // strength > 1.0 it clamps here so the boost never drives a
+                // background alpha above 1.0 into GPU blending -- the extra
+                // strength lands on COLOR (see the inverse boost above and the
+                // themed `effective_selection_fill`), not surface alpha.
+                (cell_bg_opacity + selection_opacity * (1.0 - cell_bg_opacity)).min(1.0)
             } else if colored_bg && !chrome_pin.is_chrome(row, col) {
                 colored_bg_opacity
             } else {

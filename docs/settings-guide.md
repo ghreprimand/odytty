@@ -191,7 +191,7 @@ These controls solve different kinds of washout:
 | `window_opacity` | `80`, from `20` to `100` | The whole terminal background should show more or less of the desktop. Text and overlays do not fade with it. |
 | `colored_bg_opacity` | `0.9`, from `0.0` to `1.0` | App-painted cell backgrounds are too weak. At `1.0`, window-opacity attenuation is removed and the cell keeps its full configured background opacity; it is literally opaque only when that cell background opacity is also `1.0`. |
 | `text_brightness` | `1.0`, from `1.0` to `1.5` | Colored text needs a lift toward white after the minimum-contrast floor. Black ink never lifts, and color emoji are exempt. |
-| `selection_opacity` | `0.6`, from `0.0` to `1.0` | The selection tint is too faint or too solid. It is independent of window opacity. |
+| `selection_opacity` | `1.0`, from `0.0` to `1.5` | The selection is too faint, too solid, or not emphatic enough. Below `1.0` thins it to a tint; above `1.0` keeps it opaque but pushes the colour stronger. Independent of window opacity. |
 | `tab_panel_strength` | `0.8`, from `0.0` to `1.0` | Tab and rail labels need a quieter surface. This sets panel opacity directly; `0.0` removes the panel and `1.0` makes it nearly opaque. |
 
 For broader readability controls, see the
