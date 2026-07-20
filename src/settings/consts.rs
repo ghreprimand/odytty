@@ -942,8 +942,8 @@ pub const DEFAULT_SHELL_INTEGRATION: bool = true;
 /// `ODYTTY_KEY_ENHANCE=1` into the child environment so the snippet can discover
 /// support (mirroring buttons discovery). fish manages the keyboard protocol
 /// itself and PowerShell key bindings use the PSReadLine/Console API, so neither
-/// is affected. Off by default.
-pub const DEFAULT_SHELL_KEY_ENHANCEMENT: bool = false;
+/// is affected. On by default.
+pub const DEFAULT_SHELL_KEY_ENHANCEMENT: bool = true;
 
 /// Remote OSC 133 shell integration for SSH tabs (`ODYTTY_REMOTE_INTEGRATION`):
 /// when on, an SSH tab injects OdyTTY's bash prompt-mark bootstrap on the remote

@@ -564,7 +564,8 @@ the sequence with `bind`/`bindkey` (for example
 
 `fish` manages the protocol itself (use `bind ctrl-enter ...`), and PowerShell
 key bindings use `Set-PSReadLineKeyHandler` through the Console API, so neither
-needs this knob. Off by default.
+needs this knob. On by default; set `shell_key_enhancement = off` to return the
+prompt to the terminal's plain keyboard mode.
 
 For manual setup, SSH or login shells, or explicit rc management, print and
 source the integration:

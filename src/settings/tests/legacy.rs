@@ -96,6 +96,10 @@ fn defaults_are_stable_without_env() {
         "the linked trail profile defaults to balanced"
     );
     assert!(!settings.reduced_motion, "motion is allowed by default");
+    assert!(
+        settings.shell_key_enhancement,
+        "prompt key enhancement is on by default (0.9.2)"
+    );
     assert!(warnings.is_empty());
 }
 

@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Prompt key enhancement is on by default
+
+`shell_key_enhancement` now defaults on. Integrated bash and zsh prompts enable
+the Kitty keyboard protocol in disambiguate mode while the prompt owns the line,
+so Ctrl+Backspace deletes the previous word, Shift+Enter inserts a newline, and
+Ctrl+Enter submits, out of the box, alongside fish, which drives the protocol
+itself. The enhancement stays prompt-scoped: the protocol is popped before each
+command runs so the programs the shell launches see the terminal's ordinary
+keyboard mode, and Ctrl+C keeps interrupting because only disambiguate mode is
+requested. The shipped bindings are skipped whenever the sequence is already
+bound in inputrc or with bindkey, so a personal binding always wins, and setting
+`shell_key_enhancement = off` restores the plain prompt keyboard mode. bash was
+verified end to end through a real shell; the zsh binding uses the standard ZLE
+mechanism. PowerShell is unaffected (it uses the Console API).
+
+---
+
 ## 2026-07-20 -- ConPTY receives lossless Win32 keyboard events
 
 Windows ConPTY sessions now honor the Win32 input-mode handshake emitted by

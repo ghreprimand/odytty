@@ -217,8 +217,9 @@ shell_integration = on
 # Shift+Enter inserts a newline, Ctrl+Enter submits), each skipped when you have
 # already bound the sequence, so a personal inputrc/bindkey always wins. fish
 # self-manages the protocol and PowerShell uses the Console API, so neither is
-# affected. Off by default.
-shell_key_enhancement = off
+# affected. On by default; set to off to return the prompt to the terminal's
+# plain keyboard mode.
+shell_key_enhancement = on
 keybinds =
 # Example:
 # keybinds = ctrl+shift+y=copy;ctrl+alt+v=paste

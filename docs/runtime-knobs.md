@@ -152,7 +152,7 @@ environment variable was not set at startup.
 | `buttons_iterm_compat` | `ODYTTY_BUTTONS_ITERM_COMPAT` | `on`, `off` | `on` |
 | `buttons_sticky` | `ODYTTY_BUTTONS_STICKY` | `on`, `off` | `off` |
 | `shell_integration` | `ODYTTY_SHELL_INTEGRATION` | `on`, `off` | `on` |
-| `shell_key_enhancement` | `ODYTTY_SHELL_KEY_ENHANCEMENT` | `on`, `off` | `off` |
+| `shell_key_enhancement` | `ODYTTY_SHELL_KEY_ENHANCEMENT` | `on`, `off` | `on` |
 | `interactive_urls` | `ODYTTY_INTERACTIVE_URLS` | `on`, `off` | `on` |
 | `interactive_paths` | `ODYTTY_INTERACTIVE_PATHS` | `on`, `off` | `off` |
 | `interactive_paths_barewords` | `ODYTTY_INTERACTIVE_PATHS_BAREWORDS` | `on`, `off` | `on` |
