@@ -7,6 +7,46 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Colored backgrounds hold their own under a translucent window
+
+Low-opacity legibility, part one. At low `window_opacity` every cell background
+composited at one uniform alpha — the wallpaper-softening value times the
+window alpha — so the backdrops that carry meaning (prompt powerline segments,
+hyperlink button chips, app-painted status and highlight blocks) washed out
+exactly as fast as the empty default background. Glyphs stayed opaque but read
+dimmer as their supporting blocks vanished into whatever sat behind the window.
+
+New knob: `colored_bg_opacity` (env `ODYTTY_COLORED_BG_OPACITY`, default 0.9,
+range 0.0..=1.0, live-applied). A cell whose RESOLVED background differs from
+the theme's default background now composites at
+`cell_bg_opacity * max(window_alpha, colored_bg_opacity)` — the knob floors the
+window factor, not the product, in the spirit of iTerm2's "keep background
+colors opaque" but continuous. Consequences by construction: an opaque window
+is byte-identical at every knob value (including with a background image's cell
+softening, which a naive product-max would have lifted); knob 0.0 is
+byte-identical to the previous behavior at every opacity; the floor is
+monotonic in the knob and can only strengthen a colored cell, never weaken one.
+
+The "colored" classification happens at the vertex-build resolution seam:
+post-inverse (an inverse cell's visible backdrop is its resolved foreground),
+pre-dim/pre-treatment, against the same theme-resolved default — so an app that
+repaints the screen in the theme's own background color keeps the glassy
+treatment, and focus-dim or a gradient cannot flip a cell's class. Exempt by
+contract: selection (its own `selection_opacity` surface-alpha lerp), the
+forced-opaque overlay panel region, the cursor block, and all composited
+chrome — tab-bar rows and rail columns per-cell via the chrome pin, multi-pane
+chrome strips and the floating rail per-surface — since chrome opacity belongs
+to `tab_panel_strength` and its wash math tops up from the plain content alpha.
+The theme-default edge wash is untouched by definition. Pinned by unit tests on
+the alpha function and vertex-build tests covering the lift, the
+resolves-to-default case, inverse, chrome/selection/overlay precedence, and rgb
+non-drift.
+
+Windows: platform-neutral GPU vertex path; no platform-specific surface.
+
+Settings-panel row, docs, and `odytty.conf.example` entry follow separately;
+the knob is reachable via env/config now.
+
 ## 2026-07-20 -- Shared spawn + atomic-write seams, OSC 52 consent default, CI hardening
 
 Internal-consistency work: unify a few duplicated system seams, tighten a

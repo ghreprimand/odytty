@@ -1268,6 +1268,13 @@ pub struct Settings {
     /// cells translucent so the image shows through behind text; the RV1 floor
     /// stays safe at any opacity via the readability scrim.
     pub cell_bg_opacity: f32,
+    /// Colored-background opacity floor in `0.0..=1.0`: the minimum window-alpha
+    /// contribution for cells whose resolved background differs from the theme
+    /// default (powerline segments, button chips, status blocks), so they stay
+    /// strong as window opacity drops instead of washing out with the empty
+    /// backdrop. `0.0` disables the floor (colored cells match today exactly);
+    /// an opaque window is byte-identical at any value. Never weakens a cell.
+    pub colored_bg_opacity: f32,
     /// Selection-highlight opacity in `0.0..=1.0`, independent of window opacity,
     /// theme colours, and the min-contrast floor. `1.0` (the default) keeps the
     /// selection fully opaque — byte-identical to before in the opaque-window
@@ -1740,6 +1747,7 @@ impl Default for Settings {
             background_blur_radius: 0,
             background_image_scrim: Some(DEFAULT_BACKGROUND_IMAGE_SCRIM),
             cell_bg_opacity: DEFAULT_CELL_BG_OPACITY,
+            colored_bg_opacity: DEFAULT_COLORED_BG_OPACITY,
             selection_opacity: DEFAULT_SELECTION_OPACITY,
             window_padding_px: DEFAULT_WINDOW_PADDING_PX,
             bloom: DEFAULT_BLOOM,
@@ -2286,6 +2294,8 @@ impl Settings {
             some => parse_background_image_scrim(some.as_deref(), &mut warn),
         };
         let cell_bg_opacity = parse_cell_bg_opacity(get(CELL_BG_OPACITY_ENV).as_deref(), &mut warn);
+        let colored_bg_opacity =
+            parse_colored_bg_opacity(get(COLORED_BG_OPACITY_ENV).as_deref(), &mut warn);
         let selection_opacity =
             parse_selection_opacity(get(SELECTION_OPACITY_ENV).as_deref(), &mut warn);
         let window_padding_px = parse_window_padding(get(WINDOW_PADDING_ENV).as_deref(), &mut warn);
@@ -2734,6 +2744,7 @@ impl Settings {
             background_blur_radius,
             background_image_scrim,
             cell_bg_opacity,
+            colored_bg_opacity,
             selection_opacity,
             window_padding_px,
             bloom,
@@ -2900,6 +2911,10 @@ impl Settings {
             values.insert(BACKGROUND_IMAGE_SCRIM_ENV, format_float(scrim));
         }
         values.insert(CELL_BG_OPACITY_ENV, format_float(self.cell_bg_opacity));
+        values.insert(
+            COLORED_BG_OPACITY_ENV,
+            format_float(self.colored_bg_opacity),
+        );
         values.insert(SELECTION_OPACITY_ENV, format_float(self.selection_opacity));
         values.insert(WINDOW_PADDING_ENV, format_float(self.window_padding_px));
         values.insert(BLOOM_ENV, bool_display(self.bloom).to_owned());

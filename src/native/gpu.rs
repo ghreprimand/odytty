@@ -183,6 +183,14 @@ pub(super) struct PaneRender<'a> {
     /// Large-jump cursor follower for the focused pane. `None` for chrome,
     /// background panes, reduced motion, or an idle/disabled trail.
     pub(super) cursor_streak: Option<CursorStreakRequest>,
+    /// COLORED-BG-FLOOR: whether this pane is a composited chrome strip (top
+    /// tab bar / workspace rail) rather than terminal content. Chrome strips
+    /// are exempt from the colored-background opacity floor — their effective
+    /// opacity is owned by `tab_panel_strength`, whose wash math tops up from
+    /// the plain content alpha these cells composite at. The strip's label
+    /// offsets cannot stand in for this flag: they are `0.0` for single-row
+    /// bands, which would silently un-mark the strip.
+    pub(super) chrome: bool,
 }
 
 /// Per-frame request for the analytic cursor aura. Geometry is rebuilt from the
@@ -686,6 +694,28 @@ pub(super) fn select_alpha_mode(modes: &[wgpu::CompositeAlphaMode]) -> wgpu::Com
 /// background models.
 pub(super) fn content_build_opacity(window_bg_alpha: f32, cell_bg_opacity: f32) -> f32 {
     cell_bg_opacity * window_bg_alpha
+}
+
+/// COLORED-BG-FLOOR: the opacity fed to the cell-vertex builder for content
+/// cells whose RESOLVED background differs from the theme default (powerline
+/// segments, button chips, app-painted blocks). The knob floors the WINDOW
+/// factor of the [`content_build_opacity`] product — not the product itself —
+/// so the wallpaper-softening factor (`cell_bg_opacity`) is preserved and every
+/// identity holds by construction:
+///
+/// * opaque window: `max(1.0, floor) == 1.0` → exactly `cell_bg_opacity`,
+///   byte-identical at EVERY knob value (including with a background image's
+///   `cell_bg_opacity < 1.0`, where a naive `max(floor, product)` would lift);
+/// * knob `0.0`: `max(alpha, 0.0) == alpha` → exactly the content product,
+///   byte-identical at every window opacity;
+/// * monotonic in the knob, and always `>= content_build_opacity` — the floor
+///   strengthens colored cells, never weakens them.
+pub(super) fn colored_content_build_opacity(
+    window_bg_alpha: f32,
+    cell_bg_opacity: f32,
+    colored_bg_opacity: f32,
+) -> f32 {
+    cell_bg_opacity * window_bg_alpha.max(colored_bg_opacity)
 }
 
 /// TRANSPARENCY: the color the scene pass clears to. Fully transparent
@@ -1681,6 +1711,11 @@ pub(super) struct GpuState {
     /// ID3/U5 cell background opacity multiplier fed to the cell-vertex builder.
     /// `1.0` (the default) keeps cells fully opaque — byte-identical output.
     cell_bg_opacity: f32,
+    /// COLORED-BG-FLOOR: the `colored_bg_opacity` knob — minimum window-alpha
+    /// contribution for content cells whose resolved background differs from
+    /// the theme default. `0.0` disables the floor (inert); an opaque window is
+    /// byte-identical at any value. See [`colored_content_build_opacity`].
+    colored_bg_opacity: f32,
     /// Selection-highlight opacity fed to the cell-vertex builder for cells
     /// carrying the selection marker. Independent of `cell_bg_opacity` and
     /// `window_bg_alpha`, so the selection strength is tuned separately and does
@@ -2313,6 +2348,7 @@ impl GpuState {
             // `set_background_image`; cells start fully opaque (identity).
             bg_image: None,
             cell_bg_opacity: crate::settings::DEFAULT_CELL_BG_OPACITY,
+            colored_bg_opacity: crate::settings::DEFAULT_COLORED_BG_OPACITY,
             selection_opacity: crate::settings::DEFAULT_SELECTION_OPACITY,
             window_bg_alpha: 1.0,
             overlay_opaque_region: None,
@@ -2498,6 +2534,25 @@ impl GpuState {
     /// the 100% boundary and byte-identical (`== cell_bg_opacity`) when opaque.
     fn content_build_opacity(&self) -> f32 {
         content_build_opacity(self.window_bg_alpha, self.cell_bg_opacity)
+    }
+
+    /// COLORED-BG-FLOOR: the effective surface alpha for content cells with a
+    /// resolved non-default background this frame. Equals
+    /// [`Self::content_build_opacity`] exactly when the knob is `0.0` or the
+    /// window is opaque (both inert identities); otherwise `>=` it.
+    fn colored_content_build_opacity(&self) -> f32 {
+        colored_content_build_opacity(
+            self.window_bg_alpha,
+            self.cell_bg_opacity,
+            self.colored_bg_opacity,
+        )
+    }
+
+    /// COLORED-BG-FLOOR: live-update the colored-background opacity floor
+    /// (settings panel / config reload). Clamped to `[0,1]`; the next rebuild
+    /// repaints colored blocks at the new floor.
+    pub(super) fn set_colored_bg_opacity(&mut self, opacity: f32) {
+        self.colored_bg_opacity = opacity.clamp(0.0, 1.0);
     }
 
     /// SELECTION-OPACITY: the independent alpha applied to selected cells'
@@ -3053,6 +3108,15 @@ impl GpuState {
                 pane.origin,
                 pane.treatment,
                 self.content_build_opacity(),
+                // COLORED-BG-FLOOR: content panes float colored backgrounds to
+                // the knob's alpha; chrome strips pass the plain content alpha —
+                // the exact inert path — so band fills stay under
+                // `tab_panel_strength`'s contract.
+                if pane.chrome {
+                    self.content_build_opacity()
+                } else {
+                    self.colored_content_build_opacity()
+                },
                 // Multi-pane panes never carry an overlay panel: it is composited
                 // as a separate opaque `OverlayTop` layer, so no cell is forced.
                 None,
@@ -3175,6 +3239,9 @@ impl GpuState {
                     ]
                 })
                 .collect();
+            // COLORED-BG-FLOOR EXEMPT: the edge wash paints the theme DEFAULT
+            // background into padding/gaps — by definition never a colored cell,
+            // so it stays on the plain content product.
             let color = linear_rgba(
                 first.snapshot.colors.background,
                 self.content_build_opacity(),
@@ -3407,6 +3474,10 @@ impl GpuState {
         self.rebuild_color_glyph_segment(snapshot, &color_glyph_runs);
         let origin = self.content_origin();
         let content_opacity = self.content_build_opacity();
+        // COLORED-BG-FLOOR: composited chrome cells in this decorated snapshot
+        // (tab-bar rows / rail columns) are exempted per-cell inside the builder
+        // via the chrome pin, which preserves its geometry even at rest.
+        let colored_opacity = self.colored_content_build_opacity();
         let selection_opacity = self.selection_build_opacity();
         // VE4 new-output fade: cheap Option clone (None off-path / settled) so
         // the borrow is scoped to a local, away from `&mut self.vertices`.
@@ -3423,6 +3494,7 @@ impl GpuState {
             origin,
             treatment,
             content_opacity,
+            colored_opacity,
             // TRANSPARENCY (MENU-OPACITY): while the window is translucent an open
             // overlay panel is painted into this very snapshot; its cell span is
             // forced opaque so the panel stays readable while the terminal cells
@@ -3444,6 +3516,8 @@ impl GpuState {
             // chrome bands and the shifted content, and widens the washed frame
             // extent to match; a zero-gap pin is byte-identical to the legacy
             // four-strip wash.
+            // COLORED-BG-FLOOR EXEMPT: theme-default background wash (see the
+            // multi-pane edge wash note).
             let edge_quads = wallpaper_edge_wash_quads_with_pin(
                 snapshot,
                 self.atlas.cell,
@@ -3599,6 +3673,9 @@ impl GpuState {
             // chrome/content cell), so toggling auto-hide cannot change the
             // band's effective opacity. The raw `cell_bg_opacity` here made the
             // floating rail ignore window transparency entirely.
+            // COLORED-BG-FLOOR EXEMPT: chrome strip — this entry point passes
+            // the plain alpha for colored cells too, keeping the floating rail
+            // identical to the pinned rail band under `tab_panel_strength`.
             self.content_build_opacity(),
             // The rail strip is its own floating overlay; no merged panel to
             // force.

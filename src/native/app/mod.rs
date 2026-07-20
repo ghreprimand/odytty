@@ -3634,6 +3634,10 @@ impl App {
             .gpu
             .as_ref()
             .is_some_and(crate::native::gpu::GpuState::transparency_capable);
+        // COLORED-BG-FLOOR EXEMPT: chrome wash math — the band's effective
+        // opacity is owned by `tab_panel_strength`, and its cells composite at
+        // the plain content alpha (chrome strips/rows are floor-exempt), so the
+        // top-up target must reference the same plain product.
         let band_cell_alpha = crate::native::gpu::content_build_opacity(
             self.effective_window_bg_alpha(capable),
             self.settings.cell_bg_opacity,
@@ -3690,6 +3694,8 @@ impl App {
                 )),
             }
         }
+        // COLORED-BG-FLOOR EXEMPT: chrome panel band quads (see
+        // `chrome_panel_paint`).
         let base_alpha = crate::native::gpu::content_build_opacity(
             self.effective_window_bg_alpha(gpu.transparency_capable()),
             self.settings.cell_bg_opacity,
@@ -4584,6 +4590,8 @@ impl App {
                 RailSide::Left => [0.0, 0.0, seam_x, surface_h as f32],
                 RailSide::Right => [seam_x, 0.0, surface_w as f32, surface_h as f32],
             };
+            // COLORED-BG-FLOOR EXEMPT: floating-rail base-gap chrome quads (see
+            // `chrome_panel_paint`).
             let alpha = crate::native::gpu::content_build_opacity(
                 self.effective_window_bg_alpha(gpu.transparency_capable()),
                 self.settings.cell_bg_opacity,
@@ -5402,6 +5410,9 @@ impl App {
             // SELECTION-OPACITY: push the independent selection strength so a
             // settings-panel or config change repaints an on-screen selection.
             gpu.set_selection_opacity(self.settings.selection_opacity);
+            // COLORED-BG-FLOOR: push the colored-background opacity floor so a
+            // settings-panel or config change repaints colored blocks live.
+            gpu.set_colored_bg_opacity(self.settings.colored_bg_opacity);
         }
 
         if text_rebuilt || padding_changed {
@@ -5908,6 +5919,9 @@ impl ApplicationHandler<UserEvent> for App {
                 // SELECTION-OPACITY: seed the selection strength for the first
                 // frame from the launch config (identity / off path at 1.0).
                 gpu.set_selection_opacity(self.settings.selection_opacity);
+                // COLORED-BG-FLOOR: seed the colored-background opacity floor
+                // from the launch config so the first frame already floors.
+                gpu.set_colored_bg_opacity(self.settings.colored_bg_opacity);
                 self.gpu = Some(gpu);
             }
             Err(err) => {

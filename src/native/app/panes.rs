@@ -906,6 +906,9 @@ impl App {
                 rail_glyph_dy_rows: strip.rail_glyph_dy_rows,
                 cursor_glow: None,
                 cursor_streak: None,
+                // COLORED-BG-FLOOR EXEMPT: chrome strip — band fills stay under
+                // `tab_panel_strength`'s opacity contract.
+                chrome: true,
             });
         }
         // Inactive-pane dimming: the focused pane is never dimmed (`0.0`), the
@@ -931,6 +934,9 @@ impl App {
                 rail_glyph_dy_rows: 0.0,
                 cursor_glow: pane_cursor_glow[idx],
                 cursor_streak: pane_cursor_streak[idx],
+                // COLORED-BG-FLOOR: terminal content — colored backgrounds float
+                // to the knob's alpha under a translucent window.
+                chrome: false,
             });
         }
 

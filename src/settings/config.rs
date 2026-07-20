@@ -8,8 +8,8 @@ use super::{
     ALWAYS_SHOW_TAB_BAR_ENV, BACKGROUND_BLUR_RADIUS_ENV, BACKGROUND_IMAGE_ENV,
     BACKGROUND_IMAGE_SCRIM_ENV, BACKGROUND_TREATMENT_ENV, BELL_ENV, BLOOM_ENV, BLOOM_INTENSITY_ENV,
     BLOOM_RADIUS_ENV, BLOOM_THRESHOLD_ENV, BUTTONS_ENV, BUTTONS_ITERM_COMPAT_ENV,
-    BUTTONS_STICKY_ENV, CELL_BG_OPACITY_ENV, COMMAND_STATUS_GUTTER_ENV, CONFIRM_CLOSE_ENV,
-    COPY_ON_SELECT_ENV, CRT_CURVATURE_ENV, CRT_ENV, CRT_SCANLINE_INTENSITY_ENV,
+    BUTTONS_STICKY_ENV, CELL_BG_OPACITY_ENV, COLORED_BG_OPACITY_ENV, COMMAND_STATUS_GUTTER_ENV,
+    CONFIRM_CLOSE_ENV, COPY_ON_SELECT_ENV, CRT_CURVATURE_ENV, CRT_ENV, CRT_SCANLINE_INTENSITY_ENV,
     CRT_SCANLINE_PERIOD_ENV, CRT_VIGNETTE_STRENGTH_ENV, CURSOR_BLINK_ENV, CURSOR_EASING_ENV,
     CURSOR_GLOW_ENV, CURSOR_GLOW_INTENSITY_ENV, CURSOR_MOTION_ENV, CURSOR_STYLE_ENV,
     CURSOR_TRAIL_ENV, CURSOR_TRAIL_STRENGTH_ENV, CVD_MODE_ENV, CVD_STRENGTH_ENV, FOCUS_DIM_ENV,
@@ -203,6 +203,9 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "cellbgopacity" | "cellbackgroundopacity" | "cellopacity" | "bgopacity" => {
             Some(CELL_BG_OPACITY_ENV)
         }
+        "coloredbgopacity" | "coloredbackgroundopacity" | "coloredopacity" | "keepbgcolors" => {
+            Some(COLORED_BG_OPACITY_ENV)
+        }
         "selectionopacity" | "selectionalpha" | "selopacity" | "highlightopacity" => {
             Some(SELECTION_OPACITY_ENV)
         }
@@ -391,6 +394,7 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         BACKGROUND_BLUR_RADIUS_ENV => Some("background_blur_radius"),
         BACKGROUND_IMAGE_SCRIM_ENV => Some("background_image_scrim"),
         CELL_BG_OPACITY_ENV => Some("cell_bg_opacity"),
+        COLORED_BG_OPACITY_ENV => Some("colored_bg_opacity"),
         SELECTION_OPACITY_ENV => Some("selection_opacity"),
         WINDOW_PADDING_ENV => Some("window_padding"),
         GEOMETRIC_BOXDRAW_ENV => Some("geometric_boxdraw"),

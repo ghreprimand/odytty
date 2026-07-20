@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::gpu::{
     BloomOptions, CrtOptions, ViewportUniform, adapter_is_software, choose_surface_format,
-    content_build_opacity, create_atlas_bind_group, create_cell_pipeline,
-    create_color_atlas_bind_group, create_color_glyph_pipeline, image::BgImageGpu,
-    multi_pane_wallpaper_edge_wash_quads, physical_font_px, post, quads_excluding,
-    rail_overlay_chrome_pin, required_limits_for_adapter, rescue_adapter_index, scene_clear_color,
-    scene_target_format, select_alpha_mode, wallpaper_edge_wash_quads,
+    colored_content_build_opacity, content_build_opacity, create_atlas_bind_group,
+    create_cell_pipeline, create_color_atlas_bind_group, create_color_glyph_pipeline,
+    image::BgImageGpu, multi_pane_wallpaper_edge_wash_quads, physical_font_px, post,
+    quads_excluding, rail_overlay_chrome_pin, required_limits_for_adapter, rescue_adapter_index,
+    scene_clear_color, scene_target_format, select_alpha_mode, wallpaper_edge_wash_quads,
     wallpaper_edge_wash_quads_with_pin,
 };
 use crate::atlas::CellSize;
@@ -1943,4 +1943,60 @@ fn content_opacity_is_monotonic_and_never_swaps_background_model() {
         );
         prev = v;
     }
+}
+
+// COLORED-BG-FLOOR: the knob floors the WINDOW factor of the content product
+// for resolved-non-default backgrounds. These pin the identity, inertness,
+// monotonicity, and never-weaker contracts of `colored_content_build_opacity`.
+
+#[test]
+fn colored_bg_floor_is_identity_at_opaque_window_for_any_knob() {
+    // An opaque window is byte-identical at EVERY knob value — including with a
+    // background image's cell softening (< 1.0), where flooring the PRODUCT
+    // instead of the window factor would wrongly lift the colored cells.
+    for &cell in &[1.0_f32, 0.8, 0.5] {
+        for &knob in &[0.0_f32, 0.3, 0.9, 1.0] {
+            assert_eq!(
+                colored_content_build_opacity(1.0, cell, knob),
+                content_build_opacity(1.0, cell),
+                "opaque window must be identity (cell={cell}, knob={knob})"
+            );
+        }
+    }
+}
+
+#[test]
+fn colored_bg_floor_at_zero_is_the_plain_content_product_everywhere() {
+    for &w in &[1.0_f32, 0.95, 0.8, 0.5, 0.3, 0.0] {
+        for &cell in &[1.0_f32, 0.8, 0.5] {
+            assert_eq!(
+                colored_content_build_opacity(w, cell, 0.0),
+                content_build_opacity(w, cell),
+                "knob 0.0 must be inert (w={w}, cell={cell})"
+            );
+        }
+    }
+}
+
+#[test]
+fn colored_bg_floor_is_monotonic_in_the_knob_and_never_weaker_than_content() {
+    let w = 0.3_f32;
+    let cell = 0.8_f32;
+    let mut prev = -f32::INFINITY;
+    for &knob in &[0.0_f32, 0.1, 0.3, 0.5, 0.7, 0.9, 1.0] {
+        let v = colored_content_build_opacity(w, cell, knob);
+        assert!(v >= prev, "monotonic in the knob (knob={knob})");
+        assert!(
+            v >= content_build_opacity(w, cell) - 1e-6,
+            "floor never weakens a colored cell (knob={knob})"
+        );
+        prev = v;
+    }
+    // At knob 1.0 a colored cell composites at the full softening fraction,
+    // independent of window transparency — "keep background colors opaque".
+    assert_eq!(colored_content_build_opacity(0.2, 0.8, 1.0), 0.8);
+    // Below the floor the window factor is clamped up to the knob.
+    assert!((colored_content_build_opacity(0.3, 0.8, 0.9) - 0.72).abs() < 1e-6);
+    // Above the floor the plain product wins (the max, not a replacement).
+    assert!((colored_content_build_opacity(0.95, 0.8, 0.9) - 0.76).abs() < 1e-6);
 }

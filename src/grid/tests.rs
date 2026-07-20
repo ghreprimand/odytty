@@ -1674,6 +1674,8 @@ fn selection_test_vertices(
         [0.0, 0.0],
         BackgroundTreatmentParams::default(),
         cell_opacity,
+        // COLORED-BG-FLOOR inert: equal alphas keep this harness byte-identical.
+        cell_opacity,
         None,
         crate::grid::ChromePin::NONE,
         selection_opacity,
@@ -2957,6 +2959,8 @@ fn build_with_fade(snapshot: &Snapshot, atlas: &GlyphAtlas, fade: RowFade) -> Ve
         [0.0, 0.0],
         BackgroundTreatmentParams::default(),
         1.0,
+        // COLORED-BG-FLOOR inert: equal alphas.
+        1.0,
         None,
         ChromePin::NONE,
         1.0,
@@ -2984,6 +2988,8 @@ fn row_fade_inert_and_all_ones_are_byte_identical() {
         0.0,
         [0.0, 0.0],
         BackgroundTreatmentParams::default(),
+        1.0,
+        // COLORED-BG-FLOOR inert: equal alphas.
         1.0,
         None,
         ChromePin::NONE,
@@ -3120,4 +3126,178 @@ fn row_fade_scales_color_glyph_vertex_alpha() {
         assert_eq!(f.uv, inert[i].uv, "UV untouched");
         assert!((f.alpha - 0.4).abs() < 1e-6, "alpha rides the row ramp");
     }
+}
+
+// COLORED-BG-FLOOR: pass 1 composites a cell whose RESOLVED background differs
+// from the theme default at `colored_bg_opacity`; default-background cells keep
+// the plain content alpha. Classification happens at the resolution seam —
+// post-inverse, theme-resolved — so an explicit SGR background that resolves to
+// the exact theme default stays on the default (glassy) path, and an inverse
+// cell (visible backdrop = its resolved foreground) counts as colored.
+fn colored_floor_vertices(
+    snapshot: &Snapshot,
+    atlas: &GlyphAtlas,
+    cell_opacity: f32,
+    colored_opacity: f32,
+    pin: crate::grid::ChromePin,
+) -> Vec<Vertex> {
+    let mut verts = Vec::new();
+    build_cell_vertices_with_ligatures_and_selection_into(
+        &mut verts,
+        snapshot,
+        atlas,
+        &[],
+        &[],
+        0.0,
+        [0.0, 0.0],
+        BackgroundTreatmentParams::default(),
+        cell_opacity,
+        colored_opacity,
+        None,
+        pin,
+        1.0,
+    );
+    verts
+}
+
+#[test]
+fn colored_bg_floor_lifts_only_resolved_non_default_backgrounds() {
+    let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
+    let mut term = Terminal::new(4, 1);
+    term.advance(b"\x1b[?25l");
+    let mut snapshot = term.snapshot();
+    let theme_bg = snapshot.colors.background;
+    // col 0: default background. col 1: explicit non-default (red). col 2:
+    // explicit RGB equal to the theme default — resolves to default, so the
+    // floor must NOT engage. col 3: inverse over default colors — the visible
+    // backdrop is the resolved foreground, a non-default background.
+    snapshot.cells[1].attrs.background = Color::Indexed(1);
+    snapshot.cells[2].attrs.background = Color::Rgb(theme_bg.red, theme_bg.green, theme_bg.blue);
+    snapshot.cells[3].attrs.set_inverse(true);
+
+    let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * VERTS_PER_QUAD].color[3];
+    let content = 0.24_f32;
+    let floored = 0.72_f32;
+    let verts = colored_floor_vertices(
+        &snapshot,
+        &atlas,
+        content,
+        floored,
+        crate::grid::ChromePin::NONE,
+    );
+    assert!(
+        (bg_alpha(&verts, 0) - content).abs() < 1e-6,
+        "default cell keeps the content alpha at any knob"
+    );
+    assert!(
+        (bg_alpha(&verts, 1) - floored).abs() < 1e-6,
+        "explicit colored background composites at the floored alpha"
+    );
+    assert!(
+        (bg_alpha(&verts, 2) - content).abs() < 1e-6,
+        "an SGR background resolving to the theme default stays default"
+    );
+    assert!(
+        (bg_alpha(&verts, 3) - floored).abs() < 1e-6,
+        "an inverse cell's visible backdrop is colored"
+    );
+
+    // Equal alphas are the exact inert path: byte-identical vertices, colored
+    // cells included — this is the knob-0.0 / opaque-window identity the GPU
+    // layer reduces to.
+    let inert = colored_floor_vertices(
+        &snapshot,
+        &atlas,
+        content,
+        content,
+        crate::grid::ChromePin::NONE,
+    );
+    for quad in 0..4 {
+        assert!(
+            (bg_alpha(&inert, quad) - content).abs() < 1e-6,
+            "equal alphas keep every cell on the content plane (quad={quad})"
+        );
+    }
+    // The floor touches ONLY the surface alpha: rgb channels are identical
+    // between the floored and inert builds for every background vertex.
+    for (a, b) in verts.iter().zip(inert.iter()).take(4 * VERTS_PER_QUAD) {
+        assert_eq!(&a.color[..3], &b.color[..3], "floor must not shift rgb");
+    }
+}
+
+#[test]
+fn colored_bg_floor_exempts_chrome_selection_and_forced_opaque_cells() {
+    let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
+    // Two rows; the chrome pin marks row 0 as composited chrome (geometry is
+    // preserved even at rest, scroll offset 0.0 keeps every position inert).
+    let mut term = Terminal::new(2, 2);
+    term.advance(b"\x1b[?25l");
+    let mut snapshot = term.snapshot();
+    for cell in snapshot.cells.iter_mut() {
+        cell.attrs.background = Color::Indexed(4);
+    }
+    // Row 1, col 1 additionally carries the selection marker: the selection's
+    // own surface-alpha contract must win over the floor.
+    snapshot.cells[3].attrs.set_selected(true);
+    snapshot.cells[3].attrs.set_inverse(true);
+
+    let pin = crate::grid::ChromePin {
+        scroll_offset_y: 0.0,
+        top_rows: 1,
+        rail_col_start: 0,
+        rail_col_end: 0,
+        band_glyph_dy_rows: 0.0,
+        rail_glyph_dy_rows: 0.0,
+        gap_x: 0.0,
+        gap_y: 0.0,
+    };
+    let content = 0.24_f32;
+    let floored = 0.72_f32;
+    let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * VERTS_PER_QUAD].color[3];
+    let verts = colored_floor_vertices(&snapshot, &atlas, content, floored, pin);
+    // Row 0 (quads 0,1) is chrome: colored fills stay on the plain content
+    // alpha (`tab_panel_strength` owns chrome opacity).
+    assert!(
+        (bg_alpha(&verts, 0) - content).abs() < 1e-6
+            && (bg_alpha(&verts, 1) - content).abs() < 1e-6,
+        "chrome cells are exempt from the floor"
+    );
+    // Row 1, col 0 is colored content: floored.
+    assert!(
+        (bg_alpha(&verts, 2) - floored).abs() < 1e-6,
+        "content colored cell floors"
+    );
+    // Row 1, col 1 is selected: the selection lerp (content plane at knob 1.0
+    // -> fully opaque) wins over the floor.
+    assert!(
+        (bg_alpha(&verts, 3) - 1.0).abs() < 1e-6,
+        "selection contract wins over the floor"
+    );
+
+    // A forced-opaque overlay cell stays fully opaque regardless of the floor.
+    let mut overlay_verts = Vec::new();
+    build_cell_vertices_with_ligatures_and_selection_into(
+        &mut overlay_verts,
+        &snapshot,
+        &atlas,
+        &[],
+        &[],
+        0.0,
+        [0.0, 0.0],
+        BackgroundTreatmentParams::default(),
+        content,
+        floored,
+        Some(CellRegion {
+            left: 0,
+            top: 1,
+            width: 1,
+            height: 1,
+        }),
+        crate::grid::ChromePin::NONE,
+        1.0,
+    );
+    assert!(
+        (bg_alpha(&overlay_verts, 2) - 1.0).abs() < 1e-6,
+        "forced-opaque overlay cell wins over the floor"
+    );
 }

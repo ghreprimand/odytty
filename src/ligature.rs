@@ -804,6 +804,8 @@ mod tests {
                                 origin,
                                 BackgroundTreatmentParams::default(),
                                 opacity,
+                                // COLORED-BG-FLOOR inert: equal alphas.
+                                opacity,
                                 None,
                                 ChromePin::NONE,
                                 opacity,

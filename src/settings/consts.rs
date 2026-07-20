@@ -20,6 +20,7 @@ pub const BACKGROUND_IMAGE_ENV: &str = "ODYTTY_BACKGROUND_IMAGE";
 pub const BACKGROUND_BLUR_RADIUS_ENV: &str = "ODYTTY_BACKGROUND_BLUR_RADIUS";
 pub const BACKGROUND_IMAGE_SCRIM_ENV: &str = "ODYTTY_BACKGROUND_IMAGE_SCRIM";
 pub const CELL_BG_OPACITY_ENV: &str = "ODYTTY_CELL_BG_OPACITY";
+pub const COLORED_BG_OPACITY_ENV: &str = "ODYTTY_COLORED_BG_OPACITY";
 pub const SELECTION_OPACITY_ENV: &str = "ODYTTY_SELECTION_OPACITY";
 pub const WINDOW_PADDING_ENV: &str = "ODYTTY_WINDOW_PADDING";
 pub const BLOOM_ENV: &str = "ODYTTY_BLOOM";
@@ -153,6 +154,7 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     BACKGROUND_BLUR_RADIUS_ENV,
     BACKGROUND_IMAGE_SCRIM_ENV,
     CELL_BG_OPACITY_ENV,
+    COLORED_BG_OPACITY_ENV,
     SELECTION_OPACITY_ENV,
     WINDOW_PADDING_ENV,
     BLOOM_ENV,
@@ -384,6 +386,24 @@ pub const MAX_WINDOW_PADDING_PX: f32 = 64.0;
 pub const DEFAULT_CELL_BG_OPACITY: f32 = 0.8;
 pub const MIN_CELL_BG_OPACITY: f32 = 0.0;
 pub const MAX_CELL_BG_OPACITY: f32 = 1.0;
+
+/// Colored-background opacity floor (`ODYTTY_COLORED_BG_OPACITY`): the minimum
+/// window-alpha contribution for cells whose RESOLVED background differs from
+/// the theme's default background (prompt powerline segments, hyperlink button
+/// chips, app-painted status/highlight blocks). At low window opacity a single
+/// uniform cell alpha washes those blocks out along with the empty backdrop;
+/// this floor keeps them strong while the default background stays glassy —
+/// the "keep background colors opaque" behaviour familiar from other
+/// terminals, made continuous. A colored cell composites at
+/// `cell_bg_opacity * max(window_opacity_alpha, floor)`, so `0.0` disables the
+/// knob (exactly today's product), `1.0` renders colored backgrounds at the
+/// full `cell_bg_opacity` regardless of window transparency, and an OPAQUE
+/// window is byte-identical at every knob value (`max(1.0, k) == 1.0`). It can
+/// only strengthen colored cells, never weaken them. Selection keeps its own
+/// independent `selection_opacity` path; chrome bands keep `tab_panel_strength`.
+pub const DEFAULT_COLORED_BG_OPACITY: f32 = 0.9;
+pub const MIN_COLORED_BG_OPACITY: f32 = 0.0;
+pub const MAX_COLORED_BG_OPACITY: f32 = 1.0;
 
 /// Selection opacity (`ODYTTY_SELECTION_OPACITY`): the alpha strength of the
 /// text-selection highlight fill, independent of window opacity, theme colours,

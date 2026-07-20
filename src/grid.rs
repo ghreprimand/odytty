@@ -1033,6 +1033,12 @@ pub fn build_cell_vertices_with_focus_dim_and_origin_into(
         origin,
         treatment,
         cell_bg_opacity,
+        // COLORED-BG-FLOOR EXEMPT: this entry point serves chrome surfaces (the
+        // floating rail strip) and fixed startup/overlay builds, whose effective
+        // opacity is owned by `tab_panel_strength` / their own contract — the
+        // floor rides only the content entry points below. Equal values are the
+        // exact inert path in `build_cells_core`.
+        cell_bg_opacity,
         opaque_region,
         chrome_pin,
         // No selection opacity threaded: selected cells (none on this seam)
@@ -1073,6 +1079,9 @@ pub fn build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
         origin,
         treatment,
         cell_bg_opacity,
+        // COLORED-BG-FLOOR EXEMPT: legacy/no-selection seam (initial blank
+        // buffer, ligature harnesses) — equal values are the exact inert path.
+        cell_bg_opacity,
         opaque_region,
         chrome_pin,
         1.0,
@@ -1101,6 +1110,10 @@ pub fn build_cell_vertices_with_ligatures_and_selection_into(
     origin: [f32; 2],
     treatment: BackgroundTreatmentParams,
     cell_bg_opacity: f32,
+    // COLORED-BG-FLOOR: the surface alpha for cells whose RESOLVED background
+    // differs from the theme default (see `build_cells_core`). Passing the same
+    // value as `cell_bg_opacity` is the exact inert path (chrome strips do).
+    colored_bg_opacity: f32,
     opaque_region: Option<CellRegion>,
     chrome_pin: ChromePin,
     selection_opacity: f32,
@@ -1115,6 +1128,7 @@ pub fn build_cell_vertices_with_ligatures_and_selection_into(
         origin,
         treatment,
         cell_bg_opacity,
+        colored_bg_opacity,
         opaque_region,
         chrome_pin,
         selection_opacity,
@@ -1140,6 +1154,9 @@ pub fn build_cell_vertices_with_ligatures_selection_and_row_fade_into(
     origin: [f32; 2],
     treatment: BackgroundTreatmentParams,
     cell_bg_opacity: f32,
+    // COLORED-BG-FLOOR: surface alpha for resolved-non-default backgrounds;
+    // `== cell_bg_opacity` is the exact inert path.
+    colored_bg_opacity: f32,
     opaque_region: Option<CellRegion>,
     chrome_pin: ChromePin,
     selection_opacity: f32,
@@ -1155,6 +1172,7 @@ pub fn build_cell_vertices_with_ligatures_selection_and_row_fade_into(
         origin,
         treatment,
         cell_bg_opacity,
+        colored_bg_opacity,
         opaque_region,
         chrome_pin,
         selection_opacity,
@@ -1188,6 +1206,14 @@ fn build_cells_core(
     origin: [f32; 2],
     treatment: BackgroundTreatmentParams,
     cell_bg_opacity: f32,
+    // COLORED-BG-FLOOR: the surface alpha for a cell whose resolved background
+    // (post-inverse, pre-dim/treatment) differs from the theme's default
+    // background. The GPU layer computes it as
+    // `cell_bg_opacity_setting * max(window_bg_alpha, colored_bg_opacity)`, so
+    // it can only be >= `cell_bg_opacity` (the floor strengthens, never
+    // weakens) and equals it exactly when the knob is 0.0 or the window is
+    // opaque — both byte-identical inert paths, as is passing equal values.
+    colored_bg_opacity: f32,
     opaque_region: Option<CellRegion>,
     chrome_pin: ChromePin,
     selection_opacity: f32,
@@ -1212,67 +1238,83 @@ fn build_cells_core(
     // a wide lead cell. Computed identically in both passes. `row`/`col` are the
     // cell's grid position, needed by the ID3/U5 background treatment (gradient /
     // vignette) which modulates the background by position.
-    let resolve = |cell: &crate::core::Cell, row: usize, col: usize| -> ([f32; 4], [f32; 4]) {
-        let mut fg = foreground_linear(&snapshot.colors, cell.attrs.foreground);
-        let mut bg = background_linear(&snapshot.colors, cell.attrs.background);
-        if cell.attrs.inverse() {
-            std::mem::swap(&mut fg, &mut bg);
-        }
-        // SELECTION-OPACITY (default/inverse path): a selected cell painted via
-        // the historical inverse swap blends its selection COLORS toward the
-        // UNSELECTED appearance in linear color space, so `selection_opacity`
-        // controls the selection's tint STRENGTH. The selected cell's surface
-        // alpha is handled separately in Pass 1 (lerped from content opacity up
-        // to fully opaque by the same knob), so tint and surface alpha recede
-        // toward the unselected look together as the knob falls, and the
-        // selection punches through window transparency as the knob rises.
-        // After the swap `bg` is the selection fill (the cell's original
-        // foreground) and `fg` is the backdrop (the cell's original background),
-        // so compositing the fill over the backdrop at `selection_opacity` — and
-        // the text symmetrically back toward the unselected foreground — recedes
-        // the whole cell toward its unselected look as the knob falls. At 1.0 the
-        // `composite_over` endpoints are exact, so a fully-opaque selection is
-        // byte-identical to the plain swap; the themed path pre-composites its
-        // fill upstream (`themed_selection_style`) and needs no blend here.
-        if selection_opacity < 1.0 && cell.attrs.selected() && cell.attrs.inverse() {
-            let fill = [bg[0], bg[1], bg[2]];
-            let backdrop = [fg[0], fg[1], fg[2]];
-            let blended_bg = crate::color::composite_over(fill, backdrop, selection_opacity);
-            let blended_fg = crate::color::composite_over(backdrop, fill, selection_opacity);
-            bg = [blended_bg[0], blended_bg[1], blended_bg[2], bg[3]];
-            fg = [blended_fg[0], blended_fg[1], blended_fg[2], fg[3]];
-        }
-        if cell.attrs.dim() {
-            fg = dim_color(fg);
-        }
-        // ID2 focus dimming: while the window is unfocused, recede the whole
-        // cell — both foreground and background — perceptually in OKLab so hue
-        // is preserved and relative contrast stays roughly stable. Applied after
-        // the SGR-dim attribute and before the RV1 floor so legibility wins by
-        // construction (the floor sees the dimmed background and re-lifts text
-        // above the configured ratio). `focus_dim == 0.0` (focused, or the knob
-        // off) is skipped entirely, keeping focused frames byte-identical.
-        if focus_dim > 0.0 {
-            fg = text::dim_linear_rgba(fg, focus_dim);
-            bg = text::dim_linear_rgba(bg, focus_dim);
-        }
-        // ID3/U5 background treatment (gradient / vignette): modulate the cell
-        // background by its grid position. Applied AFTER focus dimming and
-        // BEFORE the RV1 floor, so the floor sees the treated per-cell
-        // background and re-lifts the foreground to keep contrast — readability
-        // is preserved by construction, per cell. `treatment.active() == false`
-        // (kind None or zero strength, the default) skips this entirely, so the
-        // plain/fast path stays byte-identical.
-        if treatment.active() && !chrome_pin.is_chrome(row, col) {
-            bg = treatment.apply_to(bg, row, col, rows, cols);
-        }
-        // RV1 minimum-contrast floor: lift the foreground until it meets the
-        // configured WCAG ratio against this cell's background. Applied last so
-        // it sees the post-inverse, post-dim color. Exact passthrough at the
-        // default floor of 1.0, so the plain path is byte-identical.
-        fg = text::enforce_contrast_rgba(fg, bg);
-        (fg, bg)
-    };
+    // COLORED-BG-FLOOR: the reference the "non-default background" test compares
+    // against — the theme's default background AFTER theme resolution (the same
+    // `DynamicColors` the cells resolve through), so an SGR background that
+    // happens to resolve to the exact default colour (e.g. an app repainting
+    // the screen in the theme's own background) still composites as default and
+    // keeps the glassy treatment.
+    let default_bg = rgb_linear(snapshot.colors.background);
+    let resolve =
+        |cell: &crate::core::Cell, row: usize, col: usize| -> ([f32; 4], [f32; 4], bool) {
+            let mut fg = foreground_linear(&snapshot.colors, cell.attrs.foreground);
+            let mut bg = background_linear(&snapshot.colors, cell.attrs.background);
+            if cell.attrs.inverse() {
+                std::mem::swap(&mut fg, &mut bg);
+            }
+            // COLORED-BG-FLOOR: classified at the resolution seam — post-inverse
+            // (an inverse cell's visible backdrop is its resolved foreground),
+            // pre-dim/pre-treatment (those modulate default cells too; the
+            // classification must not flip when the window loses focus or a
+            // gradient is active). Exact float compare is sound: both sides come
+            // through the same `rgb_linear` conversion, so an equal source
+            // colour yields bit-equal channels.
+            let colored_bg = bg != default_bg;
+            // SELECTION-OPACITY (default/inverse path): a selected cell painted via
+            // the historical inverse swap blends its selection COLORS toward the
+            // UNSELECTED appearance in linear color space, so `selection_opacity`
+            // controls the selection's tint STRENGTH. The selected cell's surface
+            // alpha is handled separately in Pass 1 (lerped from content opacity up
+            // to fully opaque by the same knob), so tint and surface alpha recede
+            // toward the unselected look together as the knob falls, and the
+            // selection punches through window transparency as the knob rises.
+            // After the swap `bg` is the selection fill (the cell's original
+            // foreground) and `fg` is the backdrop (the cell's original background),
+            // so compositing the fill over the backdrop at `selection_opacity` — and
+            // the text symmetrically back toward the unselected foreground — recedes
+            // the whole cell toward its unselected look as the knob falls. At 1.0 the
+            // `composite_over` endpoints are exact, so a fully-opaque selection is
+            // byte-identical to the plain swap; the themed path pre-composites its
+            // fill upstream (`themed_selection_style`) and needs no blend here.
+            if selection_opacity < 1.0 && cell.attrs.selected() && cell.attrs.inverse() {
+                let fill = [bg[0], bg[1], bg[2]];
+                let backdrop = [fg[0], fg[1], fg[2]];
+                let blended_bg = crate::color::composite_over(fill, backdrop, selection_opacity);
+                let blended_fg = crate::color::composite_over(backdrop, fill, selection_opacity);
+                bg = [blended_bg[0], blended_bg[1], blended_bg[2], bg[3]];
+                fg = [blended_fg[0], blended_fg[1], blended_fg[2], fg[3]];
+            }
+            if cell.attrs.dim() {
+                fg = dim_color(fg);
+            }
+            // ID2 focus dimming: while the window is unfocused, recede the whole
+            // cell — both foreground and background — perceptually in OKLab so hue
+            // is preserved and relative contrast stays roughly stable. Applied after
+            // the SGR-dim attribute and before the RV1 floor so legibility wins by
+            // construction (the floor sees the dimmed background and re-lifts text
+            // above the configured ratio). `focus_dim == 0.0` (focused, or the knob
+            // off) is skipped entirely, keeping focused frames byte-identical.
+            if focus_dim > 0.0 {
+                fg = text::dim_linear_rgba(fg, focus_dim);
+                bg = text::dim_linear_rgba(bg, focus_dim);
+            }
+            // ID3/U5 background treatment (gradient / vignette): modulate the cell
+            // background by its grid position. Applied AFTER focus dimming and
+            // BEFORE the RV1 floor, so the floor sees the treated per-cell
+            // background and re-lifts the foreground to keep contrast — readability
+            // is preserved by construction, per cell. `treatment.active() == false`
+            // (kind None or zero strength, the default) skips this entirely, so the
+            // plain/fast path stays byte-identical.
+            if treatment.active() && !chrome_pin.is_chrome(row, col) {
+                bg = treatment.apply_to(bg, row, col, rows, cols);
+            }
+            // RV1 minimum-contrast floor: lift the foreground until it meets the
+            // configured WCAG ratio against this cell's background. Applied last so
+            // it sees the post-inverse, post-dim color. Exact passthrough at the
+            // default floor of 1.0, so the plain path is byte-identical.
+            fg = text::enforce_contrast_rgba(fg, bg);
+            (fg, bg, colored_bg)
+        };
     let span_of = |row: usize, col: usize| -> f32 {
         if col + 1 < cols && snapshot.cells[row * cols + col + 1].wide_continuation {
             2.0
@@ -1291,7 +1333,7 @@ fn build_cells_core(
             if cell.wide_continuation {
                 continue;
             }
-            let (_, bg) = resolve(cell, row, col);
+            let (_, bg, colored_bg) = resolve(cell, row, col);
             // ID3/U5 image background: scale ONLY the background-quad alpha by
             // `cell_bg_opacity` so a background image shows through behind text.
             // `1.0` (the default) yields `bg[3] * 1.0 == bg[3]` — byte-identical.
@@ -1322,10 +1364,25 @@ fn build_cells_core(
             // tint recedes in lockstep (see `resolve` for the inverse path and
             // `themed_selection_style` for the themed path). An `opaque_region`
             // overlay cell still forces fully opaque, unchanged.
+            //
+            // COLORED-BG-FLOOR: a cell whose resolved background differs from
+            // the theme default (classified in `resolve`, post-inverse) takes
+            // `colored_bg_opacity` instead — the floored alpha that keeps
+            // powerline segments, button chips, and app-painted blocks strong
+            // as window opacity drops, while default-background cells keep the
+            // glassy product. Precedence: a forced-opaque overlay cell and a
+            // selected cell (its own `selection_opacity` contract) both win
+            // over the floor; composited chrome cells (`is_chrome`) are
+            // exempt — chrome opacity is owned by `tab_panel_strength`, and
+            // the wash math tops up from the SAME content alpha these cells
+            // composite at. Equal alphas make every branch below identical, so
+            // the knob-off / opaque-window paths are byte-identical.
             let cell_opacity = if opaque_region.is_some_and(|r| r.contains(row, col)) {
                 1.0
             } else if cell.attrs.selected() {
                 cell_bg_opacity + selection_opacity * (1.0 - cell_bg_opacity)
+            } else if colored_bg && !chrome_pin.is_chrome(row, col) {
+                colored_bg_opacity
             } else {
                 cell_bg_opacity
             };
@@ -1359,7 +1416,9 @@ fn build_cells_core(
             if cell.wide_continuation {
                 continue;
             }
-            let (fg, bg) = resolve(cell, row, col);
+            // Pass 2 draws ink only; the colored-background classification is a
+            // pass-1 (surface alpha) concern.
+            let (fg, bg, _) = resolve(cell, row, col);
             // VE4 new-output fade: freshly arrived rows ramp their FOREGROUND
             // ink in (glyphs, marks, ligatures, decorations below) while the
             // pass-1 background stays untouched. Applied after the RV1 floor:
