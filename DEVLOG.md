@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-21 -- Release v0.9.4 — Legacy Bash prompt safety and release gating
+
+Version 0.9.4 fixes prompt-scoped keyboard enhancement on macOS' legacy Bash
+3.2. Bash 4.4 and newer continue to remove Kitty keyboard disambiguation
+through `PS0` while preserving user hooks. Older Bash versions now use a
+prompt-guarded first-command DEBUG boundary, removing the flag exactly once
+before command execution without weakening OSC 133 command-status reporting.
+Ordinary prompts, modern Bash, Fish, PowerShell, and Windows ConPTY retain their
+established paths.
+
+Tag-triggered releases now fail closed unless the exact tagged commit already
+has a completed, successful CI run. Missing, queued, in-progress, cancelled,
+failed, or wrong-commit results block artifact publication and every downstream
+package channel. Manual workflow validation remains available without gaining
+a publication path. This makes the release ordering explicit: push the release
+commit, wait for its full platform matrix, and only then create the tag.
+
 ## 2026-07-21 -- Release v0.9.3 — Fedora keyboard fidelity, command gutters, and pane polish
 
 Version 0.9.3 is released. Linux keyboard routing now normalizes compositor-
