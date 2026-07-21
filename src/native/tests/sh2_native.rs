@@ -141,7 +141,7 @@ fn gutter_off_emits_no_overlays_even_with_marks() {
     );
     assert!(
         overlays.is_empty(),
-        "the default-off gutter adds no overlay quads"
+        "the disabled gutter adds no overlay quads"
     );
 }
 

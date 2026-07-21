@@ -7,13 +7,32 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Command-status gutters remain visible after splitting
+
+The single-pane renderer collected OSC 133 command marks and appended their
+success/failure gutter quads, but the multi-pane renderer populated that
+overlay lane with cursor effects alone. Splitting a tab therefore hid every
+status bar even though the shell marks, terminal model, and setting remained
+active.
+
+Each visible pane now derives gutter bars from its own terminal, scrollback
+viewport, grid, and window-space origin. The quads follow sub-row scrolling and
+are clipped to the pane's at-rest grid rectangle so they cannot cross a
+divider. The disabled setting still avoids collecting marks. The Fedora-shaped
+interactive Bash regression now drives its real OSC 133 stream through the
+terminal model and verifies both single-pane and translated split-pane green
+and red bars. Shell integration, PTY behavior, and keyboard protocols are
+unchanged on every platform.
+
+---
+
 ## 2026-07-20 -- Restore shell integration when desktop sessions omit SHELL
 
 Some graphical Linux sessions do not export `SHELL`. OdyTTY previously fell
 straight back to `/bin/sh`; on Fedora that path is a Bash symlink, so the prompt
 looked like Bash while spawn-time integration classified the requested name as
-unsupported `sh`. OSC 133 command marks were never installed, leaving the
-command-status gutter empty even though both related settings were on.
+unsupported `sh`. That launch shape omitted OSC 133 command marks even when
+both related settings were on.
 
 The Unix default-shell resolver now uses the effective user's NSS/passwd login
 shell when `SHELL` is absent or empty, retaining `/bin/sh` only as the final

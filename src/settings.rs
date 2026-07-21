@@ -1459,8 +1459,8 @@ pub struct Settings {
     /// the left edge of each finished command's prompt row reads green for an
     /// explicit `exit 0` and red for a non-zero exit, sourced from the OSC 133
     /// command blocks and coloured from the active ANSI palette (so it
-    /// daltonises with U4 for free). Off by default — the off path draws nothing
-    /// and is pixel-identical to today.
+    /// daltonises with U4 for free). On by default; the off path draws nothing
+    /// and is pixel-identical to a plain margin.
     pub command_status_gutter: bool,
     /// Always show the tab bar, even for a single tab (F4 ODP-7). Off by
     /// default; with one unnamed tab the bar stays hidden and the render path is

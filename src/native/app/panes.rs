@@ -34,6 +34,14 @@ struct PaneGraphics {
     origin: [f32; 2],
     scissor: [u32; 4],
 }
+
+struct PaneGutterInput {
+    pane_index: usize,
+    marks: Vec<(usize, crate::core::PromptKind)>,
+    viewport_offset: usize,
+    scrollback_len: usize,
+    geometry: gutter_ui::PaneGutterGeometry,
+}
 use crate::graphics::VisiblePlacement;
 use crate::native::gpu::{OverlayTop, PaneRender, PanelFrameQuads, RailOverlay};
 use crate::native::image_layer::{PaneImageInput, PaneImageUpload};
@@ -626,6 +634,7 @@ impl App {
         let content = pane_content_rect(surface_w, surface_h, cell, padding, reserve);
         let treatment = self.background_treatment_params();
         let focused = self.sessions.active_id();
+        let gutter_on = self.settings.command_status_gutter;
 
         // Per-pane owned snapshots (PaneRender borrows them, so they must
         // outlive the render call). Each pane is snapshotted from its own
@@ -647,6 +656,10 @@ impl App {
         // highlights: (index in `panes_owned`, session token, render offset,
         // scrollback length).
         let mut pane_overlays: Vec<(usize, SessionToken, usize, usize)> = Vec::new();
+        // Per-pane SH2 gutter inputs captured under the corresponding terminal
+        // lock, then translated into window coordinates after all session
+        // borrows end. Empty while the gutter setting is off.
+        let mut pane_gutter_inputs: Vec<PaneGutterInput> = Vec::new();
         // Focused cursor inputs captured under its terminal lock, then consumed
         // after all session borrows end: (pane index, render offset, scrollback
         // length, blinking style).
@@ -719,6 +732,7 @@ impl App {
             // the GPU are not re-fetched.
             let namespace = token.0;
             let visible = terminal.visible_graphics(render_offset);
+            let prompt_marks = gutter_on.then(|| terminal.screen().prompt_marks());
             let cached_for_pane: BTreeSet<StoredImageId> = cached_pane_ids
                 .iter()
                 .filter(|(ns, _)| *ns == namespace)
@@ -754,18 +768,33 @@ impl App {
                 snapshot.dimensions.rows,
                 cell.height as f32,
             );
+            let clip_rect = [
+                base_origin[0],
+                base_origin[1],
+                base_origin[0] + snapshot.dimensions.columns as f32 * cell.width as f32,
+                base_origin[1] + snapshot.dimensions.rows as f32 * cell.height as f32,
+            ];
+            if let Some(marks) = prompt_marks {
+                pane_gutter_inputs.push(PaneGutterInput {
+                    pane_index: panes_owned.len(),
+                    marks,
+                    viewport_offset: render_offset,
+                    scrollback_len,
+                    geometry: gutter_ui::PaneGutterGeometry {
+                        dimensions: snapshot.dimensions,
+                        cell,
+                        origin,
+                        clip_rect,
+                    },
+                });
+            }
             if is_focused {
                 focused_cursor_input = Some((
                     panes_owned.len(),
                     render_offset,
                     scrollback_len,
                     cursor_blinking,
-                    [
-                        base_origin[0],
-                        base_origin[1],
-                        base_origin[0] + snapshot.dimensions.columns as f32 * cell.width as f32,
-                        base_origin[1] + snapshot.dimensions.rows as f32 * cell.height as f32,
-                    ],
+                    clip_rect,
                 ));
             }
             // Cut 1: the pane's scissor rect = its at-rest grid rect (base
@@ -824,19 +853,32 @@ impl App {
             );
         }
 
-        // The focused pane is the sole split cursor consumer. Advance its
-        // blink/ease/slide state and attach trail quads plus one analytic-aura
-        // request to its pane. Every other pane keeps empty effects and parked
-        // timers.
-        let mut pane_cursor_effects: Vec<Vec<SolidQuad>> =
+        // Build every pane's status gutter in that pane's own scrollback and
+        // window coordinate space. This used to exist only in the single-pane
+        // renderer, so splitting a tab silently removed every success/fail bar.
+        // The focused pane then appends its cursor trail to the same overlay
+        // lane; background panes retain only their gutter quads.
+        let mut pane_effects: Vec<Vec<SolidQuad>> =
             (0..panes_owned.len()).map(|_| Vec::new()).collect();
+        for input in pane_gutter_inputs {
+            let Some(pane_effects) = pane_effects.get_mut(input.pane_index) else {
+                continue;
+            };
+            *pane_effects = gutter_ui::pane_command_status_gutter_quads(
+                &input.marks,
+                input.viewport_offset,
+                input.scrollback_len,
+                input.geometry,
+                &self.effective_theme.palette,
+            );
+        }
         let mut pane_cursor_glow = vec![None; panes_owned.len()];
         let mut pane_cursor_streak = vec![None; panes_owned.len()];
         if let Some((idx, viewport_offset, scrollback_len, cursor_blinking, clip_rect)) =
             focused_cursor_input
             && let Some((snapshot, origin, true, cursor_style, _)) = panes_owned.get_mut(idx)
         {
-            pane_cursor_effects[idx] = self.advance_focused_multipane_cursor(
+            pane_effects[idx].extend(self.advance_focused_multipane_cursor(
                 now,
                 snapshot,
                 *cursor_style,
@@ -846,7 +888,7 @@ impl App {
                 clip_rect,
                 viewport_offset,
                 scrollback_len,
-            );
+            ));
             pane_cursor_glow[idx] = self.cursor_glow_request(clip_rect);
             pane_cursor_streak[idx] = self.cursor_streak_request(now, clip_rect);
         }
@@ -976,7 +1018,7 @@ impl App {
                 focused: *is_focused,
                 cursor_style: *cursor_style,
                 focus_dim: pane_focus_dim(*is_focused, inactive_dim),
-                overlays: &pane_cursor_effects[idx],
+                overlays: &pane_effects[idx],
                 treatment,
                 clip: *clip,
                 // Content panes carry no chrome label; the offsets are inert.

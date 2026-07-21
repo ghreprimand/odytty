@@ -46,8 +46,8 @@ const ANSI_BRIGHT_RED: usize = 9;
 
 impl App {
     /// Build the success/fail gutter overlay quads for the current viewport, or
-    /// an empty list when the gutter is disabled (the default) or there are no
-    /// finished commands on screen.
+    /// an empty list when the gutter is disabled or there are no finished
+    /// commands on screen.
     ///
     /// Gated on `command_status_gutter`: when off it returns before locking the
     /// terminal or reading marks, so the off path adds no work and the composed
@@ -93,15 +93,72 @@ pub(super) fn command_status_gutter_quads(
     padding: WindowPadding,
     palette: &[Srgb; 16],
 ) -> Vec<SolidQuad> {
+    command_status_gutter_quads_at_origin(
+        marks,
+        viewport_offset,
+        scrollback_len,
+        dimensions,
+        cell,
+        [0.0, padding.as_f32()],
+        palette,
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct PaneGutterGeometry {
+    pub(super) dimensions: Dimensions,
+    pub(super) cell: CellSize,
+    pub(super) origin: [f32; 2],
+    pub(super) clip_rect: [f32; 4],
+}
+
+/// Multi-pane analogue of [`command_status_gutter_quads`]. The mark geometry
+/// is built directly in window coordinates from the pane's gliding content
+/// origin, then clipped to that pane's at-rest grid rectangle so a status bar
+/// cannot cross a divider during sub-row scrolling.
+pub(super) fn pane_command_status_gutter_quads(
+    marks: &[(usize, PromptKind)],
+    viewport_offset: usize,
+    scrollback_len: usize,
+    geometry: PaneGutterGeometry,
+    palette: &[Srgb; 16],
+) -> Vec<SolidQuad> {
+    let mut quads = command_status_gutter_quads_at_origin(
+        marks,
+        viewport_offset,
+        scrollback_len,
+        geometry.dimensions,
+        geometry.cell,
+        geometry.origin,
+        palette,
+    );
+    for quad in &mut quads {
+        quad.rect[0] = quad.rect[0].max(geometry.clip_rect[0]);
+        quad.rect[1] = quad.rect[1].max(geometry.clip_rect[1]);
+        quad.rect[2] = quad.rect[2].min(geometry.clip_rect[2]);
+        quad.rect[3] = quad.rect[3].min(geometry.clip_rect[3]);
+    }
+    quads.retain(|quad| quad.rect[0] < quad.rect[2] && quad.rect[1] < quad.rect[3]);
+    quads
+}
+
+fn command_status_gutter_quads_at_origin(
+    marks: &[(usize, PromptKind)],
+    viewport_offset: usize,
+    scrollback_len: usize,
+    dimensions: Dimensions,
+    cell: CellSize,
+    origin: [f32; 2],
+    palette: &[Srgb; 16],
+) -> Vec<SolidQuad> {
     let rows = dimensions.rows;
     let cell_h = cell.height as f32;
     if rows == 0 || cell_h <= 0.0 {
         return Vec::new();
     }
     let top_abs = scrollback_len.saturating_sub(viewport_offset);
-    let pad = padding.as_f32();
     let inset = cell_h * GUTTER_ROW_INSET_FRAC;
-    let x1 = GUTTER_WIDTH_PX;
+    let x1 = origin[0] + GUTTER_WIDTH_PX;
 
     let mut quads = Vec::new();
     for block in command_blocks(marks) {
@@ -118,10 +175,10 @@ pub(super) fn command_status_gutter_quads(
         if screen_row >= rows {
             continue;
         }
-        let y0 = pad + screen_row as f32 * cell_h + inset;
-        let y1 = pad + (screen_row + 1) as f32 * cell_h - inset;
+        let y0 = origin[1] + screen_row as f32 * cell_h + inset;
+        let y1 = origin[1] + (screen_row + 1) as f32 * cell_h - inset;
         quads.push(SolidQuad {
-            rect: [0.0, y0, x1, y1],
+            rect: [origin[0], y0, x1, y1],
             color,
         });
     }
@@ -294,6 +351,45 @@ mod tests {
                 .any(|quad| quad.color == [red[0], red[1], red[2], GUTTER_ALPHA]),
             "false must produce a red gutter bar; marks={marks:?}"
         );
+
+        // The split renderer consumes the same terminal-derived marks but must
+        // translate them into the pane's window-space origin. This is the
+        // production helper used by every PaneRender overlay lane.
+        let pane_origin = [37.0, 23.0];
+        let pane_clip = [
+            37.0,
+            23.0,
+            37.0 + COLS as f32 * 8.0,
+            23.0 + ROWS as f32 * 10.0,
+        ];
+        let pane_quads = pane_command_status_gutter_quads(
+            &marks,
+            0,
+            terminal.screen().scrollback_len(),
+            PaneGutterGeometry {
+                dimensions: dims(),
+                cell: CELL,
+                origin: pane_origin,
+                clip_rect: pane_clip,
+            },
+            &palette(),
+        );
+        assert!(
+            pane_quads
+                .iter()
+                .any(|quad| quad.color == [green[0], green[1], green[2], GUTTER_ALPHA]),
+            "split-pane true must produce a translated green gutter bar; marks={marks:?}"
+        );
+        assert!(
+            pane_quads
+                .iter()
+                .any(|quad| quad.color == [red[0], red[1], red[2], GUTTER_ALPHA]),
+            "split-pane false must produce a translated red gutter bar; marks={marks:?}"
+        );
+        assert!(
+            pane_quads.iter().all(|quad| quad.rect[0] == pane_origin[0]),
+            "split-pane gutter must be translated to the pane origin"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -422,5 +518,25 @@ mod tests {
         assert_eq!(quads.len(), 1);
         let inset = CELL.height as f32 * GUTTER_ROW_INSET_FRAC;
         assert_eq!(quads[0].rect[1], pad.as_f32() + inset);
+    }
+
+    #[test]
+    fn pane_bar_is_clipped_to_its_grid_rect() {
+        let origin = [40.0, 18.0];
+        let clip = [41.0, 20.0, 400.0, 25.0];
+        let quads = pane_command_status_gutter_quads(
+            &finished(0, 0),
+            0,
+            0,
+            PaneGutterGeometry {
+                dimensions: dims(),
+                cell: CELL,
+                origin,
+                clip_rect: clip,
+            },
+            &palette(),
+        );
+        assert_eq!(quads.len(), 1);
+        assert_eq!(quads[0].rect, [41.0, 20.0, 43.0, 25.0]);
     }
 }

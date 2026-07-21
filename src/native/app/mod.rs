@@ -432,7 +432,7 @@ pub(super) struct App {
     /// marks changed while the status gutter is enabled, so a pure OSC 133
     /// status transition (which need not move the terminal render revision)
     /// still forces a non-retained redraw and the gutter repaints. Stays at its
-    /// initial value while the gutter is off — the default path is unaffected.
+    /// initial value while the gutter is off.
     prompt_marks_epoch: u64,
     /// The terminal grid size last applied to the model and PTY. Tracked so a
     /// `Resized` event that does not change the whole-cell grid skips redundant
@@ -6348,7 +6348,7 @@ impl ApplicationHandler<UserEvent> for App {
                         self.paint_armed_path_underline_cells(&mut snapshot);
                         self.paint_click_hint_cells(&mut snapshot);
                         // Frame-overlay quad manifest: scroll indicator, then the
-                        // off-by-default SH2 gutter, then the no-op new slots.
+                        // SH2 status gutter, then the no-op new slots.
                         let mut overlays: Vec<SolidQuad> = Vec::new();
                         self.paint_scroll_indicator_quads(&ctx, &mut overlays);
                         self.paint_gutter_quads(&ctx, &mut overlays);
