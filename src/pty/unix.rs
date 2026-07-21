@@ -86,13 +86,24 @@ fn unpack_cell_metrics(packed: u64) -> CellMetrics {
 /// Bash, so the old fallback looked like Bash after exec while its `sh`
 /// program name made the integration classifier skip the Bash rcfile.
 fn default_shell_program() -> OsString {
-    resolve_default_shell(env::var_os("SHELL"), login_shell_from_passwd())
+    // Pass the NSS producer by name (uncalled) so `getpwuid_r` runs only when a
+    // non-empty `SHELL` did not already win — the common desktop case performs
+    // zero passwd/NSS lookups.
+    resolve_default_shell(env::var_os("SHELL"), login_shell_from_passwd)
 }
 
-fn resolve_default_shell(shell_env: Option<OsString>, login_shell: Option<OsString>) -> OsString {
+/// Resolve the shell program, consulting the login-shell producer lazily.
+///
+/// `login_shell` is a `FnOnce` invoked ONLY when `shell_env` is absent or empty,
+/// so a valid `SHELL` short-circuits before any passwd/NSS lookup. Empty values
+/// (env or login shell) are treated as absent and fall through to `/bin/sh`.
+fn resolve_default_shell<F>(shell_env: Option<OsString>, login_shell: F) -> OsString
+where
+    F: FnOnce() -> Option<OsString>,
+{
     shell_env
         .filter(|shell| !shell.is_empty())
-        .or_else(|| login_shell.filter(|shell| !shell.is_empty()))
+        .or_else(|| login_shell().filter(|shell| !shell.is_empty()))
         .unwrap_or_else(|| OsString::from("/bin/sh"))
 }
 
@@ -637,11 +648,13 @@ mod tests {
     #[test]
     fn default_shell_resolution_uses_login_shell_when_desktop_omits_shell() {
         assert_eq!(
-            resolve_default_shell(None, Some(OsString::from("/bin/bash"))),
+            resolve_default_shell(None, || Some(OsString::from("/bin/bash"))),
             OsString::from("/bin/bash")
         );
         assert_eq!(
-            resolve_default_shell(Some(OsString::new()), Some(OsString::from("/usr/bin/fish"))),
+            resolve_default_shell(Some(OsString::new()), || Some(OsString::from(
+                "/usr/bin/fish"
+            ))),
             OsString::from("/usr/bin/fish")
         );
     }
@@ -649,13 +662,91 @@ mod tests {
     #[test]
     fn default_shell_resolution_preserves_env_and_has_safe_final_fallback() {
         assert_eq!(
-            resolve_default_shell(
-                Some(OsString::from("/usr/bin/zsh")),
-                Some(OsString::from("/bin/bash"))
-            ),
+            resolve_default_shell(Some(OsString::from("/usr/bin/zsh")), || Some(
+                OsString::from("/bin/bash")
+            )),
             OsString::from("/usr/bin/zsh")
         );
-        assert_eq!(resolve_default_shell(None, None), OsString::from("/bin/sh"));
+        assert_eq!(
+            resolve_default_shell(None, || None),
+            OsString::from("/bin/sh")
+        );
+    }
+
+    /// The NSS/passwd producer must stay lazy: a valid non-empty `SHELL` wins
+    /// without ever invoking `login_shell_from_passwd`. This is the whole point
+    /// of the lazy-resolution change — the common desktop case performs zero
+    /// passwd/NSS lookups.
+    #[test]
+    fn valid_shell_env_performs_zero_login_shell_lookups() {
+        let calls = std::cell::Cell::new(0_u32);
+        let resolved = resolve_default_shell(Some(OsString::from("/usr/bin/zsh")), || {
+            calls.set(calls.get() + 1);
+            Some(OsString::from("/bin/bash"))
+        });
+        assert_eq!(resolved, OsString::from("/usr/bin/zsh"));
+        assert_eq!(
+            calls.get(),
+            0,
+            "a valid SHELL must short-circuit before any NSS lookup"
+        );
+    }
+
+    /// Every path that does NOT have a usable `SHELL` consults the producer
+    /// exactly once — missing env, empty env, an empty login shell (treated as
+    /// absent, falling through to `/bin/sh`), and a `None` producer result. Also
+    /// pins non-UTF8 preservation: a login shell with invalid-UTF8 bytes rides
+    /// through as an exact `OsString`.
+    #[test]
+    fn shellless_paths_consult_login_shell_exactly_once() {
+        // Missing SHELL: one call, login shell wins.
+        let calls = std::cell::Cell::new(0_u32);
+        let resolved = resolve_default_shell(None, || {
+            calls.set(calls.get() + 1);
+            Some(OsString::from("/bin/bash"))
+        });
+        assert_eq!(resolved, OsString::from("/bin/bash"));
+        assert_eq!(calls.get(), 1, "missing SHELL must consult NSS once");
+
+        // Empty SHELL: treated as absent, one call, login shell wins.
+        let calls = std::cell::Cell::new(0_u32);
+        let resolved = resolve_default_shell(Some(OsString::new()), || {
+            calls.set(calls.get() + 1);
+            Some(OsString::from("/usr/bin/fish"))
+        });
+        assert_eq!(resolved, OsString::from("/usr/bin/fish"));
+        assert_eq!(calls.get(), 1, "empty SHELL must consult NSS once");
+
+        // Empty login shell: one call, filtered as absent, /bin/sh fallback.
+        let calls = std::cell::Cell::new(0_u32);
+        let resolved = resolve_default_shell(None, || {
+            calls.set(calls.get() + 1);
+            Some(OsString::new())
+        });
+        assert_eq!(resolved, OsString::from("/bin/sh"));
+        assert_eq!(
+            calls.get(),
+            1,
+            "an empty login shell is consulted once then falls back"
+        );
+
+        // Producer yields None (lookup failure): one call, /bin/sh fallback.
+        let calls = std::cell::Cell::new(0_u32);
+        let resolved = resolve_default_shell(None, || {
+            calls.set(calls.get() + 1);
+            None
+        });
+        assert_eq!(resolved, OsString::from("/bin/sh"));
+        assert_eq!(calls.get(), 1, "a failed lookup is consulted once");
+
+        // Non-UTF8 login shell bytes survive verbatim as an OsString.
+        let non_utf8 = OsString::from_vec(vec![b'/', b'b', b'i', b'n', 0xff, b'x']);
+        let expected = non_utf8.clone();
+        let resolved = resolve_default_shell(None, move || Some(non_utf8));
+        assert_eq!(
+            resolved, expected,
+            "non-UTF8 login shell bytes must ride through unchanged"
+        );
     }
 
     #[test]

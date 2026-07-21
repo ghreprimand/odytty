@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-21 -- Resolve the default shell without a redundant NSS lookup
+
+Default-shell resolution consulted the passwd/NSS login-shell database on every
+spawn, even when a valid `SHELL` had already decided the answer. The passwd
+lookup was passed to the resolver as an eagerly evaluated argument, so
+`getpwuid_r` — which can reach a directory service on NSS-backed accounts — ran
+unconditionally before the environment value was ever considered.
+
+The login-shell producer is now consulted lazily: it runs only when `SHELL` is
+absent or empty. A valid non-empty `SHELL` short-circuits with zero passwd/NSS
+lookups, the overwhelmingly common desktop case. Empty values from either
+source are still treated as absent and fall through to `/bin/sh`, and non-UTF8
+shell paths continue to ride through as exact `OsString` bytes. New tests pin
+the call boundary directly — zero lookups when `SHELL` resolves, and exactly one
+consultation for the missing, empty, empty-result, and failed-lookup paths. This
+is a Unix-only path; Windows has no passwd surface and is unaffected.
+
+---
+
 ## 2026-07-20 -- Collapsed padded panes stay inside their bounds
 
 Aggressively narrowed or nested panes could become smaller than one cell after
