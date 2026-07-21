@@ -380,6 +380,17 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
     __ODYTTY_PROMPT_EXECUTING=1
   }
 
+  # Bash did not expand PS0 until 4.4 (macOS still ships 3.2). Keep the
+  # capability test argument-driven so its boundary is deterministic and the
+  # installed decision is made once from BASH_VERSINFO.
+  __odytty_bash_supports_ps0() {
+    [ "$1" -gt 4 ] || { [ "$1" -eq 4 ] && [ "$2" -ge 4 ]; }
+  }
+  __ODYTTY_BASH_HAS_PS0=
+  if __odytty_bash_supports_ps0 "${BASH_VERSINFO[0]:-0}" "${BASH_VERSINFO[1]:-0}"; then
+    __ODYTTY_BASH_HAS_PS0=1
+  fi
+
   # Percent-encode $PWD into an OSC 7 path. A directory name may contain BEL or
   # ESC bytes; embedded raw they would close the OSC 7 sequence and let the
   # tail inject a second, attacker-chosen control sequence. Every byte outside
@@ -437,6 +448,16 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
     case "$BASH_COMMAND" in
       __odytty_status_capture*|__odytty_prompt_command*|__odytty_debug_trap*|__odytty_append_prompt_command*|__odytty_prepend_prompt_command*) return ;;
     esac
+    # Bash <4.4 never expands PS0. At the first real command boundary after a
+    # prompt, remove the prompt-only Kitty disambiguation bit here instead.
+    # PROMPT_COMMAND helpers are excluded by the guard above, internal hooks by
+    # the case filter, and __ODYTTY_COMMAND_STARTED makes compound-command DEBUG
+    # callbacks idempotent. Modern Bash stays on the earlier PS0 boundary.
+    if [ -n "${ODYTTY_KEY_ENHANCE-}" ] &&
+       [ -z "${__ODYTTY_BASH_HAS_PS0-}" ] &&
+       [ -z "${__ODYTTY_COMMAND_STARTED-}" ]; then
+      printf '\e[=1;3u'
+    fi
     printf '\e]133;C\a'
     __ODYTTY_COMMAND_STARTED=1
   }
@@ -520,11 +541,15 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
   # inputrc or .bashrc wins. To override afterwards, rebind the sequence with
   # `bind` (e.g. `bind '"\e[127;5u": kill-whole-line'`).
   if [ -n "${ODYTTY_KEY_ENHANCE-}" ]; then
-    # Bash expands and prints PS0 after readline accepts a non-empty command but
-    # before executing it. Prefix the user's existing PS0 with a removal of only
-    # the disambiguate bit, so arbitrary child applications never inherit the
-    # prompt protocol and prompt-rendering commands cannot disable it early.
-    PS0=$'\e[=1;3u'"${PS0-}"
+    # Bash 4.4+ expands and prints PS0 after readline accepts a non-empty command
+    # but before executing it. Prefix the user's existing PS0 with a removal of
+    # only the disambiguate bit, so arbitrary child applications never inherit
+    # the prompt protocol and prompt-rendering commands cannot disable it early.
+    # Legacy Bash leaves the user's PS0 byte-for-byte untouched and uses the
+    # guarded first-real-command DEBUG boundary above.
+    if [ -n "${__ODYTTY_BASH_HAS_PS0-}" ]; then
+      PS0=$'\e[=1;3u'"${PS0-}"
+    fi
 
     __odytty_bind_if_unbound() {
       if ! { bind -p; bind -s; } 2>/dev/null | grep -qF -- "\"$1\""; then
@@ -1209,15 +1234,30 @@ mod tests {
             );
         }
 
-        // Bash uses idempotent add/remove operations. PS0 runs after readline
-        // accepts a command but before it executes, so prompt-rendering commands
-        // cannot trigger an early DEBUG-trap pop.
+        // Bash uses idempotent add/remove operations. Bash 4.4+ removes through
+        // PS0; legacy Bash (including macOS 3.2) removes at the guarded first
+        // real-command DEBUG boundary.
         assert!(bash.contains(r"=1;2u"), "bash must add disambiguate mode");
         assert!(
             bash.contains(r"=1;3u"),
-            "bash PS0 must remove disambiguate mode"
+            "bash must remove disambiguate mode"
         );
-        assert!(bash.contains("PS0="), "bash must scope removal through PS0");
+        assert!(
+            bash.contains("__odytty_bash_supports_ps0")
+                && bash.contains("${BASH_VERSINFO[0]:-0}")
+                && bash.contains("${BASH_VERSINFO[1]:-0}"),
+            "bash must detect PS0 capability from the running shell"
+        );
+        assert!(
+            bash.contains("if [ -n \"${__ODYTTY_BASH_HAS_PS0-}\" ]; then\n      PS0="),
+            "modern bash must scope removal through PS0"
+        );
+        assert!(
+            bash.contains(
+                "[ -z \"${__ODYTTY_COMMAND_STARTED-}\" ]; then\n      printf '\\e[=1;3u'"
+            ),
+            "legacy bash must pop once at the first real-command DEBUG boundary"
+        );
 
         // zsh uses the line-init/line-finish widget pair (chained, not
         // clobbered), mirroring the pre-redraw edit-region wrap.
@@ -1826,6 +1866,39 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn bash_ps0_capability_helper_classifies_legacy_and_modern_versions() {
+        use std::process::{Command, Stdio};
+
+        let Some(bash) = find_bash() else {
+            return;
+        };
+        // Source the production snippet into a real Bash, then exercise both
+        // sides of its argument-driven capability boundary regardless of which
+        // Bash version the current CI leg provides.
+        let script = format!(
+            "{BASH_SNIPPET}\n\
+             if __odytty_bash_supports_ps0 3 2; then exit 31; fi\n\
+             if __odytty_bash_supports_ps0 4 3; then exit 32; fi\n\
+             if ! __odytty_bash_supports_ps0 4 4; then exit 33; fi\n\
+             if ! __odytty_bash_supports_ps0 5 0; then exit 34; fi\n\
+             exit 0\n"
+        );
+        let status = Command::new(bash)
+            .arg("--noprofile")
+            .arg("--norc")
+            .arg("-c")
+            .arg(script)
+            .env_remove("ODYTTY_SHELL_INTEGRATION")
+            .env_remove("ODYTTY_KEY_ENHANCE")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("run bash capability boundary");
+        assert_eq!(status.code(), Some(0));
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn bash_key_enhancement_adds_at_prompt_and_removes_before_commands() {
         let Some(bash) = find_bash() else {
             return;
@@ -1845,7 +1918,7 @@ mod tests {
         let out = run_bash_rc_env(
             &bash,
             &rc,
-            "printf 'OUT\\n'\nexit\n",
+            "printf 'CAP<%s>\\n' \"${__ODYTTY_BASH_HAS_PS0:-0}\"\nprintf 'PS0-CHECK<%s>\\n' \"$PS0\"\nprintf 'OUT\\n'\nexit\n",
             &[("ODYTTY_KEY_ENHANCE", "1")],
         );
         if !out.contains("\x1b]133;A") {
@@ -1864,10 +1937,25 @@ mod tests {
             remove > add,
             "removal must follow prompt activation: {out:?}"
         );
-        assert!(
-            out.contains("USER-PS0"),
-            "the user's PS0 must survive: {out:?}"
-        );
+        if out.contains("CAP<1>") {
+            assert!(
+                out.contains("\x1b[=1;3uUSER-PS0"),
+                "modern Bash must remove through PS0 before preserving the user value: {out:?}"
+            );
+        } else {
+            assert!(
+                out.contains("CAP<0>"),
+                "the installed capability decision must be observable: {out:?}"
+            );
+            assert!(
+                out.contains("\x1b[=1;3u\x1b]133;C\x07"),
+                "legacy Bash must remove at the first real-command DEBUG boundary: {out:?}"
+            );
+            assert!(
+                out.contains("PS0-CHECK<USER-PS0>"),
+                "legacy Bash must leave the non-executing user PS0 value untouched: {out:?}"
+            );
+        }
 
         let mut terminal = crate::core::Terminal::new(80, 24);
         terminal.advance(out.as_bytes());
@@ -1875,6 +1963,56 @@ mod tests {
             terminal.keyboard_modes().kitty_keyboard_flags,
             0,
             "the real Bash stream must leave the exiting child in legacy mode"
+        );
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bash_legacy_key_enhancement_falls_back_at_first_debug_boundary() {
+        let Some(bash) = find_bash() else {
+            return;
+        };
+        let dir = temp_integration_dir("bash-keyenh-legacy-fallback");
+        fs::create_dir_all(&dir).expect("dir");
+        let rc = dir.join("rc.bash");
+        // Force the production legacy branch after installation and clear PS0
+        // so this path is exercised even on a modern Linux Bash. On macOS 3.2
+        // these are the naturally-selected semantics.
+        fs::write(
+            &rc,
+            format!(
+                "exec 2>&1\nPS1='P\\$ '\n{BASH_SNIPPET}\n\
+                 __ODYTTY_BASH_HAS_PS0=\nPS0=\n"
+            ),
+        )
+        .expect("write rc");
+
+        let out = run_bash_rc_env(
+            &bash,
+            &rc,
+            "printf 'LEGACY-OUT\\n'\nexit\n",
+            &[("ODYTTY_KEY_ENHANCE", "1")],
+        );
+        if !out.contains("\x1b]133;A") {
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+        let add = out
+            .find("\x1b[=1;2u")
+            .expect("prompt must add Kitty disambiguation");
+        let fallback = out[add..]
+            .find("\x1b[=1;3u\x1b]133;C\x07")
+            .map(|offset| add + offset)
+            .expect("legacy DEBUG boundary must remove before OutputStart");
+        assert!(fallback > add);
+
+        let mut terminal = crate::core::Terminal::new(80, 24);
+        terminal.advance(out.as_bytes());
+        assert_eq!(
+            terminal.keyboard_modes().kitty_keyboard_flags,
+            0,
+            "the forced legacy path must not leak prompt keyboard flags"
         );
         let _ = fs::remove_dir_all(dir);
     }
