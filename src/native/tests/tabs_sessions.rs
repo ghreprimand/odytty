@@ -5113,6 +5113,54 @@ fn split_pane_zero_padding_grid_is_flush_with_the_divider() {
 }
 
 #[test]
+fn collapsed_high_padding_pane_has_no_pointer_or_selection_target() {
+    const CW: u32 = 10;
+    const CH: u32 = 20;
+    let dims = Dimensions::new(20, 8);
+    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal_a,
+        writer_a,
+        pty_a,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    let padding = WindowPadding::from_logical(64.0, 1.0);
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(250, 240, padding);
+    app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b);
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(250, 240, padding);
+    app.reflow_active_panes_for_test();
+
+    let (tiled, inner) = app
+        .focused_pane_rects_for_test()
+        .expect("focused split geometry");
+    assert!(tiled[2] > 0.0, "the leaf still owns a tiled focus rect");
+    assert_eq!(inner[2], 0.0, "64px divider padding collapses its width");
+    assert_eq!(app.active_session_grid_dims_for_test().0, 1);
+
+    // This press lies inside the focused leaf's tiled rect but outside its
+    // empty inner rect. Production motion and press routing must not clamp it
+    // into the valid-minimum 1x1 terminal backing model.
+    let x = f64::from(tiled[0] + 2.0);
+    let y = f64::from(tiled[1] + 40.0);
+    app.pointer_move_for_test(x, y);
+    assert_eq!(app.pointer_cell_for_test(), None);
+    assert_eq!(app.left_button_outcome_for_test(true), "idle");
+    assert_eq!(app.pointer_cell_for_test(), None);
+    assert_eq!(app.selection_range_for_test(), None);
+}
+
+#[test]
 fn hover_over_a_non_focused_pane_does_not_resolve_a_link_in_the_focused_pane() {
     // Hover analog of focus-follows-click. After a column split focus is on the
     // RIGHT pane (B); moving the pointer over the LEFT pane (A) must NOT map the

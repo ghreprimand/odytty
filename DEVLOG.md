@@ -7,6 +7,24 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Collapsed padded panes stay inside their bounds
+
+Aggressively narrowed or nested panes could become smaller than one cell after
+divider-facing padding, while their grid geometry still invented a drawable
+cell. That mismatch let backgrounds, glyphs, cursors, selections, and pointer
+targets extend through padding or into a neighbouring pane.
+
+Pane layout now represents a collapsed drawable axis as zero cells while
+keeping the terminal and PTY backing size at the required one-cell minimum.
+Collapsed leaves retain their tiled focus region but emit no terminal content
+and expose no cell hit target until they expand. Non-collapsed padded panes clip
+all cell, glyph, cursor, and overlay vertices to their actual inner rectangle on
+both axes. Ordinary pane sizes, single-pane rendering, and zero-padding layouts
+retain their established geometry. The policy is platform-neutral: Unix PTYs,
+Windows ConPTY, and attached sessions all receive valid non-zero dimensions.
+
+---
+
 ## 2026-07-20 -- Preserve Bash command verdicts with array prompt hooks
 
 Fedora's systemd OSC-context profile installs `PROMPT_COMMAND` as an array with

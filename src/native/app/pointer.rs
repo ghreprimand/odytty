@@ -337,9 +337,15 @@ impl App {
                 // `self.pointer_px`, which now derefs to the freshly-focused
                 // pane's stale stored coordinate — anchoring the drag at the
                 // wrong cell. `x_px`/`y_px` here are the live click position.
-                if let Some(point) = self.active_pane_pointer_cell_at(x_px, y_px) {
-                    self.pointer_cell = Some(point);
-                }
+                let Some(point) = self.active_pane_pointer_cell_at(x_px, y_px) else {
+                    // The tiled leaf can still receive focus while its padded
+                    // inner rect is collapsed or the press lies in the pane's
+                    // padding. It has no drawable terminal cell, so do not
+                    // reuse a stale cell to open a target or begin a selection.
+                    self.pointer_cell = None;
+                    return;
+                };
+                self.pointer_cell = Some(point);
                 // Bug 4 (Ctrl+click in a split): the single-pane press path tries
                 // the open helpers (OSC 8 hyperlink, interactive path incl. the
                 // inline image viewer, bare URL) BEFORE selection; this branch

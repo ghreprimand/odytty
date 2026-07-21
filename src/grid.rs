@@ -1988,13 +1988,25 @@ impl VClip {
 /// serves both pane vertex streams. The horizontal axis and color are never
 /// touched — the clip is purely vertical.
 pub(crate) trait ClipQuadVertex {
+    fn clip_x(&self) -> f32;
+    fn set_clip_x(&mut self, x: f32);
     fn clip_y(&self) -> f32;
     fn set_clip_y(&mut self, y: f32);
+    fn clip_u(&self) -> f32;
+    fn set_clip_u(&mut self, u: f32);
     fn clip_v(&self) -> f32;
     fn set_clip_v(&mut self, v: f32);
 }
 
 impl ClipQuadVertex for Vertex {
+    #[inline]
+    fn clip_x(&self) -> f32 {
+        self.pos[0]
+    }
+    #[inline]
+    fn set_clip_x(&mut self, x: f32) {
+        self.pos[0] = x;
+    }
     #[inline]
     fn clip_y(&self) -> f32 {
         self.pos[1]
@@ -2002,6 +2014,14 @@ impl ClipQuadVertex for Vertex {
     #[inline]
     fn set_clip_y(&mut self, y: f32) {
         self.pos[1] = y;
+    }
+    #[inline]
+    fn clip_u(&self) -> f32 {
+        self.uv[0]
+    }
+    #[inline]
+    fn set_clip_u(&mut self, u: f32) {
+        self.uv[0] = u;
     }
     #[inline]
     fn clip_v(&self) -> f32 {
@@ -2015,12 +2035,28 @@ impl ClipQuadVertex for Vertex {
 
 impl ClipQuadVertex for ColorGlyphVertex {
     #[inline]
+    fn clip_x(&self) -> f32 {
+        self.pos[0]
+    }
+    #[inline]
+    fn set_clip_x(&mut self, x: f32) {
+        self.pos[0] = x;
+    }
+    #[inline]
     fn clip_y(&self) -> f32 {
         self.pos[1]
     }
     #[inline]
     fn set_clip_y(&mut self, y: f32) {
         self.pos[1] = y;
+    }
+    #[inline]
+    fn clip_u(&self) -> f32 {
+        self.uv[0]
+    }
+    #[inline]
+    fn set_clip_u(&mut self, u: f32) {
+        self.uv[0] = u;
     }
     #[inline]
     fn clip_v(&self) -> f32 {
@@ -2092,6 +2128,93 @@ pub(crate) fn clip_quads_vertical<V: ClipQuadVertex>(verts: &mut [V], clip: VCli
             for &i in &[1usize, 4, 5] {
                 quad[i].set_clip_y(clip.bottom_y);
                 quad[i].set_clip_v(nv);
+            }
+        }
+    }
+}
+
+/// Clamp every axis-aligned quad to a physical-pixel rectangle
+/// `[left, top, right, bottom]`. Coverage and colour-glyph UVs advance with a
+/// cropped edge, so ink is cut rather than rescaled; solid-cell vertices carry
+/// inert UVs and therefore follow the same path safely. Quads wholly outside
+/// collapse to zero area instead of being removed, preserving the fixed
+/// background/glyph segment counts used by the GPU batching path.
+///
+/// The multi-pane renderer applies this only to padded content panes. Chrome,
+/// single-pane rendering, and the padding-zero path never call it, preserving
+/// their established vertex streams exactly.
+pub(crate) fn clip_quads_to_rect<V: ClipQuadVertex>(verts: &mut [V], clip: [f32; 4]) {
+    for quad in verts.chunks_exact_mut(VERTS_PER_QUAD) {
+        let x0 = quad[0].clip_x();
+        let x1 = quad[2].clip_x();
+        let y0 = quad[0].clip_y();
+        let y1 = quad[1].clip_y();
+        let width = x1 - x0;
+        let height = y1 - y0;
+        if width <= 0.0 || height <= 0.0 {
+            continue;
+        }
+
+        if x0 >= clip[2] {
+            for vertex in quad.iter_mut() {
+                vertex.set_clip_x(clip[2]);
+            }
+            continue;
+        }
+        if x1 <= clip[0] {
+            for vertex in quad.iter_mut() {
+                vertex.set_clip_x(clip[0]);
+            }
+            continue;
+        }
+        if y0 >= clip[3] {
+            for vertex in quad.iter_mut() {
+                vertex.set_clip_y(clip[3]);
+            }
+            continue;
+        }
+        if y1 <= clip[1] {
+            for vertex in quad.iter_mut() {
+                vertex.set_clip_y(clip[1]);
+            }
+            continue;
+        }
+
+        let u0 = quad[0].clip_u();
+        let u1 = quad[2].clip_u();
+        if x0 < clip[0] {
+            let t = (clip[0] - x0) / width;
+            let cropped_u = u0 + t * (u1 - u0);
+            for &i in &[0usize, 1, 4] {
+                quad[i].set_clip_x(clip[0]);
+                quad[i].set_clip_u(cropped_u);
+            }
+        }
+        if x1 > clip[2] {
+            let t = (clip[2] - x0) / width;
+            let cropped_u = u0 + t * (u1 - u0);
+            for &i in &[2usize, 3, 5] {
+                quad[i].set_clip_x(clip[2]);
+                quad[i].set_clip_u(cropped_u);
+            }
+        }
+
+        let v0 = quad[0].clip_v();
+        let v1 = quad[1].clip_v();
+        if y0 < clip[1] {
+            let t = (clip[1] - y0) / height;
+            let cropped_v = v0 + t * (v1 - v0);
+            for &i in &[0usize, 2, 3] {
+                quad[i].set_clip_y(clip[1]);
+                quad[i].set_clip_v(cropped_v);
+            }
+        }
+        if y1 > clip[3] {
+            let t = (clip[3] - y0) / height;
+            let cropped_v = v0 + t * (v1 - v0);
+            for &i in &[1usize, 4, 5] {
+                quad[i].set_clip_y(clip[3]);
+                quad[i].set_clip_v(cropped_v);
             }
         }
     }

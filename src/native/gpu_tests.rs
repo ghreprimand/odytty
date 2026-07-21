@@ -755,6 +755,176 @@ fn bloom_scene_offscreen_accepts_live_scene_pipeline_formats() {
         .expect("device poll");
 }
 
+/// Render+readback proof for the padded-pane two-axis clip used by
+/// `GpuState::update_from_panes`. Both a solid cell background and atlas-backed
+/// glyph ink begin outside the inner rect; after the production clip and cell
+/// shader, pixels beyond every edge remain the clear colour while the retained
+/// background and glyph regions keep their authored colours.
+#[test]
+fn padded_pane_clip_reaches_pixels_for_background_and_glyph() {
+    let Some((device, queue)) = test_device_with_hdr() else {
+        eprintln!("skipping: no GPU adapter available");
+        return;
+    };
+    const W: u32 = 32;
+    const H: u32 = 24;
+    let viewport_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("padded-pane-clip-viewport"),
+        contents: bytemuck::bytes_of(&ViewportUniform {
+            size: [W as f32, H as f32],
+            effect: [0.0, 1.0],
+            text: [1.0, 0.0, 0.0, 0.0],
+        }),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let atlas = single_pixel_texture(
+        &device,
+        &queue,
+        "padded-pane-clip-atlas",
+        wgpu::TextureFormat::R8Unorm,
+        &[255],
+    );
+    let sampler = nearest_sampler(&device, "padded-pane-clip-sampler");
+    let layout = cell_bind_group_layout(&device);
+    let bind_group = create_atlas_bind_group(&device, &layout, &viewport_buf, &atlas, &sampler);
+    let pipeline = create_cell_pipeline(&device, TEST_SURFACE_FORMAT, &layout, SubpixelMode::Off);
+
+    let mut vertices = Vec::new();
+    vertices.extend(quad_vertices(
+        [4.0, 2.0, 24.0, 22.0],
+        [1.0, 0.0, 0.0, 1.0],
+        0.0,
+    ));
+    vertices.extend(quad_vertices(
+        [12.0, 8.0, 16.0, 12.0],
+        [1.0, 1.0, 1.0, 1.0],
+        1.0,
+    ));
+    crate::grid::push_solid_quad(
+        &mut vertices,
+        SolidQuad {
+            rect: [9.0, 13.0, 14.0, 21.0],
+            color: [0.0, 1.0, 0.0, 1.0],
+        },
+    );
+    crate::grid::push_solid_quad(
+        &mut vertices,
+        SolidQuad {
+            rect: [17.0, 7.0, 24.0, 12.0],
+            color: [0.0, 0.0, 1.0, 1.0],
+        },
+    );
+    crate::grid::clip_quads_to_rect(&mut vertices, [8.0, 6.0, 20.0, 18.0]);
+    let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("padded-pane-clip-vertices"),
+        contents: bytemuck::cast_slice(&vertices),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    let target = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("padded-pane-clip-target"),
+        size: wgpu::Extent3d {
+            width: W,
+            height: H,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TEST_SURFACE_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let view = target.create_view(&wgpu::TextureViewDescriptor::default());
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("padded-pane-clip-encoder"),
+    });
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("padded-pane-clip-pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.set_vertex_buffer(0, vertex_buf.slice(..));
+        pass.draw(0..vertices.len() as u32, 0..1);
+    }
+
+    let bytes_per_row = W
+        .saturating_mul(4)
+        .div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+        * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("padded-pane-clip-readback"),
+        size: u64::from(bytes_per_row) * u64::from(H),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &target,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: Some(H),
+            },
+        },
+        wgpu::Extent3d {
+            width: W,
+            height: H,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(std::iter::once(encoder.finish()));
+
+    let slice = readback.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |result| {
+        tx.send(result).ok();
+    });
+    device
+        .poll(wgpu::PollType::wait_indefinitely())
+        .expect("device poll");
+    rx.recv().expect("map callback").expect("map readback");
+    let mapped = slice.get_mapped_range();
+    let at = |x: u32, y: u32| {
+        let offset = y as usize * bytes_per_row as usize + x as usize * 4;
+        [
+            mapped[offset],
+            mapped[offset + 1],
+            mapped[offset + 2],
+            mapped[offset + 3],
+        ]
+    };
+
+    assert_eq!(at(7, 10), [0, 0, 0, 255], "left overhang is clipped");
+    assert_eq!(at(10, 7), [255, 0, 0, 255], "cell background remains");
+    assert_eq!(at(14, 10), [255, 255, 255, 255], "glyph ink remains");
+    assert_eq!(at(10, 14), [0, 255, 0, 255], "selection overlay remains");
+    assert_eq!(at(18, 9), [0, 0, 255, 255], "cursor quad remains");
+    assert_eq!(at(20, 10), [0, 0, 0, 255], "right edge is exclusive");
+    assert_eq!(at(14, 18), [0, 0, 0, 255], "bottom edge is exclusive");
+    drop(mapped);
+    readback.unmap();
+}
+
 #[test]
 fn composite_shader_applies_output_dither_without_crt_gate() {
     let shader = include_str!("../shaders/bloom.wgsl");

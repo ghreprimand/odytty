@@ -169,6 +169,11 @@ pub(super) struct PaneRender<'a> {
     /// divider. [`grid::VClip::NONE`] (chrome strips, single-pane, at-rest panes)
     /// is inert, leaving the frame byte-identical.
     pub(super) clip: grid::VClip,
+    /// Actual padded inner rectangle for a content pane. When present, every
+    /// emitted background, coverage glyph, colour glyph, selection/search
+    /// overlay, and cursor quad is clipped on both axes before batching. `None`
+    /// marks chrome and padding-zero panes, preserving those vertex streams.
+    pub(super) content_clip: Option<[f32; 4]>,
     /// TAB-LABEL-CENTERING: sub-row glyph shift (cell-height units) for a top
     /// tab-bar chrome strip, recentering its label row on the band's true center.
     /// `0.0` (every content pane and the rail strip) is inert.
@@ -3167,6 +3172,9 @@ impl GpuState {
                 grid::extend_first_row_bg_to_top(&mut pane_buf[..bg], row0_quads, pane.clip.top_y);
                 grid::clip_quads_vertical(&mut pane_buf, pane.clip);
             }
+            if let Some(clip) = pane.content_clip {
+                grid::clip_quads_to_rect(&mut pane_buf, clip);
+            }
             self.vertices.extend_from_slice(&pane_buf[..bg]);
             glyph_segment.extend_from_slice(&pane_buf[bg..]);
 
@@ -3187,6 +3195,9 @@ impl GpuState {
             // Colour glyphs (emoji) obey the same per-pane clip so a gliding
             // emoji's partial row is cropped, not smeared across the divider.
             grid::clip_quads_vertical(&mut self.color_glyph_vertices[color_start..], pane.clip);
+            if let Some(clip) = pane.content_clip {
+                grid::clip_quads_to_rect(&mut self.color_glyph_vertices[color_start..], clip);
+            }
 
             let tail_start = tail.len();
             tail.reserve(pane.overlays.len() * grid::VERTS_PER_QUAD);
@@ -3231,6 +3242,9 @@ impl GpuState {
             // glide, so they clamp to the same band — a selection highlight or
             // cursor on the partial edge row cannot bleed past the divider.
             grid::clip_quads_vertical(&mut tail[tail_start..], pane.clip);
+            if let Some(clip) = pane.content_clip {
+                grid::clip_quads_to_rect(&mut tail[tail_start..], clip);
+            }
         }
         self.write_cursor_glow_instance(cursor_glow_instance);
         self.write_cursor_streak_instance(cursor_streak_instance);

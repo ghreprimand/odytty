@@ -2029,15 +2029,52 @@ impl App {
         let (chrome_dx, chrome_dy) = self.tab_chrome_offset_px(cell);
         let x_px = x_px - chrome_dx;
         let y_px = y_px - chrome_dy;
-        // In a multi-pane tab the focused pane's grid is offset from the window
-        // origin, so the pointer must map relative to that pane's sub-rect — the
-        // basis `self.grid` / `self.selection` use. On a single-pane tab
-        // `active_pane_pointer_cell` is `None` and this falls back to the
-        // byte-identical window-origin mapping.
-        let point = self.active_pane_pointer_cell().unwrap_or_else(|| {
-            selection::cell_at_physical_with_padding(x_px, y_px, cell, self.grid, padding)
-        });
-        self.pointer_cell = Some(point);
+        // In a multi-pane tab, map only inside the focused pane's actual padded
+        // inner rect. A collapsed leaf or pointer in its padding/remainder has
+        // no terminal cell and must not clamp into the backing 1x1 PTY grid.
+        // Single-pane keeps the established window-origin mapping exactly.
+        let point = if self.sessions.active_is_single_pane() {
+            Some(selection::cell_at_physical_with_padding(
+                x_px, y_px, cell, self.grid, padding,
+            ))
+        } else {
+            self.active_pane_pointer_cell()
+        };
+        self.pointer_cell = point;
+        let Some(point) = point else {
+            self.hovered_hyperlink = None;
+            self.hovered_path = None;
+            self.hovered_path_cells = None;
+            self.hovered_url = None;
+            self.hovered_url_cells = None;
+            self.hovered_button = None;
+            let divider_icon = self
+                .multipane_geometry()
+                .and_then(|(content, _)| {
+                    self.pointer_px.and_then(|(px, py)| {
+                        self.sessions.active_divider_axis_at_point(
+                            content,
+                            PANE_DIVIDER_PX,
+                            px as f32,
+                            py as f32,
+                            DIVIDER_GRAB_PX,
+                        )
+                    })
+                })
+                .map(Self::divider_resize_icon);
+            let icon = divider_icon.unwrap_or_else(|| {
+                if self.overlay.is_open()
+                    || !self.pointer_over_drawable_pane()
+                    || self.mouse_reporting_enabled()
+                {
+                    CursorIcon::Default
+                } else {
+                    CursorIcon::Text
+                }
+            });
+            self.apply_cursor_icon(icon);
+            return;
+        };
         // F4-RENAME-MOUSE: while a rename drag is live the field owns the
         // pointer — extend its selection to the new cell and stop, before any
         // grid hover/selection/PTY-report work. The rename modal renders only on

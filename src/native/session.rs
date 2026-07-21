@@ -1903,7 +1903,14 @@ impl WorkspaceSet {
                 // single-pane path, and a zoomed full-bleed pane all yield an
                 // inner rect equal to `rect`, so those paths stay byte-identical.
                 let rect = pane_inner_rect(rect, content, pad);
-                let (cols, rows) = grid_dims_for_rect(rect, cell_w, cell_h);
+                let (drawable_cols, drawable_rows) = grid_dims_for_rect(rect, cell_w, cell_h);
+                // A heavily padded or aggressively narrowed leaf can have no
+                // drawable cell on one axis. Terminal models, Unix PTYs,
+                // ConPTY, and the attached-session protocol all require
+                // non-zero dimensions, so retain a valid 1x1 backing grid while
+                // the render and pointer paths skip the collapsed leaf.
+                let cols = drawable_cols.max(1);
+                let rows = drawable_rows.max(1);
                 let Some(session) = self.sessions.get_mut(&token) else {
                     continue;
                 };
@@ -4223,6 +4230,90 @@ mod tests {
 
     fn build_session() -> Session {
         build_session_with_id(SessionToken(0))
+    }
+
+    #[test]
+    fn nested_high_padding_drag_keeps_collapsed_pty_valid_and_restores() {
+        let mut set = WorkspaceSet::new(build_session(), None);
+        let middle =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(1)));
+        let wide =
+            set.split_active_for_test(SplitAxis::Columns, build_session_with_id(SessionToken(2)));
+        assert_eq!(middle, SessionToken(1));
+        assert_eq!(wide, SessionToken(2));
+
+        let content = PaneRect::new(0.0, 0.0, 600.0, 240.0);
+        let divider = 1.0;
+        let cell_w = 10;
+        let cell_h = 20;
+        let pad = 64.0;
+
+        // Production drag math clamps both the root split and the nested split
+        // to 5%. Token 0 then has one divider-facing padded edge; token 1 is
+        // sandwiched between two dividers and loses padding on both edges.
+        assert_eq!(
+            set.drag_active_divider(content, divider, 0, content.x, content.y),
+            Some(crate::native::layout::MIN_RATIO)
+        );
+        let right = layout_rects(set.active_layout().expect("layout"), content, divider)[1].1;
+        assert_eq!(
+            set.drag_active_divider(content, divider, 1, right.x, right.y),
+            Some(crate::native::layout::MIN_RATIO)
+        );
+
+        set.reflow_all_panes_for_drag(content, cell_w, cell_h, divider, pad);
+        for token in [SessionToken(0), SessionToken(1)] {
+            let dims = set
+                .get(token)
+                .expect("pane")
+                .terminal
+                .lock()
+                .expect("terminal")
+                .screen()
+                .dimensions();
+            assert_eq!(dims.columns, 1, "collapsed backing model stays valid");
+            assert_eq!(
+                set.get(token)
+                    .and_then(Session::headless_session)
+                    .expect("headless")
+                    .resize_call_count(),
+                0,
+                "live drag never resizes the PTY"
+            );
+        }
+
+        set.resize_all_panes(content, cell_w, cell_h, divider, pad);
+        for token in [SessionToken(0), SessionToken(1)] {
+            let headless = set
+                .get(token)
+                .and_then(Session::headless_session)
+                .expect("headless");
+            assert_eq!(headless.dimensions().columns, 1);
+            assert_eq!(headless.resize_call_count(), 1);
+        }
+
+        // Drag both dividers back to roomy positions. The same production
+        // reflow restores real multi-cell grids without a stale collapsed size.
+        assert!(
+            set.drag_active_divider(content, divider, 0, content.x + 200.0, content.y)
+                .is_some()
+        );
+        assert!(
+            set.drag_active_divider(content, divider, 1, content.x + 400.0, content.y)
+                .is_some()
+        );
+        set.reflow_all_panes_for_drag(content, cell_w, cell_h, divider, pad);
+        for token in [SessionToken(0), SessionToken(1), SessionToken(2)] {
+            let dims = set
+                .get(token)
+                .expect("pane")
+                .terminal
+                .lock()
+                .expect("terminal")
+                .screen()
+                .dimensions();
+            assert!(dims.columns > 1, "pane {token:?} restores after expansion");
+        }
     }
 
     /// A real-PTY-backed local session for the small set of tests that assert

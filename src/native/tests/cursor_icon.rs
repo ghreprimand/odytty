@@ -94,6 +94,11 @@ fn pointer_over_grid_in_a_split_is_still_an_i_beam() {
     };
     // Far left of the vertical divider at the content midpoint.
     app.pointer_move_for_test(f64::from(CELL_W) * 2.5, MID_Y);
+    assert!(
+        app.pointer_over_drawable_pane_for_test(),
+        "the non-focused leaf remains a drawable text surface"
+    );
+    assert!(!app.overlay_open_for_test());
     assert_eq!(app.cursor_icon_for_test(), CursorIcon::Text);
 }
 

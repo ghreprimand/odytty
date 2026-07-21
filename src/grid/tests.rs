@@ -2552,12 +2552,55 @@ mod pane_subcell_clip {
     fn quad_bottom(verts: &[Vertex]) -> f32 {
         quad_rect(verts, 0)[3]
     }
+    fn quad_left(verts: &[Vertex]) -> f32 {
+        quad_rect(verts, 0)[0]
+    }
+    fn quad_right(verts: &[Vertex]) -> f32 {
+        quad_rect(verts, 0)[2]
+    }
     /// The v (vertical UV) at the quad's top edge (vertex 0) and bottom (1).
     fn quad_uv_top(verts: &[Vertex]) -> f32 {
         verts[0].uv[1]
     }
     fn quad_uv_bottom(verts: &[Vertex]) -> f32 {
         verts[1].uv[1]
+    }
+    fn quad_uv_left(verts: &[Vertex]) -> f32 {
+        verts[0].uv[0]
+    }
+    fn quad_uv_right(verts: &[Vertex]) -> f32 {
+        verts[2].uv[0]
+    }
+
+    #[test]
+    fn rect_clip_is_inert_for_fitting_cell_backgrounds() {
+        let mut verts = one_quad(20.0, 40.0, 0.0, 1.0);
+        let before = verts.clone();
+        clip_quads_to_rect(&mut verts, [0.0, 10.0, 30.0, 50.0]);
+        assert_eq!(
+            verts, before,
+            "ordinary padded-pane cells remain byte-identical when fully inside"
+        );
+    }
+
+    #[test]
+    fn rect_clip_crops_glyph_ink_on_both_axes_with_uvs() {
+        let mut verts = one_quad(0.0, 20.0, 0.0, 1.0);
+        clip_quads_to_rect(&mut verts, [12.0, 5.0, 18.0, 15.0]);
+        assert_eq!((quad_left(&verts), quad_right(&verts)), (12.0, 18.0));
+        assert_eq!((quad_top(&verts), quad_bottom(&verts)), (5.0, 15.0));
+        assert!((quad_uv_left(&verts) - 0.2).abs() < 1e-4);
+        assert!((quad_uv_right(&verts) - 0.8).abs() < 1e-4);
+        assert!((quad_uv_top(&verts) - 0.25).abs() < 1e-4);
+        assert!((quad_uv_bottom(&verts) - 0.75).abs() < 1e-4);
+    }
+
+    #[test]
+    fn rect_clip_collapses_cursor_or_selection_quad_outside_inner_rect() {
+        let mut verts = one_quad(0.0, 20.0, 0.0, 1.0);
+        clip_quads_to_rect(&mut verts, [30.0, 30.0, 40.0, 40.0]);
+        assert_eq!(verts.len(), VERTS_PER_QUAD, "batch shape is preserved");
+        assert_eq!(quad_left(&verts), quad_right(&verts));
     }
 
     #[test]

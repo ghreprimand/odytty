@@ -288,6 +288,11 @@ impl App {
         self.pointer_cell
     }
 
+    #[cfg(test)]
+    pub(in crate::native) fn pointer_over_drawable_pane_for_test(&self) -> bool {
+        self.pointer_over_drawable_pane()
+    }
+
     /// Test seam (UX4-P1): the live overlay rect for the current grid.
     #[cfg(test)]
     pub(in crate::native) fn overlay_rect_for_test(

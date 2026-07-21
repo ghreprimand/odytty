@@ -42,6 +42,15 @@ struct PaneGutterInput {
     scrollback_len: usize,
     geometry: gutter_ui::PaneGutterGeometry,
 }
+
+struct OwnedPaneRender {
+    snapshot: Snapshot,
+    origin: [f32; 2],
+    focused: bool,
+    cursor_style: crate::core::CursorStyle,
+    glide_clip: crate::grid::VClip,
+    content_clip: Option<[f32; 4]>,
+}
 use crate::graphics::VisiblePlacement;
 use crate::native::gpu::{OverlayTop, PaneRender, PanelFrameQuads, RailOverlay};
 use crate::native::image_layer::{PaneImageInput, PaneImageUpload};
@@ -222,19 +231,23 @@ fn window_overlay_cell(
 /// an offset pane anchors at the right cell rather than against the window
 /// origin. Pure, so the per-pane selection mapping is unit-testable without a
 /// GPU.
-fn pane_relative_cell(
-    rect: PaneRect,
-    cell: CellSize,
-    dims: Dimensions,
-    x_px: f64,
-    y_px: f64,
-) -> CellPoint {
+fn pane_relative_cell(rect: PaneRect, cell: CellSize, x_px: f64, y_px: f64) -> Option<CellPoint> {
+    let (columns, rows) = grid_dims_for_rect(rect, cell.width, cell.height);
+    if columns == 0
+        || rows == 0
+        || (x_px as f32) < rect.x
+        || (y_px as f32) < rect.y
+        || (x_px as f32) >= rect.x + rect.w
+        || (y_px as f32) >= rect.y + rect.h
+    {
+        return None;
+    }
     let column = ((x_px as f32 - rect.x).max(0.0) / cell.width.max(1) as f32) as usize;
     let row = ((y_px as f32 - rect.y).max(0.0) / cell.height.max(1) as f32) as usize;
-    CellPoint {
-        row: row.min(dims.rows.saturating_sub(1)),
-        column: column.min(dims.columns.saturating_sub(1)),
-    }
+    Some(CellPoint {
+        row: row.min(rows - 1),
+        column: column.min(columns - 1),
+    })
 }
 
 /// Copy a rectangular sub-region of `src` into a new snapshot of size
@@ -483,7 +496,34 @@ impl App {
     /// lands under the actual click.
     pub(super) fn active_pane_pointer_cell_at(&self, x_px: f64, y_px: f64) -> Option<CellPoint> {
         let (rect, cell) = self.focused_pane_inner_rect()?;
-        Some(pane_relative_cell(rect, cell, self.grid, x_px, y_px))
+        pane_relative_cell(rect, cell, x_px, y_px)
+    }
+
+    /// Whether the cached window pointer lies inside any split leaf's actual
+    /// padded drawable rect and that rect holds at least one complete cell on
+    /// both axes. This is presentation-only cursor-shape information: terminal
+    /// input still resolves solely through the focused pane's cell mapping.
+    pub(super) fn pointer_over_drawable_pane(&self) -> bool {
+        let Some((content, cell)) = self.multipane_geometry() else {
+            return false;
+        };
+        let Some((x, y)) = self.pointer_px else {
+            return false;
+        };
+        let pad = self.window_pad_px();
+        self.sessions
+            .active_pane_rects(content, PANE_DIVIDER_PX)
+            .into_iter()
+            .any(|(_, tiled)| {
+                let inner = crate::native::layout::pane_inner_rect(tiled, content, pad);
+                let dims = grid_dims_for_rect(inner, cell.width, cell.height);
+                dims.0 > 0
+                    && dims.1 > 0
+                    && (x as f32) >= inner.x
+                    && (x as f32) < inner.x + inner.w
+                    && (y as f32) >= inner.y
+                    && (y as f32) < inner.y + inner.h
+            })
     }
 
     /// PANE-PADDING: the focused pane's **padded drawable rect** (grid region)
@@ -640,13 +680,7 @@ impl App {
         // outlive the render call). Each pane is snapshotted from its own
         // terminal at its own scrollback offset.
         let rects = self.sessions.active_pane_rects(content, PANE_DIVIDER_PX);
-        let mut panes_owned: Vec<(
-            Snapshot,
-            [f32; 2],
-            bool,
-            crate::core::CursorStyle,
-            crate::grid::VClip,
-        )> = Vec::with_capacity(rects.len());
+        let mut panes_owned: Vec<OwnedPaneRender> = Vec::with_capacity(rects.len());
         // The focused pane's overlay inputs, captured while its terminal is
         // locked: (index into `panes_owned`, viewport offset, scrollback len).
         // Used after the loop to paint that pane's own selection + search
@@ -675,6 +709,16 @@ impl App {
         let mut pane_graphics: Vec<PaneGraphics> = Vec::new();
         let mut pane_uploads: Vec<PaneImageUpload> = Vec::new();
         for (token, rect) in &rects {
+            let inner = crate::native::layout::pane_inner_rect(*rect, content, padding.as_f32());
+            let drawable =
+                crate::native::layout::grid_dims_for_rect(inner, cell.width, cell.height);
+            // Collapsed padded leaves keep a valid 1x1 terminal/PTY backing
+            // grid, but have no cell that fits inside their actual inner rect.
+            // Do not snapshot, draw, animate, or collect input-adjacent effects
+            // until both axes can hold at least one complete cell.
+            if drawable.0 == 0 || drawable.1 == 0 {
+                continue;
+            }
             let Some(session) = self.sessions.get_mut(*token) else {
                 continue;
             };
@@ -755,7 +799,6 @@ impl App {
             // the grid, cursor, hit-testing, and shell dimensions stay consistent.
             // Zero padding / single-pane / a zoomed pane yields `inner == *rect`,
             // so those frames are byte-identical.
-            let inner = crate::native::layout::pane_inner_rect(*rect, content, padding.as_f32());
             let base_origin =
                 crate::native::layout::pane_grid_origin(inner, content, cell.width, cell.height);
             // PANE-SUBCELL-CLIP: bake the sub-cell remainder into the pane's
@@ -822,7 +865,20 @@ impl App {
                     pane_uploads.push(PaneImageUpload { namespace, upload });
                 }
             }
-            panes_owned.push((snapshot, origin, is_focused, cursor_style, clip));
+            let content_clip = (padding.as_f32() > 0.0).then_some([
+                inner.x,
+                inner.y,
+                inner.x + inner.w,
+                inner.y + inner.h,
+            ]);
+            panes_owned.push(OwnedPaneRender {
+                snapshot,
+                origin,
+                focused: is_focused,
+                cursor_style,
+                glide_clip: clip,
+                content_clip,
+            });
         }
 
         // Paint EACH pane's own selection + search-match highlights onto its
@@ -833,16 +889,16 @@ impl App {
         // of which pane holds focus. Only the focused pane also paints the
         // interactive search query bar (`is_focused`).
         for &(idx, token, viewport_offset, scrollback_len) in &pane_overlays {
-            let Some((snapshot, _, is_focused, _, _)) = panes_owned.get_mut(idx) else {
+            let Some(pane) = panes_owned.get_mut(idx) else {
                 continue;
             };
-            let is_focused = *is_focused;
-            let pane_grid = snapshot.dimensions;
+            let is_focused = pane.focused;
+            let pane_grid = pane.snapshot.dimensions;
             let Some(session) = self.sessions.get(token) else {
                 continue;
             };
             self.paint_pane_overlays(
-                snapshot,
+                &mut pane.snapshot,
                 pane_grid,
                 viewport_offset,
                 scrollback_len,
@@ -876,15 +932,16 @@ impl App {
         let mut pane_cursor_streak = vec![None; panes_owned.len()];
         if let Some((idx, viewport_offset, scrollback_len, cursor_blinking, clip_rect)) =
             focused_cursor_input
-            && let Some((snapshot, origin, true, cursor_style, _)) = panes_owned.get_mut(idx)
+            && let Some(pane) = panes_owned.get_mut(idx)
+            && pane.focused
         {
             pane_effects[idx].extend(self.advance_focused_multipane_cursor(
                 now,
-                snapshot,
-                *cursor_style,
+                &mut pane.snapshot,
+                pane.cursor_style,
                 cursor_blinking,
                 cell,
-                *origin,
+                pane.origin,
                 clip_rect,
                 viewport_offset,
                 scrollback_len,
@@ -992,6 +1049,7 @@ impl App {
                 treatment: crate::grid::BackgroundTreatmentParams::default(),
                 // Chrome strips never glide sub-row.
                 clip: crate::grid::VClip::NONE,
+                content_clip: None,
                 // TAB-LABEL-CENTERING: this strip's own label offset (one axis is
                 // always 0.0 — a strip is either the top bar or the rail).
                 band_glyph_dy_rows: strip.band_glyph_dy_rows,
@@ -1009,18 +1067,17 @@ impl App {
         // every pane renders undimmed and the multi-pane frame stays
         // byte-identical to before this knob existed.
         let inactive_dim = self.settings.effective_inactive_pane_dim();
-        for (idx, (snapshot, origin, is_focused, cursor_style, clip)) in
-            panes_owned.iter().enumerate()
-        {
+        for (idx, pane) in panes_owned.iter().enumerate() {
             panes.push(PaneRender {
-                snapshot,
-                origin: *origin,
-                focused: *is_focused,
-                cursor_style: *cursor_style,
-                focus_dim: pane_focus_dim(*is_focused, inactive_dim),
+                snapshot: &pane.snapshot,
+                origin: pane.origin,
+                focused: pane.focused,
+                cursor_style: pane.cursor_style,
+                focus_dim: pane_focus_dim(pane.focused, inactive_dim),
                 overlays: &pane_effects[idx],
                 treatment,
-                clip: *clip,
+                clip: pane.glide_clip,
+                content_clip: pane.content_clip,
                 // Content panes carry no chrome label; the offsets are inert.
                 band_glyph_dy_rows: 0.0,
                 rail_glyph_dy_rows: 0.0,
@@ -1583,6 +1640,36 @@ mod tests {
     }
 
     #[test]
+    fn pane_relative_cell_rejects_padding_and_collapsed_axes() {
+        let cell = cell();
+        let inner = PaneRect::new(64.0, 32.0, 25.0, 45.0);
+        assert_eq!(
+            pane_relative_cell(inner, cell, 74.0, 52.0),
+            Some(CellPoint { row: 1, column: 1 })
+        );
+        assert_eq!(
+            pane_relative_cell(inner, cell, 63.9, 52.0),
+            None,
+            "left padding is not clamped into column zero"
+        );
+        assert_eq!(
+            pane_relative_cell(inner, cell, 89.0, 52.0),
+            None,
+            "the exclusive inner edge has no hit target"
+        );
+        assert_eq!(
+            pane_relative_cell(PaneRect::new(64.0, 32.0, 9.0, 45.0), cell, 68.0, 52.0),
+            None,
+            "a sub-cell-width pane has no drawable column"
+        );
+        assert_eq!(
+            pane_relative_cell(PaneRect::new(64.0, 32.0, 25.0, 19.0), cell, 74.0, 42.0),
+            None,
+            "a sub-cell-height pane has no drawable row"
+        );
+    }
+
+    #[test]
     fn tab_bar_hit_test_columns_match_the_rendered_strip_width() {
         // Bug A guard: the tab strip renders across the window content columns
         // (`tab_bar_strip`: (surface_w - 2·pad)/cell.width), and the hit-test
@@ -1606,11 +1693,9 @@ mod tests {
                 let content = pane_content_rect(surface_w, 800, cell, padding, TabReserve::top());
                 let (content_cols, _) =
                     crate::native::layout::grid_dims_for_rect(content, cell.width, cell.height);
-                // `grid_dims_for_rect` floors at 1, so compare against the strip
-                // formula clamped the same way (the strip bails when cols == 0).
+                // Both formulas permit zero columns; the strip then bails.
                 assert_eq!(
-                    content_cols,
-                    strip_cols.max(1),
+                    content_cols, strip_cols,
                     "surface_w={surface_w} pad={pad}: render/hit-test column mismatch"
                 );
             }
@@ -1618,15 +1703,11 @@ mod tests {
     }
 
     #[test]
-    fn window_overlay_cell_degenerate_content_clamps_to_origin() {
-        // `grid_dims_for_rect` floors a degenerate rect at a 1x1 grid, so the
-        // mapping clamps any pointer to the single (0,0) cell rather than
-        // returning `None` — defensive against a zero-size content rect.
+    fn window_overlay_cell_degenerate_content_has_no_cell() {
+        // A degenerate rect has no drawable cell and must not manufacture an
+        // overlay hit target.
         let cell = cell();
         let content = PaneRect::new(0.0, 0.0, 0.0, 0.0);
-        assert_eq!(
-            window_overlay_cell(content, cell, 5.0, 5.0),
-            Some(CellPoint { row: 0, column: 0 })
-        );
+        assert_eq!(window_overlay_cell(content, cell, 5.0, 5.0), None);
     }
 }

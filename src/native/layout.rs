@@ -408,13 +408,18 @@ pub(super) fn divider_axis_at_point(
         .map(|(_, axis)| axis)
 }
 
-/// Convert a pane rect to its cell grid dimensions for a given cell size. Pure
-/// integer math so it can be unit-tested without `CellSize`/`Dimensions`.
-/// Always returns at least `1x1` so a pane never has a zero-dimension grid.
+/// Convert a pane rect to its drawable cell-grid dimensions for a given cell
+/// size. Pure integer math so it can be unit-tested without
+/// `CellSize`/`Dimensions`.
+///
+/// A rect narrower or shorter than one cell returns zero on that axis. Terminal
+/// models and PTYs still require non-zero dimensions, so the resize path clamps
+/// these drawable dimensions to `1x1`; render and pointer paths use the zero to
+/// skip content that cannot fit inside the actual padded pane.
 pub(super) fn grid_dims_for_rect(rect: PaneRect, cell_w: u32, cell_h: u32) -> (usize, usize) {
     let cols = (rect.w.max(0.0) as u32) / cell_w.max(1);
     let rows = (rect.h.max(0.0) as u32) / cell_h.max(1);
-    (cols.max(1) as usize, rows.max(1) as usize)
+    (cols as usize, rows as usize)
 }
 
 /// Tolerance (physical px) for the "is this edge flush with the content
@@ -1166,15 +1171,20 @@ mod tests {
     // ----- grid_dims_for_rect -----
 
     #[test]
-    fn grid_dims_floor_and_clamp_to_one() {
+    fn grid_dims_floor_and_allow_collapsed_axes() {
         assert_eq!(
             grid_dims_for_rect(PaneRect::new(0.0, 0.0, 80.0, 32.0), 8, 16),
             (10, 2)
         );
-        // Sub-cell rect still yields at least 1x1.
+        // A sub-cell rect has no drawable cells. The PTY resize path separately
+        // clamps this to its required 1x1 minimum.
         assert_eq!(
             grid_dims_for_rect(PaneRect::new(0.0, 0.0, 3.0, 3.0), 8, 16),
-            (1, 1)
+            (0, 0)
+        );
+        assert_eq!(
+            grid_dims_for_rect(PaneRect::new(0.0, 0.0, 8.0, 3.0), 8, 16),
+            (1, 0)
         );
     }
 
@@ -1372,7 +1382,7 @@ mod tests {
     }
 
     /// Padding larger than a small pane clamps the drawable extent at zero rather
-    /// than going negative (the grid then floors to a 1x1 via `grid_dims_for_rect`).
+    /// than going negative (the drawable grid is empty on that axis).
     #[test]
     fn pane_inner_rect_oversized_padding_clamps_at_zero() {
         let content = PaneRect::new(0.0, 0.0, 40.0, 40.0);
@@ -1382,6 +1392,7 @@ mod tests {
         for (_, rect) in &rects {
             let inner = pane_inner_rect(*rect, content, 100.0);
             assert!(inner.w >= 0.0 && inner.h >= 0.0);
+            assert_eq!(grid_dims_for_rect(inner, 8, 16).0, 0);
         }
     }
 
