@@ -27,6 +27,7 @@ use crate::session_host::protocol::{
     write_host_hello,
 };
 use crate::session_host::{runtime_dir_path, session_socket_path};
+use winit::event::MouseButton as WinitMouseButton;
 
 static UNIQUE: AtomicU64 = AtomicU64::new(0);
 
@@ -664,6 +665,54 @@ fn attached_tab_resize_forwards_to_socket() {
             columns: 80,
             rows: 20
         }
+    );
+}
+
+#[test]
+fn attached_divider_drag_release_sends_one_final_resize_frame() {
+    let hosted_dims = Dimensions::new(50, 30);
+    let hosted_terminal = Terminal::new(hosted_dims.columns, hosted_dims.rows);
+    let (socket_path, host) =
+        spawn_fake_host(snapshot_bytes(&hosted_terminal), collect_until_detach);
+    let attached = attached_session_token(&socket_path, "drag-resize", 1);
+    let mut app = build_attach_app(Dimensions::new(100, 30));
+    let cell = crate::text::CellSize {
+        width: 10,
+        height: 20,
+        baseline: 0,
+    };
+    app.set_test_cell_for_test(cell);
+    app.set_test_surface_for_test(1000, 600, WindowPadding::ZERO);
+    app.seed_attached_split_pane_for_test(true, attached);
+    app.set_test_cell_for_test(cell);
+    app.set_test_surface_for_test(1000, 600, WindowPadding::ZERO);
+    app.reflow_active_panes_for_test();
+
+    // The initial split gives the hosted (second) pane exactly its advertised
+    // 50x30 grid, so setup emits no socket resize. Production pointer motion
+    // reflows the mirror only; release must flush the dirty attached backend
+    // even though that final pass observes the already-reflowed mirror model.
+    app.set_pointer_px_for_test(499.0, 300.0);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    app.pointer_move_for_test(400.0, 300.0);
+    assert_eq!(app.active_session_grid_dims_for_test(), (59, 30));
+    app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
+    assert!(!app.divider_drag_active_for_test());
+    assert!(!app.finish_divider_drag_for_test());
+
+    app.close_all_sessions_for_test();
+    let frames = join_within(host, "attached drag fake host");
+    let resizes: Vec<_> = frames
+        .into_iter()
+        .filter(|frame| matches!(frame, ClientFrame::Resize { .. }))
+        .collect();
+    assert_eq!(
+        resizes,
+        vec![ClientFrame::Resize {
+            columns: 59,
+            rows: 30,
+        }],
+        "live drag suppression must end with exactly one hosted resize"
     );
 }
 

@@ -1992,6 +1992,7 @@ impl App {
         let Some(token) = self.sessions.token_at_position(session) else {
             return false;
         };
+        self.finish_divider_drag();
         if !self.sessions.switch(token) {
             return false;
         }
@@ -2631,6 +2632,54 @@ impl App {
         );
         let token = self.sessions.split_active_for_test(axis, session);
         token.0 as usize
+    }
+
+    /// Unix-only attached-session sibling of [`Self::seed_split_pane_for_test`].
+    /// It grafts the supplied socket-backed production session into the active
+    /// pane tree so drag/release tests can observe real `ClientFrame::Resize`
+    /// traffic rather than a mock counter.
+    #[cfg(all(test, unix))]
+    pub(in crate::native) fn seed_attached_split_pane_for_test(
+        &mut self,
+        columns: bool,
+        session: crate::native::session::Session,
+    ) -> usize {
+        let axis = if columns {
+            crate::native::layout::SplitAxis::Columns
+        } else {
+            crate::native::layout::SplitAxis::Rows
+        };
+        let token = self.sessions.split_active_for_test(axis, session);
+        token.0 as usize
+    }
+
+    /// Whether a pane-divider gesture still owns a future release. Used only to
+    /// assert that modal/session transitions settle rather than discard or
+    /// strand the ownership latch.
+    #[cfg(test)]
+    pub(in crate::native) fn divider_drag_active_for_test(&self) -> bool {
+        self.divider_drag.is_some()
+    }
+
+    /// Invoke the shared completion seam a second time to pin idempotence across
+    /// duplicate release/focus/leave/resize ordering.
+    #[cfg(test)]
+    pub(in crate::native) fn finish_divider_drag_for_test(&mut self) -> bool {
+        self.finish_divider_drag()
+    }
+
+    /// Drive the production cursor-leave divider boundary without a live winit
+    /// window. The event arm delegates to this same seam before rail maintenance.
+    #[cfg(test)]
+    pub(in crate::native) fn settle_divider_for_cursor_leave_for_test(&mut self) {
+        self.settle_divider_for_cursor_leave();
+    }
+
+    /// Drive the production surface-resize / scale-change divider boundary
+    /// before its debounced grid reconciliation.
+    #[cfg(test)]
+    pub(in crate::native) fn settle_divider_for_surface_change_for_test(&mut self) {
+        self.settle_divider_for_surface_change();
     }
 
     /// Headless variant of [`Self::seed_split_pane_for_test`]: split off a second

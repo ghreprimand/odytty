@@ -1166,6 +1166,7 @@ impl App {
     /// binding-aware [`Self::handle_new_tab`] delegates here when the active
     /// workspace is unbound.
     fn handle_new_local_tab(&mut self) {
+        self.finish_divider_drag();
         // F1 cwd inheritance: seed the new tab's shell in the active pane's OSC 7
         // cwd when known, so New Tab opens where you already are. A pane with no
         // tracked cwd (None) spawns in the default directory, unchanged. Works on
@@ -1296,6 +1297,7 @@ impl App {
         runtime_base: Option<&Path>,
         session_id: &str,
     ) -> std::io::Result<()> {
+        self.finish_divider_drag();
         let token = self.sessions.attach_in_new_tab(runtime_base, session_id)?;
         self.present_attached_session(token);
         Ok(())
@@ -1370,6 +1372,7 @@ impl App {
             // overlay open==true, so keyboard dispatch kept routing every key
             // into its type-to-filter box instead of the switched-to session
             // until Esc was pressed.
+            self.finish_divider_drag();
             self.overlay.close();
             if self.sessions.switch(token) {
                 self.on_active_session_changed();
@@ -1390,6 +1393,7 @@ impl App {
     /// directly — no nested confirm-close dialog, since the user explicitly chose
     /// Replace. A stale id (nothing attached) leaves the current tab untouched.
     fn attach_session_replacing_current(&mut self, session_id: String) {
+        self.finish_divider_drag();
         let replace_target = self.sessions.active_id();
         if self.attach_session_in_new_tab(None, &session_id).is_err() {
             return;
@@ -1407,18 +1411,21 @@ impl App {
     }
 
     fn switch_to_next_tab(&mut self) {
+        self.finish_divider_drag();
         if self.sessions.next() {
             self.on_active_session_changed();
         }
     }
 
     fn switch_to_prev_tab(&mut self) {
+        self.finish_divider_drag();
         if self.sessions.prev() {
             self.on_active_session_changed();
         }
     }
 
     fn close_active_tab(&mut self) -> bool {
+        self.finish_divider_drag();
         // "Close Tab" reaps the ENTIRE active tab — every leaf session in its
         // layout tree — and removes the tab, regardless of pane count. This is
         // distinct from "Close Pane" (`close_focused_pane`), which collapses a
@@ -1467,6 +1474,7 @@ impl App {
     /// the last tab of the last workspace, mirroring the active-close guard;
     /// closing the last tab of a non-last workspace closes that workspace.
     fn close_tab_by_token(&mut self, token: SessionToken) {
+        self.finish_divider_drag();
         let Some(tab_idx) = self.sessions.position_of_token(token) else {
             return;
         };
@@ -1490,6 +1498,7 @@ impl App {
     /// remaining indices stable, then lands on the kept tab. A no-op when the
     /// kept tab is the only one open (the menu item is disabled there anyway).
     fn close_other_tabs(&mut self, token: SessionToken) {
+        self.finish_divider_drag();
         if self.sessions.position_of_token(token).is_none() || self.sessions.tab_count() <= 1 {
             return;
         }
@@ -1519,6 +1528,7 @@ impl App {
     /// keyboard). Reflows the content grid (chrome can change) and flashes the
     /// auto-hidden rail. No-op when already active or out of range.
     fn activate_workspace(&mut self, idx: usize) {
+        self.finish_divider_drag();
         if self.sessions.switch_workspace(idx) {
             self.flash_rail_autohide();
             self.recompute_grid_for_tab_bar();
@@ -1531,6 +1541,7 @@ impl App {
     /// workspace signals app exit WITHOUT emptying the arena first (mirroring the
     /// `close_active_tab` guard, so no `active()` Deref panics during teardown).
     fn close_workspace_at(&mut self, idx: usize) {
+        self.finish_divider_drag();
         // Exit keys on the last workspace: guard before reaping so the shutdown
         // path tears sessions down exactly as it does for the last tab.
         if self.sessions.workspace_count() <= 1 {
@@ -1598,6 +1609,7 @@ impl App {
     /// focus to a neighbor. Reconciles focus only when the move actually changed
     /// the active workspace, so a same-workspace no-op stays byte-identical.
     fn move_tab_to_workspace(&mut self, token: SessionToken, dest_ws: usize) {
+        self.finish_divider_drag();
         let active_before = self.sessions.active_workspace_index();
         let (moved, _source_closed) = self.sessions.move_tab_to_workspace(token, dest_ws);
         if !moved {
@@ -1621,6 +1633,7 @@ impl App {
     /// new workspace is confirmed. The new session becomes the `Deref` target, so
     /// `on_active_session_changed` reconciles focus/geometry.
     fn handle_new_workspace(&mut self) {
+        self.finish_divider_drag();
         let Ok(token) = self.sessions.new_workspace(self.grid) else {
             return;
         };
@@ -1665,6 +1678,7 @@ impl App {
     /// flows through the same spawn path New Tab's cwd inheritance uses, so
     /// ConPTY honors it and drive-letter OSC 7 cwds are already normalized.
     fn handle_duplicate_workspace(&mut self) {
+        self.finish_divider_drag();
         // D-1: validate the tracked cwd (stat + home fallback) before it seeds
         // the duplicated workspace's shell spawn.
         let cwd = self.validated_spawn_cwd();
@@ -1708,6 +1722,7 @@ impl App {
     /// teardown (a `Deref` on the emptied set would panic). Otherwise the reap
     /// removes the workspace, switches to a neighbor, and reconciles focus.
     fn close_active_workspace(&mut self) {
+        self.finish_divider_drag();
         if self.sessions.workspace_count() <= 1 {
             self.pending_exit = true;
             return;
@@ -1727,6 +1742,7 @@ impl App {
     /// the auto-hidden rail so the workspace change is visible even with the
     /// pointer away from the edge (ODP-2: workspace chords flash the rail).
     fn switch_to_next_workspace(&mut self) {
+        self.finish_divider_drag();
         if self.sessions.next_workspace() {
             self.flash_rail_autohide();
             if self.sessions.active_is_single_pane() {
@@ -1739,6 +1755,7 @@ impl App {
     /// Switch to the previous workspace in rail order (wrapping). A no-op with a
     /// single workspace.
     fn switch_to_prev_workspace(&mut self) {
+        self.finish_divider_drag();
         if self.sessions.prev_workspace() {
             self.flash_rail_autohide();
             if self.sessions.active_is_single_pane() {
@@ -1752,6 +1769,7 @@ impl App {
     /// palette's per-workspace "switch to …" rows (ODP-5). A no-op when `idx` is
     /// the active workspace or out of range.
     pub(super) fn switch_to_workspace(&mut self, idx: usize) {
+        self.finish_divider_drag();
         if self.sessions.switch_workspace(idx) {
             self.flash_rail_autohide();
             if self.sessions.active_is_single_pane() {
@@ -1771,6 +1789,7 @@ impl App {
     /// exhaustiveness. Each op routes onto the `WorkspaceSet` pane methods built in
     /// Phase 1c, then reflows pane geometry and repaints as needed.
     pub(super) fn apply_pane_action(&mut self, action: BindableAction) {
+        self.finish_divider_drag();
         match action {
             BindableAction::SplitColumns => self.split_active_pane(SplitAxis::Columns),
             BindableAction::SplitRows => self.split_active_pane(SplitAxis::Rows),
@@ -2063,6 +2082,11 @@ impl App {
         // bytes, ordering, or latency.
         if event_type != KeyEventType::Release {
             self.note_cursor_keyboard_activity(Instant::now());
+            // A keyboard action can open a modal or mutate the active
+            // tab/workspace/layout before the mouse release arrives. Settle the
+            // pointer-owned divider against its original layout first; later
+            // duplicate release/focus/leave/resize boundaries are inert.
+            self.finish_divider_drag();
         }
         if self.handle_osc52_prompt_key(&binding_key, physical, event_type) {
             return;
@@ -2892,6 +2916,10 @@ impl App {
     /// selection the Copy item needs. No pointer cell (e.g. before the first
     /// move) means no menu.
     pub(super) fn open_context_menu(&mut self, surface: ContextMenuSurface) {
+        // Unlike full overlays the context menu preserves terminal selection,
+        // so it does not use `reset_pointer_state_for_overlay`. It must still
+        // settle a divider before capturing subsequent left-button releases.
+        self.finish_divider_drag();
         // The rename/close target token rides on the surface: a `TabSlot`
         // right-click targets THAT tab (NF-F7-1); every other surface has no
         // tab target.
@@ -3203,9 +3231,20 @@ impl App {
     }
 
     fn on_active_session_changed(&mut self) {
+        let incoming = self.sessions.active_id();
+        // Some state-maintenance callers invoke this seam without changing the
+        // active identity. In that case the original layout is still current,
+        // so settling here is safe. Real tab/workspace mutations must settle at
+        // their entry point, before `incoming` changes.
+        if incoming == self.last_active_session {
+            self.finish_divider_drag();
+        }
+        debug_assert!(
+            self.divider_drag.is_none(),
+            "active-session mutation must settle divider ownership first"
+        );
         self.cancel_osc52_prompt();
         let outgoing = self.last_active_session;
-        let incoming = self.sessions.active_id();
         if self.focused && outgoing != incoming {
             self.send_focus_report_to(outgoing, false);
             self.send_focus_report_to(incoming, true);
@@ -3227,6 +3266,10 @@ impl App {
         // one. Selection/viewport state is deliberately preserved.
         self.sessions.clear_all_input_latches();
         self.grid_left_held = false;
+        // Release-build safety for a future missed caller: never let stale
+        // ownership resume against the newly-active layout. The debug assertion
+        // above keeps such a caller visible in tests; correctness requires its
+        // mutation entry point to perform the real settlement first.
         self.divider_drag = None;
         self.rail_seam_drag = false;
         self.tab_bar_seam_drag = false;
@@ -5069,6 +5112,10 @@ impl App {
                 false
             }
             UserEvent::ShellExited { session } => {
+                // Closing or reconnecting any session may collapse a pane, tab,
+                // or workspace. Settle an active divider before that layout can
+                // be removed or focus can move to a survivor.
+                self.settle_divider_for_surface_change();
                 // F6-i4: a remote session whose link dropped (`ssh` exit 255)
                 // holds its tab open with an in-pane reconnect prompt instead of
                 // closing. Checked BEFORE the last-session exit test so a lone
@@ -6100,6 +6147,11 @@ impl ApplicationHandler<UserEvent> for App {
                     ))
                 });
 
+                // The cell metric and padding lattice may change even when the
+                // outer pixel size does not. Complete the old-basis gesture
+                // before applying those metrics or queuing reconciliation.
+                self.settle_divider_for_surface_change();
+
                 if let Some(resize) = resize {
                     self.needs_rebuild = true;
                     self.last_render_signature = None;
@@ -6863,8 +6915,7 @@ impl ApplicationHandler<UserEvent> for App {
                 // Some Wayland compositors terminate the implicit pointer grab
                 // at the surface edge without forwarding the paired release.
                 // Treat leaving during a divider gesture as its final boundary.
-                self.finish_divider_drag();
-                self.window_pointer_px = None;
+                self.settle_divider_for_cursor_leave();
                 // F4-P3: the pointer left the window — feed the auto-hide machine
                 // an empty sample so a rail revealed at the edge starts its hide
                 // grace (no `CursorMoved` fires once the pointer is gone). Inert

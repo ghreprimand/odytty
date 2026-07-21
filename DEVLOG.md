@@ -18,13 +18,16 @@ could clear or strand the gesture without its whole-cell snap and PTY flush.
 
 Final debounced sizes now reconcile every pane even when the aggregate grid is
 unchanged, while per-pane dimension and metric guards keep unaffected models
-and PTYs inert. Divider completion is shared by button release, pointer exit,
-focus loss, and surface reconfiguration, and its snap lattice accounts for the
-physical padding on divider-facing edges. Normal window resizing remains
-debounced, live divider motion still avoids PTY resize traffic, and release or
-interruption performs one final flush. The event-state policy is shared across
-Wayland, X11, Windows, and macOS; Unix PTYs, Windows ConPTY, and attached
-sessions retain their existing backend-specific resize routing.
+and backends inert. Divider completion is shared by button release, pointer
+exit, focus loss, surface reconfiguration, overlay or context-menu entry, and
+tab/workspace/layout transitions; its snap lattice accounts for the physical
+padding on divider-facing edges. Live divider motion marks only the panes whose
+backend geometry became dirty, and completion flushes those panes once. This
+also gives an attached session host exactly one final Resize frame while
+unaffected panes, tabs, and workspaces stay silent. Normal window resizing
+remains debounced. The event-state policy is shared across Wayland, X11,
+Windows, and macOS; Unix PTYs, Windows ConPTY, and attached sessions retain
+their backend-specific resize routing.
 
 ---
 

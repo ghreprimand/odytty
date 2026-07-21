@@ -181,6 +181,22 @@ impl App {
         true
     }
 
+    /// Finish divider ownership at a surface-geometry boundary. Kept as a
+    /// named seam because `Resized` and scale-factor transitions occur before
+    /// their debounced grid reconciliation, and event-order regressions need to
+    /// exercise that exact pre-reconcile boundary without a live winit window.
+    pub(super) fn settle_divider_for_surface_change(&mut self) {
+        self.finish_divider_drag();
+    }
+
+    /// Finish divider ownership when the cursor leaves the surface, then drop
+    /// the window-level pointer coordinate exactly as the winit event route
+    /// requires. The remaining rail-autohide bookkeeping stays in the event arm.
+    pub(super) fn settle_divider_for_cursor_leave(&mut self) {
+        self.finish_divider_drag();
+        self.window_pointer_px = None;
+    }
+
     /// Handle a window-level mouse button event (the `WindowEvent::MouseInput`
     /// dispatch). Precedence is unchanged: an open overlay captures the button
     /// first, then an in-progress local selection drag, then TUI mouse
@@ -188,6 +204,22 @@ impl App {
     pub(super) fn handle_mouse_input(&mut self, state: ElementState, button: WinitMouseButton) {
         if button == WinitMouseButton::Left {
             self.pointer_left_held = state == ElementState::Pressed;
+        }
+        // Divider ownership settles before any overlay, modal, chrome, or
+        // session-transition routing can capture or mutate the event. A paired
+        // left release belongs exclusively to the divider. Any new press first
+        // closes a stale/lost-release gesture, then continues as a fresh press
+        // (including right-click context-menu entry).
+        if self.divider_drag.is_some()
+            && (state == ElementState::Pressed
+                || (button == WinitMouseButton::Left && state == ElementState::Released))
+        {
+            let owned_left_release =
+                button == WinitMouseButton::Left && state == ElementState::Released;
+            self.finish_divider_drag();
+            if owned_left_release {
+                return;
+            }
         }
         // UX4-P1: an open overlay captures the pointer before any
         // selection / PTY-report / hyperlink logic — the mouse analogue
@@ -246,35 +278,6 @@ impl App {
         // The rail seam owns the remaining vertical grab band and keeps its
         // existing divider/tab priority away from the junction.
         if self.handle_rail_seam_button(state, button) {
-            return;
-        }
-        // A left-release always ends an in-progress divider drag (design doc
-        // §4.2), before any other press routing. `divider_drag` is only ever
-        // `Some` inside a multi-pane tab, so the single-pane path is unaffected.
-        if self.divider_drag.is_some()
-            && button == WinitMouseButton::Left
-            && state == ElementState::Released
-        {
-            // RELEASE-SNAP + COALESCED FLUSH (Phase H decision gate → option (a),
-            // flush-on-drag-end): the smooth per-pixel drag leaves the active
-            // split at an arbitrary sub-cell ratio, whose floored-grid remainder
-            // breathes at the outer window margin as the divider moves. On
-            // release, snap the dragged split's divider onto a whole-cell
-            // boundary (cosmetic; may be a no-op when already aligned), THEN
-            // flush exactly one full `resize_all_panes` — PTY included.
-            //
-            // The flush is UNCONDITIONAL whenever a divider drag was in progress
-            // (not gated on the snap changing the ratio): the live per-move drag
-            // reflowed only the terminal models via `reflow_all_panes_for_drag`,
-            // so the shell's PTY is still at the pre-drag size. This release is
-            // the one place the kernel learns the final dimensions; gating it on
-            // a snap delta would strand the PTY at the old size whenever the
-            // divider happened to land on a cell boundary. The shared completion
-            // path takes the dragged split index before settling it;
-            // `multipane_geometry()` is `None` on a single-pane tab (which never
-            // grabs a divider), so the byte-identical single-pane path is
-            // untouched.
-            self.finish_divider_drag();
             return;
         }
         // Multi-pane left press: grab a divider to drag, else focus the clicked
@@ -1279,13 +1282,16 @@ impl App {
     /// Clearing on entry is sufficient: nothing can re-arm `report_button` while
     /// the overlay is open, so it is guaranteed `None` on close.
     pub(super) fn reset_pointer_state_for_overlay(&mut self) {
+        // Settle an owned divider gesture before the overlay captures its
+        // release. Settlement is independent of the pointer-state clearing below
+        // and synchronizes the model with its local, ConPTY, or attached backend.
+        self.finish_divider_drag();
         self.selection.clear();
         self.selection_block = false;
         self.pointer_drag = PointerDrag::None;
         self.drag_anchor_unit = None;
         self.last_selection_autoscroll = None;
         self.report_button = None;
-        self.divider_drag = None;
         self.rail_seam_drag = false;
         self.tab_bar_seam_drag = false;
         self.rail_ws_drag = None;

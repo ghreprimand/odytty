@@ -50,6 +50,39 @@ fn recorded_session(
     Some((terminal, writer, pty, bytes))
 }
 
+fn recorded_divider_app() -> Option<(App, [Arc<Mutex<PtySession>>; 2])> {
+    let dims = Dimensions::new(80, 24);
+    let (terminal_a, writer_a, pty_a, _) = recorded_session(dims)?;
+    let (terminal_b, writer_b, pty_b, _) = recorded_session(dims)?;
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal_a,
+        writer_a,
+        pty_a.clone(),
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(640, 384, WindowPadding::ZERO);
+    app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b.clone());
+    app.set_test_cell_for_test(cell(8, 16));
+    app.set_test_surface_for_test(640, 384, WindowPadding::ZERO);
+    app.reflow_active_panes_for_test();
+    Some((app, [pty_a, pty_b]))
+}
+
+fn begin_recorded_divider_drag(app: &mut App) {
+    let (tiled, inner) = app
+        .focused_pane_rects_for_test()
+        .expect("two-pane geometry");
+    let divider_x = f64::from(tiled[0] - 0.5);
+    let y = f64::from(inner[1] + inner[3] / 2.0);
+    app.set_pointer_px_for_test(divider_x, y);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    assert!(app.divider_drag_active_for_test());
+    app.pointer_move_for_test(divider_x - 40.0, y);
+}
+
 fn single_session_app() -> Option<(App, Arc<Mutex<Vec<u8>>>)> {
     let options = NativeOptions::default();
     let dims = options.initial_grid;
@@ -3914,7 +3947,6 @@ fn closing_middle_tab_preserves_remaining_session_tokens_and_active_session() {
         eprintln!("skipping: no PTY available");
         return;
     };
-
     let mut app = App::new(
         options,
         terminal_a,
@@ -5554,6 +5586,10 @@ fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
         eprintln!("skipping: no PTY available");
         return;
     };
+    let Some((terminal_c, writer_c, pty_c, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
     let mut app = App::new(
         NativeOptions::default(),
         terminal_a.clone(),
@@ -5569,6 +5605,7 @@ fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
         crate::native::WindowPadding::ZERO,
     );
     app.seed_split_pane_for_test(true, terminal_b.clone(), writer_b, pty_b.clone());
+    app.push_session_for_test(terminal_c, writer_c, pty_c.clone());
     app.set_test_cell_for_test(cell(CW, CH));
     app.set_test_surface_for_test(
         COLS as u32 * CW,
@@ -5583,10 +5620,14 @@ fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
     );
 
     // Helper: kernel-resize call count for both panes' PTYs.
-    let count = |a: &Arc<Mutex<PtySession>>, b: &Arc<Mutex<PtySession>>| -> (usize, usize) {
+    let count = |a: &Arc<Mutex<PtySession>>,
+                 b: &Arc<Mutex<PtySession>>,
+                 c: &Arc<Mutex<PtySession>>|
+     -> (usize, usize, usize) {
         (
             a.lock().expect("pty a").resize_call_count(),
             b.lock().expect("pty b").resize_call_count(),
+            c.lock().expect("pty c").resize_call_count(),
         )
     };
     // Pane A's column count, to prove the model reflows LIVE during the drag.
@@ -5601,7 +5642,7 @@ fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
 
     // Snapshot the baseline AFTER setup (split + reflow already issued kernel
     // resizes); the assertions below measure the delta caused by the drag.
-    let (a0, b0) = count(&pty_a, &pty_b);
+    let (a0, b0, c0) = count(&pty_a, &pty_b, &pty_c);
     let a_cols_before = a_cols();
 
     // Grab the vertical divider at the content midpoint (x = 640/2 = 320).
@@ -5619,10 +5660,10 @@ fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
 
     // RED pre-fix: ~2 kernel resizes per move (one per pane) accumulate here.
     // GREEN post-fix: zero kernel resizes during the whole drag.
-    let (a1, b1) = count(&pty_a, &pty_b);
+    let (a1, b1, c1) = count(&pty_a, &pty_b, &pty_c);
     assert_eq!(
-        (a1 - a0, b1 - b0),
-        (0, 0),
+        (a1 - a0, b1 - b0, c1 - c0),
+        (0, 0, 0),
         "no kernel PTY resize may fire during a divider drag (was {} / {} per pane)",
         a1 - a0,
         b1 - b0
@@ -5638,11 +5679,11 @@ fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
 
     // Release flushes exactly one coalesced kernel resize per pane.
     app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
-    let (a2, b2) = count(&pty_a, &pty_b);
+    let (a2, b2, c2) = count(&pty_a, &pty_b, &pty_c);
     assert_eq!(
-        (a2 - a1, b2 - b1),
-        (1, 1),
-        "drag-end must flush exactly one kernel resize per pane"
+        (a2 - a1, b2 - b1, c2 - c1),
+        (1, 1, 0),
+        "drag-end flushes dirty panes once and leaves the background tab silent"
     );
 }
 
@@ -5760,6 +5801,150 @@ fn focus_loss_finishes_a_padded_divider_drag_with_one_pty_flush() {
             .columns,
         27,
         "the snap lattice is based on the padded inner width"
+    );
+}
+
+#[test]
+fn cursor_leave_finishes_divider_once_before_duplicate_boundaries() {
+    let Some((mut app, [pty_a, pty_b])) = recorded_divider_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
+    let (a0, b0) = (count(&pty_a), count(&pty_b));
+    begin_recorded_divider_drag(&mut app);
+
+    app.settle_divider_for_cursor_leave_for_test();
+    assert!(!app.divider_drag_active_for_test());
+    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+
+    // A compositor may follow CursorLeft with configure, focus loss, and the
+    // delayed release in any order. Ownership was taken by the first boundary.
+    app.settle_divider_for_surface_change_for_test();
+    app.on_window_focus_changed_for_test(false);
+    app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
+    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+}
+
+#[test]
+fn surface_change_finishes_divider_once_before_leave_and_release() {
+    let Some((mut app, [pty_a, pty_b])) = recorded_divider_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
+    let (a0, b0) = (count(&pty_a), count(&pty_b));
+    begin_recorded_divider_drag(&mut app);
+
+    app.settle_divider_for_surface_change_for_test();
+    assert!(!app.divider_drag_active_for_test());
+    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+
+    app.settle_divider_for_cursor_leave_for_test();
+    app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
+    app.on_window_focus_changed_for_test(false);
+    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+}
+
+#[test]
+fn overlay_entry_settles_divider_once_before_capturing_release() {
+    let Some((mut app, [pty_a, pty_b])) = recorded_divider_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
+    let (a0, b0) = (count(&pty_a), count(&pty_b));
+    begin_recorded_divider_drag(&mut app);
+
+    app.open_settings_overlay_for_test();
+    assert!(app.overlay_open_for_test());
+    assert!(!app.divider_drag_active_for_test());
+    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+
+    // The overlay consumes the eventual release; later focus/leave/resize
+    // boundaries all share the same take-once finalizer and must stay inert.
+    app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
+    app.on_window_focus_changed_for_test(false);
+    assert!(!app.finish_divider_drag_for_test());
+    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+}
+
+#[test]
+fn context_menu_entry_settles_divider_and_later_left_release_is_inert() {
+    let Some((mut app, [pty_a, pty_b])) = recorded_divider_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
+    let (a0, b0) = (count(&pty_a), count(&pty_b));
+    begin_recorded_divider_drag(&mut app);
+
+    // Drive the production context-menu entry itself. Chrome and content
+    // right-click routes both converge on `open_context_menu`, and the eventual
+    // left release is then captured by the newly-open menu.
+    app.open_empty_tab_strip_menu_for_test();
+    assert!(app.context_menu_open_for_test());
+    assert!(!app.divider_drag_active_for_test());
+    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+
+    app.dispatch_mouse_button_for_test(false, WinitMouseButton::Left);
+    assert!(!app.finish_divider_drag_for_test());
+    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (1, 1));
+}
+
+#[test]
+fn tab_switch_settles_outgoing_divider_without_resizing_background_tab() {
+    let Some((mut app, [pty_a, pty_b])) = recorded_divider_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let dims = Dimensions::new(80, 24);
+    let Some((terminal_c, writer_c, pty_c, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let background = app.push_session_for_test(terminal_c, writer_c, pty_c.clone());
+    app.reflow_active_panes_for_test();
+    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
+    let (a0, b0, c0) = (count(&pty_a), count(&pty_b), count(&pty_c));
+    begin_recorded_divider_drag(&mut app);
+
+    app.switch_to_next_tab_for_test();
+    assert_eq!(app.active_session_id_for_test(), background);
+    assert!(!app.divider_drag_active_for_test());
+    assert_eq!(
+        (count(&pty_a) - a0, count(&pty_b) - b0, count(&pty_c) - c0,),
+        (1, 1, 0),
+        "only dirty panes in the outgoing split are flushed"
+    );
+}
+
+#[test]
+fn workspace_switch_settles_outgoing_divider_before_focus_mutation() {
+    let Some((mut app, [pty_a, pty_b])) = recorded_divider_app() else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let dims = Dimensions::new(80, 24);
+    let Some((terminal_c, writer_c, pty_c, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let background = app.push_workspace_for_test(terminal_c, writer_c, pty_c.clone());
+    app.dispatch_workspace_action_for_test(crate::settings::BindableAction::PrevWorkspace);
+    assert_eq!(app.active_workspace_index_for_test(), 0);
+    app.reflow_active_panes_for_test();
+    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
+    let (a0, b0, c0) = (count(&pty_a), count(&pty_b), count(&pty_c));
+    begin_recorded_divider_drag(&mut app);
+
+    app.dispatch_workspace_action_for_test(crate::settings::BindableAction::NextWorkspace);
+    assert_eq!(app.active_workspace_index_for_test(), background);
+    assert!(!app.divider_drag_active_for_test());
+    assert_eq!(
+        (count(&pty_a) - a0, count(&pty_b) - b0, count(&pty_c) - c0,),
+        (1, 1, 0),
+        "workspace focus changes after flushing only the outgoing dirty split"
     );
 }
 

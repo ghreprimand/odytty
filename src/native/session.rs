@@ -417,6 +417,11 @@ pub(super) struct Session {
     pub(super) terminal: Arc<Mutex<Terminal>>,
     pub(super) writer: PtyWriter,
     pub(super) source: SessionSource,
+    /// The terminal model changed while live pane dragging deliberately
+    /// suppressed its backend resize. The next settlement flushes only sessions
+    /// carrying this bit (or a newly changed geometry), then clears it after the
+    /// backend accepts the final dimensions.
+    pty_resize_dirty: bool,
     /// The host session-id string this session was attached by (Phase 14), or
     /// `None` for a locally-spawned PTY. Drives attach dedup: selecting a
     /// session already open in a tab switches to it instead of appending a
@@ -724,6 +729,7 @@ impl Session {
             terminal,
             writer,
             source,
+            pty_resize_dirty: false,
             attached_session_id: None,
             pump_thread,
             recorder,
@@ -1332,21 +1338,10 @@ pub(super) struct WorkspaceSet {
     shell_integration_enabled: bool,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum PtyResizePolicy {
-    Always,
-    ChangedOnly,
+    FlushDirty,
     Never,
-}
-
-impl PtyResizePolicy {
-    fn should_resize(self, geometry_changed: bool) -> bool {
-        match self {
-            Self::Always => true,
-            Self::ChangedOnly => geometry_changed,
-            Self::Never => false,
-        }
-    }
 }
 
 impl WorkspaceSet {
@@ -1851,12 +1846,12 @@ impl WorkspaceSet {
         })
     }
 
-    /// Resize **every pane of every tab** to its laid-out cell dimensions within
-    /// `content`, reflowing each pane's terminal model and PTY. For an all-
-    /// single-pane world every tab's lone leaf spans `content`, so each session
-    /// is sized to exactly the dimensions the old per-session resize loop
-    /// produced — the single-pane path stays byte-identical. Multi-pane tabs get
-    /// each pane sized to its own sub-rect (design doc §2.5 audit row #1).
+    /// Reconcile **every pane of every tab** to its laid-out cell dimensions
+    /// within `content`, reflowing changed terminal models and flushing only
+    /// backends whose grid/metrics became dirty. For an all-single-pane world
+    /// every tab's lone leaf still spans `content`; multi-pane tabs derive each
+    /// pane from its own sub-rect (design doc §2.5 audit row #1). An unchanged
+    /// session is inert instead of receiving a redundant PTY/ConPTY resize.
     ///
     /// `pad` is the physical window-padding inset applied to every divider-facing
     /// pane edge (`0.0` and the single-pane path stay byte-identical); it sizes
@@ -1876,15 +1871,15 @@ impl WorkspaceSet {
             cell_h,
             divider_px,
             pad,
-            PtyResizePolicy::Always,
+            PtyResizePolicy::FlushDirty,
         );
     }
 
     /// Reconcile pane models and PTYs after a surface configure, returning
-    /// whether any pane's grid or cell metrics changed. Unlike structural
-    /// resize and divider completion, a duplicate same-grid configure must not
-    /// signal unchanged PTYs; the final debounced configure can still resize an
-    /// individual ratio-derived child when the aggregate window grid is stable.
+    /// whether any pane's grid or cell metrics changed. A duplicate same-grid
+    /// configure does not signal unchanged backends; the final debounced
+    /// configure can still resize an individual ratio-derived child when the
+    /// aggregate window grid is stable.
     pub(super) fn reconcile_all_panes_for_surface(
         &mut self,
         content: PaneRect,
@@ -1899,7 +1894,7 @@ impl WorkspaceSet {
             cell_h,
             divider_px,
             pad,
-            PtyResizePolicy::ChangedOnly,
+            PtyResizePolicy::FlushDirty,
         )
     }
 
@@ -2009,6 +2004,14 @@ impl WorkspaceSet {
                 if dimensions_changed {
                     session.invalidate_layout_dependent_state();
                 }
+                let backend_geometry_changed = match &session.source {
+                    SessionSource::Local { .. } => geometry_changed,
+                    #[cfg(unix)]
+                    SessionSource::Attached { .. } => dimensions_changed,
+                    #[cfg(test)]
+                    SessionSource::Headless { .. } => geometry_changed,
+                };
+                session.pty_resize_dirty |= backend_geometry_changed;
                 // Route the kernel-side resize to whichever source backs the
                 // session. A local PTY still refreshes its pixel metrics even
                 // when the cell grid is unchanged. An attached session has no
@@ -2018,22 +2021,26 @@ impl WorkspaceSet {
                 // entirely for the live divider-drag path. Surface configure
                 // reconciliation signals only panes whose grid or metrics
                 // changed, preserving duplicate-event idempotence. The release
-                // handler still forces the single coalesced kernel resize at
-                // drag-end.
-                if pty_policy.should_resize(geometry_changed) {
-                    match &session.source {
+                // handler still flushes the single coalesced backend resize for
+                // every dirty pane at drag-end.
+                if pty_policy == PtyResizePolicy::FlushDirty && session.pty_resize_dirty {
+                    let resize_succeeded = match &session.source {
                         SessionSource::Local { pty } => {
                             if let Ok(pty) = pty.lock() {
                                 // Feed the live cell metric so TIOCSWINSZ reports
                                 // a real ws_xpixel/ws_ypixel (C23), then resize.
                                 pty.set_cell_metrics(crate::core::CellMetrics::new(cell_w, cell_h));
-                                let _ = pty.resize(crate::core::Dimensions::new(cols, rows));
+                                pty.resize(crate::core::Dimensions::new(cols, rows)).is_ok()
+                            } else {
+                                false
                             }
                         }
                         #[cfg(unix)]
                         SessionSource::Attached { client } => {
-                            if dimensions_changed && let Ok(mut client) = client.lock() {
-                                let _ = client.resize(cols as u32, rows as u32);
+                            if let Ok(mut client) = client.lock() {
+                                client.resize(cols as u32, rows as u32).is_ok()
+                            } else {
+                                false
                             }
                         }
                         // Record the resize geometry without any syscall so a
@@ -2043,7 +2050,11 @@ impl WorkspaceSet {
                             session
                                 .record_cell_metrics(crate::core::CellMetrics::new(cell_w, cell_h));
                             session.record_resize(crate::core::Dimensions::new(cols, rows));
+                            true
                         }
+                    };
+                    if resize_succeeded {
+                        session.pty_resize_dirty = false;
                     }
                 }
             }

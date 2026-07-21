@@ -460,12 +460,16 @@ impl App {
     /// is exactly `self.pointer_cell` (already window-space), so the single-pane
     /// path is unchanged. In a multi-pane tab `self.pointer_cell` is relative to
     /// the focused pane's sub-grid — wrong for a window-level overlay — so this
-    /// recomputes it against the content rect from the cached physical pointer.
+    /// recomputes it against the content rect from the window-level physical
+    /// pointer cache. Settling a divider invalidates the resized pane's
+    /// coordinate-bound UI state, including its per-session `pointer_px`, but
+    /// the physical pointer has not moved and a context-menu press still needs
+    /// that position.
     pub(super) fn overlay_pointer_cell(&self) -> Option<CellPoint> {
         let Some((content, cell)) = self.multipane_geometry() else {
             return self.pointer_cell;
         };
-        let (x_px, y_px) = self.pointer_px?;
+        let (x_px, y_px) = self.window_pointer_px?;
         window_overlay_cell(content, cell, x_px, y_px)
     }
 
