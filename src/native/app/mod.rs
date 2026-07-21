@@ -993,23 +993,28 @@ impl App {
         if reserve.left_reserved_cols() + reserve.right_reserved_cols() > 0 {
             new_grid.columns = new_grid.columns.max(1);
         }
-        if new_grid == self.grid {
-            return false;
+        let grid_changed = new_grid != self.grid;
+        if grid_changed {
+            self.grid = new_grid;
         }
-        self.grid = new_grid;
 
         // Size every pane of every tab to its laid-out sub-rect. For an all-
         // single-pane world each tab's lone leaf spans the whole content rect,
         // so this resizes each session to exactly `new_grid` — byte-identical to
         // the old per-session loop. Multi-pane tabs get per-pane sizing (#1).
-        self.sessions.resize_all_panes(
+        // Reconcile even when the aggregate grid did not cross a cell boundary:
+        // a final one-pixel surface configure can move a ratio-derived divider
+        // far enough for one child grid to change while the window grid stays
+        // constant. Per-session dimension and metric guards keep unchanged
+        // panes inert.
+        let panes_changed = self.sessions.reconcile_all_panes_for_surface(
             content,
             cell.width,
             cell.height,
             PANE_DIVIDER_PX,
             padding.as_f32(),
         );
-        true
+        grid_changed || panes_changed
     }
 
     /// Reconcile every pane with the current window content geometry even when
@@ -6057,6 +6062,10 @@ impl ApplicationHandler<UserEvent> for App {
                     pending_resize_for_surface(gpu.cell(), gpu.window_padding(), size)
                 });
 
+                // A surface configure invalidates the pixel basis of an active
+                // divider grab. This also closes the Wayland path where the
+                // compositor ends the grab without a button-release event.
+                self.finish_divider_drag();
                 if let Some(resize) = resize {
                     self.record_pending_resize(resize, Instant::now());
                 }
@@ -6851,6 +6860,10 @@ impl ApplicationHandler<UserEvent> for App {
                 self.update_pointer_cell(position.x, position.y);
             }
             WindowEvent::CursorLeft { .. } => {
+                // Some Wayland compositors terminate the implicit pointer grab
+                // at the surface edge without forwarding the paired release.
+                // Treat leaving during a divider gesture as its final boundary.
+                self.finish_divider_drag();
                 self.window_pointer_px = None;
                 // F4-P3: the pointer left the window — feed the auto-hide machine
                 // an empty sample so a rail revealed at the edge starts its hide

@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-21 -- Settle pane geometry at every resize and drag boundary
+
+A final surface configure could keep the same whole-window cell count while a
+ratio-derived child pane crossed a cell boundary. The window-level no-change
+guard then skipped all per-pane reconciliation, leaving the rendered surface
+and pane grids based on different final sizes. Divider gestures also depended
+on receiving a paired button release; a focus transfer or surface transition
+could clear or strand the gesture without its whole-cell snap and PTY flush.
+
+Final debounced sizes now reconcile every pane even when the aggregate grid is
+unchanged, while per-pane dimension and metric guards keep unaffected models
+and PTYs inert. Divider completion is shared by button release, pointer exit,
+focus loss, and surface reconfiguration, and its snap lattice accounts for the
+physical padding on divider-facing edges. Normal window resizing remains
+debounced, live divider motion still avoids PTY resize traffic, and release or
+interruption performs one final flush. The event-state policy is shared across
+Wayland, X11, Windows, and macOS; Unix PTYs, Windows ConPTY, and attached
+sessions retain their existing backend-specific resize routing.
+
+---
+
 ## 2026-07-21 -- Resolve the default shell without a redundant NSS lookup
 
 Default-shell resolution consulted the passwd/NSS login-shell database on every

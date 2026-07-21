@@ -766,16 +766,17 @@ fn drag_into(
 /// outer window margins are identical at every rest position (the smooth
 /// per-pixel drag is untouched — only the release re-derives a snapped ratio).
 ///
-/// Why this makes the outer margin constant: snapping the first child to exactly
-/// `k·cell` pixels leaves it flush on both its sides (zero remainder), so the
-/// only stranded remainder is the far pane's `usable mod cell`, which is
-/// **independent of `k`** → the same at every snap position. Without the snap,
-/// the first child's sub-cell remainder varies continuously with the drag and
-/// (via [`pane_grid_origin`]) breathes at its outer margin.
+/// Why this makes the outer margin constant: snapping the first child's actual
+/// padded inner extent to exactly `k·cell` pixels leaves it with zero remainder,
+/// so the only stranded remainder is in the far pane and is independent of the
+/// release position. Without the snap, the first child's sub-cell remainder
+/// varies continuously with the drag and (via [`pane_grid_origin`]) breathes at
+/// its outer margin. With zero padding the lattice is exactly the historical
+/// `k·cell` tiled extent.
 ///
-/// The first child is clamped to `[cell, usable − cell]` so neither child ever
-/// snaps below one cell (then re-clamped to the legal ratio band), mirroring the
-/// min-size guarantee the drag path already enforces.
+/// The first child is clamped so both padded children retain at least one cell
+/// when the split is large enough, then re-clamped to the legal ratio band,
+/// mirroring the min-size guarantee the drag path already enforces.
 pub(super) fn snap_divider_to_cells(
     tree: &mut PaneNode,
     content: PaneRect,
@@ -783,27 +784,34 @@ pub(super) fn snap_divider_to_cells(
     target: usize,
     cell_w: u32,
     cell_h: u32,
+    pad: f32,
 ) -> Option<f32> {
     let mut counter = 0usize;
-    snap_into(
-        tree,
+    let geometry = DividerSnapGeometry {
         content,
         divider_px,
-        target,
-        &mut counter,
         cell_w,
         cell_h,
-    )
+        pad,
+    };
+    snap_into(tree, content, target, &mut counter, geometry)
+}
+
+#[derive(Clone, Copy)]
+struct DividerSnapGeometry {
+    content: PaneRect,
+    divider_px: f32,
+    cell_w: u32,
+    cell_h: u32,
+    pad: f32,
 }
 
 fn snap_into(
     node: &mut PaneNode,
     rect: PaneRect,
-    divider_px: f32,
     target: usize,
     counter: &mut usize,
-    cell_w: u32,
-    cell_h: u32,
+    geometry: DividerSnapGeometry,
 ) -> Option<f32> {
     let PaneNode::Split {
         axis,
@@ -819,36 +827,58 @@ fn snap_into(
     if me == target {
         // `usable` and `cell` along the split's primary axis; matches the
         // floored first-child extent `split_rect` computes for this split.
-        let (usable, cell) = match axis {
-            SplitAxis::Columns => ((rect.w - divider_px).max(0.0), cell_w.max(1) as f32),
-            SplitAxis::Rows => ((rect.h - divider_px).max(0.0), cell_h.max(1) as f32),
+        let (usable, cell, low_edge_pad, high_edge_pad) = match axis {
+            SplitAxis::Columns => (
+                (rect.w - geometry.divider_px).max(0.0),
+                geometry.cell_w.max(1) as f32,
+                if rect.x > geometry.content.x + EDGE_EPS {
+                    geometry.pad.max(0.0)
+                } else {
+                    0.0
+                },
+                if rect.right() < geometry.content.right() - EDGE_EPS {
+                    geometry.pad.max(0.0)
+                } else {
+                    0.0
+                },
+            ),
+            SplitAxis::Rows => (
+                (rect.h - geometry.divider_px).max(0.0),
+                geometry.cell_h.max(1) as f32,
+                if rect.y > geometry.content.y + EDGE_EPS {
+                    geometry.pad.max(0.0)
+                } else {
+                    0.0
+                },
+                if rect.bottom() < geometry.content.bottom() - EDGE_EPS {
+                    geometry.pad.max(0.0)
+                } else {
+                    0.0
+                },
+            ),
         };
         let first_px = (usable * clamp_ratio(*ratio)).floor();
-        // Snap to the nearest whole-cell boundary, then keep both children ≥ 1
-        // cell when the split is large enough to hold two.
-        let mut snapped = (first_px / cell).round() * cell;
-        if usable >= 2.0 * cell {
-            snapped = snapped.clamp(cell, usable - cell);
+        // The first child always has a divider-facing high edge. Its low edge
+        // also faces a divider when this split is nested on the far side of a
+        // parent. Offset the whole-cell lattice by those physical padding
+        // insets so the child's actual inner extent, not its tiled extent,
+        // lands on whole cells. At zero padding this is the established lattice.
+        let inset = low_edge_pad + geometry.pad.max(0.0);
+        let mut snapped = ((first_px - inset).max(0.0) / cell).round() * cell + inset;
+        let first_minimum = cell + inset;
+        let second_minimum = cell + geometry.pad.max(0.0) + high_edge_pad;
+        if usable >= first_minimum + second_minimum {
+            snapped = snapped.clamp(first_minimum, usable - second_minimum);
         }
         let new_ratio = clamp_ratio(snapped / usable.max(1.0));
         *ratio = new_ratio;
         return Some(new_ratio);
     }
-    let (first_rect, second_rect) = split_rect(rect, *axis, *ratio, divider_px);
-    if let Some(found) = snap_into(
-        first, first_rect, divider_px, target, counter, cell_w, cell_h,
-    ) {
+    let (first_rect, second_rect) = split_rect(rect, *axis, *ratio, geometry.divider_px);
+    if let Some(found) = snap_into(first, first_rect, target, counter, geometry) {
         return Some(found);
     }
-    snap_into(
-        second,
-        second_rect,
-        divider_px,
-        target,
-        counter,
-        cell_w,
-        cell_h,
-    )
+    snap_into(second, second_rect, target, counter, geometry)
 }
 
 /// The pane token whose rect contains the pixel point, or `None` when the point
@@ -1422,7 +1452,7 @@ mod tests {
             SplitAxis::Rows => (content.x, content.y + drag_px),
         };
         drag_divider_to(&mut tree, content, divider_px, 0, dx, dy);
-        snap_divider_to_cells(&mut tree, content, divider_px, 0, cell_w, cell_h);
+        snap_divider_to_cells(&mut tree, content, divider_px, 0, cell_w, cell_h, 0.0);
         let rects = layout_rects(&tree, content, divider_px);
         let (first, second) = (rects[0].1, rects[1].1);
         // First child's grid extent along the axis (must be a whole-cell
@@ -1487,6 +1517,43 @@ mod tests {
         assert_eq!(m_a, 4.0);
     }
 
+    #[test]
+    fn padded_release_snap_aligns_the_actual_inner_extent() {
+        let pad = 5.0;
+        for (axis, cell_w, cell_h, drag) in [
+            (SplitAxis::Columns, 10, 20, 137.0),
+            (SplitAxis::Rows, 10, 20, 113.0),
+        ] {
+            let content = PaneRect::new(5.0, 7.0, 301.0, 241.0);
+            let mut tree = PaneNode::Split {
+                axis,
+                ratio: 0.5,
+                first: Box::new(PaneNode::Leaf(tok(0))),
+                second: Box::new(PaneNode::Leaf(tok(1))),
+            };
+            let (x, y) = match axis {
+                SplitAxis::Columns => (content.x + drag, content.y),
+                SplitAxis::Rows => (content.x, content.y + drag),
+            };
+            drag_divider_to(&mut tree, content, 1.0, 0, x, y);
+            snap_divider_to_cells(&mut tree, content, 1.0, 0, cell_w, cell_h, pad);
+
+            let rects = layout_rects(&tree, content, 1.0);
+            let first = pane_inner_rect(rects[0].1, content, pad);
+            let origin = pane_grid_origin(first, content, cell_w, cell_h);
+            match axis {
+                SplitAxis::Columns => {
+                    assert_eq!(first.w % cell_w as f32, 0.0);
+                    assert_eq!(origin[0], content.x);
+                }
+                SplitAxis::Rows => {
+                    assert_eq!(first.h % cell_h as f32, 0.0);
+                    assert_eq!(origin[1], content.y);
+                }
+            }
+        }
+    }
+
     /// Snap never collapses a pane below one cell even when dragged to the edge.
     #[test]
     fn release_snap_keeps_both_panes_at_least_one_cell() {
@@ -1499,7 +1566,7 @@ mod tests {
         };
         // Drag hard to the left edge, then snap.
         drag_divider_to(&mut tree, content, 1.0, 0, content.x, content.y);
-        snap_divider_to_cells(&mut tree, content, 1.0, 0, 8, 16);
+        snap_divider_to_cells(&mut tree, content, 1.0, 0, 8, 16, 0.0);
         let rects = layout_rects(&tree, content, 1.0);
         let (c0, _) = grid_dims_for_rect(rects[0].1, 8, 16);
         let (c1, _) = grid_dims_for_rect(rects[1].1, 8, 16);

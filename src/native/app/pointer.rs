@@ -151,6 +151,36 @@ enum SelectionDeleteOutcome {
 }
 
 impl App {
+    /// Settle an active pane-divider gesture through the same snap and PTY flush
+    /// regardless of how the gesture ends. Wayland can terminate a pointer
+    /// grab through focus/geometry transitions without delivering the paired
+    /// button release; treating those boundaries as drag completion prevents an
+    /// arbitrary sub-cell ratio and stale PTY size from becoming permanent.
+    pub(super) fn finish_divider_drag(&mut self) -> bool {
+        let Some(target) = self.divider_drag.take() else {
+            return false;
+        };
+        self.pointer_left_held = false;
+        if let Some((content, cell)) = self.multipane_geometry() {
+            let pad = self.window_pad_px();
+            self.sessions.snap_active_divider(
+                content,
+                PANE_DIVIDER_PX,
+                target,
+                cell.width,
+                cell.height,
+                pad,
+            );
+            self.sessions
+                .resize_all_panes(content, cell.width, cell.height, PANE_DIVIDER_PX, pad);
+            self.sessions.active_mut().needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+        true
+    }
+
     /// Handle a window-level mouse button event (the `WindowEvent::MouseInput`
     /// dispatch). Precedence is unchanged: an open overlay captures the button
     /// first, then an in-progress local selection drag, then TUI mouse
@@ -221,7 +251,7 @@ impl App {
         // A left-release always ends an in-progress divider drag (design doc
         // §4.2), before any other press routing. `divider_drag` is only ever
         // `Some` inside a multi-pane tab, so the single-pane path is unaffected.
-        if let Some(target) = self.divider_drag
+        if self.divider_drag.is_some()
             && button == WinitMouseButton::Left
             && state == ElementState::Released
         {
@@ -239,33 +269,12 @@ impl App {
             // so the shell's PTY is still at the pre-drag size. This release is
             // the one place the kernel learns the final dimensions; gating it on
             // a snap delta would strand the PTY at the old size whenever the
-            // divider happened to land on a cell boundary. Runs before clearing
-            // `divider_drag` so the dragged split index is still known;
+            // divider happened to land on a cell boundary. The shared completion
+            // path takes the dragged split index before settling it;
             // `multipane_geometry()` is `None` on a single-pane tab (which never
             // grabs a divider), so the byte-identical single-pane path is
             // untouched.
-            if let Some((content, cell)) = self.multipane_geometry() {
-                let pad = self.window_pad_px();
-                self.sessions.snap_active_divider(
-                    content,
-                    PANE_DIVIDER_PX,
-                    target,
-                    cell.width,
-                    cell.height,
-                );
-                self.sessions.resize_all_panes(
-                    content,
-                    cell.width,
-                    cell.height,
-                    PANE_DIVIDER_PX,
-                    pad,
-                );
-                self.sessions.active_mut().needs_rebuild = true;
-                if let Some(window) = self.window.as_ref() {
-                    window.request_redraw();
-                }
-            }
-            self.divider_drag = None;
+            self.finish_divider_drag();
             return;
         }
         // Multi-pane left press: grab a divider to drag, else focus the clicked

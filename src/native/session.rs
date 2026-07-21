@@ -1332,6 +1332,23 @@ pub(super) struct WorkspaceSet {
     shell_integration_enabled: bool,
 }
 
+#[derive(Clone, Copy)]
+enum PtyResizePolicy {
+    Always,
+    ChangedOnly,
+    Never,
+}
+
+impl PtyResizePolicy {
+    fn should_resize(self, geometry_changed: bool) -> bool {
+        match self {
+            Self::Always => true,
+            Self::ChangedOnly => geometry_changed,
+            Self::Never => false,
+        }
+    }
+}
+
 impl WorkspaceSet {
     pub(super) fn new(initial: Session, proxy: Option<EventLoopProxy<UserEvent>>) -> Self {
         let token = initial.id;
@@ -1819,9 +1836,18 @@ impl WorkspaceSet {
         target: usize,
         cell_w: u32,
         cell_h: u32,
+        pad: f32,
     ) -> Option<f32> {
         self.active_tab_mut().and_then(|tab| {
-            snap_divider_to_cells(&mut tab.layout, content, divider_px, target, cell_w, cell_h)
+            snap_divider_to_cells(
+                &mut tab.layout,
+                content,
+                divider_px,
+                target,
+                cell_w,
+                cell_h,
+                pad,
+            )
         })
     }
 
@@ -1844,7 +1870,37 @@ impl WorkspaceSet {
         divider_px: f32,
         pad: f32,
     ) {
-        self.resize_all_panes_impl(content, cell_w, cell_h, divider_px, pad, true);
+        self.resize_all_panes_impl(
+            content,
+            cell_w,
+            cell_h,
+            divider_px,
+            pad,
+            PtyResizePolicy::Always,
+        );
+    }
+
+    /// Reconcile pane models and PTYs after a surface configure, returning
+    /// whether any pane's grid or cell metrics changed. Unlike structural
+    /// resize and divider completion, a duplicate same-grid configure must not
+    /// signal unchanged PTYs; the final debounced configure can still resize an
+    /// individual ratio-derived child when the aggregate window grid is stable.
+    pub(super) fn reconcile_all_panes_for_surface(
+        &mut self,
+        content: PaneRect,
+        cell_w: u32,
+        cell_h: u32,
+        divider_px: f32,
+        pad: f32,
+    ) -> bool {
+        self.resize_all_panes_impl(
+            content,
+            cell_w,
+            cell_h,
+            divider_px,
+            pad,
+            PtyResizePolicy::ChangedOnly,
+        )
     }
 
     /// Reflow every pane's terminal **model + cell metrics** to the laid-out
@@ -1869,13 +1925,19 @@ impl WorkspaceSet {
         divider_px: f32,
         pad: f32,
     ) {
-        self.resize_all_panes_impl(content, cell_w, cell_h, divider_px, pad, false);
+        self.resize_all_panes_impl(
+            content,
+            cell_w,
+            cell_h,
+            divider_px,
+            pad,
+            PtyResizePolicy::Never,
+        );
     }
 
-    /// Shared body of [`resize_all_panes`] (`resize_pty = true`) and
-    /// [`reflow_all_panes_for_drag`] (`resize_pty = false`). The model + cell-
-    /// metrics reflow is identical for both; only the kernel-side resize is
-    /// gated, so every existing `resize_all_panes` caller stays byte-identical.
+    /// Shared body for structural resize, surface reconciliation, and live drag
+    /// reflow. The model + cell-metrics path is identical; only the kernel-side
+    /// resize policy differs.
     fn resize_all_panes_impl(
         &mut self,
         content: PaneRect,
@@ -1883,8 +1945,9 @@ impl WorkspaceSet {
         cell_h: u32,
         divider_px: f32,
         pad: f32,
-        resize_pty: bool,
-    ) {
+        pty_policy: PtyResizePolicy,
+    ) -> bool {
+        let mut any_geometry_changed = false;
         for tab in self.workspaces.iter().flat_map(|ws| ws.tabs.iter()) {
             // A zoomed tab sizes its focused pane to the whole content rect
             // (it is rendered full-bleed); background panes keep their layout
@@ -1915,6 +1978,7 @@ impl WorkspaceSet {
                     continue;
                 };
                 let mut dimensions_changed = false;
+                let mut metrics_changed = false;
                 if let Ok(mut terminal) = session.terminal.lock() {
                     // A resize to identical grid dimensions MUST be a model
                     // no-op. `resize_all_panes` runs on every structural change
@@ -1936,8 +2000,12 @@ impl WorkspaceSet {
                         terminal.resize(cols, rows);
                         dimensions_changed = true;
                     }
+                    let metrics = crate::core::CellMetrics::new(cell_w, cell_h);
+                    metrics_changed = terminal.cell_metrics() != metrics;
                     terminal.set_cell_metrics(cell_w, cell_h);
                 }
+                let geometry_changed = dimensions_changed || metrics_changed;
+                any_geometry_changed |= geometry_changed;
                 if dimensions_changed {
                     session.invalidate_layout_dependent_state();
                 }
@@ -1947,10 +2015,12 @@ impl WorkspaceSet {
                 // cell-metric payload, so it forwards `Resize` only for a real
                 // dimension change; this keeps reconciliation transport-neutral
                 // when the host snapshot already matches the window. Skipped
-                // entirely for the live divider-drag path (`resize_pty = false`),
-                // which reflows the model only and lets the release handler issue
-                // the single coalesced kernel resize at drag-end.
-                if resize_pty {
+                // entirely for the live divider-drag path. Surface configure
+                // reconciliation signals only panes whose grid or metrics
+                // changed, preserving duplicate-event idempotence. The release
+                // handler still forces the single coalesced kernel resize at
+                // drag-end.
+                if pty_policy.should_resize(geometry_changed) {
                     match &session.source {
                         SessionSource::Local { pty } => {
                             if let Ok(pty) = pty.lock() {
@@ -1978,6 +2048,7 @@ impl WorkspaceSet {
                 }
             }
         }
+        any_geometry_changed
     }
 
     /// C18: push new per-cell pixel metrics to every pane WITHOUT a column

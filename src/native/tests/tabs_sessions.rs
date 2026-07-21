@@ -5647,6 +5647,123 @@ fn divider_drag_coalesces_the_pty_resize_to_one_flush_at_release() {
 }
 
 #[test]
+fn final_same_grid_resize_reconciles_split_children_after_debounce() {
+    const CW: u32 = 10;
+    const CH: u32 = 20;
+    let dims = Dimensions::new(20, 10);
+    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal_a.clone(),
+        writer_a,
+        pty_a.clone(),
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b.clone());
+
+    let t0 = Instant::now();
+    app.record_pending_resize_for_test(cell(CW, CH), 100, 200, t0);
+    assert_eq!(
+        terminal_a
+            .lock()
+            .expect("pane a")
+            .screen()
+            .dimensions()
+            .columns,
+        4
+    );
+    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
+    let (a0, b0) = (count(&pty_a), count(&pty_b));
+
+    // Both surfaces floor to the same ten-column window grid, but the final
+    // one-pixel-per-half configure moves pane A across its fifth cell boundary.
+    // The final size arrives inside the debounce interval and must still
+    // reconcile the child grids when the timer drains it.
+    app.record_pending_resize_for_test(cell(CW, CH), 109, 200, t0 + Duration::from_millis(10));
+    app.run_about_to_wait_maintenance_for_test(t0 + Duration::from_millis(40));
+    assert_eq!(
+        terminal_a
+            .lock()
+            .expect("pane a")
+            .screen()
+            .dimensions()
+            .columns,
+        5,
+        "the final same-grid configure must not be discarded"
+    );
+    assert_eq!(
+        (count(&pty_a) - a0, count(&pty_b) - b0),
+        (1, 0),
+        "only the child that crossed a cell boundary is signaled"
+    );
+}
+
+#[test]
+fn focus_loss_finishes_a_padded_divider_drag_with_one_pty_flush() {
+    const CW: u32 = 10;
+    const CH: u32 = 20;
+    let dims = Dimensions::new(40, 12);
+    let Some((terminal_a, writer_a, pty_a, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((terminal_b, writer_b, pty_b, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        NativeOptions::default(),
+        terminal_a.clone(),
+        writer_a,
+        pty_a.clone(),
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    app.seed_split_pane_for_test(true, terminal_b, writer_b, pty_b.clone());
+    let padding = WindowPadding::from_logical(4.0, 1.25);
+    app.set_test_cell_for_test(cell(CW, CH));
+    app.set_test_surface_for_test(640, 240, padding);
+    app.reflow_active_panes_for_test();
+
+    let count = |pty: &Arc<Mutex<PtySession>>| pty.lock().expect("pty").resize_call_count();
+    let (a0, b0) = (count(&pty_a), count(&pty_b));
+
+    // content x=5, width=630: the initial divider is x=319. Drag it to a
+    // deliberately sub-cell position, then simulate the compositor ending the
+    // pointer grab by transferring focus without a MouseInput::Released event.
+    app.set_pointer_px_for_test(319.0, 100.0);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
+    app.pointer_move_for_test(277.0, 100.0);
+    assert_eq!((count(&pty_a) - a0, count(&pty_b) - b0), (0, 0));
+
+    app.on_window_focus_changed_for_test(false);
+
+    assert_eq!(
+        (count(&pty_a) - a0, count(&pty_b) - b0),
+        (1, 1),
+        "an interrupted drag flushes each PTY exactly once"
+    );
+    assert_eq!(
+        terminal_a
+            .lock()
+            .expect("pane a")
+            .screen()
+            .dimensions()
+            .columns,
+        27,
+        "the snap lattice is based on the padded inner width"
+    );
+}
+
+#[test]
 fn single_pane_has_no_divider_drag_resize_path() {
     // Rule D byte-identity guard: a single-pane tab has no divider, so a left
     // press + drag + release never enters the divider-drag coalescing path and

@@ -1638,6 +1638,11 @@ impl App {
             // minimized, so the ordinary focus-gain path is unchanged.
             self.restore_from_minimized();
         } else {
+            // A compositor may end a pointer grab by transferring focus without
+            // delivering the paired button release. Settle a pane divider while
+            // its original tab and geometry are still active, before clearing
+            // the remaining window-level pointer latches below.
+            self.finish_divider_drag();
             // Clipboard-write consent is valid only while the emitting session
             // remains visibly focused. Drop the pending value before any focus
             // report or later key can act on it.
@@ -1650,7 +1655,6 @@ impl App {
             self.cancel_overlay_drag_on_focus_loss();
             self.pointer_left_held = false;
             self.pointer_drag = PointerDrag::None;
-            self.divider_drag = None;
             self.rail_seam_drag = false;
             self.tab_bar_seam_drag = false;
             self.rail_ws_drag = None;
