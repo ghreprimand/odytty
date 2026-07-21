@@ -358,6 +358,12 @@ fn fish_conf() -> &'static str {
 //     `__odytty_status_capture`, which snapshots `$?` at the very start of the
 //     PROMPT_COMMAND chain into `__ODYTTY_LAST_STATUS`; the appended reporter
 //     reads the snapshot.
+//   * array-valued PROMPT_COMMAND (Fedora/systemd) — assigning index zero would
+//     place both OdyTTY hooks before the remaining array elements. A later
+//     prompt helper then trips DEBUG and stamps `C` after `D`/`A`, erasing the
+//     completed block's exit before PS1 stamps `B`. Array values are therefore
+//     prepended/appended as array elements so the prompt-phase guard spans the
+//     entire chain and the reporter is the final helper.
 //   * phantom OutputStart (NF1) — the DEBUG trap fires before the user helper
 //     (a top-level PROMPT_COMMAND command) and would emit a spurious `133;C`.
 //     Fixed with a state flag (`__ODYTTY_PROMPT_EXECUTING`, the kitty/ghostty
@@ -436,18 +442,40 @@ const BASH_SNIPPET: &str = r#"if [ -z "${ODYTTY_SHELL_INTEGRATION-}" ]; then
   }
 
   __odytty_append_prompt_command() {
-    case ";${PROMPT_COMMAND-};" in
-      *";$1;"*) ;;
-      ";"|";;" ) PROMPT_COMMAND="$1" ;;
-      *) PROMPT_COMMAND="${PROMPT_COMMAND};$1" ;;
+    case "$(declare -p PROMPT_COMMAND 2>/dev/null)" in
+      "declare -a "*)
+        local __odytty_pc
+        for __odytty_pc in "${PROMPT_COMMAND[@]}"; do
+          case ";$__odytty_pc;" in *";$1;"*) return ;; esac
+        done
+        PROMPT_COMMAND+=("$1")
+        ;;
+      *)
+        case ";${PROMPT_COMMAND-};" in
+          *";$1;"*) ;;
+          ";"|";;" ) PROMPT_COMMAND="$1" ;;
+          *) PROMPT_COMMAND="${PROMPT_COMMAND};$1" ;;
+        esac
+        ;;
     esac
   }
 
   __odytty_prepend_prompt_command() {
-    case ";${PROMPT_COMMAND-};" in
-      *";$1;"*) ;;
-      ";"|";;" ) PROMPT_COMMAND="$1" ;;
-      *) PROMPT_COMMAND="$1;${PROMPT_COMMAND}" ;;
+    case "$(declare -p PROMPT_COMMAND 2>/dev/null)" in
+      "declare -a "*)
+        local __odytty_pc
+        for __odytty_pc in "${PROMPT_COMMAND[@]}"; do
+          case ";$__odytty_pc;" in *";$1;"*) return ;; esac
+        done
+        PROMPT_COMMAND=("$1" "${PROMPT_COMMAND[@]}")
+        ;;
+      *)
+        case ";${PROMPT_COMMAND-};" in
+          *";$1;"*) ;;
+          ";"|";;" ) PROMPT_COMMAND="$1" ;;
+          *) PROMPT_COMMAND="$1;${PROMPT_COMMAND}" ;;
+        esac
+        ;;
     esac
   }
 

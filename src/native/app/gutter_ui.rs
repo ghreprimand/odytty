@@ -283,16 +283,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create Fedora Bash fixture directory");
 
-        // Fedora's /etc/bashrc declares PROMPT_COMMAND as an array and, under
-        // xterm-256color, installs a title helper. Model that startup shape in
-        // the user rcfile which OdyTTY's generated wrapper sources first.
+        // Fedora's systemd OSC-context profile declares PROMPT_COMMAND as an
+        // array whose first element is deliberately empty, installs its helper
+        // in a later element, and prefixes PS0 with a command substitution.
+        // Model that startup shape in the user rcfile which OdyTTY's generated
+        // wrapper sources first.
         // Merge stderr before Bash starts prompting so the capture preserves
         // the exact PTY-equivalent order of prompts, marks, and command echo.
         std::fs::write(
             dir.join(".bashrc"),
             "exec 2>&1\n\
-             declare -a PROMPT_COMMAND\n\
-             PROMPT_COMMAND='printf \\\"TITLE:%s\\\\n\\\" \\\"$PWD\\\"'\n\
+             PROMPT_COMMAND=('')\n\
+             __systemd_osc_context_precmdline() { printf '\\e]3008;start=test;type=shell\\e\\\\'; }\n\
+             __systemd_osc_context_ps0() { printf '\\e]3008;start=command;type=command\\e\\\\'; }\n\
+             PROMPT_COMMAND+=(__systemd_osc_context_precmdline)\n\
+             PS0='$( __systemd_osc_context_ps0 )'\n\
              PS1='P\\$ '\n",
         )
         .expect("write Fedora Bash fixture");

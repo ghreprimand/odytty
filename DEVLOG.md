@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-20 -- Preserve Bash command verdicts with array prompt hooks
+
+Fedora's systemd OSC-context profile installs `PROMPT_COMMAND` as an array with
+its helper in a later element. OdyTTY previously modified only array element
+zero, placing both its status capturer and reporter before that later helper.
+The helper then ran after OdyTTY had closed the prompt phase, so the DEBUG trap
+stamped a new output boundary over the just-reported command end; the following
+prompt stamp could no longer preserve the exit status, and no success/failure
+gutter appeared.
+
+The Bash installer now treats an array-valued `PROMPT_COMMAND` as an array:
+status capture is the first element and the OSC 133 reporter the last, keeping
+the prompt-phase guard active across every existing helper. Scalar prompt
+commands retain their established semicolon-chain behavior. The integrated
+Fedora regression models systemd's empty first array element, later OSC-context
+helper, and PS0 command substitution, then verifies complete successful and
+failing command blocks through the terminal and both gutter render paths.
+Fish, zsh, PowerShell, PTY behavior, and keyboard protocols are unchanged.
+
+---
+
 ## 2026-07-20 -- Command-status gutters remain visible after splitting
 
 The single-pane renderer collected OSC 133 command marks and appended their
@@ -37,11 +58,11 @@ both related settings were on.
 The Unix default-shell resolver now uses the effective user's NSS/passwd login
 shell when `SHELL` is absent or empty, retaining `/bin/sh` only as the final
 failure fallback. Explicit `SHELL` values still win. A real interactive Bash
-regression models Fedora's array-valued `PROMPT_COMMAND` and title helper, runs
-successful and failing commands, feeds the emitted stream through the terminal
-core, and verifies the corresponding green and red gutter bars. The Bash
-prompt-scoped keyboard lifecycle remains intact; Fish, zsh, PowerShell, and the
-Windows W32IM path are unchanged.
+regression models Fedora's array-valued `PROMPT_COMMAND`, runs successful and
+failing commands, feeds the emitted stream through the terminal core, and
+verifies the corresponding green and red gutter bars. The Bash prompt-scoped
+keyboard lifecycle remains intact; Fish, zsh, PowerShell, and the Windows W32IM
+path are unchanged.
 
 ---
 
