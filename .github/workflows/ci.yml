@@ -201,7 +201,17 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: shellcheck
-        run: shellcheck dist/install.sh dist/linux/tarball-install.sh
+        run: |
+          shellcheck dist/install.sh dist/linux/tarball-install.sh \
+            .github/scripts/verify-release-ci.sh \
+            .github/scripts/verify-release-ci-test.sh
 
       - name: install.sh dry-run smoke
         run: bash dist/install.sh --dry-run
+
+      - name: Release CI-gate fixtures
+        # Deterministic fixtures for the fail-closed same-commit CI release gate
+        # (.github/scripts/verify-release-ci.sh). Pure and offline; asserts every
+        # missing/queued/in-progress/cancelled/failed/other-commit state fails
+        # closed and only a completed success for the exact commit passes.
+        run: bash .github/scripts/verify-release-ci-test.sh

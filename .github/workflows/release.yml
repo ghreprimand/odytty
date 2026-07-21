@@ -444,12 +444,52 @@ jobs:
           name: rpm
           path: dist/build/*.rpm
 
+  verify-ci:
+    name: Verify same-commit CI is green
+    # Fail-closed release gate. A tag may publish ONLY if the exact tagged commit
+    # already has a completed, successful CI run. CI runs on pushes to master, so
+    # a release commit is validated on master BEFORE it is tagged; this re-checks
+    # that green state at publish time (v0.9.3 published while the same-commit
+    # macOS leg was still red). Guarded to tag refs, so a workflow_dispatch
+    # producer-validation run skips this job and still never publishes. The
+    # `release` job needs this job, so a red, missing, or in-progress CI run
+    # blocks publication. Tag pushes come only from maintainers (fork pull
+    # requests cannot push tags and never carry a write/actions token), so this
+    # only runs in the trusted repo context; github.token with actions:read is
+    # enough to list the runs and no extra credential is required.
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout
+        # v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Require a completed successful CI run for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Server-side filter to the CI workflow file and this exact commit; the
+          # gate script re-checks head_sha, status, and conclusion so a green run
+          # for any other commit or a queued/in-progress/failed run cannot pass.
+          gh api \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&per_page=100" \
+            > ci-runs.json
+          bash .github/scripts/verify-release-ci.sh "${GITHUB_SHA}" ci-runs.json
+
   release:
     name: Publish release
     # Publishes only for a real tag push; a workflow_dispatch validation run
-    # builds the producer jobs but never reaches here.
+    # builds the producer jobs but never reaches here. Publication is gated on
+    # `verify-ci`: a tag whose commit lacks a completed successful CI run cannot
+    # reach this job.
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [source, appimage, linux-tarball, deb, rpm, windows, macos]
+    needs: [verify-ci, source, appimage, linux-tarball, deb, rpm, windows, macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
