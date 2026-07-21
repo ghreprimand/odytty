@@ -7,36 +7,6 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-07-21 -- Release v0.9.3 — Fedora keyboard fidelity, command gutters, and pane polish
-
-Version 0.9.3 is released. Linux keyboard routing now normalizes compositor-
-dependent editing-key deliveries before shortcut and PTY dispatch, so
-Ctrl+Backspace word-deletes at the default Bash prompt on Fedora KDE/Wayland
-while ordinary Backspace, Tab, Shift+Tab, Enter, Escape, Ctrl+C, and Fish keep
-their established behavior. The prompt-scoped Bash protocol lifecycle is
-balanced across command execution, and empty IME preedit feedback is filtered
-without changing printable input or Windows' ConPTY Win32 input path.
-
-Command-status gutters now work across Fedora desktop launch shapes and every
-pane layout. When a graphical session omits `SHELL`, the Unix launcher resolves
-the effective user's login shell through passwd/NSS so Bash integration still
-loads. Array-valued `PROMPT_COMMAND` hooks retain existing system helpers while
-placing status capture first and OdyTTY's OSC 133 reporter last. Successful and
-failed commands therefore keep their green and red marks in single, split, and
-nested panes. A normal non-empty `SHELL` now short-circuits before the passwd/NSS
-lookup, avoiding an unnecessary directory-service dependency on ordinary
-launches.
-
-Window-level overlays retain the same opaque themed presentation after a tab is
-split. Selection strength now defaults to `1.0`, with the `1.0..=1.5` range
-providing bounded additional emphasis without exceeding surface opacity.
-Configured window padding applies at divider-facing pane edges, and aggressively
-narrowed or heavily padded panes keep valid terminal backing dimensions while
-clipping rendering and rejecting input outside their actual drawable bounds.
-These geometry rules cover terminal backgrounds, text, color glyphs, cursors,
-selections, images, gutters, effects, pointer mapping, divider dragging, and
-restoration after expansion.
-
 ## 2026-07-21 -- Resolve the default shell without a redundant NSS lookup
 
 Default-shell resolution consulted the passwd/NSS login-shell database on every
