@@ -205,8 +205,10 @@ signal, so set `ODYTTY_APPEARANCE=dark|light` to seed it. See
 
 `window_transparency` (on by default, translucent at `window_opacity` 80) lets the desktop show through the window
 background, but it is designed to leave legibility untouched: only backgrounds
-and chrome bands scale toward `window_opacity`, while text, cursor, selection,
-and every overlay stay fully opaque. The minimum-contrast floor is computed
+and chrome bands scale toward `window_opacity`, while text, cursor, and every
+overlay stay fully opaque. Selection has an independent `selection_opacity`
+control and defaults to a fully opaque `1.0`; it is never weakened merely by
+lowering `window_opacity`. The minimum-contrast floor is computed
 against the terminal's own background color, not the blended desktop behind it,
 so lowering the opacity never lifts foreground text off its readability floor.
 See [`effects.md`](effects.md#window-transparency) for the settings.

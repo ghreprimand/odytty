@@ -47,7 +47,10 @@ automatic retry for the known runner PTY-teardown deadlock. A genuine test
 failure still fails the job.
 
 Release publishing never runs for fork pull requests. A normal release lands
-the version commit on `master` and then pushes an annotated tag.
+the version commit on `master`, waits for a completed successful CI workflow
+whose `head_sha` is that exact commit, and only then pushes an annotated tag.
+The tag workflow re-checks the same exact-SHA result and fails closed if it is
+missing, queued, in progress, cancelled, failed, or from another commit.
 
 ## Release Readiness
 
@@ -109,8 +112,10 @@ to `DEVLOG.md` using this shape:
 ## YYYY-MM-DD -- Release vX.Y.Z
 ```
 
-Commit these changes together, push `master`, and wait for all three CI
-platform jobs to pass.
+Commit these changes together and push `master`. Wait for the complete CI
+workflow on that exact commit to pass: the Linux, macOS, and Windows matrix jobs
+plus the shell-script/install-smoke job. Do not tag a newer local commit or a
+commit whose matching CI run is incomplete.
 
 ### 2. Run Local Release Checks
 
@@ -133,6 +138,9 @@ The `.deb` and `.rpm` packages receive metadata and file-list validation but are
 not executed.
 
 ### 3. Push The Annotated Tag
+
+Confirm `git rev-parse HEAD` is the same SHA shown by the completed successful
+CI run, then tag that commit:
 
 ```sh
 version=X.Y.Z
@@ -159,7 +167,8 @@ entry all use `X.Y.Z`.
 
 ## Release Workflow Jobs
 
-`release.yml` has seven producer jobs and four tag-only publishing jobs:
+`release.yml` has seven producer jobs, one tag-only CI-verification job, and
+four tag-only publication/channel jobs:
 
 | Job | Artifact or channel | Guard |
 | --- | --- | --- |
@@ -170,7 +179,8 @@ entry all use `X.Y.Z`.
 | `rpm` | RPM package | Runs for tag and manual validation |
 | `windows` | Windows portable zip | Runs for tag and manual validation |
 | `macos` | Ad-hoc-signed macOS app zip | Runs for tag and manual validation |
-| `release` | GitHub Release, aliases, pinned copies, and `SHA256SUMS` | Tag only; requires all seven producers |
+| `verify-ci` | Exact tagged-commit CI result | Tag only; requires a completed successful `ci.yml` run whose `head_sha` equals the tag commit |
+| `release` | GitHub Release, aliases, pinned copies, and `SHA256SUMS` | Tag only; requires `verify-ci` and all seven producers |
 | `scoop` | In-repo Scoop manifest | Tag only; runs after `release` and pushes with `GITHUB_TOKEN` |
 | `homebrew` | External Homebrew tap | Tag only; runs after `release`; validates locally and publishes when `HOMEBREW_TAP_DEPLOY_KEY` is present |
 | `aur` | AUR package | Tag only; runs after `release` through `aur-publish.yml`; publishes when `AUR_SSH_PRIVATE_KEY` is present |

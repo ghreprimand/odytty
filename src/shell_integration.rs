@@ -866,7 +866,7 @@ end
 // only when the buffer parses as complete; on an incomplete multiline
 // continuation it inserts a newline (`AddLine`) without a spurious OutputStart.
 // `click_events=1` matches the unix snippets; the click-to-position action
-// stays consumer-gated by `sh_click` (default off). cmd.exe has no equivalent
+// stays consumer-gated by `sh_click` (default on). cmd.exe has no equivalent
 // hook surface and is deliberately unsupported.
 const POWERSHELL_SNIPPET: &str = r##"if (-not $env:ODYTTY_SHELL_INTEGRATION) {
     $env:ODYTTY_SHELL_INTEGRATION = "1"

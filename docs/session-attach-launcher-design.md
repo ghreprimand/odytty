@@ -111,7 +111,7 @@ Summoning paths:
   auto-tracks the bound chord via the existing `set_accelerators` path.
 
 Closed overlay = live frame byte-identical (the mode is never entered until
-summoned); `gpu_composite_smoke` stays green (6/6 at this revision).
+summoned); the GPU composite smoke suite guards that invariant.
 
 ### Related: Detach & switch (Unix only)
 

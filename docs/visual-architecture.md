@@ -21,7 +21,7 @@ settings guide in [`docs/runtime-knobs.md`](runtime-knobs.md).
   - [Hard rule (enforced across all tiers)](#hard-rule-enforced-across-all-tiers)
   - [Tier 1 — Readability-first enhancements](#tier-1--readability-first-enhancements)
   - [Tier 2 — Identity and depth](#tier-2--identity-and-depth)
-  - [Tier 3 — Atmospheric effects (opt-in post-process)](#tier-3--atmospheric-effects-opt-in-post-process)
+  - [Tier 3 — Atmospheric effects](#tier-3--atmospheric-effects)
   - [Theme and appearance system](#theme-and-appearance-system)
   - [In-app configuration UX](#in-app-configuration-ux)
 - [Modularity boundary](#modularity-boundary)

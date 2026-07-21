@@ -61,8 +61,8 @@ theme assets need to be installed with that basename.
 
 The AppStream metadata gives software centers and inventory tools a stable
 component id, homepage, bug tracker, license, summary, full description,
-categories and keywords, a remotely hosted screenshot, content rating, and the
-complete hand-maintained release history.
+categories and keywords, a remotely hosted screenshot, content rating, and a
+hand-maintained release history.
 
 On macOS the app bundle uses the Apple-valid reverse-DNS identifier
 `io.unfinished-works.odytty` (hyphen), which intentionally differs from the

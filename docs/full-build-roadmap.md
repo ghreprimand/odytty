@@ -408,10 +408,11 @@ plain bypass.
   semantic-role border.
 - **Shipped — Window transparency.** A translucent window, on by
   default at `window_opacity` 80, draws the terminal background and chrome bands at a configurable
-  opacity while text, cursor, selection, and overlays remain fully opaque.
-  A compositing window manager is required; Windows uses DWM, while X11 without
-  a compositor degrades to opaque. Blur or acrylic behind the window remains
-  future.
+  opacity while text, cursor, and overlays remain fully opaque. Selection has
+  an independent strength control and defaults to fully opaque. Platform
+  compositing is required; macOS uses its system compositor, Windows uses DWM,
+  and X11 without a compositor degrades to opaque. Blur or acrylic behind the
+  window remains future.
 - **Shipped — Subtle motion.** Cursor glow, trail, slide, blink fade, and
   fade-in of new output —
   bounded, and fully disable-able.

@@ -118,9 +118,17 @@ prompt-end/input-start, `133;C` command start, and `133;D` command end marks.
 
 This unlocks prompt jumps, selected prompt-input Delete/Backspace,
 click-to-position support when advertised by the shell, and command-status
-features. Existing shells are not modified; restart the shell/tab after
-changing the setting. Bash integration is interactive non-login via `--rcfile`,
-so login-shell-only startup files remain a manual concern.
+gutters in every visible pane. Existing shells are not modified; restart the
+shell/tab after changing the setting. Bash integration is interactive non-login
+via `--rcfile`, so login-shell-only startup files remain a manual concern.
+
+With `shell_key_enhancement = on` (the default), Bash and Zsh prompts make
+`Ctrl+Backspace`, `Shift+Enter`, and `Ctrl+Enter` distinct while leaving
+`Ctrl+C` as interrupt. Bash 4.4+ removes that prompt-only protocol through
+`PS0`; Bash 3.2 uses a guarded first-command DEBUG boundary because it does not
+expand `PS0`. In both cases child programs start in the ordinary keyboard mode.
+Fish manages its keyboard protocol itself, while PowerShell uses the
+PSReadLine/Console path carried through ConPTY Win32 input mode.
 
 Manual setup is available with:
 

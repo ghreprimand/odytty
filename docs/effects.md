@@ -398,9 +398,10 @@ window translucent so the desktop shows through behind the terminal.
 `window_transparency` is **on by default** (translucent at `window_opacity` 80,
 one step from fully opaque); turn it off and the render path is the unchanged
 opaque one. When on, only the terminal background and the chrome
-bands scale toward `window_opacity` — text, cursor, selection, and every overlay
-(menus, pickers, settings, prompts) stay fully opaque, so readability never
-depends on the opacity value. `window_opacity` is a percent: `100` is fully
+bands scale toward `window_opacity` — text, cursor, and every overlay (menus,
+pickers, settings, prompts) stay fully opaque. Selection has its own strength
+control, defaults to fully opaque at `selection_opacity = 1.0`, and is not
+attenuated by `window_opacity`. `window_opacity` is a percent: `100` is fully
 opaque and lower values let more of the desktop through.
 
 The chrome bands (tab bar and workspace rail) additionally carry the unified
@@ -410,10 +411,12 @@ on a very translucent window (`1.0` reaches the near-fully-opaque endpoint),
 and one panel translucency is shared by the
 top bar, the pinned rail, and the revealed autohide overlay alike.
 
-Transparency needs a compositing window manager: Wayland composites natively,
+Transparency needs platform compositing: Wayland and macOS compose natively,
 X11 needs a running compositor, and Windows uses DWM. Where no alpha compositing
-is available the toggle has no visible effect and the window stays opaque.
-Blur/acrylic behind the window is not offered.
+is available the toggle has no visible effect and the window stays opaque. An
+overlay panel stays themed and fully opaque in both one-pane and split-pane
+tabs while the surrounding terminal remains translucent. Blur/acrylic behind
+the window is not offered.
 
 ```conf
 window_transparency = on

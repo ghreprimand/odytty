@@ -133,6 +133,13 @@ The application requests the mode; there is no OdyTTY setting, and the mode is
 inert on Unix. When it is inactive, Kitty, modifyOtherKeys, and legacy input
 continue through their normal selection rules.
 
+On Linux display stacks, editing keys are normalized before shortcut and PTY
+dispatch whether the compositor reports a named key or its translated control
+character. Backspace, Tab, Shift+Tab, Enter, Escape, and forward Delete retain
+their ordinary behavior; at an enhanced Bash or Zsh prompt,
+`Ctrl+Backspace` remains distinct and word-deletes. Fish continues to manage
+its own keyboard protocol.
+
 A bracketed paste is queued as one transaction containing the opening marker,
 sanitized text, and closing marker, so unrelated input cannot split the frame.
 Pastes larger than 32 MiB are refused. Plain, non-bracketed paste remains
@@ -311,6 +318,12 @@ The prefix is captured only in a multi-pane tab. A single-pane shell receives
 Each pane owns an independent PTY, terminal model, scrollback, viewport,
 selection, search, and cursor. Selection and search highlights render in their
 own pane, while the search query bar stays on the focused pane.
+
+`window_padding` applies at divider-facing edges as well as the outside window
+and chrome edges. After a window resize or divider drag settles, every affected
+pane is reconciled to the final whole-cell geometry. A pane narrowed below one
+drawable cell keeps a valid one-cell PTY backing model but clips terminal
+rendering and rejects cell input until it expands again.
 
 Kitty and Sixel placements are also per-pane and clipped to the pane's
 sub-rectangle. Optional inactive-pane dimming uses `inactive_pane_dim`, defaults
@@ -541,7 +554,7 @@ lists what each one delivers rather than implying a uniform capability:
 | `bash` | Prompt marks, cwd, click-to-position, button emitters; optional prompt key enhancement |
 | `zsh` | The bash set plus per-keystroke edit-region reports; optional prompt key enhancement |
 | `fish` | Prompt marks, cwd, edit region, click-to-position, button emitters; fish 4+ drives the keyboard protocol itself |
-| `powershell` / `pwsh` | Windows only: prompt marks, cwd, button emitters; key bindings use the PSReadLine/Console API, not a VT protocol |
+| `powershell` / `pwsh` | Windows only: prompt marks, cwd, click-to-position, button emitters; key bindings use the PSReadLine/Console API, not a VT protocol |
 | `nushell` | Configure natively: set `$env.config.shell_integration.osc133`/`osc7`/`osc2` and `use_kitty_protocol` in your nushell config; OdyTTY injects nothing |
 
 Integration applies only to shells OdyTTY launches. Nested shells, `sudo`, and
@@ -549,8 +562,8 @@ Integration applies only to shells OdyTTY launches. Nested shells, `sudo`, and
 `XDG_DATA_DIRS`, and SSH tabs keep the bash bootstrap.
 
 All four injected shell snippets percent-encode OSC 7 working-directory paths,
-including non-ASCII names. The Bash path is compatible with the Bash 3.2 that
-ships on older macOS systems.
+including non-ASCII names. The Bash encoder and prompt hooks are compatible
+with the Bash 3.2 that ships on older macOS systems.
 
 ### Prompt Key Enhancement (bash/zsh)
 
@@ -583,6 +596,21 @@ the sequence with `bind`/`bindkey` (for example
 key bindings use `Set-PSReadLineKeyHandler` through the Console API, so neither
 needs this knob. On by default; set `shell_key_enhancement = off` to return the
 prompt to the terminal's plain keyboard mode.
+
+Bash 4.4 and newer remove the prompt-only disambiguation flag through `PS0`
+after readline accepts a command and before it runs. Bash 3.2 and other older
+versions do not expand `PS0`, so the wrapper uses a prompt-guarded first-real-
+command DEBUG boundary instead. Both paths remove the flag before child
+programs run and preserve existing scalar or array-valued `PROMPT_COMMAND`
+hooks.
+
+The command-status gutter is on by default. Each visible pane derives its own
+thin green or red bar from completed OSC 133 command marks, its own scrollback
+viewport, and its pane origin. Bash status capture spans existing
+`PROMPT_COMMAND` helpers, while PowerShell preserves native exit codes and maps
+a failed cmdlet with no nonzero `$LASTEXITCODE` to failure. Turning
+`command_status_gutter` off leaves the margin untouched without disabling the
+underlying prompt marks.
 
 For manual setup, SSH or login shells, or explicit rc management, print and
 source the integration:
@@ -935,13 +963,13 @@ toward white so text stays legible over busy backdrops, applied after the
 minimum-contrast floor and leaving colour emoji unchanged. Both live in
 Settings → Rendering.
 
-Wayland supports compositing natively, X11 requires a compositor, and Windows
-uses DWM. On a display server without alpha compositing, the setting has no
-visible effect.
+Wayland and macOS support compositing natively, X11 requires a compositor, and
+Windows uses DWM. In an environment without alpha compositing, the setting has
+no visible effect.
 
-An open menu, picker, or settings panel remains an opaque surface without
-making the whole window opaque. The terminal behind it continues to show the
-desktop.
+An open menu, picker, or settings panel remains the same themed, opaque surface
+in one-pane and split-pane tabs without making the whole window opaque. The
+terminal behind it continues to show the desktop.
 
 A configured background image is part of the background layer. With
 transparency enabled, it also becomes translucent and composes over the

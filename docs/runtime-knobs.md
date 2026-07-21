@@ -194,7 +194,12 @@ content-facing edge and the tab bar's bottom edge get the same gap, so content
 never touches chrome. Split-pane dividers count too: each pane keeps the same
 gap on every edge that faces a divider, so a pane's text never sits flush
 against the split. The grid gives up whatever whole cells the gap displaces,
-keeping text clear of every band and divider. The chrome bands themselves stay joined:
+keeping text clear of every band and divider. A heavily padded or narrowed pane
+can temporarily have no drawable cell on one axis; its PTY backing model stays
+at the required one-cell minimum, while rendering and cell input remain clipped
+until the pane expands. Completed window resizes and divider drags reconcile
+every affected pane to the settled whole-cell geometry. The chrome bands
+themselves stay joined:
 where a pinned rail meets the tab bar, the bar band's background extends
 across the gap to the rail edge (the tabs keep their content-aligned inset),
 so the frame reads as one continuous piece. At `0` everything is flush,
@@ -208,8 +213,9 @@ floats over full-bleed content without reflowing it.
 overlay remain opaque. The selection is fully opaque by default and has its own
 strength control, `selection_opacity`, independent of the window opacity.
 
-Wayland supports compositing natively, X11 requires a compositor, and Windows
-uses DWM. A display server without alpha compositing shows no visible change.
+Wayland and macOS support compositing natively, X11 requires a compositor, and
+Windows uses DWM. An environment without alpha compositing shows no visible
+change.
 
 ### Keep Colored Blocks And Text Legible At Low Opacity
 

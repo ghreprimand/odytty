@@ -147,18 +147,29 @@ silencing anything (a typo must never hide errors).
 
 ### Opt-in traces
 
-One targeted trace gate exists. It is inert unless explicitly set and is meant
-for reproducing a specific issue, not for everyday use.
+Two targeted trace gates exist. Both are inert unless explicitly set and are
+meant for reproducing a specific issue, not for everyday use.
 
 | Gate | Value | Destination | Purpose |
 |---|---|---|---|
 | `ODYTTY_REFLOW_TRACE` | `1` or `true` | `odytty-reflow-trace.log` in the OS temp dir | Permanent passive diagnostic: one geometry/cursor line per terminal resize. |
+| `ODYTTY_KEY_EVENT_DIAGNOSTICS` | `1`, `on`, or `true` | `odytty.log` and stderr | Temporary keyboard/IME route trace for compositor-dependent editing-key issues. |
 
 `ODYTTY_REFLOW_TRACE` costs a single atomic load when off and appends one line
 per resize when on; it records geometry and cursor coordinates only, never cell
 contents, paths, or environment values. It writes to the OS temp directory
 because the Windows GUI build has no visible stderr, so the file is retrieved
 afterward.
+
+`ODYTTY_KEY_EVENT_DIAGNOSTICS` records raw logical and physical key identities,
+modifier and press state, IME event shape, and a sampled `backspace-route`
+through protocol selection and the PTY writer. Printable key and IME text is
+always reduced to character and UTF-8 byte counts; a single control character
+is identified only by its Unicode code point. Repeated empty IME pre-edit
+events are sampled at powers of two so a feedback loop cannot flood the log.
+The gate uses warning-level application logging so it remains retrievable from
+`odytty.log`, including on Windows. Turn it off after the keyboard issue has
+been captured.
 
 ## Recovery behavior
 

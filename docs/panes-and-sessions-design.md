@@ -1,10 +1,9 @@
 # Panes & Sessions — Design Document
 
-Status: **draft for review** (Phase 0 deliverable). Owner: Phase 1 (splits/panes)
-implementation lead. This document is the decision record that gates Phase 1
-coding. It also carries the Phase 0 **tmux-compatibility keybinding stance** and a
-short **Phase 2 (persistent/resumable sessions)** forward-note so Phase 1 does not
-paint Phase 2 into a corner.
+Status: **historical design record; implemented and evolved**. This document
+records the decisions that gated the original panes work. It also carries the
+Phase 0 **tmux-compatibility keybinding stance** and a short **Phase 2
+(persistent/resumable sessions)** forward-note.
 
 This is a **dated design record** captured before the panes/sessions work was
 implemented. The design it gates has since landed and evolved: the live session
@@ -12,7 +11,11 @@ arena belongs to `WorkspaceSet`, with a workspace level above the §2 design-tim
 tab shape (`WorkspaceSet` → `Workspace` → `Tab` → `PaneNode`). `TabSet` was the
 design name, not a shipped type. Read §1 as a historical snapshot of the
 pre-refactor code and §2's names as design-time. For the current user-facing
-keyboard and session model, see `docs/keybindings.md`.
+keyboard and session model, see `docs/keybindings.md`. The shipped geometry now
+applies `window_padding` at divider-facing edges, permits a zero-cell drawable
+axis while retaining a valid one-cell PTY backing size, clips all pane content
+to the drawable rectangle, and settles affected panes at window-resize and
+divider-drag boundaries.
 
 ---
 
@@ -41,8 +44,10 @@ These reflect the project's standing engineering rules:
 2. **`src/core/` never imports windowing/GPU/render code.** All pane/layout
    orchestration lives in `src/native/`. The core `Terminal`/`Screen`/reflow is
    reused unchanged — a pane is just another `Terminal` driven by another PTY.
-3. **Plain/fast path stays opt-out and default-safe.** Inactive-pane dimming and
-   any animation are behind settings, default off.
+3. **Plain/fast path stays opt-out and default-safe.** Inactive-pane dimming is
+   behind a setting and defaults off. Cursor and output animation follow their
+   global settings, while `render_quality = plain` and reduced motion preserve
+   their established bypasses.
 4. **No secrets / no real host data** (relevant later in Phase 4; noted here for
    completeness).
 
@@ -135,7 +140,10 @@ enum SplitAxis {
 ```
 
 `ratio: f32` is the fraction of the parent's primary extent given to `first`,
-clamped to `[0.05, 0.95]` so a pane can never collapse to zero cells.
+clamped to `[0.05, 0.95]` so neither child loses its tiled layout extent. The
+shipped drawable grid can still collapse to zero cells on one axis when the
+physical pane is narrower than its configured divider-facing padding; the PTY
+backing model remains at least one cell.
 
 ### 2.2 Why a session **arena**, not sessions-in-leaves
 
@@ -886,7 +894,9 @@ prefix, rebinding individual pane actions) are documented as opt-in in
   origin-parameterized; `update_from_panes(&[PaneRender], &[SolidQuad])` with
   exact per-leaf geometry and no scissor by default. Zero `grid.rs` changes.
 
-**Remaining (to resolve during coding — none block starting Phase 1):**
+**Historical questions recorded at design time:** these are not the current
+project backlog; shipped behavior and remaining work are tracked in
+[`TODO.md`](../TODO.md) and the user-facing references.
 
 1. **Non-active-tab resize policy** — eager (recommended) vs. lazy.
 2. **Unfocused-pane cursor rendering** — hollow vs. dimmed-block; pick during impl.

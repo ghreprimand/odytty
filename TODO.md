@@ -735,13 +735,15 @@ a floor; surpassing it is the standing ambition.
       so text stays legible. Focused frames are byte-identical to the pre-feature
       renderer.
 - [x] Window padding (`window_padding` / `ODYTTY_WINDOW_PADDING`, default
-      4 logical px): an adjustable inset between the window edge and the terminal
-      grid so text no longer touches the frame. The padding offsets the full
+      4 logical px): an adjustable inset between terminal content and the window,
+      chrome, or split-pane divider boundaries. The padding offsets the full
       pixel-cell seam in both directions — forward (glyph/cursor/quad/image
       vertices and the scroll indicator) and inverse (selection hit-test, drag
       autoscroll, SGR-1016 pixel mouse reports) — so mouse and selection stay
-      aligned. `0.0` restores the historical edge-to-edge layout, byte-identical
-      to the pre-feature renderer (guarded by a pixel-smoke).
+      aligned. A pane too narrow after padding keeps a valid one-cell backing
+      model but exposes no drawable or input cells until it expands. `0.0`
+      restores the historical edge-to-edge layout, byte-identical to the
+      pre-feature renderer (guarded by a pixel-smoke).
 - [x] Post-process pipeline:
   - [x] Lazy offscreen render target + passthrough composite wired into the
         native GPU renderer; `post_active()` false = no offscreen allocation and
@@ -791,10 +793,11 @@ feature validates against.
         the foundation for command-aware UX.
   - [x] Command-aware UX: bindable jump to previous/next prompt
         (viewport-top reference, top-aligned, byte-identical fall-through at the
-        ends) and an off-by-default success/fail status gutter (a thin left-edge
-        bar per finished command, green/red from the ANSI palette so it adapts
-        under the colorblind remap). A prompt-marks epoch folded into the render
-        signature guarantees the bar repaints on a pure status transition.
+        ends) and an on-by-default success/fail status gutter (a thin left-edge
+        bar per finished command and visible pane, green/red from the ANSI
+        palette so it adapts under the colorblind remap). A prompt-marks epoch
+        folded into the render signature guarantees the bar repaints on a pure
+        status transition.
   - [x] Core: absolute cell range for a command's output, so the native
         select/copy path can highlight an exact command's output span.
   - [x] Click-to-position cursor via OSC 133 click events (`sh_click`, on by
@@ -849,13 +852,14 @@ feature validates against.
         transparency remains future work.
   - [x] Window transparency (`window_transparency`, default on; `window_opacity`
         percent, default 80): the terminal background and chrome bands draw
-        translucent so the desktop shows through, while text, cursor, selection,
-        and every overlay stay fully opaque — the readability boundary. The
+        translucent so the desktop shows through, while text, cursor, and every
+        overlay stay fully opaque. Selection strength remains independent and
+        defaults to fully opaque — the readability boundary. The
         surface alpha mode is chosen explicitly (premultiplied → postmultiplied →
         opaque fallback) and degrades cleanly where the display server offers no
         alpha compositing (X11 with no compositor); the opaque path is
         byte-identical, and wallpaper backgrounds compose under the same window
-        alpha. Windows composites through DWM.
+        alpha. macOS uses the system compositor and Windows uses DWM.
 - [ ] Pointer excellence — make the mouse a joy, without disturbing TUI mouse
       reporting (Shift stays the selection-vs-passthrough seam).
   - [x] Extend an existing selection: Shift+click, double-click-then-drag by

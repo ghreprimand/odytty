@@ -543,6 +543,13 @@ input takes precedence over Kitty and modifyOtherKeys encoding while active,
 which preserves inputs such as `Ctrl+Backspace` and `Shift+Enter` for console
 applications. The mode has no user setting and is inert on Unix.
 
+On Unix front ends, named editing keys and compositor-translated control-text
+forms normalize to the same logical key before shortcut and protocol selection.
+This keeps Backspace, Tab, Shift+Tab, Enter, Escape, and forward Delete stable
+across Wayland/X11 delivery shapes while preserving a distinct
+`Ctrl+Backspace` at an enhanced shell prompt. Other valid control-modified
+character events continue to the PTY instead of disappearing.
+
 ### Synchronized Output (DEC Private Mode 2026)
 
 #### Track The Core Mode
@@ -611,6 +618,12 @@ set-once `ODYTTY_SHELL_INTEGRATION` export. `cmd.exe` has no equivalent OSC 133
 hook surface and is deliberately unsupported; unknown shells degrade to normal
 startup. Manual snippets remain useful for SSH and login-shell setups.
 
+The Bash wrapper is also compatible with Bash 3.2. Bash 4.4+ removes the
+prompt-only Kitty disambiguation flag through `PS0` after readline accepts a
+command; older Bash uses a prompt-guarded first-real-command DEBUG boundary.
+Both paths remove the flag before child execution and retain existing scalar or
+array-valued `PROMPT_COMMAND` hooks.
+
 #### Store Logical-Line Marks
 
 Marks are **logical-line-anchored**: a mark is stored as `Option<PromptKind>`
@@ -629,8 +642,9 @@ byte-identical with or without OSC 133 in the stream. The command-aware UX that
 consumes these marks reads them through the poll API instead. Jump-to-prompt is
 wired — `Ctrl+Shift+Up` / `Ctrl+Shift+Down` (and the matching command-palette
 actions) move the viewport between prompt marks — and a `command_status_gutter`
-setting marks command success/failure. Per-command output selection remains
-downstream work.
+setting, on by default, marks command success/failure in every visible pane.
+Each gutter uses that pane's prompt marks, viewport, origin, and clip rectangle.
+Per-command output selection remains downstream work.
 
 #### Gate Prompt-Aware Editing
 
@@ -1571,8 +1585,9 @@ be **structurally unable** to harm body-text legibility by construction:
   The knob is forced off under the plain renderer profile. Whole-window
   transparency ships separately (`window_transparency` / `window_opacity`,
   on by default at opacity 80): only background layers scale toward the desktop while text,
-  cursor, selection, and overlays stay fully opaque. Blur-behind (acrylic)
-  compositing remains a planned future extension.
+  cursor, and overlays stay fully opaque; selection strength is independent and
+  defaults to fully opaque. Blur-behind (acrylic) compositing remains a planned
+  future extension.
 
 - Any new Tier-3 effect must document its structural legibility guarantee
   before landing.
