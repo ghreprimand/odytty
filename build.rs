@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Build-time provenance for the in-app About panel.
 //!
-//! Emits three `rustc-env` values the binary reads via `env!`:
-//!   ODYTTY_GIT_SHA   short commit hash, with "-dirty" suffix on a dirty tree,
-//!                    or "unknown" when git/.git is unavailable.
+//! Emits several `rustc-env` values the binary reads via `env!`:
+//!   ODYTTY_GIT_SHA   commit hash for the About panel, resolved by precedence:
+//!                    a validated ODYTTY_BUILD_SHA override (official/package
+//!                    CI), else the live git short SHA (+"-dirty" on a dirty
+//!                    checkout), else the `git archive` export-subst token from
+//!                    the source tarball, else "unavailable" (never "unknown").
 //!   ODYTTY_BUILD_DATE UTC date (YYYY-MM-DD), honoring SOURCE_DATE_EPOCH for
 //!                    reproducible builds, else the wall clock at build time.
 //!   ODYTTY_TARGET    the target triple (from cargo's TARGET env).
@@ -11,9 +14,20 @@
 //! No external crates: this must build offline (the AUR/Odyssey source builds
 //! run with --frozen/--locked and no network). It must ALSO build cleanly from
 //! the `git archive` release tarball, which has NO `.git` directory — in that
-//! case the git lookups fail gracefully and the SHA is "unknown".
+//! case the live git lookup returns None and the SHA comes from the
+//! export-subst token committed as `.git_archival.txt` (see the precedence in
+//! `resolve_provenance_sha`).
 
 use std::process::Command;
+
+// Pure SHA-precedence logic, shared verbatim with `tests/provenance.rs` so it
+// runs under `cargo test` (a build script's own test module never does).
+include!("build_support/provenance.rs");
+
+/// The one file carrying the `git archive` export-subst placeholder. Marked
+/// `export-subst` in `.gitattributes`; a plain checkout keeps the literal
+/// `$Format:%h$`, the release source tarball carries the substituted hash.
+const ARCHIVE_TOKEN_PATH: &str = ".git_archival.txt";
 
 fn main() {
     // Re-run when the commit or working-tree state moves so the embedded SHA /
@@ -21,7 +35,17 @@ fn main() {
     emit_git_rerun_triggers();
     println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
 
-    let git_sha = git_short_sha().unwrap_or_else(|| "unknown".to_string());
+    // Provenance SHA: validated override -> live git -> git-archive export-subst
+    // token -> "unavailable". Re-run when the override env var changes or the
+    // token file is re-substituted (a fresh `git archive`).
+    println!("cargo:rerun-if-env-changed=ODYTTY_BUILD_SHA");
+    println!("cargo:rerun-if-changed={ARCHIVE_TOKEN_PATH}");
+    // The included pure-logic file is not auto-tracked once any explicit
+    // rerun-if-changed is emitted; watch it so edits there retrigger.
+    println!("cargo:rerun-if-changed=build_support/provenance.rs");
+    let override_raw = std::env::var("ODYTTY_BUILD_SHA").ok();
+    let archive_raw = std::fs::read_to_string(ARCHIVE_TOKEN_PATH).unwrap_or_default();
+    let git_sha = resolve_provenance_sha(override_raw.as_deref(), git_short_sha, &archive_raw);
     println!("cargo:rustc-env=ODYTTY_GIT_SHA={git_sha}");
 
     let build_date = build_date_utc();
@@ -159,14 +183,15 @@ fn rustc_version() -> Option<String> {
 
 /// `git rev-parse --short HEAD`, plus a `-dirty` suffix when the working tree
 /// has uncommitted changes. Returns `None` if git is missing or this is not a
-/// repository (the release-tarball case).
+/// repository (the release-tarball case), so `resolve_provenance_sha` falls back
+/// to the export-subst token or "unavailable".
 ///
 /// Guard: only consult git when a `.git` entry exists in the crate root itself
 /// (build scripts run with cwd = CARGO_MANIFEST_DIR). A `git archive` tarball has
-/// no `.git`, so this returns `None` ("unknown") — even when the tarball is
-/// extracted INSIDE another git repo (e.g. `odyssey-build` unpacks into the
-/// git-tracked `~/pkgbuilds/` tree). Without this guard, git would walk up to the
-/// parent repo and bake in a wrong, misleading SHA.
+/// no `.git`, so this returns `None` — even when the tarball is extracted INSIDE
+/// another git repo (e.g. `odyssey-build` unpacks into the git-tracked
+/// `~/pkgbuilds/` tree). Without this guard, git would walk up to the parent repo
+/// and bake in a wrong, misleading SHA.
 fn git_short_sha() -> Option<String> {
     if !std::path::Path::new(".git").exists() {
         return None;

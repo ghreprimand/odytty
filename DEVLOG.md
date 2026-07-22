@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-22 -- Truthful commit provenance in source and package builds
+
+The About panel's commit line now reports a real commit in every build shape,
+not just a live git checkout. The embedded SHA is resolved by strict
+precedence: a validated explicit build override, then the live git short SHA
+(with a `-dirty` suffix on a modified checkout), then a `git archive`
+export-subst token carried in the source tarball, and finally the honest
+placeholder `unavailable` (never the old `unknown`).
+
+Source-package builds motivated the change. The AUR and Homebrew source
+recipes compile from the released `git archive` tarball, which has no `.git`
+directory, so a live git lookup was impossible and the panel showed no real
+commit. A single committed file (`.git_archival.txt`) now carries a
+`$Format:%h$` placeholder that git substitutes with the abbreviated commit
+hash while producing the archive — a narrow `export-subst` attribute scoped to
+that one file — so those builds inherit the true commit without a repository.
+
+Official release binaries take the override path: every binary-producing
+release job supplies the exact tagged commit through a job-scoped environment
+variable, so downloaded builds report the precise commit they were cut from.
+The precedence, validation (a malformed override is ignored rather than baked
+in), and the real archive-extraction path are covered by tests that run under
+the normal suite.
+
 ## 2026-07-21 -- Release v0.9.4 — Legacy Bash prompt safety and release gating
 
 Version 0.9.4 fixes prompt-scoped keyboard enhancement on macOS' legacy Bash

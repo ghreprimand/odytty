@@ -65,6 +65,10 @@ jobs:
     # (libvulkan/libGL/X11/Wayland) is intentionally NOT bundled — the host
     # must provide a working Vulkan driver (Mesa or vendor ICD).
     runs-on: ubuntu-22.04
+    # Embed the exact release commit in the About panel (build.rs provenance
+    # precedence). Set at job scope, not inside a run: body.
+    env:
+      ODYTTY_BUILD_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
         # v4.2.2
@@ -121,6 +125,9 @@ jobs:
         shell: bash
     env:
       RUSTFLAGS: "--remap-path-prefix=${{ github.workspace }}=."
+      # Embed the exact release commit in the About panel (build.rs provenance
+      # precedence). Set at job scope, not inside a run: body.
+      ODYTTY_BUILD_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
         # v4.2.2
@@ -183,6 +190,9 @@ jobs:
         shell: bash
     env:
       RUSTFLAGS: "--remap-path-prefix=${{ github.workspace }}=."
+      # Embed the exact release commit in the About panel (build.rs provenance
+      # precedence). Set at job scope, not inside a run: body.
+      ODYTTY_BUILD_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
         # v4.2.2
@@ -247,6 +257,10 @@ jobs:
     # ICD). The archive carries a tiny local install.sh (copies the binary and
     # desktop files into a prefix, no download).
     runs-on: ubuntu-22.04
+    # Embed the exact release commit in the About panel (build.rs provenance
+    # precedence). Set at job scope, not inside a run: body.
+    env:
+      ODYTTY_BUILD_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
         # v4.2.2
@@ -315,6 +329,10 @@ jobs:
     # floors) plus the dlopen'd font/Vulkan/xkbcommon libraries declared in
     # Cargo.toml.
     runs-on: ubuntu-22.04
+    # Embed the exact release commit in the About panel (build.rs provenance
+    # precedence). Set at job scope, not inside a run: body.
+    env:
+      ODYTTY_BUILD_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
         # v4.2.2
@@ -384,6 +402,10 @@ jobs:
     # only metadata-validated with `rpm -qip`. auto-req is disabled in Cargo.toml
     # and the Fedora-named runtime deps are declared explicitly.
     runs-on: ubuntu-22.04
+    # Embed the exact release commit in the About panel (build.rs provenance
+    # precedence). Set at job scope, not inside a run: body.
+    env:
+      ODYTTY_BUILD_SHA: ${{ github.sha }}
     steps:
       - name: Checkout
         # v4.2.2

@@ -18,3 +18,10 @@
 *.zip binary
 *.gz binary
 *.AppImage binary
+
+# Provenance: substitute the abbreviated commit hash into the archived source
+# tarball. The `git archive` release asset has no .git directory, so source
+# package builds (AUR/Homebrew) cannot run a live git lookup; this replaces the
+# `$Format:%h$` placeholder in the one file below with the real commit hash so
+# the About panel still reports a truthful commit. Applies to ONLY this file.
+.git_archival.txt export-subst
