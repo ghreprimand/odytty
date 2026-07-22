@@ -81,9 +81,10 @@ fn main() {
 /// an unconditional rerun. `.git/HEAD` stays unconditional (it also carries the
 /// commit hash directly in the detached-HEAD case, where there is no ref file to
 /// resolve). Missing `.git` entirely (the `git archive` release tarball) simply
-/// yields no ref file / index to watch — the graceful "unknown" fallback in
-/// `git_short_sha` is unchanged. Paths use forward slashes, which cargo accepts
-/// on every platform.
+/// yields no ref file / index to watch — `git_short_sha` then returns `None` and
+/// `resolve_provenance_sha` falls back to the export-subst token or
+/// "unavailable". Paths use forward slashes, which cargo accepts on every
+/// platform.
 fn emit_git_rerun_triggers() {
     let git_dir = std::path::Path::new(".git");
 
