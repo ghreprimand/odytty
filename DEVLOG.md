@@ -7,19 +7,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-07-22 -- Multi-pane color-glyph crash fixed
+## 2026-07-22 -- Release v0.9.6 — Multi-pane color-glyph crash fix
 
-Fixed an abort-on-panic that could take the whole window down when more than
-one pane rendered emoji. The multi-pane frame builder clears and rebuilds one
-shared color-glyph vertex buffer per frame, then each pane appended into it at a
-captured start offset and clipped `buffer[start..]`. The per-pane builder,
-however, clears its output buffer on entry — a contract the two single-pane
-callers rely on, since they rebuild the buffer whole. In the multi-pane loop
-that clear wiped earlier panes' glyphs, so a split where one pane held an emoji
-and a later pane held none sliced past the end of an emptied buffer and
-panicked (`range start index N out of range for slice of length 0`). Under the
-process-wide abort-on-panic hook, that panic aborts the process, so the window
-closed outright.
+Version 0.9.6 fixes an abort-on-panic that could take the whole window down
+when more than one pane rendered emoji. The multi-pane frame builder clears and
+rebuilds one shared color-glyph vertex buffer per frame, then each pane appended
+into it at a captured start offset and clipped `buffer[start..]`. The per-pane
+builder, however, clears its output buffer on entry — a contract the two
+single-pane callers rely on, since they rebuild the buffer whole. In the
+multi-pane loop that clear wiped earlier panes' glyphs. A split where one pane
+held an emoji and a later pane held none sliced past the end of an emptied
+buffer and panicked (`range start index N out of range for slice of length 0`).
+Under the process-wide abort-on-panic hook, that panic aborts the process, so
+the window closed outright.
 
 The multi-pane loop now builds each pane's color glyphs into a per-pane scratch
 buffer, clips the scratch, then extends the shared accumulator — the same
