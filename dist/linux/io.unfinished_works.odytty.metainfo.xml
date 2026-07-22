@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.9.5" date="2026-07-22">
+      <description>
+        <p>Renaming a workspace whose tab holds more than one pane no longer freezes the window: the rename prompt now renders above split panes instead of capturing input behind an invisible modal, so renaming works for active and inactive multi-pane workspaces and cancel or confirm restores normal input. Source and package builds also report a real commit in the About panel, resolving it from a validated build override, a live Git commit, or a commit substituted into the released source archive, so official binaries and the AUR and Homebrew source builds no longer show an unknown commit.</p>
+      </description>
+    </release>
     <release version="0.9.4" date="2026-07-21">
       <description>
         <p>Prompt keyboard enhancement now works on macOS' legacy Bash 3.2: older Bash removes Kitty keyboard disambiguation once before the first command through a prompt-guarded boundary, while Bash 4.4 and newer keep their existing prompt path, and command-status reporting is unaffected. Tag-triggered releases also fail closed unless the exact tagged commit already has a completed, successful continuous-integration run, so a missing, queued, in-progress, cancelled, failed, or wrong-commit result blocks publication and every downstream package channel.</p>

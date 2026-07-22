@@ -7,6 +7,25 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-22 -- Release v0.9.5 — Multi-pane rename fix and truthful build provenance
+
+Version 0.9.5 fixes a workspace-rename freeze in multi-pane tabs. Renaming a
+workspace whose target holds more than one pane previously entered modal input
+capture without drawing the rename prompt, leaving the window unable to accept
+keyboard or mouse input. The rename prompt now renders above split panes, so
+renaming works for both active and inactive multi-pane workspaces, and cancel
+or confirm restores normal input. Single-pane rename is unchanged, and the
+surrounding context-menu and overlay paths were swept for the same
+invisible-modal shape.
+
+Source and package builds also report a real commit. The About panel resolves
+the embedded commit by precedence — a validated build override, then a live
+git short SHA, then a `git archive` export-subst token carried in the source
+tarball, then the honest placeholder `unavailable`. Official release binaries
+receive the exact release commit, and the AUR and Homebrew source recipes
+inherit the substituted commit from the archive without needing a repository,
+so no supported build shape shows an unknown commit.
+
 ## 2026-07-22 -- Truthful commit provenance in source and package builds
 
 The About panel's commit line now reports a real commit in every build shape,
