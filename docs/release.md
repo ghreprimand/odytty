@@ -48,7 +48,7 @@ failure still fails the job.
 
 Release publishing never runs for fork pull requests. A normal release lands
 the version commit on `master`, waits for a completed successful CI workflow
-whose `head_sha` is that exact commit, and only then pushes an annotated tag.
+whose `head_sha` is that exact commit, and only then pushes the release tag.
 The tag workflow re-checks the same exact-SHA result and fails closed if it is
 missing, queued, in progress, cancelled, failed, or from another commit.
 
@@ -63,9 +63,10 @@ The release must agree with the current public references:
 | Settings, defaults, and environment variables | [Runtime Knobs](runtime-knobs.md) |
 | Supported install paths and artifact names | [Install Guide](install.md) |
 
-Linux, macOS, and Windows build from the published source archive and run in
-the CI matrix. Releases also carry desktop metadata and hicolor icons for
-Linux packages.
+CI and the binary-producing release jobs build the exact checked-out commit on
+Linux, macOS, and Windows. Source-package consumers such as the AUR package and
+Homebrew formula build the published source archive instead. Releases also
+carry desktop metadata and hicolor icons for Linux packages.
 
 The upstream release does not currently publish Nix, Flatpak, or Snap packages.
 A package must not silently change the user's default terminal; it should
@@ -88,6 +89,12 @@ and a byte-identical version-pinned name:
 
 `SHA256SUMS` is the fifteenth asset. Each alias and its pinned twin have the
 same hash because they contain the same bytes.
+
+Every binary-producing release job supplies the exact release commit as
+`ODYTTY_BUILD_SHA`, which the About panel displays as its **Commit** value. The
+source archive is produced with `git archive`; its `.git_archival.txt` token is
+therefore substituted with the abbreviated commit so AUR, Homebrew formula, and
+other archive builds retain truthful provenance without a `.git` directory.
 
 Durable download links use the aliases under `releases/latest/download/`.
 Pinned names select one specific version. See the
@@ -137,16 +144,19 @@ the assembled AppImage, and the binary inside the Linux tarball staging tree.
 The `.deb` and `.rpm` packages receive metadata and file-list validation but are
 not executed.
 
-### 3. Push The Annotated Tag
+### 3. Push The Release Tag
 
 Confirm `git rev-parse HEAD` is the same SHA shown by the completed successful
 CI run, then tag that commit:
 
 ```sh
 version=X.Y.Z
-git tag -a "v${version}" -m "OdyTTY v${version}"
+git tag "v${version}"
 git push origin "v${version}"
 ```
+
+OdyTTY release tags are lightweight tags that point directly at the version
+commit. Do not tag a different local commit after the matching CI run passes.
 
 The tag starts all producer jobs, publishes the GitHub Release, and then runs
 the three package-channel jobs.
@@ -161,6 +171,12 @@ Download the pinned source archive and confirm it builds:
 ```sh
 cargo build --release --locked
 ```
+
+Open **About** (or use **Copy diagnostics**) in each downloadable binary that
+can be exercised on its target platform and confirm **Commit** is the full
+commit identified by `git rev-parse "v${version}^{}"`. Open the source-archive
+build and confirm its abbreviated value matches the same commit; it must not
+read `unknown` or `unavailable`.
 
 Also confirm the release title, tag, `Cargo.toml` version, and metainfo release
 entry all use `X.Y.Z`.
@@ -218,6 +234,10 @@ git archive --format=tar.gz --prefix="odytty-${version}/" \
   -o "odytty-${version}.tar.gz" "v${version}"
 sha256sum "odytty-${version}.tar.gz" > SHA256SUMS
 ```
+
+Using `git archive` is part of the provenance contract: it substitutes the
+`.git_archival.txt` token so a build from the extracted archive reports the
+tagged commit instead of `unavailable`.
 
 ## Verify The Odyssey Package
 

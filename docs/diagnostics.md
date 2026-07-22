@@ -125,6 +125,14 @@ to a crash.
   when a launcher discards stderr — and are retrievable on Windows, where there
   is no visible stderr at all. The About panel shows those details plus the
   driver name and version, which the startup log omits.
+- **Build provenance.** The About panel and its **Copy diagnostics** block show
+  the commit embedded at build time. OdyTTY resolves it from a validated
+  `ODYTTY_BUILD_SHA` supplied by an official or package build, then from the
+  current checkout's short Git commit (with `-dirty` when modified), then from
+  the `.git_archival.txt` token substituted into a `git archive` source
+  tarball. A build with none of those sources reports `unavailable`; the old
+  ambiguous `unknown` commit value is no longer used. This identity is displayed
+  on request and is not added to the application log.
 - **Application log.** Warnings and above from across the app, teed to stderr and
   the rotated `odytty.log`.
 

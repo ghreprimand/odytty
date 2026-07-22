@@ -80,6 +80,19 @@ terminfo entry before packagers set it by default.
 cargo build --release --locked
 ```
 
+The About panel embeds the source commit. Its precedence is a validated
+`ODYTTY_BUILD_SHA`, a live checkout's short Git commit (plus `-dirty` for a
+modified tree), the `.git_archival.txt` token substituted by `git archive`, and
+finally `unavailable`. The former `unknown` fallback is not used.
+
+Packages built from OdyTTY's published source archive inherit its abbreviated
+commit automatically: the release archive is made with `git archive`, and the
+repository's narrow `.gitattributes` rule substitutes only
+`.git_archival.txt`. Preserve that file when repacking. A package builder using
+a different archive or an exported tree without `.git` should set
+`ODYTTY_BUILD_SHA` to the exact 7-to-40-digit hexadecimal source commit for the
+build; malformed values are ignored rather than embedded.
+
 OdyTTY's verified minimum Rust version is 1.96. `rust-toolchain.toml` pins
 `1.96.0` and `Cargo.toml` declares `rust-version = "1.96"`; packagers may use a
 newer stable compiler, but upstream CI builds at this floor.
