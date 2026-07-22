@@ -3189,6 +3189,106 @@ fn row_fade_scales_color_glyph_vertex_alpha() {
     }
 }
 
+/// Regression: multi-pane color-glyph accumulation must not desync when a later
+/// pane has fewer (or zero) emoji than an earlier one.
+///
+/// `build_color_glyph_vertices_with_origin_into` CLEARS its `out` (both
+/// single-pane callers rebuild the whole buffer from scratch, so the clear is
+/// their contract). The multi-pane render loop captured
+/// `color_start = shared_buf.len()` and built straight into the shared buffer,
+/// assuming append semantics — so the builder's clear wiped earlier panes'
+/// emoji and left `shared_buf[color_start..]` slicing past the end. A split
+/// where one pane held an emoji and a later pane held none sliced `[6..]` on a
+/// now-empty buffer, panicking with `range start index 6 out of range for
+/// slice of length 0`. This pins the two facts the fix depends on: (1) the
+/// builder clears, and (2) the correct per-pane pattern is build-into-scratch
+/// then extend, which survives a zero-emoji pane following a non-empty one.
+#[test]
+fn multi_pane_color_glyphs_accumulate_across_uneven_emoji_panes() {
+    use crate::emoji::ColorGlyphId;
+    use crate::text::CellSize;
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    };
+    let mut color_atlas = ColorGlyphAtlas::new(cell);
+    let key = ColorGlyphKey::new(1, ColorGlyphId::Glyph(7), 16.0, 1.0, 1);
+    let rgba = vec![0u8; 8 * 16 * 4];
+    color_atlas
+        .insert_premultiplied(key, 1, &rgba)
+        .expect("synthetic color glyph slot");
+
+    // Pane A carries one emoji; pane B carries none.
+    let mut term_a = Terminal::new(2, 1);
+    term_a.advance(b"\x1b[?25lA");
+    let snapshot_a = term_a.snapshot();
+    let runs_a = [ColorGlyphRun::new(0, 0, key)];
+
+    let mut term_b = Terminal::new(2, 1);
+    term_b.advance(b"\x1b[?25lB");
+    let snapshot_b = term_b.snapshot();
+    let runs_b: [ColorGlyphRun; 0] = [];
+
+    // The builder CLEARS `out`: fact (1). Building pane B into a buffer that
+    // already holds pane A's glyphs replaces them, it does not append.
+    let mut clobbered = Vec::new();
+    build_color_glyph_vertices_with_origin_into(
+        &mut clobbered,
+        &snapshot_a,
+        &color_atlas,
+        &runs_a,
+        [0.0, 0.0],
+        ChromePin::NONE,
+        RowFade::NONE,
+    );
+    assert_eq!(
+        clobbered.len(),
+        VERTS_PER_QUAD,
+        "pane A built one emoji quad"
+    );
+    build_color_glyph_vertices_with_origin_into(
+        &mut clobbered,
+        &snapshot_b,
+        &color_atlas,
+        &runs_b,
+        [0.0, 0.0],
+        ChromePin::NONE,
+        RowFade::NONE,
+    );
+    assert!(
+        clobbered.is_empty(),
+        "builder clears: pane B (no emoji) wiped pane A's glyphs — \
+         building straight into the shared buffer is unsafe"
+    );
+
+    // Fact (2): the correct multi-pane pattern — build each pane into scratch,
+    // clip the scratch, then extend the shared accumulator — preserves pane A
+    // and never slices past the end when pane B is empty.
+    let mut shared = Vec::new();
+    let mut scratch = Vec::new();
+    for (snapshot, runs) in [(&snapshot_a, &runs_a[..]), (&snapshot_b, &runs_b[..])] {
+        build_color_glyph_vertices_with_origin_into(
+            &mut scratch,
+            snapshot,
+            &color_atlas,
+            runs,
+            [0.0, 0.0],
+            ChromePin::NONE,
+            RowFade::NONE,
+        );
+        // Clipping the scratch (the fix does this per-pane) must tolerate an
+        // empty buffer — this is the exact call site that aborted before.
+        clip_quads_vertical(&mut scratch, VClip::NONE);
+        shared.extend_from_slice(&scratch);
+    }
+    assert_eq!(
+        shared.len(),
+        VERTS_PER_QUAD,
+        "pane A's single emoji survives a following zero-emoji pane"
+    );
+}
+
 // COLORED-BG-FLOOR: pass 1 composites a cell whose RESOLVED background differs
 // from the theme default at `colored_bg_opacity`; default-background cells keep
 // the plain content alpha. Classification happens at the resolution seam —

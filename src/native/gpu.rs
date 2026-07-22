@@ -3112,6 +3112,14 @@ impl GpuState {
         let mut glyph_segment: Vec<Vertex> = Vec::new();
         let mut tail: Vec<Vertex> = Vec::new();
         let mut pane_buf: Vec<Vertex> = Vec::new();
+        // Per-pane color-glyph scratch. `build_color_glyph_vertices_with_origin_into`
+        // clears its `out` (the single-pane callers rebuild the whole buffer), so
+        // the multi-pane loop must build into a scratch buffer and *extend* the
+        // shared accumulator — mirroring the `pane_buf` -> `glyph_segment` pattern
+        // below. Building straight into `self.color_glyph_vertices` would wipe
+        // earlier panes' emoji and desync the `color_start` offset (a slice
+        // `[color_start..]` on the now-empty buffer panicked in multi-pane render).
+        let mut pane_color_buf: Vec<ColorGlyphVertex> = Vec::new();
         let mut cursor_glow_instance = None;
         let mut cursor_streak_instance = None;
         let mut retained_cursor_overlays = Vec::new();
@@ -3178,9 +3186,8 @@ impl GpuState {
             self.vertices.extend_from_slice(&pane_buf[..bg]);
             glyph_segment.extend_from_slice(&pane_buf[bg..]);
 
-            let color_start = self.color_glyph_vertices.len();
             grid::build_color_glyph_vertices_with_origin_into(
-                &mut self.color_glyph_vertices,
+                &mut pane_color_buf,
                 pane.snapshot,
                 &self.color_glyph_atlas,
                 runs,
@@ -3194,10 +3201,14 @@ impl GpuState {
             );
             // Colour glyphs (emoji) obey the same per-pane clip so a gliding
             // emoji's partial row is cropped, not smeared across the divider.
-            grid::clip_quads_vertical(&mut self.color_glyph_vertices[color_start..], pane.clip);
+            // Clip this pane's scratch buffer, then extend the shared
+            // accumulator — the builder clears `out`, so building into the shared
+            // buffer directly would wipe earlier panes' glyphs.
+            grid::clip_quads_vertical(&mut pane_color_buf, pane.clip);
             if let Some(clip) = pane.content_clip {
-                grid::clip_quads_to_rect(&mut self.color_glyph_vertices[color_start..], clip);
+                grid::clip_quads_to_rect(&mut pane_color_buf, clip);
             }
+            self.color_glyph_vertices.extend_from_slice(&pane_color_buf);
 
             let tail_start = tail.len();
             tail.reserve(pane.overlays.len() * grid::VERTS_PER_QUAD);
