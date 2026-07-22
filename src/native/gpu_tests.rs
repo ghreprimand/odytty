@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::gpu::{
-    BloomOptions, CrtOptions, ViewportUniform, adapter_is_software, choose_surface_format,
-    colored_content_build_opacity, content_build_opacity, create_atlas_bind_group,
-    create_cell_pipeline, create_color_atlas_bind_group, create_color_glyph_pipeline,
-    image::BgImageGpu, multi_pane_wallpaper_edge_wash_quads, physical_font_px, post,
-    quads_excluding, rail_overlay_chrome_pin, required_limits_for_adapter, rescue_adapter_index,
-    scene_clear_color, scene_target_format, select_alpha_mode, wallpaper_edge_wash_quads,
-    wallpaper_edge_wash_quads_with_pin,
+    BloomOptions, CrtOptions, ViewportUniform, accumulate_pane_color_glyphs, adapter_is_software,
+    choose_surface_format, colored_content_build_opacity, content_build_opacity,
+    create_atlas_bind_group, create_cell_pipeline, create_color_atlas_bind_group,
+    create_color_glyph_pipeline, image::BgImageGpu, multi_pane_wallpaper_edge_wash_quads,
+    physical_font_px, post, quads_excluding, rail_overlay_chrome_pin, required_limits_for_adapter,
+    rescue_adapter_index, scene_clear_color, scene_target_format, select_alpha_mode,
+    wallpaper_edge_wash_quads, wallpaper_edge_wash_quads_with_pin,
 };
 use crate::atlas::CellSize;
 use crate::core::Terminal;
@@ -2169,4 +2169,81 @@ fn colored_bg_floor_is_monotonic_in_the_knob_and_never_weaker_than_content() {
     assert!((colored_content_build_opacity(0.3, 0.8, 0.9) - 0.72).abs() < 1e-6);
     // Above the floor the plain product wins (the max, not a replacement).
     assert!((colored_content_build_opacity(0.95, 0.8, 0.9) - 0.76).abs() < 1e-6);
+}
+
+/// Multi-pane color-glyph accumulation across panes with uneven emoji counts.
+///
+/// Drives the real accumulation seam `accumulate_pane_color_glyphs` — the exact
+/// code the multi-pane render loop runs per pane — with no GPU device or window.
+/// An emoji pane followed by a pane with no emoji reproduces the frame that
+/// aborted the process: the per-pane builder clears its output, so an earlier
+/// approach that captured `shared.len()` as a start offset and then sliced
+/// `shared[start..]` indexed past the end of the emptied buffer. The seam must
+/// preserve the first pane's glyphs and never slice past the end when a later
+/// pane emits fewer.
+#[test]
+fn multi_pane_color_glyph_accumulation_survives_uneven_emoji_panes() {
+    use crate::emoji::{ColorGlyphAtlas, ColorGlyphId, ColorGlyphKey};
+    use crate::grid::{ChromePin, ColorGlyphRun, VClip, VERTS_PER_QUAD};
+
+    let cell = CellSize {
+        width: 8,
+        height: 16,
+        baseline: 12,
+    };
+    let mut atlas = ColorGlyphAtlas::new(cell);
+    let key = ColorGlyphKey::new(1, ColorGlyphId::Glyph(7), 16.0, 1.0, 1);
+    atlas
+        .insert_premultiplied(key, 1, &vec![0u8; 8 * 16 * 4])
+        .expect("synthetic color glyph slot");
+
+    // Pane A carries one emoji; pane B (rendered after it) carries none.
+    let mut term_a = Terminal::new(2, 1);
+    term_a.advance(b"\x1b[?25lA");
+    let snapshot_a = term_a.snapshot();
+    let runs_a = [ColorGlyphRun::new(0, 0, key)];
+
+    let mut term_b = Terminal::new(2, 1);
+    term_b.advance(b"\x1b[?25lB");
+    let snapshot_b = term_b.snapshot();
+    let runs_b: [ColorGlyphRun; 0] = [];
+
+    let mut shared: Vec<ColorGlyphVertex> = Vec::new();
+    let mut scratch: Vec<ColorGlyphVertex> = Vec::new();
+
+    accumulate_pane_color_glyphs(
+        &mut shared,
+        &mut scratch,
+        &atlas,
+        &snapshot_a,
+        &runs_a,
+        [0.0, 0.0],
+        ChromePin::NONE,
+        VClip::NONE,
+        None,
+    );
+    assert_eq!(
+        shared.len(),
+        VERTS_PER_QUAD,
+        "pane A's single emoji lands in the shared buffer"
+    );
+
+    // The second pane emits no emoji. Pre-fix this cleared the shared buffer and
+    // sliced past its end; the seam must leave pane A's glyphs intact.
+    accumulate_pane_color_glyphs(
+        &mut shared,
+        &mut scratch,
+        &atlas,
+        &snapshot_b,
+        &runs_b,
+        [0.0, 0.0],
+        ChromePin::NONE,
+        VClip::NONE,
+        None,
+    );
+    assert_eq!(
+        shared.len(),
+        VERTS_PER_QUAD,
+        "an empty following pane must not drop pane A's emoji"
+    );
 }

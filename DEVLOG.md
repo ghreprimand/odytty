@@ -25,10 +25,17 @@ The multi-pane loop now builds each pane's color glyphs into a per-pane scratch
 buffer, clips the scratch, then extends the shared accumulator — the same
 build-then-extend pattern the loop already uses for cell backgrounds and mono
 glyphs. The single-pane paths keep the builder's clear-and-rebuild contract
-unchanged, so single-pane frames are byte-identical. A regression test in the
-grid module pins both facts: the builder clears its output, and the
-build-into-scratch-then-extend pattern preserves an earlier pane's glyphs across
-a following pane that emits none.
+unchanged, so single-pane frames are byte-identical.
+
+The per-pane accumulation was pulled out of the render loop into a standalone
+function so it can be verified without a GPU device or window, since the panic
+only needs two panes with uneven emoji counts, not real rendering, to fire. Two
+tests cover it: one in the grid module pins the builder's clear-on-entry
+contract, and one drives the extracted accumulation directly with an emoji pane
+followed by an emoji-free pane. Reintroducing the old build-at-captured-offset
+pattern makes the second test reproduce the original panic verbatim, so the
+crash site itself is now guarded on every test run rather than only through
+manual multi-pane exercise.
 
 Verified with `cargo test` (full suite green), `cargo clippy --all-targets`
 (clean), and `cargo fmt --check`.

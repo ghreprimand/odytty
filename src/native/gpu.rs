@@ -635,6 +635,58 @@ fn pane_chrome_pin(pane: &PaneRender) -> grid::ChromePin {
     }
 }
 
+/// Accumulate one pane's color glyphs (emoji) into the shared per-frame buffer.
+///
+/// `build_color_glyph_vertices_with_origin_into` clears its output on entry —
+/// the two single-pane callers rebuild the whole buffer, so that clear is their
+/// contract. The multi-pane loop therefore builds each pane into `scratch` and
+/// then *extends* `shared`; writing straight into `shared` would clear away
+/// every earlier pane's glyphs and desync the frame. A pane whose emoji count
+/// is lower than an earlier pane's used to leave a captured `shared[start..]`
+/// offset pointing past the end of the emptied buffer, which panicked and — via
+/// the abort-on-panic hook — took the window down.
+///
+/// This is a free function so the accumulation can be exercised without a GPU
+/// device or window: the panic only reproduced across panes with uneven emoji
+/// counts, which needs no rendering to trigger. It takes the per-pane geometry
+/// as primitives rather than a `&PaneRender` for that reason — a test can drive
+/// it from a bare snapshot and run list without building a full pane record.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn accumulate_pane_color_glyphs(
+    shared: &mut Vec<ColorGlyphVertex>,
+    scratch: &mut Vec<ColorGlyphVertex>,
+    atlas: &ColorGlyphAtlas,
+    snapshot: &Snapshot,
+    runs: &[ColorGlyphRun],
+    origin: [f32; 2],
+    // TAB-LABEL-CENTERING: a chrome strip's emoji label centers with the same
+    // offset as its mono glyphs; `ChromePin::NONE` for content panes.
+    chrome_pin: grid::ChromePin,
+    clip: grid::VClip,
+    content_clip: Option<[f32; 4]>,
+) {
+    grid::build_color_glyph_vertices_with_origin_into(
+        scratch,
+        snapshot,
+        atlas,
+        runs,
+        origin,
+        chrome_pin,
+        // VE4 new-output fade: single-pane only (parity with the prior overlay
+        // mechanism); split panes never fade.
+        grid::RowFade::NONE,
+    );
+    // Colour glyphs obey the same per-pane clip so a gliding emoji's partial row
+    // is cropped, not smeared across the divider. Clip the scratch, then extend
+    // the shared accumulator — the builder clears `scratch`, so writing into
+    // `shared` directly would wipe earlier panes' glyphs.
+    grid::clip_quads_vertical(scratch, clip);
+    if let Some(rect) = content_clip {
+        grid::clip_quads_to_rect(scratch, rect);
+    }
+    shared.extend_from_slice(scratch);
+}
+
 pub(super) fn rail_overlay_chrome_pin(columns: usize, rail_glyph_dy_rows: f32) -> grid::ChromePin {
     if rail_glyph_dy_rows == 0.0 {
         return grid::ChromePin::NONE;
@@ -3186,29 +3238,22 @@ impl GpuState {
             self.vertices.extend_from_slice(&pane_buf[..bg]);
             glyph_segment.extend_from_slice(&pane_buf[bg..]);
 
-            grid::build_color_glyph_vertices_with_origin_into(
+            // Build this pane's color glyphs into scratch, clip, then extend the
+            // shared accumulator. Extracted so the accumulation is unit-tested
+            // without a GPU device (see `accumulate_pane_color_glyphs`): the
+            // builder clears its output, so the multi-pane loop must extend
+            // rather than write into the shared buffer at a captured offset.
+            accumulate_pane_color_glyphs(
+                &mut self.color_glyph_vertices,
                 &mut pane_color_buf,
-                pane.snapshot,
                 &self.color_glyph_atlas,
+                pane.snapshot,
                 runs,
                 pane.origin,
-                // TAB-LABEL-CENTERING: a chrome strip's emoji label centers with
-                // the same offset as its mono glyphs; `ChromePin::NONE` for panes.
                 pane_chrome_pin(pane),
-                // VE4 new-output fade: single-pane only (parity with the prior
-                // overlay mechanism); split panes never fade.
-                grid::RowFade::NONE,
+                pane.clip,
+                pane.content_clip,
             );
-            // Colour glyphs (emoji) obey the same per-pane clip so a gliding
-            // emoji's partial row is cropped, not smeared across the divider.
-            // Clip this pane's scratch buffer, then extend the shared
-            // accumulator — the builder clears `out`, so building into the shared
-            // buffer directly would wipe earlier panes' glyphs.
-            grid::clip_quads_vertical(&mut pane_color_buf, pane.clip);
-            if let Some(clip) = pane.content_clip {
-                grid::clip_quads_to_rect(&mut pane_color_buf, clip);
-            }
-            self.color_glyph_vertices.extend_from_slice(&pane_color_buf);
 
             let tail_start = tail.len();
             tail.reserve(pane.overlays.len() * grid::VERTS_PER_QUAD);
