@@ -2081,10 +2081,10 @@ impl App {
         };
         // F4-RENAME-MOUSE: while a rename drag is live the field owns the
         // pointer — extend its selection to the new cell and stop, before any
-        // grid hover/selection/PTY-report work. The rename modal renders only on
-        // the single-pane path, so `self.grid` / `self.pointer_cell` are its
-        // exact render basis here. `rename_dragging` is only ever set while the
-        // modal is open, so this is inert on every other path.
+        // grid hover/selection/PTY-report work. The handler resolves the same
+        // window-level cell basis used by the single- and multi-pane painters.
+        // `rename_dragging` is only ever set while the modal is open, so this is
+        // inert on every other path.
         if self.rename_dragging {
             self.apply_cursor_icon(CursorIcon::Text);
             self.rename_drag_extend();

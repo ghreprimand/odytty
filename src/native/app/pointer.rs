@@ -907,9 +907,9 @@ impl App {
             self.handle_overlay_pointer_wheel(delta);
             return;
         }
-        // Modal pointer capture (foundation): a mouse-owning modal
-        // swallows the wheel beneath the overlay guard. `false` today ⇒ dead
-        // code ⇒ the wheel path is unchanged.
+        // Modal pointer capture: a mouse-owning modal swallows the wheel beneath
+        // the overlay guard so the terminal cannot scroll under a rename/name
+        // prompt.
         if self.modal_captures_pointer() {
             return;
         }

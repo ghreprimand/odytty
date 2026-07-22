@@ -143,6 +143,163 @@ fn click_menu_item(app: &mut App, needle: &str) {
     app.dispatch_mouse_button_for_test(true, WinitMouseButton::Left);
 }
 
+/// Select the third workspace-menu action (Rename Workspace) through the live
+/// keyboard dispatch. The first three selectable rows are deliberately stable:
+/// New Workspace, Duplicate Workspace, Rename Workspace; position-dependent
+/// move rows follow them.
+fn activate_workspace_rename(app: &mut App, idx: usize) {
+    use winit::keyboard::NamedKey;
+
+    // Multi-pane context menus spawn in window-overlay coordinates derived
+    // from the physical pointer cache. Park it safely inside the test surface.
+    app.set_pointer_px_for_test(400.0, 240.0);
+    app.open_workspace_rail_menu_for_test(idx);
+    assert!(app.context_menu_open_for_test(), "workspace menu opened");
+    app.drive_named_key_for_test(NamedKey::ArrowDown);
+    app.drive_named_key_for_test(NamedKey::ArrowDown);
+    app.drive_named_key_for_test(NamedKey::Enter);
+    assert!(
+        !app.overlay_open_for_test(),
+        "activating Rename Workspace dismisses the context menu"
+    );
+    assert!(
+        app.rename_overlay_open_for_test(),
+        "the rename/name modal replaces the context menu"
+    );
+}
+
+#[test]
+fn workspace_rename_is_visible_and_restores_input_for_split_active_and_inactive_targets() {
+    use winit::keyboard::NamedKey;
+
+    let Some((mut app, _base_bytes)) = app_with_recording_writer(b"") else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let dims = Dimensions::new(80, 24);
+    app.set_test_cell_for_test(cell(10, 20));
+    app.set_test_surface_for_test(800, 480, WindowPadding::ZERO);
+
+    // Workspace A: split and retain the focused split writer so restored input
+    // can be observed after the modal closes.
+    let split_a = RecordingWriter::default();
+    let split_a_bytes = split_a.bytes.clone();
+    app.seed_headless_split_pane_for_test(
+        true,
+        Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows))),
+        Arc::new(Mutex::new(Box::new(split_a))),
+        dims,
+    );
+    app.set_test_cell_for_test(cell(10, 20));
+    app.set_test_surface_for_test(800, 480, WindowPadding::ZERO);
+    app.reflow_active_panes_for_test();
+    assert_eq!(app.active_pane_count_for_test(), 2);
+
+    // Workspace B: pushing switches to it; split it too so both the inactive-
+    // target and active-target cases render through the multi-pane top layer.
+    app.push_headless_workspace_for_test(
+        Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows))),
+        crate::native::test_support::headless_writer(),
+        dims,
+    );
+    let split_b = RecordingWriter::default();
+    let split_b_bytes = split_b.bytes.clone();
+    app.seed_headless_split_pane_for_test(
+        true,
+        Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows))),
+        Arc::new(Mutex::new(Box::new(split_b))),
+        dims,
+    );
+    app.set_test_cell_for_test(cell(10, 20));
+    app.set_test_surface_for_test(800, 480, WindowPadding::ZERO);
+    app.reflow_active_panes_for_test();
+    assert_eq!(app.active_workspace_index_for_test(), 1);
+    assert_eq!(app.active_pane_count_for_test(), 2);
+
+    // Rename inactive split workspace A while split workspace B remains active.
+    activate_workspace_rename(&mut app, 0);
+    let initial = app
+        .multipane_modal_top_rows_for_test()
+        .expect("rename prompt is a visible multi-pane top layer");
+    assert!(
+        initial.iter().any(|row| row.contains("Workspace name:")),
+        "the cropped top layer contains the workspace prompt: {initial:?}"
+    );
+    app.drive_text_key_for_test("-inactive");
+    let typed = app
+        .multipane_modal_top_rows_for_test()
+        .expect("typed rename prompt remains visible");
+    assert!(
+        typed.iter().any(|row| row.contains("-inactive")),
+        "typed text is painted by the production multi-pane path: {typed:?}"
+    );
+    app.drive_named_key_for_test(NamedKey::Enter);
+    assert_eq!(
+        app.workspace_names_for_test()[0],
+        "Workspace 1-inactive",
+        "Enter commits the inactive workspace target"
+    );
+    assert_eq!(
+        app.active_workspace_index_for_test(),
+        1,
+        "renaming a background workspace does not switch focus"
+    );
+    assert!(!app.rename_overlay_open_for_test());
+    assert!(!app.modal_captures_pointer_for_test());
+    app.drive_text_key_for_test("b");
+    assert_eq!(
+        split_b_bytes.lock().expect("workspace B bytes").as_slice(),
+        b"b",
+        "keyboard input returns to the focused pane after confirm"
+    );
+    app.set_pointer_px_for_test(600.0, 300.0);
+    app.dispatch_mouse_button_for_test(true, WinitMouseButton::Right);
+    assert!(
+        app.context_menu_open_for_test(),
+        "mouse input returns to the split content after confirm"
+    );
+    app.drive_named_key_for_test(NamedKey::Escape);
+    assert!(!app.overlay_open_for_test());
+
+    // Switch to A, making the same split target active. Escape must remove the
+    // visible modal and restore both keyboard and pointer routing.
+    app.handle_palette_action_for_test("workspace-switch-0");
+    assert_eq!(app.active_workspace_index_for_test(), 0);
+    assert_eq!(app.active_pane_count_for_test(), 2);
+    activate_workspace_rename(&mut app, 0);
+    app.drive_text_key_for_test("-cancelled");
+    let active_typed = app
+        .multipane_modal_top_rows_for_test()
+        .expect("active-workspace rename remains visible");
+    assert!(active_typed.iter().any(|row| row.contains("-cancelled")));
+    app.drive_named_key_for_test(NamedKey::Escape);
+    assert_eq!(app.workspace_names_for_test()[0], "Workspace 1-inactive");
+    assert!(!app.rename_overlay_open_for_test());
+    assert!(!app.modal_captures_pointer_for_test());
+    app.drive_text_key_for_test("a");
+    assert_eq!(
+        split_a_bytes.lock().expect("workspace A bytes").as_slice(),
+        b"a",
+        "keyboard input returns to the focused pane after cancel"
+    );
+
+    // Sibling audit: both layout-name entry points reuse the same rename state,
+    // so they must also produce a visible split top layer and release capture.
+    app.enter_save_layout_prompt_for_test(0);
+    let save_one = app
+        .multipane_modal_top_rows_for_test()
+        .expect("workspace layout-name prompt is visible");
+    assert!(save_one.iter().any(|row| row.contains("Layout name:")));
+    app.drive_named_key_for_test(NamedKey::Escape);
+    app.enter_save_all_layout_prompt_for_test();
+    let save_all = app
+        .multipane_modal_top_rows_for_test()
+        .expect("whole-app layout-name prompt is visible");
+    assert!(save_all.iter().any(|row| row.contains("Layout name:")));
+    app.drive_named_key_for_test(NamedKey::Escape);
+    assert!(!app.modal_captures_pointer_for_test());
+}
+
 /// The grid row of the `nth` (0-based) separator line in the live composited
 /// menu, for the separator-inert test. Uses the box-drawing glyph the renderer
 /// paints for separators.

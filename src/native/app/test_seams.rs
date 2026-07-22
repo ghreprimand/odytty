@@ -158,6 +158,28 @@ impl App {
         Some((snapshot.colors, terminal_colors))
     }
 
+    /// Test seam (multi-pane modal parity): render the topmost window-level
+    /// modal through the exact production `build_overlay_top` path and return
+    /// its cropped text rows. Unlike a state-only predicate, this proves the
+    /// rename/name prompt has visible cells in a split frame.
+    #[cfg(test)]
+    pub(in crate::native) fn multipane_modal_top_rows_for_test(&mut self) -> Option<Vec<String>> {
+        let (content, cell) = self.multipane_geometry()?;
+        let (snapshot, _origin) = self.build_overlay_top(content, cell)?;
+        Some(
+            (0..snapshot.dimensions.rows)
+                .map(|row| {
+                    let text: String = (0..snapshot.dimensions.columns)
+                        .map(|column| {
+                            snapshot.cells[row * snapshot.dimensions.columns + column].grapheme()
+                        })
+                        .collect();
+                    text.trim_end().to_owned()
+                })
+                .collect(),
+        )
+    }
+
     /// Test seam (PANE-PADDING, board 4c8856ae): the focused pane's TILED rect
     /// and its PADDED inner (drawable grid) rect in the active multi-pane tab,
     /// each as `[x, y, w, h]`. Lets a regression assert that every divider-facing
@@ -2786,6 +2808,18 @@ impl App {
         self.enter_rename_workspace(idx);
     }
 
+    /// Open each workspace-layout name prompt through its production entry
+    /// point so split-render tests cover the rename state's sibling modal uses.
+    #[cfg(test)]
+    pub(in crate::native) fn enter_save_layout_prompt_for_test(&mut self, idx: usize) {
+        self.enter_save_layout_prompt(idx);
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn enter_save_all_layout_prompt_for_test(&mut self) {
+        self.enter_save_all_layout_prompt();
+    }
+
     #[cfg(test)]
     pub(in crate::native) fn begin_rename_tab_for_test(&mut self, session: usize) -> bool {
         let Some(token) = self.sessions.token_at_position(session) else {
@@ -2817,6 +2851,11 @@ impl App {
     #[cfg(test)]
     pub(in crate::native) fn rename_active_for_test(&self) -> bool {
         self.rename_state.is_some()
+    }
+
+    #[cfg(test)]
+    pub(in crate::native) fn modal_captures_pointer_for_test(&self) -> bool {
+        self.modal_captures_pointer()
     }
 
     #[cfg(test)]

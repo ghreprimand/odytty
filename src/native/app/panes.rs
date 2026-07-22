@@ -556,19 +556,20 @@ impl App {
         ))
     }
 
-    /// Build the topmost window-level overlay panel for the multi-pane render
-    /// path: a window-content-grid snapshot with the open overlay painted into
-    /// it (via the same [`apply_overlay`] the single-pane path uses), cropped to
-    /// the panel's rect so it composites as an opaque box. Returns the cropped
-    /// snapshot plus its physical-pixel window-space origin, or `None` when no
-    /// overlay is open. The cell math matches [`Self::overlay_grid_dims`] /
+    /// Build the topmost window-level modal surface for the multi-pane render
+    /// path: a window-content-grid snapshot with either the rename/name prompt
+    /// or the open overlay painted into it, cropped to the surface's rect so it
+    /// composites as an opaque box. Rename wins when both states are present,
+    /// matching the single-pane paint order. Returns the cropped snapshot plus
+    /// its physical-pixel window-space origin, or `None` when neither surface is
+    /// open. The cell math matches [`Self::overlay_grid_dims`] /
     /// [`Self::overlay_pointer_cell`] so render and hit-test agree exactly.
     pub(super) fn build_overlay_top(
         &mut self,
         content: PaneRect,
         cell: CellSize,
     ) -> Option<(Snapshot, [f32; 2])> {
-        if !self.overlay.is_open() {
+        if !self.overlay.is_open() && self.rename_state.is_none() {
             return None;
         }
         let (cols, rows) = grid_dims_for_rect(content, cell.width, cell.height);
@@ -596,14 +597,25 @@ impl App {
             colors: overlay_colors,
             cells: vec![crate::core::Cell::default(); cols * rows],
         };
-        apply_overlay(&mut overlay_snap, &mut self.overlay);
-        // Crop to the panel rect so only opaque panel cells are composited
+        // The rename/name prompt is painted after ordinary overlays in the
+        // single-pane path and therefore owns the visible modal surface while
+        // it is active. Preserve that precedence here. This is also the path
+        // for workspace-layout name prompts, which share `rename_state`.
+        let (left, top, width, height) =
+            if let Some(rect) = self.rename_band_rect_for_dims(cols, rows) {
+                self.paint_rename_tab_cells(&mut overlay_snap);
+                rect
+            } else {
+                apply_overlay(&mut overlay_snap, &mut self.overlay);
+                let rect = overlay_rect(&self.overlay, cols, rows)?;
+                (rect.left, rect.top, rect.width, rect.height)
+            };
+        // Crop to the modal rect so only opaque surface cells are composited
         // (blank cells outside the box would otherwise overdraw the panes).
-        let rect = overlay_rect(&self.overlay, cols, rows)?;
-        let cropped = crop_snapshot(&overlay_snap, rect.left, rect.top, rect.width, rect.height);
+        let cropped = crop_snapshot(&overlay_snap, left, top, width, height);
         let origin = [
-            content.x + rect.left as f32 * cell.width as f32,
-            content.y + rect.top as f32 * cell.height as f32,
+            content.x + left as f32 * cell.width as f32,
+            content.y + top as f32 * cell.height as f32,
         ];
         Some((cropped, origin))
     }
@@ -1093,12 +1105,12 @@ impl App {
             });
         }
 
-        // Topmost window-level overlay (context menu / settings / palette /
-        // connections / replay). Built against the window content grid so it
-        // centers over the whole window, not the focused pane, and composited
-        // last so it draws over every pane + divider. `None` when no overlay is
-        // open, leaving the multi-pane frame unchanged. Owned here so the
-        // `OverlayTop` borrow outlives the GPU call.
+        // Topmost window-level modal surface (rename/name prompt, context menu,
+        // settings, palette, connections, replay). Built against the window
+        // content grid so it centers over the whole window, not the focused
+        // pane, and composited last so it draws over every pane + divider.
+        // `None` when no modal surface is open, leaving the multi-pane frame
+        // unchanged. Owned here so the `OverlayTop` borrow outlives the GPU call.
         let overlay_top = self.build_overlay_top(content, cell);
         let treatment_for_overlay = treatment;
         // Solid quads composited over the pane snapshots: the inter-pane

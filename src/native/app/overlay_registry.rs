@@ -364,9 +364,8 @@ impl App {
     // --- modal-input gate ----------------------------------------------------
 
     /// The active keyboard modal. Reads per-feature predicates that live in the
-    /// feature submodules; all return `false` today, so this is always `None`
-    /// and the gate is dead code on the live path. Precedence is fixed
-    /// (D-INFRA-4): copy-mode before hints (mutually exclusive in practice).
+    /// feature submodules. Precedence is fixed (D-INFRA-4): copy-mode before
+    /// hints before the rename/name prompt (mutually exclusive in practice).
     pub(in crate::native) fn active_modal(&self) -> ActiveModal {
         if self.copy_mode_active() {
             return ActiveModal::CopyMode;
@@ -663,15 +662,15 @@ impl App {
         self.request_selection_redraw();
     }
 
-    /// F4-RENAME-MOUSE: handle a left mouse button on the tab-rename field.
+    /// F4-RENAME-MOUSE: handle a left mouse button on the rename/name field.
     ///
-    /// The rename modal is painted into the single-pane content snapshot
-    /// (`paint_rename_tab_cells`), so the render basis is exactly
-    /// `self.grid` + `self.pointer_cell`. A press that lands on the input line
-    /// places the caret at the clicked character (a second click within the
-    /// double-click window selects the word under it); the drag that a plain
-    /// press arms is extended by `rename_drag_extend` on pointer motion. A
-    /// release ends the drag and collapses an empty selection.
+    /// The rename modal is window-level: single-pane coordinates are already
+    /// window-relative, while multi-pane coordinates are resolved through the
+    /// same whole-content geometry as [`Self::build_overlay_top`]. A press that
+    /// lands on the input line places the caret at the clicked character (a
+    /// second click within the double-click window selects the word under it);
+    /// the drag that a plain press arms is extended by `rename_drag_extend` on
+    /// pointer motion. A release ends the drag and collapses an empty selection.
     ///
     /// Non-left buttons and presses off the input line are ignored (the caret
     /// stays put); the modal already owns the pointer, so nothing leaks to the
@@ -695,10 +694,10 @@ impl App {
             self.request_selection_redraw();
             return;
         }
-        let Some(point) = self.pointer_cell else {
+        let Some(point) = self.overlay_pointer_cell() else {
             return;
         };
-        let (columns, rows) = (self.grid.columns, self.grid.rows);
+        let (columns, rows) = self.overlay_grid_dims();
         let Some(rename) = self.rename_state.as_ref() else {
             return;
         };
@@ -739,10 +738,10 @@ impl App {
     /// caret follows the pointer, clamped onto the input line so dragging off
     /// the row still tracks horizontally.
     pub(super) fn rename_drag_extend(&mut self) {
-        let Some(point) = self.pointer_cell else {
+        let Some(point) = self.overlay_pointer_cell() else {
             return;
         };
-        let (columns, rows) = (self.grid.columns, self.grid.rows);
+        let (columns, rows) = self.overlay_grid_dims();
         let Some(rename) = self.rename_state.as_ref() else {
             return;
         };
@@ -813,8 +812,21 @@ impl App {
     /// band paints on its own path (not `overlay_rect`), so without marking this
     /// span opaque it renders translucent under a translucent window.
     pub(super) fn rename_band_content_rect(&self) -> Option<(usize, usize, usize, usize)> {
+        self.rename_band_rect_for_dims(self.grid.columns, self.grid.rows)
+    }
+
+    /// The rename/name prompt's outer box for an explicit content-grid size.
+    /// The single-pane opaque-region path supplies `self.grid`; the multi-pane
+    /// top-layer builder supplies the whole window content grid. Keeping both
+    /// consumers on this helper prevents modal visibility and hit geometry from
+    /// diverging when the active tab is split.
+    pub(super) fn rename_band_rect_for_dims(
+        &self,
+        columns: usize,
+        rows: usize,
+    ) -> Option<(usize, usize, usize, usize)> {
         self.rename_state.as_ref()?;
-        rename_band_box(self.grid.columns, self.grid.rows)
+        rename_band_box(columns, rows)
     }
 
     // --- cursor render-params aggregator (foundation) ---------------
