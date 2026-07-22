@@ -44,6 +44,16 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.9.4" date="2026-07-21">
+      <description>
+        <p>Prompt keyboard enhancement now works on macOS' legacy Bash 3.2: older Bash removes Kitty keyboard disambiguation once before the first command through a prompt-guarded boundary, while Bash 4.4 and newer keep their existing prompt path, and command-status reporting is unaffected. Tag-triggered releases also fail closed unless the exact tagged commit already has a completed, successful continuous-integration run, so a missing, queued, in-progress, cancelled, failed, or wrong-commit result blocks publication and every downstream package channel.</p>
+      </description>
+    </release>
+    <release version="0.9.3" date="2026-07-21">
+      <description>
+        <p>Linux keyboard routing normalizes compositor-dependent editing keys before dispatch, so Ctrl+Backspace word-deletes at the default Bash prompt on KDE/Wayland while ordinary editing keys and Fish keep their behavior. Command-status gutters now appear across desktop launch shapes and every single, split, and nested pane layout, and the Unix launcher resolves the login shell through passwd/NSS when a graphical session omits SHELL. Window overlays stay opaque and themed after a split, selection strength defaults to full opacity with an opt-in boost above it, and configured window padding applies at every divider-facing pane edge while narrowed or heavily padded panes keep valid dimensions and clip cleanly. On KDE/Wayland, completed resizes and divider drags settle every pane to the configured padding.</p>
+      </description>
+    </release>
     <release version="0.9.2" date="2026-07-20">
       <description>
         <p>Windows console applications can now request complete ConPTY Win32 key records, preserving input such as Ctrl+Backspace and Shift+Enter. Prompt key enhancement is enabled by default for word-wise editing in integrated Bash and Zsh, with existing bindings taking priority. The retro preset no longer forces curvature; the separate curvature setting remains flat by default.</p>
