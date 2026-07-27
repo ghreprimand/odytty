@@ -38,6 +38,7 @@ impl App {
                 .map(GpuState::frames_presented)
                 .unwrap_or(0),
             consecutive_skipped_frames: self.consecutive_skipped_frames,
+            redraws_delivered: self.redraws_delivered,
             // Gating discriminator for the stall log: is a frame genuinely
             // owed right now? Use the multipane-aware `should_rebuild_frame()`
             // (NOT the bare single-pane `needs_rebuild`, which is still

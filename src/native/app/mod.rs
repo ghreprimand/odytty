@@ -504,6 +504,20 @@ pub(super) struct App {
     /// wake-loop forever. Reset to 0 on any present / reconfigure and on a
     /// restore (`Resized` to a non-zero size).
     consecutive_skipped_frames: u32,
+    /// FREEZE-WATCHDOG: monotonic count of `RedrawRequested` events actually
+    /// DELIVERED to this app. The discriminator between the two ways "no frame
+    /// presented" can look identical from the outside:
+    ///
+    /// - counter advancing, `frames_presented` flat → the windowing system is
+    ///   asking us to draw and the render path is not answering. A real stall.
+    /// - counter flat → the windowing system is not asking us to draw at all
+    ///   (output asleep/DPMS-off, surface occluded, redraws throttled to a
+    ///   frame callback the compositor has not returned). Zero frames is the
+    ///   CORRECT steady state there, not a freeze.
+    ///
+    /// Never reset; the watchdog compares it against its own episode-start
+    /// snapshot rather than resetting it here.
+    redraws_delivered: u64,
     /// BLACK-SCREEN-ON-RESTORE: whether the window is currently minimized (its
     /// surface reported a 0x0 size via `Resized`). Used to suppress the skipped-
     /// frame retry while minimized — there is nothing to paint, so a retry would
@@ -862,6 +876,7 @@ impl App {
             skip_escalation: SkipEscalation::default(),
             pending_surface_reconfigure: false,
             consecutive_skipped_frames: 0,
+            redraws_delivered: 0,
             window_minimized: false,
             divider_drag: None,
             rail_reserved_cols: 0,
@@ -6171,6 +6186,12 @@ impl ApplicationHandler<UserEvent> for App {
                 self.update_control_flow_deadline(event_loop);
             }
             WindowEvent::RedrawRequested => {
+                // FREEZE-WATCHDOG: count the delivery, not the request. A
+                // request we made that the windowing system never turned into
+                // this event means the surface is not being painted (asleep
+                // output / occluded / frame-callback throttled), which is not a
+                // stall — see the field docs on `redraws_delivered`.
+                self.redraws_delivered = self.redraws_delivered.saturating_add(1);
                 self.flush_pending_overlay_settings();
                 self.sessions.reconcile_scrollback_trims();
                 self.handle_terminal_clipboard_requests();

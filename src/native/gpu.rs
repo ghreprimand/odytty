@@ -4077,6 +4077,27 @@ impl GpuState {
     /// Vulkan, Metal, and DX12 can invalidate the platform surface independently
     /// of the logical window. Reconfiguring the invalid surface is insufficient;
     /// a fresh surface must be created from the retained instance and window.
+    ///
+    /// ORDERING IS LOAD-BEARING — the replacement surface must not be
+    /// CONFIGURED while the previous surface still holds a presentation chain
+    /// on the same window. A window carries at most one such chain, and a
+    /// second configure against a live one is a hard error, not a warning:
+    ///
+    /// - Wayland: configuring at `PresentMode::Fifo` takes a `wp_fifo_v1` for
+    ///   the `wl_surface`. Taking a second one raises the compositor-side
+    ///   protocol error `surface already has a fifo`, which is FATAL to the
+    ///   whole Wayland connection — every window of the process vanishes at
+    ///   once, with no panic and no core dump. The wgpu-side symptom logged
+    ///   just before that is `In Surface::configure: Invalid surface`, after
+    ///   which the app holds an unconfigured surface and the next acquire
+    ///   panics with `Surface is not configured for presentation`.
+    /// - DX12/Metal have the same one-chain-per-window shape, so retiring the
+    ///   old surface first is the portable order, not a Wayland special case.
+    ///
+    /// Therefore: create the replacement, DROP the previous surface, and only
+    /// then configure. Creating the replacement first is safe (no chain is
+    /// taken until `configure`) and keeps the capability-check error path from
+    /// stranding the window with no surface at all.
     pub(super) fn recreate_surface(&mut self) -> Result<(), NativeError> {
         let surface = self
             .instance
@@ -4096,8 +4117,11 @@ impl GpuState {
                 .copied()
                 .unwrap_or(wgpu::CompositeAlphaMode::Opaque);
         }
-        surface.configure(&self.device, &self.config);
-        self.surface = surface;
+        // Retire the previous surface (and its presentation chain) BEFORE
+        // configuring the replacement — see the ordering note above.
+        let previous = std::mem::replace(&mut self.surface, surface);
+        drop(previous);
+        self.surface.configure(&self.device, &self.config);
         Ok(())
     }
 
@@ -4306,6 +4330,32 @@ impl GpuState {
             self.encode_overlay_pass(&mut encoder, &view);
         }
         self.queue.submit(std::iter::once(encoder.finish()));
+        // WINIT PRESENT CONTRACT: tell the windowing system a present is about
+        // to happen, immediately before it happens. On Wayland this is what
+        // takes a `wl_surface.frame` callback, which makes winit align
+        // `RedrawRequested` with the compositor's own draw loop.
+        //
+        // Not cosmetic — it is the visibility signal this app was missing. With
+        // no callback in flight, winit never throttles `RedrawRequested`, so a
+        // surface the compositor has stopped painting (display DPMS-off, output
+        // asleep, surface occluded) still gets driven through `render()` on the
+        // skipped-frame keep-alive. Every acquire then times out because the
+        // compositor is legitimately not releasing buffers, which climbs the
+        // skip ladder into the surface-recreate escalation for a window that
+        // was never actually stalled. Requesting the callback here makes "the
+        // compositor is not asking us to draw" self-limiting: no callback, no
+        // `RedrawRequested`, no doomed acquires, and the window repaints as
+        // soon as the output wakes.
+        //
+        // Placement matters: the request is only committed by the present that
+        // follows, so it MUST sit on the path that actually presents. Requesting
+        // it before an acquire that may skip would leave an uncommitted callback
+        // that never fires and would throttle redraws forever.
+        //
+        // Platform surface: real on Wayland (frame callback) and X11 (sync
+        // counter); a documented no-op on Windows, macOS, iOS, Android, and
+        // web, so ConPTY/DX12 and Metal behavior is unchanged.
+        self.window.pre_present_notify();
         frame.present();
         // FREEZE-HARDEN (b): count only frames that actually reached
         // present(); skipped/failed acquires above never get here.

@@ -64,6 +64,12 @@ pub(super) struct WatchdogAppState {
     /// Frames that reached `present()` since GPU init.
     pub(super) frames_presented: u64,
     pub(super) consecutive_skipped_frames: u32,
+    /// `RedrawRequested` events DELIVERED to the app since launch. Compared
+    /// against the episode-start snapshot in [`WatchdogShared::evaluate`]: a
+    /// flat counter means the windowing system never asked for the frame the
+    /// app is waiting to draw, which is a hidden/asleep surface rather than a
+    /// stall. See the `App::redraws_delivered` field docs.
+    pub(super) redraws_delivered: u64,
     /// Whether the render path genuinely OWES a frame right now: a rebuild is
     /// due (multipane-aware, not the bare `needs_rebuild` flag) or a skipped
     /// frame is scheduled to retry. This is the gating discriminator for the
@@ -98,6 +104,12 @@ pub(super) struct WatchdogShared {
     consecutive_skipped_frames: AtomicU64,
     /// Whether a frame is genuinely owed (gates the stall log; not logged).
     render_owed: AtomicBool,
+    /// Delivered-`RedrawRequested` counter, mirrored from the app.
+    redraws_delivered: AtomicU64,
+    /// Value of `redraws_delivered` when the current pending episode opened.
+    /// The DIFFERENCE is the gate: zero deliveries during the episode means
+    /// the windowing system never asked for a frame.
+    redraws_at_pending_start: AtomicU64,
 }
 
 impl WatchdogShared {
@@ -119,6 +131,8 @@ impl WatchdogShared {
             frames_presented: AtomicU64::new(0),
             consecutive_skipped_frames: AtomicU64::new(0),
             render_owed: AtomicBool::new(false),
+            redraws_delivered: AtomicU64::new(0),
+            redraws_at_pending_start: AtomicU64::new(0),
         })
     }
 
@@ -131,6 +145,13 @@ impl WatchdogShared {
             self.pending_since_ms
                 .store(self.now_ms(), Ordering::Relaxed);
             self.logged.store(false, Ordering::Relaxed);
+            // Baseline the delivered-redraw counter for this episode. The
+            // wrapper calls this BEFORE delegating the event, so a
+            // `RedrawRequested` that opens an episode still counts inside it.
+            self.redraws_at_pending_start.store(
+                self.redraws_delivered.load(Ordering::Relaxed),
+                Ordering::Relaxed,
+            );
         }
     }
 
@@ -165,6 +186,8 @@ impl WatchdogShared {
             Ordering::Relaxed,
         );
         self.render_owed.store(state.render_owed, Ordering::Relaxed);
+        self.redraws_delivered
+            .store(state.redraws_delivered, Ordering::Relaxed);
     }
 
     fn snapshot(&self) -> WatchdogAppState {
@@ -183,7 +206,22 @@ impl WatchdogShared {
             )
             .unwrap_or(u32::MAX),
             render_owed: self.render_owed.load(Ordering::Relaxed),
+            redraws_delivered: self.redraws_delivered.load(Ordering::Relaxed),
         }
+    }
+
+    /// `RedrawRequested` deliveries observed since the current pending episode
+    /// opened. Zero means the windowing system has not asked this app to draw
+    /// for the whole episode.
+    fn redraws_this_episode(&self) -> u64 {
+        self.redraws_delivered
+            .load(Ordering::Relaxed)
+            .saturating_sub(self.redraws_at_pending_start.load(Ordering::Relaxed))
+    }
+
+    #[cfg(test)]
+    fn note_redraw_delivered(&self) {
+        self.redraws_delivered.fetch_add(1, Ordering::Relaxed);
     }
 
     /// One monitor-thread evaluation step at `now_ms`. Returns the stall
@@ -202,6 +240,18 @@ impl WatchdogShared {
         if !self.render_owed.load(Ordering::Relaxed) {
             return None;
         }
+        // Gate: an owed frame the windowing system never ASKED for is not a
+        // stall either. When an output sleeps (DPMS-off), a surface is
+        // occluded, or redraws are throttled to a compositor frame callback
+        // that legitimately stops arriving, zero presented frames is the
+        // correct steady state — the app is simply not being asked to draw.
+        // The freeze this module exists to catch has the opposite shape:
+        // `RedrawRequested` keeps being delivered and no frame comes out.
+        // Requiring at least one delivery inside the episode separates them
+        // without weakening that catch.
+        if self.redraws_this_episode() == 0 {
+            return None;
+        }
         let pending_since = self.pending_since_ms.load(Ordering::Relaxed);
         let pending_for = now_ms.saturating_sub(pending_since);
         if pending_for < u64::try_from(STALL_AFTER.as_millis()).unwrap_or(u64::MAX) {
@@ -217,7 +267,11 @@ impl WatchdogShared {
         }
         self.logged.store(true, Ordering::Relaxed);
         self.last_log_ms.store(now_ms, Ordering::Relaxed);
-        Some(format_stall_record(pending_for / 1000, &self.snapshot()))
+        Some(format_stall_record(
+            pending_for / 1000,
+            self.redraws_this_episode(),
+            &self.snapshot(),
+        ))
     }
 }
 
@@ -242,11 +296,16 @@ pub(super) fn spawn_monitor(shared: &Arc<WatchdogShared>) {
 
 /// The stall record: STATE ONLY, single line, fixed key set. See the module
 /// privacy note and the charset seam test.
-fn format_stall_record(pending_secs: u64, state: &WatchdogAppState) -> String {
+fn format_stall_record(
+    pending_secs: u64,
+    redraws_this_episode: u64,
+    state: &WatchdogAppState,
+) -> String {
     format!(
         "freeze_watchdog: work pending {pending_secs}s with no presented frame; \
          focused={} minimized={} window_present={} gpu_present={} overlay_open={} \
-         context_menu={} modal={} needs_rebuild={} frames_presented={} skipped_frames={}",
+         context_menu={} modal={} needs_rebuild={} frames_presented={} skipped_frames={} \
+         redraws_delivered={redraws_this_episode}",
         state.focused,
         state.window_minimized,
         state.window_present,
@@ -394,6 +453,7 @@ mod tests {
             frames_presented: 1234,
             consecutive_skipped_frames: 0,
             render_owed: true,
+            redraws_delivered: 77,
         }
     }
 
@@ -403,7 +463,7 @@ mod tests {
     /// (PTY bytes, grid text, window titles) without failing this test.
     #[test]
     fn stall_record_is_state_only() {
-        let record = format_stall_record(17, &state());
+        let record = format_stall_record(17, 4, &state());
         assert!(
             record.starts_with("freeze_watchdog: work pending 17s with no presented frame; "),
             "got: {record}"
@@ -426,7 +486,7 @@ mod tests {
 
     #[test]
     fn stall_record_names_every_postmortem_field() {
-        let record = format_stall_record(10, &state());
+        let record = format_stall_record(10, 4, &state());
         for key in [
             "focused=",
             "minimized=",
@@ -438,6 +498,7 @@ mod tests {
             "needs_rebuild=",
             "frames_presented=",
             "skipped_frames=",
+            "redraws_delivered=",
         ] {
             assert!(record.contains(key), "missing {key} in: {record}");
         }
@@ -451,6 +512,7 @@ mod tests {
 
         shared.note_activity();
         shared.set_render_owed(true);
+        shared.note_redraw_delivered();
         let since = shared.pending_since_ms.load(Ordering::Relaxed);
         // Inside the window: silent.
         assert_eq!(shared.evaluate(since + 9_999), None);
@@ -467,6 +529,7 @@ mod tests {
         let shared = WatchdogShared::new();
         shared.note_activity();
         shared.set_render_owed(true);
+        shared.note_redraw_delivered();
         let since = shared.pending_since_ms.load(Ordering::Relaxed);
         assert!(shared.evaluate(since + 10_000).is_some());
 
@@ -478,6 +541,7 @@ mod tests {
         );
 
         shared.note_activity();
+        shared.note_redraw_delivered();
         let since = shared.pending_since_ms.load(Ordering::Relaxed);
         assert!(
             shared.evaluate(since + 10_000).is_some(),
@@ -500,6 +564,7 @@ mod tests {
             frames_presented: 987,
             consecutive_skipped_frames: 3,
             render_owed: true,
+            redraws_delivered: 4_242,
         };
         shared.store_state(&state);
         assert_eq!(shared.snapshot(), state);
@@ -534,6 +599,7 @@ mod tests {
         let shared = WatchdogShared::new();
         shared.note_activity();
         shared.set_render_owed(true);
+        shared.note_redraw_delivered();
         let since = shared.pending_since_ms.load(Ordering::Relaxed);
         assert!(
             shared.evaluate(since + 10_000).is_some(),
@@ -548,7 +614,85 @@ mod tests {
         let shared = WatchdogShared::new();
         shared.note_activity();
         shared.set_render_owed(true);
+        shared.note_redraw_delivered();
         let since = shared.pending_since_ms.load(Ordering::Relaxed);
         assert_eq!(shared.evaluate(since + 9_999), None);
+    }
+
+    /// REGRESSION GUARD — asleep/hidden output. The reported false positive:
+    /// terminal output keeps arriving (pending work, a rebuild genuinely owed)
+    /// while the display is DPMS-off, so the compositor stops asking for
+    /// frames and nothing presents. `render_owed` is TRUE here, so the older
+    /// gate does not catch this; the delivered-redraw gate must. Zero frames
+    /// is the correct steady state for a surface nobody is painting.
+    #[test]
+    fn owed_frame_with_no_delivered_redraw_is_not_a_stall() {
+        let shared = WatchdogShared::new();
+        shared.note_activity();
+        shared.set_render_owed(true);
+        // No `note_redraw_delivered()`: the windowing system never asked.
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        assert_eq!(
+            shared.evaluate(since + 10_000),
+            None,
+            "an owed frame nobody asked for is a hidden surface, not a freeze"
+        );
+        assert_eq!(
+            shared.evaluate(since + 33 * 60_000),
+            None,
+            "and it stays silent for the whole sleep, however long"
+        );
+    }
+
+    /// The wake-up side of the same episode: once the output comes back and
+    /// redraws are delivered again, a genuinely stalled render path is still
+    /// reported. The gate suppresses the sleep, not the freeze after it.
+    #[test]
+    fn stall_is_reported_once_redraws_resume() {
+        let shared = WatchdogShared::new();
+        shared.note_activity();
+        shared.set_render_owed(true);
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        assert_eq!(shared.evaluate(since + 20_000), None);
+        shared.note_redraw_delivered();
+        assert!(
+            shared.evaluate(since + 20_002).is_some(),
+            "a delivered redraw with no present is the freeze signature"
+        );
+    }
+
+    /// The episode baseline is per-episode, not lifetime: redraws delivered
+    /// during an EARLIER episode must not license a stall log for a later one
+    /// that never got asked to draw.
+    #[test]
+    fn redraw_credit_does_not_carry_across_episodes() {
+        let shared = WatchdogShared::new();
+        shared.note_activity();
+        shared.set_render_owed(true);
+        shared.note_redraw_delivered();
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        assert!(shared.evaluate(since + 10_000).is_some());
+
+        // A present closes the episode; the next one opens with a fresh
+        // baseline and no deliveries of its own (the display went to sleep).
+        shared.note_present();
+        shared.note_activity();
+        let since = shared.pending_since_ms.load(Ordering::Relaxed);
+        assert_eq!(
+            shared.evaluate(since + 60_000),
+            None,
+            "the previous episode's redraws must not carry over"
+        );
+    }
+
+    /// The record carries the discriminator itself, so a future report names
+    /// which of the two shapes it was without needing a live debugger.
+    #[test]
+    fn stall_record_reports_episode_redraw_count() {
+        let record = format_stall_record(11, 0, &state());
+        assert!(
+            record.contains("redraws_delivered=0"),
+            "record must carry the episode's delivered-redraw count: {record}"
+        );
     }
 }

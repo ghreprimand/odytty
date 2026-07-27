@@ -7,6 +7,94 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-27 -- Windows vanishing after the display sleeps: the surface-recreate protocol error
+
+Windows could disappear after a machine sat idle and its display blanked. No
+panic, no core dump, no external kill — the windows were simply gone. The log
+left behind three lines in sequence: a `freeze_watchdog` stall record, a
+`skip_escalation_recreate`, and then `In Surface::configure: Invalid surface`.
+That last line is the one that mattered, and the chain behind it has now been
+reproduced end to end and closed at both ends.
+
+**What was happening.** Redraws were never aligned to the compositor's draw
+loop. The render path presented frames without notifying the windowing system
+first, so on Wayland no `wl_surface.frame` callback was ever taken, and
+`RedrawRequested` was therefore never throttled. A protocol trace of the
+shipped build shows the shape plainly: zero frame-callback requests and ~1700
+surface commits in ten seconds of light output — free-running, paced only by
+the swapchain blocking.
+
+That is invisible while a display is awake and actively harmful once it sleeps.
+An output in DPMS-off legitimately stops releasing buffers, so every acquire
+times out. With redraws unthrottled, the skipped-frame keep-alive kept driving
+doomed acquires anyway, climbing the consecutive-skip ladder for a window that
+was never stalled — it simply was not being asked to draw. At 32 consecutive
+skips the ladder escalated into the bounded surface-recreate rung.
+
+**Why the recreate destroyed the window.** The recreate created the replacement
+surface and CONFIGURED it while the previous surface still held a presentation
+chain on the same window. A window carries at most one such chain. On Wayland,
+configuring at `Fifo` takes a `wp_fifo_v1` for the `wl_surface`, and taking a
+second one raises the compositor-side protocol error `surface already has a
+fifo` — fatal to the entire Wayland connection, so every window of the process
+vanishes at once, with no panic and no core dump to explain it. The app was
+also left holding an unconfigured surface, so the next acquire would panic with
+`Surface is not configured for presentation`. A standalone probe against the
+live driver stack confirmed both orders: configure-then-retire reproduces the
+protocol error and the invalid surface; retire-then-configure presents cleanly.
+
+**Three fixes, at three different layers.**
+
+1. *The destructive one.* `recreate_surface` now retires the previous surface
+   before configuring the replacement. The replacement is still created first,
+   since no presentation chain is taken until `configure` and the
+   capability-check error path must not strand the window with no surface. The
+   ordering requirement is documented at the call site as the load-bearing
+   invariant it is; DX12 and Metal share the one-chain-per-window shape, so
+   this is the portable order rather than a Wayland special case.
+
+2. *The root cause.* The render path now notifies the windowing system
+   immediately before presenting, on the path that actually presents. On
+   Wayland that takes the frame callback, so redraws align with the
+   compositor's draw loop and a surface the compositor has stopped painting
+   stops being driven through the render path at all: no doomed acquires, no
+   skip ladder, no escalation, and a repaint as soon as the output wakes. The
+   same trace after the change shows frame requests and their callbacks
+   pairing up, with total surface commits down roughly fourfold for identical
+   output — vsync alignment, not just a bug fix. The notify is a documented
+   no-op on Windows, macOS, iOS, Android, and web, so ConPTY/DX12 and Metal
+   behavior is unchanged.
+
+3. *The false positive.* The freeze watchdog treated "work owed, no frame
+   presented" as a stall, which is wrong whenever the windowing system is not
+   asking for frames — the correct steady state for a sleeping or occluded
+   surface. It now also requires that at least one `RedrawRequested` was
+   actually DELIVERED during the pending episode. That separates the two
+   shapes that previously looked identical: redraws arriving with nothing
+   presented is a genuine freeze and still logs; no redraws arriving means
+   nobody asked, and the watchdog stays quiet. The delivered-redraw count for
+   the episode is now part of the stall record, so a future report names which
+   shape it was. The existing `render_owed` gate did not cover this case: a
+   rebuild owed for terminal output arriving behind a sleeping display makes
+   `render_owed` true.
+
+Five tests pin the watchdog behavior: an owed frame with no delivered redraw
+never stalls however long the sleep lasts, a stall is still reported once
+redraws resume, redraw credit does not carry across episodes, the original
+freeze signature still fires, and the record carries the count. The stall
+record's state-only privacy charset seam still passes with the new field.
+
+Known gap: the surface-recreate ordering has no automated coverage. It needs a
+real window and a live presentation chain, which the windowless GPU test path
+cannot provide; it was verified by standalone probe against the driver stack
+and is guarded by the invariant documented at the call site.
+
+Verified with `cargo test` (full suite green — 4184 lib tests plus integration
+suites, zero failures), `cargo clippy --all-targets` (clean under the
+deny-all gate), and `cargo fmt --check`.
+
+---
+
 ## 2026-07-22 -- Release v0.9.6 — Multi-pane color-glyph crash fix
 
 Version 0.9.6 fixes an abort-on-panic that could take the whole window down
