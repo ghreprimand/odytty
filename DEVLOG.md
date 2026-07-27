@@ -7,13 +7,14 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-07-27 -- Windows vanishing after the display sleeps: the surface-recreate protocol error
+## 2026-07-27 -- Release v0.9.7 — Windows no longer vanish after the display sleeps
 
-Windows could disappear after a machine sat idle and its display blanked. No
-panic, no core dump, no external kill — the windows were simply gone. The log
-left behind three lines in sequence: a `freeze_watchdog` stall record, a
+Version 0.9.7 fixes a defect that could make every window of a running OdyTTY
+process disappear after a machine sat idle and its display blanked. No panic,
+no core dump, no external kill — the windows were simply gone. The log left
+behind three lines in sequence: a `freeze_watchdog` stall record, a
 `skip_escalation_recreate`, and then `In Surface::configure: Invalid surface`.
-That last line is the one that mattered, and the chain behind it has now been
+That last line is the one that mattered, and the chain behind it is now
 reproduced end to end and closed at both ends.
 
 **What was happening.** Redraws were never aligned to the compositor's draw

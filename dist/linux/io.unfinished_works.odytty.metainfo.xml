@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.9.7" date="2026-07-27">
+      <description>
+        <p>Windows no longer disappear after a machine sits idle and its display blanks. Recreating a rendering surface now retires the previous one before configuring its replacement, so a second presentation chain is never requested for the same window — on Wayland that request raised a fatal protocol error that closed every window of the process at once. Frames are also presented in step with the compositor's draw loop, so a window whose display has gone to sleep stops being driven through the render path instead of accumulating skipped frames until it escalated to a surface recreate. The freeze watchdog now distinguishes a stalled render path from a display that is simply not asking for frames, and no longer reports a stall for a sleeping or hidden window.</p>
+      </description>
+    </release>
     <release version="0.9.6" date="2026-07-22">
       <description>
         <p>Multi-pane windows no longer abort when panes render different numbers of color glyphs such as emoji. Each pane now builds and clips its color-glyph vertices in a reusable scratch buffer before appending them to the shared frame buffer, preserving glyphs from earlier panes. Windowless regression coverage exercises the same accumulation path used by multi-pane rendering.</p>

@@ -619,7 +619,7 @@ mod tests {
         assert_eq!(shared.evaluate(since + 9_999), None);
     }
 
-    /// REGRESSION GUARD — asleep/hidden output. The reported false positive:
+    /// REGRESSION GUARD — asleep/hidden output. The observed false positive:
     /// terminal output keeps arriving (pending work, a rebuild genuinely owed)
     /// while the display is DPMS-off, so the compositor stops asking for
     /// frames and nothing presents. `render_owed` is TRUE here, so the older
