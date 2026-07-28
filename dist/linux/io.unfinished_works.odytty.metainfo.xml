@@ -44,6 +44,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.9.8" date="2026-07-28">
+      <description>
+        <p>Linux windows can now select a launch-scoped Wayland application ID and X11 WM_CLASS through the compatible --app-id and --class aliases while retaining the packaged OdyTTY identity by default. Short-lived local commands can remain visible with --hold, which reports their exit status and dismisses on the next keypress without changing later sessions or remote reconnect behavior. The desktop entry now advertises all five xdg-terminal-exec argument keys.</p>
+      </description>
+    </release>
     <release version="0.9.7" date="2026-07-27">
       <description>
         <p>Windows no longer disappear after a machine sits idle and its display blanks. Recreating a rendering surface now retires the previous one before configuring its replacement, so a second presentation chain is never requested for the same window — on Wayland that request raised a fatal protocol error that closed every window of the process at once. Frames are also presented in step with the compositor's draw loop, so a window whose display has gone to sleep stops being driven through the render path instead of accumulating skipped frames until it escalated to a surface recreate. The freeze watchdog now distinguishes a stalled render path from a display that is simply not asking for frames, and no longer reports a stall for a sleeping or hidden window.</p>

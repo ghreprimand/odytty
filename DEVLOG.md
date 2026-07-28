@@ -7,9 +7,10 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
-## 2026-07-28 -- Per-window Linux identity and held command exits
+## 2026-07-28 -- Release v0.9.8 — Per-window Linux identity and held command exits
 
-I added launch-scoped `--app-id` and `--class` aliases in both space and equals
+I made OdyTTY viable as the sole system terminal by adding launch-scoped
+`--app-id` and `--class` aliases in both space and equals
 forms. On Linux I resolve the selected value into winit's shared application
 name, which supplies the Wayland `app_id` and the class half of X11 `WM_CLASS`;
 the X11 instance remains `odytty`. With no flag, the internal option stays
@@ -48,6 +49,10 @@ the default and overridden X11 `WM_CLASS`, a held command exiting with status
 `--hold=false`. `xdg-terminal-exec` was not installed in the test environment,
 so its command translation remains explicitly unrun rather than reported as
 passed.
+
+After setting the `0.9.8` release metadata, I repeated the formatting, locked
+clippy, full locked test, release-build, desktop-file, and pedantic AppStream
+gates. They all passed, and the release binary reported `odytty 0.9.8`.
 
 ---
 
