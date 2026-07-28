@@ -9,50 +9,44 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ## 2026-07-28 -- Release v0.9.8 — Per-window Linux identity and held command exits
 
-I made OdyTTY viable as the sole system terminal by adding launch-scoped
-`--app-id` and `--class` aliases in both space and equals
-forms. On Linux I resolve the selected value into winit's shared application
-name, which supplies the Wayland `app_id` and the class half of X11 `WM_CLASS`;
-the X11 instance remains `odytty`. With no flag, the internal option stays
-`None` and the window still uses `io.unfinished_works.odytty`. I did not change
-the desktop-file id, icon name, packaged `StartupWMClass`, terminal environment,
-or toolchain/MSRV.
+Version 0.9.8 closes the remaining Linux integration gaps for using OdyTTY as
+the sole system terminal: per-window compositor identity, readable
+short-command exits, and the complete `xdg-terminal-exec` desktop contract.
 
-I also added `--hold`, `--hold=true`, and `--hold=false`, defaulting to off. The
-hold marker belongs only to the initial local session. After its reader reaches
-EOF, I poll the already-exited child status without blocking, retain the pane,
-and append a numeric status line or an explicit unknown/possible-signal line.
-The first non-release key event is swallowed and closes through the existing
-shell-exited cleanup path, preserving survivor focus. Later sessions retain
-their ordinary exit behavior, and the existing remote-reconnect decision runs
-before hold.
+**Per-window application identity.** `--app-id` and `--class` are equivalent
+launch options, each accepting space and equals forms. Their value becomes the
+Wayland `app_id` and the class half of X11 `WM_CLASS`; the X11 instance remains
+`odytty`. Launches without either option retain
+`io.unfinished_works.odytty`, preserving the desktop-file identity, icon,
+`StartupWMClass`, existing window rules, and taskbar grouping. Detached `new`
+accepts the same aliases for parser compatibility but does not persist them
+into host metadata or apply them to a later unrelated attach.
 
-I completed the desktop entry's `xdg-terminal-exec` surface with
-`X-TerminalArgAppId=--app-id=` and `X-TerminalArgHold=--hold`, and updated the
-CLI help, install/packaging guidance, and runtime reference. Detached `new`
-parses and retains the app-id aliases for argument-surface consistency without
-persisting the value into host metadata or applying it to an unrelated attach.
+**Held command exits.** `--hold`, `--hold=true`, and `--hold=false` control
+whether the initial local command remains visible after exit. Hold is off by
+default and does not propagate to tabs, panes, or workspaces created later.
+When enabled, the post-EOF path polls the child status without blocking,
+retains the pane, and displays either the numeric exit code or an explicit
+unknown/possible-signal result. The first press or repeat is consumed and
+closes through the existing shell-exit policy; releases are ignored, survivor
+focus is preserved, and remote reconnect handling keeps precedence.
 
-I verified the clean `master` baseline before editing with the focused CLI
-suite (31 tests, all passing) and confirmed the Rust 1.96 / winit 0.30.13 pins.
-After the change I ran `cargo fmt --check`, the deny-warnings
-`cargo clippy --all-targets --locked -- -D warnings` gate, the 34-test CLI
-suite, 10 focused shell-exit tests, eight focused reconnect tests, the held-exit
-status/dismissal/survivor tests, and the Linux identity/desktop-contract tests;
-all passed. I then ran the full locked test suite (4,187 library tests passed
-and seven were ignored), a release build, the pre-version `0.9.7` binary smoke,
-`desktop-file-validate`, and pedantic AppStream validation; all passed.
+**Desktop integration.** The desktop entry now advertises
+`X-TerminalArgAppId=--app-id=` and `X-TerminalArgHold=--hold` alongside its
+existing exec, directory, and title keys. CLI help, installation and packaging
+guidance, and the runtime reference document the same argument surface.
 
-I verified the default and overridden Wayland application IDs with both aliases,
-the default and overridden X11 `WM_CLASS`, a held command exiting with status
-7 and dismissing on keypress, and the ordinary close behavior from
-`--hold=false`. `xdg-terminal-exec` was not installed in the test environment,
-so its command translation remains explicitly unrun rather than reported as
-passed.
-
-After setting the `0.9.8` release metadata, I repeated the formatting, locked
-clippy, full locked test, release-build, desktop-file, and pedantic AppStream
-gates. They all passed, and the release binary reported `odytty 0.9.8`.
+Verification covered the 34-test CLI suite, focused application-identity,
+shell-exit, reconnect, held-exit, dismissal, and survivor tests, plus a real PTY
+command exiting with status 7. The full locked suite passed with 4,187 library
+tests and seven expected ignores, followed by the deny-warnings clippy gate,
+release build, desktop-file validation, and pedantic AppStream validation. Live
+Wayland and X11 checks confirmed the default identity and both override aliases;
+live hold checks confirmed status reporting, keypress dismissal, and the
+ordinary `--hold=false` close path. `xdg-terminal-exec` was unavailable in the
+test environment, so its live translation check remains unrun. After the
+release metadata update, the complete release gate passed again and the binary
+reported `odytty 0.9.8`.
 
 ---
 
