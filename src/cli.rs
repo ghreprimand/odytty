@@ -73,6 +73,10 @@ pub enum SessionCliCommand {
 pub struct DetachedSessionOptions {
     pub id: Option<String>,
     pub title: Option<String>,
+    /// Per-window identity retained from `odytty new` parsing. Detached
+    /// creation has no window and deliberately does not persist this into host
+    /// metadata, so a later unrelated attach keeps its own launch identity.
+    pub app_id: Option<String>,
     pub working_directory: Option<PathBuf>,
     pub command: DetachedSessionCommand,
     pub runtime_base: Option<PathBuf>,
@@ -83,6 +87,7 @@ impl Default for DetachedSessionOptions {
         Self {
             id: None,
             title: None,
+            app_id: None,
             working_directory: None,
             command: DetachedSessionCommand::DefaultShell,
             runtime_base: None,
@@ -311,6 +316,14 @@ fn parse_session_new(args: &[String]) -> Result<DetachedSessionOptions, String> 
                 );
                 index += 1;
             }
+            "--app-id" | "--class" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .ok_or_else(|| format!("{arg} requires a value"))?;
+                options.app_id = Some(application_id_value(arg, value)?);
+                index += 1;
+            }
             "--working-directory" | "--working-dir" => {
                 index += 1;
                 options.working_directory = Some(PathBuf::from(
@@ -327,6 +340,12 @@ fn parse_session_new(args: &[String]) -> Result<DetachedSessionOptions, String> 
             _ => {
                 if let Some(title) = arg.strip_prefix("--title=") {
                     options.title = Some(title.to_owned());
+                    index += 1;
+                } else if let Some(app_id) = arg.strip_prefix("--app-id=") {
+                    options.app_id = Some(application_id_value("--app-id", app_id)?);
+                    index += 1;
+                } else if let Some(app_id) = arg.strip_prefix("--class=") {
+                    options.app_id = Some(application_id_value("--class", app_id)?);
                     index += 1;
                 } else if let Some(path) = arg.strip_prefix("--working-directory=") {
                     options.working_directory = Some(PathBuf::from(path));
@@ -464,6 +483,12 @@ pub fn usage_text() -> String {
     out.push_str("  --working-directory DIR\n");
     out.push_str("                  set the initial working directory\n");
     out.push_str("  --title TITLE   set the initial window title\n");
+    out.push_str("  --app-id APP_ID, --app-id=APP_ID\n");
+    out.push_str("                  set this Linux window's application id / WM_CLASS\n");
+    out.push_str("  --class APP_ID, --class=APP_ID\n");
+    out.push_str("                  aliases for --app-id\n");
+    out.push_str("  --hold, --hold=true|false\n");
+    out.push_str("                  keep the initial command open after exit (default: false)\n");
     out.push_str("  --version       print the OdyTTY version and exit\n");
     out.push_str("  --list-themes   list built-in themes and exit\n");
     out.push_str("  --list-fonts    list discoverable monospace fonts and exit\n");
@@ -477,6 +502,7 @@ pub fn usage_text() -> String {
     out.push('\n');
     out.push_str("Session commands:\n");
     out.push_str("  new [--detached] [-e COMMAND...]\n");
+    out.push_str("      [--app-id APP_ID | --class APP_ID]\n");
     out.push_str("                  start a detached resumable session and print its id\n");
     out.push_str("  list            list live detached sessions\n");
     out.push_str("  attach [ID]\n");
@@ -520,6 +546,20 @@ pub fn native_options_for_args(
                 launch_native = true;
                 index += 1;
             }
+            "--app-id" | "--class" => {
+                index += 1;
+                let app_id = args
+                    .get(index)
+                    .ok_or_else(|| format!("{arg} requires a value"))?;
+                options.app_id = Some(application_id_value(arg, app_id)?);
+                launch_native = true;
+                index += 1;
+            }
+            "--hold" => {
+                options.hold = true;
+                launch_native = true;
+                index += 1;
+            }
             "--working-directory" | "--working-dir" => {
                 index += 1;
                 let path = args
@@ -548,6 +588,22 @@ pub fn native_options_for_args(
                     options.title = title.to_owned();
                     launch_native = true;
                     index += 1;
+                } else if let Some(app_id) = arg.strip_prefix("--app-id=") {
+                    options.app_id = Some(application_id_value("--app-id", app_id)?);
+                    launch_native = true;
+                    index += 1;
+                } else if let Some(app_id) = arg.strip_prefix("--class=") {
+                    options.app_id = Some(application_id_value("--class", app_id)?);
+                    launch_native = true;
+                    index += 1;
+                } else if let Some(value) = arg.strip_prefix("--hold=") {
+                    options.hold = match value {
+                        "true" => true,
+                        "false" => false,
+                        _ => return Err("--hold requires true or false".to_owned()),
+                    };
+                    launch_native = true;
+                    index += 1;
                 } else if let Some(path) = arg.strip_prefix("--working-directory=") {
                     options.working_directory = Some(PathBuf::from(path));
                     launch_native = true;
@@ -564,6 +620,14 @@ pub fn native_options_for_args(
     }
 
     Ok(launch_native.then_some(options))
+}
+
+fn application_id_value(flag: &str, value: &str) -> Result<String, String> {
+    if value.is_empty() {
+        Err(format!("{flag} requires a value"))
+    } else {
+        Ok(value.to_owned())
+    }
 }
 
 fn command_from_rest(rest: &[String]) -> Result<NativeCommand, String> {
@@ -961,12 +1025,118 @@ mod tests {
     }
 
     #[test]
+    fn native_parse_application_id_aliases_and_forms() {
+        for args in [
+            vec!["--app-id", "com.example.Term"],
+            vec!["--app-id=com.example.Term"],
+            vec!["--class", "com.example.Term"],
+            vec!["--class=com.example.Term"],
+        ] {
+            let options = native_options_for_args(&strings(&args), &Settings::default())
+                .expect("parse")
+                .expect("native options");
+            assert_eq!(
+                options.app_id.as_deref(),
+                Some("com.example.Term"),
+                "{args:?}"
+            );
+        }
+
+        for (args, message) in [
+            (vec!["--app-id"], "--app-id requires a value"),
+            (vec!["--app-id="], "--app-id requires a value"),
+            (vec!["--class"], "--class requires a value"),
+            (vec!["--class="], "--class requires a value"),
+        ] {
+            assert_eq!(
+                native_options_for_args(&strings(&args), &Settings::default())
+                    .expect_err("missing application id"),
+                message
+            );
+        }
+    }
+
+    #[test]
+    fn detached_parse_retains_application_id_without_changing_defaults() {
+        let default = session_command_for_args(&strings(&["new"]))
+            .expect("parse")
+            .expect("new command");
+        let SessionCliCommand::NewDetached(default) = default else {
+            panic!("expected detached options");
+        };
+        assert_eq!(default.app_id, None);
+
+        for args in [
+            vec!["new", "--app-id", "com.example.Term"],
+            vec!["new", "--app-id=com.example.Term"],
+            vec!["new", "--class", "com.example.Term"],
+            vec!["new", "--class=com.example.Term"],
+        ] {
+            let command = session_command_for_args(&strings(&args))
+                .expect("parse")
+                .expect("new command");
+            let SessionCliCommand::NewDetached(options) = command else {
+                panic!("expected detached options");
+            };
+            assert_eq!(
+                options.app_id.as_deref(),
+                Some("com.example.Term"),
+                "{args:?}"
+            );
+        }
+
+        for (args, message) in [
+            (vec!["new", "--app-id"], "--app-id requires a value"),
+            (vec!["new", "--app-id="], "--app-id requires a value"),
+            (vec!["new", "--class"], "--class requires a value"),
+            (vec!["new", "--class="], "--class requires a value"),
+        ] {
+            assert_eq!(
+                session_command_for_args(&strings(&args)).expect_err("missing application id"),
+                message
+            );
+        }
+    }
+
+    #[test]
+    fn native_parse_hold_boolean_forms_and_default() {
+        let default = native_options_for_args(&strings(&[]), &Settings::default())
+            .expect("parse")
+            .expect("native options");
+        assert!(!default.hold);
+
+        for (args, expected) in [
+            (vec!["--hold"], true),
+            (vec!["--hold=true"], true),
+            (vec!["--hold=false"], false),
+        ] {
+            let options = native_options_for_args(&strings(&args), &Settings::default())
+                .expect("parse")
+                .expect("native options");
+            assert_eq!(options.hold, expected, "{args:?}");
+        }
+
+        for value in ["", "1", "yes", "TRUE"] {
+            assert_eq!(
+                native_options_for_args(
+                    &strings(&[&format!("--hold={value}")]),
+                    &Settings::default()
+                )
+                .expect_err("invalid hold value"),
+                "--hold requires true or false"
+            );
+        }
+    }
+
+    #[test]
     fn bare_launch_is_restore_eligible_only_with_no_arguments() {
         // WP2 sub-ODP 8b: only a bare `odytty` (empty argv) restores.
         let bare = native_options_for_args(&strings(&[]), &Settings::default())
             .expect("parse")
             .expect("bare launch opens the native window");
         assert!(bare.bare_launch, "no arguments => restore-eligible");
+        assert_eq!(bare.app_id, None, "bare launch keeps packaged identity");
+        assert!(!bare.hold, "bare launch does not hold command exits");
 
         // ANY argument suppresses restore: flags, a working dir, a title, an
         // explicit --native, and an exec command all leave bare_launch false.

@@ -50,6 +50,28 @@ fn recorded_session(
     Some((terminal, writer, pty, bytes))
 }
 
+#[allow(clippy::type_complexity)]
+fn recorded_exited_session(
+    dims: Dimensions,
+    status: i32,
+) -> Option<(
+    Arc<Mutex<Terminal>>,
+    PtyWriter,
+    Arc<Mutex<PtySession>>,
+    Arc<Mutex<Vec<u8>>>,
+)> {
+    let command = format!("exit {status}");
+    let session = PtySession::spawn_shell_command(dims, &command).ok()?;
+    let _ = session.read_to_end().ok()?;
+    let _ = session.take_writer().ok()?;
+    let recorder = RecordingWriter::default();
+    let bytes = recorder.bytes.clone();
+    let writer: PtyWriter = Arc::new(Mutex::new(Box::new(recorder)));
+    let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
+    let pty = Arc::new(Mutex::new(session));
+    Some((terminal, writer, pty, bytes))
+}
+
 fn recorded_divider_app() -> Option<(App, [Arc<Mutex<PtySession>>; 2])> {
     let dims = Dimensions::new(80, 24);
     let (terminal_a, writer_a, pty_a, _) = recorded_session(dims)?;
@@ -3819,6 +3841,118 @@ fn shell_exit_for_last_session_requests_app_exit() {
     assert!(should_exit);
     assert_eq!(app.session_count_for_test(), 1);
     assert_eq!(app.active_window_title_for_test(), "OdyTTY");
+    assert!(app.pending_exit_for_test());
+}
+
+#[test]
+fn held_exit_reports_numeric_status_and_waits_for_a_non_release_key() {
+    let options = NativeOptions {
+        hold: true,
+        ..NativeOptions::default()
+    };
+    let dims = options.initial_grid;
+    let Some((terminal, writer, pty, bytes)) = recorded_exited_session(dims, 7) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        options,
+        terminal,
+        writer,
+        pty,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    let session = app.active_session_token_for_test();
+
+    assert!(!app.dispatch_user_event_for_test(UserEvent::ShellExited { session }));
+    assert!(!app.pending_exit_for_test());
+    assert_eq!(app.session_count_for_test(), 1);
+    assert!(
+        app.session_plain_text_for_test(0)
+            .expect("held status text")
+            .contains("Process exited with status 7. Press any key to close."),
+        "the held pane reports the real child status"
+    );
+
+    let logical = WinitKey::Character("x".into());
+    app.drive_raw_key_event_for_test(
+        logical.clone(),
+        logical.clone(),
+        PhysicalKey::Code(KeyCode::KeyX),
+        Modifiers::default(),
+        KeyEventType::Release,
+    );
+    assert!(
+        !app.pending_exit_for_test(),
+        "a release does not dismiss hold"
+    );
+    assert!(
+        bytes.lock().expect("bytes").is_empty(),
+        "held input never reaches the exited child"
+    );
+
+    app.drive_raw_key_event_for_test(
+        logical.clone(),
+        logical,
+        PhysicalKey::Code(KeyCode::KeyX),
+        Modifiers::default(),
+        KeyEventType::Press,
+    );
+    assert!(
+        app.pending_exit_for_test(),
+        "the first press dismisses hold"
+    );
+    assert!(
+        bytes.lock().expect("bytes").is_empty(),
+        "the dismissal key is consumed"
+    );
+}
+
+#[test]
+fn hold_is_initial_session_only_and_dismissal_focuses_a_survivor() {
+    let options = NativeOptions {
+        hold: true,
+        ..NativeOptions::default()
+    };
+    let dims = options.initial_grid;
+    let Some((initial_terminal, initial_writer, initial_pty, _)) = recorded_exited_session(dims, 7)
+    else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let Some((later_terminal, later_writer, later_pty, _)) = recorded_session(dims) else {
+        eprintln!("skipping: no PTY available");
+        return;
+    };
+    let mut app = App::new(
+        options,
+        initial_terminal,
+        initial_writer,
+        initial_pty,
+        Settings::default(),
+        crate::settings::SettingsReloader::for_current_process(Instant::now()),
+    );
+    let initial = app.active_session_token_for_test();
+    app.push_session_for_test(later_terminal, later_writer, later_pty);
+    let survivor = app
+        .session_token_at_position_for_test(1)
+        .expect("later session");
+
+    assert!(!app.dispatch_user_event_for_test(UserEvent::ShellExited { session: initial }));
+    assert_eq!(app.session_count_for_test(), 2, "initial exit is held");
+
+    app.drive_text_key_for_test("x");
+    assert_eq!(app.session_count_for_test(), 1);
+    assert_eq!(
+        app.active_session_token_for_test(),
+        survivor,
+        "dismissal collapses the exited tab and focuses its survivor"
+    );
+
+    // The CLI hold marker was consumed with the initial session. A later
+    // session's ordinary EOF keeps the pre-existing exit behavior.
+    assert!(app.dispatch_user_event_for_test(UserEvent::ShellExited { session: survivor }));
     assert!(app.pending_exit_for_test());
 }
 

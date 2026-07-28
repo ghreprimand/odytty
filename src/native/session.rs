@@ -2706,6 +2706,32 @@ impl WorkspaceSet {
         }
     }
 
+    /// Keep a local pane alive after its PTY reader reaches EOF and paint the
+    /// command's status into the terminal model. Status collection is the same
+    /// post-EOF `try_wait()` poll used by reconnect classification, so it never
+    /// blocks the event-loop thread. Returns `false` for attached/headless
+    /// sources, which cannot be the launch-scoped local command covered by
+    /// `--hold`.
+    pub(super) fn hold_after_shell_exit(&mut self, token: SessionToken) -> bool {
+        let is_local = self
+            .sessions
+            .get(&token)
+            .is_some_and(|session| matches!(session.source, SessionSource::Local { .. }));
+        if !is_local {
+            return false;
+        }
+
+        let banner = held_exit_banner(self.capture_exit_code(token));
+        if let Some(session) = self.sessions.get_mut(&token) {
+            crate::native::lock_recover(&session.terminal).advance(banner.as_bytes());
+            session.needs_rebuild = true;
+            session.last_render_signature = None;
+            true
+        } else {
+            false
+        }
+    }
+
     /// On a session's shell EOF, decide whether the tab should be held open for
     /// reconnect. For a remote session (one that carries a [`RemoteReconnect`]
     /// anchor) whose child exited 255, this arms the in-pane reconnect prompt —
@@ -3042,6 +3068,31 @@ impl WorkspaceSet {
         command: SshCommand,
     ) -> Result<SessionToken, std::io::Error> {
         self.spawn_ssh_command_in_new_tab(grid, command, Some("synthetic ssh".to_owned()))
+    }
+}
+
+/// The in-pane status rendered for a held local command. A missing numeric code
+/// is truthful rather than guessed: Unix reports no code for signal death, and
+/// another backend may be unable to classify the post-EOF status.
+fn held_exit_banner(code: Option<i32>) -> String {
+    let status = match code {
+        Some(code) => format!("status {code}"),
+        None => "unknown status (the process may have exited from a signal)".to_owned(),
+    };
+    format!("\r\n\x1b[1;33m[Process exited with {status}. Press any key to close.]\x1b[0m\r\n")
+}
+
+#[cfg(test)]
+mod held_exit_tests {
+    use super::held_exit_banner;
+
+    #[test]
+    fn held_exit_banner_never_invents_a_numeric_status() {
+        assert!(held_exit_banner(Some(7)).contains("status 7"));
+        let unknown = held_exit_banner(None);
+        assert!(unknown.contains("unknown status"));
+        assert!(unknown.contains("may have exited from a signal"));
+        assert!(unknown.contains("Press any key to close."));
     }
 }
 

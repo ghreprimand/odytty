@@ -7,6 +7,50 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-28 -- Per-window Linux identity and held command exits
+
+I added launch-scoped `--app-id` and `--class` aliases in both space and equals
+forms. On Linux I resolve the selected value into winit's shared application
+name, which supplies the Wayland `app_id` and the class half of X11 `WM_CLASS`;
+the X11 instance remains `odytty`. With no flag, the internal option stays
+`None` and the window still uses `io.unfinished_works.odytty`. I did not change
+the desktop-file id, icon name, packaged `StartupWMClass`, terminal environment,
+or toolchain/MSRV.
+
+I also added `--hold`, `--hold=true`, and `--hold=false`, defaulting to off. The
+hold marker belongs only to the initial local session. After its reader reaches
+EOF, I poll the already-exited child status without blocking, retain the pane,
+and append a numeric status line or an explicit unknown/possible-signal line.
+The first non-release key event is swallowed and closes through the existing
+shell-exited cleanup path, preserving survivor focus. Later sessions retain
+their ordinary exit behavior, and the existing remote-reconnect decision runs
+before hold.
+
+I completed the desktop entry's `xdg-terminal-exec` surface with
+`X-TerminalArgAppId=--app-id=` and `X-TerminalArgHold=--hold`, and updated the
+CLI help, install/packaging guidance, and runtime reference. Detached `new`
+parses and retains the app-id aliases for argument-surface consistency without
+persisting the value into host metadata or applying it to an unrelated attach.
+
+I verified the clean `master` baseline before editing with the focused CLI
+suite (31 tests, all passing) and confirmed the Rust 1.96 / winit 0.30.13 pins.
+After the change I ran `cargo fmt --check`, the deny-warnings
+`cargo clippy --all-targets --locked -- -D warnings` gate, the 34-test CLI
+suite, 10 focused shell-exit tests, eight focused reconnect tests, the held-exit
+status/dismissal/survivor tests, and the Linux identity/desktop-contract tests;
+all passed. I then ran the full locked test suite (4,187 library tests passed
+and seven were ignored), a release build, the pre-version `0.9.7` binary smoke,
+`desktop-file-validate`, and pedantic AppStream validation; all passed.
+
+I verified the default and overridden Wayland application IDs with both aliases,
+the default and overridden X11 `WM_CLASS`, a held command exiting with status
+7 and dismissing on keypress, and the ordinary close behavior from
+`--hold=false`. `xdg-terminal-exec` was not installed in the test environment,
+so its command translation remains explicitly unrun rather than reported as
+passed.
+
+---
+
 ## 2026-07-28 -- Release gate rides out a same-commit CI run that is still in progress
 
 The fail-closed release gate requires the exact tagged commit to have a

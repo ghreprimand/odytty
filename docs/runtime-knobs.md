@@ -32,6 +32,7 @@ valid rewrite appears.
 - [Use The Native Settings UI](#use-the-native-settings-ui)
 - [Examples](#examples)
 - [Bench Environment Variables](#bench-environment-variables)
+- [Launch CLI](#launch-cli)
 - [Detached-Session CLI](#detached-session-cli)
 - [Command Palette](#command-palette)
 - [Connection Hosts](#connection-hosts)
@@ -928,13 +929,41 @@ These affect `cargo bench --bench perf` only.
 | `ODYTTY_PERF_PROFILE` | `default`, `legacy`, `quick` | `default` |
 | `ODYTTY_PERF_GEOMETRY_ONLY` | Any non-empty value | unset |
 
+## Launch CLI
+
+The native window accepts launch-scoped application identity and command-exit
+handling:
+
+```sh
+odytty [--app-id APP_ID | --app-id=APP_ID] [--hold[=true|false]] [-e COMMAND...]
+odytty [--class APP_ID | --class=APP_ID] [--hold[=true|false]] [-e COMMAND...]
+```
+
+`--app-id` and `--class` are aliases. On Linux, their value becomes this
+window's Wayland `app_id` and the class half of X11 `WM_CLASS`; the X11 instance
+remains `odytty`. With neither flag, OdyTTY keeps
+`io.unfinished_works.odytty`. The override is per window: it does not change the
+desktop-file id, icon name, packaged `StartupWMClass`, or a future unrelated
+launch.
+
+`--hold`, `--hold=true`, and `--hold=false` are accepted. The default is
+`false`, so an ordinary shell or command exit keeps the existing close
+behavior. When enabled, only the initial local command is retained after EOF;
+tabs, panes, and workspaces created later do not inherit it. OdyTTY renders a
+line containing the numeric exit status when one is available, or an explicit
+unknown/possible-signal result otherwise, followed by `Press any key to close.`
+A key release does nothing. The first press or repeat is consumed, closes the
+exited pane through normal cleanup, and either exits the window or focuses the
+surviving pane/tab/workspace. A dropped remote session's reconnect prompt still
+takes precedence over hold.
+
 ## Detached-Session CLI
 
 Detached sessions have no `odytty.conf` keys in this slice. These commands are
 available on Unix; Windows rejects them with a clean unsupported-platform error:
 
 ```sh
-odytty new --detached [-e COMMAND...] [--working-directory DIR] [--title TITLE]
+odytty new --detached [-e COMMAND...] [--working-directory DIR] [--title TITLE] [--app-id APP_ID]
 odytty list
 odytty attach [ID]
 odytty attach --diagnostic ID
@@ -948,6 +977,11 @@ session in a live native window; without an id it attaches the sole live session
 or lists the choices. The window opens its normal initial local session, adds
 the hosted session as a focused tab repainted from the host snapshot, and
 streams live output.
+
+`new` accepts `--app-id` / `--class` in both space and equals forms so shared
+launchers can pass a consistent argument surface. Detached creation has no
+window: the parsed value is not written to host metadata, and a later unrelated
+`odytty attach` uses its own default or explicit window identity.
 
 If an explicitly requested id is dead, the window still opens and stderr reports
 `odytty: attach session <id> failed: <err>`. The headless script/CI form,

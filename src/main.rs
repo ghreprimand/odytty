@@ -149,7 +149,7 @@ fn main() -> Result<()> {
 
     eprintln!("unknown argument: {}", args[0]);
     eprintln!(
-        "usage: odytty [--native] [--title TITLE] [--working-directory DIR] [-e COMMAND [ARGS...]]"
+        "usage: odytty [--native] [--app-id APP_ID|--app-id=APP_ID] [--class APP_ID|--class=APP_ID] [--hold|--hold=true|false] [--title TITLE] [--working-directory DIR] [-e COMMAND [ARGS...]]"
     );
     std::process::exit(2);
 }

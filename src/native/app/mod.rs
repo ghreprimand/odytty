@@ -164,6 +164,11 @@ pub(in crate::native) use overlay_registry::ActiveModal;
 /// the runtime use is cfg'd out there.
 #[cfg(all(unix, not(target_os = "macos")))]
 const APP_ID: &str = "io.unfinished_works.odytty";
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn linux_window_app_id(options: &NativeOptions) -> &str {
+    options.app_id.as_deref().unwrap_or(APP_ID)
+}
 pub(super) const SYNCHRONIZED_OUTPUT_TIMEOUT: Duration = Duration::from_millis(150);
 
 /// Quiet window after the last workspace-shape mutation before the debounced
@@ -395,6 +400,12 @@ fn format_byte_size(bytes: usize) -> String {
 /// the loop returns.
 pub(super) struct App {
     options: NativeOptions,
+    /// The launch-scoped local session eligible for `--hold`. Set only for the
+    /// initial session and consumed at its first EOF, so tabs/panes created
+    /// later never inherit the command-line option.
+    hold_session: Option<SessionToken>,
+    /// A held, already-exited session awaiting its first non-release key event.
+    held_exit: Option<SessionToken>,
     /// Active *authored* presentation theme (from `ODYTTY_THEME`, updated on
     /// settings changes). The theme as written — what round-trips/authoring
     /// read; the colors published to the renderer are [`Self::effective_theme`].
@@ -830,6 +841,7 @@ impl App {
         settings_reloader: SettingsReloader,
     ) -> Self {
         let grid = options.initial_grid;
+        let hold_session = options.hold.then(|| sessions.active_id());
         let theme = settings.theme;
         // U4: warm the effective-theme cache so the first GPU bring-up publishes
         // the adapted theme. Off (the default) returns the authored theme.
@@ -847,6 +859,8 @@ impl App {
         #[cfg_attr(test, allow(unused_mut))]
         let mut app = Self {
             options,
+            hold_session,
+            held_exit: None,
             theme,
             effective_theme,
             cvd_cache,
@@ -2091,6 +2105,13 @@ impl App {
         let logical = normalize_winit_editing_key(logical, physical);
         let binding_key = normalize_winit_editing_key(binding_key, physical);
         key_event_diagnostics::log_backspace_stage(&logical, "normalized");
+        // `--hold`: while the active pane contains the already-exited launch
+        // command, all keyboard input is local UI input. Releases are swallowed
+        // without dismissing; the first press or repeat closes through the
+        // shell-already-exited cleanup path, so no byte reaches the dead PTY.
+        if self.handle_held_exit_key(event_type) {
+            return;
+        }
         // A physical press or repeat is keyboard activity even when chrome,
         // an overlay, or a pane command consumes it below. Record it before
         // routing or PTY encoding so cursor presentation never changes input
@@ -2514,6 +2535,61 @@ impl App {
             key_event_diagnostics::log_backspace_write(&logical, write_ok, flush_ok);
         } else {
             key_event_diagnostics::log_backspace_writer_lock_failed(&logical);
+        }
+    }
+
+    fn handle_held_exit_key(&mut self, event_type: KeyEventType) -> bool {
+        let Some(token) = self.held_exit else {
+            return false;
+        };
+        if self.sessions.position_of_token(token).is_none() {
+            self.held_exit = None;
+            return false;
+        }
+        if self.sessions.active_id() != token {
+            return false;
+        }
+        if event_type == KeyEventType::Release {
+            return true;
+        }
+
+        self.held_exit = None;
+        self.settle_divider_for_surface_change();
+        let _ = self.finish_shell_exit(token);
+        true
+    }
+
+    /// Complete the ordinary local-shell exit policy after reconnect/hold have
+    /// declined or a held pane has been dismissed. Keeping this tail shared
+    /// makes `--hold` a delay in teardown, not a different pane/workspace/app
+    /// close policy.
+    fn finish_shell_exit(&mut self, session: SessionToken) -> bool {
+        if self.sessions.position_of_token(session).is_some() && self.sessions.iter().count() <= 1 {
+            self.pending_exit = true;
+            return true;
+        }
+        if self.settings.shell_exit_closes == crate::settings::ShellExitCloses::App
+            && self.sessions.shell_exit_closes_workspace(session)
+        {
+            if self.settings.confirm_close
+                && self.sessions.any_foreground_job_running_except(session)
+            {
+                self.overlay.open_confirm_close();
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+                return false;
+            }
+            self.pending_exit = true;
+            return true;
+        }
+        let is_last = self.sessions.close_shell_exited(session);
+        if is_last {
+            self.pending_exit = true;
+            true
+        } else {
+            self.on_active_session_changed();
+            false
         }
     }
 
@@ -5140,11 +5216,20 @@ impl App {
                     self.on_active_session_changed();
                     return false;
                 }
-                if self.sessions.position_of_token(session).is_some()
-                    && self.sessions.iter().count() <= 1
+                // `--hold` is launch-scoped and applies only to the initial
+                // local session. Reconnect wins above; later sessions have no
+                // hold marker and keep their historical teardown behavior.
+                if self.hold_session == Some(session)
+                    && self.sessions.hold_after_shell_exit(session)
                 {
-                    self.pending_exit = true;
-                    return true;
+                    self.hold_session = None;
+                    self.held_exit = Some(session);
+                    if self.sessions.is_visible_pane(session)
+                        && let Some(window) = self.window.as_ref()
+                    {
+                        window.request_redraw();
+                    }
+                    return false;
                 }
                 // SHELL-EXIT-CLOSES (App mode): a shell exit that would close its
                 // whole workspace quits OdyTTY instead of closing just that
@@ -5155,33 +5240,7 @@ impl App {
                 // a pane or tab are unaffected (the predicate is false there).
                 // Windows: the ConPTY shell exit flows through this same
                 // UserEvent path, so App mode behaves identically there.
-                if self.settings.shell_exit_closes == crate::settings::ShellExitCloses::App
-                    && self.sessions.shell_exit_closes_workspace(session)
-                {
-                    // Reuse the window-close confirmation so quitting cannot
-                    // silently kill a live foreground job in another workspace.
-                    // With no live job elsewhere (or confirm-close off) the quit
-                    // is immediate, matching the historical last-session exit.
-                    if self.settings.confirm_close
-                        && self.sessions.any_foreground_job_running_except(session)
-                    {
-                        self.overlay.open_confirm_close();
-                        if let Some(window) = self.window.as_ref() {
-                            window.request_redraw();
-                        }
-                        return false;
-                    }
-                    self.pending_exit = true;
-                    return true;
-                }
-                let is_last = self.sessions.close_shell_exited(session);
-                if is_last {
-                    self.pending_exit = true;
-                    true
-                } else {
-                    self.on_active_session_changed();
-                    false
-                }
+                self.finish_shell_exit(session)
             }
             UserEvent::ImageUploaded {
                 session,
@@ -5232,6 +5291,8 @@ impl App {
             box_thickness: parsed.box_thickness,
             attach_session: self.options.attach_session.clone(),
             bare_launch: self.options.bare_launch,
+            app_id: self.options.app_id.clone(),
+            hold: self.options.hold,
         }
     }
 
@@ -5972,7 +6033,7 @@ impl ApplicationHandler<UserEvent> for App {
         #[cfg(all(unix, not(target_os = "macos")))]
         let attributes = {
             use winit::platform::wayland::WindowAttributesExtWayland;
-            attributes.with_name(APP_ID, "odytty")
+            attributes.with_name(linux_window_app_id(&self.options), "odytty")
         };
 
         let window = match event_loop.create_window(attributes) {
@@ -8509,6 +8570,16 @@ mod tests {
     #[test]
     fn app_id_matches_packaged_desktop_identity() {
         assert_eq!(APP_ID, "io.unfinished_works.odytty");
+        assert_eq!(
+            linux_window_app_id(&NativeOptions::default()),
+            "io.unfinished_works.odytty"
+        );
+
+        let overridden = NativeOptions {
+            app_id: Some("com.example.Term".to_owned()),
+            ..NativeOptions::default()
+        };
+        assert_eq!(linux_window_app_id(&overridden), "com.example.Term");
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -8517,6 +8588,15 @@ mod tests {
         let desktop = include_str!("../../../dist/linux/io.unfinished_works.odytty.desktop");
         assert!(desktop.contains("Icon=io.unfinished_works.odytty\n"));
         assert!(desktop.contains(&format!("StartupWMClass={APP_ID}\n")));
+        for key in [
+            "X-TerminalArgExec=-e\n",
+            "X-TerminalArgDir=--working-directory=\n",
+            "X-TerminalArgTitle=--title=\n",
+            "X-TerminalArgAppId=--app-id=\n",
+            "X-TerminalArgHold=--hold\n",
+        ] {
+            assert!(desktop.contains(key), "missing desktop key {key:?}");
+        }
     }
 
     #[test]

@@ -281,6 +281,8 @@ OdyTTY's desktop entry advertises the relevant terminal execution keys for
 X-TerminalArgExec=-e
 X-TerminalArgDir=--working-directory=
 X-TerminalArgTitle=--title=
+X-TerminalArgAppId=--app-id=
+X-TerminalArgHold=--hold
 ```
 
 Do not silently set OdyTTY as the user's default terminal in package install

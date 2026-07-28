@@ -52,6 +52,13 @@ pub struct NativeCommand {
 pub struct NativeOptions {
     /// Window title.
     pub title: String,
+    /// Optional per-window Linux application identity. `None` keeps the
+    /// packaged OdyTTY identity; `Some` overrides Wayland `app_id` and the
+    /// class half of X11 `WM_CLASS` for this window only.
+    pub app_id: Option<String>,
+    /// Keep the initial local command's pane open after it exits until the next
+    /// non-release key event. Later sessions do not inherit this launch option.
+    pub hold: bool,
     /// Directory used for the initial shell/command.
     pub working_directory: Option<PathBuf>,
     /// Optional command to exec as the initial PTY child.
@@ -106,6 +113,8 @@ impl Default for NativeOptions {
     fn default() -> Self {
         Self {
             title: "OdyTTY".to_owned(),
+            app_id: None,
+            hold: false,
             working_directory: None,
             command: None,
             initial_grid: Dimensions::new(80, 24),

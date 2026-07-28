@@ -832,6 +832,8 @@ Categories=System;TerminalEmulator;
 X-TerminalArgExec=-e
 X-TerminalArgDir=--working-directory=
 X-TerminalArgTitle=--title=
+X-TerminalArgAppId=--app-id=
+X-TerminalArgHold=--hold
 ```
 
 The entry uses the OdyTTY icon name. Packages should install the SVG and PNG
@@ -904,7 +906,15 @@ The desktop entry advertises OdyTTY's command execution arguments:
 X-TerminalArgExec=-e
 X-TerminalArgDir=--working-directory=
 X-TerminalArgTitle=--title=
+X-TerminalArgAppId=--app-id=
+X-TerminalArgHold=--hold
 ```
+
+`xdg-terminal-exec` can therefore translate an application-id request to
+`--app-id=<value>` and a keep-open request to `--hold`, alongside command,
+directory, and title requests. The app-id flag changes only that Linux window's
+Wayland `app_id` / X11 `WM_CLASS` class; it does not rename the installed
+desktop entry, icon, or `StartupWMClass`.
 
 Then a user can prefer OdyTTY with:
 
