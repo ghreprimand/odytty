@@ -1213,6 +1213,13 @@ feature validates against.
 - [x] Add `odytty -e command args...` plus `--working-directory` and `--title`
       so OdyTTY can advertise `X-TerminalArgExec` and work with
       `xdg-terminal-exec`/default-terminal integrations.
+- [x] Add launch-scoped `--app-id` / `--class` aliases for the Wayland
+      `app_id` and X11 `WM_CLASS` class while preserving
+      `io.unfinished_works.odytty` by default, then advertise
+      `X-TerminalArgAppId=--app-id=` in the desktop entry.
+- [x] Add `--hold` with explicit true/false forms for the initial local command,
+      a truthful in-pane exit-status line, keypress dismissal through the normal
+      shell-exit cascade, and `X-TerminalArgHold=--hold` desktop metadata.
 - [x] Decided: keep `TERM=xterm-256color` (plus `COLORTERM=truecolor`). OdyTTY
       implements the xterm sequence set and supersets it (Kitty keyboard/graphics,
       etc.), and `xterm-256color` is installed on essentially every host, so it

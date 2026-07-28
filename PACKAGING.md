@@ -69,10 +69,12 @@ On macOS the app bundle uses the Apple-valid reverse-DNS identifier
 Linux component/icon basename `io.unfinished_works.odytty` (underscore). Both
 forms are correct for their platform; do not "normalize" one to the other.
 
-OdyTTY currently launches child shells with `TERM=xterm-256color`. Packages do
-not need to install a custom terminfo entry yet. If a future release switches to
-an OdyTTY-specific `TERM`, that release must ship and document the matching
-terminfo entry before packagers set it by default.
+OdyTTY launches child shells with `TERM=xterm-256color`,
+`COLORTERM=truecolor`, `TERM_PROGRAM=odytty`, and
+`TERM_PROGRAM_VERSION=<package version>`. Packages must not replace this
+environment contract or install a custom terminfo entry. If a future release
+switches to an OdyTTY-specific `TERM`, that release must ship and document the
+matching terminfo entry before packagers set it by default.
 
 ## Build The Package
 
@@ -110,7 +112,22 @@ can run a program directly in the initial PTY:
 odytty -e btop
 odytty --working-directory /tmp -e sh -lc 'pwd; exec "$SHELL"'
 odytty --title Monitor -e btop
+odytty --app-id com.example.Monitor -e btop
+odytty --class=com.example.Monitor -e btop
+odytty --hold -e sh -lc 'exit 7'
 ```
+
+On Linux, `--app-id` and `--class` are aliases and accept both space and equals
+forms. They override only that window's Wayland `app_id` and X11 `WM_CLASS`
+class; the X11 instance stays `odytty`, and the installed desktop id, icon, and
+`StartupWMClass` stay unchanged. Without an override, the window uses
+`io.unfinished_works.odytty`.
+
+`--hold`, `--hold=true`, and `--hold=false` apply only to the initial local
+command and default to false. A held exit reports a numeric or explicit unknown
+status in the pane, then closes through the normal shell-exit path on the next
+keypress. Later sessions do not inherit hold, and remote reconnect handling
+retains precedence.
 
 Introspection commands that print and exit without opening a window are:
 
@@ -125,10 +142,15 @@ The binary also exposes detached-session subcommands that packagers and
 launcher integrations should be aware of:
 
 ```sh
-odytty new          # start a detached session, prints id=<id>
-odytty list         # list live detached sessions
-odytty attach [ID]  # reattach a session in a native window
+odytty new [--app-id APP_ID | --class APP_ID]  # start a detached session
+odytty list                                      # list live detached sessions
+odytty attach [ID]                               # reattach in a native window
 ```
+
+The two identity aliases also accept equals forms on `odytty new`. Detached
+creation has no window, so the parsed value is not stored in host metadata and
+does not affect a later `odytty attach`, which uses the packaged default
+identity.
 
 Detached sessions require `XDG_RUNTIME_DIR` to be set on non-macOS platforms;
 their control sockets live under `$XDG_RUNTIME_DIR/odytty` (mode `0700`). The
@@ -284,6 +306,11 @@ X-TerminalArgTitle=--title=
 X-TerminalArgAppId=--app-id=
 X-TerminalArgHold=--hold
 ```
+
+The five keys describe OdyTTY's complete launcher translation surface: command,
+working directory, title, per-window application id, and keep-open behavior.
+The application-id translation changes only the launched Linux window identity;
+the hold translation retains only its initial local command.
 
 Do not silently set OdyTTY as the user's default terminal in package install
 scripts. Register it as an available terminal where the target distribution has

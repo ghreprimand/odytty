@@ -200,7 +200,11 @@ that remaps the ANSI palette in perceptual space for color-vision deficiencies.
 
 Adjustable window padding with a fully aligned
 pixel↔cell coordinate seam, optional themed border, decoration toggle, OS
-dark/light following, and a visible tab bar once multiple sessions exist.
+dark/light following, and a visible tab bar once multiple sessions exist. Linux
+windows keep `io.unfinished_works.odytty` as the default Wayland `app_id` and
+X11 `WM_CLASS` class, with `odytty` as the X11 instance. Launchers can override
+the per-window identity with the equivalent `--app-id` and `--class` space or
+equals forms without changing installed desktop metadata.
 
 ### Multiple Contexts: Panes, Sessions, Palette, And Connections
 
@@ -233,7 +237,9 @@ replay overlay.
 The Unix CLI surface adds `odytty list`, `odytty attach [<id>]`, and
 `odytty new`. An attach without an id opens the sole session or lists the
 available sessions when several exist. New sessions are always detached;
-`--detached` is a parsed no-op alias.
+`--detached` is a parsed no-op alias. `odytty new` also parses the application
+identity aliases for launcher compatibility, but does not persist them into
+host metadata or apply them to a later attach window.
 
 #### Command Palette
 

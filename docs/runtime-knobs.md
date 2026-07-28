@@ -950,10 +950,11 @@ launch.
 `false`, so an ordinary shell or command exit keeps the existing close
 behavior. When enabled, only the initial local command is retained after EOF;
 tabs, panes, and workspaces created later do not inherit it. OdyTTY renders a
-line containing the numeric exit status when one is available, or an explicit
-unknown/possible-signal result otherwise, followed by `Press any key to close.`
-A key release does nothing. The first press or repeat is consumed, closes the
-exited pane through normal cleanup, and either exits the window or focuses the
+line containing `Process exited with status N` when a numeric code is available,
+or `Process exited with unknown status (the process may have exited from a
+signal)` otherwise, followed by `Press any key to close.` A key release does
+nothing. While the held pane is focused, the first press or repeat is consumed,
+closes it through normal cleanup, and either exits the window or focuses the
 surviving pane/tab/workspace. A dropped remote session's reconnect prompt still
 takes precedence over hold.
 
@@ -981,7 +982,7 @@ streams live output.
 `new` accepts `--app-id` / `--class` in both space and equals forms so shared
 launchers can pass a consistent argument surface. Detached creation has no
 window: the parsed value is not written to host metadata, and a later unrelated
-`odytty attach` uses its own default or explicit window identity.
+`odytty attach` uses the packaged default window identity.
 
 If an explicitly requested id is dead, the window still opens and stderr reports
 `odytty: attach session <id> failed: <err>`. The headless script/CI form,

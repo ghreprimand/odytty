@@ -533,9 +533,12 @@ Unix CLI surface for the first resumable slice:
 
 CLI surface status:
 
-- `odytty new --detached [-e CMD...] [--working-directory DIR] [--title TITLE]`
-  is live. It starts one local session-host process, writes local metadata, and
-  prints a stable `id=...` row.
+- `odytty new --detached [-e CMD...] [--working-directory DIR] [--title TITLE]
+  [--app-id APP_ID | --class APP_ID]` is live. The identity aliases also accept
+  equals forms for launcher compatibility. Detached creation has no window, so
+  the parsed value is not written into host metadata or applied to a later
+  attach window. The command starts one local session-host process, writes local
+  metadata, and prints a stable `id=...` row.
 - `odytty list` is live. It scans live per-session Unix sockets under
   `$XDG_RUNTIME_DIR/odytty/`, completes a clean attach/detach handshake for each
   live host, and prints metadata-only tab-separated rows: the session name or

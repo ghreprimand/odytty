@@ -122,6 +122,16 @@ odytty
 odytty -e btop
 ```
 
+Linux launchers can assign a window-specific compositor identity with either
+`--app-id APP_ID` / `--app-id=APP_ID` or the equivalent `--class` forms. With
+neither option, the Wayland `app_id` and X11 `WM_CLASS` class remain
+`io.unfinished_works.odytty`; the X11 instance remains `odytty`. Use `--hold`,
+`--hold=true`, or `--hold=false` to control whether the initial local command
+stays visible after exit. Hold is off by default; when enabled, OdyTTY reports
+the exit status and closes the exited pane on the next keypress. See the
+[launch CLI reference](docs/runtime-knobs.md#launch-cli) for scope and detached
+session behavior.
+
 Most customization happens inside OdyTTY: open the settings panel with
 `Ctrl+Shift+,`, pick themes and fonts from their pickers, and run actions from
 the `Ctrl+Shift+P` command palette. No config file needed.

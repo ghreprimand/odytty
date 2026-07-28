@@ -616,6 +616,9 @@ Run a command directly inside OdyTTY:
 odytty -e btop
 odytty --working-directory /tmp -e sh -lc 'pwd; exec "$SHELL"'
 odytty --title Monitor -e btop
+odytty --app-id com.example.Monitor -e btop
+odytty --class=com.example.Monitor -e btop
+odytty --hold -e sh -lc 'exit 7'
 ```
 
 ## Command-Line Surface
@@ -641,15 +644,35 @@ including `symbol_fallback` and the resolved `symbol_font_source` fallback
 chain. See [the settings authority](runtime-knobs.md) for every key, default,
 range, and environment variable.
 
+On Linux, `--app-id` and `--class` are equivalent launch options. Both accept
+space and equals forms. The value overrides only that window's Wayland
+`app_id` and X11 `WM_CLASS` class; the X11 instance remains `odytty`. Without
+either option, the window keeps `io.unfinished_works.odytty`, and an override
+does not rename the installed desktop entry, icon, or `StartupWMClass`.
+
+`--hold`, `--hold=true`, and `--hold=false` control the initial local command
+and default to false. A held exit remains visible with its numeric exit status,
+or an explicit unknown/possible-signal result, until the next keypress closes
+the exited pane. Later sessions do not inherit hold, and a dropped remote
+session's reconnect prompt retains precedence. The
+[launch CLI reference](runtime-knobs.md#launch-cli) gives the full lifecycle
+behavior.
+
 On Unix, OdyTTY also hosts detached sessions that outlive the window:
 
 ```sh
-odytty new --detached -e btop     # start a detached session, prints id=<id>
-odytty list                       # list live detached sessions
-odytty attach                     # reattach the only live session (or list choices)
-odytty attach <id>                # reattach a specific session in a native window
-odytty attach --diagnostic <id>   # print one status line without attaching
+odytty new --detached -e btop              # start a detached session, prints id=<id>
+odytty new --app-id=com.example.Monitor    # parsed but not persisted
+odytty list                                # list live detached sessions
+odytty attach                              # reattach the only live session (or list choices)
+odytty attach <id>                         # reattach a specific session in a native window
+odytty attach --diagnostic <id>            # print one status line without attaching
 ```
+
+For launcher compatibility, `odytty new` accepts both `--app-id` / `--class`
+aliases in space and equals forms. Detached creation has no window, so the value
+is not written into host metadata and does not affect a later
+`odytty attach`, which uses the packaged default identity.
 
 On non-macOS Unix systems, detached sessions require `XDG_RUNTIME_DIR` to be set;
 their owner-private sockets live under `$XDG_RUNTIME_DIR/odytty/`. macOS falls
@@ -854,16 +877,20 @@ release version. It belongs in:
 
 ## Terminfo
 
-OdyTTY currently runs child shells with:
+OdyTTY runs child shells with:
 
 ```text
 TERM=xterm-256color
+COLORTERM=truecolor
+TERM_PROGRAM=odytty
+TERM_PROGRAM_VERSION=<installed version>
 ```
 
-That is conservative and avoids requiring a custom terminfo database entry on
-the local machine, remote SSH hosts, or `sudo` environments. Do not package an
-OdyTTY-specific terminfo entry until the binary also starts using that `TERM`
-value and the release documents remote-host setup.
+This contract enables truecolor and program detection while keeping the
+widely-installed xterm terminfo entry for local shells, remote SSH hosts, and
+`sudo` environments. Do not package an OdyTTY-specific terminfo entry until the
+binary also starts using that `TERM` value and the release documents remote-host
+setup.
 
 ## Default Terminal
 
@@ -914,7 +941,9 @@ X-TerminalArgHold=--hold
 `--app-id=<value>` and a keep-open request to `--hold`, alongside command,
 directory, and title requests. The app-id flag changes only that Linux window's
 Wayland `app_id` / X11 `WM_CLASS` class; it does not rename the installed
-desktop entry, icon, or `StartupWMClass`.
+desktop entry, icon, or `StartupWMClass`. With no application-id request, the
+window retains `io.unfinished_works.odytty`. Hold is off by default and applies
+only to the launched window's initial local command.
 
 Then a user can prefer OdyTTY with:
 

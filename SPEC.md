@@ -411,6 +411,20 @@ without opening a window: `--list-themes` prints built-in themes,
 prints the current stable effective-config dump. `docs/runtime-knobs.md` remains
 the full settings authority.
 
+**Launch-scoped CLI controls.** `--app-id` and `--class` are equivalent Linux
+window-identity options and accept both space and equals forms. Their value
+becomes the Wayland `app_id` and the class half of X11 `WM_CLASS`; the X11
+instance remains `odytty`. Without either option, the packaged
+`io.unfinished_works.odytty` identity is unchanged. The override does not
+rename the desktop entry, icon, or `StartupWMClass`.
+
+`--hold`, `--hold=true`, and `--hold=false` control the initial local session
+only and default to `false`. A held command writes its numeric exit status, or
+an explicit unknown/possible-signal result, into the pane after EOF. The next
+non-release key event closes that pane through the ordinary shell-exit policy;
+later sessions do not inherit hold, and dropped-remote reconnect handling takes
+precedence.
+
 **Settings search.** Typing `/` while the in-app settings panel is open
 filters the displayed roster by name, config key, description, or group label.
 `Esc` once clears the filter; a second `Esc` closes the panel. Theme-picker
@@ -903,6 +917,13 @@ its first stable layer.
   reaping that workspace first, so a `restore_workspaces` snapshot still
   captures it.
 
+- Launch-scoped command exit hold: `--hold` can retain only the initial local
+  pane after its child reaches EOF. The terminal model receives a truthful exit
+  status line, and the first non-release key event dismisses the pane through
+  the same shell-exit cascade described above. Later panes, tabs, and workspaces
+  retain the ordinary exit behavior. A dropped remote session still enters its
+  reconnect state before hold is considered.
+
 - Workspace-shape persistence (`restore_workspaces`, default off): OdyTTY can
   snapshot the window's **shape** — workspace names, tab titles and order, the
   pane split tree and ratios, each pane's working directory, and the remote
@@ -1165,6 +1186,11 @@ its first stable layer.
   reaps it. Public CLI commands now cover `odytty new --detached`,
   `odytty list`, and `odytty attach [--diagnostic] ID`.
 
+  `odytty new` accepts `--app-id` and `--class` in space and equals forms for
+  launcher-parser compatibility. Detached creation has no window, so the value
+  is not written into host metadata and does not affect a later `odytty attach`
+  window, which retains the packaged default identity.
+
   `list` prints
   metadata-only rows and never scrollback/command output. `odytty attach <id>`
   opens a live native window, boots the normal initial local session, then
@@ -1383,7 +1409,11 @@ Linux/macOS byte path is unchanged by the port.
 ### Platform Summary
 
 - **Linux:** The primary target uses the Unix PTY backend, XDG paths, and the
-  complete detachable-session feature set.
+  complete detachable-session feature set. A window announces
+  `io.unfinished_works.odytty` as its default Wayland `app_id` and X11
+  `WM_CLASS` class (`odytty` remains the X11 instance); `--app-id` and
+  `--class` provide a launch-scoped override without changing installed
+  metadata.
 
 - **macOS:** The Unix PTY backend remains in use, with Darwin-native runtime
   directory handling and a dedicated blocking CI runner.

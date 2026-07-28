@@ -418,6 +418,14 @@ Typing `exit` or pressing `Ctrl+D` follows `shell_exit_closes`:
 The `app` value pairs with **Restore workspaces** when the entire saved shape
 should reopen on the next launch.
 
+For a short-lived initial local command, launch with `--hold`,
+`--hold=true`, or `--hold=false`. Hold is off by default. When enabled, the
+exited pane reports its numeric exit status, or an explicit unknown/
+possible-signal result, and remains until the next keypress. Dismissal follows
+the same pane-to-tab-to-workspace-to-app cascade above. Later sessions do not
+inherit hold, and a dropped remote session still shows its reconnect prompt
+first.
+
 ### Restore Workspaces And Open Layouts
 
 Turn on `restore_workspaces` in Settings → Sessions or with
