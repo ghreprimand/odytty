@@ -481,6 +481,9 @@ jobs:
     # enough to list the runs and no extra credential is required.
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
+    # Hard backstop above the waiter's own bounded deadline (default 20 min), so
+    # a wedged wait can never hold the release open indefinitely.
+    timeout-minutes: 30
     permissions:
       contents: read
       actions: read
@@ -498,11 +501,18 @@ jobs:
           set -euo pipefail
           # Server-side filter to the CI workflow file and this exact commit; the
           # gate script re-checks head_sha, status, and conclusion so a green run
-          # for any other commit or a queued/in-progress/failed run cannot pass.
-          gh api \
-            "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&per_page=100" \
-            > ci-runs.json
-          bash .github/scripts/verify-release-ci.sh "${GITHUB_SHA}" ci-runs.json
+          # for any other commit or a failed run cannot pass.
+          #
+          # Wrapped in the bounded waiter because CI runs on the master push
+          # while this workflow runs on the tag push: pushing both back to back
+          # can land here while the same-commit CI run is still in progress,
+          # which used to refuse a commit that went green minutes later. The
+          # waiter only ever waits out that "not yet"; a red, missing, or
+          # other-commit result still fails immediately, and running out of time
+          # fails closed. Waiting costs nothing on the normal path, where CI has
+          # long since finished and the first check passes.
+          bash .github/scripts/await-release-ci.sh "${GITHUB_SHA}" \
+            gh api "/repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&per_page=100"
 
   release:
     name: Publish release

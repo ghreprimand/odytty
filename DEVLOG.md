@@ -7,6 +7,51 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-28 -- Release gate rides out a same-commit CI run that is still in progress
+
+The fail-closed release gate requires the exact tagged commit to have a
+completed, successful CI run before anything publishes. It has one blind spot:
+CI runs on the push to master, the release workflow runs on the tag push, and
+pushing both back to back starts them together. The gate then evaluates while
+the same-commit CI run is still in progress and refuses a commit that goes
+green minutes later. That is a scheduling race, not a quality signal — and it
+blocked a publish with all seven artifacts already built and every CI leg
+subsequently green.
+
+The gate keeps its exact standard: publication still requires a completed,
+successful CI run for the exact tagged commit. What changed is that "not yet"
+is no longer treated as "no". The single-shot check now reports three outcomes
+instead of two — green, definitively not green, and undecided-so-far — and a
+bounded waiter re-asks while the answer is undecided. A red, missing, or
+other-commit result still fails on the first look with no waiting at all, since
+waiting cannot change any of those. Running out of time fails closed.
+
+The undecided code is deliberately non-zero, so a caller that ignores the
+distinction refuses to publish exactly as before; only a caller that explicitly
+recognizes it will wait. Anything not reported as `completed` counts as still
+running, because treating an unfamiliar run status as finished-and-not-green
+would assert something the data does not support.
+
+The check itself stays pure and offline: the waiter takes the command that
+fetches the API payload as an argument, so the whole wait-or-stop decision tree
+is exercised by a scripted stub with no network. Thirty offline fixtures now
+cover the two scripts. The waiter's cases pin what matters most — a pending run
+followed by green passes, a pending run followed by red fails, red and missing
+and other-commit results each fail on exactly one attempt with no polling, an
+endless pending state fails closed at the deadline, and a transient failure of
+the query itself is retried on the same bounded clock. Both scripts are
+shellchecked and their fixtures run in CI, and the gate job carries a hard
+timeout above the waiter's own deadline.
+
+Verified with the full fixture suites for both scripts (30 cases, all passing),
+`shellcheck` over the exact file set CI lints, YAML parse checks on both
+workflows, a guard confirming no `${{` sequence appears in any `run:` body, and
+an end-to-end rehearsal of the real gate step against a stubbed query that
+replays the original race: two in-progress polls followed by green now
+publishes, and the same sequence ending red still blocks.
+
+---
+
 ## 2026-07-27 -- Release v0.9.7 — Windows no longer vanish after the display sleeps
 
 Version 0.9.7 fixes a defect that could make every window of a running OdyTTY

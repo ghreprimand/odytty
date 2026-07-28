@@ -18,10 +18,16 @@
 # Exit status (every non-zero path fails the release closed):
 #   0  at least one CI run for this EXACT SHA is completed with conclusion
 #      success.
-#   1  no qualifying run: none exists for the SHA (missing), all are still
-#      queued/in_progress, or every completed run for the SHA was cancelled or
+#   1  no qualifying run and none can still arrive: none exists for the SHA
+#      (missing), or every run for the SHA is completed and was cancelled or
 #      failed. A successful run for a DIFFERENT commit never counts.
 #   2  usage error or malformed/absent API payload.
+#   3  UNDECIDED YET: at least one run for this SHA is still queued/in_progress
+#      and none has succeeded, so the answer may still become 0. Reported
+#      separately from 1 purely so a caller can choose to WAIT rather than give
+#      up (see await-release-ci.sh); it is deliberately still NON-ZERO, so any
+#      caller that does not special-case it fails the release closed exactly as
+#      before. This code never means "pass".
 set -euo pipefail
 
 sha="${1:-}"
@@ -72,6 +78,22 @@ success="$(printf '%s' "$runs_for_sha" \
 if [ "$success" -gt 0 ]; then
   echo "verify-release-ci: ${success} completed successful CI run(s) for ${sha} -> OK" >&2
   exit 0
+fi
+
+# Nothing has succeeded. Distinguish "not yet" from "no". A run that has not
+# reached `completed` may still finish green, so report it as UNDECIDED (3)
+# rather than a definitive refusal (1). Anything not explicitly `completed`
+# counts as still running: GitHub has grown run statuses over time (queued,
+# in_progress, waiting, requested, pending), and treating an unrecognized
+# status as "finished and not green" would give a definitive answer the data
+# does not support. Both codes are non-zero, so a caller that ignores the
+# distinction still refuses to publish.
+pending="$(printf '%s' "$runs_for_sha" \
+  | jq '[ .[] | select(.status != "completed") ] | length')"
+
+if [ "$pending" -gt 0 ]; then
+  echo "verify-release-ci: no successful CI run for ${sha} yet; ${pending} of ${total} still running -> UNDECIDED" >&2
+  exit 3
 fi
 
 echo "verify-release-ci: no completed+success CI run for ${sha} among ${total} candidate(s) -> FAIL CLOSED" >&2

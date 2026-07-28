@@ -47,13 +47,28 @@ run_case "completed success, same commit" 0 "$target" \
 # No run at all for the commit: fail closed.
 run_case "missing run" 1 "$target" "$(wrap '[]')"
 
-# Still queued: not yet completed, fail closed.
-run_case "queued only" 1 "$target" \
+# Still queued: UNDECIDED (3), not a pass and not yet a definitive refusal.
+run_case "queued only" 3 "$target" \
   "$(wrap "[$(run_json "$target" queued null push)]")"
 
-# Still running: not yet completed, fail closed.
-run_case "in_progress only" 1 "$target" \
+# Still running: UNDECIDED (3). This is the state that raced the v0.9.7 tag.
+run_case "in_progress only" 3 "$target" \
   "$(wrap "[$(run_json "$target" in_progress null push)]")"
+
+# An unrecognized/future run status is treated as still running, never as a
+# finished-and-not-green refusal: the data does not support a definitive answer.
+run_case "unknown status counts as pending" 3 "$target" \
+  "$(wrap "[$(run_json "$target" waiting null push)]")"
+
+# A failed run for the target plus a still-running one: the running one may yet
+# go green, so the verdict is UNDECIDED rather than a refusal.
+run_case "failed plus in_progress is undecided" 3 "$target" \
+  "$(wrap "[$(run_json "$target" completed failure push),$(run_json "$target" in_progress null push)]")"
+
+# Pending for ANOTHER commit while the target is definitively red: the other
+# commit must not make the target look undecided.
+run_case "other commit pending does not soften target red" 1 "$target" \
+  "$(wrap "[$(run_json "$target" completed failure push),$(run_json "$other" in_progress null push)]")"
 
 # Completed but cancelled: fail closed.
 run_case "cancelled" 1 "$target" \

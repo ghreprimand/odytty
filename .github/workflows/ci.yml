@@ -204,7 +204,9 @@ jobs:
         run: |
           shellcheck dist/install.sh dist/linux/tarball-install.sh \
             .github/scripts/verify-release-ci.sh \
-            .github/scripts/verify-release-ci-test.sh
+            .github/scripts/verify-release-ci-test.sh \
+            .github/scripts/await-release-ci.sh \
+            .github/scripts/await-release-ci-test.sh
 
       - name: install.sh dry-run smoke
         run: bash dist/install.sh --dry-run
@@ -212,6 +214,15 @@ jobs:
       - name: Release CI-gate fixtures
         # Deterministic fixtures for the fail-closed same-commit CI release gate
         # (.github/scripts/verify-release-ci.sh). Pure and offline; asserts every
-        # missing/queued/in-progress/cancelled/failed/other-commit state fails
-        # closed and only a completed success for the exact commit passes.
+        # missing/cancelled/failed/other-commit state fails closed, that a run
+        # still queued/in-progress reports UNDECIDED rather than either verdict,
+        # and that only a completed success for the exact commit passes.
         run: bash .github/scripts/verify-release-ci-test.sh
+
+      - name: Release CI-gate waiter fixtures
+        # Fixtures for the bounded waiter (.github/scripts/await-release-ci.sh)
+        # that lets the gate ride out a same-commit CI run still in progress.
+        # Offline: a scripted stub replays canned API payloads, pinning that a
+        # pending run is waited out, a red/missing/other-commit run fails on the
+        # first look with no polling, and a deadline fails closed.
+        run: bash .github/scripts/await-release-ci-test.sh
