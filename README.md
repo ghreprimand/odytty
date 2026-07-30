@@ -327,6 +327,15 @@ visual, inline-media, and scaling references.
 [Session attach launcher design](docs/session-attach-launcher-design.md) cover
 the ownership boundary and deeper workflow architecture.
 
+### Stabilization evidence
+
+[Pre-1.0 acceptance contract](docs/pre-1.0-acceptance.md),
+[Stabilization and release-channel policy](docs/stabilization-policy.md),
+[Stabilization baseline](docs/stabilization-baseline.md), and
+[Native decomposition map](docs/native-decomposition.md) define the current
+evidence gates, scope freeze, reproducible starting point, and architecture
+boundaries.
+
 ### Packaging and release
 
 [Packaging guide](PACKAGING.md) and [Release guide](docs/release.md) define the
