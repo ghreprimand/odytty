@@ -176,9 +176,17 @@ Requirements:
 - Malformed input fails closed: no panic, no uncontrolled allocation, no
   unintended file access, and no secret-bearing diagnostics.
 
-**Evidence:** `docs/threat-model.md`, `docs/fuzzing.md`, and the fuzz targets
-and regression fixtures in-tree.
+**Evidence:** `docs/threat-model.md`, `docs/fuzzing.md`,
+`docs/dynamic-analysis.md`, and the fuzz targets and regression fixtures
+in-tree.
 **Confirmed by:** core contributors.
+
+The Miri and sanitizer requirement is deliberately worded as *landed with
+unsupported targets recorded*, not as a clean result. A lane that reports
+nothing because it could not execute anything satisfies neither half. This
+gate stays open until `docs/dynamic-analysis.md` records executed runs rather
+than declared intent, and its unsupported and unmeasured entries are read as
+the gaps they describe.
 
 ### G5 — Architecture hotspots
 

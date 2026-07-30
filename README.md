@@ -340,7 +340,10 @@ preregisters performance methodology before measurement, and the
 privilege boundary with its caps, defaults, failure behavior, and unresolved
 risks. The [pinned vttest methodology and results](docs/compatibility/vttest.md)
 separate runner health, observed compatibility outcomes, documented
-divergences, skips, and unsupported platforms.
+divergences, skips, and unsupported platforms. The
+[dynamic analysis lane](docs/dynamic-analysis.md) describes the scheduled Miri
+and sanitizer configuration, what each tool can and cannot observe, and which
+platforms it leaves unmeasured.
 
 ### Packaging and release
 

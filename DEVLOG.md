@@ -7,6 +7,82 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-30 -- Bounded Miri and sanitizer lane
+
+A scheduled dynamic-analysis lane joins the tree: `dynamic-analysis.yml` with
+`run-miri.sh` and `run-sanitizer.sh`, documented in `docs/dynamic-analysis.md`.
+It runs weekly and on manual dispatch only, never on push or pull request. A
+lane whose purpose is discovering unknown behavior would be the wrong thing to
+put in front of every change, and the blocking Linux, macOS, and Windows legs
+in `ci.yml` remain the correctness gate.
+
+Miri and the sanitizers are configured as separate instruments answering
+separate questions rather than as one interchangeable "memory safety" step.
+Miri interprets MIR and sees classes of undefined behavior a native run
+cannot, but it cannot execute a foreign call, so the PTY read loop, the
+shared-memory graphics transports, the windowing layer, and the GPU stack are
+unreachable by construction. The sanitizers instrument real machine code and
+reach exactly those paths, but only observe what a given execution touched.
+The filter lists are drawn from that division: the excluded modules are named
+with the reason, rather than listed and left to report `unsupported` in a way
+that would make the lane look broader than it is.
+
+Result classification is the substance of the design. Each filter yields one
+of `pass`, `fail`, `timeout`, `unsupported`, `undefined-behavior`, or
+`sanitizer-finding`, recorded per filter in a machine-readable summary beside
+its log. Three rules keep those distinct: undefined behavior is matched before
+the unsupported pattern, so a foreign-call message later in the same log
+cannot downgrade a real report; a sanitizer report fails the run even when the
+process exits zero, so a runtime-option change cannot turn a finding green;
+and `unsupported` never collapses into `pass`, because "no defect found" and
+"nothing was checked" are the two states worth telling apart.
+
+Every filter is declared `probe` — never yet executed here — and both scripts
+print that a green run is therefore not evidence of anything. Promotion to
+`required` needs a completed run, a pass, and the identity of the run that
+justified it. A `required` filter that later reports `unsupported` fails the
+job, because coverage silently regressing is the failure mode that would
+otherwise go unnoticed. Findings are closed by fixing the defect and adding a
+regression case, never by lowering a filter's status.
+
+Sanitizer runs rebuild the standard library with instrumentation and stop when
+the source component is missing, rather than producing a partially
+instrumented result that understates what it checked. AddressSanitizer carries
+leak detection, so no separate leak job duplicates it. ThreadSanitizer runs a
+narrower module set, since it only reports on code that actually runs
+concurrently. MemorySanitizer is a manual diagnostic behind an explicit
+acknowledgement and is not lane evidence: it requires every dependency reached
+at runtime to be instrumented, and uninstrumented reports cannot be told apart
+from real findings.
+
+The lane pins an auxiliary nightly for tooling only. `rust-toolchain.toml` and
+`Cargo.toml` are untouched and the MSRV is unaffected; the scripts select the
+nightly for their own processes and nothing else. Because the workflow never
+runs on push or pull request, that nightly can never become an implicit
+requirement for contributors. Both scripts carry the pin so each is runnable
+alone, and the workflow's first job asks each one for its value and fails on
+disagreement, so the duplication cannot drift quietly. A missing component
+stops the lane rather than sliding to a nearby date.
+
+Scope is Linux x86_64. Anywhere else the scripts exit with a distinct
+unavailable status rather than a skip inside an otherwise green run, so a
+caller cannot publish an empty result set as a clean lane. Windows and macOS
+are recorded as unmeasured, and the documentation names what that leaves
+uncovered on Windows specifically — ConPTY, process creation, console-window
+suppression, job-object containment, drive-letter paths, and PowerShell shell
+integration — with an explicit statement that no Windows conclusion follows
+from a Linux run. Windows evidence continues to come from the blocking
+`windows-latest` job and from manual validation.
+
+No results are published yet. What has been exercised is the refusal
+behavior: argument validation, the manual-only guard, pin agreement, and the
+unavailable path when a required tool or the pinned toolchain is absent. The
+acceptance contract's security gate now names this document and states that
+the gate stays open until it records executed runs rather than declared
+intent.
+
+---
+
 ## 2026-07-30 -- quick-xml advisory exceptions retired
 
 `wayland-scanner 0.31.11` resolves `quick-xml 0.41.0`, the first release

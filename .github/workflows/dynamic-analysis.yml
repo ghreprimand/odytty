@@ -1,0 +1,188 @@
+name: Dynamic analysis
+
+# Bounded Miri and LLVM sanitizer lane.
+#
+# Scheduled and manual only. It is deliberately absent from push and
+# pull-request triggers: the runs are long, they depend on an auxiliary
+# nightly toolchain that can change under the pin's feet, and a lane whose
+# purpose is to discover unknown behavior must never become a blocking gate
+# that contributors have to fight. The blocking gates stay in ci.yml.
+#
+# Everything here is Linux x86_64. The scripts refuse to run anywhere else,
+# and no result from this workflow supports any statement about macOS or
+# Windows. See docs/dynamic-analysis.md.
+#
+# No secrets are used. The jobs read the checked-out source, build with an
+# instrumented or interpreted toolchain, and upload their own logs.
+on:
+  schedule:
+    - cron: "41 3 * * 6"
+  workflow_dispatch:
+    inputs:
+      lane:
+        description: "Which lane to run."
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - miri
+          - address
+          - thread
+
+permissions:
+  contents: read
+
+# These runs are long and resource-hungry. Queue them rather than stacking
+# them, and never cancel one in flight: a partial run would be recorded as a
+# lane result without having covered the declared filters.
+concurrency:
+  group: dynamic-analysis
+  cancel-in-progress: false
+
+jobs:
+  pin:
+    name: Toolchain pin agreement
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      toolchain: ${{ steps.resolve.outputs.toolchain }}
+    steps:
+      # v4.2.2
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      # Both scripts carry the auxiliary nightly pin so each one is runnable on
+      # its own without a shared helper file. That duplication is only safe if
+      # a divergence is loud, so it is checked here before either lane starts.
+      - name: Resolve and compare pins
+        id: resolve
+        shell: bash
+        run: |
+          miri_pin="$(.github/scripts/run-miri.sh --print-toolchain)"
+          san_pin="$(.github/scripts/run-sanitizer.sh --print-toolchain)"
+          if [ "$miri_pin" != "$san_pin" ]; then
+            echo "::error::toolchain pin mismatch: run-miri.sh says '$miri_pin', run-sanitizer.sh says '$san_pin'"
+            exit 1
+          fi
+          if [ -z "$miri_pin" ]; then
+            echo "::error::empty toolchain pin"
+            exit 1
+          fi
+          echo "toolchain=$miri_pin" >> "$GITHUB_OUTPUT"
+          echo "auxiliary toolchain pin: $miri_pin"
+
+  miri:
+    name: Miri (Linux x86_64)
+    needs: pin
+    if: github.event_name != 'workflow_dispatch' || inputs.lane == 'all' || inputs.lane == 'miri'
+    runs-on: ubuntu-latest
+    # Wide enough for the std build plus the declared filter list, tight enough
+    # that a wedged interpretation fails the job instead of running to the
+    # runner backstop. Each filter also carries its own timeout in the script.
+    timeout-minutes: 150
+    steps:
+      # v4.2.2
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Install pinned nightly with Miri
+        env:
+          DYNAMIC_TOOLCHAIN: ${{ needs.pin.outputs.toolchain }}
+        shell: bash
+        run: |
+          # A pinned nightly that never published the miri component fails here
+          # rather than sliding to a nearby date. Losing a scheduled run is
+          # recoverable; publishing results from an unrecorded toolchain is not.
+          rustup toolchain install "$DYNAMIC_TOOLCHAIN" --profile minimal -c miri -c rust-src
+          rustup run "$DYNAMIC_TOOLCHAIN" cargo miri --version
+
+      - name: Run Miri lane
+        shell: bash
+        run: .github/scripts/run-miri.sh
+
+      # v4.6.2
+      - name: Upload Miri logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dynamic-analysis-miri
+          path: target/dynamic-analysis/miri/
+          retention-days: 14
+          if-no-files-found: warn
+
+  address:
+    name: AddressSanitizer (Linux x86_64)
+    needs: pin
+    if: github.event_name != 'workflow_dispatch' || inputs.lane == 'all' || inputs.lane == 'address'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      # v4.2.2
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Install pinned nightly with standard library source
+        env:
+          DYNAMIC_TOOLCHAIN: ${{ needs.pin.outputs.toolchain }}
+        shell: bash
+        run: |
+          # rust-src is required: without an instrumented standard library the
+          # run would silently check less than it appears to.
+          rustup toolchain install "$DYNAMIC_TOOLCHAIN" --profile minimal -c rust-src
+          rustup run "$DYNAMIC_TOOLCHAIN" rustc --version
+
+      - name: Run AddressSanitizer lane
+        shell: bash
+        run: .github/scripts/run-sanitizer.sh address
+
+      # v4.6.2
+      - name: Upload AddressSanitizer logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dynamic-analysis-address
+          path: target/dynamic-analysis/address/
+          retention-days: 14
+          if-no-files-found: warn
+
+  thread:
+    name: ThreadSanitizer (Linux x86_64)
+    needs: pin
+    if: github.event_name != 'workflow_dispatch' || inputs.lane == 'all' || inputs.lane == 'thread'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      # v4.2.2
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Install pinned nightly with standard library source
+        env:
+          DYNAMIC_TOOLCHAIN: ${{ needs.pin.outputs.toolchain }}
+        shell: bash
+        run: |
+          rustup toolchain install "$DYNAMIC_TOOLCHAIN" --profile minimal -c rust-src
+          rustup run "$DYNAMIC_TOOLCHAIN" rustc --version
+
+      - name: Run ThreadSanitizer lane
+        shell: bash
+        run: .github/scripts/run-sanitizer.sh thread
+
+      # v4.6.2
+      - name: Upload ThreadSanitizer logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: dynamic-analysis-thread
+          path: target/dynamic-analysis/thread/
+          retention-days: 14
+          if-no-files-found: warn
