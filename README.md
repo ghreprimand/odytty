@@ -338,7 +338,9 @@ boundaries. The [comparative benchmark protocol](docs/benchmark-protocol.md)
 preregisters performance methodology before measurement, and the
 [terminal threat model](docs/threat-model.md) catalogs every external-input and
 privilege boundary with its caps, defaults, failure behavior, and unresolved
-risks.
+risks. The [pinned vttest methodology and results](docs/compatibility/vttest.md)
+separate runner health, observed compatibility outcomes, documented
+divergences, skips, and unsupported platforms.
 
 ### Packaging and release
 
