@@ -7,6 +7,38 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-07-30 -- quick-xml advisory exceptions retired
+
+`wayland-scanner 0.31.11` resolves `quick-xml 0.41.0`, the first release
+carrying the fixes for RUSTSEC-2026-0194 and RUSTSEC-2026-0195. That is exactly
+the removal trigger recorded when the exceptions were opened, so both
+suppressions are gone rather than renewed.
+
+`cargo update -p wayland-scanner` moved precisely two packages —
+`wayland-scanner 0.31.10` to `0.31.11` and `quick-xml 0.39.4` to `0.41.0` —
+and nothing else. `quick-xml` still appears once in the lockfile with
+`wayland-scanner` as its only dependent, so the compile-time-only exposure is
+unchanged in shape and now unaffected.
+
+The audit gate drops both `--ignore` flags, the dated expiry fuse, the
+fourteen-day early-warning window, and the dependency-graph assertions. All of
+those existed only to hold a suppression open and keep it honest; with the
+suppression gone they would assert a shape the audit already enforces. A
+downgrade to an affected `quick-xml` now fails the gate on its own. That was
+verified rather than assumed: the pre-upgrade lockfile audited under the new
+flags reports two vulnerabilities and exits non-zero, while the upgraded
+lockfile exits zero. The `ttf-parser 0.25.1` unmaintained warning is untouched
+and remains the one allowed warning and an open supply-chain item.
+
+The upgraded crate is a Linux Wayland compile-time proc macro, so no Windows or
+macOS runtime behavior changes; the lockfile and the audit gate are
+cross-platform, and the blocking Windows and macOS jobs remain the authority
+for building against the new pin. The stabilization baseline keeps its
+starting-state advisory table intact and carries a dated follow-up recording
+the resolution.
+
+---
+
 ## 2026-07-28 -- Release v0.9.8 — Per-window Linux identity and held command exits
 
 Version 0.9.8 closes the remaining Linux integration gaps for using OdyTTY as

@@ -227,6 +227,42 @@ The `quick-xml` exceptions have a hard expiry and an early-warning window. The
 `ttf-parser` warning has no equivalent fuse or mitigation record and remains an
 open Phase 4 supply-chain item.
 
+### Follow-up: `quick-xml` exceptions retired, 2026-07-30
+
+The table above records the state at the starting revision and is not revised.
+This note records what changed afterwards.
+
+`wayland-scanner 0.31.11` resolves `quick-xml 0.41.0`, the first release
+carrying the fixes for both advisories, so the removal trigger recorded at
+capture fired. The lockfile now pins `wayland-scanner 0.31.11` and
+`quick-xml 0.41.0`; `cargo update -p wayland-scanner` moved exactly those two
+packages and nothing else. `quick-xml` still appears once in the lockfile, and
+`wayland-scanner` is still its only dependent, so the compile-time-only
+exposure recorded at capture is unchanged in shape and now unaffected.
+
+| Advisory | Dependency at capture | Dependency now | State |
+| --- | --- | --- | --- |
+| `RUSTSEC-2026-0194` | `quick-xml 0.39.4` | `quick-xml 0.41.0` | Patched upstream; suppression removed |
+| `RUSTSEC-2026-0195` | `quick-xml 0.39.4` | `quick-xml 0.41.0` | Patched upstream; suppression removed |
+| `RUSTSEC-2026-0192` | `ttf-parser 0.25.1` | `ttf-parser 0.25.1` | Unchanged; still an open supply-chain item |
+
+The audit script no longer ignores any advisory and no longer carries an expiry
+fuse or a dependency-graph assertion. Both were needed only to hold a
+suppression open; with the suppression gone, a downgrade to an affected
+`quick-xml` fails the gate on its own. That was verified directly: auditing the
+pre-upgrade lockfile under the new flags reports two vulnerabilities and exits
+non-zero, while the upgraded lockfile exits zero with the single allowed
+`ttf-parser` warning.
+
+The advisory database revision for this check was
+`7c7ccac53056b87f69ac677f15ea2d9a98a6f8e2`.
+
+The upgraded dependency is a Linux Wayland compile-time path, so no Windows or
+macOS runtime behavior changes. The lockfile and the audit gate are
+cross-platform, and a local Linux run cannot prove either platform builds
+against the new pin; the blocking Windows and macOS jobs remain the authority
+for that.
+
 ## Representative environment class and timings
 
 The capture used a Linux x86-64 workstation class with 32 logical processors,
@@ -359,3 +395,6 @@ The baseline remains qualified by Finding F1, host-dependent runtime skips, two
 dated `quick-xml` exceptions, an unfused `ttf-parser` warning, and unavailable
 local Windows and macOS systems. Those limitations remain visible inputs to the
 later acceptance gates.
+
+Those qualifications describe the starting revision. The dated follow-up under
+Dependency advisory state records which of them have since been resolved.
