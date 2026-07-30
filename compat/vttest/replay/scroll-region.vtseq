@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# provenance: authored for OdyTTY; synthetic; not derived from upstream sources
+# reviewed: yes
+# baseline: 24 rows by 80 columns
+#
+# Scrolling region, index, reverse index, and next line at region boundaries.
+#
+# Escapes: \e ESC, \r CR, \n LF, \t HT, \\ backslash, \xNN one byte.
+
+\e[2J\e[H
+
+# Mark rows outside the region under test. These must never move: a scroll that
+# disturbs them has taken the whole screen instead of the region.
+\e[1;1Houtside-top
+\e[24;1Houtside-bottom
+
+# Set a region covering rows 5 through 10 inclusive. Setting a region homes the
+# cursor to the region origin, which is easy to miss.
+\e[5;10r
+\e[5;1Hregion-line-one
+\e[6;1Hregion-line-two
+\e[7;1Hregion-line-three
+\e[8;1Hregion-line-four
+\e[9;1Hregion-line-five
+\e[10;1Hregion-line-six
+
+# Index at the bottom margin scrolls the region up by one. The top line of the
+# region leaves; rows outside stay put.
+\e[10;1H\e\x44
+
+# Reverse index at the top margin scrolls the region down by one.
+\e[5;1H\e\x4d
+
+# Next line at the bottom margin behaves as index plus carriage return.
+\e[10;40H\e\x45
+
+# Explicit scroll up and scroll down by a count larger than one.
+\e[2S
+\e[1T
+
+# A region request with the margins inverted is invalid and must be ignored,
+# leaving the previous region in force rather than producing an empty region.
+\e[20;5r
+
+# Reset the region to the full screen. After this, index at the last row must
+# scroll the whole screen again.
+\e[r
+\e[24;1H\e\x44
+
+\e[24;1Hdone

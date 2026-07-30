@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# provenance: authored for OdyTTY; synthetic; not derived from upstream sources
+# reviewed: yes
+# baseline: 24 rows by 80 columns
+#
+# Absolute and relative cursor addressing.
+#
+# Escapes: \e ESC, \r CR, \n LF, \t HT, \\ backslash, \xNN one byte.
+# Every other character is emitted literally. Lines add no implicit newline.
+
+# Clear the screen and home the cursor so the fixture starts from a known state.
+\e[2J\e[H
+
+# Absolute addressing: place a marker at four corners of the baseline grid.
+\e[1;1HTL
+\e[1;79HTR
+\e[24;1HBL
+\e[24;79HBR
+
+# Relative movement: from a known origin, walk right, down, left, and up by a
+# fixed amount and land back on the origin. A terminal that miscounts any one
+# of the four directions leaves the marker somewhere other than row 10.
+\e[10;10H
+\e[5C\e[3B\e[5D\e[3Aorigin
+
+# Clamping: ask for positions past both edges. The cursor must stop at the last
+# row and column rather than wrapping or scrolling.
+\e[999;999Hclamp-max
+\e[0;0Hclamp-min
+
+# Save and restore. The restored position must be the saved one exactly, and an
+# intervening absolute move must not disturb the saved value.
+\e[12;40H\e7
+\e[1;1H
+\e8restored
+
+# Leave the cursor somewhere predictable for the capture.
+\e[24;1H

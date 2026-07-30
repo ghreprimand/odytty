@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# provenance: authored for OdyTTY; synthetic; not derived from upstream sources
+# reviewed: yes
+# baseline: 24 rows by 80 columns
+#
+# Tab stop set, clear, and traversal.
+#
+# Escapes: \e ESC, \r CR, \n LF, \t HT, \\ backslash, \xNN one byte.
+
+\e[2J\e[H
+
+# Default stops sit every eight columns. Four tabs from column 1 must land on
+# columns 9, 17, 25, and 33.
+\e[2;1H\ta\tb\tc\td
+
+# Clear every stop, then set exactly two by positioning the cursor and issuing
+# horizontal tabulation set.
+\e[3g
+\e[4;20H\e\x48
+\e[4;50H\e\x48
+
+# Traverse the two explicit stops from the start of the line.
+\e[5;1H\tfirst\tsecond
+
+# A tab past the last stop must advance to the last column and stop there,
+# rather than wrapping to the next row.
+\e[6;1H\t\t\tpast-last
+
+# Clear one stop with the cursor on it, leaving the other in force.
+\e[7;20H\e[0g
+\e[8;1H\tremaining
+
+# Restore the default stops and confirm the eight-column rhythm returns.
+\e[3g
+\e[9;1H\e[?5W
+\e[10;1H\tw\tx\ty\tz
+
+# Tab in a line that already has content must not overwrite the cells it skips.
+\e[12;1Habcdefghijklmnop
+\e[12;1H\tTAB
+
+\e[24;1Hdone

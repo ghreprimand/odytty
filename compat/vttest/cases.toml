@@ -1,0 +1,269 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# Conformance case inventory and classification.
+#
+# Every case an automated run may touch is declared here. The runner refuses to
+# execute anything that is not declared, and refuses to execute a declared case
+# whose classification is not automatable. There is no "run everything" mode:
+# see [policy] below.
+#
+# Classification is a safety and honesty control, not bookkeeping. A case that
+# needs a human to look at the screen cannot be passed by a machine, and saying
+# otherwise turns an unverified area into a false positive.
+
+[policy]
+schema_version = "1.0.0"
+# Default-deny. A selection that resolves to zero cases is an error, not an
+# empty successful run, so a typo can never look like a clean sheet.
+default_action = "deny"
+# The only classes the runner will ever execute without a human present.
+auto_runnable_classes = ["automated_replay"]
+# Running more than one case per process is forbidden: shared state between
+# cases is the classic source of a result that cannot be reproduced alone.
+one_case_per_process = true
+# Selecting every automatable case at once still requires an explicit opt-in
+# flag, so a bare `run` cannot fan out by accident.
+require_explicit_all = true
+
+[baseline]
+# The fixed baseline every automated case runs at. Recorded in the result
+# document so a result collected at a different geometry is visibly different
+# rather than silently comparable.
+rows = 24
+columns = 80
+# vttest exercises 80/132 column switching. 80 is the baseline; any case that
+# depends on the 132-column mode is platform_dependent, because whether the
+# switch is honored depends on the window manager and the display, not only on
+# the terminal.
+wide_columns = 132
+term = "xterm-256color"
+locale = "C.UTF-8"
+# Geometry is DECLARED, not commanded. See the limitation of the same name in
+# docs/compatibility/vttest.md: no current CLI or configuration surface pins the
+# initial cell grid, so the runner records the intended baseline and marks it
+# unverified rather than asserting it was applied.
+geometry_verified = false
+
+# ---------------------------------------------------------------------------
+# Classification vocabulary
+#
+# Exactly one class per case. The vocabulary is closed; the runner rejects an
+# unknown class rather than treating it as a default.
+# ---------------------------------------------------------------------------
+
+[[classification]]
+id = "automated_replay"
+automatable = true
+summary = "A reviewed synthetic byte sequence with a machine-checkable outcome."
+detail = """
+The input is an OdyTTY-authored fixture under compat/vttest/replay, not upstream
+content. The outcome is decided by the runner from the child process result and
+the case's declared capture file. These are the only cases an unattended run may
+execute."""
+
+[[classification]]
+id = "interactive_keyboard"
+automatable = false
+summary = "Requires a human to press specific keys and confirm what was echoed."
+detail = """
+Keyboard conformance cannot be self-tested by the terminal that is under test:
+synthesising the key events inside the same process proves the synthesiser
+agrees with itself. Always skipped by the runner; always manual."""
+
+[[classification]]
+id = "visual_manual"
+automatable = false
+summary = "Correctness is a judgement about rendered pixels."
+detail = """
+Double-width and double-height cells, cursor shape, blink, and attribute
+rendering are confirmed by looking. A machine can confirm that bytes were
+consumed without crashing, which is not the same claim."""
+
+[[classification]]
+id = "platform_dependent"
+automatable = false
+summary = "The result depends on the window system, compositor, or display."
+detail = """
+Column-count switching, resize behavior, and window manipulation reports are
+mediated by components outside the terminal. Recorded per platform with the
+mediating component named, never generalised across platforms."""
+
+[[classification]]
+id = "unsupported"
+automatable = false
+summary = "The area is not implemented, or the platform cannot host the suite."
+detail = """
+Distinguished from a failure on purpose: an unimplemented area is a known gap
+with a decision behind it, while a failure is a defect. Collapsing the two
+either inflates the failure count or hides a gap."""
+
+[[classification]]
+id = "unsafe_unattended"
+automatable = false
+summary = "Refused for unattended execution regardless of any flag."
+detail = """
+Covers cases that reset the terminal, drive self-test paths, or exercise known
+upstream bugs. The runner has no flag that promotes one of these to automatable;
+lifting the refusal requires editing this file under review."""
+
+# ---------------------------------------------------------------------------
+# Upstream capability areas
+#
+# Classified by capability, deliberately WITHOUT upstream menu indices. The
+# indices were not confirmed against the pinned tree — no fetch has been
+# performed — and recording an unconfirmed index would be an invented fact that
+# a later reader could mistake for a verified one.
+#
+# `menu_path` stays empty until it is read out of the pinned tree. The runner
+# refuses to execute any case with an empty `menu_path`, so the omission is
+# enforced rather than merely documented.
+# ---------------------------------------------------------------------------
+
+[[case]]
+id = "upstream.cursor-movements"
+title = "Cursor movement conformance"
+classification = "visual_manual"
+menu_path = []
+confirmed_against_pin = false
+notes = "Cursor positioning is checked against drawn rulers and alignment patterns."
+
+[[case]]
+id = "upstream.screen-features"
+title = "Screen feature conformance"
+classification = "visual_manual"
+menu_path = []
+confirmed_against_pin = false
+notes = "Scrolling regions and attribute handling are judged from the rendered screen."
+
+[[case]]
+id = "upstream.character-sets"
+title = "Character set conformance"
+classification = "visual_manual"
+menu_path = []
+confirmed_against_pin = false
+notes = "Designation and shift behavior is confirmed by reading the glyphs produced."
+
+[[case]]
+id = "upstream.double-sized-characters"
+title = "Double-width and double-height cells"
+classification = "visual_manual"
+menu_path = []
+confirmed_against_pin = false
+notes = "Purely a rendering judgement; no machine-checkable outcome exists."
+
+[[case]]
+id = "upstream.keyboard"
+title = "Keyboard conformance"
+classification = "interactive_keyboard"
+menu_path = []
+confirmed_against_pin = false
+notes = "Requires a human at a physical keyboard. Never automatable."
+
+[[case]]
+id = "upstream.terminal-reports"
+title = "Device and status report conformance"
+classification = "platform_dependent"
+menu_path = []
+confirmed_against_pin = false
+notes = """
+The most nearly automatable upstream area, since replies are byte strings. It
+stays non-automatable here because the reply is delivered on the child's input
+stream, which the runner cannot observe without a capture mechanism the product
+does not currently expose. The OdyTTY-authored replay cases below cover the same
+ground with an evidence path that actually exists."""
+
+[[case]]
+id = "upstream.vt52-mode"
+title = "VT52 compatibility mode"
+classification = "visual_manual"
+menu_path = []
+confirmed_against_pin = false
+notes = "Mode entry and exit is confirmed visually."
+
+[[case]]
+id = "upstream.vt102-features"
+title = "Insert and delete character and line"
+classification = "visual_manual"
+menu_path = []
+confirmed_against_pin = false
+notes = "Editing behavior is judged from the resulting screen."
+
+[[case]]
+id = "upstream.known-bugs"
+title = "Known-bug exercises"
+classification = "unsafe_unattended"
+menu_path = []
+confirmed_against_pin = false
+notes = """
+Deliberately drives sequences known to break terminals. Valuable, and precisely
+the category that must not run unattended: a hang or a wedged terminal is an
+expected outcome here rather than a signal."""
+
+[[case]]
+id = "upstream.reset-and-self-test"
+title = "Reset and self-test"
+classification = "unsafe_unattended"
+menu_path = []
+confirmed_against_pin = false
+notes = "Resets terminal state mid-run, which invalidates any concurrent case."
+
+[[case]]
+id = "upstream.non-vt100-terminals"
+title = "Extended and non-VT100 behavior"
+classification = "platform_dependent"
+menu_path = []
+confirmed_against_pin = false
+notes = "Includes window manipulation, which the window system mediates."
+
+# ---------------------------------------------------------------------------
+# OdyTTY-authored replay fixtures
+#
+# Reviewed synthetic sequences only. Each is authored in this repository, is
+# free of personal data and of the at-sign character entirely, and carries its
+# own provenance header. None is derived from upstream content or from any
+# captured private terminal session.
+#
+# These are declared, reviewed, and executable by the runner. None has been RUN:
+# no result document exists yet, and no compatibility claim is made anywhere in
+# this repository on the strength of them.
+# ---------------------------------------------------------------------------
+
+[[case]]
+id = "replay.cursor-addressing"
+title = "Absolute and relative cursor addressing"
+classification = "automated_replay"
+fixture = "replay/cursor-addressing.vtseq"
+capture_file = "cursor-addressing.log"
+timeout_seconds = 20
+confirmed_against_pin = true
+notes = "Direct addressing, save and restore, and clamping at the screen edges."
+
+[[case]]
+id = "replay.erase-operations"
+title = "Erase in line and erase in display"
+classification = "automated_replay"
+fixture = "replay/erase-operations.vtseq"
+capture_file = "erase-operations.log"
+timeout_seconds = 20
+confirmed_against_pin = true
+notes = "Every erase selector, including the whole-display and scrollback forms."
+
+[[case]]
+id = "replay.scroll-region"
+title = "Scrolling region and index operations"
+classification = "automated_replay"
+fixture = "replay/scroll-region.vtseq"
+capture_file = "scroll-region.log"
+timeout_seconds = 20
+confirmed_against_pin = true
+notes = "Region set and reset, index, reverse index, and next line at boundaries."
+
+[[case]]
+id = "replay.tab-stops"
+title = "Tab stop set, clear, and traversal"
+classification = "automated_replay"
+fixture = "replay/tab-stops.vtseq"
+capture_file = "tab-stops.log"
+timeout_seconds = 20
+confirmed_against_pin = true
+notes = "Default stops, explicit set and clear, and traversal past the last stop."

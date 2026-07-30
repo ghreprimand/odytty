@@ -1,0 +1,91 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# Pinned upstream conformance suite for OdyTTY compatibility evidence.
+#
+# This file is the ONLY place the upstream identity is declared. The runner
+# (scripts/vttest-runner.py) reads it and refuses to proceed when anything here
+# fails to match what was actually retrieved. Nothing from upstream is vendored
+# into this repository: the archive is fetched at run time into an untracked
+# cache directory outside the working tree.
+#
+# Changing any value in [release] is a new pin, not an update. Record the reason
+# in DEVLOG.md and re-run the full verification path; never edit a digest to
+# make a mismatch pass.
+
+[pin]
+# Schema version of this manifest, independent of the upstream release.
+manifest_version = "1.0.0"
+# Why this suite is pinned at all: an unpinned conformance suite silently
+# changes what "conformant" means between runs, which makes every historical
+# result unreproducible.
+rationale = "Comparable results require a byte-identical suite across runs and revisions."
+
+[project]
+name = "vttest"
+summary = "DEC VT-series terminal conformance exerciser."
+maintainer = "Thomas E. Dickey"
+homepage = "https://invisible-island.net/vttest/vttest.html"
+
+[release]
+# The pinned release. Treated as immutable; see [integrity].
+version = "20251205"
+archive_name = "vttest-20251205.tgz"
+archive_url = "https://invisible-island.net/archives/vttest/vttest-20251205.tgz"
+signature_name = "vttest-20251205.tgz.asc"
+signature_url = "https://invisible-island.net/archives/vttest/vttest-20251205.tgz.asc"
+# Matching immutable snapshot of the same release in the upstream snapshot
+# repository. Recorded as a second identity for the same source so a future
+# reader can cross-check the archive against a revision-controlled tree.
+snapshot_repo = "https://github.com/ThomasDickey/vttest-snapshots"
+snapshot_commit = "0229d7171a8574a2bf406c6ce14549f65d810e51"
+
+[integrity]
+# SHA-256 of the release archive exactly as published. The runner compares the
+# retrieved bytes against this value before the archive is opened, let alone
+# extracted. A mismatch is a hard stop with no override flag.
+archive_sha256 = "cd6886f9aefe6a3f6c566fa61271a55710901a71849c630bf5376aa984bf77cc"
+# Full 40-hex-character OpenPGP fingerprint of the release signer. Recorded in
+# full deliberately: a short key id is not a safe identifier, because short ids
+# are collidable and a truncated fingerprint cannot be used to make a trust
+# decision.
+signer_fingerprint = "19882D92DDA4C400C22C0D56CC2AF4472167BE03"
+# Signature verification requires an OpenPGP implementation and the signer's
+# public key, neither of which the runner installs or fetches. When the tool is
+# unavailable the runner records the signature as unverified and STOPS. The
+# digest check alone is not treated as sufficient by default, because a digest
+# recorded in the same repository that fetches the archive proves only
+# consistency, not provenance.
+signature_required_by_default = true
+# Fetching is restricted to this scheme. A pin that can be retrieved over an
+# unauthenticated transport is not a pin.
+allowed_url_scheme = "https"
+
+[license]
+# Composite-license note. vttest is not distributed under a single license
+# statement: individual source files carry their own notices, and those notices
+# are not uniform across the tree.
+#
+# Consequence for this repository, and the reason it is stated here rather than
+# in prose somewhere else: NO upstream file is copied into this repository, in
+# any form, including test fixtures, expected-output goldens, and excerpts. The
+# archive is fetched to an untracked cache, built there, and run from there. The
+# only artifacts that enter the tree are OdyTTY's own case classifications, its
+# own reviewed replay fixtures, and sanitized result documents.
+#
+# Anyone proposing to vendor any part of the upstream tree must first resolve
+# the per-file licensing for every file involved, and must reconcile it with
+# this repository's own license. Treat "it is probably permissive" as a blocker,
+# not an answer.
+composite = true
+vendored = false
+note = "Per-file notices vary across the upstream tree; nothing upstream is vendored here."
+
+[limits]
+# Bounds applied during retrieval and extraction. Every value is enforced by the
+# runner; an input that exceeds any of them is refused rather than truncated.
+max_archive_bytes = 8388608
+max_extracted_bytes = 67108864
+max_member_count = 4096
+max_member_bytes = 8388608
+fetch_timeout_seconds = 120
+build_timeout_seconds = 600

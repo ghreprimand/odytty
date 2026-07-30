@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# provenance: authored for OdyTTY; synthetic; not derived from upstream sources
+# reviewed: yes
+# baseline: 24 rows by 80 columns
+#
+# Erase in line and erase in display, every selector.
+#
+# Escapes: \e ESC, \r CR, \n LF, \t HT, \\ backslash, \xNN one byte.
+
+\e[2J\e[H
+
+# Fill four rows with a repeating pattern so an erase leaves a visible hole
+# rather than blending into blank space.
+\e[3;1Hpattern-row-three-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+\e[4;1Hpattern-row-four-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+\e[5;1Hpattern-row-five-cccccccccccccccccccccccccccccccccccccccc
+\e[6;1Hpattern-row-six-dddddddddddddddddddddddddddddddddddddddddd
+
+# Erase in line, selector 0: cursor to end of line. The left half survives.
+\e[3;20H\e[0K
+
+# Erase in line, selector 1: start of line to cursor, inclusive. The right half
+# survives. The cell under the cursor is erased, which is the selector's
+# documented behavior and a common off-by-one.
+\e[4;20H\e[1K
+
+# Erase in line, selector 2: the whole line regardless of cursor column.
+\e[5;20H\e[2K
+
+# Erase in display, selector 0: cursor to end of screen.
+\e[20;1Htail-row-twenty
+\e[21;1Htail-row-twenty-one
+\e[20;8H\e[0J
+
+# Erase in display, selector 1: start of screen to cursor.
+\e[8;1Hhead-row-eight
+\e[8;8H\e[1J
+
+# Erase in display, selector 2: the whole screen. The cursor position must not
+# move as a side effect.
+\e[12;40H\e[2J
+
+# Erase in display, selector 3: scrollback. A terminal without scrollback
+# erasure must ignore this rather than treating it as selector 2.
+\e[3Jdone
+
+\e[24;1H
