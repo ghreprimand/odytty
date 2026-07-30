@@ -335,7 +335,10 @@ the ownership boundary and deeper workflow architecture.
 [Native decomposition map](docs/native-decomposition.md) define the current
 evidence gates, scope freeze, reproducible starting point, and architecture
 boundaries. The [comparative benchmark protocol](docs/benchmark-protocol.md)
-preregisters performance methodology before measurement.
+preregisters performance methodology before measurement, and the
+[terminal threat model](docs/threat-model.md) catalogs every external-input and
+privilege boundary with its caps, defaults, failure behavior, and unresolved
+risks.
 
 ### Packaging and release
 
