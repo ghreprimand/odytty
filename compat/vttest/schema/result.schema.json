@@ -59,7 +59,7 @@
     "upstream": {
       "description": "Which suite was used, and what was actually proven about it.",
       "type": "object",
-      "required": ["project", "release", "archive_sha256", "signer_fingerprint", "snapshot_commit", "verification"],
+      "required": ["project", "release", "archive_sha256", "signer_fingerprint", "snapshot_commit", "verification", "build"],
       "additionalProperties": false,
       "properties": {
         "project": { "type": "string", "minLength": 1 },
@@ -70,11 +70,31 @@
         "verification": {
           "description": "What was checked, as opposed to what was declared.",
           "type": "object",
-          "required": ["sha256", "signature"],
+          "required": ["sha256", "signature", "trust_root"],
           "additionalProperties": false,
           "properties": {
             "sha256": { "type": "string", "enum": ["verified", "mismatch", "not_checked"] },
-            "signature": { "type": "string", "enum": ["verified", "mismatch", "tool_unavailable", "not_checked"] }
+            "signature": { "type": "string", "enum": ["verified", "mismatch", "tool_unavailable", "not_checked"] },
+            "trust_root": {
+              "description": "isolated_pinned: the signature was checked against a throwaway keyring built from the pinned fingerprint alone. not_checked: no trust root was built. mismatch: the retrieved key did not carry the pinned fingerprint. A signature verified against whatever keys the running machine already trusts is not reproducible and is never recorded as isolated_pinned.",
+              "type": "string",
+              "enum": ["isolated_pinned", "mismatch", "not_checked"]
+            }
+          }
+        },
+        "build": {
+          "description": "How the pinned suite was turned into the binary that ran. A conformance result whose suite build cannot be identified is not reproducible.",
+          "type": "object",
+          "required": ["status", "binary_sha256", "toolchain"],
+          "additionalProperties": false,
+          "properties": {
+            "status": { "type": "string", "enum": ["built", "not_built"] },
+            "binary_sha256": { "type": "string", "pattern": "^([0-9a-f]{64}|unknown)$" },
+            "toolchain": {
+              "description": "One entry per build tool, first version line only. Deliberately coarse: the remainder is host detail that can name a machine.",
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
           }
         }
       }
@@ -94,7 +114,7 @@
         },
         "build_profile": { "type": "string", "enum": ["release", "debug"] },
         "invocation": {
-          "description": "Argument vector as executed. Never a shell string: this harness never invokes a shell.",
+          "description": "Argument vector shape as executed, with machine-specific paths replaced by named placeholders. Never a shell string: this harness never invokes a shell.",
           "type": "array",
           "items": { "type": "string" },
           "minItems": 1
@@ -142,6 +162,7 @@
             "type": "string",
             "enum": [
               "automated_replay",
+              "upstream_log_oracle",
               "interactive_keyboard",
               "visual_manual",
               "platform_dependent",

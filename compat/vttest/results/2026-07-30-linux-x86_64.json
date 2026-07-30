@@ -1,0 +1,336 @@
+{
+  "cases": [
+    {
+      "classification": "visual_manual",
+      "deviations": [],
+      "duration_ms": 0,
+      "evidence": {
+        "kind": "none",
+        "reference": "",
+        "sanitized": false
+      },
+      "id": "upstream.cursor-movements",
+      "outcome": "skip",
+      "reason": "classification visual_manual is not automatable",
+      "title": "Cursor movement conformance"
+    },
+    {
+      "classification": "visual_manual",
+      "deviations": [],
+      "duration_ms": 0,
+      "evidence": {
+        "kind": "none",
+        "reference": "",
+        "sanitized": false
+      },
+      "id": "upstream.screen-features",
+      "outcome": "skip",
+      "reason": "classification visual_manual is not automatable",
+      "title": "Screen feature conformance"
+    },
+    {
+      "classification": "visual_manual",
+      "deviations": [],
+      "duration_ms": 0,
+      "evidence": {
+        "kind": "none",
+        "reference": "",
+        "sanitized": false
+      },
+      "id": "upstream.character-sets",
+      "outcome": "skip",
+      "reason": "classification visual_manual is not automatable",
+      "title": "Character set conformance"
+    },
+    {
+      "classification": "visual_manual",
+      "deviations": [],
+      "duration_ms": 0,
+      "evidence": {
+        "kind": "none",
+        "reference": "",
+        "sanitized": false
+      },
+      "id": "upstream.double-sized-characters",
+      "outcome": "skip",
+      "reason": "classification visual_manual is not automatable",
+      "title": "Double-width and double-height cells"
+    },
+    {
+      "classification": "interactive_keyboard",
+      "deviations": [],
+      "duration_ms": 0,
+      "evidence": {
+        "kind": "none",
+        "reference": "",
+        "sanitized": false
+      },
+      "id": "upstream.keyboard",
+      "outcome": "skip",
+      "reason": "classification interactive_keyboard is not automatable",
+      "title": "Keyboard conformance"
+    },
+    {
+      "classification": "platform_dependent",
+      "deviations": [],
+      "duration_ms": 0,
+      "evidence": {
+        "kind": "none",
+        "reference": "",
+        "sanitized": false
+      },
+      "id": "upstream.terminal-reports",
+      "outcome": "skip",
+      "reason": "classification platform_dependent is not automatable",
+      "title": "Device and status report conformance"
+    },
+    {
+      "classification": "visual_manual",
+      "deviations": [],
+      "duration_ms": 0,
+      "evidence": {
+        "kind": "none",
+        "reference": "",
+        "sanitized": false
+      },
+      "id": "upstream.vt52-mode",
+      "outcome": "skip",
+      "reason": "classification visual_manual is not automatable",
+      "title": "VT52 compatibility mode"
+    },
+    {
+      "classification": "visual_manual",
+      "deviations": [],
+      "duration_ms": 0,
+      "evidence": {
+        "kind": "none",
+        "reference": "",
+        "sanitized": false
+      },
+      "id": "upstream.vt102-features",
+      "outcome": "skip",
+      "reason": "classification visual_manual is not automatable",
+      "title": "Insert and delete character and line"
+    },
+    {
+      "classification": "unsafe_unattended",
+      "deviations": [],
+      "duration_ms": 0,
+      "evidence": {
+        "kind": "none",
+        "reference": "",
+        "sanitized": false
+      },
+      "id": "upstream.known-bugs",
+      "outcome": "skip",
+      "reason": "classification unsafe_unattended is not automatable",
+      "title": "Known-bug exercises"
+    },
+    {
+      "classification": "unsafe_unattended",
+      "deviations": [],
+      "duration_ms": 0,
+      "evidence": {
+        "kind": "none",
+        "reference": "",
+        "sanitized": false
+      },
+      "id": "upstream.reset-and-self-test",
+      "outcome": "skip",
+      "reason": "classification unsafe_unattended is not automatable",
+      "title": "Reset and self-test"
+    },
+    {
+      "classification": "platform_dependent",
+      "deviations": [],
+      "duration_ms": 0,
+      "evidence": {
+        "kind": "none",
+        "reference": "",
+        "sanitized": false
+      },
+      "id": "upstream.non-vt100-terminals",
+      "outcome": "skip",
+      "reason": "classification platform_dependent is not automatable",
+      "title": "Extended and non-VT100 behavior"
+    },
+    {
+      "classification": "platform_dependent",
+      "deviations": [],
+      "duration_ms": 0,
+      "evidence": {
+        "kind": "none",
+        "reference": "",
+        "sanitized": false
+      },
+      "id": "upstream.test-parameters",
+      "outcome": "skip",
+      "reason": "classification platform_dependent is not automatable",
+      "title": "Test-parameter menu"
+    },
+    {
+      "classification": "upstream_log_oracle",
+      "deviations": [
+        {
+          "rationale": "A raw byte in 0x80..=0x9F executes as a control function and is never treated as a sequence introducer, so a control sequence sent with an eight-bit introducer is not recognised. The suite's eight-bit output check therefore reports no valid response, which is the documented behavior rather than a defect. The introducer form is ambiguous under UTF-8, where those bytes are invalid encoding units. The parser resolves the ambiguity once, in favor of executing the control, so that how a byte stream is split across reads can never change what a sequence means. Anchor: src/parser/mod.rs policy ledger item 1; src/parser/machine.rs module docs. Revisit: Reopen if the operating level advertised in the device attributes reply is raised, since eight-bit control introduction is expected at the higher levels.",
+          "summary": "Eight-bit C1 bytes execute; they never introduce a sequence"
+        }
+      ],
+      "duration_ms": 5589,
+      "evidence": {
+        "kind": "capture_file",
+        "reference": "upstream.log",
+        "sanitized": true
+      },
+      "id": "upstream.oracle.send-8bit-controls",
+      "outcome": "ignore",
+      "reason": "the suite recorded a negative verdict that a documented divergence covers (no-8bit-c1-introduction); recorded as a deviation rather than counted as a failure or a pass",
+      "title": "Eight-bit control output accepted on input"
+    },
+    {
+      "classification": "upstream_log_oracle",
+      "deviations": [
+        {
+          "rationale": "The select-eight-bit-transmission escape is not implemented, so reports are always returned in the seven-bit form. The suite's eight-bit input check asks for the eight-bit form and reports no valid response when it arrives in the seven-bit form. The device attributes reply advertises a VT100-class terminal with an advanced video option, an operating level at which eight-bit control transmission is not required. Recorded as an open gap rather than a conformance failure against the level actually advertised. Anchor: no handler for the select-eight-bit-controls escape exists in src/. Revisit: Reopen together with any change to the advertised operating level, and before any claim of VT200-series or later conformance.",
+          "summary": "Replies are transmitted with seven-bit control forms only"
+        }
+      ],
+      "duration_ms": 5994,
+      "evidence": {
+        "kind": "capture_file",
+        "reference": "upstream.log",
+        "sanitized": true
+      },
+      "id": "upstream.oracle.receive-8bit-controls",
+      "outcome": "ignore",
+      "reason": "the suite recorded a negative verdict that a documented divergence covers (no-s8c1t-transmission); recorded as a deviation rather than counted as a failure or a pass",
+      "title": "Eight-bit control form used in replies"
+    },
+    {
+      "classification": "automated_replay",
+      "deviations": [],
+      "duration_ms": 549,
+      "evidence": {
+        "kind": "capture_file",
+        "reference": "cursor-addressing.log",
+        "sanitized": true
+      },
+      "id": "replay.cursor-addressing",
+      "outcome": "ignore",
+      "reason": "sequence consumed without error; screen state was not read back, so no conformance conclusion is drawn. Promoting this to a pass requires a grid readback path that does not exist yet.",
+      "title": "Absolute and relative cursor addressing"
+    },
+    {
+      "classification": "automated_replay",
+      "deviations": [],
+      "duration_ms": 519,
+      "evidence": {
+        "kind": "capture_file",
+        "reference": "erase-operations.log",
+        "sanitized": true
+      },
+      "id": "replay.erase-operations",
+      "outcome": "ignore",
+      "reason": "sequence consumed without error; screen state was not read back, so no conformance conclusion is drawn. Promoting this to a pass requires a grid readback path that does not exist yet.",
+      "title": "Erase in line and erase in display"
+    },
+    {
+      "classification": "automated_replay",
+      "deviations": [],
+      "duration_ms": 532,
+      "evidence": {
+        "kind": "capture_file",
+        "reference": "scroll-region.log",
+        "sanitized": true
+      },
+      "id": "replay.scroll-region",
+      "outcome": "ignore",
+      "reason": "sequence consumed without error; screen state was not read back, so no conformance conclusion is drawn. Promoting this to a pass requires a grid readback path that does not exist yet.",
+      "title": "Scrolling region and index operations"
+    },
+    {
+      "classification": "automated_replay",
+      "deviations": [],
+      "duration_ms": 586,
+      "evidence": {
+        "kind": "capture_file",
+        "reference": "tab-stops.log",
+        "sanitized": true
+      },
+      "id": "replay.tab-stops",
+      "outcome": "ignore",
+      "reason": "sequence consumed without error; screen state was not read back, so no conformance conclusion is drawn. Promoting this to a pass requires a grid readback path that does not exist yet.",
+      "title": "Tab stop set, clear, and traversal"
+    }
+  ],
+  "environment": {
+    "class": "linux-x86_64",
+    "geometry": {
+      "columns": 80,
+      "rows": 24,
+      "verified": false
+    },
+    "isolated_state": true,
+    "locale": "C.UTF-8",
+    "term": "xterm-256color"
+  },
+  "generated_utc": "2026-07-30T15:09:31Z",
+  "limitations": [
+    "Geometry is declared, not commanded: no current command-line or configuration surface pins the initial cell grid, so the baseline is recorded as intended rather than confirmed as applied.",
+    "Screen state is not read back. The harness observes process outcome and declared capture files only, so a consumed sequence is recorded as ignore rather than pass.",
+    "Windows and ConPTY are unavailable for this suite; no Windows conclusion may be inferred from a Unix run.",
+    "Only the areas where the pinned suite writes its own verdict line are machine-judged. Cursor movement, screen features, character sets, double-sized cells, VT52 mode, and insert/delete are decided by looking at the screen and stay manual no matter how the harness is extended.",
+    "The subject runs as a native window, so a result requires a display server. A headless machine produces harness failures, not compatibility results."
+  ],
+  "runner": {
+    "message": "",
+    "phase": "complete",
+    "platform_class": "linux-x86_64",
+    "python_version": "3.14.6",
+    "runner_version": "1.1.0",
+    "status": "ok"
+  },
+  "schema_version": "1.1.0",
+  "subject": {
+    "build_profile": "release",
+    "invocation": [
+      "odytty",
+      "--native",
+      "--hold=false",
+      "--working-directory",
+      "<case artifact directory>",
+      "-e",
+      "<case child command>"
+    ],
+    "product": "OdyTTY",
+    "revision": "3b85063d217a4db6b3a2a5e6adc85cb032ce6459",
+    "version": "odytty 0.9.8"
+  },
+  "totals": {
+    "fail": 0,
+    "ignore": 6,
+    "pass": 0,
+    "skip": 12,
+    "unsupported": 0
+  },
+  "upstream": {
+    "archive_sha256": "cd6886f9aefe6a3f6c566fa61271a55710901a71849c630bf5376aa984bf77cc",
+    "build": {
+      "binary_sha256": "88a5aec192dd126751b8880eaa5998c804188813f7c6f8f79c5efa466bab020e",
+      "status": "built",
+      "toolchain": [
+        "cc: cc (GCC) 15.2.0",
+        "make: GNU Make 4.4.1"
+      ]
+    },
+    "project": "vttest",
+    "release": "20251205",
+    "signer_fingerprint": "19882D92DDA4C400C22C0D56CC2AF4472167BE03",
+    "snapshot_commit": "0229d7171a8574a2bf406c6ce14549f65d810e51",
+    "verification": {
+      "sha256": "verified",
+      "signature": "verified",
+      "trust_root": "isolated_pinned"
+    }
+  }
+}

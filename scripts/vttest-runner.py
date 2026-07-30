@@ -32,6 +32,8 @@
 #   python3 scripts/vttest-runner.py extract
 #   python3 scripts/vttest-runner.py build
 #   python3 scripts/vttest-runner.py run --case replay.tab-stops --binary ./target/release/odytty
+#   python3 scripts/vttest-runner.py run --case upstream.oracle.send-8bit-controls \
+#       --binary ./target/release/odytty
 #   python3 scripts/vttest-runner.py validate --result out/result.json
 #   python3 scripts/vttest-runner.py selftest
 #
@@ -60,8 +62,8 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-RUNNER_VERSION = "1.0.0"
-SCHEMA_VERSION = "1.0.0"
+RUNNER_VERSION = "1.1.0"
+SCHEMA_VERSION = "1.1.0"
 MIN_PYTHON = (3, 11)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -153,7 +155,7 @@ def validate_upstream(manifest: dict[str, Any]) -> dict[str, Any]:
     malformed pin fails before anything is fetched rather than halfway through
     an extraction.
     """
-    for section in ("pin", "project", "release", "integrity", "license", "limits"):
+    for section in ("pin", "project", "release", "trust", "integrity", "build", "license", "limits"):
         if section not in manifest:
             raise RunnerError("verify", f"upstream manifest missing section: {section}")
 
@@ -180,6 +182,21 @@ def validate_upstream(manifest: dict[str, Any]) -> dict[str, Any]:
                 f"{key} must use the {scheme} scheme; an unauthenticated "
                 "transport cannot deliver a pinned artifact",
             )
+
+    trust = manifest["trust"]
+    if trust.get("isolated_keyring") is not True:
+        raise RunnerError(
+            "verify",
+            "trust.isolated_keyring must be true: a signature checked against "
+            "whichever keys the invoking machine happens to trust is not a "
+            "reproducible check",
+        )
+    key_url = str(trust.get("signer_key_url", ""))
+    if not key_url.startswith(f"{scheme}://"):
+        raise RunnerError(
+            "verify",
+            f"trust.signer_key_url must use the {scheme} scheme",
+        )
 
     if manifest["license"].get("vendored") is not False:
         raise RunnerError(
@@ -227,10 +244,37 @@ def validate_cases(manifest: dict[str, Any]) -> dict[str, Any]:
                 "verify", f"case {case_id} has an unknown classification"
             )
         if case.get("classification") in automatable:
-            if not case.get("fixture"):
+            # An automatable case must say HOW it is driven. A replay case
+            # names its own fixture; an upstream case names the menu path that
+            # was read out of the pinned tree. A case with neither would be
+            # selected by a run and then have nothing to execute.
+            if not case.get("fixture") and not case.get("menu_path"):
                 raise RunnerError(
-                    "verify", f"automatable case {case_id} declares no fixture"
+                    "verify",
+                    f"automatable case {case_id} declares neither a fixture "
+                    "nor an upstream menu path",
                 )
+            if case.get("menu_path") and not case.get("confirmed_against_pin"):
+                raise RunnerError(
+                    "verify",
+                    f"case {case_id} declares a menu path that has not been "
+                    "confirmed against the pinned tree",
+                )
+    known_divergences = {entry["id"] for entry in manifest.get("divergence", [])}
+    covered = {str(entry["id"]) for entry in manifest.get("verdict", [])}
+    for entry in manifest.get("divergence", []):
+        if str(entry.get("covers_verdict", "")) not in covered:
+            raise RunnerError(
+                "verify",
+                f"divergence {entry.get('id')} covers a verdict that is not declared",
+            )
+    for case in manifest.get("case", []):
+        declared = case.get("expected_divergence")
+        if declared and declared not in known_divergences:
+            raise RunnerError(
+                "verify",
+                f"case {case['id']} names an undeclared divergence: {declared}",
+            )
     if not seen:
         raise RunnerError("verify", "cases manifest declares no cases")
     return manifest
@@ -326,21 +370,155 @@ def verify_digest(path: Path, expected: str) -> None:
         )
 
 
-def verify_signature(archive: Path, signature: Path, fingerprint: str) -> str:
-    """Verify the detached signature if an OpenPGP tool is available.
+def _gpg_tool() -> str:
+    tool = shutil.which("gpg") or shutil.which("gpg2")
+    if tool is None:
+        raise RunnerError(
+            "verify",
+            "no OpenPGP implementation is available. The pin requires a "
+            "verified signature, and a digest recorded beside the fetch logic "
+            "proves consistency rather than provenance, so this is a stop "
+            "rather than a downgrade.",
+        )
+    return tool
 
-    Returns one of the schema's signature verification states. A missing tool
-    is reported as tool_unavailable and treated as a hard stop by the caller
-    when the pin requires signatures: a digest recorded alongside the fetch
-    logic proves consistency, not provenance.
+
+def _throwaway_home(work_dir: Path) -> Path:
+    """A private OpenPGP home for one verification.
+
+    Recreated every time. Nothing is imported into, read from, or written to
+    the invoking user's keyring: the whole point of the pinned fingerprint is
+    that the check does not depend on what a particular machine already
+    trusts.
     """
-    gpg = shutil.which("gpg") or shutil.which("gpg2")
-    if gpg is None:
-        return "tool_unavailable"
+    home = work_dir / "trust-root"
+    if home.exists():
+        shutil.rmtree(home)
+    home.mkdir(parents=True)
+    home.chmod(0o700)
+    return home
+
+
+def _primary_fingerprints(colon_listing: str) -> list[str]:
+    """Primary-key fingerprints from a colon-format listing.
+
+    Only the fingerprint that immediately follows a public-key record counts.
+    A subkey fingerprint is not the key's identity, and accepting one would let
+    a key be matched by something the pin never named.
+    """
+    fingerprints: list[str] = []
+    expecting = False
+    for line in colon_listing.splitlines():
+        fields = line.split(":")
+        if not fields:
+            continue
+        if fields[0] == "pub":
+            expecting = True
+        elif fields[0] == "fpr" and expecting:
+            if len(fields) > 9 and fields[9]:
+                fingerprints.append(fields[9].upper())
+            expecting = False
+        elif fields[0] in ("sub", "uid"):
+            expecting = False
+    return fingerprints
+
+
+def build_trust_root(work_dir: Path, key_file: Path, fingerprint: str) -> Path:
+    """Import the signer key into a throwaway keyring pinned by fingerprint.
+
+    Returns the exported keyring path. Raises when the key file does not carry
+    the pinned fingerprint as a primary key, which is the only property that
+    makes the later signature check meaningful.
+    """
+    if not key_file.is_file():
+        raise RunnerError("verify", "signer key file is not present; run fetch first")
+    tool = _gpg_tool()
+    home = _throwaway_home(work_dir)
+    env = {
+        "GNUPGHOME": str(home),
+        "HOME": str(home),
+        "PATH": "/usr/bin:/bin",
+        "LC_ALL": "C",
+    }
+    imported = subprocess.run(  # noqa: S603 - argv form, no shell
+        [tool, "--batch", "--quiet", "--import", str(key_file)],
+        env=env,
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    if imported.returncode != 0:
+        raise RunnerError("verify", "the signer key file could not be imported")
+    listing = subprocess.run(  # noqa: S603 - argv form, no shell
+        [tool, "--batch", "--with-colons", "--fingerprint"],
+        env=env,
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    primaries = _primary_fingerprints(listing.stdout.decode("utf-8", "replace"))
+    if fingerprint.upper() not in primaries:
+        raise RunnerError(
+            "verify",
+            "the retrieved key does not carry the pinned fingerprint as a "
+            "primary key; refusing to build a trust root from it",
+        )
+    keyring = home / "pinned.gpg"
+    exported = subprocess.run(  # noqa: S603 - argv form, no shell
+        [tool, "--batch", "--export", "--output", str(keyring), fingerprint],
+        env=env,
+        capture_output=True,
+        timeout=120,
+        check=False,
+    )
+    if exported.returncode != 0 or not keyring.is_file() or keyring.stat().st_size == 0:
+        raise RunnerError("verify", "the pinned key could not be exported to a keyring")
+    return keyring
+
+
+def verify_signature(archive: Path, signature: Path, fingerprint: str, keyring: Path) -> str:
+    """Verify the detached signature against the pinned trust root only.
+
+    Returns one of the schema's signature verification states. The keyring is
+    always passed explicitly, so the result cannot depend on the invoking
+    user's configuration.
+    """
     if not signature.is_file():
         return "not_checked"
+    verifier = shutil.which("gpgv")
+    home = keyring.parent
+    env = {
+        "GNUPGHOME": str(home),
+        "HOME": str(home),
+        "PATH": "/usr/bin:/bin",
+        "LC_ALL": "C",
+    }
+    if verifier is not None:
+        argv = [
+            verifier,
+            "--keyring",
+            str(keyring),
+            "--status-fd",
+            "1",
+            str(signature),
+            str(archive),
+        ]
+    else:
+        argv = [
+            _gpg_tool(),
+            "--batch",
+            "--no-default-keyring",
+            "--keyring",
+            str(keyring),
+            "--status-fd",
+            "1",
+            "--verify",
+            str(signature),
+            str(archive),
+        ]
     completed = subprocess.run(  # noqa: S603 - argv form, no shell
-        [gpg, "--status-fd", "1", "--verify", str(signature), str(archive)],
+        argv,
+        env=env,
         capture_output=True,
         timeout=120,
         check=False,
@@ -478,6 +656,191 @@ def assemble_fixture(text: str) -> bytes:
 
 
 # ---------------------------------------------------------------------------
+# Upstream replay script and log oracle
+# ---------------------------------------------------------------------------
+
+
+def compose_replay_script(
+    menu_path: list[int],
+    *,
+    markers_per_step: int,
+    trailing_steps: int,
+) -> str:
+    """Build the command file that drives the pinned suite to one menu path.
+
+    The suite's replay reader consumes a log-shaped script. Two facts about it
+    decide this format, both read out of the pinned tree:
+
+      * every point where the suite stops to read a reply from the terminal
+        scans forward to the next `Wait:` line and then to the matching
+        `Done:` line, consuming whatever lies between, so a `Read:` line that
+        sits in front of an unconsumed pause is eaten;
+      * a search for the next `Read:` line skips anything bracketed by a
+        `Wait:`/`Done:` pair, so surplus markers ahead of an input are
+        harmless.
+
+    The asymmetry is why the generator emits a margin of markers before every
+    input rather than trying to predict the exact number of pauses: too many
+    costs nothing, too few desynchronises. Desynchronisation is then detected
+    from the log rather than assumed not to happen.
+
+    Trailing blank inputs terminate the run: a blank line at any menu selects
+    entry zero, which is Exit at every level, so the run unwinds to the top
+    menu and leaves instead of drifting into an undeclared test.
+    """
+    if not menu_path:
+        raise RunnerError("run", "an upstream case needs a menu path")
+    if any(step < 0 for step in menu_path):
+        raise RunnerError("run", "a menu path entry cannot be negative")
+    lines: list[str] = []
+    marker = 0
+
+    def emit_markers() -> None:
+        nonlocal marker
+        for _ in range(markers_per_step):
+            marker += 1
+            lines.append(f"Wait: {marker}")
+            lines.append(f"Done: {marker}")
+
+    for step in menu_path:
+        emit_markers()
+        lines.append(f"Read: {step}")
+    for _ in range(trailing_steps):
+        emit_markers()
+        lines.append("Read: ")
+    return "\n".join(lines) + "\n"
+
+
+CHOICE_LINE = re.compile(r"^Note: choice ([0-9.]+): (.*)$")
+CLEAN_EXIT_LINE = "Note: Cleanup & exit"
+
+
+def parse_upstream_log(text: str, verdicts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Read a pinned-suite log into a traversal record and a verdict list.
+
+    Only the declared verdict lines are treated as conclusions. Everything else
+    the suite writes -- what it sent, what it read, what it drew -- is a
+    transcript. Treating a transcript line as an outcome is exactly how a
+    harness starts reporting passes it never observed.
+    """
+    traversal: list[str] = []
+    observed: list[dict[str, str]] = []
+    for line in text.splitlines():
+        match = CHOICE_LINE.match(line)
+        if match:
+            traversal.append(match.group(1))
+            continue
+        for verdict in verdicts:
+            if line.startswith(str(verdict["pattern"])):
+                observed.append(
+                    {
+                        "id": str(verdict["id"]),
+                        "polarity": str(verdict["polarity"]),
+                        "source": str(verdict["source"]),
+                    }
+                )
+                break
+    return {
+        "traversal": traversal,
+        "verdicts": observed,
+        "clean_exit": CLEAN_EXIT_LINE in text,
+    }
+
+
+def expected_traversal(menu_path: list[int]) -> list[str]:
+    """The dotted menu paths the suite records while walking to a case.
+
+    The suite writes one line per level, each naming the path so far, so a walk
+    to 12.2 records `12` and then `12.2`. Comparing the whole sequence rather
+    than the final entry catches a replay that arrived at the right place by
+    the wrong route.
+    """
+    out: list[str] = []
+    for index in range(1, len(menu_path) + 1):
+        out.append(".".join(str(step) for step in menu_path[:index]))
+    return out
+
+
+def classify_upstream_outcome(
+    parsed: dict[str, Any],
+    *,
+    menu_path: list[int],
+    divergence: dict[str, Any] | None,
+) -> tuple[str, str, list[dict[str, str]]]:
+    """Turn a parsed log into an outcome, a reason, and any deviations.
+
+    The rules, in order:
+
+      1. A traversal that does not match the declared path is a harness
+         desynchronisation, reported as a skip. It is not a product failure,
+         and calling it one would blame the terminal for the script.
+      2. An upstream negative verdict that a declared divergence covers is
+         recorded as a deviation with outcome ignore. The divergence has to
+         name the verdict it covers, so this cannot quietly absorb an
+         unrelated failure.
+      3. Any other upstream negative verdict is a fail.
+      4. An upstream positive verdict with nothing negative alongside it is a
+         pass.
+      5. No verdict at all is an ignore. The case ran; upstream simply did not
+         state a conclusion, and inventing one is the failure mode this whole
+         contract exists to prevent.
+    """
+    wanted = expected_traversal(menu_path)
+    if parsed["traversal"] != wanted:
+        return (
+            "skip",
+            "replay desynchronised: the suite recorded menu path "
+            f"{parsed['traversal'] or ['none']} where the case declares {wanted}. "
+            "No conformance conclusion is drawn from a run that did not reach "
+            "the declared test.",
+            [],
+        )
+
+    negatives = [v for v in parsed["verdicts"] if v["polarity"] == "negative"]
+    positives = [v for v in parsed["verdicts"] if v["polarity"] == "positive"]
+
+    if negatives:
+        if divergence is not None and all(
+            v["id"] == str(divergence["covers_verdict"]) for v in negatives
+        ):
+            deviation = {
+                "summary": str(divergence["title"]),
+                "rationale": " ".join(
+                    part.strip()
+                    for part in (
+                        str(divergence["statement"]),
+                        str(divergence["rationale"]),
+                        f"Anchor: {divergence['anchor']}.",
+                        f"Revisit: {str(divergence['revisit']).strip()}",
+                    )
+                ).replace("\n", " "),
+            }
+            return (
+                "ignore",
+                "the suite recorded a negative verdict that a documented "
+                f"divergence covers ({divergence['id']}); recorded as a "
+                "deviation rather than counted as a failure or a pass",
+                [deviation],
+            )
+        return (
+            "fail",
+            "the suite recorded a negative verdict: "
+            + ", ".join(f"{v['id']} ({v['source']})" for v in negatives),
+            [],
+        )
+
+    if positives:
+        return ("pass", "", [])
+
+    return (
+        "ignore",
+        "the run reached the declared test and exited cleanly, but the suite "
+        "wrote no verdict line for it, so no conclusion is available",
+        [],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Sanitization
 # ---------------------------------------------------------------------------
 
@@ -511,6 +874,9 @@ def sanitize_bytes(raw: bytes) -> str:
 # ---------------------------------------------------------------------------
 
 
+DISPLAY_PASSTHROUGH = ("WAYLAND_DISPLAY", "DISPLAY", "XDG_RUNTIME_DIR")
+
+
 def isolated_environment(state_dir: Path, baseline: dict[str, Any]) -> dict[str, str]:
     """A minimal, private environment for a case.
 
@@ -524,7 +890,7 @@ def isolated_environment(state_dir: Path, baseline: dict[str, Any]) -> dict[str,
     """
     for leaf in ("config", "data", "state", "cache", "home"):
         (state_dir / leaf).mkdir(parents=True, exist_ok=True)
-    return {
+    environment = {
         "HOME": str(state_dir / "home"),
         "XDG_CONFIG_HOME": str(state_dir / "config"),
         "XDG_DATA_HOME": str(state_dir / "data"),
@@ -538,6 +904,17 @@ def isolated_environment(state_dir: Path, baseline: dict[str, Any]) -> dict[str,
         # noise; the plain path is the one under test here.
         "ODYTTY_VISUAL": "plain",
     }
+    # The subject is a native windowed terminal, so it needs the display
+    # server's address to start at all. These three variables are the whole
+    # allowance, they are copied only when already present, and nothing else
+    # from the invoking environment crosses the boundary. On a machine with no
+    # display none of them is set, the subject fails to start, and the case is
+    # reported as a harness failure rather than as a compatibility result.
+    for name in DISPLAY_PASSTHROUGH:
+        value = os.environ.get(name)
+        if value:
+            environment[name] = value
+    return environment
 
 
 def build_invocation(binary: Path, artifact_dir: Path, child_argv: list[str]) -> list[str]:
@@ -553,6 +930,25 @@ def build_invocation(binary: Path, artifact_dir: Path, child_argv: list[str]) ->
         str(artifact_dir),
         "-e",
         *child_argv,
+    ]
+
+
+def subject_invocation(binary: Path) -> list[str]:
+    """The argument vector shape the subject was launched with.
+
+    Absolute paths are reduced to placeholders. A full path in a public
+    document names a machine and a directory layout without telling a reader
+    anything they can act on; the shape, the flags, and their order are the
+    part that has to be reproducible.
+    """
+    return [
+        binary.name,
+        "--native",
+        "--hold=false",
+        "--working-directory",
+        "<case artifact directory>",
+        "-e",
+        "<case child command>",
     ]
 
 
@@ -651,6 +1047,135 @@ def run_case(
     )
 
 
+def run_upstream_case(
+    case: dict[str, Any],
+    *,
+    binary: Path,
+    upstream_binary: Path,
+    baseline: dict[str, Any],
+    script_shape: dict[str, Any],
+    verdicts: list[dict[str, Any]],
+    divergences: dict[str, dict[str, Any]],
+    work_dir: Path,
+) -> dict[str, Any]:
+    """Drive the pinned suite through the subject terminal and read its log.
+
+    The suite runs as the child of a native subject window, exactly as a person
+    would run it, and is steered by its own command-file option rather than by
+    synthetic key injection. Its log file is the evidence; the subject's own
+    standard output is captured too, but only as a diagnostic.
+    """
+    check_platform_supported()
+    started = _now_ms()
+
+    menu_path = [int(step) for step in case.get("menu_path", [])]
+    state_dir = work_dir / "state" / str(case["id"])
+    artifact_dir = work_dir / "artifacts" / str(case["id"])
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    env = isolated_environment(state_dir, baseline)
+
+    script_path = artifact_dir / "commands.txt"
+    script_path.write_text(
+        compose_replay_script(
+            menu_path,
+            markers_per_step=int(script_shape.get("markers_per_step", 6)),
+            trailing_steps=int(script_shape.get("trailing_steps", 4)),
+        ),
+        encoding="ascii",
+    )
+    log_path = artifact_dir / "upstream.log"
+    if log_path.exists():
+        log_path.unlink()
+
+    child = [
+        str(upstream_binary),
+        "-c",
+        str(script_path),
+        "-l",
+        str(log_path),
+        str(baseline.get("geometry_argument", "24x80.132")),
+    ]
+    argv = build_invocation(binary, artifact_dir, child)
+    timeout = int(case.get("timeout_seconds", 180))
+
+    try:
+        completed = subprocess.run(  # noqa: S603 - argv form, no shell
+            argv,
+            env=env,
+            cwd=str(artifact_dir),
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return case_entry(
+            case,
+            "skip",
+            f"the run exceeded its {timeout}-second bound and was terminated "
+            "before the suite exited; a truncated run is not evidence either "
+            "way",
+            _now_ms() - started,
+        )
+    except OSError as exc:
+        return case_entry(
+            case,
+            "skip",
+            f"the subject could not be launched: {type(exc).__name__}. A "
+            "native window needs a display server; a headless machine cannot "
+            "produce a result here.",
+            _now_ms() - started,
+        )
+
+    duration = _now_ms() - started
+    diagnostic = artifact_dir / str(case.get("capture_file", "case.log"))
+    captured = completed.stdout[:MAX_CAPTURE_BYTES] + completed.stderr[:MAX_CAPTURE_BYTES]
+    diagnostic.write_text(sanitize_bytes(captured), encoding="utf-8")
+
+    if not log_path.is_file():
+        return case_entry(
+            case,
+            "skip",
+            "the suite wrote no log file, so nothing can be read back from "
+            f"this run (subject exit status {completed.returncode})",
+            duration,
+            evidence_kind="exit_status",
+        )
+
+    raw_log = log_path.read_bytes()[:MAX_ARTIFACT_BYTES]
+    log_text = raw_log.decode("utf-8", "replace")
+    log_path.write_text(sanitize(log_text), encoding="utf-8")
+
+    parsed = parse_upstream_log(log_text, verdicts)
+    if not parsed["clean_exit"]:
+        return case_entry(
+            case,
+            "skip",
+            "the suite did not record its own clean exit, so the log may be "
+            "incomplete and is not read as a result",
+            duration,
+            evidence_kind="capture_file",
+            reference=log_path.name,
+        )
+
+    declared = case.get("expected_divergence")
+    divergence = divergences.get(str(declared)) if declared else None
+    outcome, reason, deviations = classify_upstream_outcome(
+        parsed,
+        menu_path=menu_path,
+        divergence=divergence,
+    )
+    entry = case_entry(
+        case,
+        outcome,
+        reason,
+        duration,
+        evidence_kind="capture_file",
+        reference=log_path.name,
+    )
+    entry["deviations"] = deviations
+    return entry
+
+
 def case_entry(
     case: dict[str, Any],
     outcome: str,
@@ -700,6 +1225,7 @@ def assemble_result(
     message: str,
     upstream: dict[str, Any],
     verification: dict[str, str],
+    build_record: dict[str, Any],
     subject: dict[str, Any],
     baseline: dict[str, Any],
     cases: list[dict[str, Any]],
@@ -727,6 +1253,11 @@ def assemble_result(
             "signer_fingerprint": str(upstream["integrity"]["signer_fingerprint"]),
             "snapshot_commit": str(upstream["release"]["snapshot_commit"]),
             "verification": dict(verification),
+            "build": {
+                "status": str(build_record.get("status", "not_built")),
+                "binary_sha256": str(build_record.get("binary_sha256", "unknown")),
+                "toolchain": [str(item) for item in build_record.get("toolchain", [])],
+            },
         },
         "subject": subject,
         "environment": {
@@ -904,7 +1435,10 @@ def describe_subject(binary: Path | None, invocation: list[str]) -> dict[str, An
         "version": version,
         "revision": revision,
         "build_profile": "release",
-        "invocation": invocation or ["unrun"],
+        # Paths in an invocation routinely contain a home directory, which
+        # names a person. The document is public, so the vector is recorded
+        # scrubbed rather than raw.
+        "invocation": [sanitize(item) for item in invocation] or ["unrun"],
     }
 
 
@@ -917,14 +1451,55 @@ STANDING_LIMITATIONS = [
     "ignore rather than pass.",
     "Windows and ConPTY are unavailable for this suite; no Windows conclusion "
     "may be inferred from a Unix run.",
-    "Upstream menu paths are unconfirmed against the pinned tree, so no "
-    "upstream case is executable and every upstream area is reported as skip.",
+    "Only the areas where the pinned suite writes its own verdict line are "
+    "machine-judged. Cursor movement, screen features, character sets, "
+    "double-sized cells, VT52 mode, and insert/delete are decided by looking "
+    "at the screen and stay manual no matter how the harness is extended.",
+    "The subject runs as a native window, so a result requires a display "
+    "server. A headless machine produces harness failures, not compatibility "
+    "results.",
 ]
 
 
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
+
+
+def state_path(work_dir: Path, name: str) -> Path:
+    return work_dir / name
+
+
+def save_state(work_dir: Path, name: str, payload: dict[str, Any]) -> None:
+    """Record what a phase actually proved, for the phase that reports it.
+
+    A result document must state what was checked, not what the manifest hoped
+    would be checked. Phases run as separate commands, so the proof has to
+    outlive the process that produced it.
+    """
+    work_dir.mkdir(parents=True, exist_ok=True)
+    state_path(work_dir, name).write_text(
+        json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+
+
+def load_state(work_dir: Path, name: str, default: dict[str, Any]) -> dict[str, Any]:
+    path = state_path(work_dir, name)
+    if not path.is_file():
+        return dict(default)
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return dict(default)
+    if not isinstance(loaded, dict):
+        return dict(default)
+    merged = dict(default)
+    merged.update({k: v for k, v in loaded.items() if k in default})
+    return merged
+
+
+UNVERIFIED = {"sha256": "not_checked", "signature": "not_checked", "trust_root": "not_checked"}
+UNBUILT = {"status": "not_built", "binary_sha256": "unknown", "toolchain": []}
 
 
 def cmd_list(_args: argparse.Namespace) -> int:
@@ -964,6 +1539,17 @@ def cmd_fetch(args: argparse.Namespace) -> int:
         # A missing signature is reported by `verify`, which is the phase that
         # decides whether it is fatal. Fetch does not make trust decisions.
         pass
+    try:
+        fetch_url(
+            str(upstream["trust"]["signer_key_url"]),
+            destination / "signer-key.asc",
+            max_bytes=int(limits["max_archive_bytes"]),
+            timeout=int(limits["fetch_timeout_seconds"]),
+        )
+    except RunnerError:
+        # Same rule as the signature: retrieval does not decide trust. The
+        # verify phase refuses to continue without a usable key.
+        pass
     print(f"fetched into {destination}")
     return 0
 
@@ -979,8 +1565,16 @@ def cmd_verify(args: argparse.Namespace) -> int:
     if not archive.is_file():
         raise RunnerError("verify", "archive is not present; run fetch first")
     verify_digest(archive, str(integrity["archive_sha256"]))
-    state = verify_signature(archive, signature, str(integrity["signer_fingerprint"]))
-    print(f"digest: verified\nsignature: {state}")
+
+    fingerprint = str(integrity["signer_fingerprint"])
+    keyring = build_trust_root(destination, destination / "signer-key.asc", fingerprint)
+    state = verify_signature(archive, signature, fingerprint, keyring)
+    save_state(
+        destination,
+        "verification.json",
+        {"sha256": "verified", "signature": state, "trust_root": "isolated_pinned"},
+    )
+    print(f"digest: verified\ntrust root: isolated, pinned by fingerprint\nsignature: {state}")
     if integrity.get("signature_required_by_default", True) and state != "verified":
         raise RunnerError(
             "verify",
@@ -1014,6 +1608,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         raise RunnerError("build", "no configure script found; run extract first")
     source_root = roots[0].parent
     timeout = int(upstream["limits"]["build_timeout_seconds"])
+    restore_build_permissions(source_root, upstream["build"].get("executable_scripts", []))
     for argv in ([str(source_root / "configure")], ["make"]):
         completed = subprocess.run(  # noqa: S603 - argv form, no shell
             argv,
@@ -1027,8 +1622,70 @@ def cmd_build(args: argparse.Namespace) -> int:
                 "build",
                 f"{argv[0]} failed with status {completed.returncode}",
             )
+
+    produced = source_root / str(upstream["project"]["name"])
+    if not produced.is_file():
+        raise RunnerError("build", "the build produced no executable of the expected name")
+    # The compiler and make identify what turned pinned sources into the binary
+    # that was actually exercised. A conformance result without them cannot be
+    # reproduced by anyone who did not happen to have the same tools installed.
+    save_state(
+        destination,
+        "build-record.json",
+        {
+            "status": "built",
+            "binary_sha256": sha256_file(produced),
+            "toolchain": tool_versions(),
+        },
+    )
     print(f"built in {source_root}")
     return 0
+
+
+def restore_build_permissions(source_root: Path, names: list[str]) -> None:
+    """Grant the execute bit back to the named build scripts, and only those.
+
+    Extraction deliberately drops every mode bit the archive carried, so an
+    archive cannot decide what is executable on the machine that unpacks it.
+    The build then needs a handful of scripts back, so they are named here by
+    exact file name and nothing else is touched. A name that resolves outside
+    the source root is refused rather than normalised.
+    """
+    root = source_root.resolve()
+    for name in names:
+        if "/" in str(name) or str(name) in ("", ".", ".."):
+            raise RunnerError("build", f"refusing a build script name with a path: {name}")
+        candidate = (root / str(name)).resolve()
+        if candidate.parent != root or not candidate.is_file():
+            continue
+        candidate.chmod(0o700)
+
+
+def tool_versions() -> list[str]:
+    """First version line of each build tool, or an explicit unknown.
+
+    Deliberately just the first line: the remainder is host detail that adds
+    nothing to reproducibility and can name a machine.
+    """
+    versions: list[str] = []
+    for name in ("cc", "make"):
+        tool = shutil.which(name)
+        if tool is None:
+            versions.append(f"{name}: unavailable")
+            continue
+        try:
+            completed = subprocess.run(  # noqa: S603 - argv form, no shell
+                [tool, "--version"],
+                capture_output=True,
+                timeout=30,
+                check=False,
+                env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+            )
+            first = completed.stdout.decode("utf-8", "replace").splitlines()
+            versions.append(f"{name}: {sanitize(first[0]) if first else 'unknown'}")
+        except (OSError, subprocess.TimeoutExpired):
+            versions.append(f"{name}: unknown")
+    return versions
 
 
 def cmd_run(args: argparse.Namespace) -> int:
@@ -1056,8 +1713,23 @@ def cmd_run(args: argparse.Namespace) -> int:
         raise RunnerError("run", "selection matched no cases")
 
     binary = Path(args.binary).resolve() if args.binary else None
-    work_dir = Path(args.work_dir or cache_dir()) / "run"
+    cache = Path(args.work_dir or cache_dir())
+    work_dir = cache / "run"
     work_dir.mkdir(parents=True, exist_ok=True)
+
+    verdicts = cases_manifest.get("verdict", [])
+    divergences = {str(d["id"]): d for d in cases_manifest.get("divergence", [])}
+    script_shape = cases_manifest.get("replay_script", {})
+    verification = load_state(cache, "verification.json", UNVERIFIED)
+    build_record = load_state(cache, "build-record.json", UNBUILT)
+
+    upstream_binary = None
+    if args.upstream_binary:
+        upstream_binary = Path(args.upstream_binary).resolve()
+    else:
+        candidates = sorted((cache / "src").glob(f"*/{upstream['project']['name']}"))
+        if candidates:
+            upstream_binary = candidates[0]
 
     entries: list[dict[str, Any]] = []
     runner_status = "ok"
@@ -1080,13 +1752,53 @@ def cmd_run(args: argparse.Namespace) -> int:
             if not runnable:
                 entries.append(case_entry(case, "skip", why, 0))
                 continue
+            if case.get("fixture"):
+                entries.append(
+                    run_case(
+                        case,
+                        binary=binary,
+                        baseline=baseline,
+                        work_dir=work_dir,
+                        reader=args.reader,
+                    )
+                )
+                continue
+            # An upstream case needs the pinned suite itself. Refusing here,
+            # rather than substituting anything, keeps the difference between
+            # "the pinned suite says this" and "something else says this".
+            if upstream_binary is None or not upstream_binary.is_file():
+                entries.append(
+                    case_entry(
+                        case,
+                        "skip",
+                        "the pinned suite is not built in this cache; run "
+                        "fetch, verify, extract, and build first",
+                        0,
+                    )
+                )
+                continue
+            if verification.get("signature") != "verified":
+                entries.append(
+                    case_entry(
+                        case,
+                        "skip",
+                        "the pinned archive has no recorded verified "
+                        "signature in this cache; an unverified suite is not "
+                        "evidence",
+                        0,
+                    )
+                )
+                continue
             entries.append(
-                run_case(
+                run_upstream_case(
                     case,
                     binary=binary,
+                    upstream_binary=upstream_binary,
                     baseline=baseline,
+                    script_shape=script_shape,
+                    verdicts=verdicts,
+                    divergences=divergences,
                     work_dir=work_dir,
-                    reader=args.reader,
                 )
             )
         phase = "complete"
@@ -1096,8 +1808,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         phase=phase,
         message=runner_message,
         upstream=upstream,
-        verification={"sha256": "not_checked", "signature": "not_checked"},
-        subject=describe_subject(binary, [str(binary)] if binary else []),
+        verification=verification,
+        build_record=build_record,
+        subject=describe_subject(binary, subject_invocation(binary) if binary else []),
         baseline=baseline,
         cases=entries,
         limitations=list(STANDING_LIMITATIONS),
@@ -1308,14 +2021,248 @@ class SelfTest(unittest.TestCase):
         with self.assertRaises(RunnerError):
             validate_cases(manifest)
 
-    def test_upstream_cases_are_not_runnable_without_a_confirmed_menu_path(self) -> None:
+    def test_only_declared_automatable_upstream_cases_are_runnable(self) -> None:
         manifest = validate_cases(load_toml(CASES_MANIFEST))
         policy = manifest["policy"]
+        automatable = set(policy["auto_runnable_classes"])
         for case in manifest["case"]:
-            if str(case["id"]).startswith("upstream."):
-                runnable, why = is_runnable(case, policy)
+            runnable, why = is_runnable(case, policy)
+            if case["classification"] in automatable:
+                self.assertTrue(runnable, f"{case['id']} should be runnable")
+            else:
                 self.assertFalse(runnable, f"{case['id']} must not be auto-runnable")
                 self.assertTrue(why)
+
+    def test_unsafe_and_manual_areas_are_never_automatable(self) -> None:
+        manifest = validate_cases(load_toml(CASES_MANIFEST))
+        automatable = {
+            entry["id"] for entry in manifest["classification"] if entry.get("automatable")
+        }
+        for name in ("unsafe_unattended", "interactive_keyboard", "visual_manual"):
+            self.assertNotIn(name, automatable)
+        for case in manifest["case"]:
+            if case["id"] in ("upstream.known-bugs", "upstream.reset-and-self-test"):
+                self.assertEqual(case["classification"], "unsafe_unattended")
+
+    def test_replay_script_brackets_every_input_with_markers(self) -> None:
+        script = compose_replay_script([12, 2], markers_per_step=2, trailing_steps=1)
+        lines = script.splitlines()
+        self.assertEqual(lines.count("Read: 12"), 1)
+        self.assertEqual(lines.count("Read: 2"), 1)
+        self.assertEqual(lines.count("Read: "), 1)
+        self.assertEqual(len([ln for ln in lines if ln.startswith("Wait: ")]), 6)
+        self.assertEqual(len([ln for ln in lines if ln.startswith("Done: ")]), 6)
+        # Every input is preceded by at least one complete marker pair.
+        first_read = lines.index("Read: 12")
+        self.assertTrue(lines[first_read - 1].startswith("Done: "))
+        self.assertTrue(lines[first_read - 2].startswith("Wait: "))
+
+    def test_replay_script_refuses_an_empty_path(self) -> None:
+        with self.assertRaises(RunnerError):
+            compose_replay_script([], markers_per_step=2, trailing_steps=1)
+
+    def test_expected_traversal_is_the_dotted_prefix_sequence(self) -> None:
+        self.assertEqual(expected_traversal([12, 2]), ["12", "12.2"])
+        self.assertEqual(expected_traversal([6]), ["6"])
+
+    def test_log_parser_reads_only_declared_verdict_lines(self) -> None:
+        verdicts = validate_cases(load_toml(CASES_MANIFEST))["verdict"]
+        log = "\n".join(
+            [
+                "Note: choice 12: Modify test-parameters",
+                "Note: choice 12.2: Send 7-bit controls",
+                "Send: <155> 6 n",
+                "Text: Sorry, this terminal does not support 8-bit output controls",
+                "Note: no valid response from DSR 6",
+                CLEAN_EXIT_LINE,
+            ]
+        )
+        parsed = parse_upstream_log(log, verdicts)
+        self.assertEqual(parsed["traversal"], ["12", "12.2"])
+        self.assertTrue(parsed["clean_exit"])
+        self.assertEqual([v["id"] for v in parsed["verdicts"]], ["dsr6.invalid"])
+
+    def test_log_parser_ignores_trace_lines_that_look_conclusive(self) -> None:
+        verdicts = validate_cases(load_toml(CASES_MANIFEST))["verdict"]
+        log = "\n".join(
+            [
+                "Note: choice 1: Test of cursor movements",
+                "Text: The screen should be cleared, and have an unbroken bor",
+                "Text: Sorry, this terminal does not support 8-bit output controls",
+                "Send: <27> [ 6 n",
+                CLEAN_EXIT_LINE,
+            ]
+        )
+        parsed = parse_upstream_log(log, verdicts)
+        self.assertEqual(parsed["verdicts"], [])
+
+    def test_positive_verdict_is_the_only_route_to_a_pass(self) -> None:
+        outcome, reason, deviations = classify_upstream_outcome(
+            {
+                "traversal": ["12", "12.3"],
+                "verdicts": [{"id": "dsr6.valid", "polarity": "positive", "source": "setup.c"}],
+                "clean_exit": True,
+            },
+            menu_path=[12, 3],
+            divergence=None,
+        )
+        self.assertEqual(outcome, "pass")
+        self.assertEqual(reason, "")
+        self.assertEqual(deviations, [])
+
+    def test_absent_verdict_never_becomes_a_pass(self) -> None:
+        outcome, reason, _ = classify_upstream_outcome(
+            {"traversal": ["1"], "verdicts": [], "clean_exit": True},
+            menu_path=[1],
+            divergence=None,
+        )
+        self.assertEqual(outcome, "ignore")
+        self.assertIn("no verdict line", reason)
+
+    def test_undeclared_negative_verdict_is_a_failure(self) -> None:
+        outcome, reason, _ = classify_upstream_outcome(
+            {
+                "traversal": ["12", "12.2"],
+                "verdicts": [{"id": "dsr6.invalid", "polarity": "negative", "source": "setup.c"}],
+                "clean_exit": True,
+            },
+            menu_path=[12, 2],
+            divergence=None,
+        )
+        self.assertEqual(outcome, "fail")
+        self.assertIn("dsr6.invalid", reason)
+
+    def test_declared_divergence_records_a_deviation_instead_of_a_pass(self) -> None:
+        manifest = validate_cases(load_toml(CASES_MANIFEST))
+        divergence = next(d for d in manifest["divergence"] if d["covers_verdict"] == "dsr6.invalid")
+        outcome, reason, deviations = classify_upstream_outcome(
+            {
+                "traversal": ["12", "12.2"],
+                "verdicts": [{"id": "dsr6.invalid", "polarity": "negative", "source": "setup.c"}],
+                "clean_exit": True,
+            },
+            menu_path=[12, 2],
+            divergence=divergence,
+        )
+        self.assertEqual(outcome, "ignore")
+        self.assertIn("divergence", reason)
+        self.assertEqual(len(deviations), 1)
+        self.assertIn("Anchor:", deviations[0]["rationale"])
+
+    def test_divergence_does_not_absorb_an_unrelated_verdict(self) -> None:
+        manifest = validate_cases(load_toml(CASES_MANIFEST))
+        divergence = next(d for d in manifest["divergence"] if d["covers_verdict"] == "dsr6.invalid")
+        outcome, _, _ = classify_upstream_outcome(
+            {
+                "traversal": ["12", "12.2"],
+                "verdicts": [
+                    {"id": "report.missing-st", "polarity": "negative", "source": "main.c"}
+                ],
+                "clean_exit": True,
+            },
+            menu_path=[12, 2],
+            divergence=divergence,
+        )
+        self.assertEqual(outcome, "fail")
+
+    def test_traversal_mismatch_is_a_skip_not_a_failure(self) -> None:
+        outcome, reason, _ = classify_upstream_outcome(
+            {
+                "traversal": ["2"],
+                "verdicts": [{"id": "dsr6.invalid", "polarity": "negative", "source": "setup.c"}],
+                "clean_exit": True,
+            },
+            menu_path=[12, 2],
+            divergence=None,
+        )
+        self.assertEqual(outcome, "skip")
+        self.assertIn("desynchronised", reason)
+
+    def test_trust_root_reads_only_primary_fingerprints(self) -> None:
+        listing = "\n".join(
+            [
+                "pub:-:3072:1:CC2AF4472167BE03:1627:::-:::scESC::::::23::0:",
+                "fpr:::::::::19882D92DDA4C400C22C0D56CC2AF4472167BE03:",
+                "uid:-::::1627::AAAA::synthetic identity::::::::::0:",
+                "sub:-:3072:1:0000000000000000:1627::::::e::::::23:",
+                "fpr:::::::::0000000000000000000000000000000000000000:",
+            ]
+        )
+        self.assertEqual(
+            _primary_fingerprints(listing),
+            ["19882D92DDA4C400C22C0D56CC2AF4472167BE03"],
+        )
+
+    def test_trust_root_refuses_a_key_without_the_pinned_fingerprint(self) -> None:
+        if shutil.which("gpg") is None and shutil.which("gpg2") is None:
+            self.skipTest("no OpenPGP implementation available")
+        with tempfile.TemporaryDirectory() as tmp:
+            key = Path(tmp) / "not-a-key.asc"
+            key.write_text("-----BEGIN PGP PUBLIC KEY BLOCK-----\nnope\n", encoding="ascii")
+            with self.assertRaises(RunnerError):
+                build_trust_root(Path(tmp), key, "0" * 40)
+
+    def test_signature_check_always_names_an_explicit_keyring(self) -> None:
+        source = Path(__file__).read_text(encoding="utf-8")
+        body = source[source.index("def verify_signature("):source.index("# Safe extraction")]
+        self.assertIn("--keyring", body)
+        self.assertIn("--no-default-keyring", body)
+        self.assertIn("GNUPGHOME", body)
+        # Both branches name a keyring: the dedicated verifier takes one
+        # positionally-scoped keyring, and the general tool additionally has
+        # its default keyring switched off. Neither can fall back to whatever
+        # the invoking user already trusts.
+        self.assertEqual(body.count("\"--keyring\","), 2)
+
+    def test_upstream_manifest_requires_an_isolated_trust_root(self) -> None:
+        manifest = load_toml(UPSTREAM_MANIFEST)
+        manifest["trust"]["isolated_keyring"] = False
+        with self.assertRaises(RunnerError):
+            validate_upstream(manifest)
+
+    def test_upstream_manifest_rejects_a_plain_http_key_source(self) -> None:
+        manifest = load_toml(UPSTREAM_MANIFEST)
+        manifest["trust"]["signer_key_url"] = "http://example.invalid/key.asc"
+        with self.assertRaises(RunnerError):
+            validate_upstream(manifest)
+
+    def test_cases_manifest_rejects_an_undeclared_divergence_reference(self) -> None:
+        manifest = load_toml(CASES_MANIFEST)
+        manifest["case"][0]["expected_divergence"] = "not-a-real-divergence"
+        with self.assertRaises(RunnerError):
+            validate_cases(manifest)
+
+    def test_published_results_validate_and_stay_scrubbed(self) -> None:
+        results = sorted((COMPAT_DIR / "results").glob("*.json"))
+        for path in results:
+            document = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                validate_against_schema(document, load_schema()) + result_invariants(document),
+                [],
+                f"{path.name} is not a valid result document",
+            )
+            raw = path.read_text(encoding="utf-8")
+            self.assertNotIn(chr(64), raw, f"{path.name} carries an identity-shaped token")
+            self.assertNotIn("/home/", raw, f"{path.name} carries a home directory")
+            self.assertNotIn("/Users/", raw, f"{path.name} carries a home directory")
+
+    def test_published_results_claim_no_unearned_pass(self) -> None:
+        for path in sorted((COMPAT_DIR / "results").glob("*.json")):
+            document = json.loads(path.read_text(encoding="utf-8"))
+            for entry in document["cases"]:
+                if entry["outcome"] == "pass":
+                    self.assertEqual(
+                        entry["classification"],
+                        "upstream_log_oracle",
+                        "only an upstream verdict line can produce a pass",
+                    )
+
+    def test_declared_divergences_carry_an_anchor_and_a_revisit(self) -> None:
+        manifest = validate_cases(load_toml(CASES_MANIFEST))
+        for entry in manifest["divergence"]:
+            self.assertTrue(str(entry["anchor"]).strip())
+            self.assertTrue(str(entry["revisit"]).strip())
+            self.assertTrue(str(entry["rationale"]).strip())
 
     def test_case_entry_requires_a_reason_for_non_pass(self) -> None:
         case = {"id": "x", "title": "x", "classification": "automated_replay"}
@@ -1371,6 +2318,12 @@ class SelfTest(unittest.TestCase):
         document = self._synthetic_document()
         document["cases"][0]["duration_ms"] = True
         self.assertTrue(validate_against_schema(document, load_schema()))
+
+    def test_subject_invocation_carries_no_absolute_path(self) -> None:
+        vector = subject_invocation(Path("/tmp/some/where/odytty"))
+        self.assertEqual(vector[0], "odytty")
+        for token in vector:
+            self.assertFalse(token.startswith("/"), "an absolute path names a machine")
 
     def test_invocation_never_contains_a_shell(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1456,7 +2409,8 @@ class SelfTest(unittest.TestCase):
             phase="complete",
             message="",
             upstream=upstream,
-            verification={"sha256": "not_checked", "signature": "not_checked"},
+            verification=dict(UNVERIFIED),
+            build_record=dict(UNBUILT),
             subject={
                 "product": "OdyTTY",
                 "version": "synthetic",
@@ -1498,6 +2452,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--all", action="store_true", help="select every declared case")
     run.add_argument("--binary", default=None, help="path to a release OdyTTY build")
     run.add_argument("--reader", default="/bin/cat", help="plain reader used to feed a fixture")
+    run.add_argument(
+        "--upstream-binary",
+        default=None,
+        help="path to the built pinned suite (default: the one built in the cache)",
+    )
     run.add_argument("--output", default=None, help="result document path")
 
     validate = sub.add_parser("validate", help="validate a result document")

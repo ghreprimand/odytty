@@ -5,12 +5,14 @@ upstream conformance suite, driven by a harness that refuses to guess. This
 document describes the execution path, the public result format, and — at least
 as importantly — what the current setup cannot tell you.
 
-> **No conformance results have been collected yet.** This document describes
-> the execution path and the result contract. It contains no pass rates, no
-> comparative statements, and no conformance claim. The absence is deliberate:
-> the machinery lands before the numbers so that the first numbers are collected
-> under rules that were fixed in advance rather than chosen once the results
-> were visible.
+> **The first collected run reports no passes and no failures.** Of eighteen
+> declared cases, twelve are not machine-judgeable at all, four prove only that
+> a sequence was consumed, and two reached an upstream verdict that a
+> documented divergence covers. No pass rate, no comparative statement, and no
+> conformance claim follows from that, and none is made here. The result
+> document is published in full at
+> `compat/vttest/results/2026-07-30-linux-x86_64.json`; see
+> [What the first run actually showed](#what-the-first-run-actually-showed).
 
 ## Why the suite is pinned
 
@@ -78,6 +80,7 @@ vocabulary is closed; an unknown class is rejected rather than defaulted.
 | Class | Automatable | Meaning |
 | --- | --- | --- |
 | `automated_replay` | yes | Reviewed synthetic sequence with a machine-checkable outcome |
+| `upstream_log_oracle` | yes | A pinned upstream test whose own log states a verdict |
 | `interactive_keyboard` | no | A human must press keys and confirm the echo |
 | `visual_manual` | no | Correctness is a judgement about rendered pixels |
 | `platform_dependent` | no | The window system or compositor mediates the result |
@@ -98,17 +101,38 @@ an unattended run cannot distinguish "working as intended" from "wedged". There
 is no flag that promotes one of these; lifting the refusal means editing the
 manifest under review.
 
-### Upstream menu paths are deliberately blank
+### Upstream menu paths are read out of the pinned tree
 
-Every `upstream.*` case carries `menu_path = []` and
-`confirmed_against_pin = false`. The upstream menu indices have **not** been
-read out of the pinned tree, because no fetch has been performed. Writing
-plausible-looking indices would create facts that a later reader could easily
-mistake for verified ones.
+Every `upstream.*` case carries the selection numbers of the pinned release's
+menus, taken from the pinned source rather than from documentation or memory,
+and marked `confirmed_against_pin = true`. Submenus nest, so a path is a list:
+`[12, 2]` is entry 2 of the menu reached by entry 12 of the top-level menu.
 
-The blank is enforced, not merely documented: the runner refuses to execute any
-case with an empty `menu_path`, so no upstream case can run until someone
-confirms the indices against the pinned tree and records them.
+The path is not trusted on its own. The suite writes the menu path it actually
+walked into its own log, in dotted form, and the runner compares the two. A run
+whose recorded traversal differs from the declared path is reported as a
+desynchronised harness, not as a product result — see
+[Desynchronisation is detected, not assumed away](#desynchronisation-is-detected-not-assumed-away).
+
+### Only a verdict line can decide an upstream case
+
+The pinned suite writes two kinds of log line: a transcript of what it sent,
+read, and drew, and — rarely — a line stating a conclusion. Only the second
+kind is treated as an outcome. The complete set is declared in `cases.toml` and
+the runner refuses to read anything else as a result:
+
+| Verdict | Polarity | Source in the pinned tree |
+| --- | --- | --- |
+| `Note: valid response from DSR 6` | positive | `setup.c`, eight-bit toggle check |
+| `Note: no valid response from DSR 6` | negative | `setup.c`, eight-bit toggle check |
+| `Note: Missing ST` | negative | `main.c`, string-terminator strip |
+| `Note: expect ...` | negative | `vt420.c`, checksum comparison |
+
+That set is small on purpose, and it is why most of the suite is not
+automatable. The majority of upstream tests draw a pattern and expect a person
+to look at it; a line saying what was drawn is not a line saying it was right.
+An oracle set that grows by pattern-matching on hopeful-looking text is exactly
+how a transcript line becomes a false pass.
 
 ## Execution path
 
@@ -135,9 +159,15 @@ python3 scripts/vttest-runner.py extract
 # Build in the cache directory
 python3 scripts/vttest-runner.py build
 
-# Run one case against a release build
+# Run one upstream case against a release build
 python3 scripts/vttest-runner.py run \
-    --case replay.tab-stops \
+    --case upstream.oracle.send-8bit-controls \
+    --binary ./target/release/odytty \
+    --output ./out/result.json
+
+# Consider every declared case; the non-automatable ones report skip
+python3 scripts/vttest-runner.py run \
+    --all \
     --binary ./target/release/odytty \
     --output ./out/result.json
 
@@ -155,15 +185,42 @@ dependency tree that can drift between runs.
 ### Verification is a hard gate
 
 `verify` compares the archive digest in constant time and stops on mismatch with
-no override. It then verifies the detached signature against the pinned
-fingerprint. If no OpenPGP tool is available, the signature state is recorded as
-`tool_unavailable` and the run **stops**, because the pin declares
-`signature_required_by_default = true`.
+no override. It then verifies the detached signature — against a trust root it
+builds itself, not against whatever the machine already trusts.
 
 That default deserves its reasoning: a digest recorded in the same repository
 that performs the fetch proves the bytes are consistent with what this
 repository expects. It does not prove they are what upstream published. Only the
 signature does that.
+
+#### The trust root is built per run and pinned by fingerprint
+
+The signer's public key is retrieved from the upstream publication page into a
+**throwaway** OpenPGP home created for the run. The imported primary
+fingerprint is then compared against `integrity.signer_fingerprint`, and the
+verification proceeds only on an exact match. The exported single-key ring is
+passed explicitly to the verifier, with the default keyring switched off.
+
+The invoking user's keyring is never consulted and never modified. A
+verification that depends on which keys a particular machine happens to trust
+is not reproducible: it can succeed on one machine and fail on another for
+reasons that have nothing to do with the artifact.
+
+Two details are deliberate. Only a **primary** key fingerprint counts; a subkey
+fingerprint is not the key's identity, and accepting one would let a key be
+matched by something the pin never named. And the key file itself is **not**
+digest-pinned, because a public key file legitimately changes when subkeys or
+certifications are added — the fingerprint comparison is the control that
+matters.
+
+Residual risk, stated rather than papered over: the key and the archive are
+published by the same origin, so a compromise of that origin could replace
+both. What the check does prove is that the artifact matches the fingerprint
+recorded here at pin time, which is what makes a later substitution visible.
+
+If no OpenPGP implementation is available the run **stops**, because the pin
+declares `signature_required_by_default = true`. It does not fall back to a
+digest-only check.
 
 ### Extraction refuses more than it resolves
 
@@ -177,6 +234,18 @@ Links are refused rather than resolved. A link that resolves inside the target
 today can be made to resolve outside it by a later member, and validating that
 ordering correctly is harder than not supporting links at all.
 
+### The build records what produced the binary
+
+Because extraction drops every mode bit the archive carried, the build first
+restores the execute bit to a short **allowlist** of build scripts named in
+`upstream.toml` by exact file name. What the archive claimed was executable is
+attacker-controlled input; a four-entry reviewable list is not.
+
+`build` then records the compiler and make version lines and the SHA-256 of the
+binary it produced, and the result document carries all three. A conformance
+result whose suite build cannot be identified is not reproducible by anyone who
+did not happen to have the same tools installed.
+
 ### Isolation
 
 Every case runs with a private `HOME` and private configuration, data, state,
@@ -184,6 +253,120 @@ and cache directories. The environment is built up from empty rather than copied
 from the caller, so a variable that matters is one that was deliberately added.
 Your real configuration cannot influence a result, and a run cannot write into
 it.
+
+## How the pinned suite is driven
+
+The suite runs as the child of a native OdyTTY window, the way a person would
+run it:
+
+```
+odytty --native --hold=false -e <pinned-suite> -c <commands> -l <log> 24x80.132
+```
+
+No key events are injected. The suite's own command-file option supplies the
+menu selections a person would type, and its own log-file option produces the
+evidence. Both options belong to the pinned release; nothing about the subject
+is special-cased.
+
+### The command file is log-shaped
+
+The suite's replay reader consumes a script in the same format it writes. Two
+properties of that reader, read out of the pinned tree, decide the format the
+runner generates:
+
+- every point where the suite stops to read a reply from the terminal scans
+  forward to the next `Wait:` line and then to the matching `Done:` line,
+  consuming whatever lies between — so an input line sitting in front of an
+  unconsumed pause is eaten;
+- a search for the next input line skips anything bracketed by a `Wait:`/`Done:`
+  pair — so surplus markers ahead of an input are harmless.
+
+The asymmetry is the whole design. The generator emits a **margin** of marker
+pairs before every input rather than predicting the exact number of pauses:
+too many costs nothing, too few desynchronises.
+
+The script ends with blank input lines. A blank line at any menu selects entry
+zero, which is Exit at every level, so a run that drifts unwinds to the top menu
+and leaves rather than wandering into an undeclared test. That property is what
+makes the margin safe.
+
+### Desynchronisation is detected, not assumed away
+
+The suite records the menu path it actually walked. The runner compares that
+recorded traversal against the path the case declared, level by level, and
+reports a mismatch as `skip` with the two paths in the reason.
+
+A desynchronised script is a harness problem. Reporting it as a failure would
+blame the terminal for the script, and reporting it as a pass would be worse.
+
+### A run needs a display server
+
+The subject is a native window, so the three display-related environment
+variables are the one thing copied from the invoking environment; everything
+else is built up from empty. On a headless machine the subject cannot start,
+and the case is reported as a harness failure rather than as a compatibility
+result. This is a real constraint on where evidence can be collected, not a
+detail.
+
+## Documented divergences
+
+A divergence converts an upstream negative verdict into a **recorded
+deviation** instead of a failure. That is a powerful thing to allow, so it is
+fenced:
+
+- a divergence must name the exact verdict it covers, and the runner refuses to
+  apply it to any other verdict;
+- it must carry a source anchor showing the behavior is a decision rather than
+  an accident;
+- it must carry the condition under which it is reopened;
+- the deviation is written into the result document, so it is visible in the
+  evidence rather than only in prose.
+
+Two are currently declared.
+
+**Eight-bit C1 bytes execute; they never introduce a sequence.** A byte in
+`0x80..=0x9F` executes as a control function and is never a sequence
+introducer, so a control sequence sent with an eight-bit introducer is not
+recognised. The introducer form is ambiguous under UTF-8, where those bytes are
+invalid encoding units; the parser resolves the ambiguity once, in favor of
+executing the control, so that how a byte stream is split across reads can
+never change what a sequence means. Anchored at the policy ledger in
+`src/parser/mod.rs` and the module documentation in `src/parser/machine.rs`.
+Reopened if the advertised operating level is raised.
+
+**Replies are transmitted in seven-bit control forms only.** The
+select-eight-bit-transmission escape is not implemented, so reports always come
+back in the seven-bit form. The device attributes reply advertises a
+VT100-class terminal with an advanced video option, an operating level at which
+eight-bit control transmission is not required, so this is recorded as an open
+gap rather than a conformance failure against the level actually advertised.
+Reopened together with any change to the advertised level, and before any claim
+of VT200-series or later conformance.
+
+## What the first run actually showed
+
+Collected on a Linux x86-64 desktop against a release build, with the pinned
+archive digest and detached signature both verified against an isolated,
+fingerprint-pinned trust root, and the suite built from the verified sources in
+the cache.
+
+| Outcome | Count | What it means here |
+| --- | --- | --- |
+| `pass` | 0 | No upstream verdict line reported success |
+| `fail` | 0 | No upstream verdict line reported an uncovered failure |
+| `skip` | 12 | Twelve upstream areas are not machine-judgeable |
+| `ignore` | 6 | Two covered divergences, four consumed-without-error replays |
+| `unsupported` | 0 | Nothing was inapplicable on this platform |
+
+The honest summary: **this run produced no pass verdict at all.** The two
+upstream cases that reached a verdict both reached a negative one, and both are
+covered by the documented divergences above. The four replay cases prove only
+that a sequence was consumed. The remaining twelve areas were never in reach of
+a machine.
+
+The pass path is therefore exercised by self-tests against synthetic logs
+rather than by any collected result. Saying so matters: an untravelled code
+path in a harness is a claim waiting to be wrong.
 
 ## Replay fixtures
 
@@ -266,18 +449,27 @@ Illustrative only — this is the document shape, not a result:
 
 ```json
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "generated_utc": "2026-01-01T00:00:00Z",
   "runner": {
     "status": "ok",
     "phase": "complete",
-    "runner_version": "1.0.0",
+    "runner_version": "1.1.0",
     "python_version": "3.11.0",
     "platform_class": "linux-x86_64",
     "message": ""
   },
   "upstream": {
-    "verification": { "sha256": "verified", "signature": "verified" }
+    "verification": {
+      "sha256": "verified",
+      "signature": "verified",
+      "trust_root": "isolated_pinned"
+    },
+    "build": {
+      "status": "built",
+      "binary_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "toolchain": ["cc: ...", "make: ..."]
+    }
   },
   "subject": {
     "revision": "0000000000000000000000000000000000000000",
@@ -350,24 +542,32 @@ reproduced here so they are visible without running anything.
 1. **Geometry is declared, not commanded.** No current command-line or
    configuration surface pins the initial cell grid, so the 24-row by 80-column
    baseline is recorded as *intended* rather than confirmed as *applied*. The
-   schema marks this with `geometry.verified: false`, and the validator refuses
-   a document that claims unverified geometry without a stated limitation. Until
-   a geometry control exists, any result is conditional on the window happening
-   to open at the baseline size.
+   positional argument passed to the pinned suite does not close this: read at
+   the pin, it sets the geometry the suite **assumes**, and nothing else. If the
+   window opens at a different size, the suite silently tests against the wrong
+   assumption. The schema marks this with `geometry.verified: false`, and the
+   validator refuses a document that claims unverified geometry without a
+   stated limitation.
 
-2. **Screen state is not read back.** The harness observes process outcome and
-   declared capture files only. See
+2. **Screen state is not read back.** The harness observes process outcome,
+   declared capture files, and the suite's own log. It cannot see the grid. See
    [Why replay cases cannot pass yet](#why-replay-cases-cannot-pass-yet).
 
 3. **Windows and ConPTY are unavailable.** See above.
 
-4. **Upstream menu paths are unconfirmed**, so no upstream case is executable
-   and every upstream area reports as `skip`.
+4. **Only verdict-writing areas are machine-judged.** Cursor movement, screen
+   features, character sets, double-sized cells, VT52 mode, and insert/delete
+   are decided by looking at the screen. No extension of this harness changes
+   that; they need a person, or a pixel-level comparison that does not exist
+   here.
 
-5. **The signature has not been verified in practice.** The pin records the
-   expected fingerprint and the runner enforces it, but no fetch has been
-   performed from this repository, so `upstream.verification` has never yet been
-   anything but `not_checked`.
+5. **A result requires a display server.** The subject is a native window, so a
+   headless machine produces harness failures rather than compatibility
+   results.
+
+6. **No pass verdict has ever been collected.** The pass mapping is covered by
+   self-tests against synthetic logs only. See
+   [What the first run actually showed](#what-the-first-run-actually-showed).
 
 ## Extending the suite
 
@@ -377,6 +577,13 @@ reproduced here so they are visible without running anything.
 - **Confirming an upstream case** means fetching the pinned tree, reading the
   actual menu path, recording it, and setting `confirmed_against_pin = true`.
   Do not record a path you have not seen.
+- **Promoting an upstream area to automatable** requires finding a line where
+  the pinned suite states a conclusion, adding it to the verdict table under
+  review, and confirming the area cannot wedge or reset the terminal. An area
+  that only draws a pattern stays manual.
+- **A new divergence** needs the verdict it covers, a source anchor, a
+  rationale, and a reopening condition. A divergence without a reopening
+  condition is a permanent excuse.
 - **Never regenerate expected output to clear a failure.** A changed expectation
   needs a stated semantic reason and review. Regenerating to make a run go green
   destroys the only signal the suite produces.

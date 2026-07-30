@@ -80,6 +80,43 @@ composite = true
 vendored = false
 note = "Per-file notices vary across the upstream tree; nothing upstream is vendored here."
 
+[trust]
+# How the signature is checked. The signer's public key is retrieved from the
+# upstream publication page and imported into a THROWAWAY keyring created for
+# the run, then the imported primary fingerprint is compared against
+# integrity.signer_fingerprint above. The check fails closed unless the two
+# match exactly.
+#
+# The invoking user's own keyring is never consulted and never modified. A
+# verification that depends on whatever keys a machine happens to trust is not
+# reproducible: it can succeed on one machine and fail on another for reasons
+# that have nothing to do with the artifact.
+isolated_keyring = true
+# The key file's own name contains an at-sign, which this repository does not
+# carry in tracked text, so it is written percent-encoded. The character is
+# restored by the standard URL decoding every HTTP client performs.
+signer_key_url = "https://invisible-island.net/public/dickey%40invisible-island.net-rsa3072.asc"
+# Residual risk, stated rather than papered over: the key and the archive are
+# published by the same origin, so a compromise of that origin could replace
+# both. What the check does prove is that the artifact matches the fingerprint
+# recorded in this repository at pin time, which is what makes a later
+# substitution visible.
+key_origin_note = "Key and archive share a publication origin; the pinned fingerprint is the anchor."
+# The key file is not digest-pinned. A public key file legitimately changes
+# when subkeys or certifications are added, so pinning its bytes would produce
+# false alarms; the fingerprint comparison is the control that matters.
+key_digest_pinned = false
+
+[build]
+# Extraction normalises every member to a non-executable mode, so no bit from
+# the archive decides what may run. The build then needs a small, named set of
+# scripts back: these four, by exact file name, relative to the source root.
+#
+# Stated as an allowlist rather than restored from the archive because "what
+# the archive said was executable" is attacker-controlled input, while this
+# list is reviewable and short.
+executable_scripts = ["configure", "config.sub", "config.guess", "install-sh"]
+
 [limits]
 # Bounds applied during retrieval and extraction. Every value is enforced by the
 # runner; an input that exceeds any of them is refused rather than truncated.

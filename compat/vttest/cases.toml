@@ -12,12 +12,12 @@
 # otherwise turns an unverified area into a false positive.
 
 [policy]
-schema_version = "1.0.0"
+schema_version = "1.1.0"
 # Default-deny. A selection that resolves to zero cases is an error, not an
 # empty successful run, so a typo can never look like a clean sheet.
 default_action = "deny"
 # The only classes the runner will ever execute without a human present.
-auto_runnable_classes = ["automated_replay"]
+auto_runnable_classes = ["automated_replay", "upstream_log_oracle"]
 # Running more than one case per process is forbidden: shared state between
 # cases is the classic source of a result that cannot be reproduced alone.
 one_case_per_process = true
@@ -31,18 +31,44 @@ require_explicit_all = true
 # rather than silently comparable.
 rows = 24
 columns = 80
-# vttest exercises 80/132 column switching. 80 is the baseline; any case that
-# depends on the 132-column mode is platform_dependent, because whether the
-# switch is honored depends on the window manager and the display, not only on
-# the terminal.
+# The upstream suite exercises 80/132 column switching. 80 is the baseline; any
+# case that depends on the 132-column mode is platform_dependent, because
+# whether the switch is honored depends on the window manager and the display,
+# not only on the terminal.
 wide_columns = 132
 term = "xterm-256color"
 locale = "C.UTF-8"
+# The positional argument passed to the upstream binary. It tells the suite
+# which geometry to ASSUME (max lines, min columns, max columns); it does not
+# command the terminal to adopt that geometry. Confirmed against the pinned
+# tree at main.c, where the trailing argument sets max_lines/min_cols/max_cols
+# and nothing else.
+geometry_argument = "24x80.132"
 # Geometry is DECLARED, not commanded. See the limitation of the same name in
-# docs/compatibility/vttest.md: no current CLI or configuration surface pins the
-# initial cell grid, so the runner records the intended baseline and marks it
-# unverified rather than asserting it was applied.
+# docs/compatibility/vttest.md: no current command-line or configuration
+# surface pins the initial cell grid, so the runner records the intended
+# baseline and marks it unverified rather than asserting it was applied.
 geometry_verified = false
+
+[replay_script]
+# Shape of the generated upstream command file (the `-c` input). The upstream
+# replay reader consumes a log-shaped script: `Wait:`/`Done:` markers bracket
+# every point where the suite stops to read a reply from the terminal, and
+# `Read:` lines supply what a human would have typed.
+#
+# Confirmed against the pinned tree at replay.c: a pause scans forward to the
+# next `Wait:` line and a resume scans forward to the matching `Done:` line, so
+# a script with too few markers has its `Read:` lines eaten by a pause and
+# desynchronises. Surplus markers ahead of a `Read:` line are skipped
+# harmlessly, so the generator emits a margin rather than an exact count.
+#
+# Desynchronisation is detected, not assumed away: the runner compares the
+# menu path recorded in the upstream log against the path the case declared.
+markers_per_step = 6
+# Blank `Read:` lines appended after the declared path. A blank line at any
+# upstream menu selects entry 0, which is Exit, so the run unwinds to the top
+# menu and terminates instead of drifting into an undeclared test.
+trailing_steps = 4
 
 # ---------------------------------------------------------------------------
 # Classification vocabulary
@@ -56,10 +82,20 @@ id = "automated_replay"
 automatable = true
 summary = "A reviewed synthetic byte sequence with a machine-checkable outcome."
 detail = """
-The input is an OdyTTY-authored fixture under compat/vttest/replay, not upstream
-content. The outcome is decided by the runner from the child process result and
-the case's declared capture file. These are the only cases an unattended run may
-execute."""
+The input is an OdyTTY-authored fixture under compat/vttest/replay, not
+upstream content. The outcome is decided by the runner from the child process
+result and the case's declared capture file."""
+
+[[classification]]
+id = "upstream_log_oracle"
+automatable = true
+summary = "A pinned upstream test whose own log records a machine-readable verdict."
+detail = """
+The upstream suite is driven through OdyTTY over its documented command-file
+and log-file options, and the outcome is read from the verdict lines the suite
+itself writes. Only lines where upstream states a conclusion are treated as
+oracles; trace lines that merely record what was sent are not. An area with no
+upstream verdict line is not automatable no matter how mechanical it looks."""
 
 [[classification]]
 id = "interactive_keyboard"
@@ -107,93 +143,195 @@ upstream bugs. The runner has no flag that promotes one of these to automatable;
 lifting the refusal requires editing this file under review."""
 
 # ---------------------------------------------------------------------------
+# Upstream verdict lines
+#
+# The complete set of log lines the pinned suite writes as a conclusion rather
+# than as a trace, each with the file that emits it. Everything else in the log
+# (Send:, Data:, Text:, Read:, Wait:, Done:, and the remaining Note: lines) is
+# a transcript of what happened, not a judgement about whether it was right.
+#
+# The runner refuses to treat any line outside this table as an outcome. Adding
+# an entry is a deliberate edit under review, which is the point: an oracle set
+# that grows by pattern-matching is how a trace line becomes a false pass.
+# ---------------------------------------------------------------------------
+
+[[verdict]]
+id = "dsr6.valid"
+pattern = "Note: valid response from DSR 6"
+polarity = "positive"
+source = "setup.c, check_8bit_toggle"
+detail = """
+The suite moved the cursor to 1,1, asked for a cursor position report, and
+received exactly the reply it expected in the control form under test."""
+
+[[verdict]]
+id = "dsr6.invalid"
+pattern = "Note: no valid response from DSR 6"
+polarity = "negative"
+source = "setup.c, check_8bit_toggle"
+detail = """
+The cursor position report was absent, malformed, or in the wrong control form
+for the mode being tested."""
+
+[[verdict]]
+id = "report.missing-st"
+pattern = "Note: Missing ST"
+polarity = "negative"
+source = "main.c, strip_terminator"
+detail = """
+A reply that must end with a string terminator did not. Emitted only on the
+failing branch, so its presence is a conclusion rather than a trace."""
+
+[[verdict]]
+id = "attribute.mismatch"
+pattern = "Note: expect "
+polarity = "negative"
+source = "vt420.c, checksum comparison"
+detail = """
+The attribute or checksum comparison failed and the suite logged the value it
+received alongside the value it required. Paired with a `Note: actual` line on
+the same failing branch."""
+
+# ---------------------------------------------------------------------------
+# Documented divergences
+#
+# Behavior where OdyTTY knowingly differs from the reference the suite encodes.
+# A divergence declared here converts an upstream negative verdict into a
+# recorded deviation instead of a failure, so it must carry the source anchor
+# that shows the behavior is a decision rather than an accident, and it must be
+# revisited rather than left to calcify.
+#
+# A divergence is never a way to silence an unexplained failure: the runner
+# refuses to apply one unless the case names it and the verdict it covers.
+# ---------------------------------------------------------------------------
+
+[[divergence]]
+id = "no-8bit-c1-introduction"
+title = "Eight-bit C1 bytes execute; they never introduce a sequence"
+covers_verdict = "dsr6.invalid"
+anchor = "src/parser/mod.rs policy ledger item 1; src/parser/machine.rs module docs"
+statement = """
+A raw byte in 0x80..=0x9F executes as a control function and is never treated
+as a sequence introducer, so a control sequence sent with an eight-bit
+introducer is not recognised. The suite's eight-bit output check therefore
+reports no valid response, which is the documented behavior rather than a
+defect."""
+rationale = """
+The introducer form is ambiguous under UTF-8, where those bytes are invalid
+encoding units. The parser resolves the ambiguity once, in favor of executing
+the control, so that how a byte stream is split across reads can never change
+what a sequence means."""
+revisit = """
+Reopen if the operating level advertised in the device attributes reply is
+raised, since eight-bit control introduction is expected at the higher levels."""
+
+[[divergence]]
+id = "no-s8c1t-transmission"
+title = "Replies are transmitted with seven-bit control forms only"
+covers_verdict = "dsr6.invalid"
+anchor = "no handler for the select-eight-bit-controls escape exists in src/"
+statement = """
+The select-eight-bit-transmission escape is not implemented, so reports are
+always returned in the seven-bit form. The suite's eight-bit input check asks
+for the eight-bit form and reports no valid response when it arrives in the
+seven-bit form."""
+rationale = """
+The device attributes reply advertises a VT100-class terminal with an advanced
+video option, an operating level at which eight-bit control transmission is not
+required. Recorded as an open gap rather than a conformance failure against the
+level actually advertised."""
+revisit = """
+Reopen together with any change to the advertised operating level, and before
+any claim of VT200-series or later conformance."""
+
+# ---------------------------------------------------------------------------
 # Upstream capability areas
 #
-# Classified by capability, deliberately WITHOUT upstream menu indices. The
-# indices were not confirmed against the pinned tree — no fetch has been
-# performed — and recording an unconfirmed index would be an invented fact that
-# a later reader could mistake for a verified one.
+# Menu paths are the selection numbers of the pinned release's top-level menu,
+# read out of the pinned tree at main.c and confirmed by the menu path the
+# suite records in its own log. A path is a list because submenus nest: the
+# suite writes the dotted form, and the runner compares the two.
 #
-# `menu_path` stays empty until it is read out of the pinned tree. The runner
-# refuses to execute any case with an empty `menu_path`, so the omission is
-# enforced rather than merely documented.
+# Classified by capability. Only the areas whose result is decided by an
+# upstream verdict line are automatable; the rest are declared so that a
+# reader can see the whole surface and how much of it a machine cannot judge.
 # ---------------------------------------------------------------------------
 
 [[case]]
 id = "upstream.cursor-movements"
 title = "Cursor movement conformance"
 classification = "visual_manual"
-menu_path = []
-confirmed_against_pin = false
+menu_path = [1]
+confirmed_against_pin = true
 notes = "Cursor positioning is checked against drawn rulers and alignment patterns."
 
 [[case]]
 id = "upstream.screen-features"
 title = "Screen feature conformance"
 classification = "visual_manual"
-menu_path = []
-confirmed_against_pin = false
+menu_path = [2]
+confirmed_against_pin = true
 notes = "Scrolling regions and attribute handling are judged from the rendered screen."
 
 [[case]]
 id = "upstream.character-sets"
 title = "Character set conformance"
 classification = "visual_manual"
-menu_path = []
-confirmed_against_pin = false
+menu_path = [3]
+confirmed_against_pin = true
 notes = "Designation and shift behavior is confirmed by reading the glyphs produced."
 
 [[case]]
 id = "upstream.double-sized-characters"
 title = "Double-width and double-height cells"
 classification = "visual_manual"
-menu_path = []
-confirmed_against_pin = false
+menu_path = [4]
+confirmed_against_pin = true
 notes = "Purely a rendering judgement; no machine-checkable outcome exists."
 
 [[case]]
 id = "upstream.keyboard"
 title = "Keyboard conformance"
 classification = "interactive_keyboard"
-menu_path = []
-confirmed_against_pin = false
+menu_path = [5]
+confirmed_against_pin = true
 notes = "Requires a human at a physical keyboard. Never automatable."
 
 [[case]]
 id = "upstream.terminal-reports"
 title = "Device and status report conformance"
 classification = "platform_dependent"
-menu_path = []
-confirmed_against_pin = false
+menu_path = [6]
+confirmed_against_pin = true
 notes = """
-The most nearly automatable upstream area, since replies are byte strings. It
-stays non-automatable here because the reply is delivered on the child's input
-stream, which the runner cannot observe without a capture mechanism the product
-does not currently expose. The OdyTTY-authored replay cases below cover the same
-ground with an evidence path that actually exists."""
+The area closest to automation, since replies are byte strings. It stays
+non-automatable because most of its sub-tests print the reply for a human to
+read instead of writing a verdict line, and the two that do write one are
+reached through the parameter menu, where they are declared as cases of their
+own."""
 
 [[case]]
 id = "upstream.vt52-mode"
 title = "VT52 compatibility mode"
 classification = "visual_manual"
-menu_path = []
-confirmed_against_pin = false
+menu_path = [7]
+confirmed_against_pin = true
 notes = "Mode entry and exit is confirmed visually."
 
 [[case]]
 id = "upstream.vt102-features"
 title = "Insert and delete character and line"
 classification = "visual_manual"
-menu_path = []
-confirmed_against_pin = false
+menu_path = [8]
+confirmed_against_pin = true
 notes = "Editing behavior is judged from the resulting screen."
 
 [[case]]
 id = "upstream.known-bugs"
 title = "Known-bug exercises"
 classification = "unsafe_unattended"
-menu_path = []
-confirmed_against_pin = false
+menu_path = [9]
+confirmed_against_pin = true
 notes = """
 Deliberately drives sequences known to break terminals. Valuable, and precisely
 the category that must not run unattended: a hang or a wedged terminal is an
@@ -203,17 +341,63 @@ expected outcome here rather than a signal."""
 id = "upstream.reset-and-self-test"
 title = "Reset and self-test"
 classification = "unsafe_unattended"
-menu_path = []
-confirmed_against_pin = false
+menu_path = [10]
+confirmed_against_pin = true
 notes = "Resets terminal state mid-run, which invalidates any concurrent case."
 
 [[case]]
 id = "upstream.non-vt100-terminals"
 title = "Extended and non-VT100 behavior"
 classification = "platform_dependent"
-menu_path = []
-confirmed_against_pin = false
+menu_path = [11]
+confirmed_against_pin = true
 notes = "Includes window manipulation, which the window system mediates."
+
+[[case]]
+id = "upstream.test-parameters"
+title = "Test-parameter menu"
+classification = "platform_dependent"
+menu_path = [12]
+confirmed_against_pin = true
+notes = """
+The container for the parameter toggles. Entering it changes nothing on its
+own; the two toggles with verdict lines are declared as cases below."""
+
+# ---------------------------------------------------------------------------
+# Automatable upstream cases
+#
+# The minimal reviewed set: upstream tests that write a verdict line, that
+# leave no state behind beyond their own process, and that cannot wedge the
+# terminal. Both toggles restore the previous setting themselves when the
+# terminal declines the mode, and each case runs in its own process.
+# ---------------------------------------------------------------------------
+
+[[case]]
+id = "upstream.oracle.send-8bit-controls"
+title = "Eight-bit control output accepted on input"
+classification = "upstream_log_oracle"
+menu_path = [12, 2]
+confirmed_against_pin = true
+capture_file = "send-8bit-controls.log"
+timeout_seconds = 180
+expected_divergence = "no-8bit-c1-introduction"
+notes = """
+Switches the suite to eight-bit control output, then asks for a cursor position
+report and judges the reply. Exercises whether the terminal recognises a
+control sequence introduced by a single eight-bit byte."""
+
+[[case]]
+id = "upstream.oracle.receive-8bit-controls"
+title = "Eight-bit control form used in replies"
+classification = "upstream_log_oracle"
+menu_path = [12, 3]
+confirmed_against_pin = true
+capture_file = "receive-8bit-controls.log"
+timeout_seconds = 180
+expected_divergence = "no-s8c1t-transmission"
+notes = """
+Asks the terminal to transmit eight-bit control forms, then judges the control
+form of the cursor position report that comes back."""
 
 # ---------------------------------------------------------------------------
 # OdyTTY-authored replay fixtures
@@ -223,9 +407,9 @@ notes = "Includes window manipulation, which the window system mediates."
 # own provenance header. None is derived from upstream content or from any
 # captured private terminal session.
 #
-# These are declared, reviewed, and executable by the runner. None has been RUN:
-# no result document exists yet, and no compatibility claim is made anywhere in
-# this repository on the strength of them.
+# These prove that a sequence is consumed without error. They cannot prove the
+# screen is correct, because the harness has no way to read the rendered grid
+# back, so their outcome is capped at ignore.
 # ---------------------------------------------------------------------------
 
 [[case]]
