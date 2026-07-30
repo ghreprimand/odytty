@@ -334,7 +334,8 @@ the ownership boundary and deeper workflow architecture.
 [Stabilization baseline](docs/stabilization-baseline.md), and
 [Native decomposition map](docs/native-decomposition.md) define the current
 evidence gates, scope freeze, reproducible starting point, and architecture
-boundaries.
+boundaries. The [comparative benchmark protocol](docs/benchmark-protocol.md)
+preregisters performance methodology before measurement.
 
 ### Packaging and release
 
