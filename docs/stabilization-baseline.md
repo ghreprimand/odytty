@@ -172,6 +172,43 @@ clipboard policy, image-paste limits, and pointer and IME latch lifecycle. The
 first serialized application extraction must repair or replace this test seam
 before relying on these tests as acceptance evidence.
 
+### Finding F1 resolution
+
+Revision `5675a7d487b69c6a0ee50a13c29020c1782cac89` replaces the per-test event
+loops with one process-wide loop and a shared proxy. A subprocess regression
+guard now fails if the affected population splits between executed assertions
+and successful early returns.
+
+The focused verification reported 53 executed cases and zero unavailable
+cases. The full local gate then passed with no event-loop early returns. Two
+previously masked OSC 52 expectations failed once they began executing: their
+positive apply-path cases had not selected the apply policy after the default
+changed to consent-based prompting. The tests now select that policy
+explicitly, and the background-discard case uses the same positive control so
+its absence assertion cannot pass vacuously.
+
+Linux and Windows share the process-wide loop using their off-main-thread
+event-loop support. The Windows proxy remains behind a mutex because it is
+sendable but not directly shareable, and a compile-time assertion pins the
+required bounds. The affected macOS cases remain explicitly ignored because
+AppKit requires the main thread; they are not counted as macOS passes.
+
+### Finding F2: render-global test race
+
+The first documentation integration run passed locally and on Windows and
+macOS, but Ubuntu failed
+`grid::tests::underline_attribute_appends_thin_solid_quad`. Its expected
+default foreground was `[0.6038274, 0.6038274, 0.6038274, 1.0]`; the observed
+foreground was the contrast-lifted
+`[0.86315525, 0.86315525, 0.863155, 1.0]`.
+
+The failing test reads the process-global minimum-contrast setting without
+holding `crate::test_lock::render_globals_lock()`. A neighboring test holds
+that lock while temporarily setting the minimum contrast to `7.0`, so the
+reader can race with the mutation under parallel execution. This pre-existing
+test isolation defect remains open. The baseline stays incomplete until the
+race is corrected and blocking CI is green.
+
 ## Dependency advisory state
 
 The project audit script passed. An unfiltered audit reported two ignored
