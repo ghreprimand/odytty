@@ -12,31 +12,13 @@
 use super::super::pty::UserEvent;
 use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
-use winit::event_loop::EventLoop;
-#[cfg(target_os = "linux")]
-use winit::platform::wayland::EventLoopBuilderExtWayland;
-#[cfg(target_os = "windows")]
-use winit::platform::windows::EventLoopBuilderExtWindows;
-#[cfg(target_os = "linux")]
-use winit::platform::x11::EventLoopBuilderExtX11;
 
-fn app_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
+fn app_with_proxy() -> Result<App, &'static str> {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
-    let mut builder = EventLoop::<UserEvent>::with_user_event();
-    #[cfg(target_os = "linux")]
-    {
-        EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
-        EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
-    }
-    #[cfg(target_os = "windows")]
-    {
-        EventLoopBuilderExtWindows::with_any_thread(&mut builder, true);
-    }
-    let event_loop = builder.build().ok()?;
-    let proxy = event_loop.create_proxy();
+    let proxy = event_loop_proxy_for_test()?;
     let sessions = WorkspaceSet::new(
         Session::new_headless(SessionToken(0), terminal, writer, headless),
         Some(proxy),
@@ -47,7 +29,7 @@ fn app_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
-    Some((app, event_loop))
+    Ok(app)
 }
 
 /// Build a headless `App` (no `EventLoop`, no window) whose sole session's PTY
@@ -131,11 +113,12 @@ fn image_upload_completion_notifies_and_copies_without_pty_write() {
 
 macro_rules! app_or_skip {
     () => {{
-        let Some((app, event_loop)) = app_with_proxy() else {
-            eprintln!("skipping: no PTY available");
-            return;
-        };
-        (app, event_loop)
+        // The shared loop already reported the reason if it was unavailable, so
+        // an early return here is never silent.
+        match app_with_proxy() {
+            Ok(app) => app,
+            Err(_) => return,
+        }
     }};
 }
 
@@ -151,7 +134,7 @@ fn tiny_png() -> Vec<u8> {
 )]
 #[test]
 fn image_paste_prompts_then_uploads_on_confirm() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_active_remote_upload_for_test("deploy@web1.example.invalid");
     app.set_remote_image_paste_enabled_for_test(true);
     let png = tiny_png();
@@ -182,7 +165,7 @@ fn image_paste_prompts_then_uploads_on_confirm() {
 )]
 #[test]
 fn image_paste_cancel_sends_nothing() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_active_remote_upload_for_test("deploy@web1.example.invalid");
     app.set_remote_image_paste_enabled_for_test(true);
     app.set_clipboard_image_for_test(Some(tiny_png()));
@@ -206,7 +189,7 @@ fn image_paste_cancel_sends_nothing() {
 )]
 #[test]
 fn switching_tabs_cancels_a_pending_image_upload() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.new_tab_for_test();
     app.set_active_remote_upload_for_test("deploy@web1.example.invalid");
     app.set_remote_image_paste_enabled_for_test(true);
@@ -233,7 +216,7 @@ fn switching_tabs_cancels_a_pending_image_upload() {
 )]
 #[test]
 fn image_paste_disabled_setting_is_a_no_op() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_active_remote_upload_for_test("deploy@web1.example.invalid");
     app.set_remote_image_paste_enabled_for_test(false);
     app.set_clipboard_image_for_test(Some(tiny_png()));
@@ -251,7 +234,7 @@ fn image_paste_disabled_setting_is_a_no_op() {
 )]
 #[test]
 fn image_paste_ignored_on_a_non_remote_tab() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     // No upload descriptor => a local/plain-ssh tab; image paste never engages.
     app.set_remote_image_paste_enabled_for_test(true);
     app.set_clipboard_image_for_test(Some(tiny_png()));
@@ -269,7 +252,7 @@ fn image_paste_ignored_on_a_non_remote_tab() {
 )]
 #[test]
 fn image_paste_over_the_cap_is_refused_without_prompting() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_active_remote_upload_for_test("deploy@web1.example.invalid");
     app.set_remote_image_paste_enabled_for_test(true);
     // One byte over the fixed encoded-PNG cap.

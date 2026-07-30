@@ -12,35 +12,17 @@ use super::super::pty::UserEvent;
 use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
 use crate::settings::BindableAction;
-use winit::event_loop::EventLoop;
-#[cfg(target_os = "linux")]
-use winit::platform::wayland::EventLoopBuilderExtWayland;
-#[cfg(target_os = "windows")]
-use winit::platform::windows::EventLoopBuilderExtWindows;
-#[cfg(target_os = "linux")]
-use winit::platform::x11::EventLoopBuilderExtX11;
 
 /// Build an `App` backed by a real `EventLoop` proxy so `handle_new_workspace`
 /// (which spawns a fresh shell) succeeds. Returns `None` when no PTY is
 /// available. Skipped at runtime on macOS: the harness builds an
 /// off-main-thread `EventLoop`, which AppKit forbids.
-fn app_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
+fn app_with_proxy() -> Result<App, &'static str> {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
-    let mut builder = EventLoop::<UserEvent>::with_user_event();
-    #[cfg(target_os = "linux")]
-    {
-        EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
-        EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
-    }
-    #[cfg(target_os = "windows")]
-    {
-        EventLoopBuilderExtWindows::with_any_thread(&mut builder, true);
-    }
-    let event_loop = builder.build().ok()?;
-    let proxy = event_loop.create_proxy();
+    let proxy = event_loop_proxy_for_test()?;
     let sessions = WorkspaceSet::new(
         Session::new_headless(SessionToken(0), terminal, writer, headless),
         Some(proxy),
@@ -51,18 +33,17 @@ fn app_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
-    Some((app, event_loop))
+    Ok(app)
 }
 
 macro_rules! app_or_skip {
     () => {{
-        let Some((app, event_loop)) = app_with_proxy() else {
-            eprintln!("skipping: no PTY available");
-            return;
-        };
-        // Keep the loop alive for the test's duration (dropping it early would
-        // invalidate the proxy the workspace spawns rely on).
-        (app, event_loop)
+        // The shared loop already reported the reason if it was unavailable, so
+        // an early return here is never silent.
+        match app_with_proxy() {
+            Ok(app) => app,
+            Err(_) => return,
+        }
     }};
 }
 
@@ -72,7 +53,7 @@ macro_rules! app_or_skip {
 )]
 #[test]
 fn new_workspace_action_appends_and_switches() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     assert_eq!(app.workspace_count_for_test(), 1);
     assert_eq!(app.active_workspace_index_for_test(), 0);
 
@@ -101,7 +82,7 @@ fn new_workspace_action_appends_and_switches() {
 )]
 #[test]
 fn next_and_prev_workspace_cycle_wrapping() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
     app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
     assert_eq!(app.workspace_count_for_test(), 3);
@@ -123,7 +104,7 @@ fn next_and_prev_workspace_cycle_wrapping() {
 )]
 #[test]
 fn workspace_cycle_chords_dispatch_through_production_key_path() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
     assert_eq!(app.active_workspace_index_for_test(), 1);
 
@@ -140,7 +121,7 @@ fn workspace_cycle_chords_dispatch_through_production_key_path() {
 )]
 #[test]
 fn close_workspace_removes_it_without_exiting_when_others_remain() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
     assert_eq!(app.workspace_count_for_test(), 2);
 
@@ -162,7 +143,7 @@ fn close_workspace_removes_it_without_exiting_when_others_remain() {
 )]
 #[test]
 fn close_last_workspace_signals_exit_without_emptying_the_arena() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     assert_eq!(app.workspace_count_for_test(), 1);
 
     app.dispatch_workspace_action_for_test(BindableAction::CloseWorkspace);
@@ -181,7 +162,7 @@ fn close_last_workspace_signals_exit_without_emptying_the_arena() {
 )]
 #[test]
 fn rename_workspace_action_opens_overlay_and_commits_the_active_name() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.dispatch_workspace_action_for_test(BindableAction::RenameWorkspace);
     assert!(app.rename_overlay_open_for_test(), "rename overlay opened");
 
@@ -203,7 +184,7 @@ fn rename_workspace_action_opens_overlay_and_commits_the_active_name() {
 )]
 #[test]
 fn empty_rename_leaves_the_workspace_name_unchanged() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.dispatch_workspace_action_for_test(BindableAction::RenameWorkspace);
     app.commit_rename_for_test("   ");
     assert_eq!(
@@ -219,7 +200,7 @@ fn empty_rename_leaves_the_workspace_name_unchanged() {
 )]
 #[test]
 fn palette_switch_row_deep_switches_workspace() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
     assert_eq!(app.active_workspace_index_for_test(), 1);
 
@@ -234,7 +215,7 @@ fn palette_switch_row_deep_switches_workspace() {
 )]
 #[test]
 fn palette_new_workspace_row_creates_a_workspace() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     assert_eq!(app.workspace_count_for_test(), 1);
     app.handle_palette_action_for_test("workspace-new");
     assert_eq!(app.workspace_count_for_test(), 2);
@@ -247,7 +228,7 @@ fn palette_new_workspace_row_creates_a_workspace() {
 )]
 #[test]
 fn palette_rename_workspace_row_opens_the_overlay() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.handle_palette_action_for_test("workspace-rename");
     assert!(app.rename_overlay_open_for_test());
     app.commit_rename_for_test("app");
@@ -260,7 +241,7 @@ fn palette_rename_workspace_row_opens_the_overlay() {
 )]
 #[test]
 fn move_tab_to_workspace_splices_without_switching() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     // ws0 gets a second tab; ws1 is created (and becomes active), then we go
     // back to ws0 so the move is from the active workspace.
     app.new_tab_for_test();
@@ -297,7 +278,7 @@ fn move_tab_to_workspace_splices_without_switching() {
 )]
 #[test]
 fn moving_the_last_tab_out_closes_the_source_workspace_app() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     // Two single-tab workspaces; active is ws1 after creation.
     app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
     assert_eq!(app.workspace_count_for_test(), 2);
@@ -319,7 +300,7 @@ fn moving_the_last_tab_out_closes_the_source_workspace_app() {
 )]
 #[test]
 fn move_tab_is_a_noop_with_a_single_workspace() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     assert_eq!(app.workspace_count_for_test(), 1);
     let token = app.active_session_token_for_test();
     // Single workspace: no destinations, so the picker never opens (W4-v2).
@@ -340,7 +321,7 @@ fn rename_band_holds_the_single_pane_opaque_region_under_transparency() {
     // it rendered translucent under a translucent window. With no modal open
     // the span is `None` (the opaque-window path stays byte-identical); opening
     // a workspace rename must mark the band's cells opaque.
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     assert!(
         app.single_pane_overlay_opaque_region_for_test().is_none(),
         "no modal open ⇒ no opaque span (opaque path is byte-identical)"
@@ -376,7 +357,7 @@ fn secondary_instance_raises_the_restore_suppressed_notice() {
     // restore/autosave. When the user expects restore, the startup gate must
     // surface the one-line banner so the silence stops reading as "restore
     // didn't work".
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_primary_instance_for_test(false);
     app.set_restore_workspaces_for_test(true);
     app.notice_secondary_instance_for_test();
@@ -396,7 +377,7 @@ fn secondary_instance_raises_the_restore_suppressed_notice() {
 #[test]
 fn primary_instance_stays_silent_on_the_restore_notice() {
     // The owner of the lock restores and autosaves normally — no notice.
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_primary_instance_for_test(true);
     app.set_restore_workspaces_for_test(true);
     app.notice_secondary_instance_for_test();
@@ -414,7 +395,7 @@ fn primary_instance_stays_silent_on_the_restore_notice() {
 fn secondary_instance_without_restore_expectation_stays_silent() {
     // With restore off the user is not relying on it, so the secondary window
     // has nothing to explain — no notice.
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_primary_instance_for_test(false);
     app.set_restore_workspaces_for_test(false);
     app.notice_secondary_instance_for_test();
@@ -434,7 +415,7 @@ fn open_layout_onto_pristine_window_opens_without_a_prompt() {
     // a layout goes straight through (the pristine-consume path) with no
     // Replace/Add prompt — even when the named layout doesn't exist (it then
     // raises a "not found" notice, but never the mode dialog).
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     assert_eq!(app.workspace_count_for_test(), 1);
 
     app.open_layout_for_test("no-such-layout");
@@ -453,7 +434,7 @@ fn open_layout_onto_real_state_raises_the_mode_prompt() {
     // LAYOUT-OPEN-MODE: once the window holds real state (here, a second
     // workspace), opening a layout raises the Replace/Add/Cancel dialog instead
     // of silently appending.
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
     assert_eq!(
         app.workspace_count_for_test(),
@@ -487,7 +468,7 @@ fn app_mode_shell_exit_in_a_non_last_workspace_quits_without_reaping() {
     // NOT reap the workspace first -- the arena stays intact so the shutdown
     // snapshot can capture every workspace for restore. Confirm-close off makes
     // the quit deterministic regardless of the fixture shells' job state.
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_shell_exit_closes_app_for_test();
     app.set_confirm_close_for_test(false);
     app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
@@ -521,7 +502,7 @@ fn workspace_mode_shell_exit_in_a_non_last_workspace_closes_only_it() {
     // SHELL-EXIT-CLOSES: the default (Workspace) mode is byte-identical to the
     // historical cascade -- a shell exit that empties a non-last workspace reaps
     // just that workspace and the app stays open.
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
     assert_eq!(app.workspace_count_for_test(), 2);
     app.dispatch_workspace_action_for_test(BindableAction::PrevWorkspace);
@@ -552,7 +533,7 @@ fn app_mode_shell_exit_with_a_sibling_tab_closes_only_the_tab() {
     // SHELL-EXIT-CLOSES granularity: App mode changes ONLY the workspace-close
     // decision. A shell exit in a tab that has a sibling tab closes just that
     // tab; the workspace and the app both survive.
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_shell_exit_closes_app_for_test();
     app.set_confirm_close_for_test(false);
     // Single workspace, two tabs.
@@ -582,7 +563,7 @@ fn app_mode_shell_exit_with_a_sibling_tab_closes_only_the_tab() {
 fn app_mode_shell_exit_with_a_sibling_pane_closes_only_the_pane() {
     // SHELL-EXIT-CLOSES granularity: a shell exit in a pane that has a sibling
     // pane closes just that pane -- the tab, workspace, and app all survive.
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_shell_exit_closes_app_for_test();
     app.set_confirm_close_for_test(false);
     app.split_active_columns_for_test();
@@ -617,7 +598,7 @@ fn close_workspace_action_stays_single_workspace_scoped_in_app_mode() {
     // SHELL-EXIT-CLOSES: the setting governs ONLY the shell-exit path. The
     // explicit Close Workspace action (and the rail x, which routes through the
     // same close_workspace path) still closes a single workspace in App mode.
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_shell_exit_closes_app_for_test();
     app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
     assert_eq!(app.workspace_count_for_test(), 2);
@@ -644,7 +625,7 @@ fn app_mode_exit_quit_snapshot_captures_every_workspace() {
     // shell exit into a quit, the arena is NOT reaped first, so a shape snapshot
     // taken at that moment still contains every workspace -- including the one
     // where exit was typed -- so layout restore reopens them all.
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_shell_exit_closes_app_for_test();
     app.set_confirm_close_for_test(false);
     app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);

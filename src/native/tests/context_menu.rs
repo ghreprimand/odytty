@@ -13,16 +13,8 @@ use super::super::context_menu_ui::{
     CONTEXT_MENU_SECOND_SEPARATOR_ROW, CONTEXT_MENU_SEPARATOR_ROW,
     CONTEXT_MENU_THIRD_SEPARATOR_ROW, ContextMenuRow, ContextMenuUi,
 };
-use super::super::pty::UserEvent;
 use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
-use winit::event_loop::EventLoop;
-#[cfg(target_os = "linux")]
-use winit::platform::wayland::EventLoopBuilderExtWayland;
-#[cfg(target_os = "windows")]
-use winit::platform::windows::EventLoopBuilderExtWindows;
-#[cfg(target_os = "linux")]
-use winit::platform::x11::EventLoopBuilderExtX11;
 
 fn app_for_test() -> Option<(App, Arc<Mutex<Terminal>>)> {
     let dims = Dimensions::new(80, 24);
@@ -33,23 +25,12 @@ fn app_for_test() -> Option<(App, Arc<Mutex<Terminal>>)> {
     ))
 }
 
-fn app_for_test_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
+fn app_for_test_with_proxy() -> Result<App, &'static str> {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
-    let mut builder = EventLoop::<UserEvent>::with_user_event();
-    #[cfg(target_os = "linux")]
-    {
-        EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
-        EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
-    }
-    #[cfg(target_os = "windows")]
-    {
-        EventLoopBuilderExtWindows::with_any_thread(&mut builder, true);
-    }
-    let event_loop = builder.build().ok()?;
-    let proxy = event_loop.create_proxy();
+    let proxy = event_loop_proxy_for_test()?;
     let sessions = WorkspaceSet::new(
         Session::new_headless(SessionToken(0), terminal, writer, headless),
         Some(proxy),
@@ -60,7 +41,7 @@ fn app_for_test_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
-    Some((app, event_loop))
+    Ok(app)
 }
 
 #[derive(Clone, Default)]
@@ -1634,8 +1615,9 @@ fn clicking_outside_the_menu_dismisses_it() {
 )]
 #[test]
 fn clicking_new_tab_spawns_session_and_closes_menu() {
-    let Some((mut app, _event_loop)) = app_for_test_with_proxy() else {
-        eprintln!("skipping: no PTY available");
+    // The shared loop already reported the reason if it was unavailable, so an
+    // early return here is never silent.
+    let Ok(mut app) = app_for_test_with_proxy() else {
         return;
     };
     assert_eq!(app.session_count_for_test(), 1);

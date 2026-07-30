@@ -11,36 +11,17 @@
 //! spawns succeed); skipped when no PTY is available, ignored on macOS (the
 //! harness builds an off-main-thread winit `EventLoop`).
 
-use super::super::pty::UserEvent;
 use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
 use crate::settings::BindableAction;
 use winit::event::Ime;
-use winit::event_loop::EventLoop;
-#[cfg(target_os = "linux")]
-use winit::platform::wayland::EventLoopBuilderExtWayland;
-#[cfg(target_os = "windows")]
-use winit::platform::windows::EventLoopBuilderExtWindows;
-#[cfg(target_os = "linux")]
-use winit::platform::x11::EventLoopBuilderExtX11;
 
-fn app_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
+fn app_with_proxy() -> Result<App, &'static str> {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
-    let mut builder = EventLoop::<UserEvent>::with_user_event();
-    #[cfg(target_os = "linux")]
-    {
-        EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
-        EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
-    }
-    #[cfg(target_os = "windows")]
-    {
-        EventLoopBuilderExtWindows::with_any_thread(&mut builder, true);
-    }
-    let event_loop = builder.build().ok()?;
-    let proxy = event_loop.create_proxy();
+    let proxy = event_loop_proxy_for_test()?;
     let sessions = WorkspaceSet::new(
         Session::new_headless(SessionToken(0), terminal, writer, headless),
         Some(proxy),
@@ -51,16 +32,17 @@ fn app_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
         Settings::default(),
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
-    Some((app, event_loop))
+    Ok(app)
 }
 
 macro_rules! app_or_skip {
     () => {{
-        let Some((app, event_loop)) = app_with_proxy() else {
-            eprintln!("skipping: no PTY available");
-            return;
-        };
-        (app, event_loop)
+        // The shared loop already reported the reason if it was unavailable, so
+        // an early return here is never silent.
+        match app_with_proxy() {
+            Ok(app) => app,
+            Err(_) => return,
+        }
     }};
 }
 
@@ -83,7 +65,7 @@ fn arm_drag(app: &mut App) {
 )]
 #[test]
 fn keyboard_tab_switch_clears_outgoing_drag() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     // A second tab to switch to and back from.
     app.new_tab_for_test();
     assert_eq!(app.active_workspace_tab_count_for_test(), 2);
@@ -120,7 +102,7 @@ fn keyboard_tab_switch_clears_outgoing_drag() {
 )]
 #[test]
 fn workspace_switch_clears_outgoing_drag() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     // A second workspace (focus follows it), then arm a drag there.
     app.dispatch_workspace_action_for_test(BindableAction::NewWorkspace);
     assert_eq!(app.workspace_count_for_test(), 2);
@@ -146,7 +128,7 @@ fn workspace_switch_clears_outgoing_drag() {
 )]
 #[test]
 fn button_held_guard_refuses_extend_after_lost_release() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     arm_drag(&mut app);
 
     // Simulate a lost release (alt-tab): the drag state persists but the held
@@ -173,7 +155,7 @@ fn button_held_guard_refuses_extend_after_lost_release() {
 )]
 #[test]
 fn button_held_guard_allows_extend_while_held() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     arm_drag(&mut app);
     // Held flag is set; a move DOES extend (the guard is not over-broad).
     app.grid_pointer_moved_for_test(400.0, 0.0);
@@ -189,7 +171,7 @@ fn button_held_guard_allows_extend_while_held() {
 )]
 #[test]
 fn focus_loss_cancels_scrollbar_drag_before_buttonless_motion() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.begin_scrollbar_drag_for_test();
     assert!(
         app.scrollbar_dragging_for_test(),
@@ -214,7 +196,7 @@ fn focus_loss_cancels_scrollbar_drag_before_buttonless_motion() {
 )]
 #[test]
 fn focus_loss_clears_pressed_mouse_report_button() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.enable_mouse_reporting_for_test();
     assert_eq!(app.left_button_outcome_for_test(true), "report");
     assert!(app.report_button_for_test().is_some());
@@ -229,7 +211,7 @@ fn focus_loss_clears_pressed_mouse_report_button() {
 )]
 #[test]
 fn tab_switch_clears_pressed_mouse_report_button() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.new_tab_for_test();
     app.enable_mouse_reporting_for_test();
     assert_eq!(app.left_button_outcome_for_test(true), "report");
@@ -250,7 +232,7 @@ fn tab_switch_clears_pressed_mouse_report_button() {
 )]
 #[test]
 fn tab_switch_clears_stale_pointer_cell() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.new_tab_for_test();
     // Seed a hover cell, then switch: the incoming session must not carry it (no
     // phantom hover / stale Ctrl+click target before the first real move).
@@ -269,7 +251,7 @@ fn tab_switch_clears_stale_pointer_cell() {
 )]
 #[test]
 fn switch_drops_in_flight_ime_preedit() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.new_tab_for_test();
     app.set_ime_preedit_for_test("中");
     assert_eq!(app.ime_preedit_for_test(), "中");
@@ -287,7 +269,7 @@ fn switch_drops_in_flight_ime_preedit() {
 )]
 #[test]
 fn delayed_ime_commit_is_not_delivered_to_the_new_session() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.new_tab_for_test();
     app.handle_ime(Ime::Preedit("中".to_owned(), None));
     app.switch_to_next_tab_for_test();
@@ -308,7 +290,7 @@ fn delayed_ime_commit_is_not_delivered_to_the_new_session() {
 )]
 #[test]
 fn tab_switch_reports_focus_loss_and_gain_to_the_correct_sessions() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.enable_focus_reporting_for_test(); // tab 0
     app.new_tab_for_test();
     app.enable_focus_reporting_for_test(); // tab 1

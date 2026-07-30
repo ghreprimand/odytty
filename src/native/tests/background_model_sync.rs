@@ -15,35 +15,16 @@
 //! winit `EventLoop`).
 
 use super::super::app::osc52::PromptDecision;
-use super::super::pty::UserEvent;
 use super::super::session::{Session, SessionToken, WorkspaceSet};
 use super::*;
 use crate::settings::Osc52WritePolicy;
-use winit::event_loop::EventLoop;
-#[cfg(target_os = "linux")]
-use winit::platform::wayland::EventLoopBuilderExtWayland;
-#[cfg(target_os = "windows")]
-use winit::platform::windows::EventLoopBuilderExtWindows;
-#[cfg(target_os = "linux")]
-use winit::platform::x11::EventLoopBuilderExtX11;
 
-fn app_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
+fn app_with_proxy() -> Result<App, &'static str> {
     let dims = Dimensions::new(80, 24);
     let writer: PtyWriter = crate::native::test_support::headless_writer();
     let terminal = Arc::new(Mutex::new(Terminal::new(dims.columns, dims.rows)));
     let headless = Arc::new(crate::native::session::HeadlessSession::new(dims));
-    let mut builder = EventLoop::<UserEvent>::with_user_event();
-    #[cfg(target_os = "linux")]
-    {
-        EventLoopBuilderExtWayland::with_any_thread(&mut builder, true);
-        EventLoopBuilderExtX11::with_any_thread(&mut builder, true);
-    }
-    #[cfg(target_os = "windows")]
-    {
-        EventLoopBuilderExtWindows::with_any_thread(&mut builder, true);
-    }
-    let event_loop = builder.build().ok()?;
-    let proxy = event_loop.create_proxy();
+    let proxy = event_loop_proxy_for_test()?;
     let sessions = WorkspaceSet::new(
         Session::new_headless(SessionToken(0), terminal, writer, headless),
         Some(proxy),
@@ -55,16 +36,17 @@ fn app_with_proxy() -> Option<(App, EventLoop<UserEvent>)> {
         crate::settings::SettingsReloader::for_current_process(Instant::now()),
     );
     app.on_window_focus_changed_for_test(true);
-    Some((app, event_loop))
+    Ok(app)
 }
 
 macro_rules! app_or_skip {
     () => {{
-        let Some((app, event_loop)) = app_with_proxy() else {
-            eprintln!("skipping: no PTY available");
-            return;
-        };
-        (app, event_loop)
+        // The shared loop already reported the reason if it was unavailable, so
+        // an early return here is never silent.
+        match app_with_proxy() {
+            Ok(app) => app,
+            Err(_) => return,
+        }
     }};
 }
 
@@ -87,7 +69,7 @@ const OSC52_READ: &[u8] = b"\x1b]52;c;?\x1b\\";
 )]
 #[test]
 fn os_theme_flip_reaches_background_session() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     // A second tab; the new one is focused, so tab 0 is now a background session.
     app.new_tab_for_test();
     assert_eq!(app.active_workspace_tab_count_for_test(), 2);
@@ -128,7 +110,11 @@ fn os_theme_flip_reaches_background_session() {
 )]
 #[test]
 fn background_osc52_write_is_discarded() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
+    // Select the apply policy so the absence below is discriminating: under the
+    // default `Ask` a focused write records nothing either, which would let this
+    // case pass even if the background discard stopped working.
+    app.set_osc52_write_policy_for_test(Osc52WritePolicy::On);
     app.new_tab_for_test(); // tab 1 focused; tab 0 is background.
     app.reset_last_clipboard_write_for_test();
 
@@ -158,7 +144,12 @@ fn background_osc52_write_is_discarded() {
 )]
 #[test]
 fn focused_osc52_write_reaches_clipboard() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
+    // The shipped default is `Ask`, which routes a focused write through consent
+    // instead of applying it. This case is the positive control for the apply
+    // path, so it selects that policy explicitly rather than leaning on whatever
+    // the default happens to be; the consent path has its own cases below.
+    app.set_osc52_write_policy_for_test(Osc52WritePolicy::On);
     app.new_tab_for_test(); // tab 1 focused.
     app.reset_last_clipboard_write_for_test();
 
@@ -185,7 +176,7 @@ fn focused_osc52_write_reaches_clipboard() {
 )]
 #[test]
 fn focused_osc52_write_obeys_window_focus_and_off_policy() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.reset_last_clipboard_write_for_test();
 
     app.on_window_focus_changed_for_test(false);
@@ -206,7 +197,7 @@ fn focused_osc52_write_obeys_window_focus_and_off_policy() {
 )]
 #[test]
 fn osc52_ask_coalesces_and_allow_once_does_not_persist() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_osc52_write_policy_for_test(Osc52WritePolicy::Ask);
     app.reset_last_clipboard_write_for_test();
 
@@ -232,7 +223,7 @@ fn osc52_ask_coalesces_and_allow_once_does_not_persist() {
 )]
 #[test]
 fn osc52_ask_session_decisions_are_ephemeral_and_cancel_on_staleness() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_osc52_write_policy_for_test(Osc52WritePolicy::Ask);
 
     app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
@@ -270,7 +261,7 @@ fn osc52_ask_session_decisions_are_ephemeral_and_cancel_on_staleness() {
 )]
 #[test]
 fn osc52_ask_deny_session_blocks_later_writes() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.set_osc52_write_policy_for_test(Osc52WritePolicy::Ask);
     app.advance_session_bytes_for_test(0, OSC52_WRITE_HI);
     app.drain_clipboard_requests_for_test();
@@ -289,7 +280,10 @@ fn osc52_ask_deny_session_blocks_later_writes() {
 ))]
 #[test]
 fn focused_osc52_primary_write_uses_the_linux_primary_slot() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
+    // Pin the apply path: under the default `Ask` policy a focused write prompts,
+    // which would say nothing about which slot the write lands in.
+    app.set_osc52_write_policy_for_test(Osc52WritePolicy::On);
     app.reset_last_clipboard_write_for_test();
     app.advance_session_bytes_for_test(0, OSC52_WRITE_PRIMARY);
     app.drain_clipboard_requests_for_test();
@@ -303,7 +297,7 @@ fn focused_osc52_primary_write_uses_the_linux_primary_slot() {
 )]
 #[test]
 fn background_osc52_read_never_reaches_clipboard() {
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.new_tab_for_test(); // tab 1 focused; tab 0 is background.
     app.enable_osc52_read_for_test("private text");
 
@@ -338,7 +332,7 @@ fn active_session_osc52_read_denied_while_window_unfocused() {
     // C41: even the active session must not read the clipboard while the OdyTTY
     // window itself is unfocused -- otherwise a foreground program in the active
     // tab could exfiltrate the clipboard while the user works elsewhere.
-    let (mut app, _event_loop) = app_or_skip!();
+    let mut app = app_or_skip!();
     app.enable_osc52_read_for_test("private text");
     app.set_window_focus_for_test(false);
 
