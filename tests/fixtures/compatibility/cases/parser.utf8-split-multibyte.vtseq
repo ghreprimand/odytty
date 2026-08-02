@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# id: parser.utf8-split-multibyte
+# geometry: 20 2
+# chunks: 4 2 6
+# expect-line: 0 = café ─end
+# expect-cursor: 0 9
+#
+# Multibyte UTF-8 split across feed boundaries must decode identically to the
+# same bytes fed whole: a PTY delivers bytes in arbitrary read sizes and the
+# parser may never let a split change what a sequence means. The first chunk
+# ends between the two bytes of U+00E9; the third starts with the three-byte
+# box-drawing U+2500 intact.
+#
+# Escapes: \e ESC, \r CR, \n LF, \t HT, \\ backslash, \xNN one byte.
+# Every other character is emitted literally. Lines add no implicit newline.
+
+caf\xc3
+\xa9 \xe2\x94\x80end

@@ -1,0 +1,173 @@
+# SPDX-License-Identifier: GPL-3.0-only
+#
+# Compatibility corpus manifest.
+#
+# One [[case]] entry per tracked case file under cases/. The entry carries the
+# canonical metadata — provenance, origin, consent, license, evidence class,
+# payload digest, and platform reach — while the case file carries the payload
+# and the replay expectations. The validator (scripts/compatibility-corpus.py)
+# enforces a strict one-to-one correspondence between the two: a file with no
+# entry is unreviewed material in the tracked tree, and an entry with no file
+# is a case that cannot run.
+#
+# The full contract is docs/compatibility/corpus.md. Rules a contributor most
+# often trips over, in brief:
+#
+#   - sha256 is the digest of the ASSEMBLED payload bytes; recompute it with
+#     the validator whenever the bytes change. Never edit bytes to match a
+#     stale digest.
+#   - The at-sign ban is blanket, in payloads and in every string below.
+#   - Only minimized, reviewed, public-safe cases are tracked. Incoming
+#     material lives untracked under .archon/compat-intake until accept.
+#   - Evidence classes never blur: a vttest-derived case is not real-app
+#     evidence, and a fuzz minimization is not a differential result.
+
+[corpus]
+schema_version = "1.0.0"
+
+[policy]
+# Reviewable caps; the validator's hard ceilings sit above these and cannot be
+# lifted from this file. A case that wants more room is not minimized.
+max_cases = 64
+max_payload_bytes = 16384
+max_columns = 200
+max_rows = 100
+max_chunks = 512
+max_expectations_per_case = 32
+
+# ---------------------------------------------------------------------------
+# Example corpus
+#
+# Six synthetic authored cases, one per evidence class (parser carries two).
+# They exist to exercise every class code path in the validator and the replay
+# harness, and to show the shape a real intake case takes. Cases land one at a
+# time, each tied to a fixed compatibility bug or a stated compatibility fact.
+# ---------------------------------------------------------------------------
+
+[[case]]
+id = "differential.ed2-preserves-cursor"
+title = "Erase-in-display clears cells without moving the cursor"
+evidence_class = "differential"
+fixture = "cases/differential.ed2-preserves-cursor.vtseq"
+sha256 = "02aaa6d5cb7774f08c9b86b4446d1ac13dc164478e65608842e8ba0cf2787d24"
+origin = "authored"
+origin_ref = ""
+license = "GPL-3.0-only"
+consent = "author"
+reviewed = true
+minimized = true
+platforms = ["linux", "macos", "windows"]
+contains_windows_path_data = false
+contains_utf16_data = false
+reference = "ECMA-48 8.3.39 (ED — erase in display)"
+notes = """
+ED 2 clears every cell and leaves the cursor untouched; the shell `clear`
+composite adds the cursor home as a separate CUP. The reference semantics, not
+any one terminal's implementation, decide the expectation."""
+
+[[case]]
+id = "vttest.cup-clamps-at-screen-edges"
+title = "Absolute cursor addressing clamps at the screen edges"
+evidence_class = "vttest"
+fixture = "cases/vttest.cup-clamps-at-screen-edges.vtseq"
+sha256 = "82246f7b43467079d8ad1701f1c116afd66bebc43ef23ec7209d40c641a184fc"
+origin = "authored"
+origin_ref = ""
+license = "GPL-3.0-only"
+consent = "author"
+reviewed = true
+minimized = true
+platforms = ["linux", "macos", "windows"]
+contains_windows_path_data = false
+contains_utf16_data = false
+source_case = "replay.cursor-addressing"
+notes = """
+Minimized companion to the conformance replay fixture: a row/column request
+past the bottom-right edge stops at the last cell rather than wrapping or
+scrolling. The conformance harness cannot read the grid back; this corpus
+case can assert the cursor directly."""
+
+[[case]]
+id = "real_app.cr-progress-overwrite"
+title = "Carriage-return progress output overwrites one row"
+evidence_class = "real_app"
+fixture = "cases/real_app.cr-progress-overwrite.vtseq"
+sha256 = "da3cc7e432c32eedca9ffe0f64734dbaae02a33fc5da3dbfbb79d5d931fdc13c"
+origin = "authored"
+origin_ref = ""
+license = "GPL-3.0-only"
+consent = "author"
+reviewed = true
+minimized = true
+platforms = ["linux", "macos", "windows"]
+contains_windows_path_data = false
+contains_utf16_data = false
+application = "generic-cli-progress-indicator"
+notes = """
+Synthetic representative of the progress-line shape build and download tools
+emit: CR returns to column zero and the update overwrites in place. Kept as a
+regression anchor for the daily prompt-output loop."""
+
+[[case]]
+id = "parser.utf8-split-multibyte"
+title = "Multibyte UTF-8 split across feed boundaries decodes identically"
+evidence_class = "parser"
+fixture = "cases/parser.utf8-split-multibyte.vtseq"
+sha256 = "14e1ef3180c1bcef54e24a817eecb80933672b154b39b93b12cdb8b43744d119"
+origin = "authored"
+origin_ref = ""
+license = "GPL-3.0-only"
+consent = "author"
+reviewed = true
+minimized = true
+platforms = ["linux", "macos", "windows"]
+contains_windows_path_data = false
+contains_utf16_data = false
+notes = """
+A two-byte and a three-byte sequence are fed with chunk boundaries inside and
+around them. How a byte stream is split across reads must never change what
+it means; the visible text and cursor are the assertion."""
+
+[[case]]
+id = "parser.osc7-windows-drive-cwd"
+title = "OSC 7 drive-letter working directory is stored as data"
+evidence_class = "parser"
+fixture = "cases/parser.osc7-windows-drive-cwd.vtseq"
+sha256 = "d7c807cd33dd82f95e6526365dada1d9e5661cc9c87a5fe13404b8b08ee08df6"
+origin = "authored"
+origin_ref = ""
+license = "GPL-3.0-only"
+consent = "author"
+reviewed = true
+minimized = true
+platforms = ["linux", "macos", "windows"]
+contains_windows_path_data = true
+contains_utf16_data = false
+notes = """
+The PowerShell shell integration reports drive-letter cwds in OSC 7 file
+URLs. The core percent-decodes the path, validates the URL host, and stores
+the string; it never touches a filesystem with it. The path here is a
+synthetic placeholder, and the expectation holds identically on every
+platform — nothing about Windows process behavior is inferred from it."""
+
+[[case]]
+id = "fuzz.osc52-invalid-base64-swallowed"
+title = "Invalid OSC 52 base64 payload is consumed without grid writes"
+evidence_class = "fuzz"
+fixture = "cases/fuzz.osc52-invalid-base64-swallowed.vtseq"
+sha256 = "d3dc6c6eaa632cbc819f9214775aba4bef27372db576bead3f9e16ffaeb59d82"
+origin = "fuzz_campaign"
+origin_ref = ""
+license = "GPL-3.0-only"
+consent = "author"
+reviewed = true
+minimized = true
+platforms = ["linux", "macos", "windows"]
+contains_windows_path_data = false
+contains_utf16_data = false
+origin_target = "FZ2 protocol_fuzz (tests/protocol_fuzz.rs)"
+notes = """
+Minimized shape of the FZ2 invalid-payload inputs: the sequence is consumed,
+the grid stays clean, no host reply is queued, and the parser is provably
+still synchronized because the trailing printable bytes land exactly where a
+clean parse puts them."""

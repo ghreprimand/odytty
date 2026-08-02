@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# id: fuzz.osc52-invalid-base64-swallowed
+# geometry: 20 2
+# expect-line: 0 = ok
+# expect-cursor: 0 2
+#
+# An OSC 52 clipboard set carrying a payload that is not valid base64. The
+# sequence must be consumed without writing the grid, without a host reply,
+# and without desynchronizing the parser — the printable bytes that follow
+# land exactly where a clean parse puts them. Minimized shape of the FZ2
+# invalid-payload inputs; the fuzzer explores, the corpus keeps the point.
+#
+# Escapes: \e ESC, \r CR, \n LF, \t HT, \\ backslash, \xNN one byte.
+# Every other character is emitted literally. Lines add no implicit newline.
+
+\e]52;c;%%%not-base64%%%\x07ok

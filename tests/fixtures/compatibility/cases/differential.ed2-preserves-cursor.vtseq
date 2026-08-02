@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# id: differential.ed2-preserves-cursor
+# geometry: 80 24
+# expect-cursor: 4 13
+# expect-line: 0 =
+#
+# Erase-in-display (ED 2) clears every cell and leaves the cursor exactly
+# where it was. The shell `clear` composite pairs ED 2 with a separate cursor
+# home; conflating the two is a classic differential-testing false positive,
+# so the cursor position is the assertion that matters here.
+#
+# Escapes: \e ESC, \r CR, \n LF, \t HT, \\ backslash, \xNN one byte.
+# Every other character is emitted literally. Lines add no implicit newline.
+
+# Move to row 5, column 10 (1-indexed), write a marker, then erase the whole
+# display. The cursor must stay at 0-indexed row 4, column 13.
+\e[5;10Hmark\e[2J

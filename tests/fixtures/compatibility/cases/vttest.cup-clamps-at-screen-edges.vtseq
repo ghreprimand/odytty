@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# id: vttest.cup-clamps-at-screen-edges
+# geometry: 80 24
+# expect-cursor: 23 79
+# expect-line: 0 =
+#
+# Absolute cursor addressing past the bottom-right edge clamps to the last
+# row and column instead of wrapping, scrolling, or panicking. Companion to
+# the conformance replay fixture replay/cursor-addressing.vtseq, minimized
+# to the single clamp assertion.
+#
+# Escapes: \e ESC, \r CR, \n LF, \t HT, \\ backslash, \xNN one byte.
+# Every other character is emitted literally. Lines add no implicit newline.
+
+# Ask for row 999, column 999 on an 80x24 grid; nothing is printed.
+\e[999;999H

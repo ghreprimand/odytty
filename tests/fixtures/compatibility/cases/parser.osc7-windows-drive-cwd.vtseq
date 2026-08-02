@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# id: parser.osc7-windows-drive-cwd
+# geometry: 80 24
+# expect-cwd: = /C:/Users/test
+# expect-line: 0 =
+#
+# An OSC 7 working-directory report carrying a Windows drive-letter path, as
+# emitted by the PowerShell shell integration. The path is DATA: the core
+# percent-decodes it, validates the URL host, stores the string, and never
+# touches a filesystem with it — so this expectation holds identically on
+# Linux, macOS, and Windows, and its success says nothing about Windows
+# process behavior.
+#
+# Escapes: \e ESC, \r CR, \n LF, \t HT, \\ backslash, \xNN one byte.
+# Every other character is emitted literally. Lines add no implicit newline.
+
+# Synthetic placeholder path from the validator's allowlist; BEL terminates.
+\e]7;file://localhost/C:/Users/test\x07

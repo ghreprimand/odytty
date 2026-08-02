@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# id: real_app.cr-progress-overwrite
+# geometry: 20 2
+# chunks: 15 15 14
+# expect-line: 0 = Progress: 100%
+# expect-line: 1 =
+# expect-cursor: 0 14
+#
+# A carriage-return-driven progress indicator, the shape build and download
+# tools emit: each update returns to column zero and overwrites the same row
+# rather than accumulating lines. The chunk boundaries land on the carriage
+# returns, the way a PTY read commonly splits such output.
+#
+# Escapes: \e ESC, \r CR, \n LF, \t HT, \\ backslash, \xNN one byte.
+# Every other character is emitted literally. Lines add no implicit newline.
+
+Progress:   0%\r
+Progress:  50%\r
+Progress: 100%

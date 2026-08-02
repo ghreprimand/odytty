@@ -7,6 +7,61 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-02 -- Compatibility corpus and regression intake
+
+A compatibility corpus and a regression-intake workflow land as one
+mechanism with two halves: reviewed, minimized regression cases that live
+in the tree as permanent fixtures, and a staged path by which future
+anomalies earn their way in. `tests/fixtures/compatibility/` holds the
+manifest and six synthetic example cases, `scripts/compatibility-corpus.py`
+is the stdlib-only validator and intake manager, `tests/compatibility_corpus.rs`
+replays the cases against the public terminal API, and
+`docs/compatibility/corpus.md` is the contract both halves enforce.
+
+The case grammar is deliberately reviewable: payloads are written in a
+six-form escape notation, with replay geometry, chunking, and expectations
+declared as header directives, so a case is read as text rather than
+reverse-engineered from bytes. The Python validator and the Rust harness
+parse the grammar independently and fail closed — an unknown directive, an
+unknown metadata key, or a malformed expectation is an error in both, so
+neither half can silently forgive what the other rejects. Cases are
+deduplicated by payload SHA-256, and a two-layer resource policy (hard
+limits plus a configurable policy block) keeps the corpus fast enough that
+it never becomes a suite people skip. The six seed cases are synthetic and
+cover one case per evidence class — vttest, real-application, differential,
+parser, and fuzz — to prove the grammar end to end; no captured or
+tool-derived material has been accepted yet.
+
+Intake is staged rather than direct: candidate material lands under an
+untracked area, is validated, and enters the tree only minimized, reviewed,
+and consent-cleared. A hash ledger of rejected payloads makes rejection
+stick — a byte-identical resubmission under a new name is refused, and
+there is no override, because changed bytes get a new review and unchanged
+bytes stay rejected. Public-safety guards run on the file text, the
+assembled payload, and the manifest strings: literal at-signs and
+home-directory paths are banned outright, and Windows-shaped data
+(drive-letter paths, UNC hosts, device names, CRLF, UTF-16 declarations) is
+rejected unless the manifest explicitly declares the payload as synthetic
+data from an allowlisted vocabulary. That data is validated as data on
+every host; no Windows execution is inferred from a Linux run, and Windows
+verification continues to come from the blocking `windows-latest` CI leg.
+
+An honest limitation: five declared directives — `expect-contains`,
+`expect-not-contains`, `expect-scrollback-len`, `expect-host-output-hex`,
+and `expect-cwd-none` — are parsed and validated but not yet exercised by
+any tracked case, since no seed case needed them. They land with the first
+intake case that does, and the lifecycle itself has so far been exercised
+only by the validator's self-tests, not by a real submission.
+
+Verified before landing: `cargo fmt --check` clean; `cargo clippy
+--all-targets --locked -- -D warnings` clean; full `cargo test --locked`
+4365 passed, 0 failed across 21 suites including the two new corpus tests;
+`rustsec-audit.sh` clean with one allowed warning (the known `ttf-parser`
+unmaintained advisory); corpus `validate` clean over the six cases and
+`selftest` 31/31.
+
+---
+
 ## 2026-07-30 -- Bounded Miri and sanitizer lane
 
 A scheduled dynamic-analysis lane joins the tree: `dynamic-analysis.yml` with
