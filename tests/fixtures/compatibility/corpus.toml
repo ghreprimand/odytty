@@ -147,8 +147,9 @@ notes = """
 The PowerShell shell integration reports drive-letter cwds in OSC 7 file
 URLs. The core percent-decodes the path, validates the URL host, and stores
 the string; it never touches a filesystem with it. The path here is a
-synthetic placeholder, and the expectation holds identically on every
-platform — nothing about Windows process behavior is inferred from it."""
+synthetic placeholder. Unix stores the URL path with its leading slash;
+Windows intentionally removes that slash before the drive letter. The paired
+expectations assert each representation without inferring process behavior."""
 
 [[case]]
 id = "fuzz.osc52-invalid-base64-swallowed"

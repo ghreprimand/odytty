@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-02 -- Platform-specific OSC 7 corpus expectation
+
+The compatibility-corpus case for a Windows drive-letter OSC 7 path now
+declares the two representations that the terminal intentionally stores:
+`/C:/Users/test` on Linux and macOS, and `C:/Users/test` on Windows. The corpus
+grammar accepts paired `expect-cwd-unix` and `expect-cwd-windows` directives,
+requires both whenever either is used, and rejects mixing them with a universal
+working-directory expectation. This corrects the corpus contract without
+changing OSC 7 parsing, skipping a platform, or weakening the exact CWD check.
+
+The fixture payload and its SHA-256 are unchanged; only its expectation header
+and explanatory metadata changed. Focused validation passed with
+`python3 scripts/compatibility-corpus.py validate` (six cases),
+`python3 scripts/compatibility-corpus.py selftest` (33 tests),
+`cargo test --locked --test compatibility_corpus` (two tests), and a direct
+Rustfmt check of the touched Rust harness.
+
 ## 2026-08-02 -- Compatibility corpus and regression intake
 
 A compatibility corpus and a regression-intake workflow land as one

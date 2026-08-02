@@ -101,11 +101,15 @@ Rules:
 | `expect-scrollback-len` | `<n>` | Final scrollback row count |
 | `expect-host-output-hex` | `<hex>` | Exact host-bound reply bytes; empty hex asserts no reply |
 | `expect-cwd` | `= <path>` | OSC 7-reported working directory equals path |
+| `expect-cwd-unix` | `= <path>` | OSC 7-reported working directory equals path on Linux and macOS; must be paired with `expect-cwd-windows` |
+| `expect-cwd-windows` | `= <path>` | OSC 7-reported working directory equals path on Windows; must be paired with `expect-cwd-unix` |
 | `expect-cwd-none` | (none) | No working directory was reported |
 
 Expectation texts pass through the same escape assembler, so a control
 character can be expected as well as sent. Every case needs at least one
 expectation: a case without one is a recording, not a regression test.
+Universal and platform-specific working-directory expectations cannot be
+mixed in one case.
 
 ## Deterministic replay
 
@@ -210,11 +214,12 @@ receive, and a prose mention of `NUL` in a note is documentation, not data.
 The validator and the harness treat drive letters, backslashes, UNC shapes,
 reserved names, and encoding declarations as bytes to check — never as paths
 to touch. No filesystem access follows from them, on any platform. A case
-about an OSC 7 drive-letter cwd asserts the stored string, and its success
-says exactly that and no more: **no Windows behavior is inferred from a
-Linux or macOS run.** Per-case `platforms` records where the expectation
-holds; the headless core is platform-independent, so data-level cases list
-all three.
+about an OSC 7 drive-letter cwd declares both stored strings: Unix retains the
+URL path's drive-leading slash, while Windows intentionally removes it. Each
+test run asserts only its declared platform value, so **no Windows behavior is
+inferred from a Linux or macOS run.** Per-case `platforms` records where the
+expectations hold; data-level cases may list all three while still recording
+an intentional platform-specific representation.
 
 ## Resource caps
 
@@ -300,9 +305,10 @@ default suite as `cargo test --test compatibility_corpus`.
   and reported cwd are the whole observation surface. Rendering correctness
   is out of scope here by construction.
 - **Platform labels are expectation reach, not execution coverage.** The
-  harness runs wherever the test suite runs; a case listing all three
-  platforms asserts data-level behavior that holds identically on each, and
-  says nothing about platform process layers.
+  harness runs wherever the test suite runs. A case listing all three
+  platforms may declare paired Unix and Windows values when storage is
+  intentionally platform-specific; it says nothing about platform process
+  layers.
 - **An empty corpus would be an error, not a clean sheet.** The harness
   refuses to run zero cases, mirroring the conformance runner's default-deny:
   a corpus that silently holds nothing is indistinguishable from one that was

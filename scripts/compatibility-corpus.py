@@ -181,6 +181,8 @@ SINGLETON_DIRECTIVES = {
     "expect-scrollback-len",
     "expect-host-output-hex",
     "expect-cwd",
+    "expect-cwd-unix",
+    "expect-cwd-windows",
     "expect-cwd-none",
 }
 REPEAT_DIRECTIVES = {"expect-line", "expect-contains", "expect-not-contains"}
@@ -423,6 +425,14 @@ def parse_case_file(path: Path) -> tuple[CaseFile | None, list[str]]:
                 text_value = parse_value_text(value, "expect-cwd")
                 if text_value is not None:
                     expectations.append(Expectation("cwd", (text_value,)))
+            elif key == "expect-cwd-unix":
+                text_value = parse_value_text(value, "expect-cwd-unix")
+                if text_value is not None:
+                    expectations.append(Expectation("cwd_unix", (text_value,)))
+            elif key == "expect-cwd-windows":
+                text_value = parse_value_text(value, "expect-cwd-windows")
+                if text_value is not None:
+                    expectations.append(Expectation("cwd_windows", (text_value,)))
             elif key == "expect-line":
                 match_line = re.match(r"^(\d+) =(?: (.*))?$", value)
                 if match_line is None:
@@ -483,6 +493,18 @@ def parse_case_file(path: Path) -> tuple[CaseFile | None, list[str]]:
     if not expectations:
         errors.append(
             f"{label}: no expectations; a case without one is a recording, not a regression test"
+        )
+    expectation_kinds = {expectation.kind for expectation in expectations}
+    has_cwd_unix = "cwd_unix" in expectation_kinds
+    has_cwd_windows = "cwd_windows" in expectation_kinds
+    if has_cwd_unix != has_cwd_windows:
+        errors.append(
+            f"{label}: expect-cwd-unix and expect-cwd-windows must be declared together"
+        )
+    if has_cwd_unix and ({"cwd", "cwd_none"} & expectation_kinds):
+        errors.append(
+            f"{label}: universal and platform-specific working-directory expectations "
+            "cannot be mixed"
         )
 
     if errors:
@@ -1268,6 +1290,29 @@ class SelfTest(unittest.TestCase):
         self.write_manifest_header()
         self.write_case("parser.basic", ["text"], directives="# expect-cursor: 9 0")
         self.assertErrorsContaining("outside the declared geometry")
+
+    def test_platform_cwd_expectations_validate_as_a_pair(self) -> None:
+        self.write_manifest_header()
+        self.write_case(
+            "parser.basic",
+            ["C:/Users/test"],
+            directives=(
+                "# expect-cwd-unix: = /C:/Users/test\n"
+                "# expect-cwd-windows: = C:/Users/test"
+            ),
+            windows=True,
+        )
+        self.assertClean()
+
+    def test_platform_cwd_expectation_requires_both_platforms(self) -> None:
+        self.write_manifest_header()
+        self.write_case(
+            "parser.basic",
+            ["C:/Users/test"],
+            directives="# expect-cwd-windows: = C:/Users/test",
+            windows=True,
+        )
+        self.assertErrorsContaining("must be declared together")
 
     def test_fixture_without_manifest_entry_is_an_error(self) -> None:
         self.write_manifest_header()

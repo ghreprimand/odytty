@@ -36,6 +36,8 @@ enum Expectation {
     ScrollbackLen(usize),
     HostOutput(Vec<u8>),
     Cwd(String),
+    CwdUnix(String),
+    CwdWindows(String),
     CwdNone,
 }
 
@@ -170,6 +172,8 @@ impl CaseBuilder {
                 | "expect-scrollback-len"
                 | "expect-host-output-hex"
                 | "expect-cwd"
+                | "expect-cwd-unix"
+                | "expect-cwd-windows"
                 | "expect-cwd-none"
                 | "expect-line"
                 | "expect-contains"
@@ -265,6 +269,12 @@ impl CaseBuilder {
             "expect-cwd" => self
                 .expectations
                 .push(Expectation::Cwd(text_after_equals(value, key)?)),
+            "expect-cwd-unix" => self
+                .expectations
+                .push(Expectation::CwdUnix(text_after_equals(value, key)?)),
+            "expect-cwd-windows" => self
+                .expectations
+                .push(Expectation::CwdWindows(text_after_equals(value, key)?)),
             "expect-line" => {
                 let (row, rest) = value
                     .split_once(' ')
@@ -362,6 +372,27 @@ fn load_case(path: &Path) -> Result<Case, String> {
     }
     if builder.expectations.is_empty() {
         return Err("no expectations; a case without one is not a regression test".to_string());
+    }
+    let has_cwd = builder
+        .expectations
+        .iter()
+        .any(|expectation| matches!(expectation, Expectation::Cwd(_) | Expectation::CwdNone));
+    let has_cwd_unix = builder
+        .expectations
+        .iter()
+        .any(|expectation| matches!(expectation, Expectation::CwdUnix(_)));
+    let has_cwd_windows = builder
+        .expectations
+        .iter()
+        .any(|expectation| matches!(expectation, Expectation::CwdWindows(_)));
+    if has_cwd_unix != has_cwd_windows {
+        return Err("expect-cwd-unix and expect-cwd-windows must be declared together".to_string());
+    }
+    if has_cwd && has_cwd_unix {
+        return Err(
+            "universal and platform-specific working-directory expectations cannot be mixed"
+                .to_string(),
+        );
     }
     let chunks = builder.chunks.unwrap_or_else(|| vec![payload.len()]);
     let total: usize = chunks.iter().sum();
@@ -474,6 +505,26 @@ fn corpus_cases_replay_as_declared() {
                     "{}: reported working directory disagrees",
                     case.id
                 ),
+                Expectation::CwdUnix(expected) => {
+                    if cfg!(unix) {
+                        assert_eq!(
+                            terminal.screen().current_working_directory(),
+                            Some(expected.as_str()),
+                            "{}: Unix reported working directory disagrees",
+                            case.id
+                        );
+                    }
+                }
+                Expectation::CwdWindows(expected) => {
+                    if cfg!(windows) {
+                        assert_eq!(
+                            terminal.screen().current_working_directory(),
+                            Some(expected.as_str()),
+                            "{}: Windows reported working directory disagrees",
+                            case.id
+                        );
+                    }
+                }
                 Expectation::CwdNone => assert_eq!(
                     terminal.screen().current_working_directory(),
                     None,
