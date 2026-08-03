@@ -7,6 +7,56 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-03 -- Keyboard, command, and clipboard routing split out of the app module
+
+Second step of the serialized application split. Three more responsibility
+boundaries now sit beside the app module, extracted structurally with no
+behavior change:
+
+- `commands.rs` -- session, tab, workspace, pane, and window commands: new tab
+  and new window, attach and present, tab and workspace switching and closing,
+  workspace creation, duplication and reordering, pane split, focus and close,
+  pane reflow, and whole-application session teardown.
+- `keyboard.rs` -- the ordered key precedence chain, command dispatch, PTY
+  encoding, held-exit behavior, the overlay and search key paths, the image
+  paste prompt flow, and the smart-interrupt policy.
+- `clipboard_routing.rs` -- the paste and copy shortcuts and the
+  terminal-originated clipboard requests drained each frame.
+
+The precedence chain is unchanged and remains a single ordered function: held
+exit, activity and drag settlement, OSC 52 prompt, prefix, global overlay
+toggles, active overlay input, launchers and search, modal prompts, configured
+actions, smart interrupt and selection deletion, image and reconnect prompts,
+then Win32 input mode, keypad mode, and normal PTY encoding. Win32 input mode
+still owns every otherwise-unconsumed physical event.
+
+With the moved code established, the `ModifiersChanged` and `KeyboardInput`
+arms are now one call each. The `ApplicationHandler` match stays where it was
+and remains the single event ingress. Neither arm had a function-level early
+return, so unlike the redraw arm in the previous step, forwarding them needed no
+signal back to the match.
+
+A note on test reach: the modifier arm is drivable end to end, because winit's
+modifier type is constructible from its public state type, and a new test pins
+both halves of that arm -- the cached modifier state the next key press encodes
+with, and the Ctrl-transition repaint that fires only while interactive paths
+are on and a path is hovered. The keyboard arm is not directly drivable: winit's
+key-event type carries a private platform field, so it cannot be built outside
+that crate. Its body moved verbatim, and the precedence chain beneath it stays
+covered by the existing key-path suites.
+
+Verification: the moved code is token-identical to what it replaced, confirmed
+by comparing normalized line multisets across the old file and the four new
+ones; the only differences are one formatter re-wrap, one module path that had
+to lengthen by one segment, and the new scaffolding. `cargo fmt --check`, clippy
+with `-D warnings` across all targets and features, the locked test suite, and
+the dependency audit all pass. Destination files are 879, 963 and 130 lines
+against budgets of 1,150, 1,500 and 600. The application module is down to
+roughly 2,570 lines of implementation; it stays above the 2,000-line
+reviewability guard until the pointer extraction completes the sequence.
+
+---
+
 ## 2026-08-03 -- Native window lifecycle and frame policy split out of the app module
 
 The native application module had grown to a little over 9,000 lines holding
