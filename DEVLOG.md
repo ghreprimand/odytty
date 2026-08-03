@@ -7,6 +7,57 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-03 -- Native window lifecycle and frame policy split out of the app module
+
+The native application module had grown to a little over 9,000 lines holding
+window state declaration, construction, every command, key and pointer routing,
+chrome geometry, settings reload, persistence, and the whole redraw path in one
+file. Reviewing any one of those meant reading past all the others, and the
+`winit` event handler's arms carried multi-hundred-line bodies inline.
+
+Four responsibility boundaries now exist beside it, extracted structurally with
+no behavior change:
+
+- `state.rs` -- `App` field declarations, the three constructors, and the
+  active-session dereference. `App` remains the single native-window state
+  owner; field reach is unchanged from when the declarations sat in the parent
+  module.
+- `lifecycle.rs` -- resume and window creation, close requests, shell exit,
+  user events, resize and scale changes, focus and active-session transitions,
+  wake-deadline calculation, and the about-to-wait maintenance pass.
+- `frame.rs` -- the redraw body, frame-outcome mapping, skip episodes, and
+  bounded surface-recreation escalation.
+- `config_lifecycle.rs` -- settings reload and application through the reload
+  seam, first-run and overlay-driven persistence, and workspace-shape autosave
+  and restore.
+
+The `ApplicationHandler` match stays where it was and remains the single event
+ingress; its lifecycle arms are now one call each, and keyboard, pointer, and
+IME arms are untouched on their existing paths.
+
+One ordering detail decided the shape of the redraw boundary. The redraw arm has
+two early exits taken when there is no surface, and both left the event handler
+before its trailing pending-exit check. A plain method call would have started
+honouring a pending exit those paths previously skipped, so the extracted
+handler reports the early exit and the arm returns on it -- the check is now
+reached on exactly the paths that reached it before. A focused test pins that
+contract, and a second pins the OS-theme arm's split between recording the
+reported preference always and re-resolving the active theme only while
+following is on.
+
+Verification: the moved code is token-identical to what it replaced, confirmed
+by comparing normalized line multisets across the old file and the five new
+ones; the only differences are formatter re-wraps, two module paths that had to
+lengthen by one segment, and the new scaffolding. `cargo fmt --check`, clippy
+with `-D warnings` across all targets and features, the locked test suite, and
+the dependency audit all pass. Destination files are 606, 950, 1,018 and 614
+lines against budgets of 1,250, 1,100, 1,450 and 750. The application module is
+now roughly 4,400 lines of implementation; it stays above the 2,000-line
+reviewability guard until the keyboard and pointer extractions that follow
+complete the sequence.
+
+---
+
 ## 2026-08-02 -- Snapshot-and-restore isolation for process-global render state
 
 The render path reads its default colors, ANSI palette, minimum-contrast floor
