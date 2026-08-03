@@ -65,6 +65,11 @@ fn blank_cells_emit_background_only() {
 
 #[test]
 fn inverse_swaps_foreground_and_background() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -88,6 +93,11 @@ fn inverse_swaps_foreground_and_background() {
 
 #[test]
 fn dynamic_colors_override_rendered_defaults_and_palette() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -231,6 +241,11 @@ fn cursor_position_is_clamped_to_grid_bounds() {
 
 #[test]
 fn cursor_over_glyph_redraws_it_inverted() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -256,6 +271,11 @@ fn cursor_over_glyph_redraws_it_inverted() {
 
 #[test]
 fn colored_row_uses_ansi_palette() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -373,6 +393,11 @@ fn glyph_quad_uses_bearing_aware_bounds() {
 
 #[test]
 fn underline_attribute_appends_thin_solid_quad() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -565,6 +590,11 @@ fn perceptual_dim_matches_old_halving_brightness_and_preserves_hue() {
 
 #[test]
 fn dim_attribute_scales_effective_foreground() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -851,6 +881,11 @@ fn hidden_attribute_suppresses_glyph_quad() {
 
 #[test]
 fn strikethrough_attribute_appends_thin_solid_quad() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -892,6 +927,11 @@ fn block_cursor_matches_default_build() {
 
 #[test]
 fn underline_cursor_emits_single_bottom_bar() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -917,6 +957,11 @@ fn underline_cursor_emits_single_bottom_bar() {
 
 #[test]
 fn bar_cursor_emits_single_left_bar() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -967,6 +1012,11 @@ fn cursor_render_params_default_is_byte_identical() {
 
 #[test]
 fn cursor_render_params_offset_and_alpha_are_live() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -1033,6 +1083,11 @@ fn cursor_render_params_offset_and_alpha_are_live() {
 
 #[test]
 fn unfocused_block_cursor_is_a_four_quad_hollow_outline() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -1104,6 +1159,11 @@ fn active_large_jump_follower_suppresses_the_destination_cursor_geometry() {
 
 #[test]
 fn unfocused_block_leaves_the_existing_glyph_in_normal_foreground() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -1277,6 +1337,11 @@ fn resolve_floor_must_run_after_both_dims() {
 /// so the fg-recede check is robust too.
 #[test]
 fn focus_dim_recedes_fg_and_bg_perceptually_in_closure() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -1377,6 +1442,11 @@ fn unfocused_baseline(snapshot: &Snapshot, atlas: &GlyphAtlas) -> Vec<Vertex> {
 /// color keeps it inert even under a concurrent raise).
 #[test]
 fn closure_sgr_dim_equals_naive_half_brightness() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -1438,6 +1508,11 @@ fn bg_treatment_zero_strength_is_identity() {
 
 #[test]
 fn bg_treatment_skips_chrome_cells_but_still_modulates_content() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -1578,6 +1653,11 @@ fn cell_region_contains_covers_its_rect_only() {
 /// the terminal behind it keeps the window opacity.
 #[test]
 fn opaque_region_holds_marked_cells_opaque_only() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         eprintln!("skipping: no system font available");
         return;
@@ -1776,6 +1856,11 @@ fn selection_surface_alpha_lerps_content_to_opaque() {
 // 1.0 the selection background recedes toward the cell's unselected color.
 #[test]
 fn selection_opacity_one_is_byte_identical_and_below_one_tints() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
     let mut term = Terminal::new(3, 1);
     term.advance(b"\x1b[?25l");
@@ -3390,6 +3475,11 @@ fn colored_bg_floor_lifts_only_resolved_non_default_backgrounds() {
 
 #[test]
 fn colored_bg_floor_exempts_chrome_selection_and_forced_opaque_cells() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let atlas = GlyphAtlas::build(&load_font().expect("font"), 24.0);
     // Two rows; the chrome pin marks row 0 as composited chrome (geometry is
     // preserved even at rest, scroll offset 0.0 keeps every position inert).
@@ -3748,6 +3838,11 @@ fn text_brightness_and_row_fade_ride_disjoint_channels() {
 // snapshot). This pins both halves at the real vertex seam.
 #[test]
 fn overlay_panel_cell_is_opaque_and_themed_regardless_of_cell_bg_opacity() {
+    // The render path resolves colors through the process-global default/
+    // palette and minimum-contrast seams, so this assertion is only stable
+    // while the shared render-globals guard is held; it also restores any
+    // value a concurrently scheduled test left behind.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(atlas) = atlas() else {
         return;
     };

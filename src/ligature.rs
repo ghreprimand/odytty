@@ -522,6 +522,14 @@ mod tests {
 
     #[test]
     fn disabled_renderer_is_byte_identical_and_allocates_nothing() {
+        // Cell vertices carry resolved COLOR, not just geometry: the render
+        // path floors every foreground through the process-global
+        // minimum-contrast seam and resolves default/indexed colors through the
+        // process-global palette. The two builds below happen at different
+        // moments and are compared byte-for-byte, so a floor or palette change
+        // landing between them diverges the buffers. Hold the shared
+        // render-globals guard across both builds.
+        let _guard = crate::test_lock::render_globals_lock();
         let fonts = Fonts(text::load_bundled_font().expect("bundled font"));
         let atlas_font = text::load_bundled_font().expect("bundled font");
         let snap = snapshot("a->b");
@@ -618,6 +626,14 @@ mod tests {
 
     #[test]
     fn unavailable_contextual_slots_fall_back_to_scalar_geometry() {
+        // Cell vertices carry resolved COLOR, not just geometry: the render
+        // path floors every foreground through the process-global
+        // minimum-contrast seam and resolves default/indexed colors through the
+        // process-global palette. The two builds below happen at different
+        // moments and are compared byte-for-byte, so a floor or palette change
+        // landing between them diverges the buffers. Hold the shared
+        // render-globals guard across both builds.
+        let _guard = crate::test_lock::render_globals_lock();
         let fonts = Fonts(text::load_bundled_font().expect("bundled font"));
         let atlas_font = text::load_bundled_font().expect("bundled font");
         let snap = snapshot("->");

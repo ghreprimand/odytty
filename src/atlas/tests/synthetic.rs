@@ -70,6 +70,13 @@ fn mean_ink_x_in_rows(atlas: &GlyphAtlas, uv: [f32; 4], y0: u32, y1: u32) -> Opt
 /// the double-strike thickens it — while the shared cell metrics are untouched.
 #[test]
 fn synthetic_bold_inks_more_than_regular() {
+    // Coverage MAGNITUDE, not presence: the bold and regular passes are
+    // rasterized at different moments and their ink sums compared.
+    // Rasterization reads the process-global stem-darkening gain, which only
+    // moves intermediate coverage, so a gain change landing between the passes
+    // can reorder or unbalance the sums. Hold the shared render-globals guard
+    // across every pass this test compares.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(font) = test_font() else {
         eprintln!("skipping: no system font available");
         return;
@@ -104,6 +111,13 @@ fn synthetic_bold_inks_more_than_regular() {
 /// loads, so this is the real-face no-regression guard.
 #[test]
 fn no_synthetic_mask_leaves_bold_identical_to_regular() {
+    // Coverage MAGNITUDE, not presence: the bold and regular passes are
+    // rasterized at different moments and their ink sums compared for equality.
+    // Rasterization reads the process-global stem-darkening gain, which only
+    // moves intermediate coverage, so a gain change landing between the passes
+    // can reorder or unbalance the sums. Hold the shared render-globals guard
+    // across every pass this test compares.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(font) = test_font() else {
         eprintln!("skipping: no system font available");
         return;
@@ -186,6 +200,13 @@ fn synthetic_italic_leans_right_above_baseline() {
 /// and leans right above the baseline (sheared).
 #[test]
 fn synthetic_bold_italic_combines_both() {
+    // Coverage MAGNITUDE, not presence: the synthesized and regular passes are
+    // rasterized at different moments and their ink sums compared.
+    // Rasterization reads the process-global stem-darkening gain, which only
+    // moves intermediate coverage, so a gain change landing between the passes
+    // can reorder or unbalance the sums. Hold the shared render-globals guard
+    // across every pass this test compares.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(font) = test_font() else {
         eprintln!("skipping: no system font available");
         return;
@@ -232,6 +253,13 @@ fn synthetic_bold_italic_combines_both() {
 /// mask, so the old synthetic slots vanish with the old atlas.
 #[test]
 fn clearing_mask_removes_synthesis() {
+    // Coverage MAGNITUDE, not presence: the synthesized and real-face atlases
+    // are rasterized at different moments and their ink sums compared.
+    // Rasterization reads the process-global stem-darkening gain, which only
+    // moves intermediate coverage, so a gain change landing between the passes
+    // can reorder or unbalance the sums. Hold the shared render-globals guard
+    // across every pass this test compares.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(font) = test_font() else {
         eprintln!("skipping: no system font available");
         return;

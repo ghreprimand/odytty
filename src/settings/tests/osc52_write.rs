@@ -38,9 +38,7 @@ fn osc52_write_defaults_ask_and_parses_every_policy() {
 
 #[test]
 fn osc52_write_config_panel_and_reload_are_tri_state() {
-    let _guard = RELOAD_GLOBAL_TEST_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _render_globals = crate::test_lock::render_globals_lock();
     let mut warnings = Vec::new();
     // Use a non-default value (`on`) so the reload is a real change over the
     // `ask` default and `apply_reloadable_values` reports it.

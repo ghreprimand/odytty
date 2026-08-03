@@ -128,7 +128,7 @@ fn reduced_motion_defaults_parses_persists_and_has_a_panel_row() {
 
 #[test]
 fn reduced_motion_live_reload_preserves_individual_preferences() {
-    let _guard = RELOAD_GLOBAL_TEST_LOCK.lock().unwrap();
+    let _render_globals = crate::test_lock::render_globals_lock();
     let mut current = Settings {
         cursor_easing: true,
         cursor_glow: true,

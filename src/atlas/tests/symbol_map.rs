@@ -108,6 +108,12 @@ fn symbol_map_font_for_wins_over_installed_fallback() {
 
 #[test]
 fn empty_map_ensure_styled_is_byte_identical() {
+    // Coverage MAGNITUDE, not presence: the two atlases below are rasterized at
+    // different moments and their ink sums are compared for equality.
+    // Rasterization reads the process-global stem-darkening gain, so a gain
+    // change landing between the two passes diverges the sums. Hold the shared
+    // render-globals guard across both passes.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(font) = test_font() else {
         eprintln!("skipping: no system font available");
         return;

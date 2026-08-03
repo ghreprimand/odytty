@@ -59,9 +59,7 @@ fn kitty_named_transports_have_a_reloadable_panel_row() {
 
 #[test]
 fn kitty_named_transport_policy_reloads_without_changing_other_settings() {
-    let _guard = RELOAD_GLOBAL_TEST_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _render_globals = crate::test_lock::render_globals_lock();
     let mut current = Settings::default();
     let mut reloaded = current.clone();
     reloaded.kitty_named_transports = true;

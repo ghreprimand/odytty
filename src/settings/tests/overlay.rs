@@ -135,7 +135,7 @@ fn custom_theme_file_keeps_settings_editable() {
 
 #[test]
 fn apply_reloadable_values_ignores_native_autoclose_ms() {
-    let _guard = RELOAD_GLOBAL_TEST_LOCK.lock().unwrap();
+    let _render_globals = crate::test_lock::render_globals_lock();
     let mut current = Settings {
         theme: Theme::PLAIN,
         native_autoclose: Some(Duration::from_millis(500)),
@@ -206,13 +206,12 @@ fn garbage_themed_ui_roles_falls_back_on_with_warning() {
 
 #[test]
 fn apply_reloadable_values_publishes_synthetic_styles_global() {
-    let _guard = RELOAD_GLOBAL_TEST_LOCK.lock().unwrap();
+    let _render_globals = crate::test_lock::render_globals_lock();
     // The kill switch is reloadable: applying a reload that flips it updates the
     // Settings and republishes the process-wide flag the renderer reads on its
-    // next atlas-build. Restore the default afterward so the shared global does
-    // not leak into other tests.
-    let restore = synthetic_styles_enabled();
-
+    // next atlas-build. The guard above both excludes concurrent readers and
+    // restores the flag when this body ends, so no hand-written restore is
+    // needed on any exit path, including a panicking one.
     set_synthetic_styles_enabled(true);
     let mut current = Settings {
         synthetic_styles: true,
@@ -233,8 +232,6 @@ fn apply_reloadable_values_publishes_synthetic_styles_global() {
     assert!(apply_reloadable_values(&mut current, reloaded_on));
     assert!(current.synthetic_styles);
     assert!(synthetic_styles_enabled());
-
-    set_synthetic_styles_enabled(restore);
 }
 
 #[test]

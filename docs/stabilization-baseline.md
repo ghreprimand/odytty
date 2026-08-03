@@ -203,11 +203,166 @@ foreground was the contrast-lifted
 `[0.86315525, 0.86315525, 0.863155, 1.0]`.
 
 The failing test reads the process-global minimum-contrast setting without
-holding `crate::test_lock::render_globals_lock()`. A neighboring test holds
-that lock while temporarily setting the minimum contrast to `7.0`, so the
-reader can race with the mutation under parallel execution. This pre-existing
-test isolation defect remains open. The baseline stays incomplete until the
-race is corrected and blocking CI is green.
+holding the shared render-globals lock, while other tests mutate that setting.
+A lock excludes only the participants that take it, so a locked mutator paired
+with an unlocked reader is not mutual exclusion at all.
+
+The mutating partner is not the `7.0` case it was first attributed to. The
+default foreground and background differ by roughly 12.2:1, so a `7.0` floor
+is an exact passthrough for that reader and cannot change its observed value;
+a paired stress run of 5000 iterations produced no failures. The partner that
+does reproduce the reported values is the case that raises the floor to
+`17.0`, the shipped default. Paired at two threads it failed 2269 times in
+3000 iterations. Serial execution passed 500 of 500, because the sorted
+execution order lets the mutator finish and restore before the reader starts:
+a green single-threaded run is therefore not evidence that the defect is
+absent.
+
+The defect is not confined to the reported test. Twelve tests resolve colors
+through the floor-reading render path without holding the lock; five were
+reproduced failing, and the remainder are recorded as not observed rather than
+safe. Whole-module runs failed on a different reader than the paired runs did,
+so repairing only the reported test would have left the same flake alive under
+another name.
+
+Two further defects of the same class were confirmed while characterizing this
+one.
+
+**F2b — residual state from the settings-reload seam.** The reload seam
+republishes the default colors, the ANSI palette and the minimum-contrast
+floor from `Settings`. With default settings that floor is `17.0`, and nothing
+restored the previous value, so every test reaching that seam raised the
+process-wide floor for the remaining life of the test binary. This is residual
+state rather than a timing window: locking the readers alone would not have
+fixed it.
+
+**F3 — the same class in the atlas module.** Glyph rasterization reads a
+process-global stem-darkening gain. Tests that compare coverage buffers for
+byte identity across separate rasterization passes did not hold the lock, so a
+gain change landing between the passes diverged the buffers. The module
+reproduced failures at 32 threads at roughly 0.7 percent per run.
+
+#### Resolution
+
+The shared lock was replaced with a snapshot-and-restore guard, and its scope
+was widened to cover the process-global default foreground and background, the
+ANSI palette, the minimum-contrast floor and the stem-darkening gain. Each
+scope captures those values on entry and writes them back on drop, including
+while a panic unwinds, so isolation no longer depends on every mutating test
+remembering to hand-restore a baseline on every exit path. Only the mutex is
+re-entrant: a nested scope skips the acquisition it would otherwise deadlock
+on, and still restores at its own exit.
+
+The settings-reload seam takes that guard around its republish in test builds,
+which closes F2b at the single point every reachable path passes through
+instead of at each calling test. The guard is compiled out of the shipping
+binary, and the publish itself and its ordering are unchanged.
+
+The guard is taken at the top of that seam rather than beside the color
+publish. The stem-darkening gain is republished earlier, through the
+text-options apply, so a guard placed after that point would have snapshotted
+the already-published gain and restored the leak instead of removing it.
+
+#### Completeness audit of the reload seam
+
+The snapshot's contents were then derived from that seam outward rather than
+from the set of globals tests happen to mutate today, on the principle that a
+latent leak is a scheduled failure. Walking every publish the seam performs
+found additional process-global values beyond the initial set.
+
+The box-drawing thickness multiplier is republished from the renderer's
+text-options apply and again from every atlas rebuild, both reachable from the
+seam. It is now in the snapshot, read through a test-only accessor and written
+back through the existing public setter. Its earlier exclusion — recorded on
+the grounds that no test drove that path — was the wrong test to apply: the
+cost of snapshotting one more atomic is negligible beside a leak that would
+surface later as an unrelated failure.
+
+The reload helper the seam calls also republishes six atlas and shaping
+switches before it compares the old and new settings: synthetic styles,
+geometric box drawing, ligatures, symbol fallback, the symbol font path, and
+the symbol override map. It publishes them unconditionally, so even a reload
+that changes nothing rewrote them, and none was restored. All six are now in
+the snapshot. The override-map slot starts unpublished and its only reader
+resolves that to the default map, so writing the captured map back is
+observationally exact even for a slot that was never published.
+
+The guard's documentation now names the reload seam as the authority for the
+complete snapshot rather than the historical subset. Guard coverage was
+extended to match: a non-default thickness is proven
+restored on normal drop, while a panic unwinds, and at a nested scope's own
+exit, and a further case proves the six switches are restored together.
+
+#### One coordinating mechanism, not three
+
+Two further locks covered parts of the same state, and a second lock over one
+class of state excludes nothing from the tests holding the first one. The
+settings tests that call the reload helper directly serialized on a
+directory-local mutex, and the palette-override test in the text module
+serialized on a module-local one. Both are gone; those seven reload tests and
+the palette test now take the shared guard, and their hand-written restores were
+deleted as redundant — restoration is the guard's job on every exit path,
+including a panicking one.
+
+The remaining declared lock in the library test binary serializes headless GPU
+device creation. It covers driver initialization rather than render globals, is
+documented never to nest with the render-globals guard, and is deliberately
+left alone.
+
+A separate stem-raster smoke test declares its own mutex, and that is correct:
+it is an integration test in its own binary, so it shares no process state with
+the library tests and cannot coordinate with them through an in-process lock.
+
+Within the library test binary the render-global class now has exactly one
+coordinating mechanism, and no direct publisher of the captured values runs
+outside it in the audited scope.
+
+#### Reader class, stated so it can be applied to new tests
+
+An assertion needs the guard when it depends on coverage **magnitude** (ink
+sums, or byte identity between two rasterization passes) or on resolved
+**color** (a floored foreground, an indexed palette entry, or two vertex builds
+compared byte-for-byte). It does not need the guard for **presence**:
+rasterization discards zero-coverage samples before stem darkening is applied
+and returns the fully-uncovered and fully-covered endpoints exactly, so
+`ink > 0` scans, and the ink-box geometry derived from them, cannot move with
+the gain; and a test that supplies its own explicit colors never reaches the
+palette or the floor.
+
+Applying that class to the remaining render-global readers added the guard to
+ten further cases: four synthetic-style ink comparisons and the
+empty-override byte-identity case in the atlas, two ligature builds compared
+byte-for-byte against the scalar path, and three cursor-layer cases that
+compare a full rebuild against a cursor-only rebuild. Two of those ligature
+cases and two of the cursor-layer cases were found by the sweep rather than by
+the original reproduction, while nine sites the first pass had listed as
+suspect were confirmed invariant under the class above and left unguarded, with
+the reason recorded beside the guard instead of serializing them without cause.
+
+Verification at revision `8d940052`, debug profile, Linux x86-64, all counts
+reported as failures over iterations:
+
+| Population | Threads | Iterations | Before | After |
+| --- | ---: | ---: | ---: | ---: |
+| Reported reader paired with the `17.0` mutator | 2 | 200 | 75.6 percent | 0 |
+| Dim reader paired with the `4.5` mutator | 2 | 150 | 81 percent | 0 |
+| Whole grid module | 4 | 1000 | 2 | 0 |
+| Whole grid module | 32 | 2000 | 4 | 0 |
+| Whole atlas module | 32 | 300 | 2 | 0 |
+
+Guard behavior carries its own regression coverage: restoration on drop,
+restoration while a panic unwinds, and nested acquisition neither deadlocking
+nor leaking. A separate case pins the reload seam against residual state by
+asserting that the floor and the published colors are unchanged once the seam
+returns, with a precondition that the seam genuinely publishes a different
+floor so the case cannot pass vacuously.
+
+Windows and macOS results remain the authority of the blocking platform legs.
+The mechanism is platform-independent — the same statics, the same missing
+reader-side exclusion, the same parallel test harness — and none of the
+implicated files carries a platform-specific path, but no platform correctness
+is inferred here from Linux measurements. This finding stays open until the
+blocking platform legs confirm the change.
 
 ## Dependency advisory state
 

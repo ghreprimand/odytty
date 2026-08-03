@@ -22,6 +22,11 @@ fn atlas_has_positive_metrics_and_glyph_coverage() {
 
 #[test]
 fn line_height_default_is_byte_identical_to_legacy_build() {
+    // Glyph rasterization reads the process-global stem-darkening gain, and
+    // this test compares coverage produced by separate rasterization passes:
+    // a gain change landing between them would diverge the buffers. Hold the
+    // shared render-globals guard for the comparison.
+    let _guard = crate::test_lock::render_globals_lock();
     // LINEHEIGHT: build_with_options at the default 1.0 multiplier must produce
     // a cell, dimensions and coverage buffer byte-identical to the historical
     // build_with_subpixel path — the leading is exactly zero.
@@ -211,6 +216,11 @@ fn ensure_missing_glyph_uses_fallback_without_a_slot() {
 
 #[test]
 fn ensure_grows_atlas_and_preserves_existing_glyphs() {
+    // Glyph rasterization reads the process-global stem-darkening gain, and
+    // this test compares coverage produced by separate rasterization passes:
+    // a gain change landing between them would diverge the buffers. Hold the
+    // shared render-globals guard for the comparison.
+    let _guard = crate::test_lock::render_globals_lock();
     let Some(font) = test_font() else {
         eprintln!("skipping: no system font available");
         return;

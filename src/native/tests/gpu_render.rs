@@ -1136,6 +1136,12 @@ fn padded_cell_vertices_start_at_window_padding_origin() {
 
 #[test]
 fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
+    // The cursor layer is built twice here — once appended to a full rebuild,
+    // once on its own — and the two are compared byte-for-byte. The
+    // under-cursor glyph color is floored through the process-global
+    // minimum-contrast seam, so a floor change landing between the two appends
+    // diverges them. Hold the shared render-globals guard across both.
+    let _guard = crate::test_lock::render_globals_lock();
     let Ok(font) = text::load_font() else {
         eprintln!("skipping: no system font available");
         return;
@@ -1208,6 +1214,12 @@ fn full_rebuild_cursor_layer_matches_cursor_only_mid_slide() {
 
 #[test]
 fn full_rebuild_cursor_layer_matches_cursor_only_during_large_jump_follower() {
+    // The cursor layer is built twice here — once appended to a full rebuild,
+    // once on its own — and the two are compared byte-for-byte. The
+    // under-cursor glyph color is floored through the process-global
+    // minimum-contrast seam, so a floor change landing between the two appends
+    // diverges them. Hold the shared render-globals guard across both.
+    let _guard = crate::test_lock::render_globals_lock();
     let Ok(font) = text::load_font() else {
         eprintln!("skipping: no system font available");
         return;
@@ -1276,6 +1288,12 @@ fn full_rebuild_cursor_layer_matches_cursor_only_during_large_jump_follower() {
 
 #[test]
 fn full_rebuild_cursor_layer_matches_cursor_only_when_unfocused() {
+    // The cursor layer is built twice here — once appended to a full rebuild,
+    // once on its own — and the two are compared byte-for-byte. The
+    // under-cursor glyph color is floored through the process-global
+    // minimum-contrast seam, so a floor change landing between the two appends
+    // diverges them. Hold the shared render-globals guard across both.
+    let _guard = crate::test_lock::render_globals_lock();
     let Ok(font) = text::load_font() else {
         eprintln!("skipping: no system font available");
         return;

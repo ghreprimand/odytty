@@ -5428,6 +5428,25 @@ impl App {
         reloaded: Settings,
         source: SettingsApplySource,
     ) {
+        // Test-only isolation for every process-global render value this seam
+        // republishes. In a test binary the seam runs on a thread that shares
+        // that state with every other test, so an unguarded republish is both a
+        // race (a parallel reader observes the transient value) and a leak (the
+        // value persists for the rest of the binary). The guard is taken at the
+        // top of the seam rather than beside the color publish because the
+        // stem-darkening gain is republished earlier, through the text-options
+        // apply below; a guard placed after that point would snapshot the
+        // already-published gain and restore the leak instead of removing it.
+        // The reloadable-values helper on the next lines republishes the atlas
+        // and shaping switches unconditionally -- before it compares old and
+        // new settings -- so the top of the seam is also the only placement
+        // that precedes those writes.
+        // It restores the prior state when the seam returns, and it is
+        // re-entrant, so a test body that already holds it keeps ownership of
+        // restoration. Compiled out of the shipping binary: the publishes
+        // themselves, and their ordering, are unchanged.
+        #[cfg(test)]
+        let _render_globals = crate::test_lock::render_globals_lock();
         // A permission prompt is tied to the policy snapshot that produced it.
         // Any live settings apply cancels it before equality checks or model
         // updates, so a stale prompt cannot authorize under changed policy.
@@ -8977,6 +8996,43 @@ mod tests {
         assert!(
             app.open_notice_message_for_test().is_none(),
             "an ON->OFF toggle must not surface the new-shells notice"
+        );
+    }
+
+    /// The reload seam republishes process-global render state (default
+    /// colors, ANSI palette, minimum-contrast floor) from `Settings`. In a test
+    /// binary that state is shared with every other test in the process, so the
+    /// seam must leave nothing behind once it returns: the shipped default
+    /// floor is 17:1, and leaking it silently changes the colors every later
+    /// test resolves through the render path.
+    #[test]
+    fn reload_seam_leaves_no_residual_render_globals() {
+        let _guard = crate::test_lock::render_globals_lock();
+        let Some(mut app) = build_idle_app() else {
+            return;
+        };
+        let floor_before = text::min_contrast();
+        let colors_before = text::color_globals_for_test();
+        assert_ne!(
+            app.settings.effective_min_contrast(),
+            floor_before,
+            "precondition: the seam must publish a floor different from the baseline"
+        );
+
+        // Any real change drives the publish; an unchanged reload returns early.
+        let mut next = app.settings.clone();
+        next.shell_integration = !app.settings.shell_integration;
+        app.apply_settings_through_reload_seam(next, SettingsApplySource::OverlayEdit);
+
+        assert_eq!(
+            text::min_contrast(),
+            floor_before,
+            "the seam must not leave its published contrast floor behind"
+        );
+        assert_eq!(
+            text::color_globals_for_test(),
+            colors_before,
+            "the seam must not leave published theme colors behind"
         );
     }
 }

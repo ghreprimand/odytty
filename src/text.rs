@@ -1674,6 +1674,32 @@ pub fn set_ansi_palette(palette: &[(u8, u8, u8); 16]) {
     }
 }
 
+/// Test-only snapshot of every process-global color seam in this module.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ColorGlobals {
+    pub(crate) default_fg: (u8, u8, u8),
+    pub(crate) default_bg: (u8, u8, u8),
+    pub(crate) ansi_palette: [(u8, u8, u8); 16],
+}
+
+/// Capture the process-global color seams so the shared render-globals guard
+/// can hold a baseline and write it back verbatim. Restoration goes through the
+/// public [`set_default_colors`] and [`set_ansi_palette`] setters, so there is
+/// no second write path to keep in step with this reader.
+#[cfg(test)]
+pub(crate) fn color_globals_for_test() -> ColorGlobals {
+    let mut ansi_palette = [(0u8, 0u8, 0u8); 16];
+    for (index, slot) in ansi_palette.iter_mut().enumerate() {
+        *slot = ansi_srgb(index as u8);
+    }
+    ColorGlobals {
+        default_fg: default_fg_srgb(),
+        default_bg: default_bg_srgb(),
+        ansi_palette,
+    }
+}
+
 fn default_fg_srgb() -> (u8, u8, u8) {
     unpack_srgb(DEFAULT_FG.load(Ordering::Relaxed))
 }
@@ -2112,11 +2138,6 @@ mod tests {
         }
     }
 
-    /// Serializes the few tests that mutate the process-global ANSI palette
-    /// override, so they cannot observe each other's writes when run in
-    /// parallel. Held across set → assert → restore.
-    static PALETTE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     #[test]
     fn default_ansi_palette_pins_historical_xterm_table() {
         // Byte-identity regression guard: the baseline ANSI palette must equal
@@ -2147,7 +2168,11 @@ mod tests {
 
     #[test]
     fn indexed_srgb_resolves_ansi_range_from_palette_override() {
-        let _guard = PALETTE_LOCK.lock().unwrap();
+        // The ANSI palette is one of the process-global render values the
+        // shared guard owns, so this test coordinates through that guard rather
+        // than a module-local mutex: a second lock over the same state would
+        // exclude nothing from the tests holding the first one.
+        let _render_globals = crate::test_lock::render_globals_lock();
         // Default (no override): indices 0–15 equal the historical table.
         set_ansi_palette(&DEFAULT_ANSI_SRGB);
         for i in 0..16u8 {
@@ -2168,8 +2193,8 @@ mod tests {
         assert_eq!(indexed_srgb(16), (0, 0, 0));
         assert_eq!(indexed_srgb(231), (255, 255, 255));
 
-        // Restore the baseline so other tests see the historical palette.
-        set_ansi_palette(&DEFAULT_ANSI_SRGB);
+        // No hand-written restore: the guard writes the entry-state palette
+        // back when this body ends, including while a panic unwinds.
     }
 
     #[test]

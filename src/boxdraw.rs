@@ -69,6 +69,16 @@ fn box_thickness_multiplier() -> f32 {
     f32::from_bits(BOX_THICKNESS.load(Ordering::Relaxed))
 }
 
+/// Test-only read of the process-global box-drawing thickness multiplier, so
+/// the shared render-globals guard can snapshot and restore it. Restoration
+/// goes through the public [`set_box_thickness`] setter; a snapshot is always a
+/// finite positive value that setter already accepted, so the write-back is
+/// exact.
+#[cfg(test)]
+pub(crate) fn box_thickness_for_test() -> f32 {
+    box_thickness_multiplier()
+}
+
 /// Line weight for the light/heavy box-drawing family.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Weight {

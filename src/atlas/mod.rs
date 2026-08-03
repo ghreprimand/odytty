@@ -1705,6 +1705,15 @@ fn stem_darken_strength() -> f32 {
     f32::from_bits(STEM_DARKEN.load(Ordering::Relaxed))
 }
 
+/// Test-only read of the process-global stem-darkening strength, so the shared
+/// render-globals guard can snapshot and restore it. Restoration goes through
+/// the public [`set_stem_darken`] setter; the snapshot is already clamped, so
+/// the write-back is exact.
+#[cfg(test)]
+pub(crate) fn stem_darken_strength_for_test() -> f32 {
+    stem_darken_strength()
+}
+
 /// Apply stem-darkening to one 8-bit coverage sample.
 ///
 /// Compensates for the irradiation illusion (light text on a dark field appears

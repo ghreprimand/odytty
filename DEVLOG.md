@@ -7,6 +7,99 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-02 -- Snapshot-and-restore isolation for process-global render state
+
+The render path reads its default colors, ANSI palette, minimum-contrast floor
+and stem-darkening gain lock-free from process-global atomics. A shared test
+lock existed, but it only provided mutual exclusion, and only among the tests
+that took it: readers that resolved colors through those globals did not, so a
+locked mutator paired with an unlocked reader excluded nothing. Paired at two
+threads, the reported case failed 2269 times in 3000 iterations; twelve readers
+were in the same position, and whole-module runs failed under a different name
+than the paired runs did.
+
+Two further defects of the same class sat behind it. The settings-reload seam
+republished the shipped 17:1 contrast floor and the theme colors without
+restoring the previous values, leaving them raised for the rest of the test
+binary's life -- residual state that locking readers would not have fixed. In
+the atlas, coverage buffers compared for byte identity across separate
+rasterization passes could diverge when the stem-darkening gain changed between
+them.
+
+The lock is now a snapshot-and-restore guard initially covering the contrast
+floor, stem-darkening gain, default colors and ANSI palette. Each scope
+captures them on entry and writes them back on drop, including while a panic
+unwinds, so isolation no longer depends on every mutating test
+remembering to hand-restore a baseline on every exit path. Only the mutex is
+re-entrant: a nested scope skips an acquisition that would otherwise deadlock,
+and still restores at its own exit. The settings-reload seam takes the guard
+around its republish in test builds, which closes the residual-state defect at
+the single point every reachable path passes through rather than at each
+calling test; the guard is compiled out of the shipping binary, and the publish
+itself and its ordering are unchanged. It is taken at the top of that seam
+rather than beside the color publish, because the stem-darkening gain is
+republished earlier through the text-options apply: a guard placed after that
+point would have snapshotted the already-published gain and restored the leak
+instead of removing it.
+
+The snapshot's contents were then derived from that seam outward rather than
+from the globals tests happen to mutate, and the walk found additional values.
+The box-drawing thickness multiplier is republished from the text-options apply
+and from every atlas rebuild; the reload helper the seam calls republishes six
+atlas and shaping switches -- synthetic styles, geometric box drawing,
+ligatures, symbol fallback, the symbol font path and the symbol override map --
+unconditionally, before it even compares old and new settings, and restored
+none of them. They are all now in one authoritative snapshot, and the guard's
+documentation names the reload seam as the authority for that list rather than
+the historical subset. The earlier judgment that the
+thickness multiplier could stay out because no test drove that path was the
+wrong test to apply: snapshotting one more atomic costs nothing beside a leak
+that surfaces later as an unrelated failure.
+
+Two further locks covering parts of the same state were then removed, because a
+second lock over one class of state excludes nothing from the tests holding the
+first one: the settings tests that call the reload helper directly serialized on
+a directory-local mutex, and the palette-override test serialized on a
+module-local one. Those seven reload tests and the palette test now take the
+shared guard, and their hand-written restores are gone as redundant. The
+library test binary's one remaining declared lock serializes headless GPU device
+creation, which covers driver initialization rather than render globals and
+never nests with the guard; the stem-raster smoke test keeps its own mutex
+correctly, being an integration test in a separate process that shares no state
+with the library tests.
+
+A sweep of the remaining render-global readers followed, with the class stated
+precisely so it can be applied to new tests: an assertion needs the guard when
+it depends on coverage MAGNITUDE (ink sums, or byte identity between two
+rasterization passes) or on resolved COLOR (a floored foreground, an indexed
+palette entry, or two vertex builds compared byte-for-byte). It does not need
+the guard for presence, because rasterization drops zero-coverage samples
+before stem darkening runs and returns the fully-uncovered and fully-covered
+endpoints exactly -- so `ink > 0` scans, and the ink-box geometry derived from
+them, cannot move with the gain. Ten further cases met the magnitude or color
+test and now hold the guard: four synthetic-style ink comparisons and the
+empty-override byte-identity case in the atlas, two ligature builds compared
+byte-for-byte against the scalar path, and three cursor-layer cases that
+compare a full rebuild against a cursor-only rebuild. Cases that only assert
+presence, ink-box geometry, slot and UV allocation, or colors they supply
+themselves were left unguarded deliberately, with the invariant recorded beside
+the guard rather than serialized without cause.
+
+Verification, reported as failures over iterations: the reported reader paired
+with the 17:1 mutator, 0 of 200 at two threads, previously 75.6 percent; the
+dim reader paired with the 4.5 mutator, 0 of 150, previously 81 percent; the
+whole grid module, 0 of 1000 at four threads and 0 of 2000 at 32 threads,
+previously 2 and 4 failures; the whole atlas module, 0 of 300 at 32 threads.
+Guard behavior carries its own coverage -- restoration on drop, restoration
+while a panic unwinds, and nested acquisition neither deadlocking nor leaking,
+with named cases proving the same three properties for the thickness
+multiplier and a further case for the six reload switches -- and a separate
+case pins the reload seam against residual state with a precondition that keeps
+it from passing vacuously. Each restore was verified to have teeth by removing
+it and confirming the coverage fails. Production behavior and the
+lock-free runtime reads are unchanged; no test was ignored, no assertion
+weakened, and no thread count lowered.
+
 ## 2026-08-02 -- Platform-specific OSC 7 corpus expectation
 
 The compatibility-corpus case for a Windows drive-letter OSC 7 path now

@@ -61,15 +61,11 @@ fn ligatures_have_a_reloadable_panel_row() {
 
 #[test]
 fn reload_publishes_ligature_switch_without_changing_other_settings() {
-    let _guard = RELOAD_GLOBAL_TEST_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let restore = ligatures_enabled();
+    let _render_globals = crate::test_lock::render_globals_lock();
     let mut current = Settings::default();
     let mut reloaded = current.clone();
     reloaded.ligatures = false;
     assert!(apply_reloadable_values(&mut current, reloaded));
     assert!(!current.ligatures);
     assert!(!ligatures_enabled());
-    set_ligatures_enabled(restore);
 }
