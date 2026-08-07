@@ -7,6 +7,67 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-03 -- Pointer, IME, and mouse routing complete the app module split
+
+Third and final step of the serialized application split. The pointer-driven
+interaction module is decomposed and the application module becomes a facade:
+
+- `overlay_actions.rs` -- context-menu construction, overlay outcome
+  application, and the pointer button, move, and wheel arms an open overlay
+  consumes before the terminal sees them.
+- `hover.rs` -- hyperlink, path, URL, button, and inline-image hover
+  resolution, the open paths behind them, and the button-protocol gates.
+- `mouse_protocol.rs` -- the protocol and mode gates, SGR-pixel coordinate
+  conversion, mouse and focus report emission, the single PTY write seam, and
+  the click-to-position travel encoding.
+- `pointer_motion.rs` -- per-motion pointer cell resolution, cursor icon,
+  scrollbar drag, and the latch clearing a focus, occlusion, or pointer-leave
+  transition performs before the next target is used.
+- `selection_input.rs` -- drag, word, line and block selection, autoscroll,
+  click-to-position, the selection-delete ladder helpers, and scrollback
+  viewport movement.
+- `interaction.rs` -- kept as a compatibility facade naming its successors.
+
+`pointer.rs` keeps the window-level button and wheel dispatch and the tab and
+workspace drag routing; `ime.rs` is unchanged and remains the IME owner.
+
+Reaching the facade required moving the chrome and rail presentation that had
+stayed behind: `chrome_present.rs` (visibility, placement, widget rendering,
+panel painting), `chrome_geometry.rs` (geometry, hit regions and seam drags,
+extended in place), `rail_overlay.rs` (reveal trigger and keep-alive geometry,
+the auto-hide state machine, the per-frame revealed-rail overlay), and
+`frame_assembly.rs` (snapshot decoration and pinned-chrome geometry). The
+`ApplicationHandler` implementation moved unchanged to `event_loop.rs`, and the
+inline test suite moved to a test-only sibling.
+
+Pointer precedence, coordinate transforms, protocol bytes, mode gates, drop
+caps and prompts, and latch clearing are all unchanged; the split is
+structural. One event arm carried logic inline -- the pointer leaving the
+window surface -- and it is now a named handler with a test that pins both
+halves: leaving always settles a divider gesture, while the motion-aware
+reveal trigger's previous sample is dropped only when rail auto-hide is
+active.
+
+Verification: the moved code is token-identical to what it replaced, confirmed
+by comparing normalized, visibility-insensitive line multisets across the four
+old files and the eighteen new or extended ones. The complete difference is
+eight formatter re-wraps caused by widened visibility, seven module paths that
+had to lengthen because `super` now resolves one level lower, the new
+scaffolding, and the one named pointer-leave handler. Conditional-compilation
+boundaries are identical either side of the move, and none of these files carry
+platform-specific code, so Windows behavior is unchanged and the Windows CI leg
+remains the authority for it.
+
+Every application file is now inside its size budget and under the 2,000-line
+reviewability guard: the app module itself is 348 lines, the event ingress 111,
+pointer 1,557, IME 385, overlay actions 941, hover 723, mouse protocol 379,
+pointer motion 688, selection input 868, and the interaction facade 19. The
+chrome and rail destinations are 446, 1,230, 588 and 259. `cargo fmt --check`,
+clippy with `-D warnings` across all targets and features, the locked test
+suite, and the dependency audit all pass.
+
+---
+
 ## 2026-08-03 -- Keyboard, command, and clipboard routing split out of the app module
 
 Second step of the serialized application split. Three more responsibility

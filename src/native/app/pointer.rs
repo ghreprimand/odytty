@@ -8,11 +8,15 @@
 //! source-size cap and to give the pointer gestures one home as they grow; no
 //! behavior or API change. These are `App` methods living in a child module so
 //! they reach `App`'s private fields and the sibling methods in `app/mod.rs`
-//! and `app/interaction.rs` directly. Methods the parent `app` module (or its
+//! and its interaction siblings directly. Methods the parent `app` module (or its
 //! other children) call back into are marked `pub(super)`.
 
+use super::selection_input::{
+    EditableInputSelection, SelectionDeleteOutcome, delete_selection_bytes,
+    flattened_selection_delete_outcome, selected_columns_on_row, snapshot_row_cell_count,
+    snapshot_row_text,
+};
 use super::*;
-use crate::core::{InputRegion, RowJoin};
 
 /// Which chrome band a pointer hit landed on. The tab-bar `TabHit` enum is
 /// shared by both bands (Switch/Close/NewTab), so the band discriminates whether
@@ -129,25 +133,6 @@ impl RailWorkspaceDrag {
         }
         self.armed
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct EditableInputSelection {
-    pub(super) text: String,
-    edit_bytes: Vec<u8>,
-}
-
-/// Resolution of the selection-delete fallback ladder (B-DESIGN §4) for the
-/// current selection; see [`App::selection_delete_outcome`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum SelectionDeleteOutcome {
-    /// R4: exact geometry, real buffer edit — send these bytes.
-    Synthesize(EditableInputSelection),
-    /// R2/R3/default: on the input region, but no certain geometry — consume
-    /// the key, clear the selection, show the shell-integration hint.
-    NoOpWithHint,
-    /// R0 fail or selection not on the input region — normal key encode.
-    FallThrough,
 }
 
 impl App {
@@ -1569,214 +1554,4 @@ impl App {
         let point = PxPoint::new(self.window_pointer_px?.0, press_y);
         self.rail_geom_px(cell)?.grab_metrics(point, origin_idx)
     }
-}
-
-fn selected_columns_on_row(
-    range: AbsoluteSelectionRange,
-    row: usize,
-    columns: usize,
-) -> Option<(usize, usize)> {
-    if row < range.start.row || row > range.end.row || columns == 0 {
-        return None;
-    }
-    let start = if row == range.start.row {
-        range.start.column
-    } else {
-        0
-    };
-    let end = if row == range.end.row {
-        range.end.column
-    } else {
-        columns - 1
-    };
-    Some((start.min(columns - 1), end.min(columns - 1)))
-}
-
-fn snapshot_row_text(snapshot: &Snapshot, row: usize, start: usize, end: usize) -> String {
-    snapshot_row_cells(snapshot, row, start, end)
-        .filter(|cell| !cell.wide_continuation)
-        .map(|cell| cell.grapheme())
-        .collect()
-}
-
-pub(super) fn snapshot_row_cell_count(
-    snapshot: &Snapshot,
-    row: usize,
-    start: usize,
-    end: usize,
-) -> usize {
-    snapshot_row_cells(snapshot, row, start, end)
-        .filter(|cell| !cell.wide_continuation)
-        .count()
-}
-
-fn snapshot_row_cells(
-    snapshot: &Snapshot,
-    row: usize,
-    start: usize,
-    end: usize,
-) -> impl Iterator<Item = &crate::core::Cell> {
-    let columns = snapshot.dimensions.columns;
-    let offset = row * columns;
-    snapshot.cells[offset + start..=offset + end].iter()
-}
-
-fn delete_selection_bytes(
-    snapshot: &Snapshot,
-    row: usize,
-    selection_start: usize,
-    cursor: Position,
-    delete_count: usize,
-    modes: KeyModes,
-) -> Option<Vec<u8>> {
-    let mut bytes = Vec::new();
-    if selection_start < cursor.column {
-        let move_count = snapshot_row_cell_count(snapshot, row, selection_start, cursor.column - 1);
-        let left = input::encode_key_event(Key::Left, Modifiers::NONE, modes, KeyEventType::Press);
-        if move_count > 0 && left.is_empty() {
-            return None;
-        }
-        bytes.extend(left.repeat(move_count));
-    } else if selection_start > cursor.column {
-        let move_count = snapshot_row_cell_count(snapshot, row, cursor.column, selection_start - 1);
-        let right =
-            input::encode_key_event(Key::Right, Modifiers::NONE, modes, KeyEventType::Press);
-        if move_count > 0 && right.is_empty() {
-            return None;
-        }
-        bytes.extend(right.repeat(move_count));
-    }
-    let delete = input::encode_key_event(Key::Delete, Modifiers::NONE, modes, KeyEventType::Press);
-    if delete.is_empty() {
-        return None;
-    }
-    bytes.extend(delete.repeat(delete_count));
-    Some(bytes)
-}
-
-/// R5 (B-DESIGN §4, B1 soft-wrap slice): resolve Delete/Backspace over a
-/// selection on an `Exact` soft-wrapped multi-row input region by flattening
-/// the core-provided per-row spans into one logical horizontal axis. A soft
-/// wrap has no newline in the edit buffer, so motion is horizontal-only: the
-/// synthesized bytes are Left/Right×n to the selection start then Delete×count,
-/// exactly like the single-row rung but with glyph offsets summed across rows.
-/// Wrap-filler and decoration cells sit outside the spans and contribute
-/// nothing. Any geometric doubt degrades to the hinted no-op (charter: a wrong
-/// delete is worse than a no-op).
-fn flattened_selection_delete_outcome(
-    snapshot: &Snapshot,
-    region: &InputRegion,
-    range: AbsoluteSelectionRange,
-    cursor: Position,
-    scrollback_len: usize,
-    grid_rows: usize,
-    modes: KeyModes,
-) -> SelectionDeleteOutcome {
-    let row_count = region.end_row - region.start_row + 1;
-    // Defensive re-check of the R5 preconditions: core only populates
-    // `row_spans` under Exact, and HardNewline joins force Unknown at R2.
-    if region.row_spans.len() != row_count || region.joins.contains(&RowJoin::HardNewline) {
-        return SelectionDeleteOutcome::NoOpWithHint;
-    }
-    let Some(base_visible) = region.start_row.checked_sub(scrollback_len) else {
-        return SelectionDeleteOutcome::FallThrough;
-    };
-    if base_visible + row_count > grid_rows {
-        return SelectionDeleteOutcome::FallThrough;
-    }
-    let columns = snapshot.dimensions.columns;
-    // Flattened glyph offset at each row's span start.
-    let mut prefix = Vec::with_capacity(row_count);
-    let mut total_glyphs = 0usize;
-    for (rel, &(span_start, span_end)) in region.row_spans.iter().enumerate() {
-        prefix.push(total_glyphs);
-        if span_start < span_end {
-            total_glyphs +=
-                snapshot_row_cell_count(snapshot, base_visible + rel, span_start, span_end - 1);
-        }
-    }
-    // Cursor → flattened offset. The Exact walk validated the cursor against
-    // the shell's report, so a cursor outside the region here means the
-    // region and grid raced — degrade rather than guess.
-    let Some(cursor_rel) = cursor.row.checked_sub(base_visible) else {
-        return SelectionDeleteOutcome::NoOpWithHint;
-    };
-    if cursor_rel >= row_count {
-        return SelectionDeleteOutcome::NoOpWithHint;
-    }
-    let cursor_flat = {
-        let (span_start, span_end) = region.row_spans[cursor_rel];
-        let col = cursor.column.clamp(span_start, span_end);
-        prefix[cursor_rel]
-            + if col > span_start {
-                snapshot_row_cell_count(snapshot, base_visible + cursor_rel, span_start, col - 1)
-            } else {
-                0
-            }
-    };
-    // Selection → flattened start + glyph count: per-row intersection with the
-    // input spans. Middle selection rows span the full width, and the spans
-    // concatenate in flattened order, so the covered glyphs are contiguous.
-    let mut start_flat: Option<usize> = None;
-    let mut delete_count = 0usize;
-    let mut text = String::new();
-    for (rel, &(span_start, span_end)) in region.row_spans.iter().enumerate() {
-        if span_start >= span_end {
-            continue;
-        }
-        let Some((sel_start, sel_end)) =
-            selected_columns_on_row(range, region.start_row + rel, columns)
-        else {
-            continue;
-        };
-        let start = sel_start.max(span_start);
-        let end = sel_end.min(span_end - 1);
-        if start > end {
-            continue;
-        }
-        let row = base_visible + rel;
-        let glyphs = snapshot_row_cell_count(snapshot, row, start, end);
-        if glyphs == 0 {
-            continue;
-        }
-        if start_flat.is_none() {
-            let before = if start > span_start {
-                snapshot_row_cell_count(snapshot, row, span_start, start - 1)
-            } else {
-                0
-            };
-            start_flat = Some(prefix[rel] + before);
-        }
-        delete_count += glyphs;
-        text.push_str(&snapshot_row_text(snapshot, row, start, end));
-    }
-    let Some(start_flat) = start_flat else {
-        // Selection touches the region's rows but only non-input cells
-        // (prompt, wrap filler, decorations): ladder default no-op.
-        return SelectionDeleteOutcome::NoOpWithHint;
-    };
-    if delete_count == 0 || text.is_empty() {
-        return SelectionDeleteOutcome::NoOpWithHint;
-    }
-    let mut edit_bytes = Vec::new();
-    if start_flat < cursor_flat {
-        let left = input::encode_key_event(Key::Left, Modifiers::NONE, modes, KeyEventType::Press);
-        if left.is_empty() {
-            return SelectionDeleteOutcome::NoOpWithHint;
-        }
-        edit_bytes.extend(left.repeat(cursor_flat - start_flat));
-    } else if start_flat > cursor_flat {
-        let right =
-            input::encode_key_event(Key::Right, Modifiers::NONE, modes, KeyEventType::Press);
-        if right.is_empty() {
-            return SelectionDeleteOutcome::NoOpWithHint;
-        }
-        edit_bytes.extend(right.repeat(start_flat - cursor_flat));
-    }
-    let delete = input::encode_key_event(Key::Delete, Modifiers::NONE, modes, KeyEventType::Press);
-    if delete.is_empty() {
-        return SelectionDeleteOutcome::NoOpWithHint;
-    }
-    edit_bytes.extend(delete.repeat(delete_count));
-    SelectionDeleteOutcome::Synthesize(EditableInputSelection { text, edit_bytes })
 }
