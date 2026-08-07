@@ -7,6 +7,55 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-07 -- Overlay coordinator decomposed into responsibility modules
+
+`src/native/overlay.rs` had grown to 8,242 lines. It is now a 43-line facade
+over six responsibility modules, with the inline test suite grouped by the same
+responsibilities:
+
+- `contracts.rs` -- overlay modes, outcomes, inputs, pointer events, and the
+  presentation signature. Nothing in it depends on the rest of the overlay.
+- `state.rs` -- the `OverlayUi` fields, construction, the open and close
+  entry points, pending payloads, navigation return paths, save reporting,
+  and the single settings-outcome mapping.
+- `dialogs.rs` -- the confirmation and choice dialogs. Each dialog keeps its
+  key handler beside its click hit-test, so click and key parity is a property
+  of one module rather than an agreement between two.
+- `input.rs` -- winit key mapping, key and pointer dispatch, the title
+  back-affordance hit tests, and the per-component adapters that translate a
+  component outcome into an overlay outcome.
+- `layout.rs` -- the single rectangle calculation that both drawing and
+  hit-testing read, kept beside the fixed dialog widths and the static dialog
+  lines those widths are sized to fit.
+- `render.rs` -- panel application, the mode's visible body lines, the line
+  conversions from each component leaf, and the cell painters.
+
+Dependency direction runs contracts first, then state and dialogs, then input,
+then layout and rendering. Component overlays stay leaves: the coordinator may
+depend on a component, a component never depends on coordinator state. The
+boundary is unchanged and still presentation-only -- frozen or cloned state
+enters, an outcome leaves, and no live terminal or PTY state is touched.
+
+Verification: the move is structural. All 306 items in the old file are present
+in the new ones and token-identical after ignoring visibility qualifiers and
+formatter-inserted trailing commas; the sole exception is one test-only seam
+whose call to the rectangle calculation is now module-qualified, because the
+import it used would otherwise be unused in a non-test build. Field and item
+visibility was widened only as far as the original file already reached.
+Conditional-compilation boundaries are unchanged apart from one added gate on a
+mode re-export consumed only by tests, and none of these files carry
+platform-specific code, so Windows behavior is unchanged and the Windows CI leg
+remains the authority for it.
+
+Sizes against the decomposition map's budgets: facade 43 of 250, contracts 568
+of 750, state 723 of 1,100, dialogs 1,067 of 1,100, input 954 of 1,250, layout
+220 of 350, render 1,092 of 1,200. Every handwritten production file in the
+overlay is now well under the 2,000-line reviewability guard. Test totals are
+unchanged at 4,378 passing and 20 ignored, with the 136 overlay tests split
+into state, input, and render suites over a shared fixture module.
+
+---
+
 ## 2026-08-03 -- Pointer, IME, and mouse routing complete the app module split
 
 Third and final step of the serialized application split. The pointer-driven
