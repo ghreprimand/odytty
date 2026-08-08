@@ -644,3 +644,413 @@ fn temp_transport_deletes_even_on_decode_failure() {
     // The temp file must still be deleted (read succeeded, decode failed).
     assert!(!path.exists(), "temp file deleted even on decode failure");
 }
+
+// ---------------------------------------------------------------------------
+// Reader boundaries, path admission, and failure classification
+//
+// The tests above drive the transports through the APC pipeline, where every
+// rejection collapses into "no image was placed". These call the readers
+// directly so each boundary and each error classification is asserted on its
+// own, one byte either side of the cap where a boundary exists.
+// ---------------------------------------------------------------------------
+
+use super::kitty_transport as transport;
+use transport::TransportError;
+
+/// A unique path inside the platform temp directory for this test process.
+fn temp_path(tag: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!("odytty-transport-{tag}-{}.dat", std::process::id()))
+}
+
+fn path_bytes(path: &std::path::Path) -> Vec<u8> {
+    path.as_os_str().as_bytes().to_vec()
+}
+
+#[test]
+fn file_reader_admits_exactly_the_cap_and_refuses_one_byte_more() {
+    let path = temp_path("cap");
+    let cap = 4096_usize;
+    let exact: Vec<u8> = (0..cap).map(|i| (i % 251) as u8).collect();
+    std::fs::write(&path, &exact).unwrap();
+    let raw = path_bytes(&path);
+
+    // Exactly at the cap: admitted, and the whole file comes back. A reader
+    // that stopped one byte short would still return Ok here.
+    let read = transport::read_file_transport(&raw, cap).expect("a file of exactly cap bytes");
+    assert_eq!(read.len(), cap, "the complete file is returned");
+    assert_eq!(read, exact, "returned bytes match the file byte for byte");
+
+    // The same file against a cap one byte smaller is refused.
+    assert_eq!(
+        transport::read_file_transport(&raw, cap - 1),
+        Err(TransportError::TooLarge),
+        "a file one byte over the cap is refused"
+    );
+
+    // Cap plus one byte on disk, refused before any decode.
+    let mut over = exact;
+    over.push(0);
+    std::fs::write(&path, &over).unwrap();
+    assert_eq!(
+        transport::read_file_transport(&raw, cap),
+        Err(TransportError::TooLarge)
+    );
+
+    // Zero-length files remain readable; the cap is an upper bound only.
+    std::fs::write(&path, b"").unwrap();
+    assert_eq!(transport::read_file_transport(&raw, cap), Ok(Vec::new()));
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn file_reader_cap_constant_admits_a_multi_megabyte_file() {
+    // With no caller-imposed limit the module constant is the only bound. Two
+    // MiB is far below it and must be admitted; the constant is stated as a
+    // product of three factors, and every arithmetic corruption of that
+    // product lands below this size.
+    let path = temp_path("constant");
+    let size = 2 * 1024 * 1024;
+    std::fs::write(&path, vec![0x5A_u8; size]).unwrap();
+    let raw = path_bytes(&path);
+
+    let read = transport::read_file_transport(&raw, usize::MAX)
+        .expect("2 MiB is well inside the transport read cap");
+    assert_eq!(read.len(), size);
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn file_reader_rejects_empty_non_utf8_and_interior_nul_paths() {
+    assert_eq!(
+        transport::read_file_transport(b"", 4096),
+        Err(TransportError::InvalidPath),
+        "an empty path never reaches the filesystem"
+    );
+    assert_eq!(
+        transport::read_file_transport(&[0x2F, 0xFF, 0xFE], 4096),
+        Err(TransportError::InvalidPath),
+        "a non-UTF-8 path is refused rather than reinterpreted"
+    );
+
+    let mut interior_nul = path_bytes(&std::env::temp_dir());
+    interior_nul.extend_from_slice(b"/odytty\0truncated.dat");
+    assert_eq!(
+        transport::read_file_transport(&interior_nul, 4096),
+        Err(TransportError::InvalidPath),
+        "an interior NUL is refused at the path boundary, not passed to open()"
+    );
+
+    // A NUL as the final byte is the same rejection, not a trailing-byte trim.
+    let mut trailing_nul = path_bytes(&temp_path("nul"));
+    trailing_nul.push(0);
+    assert_eq!(
+        transport::read_file_transport(&trailing_nul, 4096),
+        Err(TransportError::InvalidPath)
+    );
+}
+
+#[test]
+fn file_reader_admission_is_limited_to_the_allowlisted_roots() {
+    assert_eq!(
+        transport::read_file_transport(b"/etc/passwd", 4096),
+        Err(TransportError::PathNotAllowed),
+        "a readable system file outside the temp roots is refused"
+    );
+    assert_eq!(
+        transport::read_file_transport(b"/etc/./passwd", 4096),
+        Err(TransportError::PathNotAllowed),
+        "a dot component does not change the admitted directory"
+    );
+
+    // A traversal that starts inside the temp root still resolves outside it.
+    let mut escape = path_bytes(&std::env::temp_dir());
+    escape.extend_from_slice(b"/../etc/passwd");
+    assert_eq!(
+        transport::read_file_transport(&escape, 4096),
+        Err(TransportError::PathNotAllowed),
+        "the parent directory is canonicalized before containment is checked"
+    );
+
+    // A relative path has no admitted parent.
+    assert!(matches!(
+        transport::read_file_transport(b"relative.dat", 4096),
+        Err(TransportError::PathNotAllowed | TransportError::IoError(_))
+    ));
+}
+
+#[test]
+fn file_reader_distinguishes_symlink_rejection_from_other_open_failures() {
+    let missing = temp_path("absent");
+    std::fs::remove_file(&missing).ok();
+    assert!(
+        matches!(
+            transport::read_file_transport(&path_bytes(&missing), 4096),
+            Err(TransportError::IoError(_))
+        ),
+        "a missing file is an I/O error, never a symlink rejection"
+    );
+
+    let target = temp_path("symlink-target");
+    std::fs::write(&target, [0xFF_u8; 16]).unwrap();
+    let link = temp_path("symlink");
+    std::fs::remove_file(&link).ok();
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    assert_eq!(
+        transport::read_file_transport(&path_bytes(&link), 4096),
+        Err(TransportError::SymlinkRejected),
+        "the final path component is opened with O_NOFOLLOW"
+    );
+    // The target itself is still readable, so the rejection is about the link.
+    assert_eq!(
+        transport::read_file_transport(&path_bytes(&target), 4096).map(|b| b.len()),
+        Ok(16)
+    );
+    std::fs::remove_file(&link).ok();
+    std::fs::remove_file(&target).ok();
+}
+
+#[test]
+fn temp_reader_requires_the_deletion_marker_before_reading_or_deleting() {
+    let unmarked = temp_path("unmarked");
+    std::fs::write(&unmarked, [0xFF_u8; 16]).unwrap();
+    assert_eq!(
+        transport::read_temp_transport(&path_bytes(&unmarked), 4096),
+        Err(TransportError::MissingTempMarker)
+    );
+    assert!(
+        unmarked.exists(),
+        "a file rejected for a missing marker is never deleted"
+    );
+    std::fs::remove_file(&unmarked).ok();
+
+    let marked = std::env::temp_dir().join(format!(
+        "tty-graphics-protocol-odytty-{}.dat",
+        std::process::id()
+    ));
+    std::fs::write(&marked, [0xFF_u8; 16]).unwrap();
+    assert_eq!(
+        transport::read_temp_transport(&path_bytes(&marked), 4096).map(|b| b.len()),
+        Ok(16)
+    );
+    assert!(!marked.exists(), "a marked file is deleted after the read");
+
+    // The cap applies to the temp reader too, and a refused read leaves the
+    // file in place.
+    let too_big = std::env::temp_dir().join(format!(
+        "tty-graphics-protocol-odytty-big-{}.dat",
+        std::process::id()
+    ));
+    std::fs::write(&too_big, vec![0_u8; 64]).unwrap();
+    assert_eq!(
+        transport::read_temp_transport(&path_bytes(&too_big), 32),
+        Err(TransportError::TooLarge)
+    );
+    assert!(too_big.exists(), "an oversized temp file is not deleted");
+    std::fs::remove_file(&too_big).ok();
+}
+
+// ---------------------------------------------------------------------------
+// Shared-memory name admission and failure classification
+// ---------------------------------------------------------------------------
+
+#[test]
+fn shm_name_admission_rejects_only_malformed_names() {
+    for name in [
+        &b""[..],
+        b"/",
+        b"/foo/bar",
+        b"foo/bar",
+        b"../etc/passwd",
+        &[0x2F, 0xFF, 0xFE][..],
+    ] {
+        assert_eq!(
+            transport::read_shm_transport(name, 4096),
+            Err(TransportError::InvalidPath),
+            "malformed shm name {name:?} must be refused before shm_open"
+        );
+    }
+
+    // A one-character name is a legal POSIX shm name. It must reach shm_open
+    // and fail there (or succeed), never be refused as malformed.
+    assert!(
+        !matches!(
+            transport::read_shm_transport(b"/Z", 4096),
+            Err(TransportError::InvalidPath)
+        ),
+        "a single-character shm name is legal and must not be refused as malformed"
+    );
+}
+
+#[test]
+fn shm_reader_reports_the_open_failure_rather_than_a_later_stage() {
+    let name = format!("/odytty-transport-absent-{}", std::process::id());
+    cleanup_shm(&name);
+    match transport::read_shm_transport(name.as_bytes(), 4096) {
+        Err(TransportError::ShmError(message)) => assert!(
+            message.contains("shm_open"),
+            "a failed open must be classified as such, got {message}"
+        ),
+        other => panic!("a nonexistent segment must fail at open, got {other:?}"),
+    }
+}
+
+#[test]
+fn shm_size_check_admits_the_exact_cap_and_refuses_one_byte_more() {
+    let path = temp_path("shm-size");
+    let file = std::fs::File::create(&path).unwrap();
+    file.set_len(64).unwrap();
+    let fd = file.as_raw_fd();
+
+    assert_eq!(
+        transport::checked_shm_size(fd, 64),
+        Ok(64),
+        "a segment exactly at the cap is admitted"
+    );
+    assert_eq!(
+        transport::checked_shm_size(fd, 65),
+        Ok(64),
+        "a segment below the cap is admitted"
+    );
+    assert_eq!(
+        transport::checked_shm_size(fd, 63),
+        Err(TransportError::TooLarge),
+        "a segment one byte over the cap is refused before any mapping"
+    );
+
+    file.set_len(0).unwrap();
+    assert!(
+        matches!(
+            transport::checked_shm_size(fd, 64),
+            Err(TransportError::ShmError(_))
+        ),
+        "an empty segment is refused"
+    );
+
+    drop(file);
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn shm_size_check_reports_a_failed_fstat() {
+    // -1 is never a valid descriptor. The failure must be reported as an fstat
+    // failure rather than being read out of an uninitialized stat buffer.
+    match transport::checked_shm_size(-1, 4096) {
+        Err(TransportError::ShmError(message)) => assert!(
+            message.contains("fstat"),
+            "a failed fstat must be classified as such, got {message}"
+        ),
+        other => panic!("an invalid descriptor must fail, got {other:?}"),
+    }
+}
+
+#[test]
+fn shm_reader_reports_a_failed_copy_from_an_unreadable_descriptor() {
+    // A write-only descriptor passes both size checks and fails in the copy.
+    // The failure must be reported as a read failure, not as a segment shrink.
+    let path = temp_path("shm-writeonly");
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&path)
+        .unwrap();
+    file.set_len(32).unwrap();
+    let fd = file.as_raw_fd();
+    assert_eq!(transport::checked_shm_size(fd, 64), Ok(32));
+
+    match transport::read_shm_fd_at_size(fd, 32, 64) {
+        Err(TransportError::ShmError(message)) => {
+            #[cfg(not(target_os = "macos"))]
+            assert!(
+                message.contains("pread"),
+                "a failed positional read must be classified as such, got {message}"
+            );
+            #[cfg(target_os = "macos")]
+            assert!(
+                message.contains("mmap") || message.contains("isolated copy"),
+                "macOS maps the segment, so an unreadable descriptor fails there, got {message}"
+            );
+        }
+        other => panic!("an unreadable descriptor must fail the copy, got {other:?}"),
+    }
+
+    drop(file);
+    std::fs::remove_file(&path).ok();
+}
+
+// ---------------------------------------------------------------------------
+// $TMPDIR admission and metadata that understates a file's readable size
+//
+// Both behaviors need a process environment this test process cannot safely
+// mutate in place, so the assertions run in a re-executed child of this same
+// test binary. The child prints a completion marker: a filter that matched no
+// test would otherwise exit successfully and read as a pass.
+//
+// Linux only. `/proc` is used because it is the one directory that reliably
+// serves regular files whose stat size is zero while a read returns content,
+// which is the only deterministic stand-in for a file that grows between the
+// size check and the read. macOS and Windows have no equivalent, and on macOS
+// the $TMPDIR branch is already exercised by every test in this file, because
+// there the platform temp directory is $TMPDIR rather than /tmp.
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "linux")]
+#[test]
+fn tmpdir_root_is_admitted_and_understated_metadata_size_still_caps_the_read() {
+    const CHILD_MARKER: &str = "ODYTTY_TRANSPORT_TMPDIR_CHILD";
+    const COMPLETED: &str = "odytty-transport-tmpdir-child-completed";
+    const TEST_PATH: &str = concat!(
+        "core::kitty_transport_tests::",
+        "tmpdir_root_is_admitted_and_understated_metadata_size_still_caps_the_read"
+    );
+
+    if std::env::var_os(CHILD_MARKER).is_some() {
+        // $TMPDIR is /proc here, so /proc/version is inside an admitted root
+        // only if the $TMPDIR entry was added to the allowlist.
+        let content = transport::read_file_transport(b"/proc/version", 4096)
+            .expect("a file directly inside $TMPDIR must be admitted");
+        assert!(
+            !content.is_empty(),
+            "content is returned even though the metadata size is zero"
+        );
+
+        // The same file with a cap below its real length: the reader must not
+        // trust the understated metadata size and hand back a silently
+        // truncated payload.
+        assert_eq!(
+            transport::read_file_transport(b"/proc/version", 8),
+            Err(TransportError::TooLarge),
+            "content past the cap is refused even when metadata reports zero"
+        );
+
+        // A sibling of the admitted root is still outside it.
+        assert_eq!(
+            transport::read_file_transport(b"/etc/passwd", 4096),
+            Err(TransportError::PathNotAllowed),
+            "adding $TMPDIR does not widen admission beyond that directory"
+        );
+
+        println!("{COMPLETED}");
+        return;
+    }
+
+    let exe = std::env::current_exe().expect("path to this test binary");
+    let output = std::process::Command::new(exe)
+        .args(["--exact", "--nocapture", TEST_PATH])
+        .env(CHILD_MARKER, "1")
+        .env("TMPDIR", "/proc")
+        .output()
+        .expect("re-run this test binary as a child");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "child run failed ({}):\n{stdout}{}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains(COMPLETED),
+        "the child never reached its assertions, so this test proved nothing; stdout was:\n{stdout}"
+    );
+}

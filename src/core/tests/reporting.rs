@@ -296,3 +296,27 @@ fn decrqss_rejects_unknown_selectors() {
 
     assert_eq!(terminal.take_host_output(), b"\x1bP0$r\x1b\\");
 }
+
+#[test]
+fn decrqss_reports_the_reset_sgr_state_as_a_single_zero() {
+    // With no attributes set the collected parameter list is empty, and the
+    // report must substitute the explicit reset parameter rather than send an
+    // empty body. The non-empty case is covered by the extended-underline test.
+    let mut terminal = Terminal::new(10, 4);
+
+    terminal.advance(b"\x1bP$qm\x1b\\");
+    assert_eq!(terminal.take_host_output(), b"\x1bP1$r0m\x1b\\");
+
+    // Setting and then clearing every attribute returns to the same report.
+    terminal.advance(b"\x1b[1;4;7;38;5;9m");
+    terminal.advance(b"\x1bP$qm\x1b\\");
+    assert_eq!(terminal.take_host_output(), b"\x1bP1$r1;4;7;91m\x1b\\");
+
+    terminal.advance(b"\x1b[0m");
+    terminal.advance(b"\x1bP$qm\x1b\\");
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1bP1$r0m\x1b\\",
+        "a reset returns the report to the empty-parameter form"
+    );
+}

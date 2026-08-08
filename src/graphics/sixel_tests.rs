@@ -592,3 +592,57 @@ fn fuzz_structure_aware() {
         let _ = decode_sixel(&payload, bg);
     }
 }
+
+// ---------------------------------------------------------------------------
+// Emptiness-dependent decoder branches
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_params_trailing_separator_appends_a_defaulted_value() {
+    // A list that ends on a separator still contributes the omitted value, so
+    // `#1;` is a five-parameter-shaped command with defaults, not a one-element
+    // list. The empty-list case must stay distinct from "one defaulted value".
+    let (trailing, next) = parse_params(b"1;~", 0);
+    assert_eq!(trailing, vec![1, 0]);
+    assert_eq!(next, 2);
+
+    let (separator_only, next) = parse_params(b";~", 0);
+    assert_eq!(separator_only, vec![0, 0]);
+    assert_eq!(next, 1);
+
+    let (none, next) = parse_params(b"~", 0);
+    assert!(
+        none.is_empty(),
+        "no digits and no separator yields no values"
+    );
+    assert_eq!(next, 0);
+}
+
+#[test]
+fn color_introducer_without_parameters_leaves_the_selected_color_alone() {
+    // `#` with no digits produces an empty parameter list. The decoder must
+    // treat that as a no-op rather than indexing the list: the color selected
+    // by the previous command stays selected.
+    let with_bare_introducer = img(b"#1;2;100;0;0#~#~").unwrap();
+    let without = img(b"#1;2;100;0;0~~").unwrap();
+
+    assert_eq!(with_bare_introducer.width, without.width);
+    assert_eq!(with_bare_introducer.height, without.height);
+    assert_eq!(
+        with_bare_introducer.rgba, without.rgba,
+        "a parameterless color introducer must not change the drawn output"
+    );
+    assert_eq!(pixel_at(&with_bare_introducer, 0, 0), [255, 0, 0, 255]);
+}
+
+#[test]
+fn color_introducer_with_only_a_register_selects_without_redefining() {
+    // One parameter selects a register; fewer than five parameters must not
+    // touch the palette entry.
+    let defined_then_reselected = img(b"#1;2;100;0;0#0~#1~").unwrap();
+    assert_eq!(
+        pixel_at(&defined_then_reselected, 1, 0),
+        [255, 0, 0, 255],
+        "register 1 keeps the color it was defined with"
+    );
+}
