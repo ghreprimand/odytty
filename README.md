@@ -207,7 +207,7 @@ Linux method, plus the Homebrew and Scoop paths below.
 - **Workspaces for real sessions.** Tabs contain resizable panes and named
   workspaces, with a configurable tmux-style pane prefix, session restore,
   Unix-only detached and in-window managed sessions, layouts, and replay.
-  [See native workflows](docs/features.md#native-app-workflow).
+  [See native workflows](docs/features.md#tab-and-pane-workflow).
 - **Local SSH workflows.** The connection manager keeps an OdyTTY-owned hosts
   list and can opt into name-only OpenSSH host import, remote shell integration,
   connection reuse, and `tmux` persistence. Every layer degrades to plain
