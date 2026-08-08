@@ -7,6 +7,39 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Native UI test modules moved to test-only siblings
+
+The terminal `#[cfg(test)] mod tests` blocks of `src/native/context_menu_ui.rs`
+and `src/native/settings_panel/mod.rs` now live in `context_menu_ui_tests.rs`
+and `settings_panel/tests.rs`, declared as the same child `mod tests` so
+`use super::*` still reaches each module's private items. Module names, paths,
+visibility, assertions, and behavior are unchanged; this is a file move for
+size relief, not a refactor of the panels themselves.
+
+Both production files fall under the size limit as a result: context menu
+3,524 to 1,752 lines, settings panel 3,444 to 1,459. Their entries are deleted
+from `scripts/production-file-baseline.tsv`, which is the ratchet's required
+outcome rather than an optional tidy-up -- a recorded file that comes back
+under the limit while its entry survives is an error. The backlog drops from
+eleven files to nine.
+
+The move is proved rather than asserted. Reassembling each sibling back into
+its production file as an indented `mod tests { ... }` block and formatting the
+result reproduces the original file byte for byte, so nothing was dropped,
+reordered, or edited in transit. The dedent does change what fits on one line,
+and formatting rewrapped ten `let ... else` statements inside the moved tests;
+the round-trip proof is what shows those rewraps carry no other change. Two
+line-continuation string literals span lines in the moved code, where the
+escape already discards leading whitespace, so their contents are unaffected by
+the indentation change.
+
+The guard confirms the classification instead of taking the filenames on trust:
+both new files resolve as test-only through a `cfg(test)` module edge, both
+production files stay production-bearing, and the tree reports 225
+production-bearing and 128 test-only files with none unclassified.
+
+---
+
 ## 2026-08-08 -- Production Rust file-size guard and a fresh release baseline
 
 `scripts/production-file-guard.py` enforces a maximum of 1,999 physical lines

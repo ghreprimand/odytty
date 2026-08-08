@@ -13,8 +13,6 @@
 #
 # Format: repository-relative path, one tab, physical line count.
 src/settings.rs	3570
-src/native/context_menu_ui.rs	3524
-src/native/settings_panel/mod.rs	3444
 src/core/screen/mod.rs	3433
 src/grid.rs	2483
 src/atlas/mod.rs	2274
