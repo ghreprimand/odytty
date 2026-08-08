@@ -7,6 +7,41 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Risk-weighted coverage evidence for the terminal's risk surfaces
+
+Coverage now exists as evidence rather than as a number. `scripts/coverage-report.sh`
+builds the test binaries with LLVM source-based instrumentation on the pinned
+1.96 toolchain, runs them, merges the raw profiles, exports the coverage
+document, and hands it to `scripts/coverage-surfaces.py`, which classifies every
+measured source file into one of six named risk surfaces: parser dispatch, OSC
+and DCS transports, keyboard and command routing, pointer/wheel/IME and mouse
+protocol routing, session lifecycle, and the extracted native event seams. The
+published result is `docs/coverage-evidence.md`.
+
+Stable rustc 1.96 does not emit LLVM branch or MC/DC counters, so the report
+uses exact source regions and records branch coverage as unavailable instead of
+publishing a false zero. Identical regions are merged across test binaries and
+generic instantiations, with a region uncovered only when no instrumented copy
+executed it. Test-only files and inline `#[cfg(test)]` items are excluded from
+product totals, and a source fingerprint prevents a stale export from being
+classified against changed Rust code.
+
+The measured Linux headless run at revision `bd5ce3cf` executed 18 test
+binaries: 4378 tests passed, none failed, and 20 were ignored. Region coverage
+was 90.79% for parser dispatch, 85.11% for OSC/DCS handling, 61.69% for keyboard
+and command routing, 84.37% for pointer/mouse/IME routing, 77.28% for session
+lifecycle, and 44.17% for native event seams. The last surface is dominated by
+windowing and hardware paths that a headless run cannot enter.
+
+The report ranks uncovered regions by impact and reachability. The Win32 and
+Kitty key-encoding tables are the largest mode-gated input gap, while much of
+the native-event and session gap requires a real window, GPU, PTY peer, or
+session host. Windows, macOS, GPU/display behavior, IME/accessibility, doctests,
+ignored tests, and functions that never reached code generation remain
+explicitly unmeasured. No coverage threshold or release gate was added.
+
+---
+
 ## 2026-08-08 -- Native GPU renderer decomposed by responsibility
 
 `src/native/gpu.rs` had grown to 4,436 lines holding the entire renderer: the

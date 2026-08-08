@@ -36,3 +36,10 @@ GEMINI.md
 *.msi
 /wix/
 target/wix/
+
+# Raw LLVM coverage profiles. The coverage runner writes its own profiles into
+# an ignored output directory, but a test-spawned child that inherits a
+# sanitized environment falls back to the default name in its working
+# directory. Ignoring the pattern keeps an interrupted run from dirtying the
+# tree.
+*.profraw
