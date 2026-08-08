@@ -292,7 +292,21 @@ Before every commit, run through this gate and stop if anything is unclear:
    private hostnames/URLs, personal data, or local-only configuration.
 7. **Keep local-only files out.** Machine-local config, generated credentials,
    private notes, `.env*`, and editor/agent scratch files stay untracked.
-8. **Check file sizes.** No source file should exceed approximately 2000 lines.
+8. **Check production file sizes.** Every Rust file under `src/` that a normal
+   build compiles must stay below 2000 physical lines. The rule is mechanical,
+   not a rule of thumb:
+
+   ```
+   python3 scripts/production-file-guard.py --baseline scripts/production-file-baseline.tsv
+   ```
+
+   The guard decides "a normal build compiles it" by walking the module graph
+   from the crate roots, so a filename cannot exempt a file and a `#[cfg(test)]`
+   module is measured as what it is. It is blocking in CI. Files still awaiting
+   decomposition are listed with their exact size in
+   `scripts/production-file-baseline.tsv`; splitting one means deleting its
+   entry in the same change. Run `python3 scripts/production-file-guard.py`
+   without the flag to see the rule with no backlog forgiven.
 
 **Toolchain lockstep.** OdyTTY pins a verified Minimum Supported Rust Version:
 `rust-toolchain.toml` (`channel = "1.96.0"`) and `Cargo.toml`

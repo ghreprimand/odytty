@@ -187,6 +187,49 @@ jobs:
         run: bash scripts/piped-test-guard.sh
 
 
+  # Architectural size rule for Rust source a normal build compiles. Cheap,
+  # deterministic, and offline: no toolchain, no compile, no network. It runs
+  # as its own job rather than inside the build matrix so a size regression
+  # reports in seconds instead of behind a release build, and so the answer is
+  # identical on every runner (the rule is about source text, not about a
+  # platform).
+  #
+  # The classifier self-tests run first and are part of the gate. The guard
+  # decides production vs test-only by walking the module graph, so a defect in
+  # that walk would silently stop measuring product code -- exactly the failure
+  # the rule exists to prevent -- and the self-tests are what make that defect
+  # loud. `coverage-surfaces.py` is tested here too because the guard imports
+  # its cfg evaluator.
+  architecture-guards:
+    name: Architecture guards (production Rust file size)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        # v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          # This job only reads source text; it never pushes. Leaving the
+          # checkout token out of .git/config keeps it away from the scripts
+          # this job runs.
+          persist-credentials: false
+
+      - name: Classifier self-tests
+        run: |
+          python3 scripts/production-file-guard.py --self-test
+          python3 scripts/coverage-surfaces.py --self-test
+
+      - name: Production Rust file-size guard
+        # The recorded backlog forgives the files the decomposition work has
+        # not reached yet and nothing else: a new oversized file, a recorded
+        # file that grew, a stale entry, or a source file no crate root reaches
+        # all fail here. Entries leave scripts/production-file-baseline.tsv as
+        # the files are split; when it is empty, drop the flag.
+        run: >-
+          python3 scripts/production-file-guard.py
+          --baseline scripts/production-file-baseline.tsv
+
+
   # Lint + smoke-test the shipped shell scripts (the hosted install.sh one-liner
   # and the tarball's local installer). shellcheck is preinstalled on the ubuntu
   # runner. The --dry-run smoke exercises the installer's OS/arch/manager

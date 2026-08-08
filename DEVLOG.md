@@ -7,6 +7,60 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Production Rust file-size guard and a fresh release baseline
+
+`scripts/production-file-guard.py` enforces a maximum of 1,999 physical lines
+for every Rust file under `src/` that a normal build compiles, and runs as its
+own blocking CI job alongside the build matrix and the shell-script job. It is
+offline, standard-library only, and needs no toolchain.
+
+Which files the rule covers is decided by walking the module graph rather than
+by matching filenames. The roots are the crate's non-test targets; each
+`mod name;` declaration is an edge resolved with Rust's own rules including
+`#[path]`; an edge is test-gated when its `cfg` predicate can hold with `test`
+set and cannot hold with `test` clear. A filename cannot exempt a file, and a
+large test-only module is measured as what it is. Classifying by path would
+have let a file named for tests carry unmeasured product code, which is the
+failure the rule exists to prevent.
+
+The guard fails closed: a tracked source no crate root reaches, a module
+declaration that resolves to no file or to two, a `cfg` predicate it does not
+model, a source-level `include!`, an unrecognised item prefix, and a stale
+exclusion entry are all errors rather than quiet exemptions. Its fixtures run
+first in the same CI job, covering classification, the boundary at exactly
+1,999 and 2,000 lines, and every fail-closed path.
+
+The classification was checked against what the compiler reads. No file the
+normal build compiles is classified test-only, no test-only file is missing
+from the `cfg(test)` build, and the only production files absent from the Linux
+build are the Windows and macOS platform modules. That check found a real
+defect first: an attribute scanner that tracked recently-seen attributes
+discarded the gate on
+`#[cfg(test)] pub(in crate::native) mod test_support;`, classifying a test-only
+module as product code. Attributes are now derived from the whole item slab and
+an unrecognised prefix is an error.
+
+The rule arrives against a tree that breaks it, so
+`scripts/production-file-baseline.tsv` records the eleven production files
+already over the limit with their exact sizes. It is a ratchet: a new oversized
+file, a recorded file that grew, a stale entry, or an entry removed while its
+file is still oversized all fail. The list can only shrink.
+
+`docs/v0.10.0-baseline.md` publishes the measured starting point: 688 tracked
+files, 383 Rust files, 243,257 physical Rust lines, 225 production-bearing and
+126 test-only files under `src/`, zero unclassified. The eleven oversized
+production files total 31,271 lines; seven test-only files are also over 2,000
+lines and are reported without being subject to the rule. The four required
+gates passed. The test inventory records 4,378 passed, 0 failed and 20 ignored,
+and corrects that headline: two cases re-execute the test binary in a child
+process, so the distinct count is 4,376 passed and 4,396 declared. Four runtime
+pass-as-skip guards fired, all font-capability dependent, down from 57 at the
+previous capture. Miri remains red on the scheduled dynamic-analysis lane and
+the `ttf-parser` unmaintained advisory remains open; both are recorded as open,
+not as passes.
+
+---
+
 ## 2026-08-08 -- Selective mutation testing across parser, input, and transports
 
 `scripts/mutation-campaign.sh` now runs declared mutation batches under the
