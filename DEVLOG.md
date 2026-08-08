@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Terminal screen responsibilities split into focused modules
+
+`src/core/screen/mod.rs` now retains the terminal-screen model, protocol
+dispatch, and character-operation coordination. Screen construction and live
+configuration moved to `screen/state.rs`; snapshots, restore projection,
+search, and presentation queries moved to `screen/view.rs`; and the parser-owned
+public `Terminal` facade moved to `screen/terminal.rs`. The move preserves the
+existing `Screen` and `Terminal` API while making the state, presentation, and
+facade boundaries independently reviewable.
+
+The production coordinator falls from 3,433 to 1,742 physical lines. The three
+new production modules are 397, 941, and 380 lines, so every file in this
+screen boundary is below the 1,999-line limit with maintenance headroom. The
+stale screen entry was removed from `scripts/production-file-baseline.tsv`,
+reducing the recorded oversized backlog from six files to five.
+
+The focused core suite passes 890 tests with five intentional ignores. The
+complete all-target suite also passes, including 4,227 library tests with seven
+intentional ignores and every integration target. Formatting, diff checks, and
+the production-file guard pass with no unclassified Rust modules.
+
+---
+
 ## 2026-08-08 -- Native UI test modules moved to test-only siblings
 
 The terminal `#[cfg(test)] mod tests` blocks of `src/native/context_menu_ui.rs`
