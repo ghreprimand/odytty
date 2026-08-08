@@ -10,6 +10,7 @@
 //! upload, reconnect classification, and the backend half of resize. The model
 //! is always resized before its backend.
 
+#[cfg(unix)]
 use super::SNAPSHOT_DEADLINE;
 use super::model::{Session, SessionToken, Tab, WorkspaceSet};
 #[cfg(unix)]
