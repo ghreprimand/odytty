@@ -7,6 +7,37 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Selective mutation testing across parser, input, and transports
+
+`scripts/mutation-campaign.sh` now runs declared mutation batches under the
+project's resource limits, while `scripts/mutation-summary.py` validates the
+census, classifications, provenance, resource accounting, and published tables.
+The runner rejects a dirty tree, an incompatible tool, an output directory
+inside the repository, or unavailable resource controls.
+
+The campaign enumerated 534 mutants across the parser state machine and
+parameter store, key encoding, and graphics file/shared-memory transports. It
+executed 268: 51 were in code excluded by the Linux build, leaving 217 measured
+with 134 killed, 66 surviving, 9 timeouts, and 8 unbuildable. The remaining 266
+mutants are explicitly unmeasured. Platform-excluded code, timeouts, unbuildable
+mutants, and tool filter bypasses remain separate accounting categories.
+
+The strongest survivors cover the hand-written `Params` equality contract,
+Win32 key-record translation, transport size limits and growth detection, and
+transport path admission. Five parser/flag mutations are proven behaviorally
+equivalent. Mutation testing necessarily edits source temporarily; no product,
+test, dependency, or toolchain change was authored or retained.
+
+The report derives its resource and provenance figures from retained run data.
+One invocation used 3.48 GiB of swap within the 4 GiB cap, one cancelled
+invocation lost its resource accounting, and four stage-2 directories predate
+per-run revision recording. Of the 66 survivors, 37 were confirmed against the
+complete unit suite and 29 transport survivors remain focused-filter results.
+Windows, macOS, integration tests, and half of the declared census remain
+unmeasured.
+
+---
+
 ## 2026-08-08 -- Risk-weighted coverage evidence for the terminal's risk surfaces
 
 Coverage now exists as evidence rather than as a number. `scripts/coverage-report.sh`

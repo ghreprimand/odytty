@@ -1,0 +1,17 @@
+# Regions excluded from mutation results because the target platform does not
+# compile them.
+#
+# A mutant inside a region the build configuration removes is never executed:
+# the mutated text is not in the binary, the suite passes, and the tool records
+# the mutant as surviving. Counting that as a survivor would claim the tests
+# fail to notice a change that was never made. These regions are therefore
+# reported as unmeasured on this platform, not as survivors.
+#
+# The classifier enforces the exclusion rather than trusting it: if any mutant
+# inside an excluded region is caught or times out, the region demonstrably was
+# compiled, the exclusion is wrong, and the report fails instead of hiding it.
+#
+# Columns (tab separated): file, first line, last line, build condition, reason.
+src/core/kitty_transport.rs	123	127	cfg(windows)	Windows temp-directory allowlist entry; not compiled into a Linux build.
+src/core/kitty_transport.rs	272	279	cfg(not(unix))	Non-Unix fallback of read_shm_transport; not compiled into a Linux build.
+src/core/kitty_transport.rs	429	533	cfg(target_os = "macos")	macOS child-process isolated shm copy; not compiled into a Linux build.

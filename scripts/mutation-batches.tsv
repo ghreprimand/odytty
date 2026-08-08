@@ -1,0 +1,25 @@
+# Selective mutation campaign: batch definitions.
+#
+# One row per named batch. Batches partition the mutant census of the selected
+# files exactly: every generated mutant belongs to exactly one batch, and no
+# mutant belongs to two. `scripts/mutation-campaign.sh verify` proves that
+# property for the current revision before any batch runs.
+#
+# Columns (tab separated):
+#   1 name          stable batch identifier, used for output directories
+#   2 files         --file glob
+#   3 select        regex passed to --re, or "-" for the whole file census
+#   4 test_filter   positional cargo test filter for stage 1, or "-" for none
+#   5 rationale     short reason the batch exists
+#
+# Stage 1 runs each batch against the focused filter in column 4. Stage 2
+# re-runs every stage-1 survivor against the complete unit-test suite. A narrow
+# filter can over-report survivors; it cannot fabricate a kill, so stage 1 is
+# sound as a pre-filter and stage 2 is the reported result.
+parser-machine	src/parser/machine.rs	-	parser::	Escape/CSI/DCS state machine: byte classification and state transitions.
+parser-params	src/parser/params.rs	-	parser::	CSI parameter accumulation, overflow clamping, and sub-parameter split.
+transport-shm	src/core/kitty_transport.rs	-	kitty	Graphics transport file/shm readers: external-input path validation and size caps.
+input-win32	src/input.rs	\b(win32_char_identity|win32_event_from_neutral_key|encode_win32_key_event)\b	input	Windows key translation on a first-class shipped platform with no local test host.
+input-legacy-modifiers	src/input.rs	\b(ctrl_char|encode_modify_other_key|encode_key_event|function_key_tilde_code|xterm_modifier|normalize_control_text_key|encode_key|encode_legacy_ctrl_char|is_functional_event_key|has_legacy_char_encoding)\b	input	Legacy control-character and modifier encoding used by every keystroke.
+input-kitty-keys	src/input.rs	\b(should_encode_kitty_key|kitty_char_code|kitty_associated_text|kitty_modifier_field|is_kitty_escape_key|kitty_modifier|encode_kitty_key|encode_kitty_codepoint_key|kitty_base_layout_code|encode_kitty_final_key|encode_kitty_tilde_key|KittyKeyCode)\b	input	Kitty keyboard-protocol encoding: codepoints, modifier fields, and associated text.
+input-legacy-sequences	src/input.rs	\b(encode_function_key|encode_keypad_digit|encode_keypad|encode_cursor_key|encode_tilde_key|sanitize_paste|encode_paste)\b	input	Function/keypad/cursor sequence emitters and bracketed-paste sanitisation.

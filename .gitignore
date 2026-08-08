@@ -43,3 +43,9 @@ target/wix/
 # directory. Ignoring the pattern keeps an interrupted run from dirtying the
 # tree.
 *.profraw
+
+# Default output from direct cargo-mutants invocations.
+/mutants.out/
+
+# Byte-code caches from the repository's Python helper scripts.
+__pycache__/
