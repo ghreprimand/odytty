@@ -13,6 +13,4 @@
 #
 # Format: repository-relative path, one tab, physical line count.
 src/settings.rs	3570
-src/atlas/mod.rs	2274
-src/settings/info.rs	2109
 src/text.rs	2001

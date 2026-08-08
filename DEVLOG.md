@@ -7,6 +7,30 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Settings metadata and glyph atlas decomposed by responsibility
+
+The settings inventory is now a small `src/settings/info.rs` facade over an
+authoritative metadata catalog, stable group/range ordering helpers, and the
+single-key presentation path. Setting identities, descriptions, ordering,
+lookup behavior, and value formatting are unchanged; the largest resulting
+file is `src/settings/info/catalog.rs` at 1,879 physical lines.
+
+The glyph atlas now separates construction, immutable lookup, dynamic glyph
+insertion, allocation and page growth, runtime ownership policy, rasterization,
+and GPU upload state. `GlyphAtlas` remains the sole owner of its cache and
+bitmap, and its public API is unchanged. Focused tests retain the existing
+fallback selection, allocation bounds, shaped-slot residency, pixel geometry,
+dirty/revision signaling, and byte-identity contracts. The largest atlas file
+is the 850-line facade, with rasterization isolated at 665 lines.
+
+Both matching entries are removed from
+`scripts/production-file-baseline.tsv`. The production-file guard self-tests
+and live ratchet pass with no unclassified files; focused settings and atlas
+suites pass 250 and 94 tests respectively. The final locked full suite, format
+gate, and deny-warnings clippy gate are clean.
+
+---
+
 ## 2026-08-08 -- Grid model and render geometry split into focused modules
 
 `src/grid.rs` now coordinates cell vertex emission and render-facing assembly,
