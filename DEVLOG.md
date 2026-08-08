@@ -7,6 +7,60 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-07 -- Session and workspace state decomposed by responsibility
+
+`src/native/session.rs` had grown to 7,509 lines holding the whole session
+layer: the token arena, every transport, presentation state, lifecycle, and
+persistence. It is now a 46-line facade over five responsibility modules, with
+the inline test suite regrouped to match:
+
+- `model.rs` -- `SessionToken`, the `Session`, `Tab`, `Workspace`, and
+  `WorkspaceSet` fields, and the structural accessors over them. The arena stays
+  flat and keyed by token; the workspace, tab, and pane trees carry tokens and
+  active indices only, and dereferencing the set still resolves the focused pane
+  of the active tab of the active workspace.
+- `transport.rs` -- what backs a session's I/O and every operation that speaks
+  to a backend: source selection, construction, the local spawn path, the
+  remote connect and reconnect paths, attach and reattach, image upload, and
+  backend resize. A production session on Windows is always a local ConPTY
+  session; the detached-host attach transport stays Unix-only, behind its own
+  source arm.
+- `presentation.rs` -- cursor comparison, titles, viewport anchoring, animation
+  timers, input latches, pane geometry and hit tests, activity rollup, and the
+  tab-bar data sources. Nothing here spawns or closes anything.
+- `lifecycle.rs` -- bounded reader joins, close, shell exit, whole-application
+  shutdown, and the structural mutations that create, move, and remove panes,
+  tabs, and workspaces. Every blocking wait still runs off the UI path and
+  shutdown stays bounded by a single deadline.
+- `persistence.rs` -- shape capture, restore, append, validation, rollback, and
+  the structural fingerprint. Restore still builds off-side, spends one
+  aggregate attach budget for the whole batch, and swaps or appends only after
+  the complete build validates, rolling back every token it spawned on failure.
+
+Dependency direction runs model first, then transport, presentation, lifecycle,
+and persistence.
+
+Verification: the move is structural. Of the 314 items in the old file, 313
+appear in their destination file as a verbatim token sequence after ignoring
+visibility qualifiers and formatter-inserted trailing commas; the exception is
+the attach snapshot deadline, which now sits in the facade so its documented
+path is unchanged for the attach module that references it. Across the whole
+file the token multiset is identical apart from the removed inline test-module
+wrapper and the two extra `impl Session` headers the split requires. Item-level
+conditional-compilation attributes are unchanged at 91, with additions only on
+module and import lines, so the Unix, Windows, and test surfaces are the same
+and the Windows CI leg remains the authority for that platform. Item visibility
+was widened only as far as the original file already reached.
+
+Sizes against the decomposition map's budgets: facade 46 of 250, model 686 of
+1,150, transport 1,429 of 1,600, presentation 675 of 1,500, lifecycle 1,030 of
+1,500, persistence 581 of 850. Every handwritten production file in the session
+layer is now well under the 2,000-line reviewability guard. Test totals are
+unchanged, with the session tests split into transport, presentation,
+lifecycle, and persistence suites over a shared fixture module.
+
+---
+
 ## 2026-08-07 -- Overlay coordinator decomposed into responsibility modules
 
 `src/native/overlay.rs` had grown to 8,242 lines. It is now a 43-line facade
