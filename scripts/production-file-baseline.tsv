@@ -1,6 +1,7 @@
 # Production Rust files over the size limit at the point the limit was
 # introduced, with the exact physical line count each one had at revision
-# a136209fb16a177708ea4ddc995ba2cb3c70f5a8.
+# a136209fb16a177708ea4ddc995ba2cb3c70f5a8. A count tightens downward when the
+# file shrinks but stays over the limit.
 #
 # This file is a ratchet, not an exemption list. `scripts/production-file-guard.py
 # --baseline scripts/production-file-baseline.tsv` reports these files without
@@ -15,10 +16,7 @@ src/settings.rs	3570
 src/native/context_menu_ui.rs	3524
 src/native/settings_panel/mod.rs	3444
 src/core/screen/mod.rs	3433
-src/text.rs	3420
-src/core/snapshot_envelope.rs	2620
 src/grid.rs	2483
-src/shell_integration.rs	2282
 src/atlas/mod.rs	2274
-src/native/app/tab_rail.rs	2112
 src/settings/info.rs	2109
+src/text.rs	2001
