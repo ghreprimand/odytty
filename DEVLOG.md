@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Grid model and render geometry split into focused modules
+
+`src/grid.rs` now coordinates cell vertex emission and render-facing assembly,
+while `grid/model.rs` owns vertex and coverage data models,
+`grid/background.rs` owns readability-bounded background treatments, and
+`grid/clipping.rs` owns pane clipping and edge-fill geometry. Public grid types
+and crate-visible clipping functions remain available from `crate::grid`, so
+callers and rendered behavior are unchanged.
+
+The production coordinator falls from 2,483 to 1,827 physical lines. The new
+model, background, and clipping modules are 269, 112, and 303 lines. The stale
+grid entry was removed from `scripts/production-file-baseline.tsv`, reducing
+the recorded oversized backlog from five files to four.
+
+The focused grid suite passes all 95 tests. The complete all-target suite also
+passes, including 4,227 library tests with seven intentional ignores and every
+integration target. Formatting, diff checks, and the production-file guard
+pass with no unclassified Rust modules.
+
+---
+
 ## 2026-08-08 -- Terminal screen responsibilities split into focused modules
 
 `src/core/screen/mod.rs` now retains the terminal-screen model, protocol
