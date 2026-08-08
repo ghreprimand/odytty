@@ -7,6 +7,78 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Native GPU renderer decomposed by responsibility
+
+`src/native/gpu.rs` had grown to 4,436 lines holding the entire renderer: the
+frame input contracts and their geometry helpers, adapter and format policy,
+pipeline construction, `GpuState` and its initialization, scene building and
+upload, surface recovery, and pass encoding through presentation. It is now a
+104-line facade over seven responsibility modules:
+
+- `types.rs` -- the value contracts the application layer hands the renderer
+  each frame (pane, cursor glow and streak, overlay, rail, and panel inputs)
+  plus the pure geometry that turns them into vertices. Nothing here owns a GPU
+  handle or touches the device.
+- `pipeline_policy.rs` -- surface format, composite alpha, blend state, device
+  limits, and adapter selection. These are decisions taken from what an adapter
+  and surface report, so they stay free of GPU state and remain testable
+  headlessly.
+- `pipelines.rs` -- construction of the cell, cursor glow, cursor streak, and
+  colour glyph pipelines, and the target-format synchronization that rebuilds
+  every one of them together whenever the effective format changes.
+- `resources.rs` -- `GpuState` itself: the instance, window, adapter, surface,
+  device, queue, bindings, buffers, atlases, and fonts, with initialization and
+  the atlas, font, theme, and post-processing rebuild seams. `GpuState` remains
+  the single UI-thread owner; the split adds no locks and no shared ownership.
+- `scene.rs` -- snapshot, pane, cell, image, cursor, and overlay vertex
+  construction and upload. Segment counts and their order within the shared
+  vertex buffer are the contract the frame module draws against, and both are
+  unchanged.
+- `recovery.rs` -- resize, reconfigure, and surface recreation. The instance and
+  window still outlive the surface, and recreation still builds and checks a
+  replacement before the old chain is replaced and the new one configured.
+- `frame.rs` -- draw order, pass encoding, acquire, submit, present, and the
+  frame outcome the event loop acts on. Acquire errors keep their exact outcome
+  mapping and the pre-present notification stays immediately before
+  presentation.
+
+Dependency direction runs pipeline policy and pipelines first, then types and
+scene, resources, recovery, and frame. Background, font, image, and
+post-processing support remain leaf modules and were not touched.
+
+Verification: the move is structural. All 164 named items from the old file
+appear in a destination module, and all 74 `GpuState` methods are verbatim
+token sequences after ignoring visibility qualifiers, formatter-inserted
+trailing commas, the module-path depth change (`super::texture_limits` and
+`super::app::tab_panel` spelled from one level deeper, and shader
+`include_str!` paths likewise), with no other difference anywhere in the file.
+Item-level conditional compilation is unchanged: the original `cfg(test)` gates
+travel with their items and no new gate was added to any item. The renderer's
+published surface is unchanged as well. Every name the parent module could
+reach at a `native::gpu::` path before the split is republished by the facade
+at the same path and under the same condition, whether or not the current build
+still calls it; the two names that were already gated to test builds where they
+are defined keep that gate and nothing else acquired one. Statements carrying
+names with no caller in every configuration are individually marked so an
+unused import anywhere else still fails the build. Visibility was widened only
+as far as the original file already reached: `GpuState` fields and the helpers
+that now cross a module line are visible within the renderer subtree, which is
+exactly where they were reachable before.
+
+Sizes against the decomposition map's budgets: facade 104 of 250, types 648 of
+900, pipeline policy 267 of 600, pipelines 339 of 700, resources 1,533 of
+1,550, scene 1,422 of 1,650, recovery 97 of 450, frame 274 of 650. Every
+handwritten production file in the renderer is now well under the 2,000-line
+reviewability guard.
+
+Platform behavior is unchanged. The presentation notification remains a no-op
+at the Windows platform boundary while its call site stays immediately before
+presentation, and the occlusion-without-resize path restored windows can take
+still runs through common recovery. Rendering output is hardware-dependent and
+remains a separate release-profile check; nothing here is a claim about pixels.
+
+---
+
 ## 2026-08-07 -- Session and workspace state decomposed by responsibility
 
 `src/native/session.rs` had grown to 7,509 lines holding the whole session
