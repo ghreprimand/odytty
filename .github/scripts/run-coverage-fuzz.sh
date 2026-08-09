@@ -28,7 +28,7 @@ if [ "$(uname -s)" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
   exit 3
 fi
 
-for tool in cargo timeout systemd-run; do
+for tool in cargo rustup timeout systemd-run; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "run-coverage-fuzz.sh: required tool '$tool' is unavailable" >&2
     exit 3
@@ -111,6 +111,32 @@ max_lengths=(65536 65536 2097152 1048576)
 input_timeouts=(5 5 8 8)
 failed=0
 
+# The prebuild above is the single compilation step. Campaigns execute the
+# built fuzzer binaries directly: `cargo fuzz run` always re-enters cargo's
+# build phase before fuzzing, and a recompilation behind the 90-second
+# campaign deadline ends the campaign in a timeout before any fuzzing runs.
+# cargo-fuzz compiles with an explicit --target, so binaries land under
+# target/<host-triple>/release/ in the fuzz workspace.
+build_host="$(rustup run "$FUZZ_TOOLCHAIN" rustc -vV | sed -n 's/^host: //p')"
+if [ -z "$build_host" ]; then
+  echo "run-coverage-fuzz.sh: could not resolve the pinned toolchain host triple" >&2
+  exit 3
+fi
+bin_dir="$workspace/target/$build_host/release"
+missing=0
+for target in "${targets[@]}"; do
+  if [ ! -x "$bin_dir/$target" ]; then
+    echo "run-coverage-fuzz.sh: prebuilt fuzzer binary missing: $bin_dir/$target" >&2
+    missing=1
+  fi
+done
+if [ "$missing" -ne 0 ]; then
+  printf '_binaries\tfail\t3\t%s\n' "$bin_dir" >>"$summary"
+  cat "$summary"
+  exit 1
+fi
+printf '_binaries\tpass\t0\t%s\n' "$bin_dir" >>"$summary"
+
 for index in "${!targets[@]}"; do
   target="${targets[$index]}"
   max_len="${max_lengths[$index]}"
@@ -130,9 +156,9 @@ for index in "${!targets[@]}"; do
     "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}"
     CARGO_BUILD_JOBS=4
     RUST_TEST_THREADS=1
+    "ASAN_OPTIONS=${ASAN_OPTIONS:+$ASAN_OPTIONS:}detect_odr_violation=0"
     timeout --kill-after=15s 90s
-    cargo +"$FUZZ_TOOLCHAIN" fuzz run "$target" "$corpus_dir" \
-    --fuzz-dir="$workspace" --
+    "$bin_dir/$target" "$corpus_dir"
     -max_total_time=60
     -timeout="$input_timeout"
     -rss_limit_mb=8192
