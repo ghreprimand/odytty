@@ -108,12 +108,12 @@ for index in "${!targets[@]}"; do
 
   set +e
   if [ "$systemd_mode" = "user" ]; then
-    systemd-run --user --wait --collect --unit="$unit" \
+    systemd-run --user --pipe --wait --collect --unit="$unit" \
       --working-directory="$workspace" "${common_properties[@]}" \
       "${command[@]}" >"$log" 2>&1
     rc=$?
   else
-    sudo -n systemd-run --wait --collect --unit="$unit" \
+    sudo -n systemd-run --pipe --wait --collect --unit="$unit" \
       --uid="$(id -u)" --gid="$(id -g)" --working-directory="$workspace" \
       "${common_properties[@]}" "${command[@]}" >"$log" 2>&1
     rc=$?
