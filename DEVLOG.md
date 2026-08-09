@@ -21,6 +21,13 @@ logs, evolved corpora, and crash artifacts remain explicit. The ordinary test
 suite carries four stable synthetic regression anchors, and the RustSec gate
 now scans both the release and fuzz workspace lockfiles.
 
+The first complete on-demand smoke, GitHub Actions run `31313222076`, built the
+four targets once and then exercised every campaign for its full 60-second
+budget. All build, binary-admission, parser, terminal-state, Kitty, and Sixel
+rows exited successfully. The retained evidence contains the evolved corpora,
+per-target logs, summary, corpus manifest, and locked dependencies; the run
+produced no crash artifacts.
+
 ---
 
 ## 2026-08-09 -- The stable Miri subset is recorded explicitly
