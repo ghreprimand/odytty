@@ -791,3 +791,171 @@ fn duplicate_key_binding_chord_uses_last_action() {
         Some(BindableAction::Paste)
     );
 }
+
+/// The two Win32 mappers must agree on key identity where their domains meet.
+///
+/// Windows records are built by the physical mapper here, while synthesized
+/// keys (alternate scroll, click-to-position) and every non-Windows front end
+/// go through the neutral mapper in `input`. Two independent tables describing
+/// the same hardware is the sibling-path shape this codebase drifts on, so the
+/// overlap is pinned rather than assumed.
+///
+/// Deliberately excluded, because the two tables genuinely disagree there and
+/// this test must not silently bless either answer: numpad digits and numpad
+/// divide, where the physical mapper prefers the layout-resolved virtual key
+/// and so reports the main-row identity; and Ctrl chords on keys with no
+/// classic control mapping, where the two paths report different UTF-16 units.
+/// Those are recorded as open questions about Windows behavior, not settled by
+/// an assertion written on another platform.
+#[test]
+fn win32_physical_and_neutral_mappers_agree_on_shared_key_identities() {
+    let modes = input::KeyModes {
+        win32_input: true,
+        ..input::KeyModes::default()
+    };
+    let cases: &[(KeyCode, WinitKey, input::Key)] = &[
+        (
+            KeyCode::KeyA,
+            WinitKey::Character("a".into()),
+            input::Key::Char('a'),
+        ),
+        (
+            KeyCode::KeyM,
+            WinitKey::Character("m".into()),
+            input::Key::Char('m'),
+        ),
+        (
+            KeyCode::KeyZ,
+            WinitKey::Character("z".into()),
+            input::Key::Char('z'),
+        ),
+        (
+            KeyCode::Digit0,
+            WinitKey::Character("0".into()),
+            input::Key::Char('0'),
+        ),
+        (
+            KeyCode::Digit5,
+            WinitKey::Character("5".into()),
+            input::Key::Char('5'),
+        ),
+        (
+            KeyCode::Digit9,
+            WinitKey::Character("9".into()),
+            input::Key::Char('9'),
+        ),
+        (
+            KeyCode::Space,
+            WinitKey::Named(NamedKey::Space),
+            input::Key::Char(' '),
+        ),
+        (
+            KeyCode::Enter,
+            WinitKey::Named(NamedKey::Enter),
+            input::Key::Enter,
+        ),
+        (
+            KeyCode::Tab,
+            WinitKey::Named(NamedKey::Tab),
+            input::Key::Tab,
+        ),
+        (
+            KeyCode::Backspace,
+            WinitKey::Named(NamedKey::Backspace),
+            input::Key::Backspace,
+        ),
+        (
+            KeyCode::Escape,
+            WinitKey::Named(NamedKey::Escape),
+            input::Key::Esc,
+        ),
+        (KeyCode::F1, WinitKey::Named(NamedKey::F1), input::Key::F(1)),
+        (
+            KeyCode::F10,
+            WinitKey::Named(NamedKey::F10),
+            input::Key::F(10),
+        ),
+        (
+            KeyCode::F11,
+            WinitKey::Named(NamedKey::F11),
+            input::Key::F(11),
+        ),
+        (
+            KeyCode::F12,
+            WinitKey::Named(NamedKey::F12),
+            input::Key::F(12),
+        ),
+        (
+            KeyCode::ArrowLeft,
+            WinitKey::Named(NamedKey::ArrowLeft),
+            input::Key::Left,
+        ),
+        (
+            KeyCode::ArrowRight,
+            WinitKey::Named(NamedKey::ArrowRight),
+            input::Key::Right,
+        ),
+        (
+            KeyCode::ArrowUp,
+            WinitKey::Named(NamedKey::ArrowUp),
+            input::Key::Up,
+        ),
+        (
+            KeyCode::ArrowDown,
+            WinitKey::Named(NamedKey::ArrowDown),
+            input::Key::Down,
+        ),
+        (
+            KeyCode::Home,
+            WinitKey::Named(NamedKey::Home),
+            input::Key::Home,
+        ),
+        (
+            KeyCode::End,
+            WinitKey::Named(NamedKey::End),
+            input::Key::End,
+        ),
+        (
+            KeyCode::PageUp,
+            WinitKey::Named(NamedKey::PageUp),
+            input::Key::PageUp,
+        ),
+        (
+            KeyCode::PageDown,
+            WinitKey::Named(NamedKey::PageDown),
+            input::Key::PageDown,
+        ),
+        (
+            KeyCode::Insert,
+            WinitKey::Named(NamedKey::Insert),
+            input::Key::Insert,
+        ),
+        (
+            KeyCode::Delete,
+            WinitKey::Named(NamedKey::Delete),
+            input::Key::Delete,
+        ),
+    ];
+
+    for (code, logical, neutral) in cases {
+        for mods in [Modifiers::NONE, Modifiers::CTRL] {
+            // Ctrl only agrees where a classic control mapping exists.
+            if mods.ctrl && !matches!(neutral, input::Key::Char('a'..='z')) {
+                continue;
+            }
+            let physical = map_win32_key_event(
+                PhysicalKey::Code(*code),
+                logical,
+                logical,
+                mods,
+                KeyEventType::Press,
+            )
+            .expect("physical mapping exists for a shared key");
+            assert_eq!(
+                input::encode_win32_key_event(physical, KeyEventType::Press),
+                input::encode_key_event(*neutral, mods, modes, KeyEventType::Press),
+                "physical and neutral Win32 records disagree for {code:?} with {mods:?}"
+            );
+        }
+    }
+}

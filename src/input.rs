@@ -884,6 +884,9 @@ pub fn sanitize_paste(text: &[u8]) -> Vec<u8> {
 }
 
 #[cfg(test)]
+mod win32_key_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
