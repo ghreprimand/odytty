@@ -1171,3 +1171,31 @@ fn oversized_state_file_is_rejected_before_parsing() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn sensitive_state_reader_enforces_the_limit_during_the_read() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!(
+        "odytty-state-read-cap-{}-{nanos}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    let path = dir.join("state.json");
+
+    std::fs::write(&path, b"12345678").expect("write exact-limit state");
+    assert_eq!(
+        read_sensitive_to_string_with_limit(&path, 8).expect("exact limit is accepted"),
+        "12345678"
+    );
+
+    std::fs::write(&path, b"123456789").expect("write over-limit state");
+    let error = read_sensitive_to_string_with_limit(&path, 8)
+        .expect_err("one byte over the limit is rejected");
+    assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+    assert!(error.to_string().contains("8-byte load budget"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

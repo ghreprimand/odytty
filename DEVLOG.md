@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Detached-session output is bounded and control-flow fair
+
+The detached-session host now carries PTY output through a fixed 256-event
+queue, bounding userspace buffering at roughly 2 MiB for its 8 KiB reads. Each
+host-loop pass processes at most one queueful before returning to attach input,
+shutdown, child-exit, and idle handling. A continuously-writing child now
+receives ordinary PTY backpressure instead of growing an unbounded queue or
+starving the host's control paths.
+
+Workspace and named-layout reads now stop one byte past their 8 MiB ceiling,
+closing the growth race between descriptor metadata and content read. Focused
+tests cover the queue capacity, loop fairness budget, and exact state-file read
+boundary. Session-host integration coverage remains green.
+
+---
+
 ## 2026-08-08 -- Windows graphics file transport rejects reparse points
 
 Named graphics file transport now opens a Windows final component with

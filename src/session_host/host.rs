@@ -7,7 +7,7 @@ use std::io::{self, Read};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::{Child, Command};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -33,6 +33,13 @@ const DEFAULT_ROWS: usize = 24;
 const DEFAULT_MAX_CLIENTS: usize = 8;
 const DEFAULT_DETACHED_IDLE_TIMEOUT: Duration = Duration::from_secs(12 * 60 * 60);
 const HOST_LOOP_SLEEP: Duration = Duration::from_millis(10);
+/// PTY-reader events are fixed at no more than 8 KiB of output each. Bounding
+/// the channel to this many entries caps userspace buffering at roughly 2 MiB
+/// and lets normal PTY backpressure slow a child that outpaces the host.
+const PTY_EVENT_QUEUE_CAP: usize = 256;
+/// Never let a continuously-writing child monopolize the host loop. After this
+/// many events, return to client input, shutdown, child-exit, and idle handling.
+const MAX_PTY_EVENTS_PER_TICK: usize = PTY_EVENT_QUEUE_CAP;
 /// Grace window between observing the hosted child has exited (via a direct
 /// `try_wait`) and forcing host shutdown. It lets the PTY reader thread flush any
 /// final buffered output and deliver its own EOF — the normal, in-order exit path
@@ -312,7 +319,7 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
     let pty_writer = HostPtyWriter::spawn(session.take_writer()?)
         .context("spawn session-host pty writer thread")?;
 
-    let (pty_tx, pty_rx) = mpsc::channel();
+    let (pty_tx, pty_rx) = mpsc::sync_channel(PTY_EVENT_QUEUE_CAP);
     spawn_pty_reader(session.try_clone_reader()?, pty_tx)
         .context("spawn session-host pty reader thread")?;
 
@@ -717,7 +724,9 @@ fn drain_pty_events(
     session_alive: &mut bool,
     exit_code: &mut Option<i32>,
 ) -> Result<()> {
-    while let Ok(event) = pty_rx.try_recv() {
+    let mut processed = 0;
+    while let Some(event) = next_pty_event(pty_rx, processed) {
+        processed += 1;
         match event {
             PtyEvent::Output(bytes) => {
                 terminal.advance(&bytes);
@@ -759,6 +768,16 @@ fn drain_pty_events(
         }
     }
     Ok(())
+}
+
+/// Fetch one event without exceeding the per-loop fairness budget. Kept
+/// separate from event handling so the starvation boundary is unit-testable
+/// without constructing a live PTY session.
+fn next_pty_event(pty_rx: &Receiver<PtyEvent>, processed: usize) -> Option<PtyEvent> {
+    if processed >= MAX_PTY_EVENTS_PER_TICK {
+        return None;
+    }
+    pty_rx.try_recv().ok()
 }
 
 /// Drain queued client events into the PTY / terminal. Returns `Ok(true)` when a
@@ -888,7 +907,7 @@ fn has_client(clients: &[ClientConnection], id: u64) -> bool {
 /// Spawn the PTY output pump. Fallible: thread creation can fail under
 /// resource exhaustion, and a startup spawn failure must surface as a visible
 /// host error rather than a panic unwinding the caller.
-fn spawn_pty_reader(mut reader: Box<dyn Read + Send>, tx: Sender<PtyEvent>) -> io::Result<()> {
+fn spawn_pty_reader(mut reader: Box<dyn Read + Send>, tx: SyncSender<PtyEvent>) -> io::Result<()> {
     thread::Builder::new()
         .name("odytty-host-pty-reader".to_owned())
         .spawn(move || {
@@ -1161,6 +1180,36 @@ mod hardening_tests {
     fn client_connection(id: u64) -> (ClientConnection, UnixStream) {
         let (peer, near) = UnixStream::pair().expect("socketpair");
         (ClientConnection { id, stream: near }, peer)
+    }
+
+    // ---- PTY output queue bounds and loop fairness ----
+
+    #[test]
+    fn pty_event_queue_has_a_fixed_capacity() {
+        let (tx, _rx) = mpsc::sync_channel(PTY_EVENT_QUEUE_CAP);
+        for _ in 0..PTY_EVENT_QUEUE_CAP {
+            tx.try_send(PtyEvent::Eof).expect("queue entry fits");
+        }
+        assert!(matches!(
+            tx.try_send(PtyEvent::Eof),
+            Err(mpsc::TrySendError::Full(PtyEvent::Eof))
+        ));
+    }
+
+    #[test]
+    fn pty_event_drain_yields_after_the_per_tick_budget() {
+        let (tx, rx) = mpsc::channel();
+        for _ in 0..=MAX_PTY_EVENTS_PER_TICK {
+            tx.send(PtyEvent::Eof).expect("receiver remains live");
+        }
+
+        let mut processed = 0;
+        while next_pty_event(&rx, processed).is_some() {
+            processed += 1;
+        }
+
+        assert_eq!(processed, MAX_PTY_EVENTS_PER_TICK);
+        assert!(matches!(rx.try_recv(), Ok(PtyEvent::Eof)));
     }
 
     // ---- C-5: socket unlink guard ----

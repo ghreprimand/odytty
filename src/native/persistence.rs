@@ -710,7 +710,11 @@ pub(crate) fn load_snapshot() -> LoadOutcome {
 }
 
 fn read_sensitive_to_string(path: &Path) -> io::Result<String> {
-    let mut file = crate::state_dir::open_existing_sensitive(path)?;
+    read_sensitive_to_string_with_limit(path, MAX_SNAPSHOT_BYTES)
+}
+
+fn read_sensitive_to_string_with_limit(path: &Path, limit: u64) -> io::Result<String> {
+    let file = crate::state_dir::open_existing_sensitive(path)?;
     // PLAUS-01: reject an implausibly large state file before reading it into
     // memory. Legitimate workspace state is kilobytes; this cap bounds both the
     // whole-file read and the parser's char-vector clone of the input. Over-cap
@@ -718,14 +722,20 @@ fn read_sensitive_to_string(path: &Path) -> io::Result<String> {
     // logging file contents. Platform-neutral: same limit and code path on
     // every OS.
     let len = file.metadata()?.len();
-    if len > MAX_SNAPSHOT_BYTES {
+    if len > limit {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("state file is {len} bytes, over the {MAX_SNAPSHOT_BYTES}-byte load budget"),
+            format!("state file is {len} bytes, over the {limit}-byte load budget"),
         ));
     }
     let mut text = String::with_capacity(len as usize);
-    file.read_to_string(&mut text)?;
+    file.take(limit + 1).read_to_string(&mut text)?;
+    if text.len() as u64 > limit {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("state file exceeds the {limit}-byte load budget"),
+        ));
+    }
     Ok(text)
 }
 

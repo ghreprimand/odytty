@@ -545,7 +545,14 @@ the most deliberate omissions.
   8 MiB, `MAX_WORKSPACES` = 512, `MAX_TABS_PER_WORKSPACE` = 512,
   `MAX_PANE_DEPTH` = 48, `MAX_TOTAL_LEAVES` = 8192
   (`src/native/persistence.rs`), with parse depth bounded at `MAX_PARSE_DEPTH` =
-  128 (`src/native/persistence/json.rs`). The writer contract distinguishes a
+  128 (`src/native/persistence/json.rs`). State reads stop at the byte cap plus
+  one, so a file that grows after its descriptor-length check is still rejected
+  without an unbounded allocation. The host's PTY reader feeds a fixed 256-event
+  queue (about 2 MiB at the 8 KiB read size), and each host-loop pass processes
+  at most that many events before returning to client input, shutdown, child-exit,
+  and idle handling. A continuously-writing child therefore receives normal PTY
+  backpressure instead of growing userspace memory or starving host control flow.
+  The writer contract distinguishes a
   zero-progress send timeout (drop the frame, keep the stream) from a
   partial-progress timeout (the stream is desynchronized and tears down
   visibly), so a stalled peer cannot silently desynchronize the protocol
@@ -557,7 +564,10 @@ the most deliberate omissions.
 - **Diagnostic exposure:** session names are user-chosen and may be personal;
   paths in error context include the runtime directory.
 - **Existing tests:** `src/session_host/tests.rs`, including deterministic
-  stalling-writer tests that pin the progress-versus-teardown distinction.
+  stalling-writer tests that pin the progress-versus-teardown distinction;
+  `src/session_host/host.rs` asserts the PTY queue capacity and per-pass fairness
+  budget; `src/native/persistence/tests.rs` asserts the exact state-read byte
+  boundary and boundary plus one.
 - **Planned fuzz target:** a state-file target over metadata and snapshot
   parsing, asserting fail-closed behavior with no panic, no unbounded
   allocation, and no file access outside the runtime directory.
