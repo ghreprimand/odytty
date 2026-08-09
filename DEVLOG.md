@@ -120,6 +120,24 @@ Unix-only; ordinary metadata parsing and missing-file fallback are unchanged.
 
 ---
 
+## 2026-08-08 -- Native context menu and settings panel split by responsibility
+
+The native context menu now keeps its stable facade and state model in
+`context_menu_ui.rs`, with item/action policy, open-time coordination, visible
+layout, input routing, and render projection owned by focused modules under
+`context_menu_ui/`. The settings panel likewise retains its public state and
+outcomes in `settings_panel/mod.rs` while coordination, input dispatch,
+navigation, edit synchronization, and render helpers live in separate modules.
+Its existing section catalog, path picker, and pointer hit-map remain dedicated
+boundaries.
+
+The split preserves the existing native module paths, context-menu composition
+and enablement rules, settings navigation and edit state, pointer hit-testing,
+render signatures, and test identities. The largest context-menu module is 453
+lines; the largest production settings-panel module remains the existing
+pointer boundary at 1,720 lines. Every production Rust file remains below the
+1,999-line limit.
+
 ## 2026-08-08 -- Text and font responsibilities split into modules
 
 `src/text.rs` is now a facade over eight modules under `src/text/`, each owning
