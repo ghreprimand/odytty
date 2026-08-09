@@ -120,6 +120,19 @@ Unix-only; ordinary metadata parsing and missing-file fallback are unchanged.
 
 ---
 
+## 2026-08-09 -- Native creation failures now surface a visible notice
+
+Workspace creation, workspace duplication, and pane splitting now report PTY
+spawn failures through the existing transient notice surface. These commands
+previously discarded the error and appeared to do nothing when the system could
+not open another shell. A failure leaves the workspace, tab, and pane layout
+unchanged, and it does not overwrite a more specific notice that is already
+visible.
+
+Focused headless assertions inject each failure without opening a PTY and pin
+the unchanged layout, operation-specific message, retained cause, and
+non-clobbering behavior.
+
 ## 2026-08-09 -- Snapshot envelope and shell integration split by responsibility
 
 The snapshot envelope is now nine focused modules behind an unchanged facade:

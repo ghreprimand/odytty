@@ -76,6 +76,68 @@ fn new_workspace_action_appends_and_switches() {
     );
 }
 
+#[test]
+fn creation_spawn_failures_raise_notices_without_mutating_the_layout() {
+    type FailureDriver = fn(&mut App);
+    let cases: [(FailureDriver, &str); 3] = [
+        (
+            App::new_workspace_spawn_failure_for_test,
+            "Could not create a workspace",
+        ),
+        (
+            App::duplicate_workspace_spawn_failure_for_test,
+            "Could not duplicate the workspace",
+        ),
+        (
+            App::split_pane_spawn_failure_for_test,
+            "Could not split the active pane",
+        ),
+    ];
+
+    for (drive_failure, expected) in cases {
+        let (mut app, _) = headless_app_for_test();
+        assert_eq!(app.workspace_count_for_test(), 1);
+        assert_eq!(app.active_pane_count_for_test(), 1);
+
+        drive_failure(&mut app);
+
+        assert_eq!(
+            app.workspace_count_for_test(),
+            1,
+            "a failed creation must not append a workspace"
+        );
+        assert_eq!(
+            app.active_pane_count_for_test(),
+            1,
+            "a failed creation must not graft a pane"
+        );
+        let message = app
+            .open_notice_message_for_test()
+            .expect("a failed creation raises a visible notice");
+        assert!(
+            message.starts_with(expected),
+            "unexpected notice: {message}"
+        );
+        assert!(
+            message.contains("forced spawn failure"),
+            "the notice retains the actionable cause: {message}"
+        );
+    }
+}
+
+#[test]
+fn creation_spawn_failure_does_not_clobber_an_existing_notice() {
+    let (mut app, _) = headless_app_for_test();
+    app.raise_open_notice("Existing failure context".to_owned());
+
+    app.new_workspace_spawn_failure_for_test();
+
+    assert_eq!(
+        app.open_notice_message_for_test().as_deref(),
+        Some("Existing failure context")
+    );
+}
+
 #[cfg_attr(
     target_os = "macos",
     ignore = "harness builds an off-main-thread winit EventLoop; unsupported on macOS"

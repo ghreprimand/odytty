@@ -840,6 +840,24 @@ impl App {
             .map(|notice| notice.message_for_test().to_owned())
     }
 
+    /// Drive the exact new-workspace spawn-failure branch without opening a PTY.
+    #[cfg(test)]
+    pub(in crate::native) fn new_workspace_spawn_failure_for_test(&mut self) {
+        self.finish_new_workspace_spawn(Err(std::io::Error::other("forced spawn failure")));
+    }
+
+    /// Drive the exact duplicate-workspace spawn-failure branch without a PTY.
+    #[cfg(test)]
+    pub(in crate::native) fn duplicate_workspace_spawn_failure_for_test(&mut self) {
+        self.finish_duplicate_workspace_spawn(Err(std::io::Error::other("forced spawn failure")));
+    }
+
+    /// Drive the exact split-pane spawn-failure branch without opening a PTY.
+    #[cfg(test)]
+    pub(in crate::native) fn split_pane_spawn_failure_for_test(&mut self) {
+        self.finish_split_active_pane_spawn(Err(std::io::Error::other("forced spawn failure")));
+    }
+
     /// Test seam (multi-pane overlay geometry): the window-overlay grid dims and
     /// window-space pointer cell the overlay handlers use. In a single-pane tab
     /// these MUST equal `(grid dims, pointer_cell)` so the single-pane overlay
