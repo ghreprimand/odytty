@@ -113,10 +113,11 @@ publishing results from an unrecorded toolchain is not.
 ### Miri
 
 Filters are executed one at a time, each with its own timeout, so a wedged or
-unsupported filter fails its own entry instead of consuming the job. The
-declared list covers the escape and UTF-8 parser, the terminal core screen
-behavior, the grid, selection geometry, text arithmetic, color parsing, and
-settings handling.
+unsupported filter fails its own entry instead of consuming the job. Parser,
+terminal-core, scrollback, grid, text, and settings coverage is split along
+existing test-module or behavior-family boundaries. This keeps an expensive
+family from hiding the results of neighboring families and gives every timeout
+an attributable scope.
 
 Excluded by construction, not by oversight: the graphics and Kitty transport
 paths (POSIX shared memory and other foreign calls), the PTY layer, the
@@ -125,6 +126,13 @@ separate integration test binary that opens a real PTY, window, or GPU
 device. Miri cannot execute those. Listing them would produce a column of
 `unsupported` entries that say nothing about the code while making the lane
 look broader than it is.
+
+The broad text and settings test namespaces are also excluded from the Miri
+list after retained scheduled logs proved they reach isolated host filesystem
+operations (`statx` and `mkdir`). Pure arithmetic, mapping, parsing, and policy
+families from those namespaces remain listed individually. Their filesystem
+behavior stays in the native test and AddressSanitizer lanes; it is not relabeled
+as interpreted coverage.
 
 The consequence is worth stating plainly: the terminal's largest hostile-input
 surface is the PTY read loop, and the native side of that loop is not

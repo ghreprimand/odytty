@@ -125,19 +125,81 @@ fi
 # those, so listing them would produce unsupported entries that say nothing
 # about the code.
 filters=(
-  "probe|parser::|escape and UTF-8 state machine, parameter parsing, segmentation"
-  "probe|core::tests::|core screen behavior: erase, scroll, reflow, reporting, OSC handling"
-  "probe|core::encoding_tests::|encoding and decoder edge cases"
-  "probe|core::charset_tests::|charset designation and shift state"
-  "probe|core::cursor_tests::|cursor movement and save/restore invariants"
-  "probe|core::alt_screen_tests::|alternate-screen entry, exit, and restore"
-  "probe|core::scrollback_tests::|scrollback trimming and bounds"
-  "probe|core::search_tests::|search index and match extraction"
-  "probe|grid::tests::|grid storage, indexing, and row lifetime"
-  "probe|selection::tests::|selection geometry and clamping"
-  "probe|text::tests::|text measurement and wrapping arithmetic"
-  "probe|color::tests::|color parsing and conversion"
-  "probe|settings::tests::|settings parsing, clamping, and writeback"
+  # Stable promoted subset. Each filter passed both scheduled runs 30687422002
+  # and 31239892322 on the pinned toolchain.
+  "required|core::encoding_tests::|encoding and decoder edge cases"
+  "required|core::charset_tests::|charset designation and shift state"
+  "required|core::cursor_tests::|cursor movement and save/restore invariants"
+  "required|core::alt_screen_tests::|alternate-screen entry, exit, and restore"
+  "required|core::search_tests::|search index and match extraction"
+  "required|selection::tests::|selection geometry and clamping"
+
+  # The original broad parser filter took 900 seconds in one scheduled run and
+  # 719 in the next. Split by its existing responsibility modules so one slow
+  # family cannot hide the result of the others.
+  "probe|parser::driver_tests::|escape dispatch and UTF-8 driver behavior"
+  "probe|parser::machine_tests::|parser state-machine transitions"
+  "probe|parser::params_tests::|parameter storage and equality semantics"
+  "probe|parser::segmenter_tests::|UTF-8 segmentation and replacement behavior"
+
+  # The broad core filter also exceeded 900 seconds. Its existing test modules
+  # are independent risk families and get separate clocks and records.
+  "probe|core::tests::bell::|bell dispatch and mode behavior"
+  "probe|core::tests::chars_unicode::|wide, combining, and Unicode cells"
+  "probe|core::tests::erase_scroll::|erase, scroll, margins, and reflow"
+  "probe|core::tests::kitty_keyboard::|Kitty and modifyOtherKeys modes"
+  "probe|core::tests::osc_clipboard_colors::|OSC clipboard and color behavior"
+  "probe|core::tests::osc_cwd::|OSC current-directory validation"
+  "probe|core::tests::osc_prompt::|OSC prompt-mark behavior"
+  "probe|core::tests::output_stranding::|parser output-drain invariants"
+  "probe|core::tests::rect::|rectangular terminal operations"
+  "probe|core::tests::repeat_tab_reflow::|repeat, tab, and reflow behavior"
+  "probe|core::tests::reporting::|terminal query and report responses"
+  "probe|core::tests::reset_osc_mouse::|reset, OSC, and mouse modes"
+  "probe|core::tests::sgr_cursor::|SGR and cursor behavior"
+  "probe|core::tests::visible_search_rows::|visible-row search projection"
+  "probe|core::tests::win32_input::|Win32 input record handling"
+  "probe|core::tests::wrapped_flag_scroll::|wrapped-row scroll invariants"
+
+  # Scrollback's 32-test aggregate exceeded 900 seconds. Keep its principal
+  # state families separate and leave each result attributable.
+  "probe|core::scrollback_tests::roundtrip_|scrollback logical-line round trips"
+  "probe|core::scrollback_tests::cross_width_|cross-width reflow invariants"
+  "probe|core::scrollback_tests::resize_parity_|resize parity sweeps"
+  "probe|core::scrollback_tests::push_row_|row merge, eviction, and bounds"
+  "probe|core::scrollback_tests::limit|scrollback limit enforcement"
+  "probe|core::scrollback_tests::open_|unterminated open-line bounds"
+  "probe|core::scrollback_tests::shell_owns_resize_|shell-owned resize behavior"
+  "probe|core::scrollback_tests::search_survives_width_change|search across reflow"
+  "probe|core::scrollback_tests::snapshot_coherent_across_width_change|snapshot coherence across reflow"
+
+  # The original grid aggregate timed out after already exposing float-exact
+  # assertion failures. Keep a small arithmetic/model subset as probes while
+  # those native-vs-interpreter assumptions are triaged independently.
+  "probe|grid::tests::known_grid_vertex_count|grid vertex-count invariant"
+  "probe|grid::tests::backgrounds_are_batched_before_glyphs|vertex ordering"
+  "probe|grid::tests::cell_region_contains_covers_its_rect_only|cell-region bounds"
+  "probe|grid::tests::color_run_coverage_matches_the_linear_scan_exactly|color-run coverage"
+  "probe|grid::tests::combining_mark_draws_over_the_base_glyph|combining-mark emission"
+  "probe|grid::tests::row_fade_multiplier_maps_chrome_offsets_and_bounds|row-fade indexing"
+
+  # Broad text/settings filters reached host filesystem operations (`statx` and
+  # `mkdir`), which isolated Miri deliberately rejects. Retain only pure test
+  # families; filesystem behavior remains covered by native tests and ASan.
+  "probe|text::tests::srgb_to_linear_|text sRGB conversion"
+  "probe|text::tests::dim_|text dimming arithmetic"
+  "probe|text::tests::lift_brightness_|text brightness arithmetic"
+  "probe|text::tests::indexed_srgb_|indexed-color mapping"
+  "probe|color::tests::|color conversion and perceptual arithmetic"
+  "probe|settings::tests::cursor::|cursor setting parsing and resolution"
+  "probe|settings::tests::keybinds::|key-binding parsing and validation"
+  "probe|settings::tests::kitty::|Kitty setting parsing"
+  "probe|settings::tests::ligature::|ligature setting parsing"
+  "probe|settings::tests::mouse::|mouse setting parsing"
+  "probe|settings::tests::numeric::|numeric setting bounds and snapping"
+  "probe|settings::tests::osc52_write::|OSC 52 setting policy"
+  "probe|settings::tests::sh2::|shell setting parsing"
+  "probe|settings::tests::system_theme::|system-theme setting resolution"
 )
 
 required_total=0

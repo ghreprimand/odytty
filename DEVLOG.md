@@ -406,6 +406,32 @@ not as passes.
 
 ---
 
+## 2026-08-08 -- Promote the stable Miri subset and isolate slow test families
+
+The first two scheduled dynamic-analysis runs, GitHub Actions runs
+`30687422002` and `31239892322`, agreed on six clean Miri filters: core
+encoding, charset, cursor, alternate-screen, and search tests plus selection
+geometry. Those filters are now required, so a future failure or loss of Miri
+support makes the lane red instead of remaining diagnostic.
+
+Both runs also made the previous probe layout actionable. The broad parser,
+terminal-core, scrollback, and grid filters either timed out at 900 seconds or
+varied across the boundary. They are split along existing module and behavior
+families, each with its own clock and result. Broad text and settings probes
+are replaced by pure families after the retained logs proved their first
+failures were isolated-filesystem `statx` and `mkdir` operations rather than
+interpreted product behavior.
+
+Two color tests required exact equality across separate floating-point
+evaluations. Miri's `powf` and OKLab paths differed from native execution by a
+few ULPs while remaining far below an output quantum. The assertions now use
+tight numeric tolerances and still report the input and both results on a
+meaningful divergence.
+
+The new probe families remain probes until a clean recorded run on the pinned
+nightly promotes them. No timeout, unsupported operation, or native sanitizer
+result is represented as a pass.
+
 ## 2026-08-08 -- Selective mutation testing across parser, input, and transports
 
 `scripts/mutation-campaign.sh` now runs declared mutation batches under the
