@@ -12,5 +12,4 @@
 # forgive and the bare guard is the whole rule.
 #
 # Format: repository-relative path, one tab, physical line count.
-src/settings.rs	3570
 src/text.rs	2001

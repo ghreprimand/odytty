@@ -7,6 +7,29 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Runtime settings decomposed by ownership and resolution
+
+`src/settings.rs` is now a 64-line facade over focused settings modules. The
+typed setting identities, owned state, and defaults live in `settings/model.rs`;
+effective-value policy and config/environment orchestration live in
+`settings/resolution.rs`; canonical edit serialization and live-edit
+coordination live in `settings/serialization.rs` and `settings/editing.rs`.
+Compound-value parsing, config/theme path resolution, and process-wide runtime
+publication have independent `parsing.rs`, `paths.rs`, and `runtime.rs`
+boundaries.
+
+The public settings surface remains re-exported from `crate::settings`, while
+private parser and orchestration seams use module-scoped visibility. Setting
+identities, defaults, validation, environment-over-config precedence,
+serialization, platform path policy, and live-reload behavior are unchanged.
+The largest result is `settings/model.rs` at 1,704 physical lines;
+`settings/resolution.rs` is 1,008 lines and every other result is below 340.
+
+The matching `src/settings.rs` entry is removed from
+`scripts/production-file-baseline.tsv`. The production-file guard self-tests
+and live ratchet, focused settings suite, locked full suite, formatting gate,
+and locked all-feature deny-warnings clippy gate pass on the decomposed tree.
+
 ## 2026-08-08 -- Settings metadata and glyph atlas decomposed by responsibility
 
 The settings inventory is now a small `src/settings/info.rs` facade over an
