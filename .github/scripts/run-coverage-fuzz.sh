@@ -95,7 +95,8 @@ for index in "${!targets[@]}"; do
     CARGO_BUILD_JOBS=4
     RUST_TEST_THREADS=1
     timeout --kill-after=15s 90s
-    cargo +"$FUZZ_TOOLCHAIN" fuzz run "$target" "$corpus_dir" --
+    cargo +"$FUZZ_TOOLCHAIN" fuzz run "$target" "$corpus_dir" \
+    --fuzz-dir="$workspace" --
     -max_total_time=60
     -timeout="$input_timeout"
     -rss_limit_mb=8192
