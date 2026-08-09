@@ -1,6 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
+use super::caps::DEFAULT_MAX_STRING_BYTES;
+use super::capture::truncate_to_char_boundary;
+use super::decode::decode_prompt_marks;
+use super::encode::{
+    SectionPayload, encode_dynamic_colors, encode_prompt_kind, encode_prompt_marks,
+    encode_sections, encode_sections_for_version,
+};
+use super::format::{
+    MAX_CELL_WIRE_BYTES, ROW_WIRE_OVERHEAD_BYTES, SECTION_DYNAMIC_COLORS, SECTION_FLAG_REQUIRED,
+    SECTION_LAYOUT_STATE, SECTION_METADATA, SECTION_PROMPT_MARKS, SECTION_TERMINAL_STATE,
+    TERMINAL_STATE_PRELUDE_WIRE_BYTES,
+};
+use crate::core::prompt_marks::PromptKind;
+use crate::core::screen::Terminal;
+use crate::core::types::{
+    Cell, Color, CursorStyle, Dimensions, DynamicColors, MouseEncoding, MouseTracking, Position,
+    RgbColor, UnderlineStyle,
+};
+
 #[test]
 fn hostile_prompt_mark_count_fails_cleanly_without_over_reserve() {
     // A declared mark count at the cap with a near-empty payload must fail

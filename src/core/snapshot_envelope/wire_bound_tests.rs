@@ -7,6 +7,14 @@
 
 use super::*;
 
+// `PromptKind` and `Dimensions` are named only by the wire-width tests, which
+// exist only where `usize` is wider than the field they overflow.
+#[cfg(target_pointer_width = "64")]
+use crate::core::prompt_marks::PromptKind;
+use crate::core::screen::Terminal;
+#[cfg(target_pointer_width = "64")]
+use crate::core::types::Dimensions;
+
 fn sample_envelope() -> SnapshotEnvelope {
     let mut terminal = Terminal::new(4, 2);
     terminal.advance(b"hi");

@@ -1,6 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
+#[cfg(any(unix, windows))]
+use std::ffi::OsStr;
+#[cfg(unix)]
+use std::fs;
+#[cfg(unix)]
+use std::path::{Path, PathBuf};
+
+#[cfg(any(unix, windows))]
+use crate::pty::CommandBuilder;
+
+#[cfg(unix)]
+use super::install::{apply_spawn_integration_in_dir, write_if_needed};
+#[cfg(unix)]
+use super::snippets::BASH_SNIPPET;
+
 #[test]
 fn snippets_emit_osc_133_marks() {
     for shell in ["bash", "zsh", "fish"] {
@@ -1296,4 +1311,133 @@ fn windows_apply_spawn_integration_skips_cmd() {
     let mut command = CommandBuilder::new("cmd.exe");
     apply_spawn_integration(&mut command);
     assert!(command.args_for_test().is_empty());
+}
+
+/// A private directory for one bounded-write test, removed on entry so a
+/// previous run cannot leak state into this one.
+#[cfg(unix)]
+fn write_probe_dir(name: &str) -> PathBuf {
+    let path = temp_integration_dir(&format!("write-{name}"));
+    fs::create_dir_all(&path).expect("probe dir");
+    path
+}
+
+/// An unchanged wrapper is left exactly as it is.
+#[cfg(unix)]
+#[test]
+fn wrapper_write_leaves_matching_content_untouched() {
+    let dir = write_probe_dir("match");
+    let path = dir.join("odytty.bash");
+    let contents = bash_integration_rc();
+    fs::write(&path, &contents).expect("seed");
+
+    write_if_needed(&path, &contents).expect("matching content is accepted");
+
+    assert_eq!(fs::read_to_string(&path).expect("read back"), contents);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A file of the wrapper's exact length but different bytes is not mistaken
+/// for a match: the comparison reads the content, it does not stop at the size.
+#[cfg(unix)]
+#[test]
+fn wrapper_write_replaces_same_length_different_content() {
+    let dir = write_probe_dir("same-len");
+    let path = dir.join("odytty.bash");
+    let contents = bash_integration_rc();
+    fs::write(&path, "x".repeat(contents.len())).expect("seed");
+
+    write_if_needed(&path, &contents).expect("differing content is rewritten");
+
+    assert_eq!(fs::read_to_string(&path).expect("read back"), contents);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A file that merely starts with the wrapper is different, and is replaced.
+/// The length check alone settles this, so no comparison read happens at all.
+#[cfg(unix)]
+#[test]
+fn wrapper_write_replaces_a_longer_file_sharing_a_prefix() {
+    let dir = write_probe_dir("prefix");
+    let path = dir.join("odytty.bash");
+    let contents = bash_integration_rc();
+    fs::write(&path, format!("{contents}trailing")).expect("seed");
+
+    write_if_needed(&path, &contents).expect("prefix match is rewritten");
+
+    assert_eq!(fs::read_to_string(&path).expect("read back"), contents);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A replaced or generated file far larger than the wrapper is overwritten on
+/// the strength of its length alone. The comparison never allocates for it,
+/// because a regular file whose length differs cannot equal the wrapper.
+#[cfg(unix)]
+#[test]
+fn wrapper_write_replaces_an_oversized_file() {
+    let dir = write_probe_dir("oversized");
+    let path = dir.join("odytty.bash");
+    let contents = bash_integration_rc();
+    fs::write(&path, vec![b'z'; 8 * 1024 * 1024]).expect("seed");
+
+    write_if_needed(&path, &contents).expect("oversized content is rewritten");
+
+    assert_eq!(fs::read_to_string(&path).expect("read back"), contents);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A FIFO standing where the wrapper belongs is refused. Reading it would
+/// block shell startup and writing it would publish the snippet to whoever is
+/// listening, so neither happens and the FIFO is left in place.
+#[cfg(unix)]
+#[test]
+fn wrapper_write_refuses_a_fifo_without_reading_it() {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::FileTypeExt;
+
+    let dir = write_probe_dir("fifo");
+    let path = dir.join("odytty.bash");
+    let c_path = CString::new(path.as_os_str().as_bytes()).expect("path without NUL");
+    assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+
+    let error = write_if_needed(&path, &bash_integration_rc()).expect_err("a FIFO is refused");
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(
+        fs::symlink_metadata(&path)
+            .expect("the FIFO is left in place")
+            .file_type()
+            .is_fifo(),
+        "the FIFO must not be replaced"
+    );
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A directory standing where the wrapper belongs is refused rather than
+/// written through.
+#[cfg(unix)]
+#[test]
+fn wrapper_write_refuses_a_directory() {
+    let dir = write_probe_dir("dir");
+    let path = dir.join("odytty.bash");
+    fs::create_dir_all(&path).expect("seed directory");
+
+    let error = write_if_needed(&path, &bash_integration_rc()).expect_err("a directory is refused");
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    assert!(path.is_dir(), "the directory must be left in place");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// A missing wrapper is created, unchanged from the pre-cap behavior.
+#[cfg(unix)]
+#[test]
+fn wrapper_write_creates_a_missing_file() {
+    let dir = write_probe_dir("missing");
+    let path = dir.join("odytty.bash");
+    let contents = bash_integration_rc();
+
+    write_if_needed(&path, &contents).expect("a missing wrapper is created");
+
+    assert_eq!(fs::read_to_string(&path).expect("read back"), contents);
+    let _ = fs::remove_dir_all(&dir);
 }

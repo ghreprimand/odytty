@@ -120,6 +120,42 @@ Unix-only; ordinary metadata parsing and missing-file fallback are unchanged.
 
 ---
 
+## 2026-08-09 -- Snapshot envelope and shell integration split by responsibility
+
+The snapshot envelope is now nine focused modules behind an unchanged facade:
+wire identity, cross-version acceptance, capture limits and decode caps, the
+refusal vocabulary, the owned data model, wire-bound validation, encoding,
+decoding, and terminal capture. Dependency direction runs strictly downwards,
+and the version policy that was previously two scattered comparisons inside the
+decoder -- the accepted format range and the version that first carried packed
+charset modes -- is stated once in the compatibility module.
+
+Shell integration is now five modules: shell detection, snippet text and
+selection, wrapper-script generation, the readout family vocabulary, and
+spawn-time installation. Parsing of the OSC 133 marks these snippets emit stays
+where it belongs, in the terminal core. All four snippets are byte-identical to
+their previous text, and the public module surface is unchanged.
+
+Integration wrapper writes are now bounded. The previous comparison read an
+existing file whole before deciding whether to rewrite it, so a replaced or
+generated file in the integration directory could force an unbounded
+allocation during shell startup. The comparison is now bounded by the wrapper
+it is about to write: a regular file whose length differs is rewritten without
+being read at all, a file of matching length is read back at most one byte past
+that length so growth between the size check and the read is seen as a
+difference, and a path that is not a regular file is refused instead of being
+read or written. A FIFO left where a wrapper belongs previously blocked shell
+startup on open; it is now refused. Seven Unix tests cover match, same-length
+divergence, prefix divergence, an oversized file, a FIFO, a directory, and
+first creation.
+
+Behavior is otherwise unchanged: wire format, caps, error text, snippet bytes,
+public APIs, and platform gating all stay as they were. Format, clippy, the
+full locked suite, and the RustSec audit are green, and every production file
+remains under the size limit.
+
+---
+
 ## 2026-08-08 -- Native context menu and settings panel split by responsibility
 
 The native context menu now keeps its stable facade and state model in
