@@ -800,13 +800,9 @@ fn duplicate_key_binding_chord_uses_last_action() {
 /// the same hardware is the sibling-path shape this codebase drifts on, so the
 /// overlap is pinned rather than assumed.
 ///
-/// Deliberately excluded, because the two tables genuinely disagree there and
-/// this test must not silently bless either answer: numpad digits and numpad
-/// divide, where the physical mapper prefers the layout-resolved virtual key
-/// and so reports the main-row identity; and Ctrl chords on keys with no
-/// classic control mapping, where the two paths report different UTF-16 units.
-/// Those are recorded as open questions about Windows behavior, not settled by
-/// an assertion written on another platform.
+/// Ctrl comparisons are limited to character keys. Named and keypad Ctrl
+/// records carry key-specific Windows semantics beyond this shared overlap and
+/// remain outside this cross-mapper assertion.
 #[test]
 fn win32_physical_and_neutral_mappers_agree_on_shared_key_identities() {
     let modes = input::KeyModes {
@@ -843,6 +839,21 @@ fn win32_physical_and_neutral_mappers_agree_on_shared_key_identities() {
             KeyCode::Digit9,
             WinitKey::Character("9".into()),
             input::Key::Char('9'),
+        ),
+        (
+            KeyCode::Numpad0,
+            WinitKey::Character("0".into()),
+            input::Key::KeypadDigit(0),
+        ),
+        (
+            KeyCode::Numpad1,
+            WinitKey::Character("1".into()),
+            input::Key::KeypadDigit(1),
+        ),
+        (
+            KeyCode::NumpadDivide,
+            WinitKey::Character("/".into()),
+            input::Key::KeypadDivide,
         ),
         (
             KeyCode::Space,
@@ -939,8 +950,9 @@ fn win32_physical_and_neutral_mappers_agree_on_shared_key_identities() {
 
     for (code, logical, neutral) in cases {
         for mods in [Modifiers::NONE, Modifiers::CTRL] {
-            // Ctrl only agrees where a classic control mapping exists.
-            if mods.ctrl && !matches!(neutral, input::Key::Char('a'..='z')) {
+            // The shared Ctrl policy applies to character keys. Keypad and
+            // named-key Ctrl records are deliberately outside this comparison.
+            if mods.ctrl && !matches!(neutral, input::Key::Char(_)) {
                 continue;
             }
             let physical = map_win32_key_event(
@@ -957,5 +969,67 @@ fn win32_physical_and_neutral_mappers_agree_on_shared_key_identities() {
                 "physical and neutral Win32 records disagree for {code:?} with {mods:?}"
             );
         }
+    }
+}
+
+#[test]
+fn win32_physical_mapper_preserves_keypad_virtual_key_identity() {
+    let cases = [
+        (KeyCode::Numpad0, "0", b"\x1b[96;82;48;1;0;1_".as_slice()),
+        (KeyCode::Numpad1, "1", b"\x1b[97;79;49;1;0;1_".as_slice()),
+        (
+            KeyCode::NumpadDivide,
+            "/",
+            b"\x1b[111;53;47;1;256;1_".as_slice(),
+        ),
+    ];
+
+    for (code, logical, expected) in cases {
+        let logical = WinitKey::Character(logical.into());
+        let event = map_win32_key_event(
+            PhysicalKey::Code(code),
+            &logical,
+            &logical,
+            Modifiers::NONE,
+            KeyEventType::Press,
+        )
+        .expect("keypad key maps");
+        assert_eq!(
+            input::encode_win32_key_event(event, KeyEventType::Press),
+            expected,
+            "physical mapping lost the keypad identity for {code:?}"
+        );
+    }
+}
+
+#[test]
+fn win32_physical_mapper_matches_neutral_ctrl_unicode_units() {
+    let cases = [
+        (
+            KeyCode::Space,
+            WinitKey::Named(NamedKey::Space),
+            b"\x1b[32;57;0;1;8;1_".as_slice(),
+        ),
+        (
+            KeyCode::Digit5,
+            WinitKey::Character("5".into()),
+            b"\x1b[53;6;0;1;8;1_".as_slice(),
+        ),
+    ];
+
+    for (code, logical, expected) in cases {
+        let event = map_win32_key_event(
+            PhysicalKey::Code(code),
+            &logical,
+            &logical,
+            Modifiers::CTRL,
+            KeyEventType::Press,
+        )
+        .expect("Ctrl key maps");
+        assert_eq!(
+            input::encode_win32_key_event(event, KeyEventType::Press),
+            expected,
+            "physical mapping reported the wrong Ctrl Unicode unit for {code:?}"
+        );
     }
 }

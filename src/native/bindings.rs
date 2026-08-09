@@ -5,7 +5,7 @@ use crate::core::{
 };
 use crate::input::{
     Key, KeyEventType, Modifiers, WIN32_ENHANCED_KEY, WIN32_LEFT_ALT, WIN32_LEFT_CTRL,
-    WIN32_RIGHT_ALT, WIN32_RIGHT_CTRL, WIN32_SHIFT, Win32KeyEvent,
+    WIN32_RIGHT_ALT, WIN32_RIGHT_CTRL, WIN32_SHIFT, Win32KeyEvent, ctrl_char,
 };
 use crate::selection::CellPoint;
 use crate::settings::{
@@ -933,7 +933,14 @@ pub(super) fn map_win32_key_event(
     // follow the hardware position. Winit exposes those halves separately:
     // key_without_modifiers is the layout-resolved base identity and KeyCode is
     // the physical key. Fall back to the physical VK for named/non-ASCII keys.
-    let virtual_key = win32_virtual_key_from_logical(base_logical).unwrap_or(physical_virtual_key);
+    // Keypad keys retain their distinct VK_NUMPAD*/VK_DIVIDE identity even
+    // when winit exposes their logical value as the corresponding digit or
+    // punctuation character. Other keys remain layout-resolved.
+    let virtual_key = if is_win32_keypad_key(code) {
+        physical_virtual_key
+    } else {
+        win32_virtual_key_from_logical(base_logical).unwrap_or(physical_virtual_key)
+    };
     let mut control_key_state = 0;
     if mods.ctrl {
         control_key_state |= WIN32_LEFT_CTRL;
@@ -1009,6 +1016,28 @@ fn set_control_bit(state: &mut u16, bit: u16, set: bool) {
     }
 }
 
+fn is_win32_keypad_key(code: KeyCode) -> bool {
+    matches!(
+        code,
+        KeyCode::Numpad0
+            | KeyCode::Numpad1
+            | KeyCode::Numpad2
+            | KeyCode::Numpad3
+            | KeyCode::Numpad4
+            | KeyCode::Numpad5
+            | KeyCode::Numpad6
+            | KeyCode::Numpad7
+            | KeyCode::Numpad8
+            | KeyCode::Numpad9
+            | KeyCode::NumpadDecimal
+            | KeyCode::NumpadAdd
+            | KeyCode::NumpadSubtract
+            | KeyCode::NumpadMultiply
+            | KeyCode::NumpadDivide
+            | KeyCode::NumpadEnter
+    )
+}
+
 fn win32_unicode_char(logical: &WinitKey, mods: Modifiers) -> u16 {
     match logical {
         WinitKey::Character(text) => {
@@ -1016,17 +1045,7 @@ fn win32_unicode_char(logical: &WinitKey, mods: Modifiers) -> u16 {
                 return 0;
             };
             if mods.ctrl {
-                match ch {
-                    '@' | ' ' => 0,
-                    'a'..='z' | 'A'..='Z' => u16::from((ch.to_ascii_uppercase() as u8) & 0x1f),
-                    '[' => 0x1b,
-                    '\\' => 0x1c,
-                    ']' => 0x1d,
-                    '^' => 0x1e,
-                    '_' => 0x1f,
-                    '?' => 0x7f,
-                    _ => text.encode_utf16().next().unwrap_or(0),
-                }
+                ctrl_char(ch).map_or(0, u16::from)
             } else {
                 text.encode_utf16().next().unwrap_or(0)
             }
@@ -1035,6 +1054,7 @@ fn win32_unicode_char(logical: &WinitKey, mods: Modifiers) -> u16 {
         WinitKey::Named(NamedKey::Tab) => 0x09,
         WinitKey::Named(NamedKey::Enter) => 0x0d,
         WinitKey::Named(NamedKey::Escape) => 0x1b,
+        WinitKey::Named(NamedKey::Space) if mods.ctrl => 0,
         WinitKey::Named(NamedKey::Space) => 0x20,
         _ => 0,
     }

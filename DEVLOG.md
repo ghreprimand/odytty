@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Win32 physical key records preserve neutral identities
+
+The native Win32 record mapper now keeps keypad virtual-key identities when
+winit supplies a digit or punctuation logical value, while non-keypad keys
+remain layout-resolved. Its Ctrl Unicode policy now matches the neutral mapper:
+Ctrl-Space reports NUL and Ctrl-5 reports a zero Unicode unit without losing the
+key identity.
+
+Focused cross-mapper assertions cover Numpad0, Numpad1, NumpadDivide,
+Ctrl-Space, and Ctrl-5. The mapping logic is exercised cross-platform; native
+Windows execution remains unmeasured until the blocking `windows-latest` job.
+
+---
+
 ## 2026-08-08 -- Real-application release checks are bounded and repeatable
 
 The release checklist now links to a short real-application matrix with four
