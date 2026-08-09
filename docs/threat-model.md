@@ -749,31 +749,31 @@ bounded allocation and bounded time, reproduce crashes deterministically, and
 minimize each crash to a permanent regression fixture before the finding is
 closed. No private terminal transcript is ever ingested as corpus material.
 
-## Unresolved residual risks
+## Residual risks and completed closures
 
-Five issues are recorded here as **unresolved**. They were identified by source
-inspection at the revision this document describes and are stated at exactly the
-scope demonstrated — no exploitation beyond that scope is claimed, and none is
-fixed by this document. Each is scheduled as separate hardening work so that the
-fix carries its own tests and its own sibling-path sweep.
+Five issues were identified by source inspection at the revision this document
+describes and are stated at exactly the scope demonstrated — no exploitation
+beyond that scope is claimed. Finding A is now closed with focused tests; the
+remaining four stay explicitly **unresolved**. Each closure carries its own
+tests and sibling-path sweep.
 
-### Finding A — Session metadata read lacks a final-component symlink guard and a size cap
+### Finding A — Session metadata reads are bounded and reject final-component symlinks
 
-- **Anchor:** `read_session_metadata` in `src/session_host/registry.rs` reads
-  the metadata path with a whole-file string read. There is no `O_NOFOLLOW` on
-  the final component and no byte cap.
-- **Scope demonstrated:** source inspection only. The containing runtime
-  directory is created with mode 0700 and validated for ownership and directory
-  type before use (`src/session_host/socket.rs`), so reaching this read requires
-  the runtime directory to be writable by an attacker — which the ownership
-  check is designed to prevent. The gap is defense in depth, not a demonstrated
-  bypass.
-- **Why it still matters:** the directory guard checks the directory, not the
-  file. A metadata path replaced with a symlink to a large or blocking file
-  would be followed, and the read is unbounded. The bounded pattern already
-  exists in `src/settings/fs_read.rs`.
+- **Anchor:** `read_session_metadata` in `src/session_host/registry.rs` opens
+  metadata through the owner/private sensitive-file boundary. On Unix the open
+  uses `O_NOFOLLOW | O_NONBLOCK`, validates the opened descriptor as a regular
+  file owned by the effective user, and reads no more than 64 KiB plus one
+  detection byte.
+- **Scope demonstrated:** focused tests accept valid metadata exactly at the
+  cap, reject cap plus one, and reject a final-component symlink without reading
+  or modifying its sibling target. The containing runtime directory remains
+  mode 0700 and owner-validated (`src/session_host/socket.rs`).
+- **Why the boundary matters:** descriptor validation prevents a pathname swap
+  from turning a checked path into a different object, while the second
+  cap-plus-one read check catches a regular file that grows after its metadata
+  length is observed.
 - **Unix and Windows:** Unix-only, because session hosting is Unix-only.
-- **Status:** unresolved. Not fixed here.
+- **Status:** resolved for the session-metadata read boundary.
 
 ### Finding B — Clipboard image read allocates and encodes before any size cap
 

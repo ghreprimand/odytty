@@ -2,7 +2,7 @@
 //! Local-only session registry helpers for the public CLI surface.
 
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{self, Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -16,6 +16,10 @@ use super::socket::{
 };
 
 const METADATA_MODE: u32 = 0o600;
+/// Detached-session metadata contains five short text fields. This generous
+/// ceiling leaves ample room for future compatible fields while preventing a
+/// replaced file from forcing an unbounded allocation during session listing.
+pub(super) const MAX_SESSION_METADATA_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionMetadata {
@@ -45,9 +49,9 @@ pub fn write_session_metadata(runtime_dir: &Path, metadata: &SessionMetadata) ->
 
 pub fn read_session_metadata(runtime_dir: &Path, id: &str) -> Result<Option<SessionMetadata>> {
     let path = session_metadata_path(runtime_dir, id)?;
-    let text = match fs::read_to_string(&path) {
+    let text = match read_session_metadata_text(&path) {
         Ok(text) => text,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
             return Err(error).with_context(|| format!("read session metadata {}", path.display()));
         }
@@ -91,6 +95,38 @@ pub fn read_session_metadata(runtime_dir: &Path, id: &str) -> Result<Option<Sess
         created_unix_ms: created_unix_ms.unwrap_or_else(now_unix_ms),
         pane_count: pane_count.unwrap_or(1).max(1),
     }))
+}
+
+fn read_session_metadata_text(path: &Path) -> io::Result<String> {
+    let file = crate::state_dir::open_existing_sensitive(path)?;
+    let len = file.metadata()?.len();
+    if len > MAX_SESSION_METADATA_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "session metadata is {len} bytes, over the {MAX_SESSION_METADATA_BYTES}-byte limit"
+            ),
+        ));
+    }
+
+    // Read at most one byte past the ceiling. The descriptor metadata check
+    // rejects an already-oversized file cheaply; this second bound also catches
+    // a regular file that grows between metadata() and the read.
+    let mut bytes = Vec::with_capacity(len as usize);
+    file.take(MAX_SESSION_METADATA_BYTES + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_SESSION_METADATA_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("session metadata exceeds the {MAX_SESSION_METADATA_BYTES}-byte limit"),
+        ));
+    }
+    String::from_utf8(bytes).map_err(|_| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "session metadata is not valid UTF-8",
+        )
+    })
 }
 
 pub fn list_live_sessions(runtime_base: Option<&Path>) -> Result<Vec<ListedSession>> {

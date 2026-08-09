@@ -374,7 +374,10 @@ mod unix {
         options.read(!append || !write);
         options.append(append).write(write).create(create);
         options.mode(PRIVATE_FILE_MODE);
-        options.custom_flags(libc::O_NOFOLLOW);
+        // `O_NONBLOCK` makes validation fail promptly for a FIFO or device
+        // planted at a sensitive-file path. Regular files ignore the flag,
+        // while `O_NOFOLLOW` continues to reject a final-component symlink.
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
         let file = options.open(path)?;
         validate_sensitive_file_handle(&file)?;
         Ok(file)

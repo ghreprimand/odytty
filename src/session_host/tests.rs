@@ -420,6 +420,74 @@ fn metadata_with_unknown_version_is_ignored() {
 }
 
 #[test]
+fn metadata_read_accepts_the_cap_and_rejects_cap_plus_one() {
+    let temp = TempDir::new("sh-metadata-cap");
+    let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
+    let path = super::session_metadata_path(&runtime_dir, "cap").expect("metadata path");
+    let cap = super::registry::MAX_SESSION_METADATA_BYTES as usize;
+
+    let mut text =
+        "version=1\nid=cap\nname=At cap\ncreated_unix_ms=42\npane_count=2\npadding=".to_owned();
+    text.extend(std::iter::repeat_n('x', cap - text.len()));
+    assert_eq!(text.len(), cap);
+    fs::write(&path, &text).expect("write at-cap metadata");
+    let metadata = super::read_session_metadata(&runtime_dir, "cap")
+        .expect("read at-cap metadata")
+        .expect("valid metadata at the cap");
+    assert_eq!(metadata.name, "At cap");
+    assert_eq!(metadata.created_unix_ms, 42);
+    assert_eq!(metadata.pane_count, 2);
+
+    text.push('x');
+    fs::write(&path, text).expect("write over-cap metadata");
+    let error = super::read_session_metadata(&runtime_dir, "cap")
+        .expect_err("metadata over the cap must be rejected");
+    let detail = format!("{error:#}");
+    assert!(
+        detail.contains("over the") && detail.contains("byte limit"),
+        "unexpected error: {detail}"
+    );
+}
+
+#[test]
+fn metadata_read_rejects_a_final_symlink_without_touching_its_sibling_target() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new("sh-metadata-symlink");
+    let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
+    let target = runtime_dir.join("sibling-metadata");
+    let target_contents =
+        "version=1\nid=linked\nname=Redirected\ncreated_unix_ms=42\npane_count=2\n";
+    fs::write(&target, target_contents).expect("write sibling target");
+
+    let path = super::session_metadata_path(&runtime_dir, "linked").expect("metadata path");
+    symlink(&target, &path).expect("plant final-component symlink");
+    assert!(
+        super::read_session_metadata(&runtime_dir, "linked").is_err(),
+        "session metadata must not follow a final-component symlink"
+    );
+    assert_eq!(
+        fs::read_to_string(&target).expect("read sibling target"),
+        target_contents,
+        "rejected target must remain untouched"
+    );
+}
+
+#[test]
+fn metadata_read_rejects_a_non_regular_leaf() {
+    let temp = TempDir::new("sh-metadata-type");
+    let runtime_dir = prepare_runtime_dir(temp.path()).expect("prepare runtime dir");
+    let path = super::session_metadata_path(&runtime_dir, "directory").expect("metadata path");
+    fs::create_dir(&path).expect("plant directory at metadata path");
+
+    assert!(
+        super::read_session_metadata(&runtime_dir, "directory").is_err(),
+        "session metadata must reject a non-regular final component"
+    );
+    assert!(path.is_dir(), "rejected directory must remain untouched");
+}
+
+#[test]
 fn spawn_socket_timeout_reaps_the_spawned_child() {
     // audit C26: when the freshly spawned host child never binds its socket
     // within the startup timeout, `spawn_host_on_demand` returned the error and

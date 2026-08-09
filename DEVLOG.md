@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Session metadata reads bounded at the file descriptor
+
+Detached-session metadata now opens through the owner-private sensitive-file
+boundary instead of an unbounded pathname string read. The Unix descriptor is
+opened without following a final-component symlink and in nonblocking mode,
+validated as a regular file owned by the effective user, and limited to 64 KiB
+plus one detection byte. A descriptor-length check rejects an already oversized
+file before allocation, while the bounded read also catches growth after that
+check.
+
+Focused regressions accept valid metadata exactly at the limit, reject limit
+plus one, and prove a symlinked metadata leaf cannot read or modify its sibling
+target. The boundary is Unix-only because detached session hosting remains
+Unix-only; ordinary metadata parsing and missing-file fallback are unchanged.
+
+---
+
 ## 2026-08-08 -- Text and font responsibilities split into modules
 
 `src/text.rs` is now a facade over eight modules under `src/text/`, each owning
