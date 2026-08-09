@@ -374,8 +374,11 @@ the reference implementation.
   `src/core/kitty_transport.rs`). Containment is verified by canonicalizing the
   *parent* directory and checking the prefix, because the file itself may not
   exist at validation time. Files are opened with `O_NOFOLLOW` on Unix so the
-  kernel rejects symlinks and the check-then-open race window is eliminated
-  rather than narrowed. The temporary-file transport additionally requires the
+  kernel rejects symlinks. Windows opens the final component with
+  `FILE_FLAG_OPEN_REPARSE_POINT` and rejects an opened handle carrying
+  `FILE_ATTRIBUTE_REPARSE_POINT`. Both checks prevent a final-component link
+  from being followed before the regular-file check. The temporary-file
+  transport additionally requires the
   reference `tty-graphics-protocol` marker in the path and deletes the file
   before decode, so a decode failure still leaves nothing behind; rejected
   special files are never deleted. The size cap is applied to the raw file read
@@ -390,9 +393,8 @@ the reference implementation.
   cap behavior.
 - **Planned fuzz target:** as B5, plus a path-shaped target exercising
   parent-canonicalization against traversal and mixed-separator inputs.
-- **Residual risk:** recorded as finding **E** below — the `O_NOFOLLOW`
-  protection is Unix-specific and the equivalent Windows final-component
-  behavior is unverified.
+- **Residual risk:** named transports remain off by default. The resolved
+  final-component behavior is recorded as finding **E** below.
 
 ### B7 — Image decoding and resource bounds
 
@@ -753,9 +755,8 @@ closed. No private terminal transcript is ever ingested as corpus material.
 
 Five issues were identified by source inspection at the revision this document
 describes and are stated at exactly the scope demonstrated — no exploitation
-beyond that scope is claimed. Findings A through D are now closed with focused
-tests; Finding E stays explicitly **unresolved**. Each closure carries its own
-tests and sibling-path sweep.
+beyond that scope is claimed. Findings A through E are now closed with focused
+tests. Each closure carries its own tests and sibling-path sweep.
 
 ### Finding A — Session metadata reads are bounded and reject final-component symlinks
 
@@ -824,29 +825,28 @@ tests and sibling-path sweep.
 - **Unix and Windows:** all platforms.
 - **Status:** resolved for every production `hosts.conf` reader and mutation.
 
-### Finding E — Windows final-component reparse-point handling is unverified for file transports
+### Finding E — Windows file transports reject final-component reparse points
 
-- **Anchor:** `read_regular_file` in `src/core/kitty_transport.rs` applies
-  `O_NOFOLLOW` under a Unix compile-time gate. `validate_path` canonicalizes the
-  parent directory and checks prefix containment on every platform, but the
-  final-component protection is Unix-specific.
-- **Scope demonstrated:** source inspection only. No Windows behavior was
-  exercised; there is no local Windows machine, and no existing test covers
-  final-component reparse-point handling on that platform. The gap is that the
-  behavior is *unknown*, not that a bypass was observed.
-- **Why it still matters:** Windows reparse points — symbolic links, junctions,
-  and mount points — can redirect a final component. The parent-canonicalization
-  check constrains the directory, so a redirect would have to target the final
-  component specifically. Whether the platform open call follows such a redirect
-  in this configuration is exactly what has not been verified.
-- **Mitigating context:** the file and named transports are **disabled by
-  default** (`kitty_named_transports` = `false`), so this affects opt-in
-  configurations only.
-- **Required resolution:** a `cfg(windows)` test that constructs a reparse point
-  inside the allowed temporary prefix and asserts the intended behavior, run on
-  the `windows-latest` leg. Until that test exists, the behavior is undetermined
-  and must not be described as safe.
-- **Status:** unresolved. Not fixed here.
+- **Anchor:** `read_regular_file` in `src/core/kitty_transport.rs` opens the
+  final component with `FILE_FLAG_OPEN_REPARSE_POINT` on Windows, then rejects
+  the opened handle when `FILE_ATTRIBUTE_REPARSE_POINT` is present. Unix keeps
+  its `O_NOFOLLOW | O_NONBLOCK` descriptor boundary. `validate_path` separately
+  canonicalizes and allowlists the parent directory on every platform.
+- **Scope demonstrated:** a `cfg(windows)` integration test constructs a real
+  file symlink inside the platform temporary directory, drives it through the
+  public Kitty graphics surface, and requires the `symlink-rejected` response,
+  no placed image, and an unchanged target. The test is part of the blocking
+  `windows-latest` suite and fails rather than skipping when the runner cannot
+  construct its fixture.
+- **Why the boundary matters:** opening the reparse point itself makes the
+  decision about the opened object rather than about a pathname checked before
+  open. A final-component redirect therefore stops before size inspection or
+  content read.
+- **Unix and Windows:** Unix rejects final-component links at `open`; Windows
+  rejects an opened final-component reparse-point handle. Other non-Unix
+  platforms retain the regular-file check.
+- **Status:** resolved in implementation and guarded by blocking Windows-only
+  coverage; the Windows CI result remains the authoritative execution evidence.
 
 ## What this model does not cover
 
@@ -858,7 +858,7 @@ tests and sibling-path sweep.
   remain. It does not assert that the enumerated boundaries are the complete
   set; a boundary absent from this catalog is an omission to be corrected, not
   an implicit statement that none exists.
-- **Verification of the unresolved findings.** Finding E is a source-inspection
-  result at the stated scope. No bypass was observed, and it must not be
-  described as safe or exploitable until the Windows test resolves it. Findings
-  A through D carry the focused closure evidence stated above.
+- **Platform-specific verification.** Finding E carries a blocking Windows-only
+  regression because Linux and macOS execution cannot establish Windows reparse-
+  point behavior. Findings A through D carry the focused closure evidence stated
+  above.

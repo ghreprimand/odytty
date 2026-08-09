@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Windows graphics file transport rejects reparse points
+
+Named graphics file transport now opens a Windows final component with
+`FILE_FLAG_OPEN_REPARSE_POINT` and rejects the opened handle when it carries
+`FILE_ATTRIBUTE_REPARSE_POINT`. The decision is made from the handle before the
+regular-file, size, or content checks, matching the existing Unix no-follow
+boundary without relying on a pathname pre-check.
+
+A Windows-only integration test creates a real file symlink inside the platform
+temporary directory and requires a `symlink-rejected` response, no placed image,
+and an unchanged target. It is part of the blocking Windows suite and does not
+silently skip when its fixture cannot be constructed. Named transports remain
+disabled by default.
+
+---
+
 ## 2026-08-08 -- The font-parser advisory now has a hard expiry
 
 The informational `ttf-parser 0.25.1` unmaintained warning remains in the

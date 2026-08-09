@@ -183,3 +183,42 @@ fn named_transports_are_refused_before_any_host_access_until_opted_in() {
     assert!(terminal.visible_graphics(0).is_empty());
     std::fs::remove_file(&path).ok();
 }
+
+#[cfg(windows)]
+#[test]
+fn file_transport_rejects_a_windows_final_component_reparse_point() {
+    use std::os::windows::fs::symlink_file;
+
+    let fixture = std::env::temp_dir().join(format!(
+        "odytty-named-transport-reparse-{}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&fixture).expect("create reparse-point fixture directory");
+    let target = fixture.join("target.dat");
+    let link = fixture.join("link.dat");
+    std::fs::write(&target, [0xFF_u8; 16]).expect("write reparse-point target");
+    symlink_file(&target, &link)
+        .expect("the blocking Windows runner must permit a real file symlink fixture");
+
+    let mut terminal = opted_in_terminal();
+    terminal.advance(&transport_apc(
+        'f',
+        link.to_str().expect("temp path is valid UTF-8"),
+        7007,
+    ));
+
+    let answer = response(&mut terminal);
+    assert!(
+        answer.contains("EPERM:symlink-rejected"),
+        "a final-component reparse point must be refused, got {answer:?}"
+    );
+    assert!(terminal.visible_graphics(0).is_empty());
+    assert_eq!(
+        std::fs::read(&target).expect("read unchanged reparse-point target"),
+        [0xFF_u8; 16]
+    );
+
+    std::fs::remove_file(&link).ok();
+    std::fs::remove_file(&target).ok();
+    std::fs::remove_dir(&fixture).ok();
+}

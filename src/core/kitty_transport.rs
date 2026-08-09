@@ -12,10 +12,11 @@
 //!    are disabled by default; explicit opt-in retains the temp-root boundary.
 //!
 //! 2. **Symlink / TOCTOU attacks**: a symlink in `/tmp` could redirect to
-//!    `/etc/shadow` or `~/.ssh/id_rsa`. Mitigated by opening with
-//!    `O_NOFOLLOW` so symlinks are rejected at the kernel level, and by
-//!    canonicalizing the *directory* component to verify it resolves inside
-//!    an allowed prefix before opening the file.
+//!    `/etc/shadow` or `~/.ssh/id_rsa`. Mitigated on Unix by opening with
+//!    `O_NOFOLLOW`, and on Windows by opening the reparse point itself and
+//!    rejecting the opened handle when it carries the reparse-point attribute.
+//!    The *directory* component is canonicalized separately to verify that it
+//!    resolves inside an allowed prefix before opening the file.
 //!
 //! 3. **Decode bombs**: a 1-byte file claiming to be a 100MP PNG.
 //!    Mitigated by enforcing the ImageStore byte cap on the raw file read
@@ -32,7 +33,7 @@
 //!   no legitimate application needs to transmit images from `~/.ssh/`.
 //!   Programs that use t=f always write to temp dirs first anyway.
 //!
-//! - Kitty resolves symlinks. OdyTTY rejects them (`O_NOFOLLOW`).
+//! - Kitty resolves symlinks. OdyTTY rejects final-component links at open.
 //!   Rationale: TOCTOU window between stat and open is eliminated.
 //!
 //! - t=t requires the reference `tty-graphics-protocol` marker and deletes the
@@ -65,8 +66,8 @@ pub(super) enum TransportError {
     PathNotAllowed,
     /// A temporary-file path lacks Kitty's required deletion marker.
     MissingTempMarker,
-    /// Path is a symlink (O_NOFOLLOW enforcement).
-    #[cfg_attr(not(unix), allow(dead_code))]
+    /// Path is a final-component symlink or Windows reparse point.
+    #[cfg_attr(not(any(unix, windows)), allow(dead_code))]
     SymlinkRejected,
     /// Opened handle is not a regular file.
     NonRegularFile,
@@ -159,11 +160,12 @@ fn validate_path(path: &Path) -> Result<PathBuf, TransportError> {
 // t=f: regular file transport
 // ---------------------------------------------------------------------------
 
-/// Read image data from a regular file. The file is opened with `O_NOFOLLOW`
-/// and must reside inside an allowed temp directory. On Unix the open is also
-/// nonblocking, then the opened handle is verified as regular before any read,
-/// so FIFOs and devices cannot stall the PTY thread. Windows has no POSIX FIFO
-/// surface and retains the existing read-only regular-file open behavior.
+/// Read image data from a regular file. The final component is opened without
+/// following links and must reside inside an allowed temp directory. On Unix
+/// the open is also nonblocking, then the opened handle is verified as regular
+/// before any read, so FIFOs and devices cannot stall the PTY thread. On
+/// Windows the open targets the reparse point itself and the handle attributes
+/// are checked before the regular-file and size checks.
 ///
 /// `max_read` is the maximum bytes to read (typically the store's decoded cap).
 pub(super) fn read_file_transport(
@@ -299,20 +301,30 @@ fn read_regular_file(path: &Path, max_read: usize) -> Result<Vec<u8>, TransportE
     use std::fs::OpenOptions;
     #[cfg(unix)]
     use std::os::unix::fs::OpenOptionsExt;
+    #[cfg(windows)]
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+
+    #[cfg(windows)]
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
+    #[cfg(windows)]
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 
     let cap = max_read.min(MAX_TRANSPORT_READ_BYTES);
 
-    // Open with O_NOFOLLOW — kernel rejects symlinks. O_NONBLOCK makes the
-    // admission check safe for FIFOs and devices; only regular files proceed.
+    // Unix rejects links at open and uses O_NONBLOCK so a FIFO or device cannot
+    // stall the PTY thread. Windows opens the reparse point rather than its
+    // target; the resulting handle is classified below before any read.
     let mut opts = OpenOptions::new();
     opts.read(true);
     #[cfg(unix)]
     opts.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    #[cfg(windows)]
+    opts.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
 
     let file = opts.open(path).map_err(|e| {
-        // O_NOFOLLOW symlink rejection surfaces as ELOOP on Unix; the flag and
-        // this classification are both Unix-only. Off Unix the open simply
-        // succeeds or fails as a plain I/O error.
+        // O_NOFOLLOW symlink rejection surfaces as ELOOP on Unix. Windows
+        // reparse points open successfully and are classified from the handle
+        // metadata below.
         #[cfg(unix)]
         if e.raw_os_error() == Some(libc::ELOOP) {
             return TransportError::SymlinkRejected;
@@ -324,6 +336,10 @@ fn read_regular_file(path: &Path, max_read: usize) -> Result<Vec<u8>, TransportE
     let metadata = file
         .metadata()
         .map_err(|e| TransportError::IoError(format!("metadata: {e}")))?;
+    #[cfg(windows)]
+    if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(TransportError::SymlinkRejected);
+    }
     if !metadata.is_file() {
         return Err(TransportError::NonRegularFile);
     }
