@@ -10,6 +10,10 @@ pub const HOST_PROTOCOL_MAGIC: &[u8; 11] = b"ODYTTY-HOST";
 pub const HOST_PROTOCOL_VERSION: u16 = 1;
 pub const MAX_HANDSHAKE_STRING: usize = 4096;
 pub const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
+/// A client input frame is interactive terminal data, not a snapshot. Keep a
+/// generous paste allowance while preventing one attached peer from allocating
+/// the host-wide 64 MiB frame ceiling per message.
+pub const MAX_CLIENT_INPUT_LEN: usize = 8 * 1024 * 1024;
 
 /// A live detached session as surfaced to the attach overlay and the `list`
 /// CLI. This is a **pure data type** with no platform dependency, so it lives in
@@ -367,7 +371,10 @@ pub fn write_client_frame(
     frame: &ClientFrame,
 ) -> Result<(), ProtocolError> {
     match frame {
-        ClientFrame::Input(bytes) => write_frame(writer, 101, bytes),
+        ClientFrame::Input(bytes) => {
+            validate_client_frame_len(101, bytes.len())?;
+            write_frame(writer, 101, bytes)
+        }
         ClientFrame::Resize { columns, rows } => {
             let mut payload = Vec::with_capacity(8);
             payload.extend_from_slice(&columns.to_be_bytes());
@@ -380,8 +387,41 @@ pub fn write_client_frame(
 }
 
 pub fn read_client_frame(reader: &mut impl Read) -> Result<ClientFrame, ProtocolError> {
-    let (kind, payload) = read_frame(reader)?;
+    let mut header = [0u8; FRAME_HEADER_LEN];
+    reader.read_exact(&mut header)?;
+    let kind = header[0];
+    let len = u32::from_be_bytes(header[1..5].try_into().expect("header is 5 bytes")) as usize;
+    validate_client_frame_len(kind, len)?;
+    let mut payload = vec![0; len];
+    reader.read_exact(&mut payload)?;
     decode_client_frame(kind, payload)
+}
+
+fn validate_client_frame_len(kind: u8, len: usize) -> Result<(), ProtocolError> {
+    let expected = match kind {
+        101 => {
+            if len > MAX_CLIENT_INPUT_LEN {
+                return Err(ProtocolError::FrameTooLarge {
+                    len,
+                    max: MAX_CLIENT_INPUT_LEN,
+                });
+            }
+            return Ok(());
+        }
+        102 => 8,
+        103 | 104 => 0,
+        value => return Err(ProtocolError::InvalidFrameKind(value)),
+    };
+    if len == expected {
+        Ok(())
+    } else {
+        Err(ProtocolError::InvalidPayload(match kind {
+            102 => "resize",
+            103 => "detach",
+            104 => "shutdown",
+            _ => unreachable!("validated client frame kind"),
+        }))
+    }
 }
 
 /// Interpret a raw `(kind, payload)` pair as a [`ClientFrame`]. Shared by the
@@ -631,15 +671,13 @@ impl ClientFrameReader {
             let count = read_nonzero(reader, &mut self.header[self.header_filled..])?;
             self.header_filled += count;
             if self.header_filled == FRAME_HEADER_LEN {
+                let kind = self.header[0];
                 let len =
                     u32::from_be_bytes(self.header[1..5].try_into().expect("header is 5 bytes"))
                         as usize;
-                if len > MAX_FRAME_LEN {
+                if let Err(error) = validate_client_frame_len(kind, len) {
                     self.reset();
-                    return Err(ProtocolError::FrameTooLarge {
-                        len,
-                        max: MAX_FRAME_LEN,
-                    });
+                    return Err(error);
                 }
                 self.declared_len = len;
                 self.header_complete = true;
@@ -761,6 +799,35 @@ mod tests {
     fn detach_client_frame_round_trips() {
         // Sibling of the Shutdown frame; the empty-payload kinds must not alias.
         assert_eq!(client_roundtrip(&ClientFrame::Detach), ClientFrame::Detach);
+    }
+
+    #[test]
+    fn client_input_length_has_its_own_boundary() {
+        assert!(validate_client_frame_len(101, MAX_CLIENT_INPUT_LEN).is_ok());
+        assert!(matches!(
+            validate_client_frame_len(101, MAX_CLIENT_INPUT_LEN + 1),
+            Err(ProtocolError::FrameTooLarge { len, max })
+                if len == MAX_CLIENT_INPUT_LEN + 1 && max == MAX_CLIENT_INPUT_LEN
+        ));
+    }
+
+    #[test]
+    fn client_reader_rejects_an_oversized_input_from_its_header() {
+        let mut header = vec![101];
+        header.extend_from_slice(&((MAX_CLIENT_INPUT_LEN as u32) + 1).to_be_bytes());
+
+        let mut blocking = header.as_slice();
+        assert!(matches!(
+            read_client_frame(&mut blocking),
+            Err(ProtocolError::FrameTooLarge { .. })
+        ));
+
+        let mut resumable = ClientFrameReader::default();
+        let mut input = header.as_slice();
+        assert!(matches!(
+            resumable.read(&mut input),
+            Err(ProtocolError::FrameTooLarge { .. })
+        ));
     }
 
     #[test]

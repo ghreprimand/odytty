@@ -552,6 +552,10 @@ the most deliberate omissions.
   at most that many events before returning to client input, shutdown, child-exit,
   and idle handling. A continuously-writing child therefore receives normal PTY
   backpressure instead of growing userspace memory or starving host control flow.
+  Attach input has a separate 8 MiB per-frame ceiling validated from the frame
+  header before payload allocation, a fixed 16-event queue, and the same bounded
+  per-pass processing rule. An attached peer therefore cannot create an
+  unbounded event backlog or monopolize the loop with a continuous frame stream.
   The writer contract distinguishes a
   zero-progress send timeout (drop the frame, keep the stream) from a
   partial-progress timeout (the stream is desynchronized and tears down
@@ -566,8 +570,9 @@ the most deliberate omissions.
 - **Existing tests:** `src/session_host/tests.rs`, including deterministic
   stalling-writer tests that pin the progress-versus-teardown distinction;
   `src/session_host/host.rs` asserts the PTY queue capacity and per-pass fairness
-  budget; `src/native/persistence/tests.rs` asserts the exact state-read byte
-  boundary and boundary plus one.
+  budget, the client-event queue and fairness budget, and the client protocol's
+  input-frame boundary; `src/native/persistence/tests.rs` asserts the exact
+  state-read byte boundary and boundary plus one.
 - **Planned fuzz target:** a state-file target over metadata and snapshot
   parsing, asserting fail-closed behavior with no panic, no unbounded
   allocation, and no file access outside the runtime directory.

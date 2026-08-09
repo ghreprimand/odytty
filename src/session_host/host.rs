@@ -7,7 +7,7 @@ use std::io::{self, Read};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::{Child, Command};
-use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
+use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -40,6 +40,13 @@ const PTY_EVENT_QUEUE_CAP: usize = 256;
 /// Never let a continuously-writing child monopolize the host loop. After this
 /// many events, return to client input, shutdown, child-exit, and idle handling.
 const MAX_PTY_EVENTS_PER_TICK: usize = PTY_EVENT_QUEUE_CAP;
+/// Bound queued attach-client frames and disconnect notices. Input frames have
+/// their own byte ceiling in the protocol; this count cap bounds aggregate
+/// userspace retention when several clients send concurrently.
+const CLIENT_EVENT_QUEUE_CAP: usize = DEFAULT_MAX_CLIENTS * 2;
+/// Yield to PTY output, child-exit, accept, and idle handling after one bounded
+/// client batch even if an attached peer continues sending.
+const MAX_CLIENT_EVENTS_PER_TICK: usize = CLIENT_EVENT_QUEUE_CAP;
 /// Grace window between observing the hosted child has exited (via a direct
 /// `try_wait`) and forcing host shutdown. It lets the PTY reader thread flush any
 /// final buffered output and deliver its own EOF — the normal, in-order exit path
@@ -323,7 +330,7 @@ pub fn run_host(config: HostConfig) -> Result<HostExit> {
     spawn_pty_reader(session.try_clone_reader()?, pty_tx)
         .context("spawn session-host pty reader thread")?;
 
-    let (client_tx, client_rx) = mpsc::channel();
+    let (client_tx, client_rx) = mpsc::sync_channel(CLIENT_EVENT_QUEUE_CAP);
     let mut clients = Vec::new();
     let mut next_client_id = 1;
     let mut session_alive = true;
@@ -446,7 +453,7 @@ fn accept_pending_clients(
     listener: &std::os::unix::net::UnixListener,
     clients: &mut Vec<ClientConnection>,
     next_client_id: &mut u64,
-    client_tx: &Sender<ClientEvent>,
+    client_tx: &SyncSender<ClientEvent>,
     terminal: &Terminal,
     config: &HostConfig,
 ) -> Result<()> {
@@ -509,7 +516,7 @@ fn handle_attach(
     stream: &mut UnixStream,
     clients: &mut Vec<ClientConnection>,
     next_client_id: &mut u64,
-    client_tx: &Sender<ClientEvent>,
+    client_tx: &SyncSender<ClientEvent>,
     terminal: &Terminal,
     config: &HostConfig,
 ) -> Result<()> {
@@ -796,7 +803,9 @@ fn drain_client_events(
     // (each of which drives a synchronous reflow) costs a single reflow per host
     // loop tick instead of one per frame.
     let mut batch = Vec::new();
-    while let Ok(event) = client_rx.try_recv() {
+    let mut processed = 0;
+    while let Some(event) = next_client_event(client_rx, processed) {
+        processed += 1;
         batch.push(event);
     }
 
@@ -849,6 +858,13 @@ fn drain_client_events(
         );
     }
     Ok(shutdown_requested)
+}
+
+fn next_client_event(client_rx: &Receiver<ClientEvent>, processed: usize) -> Option<ClientEvent> {
+    if processed >= MAX_CLIENT_EVENTS_PER_TICK {
+        return None;
+    }
+    client_rx.try_recv().ok()
 }
 
 /// Clamp untrusted wire dimensions to the model bound. The socket is reachable
@@ -941,7 +957,11 @@ fn spawn_pty_reader(mut reader: Box<dyn Read + Send>, tx: SyncSender<PtyEvent>) 
 /// under resource exhaustion must reject only this client — a panic here
 /// would take down the hosted shell for every attached client at exactly the
 /// moment the machine is under stress.
-fn spawn_client_reader(id: u64, mut stream: UnixStream, tx: Sender<ClientEvent>) -> io::Result<()> {
+fn spawn_client_reader(
+    id: u64,
+    mut stream: UnixStream,
+    tx: SyncSender<ClientEvent>,
+) -> io::Result<()> {
     thread::Builder::new()
         .name(format!("odytty-host-client-{id}"))
         .spawn(move || {
@@ -1210,6 +1230,41 @@ mod hardening_tests {
 
         assert_eq!(processed, MAX_PTY_EVENTS_PER_TICK);
         assert!(matches!(rx.try_recv(), Ok(PtyEvent::Eof)));
+    }
+
+    #[test]
+    fn client_event_queue_has_a_fixed_capacity() {
+        let (tx, _rx) = mpsc::sync_channel(CLIENT_EVENT_QUEUE_CAP);
+        for id in 0..CLIENT_EVENT_QUEUE_CAP as u64 {
+            tx.try_send(ClientEvent::Disconnected(id))
+                .expect("queue entry fits");
+        }
+        assert!(matches!(
+            tx.try_send(ClientEvent::Disconnected(u64::MAX)),
+            Err(mpsc::TrySendError::Full(ClientEvent::Disconnected(
+                u64::MAX
+            )))
+        ));
+    }
+
+    #[test]
+    fn client_event_drain_yields_after_the_per_tick_budget() {
+        let (tx, rx) = mpsc::channel();
+        for id in 0..=MAX_CLIENT_EVENTS_PER_TICK as u64 {
+            tx.send(ClientEvent::Disconnected(id))
+                .expect("receiver remains live");
+        }
+
+        let mut processed = 0;
+        while next_client_event(&rx, processed).is_some() {
+            processed += 1;
+        }
+
+        assert_eq!(processed, MAX_CLIENT_EVENTS_PER_TICK);
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(ClientEvent::Disconnected(id)) if id == MAX_CLIENT_EVENTS_PER_TICK as u64
+        ));
     }
 
     // ---- C-5: socket unlink guard ----

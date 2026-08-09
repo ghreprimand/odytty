@@ -10,16 +10,19 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 ## 2026-08-08 -- Detached-session output is bounded and control-flow fair
 
 The detached-session host now carries PTY output through a fixed 256-event
-queue, bounding userspace buffering at roughly 2 MiB for its 8 KiB reads. Each
-host-loop pass processes at most one queueful before returning to attach input,
-shutdown, child-exit, and idle handling. A continuously-writing child now
-receives ordinary PTY backpressure instead of growing an unbounded queue or
-starving the host's control paths.
+queue, bounding userspace buffering at roughly 2 MiB for its 8 KiB reads.
+Attach input has its own 8 MiB per-frame ceiling, checked from the header before
+payload allocation, and a fixed 16-event queue. Each host-loop pass processes
+at most one bounded batch from either source before returning to the other
+control paths. A continuously-writing child or attached peer now receives
+backpressure instead of growing an unbounded queue or starving shutdown,
+child-exit, accept, or idle handling.
 
 Workspace and named-layout reads now stop one byte past their 8 MiB ceiling,
 closing the growth race between descriptor metadata and content read. Focused
-tests cover the queue capacity, loop fairness budget, and exact state-file read
-boundary. Session-host integration coverage remains green.
+tests cover both queue capacities, both loop fairness budgets, the client-input
+ceiling, and the exact state-file read boundary. Session-host integration
+coverage remains green.
 
 ---
 
