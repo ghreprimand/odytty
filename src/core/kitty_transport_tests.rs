@@ -764,10 +764,20 @@ fn file_reader_admission_is_limited_to_the_allowlisted_roots() {
     );
 
     // A traversal that starts inside the temp root still resolves outside it.
-    let mut escape = path_bytes(&std::env::temp_dir());
-    escape.extend_from_slice(b"/../etc/passwd");
+    // Walk back to the filesystem root before selecting an existing parent;
+    // macOS temp directories are nested more deeply than Linux `/tmp`, and a
+    // single `..` can otherwise select a non-existent sibling.
+    let mut escape = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+    let temp_depth = escape
+        .components()
+        .filter(|component| matches!(component, std::path::Component::Normal(_)))
+        .count();
+    for _ in 0..temp_depth {
+        escape.push("..");
+    }
+    escape.push("etc/passwd");
     assert_eq!(
-        transport::read_file_transport(&escape, 4096),
+        transport::read_file_transport(&path_bytes(&escape), 4096),
         Err(TransportError::PathNotAllowed),
         "the parent directory is canonicalized before containment is checked"
     );

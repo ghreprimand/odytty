@@ -7,6 +7,16 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Graphics path-admission coverage is portable on macOS
+
+The named graphics transport traversal fixture now walks from the canonical
+platform temporary directory back to the filesystem root before selecting an
+existing outside file. This keeps the security assertion identical on Linux
+and macOS instead of depending on the temporary directory's platform-specific
+depth or symlink layout. Production path-admission behavior is unchanged.
+
+---
+
 ## 2026-08-08 -- Win32 physical key records preserve neutral identities
 
 The native Win32 record mapper now keeps keypad virtual-key identities when
