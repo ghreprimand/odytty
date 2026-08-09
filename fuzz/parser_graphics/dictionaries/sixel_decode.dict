@@ -1,0 +1,7 @@
+color="#0;2;100;0;0"
+raster="\"1;1;80;24"
+repeat="!64~"
+carriage="$"
+newline="-"
+full="~"
+empty="?"

@@ -1,0 +1,53 @@
+schema_version = 1
+
+[[seed]]
+target = "parser_dispatch"
+path = "corpus/parser_dispatch/utf8-text.seed"
+sha256 = "9299defb1d4f575600038f600d48c211eece2aa091667bc0580331a805a4387f"
+origin = "synthetic UTF-8 text literal"
+privacy = "contains no host-derived data"
+
+[[seed]]
+target = "terminal_stream"
+path = "corpus/terminal_stream/mode-reset.seed"
+sha256 = "2476dc0db75199d73d54d68f60344e8eaa3b2eb20b45597a816db6992838c395"
+origin = "synthetic terminal control literal"
+privacy = "contains no host-derived data"
+
+[[seed]]
+target = "kitty_graphics"
+path = "corpus/kitty_graphics/direct-rgba.seed"
+sha256 = "de1ba9a7ca4a2dac585beed594edeb25a1f2066c93146871d16fc7dc1076dbfe"
+origin = "synthetic one-pixel RGBA transmission"
+privacy = "contains no path or host-derived data"
+
+[[seed]]
+target = "sixel_decode"
+path = "corpus/sixel_decode/red-column.seed"
+sha256 = "da9769322a93ceabf982402fdf3787d379f8ecf991249413fdeafb57b4edc099"
+origin = "synthetic Sixel color and data literal"
+privacy = "contains no image or host-derived data"
+
+[[regression_fixture]]
+path = "../../tests/fixtures/fuzz/parser_graphics/parser-dispatch.hex"
+sha256 = "9c0f34fcdb0b290248d55de1fd24a828efa2177cba619f3f96f655ff8e0a5e69"
+origin = "synthetic CSI and UTF-8 byte sequence"
+privacy = "contains no host-derived data"
+
+[[regression_fixture]]
+path = "../../tests/fixtures/fuzz/parser_graphics/terminal-stream.hex"
+sha256 = "f26c3d9960c0e0f2073817d09228bc32ac46f3b72109b1d611a21d0078c533f1"
+origin = "synthetic OSC, mode, and UTF-8 byte sequence"
+privacy = "contains no host-derived data"
+
+[[regression_fixture]]
+path = "../../tests/fixtures/fuzz/parser_graphics/kitty-windows-path.base64"
+sha256 = "700ef1d405450f496557caad2874627943d1fcc0aba8cf26d4dfba150f9ba703"
+origin = "base64 of the synthetic Windows-style path C:\\Synthetic\\Terminal\\image.png"
+privacy = "contains no real path or host-derived data"
+
+[[regression_fixture]]
+path = "../../tests/fixtures/fuzz/parser_graphics/sixel-red-column.hex"
+sha256 = "0eb4199fd80c7cbf91dabb03f6ba0ddbbd3c42a0f61a829a339d3c4f3c4dbd9d"
+origin = "synthetic Sixel color and data byte sequence"
+privacy = "contains no image or host-derived data"

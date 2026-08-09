@@ -1,0 +1,45 @@
+[package]
+name = "odytty-parser-graphics-fuzz"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.96"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+odytty = { path = "../..", default-features = false }
+
+[workspace]
+members = ["."]
+resolver = "3"
+
+[[bin]]
+name = "parser_dispatch"
+path = "fuzz_targets/parser_dispatch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "terminal_stream"
+path = "fuzz_targets/terminal_stream.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "kitty_graphics"
+path = "fuzz_targets/kitty_graphics.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "sixel_decode"
+path = "fuzz_targets/sixel_decode.rs"
+test = false
+doc = false
+bench = false

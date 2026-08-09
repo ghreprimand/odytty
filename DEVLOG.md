@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-09 -- Coverage-guided parser and graphics fuzzing is bounded
+
+Four retained `cargo-fuzz` targets now exercise parser dispatch, terminal state
+transitions, Kitty graphics commands, and Sixel decoding. Each target clips its
+input internally and asserts resource or recovery invariants. The standalone
+workspace pins its nightly, `cargo-fuzz`, `libfuzzer-sys`, dependency lock, and
+synthetic corpus provenance without adding fuzz dependencies to release builds.
+
+A scheduled Linux x86_64 smoke runs the targets sequentially with one worker
+inside transient CPU and memory cgroups. Per-target deadlines, RSS limits,
+logs, evolved corpora, and crash artifacts remain explicit. The ordinary test
+suite carries four stable synthetic regression anchors, and the RustSec gate
+now scans both the release and fuzz workspace lockfiles.
+
+---
+
 ## 2026-08-09 -- The stable Miri subset is recorded explicitly
 
 Three retained Miri runs now agree on the promoted Linux x86_64 subset:

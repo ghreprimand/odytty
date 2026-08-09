@@ -1,0 +1,11 @@
+/target/
+/artifacts/
+/coverage/
+
+# Retained seeds are already tracked. New hash-named libFuzzer corpus entries
+# remain local until they are minimized, sanitized, and deliberately added.
+/corpus/*/*
+!/corpus/parser_dispatch/utf8-text.seed
+!/corpus/terminal_stream/mode-reset.seed
+!/corpus/kitty_graphics/direct-rgba.seed
+!/corpus/sixel_decode/red-column.seed

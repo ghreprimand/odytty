@@ -22,10 +22,22 @@ cargo audit --version
 # clears it without a script edit, while carrying it through the deadline makes
 # every scheduled, pull-request, and release audit fail closed.
 set +e
-audit_output="$(cargo audit --deny unsound 2>&1)"
-audit_status=$?
+audit_output=""
+audit_status=0
+lockfiles=(Cargo.lock)
+if [[ -f fuzz/parser_graphics/Cargo.lock ]]; then
+  lockfiles+=(fuzz/parser_graphics/Cargo.lock)
+fi
+for lockfile in "${lockfiles[@]}"; do
+  result="$(cargo audit --deny unsound --file "$lockfile" 2>&1)"
+  status=$?
+  audit_output+="== $lockfile =="$'\n'"$result"$'\n'
+  if (( status != 0 )); then
+    audit_status=$status
+  fi
+done
 set -e
-printf '%s\n' "$audit_output"
+printf '%s' "$audit_output"
 if (( audit_status != 0 )); then
   exit "$audit_status"
 fi

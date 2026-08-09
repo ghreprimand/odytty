@@ -1,0 +1,7 @@
+ris="\x1bc"
+decstr="\x1b[!p"
+alt_on="\x1b[?1049h"
+alt_off="\x1b[?1049l"
+mouse="\x1b[?1006h"
+title="\x1b]2;synthetic\x07"
+sixel="\x1bP0;0q#0;2;100;0;0~\x1b\\"

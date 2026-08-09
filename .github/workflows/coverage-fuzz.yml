@@ -1,0 +1,60 @@
+name: Coverage-guided fuzz
+
+# Scheduled and manual discovery lane for the retained parser and graphics
+# corpora. Targets run sequentially inside bounded transient cgroups. A failure
+# uploads the corpus, crash artifact, and per-target logs for minimization and
+# promotion into the ordinary regression suite.
+on:
+  schedule:
+    - cron: "17 4 * * 4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-guided-fuzz
+  cancel-in-progress: false
+
+jobs:
+  parser-graphics:
+    name: Parser and graphics fuzz smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CARGO_BUILD_JOBS: "4"
+      RUST_TEST_THREADS: "1"
+    steps:
+      # v4.2.2
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Install pinned fuzz toolchain
+        shell: bash
+        run: |
+          toolchain="$(.github/scripts/run-coverage-fuzz.sh --print-toolchain)"
+          cargo_fuzz_version="$(.github/scripts/run-coverage-fuzz.sh --print-cargo-fuzz-version)"
+          rustup toolchain install "$toolchain" --profile minimal
+          cargo +"$toolchain" install cargo-fuzz --version "$cargo_fuzz_version" --locked
+          cargo +"$toolchain" fuzz --version
+
+      - name: Run bounded targets
+        shell: bash
+        run: .github/scripts/run-coverage-fuzz.sh
+
+      # v4.6.2
+      - name: Upload retained fuzz evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: coverage-fuzz-parser-graphics
+          path: |
+            target/fuzz-evidence/parser-graphics/
+            fuzz/parser_graphics/artifacts/
+            fuzz/parser_graphics/corpus/
+            fuzz/parser_graphics/corpus.toml
+            fuzz/parser_graphics/Cargo.lock
+          retention-days: 14
+          if-no-files-found: warn
