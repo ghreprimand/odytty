@@ -753,9 +753,9 @@ closed. No private terminal transcript is ever ingested as corpus material.
 
 Five issues were identified by source inspection at the revision this document
 describes and are stated at exactly the scope demonstrated — no exploitation
-beyond that scope is claimed. Findings A, B, and C are now closed with focused
-tests; the remaining two stay explicitly **unresolved**. Each closure carries
-its own tests and sibling-path sweep.
+beyond that scope is claimed. Findings A through D are now closed with focused
+tests; Finding E stays explicitly **unresolved**. Each closure carries its own
+tests and sibling-path sweep.
 
 ### Finding A — Session metadata reads are bounded and reject final-component symlinks
 
@@ -808,19 +808,21 @@ its own tests and sibling-path sweep.
 - **Unix and Windows:** all platforms; font enumeration runs on each.
 - **Status:** resolved for production font-file reads.
 
-### Finding D — Connection-host file mutation paths read without a size cap
+### Finding D — Connection-host reads share one bounded regular-file policy
 
-- **Anchors:** `append_adhoc_host`, `edit_host_block`, and `remove_host_block`
-  in `src/connection_hosts.rs` each read the whole file before splicing.
-- **Scope demonstrated:** source inspection only. Field-level bounds are applied
-  during parsing; the whole-file read that precedes them is unbounded.
-- **Why it still matters:** this is a sibling-path gap of exactly the dominant
-  historical shape — the SSH configuration reader next door enforces
-  `DEFAULT_SSH_CONFIG_MAX_BYTES` = 256 KiB, and these three mutation paths do
-  not. All three should adopt the same bound in one change, with the sweep
-  covering any further reader of the same file.
+- **Anchors:** normal parsing plus `append_adhoc_host`, `edit_host_block`, and
+  `remove_host_block` in `src/connection_hosts.rs` route through
+  `read_hosts_file`. The parser retains its bounded-prefix behavior; mutations
+  reject a file over 256 KiB because truncating unseen bytes would be unsafe.
+- **Scope demonstrated:** the shared reader validates the path and opened object
+  as regular files, uses a nonblocking open on Unix, and detects growth with one
+  byte beyond the mutation ceiling. Focused tests cover the exact boundary,
+  boundary plus one, and all three mutation paths leaving oversized input
+  unchanged. Mutation output is also prevented from crossing the same ceiling.
+- **Why the boundary matters:** parsing and mutation now apply one whole-file
+  allocation policy, while editing continues to preserve every accepted byte.
 - **Unix and Windows:** all platforms.
-- **Status:** unresolved. Not fixed here.
+- **Status:** resolved for every production `hosts.conf` reader and mutation.
 
 ### Finding E — Windows final-component reparse-point handling is unverified for file transports
 

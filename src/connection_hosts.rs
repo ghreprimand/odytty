@@ -6,8 +6,8 @@
 //! [`crate::ssh_config`]. Tests use synthetic files and injected loaders only.
 
 use std::collections::HashSet;
-use std::fs;
-use std::io;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use crate::settings::Settings;
@@ -164,17 +164,69 @@ pub fn read_odytty_hosts_with_limits(
         return Vec::new();
     }
     // C14: stream only a bounded prefix so an oversized or adversarial hosts
-    // file can never be read whole into memory. The parser already treats the
-    // capped prefix as authoritative, so `max_bytes` here is the same bound.
-    let mut bytes = Vec::new();
-    let read = fs::File::open(path.as_ref()).and_then(|file| {
-        use io::Read as _;
-        file.take(limits.max_bytes).read_to_end(&mut bytes)
-    });
-    if read.is_err() {
+    // file can never be read whole into memory. The parser intentionally treats
+    // that prefix as authoritative; mutation paths use the rejecting mode below
+    // because they must preserve every existing byte.
+    let Ok(bytes) = read_hosts_file(path.as_ref(), limits.max_bytes, false) else {
         return Vec::new();
-    }
+    };
     parse_odytty_hosts_bytes_with_limits(&bytes, limits)
+}
+
+fn read_hosts_file(path: &Path, max_bytes: u64, reject_oversized: bool) -> io::Result<Vec<u8>> {
+    let path_metadata = fs::metadata(path)?;
+    if !path_metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "connection-hosts path is not a regular file",
+        ));
+    }
+    if reject_oversized && path_metadata.len() > max_bytes {
+        return Err(hosts_file_over_limit(max_bytes));
+    }
+
+    let file = open_hosts_file(path)?;
+    let opened_metadata = file.metadata()?;
+    if !opened_metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "opened connection-hosts path is not a regular file",
+        ));
+    }
+    if reject_oversized && opened_metadata.len() > max_bytes {
+        return Err(hosts_file_over_limit(max_bytes));
+    }
+
+    let read_limit = max_bytes.saturating_add(u64::from(reject_oversized));
+    let mut bytes =
+        Vec::with_capacity(usize::try_from(opened_metadata.len().min(read_limit)).unwrap_or(0));
+    file.take(read_limit).read_to_end(&mut bytes)?;
+    if reject_oversized && u64::try_from(bytes.len()).unwrap_or(u64::MAX) > max_bytes {
+        return Err(hosts_file_over_limit(max_bytes));
+    }
+    Ok(bytes)
+}
+
+fn open_hosts_file(path: &Path) -> io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    options.open(path)
+}
+
+fn hosts_file_over_limit(max_bytes: u64) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("connection-hosts file exceeds the {max_bytes}-byte limit"),
+    )
+}
+
+fn read_hosts_for_mutation(path: &Path) -> io::Result<Vec<u8>> {
+    read_hosts_file(path, DEFAULT_CONNECTION_HOSTS_MAX_BYTES, true)
 }
 
 /// Parse OdyTTY-owned hosts bytes with default limits.
@@ -382,7 +434,7 @@ pub fn append_adhoc_host(
     host: &ConnectionHost,
 ) -> io::Result<AppendHostOutcome> {
     let path = path.as_ref();
-    let existing_bytes = match fs::read(path) {
+    let existing_bytes = match read_hosts_for_mutation(path) {
         Ok(bytes) => bytes,
         Err(err) if err.kind() == io::ErrorKind::NotFound => Vec::new(),
         Err(err) => return Err(err),
@@ -412,7 +464,7 @@ pub fn append_adhoc_host(
     }
     out.extend_from_slice(block.as_bytes());
 
-    write_bytes_atomic(path, &out)?;
+    write_hosts_bytes_atomic(path, &out)?;
     Ok(AppendHostOutcome::Appended)
 }
 
@@ -423,6 +475,13 @@ pub fn append_adhoc_host(
 /// crash mid-write can only leave the temp behind, never a half-written target.
 fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     crate::state_dir::write_atomic(path, bytes, crate::state_dir::WriteMode::Config)
+}
+
+fn write_hosts_bytes_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > DEFAULT_CONNECTION_HOSTS_MAX_BYTES {
+        return Err(hosts_file_over_limit(DEFAULT_CONNECTION_HOSTS_MAX_BYTES));
+    }
+    write_bytes_atomic(path, bytes)
 }
 
 /// A `Host` block located by byte span in the source file, for in-place edit
@@ -625,7 +684,7 @@ pub fn edit_host_block(
     updated: &ConnectionHost,
 ) -> io::Result<HostsEditOutcome> {
     let path = path.as_ref();
-    let source = match fs::read(path) {
+    let source = match read_hosts_for_mutation(path) {
         Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(HostsEditOutcome::NotFound),
         Err(err) => return Err(err),
@@ -637,7 +696,7 @@ pub fn edit_host_block(
         DEFAULT_CONNECTION_HOSTS_MAX_FIELD_CHARS,
     ) {
         Some(next) => {
-            write_bytes_atomic(path, next.as_bytes())?;
+            write_hosts_bytes_atomic(path, next.as_bytes())?;
             Ok(HostsEditOutcome::Written)
         }
         None => Ok(HostsEditOutcome::NotFound),
@@ -653,7 +712,7 @@ pub fn remove_host_block(
     target_alias: &str,
 ) -> io::Result<HostsEditOutcome> {
     let path = path.as_ref();
-    let source = match fs::read(path) {
+    let source = match read_hosts_for_mutation(path) {
         Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
         Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(HostsEditOutcome::NotFound),
         Err(err) => return Err(err),
@@ -664,7 +723,7 @@ pub fn remove_host_block(
         DEFAULT_CONNECTION_HOSTS_MAX_FIELD_CHARS,
     ) {
         Some(next) => {
-            write_bytes_atomic(path, next.as_bytes())?;
+            write_hosts_bytes_atomic(path, next.as_bytes())?;
             Ok(HostsEditOutcome::Written)
         }
         None => Ok(HostsEditOutcome::NotFound),
@@ -1216,6 +1275,70 @@ mod tests {
         let written = fs::read_to_string(&path).expect("read back");
         assert_eq!(written, existing);
 
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn mutation_reader_accepts_exact_limit_and_rejects_limit_plus_one() {
+        let dir = temp_dir("odytty-hosts-mutation-cap");
+        let path = dir.join(CONNECTION_HOSTS_FILE_NAME);
+        let mut bytes = vec![b'#'; DEFAULT_CONNECTION_HOSTS_MAX_BYTES as usize];
+        fs::write(&path, &bytes).expect("seed exact-limit file");
+        assert_eq!(
+            read_hosts_for_mutation(&path)
+                .expect("read exact-limit file")
+                .len(),
+            DEFAULT_CONNECTION_HOSTS_MAX_BYTES as usize
+        );
+
+        bytes.push(b'\n');
+        fs::write(&path, &bytes).expect("seed over-limit file");
+        let error = read_hosts_for_mutation(&path).expect_err("reject limit plus one");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn every_mutation_rejects_oversized_input_without_changing_it() {
+        let dir = temp_dir("odytty-hosts-all-mutations-cap");
+        let path = dir.join(CONNECTION_HOSTS_FILE_NAME);
+        let mut oversized = b"Host existing.example.invalid\n    User original\n".to_vec();
+        oversized.resize(DEFAULT_CONNECTION_HOSTS_MAX_BYTES as usize + 1, b'#');
+        fs::write(&path, &oversized).expect("seed oversized file");
+
+        let appended = host("new.example.invalid", ConnectionHostSource::Odytty);
+        let append_error = append_adhoc_host(&path, &appended).expect_err("append must reject");
+        assert_eq!(append_error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(fs::read(&path).expect("read after append"), oversized);
+
+        let mut updated = host("existing.example.invalid", ConnectionHostSource::Odytty);
+        updated.user = Some("updated".to_owned());
+        let edit_error = edit_host_block(&path, "existing.example.invalid", &updated)
+            .expect_err("edit must reject");
+        assert_eq!(edit_error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(fs::read(&path).expect("read after edit"), oversized);
+
+        let remove_error =
+            remove_host_block(&path, "existing.example.invalid").expect_err("remove must reject");
+        assert_eq!(remove_error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(fs::read(&path).expect("read after remove"), oversized);
+        fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn append_refuses_to_grow_an_accepted_file_past_the_limit() {
+        let dir = temp_dir("odytty-hosts-output-cap");
+        let path = dir.join(CONNECTION_HOSTS_FILE_NAME);
+        let existing = vec![b'#'; DEFAULT_CONNECTION_HOSTS_MAX_BYTES as usize - 8];
+        fs::write(&path, &existing).expect("seed near-limit file");
+
+        let appended = host("new.example.invalid", ConnectionHostSource::Odytty);
+        let error = append_adhoc_host(&path, &appended).expect_err("growth must be rejected");
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert_eq!(
+            fs::read(&path).expect("read after rejected growth"),
+            existing
+        );
         fs::remove_dir_all(dir).ok();
     }
 

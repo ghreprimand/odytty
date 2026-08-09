@@ -7,6 +7,20 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Connection-host reads share one bounded file policy
+
+The normal `hosts.conf` parser and every append, edit, and remove path now use
+one regular-file reader with a 256 KiB ceiling. Parsing keeps its established
+bounded-prefix behavior, while mutations reject an oversized file rather than
+splicing a truncated prefix and silently discarding unseen bytes. Unix opens
+are nonblocking, and the opened object is checked again before reading.
+
+Mutation output cannot cross the same ceiling. Focused tests cover an accepted
+file at the exact boundary, rejection at boundary plus one, and verify that
+append, edit, and remove all leave oversized input byte-for-byte unchanged.
+
+---
+
 ## 2026-08-08 -- Clipboard image processing is bounded before encoding
 
 Clipboard image paste-through now validates platform-provided RGBA dimensions
