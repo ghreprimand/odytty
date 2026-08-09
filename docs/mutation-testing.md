@@ -422,7 +422,7 @@ both directions. Highest-value cluster in the campaign: the fix is cheap, and
 the behavior is exactly the kind that a later refactor can silently break.
 
 <!-- claim: functions=win32_event_from_neutral_key,win32_char_identity count=17 -->
-### Windows key translation is unasserted — 17 survivors
+### Initial campaign: Windows key translation was unasserted — 17 survivors
 
 `win32_event_from_neutral_key` and `win32_char_identity` translate a neutral key
 event into the Win32 key record OdyTTY writes for ConPTY consumers. Surviving
@@ -438,6 +438,32 @@ test host and is verified only in continuous integration. The independently
 produced coverage evidence reached the same conclusion about the same functions
 from a different direction, which is why this cluster is the campaign's
 platform-critical result.
+
+#### Follow-up closure
+
+Focused Win32 record assertions subsequently pinned letter, digit, space,
+keypad, modifier, scan-code, event-lifecycle, and physical-versus-neutral
+translation behavior. A bounded follow-up campaign at revision `af5ea055` used
+the same pinned `cargo-mutants 27.1.0` tool and the declared `input-win32`
+batch:
+
+| Outcome | Count |
+| --- | ---: |
+| Mutants tested | 47 |
+| Caught by the focused suite | 46 |
+| Unviable | 1 |
+| Survived | 0 |
+| Timed out | 0 |
+
+The unviable mutant replaced `win32_event_from_neutral_key` with
+`Some(Default::default())`; it did not compile and therefore supplies no test-
+strength evidence in either direction. No survivor reached the full-suite
+confirmation stage. The original 17-survivor cluster is closed for the current
+47-mutant census, and blocking Windows CI also passes the same assertions.
+
+The follow-up remained the sole heavy job under the standard limits. It used
+8,109,641,728 bytes peak memory, zero swap, 2,204,025,294 microseconds of CPU,
+and 303 seconds of wall time.
 
 <!-- claim: functions=checked_shm_size,read_shm_fd_at_size,read_regular_file,read_shm_transport risk=high count=23 -->
 ### Transport size caps are unasserted at the boundary — 23 survivors

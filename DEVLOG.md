@@ -7,6 +7,16 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Win32 translation assertions catch the mutation census
+
+The focused Win32 input suite now catches every viable mutation in its declared
+batch: 47 mutants were tested, 46 were caught, one was unviable, and none
+survived or timed out. The bounded run peaked at 8.1 GB with no swap and left
+the source tree clean. Blocking Windows CI also passes the corrected physical
+and neutral record paths.
+
+---
+
 ## 2026-08-08 -- Graphics path-admission coverage is portable on macOS
 
 The named graphics transport traversal fixture now walks from the canonical
@@ -26,8 +36,8 @@ Ctrl-Space reports NUL and Ctrl-5 reports a zero Unicode unit without losing the
 key identity.
 
 Focused cross-mapper assertions cover Numpad0, Numpad1, NumpadDivide,
-Ctrl-Space, and Ctrl-5. The mapping logic is exercised cross-platform; native
-Windows execution remains unmeasured until the blocking `windows-latest` job.
+Ctrl-Space, and Ctrl-5. The mapping logic is exercised cross-platform, and the
+blocking `windows-latest` job passes the same records.
 
 ---
 
