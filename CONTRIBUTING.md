@@ -217,11 +217,13 @@ Two distinct icon paths, do not conflate them:
 
 ## Test battery
 
-The default `cargo test` run is deterministic and host-independent. Integration
-test buckets include:
+The default `cargo test` run is bounded and deterministic. Platform-gated cases
+and PTY smokes that need optional host applications report unavailable or
+skipped work separately from executed assertions. Integration test buckets
+include:
 
 - `mouse_protocol` — mouse-tracking protocol coverage.
-- `pixel_smoke` — 47 compositor checks across its module set.
+- `pixel_smoke` — compositor checks across its module set.
 - `protocol_fuzz_*_smoke` — quick fuzzer tiers.
 - `pty_alt_screen_smoke` — PTY-backed alternate-screen behavior.
 - `emoji_pixel_smoke`, `boxdraw_pixel_smoke` — emoji and box-drawing rasterization.
@@ -279,9 +281,11 @@ Before every commit, run through this gate and stop if anything is unclear:
 
 1. **Inspect the staged diff.** Review exactly what is staged
    (`git diff --cached`); stage only the files the change intends.
-2. **Run the test suite.** `cargo test` — the full battery is deterministic and
-   must pass. If you touched the parser, core protocol handlers, or graphics
-   surface, also run the deep fuzz tier (see above).
+2. **Run the test suite.** `cargo test` — the full battery is bounded and
+   deterministic, and every executed assertion must pass. Record unavailable,
+   skipped, and ignored cases separately. If you touched the parser, core
+   protocol handlers, or graphics surface, also run the deep fuzz tier (see
+   above).
 3. **Check lints:** `cargo clippy --all-targets --locked -- -D warnings`. This
    is blocking on every CI platform; the default Clippy set is also denied in
    `Cargo.toml`.

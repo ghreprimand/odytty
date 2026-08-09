@@ -24,10 +24,12 @@ OdyTTY uses GitHub-hosted runners for these workflows:
 
 | Workflow | Trigger | Result |
 | --- | --- | --- |
-| `.github/workflows/ci.yml` | Pushes and pull requests to `master` | Formats, builds, lints, and tests on Ubuntu, macOS, and Windows; publishes no artifacts |
+| `.github/workflows/ci.yml` | Pushes and pull requests to `master` | Formats, builds, lints, and tests on Ubuntu, macOS, and Windows; enforces the production-file guard and checks shipped shell scripts and release-gate fixtures; publishes no artifacts |
 | `.github/workflows/release.yml` | `vX.Y.Z` tags or manual validation | Builds all seven release artifact types; tag runs also publish the release and update package channels |
-| `.github/workflows/rustsec-audit.yml` | Pull requests touching `Cargo.lock`, `Cargo.toml`, or the audit script or workflow; a weekly schedule; and manual dispatch | Runs `cargo audit` against the locked dependency graph; the `release` job runs the same audit before publishing; publishes no artifacts |
-| `.github/workflows/deep-fuzz.yml` | Weekly schedule or manual dispatch | Runs the ignored parser/protocol and graphics fuzz tiers at 40,000 iterations; publishes no artifacts |
+| `.github/workflows/rustsec-audit.yml` | Pull requests touching the release or fuzz-workspace manifests and lockfiles, or the audit script or workflow; a weekly schedule; and manual dispatch | Runs `cargo audit` against both locked dependency graphs; the `release` job runs the same audit before publishing; publishes no artifacts |
+| `.github/workflows/deep-fuzz.yml` | Weekly schedule or manual dispatch | Runs the ignored parser/protocol and graphics fuzz tiers at 40,000 iterations and retains logs for 14 days |
+| `.github/workflows/coverage-fuzz.yml` | Weekly schedule or manual dispatch | Runs bounded corpus-retaining parser, UTF-8/state-transition, and graphics-payload fuzz targets and retains corpora, crash artifacts, and logs for 14 days |
+| `.github/workflows/dynamic-analysis.yml` | Weekly schedule or manual dispatch | Runs the pinned Miri subset and bounded AddressSanitizer and ThreadSanitizer lanes and retains their logs for 14 days |
 
 Third-party workflow actions are pinned to reviewed commit SHAs rather than
 floating tags.

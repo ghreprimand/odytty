@@ -31,7 +31,7 @@ default-terminal setup, and troubleshooting.
 
 | Platform | Support | Recommended release |
 | --- | --- | --- |
-| Linux | Primary and most battle-tested | One-line install, or native .deb / .rpm |
+| Linux | Primary target | One-line install, or native .deb / .rpm |
 | macOS | Supported and actively maturing | Homebrew cask with an Apple Silicon app |
 | Windows | First-class ConPTY support and actively maturing | Scoop package with an unsigned x86_64 build |
 
@@ -263,6 +263,11 @@ Linux is the primary target. macOS and Windows are supported, shipped, and
 blocking CI targets alongside Linux. See [Install And Run](#install-and-run) for
 the current packages and maturity notes.
 
+Fresh v0.10.0 release-profile validation remains pending on Linux, macOS, and
+Windows, as does the matched Ghostty visual comparison. Blocking CI establishes
+automated coverage on each platform; it does not substitute for those manual
+GPU, IME, clipboard, text-quality, or interaction results.
+
 Known gaps include Windows detached and resumable session hosting, profiles,
 Kitty animation and Unicode placeholders, iTerm2 graphics, COLR/CPAL color
 fonts, and broader ligature and stylistic-set shaping beyond the default ASCII
@@ -272,8 +277,9 @@ See the [current work](TODO.md) and [full roadmap](docs/full-build-roadmap.md).
 ## Testing
 
 The repository carries unit, integration, fuzz-smoke, pixel-smoke, PTY-smoke,
-GPU-composite, and CLI tests. The default suite is deterministic and
-host-independent:
+GPU-composite, and CLI tests. The default suite is bounded and deterministic;
+platform-gated cases and PTY smokes that need optional host applications keep
+unavailable and skipped work distinct from executed assertions:
 
 ```sh
 cargo test
@@ -331,10 +337,16 @@ the ownership boundary and deeper workflow architecture.
 
 [Pre-1.0 acceptance contract](docs/pre-1.0-acceptance.md),
 [Stabilization and release-channel policy](docs/stabilization-policy.md),
-[Stabilization baseline](docs/stabilization-baseline.md), and
-[Native decomposition map](docs/native-decomposition.md) define the current
-evidence gates, scope freeze, reproducible starting point, and architecture
-boundaries. The [comparative benchmark protocol](docs/benchmark-protocol.md)
+[v0.10.0 baseline](docs/v0.10.0-baseline.md),
+[coverage evidence](docs/coverage-evidence.md),
+[mutation-testing policy](docs/mutation-testing.md),
+[manual-validation matrix](docs/manual-validation.md),
+[real-application smoke matrix](docs/compatibility/real-application-smoke.md),
+[parser and graphics fuzzing guide](fuzz/parser_graphics/README.md), and
+[native decomposition record](docs/native-decomposition.md) define the current
+evidence gates, scope freeze, reproducible starting point, architecture
+boundaries, and the distinction between executed results and pending manual
+work. The [comparative benchmark protocol](docs/benchmark-protocol.md)
 preregisters performance methodology before measurement, and the
 [terminal threat model](docs/threat-model.md) catalogs every external-input and
 privilege boundary with its caps, defaults, failure behavior, and unresolved

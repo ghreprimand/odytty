@@ -155,8 +155,9 @@ assertions.
 
 ### Performance
 
-Lazy scrollback re-wrap on width change (~2300× faster deep
-resize), a width-unchanged fast path (~293× faster height-only resize), reusable
+Lazy scrollback re-wrap on width change and a width-unchanged resize fast path
+([dated internal measurements](../DEVLOG.md), not cross-terminal comparisons),
+reusable
 vertex storage with a grow-only GPU buffer, resize debounce, and a render
 invalidation/retained-frame system.
 
@@ -559,11 +560,12 @@ is opt-in or configurable and never disturbs an application's own mouse handling
   the primary OdyTTY identity, while licensed and attributed community palettes
   ship under their upstream names. `theme_family()` classifies every built-in as
   `baseline`, `odyssey`, or `community`, and `--list-themes` exposes the family.
-- **Ongoing — Theme-library expansion** past 100, using data-only additions. The
+- **Later — Theme-library expansion** past 100, using data-only additions. The
   roster is now 142 after six more contrast-validated original OdysseyOS
   palettes: four dark palettes (inkwell navy, citadel slate, verdigris teal, and
   wildfire ember) and two light palettes (moonstone and primrose). Earlier
-  batches brought the roster to 112, 124, and then 136; the track stays open.
+  batches brought the roster to 112, 124, and then 136. Expansion is paused
+  during the v0.10.0 scope freeze.
 
 ## Track 8 — Positioning And Performance Posture
 
@@ -795,9 +797,14 @@ the readability-safe background treatments, the interactive paths and image
 viewer, the session attach launcher, and the multi-context epic (panes,
 persistent sessions, command palette, and connection manager) all ship:
 
-1. **Effect default-tuning pass** — once a human-eye baseline exists, revisit the
-   conservative default strengths of stem darkening, standalone scanlines, and
-   bloom (see Track 2).
+1. **Complete the matched Ghostty visual comparison and fresh release-profile
+   validation on Linux, macOS, and Windows.** Empty templates and historical
+   device passes are not release evidence.
+2. **Converge documentation and release metadata, run the exact-candidate
+   pre-tag gate, and hold the v0.10.0 exception review.**
+3. **Resume effect default tuning only after v0.10.0 and a separate scope
+   decision.** The conservative defaults remain unchanged meanwhile (see
+   Track 2).
 
 Everything beyond a plain terminal stays measured, opt-out-able, and — above all
 — never something you are forced to hand-edit a config file to reach.

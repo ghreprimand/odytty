@@ -208,9 +208,9 @@ Requirements:
 - Malformed input fails closed: no panic, no uncontrolled allocation, no
   unintended file access, and no secret-bearing diagnostics.
 
-**Evidence:** `docs/threat-model.md`, `docs/fuzzing.md`,
-`docs/dynamic-analysis.md`, and the fuzz targets and regression fixtures
-in-tree.
+**Evidence:** `docs/threat-model.md`, `docs/dynamic-analysis.md`,
+`fuzz/parser_graphics/README.md`, `.github/workflows/coverage-fuzz.yml`, and the
+fuzz targets and regression fixtures in-tree.
 **Confirmed by:** core contributors.
 
 The Miri and sanitizer requirement is deliberately worded as *landed with
@@ -354,7 +354,7 @@ gate is out of scope until the contract is satisfied.
 | Architecture stabilization | G5 | `docs/native-decomposition.md` | core contributors |
 | Compatibility evidence | G1 | `docs/compatibility-evidence.md` | core contributors; maintainer for visual cases |
 | Performance evidence | G2 | `docs/benchmark-protocol.md`, `docs/benchmark-results.md` | maintainer for hardware runs |
-| Security and supply chain | G4, G6 | `docs/threat-model.md`, `docs/fuzzing.md`, `.github/scripts/rustsec-audit.sh` | core contributors |
+| Security and supply chain | G4, G6 | `docs/threat-model.md`, `docs/dynamic-analysis.md`, `fuzz/parser_graphics/README.md`, `.github/workflows/coverage-fuzz.yml`, `.github/scripts/rustsec-audit.sh` | core contributors |
 | Manual and field validation | G3, G8 | `docs/manual-validation.md`, `docs/field-report.md` | project maintainer |
 | Convergence | G7, and traceability of all gates | tracked docs plus the pre-1.0 evidence bundle | project maintainer |
 

@@ -8,9 +8,20 @@ native implementation hotspots:
 - `src/native/session.rs`
 - `src/native/gpu.rs`
 
-It fixes responsibility boundaries, state ownership, dependency direction,
+It fixed responsibility boundaries, state ownership, dependency direction,
 test seams, file-size budgets, and landing order before structural extraction
-begins.
+began. The extraction is complete; this document preserves the design and
+landing record rather than describing unfinished architecture work.
+
+At revision `c8ba642e617b20f49cbf899a08f4954a0f7b875e`, the production facades are
+348 lines (`app/mod.rs`), 43 lines (`overlay.rs`), 46 lines (`session.rs`), and
+104 lines (`gpu.rs`). Their largest production siblings are 1,729 lines
+(`app/panes.rs`), 1,092 lines (`overlay/render.rs`), 1,430 lines
+(`session/transport.rs`), and 1,533 lines (`gpu/resources.rs`). The repository
+guard classifies all 415 tracked `src/**/*.rs` files (281 production-bearing
+and 134 test-only) and reports no production file above the 1,999-line maximum.
+Blocking CI and this structural inventory remain distinct from fresh manual
+release-profile validation.
 
 ## Global constraints
 
@@ -31,7 +42,7 @@ Every extraction is a structural change only.
 ### Two-thousand-line size guard
 
 All handwritten production Rust files created or left by this decomposition
-must contain at most 2,000 physical lines. Generated, vendored, fixture, and
+must contain at most 1,999 physical lines. Generated, vendored, fixture, and
 data-only files are excluded.
 
 Destination modules should normally target at most 1,600 lines, leaving room
@@ -53,7 +64,7 @@ does not establish a sound boundary.
 
 ## Application and event loop
 
-### Current responsibilities and state
+### Pre-extraction responsibilities and state
 
 `App` is the central native-window state owner. Its fields currently group:
 
@@ -107,7 +118,7 @@ Existing leaf modules remain leaves where their ownership is already correct.
 portion is below the size guard even though its inline tests make the complete
 file larger; those tests should move to a sibling when that file is touched.
 
-### Serialized extraction sequence
+### Recorded extraction sequence
 
 The sequence is mandatory.
 
@@ -207,7 +218,7 @@ origin, state transition, and forwarding outcome relevant to its path.
 
 ## Overlay coordinator
 
-### State and responsibilities
+### Pre-extraction state and responsibilities
 
 `OverlayUi` coordinates component UIs, navigation, pending payloads, drag
 latches, settings and picker state, key and pointer dispatch, outcome mapping,
@@ -253,7 +264,7 @@ registry, context-menu, and replay-isolation suites remain cross-module owners.
 
 ## Session and workspace state
 
-### State and responsibilities
+### Pre-extraction state and responsibilities
 
 `WorkspaceSet` owns the session arena keyed by `SessionToken`. Workspace, tab,
 and pane trees store tokens and active indices; dereferencing resolves the
@@ -320,7 +331,7 @@ Persistence tests own capture, rollback, append, and drive-letter paths.
 
 ## GPU renderer
 
-### State and responsibilities
+### Pre-extraction state and responsibilities
 
 `GpuState` remains the single UI-thread owner of the instance, window, adapter,
 surface, device, queue, pipelines, bindings, buffers, CPU-side vertices, image
@@ -392,10 +403,10 @@ Windows remains a first-class automated and manual target.
 - Windows presentation notification remains a no-op at the platform boundary,
   but its call site remains immediately before presentation.
 
-A Linux result cannot establish any Windows behavior. Each landing requires the
+A Linux result cannot establish any Windows behavior. Each landing required the
 blocking Windows build and test job in addition to the local gate.
 
-## Global landing order
+## Recorded global landing order
 
 1. Freeze this map and the starting evidence revision.
 2. Repair the non-executing event-loop test seam as part of the first
@@ -413,7 +424,7 @@ Overlay, session, and GPU work may overlap application work only when tracked
 file and test ownership is disjoint. Session and GPU work must not overlap each
 other if either landing touches shared application presentation types.
 
-Each landing records:
+Each landing recorded:
 
 - exact starting and resulting revisions;
 - moved responsibilities and preserved state owner;

@@ -5,6 +5,10 @@ sessions before broader product features. The first meaningful prototype is
 complete; see `DEVLOG.md` for the running record, `SPEC.md` for durable
 decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
 
+The v0.10.0 scope is frozen to architecture, compatibility, correctness,
+security, evidence, documentation, and release convergence. Unchecked feature
+ideas below are longer-range roadmap candidates, not authorized v0.10.0 work.
+
 ## Stage 4.5: Foundation Ownership
 
 - [x] Replace the former parser dependency with an OdyTTY-owned DEC ANSI state
@@ -198,10 +202,10 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         size, drives `GpuState::set_scale`, re-reads rebuilt cell metrics, and
         feeds the existing debounced grid/PTY resize reset path. Headless tests
         cover debounce, metric recompute, and repeated-scale no-ops.
-  - [x] H3: headless scale-matrix tests (11 tests: CellSize integrality/
-        monotonicity across 5 scales × 2 font sizes, grid_dimensions_for at 50
-        combos, rebuild invalidation, debounce final-scale, UV seam-free at
-        fractional scales) + `docs/hidpi-validation.md` maintainer-run manual
+  - [x] H3: headless scale-matrix coverage for CellSize integrality and
+        monotonicity, grid dimensions, rebuild invalidation, debounce final
+        scale, and fractional-scale UV seams, plus
+        `docs/hidpi-validation.md` maintainer-run manual
         matrix (23 cells across 5 sections). All H1/H2 seams confirmed correct.
 - [ ] Improve glyph atlas management, including cache growth, invalidation, and
       missing-glyph behavior.
@@ -286,13 +290,18 @@ decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
         allocation/recreation, and resize debounce coalesces drag bursts before
         core reflow + PTY winsize while still applying the final size exactly.
   - [x] Core resize fast path (`src/core/reflow.rs`): width-unchanged resize
-        skips the per-cell reflow (height-only deep ~16,905 µs → ~58 µs, ~293×),
-        proven byte-identical to the full reflow by differential oracle tests.
+        skips the per-cell reflow. A dated internal microbenchmark measured
+        ~16,905 µs → ~58 µs (~293×); this is an implementation before/after
+        result, not a cross-terminal product comparison. Differential oracle
+        tests prove the fast path byte-identical to full reflow.
   - [x] Lazy scrollback re-wrap on width change (`src/core/scrollback.rs`, P1-b):
         scrollback stored as logical lines with a memoized physical projection;
         resize re-wraps only the trailing lines needed for the new window and
-        defers deep history (re-wrap on access). Width-changed deep resize
-        ~46 ms → ~20 µs (~2300×); height-only deep ~58 µs → ~6.6 µs. Proven
+        defers deep history (re-wrap on access). A dated internal
+        microbenchmark measured width-changed deep resize at ~46 ms → ~20 µs
+        (~2300×) and height-only deep resize at ~58 µs → ~6.6 µs; these are
+        implementation before/after results, not cross-terminal product
+        comparisons. Proven
         byte/coordinate-identical to eager reflow by a 900-scenario differential
         parity sweep; zero `Snapshot`/`TerminalModel` API change.
   - [x] Render invalidation split (`P2-b`): core exposes a monotonic render
@@ -611,8 +620,8 @@ a floor; surpassing it is the standing ambition.
   - [x] File transports (`t=f`, `t=t`) on all platforms and shared-memory
         transport (`t=s`) on Unix, with security hardening: temp-dir path
         restriction, Unix O_NOFOLLOW symlink rejection,
-        delete-before-decode for t=t, immediate shm_unlink for t=s, size caps;
-        25 integration tests.
+        delete-before-decode for t=t, immediate shm_unlink for t=s, size caps,
+        and focused integration coverage.
 - [x] Graphics-surface fuzzing: deterministic never-panic + bounded-memory
       harness (`src/core/graphics_fuzz_tests.rs`) over the whole Kitty/Sixel
       display surface — structured APC `_G` control soup (overflow numerics,
@@ -632,7 +641,9 @@ a floor; surpassing it is the standing ambition.
         (header-only streams now cost zero, ~144 MB/seq → 0); the pixel buffer
         separates geometric physical capacity (`cap_w` stride / `cap_h` rows)
         from the drawn extent so incremental width growth is amortized O(area)
-        instead of O(N²) (`!9999~` 48 ms → 0.19 ms). Caps, never-panic, and
+        instead of O(N²). A dated internal microbenchmark measured `!9999~` at
+        48 ms → 0.19 ms; this is an implementation before/after result, not a
+        cross-terminal product comparison. Caps, never-panic, and
         declared-size authority unchanged; +5 sixel fixtures + a relaxed-token
         regression fuzzer; deep tier re-run at 40k clean.
 - [x] Kitty placement surface: `p=` placement ids with multiple named
@@ -657,13 +668,14 @@ a floor; surpassing it is the standing ambition.
   - [x] Decoder (`src/graphics/sixel.rs`): full Sixel data language (raster attrs,
         RGB/HLS color introducers, repeat, CR/LF, 6-bit data bytes), VT340
         16-color default palette, HLS-to-RGB, 40 Mpx total / 10 kpx-per-side
-        hard caps,
-        P2 transparency, robustness against malformed input, 27 tests.
+        hard caps, P2 transparency, and robustness coverage for malformed
+        input.
   - [x] Integration (`src/core/graphics_routing.rs`): DCS hook/put/unhook routing
         extracted from screen.rs; on DCS q unhook decode payload via the sixel decoder,
         insert RGBA into ImageStore, create cell-anchored placement; cursor
         moves to row below image (DECSDM-off); decode errors counted but
-        never disturb terminal state; 21 end-to-end tests.
+        never disturb terminal state; focused end-to-end coverage pins the
+        routing behavior.
 - [x] Color emoji — RGBA color-glyph path, `swash` shaping/rasterization,
       Noto Color Emoji CBDT/CBLC on Linux, VS15/VS16 presentation,
       ZWJ/cluster support; COLR v1 and SVG-in-OT deferred but
@@ -1304,8 +1316,10 @@ feature validates against.
       validated on-device across several passes for the 0.7.0 cycle (local
       shells, tabs, splits, selection/copy-paste, minimize/restore, wheel
       routing, shell integration, and clickable paths incl. inline images);
-      CI additionally proves compile + unit tests on every push. It remains a
-      newer target with a lower polish bar than Linux. A child-process waiter now
+      CI additionally proves compile + automated tests on every push. Those
+      historical passes do not close the fresh v0.10.0 release-profile
+      validation requirement. It remains a newer target with a lower polish
+      bar than Linux. A child-process waiter now
       closes the pseudoconsole when a shell exits naturally, so the tab follows
       the normal reader-EOF teardown path.
 - [ ] Windows default-terminal handoff. OdyTTY can be launched directly and

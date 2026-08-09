@@ -80,7 +80,7 @@ release.
 
 ## Linux
 
-Linux is the primary and most battle-tested platform. OdyTTY prefers a Vulkan
+Linux is the primary platform. OdyTTY prefers a Vulkan
 adapter, but accelerated OpenGL/GLES also works and software rendering remains
 a slow last resort. Wayland is the primary display target. X11 works through the
 current `winit` and GPU stack, with some window-manager-dependent behavior for
@@ -552,8 +552,9 @@ Detached and resumable session hosting, detached SSH, and headless
 `--interactive` mode remain Unix-only. The full Open With application list is
 not available on Windows, and command-palette shell history currently degrades
 to empty. Hostname discovery uses `GetComputerNameExW`. Interactive behavior is
-verified manually on Windows devices; the blocking Windows CI leg proves the
-build compiles and its unit tests pass.
+covered by historical Windows device passes; the blocking Windows CI leg proves
+the build compiles and its automated tests pass. Fresh v0.10.0 release-profile
+validation on Windows remains pending.
 
 ### Updating
 

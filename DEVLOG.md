@@ -7,6 +7,27 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-09 -- Public claims match the v0.10.0 evidence boundary
+
+The public overview, specification, roadmap, installation notes, acceptance
+contract, native decomposition record, and release guide now use the same
+v0.10.0 scope and evidence language. Blocking CI and historical device passes
+describe automated and prior coverage; they do not claim that the pending
+matched Ghostty comparison or fresh Linux, macOS, and Windows release-profile
+validation has passed. The roadmap freezes feature expansion until release
+convergence, and dated internal before/after microbenchmarks are labeled as
+implementation measurements rather than cross-terminal product comparisons.
+
+The landed native architecture is recorded with its current facade and largest
+module sizes and the repository-wide 1,999-line production maximum. The release
+workflow inventory now includes the scheduled coverage-fuzz and dynamic-analysis
+lanes, artifact retention, and both dependency graphs; the RustSec pull-request
+trigger watches the fuzz workspace manifests and lockfile as well as the release
+graph. Package metadata remains at the published v0.9.8 version. Preparing the
+v0.10.0 candidate metadata is a separate release-convergence step.
+
+---
+
 ## 2026-08-09 -- Coverage-guided parser and graphics fuzzing is bounded
 
 Four retained `cargo-fuzz` targets now exercise parser dispatch, terminal state

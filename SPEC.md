@@ -742,10 +742,16 @@ unchanged.
 
 ## Scope
 
-v0 is complete. Stages 1 through 4.5 are substantially complete. The parity
+The first prototype foundation is complete. Stages 1 through 4.5 are
+substantially complete. The parity
 half of Stage 6 (graphics protocols, wide glyphs, subpixel AA, text quality) is
 substantially complete. Stage 5 (file-based configuration with live reload) has
 its first stable layer.
+
+The active target is v0.10.0 hardening and release convergence. Fresh
+release-profile validation on Linux, macOS, and Windows and the matched Ghostty
+visual comparison remain required evidence; automated gates and historical
+device passes do not mark those manual checks complete.
 
 ### Parser And Protocols
 
@@ -1406,6 +1412,10 @@ platform-divergent surface is small, localized, and `#[cfg]`-gated, so Windows
 code is physically absent from a Linux/macOS build and cannot regress it — the
 Linux/macOS byte path is unchanged by the port.
 
+These platform labels describe shipped implementation and automated gates.
+They are not a claim that fresh v0.10.0 physical-device or manual
+release-profile validation has completed.
+
 ### Platform Summary
 
 - **Linux:** The primary target uses the Unix PTY backend, XDG paths, and the
@@ -1419,8 +1429,8 @@ Linux/macOS byte path is unchanged by the port.
   directory handling and a dedicated blocking CI runner.
 
 - **Windows:** ConPTY, native paths, and Windows-specific open and reveal
-  behavior support the v1 terminal surface. Unix socket features remain gated
-  off.
+  behavior support the current terminal surface. Unix socket features remain
+  gated off.
 
 ### Select The PTY Backend
 
@@ -1480,7 +1490,7 @@ The CLI execution boundary prints a clean "not supported on Windows yet" rather
 than panicking. Non-detached SSH-in-a-tab still works on Windows because it uses
 the local ConPTY path, not `session_host`.
 
-### Windows v1 Scope
+### Windows Platform Scope
 
 - **Supported:** Local terminal behavior including tabs, splits, rendering,
   themes, effects, and per-pane images; persistent config via `%APPDATA%`;

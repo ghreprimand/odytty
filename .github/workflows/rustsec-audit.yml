@@ -5,6 +5,8 @@ on:
     paths:
       - Cargo.lock
       - Cargo.toml
+      - fuzz/parser_graphics/Cargo.lock
+      - fuzz/parser_graphics/Cargo.toml
       - .github/scripts/rustsec-audit.sh
       - .github/workflows/rustsec-audit.yml
   schedule:
