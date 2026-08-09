@@ -4,6 +4,11 @@ This checklist defines the human, release-profile evidence required for Linux,
 macOS, and Windows. It is a blank evidence format, not a completed validation
 record. Empty result cells do not imply success.
 
+The bounded real-program subset is defined separately in the
+[real-application smoke matrix](compatibility/real-application-smoke.md). Run
+that matrix with the same release-candidate artifact and link its results from
+the platform record below.
+
 The checklist covers behavior that automated tests cannot establish on their
 own: native-window integration, real input methods and clipboards, text quality,
 perceived interaction quality, GPU selection and fallback behavior, display

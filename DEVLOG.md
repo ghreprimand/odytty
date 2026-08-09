@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Real-application release checks are bounded and repeatable
+
+The release checklist now links to a short real-application matrix with four
+rows per shipped platform: the configured default shell, an editor, a pager,
+and a full-screen TUI or multiplexer. Each row requires the same release-
+candidate artifact and covers synthetic Unicode or IME input, application key
+and mouse handling, resize, clipboard interaction, and prompt or screen
+restoration.
+
+The matrix keeps execution evidence separate from its definition. Missing
+applications and input methods remain recorded skips, documented product
+limitations remain unsupported, and an unobserved row cannot become a pass.
+Fresh Linux, macOS, and Windows results remain required before the respective
+release-profile gates close.
+
+---
+
 ## 2026-08-08 -- Detached-session output is bounded and control-flow fair
 
 The detached-session host now carries PTY output through a fixed 256-event
