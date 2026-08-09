@@ -70,6 +70,42 @@ else
   exit 3
 fi
 
+build_log="$log_dir/build.log"
+build_unit="odytty-coverage-fuzz-build-$run_id"
+build_command=(
+  /usr/bin/env
+  "HOME=$HOME"
+  "PATH=$PATH"
+  "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}"
+  "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}"
+  CARGO_BUILD_JOBS=4
+  RUST_TEST_THREADS=1
+  timeout --kill-after=30s 15m
+  cargo +"$FUZZ_TOOLCHAIN" fuzz build --fuzz-dir="$workspace"
+)
+
+set +e
+if [ "$systemd_mode" = "user" ]; then
+  systemd-run --user --pipe --wait --collect --unit="$build_unit" \
+    --working-directory="$workspace" "${common_properties[@]}" \
+    "${build_command[@]}" >"$build_log" 2>&1
+  build_rc=$?
+else
+  sudo -n systemd-run --pipe --wait --collect --unit="$build_unit" \
+    --uid="$(id -u)" --gid="$(id -g)" --working-directory="$workspace" \
+    "${common_properties[@]}" "${build_command[@]}" >"$build_log" 2>&1
+  build_rc=$?
+fi
+set -e
+
+if [ "$build_rc" -ne 0 ]; then
+  printf '_build\tfail\t%s\t%s\n' "$build_rc" "$build_log" >>"$summary"
+  tail -n 120 "$build_log" >&2 || true
+  cat "$summary"
+  exit 1
+fi
+printf '_build\tpass\t0\t%s\n' "$build_log" >>"$summary"
+
 targets=(parser_dispatch terminal_stream kitty_graphics sixel_decode)
 max_lengths=(65536 65536 2097152 1048576)
 input_timeouts=(5 5 8 8)
