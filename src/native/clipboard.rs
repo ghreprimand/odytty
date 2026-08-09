@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use std::sync::{Arc, Mutex};
+use std::{io, io::Write};
 
 use arboard::Clipboard;
 #[cfg(all(
@@ -21,6 +22,12 @@ use super::pty::{PASTE_CHUNK_SIZE, PtyWriter, write_chunks_blocking};
 
 const BRACKETED_PASTE_START: &[u8] = b"\x1b[200~";
 const BRACKETED_PASTE_END: &[u8] = b"\x1b[201~";
+
+#[derive(Debug, Eq, PartialEq)]
+pub(super) enum ClipboardImagePng {
+    Ready(Vec<u8>),
+    TooLarge { limit: usize },
+}
 
 pub(super) struct ClipboardSlot<T> {
     handle: Option<T>,
@@ -297,10 +304,12 @@ impl NativeClipboard {
     /// source. As with the text paths, unit tests never reach the real clipboard
     /// (off-main-thread NSPasteboard crash + clobbering the developer's live
     /// clipboard); they inject bytes through `injected_clipboard_image`.
-    pub(super) fn read_image_png(&mut self) -> Option<Vec<u8>> {
+    pub(super) fn read_image_png(&mut self) -> Option<ClipboardImagePng> {
         #[cfg(test)]
         {
-            self.injected_clipboard_image.clone()
+            self.injected_clipboard_image
+                .clone()
+                .map(ClipboardImagePng::Ready)
         }
         #[cfg(not(test))]
         {
@@ -333,28 +342,102 @@ impl NativeClipboard {
     }
 }
 
-/// Encode a raw RGBA8 image (as `arboard` hands back) to PNG bytes. Returns
-/// `None` on a malformed buffer or an encoder error so the caller degrades to a
-/// non-image paste. Compiled out under `cfg(test)` — the image paste-through
-/// tests inject already-encoded bytes and never touch a real clipboard image.
-#[cfg(not(test))]
-fn encode_rgba_to_png(width: usize, height: usize, rgba: &[u8]) -> Option<Vec<u8>> {
+/// Encode a raw RGBA8 image (as `arboard` hands back) to bounded PNG bytes.
+/// Malformed buffers and encoder errors degrade to a non-image paste. A valid
+/// image over either processing ceiling is reported separately so the caller
+/// can explain the refusal without retaining the oversized payload.
+#[cfg_attr(test, allow(dead_code))]
+fn encode_rgba_to_png(width: usize, height: usize, rgba: &[u8]) -> Option<ClipboardImagePng> {
+    encode_rgba_to_png_with_limits(
+        width,
+        height,
+        rgba,
+        super::image_decode::MAX_IMAGE_DIM,
+        super::image_decode::MAX_IMAGE_ALLOC_BYTES,
+        crate::settings::REMOTE_IMAGE_PASTE_MAX_BYTES,
+    )
+}
+
+fn encode_rgba_to_png_with_limits(
+    width: usize,
+    height: usize,
+    rgba: &[u8],
+    max_dimension: u32,
+    max_raw_bytes: u64,
+    max_png_bytes: usize,
+) -> Option<ClipboardImagePng> {
     use image::ImageEncoder;
     use image::codecs::png::PngEncoder;
 
     let width = u32::try_from(width).ok()?;
     let height = u32::try_from(height).ok()?;
-    let expected = (width as usize)
-        .checked_mul(height as usize)?
+    let expected = u64::from(width)
+        .checked_mul(u64::from(height))?
         .checked_mul(4)?;
-    if rgba.len() != expected {
+    let rgba_len = u64::try_from(rgba.len()).ok()?;
+    if width > max_dimension
+        || height > max_dimension
+        || expected > max_raw_bytes
+        || rgba_len > max_raw_bytes
+    {
+        return Some(ClipboardImagePng::TooLarge {
+            limit: usize::try_from(max_raw_bytes).unwrap_or(usize::MAX),
+        });
+    }
+    if rgba_len != expected {
         return None;
     }
-    let mut png = Vec::new();
-    PngEncoder::new(&mut png)
-        .write_image(rgba, width, height, image::ExtendedColorType::Rgba8)
-        .ok()?;
-    Some(png)
+
+    let mut png = CappedPng::new(max_png_bytes);
+    let encode_result =
+        PngEncoder::new(&mut png).write_image(rgba, width, height, image::ExtendedColorType::Rgba8);
+    if png.overflowed || png.bytes.len() > max_png_bytes {
+        return Some(ClipboardImagePng::TooLarge {
+            limit: max_png_bytes,
+        });
+    }
+    encode_result.ok()?;
+    Some(ClipboardImagePng::Ready(png.bytes))
+}
+
+struct CappedPng {
+    bytes: Vec<u8>,
+    limit: usize,
+    overflowed: bool,
+}
+
+impl CappedPng {
+    fn new(max_png_bytes: usize) -> Self {
+        let limit = max_png_bytes.saturating_add(1);
+        Self {
+            bytes: Vec::with_capacity(limit),
+            limit,
+            overflowed: false,
+        }
+    }
+}
+
+impl Write for CappedPng {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        let remaining = self.limit.saturating_sub(self.bytes.len());
+        if remaining == 0 {
+            self.overflowed = true;
+            return Err(io::Error::new(
+                io::ErrorKind::FileTooLarge,
+                "encoded clipboard image exceeds its size limit",
+            ));
+        }
+        let accepted = remaining.min(buffer.len());
+        self.bytes.extend_from_slice(&buffer[..accepted]);
+        if accepted < buffer.len() {
+            self.overflowed = true;
+        }
+        Ok(accepted)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 pub(super) fn write_clipboard_selection(
@@ -536,6 +619,33 @@ mod tests {
             read_clipboard_selection(&mut clipboard, ClipboardSelection::Primary).as_deref(),
             Some("primary")
         );
+    }
+
+    #[test]
+    fn clipboard_image_raw_limit_accepts_exact_and_rejects_plus_one() {
+        let exact = encode_rgba_to_png_with_limits(2, 2, &[0x42; 16], 8, 16, 1024);
+        assert!(matches!(exact, Some(ClipboardImagePng::Ready(_))));
+
+        let over = encode_rgba_to_png_with_limits(2, 2, &[0x42; 16], 8, 15, 1024);
+        assert_eq!(over, Some(ClipboardImagePng::TooLarge { limit: 15 }));
+    }
+
+    #[test]
+    fn clipboard_image_dimension_and_shape_are_validated_before_encoding() {
+        assert_eq!(
+            encode_rgba_to_png_with_limits(9, 1, &[0; 36], 8, 64, 1024),
+            Some(ClipboardImagePng::TooLarge { limit: 64 })
+        );
+        assert_eq!(
+            encode_rgba_to_png_with_limits(2, 2, &[0; 15], 8, 64, 1024),
+            None
+        );
+    }
+
+    #[test]
+    fn clipboard_png_writer_stops_at_one_detection_byte() {
+        let over = encode_rgba_to_png_with_limits(2, 2, &[0x42; 16], 8, 64, 1);
+        assert_eq!(over, Some(ClipboardImagePng::TooLarge { limit: 1 }));
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows"))]

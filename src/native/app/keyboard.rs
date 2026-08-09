@@ -749,8 +749,18 @@ impl App {
         if !self.settings.remote_image_paste.is_enabled() {
             return;
         }
-        let Some(png) = self.clipboard.read_image_png() else {
+        let Some(image) = self.clipboard.read_image_png() else {
             return;
+        };
+        let png = match image {
+            super::super::clipboard::ClipboardImagePng::Ready(png) => png,
+            super::super::clipboard::ClipboardImagePng::TooLarge { limit } => {
+                self.write_active_banner(&format!(
+                    "\r\n\x1b[1;31m image too large \x1b[0m exceeds the {} processing cap — not uploaded\r\n",
+                    format_byte_size(limit),
+                ));
+                return;
+            }
         };
         let size = png.len();
         let cap = crate::settings::REMOTE_IMAGE_PASTE_MAX_BYTES;

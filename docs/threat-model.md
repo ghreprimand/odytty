@@ -753,9 +753,9 @@ closed. No private terminal transcript is ever ingested as corpus material.
 
 Five issues were identified by source inspection at the revision this document
 describes and are stated at exactly the scope demonstrated — no exploitation
-beyond that scope is claimed. Findings A and C are now closed with focused tests;
-the remaining three stay explicitly **unresolved**. Each closure carries its own
-tests and sibling-path sweep.
+beyond that scope is claimed. Findings A, B, and C are now closed with focused
+tests; the remaining two stay explicitly **unresolved**. Each closure carries
+its own tests and sibling-path sweep.
 
 ### Finding A — Session metadata reads are bounded and reject final-component symlinks
 
@@ -775,21 +775,23 @@ tests and sibling-path sweep.
 - **Unix and Windows:** Unix-only, because session hosting is Unix-only.
 - **Status:** resolved for the session-metadata read boundary.
 
-### Finding B — Clipboard image read allocates and encodes before any size cap
+### Finding B — Clipboard image processing is bounded before PNG encoding
 
-- **Anchor:** `read_image_png` in `src/native/clipboard.rs` obtains the full
-  RGBA buffer from the platform clipboard and calls `encode_rgba_to_png` over it
-  before any size limit is consulted.
-- **Scope demonstrated:** source inspection only. The dimension and allocation
-  bounds in `src/native/image_decode.rs` apply to *decoding*, and the paste cap
-  applies to encoded payload size; neither bounds the raw clipboard buffer or
-  the encode pass over it.
-- **Why it still matters:** clipboard contents are an untrusted channel (A4). A
-  very large clipboard image causes a large allocation plus a full compression
-  pass before the cap is reached, so the cap does not bound the cost it exists to
-  bound.
+- **Anchor:** `read_image_png` in `src/native/clipboard.rs` validates the
+  platform-provided dimensions and RGBA length against the shared 12,000-pixel
+  and 256 MiB image limits before compression. PNG output writes through a
+  fixed-cap buffer and stops one byte past the 10 MiB upload ceiling.
+- **Scope demonstrated:** focused tests cover the exact raw-byte boundary,
+  boundary plus one, excessive dimensions, malformed RGBA shape, and the PNG
+  output detection byte. The platform clipboard API necessarily owns its RGBA
+  acquisition before returning it; OdyTTY performs no further unbounded
+  allocation or compression work after that handoff.
+- **Why the boundary matters:** clipboard contents are an untrusted channel
+  (A4). Oversized dimensions or buffers now stop before compression, while an
+  incompressible image cannot grow the encoded buffer without limit.
 - **Unix and Windows:** all platforms with clipboard image support.
-- **Status:** unresolved. Not fixed here.
+- **Status:** resolved for OdyTTY-owned clipboard image processing after the
+  platform clipboard handoff.
 
 ### Finding C — Font-file reads share one regular-file and size boundary
 

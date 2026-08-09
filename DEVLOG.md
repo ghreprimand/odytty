@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Clipboard image processing is bounded before encoding
+
+Clipboard image paste-through now validates platform-provided RGBA dimensions
+and length against the shared image limits before PNG compression. Encoded PNG
+output writes through a fixed-cap buffer that stops one byte past the 10 MiB
+upload ceiling, so neither compression work nor the output allocation can grow
+without bound. An oversized image produces the existing in-terminal refusal
+instead of entering the confirmation or upload path.
+
+Focused tests cover the exact raw boundary and boundary plus one, excessive
+dimensions, malformed RGBA shape, and the encoded-output detection byte. The
+platform clipboard library still acquires its own RGBA buffer before returning;
+the new boundary applies immediately at the OdyTTY handoff.
+
+---
+
 ## 2026-08-08 -- Font discovery and loading share one bounded reader
 
 Direct text-font paths, system font metadata probes, and emoji-font loading now
