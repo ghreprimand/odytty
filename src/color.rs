@@ -619,7 +619,7 @@ mod tests {
             };
             let actual = srgb_to_linear(byte);
             assert!(
-                close(actual, expected, 1e-7),
+                close(actual, expected, 2e-6),
                 "byte {byte}: actual={actual} expected={expected}"
             );
         }
@@ -1114,7 +1114,7 @@ mod tests {
             let faded = fade(a, b, t);
             let mixed = mix_oklab(a, b, t);
             assert!(
-                rgb_close(faded, mixed, 2e-6),
+                rgb_close(faded, mixed, 5e-6),
                 "t={t}: fade={faded:?} mix={mixed:?}"
             );
         }

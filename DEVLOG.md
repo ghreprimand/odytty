@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-09 -- The stable Miri subset is recorded explicitly
+
+Three retained Miri runs now agree on the promoted Linux x86_64 subset:
+encoding, charset, cursor, alternate-screen, search, and selection all pass on
+the pinned nightly. The two scheduled AddressSanitizer and ThreadSanitizer jobs
+also pass. Diagnostic probes remain separate from that evidence; the latest
+run retained three bounded timeouts and found no undefined behavior.
+
+The remaining probe failures were test-contract problems rather than product
+failures. Exact or overly narrow float comparisons across native and Miri
+`powf` implementations now use tolerances far below one 8-bit output quantum.
+Those probes remain unpromoted until a later retained Miri run confirms them.
+
+---
+
 ## 2026-08-08 -- Win32 translation assertions catch the mutation census
 
 The focused Win32 input suite now catches every viable mutation in its declared

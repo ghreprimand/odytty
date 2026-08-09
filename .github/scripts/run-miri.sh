@@ -125,8 +125,9 @@ fi
 # those, so listing them would produce unsupported entries that say nothing
 # about the code.
 filters=(
-  # Stable promoted subset. Each filter passed both scheduled runs 30687422002
-  # and 31239892322 on the pinned toolchain.
+  # Stable promoted subset. Each filter passed scheduled runs 30687422002 and
+  # 31239892322, then the isolated confirmation run 31295390309, on the pinned
+  # toolchain.
   "required|core::encoding_tests::|encoding and decoder edge cases"
   "required|core::charset_tests::|charset designation and shift state"
   "required|core::cursor_tests::|cursor movement and save/restore invariants"

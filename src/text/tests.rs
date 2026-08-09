@@ -18,9 +18,11 @@ fn srgb_endpoints_map_to_linear_endpoints() {
 }
 
 #[test]
-fn srgb_to_linear_delegates_byte_identically() {
-    // The façade must equal the historical inline formula for every byte,
-    // so native/grid callers see no change (RV3 passthrough guarantee).
+fn srgb_to_linear_delegates_within_one_output_quantum() {
+    // The façade must remain far closer to the historical inline formula than
+    // one output quantum for every byte. Miri's software `powf` path can differ
+    // from the native implementation by a few ULPs, so exact float identity is
+    // not a portable contract.
     for byte in 0u16..=255 {
         let byte = byte as u8;
         let c = byte as f32 / 255.0;
@@ -29,7 +31,11 @@ fn srgb_to_linear_delegates_byte_identically() {
         } else {
             ((c + 0.055) / 1.055).powf(2.4)
         };
-        assert_eq!(srgb_to_linear(byte), inline);
+        let actual = srgb_to_linear(byte);
+        assert!(
+            (actual - inline).abs() <= 2e-6,
+            "byte {byte}: actual={actual} inline={inline}"
+        );
     }
 }
 

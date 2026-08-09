@@ -8,20 +8,41 @@ results mean, and what they may never be used to claim.
 
 ## Current status
 
-The lane is configured and its filters are declared, but **no results have
-been published yet**. Every declared filter carries the `probe` status, which
-means it has never completed a recorded run here.
+The Linux x86_64 lane has completed three retained Miri executions on
+`nightly-2026-07-29` and two retained sanitizer executions. Six Miri filters
+are promoted to `required`: encoding, charset, cursor, alternate-screen,
+search, and selection. All six passed runs `30687422002`, `31239892322`, and
+the isolated confirmation run `31295390309`.
 
-Until filters are promoted, a green run of this workflow is not evidence of
-anything. The scripts say so in their own output rather than leaving the
-reader to infer it. Nothing in this file may be cited as a finding of memory
-safety, freedom from undefined behavior, or freedom from data races.
+The two scheduled workflows are red because diagnostic Miri probes failed or
+timed out, not because the promoted subset regressed. AddressSanitizer and
+ThreadSanitizer passed in both scheduled runs. The isolated confirmation ran
+only Miri; its sanitizer jobs were intentionally skipped.
 
-What has been exercised so far is the refusal behavior: argument validation,
-the manual-only guard on MemorySanitizer, agreement between the toolchain pin
-carried by each script, and the unavailable path taken when the pinned
-toolchain or a required tool is absent. No Miri interpretation and no
-instrumented build has been executed anywhere.
+| Run | Revision | Miri | AddressSanitizer | ThreadSanitizer |
+| --- | --- | --- | --- | --- |
+| `30687422002` | `e00d5844` | red diagnostic lane; promoted subset passed | passed | passed |
+| `31239892322` | `bd5ce3cf` | red diagnostic lane; promoted subset passed | passed | passed |
+| `31295390309` | `b35d2e33` | 50 passed, 2 failed, 3 timed out; all 6 required filters passed | not run | not run |
+
+The confirmation run reported no undefined behavior and no unsupported
+required filter. Its three timeouts were bounded probes: the OSC current-
+directory group stopped in the oversized-payload case, the scrollback resize
+parity sweep exceeded its clock after the repeated case passed, and the
+open-line scrollback group exceeded its clock. These are retained as timeouts,
+not converted to passes.
+
+The two failing probe filters exposed non-portable exact or overly narrow
+floating-point assertions. Miri's software `powf` path differed from the
+native path by a few ULPs in the text sRGB delegate, the color byte transfer,
+and the OKLab fade alias. Their assertions now use tolerances far below one
+8-bit output quantum, preserving the observable conversion and alias
+contracts without requiring interpreter/native bit identity. These probes
+remain unpromoted until a later recorded Miri run passes them.
+
+Nothing in these results proves memory safety, freedom from undefined
+behavior, or freedom from data races. They are evidence only for the named
+executions and filters.
 
 ## Two tools, two questions
 
