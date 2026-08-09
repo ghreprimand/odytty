@@ -753,8 +753,8 @@ closed. No private terminal transcript is ever ingested as corpus material.
 
 Five issues were identified by source inspection at the revision this document
 describes and are stated at exactly the scope demonstrated — no exploitation
-beyond that scope is claimed. Finding A is now closed with focused tests; the
-remaining four stay explicitly **unresolved**. Each closure carries its own
+beyond that scope is claimed. Findings A and C are now closed with focused tests;
+the remaining three stay explicitly **unresolved**. Each closure carries its own
 tests and sibling-path sweep.
 
 ### Finding A — Session metadata reads are bounded and reject final-component symlinks
@@ -791,20 +791,20 @@ tests and sibling-path sweep.
 - **Unix and Windows:** all platforms with clipboard image support.
 - **Status:** unresolved. Not fixed here.
 
-### Finding C — Font files are read whole with no per-file cap
+### Finding C — Font-file reads share one regular-file and size boundary
 
-- **Anchors:** `load_font_at` and `read_face_meta` in `src/text.rs` both read
-  the entire file into memory before parsing.
-- **Scope demonstrated:** source inspection only. Parsing itself is memory-safe
-  and fails closed; the gap is the read, not the parse.
-- **Why it still matters:** enumeration walks system font directories and reads
-  every candidate. One very large file — or a path pointing at a device or a
-  special file — is read without bound, on a path that runs during font
-  discovery rather than on explicit user action. `read_capped` in
-  `src/settings/fs_read.rs` already implements the correct pattern, including
-  the non-regular-file rejection.
+- **Anchors:** direct text-font loading, metadata enumeration, and emoji-font
+  loading all route through `read_font_file` in `src/font_file.rs`.
+- **Scope demonstrated:** the shared reader validates both the path metadata and
+  the opened object as regular files, rejects a known oversized file before
+  allocation, and stops at 256 MiB plus one detection byte if the file grows.
+  Focused tests cover the exact cap boundary, non-regular paths, and the
+  preserved symlink-to-regular-file behavior used by system font installs.
+- **Why the boundary matters:** enumeration can inspect many filesystem entries
+  during startup. One audited policy now bounds every production whole-font
+  read before the parser receives owned bytes.
 - **Unix and Windows:** all platforms; font enumeration runs on each.
-- **Status:** unresolved. Not fixed here.
+- **Status:** resolved for production font-file reads.
 
 ### Finding D — Connection-host file mutation paths read without a size cap
 

@@ -7,6 +7,21 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Font discovery and loading share one bounded reader
+
+Direct text-font paths, system font metadata probes, and emoji-font loading now
+use one portable whole-file boundary. It rejects non-regular targets, checks the
+opened object again, rejects files larger than 256 MiB before allocation, and
+reads at most one byte past the ceiling to detect growth after the metadata
+check. Symlinks that resolve to regular font files remain supported for common
+system-font layouts.
+
+Focused tests cover the exact byte boundary, a non-regular path, and the
+preserved symlink case. Font parse errors, fallback order, discovery behavior,
+and public diagnostics are otherwise unchanged.
+
+---
+
 ## 2026-08-08 -- Session metadata reads bounded at the file descriptor
 
 Detached-session metadata now opens through the owner-private sensitive-file

@@ -357,7 +357,7 @@ pub fn load_font_with_path(font_path: Option<&Path>) -> Result<FontVec, TextErro
 
 /// Load and parse a font from an explicit path.
 pub fn load_font_at(path: &Path) -> Result<FontVec, TextError> {
-    let bytes = std::fs::read(path).map_err(|source| TextError::Read {
+    let bytes = crate::font_file::read_font_file(path).map_err(|source| TextError::Read {
         path: path.display().to_string(),
         source,
     })?;

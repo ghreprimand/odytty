@@ -51,7 +51,7 @@ const NAME_ID_TYPOGRAPHIC_FAMILY: u16 = 16;
 /// Read [`FaceMeta`] for the first face in a font file, or `None` when the file
 /// cannot be read/parsed or carries no usable family name.
 pub(super) fn read_face_meta(path: &Path) -> Option<FaceMeta> {
-    let data = std::fs::read(path).ok()?;
+    let data = crate::font_file::read_font_file(path).ok()?;
     let face = ttf_parser::Face::parse(&data, 0).ok()?;
     // Exclude emoji / icon / symbol faces from text-family enumeration and
     // family-name resolution: a color-emoji font (e.g. "Noto Color Emoji")

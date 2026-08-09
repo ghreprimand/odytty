@@ -49,10 +49,11 @@ pub struct EmojiFont {
 
 impl EmojiFont {
     pub fn load(path: PathBuf) -> Result<Self, EmojiProbeError> {
-        let data = std::fs::read(&path).map_err(|source| EmojiProbeError::Read {
-            path: path.clone(),
-            source,
-        })?;
+        let data =
+            crate::font_file::read_font_file(&path).map_err(|source| EmojiProbeError::Read {
+                path: path.clone(),
+                source,
+            })?;
         let font = FontRef::from_index(&data, 0)
             .ok_or_else(|| EmojiProbeError::Parse { path: path.clone() })?;
         let offset = font.offset;
