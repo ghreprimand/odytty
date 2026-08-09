@@ -1,6 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use super::*;
 
+// The facade re-exports the module's own items; these are the third-party and
+// crate types the pre-split `text.rs` had in scope through its own `use` block,
+// which `use super::*` no longer carries now that each submodule imports what it
+// needs. Naming them here changes no assertion.
+use std::path::{Path, PathBuf};
+
+use ab_glyph::{Font, FontVec};
+
+use crate::core::Color;
+
 #[test]
 fn srgb_endpoints_map_to_linear_endpoints() {
     assert_eq!(srgb_to_linear(0), 0.0);

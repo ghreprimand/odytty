@@ -7,6 +7,50 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- Text and font responsibilities split into modules
+
+`src/text.rs` is now a facade over eight modules under `src/text/`, each owning
+one responsibility: `bundled` (compiled-in faces and font-file loading),
+`discovery` (search directories, font-file collection, name normalization),
+`face_meta` (font-table metadata and the family inventory built from it),
+`resolve` (choosing a face for a requested family or weight), `symbols`
+(symbol-font fallback order and source labelling), `metrics` (raster and
+advance probes on a loaded face), `color` (default and ANSI palettes, runtime
+overrides, sRGB and linear math), and `symbol_map` (SYMMAP codepoint rules).
+The largest is 540 lines against a 1,999 limit, so the file leaves the size
+backlog with real headroom rather than by two lines.
+
+Dependencies run one way. `discovery` and `metrics` are leaves; `bundled` reads
+`discovery`; `face_meta` reads `bundled` and `discovery`; `resolve` reads
+`discovery`, `face_meta`, `bundled` and `metrics`; `symbols` reads `bundled`,
+`discovery` and `metrics`; `color` and `symbol_map` depend on nothing. Nothing
+depends on the facade. The font inventory moved from the discovery layer to
+`face_meta` because it validates each candidate by loading and measuring it,
+which is a metadata question rather than a path question, and leaving it in
+`discovery` would have made the lowest layer depend on two layers above it.
+
+Behavior is unchanged and the split is proved rather than asserted. Every code
+line of the pre-split file is present exactly once afterwards -- 1,837 lines
+matched in both directions with no residue -- once the two mechanical edits are
+normalized away: restricted-visibility markers on items that siblings now
+reference, and `include_bytes!` paths gaining one directory level. All 71
+public `crate::text` paths were compile-checked through a temporary probe
+module, which was shown to have teeth by deleting one re-export and observing
+exactly the expected unresolved imports. The submodules are private, so the
+facade stays the only path in, and a second probe confirms the
+restricted-visibility helpers cannot be named from outside `crate::text`.
+
+Two defects surfaced during the split. The blanket visibility promotion that
+made the modules compile also promoted 22 items no sibling references, which
+would have weakened dead-code detection on a file the rule exists to keep
+honest; each was demoted back to module-private. And
+`font_provides_outline_glyph` is used only by the fontconfig-backed runtime
+fallback, so its import is dead on macOS and Windows and would have failed
+those blocking legs under `-D warnings` while passing every local Linux gate;
+the import now carries the same `cfg` as the item that uses it.
+
+---
+
 ## 2026-08-08 -- Runtime settings decomposed by ownership and resolution
 
 `src/settings.rs` is now a 64-line facade over focused settings modules. The
@@ -95,9 +139,6 @@ The focused core suite passes 890 tests with five intentional ignores. The
 complete all-target suite also passes, including 4,227 library tests with seven
 intentional ignores and every integration target. Formatting, diff checks, and
 the production-file guard pass with no unclassified Rust modules.
-
----
-
 ## 2026-08-08 -- Native UI test modules moved to test-only siblings
 
 The terminal `#[cfg(test)] mod tests` blocks of `src/native/context_menu_ui.rs`
