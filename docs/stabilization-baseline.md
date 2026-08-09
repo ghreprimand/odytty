@@ -418,6 +418,16 @@ cross-platform, and a local Linux run cannot prove either platform builds
 against the new pin; the blocking Windows and macOS jobs remain the authority
 for that.
 
+### Follow-up: `ttf-parser` exception time-bounded, 2026-08-08
+
+The starting-state table above remains historical. The live exception for
+`RUSTSEC-2026-0192` now expires on **2026-10-15**. The audit script fails on or
+after that date while the exact advisory remains in the scan; disappearance of
+the advisory clears the fuse. `docs/release.md` records the dependency graph,
+runtime reachability, mitigations, ownership, and removal paths. Upstream's
+transferred repository entered maintenance mode on 2026-08-06 with correctness
+and security fixes in scope, but no post-transfer crates.io release exists yet.
+
 ## Representative environment class and timings
 
 The capture used a Linux x86-64 workstation class with 32 logical processors,

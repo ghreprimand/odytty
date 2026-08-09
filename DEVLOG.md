@@ -7,6 +7,22 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-08 -- The font-parser advisory now has a hard expiry
+
+The informational `ttf-parser 0.25.1` unmaintained warning remains in the
+locked dependency graph directly and through `ab_glyph`. Upstream moved to the
+HarfBuzz organization and entered maintenance mode with correctness and
+security fixes in scope, but no post-transfer crates.io release exists yet.
+
+The bounded exception now expires on 2026-10-15. The shared RustSec script
+fails on or after that date while `RUSTSEC-2026-0192` remains present, so the
+scheduled, pull-request, and release gates cannot carry it indefinitely. The
+release guide records the exact graph, runtime reachability, mitigations,
+ownership, and upgrade/replacement triggers. Stale threat-model residuals were
+also reconciled with the four file-boundary closures already landed.
+
+---
+
 ## 2026-08-08 -- Connection-host reads share one bounded file policy
 
 The normal `hosts.conf` parser and every append, edit, and remove path now use

@@ -452,10 +452,11 @@ the reference implementation.
   `src/native/clipboard.rs`.
 - **Planned fuzz target:** a paste-shaped target asserting that chunk framing is
   never split across a bracketed-paste boundary for any input length.
-- **Residual risk:** recorded as finding **B** below — the clipboard *image*
-  read path allocates and encodes before the size cap applies. Bracketed paste
-  depends on the receiving application enabling it; a shell that does not is
-  outside OdyTTY's control.
+- **Residual risk:** the platform clipboard library acquires its RGBA buffer
+  before handing it to OdyTTY; dimensions, raw bytes, and PNG output are bounded
+  immediately after that handoff (finding **B**). Bracketed paste depends on the
+  receiving application enabling it; a shell that does not is outside OdyTTY's
+  control.
 
 ### B9 — Shell integration, environment, and process launch
 
@@ -522,8 +523,8 @@ the most deliberate omissions.
   construction and probe classification tests in `src/ssh_connect.rs`.
 - **Planned fuzz target:** a configuration-shaped target asserting bounded
   parsing, no panic, and no field leakage across entries for arbitrary bytes.
-- **Residual risk:** recorded as finding **D** below — the connection-host list
-  file is read without a size cap on the mutation paths.
+- **Residual risk:** low. The connection-host parser and every mutation path now
+  share the bounded regular-file policy recorded in finding **D**.
 
 ### B11 — Session sockets, metadata, and state files
 
@@ -558,8 +559,8 @@ the most deliberate omissions.
 - **Planned fuzz target:** a state-file target over metadata and snapshot
   parsing, asserting fail-closed behavior with no panic, no unbounded
   allocation, and no file access outside the runtime directory.
-- **Residual risk:** recorded as finding **A** below — metadata reads lack a
-  final-component symlink guard and a size cap.
+- **Residual risk:** low. Metadata reads now use the bounded, owner-validated,
+  final-component-nonfollowing boundary recorded in finding **A**.
 
 ### B12 — Settings, theme, and workspace files
 
@@ -586,9 +587,8 @@ the most deliberate omissions.
 - **Planned fuzz target:** a settings-shaped target asserting fail-closed
   parsing with no panic and no unintended file access, including Windows path
   and encoding forms.
-- **Residual risk:** low. This is the best-bounded file boundary in the
-  codebase, and it is the pattern the unbounded readers in findings A, C, and D
-  should adopt.
+- **Residual risk:** low. The same cap-plus-one and regular-file pattern now
+  covers the sibling readers closed in findings A, C, and D.
 
 ### B13 — Hostile fonts
 
@@ -602,7 +602,9 @@ the most deliberate omissions.
 - **Validation and caps:** parsing is memory-safe Rust (`ttf-parser` for
   metadata, `swash` for shaping and rasterization, `ab_glyph` vector types for
   loading), and a parse failure returns an error rather than panicking
-  (`src/text.rs`). Glyph rasterization output is bounded by atlas capacity.
+  (`src/text/face_meta.rs`). Every production whole-font read shares the 256 MiB
+  regular-file boundary in `src/font_file.rs`; glyph rasterization output is
+  bounded by atlas capacity.
 - **Failure behavior:** an unparseable font is skipped during enumeration or
   falls back to the next candidate at load time.
 - **Diagnostic exposure:** font paths may include a user's home directory and
@@ -612,10 +614,10 @@ the most deliberate omissions.
   `tests/emoji_pixel_smoke.rs`).
 - **Planned fuzz target:** a font-shaped target over metadata extraction with a
   corpus of malformed and truncated font files, run under bounded memory.
-- **Residual risk:** recorded as finding **C** below — font files are read whole
-  with no per-file size cap. Separately, the metadata parser carries a known
-  unmaintained-dependency advisory tracked by the dependency audit gate; that
-  tracking is referenced here, not duplicated.
+- **Residual risk:** the metadata parser's informational unmaintained-dependency
+  advisory is time-bounded through 2026-10-15 by the dependency audit gate and
+  documented in `docs/release.md`. Finding **C** records the closed file-read
+  boundary rather than an outstanding unbounded allocation.
 
 ### B14 — Resource exhaustion
 
@@ -635,12 +637,10 @@ from a bound that was applied to one path and missed on a sibling.
 - **Failure behavior:** bounded degradation. Frames are dropped rather than
   queued without limit; over-cap payloads are refused rather than truncated.
 - **Existing tests:** cap tests colocated with each bounded module.
-- **Planned mitigation:** a systematic sibling-path audit is the appropriate
-  follow-up. The dominant historical defect pattern in this codebase is a guard
-  applied to one of several parallel implementations of the same operation while
-  its twins were missed, and findings A, C, and D below are all instances of
-  exactly that pattern — a bounded reader exists (B12) and other readers do not
-  use it.
+- **Planned mitigation:** continue systematic sibling-path review. Findings A,
+  C, and D were instances of a guard applied to one of several parallel
+  operations while its twins were missed; their closures route the sibling
+  paths through shared bounded readers.
 - **Residual risk:** unbounded *time* is less well covered than unbounded
   memory. Several boundaries cap allocation without capping work.
 
@@ -858,6 +858,7 @@ tests and sibling-path sweep.
   remain. It does not assert that the enumerated boundaries are the complete
   set; a boundary absent from this catalog is an omission to be corrected, not
   an implicit statement that none exists.
-- **Verification of the unresolved findings.** All five are source-inspection
-  results at the stated scope. None has an exploit, and none should be described
-  as having one.
+- **Verification of the unresolved findings.** Finding E is a source-inspection
+  result at the stated scope. No bypass was observed, and it must not be
+  described as safe or exploitable until the Windows test resolves it. Findings
+  A through D carry the focused closure evidence stated above.
