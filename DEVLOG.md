@@ -12,9 +12,10 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 Effective `Ctrl`+wheel font-size changes now raise one reusable centered text
 HUD. Repeated steps replace its message and refresh a single 1.5-second expiry;
 the static chip has no animation phase, stays compatible with reduced-motion
-and plain-theme rendering, and adds no wake at rest. The presentation boundary
-is generic so terminal-dimension resize feedback can use the same state and
-painter without adding a second timer.
+and plain-theme rendering, and adds no wake at rest. Interactive window resize
+uses the same surface to show the final debounced `columns × rows` geometry in
+the center of the terminal. The first nonzero configure is suppressed, later
+updates persist for 750 ms, and minimize events do not create stale feedback.
 
 The existing unseen-activity latch now reaches the tab strip and workspace
 rail. Background tabs receive a static theme-role dot, while each workspace

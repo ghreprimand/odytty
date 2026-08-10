@@ -331,6 +331,12 @@ pane is reconciled to the final whole-cell geometry. A pane narrowed below one
 drawable cell keeps a valid one-cell PTY backing model but clips terminal
 rendering and rejects cell input until it expands again.
 
+During interactive window resize, a centered transient HUD reports the final
+debounced terminal geometry as `columns × rows`. The initial nonzero configure
+is silent, minimize events are ignored, and later updates clear 750 ms after the
+last applied resize. The same static treatment works in single- and multi-pane,
+plain-theme, effects, and reduced-motion paths without changing PTY state.
+
 Kitty and Sixel placements are also per-pane and clipped to the pane's
 sub-rectangle. Optional inactive-pane dimming uses `inactive_pane_dim`, defaults
 to `0.0`, and is disabled by `render_quality=plain`; the no-dim frame remains

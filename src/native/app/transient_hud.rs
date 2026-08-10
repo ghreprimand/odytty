@@ -3,13 +3,15 @@
 //!
 //! The surface owns one message and one expiry deadline. It is intentionally
 //! static: reduced-motion mode needs no special branch, and an idle terminal
-//! gains no frame-paced wakeups. Font zoom uses it now; resize feedback can use
-//! the same `show`/`paint` boundary without introducing another timer or visual
-//! treatment.
+//! gains no frame-paced wakeups. Font zoom and debounced resize feedback share
+//! the same state and painter without introducing independent timers or visual
+//! treatments.
 
 use std::time::{Duration, Instant};
 
-use crate::core::{Attrs, Cell, Color, Snapshot};
+use crate::core::{Attrs, Cell, Color, Dimensions, DynamicColors, Position, Snapshot};
+use crate::native::layout::PaneRect;
+use crate::text::CellSize;
 
 use super::{App, OverlayFragment};
 
@@ -19,35 +21,41 @@ pub(super) const TRANSIENT_HUD_DURATION: Duration = Duration::from_millis(1500);
 #[derive(Debug, Default, Clone)]
 pub(super) struct TransientHud {
     text: Option<String>,
-    shown_at: Option<Instant>,
+    deadline: Option<Instant>,
 }
 
 impl TransientHud {
     /// Show or replace the current message. Repeated gesture steps refresh the
     /// single deadline rather than stacking multiple surfaces.
     pub(super) fn show(&mut self, text: String, now: Instant) {
+        self.show_for(text, now, TRANSIENT_HUD_DURATION);
+    }
+
+    /// Show or replace a message with a producer-specific bounded lifetime.
+    /// Resize feedback uses Ghostty's shorter 750 ms convention while font
+    /// zoom retains the more relaxed gesture-confirmation interval.
+    pub(super) fn show_for(&mut self, text: String, now: Instant, duration: Duration) {
         self.text = Some(text);
-        self.shown_at = Some(now);
+        self.deadline = Some(now + duration);
     }
 
     /// Clear the message once its one-shot deadline passes. Returns whether the
     /// visible state changed so the event-loop owner can request one repaint.
     pub(super) fn expire(&mut self, now: Instant) -> bool {
-        let Some(shown_at) = self.shown_at else {
+        let Some(deadline) = self.deadline else {
             return false;
         };
-        if now.saturating_duration_since(shown_at) < TRANSIENT_HUD_DURATION {
+        if now < deadline {
             return false;
         }
         self.text = None;
-        self.shown_at = None;
+        self.deadline = None;
         true
     }
 
     /// The sole wake while visible; `None` at rest preserves zero-wake idle.
     pub(super) fn deadline(&self) -> Option<Instant> {
-        self.shown_at
-            .map(|shown_at| shown_at + TRANSIENT_HUD_DURATION)
+        self.deadline
     }
 
     pub(super) fn signature(&self) -> OverlayFragment {
@@ -91,6 +99,10 @@ impl TransientHud {
         }
     }
 
+    pub(super) fn text(&self) -> Option<&str> {
+        self.text.as_deref()
+    }
+
     #[cfg(test)]
     pub(super) fn text_for_test(&self) -> Option<&str> {
         self.text.as_deref()
@@ -109,6 +121,20 @@ impl App {
     /// Replace the current HUD message and schedule its one expiry wake.
     pub(super) fn show_transient_hud(&mut self, text: String) {
         self.transient_hud.show(text, Instant::now());
+        self.invalidate_transient_hud();
+    }
+
+    pub(super) fn show_transient_hud_for(
+        &mut self,
+        text: String,
+        now: Instant,
+        duration: Duration,
+    ) {
+        self.transient_hud.show_for(text, now, duration);
+        self.invalidate_transient_hud();
+    }
+
+    fn invalidate_transient_hud(&mut self) {
         self.needs_rebuild = true;
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
@@ -134,6 +160,49 @@ impl App {
         self.transient_hud.paint(snapshot);
     }
 
+    /// Build the same compact HUD as an independent topmost snapshot for the
+    /// multi-pane renderer, centered over the whole terminal content area.
+    pub(super) fn build_transient_hud_top(
+        &self,
+        content: PaneRect,
+        cell: CellSize,
+    ) -> Option<(Snapshot, [f32; 2])> {
+        if self.overlay.is_open() || self.rename_state.is_some() {
+            return None;
+        }
+        let text = self.transient_hud.text()?;
+        let (columns, rows) =
+            crate::native::layout::grid_dims_for_rect(content, cell.width, cell.height);
+        if columns < 3 || rows == 0 {
+            return None;
+        }
+        let message_width = text.chars().filter(|ch| !ch.is_control()).count();
+        if message_width == 0 {
+            return None;
+        }
+        let width = message_width.saturating_add(2).min(columns);
+        let left = columns.saturating_sub(width) / 2;
+        let top = rows / 2;
+        let colors: DynamicColors = crate::native::lock_recover(&self.terminal)
+            .dynamic_colors()
+            .clone();
+        let mut snapshot = Snapshot {
+            dimensions: Dimensions::new(width, 1),
+            cursor: Position { row: 0, column: 0 },
+            cursor_visible: false,
+            colors,
+            cells: vec![Cell::default(); width],
+        };
+        self.transient_hud.paint(&mut snapshot);
+        Some((
+            snapshot,
+            [
+                content.x + left as f32 * cell.width as f32,
+                content.y + top as f32 * cell.height as f32,
+            ],
+        ))
+    }
+
     pub(super) fn transient_hud_deadline(&self) -> Option<Instant> {
         self.transient_hud.deadline()
     }
@@ -149,6 +218,11 @@ impl App {
 mod tests {
     use super::*;
     use crate::core::{Dimensions, Snapshot};
+    use crate::native::NativeOptions;
+    use crate::native::layout::PaneRect;
+    use crate::native::test_support::headless_app_with;
+    use crate::settings::Settings;
+    use crate::text::CellSize;
 
     fn blank_snapshot(columns: usize, rows: usize) -> Snapshot {
         Snapshot {
@@ -198,5 +272,42 @@ mod tests {
                 && cell.attrs.background == Color::Indexed(0)
                 && cell.attrs.bold()
         }));
+    }
+
+    #[test]
+    fn split_hud_is_centered_over_the_window_and_modal_surfaces_suppress_it() {
+        let dims = Dimensions::new(80, 24);
+        let (mut app, _terminal) =
+            headless_app_with(NativeOptions::default(), dims, Settings::default());
+        app.transient_hud.show("80 × 24".to_owned(), Instant::now());
+        let content = PaneRect {
+            x: 10.0,
+            y: 20.0,
+            w: 800.0,
+            h: 480.0,
+        };
+        let cell = CellSize {
+            width: 10,
+            height: 20,
+            baseline: 15,
+        };
+        let (panel, origin) = app
+            .build_transient_hud_top(content, cell)
+            .expect("visible HUD");
+        assert_eq!(panel.dimensions, Dimensions::new(9, 1));
+        assert_eq!(origin, [360.0, 260.0]);
+        assert_eq!(
+            panel.cells[1..8]
+                .iter()
+                .map(|cell| cell.ch)
+                .collect::<String>(),
+            "80 × 24"
+        );
+
+        app.open_settings_overlay_for_test();
+        assert!(app.build_transient_hud_top(content, cell).is_none());
+        let mut single = blank_snapshot(20, 5);
+        app.paint_transient_hud_cells(&mut single);
+        assert!(single.cells.iter().all(|cell| *cell == Cell::default()));
     }
 }

@@ -104,6 +104,9 @@ pub(in crate::native) struct App {
     /// Linux clipboard contents remain served after Ctrl+Shift+C.
     pub(super) clipboard: NativeClipboard,
     pub(super) resize_debounce: ResizeDebouncer,
+    /// Presentation-only producer for debounced `columns × rows` feedback.
+    /// The shared transient HUD owns painting and expiry.
+    pub(super) resize_hud: resize_hud::ResizeHud,
     /// BLACK-SCREEN-ON-RESTORE: pending bounded retry for a transiently-skipped
     /// frame. When a render returns [`FrameOutcome::Skipped`] (the surface
     /// acquire timed out / was occluded, e.g. the first frame as a Windows DX12
@@ -508,6 +511,7 @@ impl App {
             overlay,
             clipboard: NativeClipboard::default(),
             resize_debounce: ResizeDebouncer::new(RESIZE_DEBOUNCE_INTERVAL),
+            resize_hud: resize_hud::ResizeHud::default(),
             skipped_frame_retry_deadline: None,
             skip_episode: SkipEpisode::default(),
             skip_escalation: SkipEscalation::default(),

@@ -188,6 +188,7 @@ impl App {
     pub(super) fn record_pending_resize(&mut self, resize: PendingResize, now: Instant) {
         if let Some(due) = self.resize_debounce.record(resize, now) {
             self.apply_grid_resize(due);
+            self.finish_resize_for_hud(now);
         }
     }
 
@@ -592,6 +593,7 @@ impl App {
 
         if let Some(resize) = self.resize_debounce.take_due(now) {
             self.apply_grid_resize(resize);
+            self.finish_resize_for_hud(now);
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();
             }
@@ -908,7 +910,9 @@ impl App {
         // compositor ends the grab without a button-release event.
         self.finish_divider_drag();
         if let Some(resize) = resize {
-            self.record_pending_resize(resize, Instant::now());
+            let now = Instant::now();
+            self.note_window_resize_for_hud(resize.width_px, resize.height_px);
+            self.record_pending_resize(resize, now);
         }
         // C4: re-center the image viewer for the new surface size.
         self.refresh_image_overlay_on_resize();

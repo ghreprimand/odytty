@@ -925,14 +925,6 @@ impl App {
             );
         }
 
-        // Window-level gesture feedback remains visible in split layouts by
-        // painting the reusable HUD into the focused pane. The state is static
-        // and absent at rest, so background panes and ordinary frames remain
-        // untouched.
-        if let Some(pane) = panes_owned.iter_mut().find(|pane| pane.focused) {
-            self.transient_hud.paint(&mut pane.snapshot);
-        }
-
         // Build every pane's status gutter in that pane's own scrollback and
         // window coordinate space. This used to exist only in the single-pane
         // renderer, so splitting a tab silently removed every success/fail bar.
@@ -1119,7 +1111,9 @@ impl App {
         // pane, and composited last so it draws over every pane + divider.
         // `None` when no modal surface is open, leaving the multi-pane frame
         // unchanged. Owned here so the `OverlayTop` borrow outlives the GPU call.
-        let overlay_top = self.build_overlay_top(content, cell);
+        let overlay_top = self
+            .build_overlay_top(content, cell)
+            .or_else(|| self.build_transient_hud_top(content, cell));
         let treatment_for_overlay = treatment;
         // Solid quads composited over the pane snapshots: the inter-pane
         // dividers plus the tab strip's own quads (the active-tab outline). Both

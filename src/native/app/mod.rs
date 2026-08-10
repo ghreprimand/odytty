@@ -153,6 +153,7 @@ mod prompt_jump;
 mod rail_autohide;
 mod rail_overlay;
 mod replay_ui;
+mod resize_hud;
 mod scroll_anim;
 mod selection_input;
 mod session_attach_ui;
