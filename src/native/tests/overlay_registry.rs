@@ -51,6 +51,7 @@ fn inert_composite() -> OverlayCompositeSignature {
         ime_preedit: OverlayFragment::Inert,
         open_notice: OverlayFragment::Inert,
         click_hint: OverlayFragment::Inert,
+        transient_hud: OverlayFragment::Inert,
         armed_path: OverlayFragment::Inert,
         buttons: OverlayFragment::Inert,
     }

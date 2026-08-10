@@ -80,6 +80,12 @@ fn ctrl_wheel_zooms_font_when_reporting_off() {
     app.set_ctrl_modifier_for_test(true);
     app.dispatch_wheel_for_test(1.0);
     assert_eq!(app.font_size_px_for_test(), base + 1.0);
+    let expected_hud = format!("Font {:.0} px", base + 1.0);
+    assert_eq!(
+        app.transient_hud_text_for_test(),
+        Some(expected_hud.as_str()),
+        "a successful zoom step raises the centered font-size HUD"
+    );
     app.dispatch_wheel_for_test(-1.0);
     assert_eq!(app.font_size_px_for_test(), base);
 }
@@ -100,6 +106,7 @@ fn plain_wheel_without_ctrl_never_zooms() {
         base,
         "a plain wheel must not change the font size"
     );
+    assert_eq!(app.transient_hud_text_for_test(), None);
 }
 
 #[test]
@@ -132,6 +139,7 @@ fn ctrl_wheel_does_not_zoom_in_a_mouse_reporting_app() {
         base,
         "Ctrl+wheel in a mouse-reporting app must not change the font size"
     );
+    assert_eq!(app.transient_hud_text_for_test(), None);
 
     // DECSET 1000 selects Normal tracking with the legacy (Default) encoding.
     // Re-derive the expected report through the production encoder so this pins
@@ -183,6 +191,7 @@ fn ctrl_wheel_over_open_overlay_does_not_zoom() {
         base,
         "an open overlay captures the wheel; Ctrl+wheel must not zoom"
     );
+    assert_eq!(app.transient_hud_text_for_test(), None);
 }
 
 #[test]

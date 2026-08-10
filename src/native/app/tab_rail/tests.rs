@@ -574,6 +574,31 @@ struct BoundMock {
     active: usize,
     bound: Vec<usize>,
 }
+
+struct ActivityBoundMock {
+    titles: Vec<&'static str>,
+    active: usize,
+    bound: Vec<usize>,
+    activity: Vec<usize>,
+}
+
+impl TabBarSource for ActivityBoundMock {
+    fn tab_count(&self) -> usize {
+        self.titles.len()
+    }
+    fn tab_title(&self, idx: usize) -> &str {
+        self.titles[idx]
+    }
+    fn active_tab(&self) -> usize {
+        self.active
+    }
+    fn tab_bound(&self, idx: usize) -> bool {
+        self.bound.contains(&idx)
+    }
+    fn tab_activity(&self, idx: usize) -> bool {
+        self.activity.contains(&idx)
+    }
+}
 impl TabBarSource for BoundMock {
     fn tab_count(&self) -> usize {
         self.titles.len()
@@ -609,6 +634,31 @@ fn bound_row_paints_the_accent_badge_in_the_rail_edge_column() {
         rgb(ACCENT),
         "badge uses the text-side accent role passed in"
     );
+}
+
+#[test]
+fn workspace_activity_badge_is_static_and_coexists_with_bound_marker() {
+    let src = ActivityBoundMock {
+        titles: vec!["local", "remote"],
+        active: 0,
+        bound: vec![1],
+        activity: vec![1],
+    };
+    let out = render_default(&src);
+    let layout = compute_rail_layout(&src, RAIL_COLS, GRID_ROWS, GEOM);
+    let row = layout.slots[1].label_row;
+
+    let bound = &out.glyphs[row * RAIL_COLS];
+    assert_eq!(bound.ch, BOUND_BADGE);
+    assert_eq!(bound.attrs.foreground, rgb(ACCENT));
+
+    let activity = &out.glyphs[row * RAIL_COLS + RAIL_COLS - 1];
+    assert_eq!(activity.ch, ACTIVITY_BADGE);
+    assert_eq!(
+        activity.attrs.foreground,
+        rgb(tab_chrome::active_label(COLORS))
+    );
+    assert!(activity.attrs.bold());
 }
 
 #[test]

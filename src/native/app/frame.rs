@@ -561,6 +561,9 @@ impl App {
                 // + Ctrl + a hovered path; the hint needs to be shown.
                 self.paint_armed_path_underline_cells(&mut snapshot);
                 self.paint_click_hint_cells(&mut snapshot);
+                // Static centered feedback for bounded window-level gestures
+                // such as Ctrl+wheel font zoom. No-op at rest.
+                self.paint_transient_hud_cells(&mut snapshot);
                 // Frame-overlay quad manifest: scroll indicator, then the
                 // SH2 status gutter, then the no-op new slots.
                 let mut overlays: Vec<SolidQuad> = Vec::new();
@@ -658,6 +661,7 @@ impl App {
                             // default path; armed_path flips on Ctrl
                             // toggle / span move so it reclassifies Full.
                             click_hint: self.click_hint_overlay_signature(),
+                            transient_hud: self.transient_hud.signature(),
                             armed_path: self.armed_path_overlay_signature(),
                             // Button Protocol B2: Inert on the gate-off /
                             // no-button path (composite stays constant);

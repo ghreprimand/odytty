@@ -43,7 +43,7 @@
 //! knobs (resolved by the integration layer into [`RailGeom`] + `rail_cols`);
 //! auto-hide and drag-resize are handled in the interaction layer.
 
-use super::tab_bar::{TabBarColors, TabBarSource, TabHit};
+use super::tab_bar::{ACTIVITY_BADGE, TabBarColors, TabBarSource, TabHit};
 use super::tab_chrome;
 use super::*;
 use crate::core::Attrs;
@@ -429,6 +429,24 @@ impl TabRail {
                     let g = &mut cells[brow * rail_cols + badge_col];
                     g.ch = BOUND_BADGE;
                     g.attrs.foreground = rgb(bound_accent);
+                }
+            }
+            // Unseen workspace activity uses the opposite edge from the bound
+            // marker, so the two independent states remain visible together.
+            // Static theme-role color keeps reduced-motion and plain rendering
+            // on the same path.
+            if source.tab_activity(slot.idx) {
+                let badge_col = match placement {
+                    RailSide::Left => rail_cols - 1,
+                    RailSide::Right => 0,
+                };
+                let brow = slot.label_row;
+                if brow < grid_rows {
+                    let g = &mut cells[brow * rail_cols + badge_col];
+                    g.ch = ACTIVITY_BADGE;
+                    g.attrs.foreground = active_lbl;
+                    g.attrs.background = slot_bg;
+                    g.attrs.set_bold(true);
                 }
             }
         }

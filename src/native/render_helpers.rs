@@ -202,6 +202,9 @@ pub(super) enum OverlayFragment {
     /// the cache decision is unchanged; `ClickHint { shown: true }` while the
     /// bottom-left hint is visible so it repaints when it raises and clears.
     ClickHint { shown: bool },
+    /// Static centered feedback chip shared by bounded font-size and resize
+    /// cues. The message changes the key; `Inert` when absent.
+    TransientHud { text: String },
     /// UX-A (Phase 11) armed underline on the Ctrl+hovered interactive-path
     /// span. `Inert` unless `interactive_paths` is on, Ctrl is held, and a
     /// resolved path is hovered — so plain hover and feature-off are unchanged;
@@ -240,6 +243,8 @@ pub(super) struct OverlayCompositeSignature {
     /// UX-A (Phase 11) bottom-left click-to-open hint. `Inert` on the default /
     /// feature-off / not-shown path, so the composite stays constant there.
     pub(super) click_hint: OverlayFragment,
+    /// Reusable centered feedback HUD. `Inert` when no cue is visible.
+    pub(super) transient_hud: OverlayFragment,
     /// UX-A (Phase 11) Ctrl+hover armed underline span. `Inert` unless armed, so
     /// toggling Ctrl while hovering a path reclassifies to a Full rebuild.
     pub(super) armed_path: OverlayFragment,

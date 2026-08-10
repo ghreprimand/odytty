@@ -79,6 +79,9 @@ const NEW_TAB_COLS: usize = 3;
 const TAB_PADDING: usize = 1;
 /// Columns at the right of each slot reserved for the close button (`space + ×`).
 const CLOSE_COLS: usize = 2;
+/// Static unseen-activity marker. It uses a geometric glyph and theme-derived
+/// label color, so plain/reduced-motion presentation needs no special path.
+pub(super) const ACTIVITY_BADGE: char = '\u{25cf}'; // ●
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -98,6 +101,12 @@ pub(in crate::native) trait TabBarSource {
     /// and the tab-list sources render no badge; only the workspace-rail source
     /// overrides this. `idx` is guaranteed to be `< tab_count()`.
     fn tab_bound(&self, idx: usize) -> bool {
+        let _ = idx;
+        false
+    }
+    /// Whether this tab/workspace carries unseen activity. Default `false`
+    /// keeps preview and test-only sources byte-identical unless they opt in.
+    fn tab_activity(&self, idx: usize) -> bool {
         let _ = idx;
         false
     }
@@ -345,6 +354,19 @@ impl TabBar {
                 glyph.ch = '×';
                 glyph.attrs = la;
             }
+
+            // Unseen activity is a static dot in the slot's existing left
+            // padding. The active tab never shows a stale badge even if a
+            // producer has not yet completed its normal clear sweep.
+            if !is_active
+                && source.tab_activity(slot.idx)
+                && let Some(glyph) = row.get_mut(slot.start_col)
+            {
+                glyph.ch = ACTIVITY_BADGE;
+                glyph.attrs.foreground = active_lbl;
+                glyph.attrs.background = slot_bg;
+                glyph.attrs.set_bold(true);
+            }
         }
 
         // New-tab `+` affordance: a lifted glyph on the bare wallpaper at rest
@@ -538,6 +560,27 @@ mod tests {
         }
     }
 
+    struct ActivityMock {
+        titles: Vec<&'static str>,
+        active: usize,
+        activity: Vec<usize>,
+    }
+
+    impl TabBarSource for ActivityMock {
+        fn tab_count(&self) -> usize {
+            self.titles.len()
+        }
+        fn tab_title(&self, idx: usize) -> &str {
+            self.titles[idx]
+        }
+        fn active_tab(&self) -> usize {
+            self.active
+        }
+        fn tab_activity(&self, idx: usize) -> bool {
+            self.activity.contains(&idx)
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Test helpers
     // -----------------------------------------------------------------------
@@ -630,6 +673,33 @@ mod tests {
                 out.quads.len()
             );
         }
+    }
+
+    #[test]
+    fn unseen_activity_paints_a_static_theme_role_badge_only_on_inactive_tabs() {
+        let src = ActivityMock {
+            titles: vec!["active", "background"],
+            active: 0,
+            // Include the active tab to prove the renderer fails closed on a
+            // stale producer value while showing the real background latch.
+            activity: vec![0, 1],
+        };
+        let layout = compute_layout(&src, GRID_COLS);
+        let out = render_default(&src);
+
+        let active = &out.glyphs[layout.slots[0].start_col];
+        assert_ne!(
+            active.ch, ACTIVITY_BADGE,
+            "active tab suppresses stale activity"
+        );
+
+        let badge = &out.glyphs[layout.slots[1].start_col];
+        assert_eq!(badge.ch, ACTIVITY_BADGE);
+        assert_eq!(
+            badge.attrs.foreground,
+            rgb(tab_chrome::active_label(COLORS))
+        );
+        assert!(badge.attrs.bold());
     }
 
     #[test]

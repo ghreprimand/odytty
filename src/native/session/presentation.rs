@@ -72,6 +72,13 @@ impl TabBarSource for WorkspaceSet {
     fn active_tab(&self) -> usize {
         self.active_workspace().active_tab
     }
+
+    fn tab_activity(&self, idx: usize) -> bool {
+        self.active_workspace()
+            .tabs
+            .get(idx)
+            .is_some_and(|tab| tab.activity)
+    }
 }
 
 /// A borrow of the workspace list presented through [`TabBarSource`] so the F4
@@ -107,6 +114,10 @@ impl TabBarSource for WorkspaceRailSource<'_> {
 
     fn active_tab(&self) -> usize {
         self.set.active_ws
+    }
+
+    fn tab_activity(&self, idx: usize) -> bool {
+        self.set.workspace_has_activity(idx)
     }
 }
 

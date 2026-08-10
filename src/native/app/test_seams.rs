@@ -468,6 +468,12 @@ impl App {
         self.settings.font_size_px
     }
 
+    /// Test seam for the reusable centered feedback surface.
+    #[cfg(test)]
+    pub(in crate::native) fn transient_hud_text_for_test(&self) -> Option<&str> {
+        self.transient_hud.text_for_test()
+    }
+
     /// Test seam (CTRL-WHEEL-ZOOM): drive a vertical wheel notch through the
     /// production wheel routing (`handle_mouse_wheel`), so the zoom-vs-scroll-vs
     /// -report precedence is pinned, not reimplemented. Positive = wheel up.

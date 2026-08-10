@@ -267,6 +267,16 @@ fn background_tab_bell_latches_activity_without_switching() {
     // non-active tab also proves no switch happened — a switch would clear it.)
     assert!(app.tab_activity_for_test(0, 1));
     assert!(!app.tab_activity_for_test(0, 0));
+    app.set_test_cell_for_test(cell(8, 16));
+    let chrome = app
+        .tab_bar_band_text_for_test()
+        .expect("two tabs render a top bar")
+        .join("\n");
+    assert_eq!(
+        chrome.matches('●').count(),
+        1,
+        "the maintained background-tab latch reaches visible chrome exactly once"
+    );
 }
 
 /// NF21-6 / §5 rule 3: a bell rung in a BACKGROUND WORKSPACE latches its tab's

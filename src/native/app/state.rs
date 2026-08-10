@@ -260,6 +260,11 @@ pub(in crate::native) struct App {
     /// every window launch. Idle (and byte-identity-irrelevant) on the default /
     /// feature-off path: the painter and signature both early-out when not shown.
     pub(super) click_hint: click_hint::ClickHintState,
+    /// One reusable centered text HUD for bounded window-level feedback. Font
+    /// zoom owns the current producer; resize feedback may share the same
+    /// replace-in-place surface. `None` internally at rest, so it adds no paint
+    /// or wake work on the default path.
+    pub(super) transient_hud: transient_hud::TransientHud,
     /// Active IME pre-edit (composition) string as delivered by `winit`'s
     /// `Ime::Preedit`. Empty when no composition is in progress. Rendered inline
     /// at the terminal cursor; never sent to the PTY until the IME commits.
@@ -536,6 +541,7 @@ impl App {
             open_notice: None,
             osc52_write: osc52::Osc52WriteState::default(),
             click_hint: click_hint::ClickHintState::default(),
+            transient_hud: transient_hud::TransientHud::default(),
             ime_preedit: String::new(),
             ime_session: None,
             #[cfg(test)]

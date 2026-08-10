@@ -173,6 +173,11 @@ remain compatible with configs from either Nerd Font era.
 Bundled and discovered system families both resolve without hand-written
 configuration.
 
+With `wheel_zoom` enabled, `Ctrl`+wheel changes the live font size when the
+running application has not claimed mouse reporting. Each effective step shows
+a compact centered font-size HUD, replaces the previous value during a gesture,
+and clears after one bounded delay without animation.
+
 | Text control | Support |
 | --- | --- |
 | Font sources | Bundled families, system families, and direct font files |
@@ -278,7 +283,8 @@ surface with no exposed background gutter. Their shared junction has one
 intentional resize seam, while the rail-to-content gap remains content padding.
 The band stays opaque enough for labels to remain legible over images and
 effects. Inactive tabs are dimmed; the active tab is marked by a selection-role
-fill and a bright, bold label.
+fill and a bright, bold label. A static dot marks unseen bell activity on a
+background tab and clears through the existing view/switch semantics.
 
 Labels stay centered vertically when the bar grows. Kitty and Sixel placements
 use the same reserved rows as text, so inline graphics remain aligned with the
@@ -362,7 +368,9 @@ session adds no extra chrome.
 
 The vertical workspace rail appears when a second workspace exists. Its `+`
 slot rests at a visible brightness, and a dead gap row above it prevents clicks
-past the last workspace from opening one accidentally.
+past the last workspace from opening one accidentally. A static edge dot rolls
+up unseen activity from that workspace's tabs; it coexists with the independent
+remote-binding marker and uses no motion effect.
 
 An always-visible chevron at the rail's bottom edge toggles auto-hide and saves
 the choice. The same control remains available while an auto-hidden rail is

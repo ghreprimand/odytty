@@ -1015,6 +1015,7 @@ impl App {
         let mut next = self.settings.clone();
         next.font_size_px = next_px;
         self.apply_overlay_settings(next);
+        self.show_font_size_hud(next_px);
     }
 
     fn handle_primary_paste(&mut self) {

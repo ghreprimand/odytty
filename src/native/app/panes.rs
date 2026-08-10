@@ -925,6 +925,14 @@ impl App {
             );
         }
 
+        // Window-level gesture feedback remains visible in split layouts by
+        // painting the reusable HUD into the focused pane. The state is static
+        // and absent at rest, so background panes and ordinary frames remain
+        // untouched.
+        if let Some(pane) = panes_owned.iter_mut().find(|pane| pane.focused) {
+            self.transient_hud.paint(&mut pane.snapshot);
+        }
+
         // Build every pane's status gutter in that pane's own scrollback and
         // window coordinate space. This used to exist only in the single-pane
         // renderer, so splitting a tab silently removed every success/fail bar.

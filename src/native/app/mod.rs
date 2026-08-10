@@ -174,6 +174,7 @@ mod test_seams;
 #[cfg(test)]
 mod tests;
 mod theme_roles;
+mod transient_hud;
 mod watchdog_probe;
 // `pub(in crate::native)` so sibling modules outside `app` (e.g. `session`, whose
 // remote-cleanup ssh spawn is a fourth console-child site) can reach the

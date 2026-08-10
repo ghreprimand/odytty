@@ -247,6 +247,10 @@ impl App {
             // Revealed with the pointer parked — so the idle wake set is
             // unchanged when nothing is animating.
             self.rail_autohide.wake_deadline(Instant::now()),
+            // One-shot centered HUD expiry. The surface paints in both the
+            // single-pane snapshot and the focused split pane, so unlike the
+            // single-pane animation aggregator it is safe to source globally.
+            self.transient_hud_deadline(),
             // NF21-2: the overlay/scroll/bell/fade animation aggregator
             // (`animation_deadline()` — smooth-scroll glide, bell flash, new-row
             // fade, open-notice + click-hint auto-expiry, and the cursor
@@ -566,6 +570,13 @@ impl App {
         if bell_sweep.background_bell {
             let window = self.window.clone();
             self.request_bell_attention(window.as_deref());
+            // The same sweep latched a tab/workspace activity badge. Rebuild
+            // immediately so the visible chrome reflects that state even when
+            // the OS urgency request itself produces no draw event.
+            self.needs_rebuild = true;
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
         }
         if bell_sweep.focused_prompt_changed {
             self.prompt_marks_epoch = self.prompt_marks_epoch.wrapping_add(1);
@@ -581,6 +592,15 @@ impl App {
 
         if let Some(resize) = self.resize_debounce.take_due(now) {
             self.apply_grid_resize(resize);
+            if let Some(window) = self.window.as_ref() {
+                window.request_redraw();
+            }
+        }
+
+        // Static, one-shot HUD expiry. It is not a frame-paced animation and
+        // therefore clears exactly once on its deadline in either pane mode.
+        if self.expire_transient_hud(now) {
+            self.needs_rebuild = true;
             if let Some(window) = self.window.as_ref() {
                 window.request_redraw();
             }

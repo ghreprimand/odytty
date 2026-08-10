@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-09 -- Common visual feedback stays bounded and state-derived
+
+Effective `Ctrl`+wheel font-size changes now raise one reusable centered text
+HUD. Repeated steps replace its message and refresh a single 1.5-second expiry;
+the static chip has no animation phase, stays compatible with reduced-motion
+and plain-theme rendering, and adds no wake at rest. The presentation boundary
+is generic so terminal-dimension resize feedback can use the same state and
+painter without adding a second timer.
+
+The existing unseen-activity latch now reaches the tab strip and workspace
+rail. Background tabs receive a static theme-role dot, while each workspace
+rail row derives its dot from the existing tab rollup. The markers introduce no
+new protocol or activity heuristic, coexist with the remote-binding badge, and
+clear only through the already-tested tab/workspace viewing semantics.
+
+---
+
 ## 2026-08-09 -- Public claims match the v0.10.0 evidence boundary
 
 The public overview, specification, roadmap, installation notes, acceptance
