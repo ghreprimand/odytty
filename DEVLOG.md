@@ -7,6 +7,59 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-09 -- Release v0.10.0 — Architecture, bounded input, and evidence
+
+Version 0.10.0 is primarily an architecture, reliability, and security
+convergence release. Its bounded presentation additions show live terminal
+dimensions during resize, show the effective font size during `Ctrl`+wheel
+zoom, and surface unseen tab and workspace activity from existing state. The
+other behavior changes are correctness and safety work: Windows keypad and Ctrl
+key records keep their neutral identities, detached-session output is bounded,
+and a window that cannot be created now says so instead of failing quietly.
+
+Every handwritten Rust file compiled into a shipping target is now smaller than
+2,000 physical lines. The settings model and metadata, terminal screen, grid,
+text and font handling, glyph atlas, snapshot envelope, shell integration, and
+the native context menu, settings panel, and tab rail were split along
+ownership boundaries, each behind a facade that owns no logic. Eleven
+production-bearing files were over the limit when it was introduced and none
+are now: 283 production-bearing files carry the shipping code, the largest is
+1,965 lines, and a guard that classifies files by walking the real module graph
+from the crate's non-test targets — not by filename — enforces the limit in
+blocking CI. Test-only code cannot hide normal-build code from that
+measurement, and an unclassified file fails closed.
+
+Reads of externally influenced files are bounded before allocation and share
+one audited policy: check the target before opening it so a directory, device,
+or FIFO is refused rather than read, reject an oversized file from its
+metadata, and then stop one byte past the ceiling so a file that grew between
+the check and the read is seen as different instead of trusted. Session
+metadata, font files, connection-host records, and the shell-integration
+wrapper comparison all follow it. Redirection is handled where it is a threat
+rather than uniformly: session metadata refuses a redirected final component,
+the graphics file transport rejects a Windows reparse point, and font loading
+still follows the symlinks that ordinary system font installations depend on.
+Clipboard images are bounded by dimension and byte count before the expensive
+encode rather than after it.
+
+Verification is recorded rather than asserted. Four retained fuzz targets cover
+parser dispatch, terminal state transitions, Kitty graphics, and Sixel
+decoding, with a scheduled bounded smoke run, retained corpora, and a documented
+crash-triage path. Selective mutation testing across the parser, input, and
+transport surfaces drove new assertions, including Win32 key identity and
+translation coverage that runs on blocking Windows CI. The promoted Miri subset
+is green on its pinned nightly, AddressSanitizer and ThreadSanitizer pass, and
+region-level coverage evidence is published with its granularity limits stated.
+The informational `ttf-parser 0.25.1` unmaintained advisory carries a hard
+2026-10-15 expiry rather than an indefinite exception.
+
+Blocking Ubuntu, macOS, and Windows CI establishes the automated coverage
+behind this release. Fresh release-profile validation on physical Linux, macOS,
+and Windows systems and the matched Ghostty visual comparison remain pending
+and are not claimed here.
+
+---
+
 ## 2026-08-09 -- Common visual feedback stays bounded and state-derived
 
 Effective `Ctrl`+wheel font-size changes now raise one reusable centered text

@@ -44,6 +44,12 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.10.0" date="2026-08-09">
+      <description>
+        <p>This release is primarily an architecture, reliability, and security convergence release. Its bounded presentation additions show live terminal dimensions during resize, the effective font size during Ctrl+wheel zoom, and unseen tab and workspace activity. Every handwritten Rust source file that is compiled into the shipping binary is now under 2,000 physical lines, with the oversized settings, terminal screen, grid, text, atlas, snapshot, shell-integration, and native interface modules split along ownership boundaries; a repository-wide guard enforces that limit in blocking CI.</p>
+        <p>Reads of externally influenced files are bounded before allocation and refuse a target that is not a regular file: session metadata, font files, connection-host records, and the shell-integration wrapper comparison share one audited policy, session metadata refuses a redirected final component, the graphics file transport rejects a Windows reparse point, and clipboard images are bounded before encoding rather than after it. Parser, terminal state, Kitty graphics, and Sixel decoding gained retained fuzz targets with a scheduled bounded smoke run, alongside mutation-testing, coverage, and dynamic-analysis evidence.</p>
+      </description>
+    </release>
     <release version="0.9.8" date="2026-07-28">
       <description>
         <p>Linux windows can now select a launch-scoped Wayland application ID and X11 WM_CLASS through the compatible --app-id and --class aliases while retaining the packaged OdyTTY identity by default. Short-lived local commands can remain visible with --hold, which reports their exit status and dismisses on the next keypress without changing later sessions or remote reconnect behavior. The desktop entry now advertises all five xdg-terminal-exec argument keys.</p>
