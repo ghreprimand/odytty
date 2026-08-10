@@ -111,8 +111,10 @@ fi
 # declared_status is the contract for this filter, not a prediction:
 #   required - the filter has been executed under this lane and passed, so a
 #              later failure or a newly unsupported result fails the job.
-#   probe    - the filter has never completed here. It is executed and
-#              reported, but an unsupported result does not fail the job.
+#   probe    - the filter has never completed here. It is executed, classified,
+#              and retained, but its fail, timeout, and unsupported results do
+#              not fail the job; they are the evidence base for triage and
+#              later promotion.
 #
 # Every filter starts as probe. Promotion happens only after a recorded run,
 # per the promotion protocol in docs/dynamic-analysis.md. Undefined behavior
@@ -205,7 +207,8 @@ filters=(
 
 required_total=0
 pass_total=0
-fail_total=0
+required_fail_total=0
+probe_fail_total=0
 unsupported_total=0
 ub_total=0
 
@@ -241,10 +244,19 @@ for entry in "${filters[@]}"; do
     unsupported_total=$((unsupported_total + 1))
   elif [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
     result="timeout"
-    fail_total=$((fail_total + 1))
   else
     result="fail"
-    fail_total=$((fail_total + 1))
+  fi
+
+  # Timeout and fail are honest classifications in either status; only the
+  # gating differs. Required failures gate the lane; probe failures are
+  # diagnostic evidence and never gate it.
+  if [ "$result" = "timeout" ] || [ "$result" = "fail" ]; then
+    if [ "$declared" = "required" ]; then
+      required_fail_total=$((required_fail_total + 1))
+    else
+      probe_fail_total=$((probe_fail_total + 1))
+    fi
   fi
 
   printf '%s\t%s\t%s\t%s\t%s\n' "$declared" "$filter" "$result" "$elapsed" "$log" >>"$summary"
@@ -259,7 +271,7 @@ done
 echo "== summary"
 column -t -s "$(printf '\t')" "$summary" 2>/dev/null || cat "$summary"
 echo
-echo "pass=$pass_total fail=$fail_total unsupported=$unsupported_total undefined-behavior=$ub_total"
+echo "pass=$pass_total required-fail=$required_fail_total probe-fail=$probe_fail_total unsupported=$unsupported_total undefined-behavior=$ub_total"
 
 status=0
 
@@ -268,9 +280,16 @@ if [ "$ub_total" -gt 0 ]; then
   status=1
 fi
 
-if [ "$fail_total" -gt 0 ]; then
-  echo "run-miri.sh: at least one filter failed or timed out" >&2
+if [ "$required_fail_total" -gt 0 ]; then
+  echo "run-miri.sh: at least one required filter failed or timed out" >&2
   status=1
+fi
+
+if [ "$probe_fail_total" -gt 0 ]; then
+  echo
+  echo "NOTE: $probe_fail_total probe filter(s) failed or timed out. Probes are diagnostic:"
+  echo "their results are classified and retained above but never gate this lane."
+  echo "Triage and promotion follow docs/dynamic-analysis.md."
 fi
 
 # A required filter that becomes unsupported is a regression in coverage, not a

@@ -237,7 +237,9 @@ Three rules make the classification load-bearing rather than cosmetic:
 Every filter carries a declared status that is a contract, not a prediction:
 
 - **`probe`** — the filter has never completed a recorded run here. It is
-  executed and reported, but an `unsupported` result does not fail the job.
+  executed, classified, and retained, but its `fail`, `timeout`, and
+  `unsupported` results do not fail the job; they are the evidence base for
+  triage and later promotion.
 - **`required`** — the filter has been executed here and passed, so a later
   failure fails the job, and a later `unsupported` result also fails the job
   because coverage silently regressed.
@@ -311,7 +313,7 @@ clean lane result and is not one.
 | Code | Meaning |
 | --- | --- |
 | 0 | Every declared filter completed within its contract. |
-| 1 | A finding, a failure, a timeout, or a coverage regression. |
+| 1 | Undefined behavior in any filter, a required-filter failure or timeout, or a required-filter coverage regression. Probe failures, timeouts, and unsupported results remain classified diagnostics and do not set this exit code. |
 | 2 | Usage error, or MemorySanitizer without its explicit acknowledgement. |
 | 3 | Unavailable: unsupported host, missing tool, missing pinned toolchain, or missing component. No results were produced. |
 

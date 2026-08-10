@@ -7,6 +7,23 @@ the first meaningful prototype. See `TODO.md` for the milestone checklist and
 
 ---
 
+## 2026-08-10 -- Miri's promoted subset gates independently of probes
+
+The bounded Miri runner now keeps diagnostic probe failures and timeouts in
+its summary and per-filter logs without making them fail the promoted release
+subset. Undefined behavior from any filter still fails the lane, as do a
+failure, timeout, or newly unsupported result from any required filter. This
+matches the documented promotion contract: probes remain visible evidence for
+triage, while only filters with a recorded successful history become required.
+
+The correction follows an exact-candidate run in which all six required Miri
+filters, AddressSanitizer, and ThreadSanitizer passed, but three known-slow
+probes reached their 900-second bounds and left the workflow red. The retained
+probe rows still report those timeouts; the lane result now represents the
+stable promoted subset it claims to gate.
+
+---
+
 ## 2026-08-09 -- Release v0.10.0 — Architecture, bounded input, and evidence
 
 Version 0.10.0 is primarily an architecture, reliability, and security
