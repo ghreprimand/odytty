@@ -5,9 +5,10 @@ sessions before broader product features. The first meaningful prototype is
 complete; see `DEVLOG.md` for the running record, `SPEC.md` for durable
 decisions, and `docs/full-build-roadmap.md` for the full build roadmap.
 
-The v0.10.0 scope is frozen to architecture, compatibility, correctness,
-security, evidence, documentation, and release convergence. Unchecked feature
-ideas below are longer-range roadmap candidates, not authorized v0.10.0 work.
+The v0.10.0 architecture, compatibility, correctness, security, evidence,
+documentation, and release-convergence scope is complete and published.
+Unchecked feature ideas below are longer-range roadmap candidates; they require
+a separately recorded milestone before implementation.
 
 ## Stage 4.5: Foundation Ownership
 
@@ -789,8 +790,12 @@ a floor; surpassing it is the standing ambition.
 - [x] Close confirmation (`confirm_close`, default on): brief in-window prompt
       before closing when a foreground program is running; idle shell exits
       without prompting.
-- [ ] Side-by-side visual comparison against a comparable terminal emulator at
-      matched font/size.
+- [x] Side-by-side visual comparison against a comparable terminal emulator at
+      matched font/size. A matched pass at v0.10.0 covered representative text,
+      Unicode, emoji fallback, box drawing, resize feedback, and ordinary
+      interaction and found no release-blocking difference in the tested
+      surfaces. It is bounded evidence for those conditions, not a conformance
+      verdict or a claim about every font, scale, theme, or GPU path.
 
 ## Stage 7: Shell Integration, Perceptual Moat, and Pointer Excellence
 
@@ -1142,6 +1147,69 @@ feature validates against.
       Swap / Keep both / Cancel dialog.
 - [ ] Profiles remain future work.
 
+## Stage 9: v0.10.0 Release Convergence
+
+Architecture, correctness, security, and evidence work rather than feature
+expansion. Published as v0.10.0; the detailed evidence documents named below
+stay pinned to the revisions they measured.
+
+- [x] Production Rust file-size rule: every handwritten Rust file compiled into
+      a shipping target is under 2,000 physical lines.
+  - [x] `scripts/production-file-guard.py` classifies each tracked `src/**/*.rs`
+        file by walking the real module graph from the crate's non-test targets
+        rather than by filename, so test-only paths cannot hide normal-build
+        code and an unclassified file fails closed. Blocking CI runs the
+        classifier self-tests and the guard.
+  - [x] Eleven production-bearing files were over the limit when the rule
+        landed and none are now. The settings model and metadata, terminal
+        screen, grid, text and font handling, glyph atlas, snapshot envelope,
+        shell integration, and the native context menu, settings panel, and tab
+        rail were split along ownership boundaries, each behind a facade that
+        owns no logic. `docs/native-decomposition.md` records the resulting
+        boundaries.
+- [x] One audited bounded-reader policy for externally influenced files: check
+      the target before opening it so a directory, device, or FIFO is refused
+      rather than read, reject an oversized file from its metadata, then stop
+      one byte past the ceiling so a file that grew between the check and the
+      read is seen as different instead of trusted. Session metadata, font
+      files, connection-host records, and the shell-integration wrapper
+      comparison all use it.
+  - [x] Redirection is handled where it is a threat rather than uniformly:
+        session metadata refuses a redirected final component, the graphics file
+        transport rejects a Windows reparse point, and font loading still
+        follows the symlinks ordinary system font installations depend on.
+  - [x] Clipboard images are bounded by dimension and byte count before the
+        expensive encode instead of after it.
+  - [x] Detached-session output is bounded, and a window that cannot be created
+        reports the failure instead of failing quietly.
+- [x] Windows key-record correctness: keypad and Ctrl records keep their neutral
+      identities, pinned by assertions that run on the blocking Windows CI leg.
+- [x] Verification recorded rather than asserted: four retained fuzz targets
+      (parser dispatch, terminal state transitions, Kitty graphics, Sixel
+      decoding) with a scheduled bounded smoke run, retained corpora, and a
+      documented crash-triage path; selective mutation testing across the
+      parser, input, and transport surfaces; a promoted Miri subset green on its
+      pinned nightly with AddressSanitizer and ThreadSanitizer passing and
+      diagnostic probes visible but non-blocking; and region-level coverage
+      evidence published with its granularity limits stated.
+- [x] The informational `ttf-parser 0.25.1` unmaintained advisory carries a hard
+      2026-10-15 expiry rather than an indefinite exception.
+- [x] Bounded visual feedback, built from existing state and with no new
+      protocol: interactive resize reports the settled `columns × rows` geometry
+      for 750 ms, `Ctrl`+wheel zoom reports the effective font size for 1.5
+      seconds through the same static surface, and inactive tabs and workspace
+      rail rows show a static unseen-activity dot. No animation phase, no wake
+      at rest, and no change to terminal state or input routing.
+- [ ] Complete the real-application matrix rows in
+      `docs/compatibility/real-application-smoke.md` with an exact artifact,
+      application version, and evidence reference per row. The bounded
+      post-release package smoke pass does not fill them.
+- [ ] Matched comparative performance numbers under the preregistered protocol
+      in `docs/benchmark-protocol.md`. Deferred; internal before/after
+      microbenchmarks are implementation measurements, not product comparisons.
+- [ ] The external daily-driver evidence program
+      (`docs/external-daily-driver.md`) remains a 1.0 gate and is unstarted.
+
 ## Archived First Prototype Checklist
 
 ## Core Readiness
@@ -1317,10 +1385,11 @@ feature validates against.
       validated on-device across several passes for the 0.7.0 cycle (local
       shells, tabs, splits, selection/copy-paste, minimize/restore, wheel
       routing, shell integration, and clickable paths incl. inline images);
-      CI additionally proves compile + automated tests on every push. Those
-      historical passes do not close the fresh v0.10.0 release-profile
-      validation requirement. It remains a newer target with a lower polish
-      bar than Linux. A child-process waiter now
+      CI additionally proves compile + automated tests on every push. A bounded
+      v0.10.0 post-release package smoke pass completed without a reported
+      blocker, while broader Windows hardware and application coverage remains
+      ongoing. It remains a newer target with a lower polish bar than Linux. A
+      child-process waiter now
       closes the pseudoconsole when a shell exits naturally, so the tab follows
       the normal reader-EOF teardown path.
 - [ ] Windows default-terminal handoff. OdyTTY can be launched directly and

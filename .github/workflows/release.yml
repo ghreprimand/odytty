@@ -1,10 +1,11 @@
 name: Release
 
 # Publishes a GitHub Release when a version tag (vX.Y.Z) is pushed. OdyTTY ships
-# a source tarball, a best-effort Linux x86_64 AppImage, and an unsigned Windows
-# x86_64 zip, all checksummed in SHA256SUMS. Tag pushes are restricted to
-# maintainers, so this never runs from fork pull requests. A failed producer job
-# publishes nothing (the release job needs every build job).
+# seven artifact types: source, four Linux x86_64 packages, a macOS Apple Silicon
+# app zip, and an unsigned Windows x86_64 zip, all checksummed in SHA256SUMS. Tag
+# pushes are restricted to maintainers, so this never runs from fork pull
+# requests. A failed producer job publishes nothing (the release job needs every
+# build job).
 on:
   push:
     tags:

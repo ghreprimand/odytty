@@ -20,10 +20,11 @@ Current expected behavior comes from the
 [installation and GPU notes](install.md), and
 [HiDPI matrix](hidpi-validation.md). The
 [pre-1.0 acceptance contract](pre-1.0-acceptance.md) defines how completed
-records contribute to release readiness. Completed per-platform records are
-required evidence for the active v0.10.0 release decision, not only for the
-1.0 contract. When behavior changes, update the applicable public reference
-and this checklist together before collecting new results.
+records contribute to release readiness. This checklist supplied the detailed
+evidence boundary for the v0.10.0 decision and remains the reusable template for
+later releases; each later milestone must state which rows are required rather
+than inheriting a pass implicitly. When behavior changes, update the applicable
+public reference and this checklist together before collecting new results.
 
 ## Result vocabulary
 

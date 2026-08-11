@@ -136,8 +136,8 @@ The source tree is organized into clear ownership lanes:
 |------|---------------|
 | `src/parser/` | Clean-room VT parser: segmenter, state machine, action dispatch, driver. No external parser crate. |
 | `src/core/` | Terminal model, screen, grid state, SGR/mode dispatch, protocol handlers (Kitty, Sixel routing, query, rect ops, search). Core never imports windowing, GPU, or rendering code. |
-| `src/grid.rs` | Render geometry and color resolution: backgrounds, glyphs, decorations, cursor/selection/search overlays, inverse/dim/minimum-contrast handling, and image/emoji ordering seams. |
-| `src/text.rs` + `src/atlas/` | Glyph rasterization: font loading, R8 and RGBA atlas, coverage/subpixel paths, synthetic bold/italic, symbol fallback chain. |
+| `src/grid.rs` + `src/grid/` | Render geometry and color resolution: backgrounds, glyphs, decorations, cursor/selection/search overlays, inverse/dim/minimum-contrast handling, and image/emoji ordering seams. |
+| `src/text.rs` + `src/text/` + `src/atlas/` | Font discovery and resolution plus glyph rasterization: R8 and RGBA atlas, coverage/subpixel paths, synthetic bold/italic, and the symbol fallback chain. |
 | `src/native/` | GPU renderer (`gpu.rs`, `gpu/`), event loop (`app/mod.rs`), settings panel and overlays (`settings_panel/` directory, `overlay.rs`, `theme_builder.rs`), selection, search, input/keybindings (see `docs/keybindings.md`). |
 | `src/shaders/` | WGSL shader sources (`cell.wgsl`, `cell_subpixel.wgsl`, `bloom.wgsl`, `background_image.wgsl`, `cursor_glow.wgsl`, `cursor_streak.wgsl`) consumed by the `src/native/` renderer. |
 | `src/theme/` | `Theme` struct, `.theme` file format and parser (`spec.rs`), built-in registry (`builtins.rs`, `builtins/`), contrast validation, live reload. |
@@ -148,8 +148,9 @@ The source tree is organized into clear ownership lanes:
 | `src/ssh_config.rs` + `src/connection_hosts.rs` | Connection substrate for the connection manager: name-only host import (alias/HostName/User/Port — never key material), gated behind `ssh_config_hosts` (default off). |
 | `src/paths/` | Interactive-paths engine: path/URL detection, `:line:col` editor jump, bareword and image span recognition. Wired live through `src/native/app/interactive_paths.rs`; inert until the `interactive_paths` master gate is on. |
 
-All visual settings flow from `src/settings.rs` through the `Settings` struct
-to the renderer; the core is never aware of them.
+All visual settings flow through the `src/settings.rs` facade and its
+responsibility-focused `src/settings/` modules, with `Settings` re-exported to
+the renderer; the core is never aware of them.
 
 ## Platform targets and the per-platform backend pattern
 
@@ -306,11 +307,10 @@ Before every commit, run through this gate and stop if anything is unclear:
 
    The guard decides "a normal build compiles it" by walking the module graph
    from the crate roots, so a filename cannot exempt a file and a `#[cfg(test)]`
-   module is measured as what it is. It is blocking in CI. Files still awaiting
-   decomposition are listed with their exact size in
-   `scripts/production-file-baseline.tsv`; splitting one means deleting its
-   entry in the same change. Run `python3 scripts/production-file-guard.py`
-   without the flag to see the rule with no backlog forgiven.
+   module is measured as what it is. It is blocking in CI. The historical
+   ratchet file, `scripts/production-file-baseline.tsv`, now contains no data
+   rows, so the CI command above and the bare
+   `python3 scripts/production-file-guard.py` command enforce the same limit.
 
 **Toolchain lockstep.** OdyTTY pins a verified Minimum Supported Rust Version:
 `rust-toolchain.toml` (`channel = "1.96.0"`) and `Cargo.toml`
@@ -318,6 +318,14 @@ Before every commit, run through this gate and stop if anything is unclear:
 run. If you adopt a language feature that raises the real floor, bump both files
 in the same commit and note it in `DEVLOG.md`; treat a mismatch between them as a
 bug.
+
+The repository toolchain file selects 1.96.0 automatically only when `cargo`
+and `rustc` are rustup-managed proxies. A distribution-provided direct compiler
+can ignore that selection and use its system version instead. Check
+`rustc --version` from the repository before relying on a local MSRV result. A
+newer stable compiler is supported for ordinary development, but it neither
+verifies the 1.96 floor nor guarantees identical rustfmt and Clippy output; use
+the rustup-managed pin or the blocking CI matrix for exact-floor verification.
 
 ## Public repository safety
 

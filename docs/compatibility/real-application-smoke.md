@@ -5,6 +5,12 @@ candidates. It complements automated parser, transcript, and conformance tests;
 it does not replace the platform-wide checks in
 [`manual-validation.md`](../manual-validation.md).
 
+The published v0.10.0 packages received a bounded post-release smoke check on
+Linux, macOS Apple Silicon, and Windows, with no reported blocker. That result
+does not fill the application rows below: rows still require an exact artifact,
+application version, and evidence reference before they can be cited as a
+complete real-application matrix.
+
 Run each platform table against the same clean release-candidate commit and the
 fresh release-profile artifact recorded by that platform's manual-validation
 record. Record `PASS`, `FAIL`, `SKIP`, or `UNSUPPORTED` using the vocabulary in

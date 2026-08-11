@@ -203,10 +203,15 @@ Linux method, plus the Homebrew and Scoop paths below.
   hyperlinks, and clickable files and URLs support daily shell and TUI work.
   Native Windows console applications can request complete ConPTY Win32 key
   records, preserving input such as `Ctrl+Backspace` and `Shift+Enter`.
+  Interactive resize reports the settled `columns × rows` geometry and
+  `Ctrl`+wheel zoom reports the effective font size in one bounded, static
+  centered readout that clears itself.
   [See terminal compatibility](docs/features.md#terminal-compatibility).
 - **Workspaces for real sessions.** Tabs contain resizable panes and named
   workspaces, with a configurable tmux-style pane prefix, session restore,
   Unix-only detached and in-window managed sessions, layouts, and replay.
+  Background tabs and workspaces carry a static unseen-activity dot that clears
+  when the tab or workspace is viewed.
   [See native workflows](docs/features.md#tab-and-pane-workflow).
 - **Local SSH workflows.** The connection manager keeps an OdyTTY-owned hosts
   list and can opt into name-only OpenSSH host import, remote shell integration,
@@ -263,10 +268,12 @@ Linux is the primary target. macOS and Windows are supported, shipped, and
 blocking CI targets alongside Linux. See [Install And Run](#install-and-run) for
 the current packages and maturity notes.
 
-Fresh v0.10.0 release-profile validation remains pending on Linux, macOS, and
-Windows, as does the matched cross-terminal visual comparison. Blocking CI
-establishes automated coverage on each platform; it does not substitute for
-those manual GPU, IME, clipboard, text-quality, or interaction results.
+Version 0.10.0 is published. Bounded post-release checks of the shipped Linux,
+macOS Apple Silicon, and Windows packages completed without a reported blocker,
+and a matched visual pass against comparable terminal emulators found no
+release-blocking text, Unicode, box-drawing, or interaction difference in the
+tested surfaces. These checks complement blocking CI; they do not claim every
+GPU, compositor, IME, font, or hardware configuration has been exercised.
 
 Known gaps include Windows detached and resumable session hosting, profiles,
 Kitty animation and Unicode placeholders, iTerm2 graphics, COLR/CPAL color
@@ -285,6 +292,11 @@ unavailable and skipped work distinct from executed assertions:
 cargo test
 cargo fmt --check
 ```
+
+Blocking CI adds an architecture guard that fails when any handwritten Rust file
+compiled into a shipping target reaches 2,000 physical lines. Coverage-guided
+fuzzing, Miri, and the sanitizers run on their own scheduled lanes and report
+unsupported and unmeasured surfaces rather than folding them into a pass.
 
 Deep fuzz tiers, benchmarks, platform gates, and the complete pre-commit check
 are documented in [CONTRIBUTING.md](CONTRIBUTING.md#test-battery).
@@ -337,16 +349,19 @@ the ownership boundary and deeper workflow architecture.
 
 [Pre-1.0 acceptance contract](docs/pre-1.0-acceptance.md),
 [Stabilization and release-channel policy](docs/stabilization-policy.md),
+[historical stabilization baseline](docs/stabilization-baseline.md),
 [v0.10.0 baseline](docs/v0.10.0-baseline.md),
 [coverage evidence](docs/coverage-evidence.md),
 [mutation-testing policy](docs/mutation-testing.md),
 [manual-validation matrix](docs/manual-validation.md),
 [real-application smoke matrix](docs/compatibility/real-application-smoke.md),
+[compatibility corpus and regression intake](docs/compatibility/corpus.md),
+[optional external daily-driver protocol](docs/external-daily-driver.md),
 [parser and graphics fuzzing guide](fuzz/parser_graphics/README.md), and
 [native decomposition record](docs/native-decomposition.md) define the current
 evidence gates, scope freeze, reproducible starting point, architecture
-boundaries, and the distinction between executed results and pending manual
-work. The [comparative benchmark protocol](docs/benchmark-protocol.md)
+boundaries, and the distinction between executed results and remaining evidence
+scope. The [comparative benchmark protocol](docs/benchmark-protocol.md)
 preregisters performance methodology before measurement, and the
 [terminal threat model](docs/threat-model.md) catalogs every external-input and
 privilege boundary with its caps, defaults, failure behavior, and unresolved

@@ -10,33 +10,33 @@ hosts shells, credentials, and long-lived work on three platforms, and it
 parses adversarial byte streams by design. Declaring 1.0 asserts that the
 project has measured its own behavior rather than assumed it.
 
-## Current release decision: v0.10.0
+## Most recent release decision: v0.10.0
 
 This contract remains the definition of 1.0 readiness, and 1.0 remains
 reserved for the explicit decision made from the complete evidence bundle.
-The active release decision is narrower: `v0.10.0` is a pre-1.0 release cut
-from the release-hardening program, and its go/no-go does not assert 1.0
-readiness. For the v0.10.0 decision the gates bind in the following narrowed
-form:
+The most recent narrower decision produced `v0.10.0`, a pre-1.0 release cut
+from the release-hardening program; publishing it did not assert 1.0 readiness.
+For that v0.10.0 decision the gates bound in the following narrowed form:
 
-- G0, G4, G5, G6, and G7 bind as written. The v0.10.0 baseline is re-recorded
+- G0, G4, G5, G6, and G7 bound as written. The v0.10.0 baseline was re-recorded
   at the program's starting revision rather than carried forward.
-- G1 narrows to a per-platform real-application smoke matrix plus the
+- G1 narrowed to a per-platform real-application smoke matrix plus the
   published pinned `vttest` path and the regression-intake corpus. The full
   application matrix and curated differential transcripts remain 1.0 work.
-- G2 narrows to the audit of performance language under G7. The protocol in
-  `docs/benchmark-protocol.md` stays preregistered, but collecting matched
-  comparative numbers is deferred and does not block v0.10.0.
-- G3 binds as written: fresh release-profile manual validation on Linux,
+- G2 narrowed to the audit of performance language under G7. The protocol in
+  `docs/benchmark-protocol.md` remained preregistered, but collecting matched
+  comparative numbers was deferred and did not block v0.10.0.
+- G3 bound as written: fresh release-profile manual validation on Linux,
   macOS, and Windows, including the matched visual comparison.
-- G8 is deferred entirely. The external daily-driver program is a 1.0 gate
-  and an optional evidence program for v0.10.0; its absence is not a v0.10.0
-  blocker, and no part of it becomes one without an explicit recorded
+- G8 was deferred entirely. The external daily-driver program remained a 1.0
+  gate and was optional evidence for v0.10.0; its absence was not a v0.10.0
+  blocker, and no part of it became one without an explicit recorded
   decision.
 
-A gate that is `OPEN` in its narrowed v0.10.0 form blocks v0.10.0 exactly as
-an `OPEN` gate blocks 1.0; the bounded-exception machinery below applies to
-both decisions unchanged.
+A gate that was `OPEN` in its narrowed v0.10.0 form blocked that release exactly
+as an `OPEN` gate blocks 1.0; the bounded-exception machinery below applied to
+both decisions unchanged. A later pre-1.0 release must record its own narrowed
+decision instead of treating the v0.10.0 result as a permanent pass.
 
 ## How this contract is used
 
@@ -149,9 +149,9 @@ backed by `benches/`.
 **Confirmed by:** the project maintainer for hardware-class runs; core
 contributors for harness correctness.
 
-For v0.10.0 this gate binds only through the G7 audit of performance
-language; collecting the matched comparative numbers named here is deferred
-and is not a v0.10.0 blocker.
+For v0.10.0 this gate bound only through the G7 audit of performance language;
+collecting the matched comparative numbers named here was deferred and was not
+a v0.10.0 blocker.
 
 ### G3 — Platform and manual validation
 
@@ -314,9 +314,9 @@ Requirements:
 **Confirmed by:** the project maintainer, who approves cohort size and
 observation period before recruitment begins.
 
-This gate is deferred for v0.10.0: the field-evidence program is optional
-for that release and its unstarted state does not block it. The program's
-approval boundary and sequence are unchanged for the 1.0 decision.
+This gate was deferred for v0.10.0: the field-evidence program was optional for
+that release and its unstarted state did not block it. The program's approval
+boundary and sequence are unchanged for the 1.0 decision.
 
 ## Windows is a first-class gate, not a derived one
 
@@ -374,9 +374,9 @@ G4.
 
 ## The 1.0 decision
 
-This section governs the 1.0 decision only. The v0.10.0 decision uses the
-same gate discipline in the narrowed form defined above and does not assert
-1.0 readiness.
+This section governs the 1.0 decision only. The v0.10.0 decision used the same
+gate discipline in the narrowed form defined above and did not assert 1.0
+readiness.
 
 1.0 is declared only when:
 

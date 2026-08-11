@@ -1,9 +1,50 @@
 # OdyTTY — Devlog
 
 Public running record of how OdyTTY is built, in reverse-chronological order.
-Each entry captures what landed, the current state, and the known gaps toward
-the first meaningful prototype. See `TODO.md` for the milestone checklist and
-`SPEC.md` for durable product/architecture decisions.
+Each entry captures what landed, the current state, and the known gaps in the
+pre-1.0 line. See `TODO.md` for the milestone checklist and `SPEC.md` for
+durable product/architecture decisions.
+
+---
+
+## 2026-08-11 -- Validate the published v0.10.0 packages and refresh documentation
+
+The published v0.10.0 packages received bounded post-release checks on Linux,
+macOS Apple Silicon, and Windows without a reported release blocker. A matched
+visual pass against comparable terminal emulators covered representative text,
+Unicode, emoji fallback, box drawing, resize feedback, and ordinary interaction;
+the result is recorded as bounded evidence rather than a claim about every GPU,
+compositor, IME, font, application, or hardware combination.
+
+The public documentation now describes v0.10.0 as published rather than an
+active candidate, separates the completed package smoke checks from the still-
+reusable detailed application and hardware matrices, and gives the dedicated
+idempotent AUR retry path for a channel-only service outage. Historical baseline,
+coverage, mutation, compatibility, and release-decision records remain pinned to
+the revisions they measured.
+
+The release contract still matches the workflow: seven artifact types produce
+fourteen alias/pinned assets, `SHA256SUMS` is the fifteenth, and durable download
+links use the always-latest aliases. Historical AUR and Homebrew seed templates
+remain unchanged because release automation stamps their published copies.
+Contributor guidance now reflects the decomposed module tree and the empty
+production-file backlog, and clarifies that a direct distribution compiler does
+not honor `rust-toolchain.toml` the way rustup proxies do. Newer local Rust
+versions remain supported for development, while CI continues to verify the
+declared 1.96 floor.
+
+The overview, specification, and checklist also catch up with what v0.10.0
+actually shipped. The shared transient window readout is recorded as a durable
+decision: one static surface, one expiry, no animation phase, suppressed under a
+modal surface, with the resize and font-zoom producers and the static
+unseen-activity dot described against it. The checklist gains the release's own
+architecture, bounded-reader, verification, and visual-feedback record, marks
+the matched cross-terminal visual comparison as bounded evidence rather than a
+conformance verdict, and keeps the unfilled real-application matrix rows, the
+deferred comparative measurements, and the unstarted field program visible as
+open work. The overview's documentation index again lists every tracked
+document, and its testing section names the blocking architecture guard and the
+scheduled fuzz and dynamic-analysis lanes.
 
 ---
 

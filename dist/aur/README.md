@@ -26,6 +26,12 @@ repositories usable.
 The same workflow has a manual trigger for retrying a failed publication without
 replaying every release producer. Supply the release version with or without a
 leading `v`; leaving it blank reads the version from `Cargo.toml` on `master`.
+In GitHub, use **Actions -> AUR publish -> Run workflow**. The CLI equivalent
+for a specific release is:
+
+```sh
+gh workflow run aur-publish.yml --ref master -f version=vX.Y.Z
+```
 
 ## Verify A Tagged Release
 

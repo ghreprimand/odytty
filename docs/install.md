@@ -552,9 +552,9 @@ Detached and resumable session hosting, detached SSH, and headless
 `--interactive` mode remain Unix-only. The full Open With application list is
 not available on Windows, and command-palette shell history currently degrades
 to empty. Hostname discovery uses `GetComputerNameExW`. Interactive behavior is
-covered by historical Windows device passes; the blocking Windows CI leg proves
-the build compiles and its automated tests pass. Fresh v0.10.0 release-profile
-validation on Windows remains pending.
+covered by historical Windows device passes, blocking Windows CI, and a bounded
+post-release smoke check of the v0.10.0 portable package. That evidence does not
+cover every ConPTY application, IME, GPU, or Windows hardware configuration.
 
 ### Updating
 

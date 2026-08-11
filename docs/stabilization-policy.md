@@ -120,8 +120,8 @@ In particular, `0.9.x` does not automatically advance to `1.0.0`.
 needed. A 1.0 version is reserved for the explicit release decision made from
 the complete, current evidence bundle and any recorded bounded exceptions.
 
-The active stabilization program targets `v0.10.0` as its next release
-decision. That decision is governed by the narrowed gate scope defined in the
-pre-1.0 acceptance contract's current-release-decision section: `v0.10.0`
-remains a pre-1.0 release, shipping it does not complete the acceptance
-contract, and the deferred programs named there do not block it.
+The most recent stabilization decision produced `v0.10.0` under the narrowed
+gate scope defined in the pre-1.0 acceptance contract. It remains a pre-1.0
+release, shipping it did not complete the acceptance contract, and its deferred
+programs do not become automatic blockers for a later release. Each later
+release decision must record its own scope and evidence boundary.

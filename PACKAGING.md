@@ -217,13 +217,15 @@ See the [Release Guide](docs/release.md) for the artifact checklist.
 ## Publish Arch And AUR Packages
 
 The live `odytty` AUR package builds from the version-pinned source archive.
-The templates in `dist/aur/` are stamped, checksummed, regenerated, and pushed
-automatically after every tagged GitHub Release.
+The templates in `dist/aur/` are stamped, checksummed, regenerated, and normally
+pushed automatically after every tagged GitHub Release. A transient AUR outage
+can leave the GitHub Release healthy while only this downstream channel needs a
+retry.
 
 When the AUR publishing credential is unavailable, the workflow still validates
 the generated `PKGBUILD` and `.SRCINFO`, then exits without pushing. See the
-[AUR publishing guide](dist/aur/README.md) for the automatic path and manual
-fallback.
+[AUR publishing guide](dist/aur/README.md) for the automatic path, the dedicated
+idempotent retry workflow, and the manual fallback.
 
 End-user installation steps live in the
 [Install Guide](docs/install.md#arch-linux-aur). The exact upstream release
@@ -283,7 +285,7 @@ the [contribution guide](CONTRIBUTING.md).
 ### Publish The Scoop Manifest
 
 The in-repo Scoop bucket manifest is `bucket/odytty.json`. A user can install
-the repo as a Scoop bucket after the first Windows release:
+the repository as a Scoop bucket:
 
 ```powershell
 scoop bucket add odytty https://github.com/ghreprimand/odytty

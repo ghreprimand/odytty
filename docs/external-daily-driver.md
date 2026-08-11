@@ -4,9 +4,9 @@ Status: draft. This document defines a proposed evidence format and privacy
 boundary. It does not authorize enrollment, begin an observation period, set
 release thresholds, or contain field results.
 
-Scope note: this program is a 1.0 gate. It is an optional evidence program
-for the v0.10.0 release decision and does not block it; the v0.10.0 scope is
-defined in the [pre-1.0 acceptance contract](pre-1.0-acceptance.md).
+Scope note: this program is a 1.0 gate. It was optional for the v0.10.0 release
+decision and did not block it; the historical v0.10.0 scope is defined in the
+[pre-1.0 acceptance contract](pre-1.0-acceptance.md).
 
 The program exists to answer a narrow question: have people outside OdyTTY's
 development group used one identified build as their ordinary terminal, on

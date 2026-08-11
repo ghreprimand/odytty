@@ -725,6 +725,37 @@ overlay-registry animation infrastructure: a `BellFlash { epoch }` render-cache
 fragment and an `animation_deadline` contributor, both `Inert`/`None` on the off
 and urgent-only paths so the default render path is byte-identical.
 
+### Transient Window Feedback
+
+Short-lived status feedback belongs to the native layer, never to the terminal
+model. One reusable surface (`src/native/app/transient_hud.rs`) owns a single
+message and a single expiry deadline, so every producer shares one timer and one
+visual treatment instead of introducing its own.
+
+The surface is deliberately static. It has no animation phase, which means
+reduced-motion and plain rendering need no separate branch, and it contributes
+no frame-paced wakeup — an idle terminal stays idle because the only scheduled
+wake is the one expiry. A repeated gesture replaces the message and refreshes
+that single deadline rather than stacking surfaces. Painting is suppressed while
+a modal overlay or the rename field owns the frame, so a late chip can never
+overwrite an authoritative surface. In a split tab the chip is centered over the
+whole terminal content area rather than inside one pane.
+
+Two producers ship. Effective `Ctrl`+wheel font-size changes show the resulting
+size for 1.5 seconds. Interactive window resize shows the settled
+`columns × rows` geometry for 750 ms, published only after the existing
+debounce applies the final whole-cell geometry, so the feedback reports what the
+PTY was actually resized to and adds no resize path of its own. The first
+nonzero surface configure is suppressed so opening a window is silent, and a
+minimize notification neither publishes nor consumes that suppression.
+
+Unseen activity uses the terminal's existing per-tab latch. A background tab and
+each workspace rail row carry a static theme-role dot, the rail row deriving its
+state from the rollup of that workspace's tabs. This introduces no new escape
+sequence, protocol, or activity heuristic; the marker coexists with the
+remote-binding badge and clears only through the already-defined tab and
+workspace viewing semantics.
+
 ### IME Composition
 
 IME input is enabled at window creation (`Window::set_ime_allowed(true)`) so
@@ -748,10 +779,12 @@ half of Stage 6 (graphics protocols, wide glyphs, subpixel AA, text quality) is
 substantially complete. Stage 5 (file-based configuration with live reload) has
 its first stable layer.
 
-The active target is v0.10.0 hardening and release convergence. Fresh
-release-profile validation on Linux, macOS, and Windows and the matched
-cross-terminal visual comparison remain required evidence; automated gates and
-historical device passes do not mark those manual checks complete.
+Version 0.10.0 completed its architecture, compatibility, correctness,
+security, evidence, documentation, and release-convergence scope. Bounded
+post-release checks completed on the shipped Linux, macOS, and Windows packages,
+including a matched visual pass against comparable terminal emulators. The
+project remains pre-1.0; any later milestone requires a separately recorded
+scope rather than silently inheriting deferred work from this release.
 
 ### Parser And Protocols
 
@@ -887,6 +920,12 @@ historical device passes do not mark those manual checks complete.
   toggles, keyboard-driven navigation; presentation-only, never mutates terminal
   state
 
+- Transient window feedback: one shared static readout reports the settled
+  `columns × rows` geometry during interactive resize and the effective font
+  size during `Ctrl`+wheel zoom, then clears itself; it never changes terminal
+  state or input routing (see
+  [Transient Window Feedback](#transient-window-feedback))
+
 - In-app settings panel: `Ctrl+Shift+,` opens a keyboard-driven editor
   covering font, theme, cursor, keybinds, and all runtime knobs; edits apply
   live through the existing reload seam; `Ctrl+S` writes changed rows back to
@@ -904,6 +943,9 @@ historical device passes do not mark those manual checks complete.
   single-session view stays visually identical to the original full-grid view.
   Inline graphics use the same reserved top-row offset as cell geometry, so
   Kitty/Sixel placements remain aligned with text while the tab bar is visible.
+  An inactive tab and its workspace rail row show a static unseen-activity dot
+  drawn from the existing latch (see
+  [Transient Window Feedback](#transient-window-feedback)).
 
   The tab context menu can assign a session-lifetime custom tab name; while set,
   shell title updates refresh the underlying title but do not replace the
@@ -1412,9 +1454,10 @@ platform-divergent surface is small, localized, and `#[cfg]`-gated, so Windows
 code is physically absent from a Linux/macOS build and cannot regress it — the
 Linux/macOS byte path is unchanged by the port.
 
-These platform labels describe shipped implementation and automated gates.
-They are not a claim that fresh v0.10.0 physical-device or manual
-release-profile validation has completed.
+These platform labels describe shipped implementation, blocking automated
+gates, and a bounded post-release package smoke pass on each shipped platform.
+They do not claim that every physical device, GPU backend, compositor, IME,
+font, or application combination has been validated.
 
 ### Platform Summary
 

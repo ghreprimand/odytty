@@ -256,6 +256,18 @@ The Scoop hash comes from the
 `odytty-X.Y.Z-windows-x86_64.zip` row in `SHA256SUMS`. The Homebrew cask uses
 the macOS zip row, while the formula and AUR package use the source-tarball row.
 
+If only the AUR channel fails after the GitHub Release is already published,
+do not replay every release producer. After the AUR service is available, open
+**Actions -> AUR publish -> Run workflow**, select `master`, and enter
+`vX.Y.Z`. The equivalent command is:
+
+```sh
+gh workflow run aur-publish.yml --ref master -f version=vX.Y.Z
+```
+
+The workflow is idempotent and exits successfully when that package version is
+already present.
+
 ## Build A Fallback Source Archive
 
 The workflow normally builds the archive. To create the same versioned tarball
