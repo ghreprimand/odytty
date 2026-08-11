@@ -142,7 +142,8 @@ all platforms and shared-memory transport on Unix, with security hardening,
 placements with z-order/crop/scale/offset, delete and query operations); a GPU
 image layer; and color emoji on Linux and macOS (ZWJ families, flags, keycaps,
 skin-tone modifiers, variation selectors) via a dedicated RGBA color-glyph
-atlas. Windows uses the monochrome fallback.
+atlas. Windows uses the same color path when Noto Color Emoji is installed;
+stock Segoe UI Emoji falls back to monochrome.
 
 ### Text Rendering Quality
 

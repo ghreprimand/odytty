@@ -1815,9 +1815,10 @@ the existing coverage atlas.
 Emoji cells sample source pixels directly and are
 never tinted by SGR foreground color. Linux font discovery probes fontconfig
 only for Noto Color Emoji; directory scanning also finds Noto Color Emoji on
-Linux and Apple Color Emoji on macOS. Stock Windows Segoe UI Emoji is not
-discovered or rasterized, so Windows falls back to monochrome glyphs. An
-explicit per-session setting is planned as a follow-up. VS15 (`U+FE0E`) forces
+Linux and Windows and Apple Color Emoji on macOS. Stock Windows Segoe UI Emoji
+is not discovered or rasterized, so it falls back to monochrome glyphs unless a
+supported Noto Color Emoji face is installed. An explicit per-session setting
+is planned as a follow-up. VS15 (`U+FE0E`) forces
 the text path; VS16 (`U+FE0F`) forces the emoji path; characters with
 Unicode `Emoji_Presentation=Yes` default to emoji; others default to text. The
 predicate must not claim whole symbol blocks: text-default Dingbats/geometric

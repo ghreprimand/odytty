@@ -378,8 +378,9 @@ monochrome coverage foreground quad is suppressed (`src/grid.rs`:
 so SGR styling layers correctly around the color bitmap without tinting it.
 
 **Degradation.** If no supported color-emoji font is installed (Noto Color
-Emoji on Linux or Apple Color Emoji on macOS), `EmojiRasterizer::discover()`
-returns a rasterizer with no font rather than failing. Stock Windows Segoe UI
-Emoji is not discovered or rasterized, so Windows takes the same monochrome
-coverage path. Emoji cells remain readable. See
+Emoji on Linux or Windows, or Apple Color Emoji on macOS),
+`EmojiRasterizer::discover()` returns a rasterizer with no font rather than
+failing. Stock Windows Segoe UI Emoji is not discovered or rasterized, so it
+takes the same monochrome coverage path unless a supported Noto face is
+installed. Emoji cells remain readable. See
 [accessibility.md](accessibility.md) for the related readability guarantees.

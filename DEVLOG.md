@@ -7,6 +7,17 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-11 -- Clarify the Windows color-emoji fallback
+
+The public text and graphics documentation now matches the existing discovery
+path: Windows can use the CBDT/CBLC color path when Noto Color Emoji is installed
+in a searched system or per-user font directory. A stock Windows installation
+still renders emoji through the monochrome fallback because Segoe UI Emoji is
+not discovered or rasterized by the current path. This is a documentation-only
+correction; rendering behavior is unchanged.
+
+---
+
 ## 2026-08-11 -- Validate the published v0.10.0 packages and refresh documentation
 
 The published v0.10.0 packages received bounded post-release checks on Linux,

@@ -215,8 +215,9 @@ and optional subpixel antialiasing uses dual-source blending on capable GPUs.
 
 Color emoji uses `swash` and a dedicated premultiplied-RGBA atlas. Bitmap
 strike color fonts are supported through Noto Color Emoji (CBDT/CBLC) on Linux
-and Apple Color Emoji (sbix) on macOS. Windows currently uses the monochrome
-fallback because stock Segoe UI Emoji is not discovered or bitmap-rasterized.
+and Windows when that font is installed, and Apple Color Emoji (sbix) on macOS.
+On a stock Windows installation, Segoe UI Emoji is not discovered or
+bitmap-rasterized, so its emoji use the monochrome fallback.
 
 Variation selectors, flags, keycaps, skin tones, and common ZWJ clusters are
 supported. Text-default symbols stay on the monochrome fallback path, missing

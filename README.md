@@ -194,9 +194,10 @@ Linux method, plus the Homebrew and Scoop paths below.
   Windows uses ConPTY.
 - **Readable GPU text and graphics.** The `wgpu` renderer uses bundled Victor
   Mono and JetBrains Mono fonts, system-font discovery, a Nerd-font fallback
-  chain, subpixel antialiasing, HiDPI rebuilds, color emoji on Linux and macOS
-  with a monochrome Windows fallback, Kitty graphics, and Sixel. [Explore text
-  and graphics](docs/features.md#text-emoji-and-graphics).
+  chain, subpixel antialiasing, HiDPI rebuilds, color emoji through Noto Color
+  Emoji on Linux and Windows when installed and Apple Color Emoji on macOS,
+  with a monochrome fallback for stock Windows Segoe UI Emoji, Kitty graphics,
+  and Sixel. [Explore text and graphics](docs/features.md#text-emoji-and-graphics).
 - **Modern terminal interaction.** Kitty keyboard support, broad mouse modes,
   focus reporting, IME composition, search, refined and PRIMARY selection,
   bracketed-paste hardening, copy mode, keyboard hints, prompt navigation, OSC 8
