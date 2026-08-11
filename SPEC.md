@@ -110,8 +110,8 @@ geometry, and shaders are OdyTTY-originated code. The visual experience layer
 experiments must not destabilize terminal correctness and must be
 off-switch-able at all times.
 
-Ghostty and other mature terminals are compatibility references, not
-implementation sources. Visual ambition stays open, but every effect and
+Mature terminal emulators are compatibility references, not implementation
+sources. Visual ambition stays open, but every effect and
 workflow layer must be isolated from terminal correctness and bounded by
 readability and performance.
 
@@ -749,9 +749,9 @@ substantially complete. Stage 5 (file-based configuration with live reload) has
 its first stable layer.
 
 The active target is v0.10.0 hardening and release convergence. Fresh
-release-profile validation on Linux, macOS, and Windows and the matched Ghostty
-visual comparison remain required evidence; automated gates and historical
-device passes do not mark those manual checks complete.
+release-profile validation on Linux, macOS, and Windows and the matched
+cross-terminal visual comparison remain required evidence; automated gates and
+historical device passes do not mark those manual checks complete.
 
 ### Parser And Protocols
 

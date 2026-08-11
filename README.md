@@ -264,9 +264,9 @@ blocking CI targets alongside Linux. See [Install And Run](#install-and-run) for
 the current packages and maturity notes.
 
 Fresh v0.10.0 release-profile validation remains pending on Linux, macOS, and
-Windows, as does the matched Ghostty visual comparison. Blocking CI establishes
-automated coverage on each platform; it does not substitute for those manual
-GPU, IME, clipboard, text-quality, or interaction results.
+Windows, as does the matched cross-terminal visual comparison. Blocking CI
+establishes automated coverage on each platform; it does not substitute for
+those manual GPU, IME, clipboard, text-quality, or interaction results.
 
 Known gaps include Windows detached and resumable session hosting, profiles,
 Kitty animation and Unicode placeholders, iTerm2 graphics, COLR/CPAL color

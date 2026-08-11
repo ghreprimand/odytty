@@ -72,8 +72,8 @@ The informational `ttf-parser 0.25.1` unmaintained advisory carries a hard
 
 Blocking Ubuntu, macOS, and Windows CI establishes the automated coverage
 behind this release. Fresh release-profile validation on physical Linux, macOS,
-and Windows systems and the matched Ghostty visual comparison remain pending
-and are not claimed here.
+and Windows systems and the matched cross-terminal visual comparison remain
+pending and are not claimed here.
 
 ---
 
@@ -101,7 +101,8 @@ The public overview, specification, roadmap, installation notes, acceptance
 contract, native decomposition record, and release guide now use the same
 v0.10.0 scope and evidence language. Blocking CI and historical device passes
 describe automated and prior coverage; they do not claim that the pending
-matched Ghostty comparison or fresh Linux, macOS, and Windows release-profile
+matched comparison against a comparable terminal emulator or fresh Linux,
+macOS, and Windows release-profile
 validation has passed. The roadmap freezes feature expansion until release
 convergence, and dated internal before/after microbenchmarks are labeled as
 implementation measurements rather than cross-terminal product comparisons.

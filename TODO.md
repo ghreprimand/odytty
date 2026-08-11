@@ -178,7 +178,7 @@ ideas below are longer-range roadmap candidates, not authorized v0.10.0 work.
 
 ## Stage 3: High-Quality Text And Rendering
 
-- [ ] Treat Ghostty-level visible text quality as the baseline target, not a
+- [ ] Treat mature-terminal visible text quality as the baseline target, not a
       stretch goal.
 - [x] Add configurable font family after the settings path is stable.
   - [x] `ODYTTY_FONT_FAMILY` resolves a monospace face by family name (system
@@ -789,7 +789,8 @@ a floor; surpassing it is the standing ambition.
 - [x] Close confirmation (`confirm_close`, default on): brief in-window prompt
       before closing when a foreground program is running; idle shell exits
       without prompting.
-- [ ] Side-by-side visual comparison vs Ghostty at matched font/size.
+- [ ] Side-by-side visual comparison against a comparable terminal emulator at
+      matched font/size.
 
 ## Stage 7: Shell Integration, Perceptual Moat, and Pointer Excellence
 
@@ -1328,5 +1329,5 @@ feature validates against.
       registration), so it cannot be selected as the system default terminal
       that Explorer/other apps hand consoles to. Future work; needs COM/registry
       registration and on-device validation.
-- [ ] Daily-driver claims against Ghostty/Konsole before compatibility and
-      performance are proven.
+- [ ] Daily-driver claims against comparable terminal emulators before
+      compatibility and performance are proven.

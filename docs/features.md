@@ -299,9 +299,9 @@ visible grid.
 | Close only the focused pane | **Close Pane**, labeled with `Ctrl+b x`, in a multi-pane content menu |
 | Resize adjacent panes | Drag their divider |
 
-The direct split chords match Ghostty's Linux defaults and work in both
-single-pane and multi-pane tabs. **Close Pane** is hidden for a single-pane tab,
-where closing the tab is the only close action.
+The direct split chords follow common Linux terminal conventions and work in
+both single-pane and multi-pane tabs. **Close Pane** is hidden for a single-pane
+tab, where closing the tab is the only close action.
 
 Once a tab has multiple panes, a tmux-style prefix enters a transient pane
 command mode. The prefix is `Ctrl+b` by default and is configurable through

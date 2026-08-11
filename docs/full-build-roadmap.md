@@ -797,9 +797,9 @@ the readability-safe background treatments, the interactive paths and image
 viewer, the session attach launcher, and the multi-context epic (panes,
 persistent sessions, command palette, and connection manager) all ship:
 
-1. **Complete the matched Ghostty visual comparison and fresh release-profile
-   validation on Linux, macOS, and Windows.** Empty templates and historical
-   device passes are not release evidence.
+1. **Complete the matched cross-terminal visual comparison and fresh
+   release-profile validation on Linux, macOS, and Windows.** Empty templates
+   and historical device passes are not release evidence.
 2. **Converge documentation and release metadata, run the exact-candidate
    pre-tag gate, and hold the v0.10.0 exception review.**
 3. **Resume effect default tuning only after v0.10.0 and a separate scope
