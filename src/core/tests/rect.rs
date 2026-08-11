@@ -165,7 +165,7 @@ fn rectangle_edge_splitting_wide_pair_clears_the_pair() {
 
 #[test]
 fn attribute_rect_ops_respect_extent_and_origin_matrix() {
-    for final_byte in [b'r', b't'] {
+    for final_byte in *b"rt" {
         for exact in [false, true] {
             for origin in [false, true] {
                 let mut terminal = Terminal::new(5, 5);

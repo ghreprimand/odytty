@@ -332,13 +332,12 @@ pub(in crate::core) fn parse_button_osc_1337(parts: &[&[u8]]) -> Option<ButtonSi
                 return None;
             }
             code = Some(parse_code(value)?);
-        } else if let Some(value) = part.strip_prefix(b"icon=") {
+        } else {
+            let value = part.strip_prefix(b"icon=")?;
             if icon.is_some() {
                 return None;
             }
             icon = Some(ButtonIcon::from_name(value));
-        } else {
-            return None;
         }
     }
     Some(ButtonSignal::Define {
@@ -385,7 +384,8 @@ pub(in crate::core) fn parse_button_osc_133(parts: &[&[u8]]) -> Option<ButtonSig
                         return None;
                     }
                     icon = Some(ButtonIcon::from_name(value));
-                } else if let Some(value) = part.strip_prefix(b"scope=") {
+                } else {
+                    let value = part.strip_prefix(b"scope=")?;
                     if scope.is_some() {
                         return None;
                     }
@@ -394,8 +394,6 @@ pub(in crate::core) fn parse_button_osc_133(parts: &[&[u8]]) -> Option<ButtonSig
                         b"sticky" => ButtonScope::Sticky,
                         _ => return None,
                     });
-                } else {
-                    return None;
                 }
             }
             Some(ButtonSignal::Define {

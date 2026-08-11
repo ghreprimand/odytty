@@ -7,6 +7,16 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-11 -- Keep the lint gate clean on Rust 1.97
+
+Rust 1.97's expanded default Clippy set exposed three equivalent forms that the
+pinned 1.96 lint gate did not flag. The button-field parsers now use `?` for
+their existing unknown-field rejection, and one rectangle test uses a byte
+string for its two final bytes. These mechanical cleanups preserve the verified
+Rust 1.96 minimum while keeping development clean on Rust 1.97.
+
+---
+
 ## 2026-08-11 -- Clarify the Windows color-emoji fallback
 
 The public text and graphics documentation now matches the existing discovery
