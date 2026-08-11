@@ -1,11 +1,10 @@
 # OdyTTY
 
-<a id="contents"></a>
-
 [Website](https://odytty.unfinished-works.com) |
 [Latest release](https://github.com/ghreprimand/odytty/releases/latest) |
 [Install guide](docs/install.md) |
-[Documentation](#project-docs) |
+[Feature reference](docs/features.md) |
+[Documentation](docs/README.md) |
 [Issues](https://github.com/ghreprimand/odytty/issues)
 
 ![OdyTTY rendering a colorized git graph, project tree, and truecolor gradients under the default Odyssey theme with bloom](assets/demo.png)
@@ -13,396 +12,193 @@
 **A from-scratch, GPU-rendered Rust terminal with an Odyssey visual identity.**
 
 OdyTTY owns the terminal path from the PTY through escape parsing, terminal
-state, text layout, and shaders. It pairs that foundation with fast readable
-text, tabs and panes, inline media, menu-driven in-app configuration, and visual effects
-that stay behind performance and readability boundaries.
+state, text layout, and shaders. It combines that foundation with readable GPU
+text, tabs and panes, inline media, in-app configuration, accessibility
+controls, and optional visual effects. It is Linux-first, with packaged macOS
+Apple Silicon and Windows releases, and runs independently of OdysseyOS.
 
-The project is Linux-first and in active development, with packaged releases
-for Linux, macOS on Apple Silicon, and Windows. OdysseyOS inspired the name and
-design, but OdyTTY runs as a standalone application and requires no custom
-distribution.
+## Install
 
-## Install And Run
-
-Choose the recommended path for your platform. The
-[full install guide](docs/install.md) covers checksums, alternate downloads,
-source builds, package-manager trust, signing prompts, desktop integration,
-default-terminal setup, and troubleshooting.
-
-| Platform | Support | Recommended release |
-| --- | --- | --- |
-| Linux | Primary target | One-line install, or native .deb / .rpm |
-| macOS | Supported and actively maturing | Homebrew cask with an Apple Silicon app |
-| Windows | First-class ConPTY support and actively maturing | Scoop package with an unsigned x86_64 build |
+Choose the recommended release for your platform. The
+[full install guide](docs/install.md) covers alternate packages, checksums,
+source builds, signing prompts, desktop integration, default-terminal setup,
+and troubleshooting.
 
 ### Linux
 
-Linux needs a GPU backed by Vulkan or accelerated OpenGL/GLES; OdyTTY prefers
-Vulkan and treats software rendering as a slow last resort. The fastest path is
-the one-line installer, which detects your package manager, downloads the
-matching artifact, and checksum-verifies it against `SHA256SUMS` before
-installing:
+The installer detects apt or dnf and installs the matching checksummed package;
+other x86_64 systems receive the portable binary tarball:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
 ```
 
-It picks a native `.deb` on apt systems, a native `.rpm` on dnf systems, or the
-portable binary tarball otherwise. Pass `--dry-run` to preview the plan without
-downloading anything. Prefer to install by hand? Each explicit path:
-
-- **Arch (and derivatives):** with an AUR helper, `paru -S odytty` (or
-  `yay -S odytty`). A fresh Arch box has no helper yet, so the no-helper
-  route works from a clean install:
-  ```sh
-  sudo pacman -S --needed base-devel git
-  git clone https://aur.archlinux.org/odytty.git
-  cd odytty
-  makepkg -si
-  ```
-  See the [Arch install notes](docs/install.md#arch-linux-aur) for detail.
-- **Debian, Ubuntu, Mint, Pop:** download `odytty-amd64.deb` from the
-  [latest release](https://github.com/ghreprimand/odytty/releases/latest) and
-  `sudo apt install ./odytty-amd64.deb`.
-- **Fedora, RHEL, openSUSE:** download `odytty-x86_64.rpm` and
-  `sudo dnf install ./odytty-x86_64.rpm` (best-effort, cross-built).
-- **Portable AppImage (no install):** download, verify, mark executable, run.
-
-```sh
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
-chmod +x odytty-x86_64.AppImage
-./odytty-x86_64.AppImage
-```
-
-A prebuilt binary tarball and a source build round out the options in the
-[full install guide](docs/install.md#linux).
-
-Wayland is the primary display target. X11 works through the current windowing
-and GPU stack. See the [Linux install notes](docs/install.md#linux)
-for driver and desktop-integration details.
+Arch users can install `odytty` from the AUR with `paru -S odytty` or
+`yay -S odytty`. Direct `.deb`, `.rpm`, AppImage, binary-tarball, and source
+paths are documented in the [Linux install guide](docs/install.md#linux).
+OdyTTY prefers Vulkan, also supports accelerated OpenGL/GLES, and treats
+software rendering as a slow last resort. Wayland is the primary display
+target; X11 is supported through the current windowing and GPU stack.
 
 ### macOS
 
-The Homebrew cask installs the prebuilt Apple Silicon app into
-`/Applications`:
+The Homebrew cask installs the prebuilt Apple Silicon app:
 
 ```sh
 brew tap ghreprimand/odytty
 brew install --cask odytty
 ```
 
-The app is ad-hoc signed rather than notarized, so the cask discloses and handles
-the required quarantine clearing during installation. Intel Macs use the source
-build described in the [macOS install notes](docs/install.md#macos-apple-silicon).
+The app is ad-hoc signed rather than notarized; the cask handles its disclosed
+quarantine-clearing step. Intel Macs currently use the
+[source build](docs/install.md#build-from-source).
 
 ### Windows
 
-With [Scoop](https://scoop.sh) installed, add the OdyTTY bucket and install:
+With [Scoop](https://scoop.sh) installed:
 
 ```powershell
 scoop bucket add odytty https://github.com/ghreprimand/odytty
 scoop install odytty
 ```
 
-Scoop verifies the release checksum, places `odytty` on `PATH`, and adds a
-Start-menu entry. The [Windows install notes](docs/install.md#windows) cover
-Scoop setup, the portable zip, SmartScreen, and current platform scope.
+The release is unsigned, so Windows may show a SmartScreen prompt. Scoop
+verifies the checksum, adds `odytty` to `PATH`, and creates a Start-menu entry.
+See the [Windows install guide](docs/install.md#windows) for the portable zip,
+first-launch steps, and current platform scope.
 
-<a id="running-and-inspecting"></a>
+## Update
 
-### Run
+Use the same channel that installed OdyTTY:
 
-Once `odytty` is on `PATH`, open the default shell or launch a command
-directly:
+| Installed with | Update |
+| --- | --- |
+| Linux installer | Re-run the installer command above. |
+| Direct `.deb` or `.rpm` | Re-run the installer, or download and install the latest package. OdyTTY does not publish an apt or dnf repository. |
+| AUR | Run `paru -Syu` or `yay -Syu`; for a manual checkout, run `git pull --ff-only` and `makepkg -si`. |
+| AppImage or tarball | Replace it with the always-latest artifact, verify `SHA256SUMS`, and reuse the previous install location. |
+| Homebrew | Run `brew update && brew upgrade --cask odytty`. |
+| Scoop | Run `scoop update && scoop update odytty`. |
+| Source | Update the source tree, rebuild with `cargo build --release --locked`, and reinstall to the same prefix. |
+
+The [update guide](docs/install.md#updating) provides exact commands for every
+release format.
+
+## Run And Configure
+
+Open the default shell or launch a command directly:
 
 ```sh
 odytty
 odytty -e btop
 ```
 
-Linux launchers can assign a window-specific compositor identity with either
-`--app-id APP_ID` / `--app-id=APP_ID` or the equivalent `--class` forms. With
-neither option, the Wayland `app_id` and X11 `WM_CLASS` class remain
-`io.unfinished_works.odytty`; the X11 instance remains `odytty`. Use `--hold`,
-`--hold=true`, or `--hold=false` to control whether the initial local command
-stays visible after exit. Hold is off by default; when enabled, OdyTTY reports
-the exit status and closes the exited pane on the next keypress. See the
-[launch CLI reference](docs/runtime-knobs.md#launch-cli) for scope and detached
-session behavior.
+Most customization is available inside the app:
 
-Most customization happens inside OdyTTY: open the settings panel with
-`Ctrl+Shift+,`, pick themes and fonts from their pickers, and run actions from
-the `Ctrl+Shift+P` command palette. No config file needed.
-
-<details>
-<summary><strong>Updating</strong></summary>
-
-Linux updates follow the original install method:
-
-| Installed with | Update |
+| Action | Shortcut |
 | --- | --- |
-| One-line installer | Re-run the installer below. |
-| Direct `.deb` or `.rpm` | Re-run the installer, or repeat the download, checksum, and `apt install` / `dnf install` commands above. OdyTTY does not publish an apt or dnf repository. |
-| AUR | Run `paru -Syu` or `yay -Syu`; a manual checkout uses `git pull --ff-only` followed by `makepkg -si`. |
-| Binary tarball | Download the always-latest tarball, verify it, and run its `install.sh` with the same `PREFIX` as before. |
-| AppImage | Replace it with the always-latest alias and verify it as shown below. |
-| Source build | Update or replace the source tree, rebuild with `cargo build --release --locked`, and repeat the same user-local or system install. |
+| Settings | `Ctrl+Shift+,` |
+| Command palette | `Ctrl+Shift+P` |
+| Theme picker | `Ctrl+Shift+H` |
 
-The one-line installer pulls the newest applicable native package or tarball:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/ghreprimand/odytty/master/dist/install.sh | bash
-```
-
-For an AppImage, replace the old file with the stable always-latest alias:
-
-```sh
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
-curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
-chmod +x odytty-x86_64.AppImage
-```
-
-**macOS Homebrew cask**
-
-```sh
-brew update
-brew upgrade --cask odytty
-```
-
-**Windows Scoop**
-
-```powershell
-scoop update
-scoop update odytty
-```
-
-The [full update guide](docs/install.md#updating) gives exact commands for every
-Linux method, plus the Homebrew and Scoop paths below.
-
-</details>
-
-<a id="features"></a>
+Hand-editing is optional. When used, `odytty.conf` lives under
+`$XDG_CONFIG_HOME/odytty/` or `~/.config/odytty/` on Unix and
+`%APPDATA%\odytty\` on Windows. See the [settings guide](docs/settings-guide.md),
+[keybindings](docs/keybindings.md), and
+[launch CLI reference](docs/runtime-knobs.md#launch-cli) for the complete
+surface, including command hold, application identity, layouts, and detached
+sessions.
 
 ## Highlights
 
-- **Owned terminal foundation.** OdyTTY provides its own PTY layer, clean-room
-  DEC/xterm parser, terminal model, bounded scrollback, alternate screen, input
-  mapping, render geometry, and shaders. Linux and macOS use the Unix backend;
-  Windows uses ConPTY.
-- **Readable GPU text and graphics.** The `wgpu` renderer uses bundled Victor
-  Mono and JetBrains Mono fonts, system-font discovery, a Nerd-font fallback
-  chain, subpixel antialiasing, HiDPI rebuilds, color emoji through Noto Color
-  Emoji on Linux and Windows when installed and Apple Color Emoji on macOS,
-  with a monochrome fallback for stock Windows Segoe UI Emoji, Kitty graphics,
-  and Sixel. [Explore text and graphics](docs/features.md#text-emoji-and-graphics).
-- **Modern terminal interaction.** Kitty keyboard support, broad mouse modes,
-  focus reporting, IME composition, search, refined and PRIMARY selection,
-  bracketed-paste hardening, copy mode, keyboard hints, prompt navigation, OSC 8
-  hyperlinks, and clickable files and URLs support daily shell and TUI work.
-  Native Windows console applications can request complete ConPTY Win32 key
-  records, preserving input such as `Ctrl+Backspace` and `Shift+Enter`.
-  Interactive resize reports the settled `columns × rows` geometry and
-  `Ctrl`+wheel zoom reports the effective font size in one bounded, static
-  centered readout that clears itself.
-  [See terminal compatibility](docs/features.md#terminal-compatibility).
-- **Workspaces for real sessions.** Tabs contain resizable panes and named
-  workspaces, with a configurable tmux-style pane prefix, session restore,
-  Unix-only detached and in-window managed sessions, layouts, and replay.
-  Background tabs and workspaces carry a static unseen-activity dot that clears
-  when the tab or workspace is viewed.
-  [See native workflows](docs/features.md#tab-and-pane-workflow).
-- **Local SSH workflows.** The connection manager keeps an OdyTTY-owned hosts
-  list and can opt into name-only OpenSSH host import, remote shell integration,
-  connection reuse, and `tmux` persistence. Every layer degrades to plain
-  `ssh`. [See shell integration](docs/features.md#shell-integration).
-- **Configure inside the app, no config file required.** A live settings panel
-  (`Ctrl+Shift+,`) edits themes, fonts, rendering, and the Layout section for
-  tabs, rail, and panes, with a theme picker (`Ctrl+Shift+H`), font picker, and
-  `Ctrl+Shift+P` command palette putting most customization one keystroke away.
-  Unlike config-file-only terminals, hand-editing is optional: the
-  `odytty.conf` file with hot reload stays for anyone who wants it
-  (`%APPDATA%\odytty\odytty.conf` on Windows, otherwise under
-  `$XDG_CONFIG_HOME/odytty/` or `~/.config/odytty/`).
-  [Explore settings and themes](docs/features.md#settings-and-themes).
-- **A visual layer with an off switch.** OdyTTY ships 142 built-in themes, user
-  themes, a theme builder, background treatments, transparency, bloom, CRT, and
-  retro effects. The live settings panel preserves hand-written config while
-  font and keybinding editors keep customization discoverable.
-  [Explore settings and themes](docs/features.md#settings-and-themes).
-- **Accessibility and privacy are foundations.** Minimum contrast, color-vision
-  modes, dimming controls, motion controls, and a configurable bell protect
-  readability. OdyTTY has no telemetry, analytics, crash reporting, account,
-  cloud sync, or update ping; network actions are explicit and user-initiated.
+- **Owned terminal foundation:** OdyTTY implements its PTY integration,
+  DEC/xterm parser, bounded terminal model, input mapping, render geometry, and
+  shaders. Unix systems use the Unix backend and Windows uses ConPTY.
+- **GPU text and inline media:** bundled and system fonts, fallback chains,
+  HiDPI rebuilds, color emoji where a supported color font is available, Kitty
+  graphics, and Sixel share the `wgpu` renderer.
+- **Daily terminal interaction:** Kitty keyboard support, broad mouse modes,
+  IME, search, selection and copy mode, bracketed paste, hyperlinks, clickable
+  paths, prompt navigation, keyboard hints, and transient resize and zoom
+  feedback.
+- **Workspaces and remote work:** tabs, resizable panes, named workspaces,
+  layouts, restore, Unix managed and detached sessions, an SSH connection
+  manager, connection reuse, and optional `tmux` persistence.
+- **Configuration without ceremony:** a live settings panel, command palette,
+  font and theme pickers, 142 built-in themes, user themes, a theme builder,
+  backgrounds, transparency, bloom, CRT, and retro effects. Config-file editing
+  remains available with hot reload.
+- **Accessibility and privacy:** contrast controls, color-vision modes,
+  dimming, motion controls, and a configurable bell. OdyTTY has no telemetry,
+  analytics, crash reporting, account, cloud sync, or update ping; network
+  actions are explicit and user-initiated.
 
-## Architecture
+Read the [feature reference](docs/features.md) for supported protocols,
+workflows, settings, and platform-specific behavior.
 
-The terminal core and the Odyssey experience layer are deliberately separate:
+## Status And Scope
 
-| Stage | Owned implementation |
-| --- | --- |
-| PTY and child process | `src/pty/` |
-| Escape parsing | `src/parser/` |
-| Terminal state and protocols | `src/core/`, `src/graphics/` |
-| Text, emoji, and render geometry | `src/text.rs`, `src/atlas/`, `src/emoji/`, `src/grid.rs` |
-| Native window, GPU, themes, and settings | `src/native/`, `src/theme/`, `src/settings/` |
-
-External crates provide focused infrastructure such as GPU access, windowing,
-font rasterization, clipboard transport, and Unicode data. They do not own
-terminal semantics; `vte`, `portable-pty`, and `crossterm` are not in the
-dependency tree.
-
-Read the [architecture decisions](SPEC.md#ownership-boundary), the
-[complete module map](CONTRIBUTING.md#module-map), and the
-[visual pipeline](docs/visual-architecture.md) for the deeper design.
-
-## Status
-
-OdyTTY is a broad pre-release terminal. Real shells, tabs, workspaces, panes,
-scrollback, search, selection, inline graphics, themes, settings, managed
-sessions, SSH workflows, accessibility controls, and a large compatibility test
-surface work today.
+OdyTTY is a broad pre-1.0 terminal. Version 0.10.0 is published. Bounded
+post-release checks of the shipped Linux, macOS Apple Silicon, and Windows
+packages completed without a reported blocker. A matched visual pass against
+comparable terminal emulators found no release-blocking difference in the
+tested text, Unicode, box-drawing, or interaction surfaces. These checks
+complement blocking CI; they do not cover every GPU, compositor, IME, font, or
+hardware configuration.
 
 Linux is the primary target. macOS and Windows are supported, shipped, and
-blocking CI targets alongside Linux. See [Install And Run](#install-and-run) for
-the current packages and maturity notes.
+blocking CI targets. Known gaps include Windows detached and resumable session
+hosting, profiles, Kitty animation and Unicode placeholders, iTerm2 graphics,
+COLR/CPAL color fonts, and shaping beyond the default ASCII contextual path.
+See [current work](TODO.md) and the [full roadmap](docs/full-build-roadmap.md).
 
-Version 0.10.0 is published. Bounded post-release checks of the shipped Linux,
-macOS Apple Silicon, and Windows packages completed without a reported blocker,
-and a matched visual pass against comparable terminal emulators found no
-release-blocking text, Unicode, box-drawing, or interaction difference in the
-tested surfaces. These checks complement blocking CI; they do not claim every
-GPU, compositor, IME, font, or hardware configuration has been exercised.
+The terminal core and visual experience layer are deliberately separate.
+See the [ownership boundary](SPEC.md#ownership-boundary),
+[module map](CONTRIBUTING.md#module-map), and
+[visual pipeline](docs/visual-architecture.md) for the architecture.
 
-Known gaps include Windows detached and resumable session hosting, profiles,
-Kitty animation and Unicode placeholders, iTerm2 graphics, COLR/CPAL color
-fonts, and broader ligature and stylistic-set shaping beyond the default ASCII
-contextual path.
-See the [current work](TODO.md) and [full roadmap](docs/full-build-roadmap.md).
+## Build And Test
 
-## Testing
-
-The repository carries unit, integration, fuzz-smoke, pixel-smoke, PTY-smoke,
-GPU-composite, and CLI tests. The default suite is bounded and deterministic;
-platform-gated cases and PTY smokes that need optional host applications keep
-unavailable and skipped work distinct from executed assertions:
+OdyTTY pins Rust 1.96 as its verified minimum supported version. The repository
+toolchain file selects it automatically when Rust is managed by `rustup`.
 
 ```sh
+cargo build --release --locked
 cargo test
 cargo fmt --check
 ```
 
-Blocking CI adds an architecture guard that fails when any handwritten Rust file
-compiled into a shipping target reaches 2,000 physical lines. Coverage-guided
-fuzzing, Miri, and the sanitizers run on their own scheduled lanes and report
-unsupported and unmeasured surfaces rather than folding them into a pass.
+The default test suite is bounded and deterministic. Blocking CI adds Clippy,
+platform builds, and a production-file architecture guard; scheduled lanes run
+deeper fuzzing, Miri, and sanitizers. See the
+[contribution guide](CONTRIBUTING.md#test-battery) for the complete test battery,
+platform gates, and pre-commit checks.
 
-Deep fuzz tiers, benchmarks, platform gates, and the complete pre-commit check
-are documented in [CONTRIBUTING.md](CONTRIBUTING.md#test-battery).
+## Documentation
 
-## Public Repository Safety
+- [Install and update guide](docs/install.md)
+- [Feature reference](docs/features.md)
+- [Settings guide](docs/settings-guide.md) and
+  [runtime reference](docs/runtime-knobs.md)
+- [Keybindings](docs/keybindings.md)
+- [Accessibility](docs/accessibility.md)
+- [Diagnostics](docs/diagnostics.md)
+- [Architecture specification](SPEC.md)
+- [Complete documentation index](docs/README.md)
 
-This repository is public. Do not commit secrets, credentials, API keys, tokens,
-private hostnames or URLs, personal data, `.env` files, local-only config, or
-machine-specific notes. Inspect staged changes before every commit or push.
+## Contributing, Security, And License
 
-Read the full [contribution safety gate](CONTRIBUTING.md#public-repository-safety)
-and use the [private vulnerability process](SECURITY.md#reporting-a-vulnerability)
-for security issues.
-
-## Project Docs
-
-This index is the complete map of OdyTTY's tracked project documentation.
-
-### Start here
-
-[Website](https://odytty.unfinished-works.com) for the product showcase;
-[Install guide](docs/install.md) for every setup and update path; and
-[Feature reference](docs/features.md) for terminal behavior and native workflows.
-
-### Use and customize
-
-[Settings guide](docs/settings-guide.md) for shipped defaults and useful
-opt-ins; [Runtime knobs](docs/runtime-knobs.md) for every setting and CLI surface;
-[Annotated config](docs/odytty.conf.example) for a commented starting file;
-[Keybindings](docs/keybindings.md) for shortcuts and rebinding;
-[Buttons](docs/buttons.md) for the program-defined clickable-output protocol;
-[Accessibility](docs/accessibility.md) for readability and motion controls; and
-[Diagnostics](docs/diagnostics.md) for logs, recovery, and support information.
-
-### Visual system
-
-[Themes](docs/themes.md), [Effects](docs/effects.md),
-[Graphics](docs/graphics.md), [Visual architecture](docs/visual-architecture.md),
-and [HiDPI validation](docs/hidpi-validation.md) cover the complete renderer,
-visual, inline-media, and scaling references.
-
-### Architecture and design
-
-[Product specification](SPEC.md), [Interactive paths design](docs/interactive-paths-design.md),
-[Panes and sessions design](docs/panes-and-sessions-design.md), and
-[Session attach launcher design](docs/session-attach-launcher-design.md) cover
-the ownership boundary and deeper workflow architecture.
-
-### Stabilization evidence
-
-[Pre-1.0 acceptance contract](docs/pre-1.0-acceptance.md),
-[Stabilization and release-channel policy](docs/stabilization-policy.md),
-[historical stabilization baseline](docs/stabilization-baseline.md),
-[v0.10.0 baseline](docs/v0.10.0-baseline.md),
-[coverage evidence](docs/coverage-evidence.md),
-[mutation-testing policy](docs/mutation-testing.md),
-[manual-validation matrix](docs/manual-validation.md),
-[real-application smoke matrix](docs/compatibility/real-application-smoke.md),
-[compatibility corpus and regression intake](docs/compatibility/corpus.md),
-[optional external daily-driver protocol](docs/external-daily-driver.md),
-[parser and graphics fuzzing guide](fuzz/parser_graphics/README.md), and
-[native decomposition record](docs/native-decomposition.md) define the current
-evidence gates, scope freeze, reproducible starting point, architecture
-boundaries, and the distinction between executed results and remaining evidence
-scope. The [comparative benchmark protocol](docs/benchmark-protocol.md)
-preregisters performance methodology before measurement, and the
-[terminal threat model](docs/threat-model.md) catalogs every external-input and
-privilege boundary with its caps, defaults, failure behavior, and unresolved
-risks. The [pinned vttest methodology and results](docs/compatibility/vttest.md)
-separate runner health, observed compatibility outcomes, documented
-divergences, skips, and unsupported platforms. The
-[dynamic analysis lane](docs/dynamic-analysis.md) describes the scheduled Miri
-and sanitizer configuration, what each tool can and cannot observe, and which
-platforms it leaves unmeasured.
-
-### Packaging and release
-
-[Packaging guide](PACKAGING.md) and [Release guide](docs/release.md) define the
-artifact contracts. The [AUR runbook](dist/aur/README.md) and
-[Homebrew runbook](dist/homebrew/README.md) cover channel maintenance.
-
-### History and roadmap
-
-[Current work](TODO.md), [Development log](DEVLOG.md),
-[Full build roadmap](docs/full-build-roadmap.md), and
-[Idle wakeups investigation](docs/idle-wakeups-investigation.md) cover the
-project's active, historical, long-range, and measured performance records.
-
-### Contributing and security
-
-[Contributing](CONTRIBUTING.md), [Security policy](SECURITY.md),
-[License](LICENSE), and [Branding notice](NOTICE) define contribution, reporting,
-source-license, name, and endorsement boundaries.
-
-## License
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. It includes
+the test requirements, Developer Certificate of Origin, and public-repository
+safety rules. Report vulnerabilities through the private process in
+[SECURITY.md](SECURITY.md#reporting-a-vulnerability).
 
 OdyTTY is licensed under **GPL-3.0-only**. You may use, study, share, and modify
-the source under that license. Distributing a modified version requires
-releasing those changes under the same license. See [LICENSE](LICENSE).
+the source under that license; distributed modifications must use the same
+license. See [LICENSE](LICENSE).
 
 Copyright (C) 2026 Unfinished Works and the OdyTTY contributors.
 
 The OdyTTY name and branding are separate from the source license. Forks and
 modified builds should use their own name and must not imply endorsement by
 Unfinished Works. See [NOTICE](NOTICE).
-
-Contributions are accepted under the Developer Certificate of Origin. See
-[CONTRIBUTING.md](CONTRIBUTING.md#developer-certificate-of-origin-dco).

@@ -7,6 +7,20 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-11 -- Make the repository overview easier to scan
+
+The root README now focuses on the product overview, recommended install and
+update paths, first-run controls, current scope, and the shortest build and test
+commands. Detailed package variants, feature behavior, architecture, evidence,
+and contributor policy continue to live in their dedicated references instead
+of being repeated on the landing page.
+
+A new `docs/README.md` preserves the complete tracked-documentation map behind
+one prominent link. This keeps every previous reference discoverable while
+making the repository front page substantially shorter and easier to navigate.
+
+---
+
 ## 2026-08-11 -- Keep the lint gate clean on Rust 1.97
 
 Rust 1.97's expanded default Clippy set exposed three equivalent forms that the
