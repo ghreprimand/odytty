@@ -677,6 +677,21 @@ a floor; surpassing it is the standing ambition.
       297-entry set. Remaining deviation: tiles split the image uniformly
       across the prototype grid rather than letterboxing to preserve aspect
       ratio.
+- [ ] iTerm2 inline images (`OSC 1337 ; File=`): scheduled. Extends the
+      existing OSC 1337 dispatch (which already models `Button=`) with
+      bounded base64 payload handling under the established parser-limit
+      discipline, reusing the image store and placement machinery; iTerm2
+      cell/pixel/percent/auto dimension units; non-image transfers rejected.
+- [ ] Kitty graphics animation (`a=f`/`a=a`/`a=c`): deferred, with reasons.
+      Sizing puts it at roughly 900-1200 production lines plus a render-loop
+      change, and it is the only remaining graphics item that needs new
+      architecture: multi-frame stored images with per-image aggregate
+      quotas, frame composition with client-supplied rectangles, and —
+      the real cost — time entering the terminal model (terminal-driven
+      animation needs a clock and a wake source, so `visible_graphics`
+      stops being a pure function of state and the scheduler interacts
+      with damage classification). Deferred until it can be the main
+      object of its own increment rather than riding along in one.
 - [x] Kitty delete/query + DECSDM: `a=d` delete variants (d=a/A, i/I+p=,
       c/C, p/P+x=/y=) with uppercase image-data GC, `a=q` validation-only
       query responses, and DECSET/DECRST 80 sixel cursor policy (anchor at
