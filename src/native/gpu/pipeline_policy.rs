@@ -107,9 +107,10 @@ pub(in crate::native) fn scene_clear_color(
     }
 }
 
-/// Pack a [`VisualEffect`] into the shader uniform's `effect` slot:
-/// `[scanline_strength, scanline_period_px]`. When off, strength is `0.0`, which
-/// makes the shader's scanline term vanish (pixel-identical to no effect).
+/// Pack a [`VisualEffect`] into the shader uniform's legacy `effect` slot:
+/// `[scanline_strength, scanline_period_px]`. Kept for uniform layout
+/// stability only — `cell.wgsl` and `cell_subpixel.wgsl` never sample
+/// `effect`; the unified CRT post-process is the sole scanline path.
 pub(in crate::native) fn effect_params(visual: VisualEffect) -> [f32; 2] {
     [visual.scanline_strength(), visual.scanline_period_px()]
 }

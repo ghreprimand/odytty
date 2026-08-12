@@ -343,9 +343,10 @@ pub fn strikethrough_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32, baseline: 
 /// - `wide_continuation` spacer cells are skipped; a wide lead cell's
 ///   background spans both columns so there is no gap.
 /// - `attrs.inverse()` swaps foreground and background before emitting.
-/// - A foreground quad is emitted only for a printable, inked glyph: the
-///   character is not a space and the atlas has a UV rect for it (printable
-///   ASCII). Control/non-ASCII cells emit background only.
+/// - A foreground quad is emitted for a printable resident glyph or its
+///   fallback box. Spaces and controls emit no glyph. Non-ASCII and styled
+///   glyphs use dynamically ensured atlas slots; combining marks draw at the
+///   base-cell anchor.
 pub fn build_vertices(snapshot: &Snapshot, atlas: &GlyphAtlas) -> Vec<Vertex> {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;

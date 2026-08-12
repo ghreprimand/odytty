@@ -7,6 +7,42 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Reconcile source comments and docs with landed behavior
+
+A tree-wide comment-accuracy audit followed the earlier stale-renderer-comment
+fix and confirmed twelve more drift clusters: comments and docs still
+describing superseded designs as current. All are now reconciled to the code:
+
+- Atlas/renderer: "groundwork" and "Regular-only" wording in `src/atlas/`,
+  `src/text/resolve.rs`, `src/grid.rs`, and `src/emoji/color_atlas.rs`
+  predated live styled/non-ASCII glyph rendering and the live color-glyph
+  pipeline; the comments now describe the ensure-styled flow that ships.
+- Terminal core: `src/core/graphics_routing.rs` claimed DECSDM was
+  unimplemented (private mode 80 is implemented, queryable, and reset on
+  RIS/DECSTR); SPEC/features wording overstated the 32 MiB paste ceiling
+  (it applies to a complete framed bracketed paste, now referenced by its
+  constant `MAX_BRACKETED_PASTE_BYTES`; plain paste is chunked, not
+  refused); SPEC described the Unix PTY endpoints as nonblocking (they are
+  blocking clones with a poll/self-pipe teardown design).
+- Theme/effects/panes: `border`/`inactive` roles are consumed by window
+  borders, pane dividers, and tab chrome (no longer "reserved"); the retired
+  ambient-scanline shader path's leftover comments in theme, pipeline-policy,
+  and both cell shaders no longer imply the effect uniform is sampled;
+  the pane module header reflects landed per-pane overlay parity and
+  inactive-pane dim; the visual-architecture frame-budget rule is narrowed
+  to what is implemented (capability gating plus the plain bypass), with
+  dynamic per-frame downgrade recorded as deferred design.
+- Source pointers: SPEC and visual-architecture references to the old
+  `src/native/gpu.rs` monolith now name the decomposed
+  `gpu/{frame,resources,pipelines,pipeline_policy,scene,post}.rs` modules.
+- `docs/graphics.md` file-transport rationale reframed as a threat-model
+  statement instead of a universal claim about client behavior.
+
+Verified: `cargo fmt --check`, `cargo clippy --all-targets --locked -D
+warnings`, full `cargo test --locked` green. Comment/doc-only changes.
+
+---
+
 ## 2026-08-12 -- Sign release checksum manifests with Minisign
 
 The release workflow now signs `SHA256SUMS` with a Minisign release key and

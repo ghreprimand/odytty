@@ -55,10 +55,13 @@ pub type Srgb = (u8, u8, u8);
 /// startup. Per-app OSC-4 dynamic-color overrides still win over the theme (the
 /// render path consults the core dynamic palette first). The semantic-role
 /// colors ([`cursor`](Self::cursor), [`selection`](Self::selection),
-/// [`search`](Self::search), and the reserved [`border`](Self::border) /
-/// [`inactive`](Self::inactive)) describe how presentation chrome should be
-/// painted; consumers land in later work (cursor/selection/search treatments,
-/// window chrome), so `border`/`inactive` are authored now but not yet read.
+/// [`search`](Self::search), [`border`](Self::border), and
+/// [`inactive`](Self::inactive)) describe how presentation chrome is painted:
+/// `border` colors the window border and pane dividers
+/// (`src/native/app/window_border.rs`, `src/native/app/panes.rs`), and
+/// `inactive` colors inactive workspace/tab chrome
+/// (`src/native/app/tab_rail.rs`). Pane content dim amount remains a separate
+/// setting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
     /// Stable identifier, also the `ODYTTY_THEME` value that selects it.
@@ -80,9 +83,11 @@ pub struct Theme {
     pub selection: Srgb,
     /// Search-highlight background (semantic role).
     pub search: Srgb,
-    /// Border / frame color (semantic role; reserved, not yet rendered).
+    /// Border / frame color (semantic role). Colors the window border and
+    /// pane dividers.
     pub border: Srgb,
-    /// Inactive / dimmed color (semantic role; reserved, not yet rendered).
+    /// Inactive / dimmed color (semantic role). Colors inactive
+    /// workspace/tab chrome.
     pub inactive: Srgb,
 }
 
@@ -249,17 +254,16 @@ impl Default for Theme {
     }
 }
 
-/// Optional Odyssey visual treatment, selected by `ODYTTY_VISUAL`.
+/// Legacy configuration/schema alias, selected by `ODYTTY_VISUAL`.
 ///
-/// This is a presentation-only effect layered on top of the rendered grid. It
-/// never changes terminal cell contents or attributes — the core is unaware it
-/// exists — and it is fully disableable. The default is [`Off`](Self::Off),
-/// which produces output pixel-identical to having no effect at all.
-///
-/// [`Ambient`](Self::Ambient) applies a faint static scanline wash to cell
-/// *backgrounds only* (glyph coverage is untouched, so text stays crisp). It is
-/// static (no animation), cheap (a few ALU ops per fragment), and subtle by
-/// design so readability is never compromised.
+/// The cell-shader scanline wash this type once drove is retired: the unified
+/// CRT post-process is the only scanline implementation now
+/// (`src/native/gpu/resources.rs::set_visual` is a no-op kept only so the
+/// settings-apply call site stays stable). [`Ambient`](Self::Ambient) instead
+/// enables the CRT post-process — but only when no explicit `crt` setting is
+/// present; an explicit `crt` value always wins over this alias
+/// (`src/settings/resolution.rs`). The default is [`Off`](Self::Off), which
+/// leaves CRT's own default undisturbed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum VisualEffect {
     /// No visual treatment. Rendering is identical to the pre-effect path.
@@ -270,12 +274,12 @@ pub enum VisualEffect {
 }
 
 impl VisualEffect {
-    /// Scanline darkening strength for [`Ambient`](Self::Ambient): the maximum
-    /// fraction by which a background fragment is darkened at a scanline trough.
-    /// Kept small so the effect is felt, not read. `Off` is always `0.0`, which
-    /// makes the shader a no-op.
+    /// Legacy scanline-wash strength packed into the shader's vestigial
+    /// `effect` uniform slot (`src/native/gpu/pipeline_policy.rs::effect_params`).
+    /// `cell.wgsl`/`cell_subpixel.wgsl` never sample `effect`; only the
+    /// `crt=on` alias (see [`from_name`](Self::from_name)) has a live effect.
     const AMBIENT_STRENGTH: f32 = 0.12;
-    /// Scanline period in physical pixels for [`Ambient`](Self::Ambient).
+    /// Legacy scanline period packed into the same vestigial slot.
     const AMBIENT_PERIOD_PX: f32 = 8.0;
 
     /// Resolve an effect by name (case-insensitive, whitespace-trimmed).
@@ -311,7 +315,8 @@ impl VisualEffect {
         !matches!(self, VisualEffect::Off)
     }
 
-    /// Scanline strength fed to the renderer (`0.0` when off → shader no-op).
+    /// Legacy scanline strength packed into the shader's unsampled `effect`
+    /// uniform slot; see [`AMBIENT_STRENGTH`](Self::AMBIENT_STRENGTH).
     pub fn scanline_strength(self) -> f32 {
         match self {
             VisualEffect::Off => 0.0,
@@ -319,7 +324,7 @@ impl VisualEffect {
         }
     }
 
-    /// Scanline period in physical pixels fed to the renderer.
+    /// Legacy scanline period packed into the same unsampled uniform slot.
     pub fn scanline_period_px(self) -> f32 {
         match self {
             // Period is irrelevant when off, but keep it positive so the shader

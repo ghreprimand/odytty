@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Color glyph atlas groundwork for emoji rendering.
+//! OdyTTY-owned atlas for shaped color glyphs and clusters.
 //!
-//! This module deliberately stops before font decoding. EM4 will feed shaped
-//! swash glyph/cluster ids plus premultiplied RGBA pixels into this atlas. EM3
-//! only establishes the storage, keying, dirty tracking, and geometry contract
-//! using synthetic RGBA images.
+//! The emoji rasterizer supplies premultiplied RGBA pixels keyed by
+//! font/glyph-or-cluster identity, and the GPU renderer uploads and
+//! composites the live color-glyph segment (`src/native/gpu/scene.rs`).
 
 use std::collections::HashMap;
 

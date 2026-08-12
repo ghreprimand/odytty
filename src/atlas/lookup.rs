@@ -15,8 +15,9 @@ impl GlyphAtlas {
         self.uv_rect_styled(FontStyle::Regular, ch)
     }
 
-    /// Style-aware immutable UV lookup (groundwork for attribute-driven
-    /// rendering). Identical to [`Self::uv_rect`] for [`FontStyle::Regular`].
+    /// Style-aware immutable UV lookup used by the native renderer for the
+    /// cell's effective font style. Identical to [`Self::uv_rect`] for
+    /// [`FontStyle::Regular`].
     ///
     /// The prebuilt printable-ASCII block belongs to `Regular`; for any other
     /// style, ASCII resolves through the dynamic region like every other glyph,

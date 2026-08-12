@@ -2,8 +2,8 @@
 
 OdyTTY themes are full appearance profiles: the default foreground/background,
 the window clear color, the complete 16-color ANSI palette, and a set of
-semantic role colors (cursor, selection, search highlight, plus reserved
-border/inactive). A theme is selected with the `theme` setting
+semantic role colors (cursor, selection, search highlight, border, and
+inactive chrome). A theme is selected with the `theme` setting
 (`ODYTTY_THEME` / `theme =` in `odytty.conf`).
 
 There are two kinds of theme:
@@ -370,12 +370,12 @@ Colors are written as `#RRGGBB` or `#RGB` (the leading `#` is optional;
 | `cursor` | Cursor color (semantic role). |
 | `selection` | Selection background (semantic role). |
 | `search` | Search-highlight background (semantic role). |
-| `border` | Border/frame color (semantic role; reserved). |
-| `inactive` | Inactive/dim color (semantic role; reserved). |
+| `border` | Border/frame color (semantic role). Colors the window border and pane dividers. |
+| `inactive` | Inactive/dim color (semantic role). Colors inactive workspace/tab chrome. |
 | `color0` … `color15` | The 16 ANSI colors (0–7 normal, 8–15 bright). Alias: `palette0` … `palette15`. |
 | `font_family` | Optional font-family hint (schema metadata; not applied by theme selection). |
 | `font_size` | Optional font-size hint in px (schema metadata; not applied by theme selection). |
-| `visual` | Bundled visual-effect profile metadata: `off`, `ambient`, or `scanlines`. `ambient` and `scanlines` are aliases for *each other* — both map to the `Ambient` effect, a faint static scanline wash applied to cell backgrounds only (glyphs untouched), which is distinct from the separate CRT post-process scanline pass (the `crt` / `crt_scanline_*` settings). Theme selection does not auto-apply this field. |
+| `visual` | Bundled visual-effect profile metadata: `off`, `ambient`, or `scanlines`. `ambient` and `scanlines` are legacy aliases for *each other*; when set and no explicit `crt` value is present, they enable the unified CRT post-process scanline pass instead of a separate cell-shader effect. Theme selection does not auto-apply this field. |
 
 `appearance`, `font_family`, `font_size`, and `visual` are parsed, validated, and
 round-tripped, but none are projected into the running theme:

@@ -10,10 +10,10 @@
 //!
 //! # Cursor-below-image policy
 //!
-//! After a successful sixel decode, the cursor moves to the row immediately
-//! below the image's last sixel band, column 0 — matching xterm's default
-//! behavior (DECSDM off). DECSDM (scrolling mode) is noted as a finding but
-//! not implemented; virtually all modern sixel usage assumes DECSDM-off.
+//! After a successful sixel decode, DECSDM reset (the default, matching
+//! xterm) moves the cursor to the row immediately below the image's last
+//! sixel band, column 0. DECSDM set keeps the cursor at the placement
+//! anchor instead. Private mode 80 is queryable and resets on RIS/DECSTR.
 //!
 //! # Cell-extent calculation
 //!

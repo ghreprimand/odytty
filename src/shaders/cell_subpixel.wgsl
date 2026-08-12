@@ -8,7 +8,9 @@ enable dual_source_blending;
 struct Viewport {
     // Physical surface size in pixels (x = width, y = height).
     size: vec2<f32>,
-    // Optional ambient scanline wash: x = strength (0.0 disables), y = period.
+    // Legacy scanline-wash slot (x = strength, y = period). Retained for
+    // uniform layout stability; never sampled — the CRT post-process is the
+    // only scanline implementation now.
     effect: vec2<f32>,
     // Text rendering params: x = glyph coverage gamma.
     text: vec4<f32>,

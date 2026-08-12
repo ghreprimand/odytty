@@ -18,10 +18,10 @@ use super::metrics::is_monospace;
 /// A resolved font family: the validated monospace `regular` face plus any
 /// style variants discovered alongside it.
 ///
-/// **Groundwork (F1):** only `regular` is loaded and rendered today. The
-/// `bold`/`italic`/`bold_italic` paths are *discovered* by font metadata so a
-/// future work can load them into the `(style, char)`-keyed atlas without
-/// re-running discovery; they are intentionally not opened here.
+/// This module discovers and validates style paths by font metadata but does
+/// not open them; the native `StyleFonts` layer (`src/native/gpu/fonts.rs`)
+/// opens the available bold/italic/bold-italic faces and selects among them
+/// per cell via the `(style, char)`-keyed atlas.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FontFamilyMatch {
     /// Path to the validated monospace regular face.
@@ -146,8 +146,8 @@ pub fn try_resolve_font_family(
     let regular_index = pick_regular_index(&metas).unwrap_or(0);
     let regular = monospace[regular_index].0.clone();
 
-    // Discover style variants by metadata among the monospace faces (groundwork:
-    // discovered for future work, not opened here).
+    // Discover style variants by metadata among the monospace faces; the
+    // native StyleFonts layer opens the ones it finds (not opened here).
     let bold = pick_variant(&monospace, true, false);
     let italic = pick_variant(&monospace, false, true);
     let bold_italic = pick_variant(&monospace, true, true);

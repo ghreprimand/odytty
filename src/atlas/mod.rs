@@ -49,15 +49,15 @@
 //!
 //! ## Live vs. dynamic paths
 //!
-//! [`GlyphAtlas::uv_rect`] is the **immutable** lookup used by the renderer's
-//! per-frame geometry builder: printable ASCII resolves to its real glyph and
-//! every other printable codepoint resolves to the fallback box. The
-//! **mutable** [`GlyphAtlas::ensure`] additionally rasterizes the real glyph for
-//! a non-ASCII codepoint, growing the atlas and flagging [`GlyphAtlas::take_dirty`]
-//! so the native layer can re-upload the texture. Until that native re-upload
-//! seam exists, the live path renders ASCII plus fallback boxes; the dynamic
-//! region is exercised by tests and is groundwork for live non-ASCII rendering
-//! and the future font-family setting.
+//! Printable ASCII is prebuilt at atlas construction time. Before geometry
+//! construction each frame, the native renderer ensures every visible styled
+//! and non-ASCII glyph and combining mark is resident, using the cell's
+//! effective font style. [`GlyphAtlas::uv_rect`] is the **immutable** lookup:
+//! it returns the resident glyph's real rect, or the fallback box for a
+//! printable glyph that is unavailable or not yet resident. The **mutable**
+//! [`GlyphAtlas::ensure`] rasterizes a glyph on demand, growing the atlas and
+//! flagging [`GlyphAtlas::take_dirty`] so the native layer re-uploads the
+//! texture.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -604,13 +604,14 @@ fn glyph_coverage_decision(ch: char, has_cmap: bool, has_inked_outline: bool) ->
     has_cmap && (!should_attempt_fallback(ch) || has_inked_outline)
 }
 
-/// Font style variant for a glyph slot. Groundwork: keys the dynamic region by
-/// `(FontStyle, char)` so bold/italic glyphs can coexist with regular ones. The
-/// live render path resolves `Regular` only today; a future change will
-/// call the `_styled` variants with the matching style font, purely additively.
+/// Font style variant for a glyph slot: keys the dynamic region by
+/// `(FontStyle, char)` so bold/italic glyphs coexist with regular ones. The
+/// native renderer selects a cell's style from its attributes and calls the
+/// `_styled` variants with the matching style font (real face when
+/// discovered, synthetic fallback otherwise).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum FontStyle {
-    /// Upright, regular weight — the only style rendered live today.
+    /// Upright, regular weight.
     #[default]
     Regular,
     /// Bold weight.
@@ -765,8 +766,9 @@ pub struct GlyphAtlas {
     max_slots: u32,
     /// Resident non-ASCII `(style, codepoint)` → slot index. A codepoint the
     /// font lacks is cached pointing at [`FALLBACK_SLOT`] so the decision is made
-    /// once. Keyed by style so bold/italic variants get distinct slots; the live
-    /// render path only ever inserts [`FontStyle::Regular`] today.
+    /// once. Keyed by style so bold/italic variants get distinct slots; the
+    /// native renderer inserts every style it draws, not only
+    /// [`FontStyle::Regular`].
     dynamic: HashMap<(FontStyle, char), u32>,
     /// Contextual OpenType glyphs keyed independently from scalar codepoints.
     /// Empty on every freshly built atlas and untouched while ligatures are off.

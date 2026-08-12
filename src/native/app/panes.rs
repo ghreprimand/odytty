@@ -14,11 +14,12 @@
 //! is false — so the byte-identical fast path is wholly untouched. This path is
 //! deliberately the only new behaviour.
 //!
-//! Scope note (v1, 1c-3): per-pane interactive overlays (selection / search /
-//! hints) are not yet composited for non-focused panes; each pane renders its
-//! base terminal content plus, for the focused pane, the cursor. Per-pane
-//! overlay parity and the inactive-pane dim are later checkboxes on the Phase 1
-//! plan.
+//! Every pane paints its own selection and search-match highlights, keyed to
+//! that pane's own grid/scrollback/viewport rather than the focused pane's.
+//! The interactive search query UI and the live cursor remain focus-only.
+//! Non-focused panes receive the configured inactive-pane dim; the focused
+//! pane is never dimmed. Other focus-owned interactive overlays (hints, copy
+//! mode, and similar) remain separately gated and are not claimed here.
 
 use super::scroll_anim::{advance_session_glide, session_glide_render_offset};
 use super::*;

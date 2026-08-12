@@ -9,9 +9,10 @@
 struct Viewport {
     // Physical surface size in pixels (x = width, y = height).
     size: vec2<f32>,
-    // Optional ambient scanline wash: x = strength (0.0 disables, making the
-    // effect a no-op), y = scanline period in physical pixels. Presentation
-    // only; never affects glyph coverage or terminal contents.
+    // Legacy scanline-wash slot (x = strength, y = period in physical
+    // pixels). Retained for uniform layout stability; the unified CRT
+    // post-process is the only scanline implementation now, so this shader
+    // never samples `effect`.
     effect: vec2<f32>,
     // Text rendering params: x = glyph coverage gamma. A value of 1.0 makes
     // coverage correction exactly the legacy linear blend path.

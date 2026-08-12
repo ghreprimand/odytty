@@ -18,15 +18,15 @@ impl GlyphAtlas {
         self.ensure_styled(font, FontStyle::Regular, ch)
     }
 
-    /// Style-aware mutable insertion (groundwork for attribute-driven
-    /// rendering). Identical to [`Self::ensure`] for [`FontStyle::Regular`].
+    /// Style-aware mutable insertion. Identical to [`Self::ensure`] for
+    /// [`FontStyle::Regular`].
     ///
     /// A non-`Regular` style rasterizes `ch` from the supplied `font` into a
     /// slot keyed by `(style, ch)`, so styled glyphs never collide with regular
-    /// ones. Until a future change supplies a true bold/italic face, callers
-    /// pass the regular font, so a styled slot holds the regular outline; the
-    /// keying is what matters for groundwork. Growth, fallback, and the hard
-    /// slot cap behave exactly as in [`Self::ensure`].
+    /// ones. The native `StyleFonts` layer passes the real bold/italic/bold-
+    /// italic face when one was discovered, and the regular font (with the
+    /// configured synthetic-style fallback) otherwise. Growth, fallback, and
+    /// the hard slot cap behave exactly as in [`Self::ensure`].
     pub fn ensure_styled(
         &mut self,
         font: &FontVec,

@@ -30,9 +30,10 @@ settings guide in [`docs/runtime-knobs.md`](runtime-knobs.md).
 
 ## Current renderer pipeline
 
-*Source: `src/native/gpu.rs`, `src/shaders/cell.wgsl`,
-`src/shaders/cell_subpixel.wgsl`, `src/grid.rs`, `src/atlas/mod.rs`,
-`src/emoji/color_atlas.rs`.*
+*Source: `src/native/gpu.rs` (facade) and
+`src/native/gpu/{frame,resources,pipelines,pipeline_policy,scene,post}.rs`,
+`src/shaders/cell.wgsl`, `src/shaders/cell_subpixel.wgsl`, `src/grid.rs`,
+`src/atlas/mod.rs`, `src/emoji/color_atlas.rs`.*
 
 OdyTTY uses a forward cell/image renderer with a lazy post-process branch. When
 `post_active()` is false, the scene writes directly to the swapchain. When bloom,
@@ -116,7 +117,7 @@ Both shaders share the same vertex layout (`pos_px`, `uv`, `color`,
 - Background fragment: same as the grayscale path (inline scanline wash retired; CRT post-process handles it).
 - Fallback: if the adapter lacks `DUAL_SOURCE_BLENDING`, OdyTTY falls back to
   `SubpixelMode::Off` with a stderr notice; startup never fails because of it
-  (`src/native/gpu.rs`: `effective_subpixel_mode`).
+  (`src/native/gpu/pipeline_policy.rs`: `effective_subpixel_mode`).
 
 ### CRT scanline effect and the legacy ambient setting
 
@@ -157,15 +158,17 @@ slots at rasterization time when no real bold/italic face is loaded.
 
 ### Color-glyph atlas (`ColorGlyphAtlas`)
 
-*Source: `src/emoji/color_atlas.rs`, `src/native/gpu.rs`
-(`create_color_glyph_pipeline`, `rebuild_color_glyph_segment`).*
+*Source: `src/emoji/color_atlas.rs`, `src/native/gpu/pipelines.rs`
+(`create_color_glyph_pipeline`), `src/native/gpu/scene.rs`
+(`rebuild_color_glyph_segment`).*
 
 `ColorGlyphAtlas` is a separate `Rgba8Unorm` atlas for premultiplied-RGBA
 color emoji bitmaps. Entries are keyed by `(font_id, glyph_or_cluster_id,
 px_size, scale)`, not by Unicode scalar. The color-glyph pipeline uses a
-dedicated WGSL shader (inlined in `gpu.rs`) and a premultiplied-alpha blend
-state (`blend_state_for_color_glyphs`). The atlas grows in 4-row increments
-up to a cap of 4096 slots (`MAX_COLOR_GLYPH_SLOTS`).
+dedicated WGSL shader (inlined in `gpu/pipelines.rs`) and a premultiplied-alpha
+blend state (`gpu/pipeline_policy.rs`: `blend_state_for_color_glyphs`). The
+atlas grows in 4-row increments up to a cap of 4096 slots
+(`MAX_COLOR_GLYPH_SLOTS`).
 
 ---
 
@@ -180,11 +183,11 @@ up to a cap of 4096 slots (`MAX_COLOR_GLYPH_SLOTS`).
 *Source: `src/theme/mod.rs`, `src/theme/builtins.rs`, `src/theme/spec.rs`.*
 
 `Theme` now carries the full 16-color ANSI palette (indices 0–7 normal, 8–15
-bright), semantic-role colors (cursor, selection, search highlight, reserved
-border/inactive), and the three original sRGB triples (foreground, background,
+bright), semantic-role colors (cursor, selection, search highlight, border,
+inactive), and the three original sRGB triples (foreground, background,
 clear). At startup the native layer calls `text::set_ansi_palette` to publish
 the theme's 16-color palette alongside the default fg/bg, and passes `clear` to
-`gpu.rs` as the wgpu surface clear color.
+`src/native/gpu/resources.rs` as the wgpu surface clear color.
 
 The built-in library contains 142 contrast-validated themes. `plain`
 reproduces the historical xterm table byte-for-byte, while `odyssey-default` is
@@ -259,8 +262,11 @@ and new-output fade.
 Every atmospheric or decorative effect must:
 
 - Have an explicit off switch and stay behind a normal setting.
-- Be **perf-gated**: a weak adapter or a budget-exceeded frame must
-  auto-downgrade to the plain path without visual corruption.
+- Be **perf-gated**: an adapter that lacks the required capability (filterable
+  HDR format, dual-source blending, and similar) auto-downgrades to the plain
+  path without visual corruption. A live per-frame budget detector that
+  downgrades a still-capable adapter after an over-budget frame is deferred
+  design, not implemented.
 - Be **readability-gated**: no effect may make text less legible at the user's
   configured settings (contrast floor).
 - Have a **plain/fast bypass** that is **pixel-identical** to the minimal
@@ -371,7 +377,7 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
 **The full theme system has landed:**
 
 - A 16-color ANSI palette with semantic roles (cursor, selection, search,
-  reserved border/inactive), carried by `Theme`.
+  border, inactive), carried by `Theme`.
 - A dependency-free `.theme` file format with built-in themes and live reload
   through the settings/config seam.
 - 142 built-in themes across OdyTTY original, community, and retro/phosphor
