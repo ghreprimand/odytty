@@ -58,7 +58,7 @@ use crate::native::image_layer::{PaneImageInput, PaneImageUpload};
 use crate::native::layout::{PaneRect, divider_rects, grid_dims_for_rect};
 use crate::native::overlay::{apply_overlay, overlay_rect};
 use crate::native::render_helpers::image_uploads_for_visible;
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 /// Width of the divider gap between panes, in physical pixels. A crisp hairline
 /// matching the §8 pixel-smoke invariants.
@@ -675,7 +675,7 @@ impl App {
                 gpu.cell(),
                 gpu.window_padding(),
                 gpu.surface_size(),
-                gpu.cached_pane_image_ids(),
+                gpu.cached_pane_image_generations(),
             )
         }) else {
             return;
@@ -794,10 +794,13 @@ impl App {
             let namespace = token.0;
             let visible = terminal.visible_graphics(render_offset);
             let prompt_marks = gutter_on.then(|| terminal.screen().prompt_marks());
-            let cached_for_pane: BTreeSet<StoredImageId> = cached_pane_ids
+            // This pane's resident textures, de-namespaced, carrying the image
+            // generation each was uploaded from so a re-published animation frame
+            // is re-fetched while still images are not.
+            let cached_for_pane: BTreeMap<StoredImageId, u64> = cached_pane_ids
                 .iter()
-                .filter(|(ns, _)| *ns == namespace)
-                .map(|(_, id)| *id)
+                .filter(|((ns, _), _)| *ns == namespace)
+                .map(|((_, id), generation)| (*id, *generation))
                 .collect();
             let uploads = image_uploads_for_visible(&terminal, &visible, &cached_for_pane);
             drop(terminal);

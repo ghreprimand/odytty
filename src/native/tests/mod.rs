@@ -197,6 +197,7 @@ mod cursor_icon;
 mod cvd_wiring;
 mod font_save;
 mod gpu_render;
+mod graphics_anim;
 mod grid_scale;
 mod image_paste;
 mod input_keys;

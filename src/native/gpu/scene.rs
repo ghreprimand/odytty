@@ -5,7 +5,7 @@
 //! CPU-side vertex data and uploads it. Segment counts and their order in the
 //! shared vertex buffer are the contract `frame` draws against.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use crate::atlas;
 use crate::core::{CursorStyle, RgbColor, Snapshot};
@@ -833,8 +833,10 @@ impl GpuState {
         }
     }
 
-    pub(in crate::native) fn cached_image_ids(&self) -> BTreeSet<StoredImageId> {
-        self.image_layer.cached_ids()
+    /// Resident image textures with the generation each was uploaded from, for
+    /// the upload collector's staleness check (animation frame flips).
+    pub(in crate::native) fn cached_image_generations(&self) -> BTreeMap<StoredImageId, u64> {
+        self.image_layer.cached_generations()
     }
 
     pub(in crate::native) fn update_image_layer(
@@ -867,8 +869,11 @@ impl GpuState {
     /// The multipane image cache keys currently resident, as `(namespace, id)`.
     /// The split render path passes each pane's cached subset to the upload
     /// collector so already-resident image bytes are not re-fetched per frame.
-    pub(in crate::native) fn cached_pane_image_ids(&self) -> BTreeSet<(u64, StoredImageId)> {
-        self.image_layer.cached_pane_ids()
+    /// The multipane equivalent of [`Self::cached_image_generations`].
+    pub(in crate::native) fn cached_pane_image_generations(
+        &self,
+    ) -> BTreeMap<(u64, StoredImageId), u64> {
+        self.image_layer.cached_pane_generations()
     }
 
     /// MULTIPANE image update: render each visible pane's graphics into its own

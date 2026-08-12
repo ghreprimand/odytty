@@ -21,6 +21,7 @@ mod hyperlink;
 mod input_region;
 mod iterm2;
 mod kitty;
+mod kitty_animation;
 mod kitty_transport;
 mod placeholder;
 mod prompt_marks;
@@ -50,6 +51,8 @@ mod graphics_routing_tests;
 mod graphics_tests;
 #[cfg(test)]
 mod iterm2_tests;
+#[cfg(test)]
+mod kitty_animation_tests;
 #[cfg(test)]
 mod kitty_delete_tests;
 #[cfg(test)]

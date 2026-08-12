@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::core::{
     CursorStyle, Dimensions, KeyboardModes as CoreKeyboardModes, LinkId, Terminal,
@@ -30,16 +30,31 @@ pub(super) fn key_modes_from_core(modes: CoreKeyboardModes) -> KeyModes {
     }
 }
 
+/// Collect the RGBA payloads the renderer needs this frame: every visible image
+/// that is not already resident on the GPU, plus every resident image whose
+/// store generation has moved past the generation its texture was uploaded from.
+/// The second case is how an animated image reaches the screen - playback
+/// replaces its pixels in place and takes a new generation, keeping the image id
+/// stable so placements need not change.
 pub(super) fn image_uploads_for_visible(
     terminal: &Terminal,
     visible: &[VisiblePlacement],
-    cached: &BTreeSet<StoredImageId>,
+    cached: &BTreeMap<StoredImageId, u64>,
 ) -> Vec<ImageUpload> {
     let mut requested = BTreeSet::new();
     visible
         .iter()
         .filter(|placement| {
-            !cached.contains(&placement.image_id) && requested.insert(placement.image_id)
+            let stale = terminal
+                .graphics()
+                .store()
+                .get(placement.image_id)
+                .is_some_and(|image| {
+                    cached
+                        .get(&placement.image_id)
+                        .is_none_or(|resident| *resident != image.generation)
+                });
+            stale && requested.insert(placement.image_id)
         })
         .filter_map(|placement| {
             terminal

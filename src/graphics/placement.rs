@@ -9,6 +9,7 @@
 
 use std::collections::VecDeque;
 
+use super::frames::{AnimationControl, FrameComposition, FrameError, FrameUpdate};
 use super::store::{ImageInsert, ImageStore, ImageStoreError, ImageStoreLimits, StoredImageId};
 
 pub const MAX_RAW_GRAPHICS_COMMANDS: usize = 64;
@@ -411,6 +412,187 @@ impl ImageScene {
 
     pub fn placements(&self) -> &[ImagePlacement] {
         &self.placements
+    }
+
+    // -----------------------------------------------------------------------
+    // Kitty graphics animation (a=f / a=a / a=c)
+    // -----------------------------------------------------------------------
+
+    /// Create or edit an animation frame of a stored image (`a=f`).
+    ///
+    /// The frame's byte cost is checked against the store's remaining budget
+    /// before anything is written, so a frame flood is refused rather than
+    /// evicting the images a session is currently showing. Frames and still
+    /// images share the one decoded-byte quota.
+    pub fn animation_transmit_frame(
+        &mut self,
+        image_id: StoredImageId,
+        update: FrameUpdate<'_>,
+    ) -> Result<(u32, bool), FrameError> {
+        let budget = self.store.budget_remaining();
+        let Some(mut guard) = self.store.frames_mut(image_id) else {
+            return Err(FrameError::FrameNotFound);
+        };
+        let (width, height) = guard.canvas_dimensions();
+        let canvas_bytes = (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4);
+        // Editing an existing frame rewrites pixels in place and so costs
+        // nothing. The first `r=1` edit captures one root canvas; the first new
+        // frame costs that root plus the appended canvas. Invalid initial edit
+        // numbers are rejected later without mutation and therefore cost zero.
+        let added_bytes = match (guard.frames().is_empty(), update.edit_frame) {
+            (true, Some(1)) => canvas_bytes,
+            (true, Some(_)) => 0,
+            (_, Some(_)) => 0,
+            (_, None) => guard.frames().added_bytes_for(canvas_bytes),
+        };
+        if added_bytes > budget {
+            return Err(FrameError::Quota);
+        }
+        let canvas = guard.canvas().to_vec();
+        let frame = guard
+            .frames_mut()
+            .transmit_frame(&canvas, width, height, update)?;
+        // A frame command can land on the frame currently displayed (r= edit of
+        // the current frame), so republish before dropping the guard.
+        let changed = guard.publish_current_frame();
+        Ok((frame, changed))
+    }
+
+    /// Compose a rectangle of one animation frame onto another (`a=c`).
+    pub fn animation_compose(
+        &mut self,
+        image_id: StoredImageId,
+        composition: FrameComposition,
+    ) -> Result<bool, FrameError> {
+        let Some(mut guard) = self.store.frames_mut(image_id) else {
+            return Err(FrameError::FrameNotFound);
+        };
+        let (width, height) = guard.canvas_dimensions();
+        guard.frames_mut().compose(width, height, composition)?;
+        Ok(guard.publish_current_frame())
+    }
+
+    /// Apply an animation control command (`a=a`). Returns whether the
+    /// displayed pixels changed.
+    pub fn animation_control(
+        &mut self,
+        image_id: StoredImageId,
+        control: AnimationControl,
+    ) -> Result<bool, FrameError> {
+        let Some(mut guard) = self.store.frames_mut(image_id) else {
+            return Err(FrameError::FrameNotFound);
+        };
+        if guard.frames().is_empty() {
+            return Err(FrameError::FrameNotFound);
+        }
+        // Validate every referenced frame before applying any of the command's
+        // other fields. An invalid compound control command is rejected as a
+        // unit instead of changing loop or playback state on its way to the
+        // missing-frame error.
+        if control
+            .gap_frame
+            .is_some_and(|frame| guard.frames().gap_ms(frame).is_none())
+            || control
+                .current_frame
+                .is_some_and(|frame| guard.frames().gap_ms(frame).is_none())
+        {
+            return Err(FrameError::FrameNotFound);
+        }
+        if let Some(loops) = control.loops {
+            guard.frames_mut().set_loops(loops);
+        }
+        if let Some(frame) = control.gap_frame {
+            let gap = control.gap_ms.unwrap_or(0);
+            guard.frames_mut().set_gap(frame, gap)?;
+        }
+        if let Some(state) = control.state {
+            guard.frames_mut().set_state(state);
+        }
+        let mut changed = false;
+        if let Some(frame) = control.current_frame {
+            changed = guard.frames_mut().set_current(frame)?;
+        }
+        if changed {
+            guard.publish_current_frame();
+        }
+        Ok(changed)
+    }
+
+    /// `d=f` / `d=F` - delete an image's animation frames, leaving the still
+    /// image and its placements in place. Returns whether frames were dropped.
+    pub fn animation_delete_frames(&mut self, image_id: StoredImageId) -> bool {
+        let Some(mut guard) = self.store.frames_mut(image_id) else {
+            return false;
+        };
+        if guard.frames().is_empty() {
+            return false;
+        }
+        // The root frame is the image's originally transmitted pixels. Restore
+        // it before dropping the animation so `d=f` leaves the still image,
+        // not whichever later frame happened to be current.
+        let _ = guard.frames_mut().set_current(1);
+        guard.publish_current_frame();
+        guard.frames_mut().clear();
+        true
+    }
+
+    /// Whether any stored image holds animation frames. Every animation code
+    /// path in the render loop is gated on this, so a session with no animated
+    /// image does no animation work at all.
+    pub fn has_animations(&self) -> bool {
+        self.store.has_animations()
+    }
+
+    /// Clock reading at which some animation referenced by `visible` needs its
+    /// next frame, or `None` when nothing visible is animating. `None` is the
+    /// answer for a still terminal, an animation that is stopped, and an
+    /// animated image no visible placement refers to - the render loop turns
+    /// `None` into "schedule no wake".
+    pub fn next_animation_deadline_ms(&self, visible: &[VisiblePlacement]) -> Option<u64> {
+        if !self.store.has_animations() {
+            return None;
+        }
+        visible
+            .iter()
+            .filter(|placement| self.store.animated_ids().contains(&placement.image_id))
+            .filter_map(|placement| {
+                self.store
+                    .get(placement.image_id)
+                    .and_then(|image| image.frames.next_deadline_ms())
+            })
+            .min()
+    }
+
+    /// Advance every animation referenced by `visible` to the frame due at
+    /// `now_ms`, republishing displayed pixels. Returns whether any image
+    /// changed, which the caller treats as "this frame must be repainted".
+    ///
+    /// Only visible placements are advanced: an animation nothing shows holds
+    /// its position and resumes from the current clock when it becomes visible
+    /// again, rather than burning frames off-screen.
+    pub fn advance_animations(&mut self, now_ms: u64, visible: &[VisiblePlacement]) -> bool {
+        if !self.store.has_animations() {
+            return false;
+        }
+        let mut targets: Vec<StoredImageId> = visible
+            .iter()
+            .map(|placement| placement.image_id)
+            .filter(|id| self.store.animated_ids().contains(id))
+            .collect();
+        targets.sort_unstable();
+        targets.dedup();
+        let mut changed = false;
+        for id in targets {
+            let Some(mut guard) = self.store.frames_mut(id) else {
+                continue;
+            };
+            if guard.frames_mut().advance(now_ms) {
+                changed |= guard.publish_current_frame();
+            }
+        }
+        changed
     }
 
     pub fn raw_commands(&self) -> &VecDeque<GraphicsCommand> {

@@ -7,6 +7,22 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Kitty graphics animation
+
+The Kitty graphics path now supports frame transmission (`a=f`), playback
+control (`a=a`), rectangle composition (`a=c`), and frame deletion
+(`d=f`/`d=F`). Frames use every established still-image format and transport,
+including chunked transmission, and images displayed through Unicode
+placeholders advance through the same visibility path as ordinary placements.
+
+Fully rendered frames share the image store's decoded-byte quota and each image
+is capped at 64 frames. Only visible placements advance, frame gaps are bounded,
+and a terminal without animated images schedules no animation wake or per-frame
+work. Tests pin frame editing, composition, deletion, playback deadlines,
+quota refusal, placeholder interaction, and the zero-idle-cost gate. Payload
+compression and image-number animation addressing remain unsupported; animated
+containers such as APNG and GIF continue to decode as one still frame.
+
 ## 2026-08-12 -- COLR v1 Paint-graph color glyphs
 
 The color-emoji rasterizer now evaluates COLR v1 Paint graphs after the

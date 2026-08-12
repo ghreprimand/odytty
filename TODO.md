@@ -681,9 +681,9 @@ a floor; surpassing it is the standing ambition.
       GPU image layer; `x/y/w/h` source-rect crop; `c/r` cell-box scaling via
       live CellMetrics; `X/Y` pixel offset within the anchor cell. Fixed a
       pre-existing `d=i,p=` bug (matched the internal placement id instead of
-      the protocol `p=`); 12 fixtures. Animation (`a=f`/`a=a`) remained out of
-      scope here; Unicode placeholders (`U=1`) were out of scope here and have
-      since landed — see the entry below.
+      the protocol `p=`); 12 fixtures. Animation (`a=f`/`a=a`) and Unicode
+      placeholders (`U=1`) were out of scope for that increment and have since
+      landed - see the entries below.
 - [x] Kitty Unicode placeholders (`U=1`): `U=1` on `a=T`/`a=p` creates a
       *virtual placement* — a prototype that draws nothing, moves no cursor,
       and is addressed by protocol image id. Images then display wherever the
@@ -718,16 +718,14 @@ a floor; surpassing it is the standing ambition.
       the decoded length. `inline=0` download requests are parsed and dropped:
       no escape sequence writes files. The cursor advances to column 0 below
       the image, matching iTerm2 and OdyTTY's Sixel default.
-- [ ] Kitty graphics animation (`a=f`/`a=a`/`a=c`): deferred, with reasons.
-      Sizing puts it at roughly 900-1200 production lines plus a render-loop
-      change, and it is the only remaining graphics item that needs new
-      architecture: multi-frame stored images with per-image aggregate
-      quotas, frame composition with client-supplied rectangles, and —
-      the real cost — time entering the terminal model (terminal-driven
-      animation needs a clock and a wake source, so `visible_graphics`
-      stops being a pure function of state and the scheduler interacts
-      with damage classification). Deferred until it can be the main
-      object of its own increment rather than riding along in one.
+- [x] Kitty graphics animation (`a=f`/`a=a`/`a=c`): frame transmission,
+      playback control, rectangle composition, and `d=f`/`d=F` frame deletion.
+      Fully rendered frames share the image store's decoded-byte quota and have
+      a per-image cap of 64. Only visible placements advance; a session without
+      animated images schedules no animation wake or per-frame work. Unicode
+      placeholder placements animate through the same visibility path. Payload
+      compression (`o=z`) and `I=` image-number addressing remain unsupported,
+      and animated containers such as APNG and GIF decode as one still frame.
 - [x] Kitty delete/query + DECSDM: `a=d` delete variants (d=a/A, i/I+p=,
       c/C, p/P+x=/y=) with uppercase image-data GC, `a=q` validation-only
       query responses, and DECSET/DECRST 80 sixel cursor policy (anchor at

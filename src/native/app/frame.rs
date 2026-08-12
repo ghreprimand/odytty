@@ -380,7 +380,7 @@ impl App {
                 let cached_image_ids = self
                     .gpu
                     .as_ref()
-                    .map(GpuState::cached_image_ids)
+                    .map(GpuState::cached_image_generations)
                     .unwrap_or_default();
                 let (
                     mut snapshot,

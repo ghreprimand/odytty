@@ -280,6 +280,13 @@ impl App {
             // `animation_deadline()` would fan wakes beyond their consumers.
             // `None` at rest / single-pane, so the idle wake set is unchanged.
             self.multipane_glide_deadline(),
+            // Kitty graphics animation: wake when a visible animated image is due
+            // for its next frame. Sourced from the ACTIVE pane (the same pane the
+            // maintenance consumer advances), so - per the "a source must not fan
+            // wider than its consumer" rule - no wake is scheduled for an
+            // animation nobody is looking at. `None` unless an animated placement
+            // is visible and running, so the idle wake set is unchanged.
+            self.animated_graphics_deadline,
             // WP2: wake to flush the debounced workspace-shape autosave. `None`
             // at rest (nothing pending), so the idle wake set is unchanged; when
             // a shape mutation is pending this fires the one write ~1.5s later.
@@ -665,6 +672,13 @@ impl App {
                 window.request_redraw();
             }
         }
+
+        // Kitty graphics animation: advance visible animated images to the frame
+        // due now and refresh the wake this pass will be judged against. Fully
+        // gated inside the core on "some image has frames", so a session with no
+        // animated graphics does no work here beyond the terminal lock the pass
+        // already takes for the blink check.
+        self.advance_graphics_animations(now);
 
         if self.synchronized_output_hold.is_due(now) {
             self.needs_rebuild = true;

@@ -11,6 +11,7 @@
 
 use crate::graphics::{GraphicsProtocol, ImageScene, PlacementRequest};
 
+use super::kitty_animation;
 use super::kitty_transport;
 use super::types::CellMetrics;
 use std::io::Cursor;
@@ -69,6 +70,27 @@ pub(super) struct ControlData {
     pub(super) offset_y: Option<i32>,
     /// Placement z-index (`z=`), signed; negative renders under text.
     pub(super) z_index: Option<i32>,
+    /// Raw `c=` value read as a 1-based frame number. Animation commands
+    /// overload `c`: on `a=f` it names the frame used as base data, on `a=a` the
+    /// frame to make current, and on `a=c` the destination frame. Kept beside
+    /// `display_columns` (the placement reading of the same key) so neither
+    /// interpretation has to guess which command it is serving; the use site
+    /// picks the field that matches its action.
+    pub(super) frame_base: Option<u32>,
+    /// Raw `r=` value read as a 1-based frame number: the frame being edited
+    /// (`a=f`), the frame whose gap is being set (`a=a`), or the source frame
+    /// (`a=c`). The placement reading of `r` stays in `display_rows`.
+    pub(super) frame_target: Option<u32>,
+    /// Raw `X=` value. Placements read this key as a signed pixel offset
+    /// (`offset_x`); animation commands read it unsigned, as a composition mode
+    /// (`a=f`) or a source-rectangle left edge (`a=c`).
+    pub(super) upper_x: Option<u32>,
+    /// Raw `Y=` value. Placements read this key as a signed pixel offset
+    /// (`offset_y`); animation commands read it unsigned, as a 32-bit RGBA
+    /// canvas background color (`a=f`) or a source-rectangle top edge (`a=c`).
+    /// The unsigned reading matters: an opaque background such as `Y=4278190335`
+    /// does not fit an `i32`.
+    pub(super) upper_y: Option<u32>,
     /// Unicode-placeholder flag (`U=`). `U=1` makes the placement *virtual*:
     /// nothing is drawn at the cursor, and the image is instead displayed
     /// wherever the client prints U+10EEEE placeholder cells naming it.
@@ -109,6 +131,18 @@ pub(super) enum KittyError {
     InvalidPayload,
     PayloadTooLarge,
     StoreRejected,
+    /// The image or frame an animation command addresses does not exist.
+    FrameNotFound,
+    /// A frame rectangle falls outside the image canvas, or the payload length
+    /// does not match the declared rectangle.
+    FrameOutOfBounds,
+    /// A composition names one frame as both source and destination with
+    /// overlapping rectangles, which the protocol requires be rejected.
+    FrameOverlap,
+    /// The per-image frame cap is reached.
+    FrameLimit,
+    /// The frame does not fit the image store's decoded-byte budget.
+    FrameQuota,
     TransportFailed(&'static str),
 }
 
@@ -126,6 +160,11 @@ impl KittyError {
             KittyError::InvalidPayload => "invalid-payload",
             KittyError::PayloadTooLarge => "payload-too-large",
             KittyError::StoreRejected => "store-rejected",
+            KittyError::FrameNotFound => "ENOENT:frame-not-found",
+            KittyError::FrameOutOfBounds => "EINVAL:frame-bounds",
+            KittyError::FrameOverlap => "EINVAL:frame-overlap",
+            KittyError::FrameLimit => "ENOSPC:frame-limit",
+            KittyError::FrameQuota => "ENOSPC:frame-quota",
             KittyError::TransportFailed(msg) => msg,
         }
     }
@@ -297,7 +336,15 @@ fn handle_command(
             screen_cols,
             cell_metrics,
         ),
-        Some('f') | Some('a') => Err(KittyError::UnsupportedAction),
+        Some('f') => process_frame_command(graphics, command, named_transports_enabled),
+        Some('a') => {
+            let dirty = kitty_animation::process_control(graphics, &command.control)?;
+            Ok(ok_outcome(&command.control, dirty))
+        }
+        Some('c') => {
+            let dirty = kitty_animation::process_compose(graphics, &command.control)?;
+            Ok(ok_outcome(&command.control, dirty))
+        }
         _ => process_complete_command(
             graphics,
             command,
@@ -316,6 +363,150 @@ fn merge_final_chunk_control(base: &mut ControlData, final_chunk: ControlData) {
     base.cursor_movement = final_chunk.cursor_movement.or(base.cursor_movement);
 }
 
+/// Success outcome for a command that neither moves the cursor nor needs a
+/// bespoke response: `dirty` says whether the visible scene changed.
+fn ok_outcome(control: &ControlData, dirty: bool) -> KittyOutcome {
+    KittyOutcome {
+        dirty,
+        cursor: None,
+        response: if control.suppress_response() {
+            Vec::new()
+        } else {
+            kitty_response(Some(control.response_prefix()), "OK")
+        },
+    }
+}
+
+/// `a=f` - transmit animation frame data for an existing image.
+///
+/// The payload travels the same route as a still image (every transport, both
+/// raw formats, PNG, and chunked transfer), so this only resolves the bytes and
+/// the frame rectangle and then hands off to the animation module. `s=`/`v=`
+/// default to the image's own dimensions, which is how a client transmits a
+/// full-canvas frame without restating its size.
+fn process_frame_command(
+    graphics: &mut ImageScene,
+    command: Command,
+    named_transports_enabled: bool,
+) -> Result<KittyOutcome, KittyError> {
+    validate_frame_control(&command.control)?;
+    let protocol_id = command
+        .control
+        .image_id
+        .filter(|id| *id != 0)
+        .ok_or(KittyError::MalformedControl)?;
+    let (canvas_width, canvas_height) = graphics
+        .find_by_protocol_id(protocol_id)
+        .and_then(|stored| graphics.store().get(stored))
+        .map(|image| (image.width, image.height))
+        .ok_or(KittyError::FrameNotFound)?;
+
+    let mut control = command.control.clone();
+    // A frame command's format defaults to 32-bit RGBA, as the protocol's
+    // control-data reference specifies for every transmission command.
+    if control.format.is_none() {
+        control.format = Some(32);
+    }
+    if control.width.is_none() {
+        control.width = Some(canvas_width);
+    }
+    if control.height.is_none() {
+        control.height = Some(canvas_height);
+    }
+
+    let max_decoded = graphics.store().limits().max_decoded_bytes;
+    let image_bytes = resolve_transport_bytes(
+        &control,
+        &command.payload,
+        max_decoded,
+        named_transports_enabled,
+    )?;
+    let (rgba, width, height) = rgba_from_payload(&control, image_bytes, max_decoded)?;
+    let dirty = kitty_animation::process_frame(graphics, &command.control, rgba, width, height)?;
+    Ok(ok_outcome(&command.control, dirty))
+}
+
+/// Formats and transports accepted for frame data. Deliberately the same set
+/// the still-image path accepts - a frame is image data, so accepting a
+/// different set here would be a second, drifting policy.
+fn validate_frame_control(control: &ControlData) -> Result<(), KittyError> {
+    match control.format {
+        None | Some(24 | 32 | 100) => {}
+        _ => return Err(KittyError::UnsupportedFormat),
+    }
+    match control.transmission.unwrap_or('d') {
+        'd' | 'f' | 't' | 's' => Ok(()),
+        _ => Err(KittyError::UnsupportedTransmission),
+    }
+}
+
+/// Resolve the raw (still-undecoded) image bytes a transmit-family command
+/// carries, following the transmission medium in `t=`. Shared by still-image
+/// transmission and animation frame transmission so both honor exactly the same
+/// transport policy, byte ceiling, and named-transport permission gate - a
+/// second copy of this logic would be free to drift from the first.
+fn resolve_transport_bytes(
+    control: &ControlData,
+    payload: &[u8],
+    max_decoded: usize,
+    named_transports_enabled: bool,
+) -> Result<Vec<u8>, KittyError> {
+    match control.transmission.unwrap_or('d') {
+        'd' => {
+            // Direct: payload IS the base64-encoded image data.
+            decode_base64(payload, max_decoded)
+        }
+        'f' => {
+            if !named_transports_enabled {
+                return Err(KittyError::TransportFailed(
+                    "EPERM:named-transport-disabled",
+                ));
+            }
+            // File: payload is base64-encoded file path; read from fs.
+            let path_bytes = decode_base64(payload, 4096)?;
+            kitty_transport::read_file_transport(&path_bytes, max_decoded)
+                .map_err(|e| KittyError::TransportFailed(e.kitty_message()))
+        }
+        't' => {
+            if !named_transports_enabled {
+                return Err(KittyError::TransportFailed(
+                    "EPERM:named-transport-disabled",
+                ));
+            }
+            // Temp file: like 'f' but delete after read.
+            let path_bytes = decode_base64(payload, 4096)?;
+            kitty_transport::read_temp_transport(&path_bytes, max_decoded)
+                .map_err(|e| KittyError::TransportFailed(e.kitty_message()))
+        }
+        's' => {
+            if !named_transports_enabled {
+                return Err(KittyError::TransportFailed(
+                    "EPERM:named-transport-disabled",
+                ));
+            }
+            // Shared memory: payload is base64-encoded shm name.
+            let name_bytes = decode_base64(payload, 4096)?;
+            let mut bytes = kitty_transport::read_shm_transport(&name_bytes, max_decoded)
+                .map_err(|e| KittyError::TransportFailed(e.kitty_message()))?;
+            // POSIX shm objects are rounded up to a page boundary on macOS, so
+            // the mapped segment can be larger than the logical payload. For
+            // fixed-size raw formats the exact length is known from the
+            // dimensions — trim trailing padding to it so the strict length
+            // check in `rgba_from_payload` still holds. PNG (self-delimiting)
+            // and segments already at the exact size (every Linux segment) are
+            // unaffected.
+            if let Some(expected) = expected_raw_payload_len(control) {
+                if bytes.len() < expected {
+                    return Err(KittyError::InvalidPayload);
+                }
+                bytes.truncate(expected);
+            }
+            Ok(bytes)
+        }
+        _ => Err(KittyError::UnsupportedTransmission),
+    }
+}
+
 fn process_complete_command(
     graphics: &mut ImageScene,
     command: Command,
@@ -329,60 +520,12 @@ fn process_complete_command(
     let max_decoded = graphics.store().limits().max_decoded_bytes;
 
     // Resolve the image payload depending on the transmission medium.
-    let image_bytes = match command.control.transmission.unwrap_or('d') {
-        'd' => {
-            // Direct: payload IS the base64-encoded image data.
-            decode_base64(&command.payload, max_decoded)?
-        }
-        'f' => {
-            if !named_transports_enabled {
-                return Err(KittyError::TransportFailed(
-                    "EPERM:named-transport-disabled",
-                ));
-            }
-            // File: payload is base64-encoded file path; read from fs.
-            let path_bytes = decode_base64(&command.payload, 4096)?;
-            kitty_transport::read_file_transport(&path_bytes, max_decoded)
-                .map_err(|e| KittyError::TransportFailed(e.kitty_message()))?
-        }
-        't' => {
-            if !named_transports_enabled {
-                return Err(KittyError::TransportFailed(
-                    "EPERM:named-transport-disabled",
-                ));
-            }
-            // Temp file: like 'f' but delete after read.
-            let path_bytes = decode_base64(&command.payload, 4096)?;
-            kitty_transport::read_temp_transport(&path_bytes, max_decoded)
-                .map_err(|e| KittyError::TransportFailed(e.kitty_message()))?
-        }
-        's' => {
-            if !named_transports_enabled {
-                return Err(KittyError::TransportFailed(
-                    "EPERM:named-transport-disabled",
-                ));
-            }
-            // Shared memory: payload is base64-encoded shm name.
-            let name_bytes = decode_base64(&command.payload, 4096)?;
-            let mut bytes = kitty_transport::read_shm_transport(&name_bytes, max_decoded)
-                .map_err(|e| KittyError::TransportFailed(e.kitty_message()))?;
-            // POSIX shm objects are rounded up to a page boundary on macOS, so
-            // the mapped segment can be larger than the logical payload. For
-            // fixed-size raw formats the exact length is known from the
-            // dimensions — trim trailing padding to it so the strict length
-            // check in `rgba_from_payload` still holds. PNG (self-delimiting)
-            // and segments already at the exact size (every Linux segment) are
-            // unaffected.
-            if let Some(expected) = expected_raw_payload_len(&command.control) {
-                if bytes.len() < expected {
-                    return Err(KittyError::InvalidPayload);
-                }
-                bytes.truncate(expected);
-            }
-            bytes
-        }
-        _ => return Err(KittyError::UnsupportedTransmission),
-    };
+    let image_bytes = resolve_transport_bytes(
+        &command.control,
+        &command.payload,
+        max_decoded,
+        named_transports_enabled,
+    )?;
 
     let (rgba, width, height) = rgba_from_payload(&command.control, image_bytes, max_decoded)?;
     let insert = graphics
@@ -606,6 +749,14 @@ fn process_delete_command(
         'I' => {
             let id = control.image_id.ok_or(KittyError::MalformedControl)?;
             graphics.delete_by_image_id_and_free(id, control.placement_id);
+        }
+        // `d=f` / `d=F` - delete animation frames. Both cases behave the same
+        // here: frames are never referenced by the scrollback the way image data
+        // is, so there is no "keep the data around" variant to distinguish. The
+        // still image and its placements are untouched, so an animation can be
+        // torn down without the picture disappearing.
+        'f' | 'F' => {
+            kitty_animation::delete_frames(graphics, control);
         }
         'c' => graphics.delete_at_cursor(cursor_row, cursor_col, false),
         'C' => graphics.delete_at_cursor(cursor_row, cursor_col, true),
@@ -957,8 +1108,14 @@ fn parse_control(control: &[u8]) -> Result<ControlData, KittyError> {
             "p" => parsed.placement_id = parse_u32(value),
             "s" => parsed.width = parse_u32(value),
             "v" => parsed.height = parse_u32(value),
-            "c" => parsed.display_columns = parse_usize(value),
-            "r" => parsed.display_rows = parse_usize(value),
+            "c" => {
+                parsed.display_columns = parse_usize(value);
+                parsed.frame_base = parse_u32(value);
+            }
+            "r" => {
+                parsed.display_rows = parse_usize(value);
+                parsed.frame_target = parse_u32(value);
+            }
             "C" => parsed.cursor_movement = parse_u32(value),
             "q" => parsed.quiet = parse_u32(value),
             "d" => parsed.delete_specifier = parse_char(value),
@@ -966,8 +1123,14 @@ fn parse_control(control: &[u8]) -> Result<ControlData, KittyError> {
             "y" => parsed.y = parse_u32(value),
             "w" => parsed.source_w = parse_u32(value),
             "h" => parsed.source_h = parse_u32(value),
-            "X" => parsed.offset_x = parse_i32(value),
-            "Y" => parsed.offset_y = parse_i32(value),
+            "X" => {
+                parsed.offset_x = parse_i32(value);
+                parsed.upper_x = parse_u32(value);
+            }
+            "Y" => {
+                parsed.offset_y = parse_i32(value);
+                parsed.upper_y = parse_u32(value);
+            }
             "z" => parsed.z_index = parse_i32(value),
             "U" => parsed.unicode_placeholder = parse_u32(value),
             _ => {}

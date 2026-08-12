@@ -467,6 +467,39 @@ impl Screen {
         placements
     }
 
+    /// Clock reading at which a visible animated image needs its next frame, or
+    /// `None` when nothing visible is animating (Kitty `a=f`/`a=a`).
+    ///
+    /// Gate-scoped exactly like the placeholder scan: with no animated image in
+    /// the store this returns before computing the visible set, so a session
+    /// that never sends a frame command pays nothing per frame and schedules no
+    /// wake. Images shown through Unicode placeholders count as visible, because
+    /// the placeholder resolution feeds the same visible list.
+    pub fn graphics_animation_deadline_ms(&self, offset_rows: usize) -> Option<u64> {
+        if !self.graphics.has_animations() {
+            return None;
+        }
+        let visible = self.visible_graphics(offset_rows);
+        self.graphics.next_animation_deadline_ms(&visible)
+    }
+
+    /// Advance visible animations to the frame due at `now_ms`, where `now_ms`
+    /// is a monotonic millisecond reading supplied by the caller (the core keeps
+    /// no clock of its own). Returns whether displayed pixels changed; a change
+    /// marks the screen dirty, so the frame gate repaints and the renderer
+    /// re-uploads the image whose generation moved.
+    pub fn advance_graphics_animations(&mut self, now_ms: u64, offset_rows: usize) -> bool {
+        if !self.graphics.has_animations() {
+            return false;
+        }
+        let visible = self.visible_graphics(offset_rows);
+        if !self.graphics.advance_animations(now_ms, &visible) {
+            return false;
+        }
+        self.mark_dirty();
+        true
+    }
+
     /// Resolve Unicode-placeholder cells in the viewport into placements.
     ///
     /// The row walk mirrors [`Self::visible_button_spans`] exactly — same

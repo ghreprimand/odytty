@@ -115,6 +115,7 @@ mod detach_switch;
 mod event_loop;
 mod frame;
 mod frame_assembly;
+mod graphics_anim;
 mod gutter_ui;
 mod hints_ui;
 mod hover;

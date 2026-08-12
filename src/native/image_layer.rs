@@ -67,22 +67,38 @@ pub(super) fn visible_image_ids(placements: &[VisiblePlacement]) -> BTreeSet<Sto
         .collect()
 }
 
+/// Plan the texture-cache work for one frame: evict what is no longer visible,
+/// upload what is visible and not resident *or* resident at an older
+/// generation.
+///
+/// `cached` maps each resident texture to the image generation it was uploaded
+/// from. The generation comparison is what makes an animated image re-upload:
+/// its pixels are replaced in place when playback advances a frame, keeping the
+/// same image id, so an id-only comparison would leave the first frame on screen
+/// forever. Still images never change generation, so their frames are unaffected.
 pub(super) fn cache_sync_plan(
-    cached: &BTreeSet<StoredImageId>,
+    cached: &BTreeMap<StoredImageId, u64>,
     placements: &[VisiblePlacement],
     uploads: &[ImageUpload],
 ) -> CacheSyncPlan {
     let visible = visible_image_ids(placements);
+    let resident = cached.keys().copied().collect::<BTreeSet<_>>();
     let available_uploads = uploads
         .iter()
-        .map(|upload| upload.id)
-        .collect::<BTreeSet<_>>();
+        .map(|upload| (upload.id, upload.generation))
+        .collect::<BTreeMap<_, _>>();
 
     CacheSyncPlan {
-        evict: cached.difference(&visible).copied().collect(),
+        evict: resident.difference(&visible).copied().collect(),
         upload: visible
-            .difference(cached)
-            .filter(|id| available_uploads.contains(id))
+            .iter()
+            .filter(|id| match (cached.get(id), available_uploads.get(id)) {
+                // Not resident: upload whenever bytes are available.
+                (None, Some(_)) => true,
+                // Resident: upload only when the offered bytes are newer.
+                (Some(resident_generation), Some(offered)) => offered != resident_generation,
+                (_, None) => false,
+            })
             .copied()
             .collect(),
     }
@@ -625,16 +641,23 @@ impl ImageLayer {
         self.target_format = target_format;
     }
 
-    pub(super) fn cached_ids(&self) -> BTreeSet<StoredImageId> {
-        self.textures.keys().copied().collect()
+    /// Resident single-pane textures with the image generation each was uploaded
+    /// from. Callers compare against the store's current generation so a
+    /// re-published animation frame re-uploads and a still image does not.
+    pub(super) fn cached_generations(&self) -> BTreeMap<StoredImageId, u64> {
+        self.textures
+            .iter()
+            .map(|(id, cached)| (*id, cached.generation))
+            .collect()
     }
 
-    /// The multipane image cache keys currently resident, as `(namespace, id)`.
-    /// The multipane render path passes each pane's already-cached subset to the
-    /// upload collector so bytes are not re-fetched for images already on the
-    /// GPU.
-    pub(super) fn cached_pane_ids(&self) -> BTreeSet<(u64, StoredImageId)> {
-        self.pane_textures.keys().copied().collect()
+    /// The multipane equivalent of [`Self::cached_generations`], keyed by the
+    /// composite `(namespace, id)` cache key.
+    pub(super) fn cached_pane_generations(&self) -> BTreeMap<(u64, StoredImageId), u64> {
+        self.pane_textures
+            .iter()
+            .map(|(key, cached)| (*key, cached.generation))
+            .collect()
     }
 
     /// MULTIPANE image update: sync the per-pane texture cache against every
@@ -671,19 +694,27 @@ impl ImageLayer {
                     .map(move |placement| (pane.namespace, placement.image_id))
             })
             .collect();
-        let cached: BTreeSet<(u64, StoredImageId)> = self.pane_textures.keys().copied().collect();
+        let cached: BTreeMap<(u64, StoredImageId), u64> = self.cached_pane_generations();
+        let resident: BTreeSet<(u64, StoredImageId)> = cached.keys().copied().collect();
 
         // Evict cached textures no pane shows any more.
-        for key in cached.difference(&visible) {
+        for key in resident.difference(&visible) {
             self.pane_textures.remove(key);
         }
 
-        // Upload textures newly visible this frame that carry byte payloads.
+        // Upload textures newly visible this frame that carry byte payloads, and
+        // re-upload resident ones whose image generation moved (an animation
+        // frame flip replaces pixels under the same id).
         let uploads_by_key: BTreeMap<(u64, StoredImageId), &ImageUpload> = uploads
             .iter()
             .map(|entry| ((entry.namespace, entry.upload.id), &entry.upload))
             .collect();
-        for key in visible.difference(&cached) {
+        for key in visible.iter().filter(|key| match cached.get(key) {
+            None => true,
+            Some(resident_generation) => uploads_by_key
+                .get(key)
+                .is_some_and(|upload| upload.generation != *resident_generation),
+        }) {
             if let Some(upload) = uploads_by_key.get(key) {
                 let Some(cached_image) = upload_image(
                     device,
@@ -763,7 +794,7 @@ impl ImageLayer {
         // but MUST NOT draw over a single-pane tab.
         self.pane_draws.clear();
         self.pane_vertices.clear();
-        let cached = self.cached_ids();
+        let cached = self.cached_generations();
         let plan = cache_sync_plan(&cached, placements, uploads);
         for id in plan.evict {
             self.textures.remove(&id);

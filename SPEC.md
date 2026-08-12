@@ -330,9 +330,10 @@ Text, cursor, selection focus, search highlighting, dividers, resize, smooth
 scroll, and Kitty/Sixel images all work in splits.
 
 **Kitty graphics protocol.** Actions `a=t` (transmit), `a=T` (transmit and
-display), `a=p` (display existing by id), `a=d` (delete), and `a=q` (query)
+display), `a=p` (display existing by id), `a=d` (delete), `a=q` (query), `a=f`
+(frame transmission), `a=a` (animation control), and `a=c` (frame composition)
 are supported. Formats `f=24` (raw RGB), `f=32` (raw RGBA), and `f=100` (PNG
-still image) are supported. Transports `t=d` (direct), `t=f` (file), and `t=t`
+image) are supported. Transports `t=d` (direct), `t=f` (file), and `t=t`
 (temp file) and `t=s` (POSIX shared memory on Unix) share an explicit named-
 transport gate. Direct and chunked transfers are always available; named
 transports default off and are rejected before host I/O unless
@@ -346,8 +347,11 @@ encoded-payload cap.
 
 Placement ids,
 z-index, source-rectangle crop, cell-box scaling, and anchor pixel offset are
-all wired through. Animation (`a=f`, `a=a`) and Unicode placeholder rendering
-(`U=1`) are not supported.
+all wired through. Unicode placeholder rendering (`U=1`) creates virtual
+placements resolved from placeholder cells. Animation frames share the decoded
+image quota, only visible placements advance, and a still session schedules no
+animation wake. Animation commands require `i=` image ids; `I=` image-number
+addressing and payload compression (`o=z`) remain unsupported.
 
 **Sixel.** The complete DCS `q` data language is supported: raster attributes,
 RGB and HLS color introducers, repeat introducer, VT340 16-color default
@@ -356,7 +360,9 @@ cursor-after-sixel behavior: reset (default) moves cursor to the row below the
 image; set keeps the cursor in place. Hard caps: 10,000 × 10,000 pixels or
 40 million total pixels.
 
-**iTerm2 protocol.** Deferred indefinitely. No current code handles it.
+**iTerm2 protocol.** `OSC 1337 ; File=` displays bounded PNG, JPEG, and WebP
+payloads through the shared image layer. `inline=0` download requests are never
+honored, and animated containers decode as one still frame.
 
 See `docs/graphics.md` for user-facing protocol detail, security rationale, and
 examples.
@@ -1440,12 +1446,11 @@ formats and install channels are defined in the
 
 ### Out Of Scope
 
-- Kitty animation (`a=f`, `a=a`) and Unicode placeholder rendering
+- Kitty payload compression (`o=z`) and image-number (`I=`) animation addressing
 
-- iTerm2 graphics protocol
+- Full bidi and complex-script reordering
 
-- Broader ligature and stylistic-set shaping beyond the shipped ASCII
-  contextual-ligature path
+- Open-ended font-feature selection beyond the bounded supported set
 
 - Profiles and cross-session multiplexing (panes/splits within a window are now
   supported — see above)

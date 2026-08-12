@@ -1126,3 +1126,129 @@ fn run_iterm2_file_stream(iters: u64) {
         assert_parser_not_wedged(seed, &mut t);
     }
 }
+
+// ---------------------------------------------------------------------------
+// (8) Kitty animation fuzzer (a=f frame data / a=a control / a=c composition)
+// ---------------------------------------------------------------------------
+
+/// One adversarial animation control-data field. Mixes the animation keys with
+/// extreme frame numbers, negative and huge gaps, and out-of-range rectangles.
+fn fuzz_animation_key(rng: &mut FuzzRng) -> String {
+    let key = rng.pick(&[
+        "i", "I", "r", "c", "z", "x", "y", "s", "v", "w", "h", "X", "Y", "C", "f", "t", "q", "zz",
+    ]);
+    let value = match rng.below(10) {
+        0 => "0".to_string(),
+        1 => "1".to_string(),
+        2 => "-1".to_string(),
+        3 => "4294967295".to_string(),
+        4 => "-2147483648".to_string(),
+        5 => "2".to_string(),
+        6 => "3".to_string(),
+        _ => fuzz_numeric(rng),
+    };
+    match rng.below(12) {
+        // Occasionally drop the `=`, which must reject rather than misparse.
+        0 => key.to_string(),
+        _ => format!("{key}={value}"),
+    }
+}
+
+/// Build one animation escape sequence: a frame transmission, an animation
+/// control, or a frame composition, with fuzzed keys and payload.
+fn fuzz_animation_sequence(rng: &mut FuzzRng) -> Vec<u8> {
+    let action = rng.pick(&["a=f", "a=a", "a=c"]);
+    let mut control = String::from(*action);
+    for _ in 0..1 + rng.below(6) {
+        control.push(',');
+        control.push_str(&fuzz_animation_key(rng));
+    }
+    let mut out = Vec::new();
+    out.extend_from_slice(b"\x1b_G");
+    out.extend_from_slice(control.as_bytes());
+    // Control-only commands (a=a, a=c) legitimately carry no payload; frame
+    // transmissions do. Both shapes are emitted for every action so a payload
+    // arriving where none is expected is exercised too.
+    if rng.below(4) > 0 {
+        out.push(b';');
+        let payload = if rng.below(4) == 0 {
+            b64_encode(&fuzz_png_2x2()).into_bytes()
+        } else {
+            fuzz_base64_payload(rng)
+        };
+        out.extend_from_slice(&payload);
+    }
+    out.extend_from_slice(b"\x1b\\");
+    out
+}
+
+/// A valid 2x2 RGBA transmit-and-display command for image id `id`, so the
+/// fuzzer's animation commands have a real image to address a good share of the
+/// time instead of only ever hitting the not-found path.
+fn fuzz_base_image(id: u32) -> Vec<u8> {
+    let payload = b64_encode(&[128u8; 2 * 2 * 4]);
+    format!("\x1b_Ga=T,f=32,t=d,s=2,v=2,i={id},c=1,r=1;{payload}\x1b\\").into_bytes()
+}
+
+#[test]
+fn graphics_fuzz_kitty_animation_smoke() {
+    run_kitty_animation_stream(fuzz_iters());
+}
+
+#[test]
+#[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test -p odytty graphics_fuzz -- --ignored --nocapture"]
+fn graphics_fuzz_kitty_animation_deep() {
+    run_kitty_animation_stream(fuzz_iters());
+}
+
+/// Drive animation soup through a capped terminal, then run playback forward.
+/// Invariants: the store (image pixels *and* frame data, which share one
+/// budget) stays inside its caps however many frames are demanded, playback
+/// never schedules a wake in the past relative to the clock it was given, no
+/// placement escapes the grid, and the parser is never wedged.
+fn run_kitty_animation_stream(iters: u64) {
+    announce_budget("kitty_animation", iters, 0xD1B5_4A32_D192_ED03, 0x5A1E);
+    for i in 0..iters {
+        let seed = fuzz_seed(i, 0xD1B5_4A32_D192_ED03, 0x5A1E);
+        let mut rng = FuzzRng::new(seed);
+        let (rows, cols) = (8usize, 30usize);
+        let mut t = capped_terminal(cols, rows);
+        t.advance(&fuzz_base_image(1));
+        let _ = t.take_host_output();
+
+        for _ in 0..2 + rng.below(10) {
+            match rng.below(8) {
+                0 => t.advance(&fuzz_base_image(1 + rng.below(3) as u32)),
+                1 => t.advance(b"\x1b_Ga=d,d=f\x1b\\"),
+                2 => t.advance(b"\x1b[2J\x1b[H"),
+                _ => t.advance(&fuzz_animation_sequence(&mut rng)),
+            }
+            let _ = t.take_host_output();
+            assert_store_bounded(seed, &t);
+        }
+
+        // Run playback forward over a bounded clock walk. Each step asserts the
+        // scheduled wake is never behind the clock that produced it - a past
+        // deadline would busy-spin the event loop.
+        let mut now_ms = 0u64;
+        for _ in 0..1 + rng.below(8) {
+            now_ms = now_ms.saturating_add(1 + rng.below(200) as u64);
+            t.advance_graphics_animations(now_ms, 0);
+            if let Some(deadline) = t.graphics_animation_deadline_ms(0) {
+                assert!(
+                    deadline >= now_ms,
+                    "seed={seed}: animation wake {deadline} is behind the clock {now_ms}"
+                );
+            }
+            assert_store_bounded(seed, &t);
+        }
+
+        for placement in t.visible_graphics(0) {
+            assert!(
+                placement.row < rows && placement.column < cols,
+                "seed={seed}: anchor off screen: {placement:?}"
+            );
+        }
+        assert_parser_not_wedged(seed, &mut t);
+    }
+}

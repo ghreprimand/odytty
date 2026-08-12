@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::atlas::CellSize;
 use crate::core::Terminal;
@@ -210,7 +210,7 @@ fn visible_ids_are_deduplicated_for_cache_bookkeeping() {
 
 #[test]
 fn cache_plan_evicts_hidden_ids_and_uploads_missing_visible_ids() {
-    let cached = BTreeSet::from([StoredImageId(1), StoredImageId(3)]);
+    let cached = BTreeMap::from([(StoredImageId(1), 1), (StoredImageId(3), 1)]);
     let placements = vec![
         placement(0, 0, StoredImageId(1)),
         placement(0, 1, StoredImageId(2)),
@@ -228,6 +228,55 @@ fn cache_plan_evicts_hidden_ids_and_uploads_missing_visible_ids() {
 
     assert_eq!(plan.evict, vec![StoredImageId(3)]);
     assert_eq!(plan.upload, vec![StoredImageId(2)]);
+}
+
+/// Animation: an image already resident on the GPU must re-upload when its
+/// store generation moves, which is how an advanced animation frame reaches the
+/// screen (playback replaces pixels in place under a stable image id). Without
+/// the generation comparison the first frame would stay on screen forever.
+#[test]
+fn cache_plan_reuploads_a_resident_image_whose_generation_moved() {
+    let cached = BTreeMap::from([(StoredImageId(1), 4), (StoredImageId(2), 9)]);
+    let placements = vec![
+        placement(0, 0, StoredImageId(1)),
+        placement(0, 1, StoredImageId(2)),
+    ];
+    let uploads = vec![ImageUpload {
+        id: StoredImageId(1),
+        width: 1,
+        height: 1,
+        generation: 5,
+        rgba: vec![255, 0, 0, 255],
+    }];
+
+    let plan = cache_sync_plan(&cached, &placements, &uploads);
+
+    assert!(plan.evict.is_empty(), "both images are still visible");
+    assert_eq!(
+        plan.upload,
+        vec![StoredImageId(1)],
+        "only the image whose generation advanced is re-uploaded"
+    );
+}
+
+/// The still-image path must be untouched by the generation check: a resident
+/// image offered at the generation it was uploaded from is not re-uploaded.
+#[test]
+fn cache_plan_does_not_reupload_a_resident_image_at_the_same_generation() {
+    let cached = BTreeMap::from([(StoredImageId(1), 4)]);
+    let placements = vec![placement(0, 0, StoredImageId(1))];
+    let uploads = vec![ImageUpload {
+        id: StoredImageId(1),
+        width: 1,
+        height: 1,
+        generation: 4,
+        rgba: vec![255, 0, 0, 255],
+    }];
+
+    let plan = cache_sync_plan(&cached, &placements, &uploads);
+
+    assert!(plan.upload.is_empty());
+    assert!(plan.evict.is_empty());
 }
 
 #[test]

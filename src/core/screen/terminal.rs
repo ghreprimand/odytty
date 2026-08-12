@@ -348,6 +348,19 @@ impl Terminal {
         self.screen.visible_graphics(offset_rows)
     }
 
+    /// Clock reading at which a visible animated image needs its next frame. See
+    /// [`Screen::graphics_animation_deadline_ms`]; `None` when nothing visible
+    /// is animating, which is what keeps an idle terminal at zero wakes.
+    pub fn graphics_animation_deadline_ms(&self, offset_rows: usize) -> Option<u64> {
+        self.screen.graphics_animation_deadline_ms(offset_rows)
+    }
+
+    /// Advance visible graphics animations. See
+    /// [`Screen::advance_graphics_animations`].
+    pub fn advance_graphics_animations(&mut self, now_ms: u64, offset_rows: usize) -> bool {
+        self.screen.advance_graphics_animations(now_ms, offset_rows)
+    }
+
     /// Search the combined scrollback + visible buffer for `query`. See
     /// [`Screen::search`] for the coordinate convention and result ordering.
     pub fn search(&self, query: &str, options: SearchOptions) -> Vec<SearchMatch> {

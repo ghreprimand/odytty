@@ -31,7 +31,9 @@ default `z=0` therefore places an image above text.
 | `p`  | Display a previously transmitted image (by `i=`) without re-sending pixels | ✅ supported |
 | `d`  | Delete placements (see delete specifiers below) | ✅ supported |
 | `q`  | Query — validate control data and payload, no storage | ✅ supported |
-| `f`, `a` | Animation frame transmit / control | ❌ rejected (`unsupported-action`) |
+| `f`  | Animation - transmit frame data for an existing image | ✅ supported |
+| `a`  | Animation - control playback (state, current frame, gap, loops) | ✅ supported |
+| `c`  | Animation - compose a rectangle of one frame onto another | ✅ supported |
 
 The `U=1` key on `a=T` / `a=p` creates a *virtual placement* for Unicode
 placeholder display instead of placing at the cursor; see the placeholder
@@ -45,8 +47,10 @@ section below.
 
 **Indexed PNG** (palette color type) is accepted: the decoder normalizes
 palette frames to 8-bit RGB/RGBA before they reach the image store, so an
-indexed PNG transmits and displays like any other color type. **PNG animation
-frames** are not supported — only the first frame is decoded.
+indexed PNG transmits and displays like any other color type. **Multi-frame PNG
+containers** (APNG) are not decoded: only the first frame of a PNG is read.
+Animation is driven by the protocol's frame commands (`a=f`), not by animated
+container formats.
 
 ### Transports
 
@@ -130,10 +134,59 @@ references for image garbage collection. Known deviation: tiles split the
 image uniformly across the placeholder grid; Kitty letterboxes to preserve
 aspect ratio.
 
-### What is not yet supported
+### Animation
 
-- **Animation** — only still images. Animation actions (`a=f`, `a=a`) are
-  rejected with an `unsupported-action` response.
+Animated images are one image id with a list of frames. Frame 1 is the image
+transmitted the ordinary way (`a=t`/`a=T`); further frames arrive as `a=f`
+commands and are composed onto a background canvas - a previous frame named by
+`c=`, or a solid color from `Y=` - either alpha-blended (the default) or copied
+over (`X=1`). `r=` edits an existing frame instead of appending one. Frame data
+rides every transport and format still images use, chunked transfer included.
+
+`a=a` controls playback: `s=1` stops, `s=2` runs and waits at the last frame for
+more frames, `s=3` runs and loops; `c=` makes a frame current; `r=` with `z=`
+sets one frame's gap; `v=` sets the loop count (`v=1` is infinite). `a=c`
+composes a rectangle from one frame onto another. `d=f` / `d=F` deletes an
+image's frames, leaving the still image and its placements in place.
+
+Gaps behave as the protocol specifies: `z=0` is ignored, a positive `z=` is the
+delay in milliseconds before the next frame, and a negative `z=` marks a
+*gapless* frame that is never displayed and exists only as base data for frames
+composed from it. Playback clamps the effective gap to the 10ms..60s range, so a
+1ms gap cannot pin the render loop at its frame ceiling.
+
+What animation costs and what it does not:
+
+- **Frames share the image budget.** Frame pixels count against the same
+  decoded-byte quota as still images (64 MiB by default) rather than a second
+  one, and a per-image cap of 64 frames bounds the frame list. A frame that
+  would exceed either is refused with `ENOSPC` - the image being animated is
+  never evicted to make room for its own frames.
+- **Idle cost is zero.** A session with no animated image schedules no timer and
+  does no per-frame animation work; the checks are gated on the image store
+  holding frames at all.
+- **Only what you can see animates.** Playback advances animations referenced by
+  a *visible* placement in the active pane. An animation in a background tab or
+  pane, or scrolled out of the viewport, holds its frame and resumes from the
+  live clock when it comes back into view rather than burning frames off-screen.
+- **Reduced motion does not stop animations.** The `reduced_motion` setting
+  governs OdyTTY's own decorative motion (cursor easing, trails, fades). An
+  animated image is program output, so suppressing it would corrupt what the
+  program is displaying rather than calm the interface.
+- **Images displayed through Unicode placeholders animate too**, since
+  placeholder cells resolve into the same visible-placement list playback reads.
+
+Two deviations from the reference terminal are worth stating. Frames are stored
+fully rendered rather than as replayable operations, which trades memory for a
+frame flip that is a byte copy. The specification's own description of `a=c` is
+internally inconsistent: its frame-key table reverses the prose and example,
+and one prose sentence reverses the rectangle offsets used by the example and
+key table. OdyTTY follows the worked example for both mappings: `r=` and `X/Y`
+name the source, while `c=` and `x/y` name the destination.
+
+### What is not yet supported
+- **`I=` image numbers** - animation commands must address an image by `i=`;
+  the image-number form is not accepted.
 - **Payload compression (`o=z`)** — zlib-compressed payloads are not supported.
   The `o=` key is ignored, so compressed data is rejected as an invalid payload
   rather than decompressed.
@@ -291,10 +344,10 @@ content-sniffs the container rather than trusting any declared type.
 | `name=` | ⚠️ parsed, not shown | Validated and ignored: OdyTTY has no downloads UI to display it in. |
 | unknown arguments | ⚠️ ignored | Future iTerm2 keys degrade to "ignored", never to "image rejected". |
 
-Supported containers are exactly PNG, JPEG, and WebP — the formats the build
-enables in the `image` crate. Animation is not supported: an image is placed as
-a single still frame. A container OdyTTY cannot decode is rejected and nothing
-is drawn.
+Supported containers are exactly PNG, JPEG, and WebP - the formats the build
+enables in the `image` crate. Animated containers are decoded as one still
+frame; Kitty protocol frame commands are a separate animation path. A container
+OdyTTY cannot decode is rejected and nothing is drawn.
 
 ### Size ceiling
 

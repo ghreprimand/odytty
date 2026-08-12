@@ -116,6 +116,16 @@ pub(in crate::native) struct App {
     /// presents. `None` on the steady-state path, so the idle wake set is
     /// unchanged when nothing is skipping.
     pub(super) skipped_frame_retry_deadline: Option<Instant>,
+    /// Monotonic origin for the graphics-animation clock (Kitty `a=f`/`a=a`).
+    /// Frame timing lives in the terminal core, which keeps no clock of its own,
+    /// so the core is driven with milliseconds measured from this instant.
+    pub(super) graphics_clock_epoch: Instant,
+    /// Next instant a visible animated image needs a new frame, recomputed in
+    /// the about-to-wait maintenance pass and folded into
+    /// [`Self::next_wake_deadline`]. `None` whenever no visible placement shows
+    /// an animation - which is every session that does not use animated
+    /// graphics, so the idle wake set is unchanged.
+    pub(super) animated_graphics_deadline: Option<Instant>,
     /// A complete run of transiently skipped presents. This is independent of
     /// the bounded retry counter because restore and surface recovery reset that
     /// counter before the eventual successful present. The episode therefore
@@ -513,6 +523,8 @@ impl App {
             resize_debounce: ResizeDebouncer::new(RESIZE_DEBOUNCE_INTERVAL),
             resize_hud: resize_hud::ResizeHud::default(),
             skipped_frame_retry_deadline: None,
+            graphics_clock_epoch: Instant::now(),
+            animated_graphics_deadline: None,
             skip_episode: SkipEpisode::default(),
             skip_escalation: SkipEscalation::default(),
             pending_surface_reconfigure: false,

@@ -748,22 +748,35 @@ fn kitty_delete_by_image_id_with_placement_id_targets_protocol_id() {
     assert_eq!(visible[0].row, 2, "p=20 placement (row 2) survives");
 }
 
+/// Animation actions (`a=f`, `a=a`, `a=c`) address an existing image, so with no
+/// image transmitted they answer `ENOENT` rather than the old
+/// "unsupported-action". Animation behavior itself lives in
+/// `kitty_animation_tests`; this pins that the actions are dispatched at all,
+/// and that an unknown action letter is still rejected as unsupported.
 #[test]
-fn kitty_animation_actions_are_unsupported() {
-    for action in ["a=f", "a=a"] {
+fn kitty_animation_actions_are_dispatched_and_unknown_actions_are_not() {
+    for action in ["a=f", "a=a", "a=c"] {
         let mut t = Terminal::new(20, 4);
         t.advance(&kitty_apc(
             &format!("f=32,{action},t=d,s=2,v=1,i=1"),
             &rgba_2x1(),
         ));
         assert!(t.visible_graphics(0).is_empty());
+        let response = String::from_utf8(t.take_host_output()).unwrap();
         assert!(
-            String::from_utf8(t.take_host_output())
-                .unwrap()
-                .contains("unsupported-action"),
-            "animation action {action} should be rejected"
+            response.contains("ENOENT") || response.contains("malformed-control"),
+            "animation action {action} reached its handler, got {response}"
         );
     }
+
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=32,a=Z,t=d,s=2,v=1,i=1", &rgba_2x1()));
+    assert!(
+        String::from_utf8(t.take_host_output())
+            .unwrap()
+            .contains("unsupported-action"),
+        "an unknown action letter is still rejected"
+    );
 }
 
 #[test]
