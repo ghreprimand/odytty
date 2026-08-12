@@ -260,6 +260,10 @@ def probe_gpu_memory(fdinfo_probe_pids: list[int] | None = None) -> dict:
     compared implementation. The probe therefore looks for `drm-` prefixed
     keys in the fdinfo of live DRM clients.
 
+    Passing `None` discovers live DRM clients. Passing an explicit PID list,
+    including an empty one, probes exactly that list so tests and callers can
+    distinguish "discover clients" from "no clients".
+
     A driver that exports nothing yields `unsupported`. The protocol is
     explicit that driver-specific or self-reported application counters are
     diagnostic and cannot support a cross-product ratio, so a vendor query
@@ -278,8 +282,9 @@ def probe_gpu_memory(fdinfo_probe_pids: list[int] | None = None) -> dict:
             except OSError:
                 continue
 
+    probe_pids = _drm_client_pids() if fdinfo_probe_pids is None else fdinfo_probe_pids
     found_fields: set[str] = set()
-    for pid in fdinfo_probe_pids or _drm_client_pids():
+    for pid in probe_pids:
         fdinfo_dir = Path(f"/proc/{pid}/fdinfo")
         try:
             entries = sorted(fdinfo_dir.iterdir())
