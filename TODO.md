@@ -243,6 +243,13 @@ a separately recorded milestone before implementation.
         antialiased polygon filler).
 - [x] Ship grid-preserving ASCII contextual ligatures behind a live setting;
       broader ligature and stylistic-set shaping remains deferred.
+  - [x] Shaping-run infrastructure: grapheme-cluster grouping, byte-to-column
+        anchoring, and compatible-run boundary detection (combining marks,
+        mixed styles, color-glyph/ZWJ coverage, and wide cells never merge
+        into a run). Live overlay eligibility is unchanged (ASCII-graphic
+        only), so default rendering stays byte-identical; this is the
+        substrate curated non-ASCII ligature coverage builds on next. See
+        `docs/shaping-roadmap.md`.
 - [ ] Improve rasterization quality: pixel alignment, baseline consistency,
       padding, gamma, blending, and contrast.
   - [x] Raster side (`src/atlas/`): single documented baseline for every

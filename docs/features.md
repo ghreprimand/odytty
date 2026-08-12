@@ -195,7 +195,8 @@ search, cursor placement, and wide-cell behavior retain their ordinary
 semantics. Unsupported fonts and runs render through the normal per-cell path.
 Set `ligatures = off` in Settings or configuration, or
 `ODYTTY_LIGATURES=off` for one launch, to restore scalar rendering; the setting
-reloads live.
+reloads live. See `docs/shaping-roadmap.md` for the shaping model, what has
+landed, and what remains deferred.
 
 Decomposed combining marks stay attached to their base glyph in the monochrome
 text path. Wrapped and rectangular selection copy the base followed by its marks

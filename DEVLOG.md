@@ -7,6 +7,19 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Shaping roadmap document
+
+`docs/shaping-roadmap.md` (new) states the shaping model plainly: one logical
+character per grid cell, shaped presentation as anchored overlay spans that
+never move terminal columns. It records what v0.11.0 added (shaping-run
+infrastructure, COLR/CPAL v0 static color glyphs), what is in progress
+(extended non-ASCII ligature coverage), and what remains deferred with
+reasons: full complex-script/Brahmic shaping (a model conflict, stated
+without partial claims), bidirectional text, SVG-in-OT, and COLR v1 Paint.
+`docs/features.md` and `TODO.md` shaping sections now point at it as the
+canonical doc, and `docs/benchmark-protocol.md` gained a pointer to its
+apparatus companion document.
+
 ## 2026-08-12 -- Contribution stance revised: welcome within the vision
 
 `CONTRIBUTING.md` previously framed outside contributions as "not actively
