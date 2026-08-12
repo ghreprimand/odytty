@@ -7,6 +7,19 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Release signing key published
+
+The minisign public key for release verification is now committed at
+`docs/keys/odytty-release.pub` (key ID 001D2B3E37FC381C), replacing the
+placeholder marker that deliberately blocked the release pipeline. The
+signing chain is now fully armed: from the next tag onward, every release
+publishes `SHA256SUMS.minisig` signed by the corresponding private key,
+which is held outside the repository and referenced by CI only as a secret.
+The workflow self-verifies each signature against this committed public key
+before publishing. Verification instructions per platform are in
+`docs/install.md`; key generation and rotation policy in `docs/release.md`.
+Releases before v0.11.0 remain unsigned, as documented.
+
 ## 2026-08-12 -- Instanced cell geometry; extended ligatures; placeholder tofu fix
 
 Three renderer/shaping changes land together because they share the grid
