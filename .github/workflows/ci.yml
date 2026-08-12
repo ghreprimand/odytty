@@ -219,6 +219,15 @@ jobs:
           python3 scripts/production-file-guard.py --self-test
           python3 scripts/coverage-surfaces.py --self-test
 
+      - name: Benchmark-harness self-tests
+        # Offline and side-effect free: the harness never takes a measurement,
+        # never starts a terminal, and never writes into the tree. The suite
+        # pins the fixture byte layouts, the balanced-order construction, the
+        # statistics rules, the result-document rejections, and the apparatus
+        # requirements that keep optically-gated workloads from being quietly
+        # relaxed to software timing.
+        run: python3 scripts/bench-protocol/bench-protocol.py --self-test
+
       - name: Production Rust file-size guard
         # The recorded backlog forgives the files the decomposition work has
         # not reached yet and nothing else: a new oversized file, a recorded

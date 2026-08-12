@@ -7,6 +7,40 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Comparative-benchmark execution harness and apparatus statement
+
+The preregistered comparative-benchmark protocol now has a complete
+execution harness under `scripts/bench-protocol/`: deterministic fixture
+generators with pinned digests and negative-control self-tests, a driver
+skeleton with out-of-band correctness-oracle records (the sink refuses
+stdout/stderr so oracle evidence can never enter the timed byte stream),
+cgroup v2 resource collectors that report `unsupported` with named reasons
+rather than approximating, a seeded balanced-order generator (Williams
+squares, verified Latin and carryover-balanced), the protocol's statistics
+exactly (nearest-rank percentiles, seeded 10000-resample bootstrap, paired
+blocks, no composites or winners), a result-document schema whose validator
+structurally refuses values on non-pass samples, and a preregistration
+generator that declares unsupported metrics and unavailable workloads
+before any measurement. The harness self-tests run in CI alongside the
+architecture guards.
+
+`docs/benchmark-apparatus.md` records what the current apparatus can and
+cannot measure: the interactive and stream workloads define optical
+endpoints (external stimulus controller and display photosensor on a shared
+capture clock) that are unavailable, and the protocol forbids substituting
+software timestamps for them — those workloads are declared as skips with
+the `unavailable-hardware` reason in preregistration, distinct from
+unmeasured. No comparative measurement has been taken; the harness exists so
+that measurement can start honestly when the apparatus does.
+
+A harness self-test also caught a public-safety leak before it could ship:
+the kernel version string on the build host carried a machine-identifying
+suffix that would have entered published environment records; the
+environment classifier now publishes only numeric kernel components, pinned
+by a self-test.
+
+---
+
 ## 2026-08-12 -- Align public docs with landed graphics and color-font support
 
 `SPEC.md`, `docs/features.md`, `docs/graphics.md`, and `TODO.md` catch up
