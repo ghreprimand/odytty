@@ -7,6 +7,25 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Fuzz tiers announce their resolved iteration budget
+
+Deep fuzz runs are release evidence, but the harness never echoed its
+iteration count, so a log could not prove the ODYTTY_FUZZ_ITERS budget
+actually reached the test binary. Every iteration-driven fuzzer (6 graphics,
+12 protocol) now prints one greppable banner under --nocapture:
+suite, fuzzer, resolved iteration count, source (env or default), salt, and
+the first/last seed of the sweep. The seed range is computed through the
+same derivation the loop uses, so the banner cannot claim a range the sweep
+does not cover. The graphics side's open-coded seed arithmetic (9 sites) is
+consolidated into one fuzz_seed helper.
+
+The banner immediately paid for itself: two protocol fuzzers
+(button_osc_churn and decrqss_sgr_churn) turned out to share salt 0xF208
+and were sweeping identical seed sequences. button_osc_churn moved to its
+own salt; the 40,000-iteration deep tier passed on the new stream, so no
+latent case was hiding behind the collision. Test files only; no
+production code changed.
+
 ## 2026-08-12 -- Windows CI: flag-emoji test corrected to a capability branch
 
 The COLR/CPAL landing taught emoji discovery to find stock Segoe UI Emoji,

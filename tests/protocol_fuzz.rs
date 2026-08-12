@@ -60,6 +60,11 @@
 //! ```text
 //! ODYTTY_FUZZ_ITERS=40000 cargo test --test protocol_fuzz -- --ignored --nocapture
 //! ```
+//!
+//! Each fuzzer prints a `fuzz-budget` line under `--nocapture` recording the
+//! resolved iteration count, whether it came from the environment or the
+//! default, and the seed range swept, so a captured log documents its own
+//! budget instead of leaving it to be inferred.
 
 use odytty::core::{KeyboardModes, MouseProtocol, Terminal};
 use unicode_width::UnicodeWidthChar;
@@ -118,6 +123,26 @@ impl FuzzRng {
 /// so a failing case is reproducible from the printed `seed`.
 fn seed_for(i: u64, salt: u64) -> u64 {
     i.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(salt)
+}
+
+/// Print the resolved sweep budget for one fuzzer as a single greppable line,
+/// so a captured deep-run log is self-describing: how many iterations actually
+/// ran, whether that count came from `ODYTTY_FUZZ_ITERS` or the built-in
+/// default, and the exact seed range covered. Visible under `--nocapture`.
+/// Seeds are derived through [`seed_for`], so the announced range cannot drift
+/// away from the range the sweep really uses.
+fn announce_budget(fuzzer: &str, iters: u64, salt: u64) {
+    let source = if std::env::var_os("ODYTTY_FUZZ_ITERS").is_some() {
+        "env"
+    } else {
+        "default"
+    };
+    println!(
+        "fuzz-budget suite=protocol fuzzer={fuzzer} iters={iters} source={source} \
+         salt={salt:#06x} first_seed={:#018x} last_seed={:#018x}",
+        seed_for(0, salt),
+        seed_for(iters.saturating_sub(1), salt)
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -899,6 +924,7 @@ fn gen_mixed_stream(rng: &mut FuzzRng) -> Vec<u8> {
 // ---------------------------------------------------------------------------
 
 fn run_mixed_soup(iters: u64) {
+    announce_budget("mixed_soup", iters, 0xF201);
     for i in 0..iters {
         let seed = seed_for(i, 0xF201);
         let mut rng = FuzzRng::new(seed);
@@ -934,6 +960,7 @@ fn protocol_fuzz_mixed_soup_deep() {
 // ---------------------------------------------------------------------------
 
 fn run_query_flood_bounded(iters: u64) {
+    announce_budget("query_flood_bounded", iters, 0xF202);
     for i in 0..iters {
         let seed = seed_for(i, 0xF202);
         let mut rng = FuzzRng::new(seed);
@@ -993,6 +1020,7 @@ fn protocol_fuzz_query_flood_bounded_deep() {
 // ---------------------------------------------------------------------------
 
 fn run_kitty_stack(iters: u64) {
+    announce_budget("kitty_stack", iters, 0xF203);
     for i in 0..iters {
         let seed = seed_for(i, 0xF203);
         let mut rng = FuzzRng::new(seed);
@@ -1045,6 +1073,7 @@ fn protocol_fuzz_kitty_stack_deep() {
 // ---------------------------------------------------------------------------
 
 fn run_underline_storm(iters: u64) {
+    announce_budget("underline_storm", iters, 0xF204);
     for i in 0..iters {
         let seed = seed_for(i, 0xF204);
         let mut rng = FuzzRng::new(seed);
@@ -1085,6 +1114,7 @@ fn protocol_fuzz_underline_storm_deep() {
 // ---------------------------------------------------------------------------
 
 fn run_mode_2026_interleave(iters: u64) {
+    announce_budget("mode_2026_interleave", iters, 0xF205);
     for i in 0..iters {
         let seed = seed_for(i, 0xF205);
         let mut rng = FuzzRng::new(seed);
@@ -1126,6 +1156,7 @@ fn protocol_fuzz_mode_2026_interleave_deep() {
 // ---------------------------------------------------------------------------
 
 fn run_dcs_query_soup(iters: u64) {
+    announce_budget("dcs_query_soup", iters, 0xF206);
     for i in 0..iters {
         let seed = seed_for(i, 0xF206);
         let mut rng = FuzzRng::new(seed);
@@ -1172,6 +1203,7 @@ fn protocol_fuzz_dcs_query_soup_deep() {
 // ---------------------------------------------------------------------------
 
 fn run_dcs_query_flood_bounded(iters: u64) {
+    announce_budget("dcs_query_flood_bounded", iters, 0xF207);
     for i in 0..iters {
         let seed = seed_for(i, 0xF207);
         let mut rng = FuzzRng::new(seed);
@@ -1223,6 +1255,7 @@ fn protocol_fuzz_dcs_query_flood_bounded_deep() {
 // ---------------------------------------------------------------------------
 
 fn run_decrqss_sgr_churn(iters: u64) {
+    announce_budget("decrqss_sgr_churn", iters, 0xF208);
     for i in 0..iters {
         let seed = seed_for(i, 0xF208);
         let mut rng = FuzzRng::new(seed);
@@ -1298,6 +1331,7 @@ fn gen_rect_stream(rng: &mut FuzzRng) -> Vec<u8> {
 }
 
 fn run_rect_soup(iters: u64) {
+    announce_budget("rect_soup", iters, 0xF209);
     for i in 0..iters {
         let seed = seed_for(i, 0xF209);
         let mut rng = FuzzRng::new(seed);
@@ -1341,6 +1375,7 @@ fn protocol_fuzz_rect_soup_deep() {
 // ---------------------------------------------------------------------------
 
 fn run_rect_wide_slice(iters: u64) {
+    announce_budget("rect_wide_slice", iters, 0xF20A);
     for i in 0..iters {
         let seed = seed_for(i, 0xF20A);
         let mut rng = FuzzRng::new(seed);
@@ -1380,6 +1415,7 @@ fn protocol_fuzz_rect_wide_slice_deep() {
 // ---------------------------------------------------------------------------
 
 fn run_rect_copy_churn(iters: u64) {
+    announce_budget("rect_copy_churn", iters, 0xF20B);
     for i in 0..iters {
         let seed = seed_for(i, 0xF20B);
         let mut rng = FuzzRng::new(seed);
@@ -1522,8 +1558,9 @@ fn gen_button_osc(rng: &mut FuzzRng) -> Vec<u8> {
 }
 
 fn run_button_osc_churn(iters: u64) {
+    announce_budget("button_osc_churn", iters, 0xF20C);
     for i in 0..iters {
-        let seed = seed_for(i, 0xF208);
+        let seed = seed_for(i, 0xF20C);
         let mut rng = FuzzRng::new(seed);
         let mut t = Terminal::new(20, 6);
         let gate_on = rng.bool();

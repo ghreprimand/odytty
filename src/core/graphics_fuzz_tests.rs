@@ -31,6 +31,11 @@
 //! `ODYTTY_FUZZ_ITERS` (default [`DEFAULT_GFX_FUZZ_ITERS`]); seeds are
 //! `i * <odd multiplier> + <salt>`, so a reported seed reproduces exactly.
 //!
+//! Each fuzzer prints a `fuzz-budget` line under `--nocapture` recording the
+//! resolved iteration count, whether it came from the environment or the
+//! default, and the seed range swept, so a captured log documents its own
+//! budget instead of leaving it to be inferred.
+//!
 //! Deep run (executed once locally; see the DEVLOG for the result):
 //!
 //!   ODYTTY_FUZZ_ITERS=40000 cargo test -p odytty graphics_fuzz -- --ignored --nocapture
@@ -65,6 +70,31 @@ fn fuzz_iters() -> u64 {
         .and_then(|v| v.parse::<u64>().ok())
         .filter(|&n| n > 0)
         .unwrap_or(DEFAULT_GFX_FUZZ_ITERS)
+}
+
+/// Derive a stable per-iteration seed from an index, a surface-specific
+/// multiplier, and a salt, so a failing case is reproducible from the reported
+/// seed and so the announced seed range cannot drift from the one swept.
+fn fuzz_seed(i: u64, multiplier: u64, salt: u64) -> u64 {
+    i.wrapping_mul(multiplier).wrapping_add(salt)
+}
+
+/// Print the resolved sweep budget for one fuzzer as a single greppable line,
+/// so a captured deep-run log is self-describing: how many iterations actually
+/// ran, whether that count came from `ODYTTY_FUZZ_ITERS` or the built-in
+/// default, and the exact seed range covered. Visible under `--nocapture`.
+fn announce_budget(fuzzer: &str, iters: u64, multiplier: u64, salt: u64) {
+    let source = if std::env::var_os("ODYTTY_FUZZ_ITERS").is_some() {
+        "env"
+    } else {
+        "default"
+    };
+    println!(
+        "fuzz-budget suite=graphics fuzzer={fuzzer} iters={iters} source={source} \
+         salt={salt:#06x} first_seed={:#018x} last_seed={:#018x}",
+        fuzz_seed(0, multiplier, salt),
+        fuzz_seed(iters.saturating_sub(1), multiplier, salt)
+    );
 }
 
 /// Tiny deterministic xorshift64 PRNG — no external dependency, reproducible
@@ -305,8 +335,9 @@ fn graphics_fuzz_apc_control_soup_deep() {
 }
 
 fn run_apc_control_soup(iters: u64) {
+    announce_budget("apc_control_soup", iters, 0x9E37_79B9_7F4A_7C15, 0x6112);
     for i in 0..iters {
-        let seed = i.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(0x6112);
+        let seed = fuzz_seed(i, 0x9E37_79B9_7F4A_7C15, 0x6112);
         let mut rng = FuzzRng::new(seed);
         let mut t = capped_terminal(24, 6);
         let nseq = 1 + rng.below(8);
@@ -330,7 +361,7 @@ fn run_apc_control_soup(iters: u64) {
 fn graphics_fuzz_apc_preserves_text_state_smoke() {
     let iters = fuzz_iters();
     for i in 0..iters {
-        let seed = i.wrapping_mul(0x2545_F491_4F6C_DD1D).wrapping_add(0x7A1);
+        let seed = fuzz_seed(i, 0x2545_F491_4F6C_DD1D, 0x7A1);
         let mut rng = FuzzRng::new(seed);
         let mut t = capped_terminal(20, 3);
         // Control-only graphics commands (no payload) must never disturb text.
@@ -417,7 +448,7 @@ fn fuzz_unsafe_path(rng: &mut FuzzRng) -> Vec<u8> {
 fn graphics_fuzz_transport_paths_smoke() {
     let iters = fuzz_iters();
     for i in 0..iters {
-        let seed = i.wrapping_mul(0x2C9E_F73F_3F4A_7C15).wrapping_add(0x70A7);
+        let seed = fuzz_seed(i, 0x2C9E_F73F_3F4A_7C15, 0x70A7);
         let mut rng = FuzzRng::new(seed);
         let mut t = capped_terminal(20, 4);
         let transport = *rng.pick(&["f", "t", "s"]);
@@ -564,9 +595,10 @@ fn graphics_fuzz_sixel_relaxed_tokens_deep() {
 }
 
 fn run_sixel_relaxed(iters: u64) {
+    announce_budget("sixel_relaxed", iters, 0x2545_F491_4F6C_DD1D, 0x5A4E);
     const MAX_PIXELS: u64 = 40_000_000;
     for i in 0..iters {
-        let seed = i.wrapping_mul(0x2545_F491_4F6C_DD1D).wrapping_add(0x5A4E);
+        let seed = fuzz_seed(i, 0x2545_F491_4F6C_DD1D, 0x5A4E);
         let mut rng = FuzzRng::new(seed);
         let body = fuzz_sixel_body_relaxed(&mut rng);
         let bg = if rng.bool() {
@@ -590,10 +622,11 @@ fn run_sixel_relaxed(iters: u64) {
 }
 
 fn run_sixel_decode(iters: u64) {
+    announce_budget("sixel_decode", iters, 0x9E37_79B9_7F4A_7C15, 0x5180);
     // Hard caps from sixel.rs: 10_000×10_000 dims, 40_000_000 pixel budget.
     const MAX_PIXELS: u64 = 40_000_000;
     for i in 0..iters {
-        let seed = i.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(0x5180);
+        let seed = fuzz_seed(i, 0x9E37_79B9_7F4A_7C15, 0x5180);
         let mut rng = FuzzRng::new(seed);
         let body = fuzz_sixel_body(&mut rng);
         let bg = if rng.bool() {
@@ -661,7 +694,7 @@ fn graphics_fuzz_sixel_canvas_cap_rejected() {
 fn graphics_fuzz_sixel_through_terminal_smoke() {
     let iters = fuzz_iters();
     for i in 0..iters {
-        let seed = i.wrapping_mul(0x2545_F491_4F6C_DD1D).wrapping_add(0x51DC);
+        let seed = fuzz_seed(i, 0x2545_F491_4F6C_DD1D, 0x51DC);
         let mut rng = FuzzRng::new(seed);
         let mut t = capped_terminal(24, 6);
         // Full DCS framing: ESC P <params> q <body> ST.
@@ -697,8 +730,9 @@ fn graphics_fuzz_mixed_stream_deep() {
 }
 
 fn run_mixed_stream(iters: u64) {
+    announce_budget("mixed_stream", iters, 0x2C9E_F73F_3F4A_7C15, 0x4117);
     for i in 0..iters {
-        let seed = i.wrapping_mul(0x2C9E_F73F_3F4A_7C15).wrapping_add(0x4117);
+        let seed = fuzz_seed(i, 0x2C9E_F73F_3F4A_7C15, 0x4117);
         let mut rng = FuzzRng::new(seed);
         let mut t = capped_terminal(30, 8);
         let nseq = 2 + rng.below(10);
@@ -835,8 +869,9 @@ fn graphics_fuzz_unicode_placeholders_deep() {
 /// viewport — interleaved with deletes, scrolls, and resizes so the prototype
 /// store and the cell scan are exercised against each other.
 fn run_placeholder_stream(iters: u64) {
+    announce_budget("placeholder_stream", iters, 0x8EBC_6AF0_9C88_C6E3, 0x5117);
     for i in 0..iters {
-        let seed = i.wrapping_mul(0x8EBC_6AF0_9C88_C6E3).wrapping_add(0x5117);
+        let seed = fuzz_seed(i, 0x8EBC_6AF0_9C88_C6E3, 0x5117);
         let mut rng = FuzzRng::new(seed);
         let mut t = capped_terminal(30, 8);
         // A real 2x2 image so prototypes have something to resolve to.
@@ -1057,8 +1092,9 @@ fn graphics_fuzz_iterm2_file_deep() {
 /// never wedged. Interleaved with Button= payloads so the two OSC 1337
 /// families are exercised against each other.
 fn run_iterm2_file_stream(iters: u64) {
+    announce_budget("iterm2_file_stream", iters, 0x9E37_79B9_7F4A_7C15, 0x7317);
     for i in 0..iters {
-        let seed = i.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(0x7317);
+        let seed = fuzz_seed(i, 0x9E37_79B9_7F4A_7C15, 0x7317);
         let mut rng = FuzzRng::new(seed);
         let (rows, cols) = (8usize, 30usize);
         let mut t = capped_terminal(cols, rows);
