@@ -1122,6 +1122,43 @@ fn resolve_symbol_font_prefers_the_dedicated_symbols_face() {
     let _ = std::fs::remove_dir_all(&plain);
 }
 
+#[test]
+fn one_inventory_walk_serves_symbol_chain_and_emoji_fallback() {
+    let dir = unique_tmp_dir("startup-font-inventory");
+    let symbol_path = dir.join("SymbolsNerdFont-Regular.ttf");
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets/fonts/nerd-fonts-symbols/SymbolsNerdFontMono-Regular.ttf"),
+        &symbol_path,
+    )
+    .expect("copy symbol fixture");
+    let emoji_path = dir.join("NotoColorEmoji.ttf");
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fonts/color-emoji-colr-v1.ttf"),
+        &emoji_path,
+    )
+    .expect("copy color emoji fixture");
+
+    let inventory = FontFileInventory::new(vec![dir.clone()]);
+    let (sources, _) = resolve_symbol_fonts_with_inventory(None, &inventory);
+    assert!(
+        sources
+            .iter()
+            .any(|source| matches!(source, SymbolFontSource::Host(path) if path == &symbol_path)),
+        "the shared inventory must feed host symbol resolution"
+    );
+    let emoji = crate::emoji::discover_noto_color_emoji_in_inventory(&inventory)
+        .expect("the shared inventory must feed emoji fallback resolution");
+    assert_eq!(emoji.path, emoji_path);
+    assert_eq!(
+        inventory.collection_count(),
+        1,
+        "combined startup resolution must collect the font roots exactly once"
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 // --- symbol-fallback precedence (explicit > bundled > host) -----------
 
 #[test]

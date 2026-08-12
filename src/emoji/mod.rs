@@ -163,16 +163,36 @@ pub struct EmojiProbeReport {
 }
 
 pub fn discover_noto_color_emoji() -> Option<EmojiFontMatch> {
-    discover_with_fontconfig().or_else(|| discover_noto_color_emoji_in(&default_emoji_font_dirs()))
+    let inventory = crate::text::FontFileInventory::new(default_emoji_font_dirs());
+    discover_noto_color_emoji_with_inventory(&inventory)
 }
 
 pub fn discover_noto_color_emoji_in(dirs: &[PathBuf]) -> Option<EmojiFontMatch> {
-    let font_files = collect_font_files(dirs);
-    let path = font_files
+    let inventory = crate::text::FontFileInventory::new(dirs.to_vec());
+    discover_noto_color_emoji_in_inventory(&inventory)
+}
+
+pub(crate) fn discover_noto_color_emoji_with_inventory(
+    inventory: &crate::text::FontFileInventory,
+) -> Option<EmojiFontMatch> {
+    discover_with_fontconfig().or_else(|| discover_noto_color_emoji_in_inventory(inventory))
+}
+
+pub(crate) fn discover_noto_color_emoji_in_inventory(
+    inventory: &crate::text::FontFileInventory,
+) -> Option<EmojiFontMatch> {
+    let path = inventory
+        .files()
         .iter()
         .find(|path| is_color_emoji_name(&normalized_stem(path)))
         .cloned()
-        .or_else(|| font_files.into_iter().find(|path| has_colr_cpal(path)))?;
+        .or_else(|| {
+            inventory
+                .files()
+                .iter()
+                .find(|path| has_colr_cpal(path))
+                .cloned()
+        })?;
     Some(EmojiFontMatch {
         path,
         source: EmojiFontSource::SearchDirs,
@@ -437,86 +457,14 @@ fn discover_with_fontconfig() -> Option<EmojiFontMatch> {
 }
 
 fn default_emoji_font_dirs() -> Vec<PathBuf> {
-    #[cfg(target_os = "macos")]
-    let mut dirs = vec![
-        PathBuf::from("/System/Library/Fonts"),
-        PathBuf::from("/Library/Fonts"),
-    ];
-    #[cfg(windows)]
-    let mut dirs = {
-        let mut dirs = Vec::new();
-        if let Some(windir) = std::env::var_os("WINDIR") {
-            dirs.push(PathBuf::from(windir).join("Fonts"));
-        }
-        if let Some(local_appdata) = std::env::var_os("LOCALAPPDATA") {
-            dirs.push(
-                PathBuf::from(local_appdata)
-                    .join("Microsoft")
-                    .join("Windows")
-                    .join("Fonts"),
-            );
-        }
-        dirs
-    };
-    #[cfg(not(any(target_os = "macos", windows)))]
-    let mut dirs = vec![
-        PathBuf::from("/usr/share/fonts"),
-        PathBuf::from("/usr/local/share/fonts"),
-    ];
-    #[cfg(not(windows))]
-    if let Some(home) = std::env::var_os("HOME") {
-        let home = PathBuf::from(home);
-        #[cfg(target_os = "macos")]
-        dirs.push(home.join("Library/Fonts"));
-        #[cfg(not(any(target_os = "macos", windows)))]
-        {
-            dirs.push(home.join(".local/share/fonts"));
-            dirs.push(home.join(".fonts"));
-        }
-    }
-    dirs.retain(|dir| dir.is_dir());
-    dirs
+    crate::text::font_search_dirs()
 }
 
+#[cfg(all(test, windows))]
 fn collect_font_files(dirs: &[PathBuf]) -> Vec<PathBuf> {
-    const MAX_DEPTH: usize = 6;
-    const MAX_FILES: usize = 20_000;
-
-    let mut out = Vec::new();
-    let mut stack: Vec<(PathBuf, usize)> = dirs.iter().map(|dir| (dir.clone(), 0)).collect();
-    while let Some((dir, depth)) = stack.pop() {
-        if depth > MAX_DEPTH || out.len() >= MAX_FILES {
-            continue;
-        }
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let Ok(file_type) = entry.file_type() else {
-                continue;
-            };
-            if file_type.is_dir() {
-                stack.push((path, depth + 1));
-            } else if file_type.is_file() && has_font_ext(&path) {
-                out.push(path);
-                if out.len() >= MAX_FILES {
-                    break;
-                }
-            }
-        }
-    }
-    out
-}
-
-fn has_font_ext(path: &Path) -> bool {
-    matches!(
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .map(str::to_ascii_lowercase)
-            .as_deref(),
-        Some("ttf") | Some("otf") | Some("ttc")
-    )
+    crate::text::FontFileInventory::new(dirs.to_vec())
+        .files()
+        .to_vec()
 }
 
 fn normalized_stem(path: &Path) -> String {

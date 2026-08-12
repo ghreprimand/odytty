@@ -229,10 +229,19 @@ pub(super) fn resolve_symbol_fallback(
     enabled: bool,
     explicit_path: Option<&Path>,
 ) -> Vec<Arc<FontVec>> {
+    let inventory = text::FontFileInventory::new(text::font_search_dirs());
+    resolve_symbol_fallback_with_inventory(enabled, explicit_path, &inventory)
+}
+
+pub(super) fn resolve_symbol_fallback_with_inventory(
+    enabled: bool,
+    explicit_path: Option<&Path>,
+    inventory: &text::FontFileInventory,
+) -> Vec<Arc<FontVec>> {
     if !enabled {
         return Vec::new();
     }
-    text::resolve_symbol_fonts_with_source(explicit_path, &text::font_search_dirs())
+    text::resolve_symbol_fonts_with_inventory(explicit_path, inventory)
         .1
         .into_iter()
         .map(Arc::new)

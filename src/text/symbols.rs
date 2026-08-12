@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use ab_glyph::FontVec;
 
 use super::bundled::{load_font_at, resolve_bundled_symbol_font, resolve_bundled_symbol_fonts};
-use super::discovery::{collect_font_files, file_stem, font_search_dirs, normalize_family};
+use super::discovery::{FontFileInventory, file_stem, font_search_dirs, normalize_family};
 // Used only by the fontconfig-backed runtime fallback, which exists on Linux
 // and other non-macOS Unix targets; the gate must match that item's gate or
 // the import is dead on macOS and Windows.
@@ -81,13 +81,21 @@ const LINUX_SYMBOL_FALLBACK_HINTS: &[&str] = &[
 /// file under `dirs` whose normalized stem contains it, loaded and de-duplicated
 /// by path. Returns `(source, font)` pairs index-aligned with how the chain is
 /// built. Absent faces are skipped silently.
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(test, unix, not(target_os = "macos")))]
 pub(super) fn linux_symbol_fallback_faces(dirs: &[PathBuf]) -> Vec<(SymbolFontSource, FontVec)> {
-    let files = collect_font_files(dirs);
+    let inventory = FontFileInventory::new(dirs.to_vec());
+    linux_symbol_fallback_faces_in_inventory(&inventory)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn linux_symbol_fallback_faces_in_inventory(
+    inventory: &FontFileInventory,
+) -> Vec<(SymbolFontSource, FontVec)> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for hint in LINUX_SYMBOL_FALLBACK_HINTS {
-        if let Some(path) = files
+        if let Some(path) = inventory
+            .files()
             .iter()
             .find(|f| normalize_family(&file_stem(f)).contains(hint))
             && seen.insert(path.clone())
@@ -127,13 +135,21 @@ const WINDOWS_SYMBOL_FALLBACK_HINTS: &[&str] = &["seguisym", "segmdl2", "cambria
 /// de-duplicated by path. Returns `(source, font)` pairs index-aligned with how
 /// the chain is built. Absent faces are skipped silently. Mirrors
 /// [`linux_symbol_fallback_faces`].
-#[cfg(windows)]
+#[cfg(all(test, windows))]
 pub(super) fn windows_symbol_fallback_faces(dirs: &[PathBuf]) -> Vec<(SymbolFontSource, FontVec)> {
-    let files = collect_font_files(dirs);
+    let inventory = FontFileInventory::new(dirs.to_vec());
+    windows_symbol_fallback_faces_in_inventory(&inventory)
+}
+
+#[cfg(windows)]
+fn windows_symbol_fallback_faces_in_inventory(
+    inventory: &FontFileInventory,
+) -> Vec<(SymbolFontSource, FontVec)> {
     let mut out = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for hint in WINDOWS_SYMBOL_FALLBACK_HINTS {
-        if let Some(path) = files
+        if let Some(path) = inventory
+            .files()
             .iter()
             .find(|f| normalize_family(&file_stem(f)).contains(hint))
             && seen.insert(path.clone())
@@ -259,6 +275,17 @@ pub fn resolve_symbol_fonts_with_source(
     explicit_path: Option<&Path>,
     dirs: &[PathBuf],
 ) -> (Vec<SymbolFontSource>, Vec<FontVec>) {
+    let inventory = FontFileInventory::new(dirs.to_vec());
+    resolve_symbol_fonts_with_inventory(explicit_path, &inventory)
+}
+
+/// Startup-local form of [`resolve_symbol_fonts_with_source`]. All host symbol
+/// candidates, including the static platform tail, come from `inventory` so
+/// chain construction cannot walk the same roots once per resolver stage.
+pub(crate) fn resolve_symbol_fonts_with_inventory(
+    explicit_path: Option<&Path>,
+    inventory: &FontFileInventory,
+) -> (Vec<SymbolFontSource>, Vec<FontVec>) {
     let mut sources = Vec::new();
     let mut fonts = Vec::new();
 
@@ -283,7 +310,7 @@ pub fn resolve_symbol_fonts_with_source(
 
     // Host-discovered symbol/Nerd face: extends coverage for any glyph the
     // bundled faces lack, and is the sole source under `--no-default-features`.
-    if let Some(path) = resolve_symbol_font_path_in(dirs)
+    if let Some(path) = resolve_symbol_font_path_in_inventory(inventory)
         && let Ok(font) = load_font_at(&path)
     {
         sources.push(SymbolFontSource::Host(path));
@@ -308,7 +335,7 @@ pub fn resolve_symbol_fonts_with_source(
     // installed face covers are backfilled at render time by the cached
     // [`runtime_resolve_symbol_font`] query the atlas calls on a static miss.
     #[cfg(all(unix, not(target_os = "macos")))]
-    for (source, font) in linux_symbol_fallback_faces(dirs) {
+    for (source, font) in linux_symbol_fallback_faces_in_inventory(inventory) {
         sources.push(source);
         fonts.push(font);
     }
@@ -320,7 +347,7 @@ pub fn resolve_symbol_fonts_with_source(
     // the result-branch `U+23BF` render instead of tofu. Static floor only —
     // Windows has no cheap `fc-match` runtime-resolver analog.
     #[cfg(windows)]
-    for (source, font) in windows_symbol_fallback_faces(dirs) {
+    for (source, font) in windows_symbol_fallback_faces_in_inventory(inventory) {
         sources.push(source);
         fonts.push(font);
     }
@@ -387,9 +414,13 @@ pub fn resolve_symbol_font_in(dirs: &[PathBuf]) -> Option<FontVec> {
 /// "* Nerd Font" face. Exposed so [`resolve_symbol_font_with_source`] can label
 /// the resolved host file without re-scanning.
 pub fn resolve_symbol_font_path_in(dirs: &[PathBuf]) -> Option<PathBuf> {
-    let files = collect_font_files(dirs);
+    let inventory = FontFileInventory::new(dirs.to_vec());
+    resolve_symbol_font_path_in_inventory(&inventory)
+}
+
+fn resolve_symbol_font_path_in_inventory(inventory: &FontFileInventory) -> Option<PathBuf> {
     let mut best: Option<(usize, PathBuf)> = None;
-    for f in &files {
+    for f in inventory.files() {
         let stem = normalize_family(&file_stem(f));
         if let Some(rank) = SYMBOL_FONT_HINTS.iter().position(|h| stem.contains(h)) {
             // Lower rank == stronger hint; first file at the best rank wins.

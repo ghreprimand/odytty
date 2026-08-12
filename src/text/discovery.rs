@@ -7,11 +7,48 @@
 //! candidates is [`super::resolve`]'s.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+/// One bounded, lazily collected view of a caller-owned set of font roots.
+///
+/// Native startup passes one inventory through symbol and color-emoji fallback
+/// resolution, so those consumers share a single tree walk. Explicit/custom
+/// directory callers create their own inventory, keeping their result scoped
+/// to that operation rather than freezing host state in a process-global cache.
+pub(crate) struct FontFileInventory {
+    dirs: Vec<PathBuf>,
+    files: OnceLock<Vec<PathBuf>>,
+    #[cfg(test)]
+    collections: std::cell::Cell<usize>,
+}
+
+impl FontFileInventory {
+    pub(crate) fn new(dirs: Vec<PathBuf>) -> Self {
+        Self {
+            dirs,
+            files: OnceLock::new(),
+            #[cfg(test)]
+            collections: std::cell::Cell::new(0),
+        }
+    }
+
+    pub(crate) fn files(&self) -> &[PathBuf] {
+        self.files.get_or_init(|| {
+            #[cfg(test)]
+            self.collections.set(self.collections.get() + 1);
+            collect_font_files(&self.dirs)
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn collection_count(&self) -> usize {
+        self.collections.get()
+    }
+}
 
 /// Standard platform font search roots, plus per-user font dirs when available.
-/// Only existing directories are returned. Used by the settings layer to
-/// resolve `ODYTTY_FONT_FAMILY`; tests pass explicit dirs instead for
-/// hermeticity.
+/// Only existing directories are returned. Used by settings and native startup
+/// font resolution; tests pass explicit dirs instead for hermeticity.
 pub fn font_search_dirs() -> Vec<PathBuf> {
     #[cfg(target_os = "macos")]
     let mut dirs = vec![
