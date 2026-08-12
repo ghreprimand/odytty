@@ -7,6 +7,32 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Shaping-run infrastructure: grapheme grouping beyond ASCII
+
+The presentation shaper gains real run infrastructure: grapheme-cluster
+grouping with a byte-to-column map (`RunText`), compatible-run boundary
+detection, and swash shaping of eligible runs with contextual substitutions
+overlaid through the existing `LigatureRun` span model. The terminal model is
+unchanged — one logical character per grid cell, shaped presentation anchored
+to source columns, shaped advances never moving terminal columns.
+
+Live eligibility remains ASCII-graphic for now, so default rendering is
+byte-identical to the previous path (pinned by a differential test). Run
+boundaries are pinned for the cases that must never merge: combining marks,
+mixed bold/regular styles, color-glyph/ZWJ emoji coverage, and wide cells.
+Cluster-to-cell anchoring for multi-glyph clusters is documented in the
+module docs. The infrastructure is the base for extending ligature coverage
+to curated non-ASCII operator sets in later work.
+
+Platform-neutral shared path; no `cfg(windows)` divergence.
+
+Verified: `cargo fmt --check`, `cargo clippy --all-targets --locked -D
+warnings`, full `cargo test --locked` (serial run clean; a parallel-run
+lavapipe SIGSEGV matched the known infrastructure flake class and did not
+reproduce), RustSec audit, production-file guard.
+
+---
+
 ## 2026-08-12 -- Render COLR/CPAL v0 color emoji, including stock Segoe UI Emoji
 
 Color-font support now covers static COLR/CPAL v0 vector glyphs in addition

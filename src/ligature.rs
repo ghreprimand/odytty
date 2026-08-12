@@ -1,13 +1,49 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Presentation-only programming-ligature shaping.
+//! Presentation-only shaping runs for the cell grid.
 //!
-//! The terminal model remains one logical character per grid cell. This module
-//! shapes eligible ASCII runs with OpenType `calt`, records only contextual
-//! substitutions, and anchors every shaped glyph to its source grid column.
-//! Shaped advances never move terminal columns.
+//! # Model
+//!
+//! The terminal model remains one logical character per grid cell. Compatible
+//! cells are grouped into shaping runs, each cell contributing its stored
+//! grapheme cluster ([`Cell::grapheme`] — base plus any combining marks). Runs
+//! are shaped with `swash`; OpenType `calt` substitutions become presentation
+//! overlays ([`LigatureRun`]) while backgrounds, decorations, selection, search,
+//! copy, and cursor placement stay cell-owned. Shaped advances never move
+//! terminal columns.
+//!
+//! # Cluster → cell anchoring
+//!
+//! 1. Each eligible cell occupies one contiguous UTF-8 byte span in the run
+//!    string (its grapheme). A parallel `cell_bytes` table maps those spans back
+//!    to run-relative column indices.
+//! 2. A swash cluster whose `source` byte range starts inside cell *i* is
+//!    anchored to column *i*. Glyph ids from that cluster inherit that column
+//!    as `source_start`.
+//! 3. When `calt` changes glyph ids over a contiguous column span, the overlay
+//!    covers exactly those source columns. Every shaped glyph in the span is
+//!    clipped to the span's pixel box (`anchor_cell` / `span_cells` on
+//!    [`ShapedGlyphKey`]). If glyph count ≠ cell count inside the span, glyphs
+//!    still share that clip — they are not free to advance into neighboring
+//!    logical cells.
+//! 4. Clusters that do not differ under `calt` produce no overlay; the ordinary
+//!    per-cell scalar path draws them.
+//!
+//! # Run breaks (compatible-run rule)
+//!
+//! A shaping run ends at any cell that is ineligible or that selects a different
+//! bold/italic face. Ineligible cells include: wide continuations, hidden
+//! cells, color-glyph coverage, cells carrying combining marks (marks stay on
+//! the mono combining path), and — for the live overlay gate — non-ASCII bases.
+//! Selection/search attribute changes do **not** break runs (compositing only).
+//!
+//! Live overlay eligibility remains ASCII-graphic bases so default plain-ASCII
+//! rendering stays byte-identical to the pre-infrastructure path. The grapheme
+//! and byte-to-column plumbing is the shared substrate for later curated
+//! non-ASCII operator coverage.
 
 use std::collections::{HashMap, VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
+use std::ops::Range;
 use std::sync::Arc;
 
 use ab_glyph::FontVec;
@@ -220,38 +256,24 @@ impl LigatureShaper {
         coverage: &ColorRunCoverage,
     ) -> RowPlan {
         let mut runs = Vec::new();
-        let mut start = 0;
-        while start < cells.len() {
-            if !eligible_cell(&cells[start], row, start, coverage) {
-                start += 1;
+        for (start, end, style) in compatible_run_bounds(cells, row, coverage) {
+            if end - start < 2 {
                 continue;
             }
-            let style = font_style_for_attrs(&cells[start].attrs);
-            let mut end = start + 1;
-            while end < cells.len()
-                && eligible_cell(&cells[end], row, end, coverage)
-                // Selection and search treatments change foreground,
-                // background, and inverse attributes cell by cell. Those are
-                // compositing inputs, not shaping inputs: splitting here would
-                // replace one contextual glyph with independently shaped
-                // fragments as a highlight boundary crosses it. Only the font
-                // face selected by bold/italic affects contextual shaping.
-                && font_style_for_attrs(&cells[end].attrs) == style
-            {
-                end += 1;
-            }
-            if end - start >= 2 {
-                let text: String = cells[start..end].iter().map(|cell| cell.ch).collect();
-                runs.extend(self.shape_ascii_run(&text, start, style, fonts.ligature_font(style)));
-            }
-            start = end;
+            let run_text = RunText::from_cells(&cells[start..end]);
+            runs.extend(self.shape_compatible_run(
+                &run_text,
+                start,
+                style,
+                fonts.ligature_font(style),
+            ));
         }
         RowPlan { runs }
     }
 
-    fn shape_ascii_run(
+    fn shape_compatible_run(
         &mut self,
-        text: &str,
+        run_text: &RunText,
         column_start: usize,
         style: FontStyle,
         font: &FontVec,
@@ -259,8 +281,8 @@ impl LigatureShaper {
         let Some(font_ref) = FontRef::from_index(font.as_slice(), 0) else {
             return Vec::new();
         };
-        let off = shape(&mut self.context, font_ref, text, 0);
-        let on = shape(&mut self.context, font_ref, text, 1);
+        let off = shape(&mut self.context, font_ref, run_text, 0);
+        let on = shape(&mut self.context, font_ref, run_text, 1);
         if off.len() != on.len() {
             return Vec::new();
         }
@@ -273,7 +295,7 @@ impl LigatureShaper {
             .collect::<Vec<_>>();
         changed.sort_unstable();
         changed.dedup();
-        let mut spans: Vec<std::ops::Range<usize>> = Vec::new();
+        let mut spans: Vec<Range<usize>> = Vec::new();
         for column in changed {
             match spans.last_mut() {
                 Some(span) if span.end == column => span.end += 1,
@@ -319,6 +341,74 @@ impl LigatureShaper {
     }
 }
 
+/// Grapheme-concatenated shaping string plus the byte→column table that maps
+/// swash `SourceRange` starts back to run-relative cell indices.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct RunText {
+    text: String,
+    /// Byte range of each cell's grapheme inside [`Self::text`], in run order.
+    cell_bytes: Vec<Range<usize>>,
+}
+
+impl RunText {
+    fn from_cells(cells: &[Cell]) -> Self {
+        let mut text = String::new();
+        let mut cell_bytes = Vec::with_capacity(cells.len());
+        for cell in cells {
+            let start = text.len();
+            // Full stored grapheme (base + combining). Eligible live cells have
+            // an empty combining list, so this equals `ch` for the ASCII gate;
+            // the table still records the correct UTF-8 span for any future
+            // curated non-ASCII eligibility.
+            text.push_str(&cell.grapheme());
+            cell_bytes.push(start..text.len());
+        }
+        Self { text, cell_bytes }
+    }
+
+    /// Column index of the cell whose grapheme owns `byte`, or `None` if `byte`
+    /// falls outside every cell span (including `byte == text.len()`).
+    fn column_at_byte(&self, byte: usize) -> Option<usize> {
+        self.cell_bytes
+            .iter()
+            .position(|range| range.start <= byte && byte < range.end)
+    }
+}
+
+/// Inclusive-exclusive `[start, end)` bounds of every compatible shaping run on
+/// a row, with the shared [`FontStyle`] of each run.
+fn compatible_run_bounds(
+    cells: &[Cell],
+    row: usize,
+    coverage: &ColorRunCoverage,
+) -> Vec<(usize, usize, FontStyle)> {
+    let mut bounds = Vec::new();
+    let mut start = 0;
+    while start < cells.len() {
+        if !eligible_cell(&cells[start], row, start, coverage) {
+            start += 1;
+            continue;
+        }
+        let style = font_style_for_attrs(&cells[start].attrs);
+        let mut end = start + 1;
+        while end < cells.len()
+            && eligible_cell(&cells[end], row, end, coverage)
+            // Selection and search treatments change foreground, background,
+            // and inverse attributes cell by cell. Those are compositing
+            // inputs, not shaping inputs: splitting here would replace one
+            // contextual glyph with independently shaped fragments as a
+            // highlight boundary crosses it. Only the font face selected by
+            // bold/italic affects contextual shaping.
+            && font_style_for_attrs(&cells[end].attrs) == style
+        {
+            end += 1;
+        }
+        bounds.push((start, end, style));
+        start = end;
+    }
+    bounds
+}
+
 fn font_style_index(style: FontStyle) -> usize {
     match style {
         FontStyle::Regular => 0,
@@ -353,6 +443,10 @@ fn row_fingerprint(cells: &[Cell], row: usize, coverage: &ColorRunCoverage) -> u
 }
 
 fn eligible_cell(cell: &Cell, row: usize, column: usize, coverage: &ColorRunCoverage) -> bool {
+    // Live overlay gate: ASCII-graphic bases only. Combining marks, wide
+    // continuations, hidden cells, and color-glyph coverage always break runs
+    // so those cells stay on their dedicated paths (mono combining, wide lead,
+    // color emoji). Platform-neutral — no cfg(windows) divergence.
     cell.ch.is_ascii_graphic()
         && !cell.wide_continuation
         && cell.combining().is_empty()
@@ -360,20 +454,28 @@ fn eligible_cell(cell: &Cell, row: usize, column: usize, coverage: &ColorRunCove
         && !coverage.covers(row, column)
 }
 
-fn shape(context: &mut ShapeContext, font: FontRef<'_>, text: &str, calt: u16) -> Vec<ShapedGlyph> {
+fn shape(
+    context: &mut ShapeContext,
+    font: FontRef<'_>,
+    run_text: &RunText,
+    calt: u16,
+) -> Vec<ShapedGlyph> {
     let mut shaper = context
         .builder(font)
         .script(Script::Latin)
         .direction(Direction::LeftToRight)
         .features([("calt", calt)])
         .build();
-    shaper.add_str(text);
+    shaper.add_str(&run_text.text);
     let mut glyphs = Vec::new();
     shaper.shape_with(|cluster| {
+        let Some(source_start) = run_text.column_at_byte(cluster.source.to_range().start) else {
+            return;
+        };
         for glyph in cluster.glyphs {
             glyphs.push(ShapedGlyph {
                 id: glyph.id,
-                source_start: cluster.source.to_range().start,
+                source_start,
             });
         }
     });
@@ -518,6 +620,144 @@ mod tests {
             runs.iter()
                 .all(|run| !(run.start..run.end).contains(&(wide + 1)))
         );
+    }
+
+    #[test]
+    fn run_text_maps_multibyte_grapheme_bytes_to_columns() {
+        // Infrastructure proof: UTF-8 grapheme spans must not be confused with
+        // column indices. A wide CJK base is three UTF-8 bytes; the mapper still
+        // reports the cell index, which is what calt span detection consumes.
+        let cells = [
+            Cell::new('a', Default::default()),
+            Cell::new('界', Default::default()),
+            Cell::new('b', Default::default()),
+        ];
+        let run = RunText::from_cells(&cells);
+        assert_eq!(run.text, "a界b");
+        assert_eq!(run.cell_bytes.len(), 3);
+        assert_eq!(run.cell_bytes[0], 0..1);
+        assert_eq!(run.cell_bytes[1].len(), '界'.len_utf8());
+        assert_eq!(run.column_at_byte(0), Some(0));
+        assert_eq!(run.column_at_byte(run.cell_bytes[1].start), Some(1));
+        assert_eq!(run.column_at_byte(run.cell_bytes[1].start + 1), Some(1));
+        assert_eq!(run.column_at_byte(run.cell_bytes[2].start), Some(2));
+        assert_eq!(run.column_at_byte(run.text.len()), None);
+    }
+
+    #[test]
+    fn combining_mark_cells_are_not_merged_into_compatible_runs() {
+        let mut terminal = Terminal::new(8, 1);
+        // 'a', combining acute, then '->' which would ligate if merged across.
+        terminal.advance("a\u{0301}->".as_bytes());
+        let snap = terminal.snapshot();
+        assert_eq!(snap.cells[0].ch, 'a');
+        assert_eq!(snap.cells[0].combining(), ['\u{0301}']);
+        let coverage = ColorRunCoverage::new(&[], snap.dimensions.columns, snap.dimensions.rows);
+        let bounds = compatible_run_bounds(&snap.cells[..snap.dimensions.columns], 0, &coverage);
+        // Combining cell is skipped; the arrow forms its own run starting at
+        // the first ASCII graphic after the marked base.
+        assert!(
+            bounds
+                .iter()
+                .all(|&(start, end, _)| !(start..end).contains(&0)),
+            "combining-marked base must not join a shaping run: {bounds:?}"
+        );
+        assert!(
+            bounds.iter().any(|&(start, end, _)| start == 1 && end == 3),
+            "arrow after combining cell must still form a run: {bounds:?}"
+        );
+    }
+
+    #[test]
+    fn mixed_font_styles_do_not_merge_compatible_runs() {
+        let mut terminal = Terminal::new(8, 1);
+        terminal.advance(b"->\x1b[1m=>");
+        let snap = terminal.snapshot();
+        let coverage = ColorRunCoverage::new(&[], snap.dimensions.columns, snap.dimensions.rows);
+        let bounds = compatible_run_bounds(&snap.cells[..snap.dimensions.columns], 0, &coverage);
+        assert!(
+            bounds.iter().any(|&(start, end, style)| {
+                start == 0 && end == 2 && style == FontStyle::Regular
+            }),
+            "regular arrow must be its own run: {bounds:?}"
+        );
+        assert!(
+            bounds
+                .iter()
+                .any(|&(start, end, style)| start == 2 && end == 4 && style == FontStyle::Bold),
+            "bold arrow must be its own run: {bounds:?}"
+        );
+    }
+
+    #[test]
+    fn color_glyph_coverage_breaks_compatible_runs_like_zwj_emoji() {
+        // ZWJ / color emoji occupy the color-glyph path. A coverage bit on a
+        // cell must split shaping the same way a wide or combining cell does.
+        let fonts = Fonts(text::load_bundled_font().expect("bundled font"));
+        let snap = snapshot("a->b");
+        let key =
+            crate::emoji::ColorGlyphKey::new(0, crate::emoji::ColorGlyphId::Glyph(1), 16.0, 1.0, 1);
+        // Cover the '>' so the '->' ligature cannot form across the emoji cell.
+        let color_runs = [ColorGlyphRun::new(0, 2, key)];
+        let mut shaper = LigatureShaper::new();
+        let runs = shaper.build_runs(true, &snap, &fonts, &color_runs);
+        assert!(
+            runs.iter().all(|run| !run.covers(0, 2)),
+            "color-covered cell must not join a shaping overlay: {runs:?}"
+        );
+        assert!(
+            runs.iter()
+                .all(|run| !(run.start..run.end).contains(&1) || run.end <= 2),
+            "arrow must not ligate into a color-covered cell: {runs:?}"
+        );
+    }
+
+    #[test]
+    fn plain_ascii_without_ligatures_is_byte_identical_to_scalar_path() {
+        // Differential: enabled shaping on a row with no calt substitutions
+        // must emit the same cell vertices as the scalar builder.
+        let _guard = crate::test_lock::render_globals_lock();
+        let fonts = Fonts(text::load_bundled_font().expect("bundled font"));
+        let atlas_font = text::load_bundled_font().expect("bundled font");
+        let snap = snapshot("hello");
+        let mut shaper = LigatureShaper::new();
+        let runs = shaper.build_runs(true, &snap, &fonts, &[]);
+        assert!(
+            runs.is_empty(),
+            "plain ASCII without calt hits must produce no overlays: {runs:?}"
+        );
+        let atlas = GlyphAtlas::build(&atlas_font, 24.0);
+
+        let mut legacy = Vec::new();
+        build_cell_vertices_with_focus_dim_and_origin_into(
+            &mut legacy,
+            &snap,
+            &atlas,
+            &[],
+            0.0,
+            [0.0, 0.0],
+            BackgroundTreatmentParams::default(),
+            1.0,
+            1.0,
+            None,
+            ChromePin::NONE,
+        );
+        let mut shaped = Vec::new();
+        build_cell_vertices_with_focus_dim_origin_and_ligatures_into(
+            &mut shaped,
+            &snap,
+            &atlas,
+            &[],
+            &runs,
+            0.0,
+            [0.0, 0.0],
+            BackgroundTreatmentParams::default(),
+            1.0,
+            1.0,
+            None,
+            ChromePin::NONE,
+        );
+        assert_eq!(shaped, legacy);
     }
 
     #[test]
