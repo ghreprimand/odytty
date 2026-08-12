@@ -520,22 +520,42 @@ impl ImageScene {
         Ok(changed)
     }
 
-    /// `d=f` / `d=F` - delete an image's animation frames, leaving the still
-    /// image and its placements in place. Returns whether frames were dropped.
-    pub fn animation_delete_frames(&mut self, image_id: StoredImageId) -> bool {
-        let Some(mut guard) = self.store.frames_mut(image_id) else {
-            return false;
-        };
-        if guard.frames().is_empty() {
-            return false;
+    /// Delete one animation frame (`d=f` / `d=F`). Frame numbers are 1-based,
+    /// default to the root, and clamp to the last existing frame. Deleting the
+    /// root promotes frame 2. If no extra frame exists, lowercase is a no-op;
+    /// uppercase removes the entire image and all of its placements.
+    pub fn animation_delete_frame(
+        &mut self,
+        image_id: StoredImageId,
+        frame: u32,
+        free_when_exhausted: bool,
+    ) -> Result<bool, FrameError> {
+        let frame_count = self
+            .store
+            .get(image_id)
+            .ok_or(FrameError::FrameNotFound)?
+            .frames
+            .frame_count();
+        if frame_count <= 1 {
+            if !free_when_exhausted {
+                return Ok(false);
+            }
+            self.placements
+                .retain(|placement| placement.image_id != image_id);
+            self.virtual_placements
+                .retain(|placement| placement.image_id != image_id);
+            return Ok(self.store.remove(image_id).is_some());
         }
-        // The root frame is the image's originally transmitted pixels. Restore
-        // it before dropping the animation so `d=f` leaves the still image,
-        // not whichever later frame happened to be current.
-        let _ = guard.frames_mut().set_current(1);
-        guard.publish_current_frame();
-        guard.frames_mut().clear();
-        true
+
+        let mut guard = self
+            .store
+            .frames_mut(image_id)
+            .ok_or(FrameError::FrameNotFound)?;
+        let (removed, displayed_changed) = guard.frames_mut().delete_frame(frame);
+        if displayed_changed {
+            guard.publish_current_frame();
+        }
+        Ok(removed)
     }
 
     /// Whether any stored image holds animation frames. Every animation code

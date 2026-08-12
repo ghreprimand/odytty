@@ -86,9 +86,11 @@ pub struct ImageFrames {
     /// Zero-based index of the frame currently displayed.
     current: usize,
     state: AnimationState,
-    /// Remaining loops after the current one, or `None` for "loop forever".
-    /// `v=1` (the protocol default) is infinite; `v=n` is `n - 1` loops.
-    loops_remaining: Option<u32>,
+    /// Maximum completed wraps, or `None` for "loop forever". Kitty encodes
+    /// `v=1` as infinite and `v=n` as a limit of `n - 1` completed loops.
+    max_loops: Option<u32>,
+    /// Wraps completed since the most recent playback-state change.
+    current_loop: u32,
     /// Clock reading at which the current frame started being displayed.
     frame_started_ms: Option<u64>,
 }
@@ -199,14 +201,14 @@ impl ImageFrames {
             .map(|frame| frame.gap_ms)
     }
 
-    /// Drop every frame and reset playback (`a=d, d=f`). The image's own
-    /// transmitted pixels are left untouched, so the still image survives its
-    /// animation.
+    /// Drop every frame and reset playback. Used when the containing image is
+    /// removed, rather than for `d=f`, which deletes one selected frame.
     pub fn clear(&mut self) {
         self.frames.clear();
         self.current = 0;
         self.state = AnimationState::Stopped;
-        self.loops_remaining = None;
+        self.max_loops = None;
+        self.current_loop = 0;
         self.frame_started_ms = None;
     }
 
@@ -446,16 +448,14 @@ impl ImageFrames {
         Ok(changed)
     }
 
-    /// Apply a playback state (`a=a` with `s=`). Stopping resets the loop
-    /// counter, as the protocol requires. Starting clears the frame clock so
+    /// Apply a playback state (`a=a` with `s=`). Every state change resets loop
+    /// progress without discarding the configured loop limit. Starting clears the frame clock so
     /// the first playback tick phases the animation from its own reading; the
     /// protocol layer therefore never needs a clock of its own.
     pub fn set_state(&mut self, state: AnimationState) {
         self.state = state;
         self.frame_started_ms = None;
-        if state == AnimationState::Stopped {
-            self.loops_remaining = None;
-        }
+        self.current_loop = 0;
     }
 
     /// Apply a loop count (`a=a` with `v=`). `v=0` is ignored, `v=1` is
@@ -463,8 +463,8 @@ impl ImageFrames {
     pub fn set_loops(&mut self, loops: u32) {
         match loops {
             0 => {}
-            1 => self.loops_remaining = None,
-            count => self.loops_remaining = Some(count.saturating_sub(1)),
+            1 => self.max_loops = None,
+            count => self.max_loops = Some(count.saturating_sub(1)),
         }
     }
 
@@ -562,31 +562,52 @@ impl ImageFrames {
 
     /// Consume one loop of the loop budget. `true` when looping may continue.
     fn consume_loop(&mut self) -> bool {
-        match self.loops_remaining {
-            None => true,
-            Some(0) => false,
-            Some(remaining) => {
-                self.loops_remaining = Some(remaining - 1);
-                true
-            }
-        }
+        let Some(max_loops) = self.max_loops else {
+            return true;
+        };
+        self.current_loop = self.current_loop.saturating_add(1);
+        self.current_loop < max_loops
     }
 
     /// Display duration of a frame, or `None` when the frame is *gapless* and
-    /// must never be shown. A stored gap of zero (the root frame's default)
-    /// plays at the protocol's default gap rather than instantly, so a client
-    /// that never sets the root gap cannot drive a zero-delay animation.
+    /// must never be shown. This includes the root frame's initial zero gap;
+    /// clients must assign it a positive gap through animation control before
+    /// it becomes displayable. Newly transmitted extra frames default to 40ms.
     fn playback_gap_ms(&self, index: usize) -> Option<u64> {
         let gap = self.frames.get(index)?.gap_ms;
-        if gap < 0 {
+        if gap <= 0 {
             return None;
         }
-        let gap = if gap == 0 {
-            DEFAULT_FRAME_GAP_MS as u64
-        } else {
-            gap as u64
-        };
+        let gap = gap as u64;
         Some(gap.clamp(MIN_PLAYBACK_GAP_MS, MAX_PLAYBACK_GAP_MS))
+    }
+
+    /// Delete one 1-based frame, clamping an oversized number to the last
+    /// frame. Returns whether a frame was removed and whether the displayed
+    /// pixels changed. A lone root frame is retained: uppercase `d=F` handles
+    /// that case by removing the containing image at the scene layer.
+    pub fn delete_frame(&mut self, frame: u32) -> (bool, bool) {
+        if self.frames.len() <= 1 {
+            return (false, false);
+        }
+        let index = if frame == 0 {
+            0
+        } else {
+            (frame as usize - 1).min(self.frames.len() - 1)
+        };
+        let old_current = self.current;
+        self.frames.remove(index);
+        let displayed_changed = old_current == index;
+        if index < old_current {
+            self.current -= 1;
+        } else if self.current >= self.frames.len() {
+            self.current = self.frames.len() - 1;
+        }
+        self.frame_started_ms = None;
+        if self.frames.len() < 2 {
+            self.state = AnimationState::Stopped;
+        }
+        (true, displayed_changed)
     }
 
     /// Take the root frame from the image's transmitted pixels the first time a

@@ -723,11 +723,13 @@ a floor; surpassing it is the standing ambition.
       no escape sequence writes files. The cursor advances to column 0 below
       the image, matching iTerm2 and OdyTTY's Sixel default.
 - [x] Kitty graphics animation (`a=f`/`a=a`/`a=c`): frame transmission,
-      playback control, rectangle composition, and `d=f`/`d=F` frame deletion.
+      playback control, rectangle composition, and single-frame `d=f`/`d=F`
+      deletion with required image addressing and root promotion.
       Fully rendered frames share the image store's decoded-byte quota and have
-      a per-image cap of 64. Only visible placements advance; a session without
-      animated images schedules no animation wake or per-frame work. Unicode
-      placeholder placements animate through the same visibility path. Payload
+      a per-image cap of 64. Visible placements in every active split pane
+      advance; a session without animated images schedules no animation wake or
+      per-frame work. Unicode placeholder placements animate through the same
+      visibility path. Payload
       compression (`o=z`) and `I=` image-number addressing remain unsupported,
       and animated containers such as APNG and GIF decode as one still frame.
 - [x] Kitty delete/query + DECSDM: `a=d` delete variants (d=a/A, i/I+p=,

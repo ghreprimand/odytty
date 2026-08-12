@@ -28,11 +28,18 @@ control (`a=a`), rectangle composition (`a=c`), and frame deletion
 including chunked transmission, and images displayed through Unicode
 placeholders advance through the same visibility path as ordinary placements.
 
+Frame acknowledgements report the assigned `r=` number. Frame deletion requires
+an image id and removes one selected frame, promoting the next frame when the
+root is deleted; uppercase removes the image only after no extra frame data
+remains. Intervening control and delete commands abort a partial frame upload
+instead of being consumed as payload, and every continuation repeats `a=f`.
+
 Fully rendered frames share the image store's decoded-byte quota and each image
-is capped at 64 frames. Only visible placements advance, frame gaps are bounded,
+is capped at 64 frames. Visible placements in every active split pane advance,
+frame gaps are bounded, the root remains gapless until assigned a positive gap,
 and a terminal without animated images schedules no animation wake or per-frame
-work. Tests pin frame editing, composition, deletion, playback deadlines,
-quota refusal, placeholder interaction, and the zero-idle-cost gate. Payload
+work. Tests pin frame editing, composition, deletion, playback deadlines, loop
+limits, quota refusal, placeholder interaction, and the zero-idle-cost gate. Payload
 compression and image-number animation addressing remain unsupported; animated
 containers such as APNG and GIF continue to decode as one still frame.
 

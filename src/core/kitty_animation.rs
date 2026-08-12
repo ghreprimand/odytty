@@ -40,9 +40,9 @@
 //! Unix-only for frames exactly as it is for still transmission, and every
 //! other transport behaves identically on all platforms.
 
+use crate::graphics::StoredImageId;
 use crate::graphics::{
     AnimationControl, AnimationState, FrameComposition, FrameError, FrameUpdate, ImageScene,
-    StoredImageId,
 };
 
 use super::kitty::{ControlData, KittyError};
@@ -85,7 +85,7 @@ pub(super) fn process_frame(
     rgba: Vec<u8>,
     data_width: u32,
     data_height: u32,
-) -> Result<bool, KittyError> {
+) -> Result<(u32, bool), KittyError> {
     let image_id = resolve_image(graphics, control)?;
     let update = FrameUpdate {
         data: &rgba,
@@ -99,12 +99,12 @@ pub(super) fn process_frame(
         overwrite: control.upper_x == Some(1),
         background: control.upper_y.unwrap_or(0),
     };
-    let (_, changed) = graphics
+    let (frame, changed) = graphics
         .animation_transmit_frame(image_id, update)
         .map_err(frame_error)?;
     // A new background frame changes nothing on screen. Editing the current
     // frame republishes its pixels and must invalidate the terminal immediately.
-    Ok(changed)
+    Ok((frame, changed))
 }
 
 /// `a=a` - animation control. Returns whether displayed pixels changed.
@@ -164,24 +164,20 @@ pub(super) fn process_compose(
     Ok(changed)
 }
 
-/// `d=f` / `d=F` - delete an image's animation frames. With no `i=` key this
-/// clears the frames of every animated image, matching the delete family's
-/// "unspecified target means all" shape. The still image and its placements
-/// survive: only the animation is removed.
-pub(super) fn delete_frames(graphics: &mut ImageScene, control: &ControlData) -> bool {
-    match control.image_id.filter(|id| *id != 0) {
-        Some(protocol_id) => match graphics.find_by_protocol_id(protocol_id) {
-            Some(image_id) => graphics.animation_delete_frames(image_id),
-            None => false,
-        },
-        None => {
-            let animated: Vec<StoredImageId> =
-                graphics.store().animated_ids().iter().copied().collect();
-            let mut deleted = false;
-            for image_id in animated {
-                deleted |= graphics.animation_delete_frames(image_id);
-            }
-            deleted
-        }
-    }
+/// `d=f` / `d=F` - delete one selected frame. The image id is mandatory and
+/// `r=` defaults to the root. Uppercase removes the whole image only when it
+/// has no extra frame data left.
+pub(super) fn delete_frame(
+    graphics: &mut ImageScene,
+    control: &ControlData,
+    free_when_exhausted: bool,
+) -> Result<bool, KittyError> {
+    let image_id = resolve_image(graphics, control)?;
+    graphics
+        .animation_delete_frame(
+            image_id,
+            control.frame_target.unwrap_or(1),
+            free_when_exhausted,
+        )
+        .map_err(frame_error)
 }

@@ -94,8 +94,8 @@ fn frame_transmission_creates_frames_and_acknowledges() {
 
     assert_eq!(
         terminal.take_host_output(),
-        b"\x1b_Gi=1;OK\x1b\\",
-        "a frame command is acknowledged like any other image command"
+        b"\x1b_Gi=1,r=2;OK\x1b\\",
+        "the acknowledgement reports the assigned frame number"
     );
     assert_eq!(
         frame_count(&terminal, 1),
@@ -165,6 +165,32 @@ fn chunked_frame_transmission_assembles_one_frame() {
     );
     terminal.advance(&apc_no_payload("a=a,i=1,c=2"));
     assert_eq!(displayed_pixels(&terminal, 1), canvas([7, 7, 7, 255]));
+}
+
+#[test]
+fn frame_chunks_require_a_f_and_intervening_commands_abort_the_upload() {
+    let mut terminal = terminal_with_animated_image();
+    terminal.advance(&apc("a=f,i=1,f=32,s=2,v=2,z=40", &canvas([7, 7, 7, 255])));
+    let _ = terminal.take_host_output();
+    assert_eq!(frame_count(&terminal, 1), 2);
+
+    let payload = b64(&canvas([8, 8, 8, 255]));
+    let (first, second) = payload.split_at(8);
+    terminal.advance(format!("\x1b_Ga=f,i=1,f=32,s=2,v=2,m=1;{first}\x1b\\").as_bytes());
+    let _ = terminal.take_host_output();
+    terminal.advance(&apc_no_payload("a=d,d=f,i=1,r=2"));
+    assert_eq!(frame_count(&terminal, 1), 1, "delete was not swallowed");
+    assert_eq!(terminal.take_host_output(), b"\x1b_Gi=1;OK\x1b\\");
+
+    terminal.advance(format!("\x1b_Ga=f,i=1,f=32,s=2,v=2,m=1;{first}\x1b\\").as_bytes());
+    let _ = terminal.take_host_output();
+    terminal.advance(format!("\x1b_Gm=0;{second}\x1b\\").as_bytes());
+    assert_eq!(frame_count(&terminal, 1), 1);
+    assert_ne!(
+        terminal.take_host_output(),
+        b"\x1b_Gi=1,r=2;OK\x1b\\",
+        "a continuation without a=f must not finish the frame"
+    );
 }
 
 #[test]
@@ -331,7 +357,7 @@ fn composition_without_both_frame_numbers_is_malformed() {
 }
 
 #[test]
-fn frame_delete_leaves_the_still_image_and_its_placement() {
+fn frame_delete_removes_one_frame_and_promotes_the_root() {
     let mut terminal = terminal_with_animated_image();
     terminal.advance(&apc(
         "a=f,i=1,f=32,s=2,v=2,z=40",
@@ -345,25 +371,25 @@ fn frame_delete_leaves_the_still_image_and_its_placement() {
     terminal.advance(&apc_no_payload("a=d,d=f,i=1"));
     assert_eq!(terminal.take_host_output(), b"\x1b_Gi=1;OK\x1b\\");
 
-    assert_eq!(frame_count(&terminal, 1), 0, "frames are gone");
+    assert_eq!(frame_count(&terminal, 1), 1, "only the root was deleted");
     assert!(
-        !terminal.graphics().has_animations(),
-        "and the store reports no animation"
+        terminal.graphics().has_animations(),
+        "the promoted root remains stored as frame data"
     );
     assert_eq!(
         terminal.visible_graphics(0).len(),
         1,
-        "the still placement survives frame deletion"
+        "the placement survives lowercase frame deletion"
     );
     assert_eq!(
         displayed_pixels(&terminal, 1),
-        canvas([10, 20, 30, 255]),
-        "frame deletion restores the transmitted root pixels"
+        canvas([40, 50, 60, 255]),
+        "frame 2 is promoted when the root is deleted"
     );
 }
 
 #[test]
-fn frame_delete_without_an_image_id_clears_every_animation() {
+fn frame_delete_requires_an_image_id_and_does_not_clear_other_animations() {
     let mut terminal = terminal_with_animated_image();
     terminal.advance(&apc(
         "a=T,f=32,t=d,s=2,v=2,i=2,c=2,r=2",
@@ -376,9 +402,31 @@ fn frame_delete_without_an_image_id_clears_every_animation() {
 
     terminal.advance(&apc_no_payload("a=d,d=F"));
 
-    assert!(!terminal.graphics().has_animations());
-    assert_eq!(frame_count(&terminal, 1), 0);
-    assert_eq!(frame_count(&terminal, 2), 0);
+    assert_eq!(
+        terminal.take_host_output(),
+        b"\x1b_G;malformed-control\x1b\\"
+    );
+    assert!(terminal.graphics().has_animations());
+    assert_eq!(frame_count(&terminal, 1), 2);
+    assert_eq!(frame_count(&terminal, 2), 2);
+}
+
+#[test]
+fn uppercase_frame_delete_removes_an_image_after_extra_frames_are_exhausted() {
+    let mut terminal = terminal_with_animated_image();
+    terminal.advance(&apc(
+        "a=f,i=1,f=32,s=2,v=2,z=40",
+        &canvas([40, 50, 60, 255]),
+    ));
+    let _ = terminal.take_host_output();
+
+    terminal.advance(&apc_no_payload("a=d,d=F,i=1,r=2"));
+    assert_eq!(frame_count(&terminal, 1), 1);
+    assert_eq!(terminal.visible_graphics(0).len(), 1);
+
+    terminal.advance(&apc_no_payload("a=d,d=F,i=1"));
+    assert!(terminal.graphics().store().iter_ids().next().is_none());
+    assert!(terminal.visible_graphics(0).is_empty());
 }
 
 #[test]

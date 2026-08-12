@@ -323,7 +323,7 @@ impl WorkspaceSet {
     /// The tokens of the panes currently on screen for the active tab: just the
     /// focused pane while zoomed (only it is rendered), otherwise every leaf of
     /// the active tab's layout. Mirrors [`Self::is_visible_pane`]'s membership.
-    pub(super) fn active_visible_tokens(&self) -> Vec<SessionToken> {
+    pub(in crate::native) fn active_visible_tokens(&self) -> Vec<SessionToken> {
         match self.active_tab_ref() {
             Some(tab) if tab.is_effectively_zoomed() => vec![tab.focused],
             Some(tab) => tab.layout.leaves(),

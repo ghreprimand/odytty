@@ -146,14 +146,18 @@ rides every transport and format still images use, chunked transfer included.
 `a=a` controls playback: `s=1` stops, `s=2` runs and waits at the last frame for
 more frames, `s=3` runs and loops; `c=` makes a frame current; `r=` with `z=`
 sets one frame's gap; `v=` sets the loop count (`v=1` is infinite). `a=c`
-composes a rectangle from one frame onto another. `d=f` / `d=F` deletes an
-image's frames, leaving the still image and its placements in place.
+composes a rectangle from one frame onto another. `d=f` / `d=F` requires an
+image id and deletes the single frame named by `r=` (the root by default), with
+the following frame promoted when the root is removed. If only the root
+remains, lowercase is a no-op and uppercase removes the image and placements.
 
 Gaps behave as the protocol specifies: `z=0` is ignored, a positive `z=` is the
 delay in milliseconds before the next frame, and a negative `z=` marks a
 *gapless* frame that is never displayed and exists only as base data for frames
 composed from it. Playback clamps the effective gap to the 10ms..60s range, so a
-1ms gap cannot pin the render loop at its frame ceiling.
+1ms gap cannot pin the render loop at its frame ceiling. The root starts with a
+zero gap and is skipped until a client assigns it a positive gap; later frames
+default to 40ms when no usable gap is supplied.
 
 What animation costs and what it does not:
 
@@ -166,9 +170,9 @@ What animation costs and what it does not:
   does no per-frame animation work; the checks are gated on the image store
   holding frames at all.
 - **Only what you can see animates.** Playback advances animations referenced by
-  a *visible* placement in the active pane. An animation in a background tab or
-  pane, or scrolled out of the viewport, holds its frame and resumes from the
-  live clock when it comes back into view rather than burning frames off-screen.
+  a *visible* placement in every pane of the active split. An animation in a
+  background tab, a pane hidden by zoom, or outside its viewport holds its frame
+  until it becomes visible rather than burning frames off-screen.
 - **Reduced motion does not stop animations.** The `reduced_motion` setting
   governs OdyTTY's own decorative motion (cursor easing, trails, fades). An
   animated image is program output, so suppressing it would corrupt what the

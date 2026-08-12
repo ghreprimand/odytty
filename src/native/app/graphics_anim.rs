@@ -12,10 +12,10 @@
 //!
 //! Scope decisions, both deliberate:
 //!
-//! - **Active pane only.** The deadline source and the advancing consumer are
-//!   the same pane, so no wake is scheduled for an animation nobody is looking
-//!   at. A background tab or pane holds its current frame and resumes from the
-//!   live clock when it is brought forward, rather than burning frames off-screen.
+//! - **Visible panes only.** Every pane in the active tab contributes its next
+//!   deadline and advances from the same clock. Background tabs and panes hidden
+//!   by zoom hold their current frame until they become visible, so animations
+//!   never burn frames off-screen.
 //! - **Reduced motion does not stop animations.** `reduced_motion` governs
 //!   OdyTTY's own decorative motion - cursor easing, trails, fades. An animated
 //!   image is program output, like text: a client that transmits frames is
@@ -28,19 +28,32 @@ use std::time::{Duration, Instant};
 use super::App;
 
 impl App {
-    /// Advance the active pane's visible animated images to the frame due at
-    /// `now` and refresh [`App::animated_graphics_deadline`]. A frame flip marks
-    /// the terminal dirty in the core (so the frame gate repaints) and requests a
-    /// redraw here.
+    /// Advance every visible pane's animated images to the frame due at `now`
+    /// and refresh [`App::animated_graphics_deadline`] with their minimum wake.
+    /// A frame flip marks that pane dirty so the tab-wide frame gate repaints.
     pub(in crate::native) fn advance_graphics_animations(&mut self, now: Instant) {
         let now_ms = self.graphics_clock_ms(now);
-        let offset = self.viewport.offset();
-        let (changed, deadline_ms) = {
-            let mut terminal = crate::native::lock_recover(&self.terminal);
-            let changed = terminal.advance_graphics_animations(now_ms, offset);
-            let deadline = terminal.graphics_animation_deadline_ms(offset);
-            (changed, deadline)
-        };
+        let mut changed = false;
+        let mut deadline_ms: Option<u64> = None;
+        for token in self.sessions.active_visible_tokens() {
+            let Some(session) = self.sessions.get_mut(token) else {
+                continue;
+            };
+            let offset = session.viewport.offset();
+            let terminal = std::sync::Arc::clone(&session.terminal);
+            let mut terminal = crate::native::lock_recover(&terminal);
+            let pane_changed = terminal.advance_graphics_animations(now_ms, offset);
+            let pane_deadline = terminal.graphics_animation_deadline_ms(offset);
+            drop(terminal);
+            if pane_changed {
+                session.needs_rebuild = true;
+                changed = true;
+            }
+            if let Some(pane_deadline) = pane_deadline {
+                deadline_ms =
+                    Some(deadline_ms.map_or(pane_deadline, |current| current.min(pane_deadline)));
+            }
+        }
         self.animated_graphics_deadline = deadline_ms.map(|ms| self.instant_for_graphics_ms(ms));
         if changed {
             self.needs_rebuild = true;
@@ -64,7 +77,7 @@ impl App {
         self.graphics_clock_epoch + Duration::from_millis(ms)
     }
 
-    /// Test seam: the animation wake this pane currently schedules.
+    /// Test seam: the minimum animation wake across currently visible panes.
     #[cfg(test)]
     pub(in crate::native) fn animated_graphics_deadline_for_test(&self) -> Option<Instant> {
         self.animated_graphics_deadline

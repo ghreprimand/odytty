@@ -247,6 +247,22 @@ fn handle_command(
     cell_metrics: CellMetrics,
     named_transports_enabled: bool,
 ) -> Result<KittyOutcome, KittyError> {
+    // A command that is not a continuation aborts an unfinished transfer and
+    // executes normally. Animation-frame chunks are stricter than still-image
+    // chunks: every continuation must repeat `a=f`, so a delete or playback
+    // control command can never be swallowed as frame payload.
+    if state.pending.as_ref().is_some_and(|pending| {
+        let action = pending.control.action;
+        let continuation = if action == Some('f') {
+            command.control.action == Some('f')
+        } else {
+            command.control.action.is_none() || command.control.action == action
+        };
+        !continuation
+    }) {
+        state.pending = None;
+    }
+
     if command.control.more_chunks {
         // C3: a chunked transmission is FIRST chunk (full control data, m=1),
         // then ANY NUMBER of intermediate chunks (m=1, payload only), then the
@@ -422,8 +438,23 @@ fn process_frame_command(
         named_transports_enabled,
     )?;
     let (rgba, width, height) = rgba_from_payload(&control, image_bytes, max_decoded)?;
-    let dirty = kitty_animation::process_frame(graphics, &command.control, rgba, width, height)?;
-    Ok(ok_outcome(&command.control, dirty))
+    let (frame, dirty) =
+        kitty_animation::process_frame(graphics, &command.control, rgba, width, height)?;
+    let response = if command.control.suppress_response() {
+        Vec::new()
+    } else {
+        let mut prefix = command.control.response_prefix();
+        if !prefix.is_empty() {
+            prefix.push(',');
+        }
+        prefix.push_str(&format!("r={frame}"));
+        kitty_response(Some(prefix), "OK")
+    };
+    Ok(KittyOutcome {
+        dirty,
+        cursor: None,
+        response,
+    })
 }
 
 /// Formats and transports accepted for frame data. Deliberately the same set
@@ -750,13 +781,11 @@ fn process_delete_command(
             let id = control.image_id.ok_or(KittyError::MalformedControl)?;
             graphics.delete_by_image_id_and_free(id, control.placement_id);
         }
-        // `d=f` / `d=F` - delete animation frames. Both cases behave the same
-        // here: frames are never referenced by the scrollback the way image data
-        // is, so there is no "keep the data around" variant to distinguish. The
-        // still image and its placements are untouched, so an animation can be
-        // torn down without the picture disappearing.
-        'f' | 'F' => {
-            kitty_animation::delete_frames(graphics, control);
+        'f' => {
+            kitty_animation::delete_frame(graphics, control, false)?;
+        }
+        'F' => {
+            kitty_animation::delete_frame(graphics, control, true)?;
         }
         'c' => graphics.delete_at_cursor(cursor_row, cursor_col, false),
         'C' => graphics.delete_at_cursor(cursor_row, cursor_col, true),

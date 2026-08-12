@@ -11,6 +11,8 @@
 //! 3. Advancing across a frame boundary requests a repaint; advancing before it
 //!    does not.
 //! 4. Deleting the frames returns the loop to the no-wake state.
+//! 5. Every visible split pane contributes deadlines and advances, including
+//!    an unfocused pane.
 //!
 //! Platform-neutral: the wiring is clock arithmetic over core state, identical
 //! on Linux, macOS, and Windows.
@@ -179,4 +181,42 @@ fn a_stopped_animation_arms_no_wake() {
         None,
         "stopping the animation retires its wake"
     );
+}
+
+#[test]
+fn an_unfocused_visible_split_pane_animates_and_contributes_the_wake() {
+    let _guard = crate::test_lock::render_globals_lock();
+    let (mut app, background) = app_with_terminal();
+    let dimensions = Dimensions::new(40, 8);
+    let focused = std::sync::Arc::new(std::sync::Mutex::new(Terminal::new(
+        dimensions.columns,
+        dimensions.rows,
+    )));
+    app.seed_headless_split_pane_for_test(
+        true,
+        focused,
+        crate::native::test_support::headless_writer(),
+        dimensions,
+    );
+
+    feed(&background, &transmit_and_display(10));
+    feed(&background, &add_frame(40));
+    feed(&background, b"\x1b_Ga=a,i=1,s=3,r=1,z=30\x1b\\");
+
+    let start = Instant::now();
+    app.advance_graphics_animations(start);
+    assert!(
+        app.animated_graphics_deadline_for_test().is_some(),
+        "the unfocused visible pane contributes its animation deadline"
+    );
+    app.advance_graphics_animations(start + Duration::from_millis(60));
+
+    let terminal = crate::native::lock_recover(&background);
+    let visible = terminal.visible_graphics(0);
+    let image = terminal
+        .graphics()
+        .store()
+        .get(visible[0].image_id)
+        .expect("background image");
+    assert_eq!(image.rgba, [40, 40, 40, 255].repeat(4));
 }

@@ -1219,7 +1219,7 @@ fn run_kitty_animation_stream(iters: u64) {
         for _ in 0..2 + rng.below(10) {
             match rng.below(8) {
                 0 => t.advance(&fuzz_base_image(1 + rng.below(3) as u32)),
-                1 => t.advance(b"\x1b_Ga=d,d=f\x1b\\"),
+                1 => t.advance(b"\x1b_Ga=d,d=f,i=1,r=2\x1b\\"),
                 2 => t.advance(b"\x1b[2J\x1b[H"),
                 _ => t.advance(&fuzz_animation_sequence(&mut rng)),
             }

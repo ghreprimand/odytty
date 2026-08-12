@@ -492,33 +492,40 @@ fn loop_count_is_honored_and_stopping_resets_it() {
     let mut frames = frames_with_two_frames();
     frames.set_gap(1, 10).expect("root gap");
     frames.set_gap(2, 10).expect("frame 2 gap");
-    // v=2 plays one further loop, then stops.
+    // v=2 permits one completed pass and stops before the first wrap.
     frames.set_loops(2);
     frames.set_state(AnimationState::Running);
     frames.advance(0);
 
     assert!(frames.advance(10), "1 -> 2");
-    assert!(frames.advance(20), "2 -> 1 consumes the one allowed loop");
-    assert_eq!(frames.current_frame(), Some(1));
-    assert!(frames.advance(30), "1 -> 2 again");
-    assert!(!frames.advance(40), "no loops left, playback stops");
+    assert!(!frames.advance(20), "the first wrap reaches the loop limit");
     assert_eq!(frames.state(), AnimationState::Stopped);
     assert_eq!(frames.current_frame(), Some(2), "stops on the last frame");
     assert_eq!(frames.next_deadline_ms(), None);
 
-    // Stopping resets the loop budget, so a restart loops freely again.
+    // Stopping resets progress but preserves the configured limit.
     frames.set_state(AnimationState::Stopped);
     frames.set_state(AnimationState::Running);
     frames.set_current(1).expect("frame 1");
     frames.advance(100);
-    for tick in 1..8 {
-        frames.advance(100 + tick * 10);
-    }
-    assert_eq!(
-        frames.state(),
-        AnimationState::Running,
-        "the loop counter was reset by the stop"
-    );
+    assert!(frames.advance(110));
+    assert!(!frames.advance(120));
+    assert_eq!(frames.state(), AnimationState::Stopped);
+}
+
+#[test]
+fn deleting_root_promotes_the_next_frame_and_selected_deletion_is_bounded() {
+    let mut frames = frames_with_two_frames();
+    let promoted = frames.current_rgba().expect("root").to_vec();
+    frames.set_current(2).expect("frame 2");
+    let second = frames.current_rgba().expect("frame 2").to_vec();
+    frames.set_current(1).expect("root");
+
+    assert_eq!(frames.delete_frame(1), (true, true));
+    assert_eq!(frames.frame_count(), 1);
+    assert_eq!(frames.current_rgba(), Some(second.as_slice()));
+    assert_ne!(frames.current_rgba(), Some(promoted.as_slice()));
+    assert_eq!(frames.delete_frame(999), (false, false));
 }
 
 #[test]
@@ -563,6 +570,25 @@ fn gapless_frames_are_skipped_without_being_displayed() {
         Some(3),
         "the gapless frame was stepped over in one tick"
     );
+}
+
+#[test]
+fn the_root_zero_gap_is_skipped_until_a_client_assigns_a_gap() {
+    let mut frames = frames_with_two_frames();
+    frames.set_state(AnimationState::Running);
+    assert!(!frames.advance(1_000), "the first tick phases the clock");
+    assert_eq!(frames.next_deadline_ms(), Some(1_000));
+    assert!(
+        frames.advance(1_000),
+        "the zero-gap root is skipped immediately"
+    );
+    assert_eq!(frames.current_frame(), Some(2));
+
+    frames.set_current(1).expect("root");
+    frames.set_gap(1, 25).expect("root gap");
+    frames.set_state(AnimationState::Running);
+    assert!(!frames.advance(2_000));
+    assert_eq!(frames.next_deadline_ms(), Some(2_025));
 }
 
 #[test]
