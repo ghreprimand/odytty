@@ -7,6 +7,23 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Correct a stale renderer comment on vertex-buffer reuse
+
+An external code review caught a documentation-drift instance in
+`src/native/gpu/scene.rs`: the `update_from_snapshot` doc comment still
+described per-coalesced-update vertex-buffer recreation as the design, wording
+that predates the move to reusable CPU vertex storage and a grow-only GPU
+vertex buffer. The comment now matches the implementation: CPU-side vertex
+data is rebuilt into reusable storage and the GPU buffer is only recreated
+when capacity grows. A tree-wide comment-accuracy sweep is underway to find
+and fix remaining stale claims of the same shape.
+
+Verified: `cargo fmt --check`, `cargo clippy --all-targets --locked -D
+warnings`, and the full `cargo test --locked` suite pass (comment-only
+change).
+
+---
+
 ## 2026-08-11 -- Make the repository overview easier to scan
 
 The root README now focuses on the product overview, recommended install and

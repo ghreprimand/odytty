@@ -421,10 +421,12 @@ impl GpuState {
     /// Rebuild the cell vertex buffer from a fresh terminal snapshot.
     ///
     /// Called on the UI thread after the pump thread signals new PTY output.
-    /// The grid is small (e.g. 80×24 → a few thousand vertices), so recreating
-    /// the buffer per coalesced update is cheap and avoids tracking capacity.
-    /// The caller must already hold the snapshot by value — the terminal mutex
-    /// is dropped before this runs so the lock is never held across GPU calls.
+    /// The CPU-side vertex data is rebuilt into reusable storage (cleared and
+    /// refilled, not reallocated) and the GPU vertex buffer only grows when
+    /// the rebuilt data exceeds its current capacity, so a coalesced update
+    /// never recreates the buffer. The caller must already hold the snapshot
+    /// by value — the terminal mutex is dropped before this runs so the lock
+    /// is never held across GPU calls.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::native) fn update_from_snapshot(
         &mut self,
