@@ -440,13 +440,63 @@ impl Screen {
     /// Graphics placements visible in the current viewport. `offset_rows`
     /// follows [`Self::snapshot_with_scrollback`]: `0` is the live screen,
     /// positive values page upward into scrollback.
+    ///
+    /// Two sources are merged. Real placements are cell-anchored scene records
+    /// projected onto the viewport. Kitty Unicode placeholders (`U=1`) have no
+    /// scene record: they are resolved here by reading the placeholder cells out
+    /// of the same viewport the snapshot draws, which is what makes them scroll,
+    /// reflow, and erase with the text carrying them at no bookkeeping cost.
+    /// The merged list keeps the `(z_index, generation)` paint order the render
+    /// layer relies on.
+    ///
+    /// Gate-scoped: the placeholder scan runs only when a virtual placement
+    /// exists. Without one no placeholder cell could resolve to anything, so a
+    /// session that never uses the feature does zero extra work per frame and
+    /// its frames stay byte-identical.
     pub fn visible_graphics(&self, offset_rows: usize) -> Vec<VisiblePlacement> {
-        self.graphics.visible_placements(
+        let mut placements = self.graphics.visible_placements(
             offset_rows,
             self.dimensions.rows,
             self.dimensions.columns,
             self.cell_metrics.height_px,
-        )
+        );
+        if self.graphics.has_virtual_placements() {
+            self.collect_placeholder_placements(offset_rows, &mut placements);
+            placements.sort_by_key(|placement| (placement.z_index, placement.generation));
+        }
+        placements
+    }
+
+    /// Resolve Unicode-placeholder cells in the viewport into placements.
+    ///
+    /// The row walk mirrors [`Self::visible_button_spans`] exactly — same
+    /// `scrollback ++ live` window as [`Self::snapshot_with_scrollback`] — so
+    /// the placements it emits line up with the cells the matching snapshot
+    /// draws, by construction rather than by coincidence.
+    fn collect_placeholder_placements(&self, offset_rows: usize, out: &mut Vec<VisiblePlacement>) {
+        let height = self.dimensions.rows;
+        let columns = self.dimensions.columns;
+        let scrollback = self.scrollback.physical(columns);
+        let scrollback_len = scrollback.len();
+        let offset = offset_rows.min(scrollback_len);
+
+        if offset == 0 {
+            for (row, line) in self.rows.iter().enumerate() {
+                placeholder::collect_row_placeholders(&self.graphics, row, &line.cells, out);
+            }
+        } else {
+            let total = scrollback_len + height;
+            let window_start = total - offset - height;
+            for (row, line) in scrollback
+                .iter()
+                .chain(self.rows.iter())
+                .skip(window_start)
+                .take(height)
+                .enumerate()
+            {
+                placeholder::collect_row_placeholders(&self.graphics, row, &line.cells, out);
+            }
+        }
     }
 
     /// Buttons visible in the current viewport, projected onto viewport rows

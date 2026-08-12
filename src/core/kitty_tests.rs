@@ -767,12 +767,28 @@ fn kitty_animation_actions_are_unsupported() {
 }
 
 #[test]
-fn kitty_unicode_placeholder_key_is_ignored() {
-    // U=1 (Unicode placeholder) is out of scope: the key is ignored and the
-    // image places at the cursor as usual.
+fn kitty_unicode_placeholder_key_creates_a_virtual_placement() {
+    // U=1 makes the placement virtual: nothing is drawn at the cursor, and the
+    // image waits for placeholder cells to name it. Full coverage of the
+    // placeholder path lives in `placeholder_tests`.
     let mut t = Terminal::new(20, 4);
-    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,i=1,U=1", &rgba_2x1()));
+    t.advance(&kitty_apc(
+        "f=32,a=T,t=d,s=2,v=1,i=1,U=1,c=2,r=1",
+        &rgba_2x1(),
+    ));
+    assert!(t.visible_graphics(0).is_empty());
+    assert!(t.graphics().placements().is_empty());
+    assert_eq!(t.graphics().virtual_placements().len(), 1);
+}
+
+#[test]
+fn kitty_unicode_placeholder_flag_other_than_one_places_normally() {
+    // Only U=1 selects the virtual path; U=0 is the documented default and any
+    // other value must not silently swallow the placement.
+    let mut t = Terminal::new(20, 4);
+    t.advance(&kitty_apc("f=32,a=T,t=d,s=2,v=1,i=1,U=0", &rgba_2x1()));
     assert_eq!(t.visible_graphics(0).len(), 1);
+    assert!(t.graphics().virtual_placements().is_empty());
 }
 
 #[test]

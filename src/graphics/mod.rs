@@ -15,7 +15,7 @@ pub mod store;
 
 pub use placement::{
     CellAnchor, GraphicsCommand, GraphicsProtocol, ImagePlacement, ImageScene, PlacementId,
-    PlacementRequest, SourceRect, VisiblePlacement,
+    PlacementRequest, SourceRect, VirtualPlacement, VisiblePlacement,
 };
 pub use store::{
     ImageInsert, ImageStore, ImageStoreError, ImageStoreLimits, StoredImage, StoredImageId,

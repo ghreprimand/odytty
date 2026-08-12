@@ -18,6 +18,7 @@ use super::button::{
 use super::graphics_routing::{self, DcsCapture, GraphicsStats};
 use super::hyperlink::{Hyperlink, HyperlinkTable};
 use super::kitty::{decode_base64_bytes, encode_base64_bytes};
+use super::placeholder;
 
 use super::prompt_marks::{self, PromptKind};
 use super::reflow::resize_buffer_rows;

@@ -7,6 +7,47 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Kitty graphics Unicode placeholders (U=1)
+
+The Kitty graphics protocol's Unicode-placeholder mode is implemented. A
+client creates a virtual placement (`a=T,U=1` or `a=p,U=1`) that names an
+image and its cell grid but draws nothing, then prints ordinary text — the
+placeholder character U+10EEEE carrying combining diacritics — where the
+image tiles should appear. Because position lives in the text, the image
+scrolls, pages into scrollback, is overwritten, and is erased exactly as
+text is, with no placement bookkeeping; applications that know nothing about
+the graphics protocol move the image correctly for free. This is the
+placement mode TUI toolkits (ratatui-image and similar) rely on.
+
+Implementation notes: virtual placements are addressed by protocol image id
+(encoded in the placeholder's foreground color, 24-bit or palette-indexed,
+with an optional high byte in a third diacritic); placement id comes from
+the underline color; tile row/column from the canonical 297-entry diacritic
+table, with the spec's left-to-right inheritance for omitted diacritics.
+Adjacent tiles merge into one placement per run. Deletion follows the spec
+split (id-addressed deletes reach virtual placements; location-addressed
+ones do not), and image garbage collection counts virtual placements as
+references. Untrusted-input rules apply throughout: table-bounded indices,
+rejected (not masked) out-of-range id bytes, extent caps, u64 tile geometry
+narrowed after the divide. Sessions that never use the feature do zero extra
+per-frame work, pinned by a differential test.
+
+Windows: platform-neutral grid arithmetic; the Unix-only piece of the stack
+remains the shared-memory transport, unchanged. Known deviation, documented:
+tiles split the image uniformly across the placeholder grid rather than
+aspect-preserving letterboxing.
+
+Tests: 24 placeholder decode/lifecycle tests, 11 scene-level placement
+tests, fuzz coverage extended with a placeholder-text generator and a new
+bounded-invariant check, plus quick smoke tiers in the normal suite.
+
+Verified: `cargo fmt --check`, `cargo clippy --all-targets --locked -D
+warnings`, full `cargo test --locked`, RustSec audit, production-file guard.
+The deep 40k-iteration graphics-fuzz tier runs separately under the bounded
+heavy-job environment before the graphics phase closes.
+
+---
+
 ## 2026-08-12 -- Shaping-run infrastructure: grapheme grouping beyond ASCII
 
 The presentation shaper gains real run infrastructure: grapheme-cluster

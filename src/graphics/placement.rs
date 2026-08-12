@@ -14,6 +14,14 @@ use super::store::{ImageInsert, ImageStore, ImageStoreError, ImageStoreLimits, S
 pub const MAX_RAW_GRAPHICS_COMMANDS: usize = 64;
 pub const MAX_RAW_GRAPHICS_BYTES: usize = 1024 * 1024;
 pub const MAX_IMAGE_PLACEMENTS_PER_BUFFER: usize = 64;
+/// Live cap on virtual (Unicode-placeholder) placements. Virtual placements
+/// carry no screen location, so the per-buffer placement cap does not bound
+/// them; this does. Oldest-first eviction, same shape as the placement cap.
+pub const MAX_VIRTUAL_PLACEMENTS: usize = 64;
+/// Upper bound on a virtual placement's cell extent per axis. The extent comes
+/// from client-supplied `c=`/`r=` (untrusted), and unlike a real placement it
+/// is not clamped by the screen at creation time, so it is clamped here.
+pub const MAX_VIRTUAL_EXTENT: usize = 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PlacementId(pub u64);
@@ -162,6 +170,26 @@ pub struct VisiblePlacement {
     pub generation: u64,
 }
 
+/// A Kitty *virtual* placement (`U=1`): the prototype for images displayed via
+/// Unicode placeholder cells. It has no screen anchor — the placeholder cells
+/// in the text grid supply the position, so it scrolls, reflows, and is erased
+/// exactly as the text carrying it does, with no placement bookkeeping at all.
+///
+/// It is addressed by the protocol image id (encoded in a placeholder cell's
+/// foreground color) and optionally the protocol placement id (encoded in the
+/// underline color). `columns` / `rows` are the cell grid the image is split
+/// across; each placeholder cell names one tile of that grid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VirtualPlacement {
+    pub image_id: StoredImageId,
+    pub protocol_image_id: u32,
+    pub protocol_placement_id: Option<u32>,
+    pub columns: usize,
+    pub rows: usize,
+    pub z_index: i32,
+    pub generation: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GraphicsCommand {
     KittyApc {
@@ -178,6 +206,7 @@ pub enum GraphicsCommand {
 pub struct ImageScene {
     store: ImageStore,
     placements: Vec<ImagePlacement>,
+    virtual_placements: Vec<VirtualPlacement>,
     raw_commands: VecDeque<GraphicsCommand>,
     next_placement_id: u64,
     next_generation: u64,
@@ -195,6 +224,7 @@ impl ImageScene {
         Self {
             store: ImageStore::new(store_limits),
             placements: Vec::new(),
+            virtual_placements: Vec::new(),
             raw_commands: VecDeque::new(),
             next_placement_id: 1,
             next_generation: 1,
@@ -285,6 +315,84 @@ impl ImageScene {
         Some(id)
     }
 
+    /// Create a Kitty virtual placement (`U=1`) for an already-stored image.
+    /// Returns `false` when the image is unknown or the extent is empty.
+    ///
+    /// Replacement follows the same rule as real placements: a new virtual
+    /// placement with the same `(protocol image id, protocol placement id)`
+    /// replaces the previous one, so a client can resize a placeholder image
+    /// without accumulating prototypes. The extent is clamped to
+    /// [`MAX_VIRTUAL_EXTENT`] per axis because `c=`/`r=` are untrusted and no
+    /// screen bound applies to a placement with no screen position.
+    pub fn place_virtual(
+        &mut self,
+        image_id: StoredImageId,
+        protocol_image_id: u32,
+        protocol_placement_id: Option<u32>,
+        columns: usize,
+        rows: usize,
+        z_index: i32,
+    ) -> bool {
+        if !self.store.contains(image_id) || columns == 0 || rows == 0 {
+            return false;
+        }
+        let columns = columns.min(MAX_VIRTUAL_EXTENT);
+        let rows = rows.min(MAX_VIRTUAL_EXTENT);
+
+        self.virtual_placements.retain(|existing| {
+            !(existing.protocol_image_id == protocol_image_id
+                && existing.protocol_placement_id == protocol_placement_id)
+        });
+        if self.virtual_placements.len() >= MAX_VIRTUAL_PLACEMENTS {
+            self.virtual_placements.remove(0);
+        }
+
+        self.store.touch(image_id);
+        let generation = self.next_generation;
+        self.next_generation += 1;
+        self.virtual_placements.push(VirtualPlacement {
+            image_id,
+            protocol_image_id,
+            protocol_placement_id,
+            columns,
+            rows,
+            z_index,
+            generation,
+        });
+        true
+    }
+
+    pub fn virtual_placements(&self) -> &[VirtualPlacement] {
+        &self.virtual_placements
+    }
+
+    /// Whether any virtual placement exists. The placeholder scan over the
+    /// visible grid is gated on this: with no virtual placements there is
+    /// nothing a placeholder cell could resolve to, so the render path does
+    /// zero extra work and frames stay byte-identical.
+    pub fn has_virtual_placements(&self) -> bool {
+        !self.virtual_placements.is_empty()
+    }
+
+    /// Resolve the virtual placement a placeholder cell refers to. `placement_id`
+    /// comes from the cell's underline color; when it is absent (or zero) the
+    /// spec lets the terminal choose any virtual placement of that image, and
+    /// the most recently created one is chosen here.
+    pub fn find_virtual_placement(
+        &self,
+        protocol_image_id: u32,
+        placement_id: Option<u32>,
+    ) -> Option<&VirtualPlacement> {
+        self.virtual_placements
+            .iter()
+            .filter(|candidate| candidate.protocol_image_id == protocol_image_id)
+            .filter(|candidate| match placement_id {
+                Some(id) => candidate.protocol_placement_id == Some(id),
+                None => true,
+            })
+            .max_by_key(|candidate| candidate.generation)
+    }
+
     /// Resolve a stored image by its protocol-level image id (Kitty `i=`),
     /// preferring the most recently inserted match. Used by `a=p` to display a
     /// previously transmitted image without re-sending pixel data.
@@ -356,6 +464,7 @@ impl ImageScene {
 
     pub fn hard_reset(&mut self) {
         self.clear_active();
+        self.virtual_placements.clear();
         self.raw_commands.clear();
         self.active = ScreenBuffer::Primary;
     }
@@ -380,7 +489,22 @@ impl ImageScene {
     /// the active buffer. If `placement_id` is `Some`, delete only the placement
     /// with that protocol-level placement id (Kitty `p=`); otherwise delete all
     /// placements of the image.
+    ///
+    /// Virtual (Unicode-placeholder) placements are deleted here too: `d=i`/`d=I`
+    /// are among the specifiers the graphics protocol says DO affect virtual
+    /// placements. The specifiers that address a screen location — `a`, `c`,
+    /// `p` and their capital forms — deliberately leave them alone, because a
+    /// virtual placement has no screen location to intersect.
     pub fn delete_by_image_id(&mut self, image_id: u32, placement_id: Option<u32>) {
+        self.virtual_placements.retain(|candidate| {
+            if candidate.protocol_image_id != image_id {
+                return true;
+            }
+            match placement_id {
+                Some(pid) => candidate.protocol_placement_id != Some(pid),
+                None => false,
+            }
+        });
         let active = self.active;
         self.placements.retain(|p| {
             if p.buffer != active {
@@ -441,9 +565,16 @@ impl ImageScene {
     }
 
     /// Remove images from the store that have no placements referencing them.
+    /// Virtual placements count as references: an image kept alive only as a
+    /// Unicode-placeholder prototype must survive a `d=A` that clears the
+    /// screen's real placements, or every placeholder on screen would blank.
     fn gc_unreferenced_images(&mut self) {
-        let referenced: std::collections::HashSet<StoredImageId> =
-            self.placements.iter().map(|p| p.image_id).collect();
+        let referenced: std::collections::HashSet<StoredImageId> = self
+            .placements
+            .iter()
+            .map(|p| p.image_id)
+            .chain(self.virtual_placements.iter().map(|p| p.image_id))
+            .collect();
         let all_ids: Vec<StoredImageId> = self
             .store
             .iter_ids()
@@ -649,6 +780,11 @@ impl ImageScene {
             return;
         }
         self.placements
+            .retain(|placement| !evicted.contains(&placement.image_id));
+        // Sibling path: a store eviction invalidates virtual placements exactly
+        // as it invalidates real ones — a prototype pointing at freed pixels
+        // would resolve every placeholder cell to a missing image.
+        self.virtual_placements
             .retain(|placement| !evicted.contains(&placement.image_id));
     }
 }

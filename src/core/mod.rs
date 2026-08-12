@@ -21,6 +21,7 @@ mod hyperlink;
 mod input_region;
 mod kitty;
 mod kitty_transport;
+mod placeholder;
 mod prompt_marks;
 mod reflow;
 mod reflow_trace;
@@ -54,6 +55,8 @@ mod kitty_tests;
 mod kitty_transport_tests;
 #[cfg(test)]
 mod parser_oracle_tests;
+#[cfg(test)]
+mod placeholder_tests;
 #[cfg(test)]
 mod scrollback_tests;
 #[cfg(test)]

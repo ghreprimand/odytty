@@ -155,7 +155,7 @@ fn assert_parser_not_wedged(seed: u64, t: &mut Terminal) {
 /// exercises both real dispatch and the silent-ignore path.
 const KITTY_KEYS: &[&str] = &[
     "a", "f", "t", "m", "i", "p", "s", "v", "c", "r", "C", "q", "d", "x", "y", "w", "h", "X", "Y",
-    "z", // unknowns: must be silently ignored, never wedge parsing.
+    "z", "U", // unknowns: must be silently ignored, never wedge parsing.
     "Q", "Z", "k", "b", "n",
 ];
 
@@ -224,6 +224,10 @@ fn fuzz_apc_control(rng: &mut FuzzRng) -> String {
             "d" => rng.pick(DELETE_SPECS).to_string(),
             "m" => if rng.bool() { "1" } else { "0" }.to_string(),
             "f" => rng.pick(&["24", "32", "100", "0", "999"]).to_string(),
+            // U=1 selects the virtual (Unicode-placeholder) path; the other
+            // values must fall through to ordinary placement, and garbage must
+            // not do either.
+            "U" => rng.pick(&["1", "0", "2", "-1", ""]).to_string(),
             _ => fuzz_numeric(rng),
         };
         // Duplicate keys arise naturally because keys are picked with
@@ -699,7 +703,7 @@ fn run_mixed_stream(iters: u64) {
         let mut t = capped_terminal(30, 8);
         let nseq = 2 + rng.below(10);
         for _ in 0..nseq {
-            match rng.below(6) {
+            match rng.below(7) {
                 0 => t.advance(&fuzz_apc_stream(&mut rng)),
                 1 => t.advance(&fuzz_chunked_stream(&mut rng)),
                 2 => {
@@ -719,11 +723,152 @@ fn run_mixed_stream(iters: u64) {
                     }
                     t.advance(&s);
                 }
+                5 => t.advance(&fuzz_placeholder_text(&mut rng)),
                 _ => t.advance(&[rng.byte(), rng.byte(), rng.byte()]),
             }
             let _ = t.take_host_output();
         }
         assert_store_bounded(seed, &t);
+        assert_placeholders_bounded(seed, &t, 30, 8);
+        assert_parser_not_wedged(seed, &mut t);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// (5) Unicode-placeholder fuzzer
+// ---------------------------------------------------------------------------
+
+/// A sample of the row/column diacritic table plus near-miss combining marks
+/// that are deliberately NOT in it, so the decoder's membership test is
+/// exercised from both sides.
+const PLACEHOLDER_MARKS: &[char] = &[
+    '\u{0305}',
+    '\u{030D}',
+    '\u{030E}',
+    '\u{0310}',
+    '\u{0312}',
+    '\u{1D244}',
+    '\u{FE26}',
+    // Excluded from the table (they fuse under normalization) and an ordinary
+    // combining mark: both must decode as "no diacritic".
+    '\u{0301}',
+    '\u{0300}',
+    '\u{0327}',
+];
+
+/// Emit placeholder text: a color that carries some image id, then a run of
+/// U+10EEEE cells with random diacritics — valid tiles, out-of-range tiles,
+/// inheriting cells with no neighbour, and marks past the three the protocol
+/// defines.
+fn fuzz_placeholder_text(rng: &mut FuzzRng) -> Vec<u8> {
+    let mut out = String::new();
+    match rng.below(3) {
+        0 => out.push_str(&format!("\x1b[38;5;{}m", rng.below(256))),
+        1 => out.push_str(&format!(
+            "\x1b[38;2;{};{};{}m",
+            rng.below(256),
+            rng.below(256),
+            rng.below(256)
+        )),
+        // No foreground at all: the cell carries no image id.
+        _ => out.push_str("\x1b[39m"),
+    }
+    if rng.bool() {
+        out.push_str(&format!("\x1b[58;5;{}m", rng.below(8)));
+    }
+    for _ in 0..1 + rng.below(12) {
+        out.push(crate::core::placeholder::PLACEHOLDER_CHAR);
+        for _ in 0..rng.below(6) {
+            out.push(*rng.pick(PLACEHOLDER_MARKS));
+        }
+        if rng.below(6) == 0 {
+            // Interleave ordinary text, which must break the run.
+            out.push('x');
+        }
+    }
+    out.into_bytes()
+}
+
+/// Placeholder resolution must never invent unbounded work: at most one
+/// placement per cell can be synthesized, and every synthesized placement must
+/// stay inside the viewport it was resolved against.
+fn assert_placeholders_bounded(seed: u64, t: &Terminal, columns: usize, rows: usize) {
+    for offset in [0usize, 1, 3] {
+        let visible = t.visible_graphics(offset);
+        assert!(
+            visible.len() <= columns * rows,
+            "seed={seed}: {} visible placements exceeds the cell count",
+            visible.len()
+        );
+        for placement in &visible {
+            assert!(
+                placement.row < rows,
+                "seed={seed}: placement row {} outside the viewport",
+                placement.row
+            );
+            assert!(
+                placement.column < columns,
+                "seed={seed}: placement column {} outside the viewport",
+                placement.column
+            );
+            assert!(
+                placement.display_columns <= columns && placement.display_rows <= rows,
+                "seed={seed}: placement extent exceeds the viewport"
+            );
+        }
+    }
+}
+
+#[test]
+fn graphics_fuzz_unicode_placeholders_smoke() {
+    run_placeholder_stream(fuzz_iters());
+}
+
+#[test]
+#[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test -p odytty graphics_fuzz -- --ignored --nocapture"]
+fn graphics_fuzz_unicode_placeholders_deep() {
+    run_placeholder_stream(fuzz_iters());
+}
+
+/// Drive the full placeholder pipeline: transmit an image, create virtual
+/// placements with adversarial extents, print placeholder soup, and resolve the
+/// viewport — interleaved with deletes, scrolls, and resizes so the prototype
+/// store and the cell scan are exercised against each other.
+fn run_placeholder_stream(iters: u64) {
+    for i in 0..iters {
+        let seed = i.wrapping_mul(0x8EBC_6AF0_9C88_C6E3).wrapping_add(0x5117);
+        let mut rng = FuzzRng::new(seed);
+        let mut t = capped_terminal(30, 8);
+        // A real 2x2 image so prototypes have something to resolve to.
+        let payload = b64_encode(&[255u8; 2 * 2 * 4]);
+        let image_id = 1 + rng.below(4);
+        t.advance(format!("\x1b_Ga=t,f=32,s=2,v=2,i={image_id},q=2;{payload}\x1b\\").as_bytes());
+        let _ = t.take_host_output();
+
+        for _ in 0..2 + rng.below(10) {
+            match rng.below(7) {
+                0 => {
+                    let control = format!(
+                        "a=p,U=1,i={},c={},r={},q=2",
+                        rng.below(6),
+                        fuzz_numeric(&mut rng),
+                        fuzz_numeric(&mut rng)
+                    );
+                    t.advance(format!("\x1b_G{control}\x1b\\").as_bytes());
+                }
+                1 => t.advance(&fuzz_apc_stream(&mut rng)),
+                2 | 3 => t.advance(&fuzz_placeholder_text(&mut rng)),
+                4 => t.advance(b"\r\n"),
+                5 => t.advance(b"\x1b[2J\x1b[H"),
+                _ => {
+                    let spec = rng.pick(&["a", "A", "i", "I", "c", "p"]);
+                    t.advance(format!("\x1b_Ga=d,d={spec},i={image_id},q=2\x1b\\").as_bytes());
+                }
+            }
+            let _ = t.take_host_output();
+        }
+        assert_store_bounded(seed, &t);
+        assert_placeholders_bounded(seed, &t, 30, 8);
         assert_parser_not_wedged(seed, &mut t);
     }
 }

@@ -69,6 +69,10 @@ pub(super) struct ControlData {
     pub(super) offset_y: Option<i32>,
     /// Placement z-index (`z=`), signed; negative renders under text.
     pub(super) z_index: Option<i32>,
+    /// Unicode-placeholder flag (`U=`). `U=1` makes the placement *virtual*:
+    /// nothing is drawn at the cursor, and the image is instead displayed
+    /// wherever the client prints U+10EEEE placeholder cells naming it.
+    pub(super) unicode_placeholder: Option<u32>,
 }
 
 impl ControlData {
@@ -487,6 +491,19 @@ fn place_image(
     screen_cols: usize,
     cell_metrics: CellMetrics,
 ) -> (bool, Option<(usize, usize)>) {
+    // `U=1`: create a virtual placement instead of a screen-anchored one. It is
+    // the sole prototype for Unicode-placeholder display, draws nothing itself,
+    // and never moves the cursor — the placeholder text the client prints does
+    // both jobs. Both placement entry points (`a=T` transmit-and-display and
+    // `a=p` display-previous) funnel through here, so this one branch covers
+    // the whole surface.
+    if control.unicode_placeholder == Some(1) {
+        return (
+            place_virtual_image(graphics, control, stored_id, width, height, cell_metrics),
+            None,
+        );
+    }
+
     // Placement path: x/y/w/h are the source crop rectangle in pixels. A zero
     // width/height means "use the rest of the image" (handled downstream).
     let source = crate::graphics::SourceRect {
@@ -526,6 +543,46 @@ fn place_image(
         None
     };
     (placed, cursor)
+}
+
+/// Create the virtual placement for a `U=1` command. Returns whether the scene
+/// changed.
+///
+/// A virtual placement is addressed by protocol image id — that id is what a
+/// placeholder cell's foreground color encodes — so a command without `i=` (or
+/// with `i=0`) has no way to ever be referenced and is dropped. The cell extent
+/// comes from `c=`/`r=`; when a client omits one the extent falls back to the
+/// image's natural size in cells, and unlike a real placement it is NOT clamped
+/// to the screen, because a placeholder grid legitimately extends past the
+/// viewport and scrolls into it. `ImageScene::place_virtual` applies the
+/// absolute extent cap that bounds the untrusted value instead.
+fn place_virtual_image(
+    graphics: &mut ImageScene,
+    control: &ControlData,
+    stored_id: crate::graphics::StoredImageId,
+    width: u32,
+    height: u32,
+    cell_metrics: CellMetrics,
+) -> bool {
+    let Some(protocol_image_id) = control.image_id.filter(|id| *id != 0) else {
+        return false;
+    };
+    let columns = control
+        .display_columns
+        .unwrap_or_else(|| width.div_ceil(cell_metrics.width_px) as usize)
+        .max(1);
+    let rows = control
+        .display_rows
+        .unwrap_or_else(|| height.div_ceil(cell_metrics.height_px) as usize)
+        .max(1);
+    graphics.place_virtual(
+        stored_id,
+        protocol_image_id,
+        control.placement_id.filter(|id| *id != 0),
+        columns,
+        rows,
+        control.z_index.unwrap_or(0),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -912,6 +969,7 @@ fn parse_control(control: &[u8]) -> Result<ControlData, KittyError> {
             "X" => parsed.offset_x = parse_i32(value),
             "Y" => parsed.offset_y = parse_i32(value),
             "z" => parsed.z_index = parse_i32(value),
+            "U" => parsed.unicode_placeholder = parse_u32(value),
             _ => {}
         }
     }
