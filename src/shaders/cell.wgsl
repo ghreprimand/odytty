@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Cell renderer: solid background quads and glyph-coverage quads.
 //
-// Vertices carry pixel-space positions; the vertex shader converts them to
-// normalized device coordinates using the viewport size uniform, so resizing
-// only updates the uniform and never rebuilds geometry. Glyph quads sample the
-// R8 coverage atlas as alpha; background quads ignore the texture.
+// Instances carry pixel-space and UV bounds. The vertex shader expands each
+// instance into two triangles and converts positions to normalized device
+// coordinates, so resizing only updates the viewport uniform.
 
 struct Viewport {
     // Physical surface size in pixels (x = width, y = height).
@@ -25,9 +24,11 @@ struct Viewport {
 
 struct VsIn {
     @location(0) pos_px: vec2<f32>,
-    @location(1) uv: vec2<f32>,
-    @location(2) color: vec4<f32>,
-    @location(3) is_glyph: f32,
+    @location(1) end_pos_px: vec2<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) end_uv: vec2<f32>,
+    @location(4) color: vec4<f32>,
+    @location(5) is_glyph: f32,
 };
 
 struct VsOut {
@@ -38,13 +39,19 @@ struct VsOut {
 };
 
 @vertex
-fn vs_main(in: VsIn) -> VsOut {
+fn vs_main(in: VsIn, @builtin(vertex_index) vertex_index: u32) -> VsOut {
     var out: VsOut;
+    let corners = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 0.0),
+        vec2<f32>(1.0, 0.0), vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0),
+    );
+    let corner = corners[vertex_index];
+    let pos_px = mix(in.pos_px, in.end_pos_px, corner);
     // Pixel -> NDC. Y is flipped: pixel origin is top-left, NDC is bottom-left.
-    let ndc_x = (in.pos_px.x / viewport.size.x) * 2.0 - 1.0;
-    let ndc_y = 1.0 - (in.pos_px.y / viewport.size.y) * 2.0;
+    let ndc_x = (pos_px.x / viewport.size.x) * 2.0 - 1.0;
+    let ndc_y = 1.0 - (pos_px.y / viewport.size.y) * 2.0;
     out.clip = vec4<f32>(ndc_x, ndc_y, 0.0, 1.0);
-    out.uv = in.uv;
+    out.uv = mix(in.uv, in.end_uv, corner);
     out.color = in.color;
     out.is_glyph = in.is_glyph;
     return out;

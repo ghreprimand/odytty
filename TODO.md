@@ -241,15 +241,18 @@ a separately recorded milestone before implementation.
         cell geometry. Deferred (post-v0.1.6): diagonal-edged blocks
         `U+1FB3C..1FB67` and negative diagonals `U+1FBBD..1FBBF` (need a general
         antialiased polygon filler).
-- [x] Ship grid-preserving ASCII contextual ligatures behind a live setting;
-      broader ligature and stylistic-set shaping remains deferred.
+- [x] Ship grid-preserving contextual ligatures behind a live setting
+      (ASCII graphics plus a curated non-ASCII operator allowlist). Broader
+      stylistic-set (`ssXX`) coverage and full complex-script shaping remain
+      deferred; see `docs/shaping-roadmap.md`.
   - [x] Shaping-run infrastructure: grapheme-cluster grouping, byte-to-column
         anchoring, and compatible-run boundary detection (combining marks,
         mixed styles, color-glyph/ZWJ coverage, and wide cells never merge
-        into a run). Live overlay eligibility is unchanged (ASCII-graphic
-        only), so default rendering stays byte-identical; this is the
-        substrate curated non-ASCII ligature coverage builds on next. See
-        `docs/shaping-roadmap.md`.
+        into a run).
+  - [x] Extended ligature coverage: `SHAPING_OPERATOR_ALLOWLIST` admits a
+        curated set of non-ASCII operators and arrows into the same `calt`
+        overlay path; plain ASCII without allowlisted scalars stays
+        byte-identical to the pre-allowlist path.
 - [ ] Improve rasterization quality: pixel alignment, baseline consistency,
       padding, gamma, blending, and contrast.
   - [x] Raster side (`src/atlas/`): single documented baseline for every
@@ -319,16 +322,28 @@ a separately recorded milestone before implementation.
         rewrite only the bounded cursor/overlay tail. Region-level row
         granularity remains deferred until evidence justifies the added
         complexity.
-  - [ ] Instanced cell geometry: the grid renderer expands each cell to
-        six vertices and re-uploads the full visible geometry on every
-        content change (~4.6 MiB on a dense 160x50 grid). Moving
-        quad-corner expansion into the vertex shader and uploading one
-        compact instance per primitive would cut CPU fill and upload
-        bandwidth substantially. Held until the change can be visually
-        verified across the Vulkan, Metal, and DX12 backends, since it
-        is shader-side and the automated suite does not compare rendered
-        pixels. Row-granular dirty regions (today mark_dirty always
-        promotes to a full rebuild) are a separate follow-on.
+  - [x] Instanced cell geometry: the grid and color-glyph builders now emit one
+        compact instance per quad; the grayscale, subpixel, and color-glyph
+        vertex shaders expand the fixed six corners. For a dense 160x50 grid
+        with one background and one glyph quad per cell, the implementation's
+        upload payload is 4,608,000 -> 1,024,000 bytes (struct-layout result,
+        not a product benchmark). CPU differential tests pin positions, UVs,
+        colors, and expansion order to the previous triangle stream, and the
+        real-pipeline readback plus pixel-smoke suites pin compositor output.
+        The shared wgpu path applies identically to Vulkan, Metal, and DX12.
+        Local Vulkan release-profile validation remains required; Metal and
+        DX12 have automated build/test evidence only until their manual rows in
+        `docs/manual-validation.md` are executed.
+  - [ ] Row-granular dirty regions: `mark_dirty` still promotes visible changes
+        to a full rebuild. Retained and cursor-only frames already avoid the
+        full upload. A 2026-08-12 bounded, geometry-only 80x24 quick-profile
+        measurement recorded full `build_vertices()` at 208.6 us/op,
+        `cursor_tail_only()` at 0.1 us/op, and snapshot plus cursor tail at
+        2.2 us/op. These are current implementation measurements, not product
+        claims or a controlled pre/post comparison. That sub-millisecond full
+        rebuild does not justify dirty-row state across core, snapshot, shaping,
+        multi-pane segment assembly, and GPU buffer offsets, so row granularity
+        remains deferred pending evidence from a materially hotter workload.
 - [x] Add visual regression screenshots or pixel-level smoke checks where
       practical.
   - [x] V1: `tests/pixel_smoke/` — a headless CPU compositor rasterizes the

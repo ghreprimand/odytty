@@ -84,9 +84,9 @@ pub(crate) fn composite(
     let mut verts = Vec::new();
     grid::build_vertices_with_cursor_into(&mut verts, snapshot, atlas, cursor_style);
 
-    // Each quad is 6 vertices (tl, bl, tr, tr, bl, br); the axis-aligned rect is
-    // recoverable from the first (top-left) and last (bottom-right) vertices.
-    for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
+    // Each record is one compact quad instance (pos/end_pos + uv/end_uv);
+    // the vertex shader expands corners on the GPU path.
+    for quad in verts.chunks_exact(grid::INSTANCES_PER_QUAD) {
         composite_quad(&mut frame, atlas, quad);
     }
     frame
@@ -128,7 +128,7 @@ pub(crate) fn composite_focus_dim(
     );
     grid::append_cursor_vertices(&mut verts, snapshot, atlas, cursor_style);
 
-    for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
+    for quad in verts.chunks_exact(grid::INSTANCES_PER_QUAD) {
         composite_quad(&mut frame, atlas, quad);
     }
     frame
@@ -181,7 +181,7 @@ pub(crate) fn composite_with_padding(
         grid::CursorRenderParams::default(),
     );
 
-    for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
+    for quad in verts.chunks_exact(grid::INSTANCES_PER_QUAD) {
         composite_quad(&mut frame, atlas, quad);
     }
     frame
@@ -216,7 +216,7 @@ pub(crate) fn composite_background_treatment(
     grid::build_cell_vertices_with_focus_dim_into(&mut verts, snapshot, atlas, &[], 0.0, treatment);
     grid::append_cursor_vertices(&mut verts, snapshot, atlas, cursor_style);
 
-    for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
+    for quad in verts.chunks_exact(grid::INSTANCES_PER_QUAD) {
         composite_quad(&mut frame, atlas, quad);
     }
     frame
@@ -271,26 +271,25 @@ pub(crate) fn composite_background_image(
     );
     grid::append_cursor_vertices(&mut verts, snapshot, atlas, cursor_style);
 
-    for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
+    for quad in verts.chunks_exact(grid::INSTANCES_PER_QUAD) {
         composite_quad(&mut frame, atlas, quad);
     }
     frame
 }
 
-/// Composite one axis-aligned quad (background, glyph, or solid decoration).
+/// Composite one axis-aligned quad instance (background, glyph, or solid decoration).
 pub(crate) fn composite_quad(frame: &mut Frame, atlas: &GlyphAtlas, quad: &[Vertex]) {
-    let tl = &quad[0];
-    let br = &quad[5];
-    let x0 = tl.pos[0];
-    let y0 = tl.pos[1];
-    let x1 = br.pos[0];
-    let y1 = br.pos[1];
+    let inst = &quad[0];
+    let x0 = inst.pos[0];
+    let y0 = inst.pos[1];
+    let x1 = inst.end_pos[0];
+    let y1 = inst.end_pos[1];
     if x1 <= x0 || y1 <= y0 {
         return;
     }
-    let color = [tl.color[0], tl.color[1], tl.color[2]];
-    let color_a = tl.color[3];
-    let is_glyph = tl.is_glyph > 0.5;
+    let color = [inst.color[0], inst.color[1], inst.color[2]];
+    let color_a = inst.color[3];
+    let is_glyph = inst.is_glyph > 0.5;
 
     // Pixel range: include pixel p when its center p+0.5 falls inside the rect.
     let px0 = x0.floor().max(0.0) as usize;
@@ -313,10 +312,10 @@ pub(crate) fn composite_quad(frame: &mut Frame, atlas: &GlyphAtlas, quad: &[Vert
             // atlases return independent RGB coverage, matching the dual-source
             // shader's per-channel destination weights.
             let alpha = if is_glyph {
-                let u0 = tl.uv[0];
-                let v0 = tl.uv[1];
-                let u1 = br.uv[0];
-                let v1 = br.uv[1];
+                let u0 = inst.uv[0];
+                let v0 = inst.uv[1];
+                let u1 = inst.end_uv[0];
+                let v1 = inst.end_uv[1];
                 let fx = (cx - x0) / (x1 - x0);
                 let fy = (cy - y0) / (y1 - y0);
                 let u = u0 + fx * (u1 - u0);

@@ -63,7 +63,7 @@ use crate::core::{
     MouseButton as CoreMouseButton, MouseEventKind, MouseProtocol, MouseTracking, Position,
     Snapshot, Terminal,
 };
-use crate::grid::{CursorRenderParams, SolidQuad, VERTS_PER_QUAD};
+use crate::grid::{CursorRenderParams, INSTANCES_PER_QUAD, SolidQuad, VERTS_PER_QUAD};
 use crate::input::{self, Key, KeyEventType, Modifiers};
 use crate::pty::PtySession;
 use crate::selection::{self, CellPoint};

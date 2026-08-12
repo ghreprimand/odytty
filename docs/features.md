@@ -184,13 +184,14 @@ and clears after one bounded delay without animation.
 | --- | --- |
 | Font sources | Bundled families, system families, and direct font files |
 | Styling | Font-weight variants, synthetic styles, and subpixel antialiasing |
-| Programming ligatures | Default-on ASCII contextual alternates with grid-aligned source cells |
+| Programming ligatures | Default-on contextual alternates for ASCII plus a curated non-ASCII operator allowlist; grid-aligned source cells |
 | Fallback | Per-range symbol maps and bundled Nerd Font v3/v2 faces |
 | Readability | Linear-light color composition, glyph coverage gamma, stem darkening, and minimum-contrast enforcement |
 
 Fresh profiles enable contextual programming ligatures from the selected text
-font. Shaping is limited to eligible ASCII runs and changes only presentation:
-the terminal model keeps one logical character per cell, so copying, selection,
+font. Shaping runs cover eligible ASCII graphics plus a curated allowlist of
+common non-ASCII operators and arrows, and change only presentation: the
+terminal model keeps one logical character per cell, so copying, selection,
 search, cursor placement, and wide-cell behavior retain their ordinary
 semantics. Unsupported fonts and runs render through the normal per-cell path.
 Set `ligatures = off` in Settings or configuration, or

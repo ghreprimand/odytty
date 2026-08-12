@@ -172,12 +172,11 @@ pub(crate) fn composite_color_glyph_quad(
     atlas: &ColorGlyphAtlas,
     quad: &[ColorGlyphVertex],
 ) {
-    let tl = &quad[0];
-    let br = &quad[5];
-    let x0 = tl.pos[0];
-    let y0 = tl.pos[1];
-    let x1 = br.pos[0];
-    let y1 = br.pos[1];
+    let inst = &quad[0];
+    let x0 = inst.pos[0];
+    let y0 = inst.pos[1];
+    let x1 = inst.end_pos[0];
+    let y1 = inst.end_pos[1];
     if x1 <= x0 || y1 <= y0 {
         return;
     }
@@ -199,8 +198,8 @@ pub(crate) fn composite_color_glyph_quad(
             }
             let fx = (cx - x0) / (x1 - x0);
             let fy = (cy - y0) / (y1 - y0);
-            let u = tl.uv[0] + fx * (br.uv[0] - tl.uv[0]);
-            let v = tl.uv[1] + fy * (br.uv[1] - tl.uv[1]);
+            let u = inst.uv[0] + fx * (inst.end_uv[0] - inst.uv[0]);
+            let v = inst.uv[1] + fy * (inst.end_uv[1] - inst.uv[1]);
             let ax = ((u * atlas.width as f32) as i64).clamp(0, atlas.width as i64 - 1) as usize;
             let ay = ((v * atlas.height as f32) as i64).clamp(0, atlas.height as i64 - 1) as usize;
             let idx = (ay * atlas.width as usize + ax) * 4;
@@ -232,7 +231,7 @@ pub(crate) fn composite_color_glyphs(
 ) {
     let mut verts = Vec::new();
     grid::build_color_glyph_vertices_into(&mut verts, snapshot, atlas, runs);
-    for quad in verts.chunks_exact(grid::VERTS_PER_QUAD) {
+    for quad in verts.chunks_exact(grid::INSTANCES_PER_QUAD) {
         composite_color_glyph_quad(frame, atlas, quad);
     }
 }
@@ -264,7 +263,7 @@ pub(crate) fn composite_scene(
 
     let mut verts = Vec::new();
     grid::build_vertices_with_cursor_into(&mut verts, snapshot, atlas, cursor_style);
-    let quads: Vec<&[Vertex]> = verts.chunks_exact(grid::VERTS_PER_QUAD).collect();
+    let quads: Vec<&[Vertex]> = verts.chunks_exact(grid::INSTANCES_PER_QUAD).collect();
 
     // The grid emits one background quad per non-continuation cell first; the
     // remaining quads are glyphs/decorations/cursor. This is the same split
@@ -319,7 +318,7 @@ pub(crate) fn composite_scene_with_color_glyphs(
 
     let mut verts = Vec::new();
     grid::build_vertices_with_cursor_into(&mut verts, snapshot, atlas, cursor_style);
-    let quads: Vec<&[Vertex]> = verts.chunks_exact(grid::VERTS_PER_QUAD).collect();
+    let quads: Vec<&[Vertex]> = verts.chunks_exact(grid::INSTANCES_PER_QUAD).collect();
     let bg_quads = snapshot
         .cells
         .iter()

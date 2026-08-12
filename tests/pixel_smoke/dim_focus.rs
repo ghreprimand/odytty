@@ -2,7 +2,7 @@
 //! SGR-dim attribute, perceptual-dim confinement, and ID2 focus dimming.
 
 use odytty::core::{Color, CursorStyle, RgbColor, Terminal};
-use odytty::grid::{self, VERTS_PER_QUAD};
+use odytty::grid::{self, INSTANCES_PER_QUAD};
 use odytty::text;
 
 use crate::harness::*;
@@ -229,10 +229,10 @@ fn block_cursor_floor_keeps_under_glyph_legible_in_composite() {
     grid::build_vertices_with_cursor_into(&mut verts, &snapshot, &atlas, CursorStyle::Block);
     assert_eq!(
         verts.len(),
-        4 * VERTS_PER_QUAD,
+        4 * INSTANCES_PER_QUAD,
         "expected the block+glyph pair"
     );
-    let under_glyph = verts[3 * VERTS_PER_QUAD];
+    let under_glyph = verts[3 * INSTANCES_PER_QUAD];
     assert_eq!(under_glyph.is_glyph, 1.0);
     assert_eq!(
         under_glyph.color, bg,

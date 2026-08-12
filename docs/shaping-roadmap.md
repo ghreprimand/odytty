@@ -34,19 +34,18 @@ requires reordering or reshaping across cell boundaries (see Deferred, below).
   boundary detection. Runs break at wide continuations, hidden cells,
   color-glyph coverage, cells carrying combining marks, and any bold/italic
   face change, so those categories never merge into a shaped span. Live
-  overlay eligibility is unchanged -- ASCII-graphic bases only -- so default
-  rendering stays byte-identical to the pre-infrastructure path, pinned by a
-  differential test. This is groundwork: the grapheme and byte-to-column
-  plumbing is the shared substrate later curated non-ASCII ligature coverage
-  will build on, not a behavior change by itself.
+  overlay eligibility covers ASCII-graphic bases plus a curated allowlist of
+  common non-ASCII programming operators and arrows
+  (`SHAPING_OPERATOR_ALLOWLIST`). Plain ASCII content without allowlisted
+  scalars stays byte-identical to the pre-allowlist path, pinned by a
+  differential test. Open-ended stylistic sets (`ssXX`) remain deferred.
 - **Static color glyphs (COLR/CPAL v0).** The color-glyph path renders static
   COLR/CPAL v0 layer compositions in addition to the existing bitmap-strike
   formats, including stock Windows Segoe UI Emoji, which previously fell back
   to the monochrome path. See `docs/features.md` for the full color-emoji
   support statement.
-- **Extended ligature coverage beyond ASCII.** In progress; not landed as of
-  this writing. The shaping-run infrastructure above is the prerequisite for
-  it. Track its landing status in `TODO.md`.
+- **Extended ligature coverage beyond ASCII.** Landed as the curated allowlist
+  above — not an open feature-tag surface.
 
 ## What remains deferred, and why
 

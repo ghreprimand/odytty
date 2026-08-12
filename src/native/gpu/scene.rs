@@ -97,7 +97,7 @@ pub(super) fn background_vertex_count(snapshot: &Snapshot) -> u32 {
         .iter()
         .filter(|cell| !cell.wide_continuation)
         .count();
-    (cells * grid::VERTS_PER_QUAD) as u32
+    (cells * grid::INSTANCES_PER_QUAD) as u32
 }
 
 /// Append the overlays and live cursor parameters shared by Full and
@@ -112,7 +112,7 @@ pub(in crate::native) fn append_cursor_layer_vertices(
     overlays: &[SolidQuad],
     params: CursorRenderParams,
 ) {
-    out.reserve(overlays.len() * grid::VERTS_PER_QUAD);
+    out.reserve(overlays.len() * grid::INSTANCES_PER_QUAD);
     for &overlay in overlays {
         grid::push_solid_quad(out, overlay);
     }
@@ -418,10 +418,10 @@ impl GpuState {
         [origin[0] + pin.content_dx(), origin[1] + pin.content_dy()]
     }
 
-    /// Rebuild the cell vertex buffer from a fresh terminal snapshot.
+    /// Rebuild the compact cell-instance buffer from a fresh terminal snapshot.
     ///
     /// Called on the UI thread after the pump thread signals new PTY output.
-    /// The CPU-side vertex data is rebuilt into reusable storage (cleared and
+    /// The CPU-side instance data is rebuilt into reusable storage (cleared and
     /// refilled, not reallocated) and the GPU vertex buffer only grows when
     /// the rebuilt data exceeds its current capacity, so a coalesced update
     /// never recreates the buffer. The caller must already hold the snapshot
@@ -635,7 +635,7 @@ impl GpuState {
             );
 
             let tail_start = tail.len();
-            tail.reserve(pane.overlays.len() * grid::VERTS_PER_QUAD);
+            tail.reserve(pane.overlays.len() * grid::INSTANCES_PER_QUAD);
             for &overlay in pane.overlays {
                 grid::push_solid_quad(&mut tail, overlay);
             }
@@ -725,7 +725,7 @@ impl GpuState {
             );
             let edge_quads = quads_excluding(&edge_quads, panel.base_gaps);
             self.vertices
-                .reserve(edge_quads.len() * grid::VERTS_PER_QUAD);
+                .reserve(edge_quads.len() * grid::INSTANCES_PER_QUAD);
             for quad in edge_quads {
                 grid::push_solid_quad(&mut self.vertices, quad);
             }
@@ -741,7 +741,7 @@ impl GpuState {
         // / seam off, so the multi-pane frame stays byte-identical.
         if !panel.overlays.is_empty() {
             self.vertices
-                .reserve(panel.overlays.len() * grid::VERTS_PER_QUAD);
+                .reserve(panel.overlays.len() * grid::INSTANCES_PER_QUAD);
             for &quad in panel.overlays {
                 grid::push_solid_quad(&mut self.vertices, quad);
             }
@@ -754,7 +754,7 @@ impl GpuState {
         // Dividers are themed solid quads in the pane gaps; they live in the
         // overlay segment (after glyphs) and never overlap glyph ink.
         self.vertices
-            .reserve(dividers.len() * grid::VERTS_PER_QUAD + tail.len());
+            .reserve(dividers.len() * grid::INSTANCES_PER_QUAD + tail.len());
         for &divider in dividers {
             grid::push_solid_quad(&mut self.vertices, divider);
         }
@@ -1015,7 +1015,8 @@ impl GpuState {
             let edge_quads = quads_excluding(&edge_quads, panel.base_gaps);
             if !edge_quads.is_empty() {
                 let insert_at = background_vertices as usize;
-                let mut edge_vertices = Vec::with_capacity(edge_quads.len() * grid::VERTS_PER_QUAD);
+                let mut edge_vertices =
+                    Vec::with_capacity(edge_quads.len() * grid::INSTANCES_PER_QUAD);
                 for quad in edge_quads {
                     grid::push_solid_quad(&mut edge_vertices, quad);
                 }
@@ -1031,7 +1032,7 @@ impl GpuState {
         if !panel.base_gaps.is_empty() {
             let insert_at = self.background_vertex_count as usize;
             let mut base_vertices =
-                Vec::with_capacity(panel.base_gaps.len() * grid::VERTS_PER_QUAD);
+                Vec::with_capacity(panel.base_gaps.len() * grid::INSTANCES_PER_QUAD);
             for &quad in panel.base_gaps {
                 grid::push_solid_quad(&mut base_vertices, quad);
             }
@@ -1047,7 +1048,7 @@ impl GpuState {
         if !panel.overlays.is_empty() {
             let insert_at = self.background_vertex_count as usize;
             let mut panel_vertices =
-                Vec::with_capacity(panel.overlays.len() * grid::VERTS_PER_QUAD);
+                Vec::with_capacity(panel.overlays.len() * grid::INSTANCES_PER_QUAD);
             for &quad in panel.overlays {
                 grid::push_solid_quad(&mut panel_vertices, quad);
             }

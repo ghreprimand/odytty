@@ -7,6 +7,8 @@
 
 use std::sync::atomic::Ordering;
 
+use crate::grid;
+
 use super::post::{PostProcessOptions, PostProcessResources};
 use super::resources::GpuState;
 
@@ -63,7 +65,7 @@ impl GpuState {
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
         if background_count > 0 {
-            pass.draw(0..background_count, 0..1);
+            pass.draw(0..grid::VERTS_PER_QUAD as u32, 0..background_count);
         }
         self.image_layer.draw_below(pass);
         if self.cursor_glow_vertex_count > 0 {
@@ -82,19 +84,25 @@ impl GpuState {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-            pass.draw(background_count..cell_count, 0..1);
+            pass.draw(0..grid::VERTS_PER_QUAD as u32, background_count..cell_count);
         }
         if self.color_glyph_vertex_count > 0 {
             pass.set_pipeline(&self.color_glyph_pipeline);
             pass.set_bind_group(0, &self.color_glyph_bind_group, &[]);
             pass.set_vertex_buffer(0, self.color_glyph_vertex_buf.slice(..));
-            pass.draw(0..self.color_glyph_vertex_count, 0..1);
+            pass.draw(
+                0..grid::VERTS_PER_QUAD as u32,
+                0..self.color_glyph_vertex_count,
+            );
         }
         if cell_count < self.vertex_count {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.set_vertex_buffer(0, self.vertex_buf.slice(..));
-            pass.draw(cell_count..self.vertex_count, 0..1);
+            pass.draw(
+                0..grid::VERTS_PER_QUAD as u32,
+                cell_count..self.vertex_count,
+            );
         }
         self.image_layer.draw_above(pass);
         // NOTE: the C4 viewer overlay is intentionally NOT drawn here. It is

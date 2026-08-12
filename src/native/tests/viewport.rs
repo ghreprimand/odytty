@@ -269,14 +269,17 @@ fn solid_overlay_quads_append_after_cell_geometry() {
         std::slice::from_ref(&overlay),
     );
 
-    assert_eq!(vertices.len(), 4 * VERTS_PER_QUAD);
-    assert_eq!(vertices[vertices.len() - VERTS_PER_QUAD].pos, [1.0, 2.0]);
+    assert_eq!(vertices.len(), 4 * INSTANCES_PER_QUAD);
     assert_eq!(
-        vertices[vertices.len() - VERTS_PER_QUAD].color,
+        vertices[vertices.len() - INSTANCES_PER_QUAD].pos,
+        [1.0, 2.0]
+    );
+    assert_eq!(
+        vertices[vertices.len() - INSTANCES_PER_QUAD].color,
         overlay.color
     );
     assert!(
-        vertices[vertices.len() - VERTS_PER_QUAD..]
+        vertices[vertices.len() - INSTANCES_PER_QUAD..]
             .iter()
             .all(|vertex| vertex.is_glyph == 0.0)
     );

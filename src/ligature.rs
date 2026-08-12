@@ -33,13 +33,16 @@
 //! A shaping run ends at any cell that is ineligible or that selects a different
 //! bold/italic face. Ineligible cells include: wide continuations, hidden
 //! cells, color-glyph coverage, cells carrying combining marks (marks stay on
-//! the mono combining path), and — for the live overlay gate — non-ASCII bases.
-//! Selection/search attribute changes do **not** break runs (compositing only).
+//! the mono combining path), and bases outside ASCII-graphic plus
+//! [`SHAPING_OPERATOR_ALLOWLIST`]. Selection/search attribute changes do
+//! **not** break runs (compositing only).
 //!
-//! Live overlay eligibility remains ASCII-graphic bases so default plain-ASCII
-//! rendering stays byte-identical to the pre-infrastructure path. The grapheme
-//! and byte-to-column plumbing is the shared substrate for later curated
-//! non-ASCII operator coverage.
+//! Live overlay eligibility remains ASCII-graphic bases **plus** a curated
+//! allowlist of common non-ASCII programming operators/arrows
+//! ([`SHAPING_OPERATOR_ALLOWLIST`]). Default plain-ASCII rendering stays
+//! byte-identical; allowlisted scalars only join compatible runs when present.
+//! Open-ended stylistic sets (`ssXX`) are out of scope. The grapheme and
+//! byte-to-column plumbing is the shared substrate for that allowlist.
 
 use std::collections::{HashMap, VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
@@ -57,6 +60,51 @@ use crate::grid::{ColorGlyphRun, ColorRunCoverage, font_style_for_attrs};
 
 /// Maximum number of exact row plans retained by the live renderer.
 pub const LIGATURE_ROW_CACHE_CAPACITY: usize = 512;
+
+/// Curated non-ASCII scalars eligible to join shaping runs with ASCII graphics.
+///
+/// Inclusion criterion: single-width Unicode operators and arrows that
+/// programming fonts commonly participate in OpenType `calt`/`liga` lookups
+/// (comparison, logic, and arrow forms). This is a fixed allowlist — not an
+/// open stylistic-set surface (`ss01`… are deferred). Placeholders, emoji, and
+/// wide East-Asian ideographs stay out. Platform-neutral.
+pub const SHAPING_OPERATOR_ALLOWLIST: &[char] = &[
+    // Arrows
+    '\u{2190}', // ←
+    '\u{2192}', // →
+    '\u{2194}', // ↔
+    '\u{21D0}', // ⇐
+    '\u{21D2}', // ⇒
+    '\u{21D4}', // ⇔
+    '\u{21A6}', // ↦
+    // Comparisons / approx
+    '\u{2260}', // ≠
+    '\u{2264}', // ≤
+    '\u{2265}', // ≥
+    '\u{226A}', // ≪
+    '\u{226B}', // ≫
+    '\u{2248}', // ≈
+    '\u{2261}', // ≡
+    // Logic / set-ish
+    '\u{2227}', // ∧
+    '\u{2228}', // ∨
+    '\u{00AC}', // ¬
+    '\u{2205}', // ∅
+    // Misc operators
+    '\u{00D7}', // ×
+    '\u{00F7}', // ÷
+    '\u{2212}', // −
+    '\u{2026}', // …
+    '\u{00B7}', // ·
+    '\u{2218}', // ∘
+];
+
+#[inline]
+fn is_allowlisted_operator(ch: char) -> bool {
+    // Small fixed table: linear scan beats a HashSet for ~24 entries and keeps
+    // the hot path allocation-free.
+    SHAPING_OPERATOR_ALLOWLIST.contains(&ch)
+}
 
 /// Font access needed by the shaper without coupling it to the native GPU type.
 pub trait LigatureFonts {
@@ -443,11 +491,12 @@ fn row_fingerprint(cells: &[Cell], row: usize, coverage: &ColorRunCoverage) -> u
 }
 
 fn eligible_cell(cell: &Cell, row: usize, column: usize, coverage: &ColorRunCoverage) -> bool {
-    // Live overlay gate: ASCII-graphic bases only. Combining marks, wide
-    // continuations, hidden cells, and color-glyph coverage always break runs
-    // so those cells stay on their dedicated paths (mono combining, wide lead,
-    // color emoji). Platform-neutral — no cfg(windows) divergence.
-    cell.ch.is_ascii_graphic()
+    // Live overlay gate: ASCII-graphic bases, or a curated non-ASCII operator
+    // from [`SHAPING_OPERATOR_ALLOWLIST`]. Combining marks, wide continuations,
+    // hidden cells, and color-glyph coverage always break runs so those cells
+    // stay on their dedicated paths (mono combining, wide lead, color emoji).
+    // Platform-neutral — no cfg(windows) divergence.
+    (cell.ch.is_ascii_graphic() || is_allowlisted_operator(cell.ch))
         && !cell.wide_continuation
         && cell.combining().is_empty()
         && !cell.attrs.hidden()
@@ -758,6 +807,34 @@ mod tests {
             ChromePin::NONE,
         );
         assert_eq!(shaped, legacy);
+    }
+
+    #[test]
+    fn allowlisted_operators_join_compatible_runs_with_ascii() {
+        let snap = snapshot("a→b≠c");
+        let coverage = ColorRunCoverage::new(&[], snap.dimensions.columns, snap.dimensions.rows);
+        let bounds = compatible_run_bounds(&snap.cells[..snap.dimensions.columns], 0, &coverage);
+        // a → b ≠ c are five eligible cells in one run (all allowlisted/ASCII).
+        assert!(
+            bounds.iter().any(|&(start, end, _)| start == 0 && end >= 5),
+            "allowlisted operators must merge with neighboring ASCII: {bounds:?}"
+        );
+        assert!(is_allowlisted_operator('\u{2192}'));
+        assert!(is_allowlisted_operator('\u{2260}'));
+        assert!(!is_allowlisted_operator('界'));
+        assert!(!is_allowlisted_operator(crate::core::PLACEHOLDER_CHAR));
+    }
+
+    #[test]
+    fn allowlisted_run_preserves_ascii_ligature_span() {
+        // Mixing an allowlisted operator after an ASCII ligature must not break
+        // the `->` substitution or shift its source columns.
+        let fonts = Fonts(text::load_bundled_font().expect("bundled font"));
+        let mut shaper = LigatureShaper::new();
+        let runs = shaper.build_runs(true, &snapshot("a->≠"), &fonts, &[]);
+        let run = runs.iter().find(|run| run.start == 1).expect("arrow run");
+        assert_eq!((run.start, run.end), (1, 3));
+        assert!(run.glyphs.iter().all(|glyph| glyph.key.span_cells == 2));
     }
 
     #[test]

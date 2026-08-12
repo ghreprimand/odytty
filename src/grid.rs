@@ -9,8 +9,8 @@
 //!
 //! ## What it produces
 //!
-//! For every non-continuation cell of a snapshot it emits a **background quad**
-//! (two triangles) covering the cell's pixel rectangle, and — when the cell
+//! For every non-continuation cell of a snapshot it emits a compact
+//! **background-quad instance** covering the cell's pixel rectangle, and — when the cell
 //! holds an inked, printable glyph — a **foreground quad** with the glyph's UV
 //! rectangle from the atlas. Foreground quads carry `is_glyph = 1.0` so the
 //! fragment shader samples the R8 coverage atlas as alpha; background quads
@@ -29,15 +29,41 @@ pub use background::{BackgroundTreatment, BackgroundTreatmentParams, MAX_BG_TREA
 pub use clipping::VClip;
 pub(crate) use clipping::{clip_quads_to_rect, clip_quads_vertical, extend_first_row_bg_to_top};
 pub use model::{
-    ColorGlyphRun, ColorGlyphVertex, ColorRunCoverage, RowFade, SolidQuad, VERTS_PER_QUAD, Vertex,
+    ColorGlyphRun, ColorGlyphVertex, ColorRunCoverage, INSTANCES_PER_QUAD, RowFade, SolidQuad,
+    VERTS_PER_QUAD, Vertex,
 };
 use model::{DIM_PERCEPTUAL_AMOUNT, LINE_DECORATION_THICKNESS_DIVISOR, push_quad};
 
 use crate::atlas::GlyphBounds;
-use crate::core::{Attrs, Color, CursorStyle, DynamicColors, RgbColor, Snapshot, UnderlineStyle};
+use crate::core::{
+    Attrs, Color, CursorStyle, DynamicColors, PLACEHOLDER_CHAR, RgbColor, Snapshot, UnderlineStyle,
+};
 use crate::emoji::{ColorGlyphAtlas, ColorGlyphKey};
 use crate::ligature::LigatureRun;
 use crate::text::{self, FontStyle, GlyphAtlas};
+
+/// Whether a cell's base character emits a coverage glyph quad.
+///
+/// Spaces never do. Kitty Unicode placeholders ([`PLACEHOLDER_CHAR`], U+10EEEE)
+/// also never do: the char stays in the Snapshot so copy/paste, plain text, and
+/// transcripts remain honest, but the atlas has no real outline for it — drawing
+/// it would paint tofu under (or through) image tiles. Unresolved placeholders
+/// therefore render as blank cells (background + decorations only), which is
+/// preferable to tofu soup. Platform-neutral shared path.
+#[inline]
+fn cell_draws_base_glyph(ch: char) -> bool {
+    ch != ' ' && ch != PLACEHOLDER_CHAR
+}
+
+/// Whether combining marks on this base should emit coverage quads.
+///
+/// Placeholder diacritics encode Kitty image/placement ids — metadata, not ink —
+/// so they are suppressed along with the base. Ordinary cells (including space
+/// bases that carry marks) still draw their combining marks.
+#[inline]
+fn cell_draws_combining_marks(ch: char) -> bool {
+    ch != PLACEHOLDER_CHAR
+}
 
 /// Append one solid, non-glyph quad to an existing vertex list.
 pub fn push_solid_quad(out: &mut Vec<Vertex>, quad: SolidQuad) {
@@ -62,11 +88,13 @@ fn push_color_glyph_quad(
 ) {
     let [x0, y0, x1, y1] = rect;
     let [u0, v0, u1, v1] = uv;
-    let tl = ColorGlyphVertex::new([x0, y0], [u0, v0], alpha);
-    let tr = ColorGlyphVertex::new([x1, y0], [u1, v0], alpha);
-    let bl = ColorGlyphVertex::new([x0, y1], [u0, v1], alpha);
-    let br = ColorGlyphVertex::new([x1, y1], [u1, v1], alpha);
-    out.extend_from_slice(&[tl, bl, tr, tr, bl, br]);
+    out.push(ColorGlyphVertex::new(
+        [x0, y0],
+        [x1, y1],
+        [u0, v0],
+        [u1, v1],
+        alpha,
+    ));
 }
 
 /// Build the dedicated color-glyph vertex segment for shaped runs.
@@ -106,7 +134,7 @@ pub fn build_color_glyph_vertices_with_origin_into(
     row_fade: RowFade,
 ) {
     out.clear();
-    out.reserve(runs.len() * VERTS_PER_QUAD);
+    out.reserve(runs.len() * INSTANCES_PER_QUAD);
 
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
@@ -350,7 +378,7 @@ pub fn strikethrough_rect(x0: f32, y0: f32, cell_w: f32, cell_h: f32, baseline: 
 pub fn build_vertices(snapshot: &Snapshot, atlas: &GlyphAtlas) -> Vec<Vertex> {
     let cols = snapshot.dimensions.columns;
     let rows = snapshot.dimensions.rows;
-    let mut out = Vec::with_capacity(rows * cols * VERTS_PER_QUAD * 2);
+    let mut out = Vec::with_capacity(rows * cols * INSTANCES_PER_QUAD * 2);
     build_vertices_into(&mut out, snapshot, atlas);
     out
 }
@@ -1009,7 +1037,7 @@ fn build_cells_core(
     // glide is in flight — then the top bar/rail stay put while content glides).
     let chrome_seam_y = chrome_pin.seam_y(origin[1], cell_h);
 
-    let needed = rows * cols * VERTS_PER_QUAD * 2;
+    let needed = rows * cols * INSTANCES_PER_QUAD * 2;
     out.clear();
     if out.capacity() < needed {
         out.reserve(needed - out.capacity());
@@ -1257,7 +1285,7 @@ fn build_cells_core(
                         .all(|glyph| atlas.contains_shaped(glyph.key))
                 });
             if !cell.attrs.hidden()
-                && cell.ch != ' '
+                && cell_draws_base_glyph(cell.ch)
                 && !color_coverage.covers(row, col)
                 && ligature.is_none()
                 && let Some(bounds) =
@@ -1287,7 +1315,11 @@ fn build_cells_core(
             // follow the base glyph's seam-clipping rule. Wide bases and
             // stacked multi-mark clusters render at the same single-cell
             // anchor — a bounded approximation, not full mark positioning.
-            if !cell.attrs.hidden() && !color_coverage.covers(row, col) && ligature.is_none() {
+            if !cell.attrs.hidden()
+                && cell_draws_combining_marks(cell.ch)
+                && !color_coverage.covers(row, col)
+                && ligature.is_none()
+            {
                 for &mark in cell.combining() {
                     let Some(bounds) =
                         atlas.combining_mark_quad(font_style_for_attrs(&cell.attrs), mark)
@@ -1617,7 +1649,7 @@ pub fn build_vertices_with_overlays_and_cursor_into(
     overlays: &[SolidQuad],
 ) {
     build_vertices_with_cursor_into(out, snapshot, atlas, cursor_style);
-    out.reserve(overlays.len() * VERTS_PER_QUAD);
+    out.reserve(overlays.len() * INSTANCES_PER_QUAD);
     for &overlay in overlays {
         push_solid_quad(out, overlay);
     }
@@ -1743,7 +1775,7 @@ fn push_cursor(
                 0.0,
             );
             if !cell.attrs.hidden()
-                && cell.ch != ' '
+                && cell_draws_base_glyph(cell.ch)
                 && let Some(bounds) =
                     atlas.glyph_quad_styled(font_style_for_attrs(&cell.attrs), cell.ch)
             {
@@ -1751,8 +1783,9 @@ fn push_cursor(
             }
             // The under-cursor glyph keeps its combining marks too, drawn in
             // the same contrast-derived color as the base (see the content
-            // pass for the anchoring rule).
-            if !cell.attrs.hidden() {
+            // pass for the anchoring rule). Placeholder cells suppress marks
+            // here as well — same sibling rule as the content pass.
+            if !cell.attrs.hidden() && cell_draws_combining_marks(cell.ch) {
                 for &mark in cell.combining() {
                     if let Some(bounds) =
                         atlas.combining_mark_quad(font_style_for_attrs(&cell.attrs), mark)

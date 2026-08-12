@@ -169,12 +169,12 @@ fn wide_color_glyph_lead_emits_one_two_cell_quad() {
 
     assert_eq!(
         verts.len(),
-        grid::VERTS_PER_QUAD,
+        grid::INSTANCES_PER_QUAD,
         "wide lead emits one quad; continuation run emits nothing"
     );
     assert_eq!(verts[0].pos, [0.0, 0.0]);
     assert_eq!(
-        verts[5].pos,
+        verts[0].end_pos,
         [atlas.cell.width as f32 * 2.0, atlas.cell.height as f32]
     );
 }
@@ -418,4 +418,37 @@ fn sixel_decoded_placement_composites() {
         0,
         "sixel ink stays within its single display cell"
     );
+}
+
+#[test]
+fn transparent_image_over_placeholder_has_no_glyph_ink() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // Placeholder under a semi-transparent z>=0 image: if the cell emitted tofu,
+    // glyph-colored pixels would show through the translucent tile. With the
+    // suppression rule only the background + image blend remains.
+    let mut terminal = Terminal::new(2, 1);
+    terminal.advance(format!("{}\u{0305}", odytty::core::PLACEHOLDER_CHAR).as_bytes());
+    let snapshot = terminal.snapshot();
+    let red = [200u8, 30, 30, 128];
+    let mut scene = ImageScene::default();
+    let id = insert_solid(&mut scene, atlas.cell.width, atlas.cell.height, red);
+    scene.place(PlacementRequest::new(id, GraphicsProtocol::Kitty, 0, 0, 1, 1).with_z_index(0));
+    let frame = composite_scene(&snapshot, &atlas, &scene, 0, CursorStyle::Block);
+
+    // Reference: blank cell under the same translucent image (no glyph path).
+    let blank = blank_snapshot(2, 1);
+    let blank_frame = composite_scene(&blank, &atlas, &scene, 0, CursorStyle::Block);
+    let (x0, y0, x1, y1) = frame.cell_bounds(0, 0);
+    for y in y0..y1 {
+        for x in x0..x1 {
+            assert_eq!(
+                quant3(frame.pixel(x, y)),
+                quant3(blank_frame.pixel(x, y)),
+                "placeholder under translucent image must match a blank cell at ({x},{y})"
+            );
+        }
+    }
 }

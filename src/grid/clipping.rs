@@ -40,154 +40,87 @@ impl VClip {
     }
 }
 
-/// A quad vertex whose vertical position and vertical UV can be clamped by
-/// [`clip_quads_vertical`]. Abstracts over the mono [`Vertex`] (atlas coverage +
-/// solid backgrounds) and the [`ColorGlyphVertex`] (emoji), so one clip routine
-/// serves both pane vertex streams. The horizontal axis and color are never
-/// touched — the clip is purely vertical.
-pub(crate) trait ClipQuadVertex {
-    fn clip_x(&self) -> f32;
-    fn set_clip_x(&mut self, x: f32);
-    fn clip_y(&self) -> f32;
-    fn set_clip_y(&mut self, y: f32);
-    fn clip_u(&self) -> f32;
-    fn set_clip_u(&mut self, u: f32);
-    fn clip_v(&self) -> f32;
-    fn set_clip_v(&mut self, v: f32);
+/// A compact quad instance whose rectangle and UV bounds can be clamped.
+pub(crate) trait ClipQuadInstance {
+    fn rect(&self) -> [f32; 4];
+    fn set_rect(&mut self, rect: [f32; 4]);
+    fn uv_rect(&self) -> [f32; 4];
+    fn set_uv_rect(&mut self, uv: [f32; 4]);
 }
 
-impl ClipQuadVertex for Vertex {
-    #[inline]
-    fn clip_x(&self) -> f32 {
-        self.pos[0]
+impl ClipQuadInstance for Vertex {
+    fn rect(&self) -> [f32; 4] {
+        [self.pos[0], self.pos[1], self.end_pos[0], self.end_pos[1]]
     }
-    #[inline]
-    fn set_clip_x(&mut self, x: f32) {
-        self.pos[0] = x;
+
+    fn set_rect(&mut self, rect: [f32; 4]) {
+        self.pos = [rect[0], rect[1]];
+        self.end_pos = [rect[2], rect[3]];
     }
-    #[inline]
-    fn clip_y(&self) -> f32 {
-        self.pos[1]
+
+    fn uv_rect(&self) -> [f32; 4] {
+        [self.uv[0], self.uv[1], self.end_uv[0], self.end_uv[1]]
     }
-    #[inline]
-    fn set_clip_y(&mut self, y: f32) {
-        self.pos[1] = y;
-    }
-    #[inline]
-    fn clip_u(&self) -> f32 {
-        self.uv[0]
-    }
-    #[inline]
-    fn set_clip_u(&mut self, u: f32) {
-        self.uv[0] = u;
-    }
-    #[inline]
-    fn clip_v(&self) -> f32 {
-        self.uv[1]
-    }
-    #[inline]
-    fn set_clip_v(&mut self, v: f32) {
-        self.uv[1] = v;
+
+    fn set_uv_rect(&mut self, uv: [f32; 4]) {
+        self.uv = [uv[0], uv[1]];
+        self.end_uv = [uv[2], uv[3]];
     }
 }
 
-impl ClipQuadVertex for ColorGlyphVertex {
-    #[inline]
-    fn clip_x(&self) -> f32 {
-        self.pos[0]
+impl ClipQuadInstance for ColorGlyphVertex {
+    fn rect(&self) -> [f32; 4] {
+        [self.pos[0], self.pos[1], self.end_pos[0], self.end_pos[1]]
     }
-    #[inline]
-    fn set_clip_x(&mut self, x: f32) {
-        self.pos[0] = x;
+
+    fn set_rect(&mut self, rect: [f32; 4]) {
+        self.pos = [rect[0], rect[1]];
+        self.end_pos = [rect[2], rect[3]];
     }
-    #[inline]
-    fn clip_y(&self) -> f32 {
-        self.pos[1]
+
+    fn uv_rect(&self) -> [f32; 4] {
+        [self.uv[0], self.uv[1], self.end_uv[0], self.end_uv[1]]
     }
-    #[inline]
-    fn set_clip_y(&mut self, y: f32) {
-        self.pos[1] = y;
-    }
-    #[inline]
-    fn clip_u(&self) -> f32 {
-        self.uv[0]
-    }
-    #[inline]
-    fn set_clip_u(&mut self, u: f32) {
-        self.uv[0] = u;
-    }
-    #[inline]
-    fn clip_v(&self) -> f32 {
-        self.uv[1]
-    }
-    #[inline]
-    fn set_clip_v(&mut self, v: f32) {
-        self.uv[1] = v;
+
+    fn set_uv_rect(&mut self, uv: [f32; 4]) {
+        self.uv = [uv[0], uv[1]];
+        self.end_uv = [uv[2], uv[3]];
     }
 }
 
 /// PANE-SUBCELL-CLIP: clamp every axis-aligned quad in `verts` to the vertical
 /// band `clip`, cropping a partial row's overhang via a UV adjustment (never a
 /// squash) exactly like [`push_glyph_quad_clipped_top`] does at the chrome seam.
-/// A quad entirely outside the band collapses to zero height (emits no
-/// fragments) rather than being removed, so the vertex COUNT is preserved — the
-/// caller's background/glyph segment split (keyed on a fixed background vertex
-/// count) stays valid.
+/// A quad entirely outside the band collapses to zero height rather than being
+/// removed, so the instance count and segment split stay valid.
 ///
 /// Inert when `clip` is [`VClip::NONE`] (the fast-path return), so at-rest and
-/// single-pane frames are byte-identical. Operates on the emitted geometry, so
-/// one pass serves backgrounds, coverage glyphs, colour glyphs, the cursor, and
-/// per-pane overlays uniformly. The quad vertex order is the fixed
-/// `[tl, bl, tr, tr, bl, br]` [`push_quad`] emits: indices 0/2/3 are the top
-/// edge, 1/4/5 the bottom.
-pub(crate) fn clip_quads_vertical<V: ClipQuadVertex>(verts: &mut [V], clip: VClip) {
+/// single-pane frames are byte-identical. One pass serves both compact streams.
+pub(crate) fn clip_quads_vertical<V: ClipQuadInstance>(instances: &mut [V], clip: VClip) {
     if !clip.active() {
         return;
     }
-    for quad in verts.chunks_exact_mut(VERTS_PER_QUAD) {
-        let y0 = quad[0].clip_y();
-        let y1 = quad[1].clip_y();
+    for instance in instances {
+        let [x0, y0, x1, y1] = instance.rect();
         let height = y1 - y0;
         if height <= 0.0 {
-            // Already degenerate (or malformed) — nothing to clamp.
             continue;
         }
-        // Entirely below the band: collapse to the bottom edge (zero height).
         if y0 >= clip.bottom_y {
-            for v in quad.iter_mut() {
-                v.set_clip_y(clip.bottom_y);
-            }
+            instance.set_rect([x0, clip.bottom_y, x1, clip.bottom_y]);
             continue;
         }
-        // Entirely above the band: collapse to the top edge (zero height).
         if y1 <= clip.top_y {
-            for v in quad.iter_mut() {
-                v.set_clip_y(clip.top_y);
-            }
+            instance.set_rect([x0, clip.top_y, x1, clip.top_y]);
             continue;
         }
-        let v0 = quad[0].clip_v();
-        let v1 = quad[1].clip_v();
-        // Crop the overhang above the band, pulling the top edge down to the
-        // seam and advancing its UV so the glyph is cropped, not scaled.
-        if y0 < clip.top_y {
-            let t = (clip.top_y - y0) / height;
-            let nv = v0 + t * (v1 - v0);
-            for &i in &[0usize, 2, 3] {
-                quad[i].set_clip_y(clip.top_y);
-                quad[i].set_clip_v(nv);
-            }
-        }
-        // Crop the overhang below the band (the sub-cell smear that would cross
-        // the divider), pulling the bottom edge up to the seam.
-        if y1 > clip.bottom_y {
-            let t = (clip.bottom_y - y0) / height;
-            let nv = v0 + t * (v1 - v0);
-            for &i in &[1usize, 4, 5] {
-                quad[i].set_clip_y(clip.bottom_y);
-                quad[i].set_clip_v(nv);
-            }
-        }
+        let [u0, v0, u1, v1] = instance.uv_rect();
+        let clipped_y0 = y0.max(clip.top_y);
+        let clipped_y1 = y1.min(clip.bottom_y);
+        let clipped_v0 = v0 + ((clipped_y0 - y0) / height) * (v1 - v0);
+        let clipped_v1 = v0 + ((clipped_y1 - y0) / height) * (v1 - v0);
+        instance.set_rect([x0, clipped_y0, x1, clipped_y1]);
+        instance.set_uv_rect([u0, clipped_v0, u1, clipped_v1]);
     }
 }
 
@@ -201,12 +134,9 @@ pub(crate) fn clip_quads_vertical<V: ClipQuadVertex>(verts: &mut [V], clip: VCli
 /// The multi-pane renderer applies this only to padded content panes. Chrome,
 /// single-pane rendering, and the padding-zero path never call it, preserving
 /// their established vertex streams exactly.
-pub(crate) fn clip_quads_to_rect<V: ClipQuadVertex>(verts: &mut [V], clip: [f32; 4]) {
-    for quad in verts.chunks_exact_mut(VERTS_PER_QUAD) {
-        let x0 = quad[0].clip_x();
-        let x1 = quad[2].clip_x();
-        let y0 = quad[0].clip_y();
-        let y1 = quad[1].clip_y();
+pub(crate) fn clip_quads_to_rect<V: ClipQuadInstance>(instances: &mut [V], clip: [f32; 4]) {
+    for instance in instances {
+        let [x0, y0, x1, y1] = instance.rect();
         let width = x1 - x0;
         let height = y1 - y0;
         if width <= 0.0 || height <= 0.0 {
@@ -214,67 +144,33 @@ pub(crate) fn clip_quads_to_rect<V: ClipQuadVertex>(verts: &mut [V], clip: [f32;
         }
 
         if x0 >= clip[2] {
-            for vertex in quad.iter_mut() {
-                vertex.set_clip_x(clip[2]);
-            }
+            instance.set_rect([clip[2], y0, clip[2], y1]);
             continue;
         }
         if x1 <= clip[0] {
-            for vertex in quad.iter_mut() {
-                vertex.set_clip_x(clip[0]);
-            }
+            instance.set_rect([clip[0], y0, clip[0], y1]);
             continue;
         }
         if y0 >= clip[3] {
-            for vertex in quad.iter_mut() {
-                vertex.set_clip_y(clip[3]);
-            }
+            instance.set_rect([x0, clip[3], x1, clip[3]]);
             continue;
         }
         if y1 <= clip[1] {
-            for vertex in quad.iter_mut() {
-                vertex.set_clip_y(clip[1]);
-            }
+            instance.set_rect([x0, clip[1], x1, clip[1]]);
             continue;
         }
 
-        let u0 = quad[0].clip_u();
-        let u1 = quad[2].clip_u();
-        if x0 < clip[0] {
-            let t = (clip[0] - x0) / width;
-            let cropped_u = u0 + t * (u1 - u0);
-            for &i in &[0usize, 1, 4] {
-                quad[i].set_clip_x(clip[0]);
-                quad[i].set_clip_u(cropped_u);
-            }
-        }
-        if x1 > clip[2] {
-            let t = (clip[2] - x0) / width;
-            let cropped_u = u0 + t * (u1 - u0);
-            for &i in &[2usize, 3, 5] {
-                quad[i].set_clip_x(clip[2]);
-                quad[i].set_clip_u(cropped_u);
-            }
-        }
-
-        let v0 = quad[0].clip_v();
-        let v1 = quad[1].clip_v();
-        if y0 < clip[1] {
-            let t = (clip[1] - y0) / height;
-            let cropped_v = v0 + t * (v1 - v0);
-            for &i in &[0usize, 2, 3] {
-                quad[i].set_clip_y(clip[1]);
-                quad[i].set_clip_v(cropped_v);
-            }
-        }
-        if y1 > clip[3] {
-            let t = (clip[3] - y0) / height;
-            let cropped_v = v0 + t * (v1 - v0);
-            for &i in &[1usize, 4, 5] {
-                quad[i].set_clip_y(clip[3]);
-                quad[i].set_clip_v(cropped_v);
-            }
-        }
+        let [u0, v0, u1, v1] = instance.uv_rect();
+        let clipped_x0 = x0.max(clip[0]);
+        let clipped_x1 = x1.min(clip[2]);
+        let clipped_y0 = y0.max(clip[1]);
+        let clipped_y1 = y1.min(clip[3]);
+        let clipped_u0 = u0 + ((clipped_x0 - x0) / width) * (u1 - u0);
+        let clipped_u1 = u0 + ((clipped_x1 - x0) / width) * (u1 - u0);
+        let clipped_v0 = v0 + ((clipped_y0 - y0) / height) * (v1 - v0);
+        let clipped_v1 = v0 + ((clipped_y1 - y0) / height) * (v1 - v0);
+        instance.set_rect([clipped_x0, clipped_y0, clipped_x1, clipped_y1]);
+        instance.set_uv_rect([clipped_u0, clipped_v0, clipped_u1, clipped_v1]);
     }
 }
 
@@ -286,18 +182,20 @@ pub(crate) fn clip_quads_to_rect<V: ClipQuadVertex>(verts: &mut [V], clip: [f32;
 /// row's backgrounds (not glyphs) up to the content top paints that strip in the
 /// row's own background instead of the clear/wallpaper colour.
 ///
-/// `bg_verts` is the background segment only (glyphs excluded); `row0_quads` is
+/// `bg_instances` is the background segment only (glyphs excluded); `row0_quads` is
 /// the count of non-continuation cells in the snapshot's first row (its
 /// background quads lead the segment in row-major order). Only the top edge is
 /// moved (indices 0/2/3), and only upward, so a quad already at or above `top_y`
 /// is untouched and the at-rest / single-pane path (never called) is unaffected.
-pub(crate) fn extend_first_row_bg_to_top(bg_verts: &mut [Vertex], row0_quads: usize, top_y: f32) {
-    let end = (row0_quads * VERTS_PER_QUAD).min(bg_verts.len());
-    for quad in bg_verts[..end].chunks_exact_mut(VERTS_PER_QUAD) {
-        for &i in &[0usize, 2, 3] {
-            if quad[i].pos[1] > top_y {
-                quad[i].pos[1] = top_y;
-            }
+pub(crate) fn extend_first_row_bg_to_top(
+    bg_instances: &mut [Vertex],
+    row0_quads: usize,
+    top_y: f32,
+) {
+    let end = row0_quads.min(bg_instances.len());
+    for instance in &mut bg_instances[..end] {
+        if instance.pos[1] > top_y {
+            instance.pos[1] = top_y;
         }
     }
 }

@@ -51,7 +51,7 @@ The canonical scene order is:
    the swapchain on the direct path.
 2. **Background image** — the configured wallpaper, when active.
 3. **Background cell quads** — solid color quads covering every cell background
-   (pass 1 of the cell pipeline, vertex range `0..background_count`).
+   (pass 1 of the cell pipeline, instance range `0..background_count`).
 4. **Below-zero images** — Kitty/Sixel placements with `z < 0` drawn by the
    image layer (`image_layer.draw_below`).
 5. **Cursor aura and large-jump follower** — the focused pane's one shape-aware
@@ -61,10 +61,10 @@ The canonical scene order is:
    both glyph lanes so text pixels are preserved exactly. Both are emitted only
    for the focused, live-tail pane and clipped to that pane's rect.
 6. **Coverage glyphs and decorations** — glyph coverage quads, underlines, and
-   strikethroughs (pass 2 of the cell pipeline, vertex range
+   strikethroughs (pass 2 of the cell pipeline, instance range
    `background_count..cell_count`).
 7. **Color-glyph quads** — premultiplied-RGBA color emoji bitmaps drawn by the
-   dedicated color-glyph pipeline (vertex range
+   dedicated color-glyph pipeline (instance range
    `0..color_glyph_vertex_count`).
 8. **Cursor and overlays** — the remaining cell-pipeline range,
    `cell_count..vertex_count`.
@@ -91,8 +91,14 @@ in-app **image lightbox** (the C4 viewer overlay; `src/native/image_layer.rs`,
 
 ### Cell pipeline (`cell.wgsl` / `cell_subpixel.wgsl`)
 
-Both shaders share the same vertex layout (`pos_px`, `uv`, `color`,
-`is_glyph`) and the same `Viewport` uniform block.
+Both shaders share one compact per-quad instance layout (`pos_px`,
+`end_pos_px`, `uv`, `end_uv`, `color`, `is_glyph`) and the same `Viewport`
+uniform block. `@builtin(vertex_index)` selects the fixed
+`[tl, bl, tr, tr, bl, br]` corner order, so one 64-byte instance replaces six
+48-byte expanded CPU vertices. The color-glyph shader uses the same expansion
+contract with its own compact position/UV/alpha instance. The buffers are
+grow-only and content changes refill reusable CPU storage; retained frames skip
+geometry uploads, while cursor-only frames rewrite only their bounded tail.
 
 **Grayscale path** (`cell.wgsl`, used when `SubpixelMode::Off`):
 
@@ -167,7 +173,9 @@ color emoji bitmaps. Entries are keyed by `(font_id, glyph_or_cluster_id,
 px_size, scale)`, not by Unicode scalar. The color-glyph pipeline uses a
 dedicated WGSL shader (inlined in `gpu/pipelines.rs`) and a premultiplied-alpha
 blend state (`gpu/pipeline_policy.rs`: `blend_state_for_color_glyphs`). The
-atlas grows in 4-row increments up to a cap of 4096 slots
+shader expands one compact quad instance per glyph, matching the mono cell
+pipeline's corner and UV interpolation contract. The atlas grows in 4-row
+increments up to a cap of 4096 slots
 (`MAX_COLOR_GLYPH_SLOTS`).
 
 ---

@@ -5,19 +5,22 @@ use bytemuck::{Pod, Zeroable};
 
 use super::*;
 
-/// One vertex of a cell quad. Matches the `VsIn` layout in `cell.wgsl`.
+/// One compact cell-quad instance. Matches the `VsIn` layout in `cell.wgsl`.
 ///
-/// `#[repr(C)]` with no implicit padding (8 + 8 + 16 + 4 + 12 = 48 bytes, all
-/// 4-byte-aligned `f32`s) so it is `Pod`/`Zeroable` and can be uploaded
-/// straight into a GPU buffer. `_pad` rounds the struct to a 16-byte multiple
-/// and keeps the layout explicit.
+/// The vertex shader expands the two position and UV corners into the fixed six
+/// vertices of two triangles. `#[repr(C)]` and the explicit padding keep the
+/// 64-byte layout `Pod`/`Zeroable` so it can be uploaded directly.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct Vertex {
-    /// Position in physical pixels, origin top-left.
+    /// Top-left position in physical pixels.
     pub pos: [f32; 2],
-    /// Atlas UV coordinates (only meaningful for glyph quads).
+    /// Bottom-right position in physical pixels.
+    pub end_pos: [f32; 2],
+    /// Top-left atlas UV coordinates (only meaningful for glyph quads).
     pub uv: [f32; 2],
+    /// Bottom-right atlas UV coordinates.
+    pub end_uv: [f32; 2],
     /// Linear-RGBA color (background fill, or glyph tint).
     pub color: [f32; 4],
     /// `1.0` for glyph quads (sample atlas as alpha), `0.0` for backgrounds.
@@ -27,19 +30,49 @@ pub struct Vertex {
 }
 
 impl Vertex {
-    pub(super) fn new(pos: [f32; 2], uv: [f32; 2], color: [f32; 4], is_glyph: f32) -> Self {
+    pub(super) fn new(
+        pos: [f32; 2],
+        end_pos: [f32; 2],
+        uv: [f32; 2],
+        end_uv: [f32; 2],
+        color: [f32; 4],
+        is_glyph: f32,
+    ) -> Self {
         Self {
             pos,
+            end_pos,
             uv,
+            end_uv,
             color,
             is_glyph,
             _pad: [0.0; 3],
         }
     }
+
+    /// Expand this instance exactly as the cell vertex shaders do.
+    ///
+    /// The fixed order is `[tl, bl, tr, tr, bl, br]`; keeping this CPU mirror
+    /// makes shader-side geometry semantics testable without a GPU adapter.
+    pub fn expanded_corners(&self) -> [([f32; 2], [f32; 2]); VERTS_PER_QUAD] {
+        let [x0, y0] = self.pos;
+        let [x1, y1] = self.end_pos;
+        let [u0, v0] = self.uv;
+        let [u1, v1] = self.end_uv;
+        [
+            ([x0, y0], [u0, v0]),
+            ([x0, y1], [u0, v1]),
+            ([x1, y0], [u1, v0]),
+            ([x1, y0], [u1, v0]),
+            ([x0, y1], [u0, v1]),
+            ([x1, y1], [u1, v1]),
+        ]
+    }
 }
 
-/// Number of vertices per quad (two triangles).
+/// Number of shader vertices expanded for each quad instance.
 pub const VERTS_PER_QUAD: usize = 6;
+/// Number of CPU/GPU instance records per quad.
+pub const INSTANCES_PER_QUAD: usize = 1;
 /// OKLab dim amount for the SGR-dim/faint attribute, chosen for perceived
 /// parity with the historical linear ×0.5 halving. OKLab lightness scales as
 /// the cube root of linear luminance, so the old linear ×0.5 lowered perceived
@@ -62,23 +95,58 @@ pub struct SolidQuad {
     pub color: [f32; 4],
 }
 
-/// One vertex of a premultiplied-RGBA color glyph quad.
+/// One compact instance of a premultiplied-RGBA color glyph quad.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Pod, Zeroable)]
 pub struct ColorGlyphVertex {
-    /// Position in physical pixels, origin top-left.
+    /// Top-left position in physical pixels.
     pub pos: [f32; 2],
-    /// Color glyph atlas UV coordinates.
+    /// Bottom-right position in physical pixels.
+    pub end_pos: [f32; 2],
+    /// Top-left color glyph atlas UV coordinates.
     pub uv: [f32; 2],
+    /// Bottom-right color glyph atlas UV coordinates.
+    pub end_uv: [f32; 2],
     /// VE4 new-output fade: uniform multiplier applied to the sampled
     /// premultiplied texel (all four channels), so a color glyph on a fading
     /// row ramps in exactly like mono ink. `1.0` everywhere off the fade path.
     pub alpha: f32,
+    /// Explicit padding to a 16-byte stride multiple.
+    pub _pad: [f32; 3],
 }
 
 impl ColorGlyphVertex {
-    pub(super) fn new(pos: [f32; 2], uv: [f32; 2], alpha: f32) -> Self {
-        Self { pos, uv, alpha }
+    pub(super) fn new(
+        pos: [f32; 2],
+        end_pos: [f32; 2],
+        uv: [f32; 2],
+        end_uv: [f32; 2],
+        alpha: f32,
+    ) -> Self {
+        Self {
+            pos,
+            end_pos,
+            uv,
+            end_uv,
+            alpha,
+            _pad: [0.0; 3],
+        }
+    }
+
+    /// Expand this color-glyph instance using the shared quad-corner contract.
+    pub fn expanded_corners(&self) -> [([f32; 2], [f32; 2]); VERTS_PER_QUAD] {
+        let [x0, y0] = self.pos;
+        let [x1, y1] = self.end_pos;
+        let [u0, v0] = self.uv;
+        let [u1, v1] = self.end_uv;
+        [
+            ([x0, y0], [u0, v0]),
+            ([x0, y1], [u0, v1]),
+            ([x1, y0], [u1, v0]),
+            ([x1, y0], [u1, v0]),
+            ([x0, y1], [u0, v1]),
+            ([x1, y1], [u1, v1]),
+        ]
     }
 }
 
@@ -246,12 +314,11 @@ impl RowFade<'_> {
     }
 }
 
-/// Push a pixel-space rectangle as two triangles into `out`.
+/// Push one compact pixel-space rectangle instance into `out`.
 ///
 /// `rect` is `[x0, y0, x1, y1]` in pixels; `uv` is `[u0, v0, u1, v1]`. For
 /// background quads `uv` is ignored by the shader but still written so every
-/// vertex has a defined value. Triangles are emitted with no particular winding
-/// because the pipeline disables face culling.
+/// instance has a defined value. The vertex shader expands it to two triangles.
 pub(super) fn push_quad(
     out: &mut Vec<Vertex>,
     rect: [f32; 4],
@@ -261,9 +328,12 @@ pub(super) fn push_quad(
 ) {
     let [x0, y0, x1, y1] = rect;
     let [u0, v0, u1, v1] = uv;
-    let tl = Vertex::new([x0, y0], [u0, v0], color, is_glyph);
-    let tr = Vertex::new([x1, y0], [u1, v0], color, is_glyph);
-    let bl = Vertex::new([x0, y1], [u0, v1], color, is_glyph);
-    let br = Vertex::new([x1, y1], [u1, v1], color, is_glyph);
-    out.extend_from_slice(&[tl, bl, tr, tr, bl, br]);
+    out.push(Vertex::new(
+        [x0, y0],
+        [x1, y1],
+        [u0, v0],
+        [u1, v1],
+        color,
+        is_glyph,
+    ));
 }

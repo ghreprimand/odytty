@@ -1168,7 +1168,8 @@ pub struct Settings {
     /// reproduces the historical geometric box-drawing weights byte-identically;
     /// other values scale the rule thickness.
     pub box_thickness: f32,
-    /// ASCII programming ligatures via contextual OpenType `calt`. Enabled by
+    /// Programming ligatures via contextual OpenType `calt` (ASCII plus a
+    /// curated non-ASCII operator allowlist). Enabled by
     /// default; logical cells, cursor coordinates, copy, and selection remain
     /// unchanged.
     pub ligatures: bool,

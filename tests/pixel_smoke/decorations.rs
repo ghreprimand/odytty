@@ -191,7 +191,7 @@ fn wide_char_spans_two_cells_without_double_draw() {
     let mut verts = Vec::new();
     grid::build_vertices_with_cursor_into(&mut verts, &snapshot, &atlas, CursorStyle::Block);
     let glyph_quads = verts
-        .chunks_exact(grid::VERTS_PER_QUAD)
+        .chunks_exact(grid::INSTANCES_PER_QUAD)
         .filter(|q| q[0].is_glyph > 0.5)
         .count();
     assert_eq!(
@@ -247,7 +247,7 @@ fn wide_glyph_inks_across_the_seam_when_supported() {
     let mut verts = Vec::new();
     grid::build_vertices_with_cursor_into(&mut verts, &snapshot, &atlas, CursorStyle::Block);
     let glyph_quads = verts
-        .chunks_exact(grid::VERTS_PER_QUAD)
+        .chunks_exact(grid::INSTANCES_PER_QUAD)
         .filter(|q| q[0].is_glyph > 0.5)
         .count();
     assert_eq!(

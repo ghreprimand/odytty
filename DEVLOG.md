@@ -7,6 +7,44 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Instanced cell geometry; extended ligatures; placeholder tofu fix
+
+Three renderer/shaping changes land together because they share the grid
+geometry and pixel-harness surface.
+
+**Instanced cell geometry.** The grid and color-glyph builders now emit one
+compact instance per quad instead of six expanded vertices; the grayscale,
+subpixel, and color-glyph vertex shaders expand the fixed corners. For a
+dense 160x50 grid with one background and one glyph quad per cell, the
+upload payload drops 4,608,000 -> 1,024,000 bytes (a struct-layout result,
+not a product benchmark). CPU differential tests pin positions, UVs, colors,
+and expansion order against the previous triangle stream; the real-pipeline
+readback and pixel-smoke suites pin compositor output. The shared wgpu path
+applies identically to Vulkan, Metal, and DX12; local Vulkan
+release-profile validation remains a required manual step, and Metal/DX12
+carry automated build/test evidence only until their manual-validation rows
+are executed. Row-granular dirty regions stay deferred: a bounded
+geometry-only 80x24 quick-profile measurement put a full build_vertices()
+at 208.6 us/op against 0.1 us/op for the cursor-only tail — a
+sub-millisecond full rebuild does not justify dirty-row state across core,
+snapshot, shaping, multi-pane assembly, and GPU buffer offsets.
+
+**Extended ligature coverage.** A curated `SHAPING_OPERATOR_ALLOWLIST`
+(roughly two dozen common non-ASCII programming operators and arrows) now
+joins the ASCII `calt` overlay path. Open-ended stylistic sets (`ssXX`)
+remain deferred. Plain ASCII content without allowlisted scalars stays
+byte-identical to the pre-allowlist path, pinned by a differential test.
+
+**Placeholder tofu fix.** Kitty Unicode placeholder cells (U+10EEEE) no
+longer emit a base or diacritic glyph under or beside the image they
+anchor — the placeholder is data, not text. Snapshot and copy behavior keep
+the character; only glyph emission is suppressed, including under the
+cursor. Pixel tests pin both.
+
+Gate: fmt, clippy -D warnings, full `cargo test --locked` (4,359 lib tests
+plus every integration suite), production-file-guard, and the RustSec audit
+all pass; grid.rs sits at 1,861 lines under the 2,000 guard.
+
 ## 2026-08-12 -- iTerm2 inline images (OSC 1337 File=)
 
 The OSC 1337 dispatch now routes `File=` alongside the existing `Button=`

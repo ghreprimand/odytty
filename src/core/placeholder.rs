@@ -43,7 +43,7 @@ use crate::core::types::{Cell, Color};
 use crate::graphics::{GraphicsProtocol, ImageScene, PlacementId, SourceRect, VisiblePlacement};
 
 /// The Kitty graphics Unicode placeholder character.
-pub(crate) const PLACEHOLDER_CHAR: char = '\u{10EEEE}';
+pub const PLACEHOLDER_CHAR: char = '\u{10EEEE}';
 
 /// Id namespace for synthesized placeholder placements. Real placements are
 /// numbered from a counter starting at 1, so reserving the top bit keeps the

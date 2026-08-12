@@ -9,25 +9,74 @@ fn atlas() -> Option<GlyphAtlas> {
 }
 
 fn quad_rect(verts: &[Vertex], quad_index: usize) -> [f32; 4] {
-    let start = quad_index * VERTS_PER_QUAD;
-    let quad = &verts[start..start + VERTS_PER_QUAD];
-    let x0 = quad
-        .iter()
-        .map(|vertex| vertex.pos[0])
-        .fold(f32::INFINITY, f32::min);
-    let y0 = quad
-        .iter()
-        .map(|vertex| vertex.pos[1])
-        .fold(f32::INFINITY, f32::min);
-    let x1 = quad
-        .iter()
-        .map(|vertex| vertex.pos[0])
-        .fold(f32::NEG_INFINITY, f32::max);
-    let y1 = quad
-        .iter()
-        .map(|vertex| vertex.pos[1])
-        .fold(f32::NEG_INFINITY, f32::max);
-    [x0, y0, x1, y1]
+    let instance = &verts[quad_index * INSTANCES_PER_QUAD];
+    [
+        instance.pos[0],
+        instance.pos[1],
+        instance.end_pos[0],
+        instance.end_pos[1],
+    ]
+}
+
+#[test]
+fn compact_cell_instance_expands_to_the_legacy_triangle_stream() {
+    let mut instances = Vec::new();
+    push_quad(
+        &mut instances,
+        [2.0, 3.0, 11.0, 17.0],
+        [0.125, 0.25, 0.75, 0.875],
+        [0.1, 0.2, 0.3, 0.4],
+        1.0,
+    );
+    assert_eq!(instances.len(), INSTANCES_PER_QUAD);
+    assert_eq!(
+        instances[0].expanded_corners(),
+        [
+            ([2.0, 3.0], [0.125, 0.25]),
+            ([2.0, 17.0], [0.125, 0.875]),
+            ([11.0, 3.0], [0.75, 0.25]),
+            ([11.0, 3.0], [0.75, 0.25]),
+            ([2.0, 17.0], [0.125, 0.875]),
+            ([11.0, 17.0], [0.75, 0.875]),
+        ]
+    );
+    assert_eq!(instances[0].color, [0.1, 0.2, 0.3, 0.4]);
+    assert_eq!(instances[0].is_glyph, 1.0);
+}
+
+#[test]
+fn compact_color_glyph_instance_uses_the_same_corner_contract() {
+    let mut instances = Vec::new();
+    push_color_glyph_quad(
+        &mut instances,
+        [4.0, 5.0, 12.0, 19.0],
+        [0.0, 0.2, 0.5, 0.9],
+        0.625,
+    );
+    assert_eq!(instances.len(), INSTANCES_PER_QUAD);
+    assert_eq!(
+        instances[0].expanded_corners(),
+        [
+            ([4.0, 5.0], [0.0, 0.2]),
+            ([4.0, 19.0], [0.0, 0.9]),
+            ([12.0, 5.0], [0.5, 0.2]),
+            ([12.0, 5.0], [0.5, 0.2]),
+            ([4.0, 19.0], [0.0, 0.9]),
+            ([12.0, 19.0], [0.5, 0.9]),
+        ]
+    );
+    assert_eq!(instances[0].alpha, 0.625);
+}
+
+#[test]
+fn compact_cell_instances_reduce_dense_upload_bytes() {
+    const DENSE_QUADS: usize = 160 * 50 * 2;
+    const LEGACY_VERTEX_BYTES: usize = 48;
+    let before = DENSE_QUADS * VERTS_PER_QUAD * LEGACY_VERTEX_BYTES;
+    let after = DENSE_QUADS * std::mem::size_of::<Vertex>();
+    assert_eq!(before, 4_608_000);
+    assert_eq!(after, 1_024_000);
+    assert!(after < before);
 }
 
 #[test]
@@ -43,7 +92,7 @@ fn known_grid_vertex_count() {
     term.advance(b"\x1b[?25lHi");
     let snapshot = term.snapshot();
     let verts = build_vertices(&snapshot, &atlas);
-    let expected = (5 + 2) * VERTS_PER_QUAD;
+    let expected = (5 + 2) * INSTANCES_PER_QUAD;
     assert_eq!(verts.len(), expected);
 }
 
@@ -59,7 +108,7 @@ fn blank_cells_emit_background_only() {
     term.advance(b"\x1b[?25l");
     let snapshot = term.snapshot();
     let verts = build_vertices(&snapshot, &atlas);
-    assert_eq!(verts.len(), 3 * 2 * VERTS_PER_QUAD);
+    assert_eq!(verts.len(), 3 * 2 * INSTANCES_PER_QUAD);
     assert!(verts.iter().all(|v| v.is_glyph == 0.0));
 }
 
@@ -84,7 +133,7 @@ fn inverse_swaps_foreground_and_background() {
     inv.advance(b"\x1b[7mX\x1b[0m");
     let inv_verts = build_vertices(&inv.snapshot(), &atlas);
     let inv_bg = inv_verts[0].color; // first quad is the background
-    let inv_glyph = inv_verts[VERTS_PER_QUAD].color; // second quad is the glyph
+    let inv_glyph = inv_verts[INSTANCES_PER_QUAD].color; // second quad is the glyph
 
     assert_eq!(inv_bg, text::foreground_linear(Color::Default));
     assert_eq!(inv_glyph, text::background_linear(Color::Default));
@@ -128,8 +177,8 @@ fn unsupported_printable_emits_fallback_glyph_quad() {
     term.advance("é".as_bytes());
     let verts = build_vertices(&term.snapshot(), &atlas);
     // One background quad plus one fallback-box glyph quad.
-    assert_eq!(verts.len(), 2 * VERTS_PER_QUAD);
-    let glyph = &verts[VERTS_PER_QUAD];
+    assert_eq!(verts.len(), 2 * INSTANCES_PER_QUAD);
+    let glyph = &verts[INSTANCES_PER_QUAD];
     assert_eq!(glyph.is_glyph, 1.0);
     // The glyph quad uses the shared fallback UV — identical for any other
     // unsupported printable codepoint.
@@ -155,7 +204,7 @@ fn wide_continuation_spacer_emits_nothing() {
     assert!(snapshot.cells[1].wide_continuation);
     let verts = build_vertices(&snapshot, &atlas);
     // lead: bg + fallback glyph; spacer: nothing; two blanks: bg each = 4 quads.
-    assert_eq!(verts.len(), 4 * VERTS_PER_QUAD);
+    assert_eq!(verts.len(), 4 * INSTANCES_PER_QUAD);
 }
 
 #[test]
@@ -173,7 +222,7 @@ fn cursor_visible_emits_one_block_quad_on_blank_cell() {
     hidden.advance(b"\x1b[?25l");
     let without_cursor = build_vertices(&hidden.snapshot(), &atlas);
 
-    assert_eq!(with_cursor.len() - without_cursor.len(), VERTS_PER_QUAD);
+    assert_eq!(with_cursor.len() - without_cursor.len(), INSTANCES_PER_QUAD);
 }
 
 #[test]
@@ -186,7 +235,7 @@ fn hidden_cursor_emits_no_cursor_quad() {
     term.advance(b"\x1b[?25l");
     let verts = build_vertices(&term.snapshot(), &atlas);
     // Four blank cells, cursor hidden: only the four cell backgrounds.
-    assert_eq!(verts.len(), 4 * VERTS_PER_QUAD);
+    assert_eq!(verts.len(), 4 * INSTANCES_PER_QUAD);
 }
 
 #[test]
@@ -206,7 +255,7 @@ fn cursor_quad_sits_at_cursor_cell() {
 
     let verts = build_vertices(&snapshot, &atlas);
     // The cursor cell is blank, so the cursor is the final background quad.
-    let cursor_tl = verts[verts.len() - VERTS_PER_QUAD].pos;
+    let cursor_tl = verts[verts.len() - INSTANCES_PER_QUAD].pos;
     assert_eq!(cursor_tl, [3.0 * cell_w, 1.0 * cell_h]);
 }
 
@@ -235,7 +284,7 @@ fn cursor_position_is_clamped_to_grid_bounds() {
 
     // Must not panic, and the clamped cursor lands on the last cell (1,1).
     let verts = build_vertices(&snapshot, &atlas);
-    let cursor_tl = verts[verts.len() - VERTS_PER_QUAD].pos;
+    let cursor_tl = verts[verts.len() - INSTANCES_PER_QUAD].pos;
     assert_eq!(cursor_tl, [1.0 * cell_w, 1.0 * cell_h]);
 }
 
@@ -258,10 +307,10 @@ fn cursor_over_glyph_redraws_it_inverted() {
 
     let verts = build_vertices(&snapshot, &atlas);
     // Cell bg, cell glyph, cursor block, cursor glyph = 4 quads.
-    assert_eq!(verts.len(), 4 * VERTS_PER_QUAD);
+    assert_eq!(verts.len(), 4 * INSTANCES_PER_QUAD);
 
-    let cursor_block = verts[2 * VERTS_PER_QUAD];
-    let cursor_glyph = verts[3 * VERTS_PER_QUAD];
+    let cursor_block = verts[2 * INSTANCES_PER_QUAD];
+    let cursor_glyph = verts[3 * INSTANCES_PER_QUAD];
     // Block carries the cell's foreground; the redrawn glyph the background.
     assert_eq!(cursor_block.is_glyph, 0.0);
     assert_eq!(cursor_block.color, text::foreground_linear(Color::Default));
@@ -284,7 +333,7 @@ fn colored_row_uses_ansi_palette() {
     let mut term = Terminal::new(1, 1);
     term.advance(b"\x1b[31mR\x1b[0m");
     let verts = build_vertices(&term.snapshot(), &atlas);
-    let glyph = verts[VERTS_PER_QUAD].color;
+    let glyph = verts[INSTANCES_PER_QUAD].color;
     assert_eq!(glyph, text::foreground_linear(Color::Indexed(1)));
 }
 
@@ -324,7 +373,7 @@ fn styled_glyph_uses_styled_uv_rect() {
     term.advance(b"\x1b[?25l\x1b[1mB");
     let verts = build_vertices(&term.snapshot(), &atlas);
 
-    let glyph = verts[VERTS_PER_QUAD];
+    let glyph = verts[INSTANCES_PER_QUAD];
     assert_eq!(glyph.is_glyph, 1.0);
     assert_eq!(glyph.uv, [expected.uv[0], expected.uv[1]]);
 }
@@ -343,18 +392,18 @@ fn backgrounds_are_batched_before_glyphs() {
     term.advance(b"\x1b[?25lHi");
     let verts = build_vertices(&term.snapshot(), &atlas);
     // Two backgrounds, then two glyphs.
-    assert_eq!(verts.len(), 4 * VERTS_PER_QUAD);
+    assert_eq!(verts.len(), 4 * INSTANCES_PER_QUAD);
     assert_eq!(verts[0].is_glyph, 0.0, "cell 0 background first");
     assert_eq!(
-        verts[VERTS_PER_QUAD].is_glyph, 0.0,
+        verts[INSTANCES_PER_QUAD].is_glyph, 0.0,
         "cell 1 background next"
     );
     assert_eq!(
-        verts[2 * VERTS_PER_QUAD].is_glyph,
+        verts[2 * INSTANCES_PER_QUAD].is_glyph,
         1.0,
         "glyphs only after all backgrounds"
     );
-    assert_eq!(verts[3 * VERTS_PER_QUAD].is_glyph, 1.0);
+    assert_eq!(verts[3 * INSTANCES_PER_QUAD].is_glyph, 1.0);
 }
 
 /// A glyph quad is positioned and sized from the atlas's bearing-aware
@@ -407,8 +456,8 @@ fn underline_attribute_appends_thin_solid_quad() {
     term.advance(b"\x1b[?25l\x1b[4mU");
     let verts = build_vertices(&term.snapshot(), &atlas);
 
-    assert_eq!(verts.len(), 3 * VERTS_PER_QUAD);
-    let line = verts[2 * VERTS_PER_QUAD];
+    assert_eq!(verts.len(), 3 * INSTANCES_PER_QUAD);
+    let line = verts[2 * INSTANCES_PER_QUAD];
     let expected = underline_rect(
         0.0,
         0.0,
@@ -439,8 +488,8 @@ fn underline_color_uses_sgr_58_when_set() {
     let snapshot = term.snapshot();
     let verts = build_vertices(&snapshot, &atlas);
 
-    assert_eq!(verts.len(), 3 * VERTS_PER_QUAD);
-    let line = verts[2 * VERTS_PER_QUAD];
+    assert_eq!(verts.len(), 3 * INSTANCES_PER_QUAD);
+    let line = verts[2 * INSTANCES_PER_QUAD];
     assert_eq!(
         line.color,
         foreground_linear(&snapshot.colors, Color::Indexed(2))
@@ -468,8 +517,8 @@ fn underline_color_truecolor_passthrough_at_default_floor() {
     let snapshot = term.snapshot();
     let verts = build_vertices(&snapshot, &atlas);
 
-    assert_eq!(verts.len(), 3 * VERTS_PER_QUAD);
-    let line = verts[2 * VERTS_PER_QUAD];
+    assert_eq!(verts.len(), 3 * INSTANCES_PER_QUAD);
+    let line = verts[2 * INSTANCES_PER_QUAD];
     assert_eq!(
         line.color,
         foreground_linear(&snapshot.colors, Color::Rgb(180, 90, 30)),
@@ -488,7 +537,7 @@ fn double_underline_appends_two_solid_quads() {
     term.advance(b"\x1b[?25l\x1b[4:2mD");
     let verts = build_vertices(&term.snapshot(), &atlas);
 
-    assert_eq!(verts.len(), 4 * VERTS_PER_QUAD);
+    assert_eq!(verts.len(), 4 * INSTANCES_PER_QUAD);
     let upper = quad_rect(&verts, 2);
     let lower = quad_rect(&verts, 3);
     let expected_lower = underline_rect(
@@ -513,7 +562,7 @@ fn dotted_underline_emits_gapped_dot_quads() {
     let mut term = Terminal::new(1, 1);
     term.advance(b"\x1b[?25l\x1b[4:4mO");
     let verts = build_vertices(&term.snapshot(), &atlas);
-    let decoration_quads = verts.len() / VERTS_PER_QUAD - 2;
+    let decoration_quads = verts.len() / INSTANCES_PER_QUAD - 2;
 
     assert!(decoration_quads >= 2);
     let first = quad_rect(&verts, 2);
@@ -534,7 +583,7 @@ fn dashed_underline_emits_segmented_quads() {
     let verts = build_vertices(&term.snapshot(), &atlas);
     let first_dash = quad_rect(&verts, 2);
 
-    assert!(verts.len() > 3 * VERTS_PER_QUAD);
+    assert!(verts.len() > 3 * INSTANCES_PER_QUAD);
     assert!(first_dash[2] - first_dash[0] < atlas.cell.width as f32 * 2.0);
 }
 
@@ -548,7 +597,7 @@ fn curly_underline_emits_stepped_quads() {
     let mut term = Terminal::new(2, 1);
     term.advance("\x1b[?25l\x1b[4:3m表".as_bytes());
     let verts = build_vertices(&term.snapshot(), &atlas);
-    let decoration_quads = verts.len() / VERTS_PER_QUAD - 2;
+    let decoration_quads = verts.len() / INSTANCES_PER_QUAD - 2;
 
     assert!(decoration_quads >= 2);
     let first = quad_rect(&verts, 2);
@@ -605,7 +654,7 @@ fn dim_attribute_scales_effective_foreground() {
     let verts = build_vertices(&term.snapshot(), &atlas);
 
     assert_eq!(
-        verts[VERTS_PER_QUAD].color,
+        verts[INSTANCES_PER_QUAD].color,
         dim_color(text::foreground_linear(Color::Indexed(1)))
     );
 }
@@ -692,7 +741,7 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
 
     // === Baseline at the default passthrough floor (1.0). ===
     assert_eq!(text::min_contrast(), 1.0);
-    let body_unfloored = build_vertices(&body, &atlas)[VERTS_PER_QUAD].color;
+    let body_unfloored = build_vertices(&body, &atlas)[INSTANCES_PER_QUAD].color;
     assert_eq!(
         body_unfloored,
         foreground_linear(&body.colors, Color::Rgb(20, 20, 20)),
@@ -701,22 +750,22 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
     let mut cur_base = Vec::new();
     build_vertices_with_cursor_into(&mut cur_base, &cur, &atlas, CursorStyle::Block);
     // 4 quads: cell bg, cell glyph, cursor block, cursor under-glyph.
-    assert_eq!(cur_base.len(), 4 * VERTS_PER_QUAD);
-    let cur_unfloored = cur_base[3 * VERTS_PER_QUAD].color;
+    assert_eq!(cur_base.len(), 4 * INSTANCES_PER_QUAD);
+    let cur_unfloored = cur_base[3 * INSTANCES_PER_QUAD].color;
     let mut combo_base = Vec::new();
     build_combo(&mut combo_base);
-    let combo_unfloored = combo_base[VERTS_PER_QUAD].color;
+    let combo_unfloored = combo_base[INSTANCES_PER_QUAD].color;
     let combo_bg = combo_base[0].color;
     // Case 4 baseline: at the default floor the explicit underline color is an
     // exact passthrough of its raw resolved color (the new U1 enforce call is a
     // verifiable no-op at min_contrast = 1.0).
-    let uline_unfloored = build_vertices(&uline, &atlas)[2 * VERTS_PER_QUAD].color;
+    let uline_unfloored = build_vertices(&uline, &atlas)[2 * INSTANCES_PER_QUAD].color;
     assert_eq!(
         uline_unfloored, uline_raw,
         "default floor: explicit underline color must be byte-identical passthrough"
     );
     // Case 5 baseline: same passthrough guarantee for the 256-color underline.
-    let uidx_unfloored = build_vertices(&uidx, &atlas)[2 * VERTS_PER_QUAD].color;
+    let uidx_unfloored = build_vertices(&uidx, &atlas)[2 * INSTANCES_PER_QUAD].color;
     assert_eq!(
         uidx_unfloored, uidx_raw,
         "default floor: 256-color underline color must be byte-identical passthrough"
@@ -734,16 +783,16 @@ fn min_contrast_floor_lifts_at_both_resolve_sites_and_after_dims() {
 
     // === Raise to AAA (7.0), rebuild all three, then restore. ===
     text::set_min_contrast(7.0);
-    let body_floored = build_vertices(&body, &atlas)[VERTS_PER_QUAD].color;
+    let body_floored = build_vertices(&body, &atlas)[INSTANCES_PER_QUAD].color;
     let mut cur_hi = Vec::new();
     build_vertices_with_cursor_into(&mut cur_hi, &cur, &atlas, CursorStyle::Block);
-    let cur_floored = cur_hi[3 * VERTS_PER_QUAD].color;
+    let cur_floored = cur_hi[3 * INSTANCES_PER_QUAD].color;
     let mut combo_hi = Vec::new();
     build_combo(&mut combo_hi);
-    let combo_floored = combo_hi[VERTS_PER_QUAD].color;
+    let combo_floored = combo_hi[INSTANCES_PER_QUAD].color;
     let combo_hi_bg = combo_hi[0].color;
-    let uline_floored = build_vertices(&uline, &atlas)[2 * VERTS_PER_QUAD].color;
-    let uidx_floored = build_vertices(&uidx, &atlas)[2 * VERTS_PER_QUAD].color;
+    let uline_floored = build_vertices(&uline, &atlas)[2 * INSTANCES_PER_QUAD].color;
+    let uidx_floored = build_vertices(&uidx, &atlas)[2 * INSTANCES_PER_QUAD].color;
     text::set_min_contrast(1.0); // restore before any assertion can unwind
 
     // --- Case 1: body site lifted and meets the floor. ---
@@ -875,7 +924,7 @@ fn hidden_attribute_suppresses_glyph_quad() {
     term.advance(b"\x1b[?25l\x1b[8mH");
     let verts = build_vertices(&term.snapshot(), &atlas);
 
-    assert_eq!(verts.len(), VERTS_PER_QUAD);
+    assert_eq!(verts.len(), INSTANCES_PER_QUAD);
     assert!(verts.iter().all(|v| v.is_glyph == 0.0));
 }
 
@@ -895,8 +944,8 @@ fn strikethrough_attribute_appends_thin_solid_quad() {
     term.advance(b"\x1b[?25l\x1b[9mS");
     let verts = build_vertices(&term.snapshot(), &atlas);
 
-    assert_eq!(verts.len(), 3 * VERTS_PER_QUAD);
-    let line = verts[2 * VERTS_PER_QUAD];
+    assert_eq!(verts.len(), 3 * INSTANCES_PER_QUAD);
+    let line = verts[2 * INSTANCES_PER_QUAD];
     let expected = strikethrough_rect(
         0.0,
         0.0,
@@ -944,8 +993,8 @@ fn underline_cursor_emits_single_bottom_bar() {
     let mut verts = Vec::new();
     build_vertices_with_cursor_into(&mut verts, &term.snapshot(), &atlas, CursorStyle::Underline);
     // Two blank-cell backgrounds + one cursor bar.
-    assert_eq!(verts.len(), 3 * VERTS_PER_QUAD);
-    let bar = verts[verts.len() - VERTS_PER_QUAD];
+    assert_eq!(verts.len(), 3 * INSTANCES_PER_QUAD);
+    let bar = verts[verts.len() - INSTANCES_PER_QUAD];
     let expected = cursor_underline_rect(0.0, 0.0, cell_w, cell_h);
     assert_eq!(bar.is_glyph, 0.0);
     assert_eq!(bar.pos, [expected[0], expected[1]]);
@@ -971,8 +1020,8 @@ fn bar_cursor_emits_single_left_bar() {
     let term = Terminal::new(2, 1);
     let mut verts = Vec::new();
     build_vertices_with_cursor_into(&mut verts, &term.snapshot(), &atlas, CursorStyle::Bar);
-    assert_eq!(verts.len(), 3 * VERTS_PER_QUAD);
-    let bar = verts[verts.len() - VERTS_PER_QUAD];
+    assert_eq!(verts.len(), 3 * INSTANCES_PER_QUAD);
+    let bar = verts[verts.len() - INSTANCES_PER_QUAD];
     let expected = cursor_bar_rect(0.0, 0.0, cell_w, cell_h);
     assert_eq!(bar.is_glyph, 0.0);
     assert_eq!(bar.pos, [expected[0], expected[1]]);
@@ -1105,7 +1154,7 @@ fn unfocused_block_cursor_is_a_four_quad_hollow_outline() {
             ..CursorRenderParams::default()
         },
     );
-    assert_eq!(verts.len(), 4 * VERTS_PER_QUAD, "four border quads");
+    assert_eq!(verts.len(), 4 * INSTANCES_PER_QUAD, "four border quads");
 
     let cell_w = atlas.cell.width as f32;
     let cell_h = atlas.cell.height as f32;
@@ -1115,17 +1164,11 @@ fn unfocused_block_cursor_is_a_four_quad_hollow_outline() {
         [0.0, 0.0, 1.0, cell_h],
         [cell_w - 1.0, 0.0, cell_w, cell_h],
     ];
-    for (quad, expected_rect) in verts.chunks_exact(VERTS_PER_QUAD).zip(expected) {
-        let left = quad.iter().map(|v| v.pos[0]).fold(f32::INFINITY, f32::min);
-        let top = quad.iter().map(|v| v.pos[1]).fold(f32::INFINITY, f32::min);
-        let right = quad
-            .iter()
-            .map(|v| v.pos[0])
-            .fold(f32::NEG_INFINITY, f32::max);
-        let bottom = quad
-            .iter()
-            .map(|v| v.pos[1])
-            .fold(f32::NEG_INFINITY, f32::max);
+    for (quad, expected_rect) in verts.chunks_exact(INSTANCES_PER_QUAD).zip(expected) {
+        let left = quad[0].pos[0];
+        let top = quad[0].pos[1];
+        let right = quad[0].end_pos[0];
+        let bottom = quad[0].end_pos[1];
         assert_eq!([left, top, right, bottom], expected_rect);
         assert!(quad.iter().all(|v| v.is_glyph == 0.0));
         assert!(
@@ -1186,16 +1229,20 @@ fn unfocused_block_leaves_the_existing_glyph_in_normal_foreground() {
         },
     );
 
-    assert_eq!(cell_vertices, 2 * VERTS_PER_QUAD, "cell background + glyph");
-    assert_eq!(verts[VERTS_PER_QUAD].is_glyph, 1.0);
     assert_eq!(
-        verts[VERTS_PER_QUAD].color,
+        cell_vertices,
+        2 * INSTANCES_PER_QUAD,
+        "cell background + glyph"
+    );
+    assert_eq!(verts[INSTANCES_PER_QUAD].is_glyph, 1.0);
+    assert_eq!(
+        verts[INSTANCES_PER_QUAD].color,
         text::foreground_linear(Color::Default),
         "the glyph keeps its normal foreground color"
     );
     assert_eq!(
         verts.len() - cell_vertices,
-        4 * VERTS_PER_QUAD,
+        4 * INSTANCES_PER_QUAD,
         "the cursor layer adds only the hollow border"
     );
 }
@@ -1247,7 +1294,7 @@ fn hidden_cursor_emits_nothing_for_any_style() {
     for style in [CursorStyle::Block, CursorStyle::Underline, CursorStyle::Bar] {
         let mut verts = Vec::new();
         build_vertices_with_cursor_into(&mut verts, &snapshot, &atlas, style);
-        assert_eq!(verts.len(), 4 * VERTS_PER_QUAD, "style {style:?}");
+        assert_eq!(verts.len(), 4 * INSTANCES_PER_QUAD, "style {style:?}");
     }
 }
 
@@ -1377,11 +1424,11 @@ fn focus_dim_recedes_fg_and_bg_perceptually_in_closure() {
         "focus_dim=0.0 must be byte-identical to the focus-agnostic build"
     );
 
-    // verts[0] is the pass-1 background quad; verts[VERTS_PER_QUAD] the glyph.
+    // verts[0] is the pass-1 background quad; verts[INSTANCES_PER_QUAD] the glyph.
     let bg_f = focused[0].color;
     let bg_u = unfocused[0].color;
-    let fg_f = focused[VERTS_PER_QUAD].color;
-    let fg_u = unfocused[VERTS_PER_QUAD].color;
+    let fg_f = focused[INSTANCES_PER_QUAD].color;
+    let fg_u = unfocused[INSTANCES_PER_QUAD].color;
 
     let lum = |c: [f32; 4]| crate::color::relative_luminance([c[0], c[1], c[2]]);
     // Both fg and bg recede in luminance under focus dim.
@@ -1456,7 +1503,7 @@ fn closure_sgr_dim_equals_naive_half_brightness() {
     let mut term = Terminal::new(1, 1);
     term.advance(b"\x1b[?25l\x1b[2;38;2;220;90;20mX");
     let snapshot = term.snapshot();
-    let rendered = build_vertices(&snapshot, &atlas)[VERTS_PER_QUAD].color;
+    let rendered = build_vertices(&snapshot, &atlas)[INSTANCES_PER_QUAD].color;
 
     let undimmed = text::foreground_linear(Color::Rgb(220, 90, 20));
     // The rendered fg is the perceptual dim output …
@@ -1557,8 +1604,8 @@ fn bg_treatment_skips_chrome_cells_but_still_modulates_content() {
     );
     assert_eq!(treated[0].color, plain[0].color, "chrome stays untreated");
     assert_ne!(
-        treated[2 * VERTS_PER_QUAD].color,
-        plain[2 * VERTS_PER_QUAD].color,
+        treated[2 * INSTANCES_PER_QUAD].color,
+        plain[2 * INSTANCES_PER_QUAD].color,
         "content keeps the configured treatment"
     );
 }
@@ -1669,7 +1716,7 @@ fn opaque_region_holds_marked_cells_opaque_only() {
     let snapshot = term.snapshot();
 
     let opacity = 0.5;
-    let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * VERTS_PER_QUAD].color[3];
+    let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * INSTANCES_PER_QUAD].color[3];
 
     // Region covers ONLY the middle cell (col 1).
     let region = CellRegion {
@@ -1791,7 +1838,7 @@ fn selection_surface_alpha_lerps_content_to_opaque() {
     snapshot.cells[1].attrs.set_selected(true);
     snapshot.cells[1].attrs.set_inverse(true);
 
-    let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * VERTS_PER_QUAD].color[3];
+    let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * INSTANCES_PER_QUAD].color[3];
     // Surface alpha of the selected cell (col 1) at a given window opacity + knob.
     let sel_alpha = |cell_opacity: f32, selection_opacity: f32| -> f32 {
         let verts = selection_test_vertices(&snapshot, &atlas, cell_opacity, selection_opacity);
@@ -1869,7 +1916,7 @@ fn selection_opacity_one_is_byte_identical_and_below_one_tints() {
     snapshot.cells[1].attrs.set_inverse(true);
 
     let bg_rgb = |verts: &[Vertex], quad: usize| {
-        let c = verts[quad * VERTS_PER_QUAD].color;
+        let c = verts[quad * INSTANCES_PER_QUAD].color;
         [c[0], c[1], c[2]]
     };
 
@@ -2648,13 +2695,13 @@ mod pane_subcell_clip {
         verts[0].uv[1]
     }
     fn quad_uv_bottom(verts: &[Vertex]) -> f32 {
-        verts[1].uv[1]
+        verts[0].end_uv[1]
     }
     fn quad_uv_left(verts: &[Vertex]) -> f32 {
         verts[0].uv[0]
     }
     fn quad_uv_right(verts: &[Vertex]) -> f32 {
-        verts[2].uv[0]
+        verts[0].end_uv[0]
     }
 
     #[test]
@@ -2684,7 +2731,7 @@ mod pane_subcell_clip {
     fn rect_clip_collapses_cursor_or_selection_quad_outside_inner_rect() {
         let mut verts = one_quad(0.0, 20.0, 0.0, 1.0);
         clip_quads_to_rect(&mut verts, [30.0, 30.0, 40.0, 40.0]);
-        assert_eq!(verts.len(), VERTS_PER_QUAD, "batch shape is preserved");
+        assert_eq!(verts.len(), INSTANCES_PER_QUAD, "batch shape is preserved");
         assert_eq!(quad_left(&verts), quad_right(&verts));
     }
 
@@ -2762,14 +2809,14 @@ mod pane_subcell_clip {
     #[test]
     fn clip_collapses_a_fully_below_quad_to_zero_height() {
         // A quad entirely below the band collapses to zero height (emits no
-        // fragments) while preserving its 6-vertex count for the bg/glyph split.
+        // fragments) while preserving its instance count for the bg/glyph split.
         let clip = VClip {
             top_y: f32::NEG_INFINITY,
             bottom_y: 5.0,
         };
         let mut verts = one_quad(8.0, 18.0, 0.0, 1.0);
         clip_quads_vertical(&mut verts, clip);
-        assert_eq!(verts.len(), VERTS_PER_QUAD, "vertex count preserved");
+        assert_eq!(verts.len(), INSTANCES_PER_QUAD, "vertex count preserved");
         assert!(
             (quad_bottom(&verts) - quad_top(&verts)).abs() < 1e-4,
             "fully-below quad has zero height"
@@ -2788,7 +2835,7 @@ mod pane_subcell_clip {
         };
         let mut verts = one_quad(0.0, 10.0, 0.0, 1.0);
         clip_quads_vertical(&mut verts, clip);
-        assert_eq!(verts.len(), VERTS_PER_QUAD, "vertex count preserved");
+        assert_eq!(verts.len(), INSTANCES_PER_QUAD, "vertex count preserved");
         assert!(
             (quad_bottom(&verts) - quad_top(&verts)).abs() < 1e-4,
             "fully-above quad has zero height"
@@ -2854,13 +2901,13 @@ mod pane_subcell_clip {
             bottom_y: 6.0,
         };
         clip_quads_vertical(&mut verts, clip);
-        let bottom = verts[1].pos[1];
+        let bottom = verts[0].end_pos[1];
         assert!(
             (bottom - 6.0).abs() < 1e-4,
             "colour glyph bottom cropped to band"
         );
         assert!(
-            (verts[1].uv[1] - 0.6).abs() < 1e-4,
+            (verts[0].end_uv[1] - 0.6).abs() < 1e-4,
             "colour glyph bottom UV cropped proportionally"
         );
     }
@@ -2902,7 +2949,7 @@ fn combining_mark_draws_over_the_base_glyph() {
     let verts = build_vertices(&snapshot, &atlas);
 
     let mark_quads: Vec<_> = verts
-        .chunks(VERTS_PER_QUAD)
+        .chunks(INSTANCES_PER_QUAD)
         .filter(|quad| quad[0].is_glyph == 1.0 && quad[0].uv == [bounds.uv[0], bounds.uv[1]])
         .collect();
     assert_eq!(mark_quads.len(), 1, "exactly one mark quad");
@@ -2917,7 +2964,7 @@ fn combining_mark_draws_over_the_base_glyph() {
         .expect("base quad");
     assert!(
         verts
-            .chunks(VERTS_PER_QUAD)
+            .chunks(INSTANCES_PER_QUAD)
             .any(|quad| quad[0].is_glyph == 1.0 && quad[0].uv == [base.uv[0], base.uv[1]]),
         "base glyph quad still present"
     );
@@ -2956,7 +3003,7 @@ fn block_cursor_redraws_combining_mark_over_the_block() {
     let verts = build_vertices(&snapshot, &atlas);
 
     let mark_quads = verts
-        .chunks(VERTS_PER_QUAD)
+        .chunks(INSTANCES_PER_QUAD)
         .filter(|quad| quad[0].is_glyph == 1.0 && quad[0].uv == [bounds.uv[0], bounds.uv[1]])
         .count();
     assert_eq!(
@@ -3047,7 +3094,7 @@ fn cell_vertices_are_identical_with_mask_backed_coverage() {
     // stay in both builds, and the covered build carries 3 fewer glyph quads.
     let glyph_quads = |verts: &[Vertex]| {
         verts
-            .chunks(VERTS_PER_QUAD)
+            .chunks(INSTANCES_PER_QUAD)
             .filter(|quad| quad[0].is_glyph == 1.0)
             .count()
     };
@@ -3180,7 +3227,7 @@ fn row_fade_scales_only_foreground_ink_alpha() {
     );
     assert_eq!(plain.len(), faded.len(), "same vertex count");
     // Pass 1: one background quad per cell (1x2 grid), byte-identical.
-    let bg_verts = 2 * VERTS_PER_QUAD;
+    let bg_verts = 2 * INSTANCES_PER_QUAD;
     assert_eq!(
         &plain[..bg_verts],
         &faded[..bg_verts],
@@ -3245,7 +3292,7 @@ fn row_fade_scales_color_glyph_vertex_alpha() {
         ChromePin::NONE,
         RowFade::NONE,
     );
-    assert_eq!(inert.len(), VERTS_PER_QUAD);
+    assert_eq!(inert.len(), INSTANCES_PER_QUAD);
     assert!(
         inert.iter().all(|v| v.alpha == 1.0),
         "inert build carries alpha 1.0 (exact shader identity)"
@@ -3266,7 +3313,7 @@ fn row_fade_scales_color_glyph_vertex_alpha() {
             col_end: usize::MAX,
         },
     );
-    assert_eq!(faded.len(), VERTS_PER_QUAD);
+    assert_eq!(faded.len(), INSTANCES_PER_QUAD);
     for (i, f) in faded.iter().enumerate() {
         assert_eq!(f.pos, inert[i].pos, "geometry untouched");
         assert_eq!(f.uv, inert[i].uv, "UV untouched");
@@ -3329,7 +3376,7 @@ fn multi_pane_color_glyphs_accumulate_across_uneven_emoji_panes() {
     );
     assert_eq!(
         clobbered.len(),
-        VERTS_PER_QUAD,
+        INSTANCES_PER_QUAD,
         "pane A built one emoji quad"
     );
     build_color_glyph_vertices_with_origin_into(
@@ -3369,7 +3416,7 @@ fn multi_pane_color_glyphs_accumulate_across_uneven_emoji_panes() {
     }
     assert_eq!(
         shared.len(),
-        VERTS_PER_QUAD,
+        INSTANCES_PER_QUAD,
         "pane A's single emoji survives a following zero-emoji pane"
     );
 }
@@ -3423,7 +3470,7 @@ fn colored_bg_floor_lifts_only_resolved_non_default_backgrounds() {
     snapshot.cells[2].attrs.background = Color::Rgb(theme_bg.red, theme_bg.green, theme_bg.blue);
     snapshot.cells[3].attrs.set_inverse(true);
 
-    let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * VERTS_PER_QUAD].color[3];
+    let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * INSTANCES_PER_QUAD].color[3];
     let content = 0.24_f32;
     let floored = 0.72_f32;
     let verts = colored_floor_vertices(
@@ -3468,7 +3515,7 @@ fn colored_bg_floor_lifts_only_resolved_non_default_backgrounds() {
     }
     // The floor touches ONLY the surface alpha: rgb channels are identical
     // between the floored and inert builds for every background vertex.
-    for (a, b) in verts.iter().zip(inert.iter()).take(4 * VERTS_PER_QUAD) {
+    for (a, b) in verts.iter().zip(inert.iter()).take(4 * INSTANCES_PER_QUAD) {
         assert_eq!(&a.color[..3], &b.color[..3], "floor must not shift rgb");
     }
 }
@@ -3506,7 +3553,7 @@ fn colored_bg_floor_exempts_chrome_selection_and_forced_opaque_cells() {
     };
     let content = 0.24_f32;
     let floored = 0.72_f32;
-    let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * VERTS_PER_QUAD].color[3];
+    let bg_alpha = |verts: &[Vertex], quad: usize| verts[quad * INSTANCES_PER_QUAD].color[3];
     let verts = colored_floor_vertices(&snapshot, &atlas, content, floored, pin);
     // Row 0 (quads 0,1) is chrome: colored fills stay on the plain content
     // alpha (`tab_panel_strength` owns chrome opacity).
@@ -3596,25 +3643,19 @@ fn brightness_vertices(
 fn composite_first_glyph_pixels(verts: &[Vertex], atlas: &GlyphAtlas) -> Vec<[f32; 3]> {
     assert_eq!(atlas.subpixel_mode(), crate::atlas::SubpixelMode::Off);
     let background = verts
-        .chunks_exact(VERTS_PER_QUAD)
+        .chunks_exact(INSTANCES_PER_QUAD)
         .find(|quad| quad[0].is_glyph == 0.0)
         .expect("cell background quad")[0]
         .color;
     let glyph = verts
-        .chunks_exact(VERTS_PER_QUAD)
+        .chunks_exact(INSTANCES_PER_QUAD)
         .find(|quad| quad[0].is_glyph == 1.0)
         .expect("glyph quad");
     let color = glyph[0].color;
     let u0 = glyph.iter().map(|v| v.uv[0]).fold(f32::INFINITY, f32::min);
     let v0 = glyph.iter().map(|v| v.uv[1]).fold(f32::INFINITY, f32::min);
-    let u1 = glyph
-        .iter()
-        .map(|v| v.uv[0])
-        .fold(f32::NEG_INFINITY, f32::max);
-    let v1 = glyph
-        .iter()
-        .map(|v| v.uv[1])
-        .fold(f32::NEG_INFINITY, f32::max);
+    let u1 = glyph[0].end_uv[0];
+    let v1 = glyph[0].end_uv[1];
     let x0 = (u0 * atlas.width as f32).round() as usize;
     let y0 = (v0 * atlas.height as f32).round() as usize;
     let x1 = (u1 * atlas.width as f32).round() as usize;
@@ -3653,7 +3694,7 @@ fn text_brightness_lifts_ink_only_and_pins_identity() {
 
     // Backgrounds (pass 1: one quad per cell) are byte-identical — the lift
     // touches ink only.
-    let bg_verts = 2 * VERTS_PER_QUAD;
+    let bg_verts = 2 * INSTANCES_PER_QUAD;
     assert_eq!(
         &base[..bg_verts],
         &lifted[..bg_verts],

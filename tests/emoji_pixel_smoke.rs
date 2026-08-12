@@ -70,12 +70,12 @@ fn assert_one_cluster_run(text: &str, covered_columns: u8) {
     grid::build_color_glyph_vertices_into(&mut color_vertices, &snapshot, &color_atlas, &runs);
     assert_eq!(
         color_vertices.len(),
-        grid::VERTS_PER_QUAD,
+        grid::INSTANCES_PER_QUAD,
         "{text:?} should draw one color glyph quad"
     );
     assert_eq!(color_vertices[0].pos, [0.0, 0.0]);
     assert_eq!(
-        color_vertices[5].pos,
+        color_vertices[0].end_pos,
         [atlas.cell.width as f32 * 2.0, atlas.cell.height as f32],
         "{text:?} should honor the 2-cell color bitmap contract"
     );
@@ -86,27 +86,15 @@ fn composite_color_glyphs(
     atlas: &ColorGlyphAtlas,
     vertices: &[ColorGlyphVertex],
 ) {
-    for quad in vertices.chunks_exact(grid::VERTS_PER_QUAD) {
-        let x0 = quad.iter().map(|v| v.pos[0]).fold(f32::INFINITY, f32::min) as usize;
-        let y0 = quad.iter().map(|v| v.pos[1]).fold(f32::INFINITY, f32::min) as usize;
-        let x1 = quad
-            .iter()
-            .map(|v| v.pos[0])
-            .fold(f32::NEG_INFINITY, f32::max) as usize;
-        let y1 = quad
-            .iter()
-            .map(|v| v.pos[1])
-            .fold(f32::NEG_INFINITY, f32::max) as usize;
-        let u0 = quad.iter().map(|v| v.uv[0]).fold(f32::INFINITY, f32::min);
-        let v0 = quad.iter().map(|v| v.uv[1]).fold(f32::INFINITY, f32::min);
-        let u1 = quad
-            .iter()
-            .map(|v| v.uv[0])
-            .fold(f32::NEG_INFINITY, f32::max);
-        let v1 = quad
-            .iter()
-            .map(|v| v.uv[1])
-            .fold(f32::NEG_INFINITY, f32::max);
+    for quad in vertices.chunks_exact(grid::INSTANCES_PER_QUAD) {
+        let x0 = quad[0].pos[0] as usize;
+        let y0 = quad[0].pos[1] as usize;
+        let x1 = quad[0].end_pos[0] as usize;
+        let y1 = quad[0].end_pos[1] as usize;
+        let u0 = quad[0].uv[0];
+        let v0 = quad[0].uv[1];
+        let u1 = quad[0].end_uv[0];
+        let v1 = quad[0].end_uv[1];
 
         for y in y0..y1.min(frame.height) {
             for x in x0..x1.min(frame.width) {
@@ -189,7 +177,7 @@ fn real_emoji_renders_through_color_segment_over_background() {
 
     let mut color_vertices = Vec::new();
     grid::build_color_glyph_vertices_into(&mut color_vertices, &snapshot, &color_atlas, &runs);
-    assert_eq!(color_vertices.len(), grid::VERTS_PER_QUAD);
+    assert_eq!(color_vertices.len(), grid::INSTANCES_PER_QUAD);
 
     let mut frame = Frame::new(
         atlas.cell.width as usize * 2,
@@ -303,7 +291,7 @@ fn cluster_run_suppresses_all_covered_source_foregrounds() {
         &runs,
     );
 
-    assert_eq!(plain.iter().filter(|v| v.is_glyph == 1.0).count(), 12);
+    assert_eq!(plain.iter().filter(|v| v.is_glyph == 1.0).count(), 2);
     assert!(
         color_aware.iter().all(|v| v.is_glyph == 0.0),
         "cluster coverage suppresses every source cell foreground"

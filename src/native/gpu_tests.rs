@@ -742,11 +742,11 @@ fn bloom_scene_offscreen_accepts_live_scene_pipeline_formats() {
         pass.set_pipeline(&cell_pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
         pass.set_vertex_buffer(0, cell_buf.slice(..));
-        pass.draw(0..cell_vertices.len() as u32, 0..1);
+        pass.draw(0..6, 0..cell_vertices.len() as u32);
         pass.set_pipeline(&color_pipeline);
         pass.set_bind_group(0, &color_bind_group, &[]);
         pass.set_vertex_buffer(0, color_buf.slice(..));
-        pass.draw(0..color_vertices.len() as u32, 0..1);
+        pass.draw(0..6, 0..color_vertices.len() as u32);
     }
     post_process.encode_post_process(&mut encoder, &queue, &output_view, post_options(true, true));
     queue.submit(std::iter::once(encoder.finish()));
@@ -858,7 +858,7 @@ fn padded_pane_clip_reaches_pixels_for_background_and_glyph() {
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
         pass.set_vertex_buffer(0, vertex_buf.slice(..));
-        pass.draw(0..vertices.len() as u32, 0..1);
+        pass.draw(0..6, 0..vertices.len() as u32);
     }
 
     let bytes_per_row = W
@@ -923,6 +923,48 @@ fn padded_pane_clip_reaches_pixels_for_background_and_glyph() {
     assert_eq!(at(14, 18), [0, 0, 0, 255], "bottom edge is exclusive");
     drop(mapped);
     readback.unmap();
+}
+
+#[test]
+fn instanced_subpixel_cell_shader_validates_when_supported() {
+    let _init = crate::test_lock::device_creation_lock();
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let Ok(adapter) = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        power_preference: wgpu::PowerPreference::default(),
+        force_fallback_adapter: false,
+        compatible_surface: None,
+    })) else {
+        eprintln!("skipping: no GPU adapter available");
+        return;
+    };
+    if !adapter
+        .features()
+        .contains(wgpu::Features::DUAL_SOURCE_BLENDING)
+    {
+        eprintln!("skipping: adapter lacks dual-source blending");
+        return;
+    }
+    let Ok((device, _queue)) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("odytty-instanced-subpixel-test-device"),
+            required_features: wgpu::Features::DUAL_SOURCE_BLENDING,
+            required_limits: wgpu::Limits::default(),
+            experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            memory_hints: wgpu::MemoryHints::default(),
+            trace: wgpu::Trace::Off,
+        }))
+    else {
+        eprintln!("skipping: dual-source device request failed");
+        return;
+    };
+    let layout = cell_bind_group_layout(&device);
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let _pipeline = create_cell_pipeline(&device, TEST_SURFACE_FORMAT, &layout, SubpixelMode::Rgb);
+    let error = pollster::block_on(scope.pop());
+    assert!(
+        error.is_none(),
+        "the instanced subpixel shader and pipeline must validate: {error:?}"
+    );
 }
 
 #[test]
@@ -1954,46 +1996,29 @@ fn sampler_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
-fn quad_vertices(rect: [f32; 4], color: [f32; 4], is_glyph: f32) -> [Vertex; 6] {
+fn quad_vertices(rect: [f32; 4], color: [f32; 4], is_glyph: f32) -> [Vertex; 1] {
     let [x0, y0, x1, y1] = rect;
-    [
-        vertex([x0, y0], [0.0, 0.0], color, is_glyph),
-        vertex([x0, y1], [0.0, 1.0], color, is_glyph),
-        vertex([x1, y0], [1.0, 0.0], color, is_glyph),
-        vertex([x1, y0], [1.0, 0.0], color, is_glyph),
-        vertex([x0, y1], [0.0, 1.0], color, is_glyph),
-        vertex([x1, y1], [1.0, 1.0], color, is_glyph),
-    ]
-}
-
-fn vertex(pos: [f32; 2], uv: [f32; 2], color: [f32; 4], is_glyph: f32) -> Vertex {
-    Vertex {
-        pos,
-        uv,
+    [Vertex {
+        pos: [x0, y0],
+        end_pos: [x1, y1],
+        uv: [0.0, 0.0],
+        end_uv: [1.0, 1.0],
         color,
         is_glyph,
         _pad: [0.0; 3],
-    }
+    }]
 }
 
-fn color_quad_vertices(rect: [f32; 4]) -> [ColorGlyphVertex; 6] {
+fn color_quad_vertices(rect: [f32; 4]) -> [ColorGlyphVertex; 1] {
     let [x0, y0, x1, y1] = rect;
-    [
-        color_vertex([x0, y0], [0.0, 0.0]),
-        color_vertex([x0, y1], [0.0, 1.0]),
-        color_vertex([x1, y0], [1.0, 0.0]),
-        color_vertex([x1, y0], [1.0, 0.0]),
-        color_vertex([x0, y1], [0.0, 1.0]),
-        color_vertex([x1, y1], [1.0, 1.0]),
-    ]
-}
-
-fn color_vertex(pos: [f32; 2], uv: [f32; 2]) -> ColorGlyphVertex {
-    ColorGlyphVertex {
-        pos,
-        uv,
+    [ColorGlyphVertex {
+        pos: [x0, y0],
+        end_pos: [x1, y1],
+        uv: [0.0, 0.0],
+        end_uv: [1.0, 1.0],
         alpha: 1.0,
-    }
+        _pad: [0.0; 3],
+    }]
 }
 
 // --- TRANSPARENCY: window transparency (alpha-mode selection + off-path equality) ---
@@ -2184,7 +2209,7 @@ fn colored_bg_floor_is_monotonic_in_the_knob_and_never_weaker_than_content() {
 #[test]
 fn multi_pane_color_glyph_accumulation_survives_uneven_emoji_panes() {
     use crate::emoji::{ColorGlyphAtlas, ColorGlyphId, ColorGlyphKey};
-    use crate::grid::{ChromePin, ColorGlyphRun, VClip, VERTS_PER_QUAD};
+    use crate::grid::{ChromePin, ColorGlyphRun, INSTANCES_PER_QUAD, VClip};
 
     let cell = CellSize {
         width: 8,
@@ -2224,7 +2249,7 @@ fn multi_pane_color_glyph_accumulation_survives_uneven_emoji_panes() {
     );
     assert_eq!(
         shared.len(),
-        VERTS_PER_QUAD,
+        INSTANCES_PER_QUAD,
         "pane A's single emoji lands in the shared buffer"
     );
 
@@ -2243,7 +2268,7 @@ fn multi_pane_color_glyph_accumulation_survives_uneven_emoji_panes() {
     );
     assert_eq!(
         shared.len(),
-        VERTS_PER_QUAD,
+        INSTANCES_PER_QUAD,
         "an empty following pane must not drop pane A's emoji"
     );
 }

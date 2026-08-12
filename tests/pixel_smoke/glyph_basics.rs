@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //! Blank-cell purity and basic glyph-ink containment.
 
-use odytty::core::CursorStyle;
-
 use crate::harness::*;
+use odytty::core::{CursorStyle, Terminal};
+use odytty::grid;
 
 #[test]
 fn blank_cell_renders_pure_background() {
@@ -23,6 +23,59 @@ fn blank_cell_renders_pure_background() {
             );
         }
     }
+}
+
+#[test]
+fn placeholder_char_emits_no_glyph_ink() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    // U+10EEEE stays in the Snapshot for copy/paste, but must not paint tofu.
+    let mut terminal = Terminal::new(4, 2);
+    terminal.advance(format!("{}", odytty::core::PLACEHOLDER_CHAR).as_bytes());
+    // Diacritics on a placeholder encode Kitty ids — also not ink.
+    terminal.advance(format!("\r\n{}\u{0305}\u{0305}", odytty::core::PLACEHOLDER_CHAR).as_bytes());
+    let snapshot = terminal.snapshot();
+    let frame = composite(&snapshot, &atlas, CursorStyle::Block);
+    assert_eq!(
+        cell_ink_count(&frame, 0, 0),
+        0,
+        "placeholder base must emit no coverage glyph ink"
+    );
+    assert_eq!(
+        cell_ink_count(&frame, 0, 1),
+        0,
+        "placeholder diacritics must emit no coverage glyph ink"
+    );
+}
+
+#[test]
+fn placeholder_underline_decoration_still_draws() {
+    let Some((_font, atlas)) = setup() else {
+        eprintln!("skipping: no system font available");
+        return;
+    };
+    let mut terminal = Terminal::new(2, 1);
+    terminal.advance(format!("\x1b[4m{}", odytty::core::PLACEHOLDER_CHAR).as_bytes());
+    let snapshot = terminal.snapshot();
+    let frame = composite(&snapshot, &atlas, CursorStyle::Block);
+    let rect = grid::underline_rect(
+        0.0,
+        0.0,
+        atlas.cell.width as f32,
+        atlas.cell.height as f32,
+        atlas.cell.baseline as f32,
+    );
+    let row = (((rect[1] + rect[3]) / 2.0) as usize).min(frame.height - 1);
+    let bg = default_bg();
+    let inked: usize = (0..frame.cell_w)
+        .filter(|&x| differs(frame.pixel(x, row), bg))
+        .count();
+    assert!(
+        inked >= frame.cell_w - 1,
+        "placeholder cells remain decoration-owned: underline row {row} must ink (got {inked})"
+    );
 }
 
 #[test]

@@ -40,9 +40,11 @@ pub(in crate::native) fn create_cell_pipeline(
     });
     let vertex_attrs = wgpu::vertex_attr_array![
         0 => Float32x2, // pos_px
-        1 => Float32x2, // uv
-        2 => Float32x4, // color
-        3 => Float32,   // is_glyph
+        1 => Float32x2, // end_pos_px
+        2 => Float32x2, // uv
+        3 => Float32x2, // end_uv
+        4 => Float32x4, // color
+        5 => Float32,   // is_glyph
     ];
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("odytty-cell-pipeline"),
@@ -52,7 +54,7 @@ pub(in crate::native) fn create_cell_pipeline(
             entry_point: Some("vs_main"),
             buffers: &[wgpu::VertexBufferLayout {
                 array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-                step_mode: wgpu::VertexStepMode::Vertex,
+                step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &vertex_attrs,
             }],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -211,8 +213,10 @@ pub(in crate::native) fn create_color_glyph_pipeline(
     });
     let vertex_attrs = wgpu::vertex_attr_array![
         0 => Float32x2, // pos_px
-        1 => Float32x2, // uv
-        2 => Float32,   // fade alpha (VE4 new-output fade; 1.0 off-path)
+        1 => Float32x2, // end_pos_px
+        2 => Float32x2, // uv
+        3 => Float32x2, // end_uv
+        4 => Float32,   // fade alpha (VE4 new-output fade; 1.0 off-path)
     ];
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("odytty-color-glyph-pipeline"),
@@ -222,7 +226,7 @@ pub(in crate::native) fn create_color_glyph_pipeline(
             entry_point: Some("vs_main"),
             buffers: &[wgpu::VertexBufferLayout {
                 array_stride: std::mem::size_of::<ColorGlyphVertex>() as wgpu::BufferAddress,
-                step_mode: wgpu::VertexStepMode::Vertex,
+                step_mode: wgpu::VertexStepMode::Instance,
                 attributes: &vertex_attrs,
             }],
             compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -265,8 +269,10 @@ var color_glyph_sampler: sampler;
 
 struct VsIn {
     @location(0) pos_px: vec2<f32>,
-    @location(1) uv: vec2<f32>,
-    @location(2) alpha: f32,
+    @location(1) end_pos_px: vec2<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) end_uv: vec2<f32>,
+    @location(4) alpha: f32,
 };
 
 struct VsOut {
@@ -276,14 +282,20 @@ struct VsOut {
 };
 
 @vertex
-fn vs_main(input: VsIn) -> VsOut {
+fn vs_main(input: VsIn, @builtin(vertex_index) vertex_index: u32) -> VsOut {
     var out: VsOut;
+    let corners = array<vec2<f32>, 6>(
+        vec2<f32>(0.0, 0.0), vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 0.0),
+        vec2<f32>(1.0, 0.0), vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 1.0),
+    );
+    let corner = corners[vertex_index];
+    let pos_px = mix(input.pos_px, input.end_pos_px, corner);
     let ndc = vec2<f32>(
-        (input.pos_px.x / viewport.size.x) * 2.0 - 1.0,
-        1.0 - (input.pos_px.y / viewport.size.y) * 2.0,
+        (pos_px.x / viewport.size.x) * 2.0 - 1.0,
+        1.0 - (pos_px.y / viewport.size.y) * 2.0,
     );
     out.pos = vec4<f32>(ndc, 0.0, 1.0);
-    out.uv = input.uv;
+    out.uv = mix(input.uv, input.end_uv, corner);
     out.alpha = input.alpha;
     return out;
 }

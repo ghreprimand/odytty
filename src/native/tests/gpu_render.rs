@@ -282,6 +282,8 @@ fn cursor_glow_is_one_six_vertex_shape_aware_quad() {
     .expect("aura instance");
     let mut vertices: Vec<CursorGlowVertex> = Vec::new();
     append_cursor_glow_vertices(&mut vertices, instance);
+    // Cursor glow remains CPU-expanded to six vertices (analytic aura path),
+    // not the cell-grid instance stream.
     assert_eq!(vertices.len(), VERTS_PER_QUAD);
     assert!(
         vertices
@@ -489,6 +491,7 @@ fn cursor_follower_emits_one_axis_aligned_six_vertex_quad_for_all_shapes() {
                 .expect("nondegenerate follower emits a cursor body");
         let mut vertices: Vec<CursorStreakVertex> = Vec::new();
         append_cursor_streak_vertices(&mut vertices, instance);
+        // Cursor streak remains CPU-expanded to six vertices.
         assert_eq!(vertices.len(), VERTS_PER_QUAD);
         assert_eq!(instance.clip_rect, [5.0, 7.0, 500.0, 400.0]);
         assert!(
@@ -719,6 +722,7 @@ fn cursor_streak_pipeline_accepts_bound_thirty_two_byte_viewport_and_draws() {
     .expect("an active large-jump follower must emit geometry");
     let mut vertices = Vec::new();
     append_cursor_streak_vertices(&mut vertices, streak);
+    // Cursor streak remains CPU-expanded to six vertices.
     assert_eq!(vertices.len(), VERTS_PER_QUAD);
     let vertex_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("cursor-streak-bound-draw-test-vertices"),
@@ -975,7 +979,7 @@ fn programming_ligature_vertices_submit_through_the_real_cell_pipeline() {
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
         pass.set_vertex_buffer(0, vertex_buf.slice(..));
-        pass.draw(0..vertices.len() as u32, 0..1);
+        pass.draw(0..6, 0..vertices.len() as u32);
     }
     queue.submit([encoder.finish()]);
     let error = pollster::block_on(scope.pop());
@@ -1344,7 +1348,11 @@ fn full_rebuild_cursor_layer_matches_cursor_only_when_unfocused() {
     );
 
     assert_eq!(&full[cell_vertices..], cursor_only.as_slice());
-    assert_eq!(cursor_only.len(), 4 * VERTS_PER_QUAD, "hollow border quads");
+    assert_eq!(
+        cursor_only.len(),
+        4 * INSTANCES_PER_QUAD,
+        "hollow border quads"
+    );
 }
 
 fn search_sig(query: &str) -> SearchRenderSignature {
@@ -1830,7 +1838,7 @@ fn cursor_blink_tail_is_bounded_after_cell_geometry() {
     let cursor_vertices = vertices.len() - cell_vertices;
 
     assert!(
-        cursor_vertices <= VERTS_PER_QUAD * 2,
+        cursor_vertices <= INSTANCES_PER_QUAD * 2,
         "block cursor emits at most a block plus glyph redraw"
     );
 
