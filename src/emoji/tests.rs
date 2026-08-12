@@ -12,6 +12,8 @@ use super::{
     discover_noto_color_emoji_in, emoji_presentation, is_color_emoji_name, probe_font,
     representative_sequences, summarize_report,
 };
+#[cfg(windows)]
+use super::{collect_font_files, default_emoji_font_dirs, normalized_stem};
 
 #[test]
 fn representative_sequences_cover_em2_cases() {
@@ -84,13 +86,66 @@ fn directory_discovery_finds_apple_color_emoji_ttc() {
 }
 
 #[test]
-fn color_emoji_name_matches_known_faces_only() {
-    // Both shipped color-emoji faces match regardless of separators/case; an
-    // ordinary monospace family does not.
+fn directory_discovery_finds_segoe_ui_emoji_by_filename() {
+    let root = unique_temp_dir("odytty-emoji-segoe");
+    let nested = root.join("Windows/Fonts");
+    std::fs::create_dir_all(&nested).expect("create temp font dir");
+    let font_path = nested.join("seguiemj.ttf");
+    std::fs::write(&font_path, b"not a real font").expect("write marker");
+
+    let found =
+        discover_noto_color_emoji_in(std::slice::from_ref(&root)).expect("segoe emoji path found");
+    assert_eq!(found.path, font_path);
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn directory_discovery_accepts_a_generic_colr_cpal_face() {
+    let fixture_dir = fixture_font("color-emoji-colr-v0.ttf")
+        .parent()
+        .expect("fixture parent")
+        .to_path_buf();
+    let found = discover_noto_color_emoji_in(&[fixture_dir]).expect("COLR/CPAL face found");
+    assert_eq!(
+        found.path.file_name().and_then(|name| name.to_str()),
+        Some("color-emoji-colr-v0.ttf")
+    );
+}
+
+#[test]
+fn color_emoji_name_matches_known_platform_faces() {
+    // Known faces match regardless of separators/case, including Windows'
+    // shortened stock filename; an ordinary monospace family does not.
     assert!(is_color_emoji_name("notocoloremoji"));
     assert!(is_color_emoji_name("applecoloremoji"));
+    assert!(is_color_emoji_name("segoeuiemoji"));
+    assert!(is_color_emoji_name("seguiemj"));
     assert!(!is_color_emoji_name("dejavusansmono"));
     assert!(!is_color_emoji_name("victormono"));
+}
+
+/// Authoritative on the windows-latest runner: stock Segoe UI Emoji must be
+/// found from the Windows font directories and expose static COLR/CPAL tables.
+#[cfg(windows)]
+#[test]
+fn stock_windows_segoe_ui_emoji_is_a_discoverable_color_font() {
+    let path = collect_font_files(&default_emoji_font_dirs())
+        .into_iter()
+        .find(|path| {
+            let stem = normalized_stem(path);
+            stem.contains("segoeuiemoji") || stem == "seguiemj"
+        })
+        .expect("stock Segoe UI Emoji in the Windows font directories");
+    assert!(
+        is_color_emoji_name(&normalized_stem(&path)),
+        "stock Segoe filename must enter the discovery fast path"
+    );
+    let font = EmojiFont::load(path).expect("load stock Segoe UI Emoji");
+    assert!(
+        color_formats(font.as_ref()).contains(&ColorGlyphFormat::ColrCpal),
+        "stock Segoe UI Emoji must expose COLR/CPAL"
+    );
 }
 
 #[test]
@@ -205,6 +260,57 @@ fn missing_emoji_font_degrades_to_coverage_path() {
 }
 
 #[test]
+fn synthetic_colr_v0_emoji_rasterizes_premultiplied_rgba_into_color_atlas() {
+    let font = EmojiFont::load(fixture_font("color-emoji-colr-v0.ttf"))
+        .expect("load synthetic COLR v0 fixture");
+    let formats = color_formats(font.as_ref());
+    assert_eq!(formats, vec![ColorGlyphFormat::ColrCpal]);
+    let (runs, mut atlas) = render_fire(font);
+
+    assert_eq!(runs, 1, "COLR v0 fixture should enter the color path");
+    assert!(atlas.take_dirty(), "COLR v0 insert should dirty the atlas");
+    assert!(
+        atlas.data.chunks_exact(4).any(|px| px[3] > 0),
+        "COLR v0 layers should rasterize visible pixels"
+    );
+    assert!(
+        atlas
+            .data
+            .chunks_exact(4)
+            .any(|px| (1..255).contains(&px[3])),
+        "fixture should retain partial alpha for the premultiplication check"
+    );
+    assert!(
+        atlas
+            .data
+            .chunks_exact(4)
+            .all(|px| px[0] <= px[3] && px[1] <= px[3] && px[2] <= px[3]),
+        "COLR v0 atlas pixels must be premultiplied"
+    );
+}
+
+#[test]
+fn synthetic_sbix_bitmap_path_keeps_historical_pixel_bytes() {
+    let font =
+        EmojiFont::load(fixture_font("color-emoji-sbix.ttf")).expect("load synthetic sbix fixture");
+    let formats = color_formats(font.as_ref());
+    assert_eq!(formats, vec![ColorGlyphFormat::Sbix]);
+    let (runs, atlas) = render_fire(font);
+
+    assert_eq!(runs, 1, "sbix fixture should stay on the color path");
+    let pixel = atlas
+        .data
+        .chunks_exact(4)
+        .find(|px| px[3] > 0)
+        .expect("sbix fixture should rasterize visible pixels");
+    assert_eq!(
+        pixel,
+        [15, 100, 151, 160],
+        "bitmap-first routing and straight-to-premultiplied conversion changed"
+    );
+}
+
+#[test]
 fn host_noto_color_emoji_rasterizes_fire_into_premultiplied_atlas() {
     let Some(found) = discover_noto_color_emoji() else {
         eprintln!("Noto Color Emoji not found; host-dependent raster test skipped");
@@ -282,6 +388,22 @@ fn unique_temp_dir(prefix: &str) -> PathBuf {
         .as_nanos();
     path.push(format!("{prefix}-{}-{nanos}", std::process::id()));
     path
+}
+
+fn fixture_font(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/fonts")
+        .join(name)
+}
+
+fn render_fire(font: EmojiFont) -> (usize, ColorGlyphAtlas) {
+    let mut rasterizer = EmojiRasterizer::from_font(font);
+    let mut terminal = Terminal::new(2, 1);
+    terminal.advance(b"\x1b[?25l");
+    terminal.advance("\u{1F525}".as_bytes());
+    let mut atlas = ColorGlyphAtlas::new(cell());
+    let runs = rasterizer.build_color_glyph_runs(&terminal.snapshot(), &mut atlas);
+    (runs.len(), atlas)
 }
 
 fn cell() -> CellSize {

@@ -7,6 +7,31 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Render COLR/CPAL v0 color emoji, including stock Segoe UI Emoji
+
+Color-font support now covers static COLR/CPAL v0 vector glyphs in addition
+to CBDT/CBLC and sbix bitmap strikes. The change closes a twin gap: font
+discovery accepted only Noto Color Emoji and Apple Color Emoji by name, and
+rasterization requested only bitmap-strike sources. Discovery now recognizes
+stock Windows Segoe UI Emoji (`seguiemj.ttf`) and other parseable COLR/CPAL
+faces, and rasterization renders COLR v0 layer compositions (bitmap strikes
+still preferred where present, keeping existing output byte-identical). On a
+stock Windows install, compatible Segoe emoji glyphs leave the monochrome
+fallback path; the authoritative check runs on the Windows CI leg against the
+real system font. COLR v1 Paint graphs and SVG-in-OT remain deferred; glyphs
+exposing only those formats still fall back to monochrome.
+
+Test coverage: deterministic synthetic COLR v0 and sbix fixture fonts with a
+committed generator and provenance notes, premultiplication and color-atlas
+regression tests on the shared path, an exact-bitmap regression pinning the
+bitmap-first preference, and a `cfg(windows)` stock-font assertion.
+
+Verified: `cargo fmt --check`, `cargo clippy --all-targets --locked -D
+warnings`, full `cargo test --locked`, RustSec audit (allowed ttf-parser
+warning only), production-file guard.
+
+---
+
 ## 2026-08-12 -- Reconcile source comments and docs with landed behavior
 
 A tree-wide comment-accuracy audit followed the earlier stale-renderer-comment

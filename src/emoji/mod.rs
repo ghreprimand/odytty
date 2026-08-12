@@ -4,7 +4,8 @@
 //! The EM2 probe surface answers whether a host has a usable emoji face, which
 //! color font formats the face exposes, and how swash shapes representative
 //! emoji sequences. EM3 added the OdyTTY-owned premultiplied RGBA atlas
-//! contract; EM4 turns Noto Color Emoji CBDT/CBLC glyphs into live atlas runs.
+//! contract; EM4 turns bitmap strikes and COLR/CPAL v0 layers into live atlas
+//! runs.
 
 mod color_atlas;
 mod render;
@@ -160,13 +161,16 @@ pub fn discover_noto_color_emoji() -> Option<EmojiFontMatch> {
 }
 
 pub fn discover_noto_color_emoji_in(dirs: &[PathBuf]) -> Option<EmojiFontMatch> {
-    collect_font_files(dirs)
-        .into_iter()
+    let font_files = collect_font_files(dirs);
+    let path = font_files
+        .iter()
         .find(|path| is_color_emoji_name(&normalized_stem(path)))
-        .map(|path| EmojiFontMatch {
-            path,
-            source: EmojiFontSource::SearchDirs,
-        })
+        .cloned()
+        .or_else(|| font_files.into_iter().find(|path| has_colr_cpal(path)))?;
+    Some(EmojiFontMatch {
+        path,
+        source: EmojiFontSource::SearchDirs,
+    })
 }
 
 pub fn representative_sequences() -> &'static [EmojiSequence] {
@@ -445,6 +449,16 @@ fn normalized_stem(path: &Path) -> String {
         .collect()
 }
 
+fn has_colr_cpal(path: &Path) -> bool {
+    let Ok(data) = crate::font_file::read_font_file(path) else {
+        return false;
+    };
+    let Some(font) = FontRef::from_index(&data, 0) else {
+        return false;
+    };
+    color_formats(font).contains(&ColorGlyphFormat::ColrCpal)
+}
+
 fn normalize_name(name: &str) -> String {
     name.chars()
         .filter(|ch| ch.is_alphanumeric())
@@ -452,13 +466,14 @@ fn normalize_name(name: &str) -> String {
         .collect()
 }
 
-/// Whether an alphanumeric-normalized stem or family names a color-emoji font
-/// OdyTTY can rasterize: Noto Color Emoji (Linux; CBDT/CBLC) or Apple Color
-/// Emoji (macOS; sbix). Both are bitmap-strike formats swash renders through the
-/// shared `Source::ColorBitmap` path, so discovery is the only platform-specific
-/// piece — once the face is found, the rasterizer is format-agnostic.
+/// Whether an alphanumeric-normalized stem or family names a known color-emoji
+/// font. Directory discovery also accepts any parseable COLR/CPAL face, so this
+/// fast path covers the stock platform fonts without parsing every host font.
 fn is_color_emoji_name(normalized: &str) -> bool {
-    normalized.contains("notocoloremoji") || normalized.contains("applecoloremoji")
+    normalized.contains("notocoloremoji")
+        || normalized.contains("applecoloremoji")
+        || normalized.contains("segoeuiemoji")
+        || normalized == "seguiemj"
 }
 
 #[cfg(test)]

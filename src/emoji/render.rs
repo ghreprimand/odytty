@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
-//! Live color emoji shaping and CBDT/CBLC bitmap rasterization.
+//! Live color emoji shaping and static color-glyph rasterization.
 //!
 //! This module is intentionally narrow: it only activates color rendering when
 //! the terminal grid contains one emoji grapheme or a bounded RGI cluster that
-//! resolves to one color bitmap glyph.
+//! resolves to one bitmap-strike or COLR/CPAL v0 glyph.
 
 use swash::scale::{Render, ScaleContext, Source, StrikeWith, image::Content};
 use swash::shape::{Direction, ShapeContext};
@@ -97,7 +97,7 @@ impl EmojiRasterizer {
             return Some(key);
         }
 
-        let rgba = render_color_bitmap(
+        let rgba = render_color_glyph(
             &mut self.scale_context,
             font_ref,
             *glyph_id,
@@ -257,7 +257,7 @@ fn shape_glyphs(
     glyphs
 }
 
-fn render_color_bitmap(
+fn render_color_glyph(
     context: &mut ScaleContext,
     font: FontRef<'_>,
     glyph_id: GlyphId,
@@ -268,8 +268,14 @@ fn render_color_bitmap(
         .builder(font)
         .size(cell.height.max(1) as f32)
         .build();
-    let image =
-        Render::new(&[Source::ColorBitmap(StrikeWith::BestFit)]).render(&mut scaler, glyph_id)?;
+    // Keep bitmap strikes first so the established CBDT/CBLC and sbix output is
+    // byte-identical. In swash 0.2.9, ColorOutline composites COLR v0 layers
+    // only; COLR v1 Paint graphs and SVG-in-OT intentionally remain deferred.
+    let image = Render::new(&[
+        Source::ColorBitmap(StrikeWith::BestFit),
+        Source::ColorOutline(0),
+    ])
+    .render(&mut scaler, glyph_id)?;
     if image.content != Content::Color {
         return None;
     }
@@ -279,12 +285,14 @@ fn render_color_bitmap(
         return None;
     }
 
+    let input_is_premultiplied = matches!(image.source, Source::ColorOutline(_));
     Some(fit_rgba_to_cell(
         &image.data,
         src_w,
         src_h,
         cell,
         width_cells,
+        input_is_premultiplied,
     ))
 }
 
@@ -294,6 +302,7 @@ fn fit_rgba_to_cell(
     src_h: usize,
     cell: CellSize,
     width_cells: u8,
+    input_is_premultiplied: bool,
 ) -> Vec<u8> {
     let dst_w = cell.width as usize * width_cells as usize;
     let dst_h = cell.height as usize;
@@ -315,9 +324,13 @@ fn fit_rgba_to_cell(
             let src_i = (sy * src_w + sx) * 4;
             let dst_i = ((y0 + y) * dst_w + x0 + x) * 4;
             let a = src[src_i + 3];
-            dst[dst_i] = premul(src[src_i], a);
-            dst[dst_i + 1] = premul(src[src_i + 1], a);
-            dst[dst_i + 2] = premul(src[src_i + 2], a);
+            for channel in 0..3 {
+                dst[dst_i + channel] = if input_is_premultiplied {
+                    src[src_i + channel]
+                } else {
+                    premul(src[src_i + channel], a)
+                };
+            }
             dst[dst_i + 3] = a;
         }
     }
