@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1433,10 +1434,15 @@ def self_test() -> list[str]:
         if not any(entry["kind"] == "shortened-workload" for entry in document["deviations"]):
             failures.append("session: shortened durations must be recorded as a deviation")
 
-        # Nothing machine-identifying reaches the document.
+        # Nothing machine-identifying reaches the document. Word-boundary
+        # matching, not substring: the document legitimately names this
+        # harness (`w6_runner.py`), and on CI runners USER is `runner`, so a
+        # bare substring check trips on the filename. A genuinely leaked
+        # token (a `/home/<user>/` path, a hostname field) still appears as a
+        # standalone word and still fails.
         text = result_schema.dumps(document)
         for token in (os.uname().nodename, os.environ.get("USER", "")):
-            if token and len(token) > 2 and token in text:
+            if token and len(token) > 2 and re.search(rf"\b{re.escape(token)}\b", text):
                 failures.append("session: machine-identifying token reached the document")
 
     return failures

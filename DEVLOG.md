@@ -7,6 +7,18 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- W6 self-test: leak check switched to word-boundary matching
+
+The w6-runner self-test asserts that no machine-identifying token (hostname,
+user name) reaches the result document. The check was a bare substring
+search, and CI disproved it immediately: on GitHub runners the user name is
+`runner`, and the document legitimately names the harness itself
+(`scripts/bench-protocol/w6_runner.py`), so the guard tripped on its own
+filename. The check now matches on word boundaries: a genuinely leaked
+standalone token (a `/home/<user>/` path, a hostname field) still fails,
+while the harness filename no longer false-positives. A negative control
+verifying both directions was run as part of the fix.
+
 ## 2026-08-12 -- Flag-emoji capability probe corrected to the pipeline's contract
 
 The first version of `probe_cluster_resolution` asked whether a cluster
