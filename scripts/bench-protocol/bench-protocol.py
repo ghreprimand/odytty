@@ -9,11 +9,16 @@
 # side-effect free: nothing here starts a terminal, takes a measurement, or
 # writes into the source tree.
 #
-# The harness is preparation. Under the protocol, no measured sample may be
-# taken before a preregistration record is committed, and five of the seven
-# workloads require optical apparatus this comparison unit does not have. The
-# `--availability` output states that boundary in machine-readable form so it
-# can be published rather than discovered late.
+# The harness is preparation, with one exception. Under the protocol, no
+# measured sample may be taken before a preregistration record is committed,
+# and five of the seven workloads require optical apparatus this comparison
+# unit does not have. The `--availability` output states that boundary in
+# machine-readable form so it can be published rather than discovered late.
+#
+# The exception is `w6_runner.py`, which executes the one workload whose
+# endpoint is defined entirely in software. It is never reached from this
+# entry point beyond its self-tests: a measured run is started deliberately,
+# by name, with a preregistration record in hand.
 
 from __future__ import annotations
 
@@ -34,6 +39,7 @@ import prereg  # noqa: E402
 import prng  # noqa: E402
 import result_schema  # noqa: E402
 import summaries  # noqa: E402
+import w6_runner  # noqa: E402
 import workloads  # noqa: E402
 
 MODULES = (
@@ -46,6 +52,7 @@ MODULES = (
     ("result-schema", lambda root: result_schema.self_test()),
     ("driver", lambda root: driver.self_test()),
     ("prereg", lambda root: prereg.self_test(root)),
+    ("w6-runner", lambda root: w6_runner.self_test()),
 )
 
 

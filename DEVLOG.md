@@ -7,6 +7,38 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- W6 idle-workload measured-run orchestrator
+
+The benchmark harness gains its one measured-run path: `w6_runner.py`
+executes the idle/steady-state workload, the only one in the protocol whose
+endpoint is defined entirely in software rather than requiring optical
+apparatus. A run enforces the protocol order end to end: preregistration
+completeness check, window-backend detection, per-implementation
+availability probe, a seeded balanced Latin square over the qualifying
+implementations, a discarded rehearsal block, then five measured replicates
+per implementation (60 s settle, 600 s measured) in transient systemd
+scopes, with raw samples streamed to disk as they happen so an interrupted
+run still leaves evidence, and the final document validated against the
+preregistration.
+
+Three qualification rules are deliberate: an implementation that spawns
+without mapping a window is excluded with a recorded reason rather than
+measured (a headless process has no idle-viewport cost worth publishing);
+an implementation that can only present through a different display path
+(Xwayland on a Wayland session) defaults to exclusion as well, with an
+explicit opt-in flag that publishes the inclusion as a per-implementation
+deviation; and if no compositor query tool can observe window state, the
+runner refuses to run rather than measure blind. Collectors degrade to
+recorded `unsupported` values, never to approximations, and the correctness
+oracle fails on unchecked conditions instead of passing them.
+
+Self-tests cover window-state parsing, qualification, sample assembly,
+oracle strictness, collector degradation, duration math, and a full
+end-to-end session over a fake launcher, wired into the harness self-test
+that CI already runs. Negative controls confirm the self-test bites:
+zero-filling unsupported samples, admitting an unmapped implementation, or
+an always-passing oracle each produce failures against a clean baseline.
+
 ## 2026-08-12 -- Create a theme from the pane's current colors
 
 A running pane's colors are not always the theme's colors: shell prompts,

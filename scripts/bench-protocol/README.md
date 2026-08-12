@@ -4,8 +4,12 @@ Preparation tooling for `docs/benchmark-protocol.md` (protocol version
 `1.0.0`). See `docs/benchmark-apparatus.md` for what this comparison unit can
 and cannot measure, and why.
 
-Nothing in this directory takes a measurement. Every command here is offline,
-cheap, and side-effect free unless it is explicitly asked to write a fixture.
+Every command here is offline, cheap, and side-effect free unless it is
+explicitly asked to write a fixture — with one deliberate exception. W6
+(`idle-visible-10m`) is the only workload whose endpoint is defined entirely in
+software, so it is the only one this comparison unit can execute at protocol
+strength without optical capture apparatus. `w6_runner.py` executes it, and
+nothing else in this directory takes a measurement.
 
 ## Commands
 
@@ -31,6 +35,7 @@ Per-module entry points, each with its own `--self-test`:
 | `driver.py` | child-side benchmark driver and out-of-band oracle records |
 | `result_schema.py` | canonical result document schema and validator |
 | `prereg.py` | preregistration record generator and readiness check |
+| `w6_runner.py` | W6 measured-run orchestrator: window-mapping qualification, session execution, result assembly |
 
 Useful one-offs:
 
@@ -44,6 +49,24 @@ python3 scripts/bench-protocol/prereg.py --check <record.json>
 python3 scripts/bench-protocol/result_schema.py --validate <result.json> \
     --preregistration <record.json>
 ```
+
+## Executing W6
+
+```text
+python3 scripts/bench-protocol/w6_runner.py --backend
+python3 scripts/bench-protocol/w6_runner.py --estimate
+python3 scripts/bench-protocol/w6_runner.py --probe --preregistration <record.json>
+python3 scripts/bench-protocol/w6_runner.py --run --preregistration <record.json> \
+    --results-dir <dir>
+```
+
+`--backend` reports whether window state can be observed on this session at
+all; `--probe` launches each preregistered implementation and reports which
+ones actually map a window; `--run` executes the session and writes a validated
+result document. A measured run refuses to start on an incomplete
+preregistration record, and refuses to start at all where window mapping cannot
+be observed — W6's endpoint is a visible viewport, and an unobservable viewport
+cannot be asserted.
 
 ## Canonical fixture digests
 
@@ -108,3 +131,15 @@ because each one exists to prevent a specific, tempting mistake.
 8. **Statistics implement the protocol's list and stop there.** No significance
    test, no composite score, no weighted total, no overall winner, no outlier
    rejection, no precision-based early stopping.
+
+9. **A window must actually map.** "The process started" is not W6's endpoint;
+   a static, focused, unobscured viewport is. An implementation that spawns
+   without mapping a window is excluded with its reason recorded, never
+   measured as a headless process — which would publish an idle cost for
+   something that was never on screen.
+
+10. **Display paths are never mixed silently.** An implementation that maps
+    only through Xwayland while the others run natively is presented through a
+    different pipeline, so pooling them would compare two quantities under one
+    name. The default is exclusion with the reason recorded; including it
+    requires an explicit opt-in and is itself published as a deviation.
