@@ -7,6 +7,30 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Sign release checksum manifests with Minisign
+
+The release workflow now signs `SHA256SUMS` with a Minisign release key and
+publishes `SHA256SUMS.minisig` as a sixteenth release asset. The signature
+authenticates every published filename and digest without changing the
+byte-identical alias/pinned artifact copies, so the Scoop, Homebrew, and AUR
+channels are unaffected. The canonical public key lives at
+`docs/keys/odytty-release.pub` (currently a marker; the real key is generated
+offline and lands before the first signed tag — the workflow refuses to
+publish while the marker is in place). `docs/install.md` gains per-platform
+verification instructions (Linux, macOS, Windows PowerShell), and
+`docs/release.md` documents the signing key, rotation, and the fact that
+releases before v0.11.0 remain checksum-only.
+
+Manifest signing is deliberately scoped: it does not replace platform code
+signing. The macOS app remains ad-hoc signed without notarization, and the
+Windows executable remains without Authenticode; both caveats stay documented.
+
+Verified: `cargo fmt --check`, `cargo clippy --all-targets --locked -D
+warnings`, and the full `cargo test --locked` suite pass; the workflow file
+parses and contains no GitHub Actions expressions inside `run:` blocks.
+
+---
+
 ## 2026-08-12 -- Correct a stale renderer comment on vertex-buffer reuse
 
 An external code review caught a documentation-drift instance in

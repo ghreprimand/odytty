@@ -1,6 +1,6 @@
 # Releasing OdyTTY
 
-Use this guide to cut a tagged OdyTTY release, verify its 15 published assets,
+Use this guide to cut a tagged OdyTTY release, verify its 16 published assets,
 and confirm the Scoop, Homebrew, and AUR channels updated. Replace `X.Y.Z` with
 the version being released.
 
@@ -9,6 +9,7 @@ the version being released.
 - [Continuous Integration](#continuous-integration)
 - [Release Readiness](#release-readiness)
 - [Release Artifacts](#release-artifacts)
+- [Release Signing Key](#release-signing-key)
 - [Create A Release](#create-a-release)
 - [Release Workflow Jobs](#release-workflow-jobs)
 - [Verify Publishing Channels](#verify-publishing-channels)
@@ -121,7 +122,9 @@ and a byte-identical version-pinned name:
 | Source archive | `odytty.tar.gz` | `odytty-X.Y.Z.tar.gz` |
 
 `SHA256SUMS` is the fifteenth asset. Each alias and its pinned twin have the
-same hash because they contain the same bytes.
+same hash because they contain the same bytes. `SHA256SUMS.minisig` is the
+sixteenth asset and authenticates that checksum manifest with the OdyTTY
+Minisign release key.
 
 Every binary-producing release job supplies the exact release commit as
 `ODYTTY_BUILD_SHA`, which the About panel displays as its **Commit** value. The
@@ -134,8 +137,50 @@ Pinned names select one specific version. See the
 [install artifact table](install.md#release-artifact-names-and-checksums) for
 the user-facing download contract.
 
-Release artifacts are not cryptographically signed. The macOS app is ad-hoc
-signed during assembly, but it is not Developer ID signed or notarized.
+Releases from v0.11.0 onward sign `SHA256SUMS` with Minisign. This manifest
+signature authenticates every published filename and digest without changing
+the byte-identical alias copies. Releases before v0.11.0 are checksum-only and
+remain unsigned; they were not retroactively signed.
+
+Manifest signing is separate from platform code signing. The macOS app remains
+ad-hoc signed, without Apple Developer ID signing or notarization. The Windows
+executable remains unsigned and may still trigger an unknown-publisher
+SmartScreen warning. Apple notarization and Windows Authenticode require paid
+certificates and are outside the release scope.
+
+## Release Signing Key
+
+The canonical public key is
+[`docs/keys/odytty-release.pub`](keys/odytty-release.pub). Its Minisign comment
+records the key identifier used as the published fingerprint. The same key must
+also be linked from the project website and each signed release's notes so users
+can compare it through more than one publication surface.
+
+Before the first signed tag, replace the repository's
+`REPLACE-WITH-PUBLIC-KEY-BEFORE-TAG` marker. Generate the release pair offline
+on a maintainer-controlled machine that is not a CI runner:
+
+```sh
+umask 077
+release_key_file=/secure/offline/path/odytty-release.key
+minisign -G -W \
+  -p docs/keys/odytty-release.pub \
+  -s "$release_key_file"
+```
+
+Keep an offline backup of the secret-key file. Store its complete contents in
+the GitHub Actions secret `MINISIGN_SECRET_KEY`; never commit it. The key uses
+Minisign's unencrypted `-W` format because the release is noninteractive and the
+GitHub secret is the encrypted custody boundary. The release job fails closed
+when the secret is absent, the public key is still a placeholder, or the key
+pair does not match.
+
+For a rotation, retain the previous public key under a dated filename in
+`docs/keys/`, commit the replacement canonical key before using it, and announce
+both key identifiers in the transition release. When the previous key is still
+available, sign the transition announcement with it. Replace the Actions secret
+only after the new public key is published. Old releases remain verifiable with
+their archived public keys; never rewrite or remove their signatures.
 
 ## Create A Release
 
@@ -196,8 +241,9 @@ the three package-channel jobs.
 
 ### 4. Verify The Published Release
 
-Confirm the release has 15 assets: seven aliases, seven pinned copies, and
-`SHA256SUMS`. Verify that every alias/pinned pair has matching hashes.
+Confirm the release has 16 assets: seven aliases, seven pinned copies,
+`SHA256SUMS`, and `SHA256SUMS.minisig`. Verify the Minisign signature first,
+then verify that every alias/pinned pair has matching hashes.
 
 Download the pinned source archive and confirm it builds:
 
@@ -229,7 +275,7 @@ four tag-only publication/channel jobs:
 | `windows` | Windows portable zip | Runs for tag and manual validation |
 | `macos` | Ad-hoc-signed macOS app zip | Runs for tag and manual validation |
 | `verify-ci` | Exact tagged-commit CI result | Tag only; requires a completed successful `ci.yml` run whose `head_sha` equals the tag commit |
-| `release` | GitHub Release, aliases, pinned copies, and `SHA256SUMS` | Tag only; requires `verify-ci` and all seven producers |
+| `release` | GitHub Release, aliases, pinned copies, `SHA256SUMS`, and its Minisign signature | Tag only; requires `verify-ci` and all seven producers |
 | `scoop` | In-repo Scoop manifest | Tag only; runs after `release` and pushes with `GITHUB_TOKEN` |
 | `homebrew` | External Homebrew tap | Tag only; runs after `release`; validates locally and publishes when `HOMEBREW_TAP_DEPLOY_KEY` is present |
 | `aur` | AUR package | Tag only; runs after `release` through `aur-publish.yml`; publishes when `AUR_SSH_PRIVATE_KEY` is present |
@@ -255,6 +301,8 @@ installed clients by itself.
 The Scoop hash comes from the
 `odytty-X.Y.Z-windows-x86_64.zip` row in `SHA256SUMS`. The Homebrew cask uses
 the macOS zip row, while the formula and AUR package use the source-tarball row.
+`SHA256SUMS.minisig` is an additional release asset, so none of those channel
+formats or stamping paths changes when manifest signing is enabled.
 
 If only the AUR channel fails after the GitHub Release is already published,
 do not replay every release producer. After the AUR service is available, open

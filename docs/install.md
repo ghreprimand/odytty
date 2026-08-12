@@ -3,7 +3,8 @@
 OdyTTY ships as a versioned release. Each release provides:
 
 - a git tag (`vX.Y.Z`) and source tarball;
-- a GitHub Release entry with `SHA256SUMS` for every artifact;
+- a GitHub Release entry with `SHA256SUMS` for every artifact and, from
+  v0.11.0 onward, a Minisign signature over that manifest;
 - native Linux **`.deb` and `.rpm`** packages via a one-line installer, a portable **standalone tarball**, and an x86_64 **AppImage** as a no-install fallback;
 - an **AUR** package (`odytty`) for Arch-family systems;
 - a prebuilt **macOS** `.app` zip for Apple Silicon (ad-hoc signed) plus a Homebrew tap;
@@ -21,6 +22,7 @@ the install is versioned, owned, removable, and visible to Odyssey-Mon.
 ## Contents
 
 - [Release Artifact Names And Checksums](#release-artifact-names-and-checksums)
+  - [Verify a signed release download](#verify-a-signed-release-download)
 - [Linux](#linux)
   - [One-line installer (recommended)](#one-line-installer-recommended)
   - [.deb (Debian, Ubuntu, Mint, Pop)](#deb-debian-ubuntu-mint-pop)
@@ -77,6 +79,66 @@ Each alias and its version-pinned twin are byte-identical and therefore have
 matching hashes in `SHA256SUMS`. Durable links should use the aliases under
 `releases/latest/download/`; pinned names are for selecting one specific
 release.
+
+### Verify a signed release download
+
+Releases from v0.11.0 onward include `SHA256SUMS.minisig`. Verify that signature
+before using `SHA256SUMS`, then check the downloaded artifact against the
+authenticated manifest. The public key is
+[`docs/keys/odytty-release.pub`](keys/odytty-release.pub); its comment contains
+the key identifier published with signed release notes. Releases before v0.11.0
+have checksums but no release-key signature.
+
+On Debian or Ubuntu, install Minisign and verify a Linux download like this:
+
+```sh
+sudo apt install minisign
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-x86_64.AppImage
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig
+curl -LO https://raw.githubusercontent.com/ghreprimand/odytty/master/docs/keys/odytty-release.pub
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -p odytty-release.pub
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+Other Linux distributions can install Minisign through their package manager;
+the verification commands are the same. Substitute the chosen artifact name in
+the first download command. Stop if either Minisign or the checksum command
+fails.
+
+On macOS, install Minisign with Homebrew, then verify the direct app download:
+
+```sh
+brew install minisign
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/odytty-macos-arm64.zip
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS
+curl -LO https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig
+curl -LO https://raw.githubusercontent.com/ghreprimand/odytty/master/docs/keys/odytty-release.pub
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -p odytty-release.pub
+shasum -a 256 -c SHA256SUMS --ignore-missing
+```
+
+On Windows, install Minisign with `scoop install minisign` or
+`choco install minisign`, then use PowerShell:
+
+```powershell
+Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/odytty-windows-x86_64.zip -OutFile odytty-windows-x86_64.zip
+Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS -OutFile SHA256SUMS
+Invoke-WebRequest https://github.com/ghreprimand/odytty/releases/latest/download/SHA256SUMS.minisig -OutFile SHA256SUMS.minisig
+Invoke-WebRequest https://raw.githubusercontent.com/ghreprimand/odytty/master/docs/keys/odytty-release.pub -OutFile odytty-release.pub
+minisign -Vm SHA256SUMS -x SHA256SUMS.minisig -p odytty-release.pub
+$match = Select-String -Path SHA256SUMS -Pattern '  odytty-windows-x86_64\.zip$'
+if ($null -eq $match) { throw 'Artifact is missing from SHA256SUMS' }
+$expected = ($match.Line -split '\s+')[0].ToLowerInvariant()
+$actual = (Get-FileHash odytty-windows-x86_64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected) { throw 'SHA-256 mismatch; do not run this download' }
+```
+
+The checksum-manifest signature does not replace operating-system code signing.
+The macOS app remains ad-hoc signed and is not Developer ID signed or notarized.
+The Windows executable remains without Authenticode and can still trigger an
+unknown-publisher SmartScreen warning. Those platform credentials are not part
+of the release-signing scheme.
 
 ## Linux
 

@@ -2,7 +2,8 @@ name: Release
 
 # Publishes a GitHub Release when a version tag (vX.Y.Z) is pushed. OdyTTY ships
 # seven artifact types: source, four Linux x86_64 packages, a macOS Apple Silicon
-# app zip, and an unsigned Windows x86_64 zip, all checksummed in SHA256SUMS. Tag
+# app zip, and an unsigned Windows x86_64 zip, all checksummed in SHA256SUMS.
+# The checksum manifest is signed with the OdyTTY Minisign release key. Tag
 # pushes are restricted to maintainers, so this never runs from fork pull
 # requests. A failed producer job publishes nothing (the release job needs every
 # build job).
@@ -542,6 +543,11 @@ jobs:
         # runs still fail then, and the hard expiry fails everywhere).
         run: .github/scripts/rustsec-audit.sh --release
 
+      - name: Install Minisign
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends minisign
+
       - name: Download artifacts
         # v4.3.0
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -584,6 +590,35 @@ jobs:
           sha256sum * > SHA256SUMS
           cat SHA256SUMS
 
+      - name: Sign checksum manifest
+        env:
+          MINISIGN_SECRET_KEY: ${{ secrets.MINISIGN_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MINISIGN_SECRET_KEY:-}" ]; then
+            echo "::error::MINISIGN_SECRET_KEY is not configured"
+            exit 1
+          fi
+          if grep -Fxq 'REPLACE-WITH-PUBLIC-KEY-BEFORE-TAG' \
+            docs/keys/odytty-release.pub; then
+            echo "::error::replace the placeholder Minisign public key before tagging"
+            exit 1
+          fi
+          secret_key="${RUNNER_TEMP}/odytty-release.key"
+          umask 077
+          printf '%s\n' "$MINISIGN_SECRET_KEY" > "$secret_key"
+          trap 'rm -f "$secret_key"' EXIT
+          minisign -S -W \
+            -s "$secret_key" \
+            -m out/SHA256SUMS \
+            -x out/SHA256SUMS.minisig \
+            -t "OdyTTY v${VERSION} release checksums"
+          minisign -V \
+            -p docs/keys/odytty-release.pub \
+            -m out/SHA256SUMS \
+            -x out/SHA256SUMS.minisig
+          test -s out/SHA256SUMS.minisig
+
       - name: Publish GitHub Release
         # v2.3.3
         uses: softprops/action-gh-release@6cbd405e2c4e67a21c47fa9e383d020e4e28b836
@@ -595,6 +630,7 @@ jobs:
             out/*.deb
             out/*.rpm
             out/SHA256SUMS
+            out/SHA256SUMS.minisig
           # Static preamble above the auto-generated notes, clarifying that the
           # version-less and version-pinned downloads are identical copies.
           body: |
@@ -617,6 +653,9 @@ jobs:
             version-pinned copies (same bytes), for when you want to pin a
             specific version. Every file is checksummed in `SHA256SUMS`; each
             alias and its version-pinned twin therefore show matching hashes.
+            Verify `SHA256SUMS` against `SHA256SUMS.minisig` and the published
+            [OdyTTY release key](https://github.com/ghreprimand/odytty/blob/master/docs/keys/odytty-release.pub)
+            before trusting those hashes.
 
             ---
           generate_release_notes: true
