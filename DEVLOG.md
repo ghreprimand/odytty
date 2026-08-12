@@ -7,6 +7,20 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Flag-emoji capability probe corrected to the pipeline's contract
+
+The first version of `probe_cluster_resolution` asked whether a cluster
+shapes to at least one non-`.notdef` glyph - too weak, and the Windows CI
+leg proved it: Segoe UI Emoji has glyphs for the individual
+regional-indicator letters (that is exactly what its visible fallback
+draws), so the probe called the font capable while the color-run pipeline
+correctly refused the cluster. The probe now mirrors the pipeline's real
+contract: the whole cluster must shape to exactly one non-`.notdef` glyph,
+and that glyph must carry color coverage (a color strike or color outline).
+Flag clusters on stock Segoe now probe as unresolvable, putting the test on
+its documented visible-fallback branch; capable fonts (Noto, Apple Color
+Emoji) keep the strict single-color-run assertion.
+
 ## 2026-08-12 -- W6 idle-workload measured-run orchestrator
 
 The benchmark harness gains its one measured-run path: `w6_runner.py`

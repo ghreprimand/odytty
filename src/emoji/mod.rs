@@ -213,15 +213,21 @@ pub fn representative_sequences() -> &'static [EmojiSequence] {
     ]
 }
 
-/// Probe whether `text` shapes to at least one non-`.notdef` glyph in `font`.
+/// Probe whether `text` can become a single color glyph in `font`, mirroring
+/// the color-run pipeline's contract: the whole cluster must shape to exactly
+/// one non-`.notdef` glyph, and that glyph must carry color coverage (a color
+/// strike or a color outline).
 ///
 /// This is a font-capability question, not a pipeline question: a font can be
 /// a perfectly good color-emoji font and still lack a given cluster. Stock
-/// Windows Segoe UI Emoji is the canonical example - it carries no regional-
-/// indicator flag ligatures at all, so flag clusters shape to `.notdef` and
-/// the renderer takes the visible coverage-fallback path instead of a color
-/// glyph. Callers (diagnostics, capability-conditional tests) use this to
-/// distinguish "the font cannot" from "the pipeline failed".
+/// Windows Segoe UI Emoji is the canonical example - it has glyphs for the
+/// individual regional-indicator letters (that is what its visible fallback
+/// draws) but no flag ligatures combining them, so a flag cluster shapes to
+/// two glyphs, never one, and the renderer takes the coverage-fallback path.
+/// A weaker probe that accepted "any non-`.notdef` glyph" would call that
+/// font capable and be wrong. Callers (diagnostics, capability-conditional
+/// tests) use this to distinguish "the font cannot" from "the pipeline
+/// failed".
 pub fn probe_cluster_resolution(font: &EmojiFont, text: &str) -> FallbackOutcome {
     let font_ref = font.as_ref();
     let mut shape_context = ShapeContext::new();
@@ -232,13 +238,29 @@ pub fn probe_cluster_resolution(font: &EmojiFont, text: &str) -> FallbackOutcome
         .size(EMOJI_PROBE_SIZE)
         .build();
     shaper.add_str(text);
-    let mut resolved = false;
+    let mut glyph_ids: Vec<GlyphId> = Vec::new();
     shaper.shape_with(|cluster| {
-        if cluster.glyphs.iter().any(|glyph| glyph.id != 0) {
-            resolved = true;
-        }
+        glyph_ids.extend(cluster.glyphs.iter().map(|glyph| glyph.id));
     });
-    if resolved {
+    let [glyph_id] = glyph_ids.as_slice() else {
+        return FallbackOutcome::MissingGlyph;
+    };
+    if *glyph_id == 0 {
+        return FallbackOutcome::MissingGlyph;
+    }
+    let has_color_bitmap = font_ref
+        .color_strikes()
+        .find_by_largest_ppem(*glyph_id)
+        .is_some();
+    let has_color_outline = || {
+        let mut scale_context = ScaleContext::new();
+        let mut scaler = scale_context
+            .builder(font_ref)
+            .size(EMOJI_PROBE_SIZE)
+            .build();
+        scaler.scale_color_outline(*glyph_id).is_some()
+    };
+    if has_color_bitmap || has_color_outline() {
         FallbackOutcome::Resolved
     } else {
         FallbackOutcome::MissingGlyph
