@@ -23,24 +23,34 @@ decisions.
 
 ## Project status and contributions
 
-OdyTTY is a personal, maintainer-led project with a specific design vision (see
-`SPEC.md` and the OdysseyOS visual identity). It is developed in the open
-because the source is public and the development history is worth keeping — not
-because it is seeking contributors or community development. **Outside
-contributions are not actively solicited.**
+OdyTTY is a maintainer-led project with a specific design vision (see
+`SPEC.md` and the OdysseyOS visual identity). Contributions are welcome within
+that vision — the project is developed in the open, and outside eyes make it
+better.
 
-That said, the door is not closed. A small, self-contained pull request — a bug
-fix with a test, a documentation correction, a new built-in theme — may be
-accepted at the maintainer's discretion. If you want to propose anything
-non-trivial, **open an issue first and ask before writing code**, so you don't
-sink effort into something that won't land. Changes that stray from the vision,
-the roadmap (`TODO.md`, `docs/full-build-roadmap.md`), or the owned-core
-boundary will be declined — and as a solo, best-effort project, there is no
-expectation of timely review or any response at all.
+The lowest-friction contributions, likely to land quickly:
 
-If you want to take OdyTTY in your own direction, **fork it** — that is what the
-license is for. The code is GPL-3.0-only; the OdyTTY name and branding are not
-(see the README license note), so a fork should ship under its own name.
+- **Bug reports** — especially terminal-compatibility findings (an application
+  that misbehaves in OdyTTY but not elsewhere, with a reproduction) and
+  anything from daily use on Windows or macOS, where real-hardware reports are
+  particularly valuable.
+- **Bug fixes with a test.**
+- **Documentation corrections.**
+- **Built-in themes** — see [Adding a built-in
+  theme](#adding-a-built-in-theme) below for the recipe.
+
+For anything larger, **open an issue first and ask before writing code**, so
+effort isn't sunk into something that won't land. The design vision and the
+owned-core boundary are not up for renegotiation by PR: changes that stray
+from `SPEC.md`, the roadmap (`TODO.md`, `docs/full-build-roadmap.md`), or the
+ownership boundary will be declined regardless of quality. Review is
+best-effort — small, self-contained changes get reviewed fastest; large
+unsolicited changes may wait.
+
+If you want to take OdyTTY in a different direction, **fork it** — that is
+what the license is for. The code is GPL-3.0-only; the OdyTTY name and
+branding are not (see the README license note), so a fork should ship under
+its own name.
 
 Security vulnerabilities are different: please do **not** open a public issue
 for one. See [`SECURITY.md`](SECURITY.md) for private reporting.

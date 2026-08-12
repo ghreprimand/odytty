@@ -7,6 +7,21 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Contribution stance revised: welcome within the vision
+
+`CONTRIBUTING.md` previously framed outside contributions as "not actively
+solicited", with no expectation of any response — wording that guaranteed
+nobody would bother. The stance is now: maintainer-led with a fixed design
+vision, contributions welcome within it. The section names the contributions
+that land with the least friction (bug reports — especially
+terminal-compatibility findings and reports from daily Windows/macOS use —
+bug fixes with a test, documentation corrections, built-in themes) and keeps
+the honest constraints: issue-first for anything non-trivial, the vision and
+the owned-core boundary are not renegotiable by PR, and review is
+best-effort. All mechanical gates (DCO, scope discipline, test battery,
+pre-commit gate) are unchanged. The README contributing blurb was updated to
+match.
+
 ## 2026-08-12 -- Comparative-benchmark execution harness and apparatus statement
 
 The preregistered comparative-benchmark protocol now has a complete

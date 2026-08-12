@@ -188,10 +188,10 @@ platform gates, and pre-commit checks.
 
 ## Contributing, Security, And License
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. It includes
-the test requirements, Developer Certificate of Origin, and public-repository
-safety rules. Report vulnerabilities through the private process in
-[SECURITY.md](SECURITY.md#reporting-a-vulnerability).
+Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for what
+lands easily, the test requirements, the Developer Certificate of Origin, and
+the public-repository safety rules. Report vulnerabilities through the private
+process in [SECURITY.md](SECURITY.md#reporting-a-vulnerability).
 
 OdyTTY is licensed under **GPL-3.0-only**. You may use, study, share, and modify
 the source under that license; distributed modifications must use the same
