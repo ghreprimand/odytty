@@ -253,6 +253,11 @@ a separately recorded milestone before implementation.
         curated set of non-ASCII operators and arrows into the same `calt`
         overlay path; plain ASCII without allowlisted scalars stays
         byte-identical to the pre-allowlist path.
+  - [x] Arabic contextual joining forms: compatible Arabic runs shaped with
+        `Script::Arabic` in logical LTR cell order (not bidi). Overlays cover
+        init/medi/fina/isol and length-changing joining ligatures (e.g.
+        lam-alef). Harakat-bearing cells still break runs. Active fonts without
+        Arabic coverage emit no overlay.
 - [ ] Improve rasterization quality: pixel alignment, baseline consistency,
       padding, gamma, blending, and contrast.
   - [x] Raster side (`src/atlas/`): single documented baseline for every

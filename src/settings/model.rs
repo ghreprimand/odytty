@@ -1168,10 +1168,10 @@ pub struct Settings {
     /// reproduces the historical geometric box-drawing weights byte-identically;
     /// other values scale the rule thickness.
     pub box_thickness: f32,
-    /// Programming ligatures via contextual OpenType `calt` (ASCII plus a
-    /// curated non-ASCII operator allowlist). Enabled by
-    /// default; logical cells, cursor coordinates, copy, and selection remain
-    /// unchanged.
+    /// Presentation shaping overlays: ASCII/`calt` ligatures, curated operator
+    /// allowlist, and Arabic joining forms in logical LTR cell order (not
+    /// bidi). Enabled by default; logical cells, cursor coordinates, copy, and
+    /// selection remain unchanged.
     pub ligatures: bool,
     /// Whether Kitty graphics may read file, temporary-file, and POSIX
     /// shared-memory transports named by terminal output. Off by default;

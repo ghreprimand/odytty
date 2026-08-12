@@ -7,6 +7,22 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Arabic contextual joining in logical cell order
+
+Arabic joining letters now form script-specific shaping runs and use
+`Script::Arabic` to select initial, medial, final, and isolated presentation
+forms. The presentation remains anchored to the terminal's logical
+left-to-right cell order: this is contextual joining, not bidi reordering, and
+copy, selection, search, and cursor coordinates continue to use the stored
+characters. Length-changing substitutions such as lam-alef render as one
+overlay clipped to the source-cell span.
+
+Latin/operator and Arabic runs stay separate, fonts without Arabic coverage
+fall back to ordinary per-cell rendering, and combining marks including harakat
+still break joining runs. Tests cover run separation, logical-column
+preservation, lam-alef, and the documented harakat limitation. Widened Latin
+feature tags remain disabled pending a separate scope decision.
+
 ## 2026-08-12 -- W6 self-test: leak check switched to word-boundary matching
 
 The w6-runner self-test asserts that no machine-identifying token (hostname,

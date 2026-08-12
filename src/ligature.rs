@@ -30,19 +30,24 @@
 //!
 //! # Run breaks (compatible-run rule)
 //!
-//! A shaping run ends at any cell that is ineligible or that selects a different
-//! bold/italic face. Ineligible cells include: wide continuations, hidden
-//! cells, color-glyph coverage, cells carrying combining marks (marks stay on
-//! the mono combining path), and bases outside ASCII-graphic plus
-//! [`SHAPING_OPERATOR_ALLOWLIST`]. Selection/search attribute changes do
-//! **not** break runs (compositing only).
+//! A shaping run ends at any cell that is ineligible, that selects a different
+//! bold/italic face, or that changes shaping kind (Latin/operator vs Arabic
+//! joining). Ineligible cells include: wide continuations, hidden cells,
+//! color-glyph coverage, cells carrying combining marks (marks stay on the
+//! mono combining path - including Arabic harakat, which are a stated
+//! limitation of this joining slice), and bases outside ASCII-graphic,
+//! [`SHAPING_OPERATOR_ALLOWLIST`], and Arabic joining letters. Selection/search
+//! attribute changes do **not** break runs (compositing only).
 //!
-//! Live overlay eligibility remains ASCII-graphic bases **plus** a curated
-//! allowlist of common non-ASCII programming operators/arrows
-//! ([`SHAPING_OPERATOR_ALLOWLIST`]). Default plain-ASCII rendering stays
-//! byte-identical; allowlisted scalars only join compatible runs when present.
-//! Open-ended stylistic sets (`ssXX`) are out of scope. The grapheme and
-//! byte-to-column plumbing is the shared substrate for that allowlist.
+//! Live overlay eligibility covers ASCII-graphic bases, a curated allowlist of
+//! common non-ASCII programming operators/arrows
+//! ([`SHAPING_OPERATOR_ALLOWLIST`]), and Arabic-script joining bases (dual /
+//! right / left joining letters plus tatweel). Default plain-ASCII rendering
+//! stays byte-identical; allowlisted scalars and Arabic letters only join
+//! compatible runs when present. Arabic runs are shaped with `Script::Arabic`
+//! in **logical LTR cell order** - joining forms only, not bidi reordering.
+//! Open-ended stylistic sets (`ssXX`) and discretionary `liga` widening remain
+//! out of scope pending ratification.
 
 use std::collections::{HashMap, VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
@@ -51,7 +56,7 @@ use std::sync::Arc;
 
 use ab_glyph::FontVec;
 use swash::shape::{Direction, ShapeContext};
-use swash::text::Script;
+use swash::text::{Codepoint as _, JoiningType, Script};
 use swash::{FontRef, GlyphId};
 
 use crate::atlas::{FontStyle, ShapedGlyphKey};
@@ -104,6 +109,47 @@ fn is_allowlisted_operator(ch: char) -> bool {
     // Small fixed table: linear scan beats a HashSet for ~24 entries and keeps
     // the hot path allocation-free.
     SHAPING_OPERATOR_ALLOWLIST.contains(&ch)
+}
+
+/// Shaping kind for compatible-run membership. Latin/operator runs use `calt`;
+/// Arabic runs use `Script::Arabic` joining. Kinds never merge into one run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ShapingKind {
+    Latin,
+    Arabic,
+}
+
+/// Arabic joining base (or tatweel) eligible for contextual init/medi/fina/isol.
+///
+/// Uses Unicode script + joining-type properties from swash. Transparent marks
+/// and non-joining Arabic punctuation/digits stay out so they break runs rather
+/// than pollute joining context. Platform-neutral.
+#[inline]
+fn is_arabic_joining_base(ch: char) -> bool {
+    let props = ch.properties();
+    match props.joining_type() {
+        JoiningType::D
+        | JoiningType::R
+        | JoiningType::L
+        | JoiningType::Alaph
+        | JoiningType::DalathRish => {
+            // Tatweel (U+0640) is Join_Causing with Script::Common; include it so
+            // kashida stretches participate in Arabic runs.
+            props.script() == Script::Arabic || ch == '\u{0640}'
+        }
+        _ => false,
+    }
+}
+
+#[inline]
+fn shaping_kind(ch: char) -> Option<ShapingKind> {
+    if is_arabic_joining_base(ch) {
+        Some(ShapingKind::Arabic)
+    } else if ch.is_ascii_graphic() || is_allowlisted_operator(ch) {
+        Some(ShapingKind::Latin)
+    } else {
+        None
+    }
 }
 
 /// Font access needed by the shaper without coupling it to the native GPU type.
@@ -171,7 +217,7 @@ struct RowPlan {
 
 type RowBucket = Vec<(Arc<RowKey>, Arc<RowPlan>)>;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ShapedGlyph {
     id: GlyphId,
     source_start: usize,
@@ -329,10 +375,76 @@ impl LigatureShaper {
         let Some(font_ref) = FontRef::from_index(font.as_slice(), 0) else {
             return Vec::new();
         };
-        let off = shape(&mut self.context, font_ref, run_text, 0);
-        let on = shape(&mut self.context, font_ref, run_text, 1);
-        if off.len() != on.len() {
+        let arabic = run_text.text.chars().any(is_arabic_joining_base);
+        let (off, on) = if arabic {
+            // Joining forms vs cmap defaults (typically isolated). Direction is
+            // always LTR: cells stay in logical order - this is not bidi.
+            (
+                shape_run(
+                    &mut self.context,
+                    font_ref,
+                    run_text,
+                    Script::Latin,
+                    Direction::LeftToRight,
+                    &[],
+                ),
+                shape_run(
+                    &mut self.context,
+                    font_ref,
+                    run_text,
+                    Script::Arabic,
+                    Direction::LeftToRight,
+                    &[],
+                ),
+            )
+        } else {
+            (
+                shape_run(
+                    &mut self.context,
+                    font_ref,
+                    run_text,
+                    Script::Latin,
+                    Direction::LeftToRight,
+                    &[("calt", 0)],
+                ),
+                shape_run(
+                    &mut self.context,
+                    font_ref,
+                    run_text,
+                    Script::Latin,
+                    Direction::LeftToRight,
+                    &[("calt", 1)],
+                ),
+            )
+        };
+        if off == on {
             return Vec::new();
+        }
+        let fingerprint_slot = &mut self.face_fingerprints[font_style_index(style)];
+        let face_fingerprint = match *fingerprint_slot {
+            Some(fingerprint) => fingerprint,
+            None => {
+                let fingerprint = font_fingerprint(font);
+                *fingerprint_slot = Some(fingerprint);
+                fingerprint
+            }
+        };
+        // Arabic (and any length-changing joining ligature such as lam-alef)
+        // may emit fewer glyphs than cells. Latin `calt` still requires equal
+        // lengths so historically dropped unequal substitutions stay dropped.
+        if off.len() != on.len() {
+            if !arabic {
+                return Vec::new();
+            }
+            return whole_run_overlay(
+                &on,
+                column_start,
+                run_text.cell_bytes.len(),
+                style,
+                face_fingerprint,
+            )
+            .into_iter()
+            .collect();
         }
         let mut changed = off
             .iter()
@@ -350,15 +462,6 @@ impl LigatureShaper {
                 _ => spans.push(column..column + 1),
             }
         }
-        let fingerprint_slot = &mut self.face_fingerprints[font_style_index(style)];
-        let face_fingerprint = match *fingerprint_slot {
-            Some(fingerprint) => fingerprint,
-            None => {
-                let fingerprint = font_fingerprint(font);
-                *fingerprint_slot = Some(fingerprint);
-                fingerprint
-            }
-        };
         spans
             .into_iter()
             .filter_map(|span| {
@@ -433,22 +536,26 @@ fn compatible_run_bounds(
     let mut bounds = Vec::new();
     let mut start = 0;
     while start < cells.len() {
-        if !eligible_cell(&cells[start], row, start, coverage) {
+        let Some(kind) = eligible_cell_kind(&cells[start], row, start, coverage) else {
             start += 1;
             continue;
-        }
+        };
         let style = font_style_for_attrs(&cells[start].attrs);
         let mut end = start + 1;
-        while end < cells.len()
-            && eligible_cell(&cells[end], row, end, coverage)
+        while end < cells.len() {
+            let Some(next_kind) = eligible_cell_kind(&cells[end], row, end, coverage) else {
+                break;
+            };
             // Selection and search treatments change foreground, background,
             // and inverse attributes cell by cell. Those are compositing
             // inputs, not shaping inputs: splitting here would replace one
             // contextual glyph with independently shaped fragments as a
             // highlight boundary crosses it. Only the font face selected by
-            // bold/italic affects contextual shaping.
-            && font_style_for_attrs(&cells[end].attrs) == style
-        {
+            // bold/italic - and the shaping kind (Latin vs Arabic) - affect
+            // contextual shaping.
+            if next_kind != kind || font_style_for_attrs(&cells[end].attrs) != style {
+                break;
+            }
             end += 1;
         }
         bounds.push((start, end, style));
@@ -490,30 +597,38 @@ fn row_fingerprint(cells: &[Cell], row: usize, coverage: &ColorRunCoverage) -> u
     fingerprint
 }
 
-fn eligible_cell(cell: &Cell, row: usize, column: usize, coverage: &ColorRunCoverage) -> bool {
-    // Live overlay gate: ASCII-graphic bases, or a curated non-ASCII operator
-    // from [`SHAPING_OPERATOR_ALLOWLIST`]. Combining marks, wide continuations,
-    // hidden cells, and color-glyph coverage always break runs so those cells
-    // stay on their dedicated paths (mono combining, wide lead, color emoji).
-    // Platform-neutral — no cfg(windows) divergence.
-    (cell.ch.is_ascii_graphic() || is_allowlisted_operator(cell.ch))
-        && !cell.wide_continuation
-        && cell.combining().is_empty()
-        && !cell.attrs.hidden()
-        && !coverage.covers(row, column)
+fn eligible_cell_kind(
+    cell: &Cell,
+    row: usize,
+    column: usize,
+    coverage: &ColorRunCoverage,
+) -> Option<ShapingKind> {
+    // Combining marks, wide continuations, hidden cells, and color-glyph
+    // coverage always break runs so those cells stay on their dedicated paths
+    // (mono combining - including Arabic harakat - wide lead, color emoji).
+    // Platform-neutral - no cfg(windows) divergence.
+    if cell.wide_continuation || !cell.combining().is_empty() || cell.attrs.hidden() {
+        return None;
+    }
+    if coverage.covers(row, column) {
+        return None;
+    }
+    shaping_kind(cell.ch)
 }
 
-fn shape(
+fn shape_run(
     context: &mut ShapeContext,
     font: FontRef<'_>,
     run_text: &RunText,
-    calt: u16,
+    script: Script,
+    direction: Direction,
+    features: &[(&str, u16)],
 ) -> Vec<ShapedGlyph> {
     let mut shaper = context
         .builder(font)
-        .script(Script::Latin)
-        .direction(Direction::LeftToRight)
-        .features([("calt", calt)])
+        .script(script)
+        .direction(direction)
+        .features(features.iter().copied())
         .build();
     shaper.add_str(&run_text.text);
     let mut glyphs = Vec::new();
@@ -529,6 +644,41 @@ fn shape(
         }
     });
     glyphs
+}
+
+/// One overlay covering every cell in an Arabic run when joining changes glyph
+/// count (e.g. lam-alef). Glyphs clip to the full span's pixel box.
+fn whole_run_overlay(
+    on: &[ShapedGlyph],
+    column_start: usize,
+    cell_count: usize,
+    style: FontStyle,
+    face_fingerprint: u64,
+) -> Option<RelativeRun> {
+    let span_cells = u8::try_from(cell_count).ok()?;
+    if cell_count == 0 || on.is_empty() {
+        return None;
+    }
+    let glyphs = on
+        .iter()
+        .filter_map(|glyph| {
+            let anchor_cell = u8::try_from(glyph.source_start.min(cell_count - 1)).ok()?;
+            Some(LigatureGlyph {
+                key: ShapedGlyphKey {
+                    face_fingerprint,
+                    style,
+                    glyph_id: glyph.id,
+                    span_cells,
+                    anchor_cell,
+                },
+            })
+        })
+        .collect::<Vec<_>>();
+    (!glyphs.is_empty()).then_some(RelativeRun {
+        start: column_start,
+        end: column_start + cell_count,
+        glyphs: glyphs.into(),
+    })
 }
 
 fn font_fingerprint(font: &FontVec) -> u64 {
@@ -835,6 +985,161 @@ mod tests {
         let run = runs.iter().find(|run| run.start == 1).expect("arrow run");
         assert_eq!((run.start, run.end), (1, 3));
         assert!(run.glyphs.iter().all(|glyph| glyph.key.span_cells == 2));
+    }
+
+    /// Host fonts known to carry Arabic joining lookups. Absence → skip, never fail.
+    fn load_arabic_capable_font() -> Option<(FontVec, &'static str)> {
+        const CANDIDATES: &[(&str, &str)] = &[
+            ("/usr/share/fonts/dejavu/DejaVuSans.ttf", "DejaVu Sans"),
+            (
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "DejaVu Sans",
+            ),
+            ("/usr/share/fonts/TTF/DejaVuSans.ttf", "DejaVu Sans"),
+            (
+                "/usr/share/fonts/noto/NotoNaskhArabic-Regular.ttf",
+                "Noto Naskh Arabic",
+            ),
+            (
+                "/usr/share/fonts/truetype/noto/NotoNaskhArabic-Regular.ttf",
+                "Noto Naskh Arabic",
+            ),
+            // Windows stock faces with Arabic coverage (windows CI leg).
+            (r"C:\Windows\Fonts\arial.ttf", "Arial"),
+            (r"C:\Windows\Fonts\tahoma.ttf", "Tahoma"),
+            (r"C:\Windows\Fonts\seguisym.ttf", "Segoe UI Symbol"),
+        ];
+        for &(path, label) in CANDIDATES {
+            if let Ok(bytes) = std::fs::read(path)
+                && let Ok(font) = FontVec::try_from_vec(bytes)
+            {
+                return Some((font, label));
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn arabic_joining_bases_form_compatible_runs_separate_from_latin() {
+        let snap = snapshot("abكتابxy");
+        let coverage = ColorRunCoverage::new(&[], snap.dimensions.columns, snap.dimensions.rows);
+        let bounds = compatible_run_bounds(&snap.cells[..snap.dimensions.columns], 0, &coverage);
+        assert!(
+            bounds.iter().any(|&(start, end, _)| start == 0 && end == 2),
+            "Latin prefix must be its own run: {bounds:?}"
+        );
+        assert!(
+            bounds.iter().any(|&(start, end, _)| start == 2 && end == 6),
+            "Arabic word must be one joining run: {bounds:?}"
+        );
+        assert!(
+            bounds.iter().any(|&(start, end, _)| start == 6 && end == 8),
+            "Latin suffix must be its own run: {bounds:?}"
+        );
+        assert!(is_arabic_joining_base('ك'));
+        assert!(is_arabic_joining_base('ا'));
+        assert!(is_arabic_joining_base('\u{0640}')); // tatweel
+        assert!(!is_arabic_joining_base('a'));
+        assert!(!is_arabic_joining_base('٠')); // Arabic-Indic digit: non-joining
+    }
+
+    #[test]
+    fn arabic_joining_forms_overlay_preserves_logical_columns() {
+        let Some((font, label)) = load_arabic_capable_font() else {
+            eprintln!(
+                "skip arabic_joining_forms_overlay_preserves_logical_columns: no Arabic-capable font discoverable"
+            );
+            return;
+        };
+        let fonts = Fonts(font);
+        let mut shaper = LigatureShaper::new();
+        // "كتاب" - dual/right-joining letters that change under Script::Arabic.
+        let word = "كتاب";
+        let snap = snapshot(word);
+        let runs = shaper.build_runs(true, &snap, &fonts, &[]);
+        let run = runs
+            .iter()
+            .find(|run| run.start == 0 && run.end > run.start)
+            .unwrap_or_else(|| {
+                panic!("expected joining overlay for {word:?} with {label}; runs={runs:?}")
+            });
+        assert!(
+            !run.glyphs.is_empty(),
+            "{label} must emit shaped glyphs for {word}"
+        );
+        // Overlay covers the joined prefix in logical LTR cell order. Trailing
+        // letters whose cmap id already matches the joined form need no span.
+        assert_eq!(run.start, 0);
+        assert!(
+            run.end >= 2,
+            "joining must cover at least a multi-cell span: {run:?}"
+        );
+        // Selection/copy still report the logical characters across the word.
+        let range = SelectionRange {
+            start: CellPoint { row: 0, column: 0 },
+            end: CellPoint {
+                row: 0,
+                column: word.chars().count() - 1,
+            },
+        };
+        assert_eq!(selected_text(&snap, range), word);
+        assert_eq!(
+            snap.cells[..word.chars().count()]
+                .iter()
+                .map(|c| c.ch)
+                .collect::<String>(),
+            word
+        );
+    }
+
+    #[test]
+    fn arabic_lam_alef_length_changing_ligature_still_overlays() {
+        let Some((font, label)) = load_arabic_capable_font() else {
+            eprintln!(
+                "skip arabic_lam_alef_length_changing_ligature_still_overlays: no Arabic-capable font discoverable"
+            );
+            return;
+        };
+        let fonts = Fonts(font);
+        let mut shaper = LigatureShaper::new();
+        // Lam-alef typically collapses two cells to one glyph under Arabic shaping.
+        let snap = snapshot("لا");
+        let runs = shaper.build_runs(true, &snap, &fonts, &[]);
+        let run = runs
+            .iter()
+            .find(|run| run.start == 0 && run.end == 2)
+            .unwrap_or_else(|| panic!("expected lam-alef overlay with {label}; runs={runs:?}"));
+        assert!(
+            !run.glyphs.is_empty(),
+            "{label}: lam-alef must still produce an overlay when glyph count ≠ cell count"
+        );
+        assert!(
+            run.glyphs.iter().all(|g| g.key.span_cells == 2),
+            "lam-alef glyphs must clip to the two-cell span"
+        );
+    }
+
+    #[test]
+    fn arabic_harakat_break_runs_as_stated_limitation() {
+        let mut terminal = Terminal::new(8, 1);
+        // Kaf + fatha combining mark, then more Arabic letters.
+        terminal.advance("ك\u{064E}تاب".as_bytes());
+        let snap = terminal.snapshot();
+        assert_eq!(snap.cells[0].ch, 'ك');
+        assert_eq!(snap.cells[0].combining(), ['\u{064E}']);
+        let coverage = ColorRunCoverage::new(&[], snap.dimensions.columns, snap.dimensions.rows);
+        let bounds = compatible_run_bounds(&snap.cells[..snap.dimensions.columns], 0, &coverage);
+        assert!(
+            bounds
+                .iter()
+                .all(|&(start, end, _)| !(start..end).contains(&0)),
+            "harakat-bearing base must not join an Arabic run: {bounds:?}"
+        );
+        // Remaining letters after the marked base may still form a run.
+        assert!(
+            bounds.iter().any(|&(start, end, _)| end - start >= 2),
+            "unmarked Arabic tail should still be eligible: {bounds:?}"
+        );
     }
 
     #[test]

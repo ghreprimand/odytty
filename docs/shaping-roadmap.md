@@ -22,7 +22,8 @@ what character copy/paste reports for that cell.
 
 The consequence is a real one: OdyTTY's shaping is a presentation overlay on a
 monospace-cell grid, not a full text-shaping engine that can reflow glyph
-advances or cell counts. That covers ASCII contextual ligatures and static
+advances or cell counts. That covers ASCII contextual ligatures, curated
+operator ligatures, Arabic joining forms in logical cell order, and static
 color glyphs correctly. It does not cover scripts whose correct rendering
 requires reordering or reshaping across cell boundaries (see Deferred, below).
 
@@ -32,13 +33,14 @@ requires reordering or reshaping across cell boundaries (see Deferred, below).
   into shaping runs by grapheme cluster, with a byte-to-column map that anchors
   each shaped glyph back to the source cell(s) it came from, and compatible-run
   boundary detection. Runs break at wide continuations, hidden cells,
-  color-glyph coverage, cells carrying combining marks, and any bold/italic
-  face change, so those categories never merge into a shaped span. Live
-  overlay eligibility covers ASCII-graphic bases plus a curated allowlist of
-  common non-ASCII programming operators and arrows
-  (`SHAPING_OPERATOR_ALLOWLIST`). Plain ASCII content without allowlisted
-  scalars stays byte-identical to the pre-allowlist path, pinned by a
-  differential test. Open-ended stylistic sets (`ssXX`) remain deferred.
+  color-glyph coverage, cells carrying combining marks, bold/italic face
+  changes, and Latin-vs-Arabic shaping-kind changes, so those categories never
+  merge into a shaped span. Live overlay eligibility covers ASCII-graphic
+  bases, a curated allowlist of common non-ASCII programming operators and
+  arrows (`SHAPING_OPERATOR_ALLOWLIST`), and Arabic joining bases. Plain ASCII
+  content without allowlisted scalars or Arabic letters stays byte-identical to
+  the pre-allowlist path, pinned by a differential test. Open-ended stylistic
+  sets (`ssXX`) remain deferred.
 - **Static color glyphs (COLR/CPAL v0).** The color-glyph path renders static
   COLR/CPAL v0 layer compositions in addition to the existing bitmap-strike
   formats, including stock Windows Segoe UI Emoji, which previously fell back
@@ -46,6 +48,16 @@ requires reordering or reshaping across cell boundaries (see Deferred, below).
   support statement.
 - **Extended ligature coverage beyond ASCII.** Landed as the curated allowlist
   above — not an open feature-tag surface.
+- **Arabic contextual joining forms.** Compatible Arabic runs are shaped with
+  `Script::Arabic` under **logical left-to-right cell order** (explicitly not
+  bidi reordering). OpenType init/medi/fina/isol (and length-changing joining
+  ligatures such as lam-alef) become `LigatureRun` overlays clipped to their
+  source-cell spans. Selection, copy, search, and cursor addressing still
+  report the logical characters in cell order. Cells that carry combining
+  marks - including Arabic harakat - still break runs and stay on the mono
+  combining path; that is a stated limitation of this slice, not silent
+  wrongness. When the active text font has no Arabic coverage, the shaper
+  emits no overlay and the ordinary per-cell path remains (no invented tofu).
 
 ## What remains deferred, and why
 
@@ -62,6 +74,16 @@ requires reordering or reshaping across cell boundaries (see Deferred, below).
   claim being made in their place.
 - **Bidirectional text.** No bidi reordering is implemented. Right-to-left
   input is stored and drawn in logical cell order without visual reordering.
+  Arabic joining forms are shaped within that logical order (see above); that
+  does **not** mean RTL runs are laid out in visual reading order - cells
+  remain left-to-right exactly as stored.
+- **Arabic harakat inside joining runs.** Combining marks on an Arabic base
+  still break the compatible-run gate so the marked cell uses the mono
+  combining path. Base-letter joining without harakat is what this release
+  delivers.
+- **Discretionary / widened Latin features** (for example enabling `liga` on
+  eligible Latin runs beyond the current `calt` + operator allowlist). Proposed
+  for a later ratified sub-scope; not enabled by default here.
 - **SVG-in-OpenType.** Deferred; see `docs/features.md` for the current
   color-glyph format support statement.
 - **COLR v1 Paint graphs.** Deferred alongside SVG-in-OT; a face or glyph that
@@ -70,10 +92,12 @@ requires reordering or reshaping across cell boundaries (see Deferred, below).
 ## Sequencing rationale
 
 The shaping-run infrastructure was sequenced before broader ligature coverage
-because both extended ligatures and color-glyph-aware runs need the same
-grapheme-cluster and byte-to-column substrate to anchor overlays correctly;
-building it once and reusing it avoids two independent, potentially divergent
-run-boundary implementations. Complex-script shaping and bidi are sequenced
+and Arabic joining because both need the same grapheme-cluster and
+byte-to-column substrate to anchor overlays correctly; building it once and
+reusing it avoids two independent, potentially divergent run-boundary
+implementations. Arabic joining was sequenced next because it is a
+script-tagged feature application on that same overlay model (logical LTR
+cells, no reordering). Full complex-script shaping and bidi remain sequenced
 after because they are model-level questions rather than extensions of the
 current overlay approach, and deserve their own design pass rather than being
 folded into the anchored-span model as an afterthought.
