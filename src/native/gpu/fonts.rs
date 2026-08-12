@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use ab_glyph::FontVec;
 
+use crate::emoji::EmojiRasterizer;
 use crate::ligature::LigatureFonts;
 use crate::native::options::{NativeError, NativeOptions};
 use crate::text::{self, FontStyle};
@@ -248,6 +249,51 @@ pub(super) fn resolve_symbol_fallback_with_inventory(
         .collect()
 }
 
+/// Host-font resources resolved together during native startup.
+///
+/// Keeping this coordinator outside GPU construction makes the one-inventory
+/// contract hermetic to test: symbol discovery and emoji fallback receive the
+/// same startup-local inventory, while live settings reload continues to use
+/// [`resolve_symbol_fallback`] and therefore observes a fresh host scan.
+pub(super) struct StartupFonts {
+    pub(super) symbol_fallback: Vec<Arc<FontVec>>,
+    pub(super) emoji_rasterizer: EmojiRasterizer,
+    #[cfg(test)]
+    inventory_collections: usize,
+}
+
+pub(super) fn resolve_startup_fonts(
+    symbol_fallback_enabled: bool,
+    explicit_path: Option<&Path>,
+) -> StartupFonts {
+    resolve_startup_fonts_with(
+        symbol_fallback_enabled,
+        explicit_path,
+        || text::FontFileInventory::new(text::font_search_dirs()),
+        EmojiRasterizer::discover_with_inventory,
+    )
+}
+
+fn resolve_startup_fonts_with(
+    symbol_fallback_enabled: bool,
+    explicit_path: Option<&Path>,
+    inventory_factory: impl FnOnce() -> text::FontFileInventory,
+    discover_emoji: impl FnOnce(&text::FontFileInventory) -> EmojiRasterizer,
+) -> StartupFonts {
+    // `FnOnce` makes this the sole inventory construction point in the
+    // coordinator. Both consumers below must borrow this exact value.
+    let inventory = inventory_factory();
+    let symbol_fallback =
+        resolve_symbol_fallback_with_inventory(symbol_fallback_enabled, explicit_path, &inventory);
+    let emoji_rasterizer = discover_emoji(&inventory);
+    StartupFonts {
+        symbol_fallback,
+        emoji_rasterizer,
+        #[cfg(test)]
+        inventory_collections: inventory.collection_count(),
+    }
+}
+
 /// Install the runtime per-codepoint symbol fallback resolver on `atlas` (RV6
 /// Linux backfill), or clear it. On Linux/Unix (non-macOS) the resolver is a
 /// `fc-match :charset` query ([`text::runtime_resolve_symbol_font`]) consulted
@@ -320,6 +366,17 @@ fn env_flag_override(name: &str) -> Option<bool> {
 mod tests {
     use super::*;
 
+    fn startup_fixture_dir() -> PathBuf {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "odytty-startup-fonts-{}-{serial}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create startup font fixture directory");
+        dir
+    }
+
     fn bundled_regular_path() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("assets/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf")
@@ -357,5 +414,57 @@ mod tests {
             "explicit override must lead, with bundled v3+v2 following, got {}",
             chain.len()
         );
+    }
+
+    #[test]
+    fn production_startup_coordinator_collects_once_for_symbols_and_emoji() {
+        let dir = startup_fixture_dir();
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("assets/fonts/nerd-fonts-symbols/SymbolsNerdFontMono-Regular.ttf"),
+            dir.join("SymbolsNerdFont-Regular.ttf"),
+        )
+        .expect("copy symbol fixture");
+        std::fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/fonts/color-emoji-colr-v1.ttf"),
+            dir.join("NotoColorEmoji.ttf"),
+        )
+        .expect("copy emoji fixture");
+
+        let inventory_factories = std::cell::Cell::new(0usize);
+        let startup = resolve_startup_fonts_with(
+            true,
+            None,
+            || {
+                inventory_factories.set(inventory_factories.get() + 1);
+                text::FontFileInventory::new(vec![dir.clone()])
+            },
+            |inventory| {
+                let font = crate::emoji::discover_noto_color_emoji_in_inventory(inventory)
+                    .and_then(|found| crate::emoji::EmojiFont::load(found.path).ok());
+                EmojiRasterizer::new(font)
+            },
+        );
+
+        assert_eq!(
+            inventory_factories.get(),
+            1,
+            "the production coordinator must construct exactly one inventory"
+        );
+        assert_eq!(
+            startup.inventory_collections, 1,
+            "symbol and emoji resolution must trigger one shared tree walk"
+        );
+        assert!(
+            startup.symbol_fallback.len() > text::resolve_bundled_symbol_fonts().len(),
+            "the symbol consumer must resolve the host fixture"
+        );
+        assert!(
+            startup.emoji_rasterizer.has_font(),
+            "the emoji consumer must resolve the color fixture"
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

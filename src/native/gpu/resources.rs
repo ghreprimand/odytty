@@ -30,9 +30,9 @@ use crate::native::session::SessionToken;
 use crate::native::viewport::WindowPadding;
 
 use super::fonts::{
-    StyleFonts, effective_symbol_fallback_enabled, effective_symbol_font_path,
-    install_runtime_symbol_resolver, resolve_symbol_fallback,
-    resolve_symbol_fallback_with_inventory, resolve_symbol_map_fonts,
+    StartupFonts, StyleFonts, effective_symbol_fallback_enabled, effective_symbol_font_path,
+    install_runtime_symbol_resolver, resolve_startup_fonts, resolve_symbol_fallback,
+    resolve_symbol_map_fonts,
 };
 use super::image::BgImageGpu;
 use super::pipeline_policy::{
@@ -733,17 +733,13 @@ impl GpuState {
         atlas.set_synthetic_styles(synth_bold, synth_italic, synth_bold_italic);
         let geometric_enabled = crate::settings::geometric_boxdraw_enabled();
         atlas.set_geometric_boxdraw(geometric_enabled);
-        // One startup-local lazy inventory backs every static symbol resolver
-        // and the color-emoji directory fallback. It is deliberately local:
-        // live settings reloads still observe newly installed host fonts.
-        let font_inventory = crate::text::FontFileInventory::new(crate::text::font_search_dirs());
         let symbol_fallback_enabled = effective_symbol_fallback_enabled();
         let symbol_font_path = effective_symbol_font_path();
-        let symbol_fallback = resolve_symbol_fallback_with_inventory(
-            symbol_fallback_enabled,
-            symbol_font_path.as_deref(),
-            &font_inventory,
-        );
+        let StartupFonts {
+            symbol_fallback,
+            mut emoji_rasterizer,
+            ..
+        } = resolve_startup_fonts(symbol_fallback_enabled, symbol_font_path.as_deref());
         atlas.set_fallback_fonts(symbol_fallback.clone());
         install_runtime_symbol_resolver(&mut atlas, symbol_fallback_enabled);
         let symbol_map = crate::settings::symbol_map();
@@ -817,7 +813,6 @@ impl GpuState {
         );
         let mut color_glyph_atlas = ColorGlyphAtlas::new(atlas.cell);
         color_glyph_atlas.set_texture_dimension_limit(device.limits().max_texture_dimension_2d);
-        let mut emoji_rasterizer = EmojiRasterizer::discover_with_inventory(&font_inventory);
         let initial_color_glyph_runs =
             emoji_rasterizer.build_color_glyph_runs(initial_snapshot, &mut color_glyph_atlas);
         let ligatures_enabled = crate::settings::ligatures_enabled();
