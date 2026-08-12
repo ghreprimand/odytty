@@ -228,7 +228,10 @@ logic remains platform-neutral.
 Variation selectors, flags, keycaps, skin tones, and common ZWJ clusters are
 supported. Text-default symbols stay on the monochrome fallback path, missing
 color glyphs fall back there instead of becoming tofu, and emoji pixels are not
-SGR-tinted.
+SGR-tinted. Cluster coverage is bounded by the host font: stock Windows Segoe
+UI Emoji ships no regional-indicator flag glyphs, so flag clusters on a stock
+Windows install render as the visible letter fallback - the same behavior as
+native Windows applications - rather than a color flag.
 
 COLR v1 Paint graphs and SVG-in-OpenType remain deferred. A face or glyph that
 exposes only those formats falls back to the monochrome path.

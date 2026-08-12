@@ -2,7 +2,8 @@
 use odytty::atlas::GlyphAtlas;
 use odytty::core::{CursorStyle, Terminal};
 use odytty::emoji::{
-    ColorGlyphAtlas, ColorGlyphId, EmojiFont, EmojiRasterizer, discover_noto_color_emoji,
+    ColorGlyphAtlas, ColorGlyphId, EmojiFont, EmojiRasterizer, FallbackOutcome,
+    discover_noto_color_emoji, probe_cluster_resolution,
 };
 use odytty::grid::{self, ColorGlyphVertex, Vertex};
 
@@ -56,6 +57,42 @@ fn assert_one_cluster_run(text: &str, covered_columns: u8) {
     let snapshot = snapshot_for(text, 16);
     let mut color_atlas = ColorGlyphAtlas::new(atlas.cell);
     let runs = rasterizer.build_color_glyph_runs(&snapshot, &mut color_atlas);
+
+    // Capability branch, probed against the same discovered font the
+    // rasterizer uses. A font can be a valid color-emoji font and still lack
+    // a cluster: stock Windows Segoe UI Emoji ships no regional-indicator
+    // flag ligatures, so flag clusters shape to .notdef there. When the font
+    // cannot resolve the cluster, the documented behavior is the visible
+    // coverage fallback, asserted below; when it can, the strict single
+    // color-run contract applies. The probe is independent of the run
+    // builder, so a run-stitching regression on a capable font still fails
+    // the strict branch loudly.
+    let font_capable = discover_noto_color_emoji()
+        .and_then(|found| EmojiFont::load(found.path).ok())
+        .is_some_and(|font| probe_cluster_resolution(&font, text) == FallbackOutcome::Resolved);
+
+    if !font_capable {
+        eprintln!(
+            "cluster {text:?} is not resolvable by the discovered emoji font; \
+             asserting the documented coverage fallback instead of a color run"
+        );
+        assert!(
+            runs.is_empty(),
+            "{text:?}: an unresolvable cluster must not produce a color run"
+        );
+        let mut vertices = Vec::<Vertex>::new();
+        grid::build_cell_vertices_with_color_glyph_runs_into(
+            &mut vertices,
+            &snapshot,
+            &atlas,
+            &runs,
+        );
+        assert!(
+            vertices.iter().any(|v| v.is_glyph == 1.0),
+            "{text:?}: unresolvable cluster must fall back to visible coverage text"
+        );
+        return;
+    }
 
     assert_eq!(runs.len(), 1, "{text:?} should produce one color run");
     assert_eq!(runs[0].row, 0);

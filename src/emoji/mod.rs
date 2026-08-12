@@ -213,6 +213,38 @@ pub fn representative_sequences() -> &'static [EmojiSequence] {
     ]
 }
 
+/// Probe whether `text` shapes to at least one non-`.notdef` glyph in `font`.
+///
+/// This is a font-capability question, not a pipeline question: a font can be
+/// a perfectly good color-emoji font and still lack a given cluster. Stock
+/// Windows Segoe UI Emoji is the canonical example - it carries no regional-
+/// indicator flag ligatures at all, so flag clusters shape to `.notdef` and
+/// the renderer takes the visible coverage-fallback path instead of a color
+/// glyph. Callers (diagnostics, capability-conditional tests) use this to
+/// distinguish "the font cannot" from "the pipeline failed".
+pub fn probe_cluster_resolution(font: &EmojiFont, text: &str) -> FallbackOutcome {
+    let font_ref = font.as_ref();
+    let mut shape_context = ShapeContext::new();
+    let mut shaper = shape_context
+        .builder(font_ref)
+        .script(Script::Common)
+        .direction(Direction::LeftToRight)
+        .size(EMOJI_PROBE_SIZE)
+        .build();
+    shaper.add_str(text);
+    let mut resolved = false;
+    shaper.shape_with(|cluster| {
+        if cluster.glyphs.iter().any(|glyph| glyph.id != 0) {
+            resolved = true;
+        }
+    });
+    if resolved {
+        FallbackOutcome::Resolved
+    } else {
+        FallbackOutcome::MissingGlyph
+    }
+}
+
 pub fn probe_font(font: &EmojiFont) -> EmojiProbeReport {
     let font_ref = font.as_ref();
     let mut shape_context = ShapeContext::new();

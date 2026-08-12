@@ -7,6 +7,26 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Windows CI: flag-emoji test corrected to a capability branch
+
+The COLR/CPAL landing taught emoji discovery to find stock Segoe UI Emoji,
+which made the emoji pixel-smoke suite execute on the Windows CI leg for the
+first time - and one test failed there: it asserted that a regional-indicator
+flag cluster produces a color glyph run, but Segoe UI Emoji ships no flag
+glyphs at all, so zero color runs is the correct result for that font and
+the renderer takes the documented visible letter fallback (the same behavior
+as native Windows applications). Seven of eight tests passing was the COLR
+path working as intended; the eighth was asserting a host-font capability as
+if it were a pipeline capability.
+
+Fix: a new `probe_cluster_resolution` diagnostic in `src/emoji` answers
+"can this font resolve this cluster" independently of the run builder, and
+the cluster test now branches on it - the strict single-color-run contract
+where the font is capable, the visible-fallback contract where it is not.
+A run-stitching regression on a capable font (Noto, Apple Color Emoji)
+still fails loudly on the Linux and macOS legs. `docs/features.md` now
+states the stock-Windows flag behavior explicitly.
+
 ## 2026-08-12 -- Release signing key published
 
 The minisign public key for release verification is now committed at
