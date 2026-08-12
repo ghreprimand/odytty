@@ -1,7 +1,8 @@
 # OdyTTY Graphics Protocol Support
 
-OdyTTY renders inline images through two protocols: the **Kitty graphics
-protocol** (APC-based) and **Sixel** (DCS-based). Both land on the same
+OdyTTY renders inline images through three protocols: the **Kitty graphics
+protocol** (APC-based), **Sixel** (DCS-based), and **iTerm2 inline images**
+(`OSC 1337 ; File=`). All three land on the same
 shared GPU image layer, so images compose with terminal text using z-order:
 cell backgrounds → negative-z images → glyphs → non-negative-z images. The
 default `z=0` therefore places an image above text.
@@ -11,6 +12,7 @@ default `z=0` therefore places an image above text.
 - [Kitty graphics protocol](#kitty-graphics-protocol)
 - [Security posture for file-based transports](#security-posture-for-file-based-transports)
 - [Sixel](#sixel)
+- [iTerm2 inline images](#iterm2-inline-images)
 - [Protocol availability](#protocol-availability)
 - [In-app image viewer (lightbox)](#in-app-image-viewer-lightbox)
 - [Try it](#try-it)
@@ -264,9 +266,73 @@ terminal modes.
 
 ---
 
+## iTerm2 inline images
+
+The iTerm2 inline-image extension transmits a whole image *file* — PNG, JPEG,
+or WebP — as base64 inside an OSC 1337 payload:
+
+```text
+OSC 1337 ; File = inline=1 ; width=40 ; preserveAspectRatio=1 : <base64> ST
+```
+
+Unlike Kitty (raw pixels or PNG over APC) and Sixel (a pixel data language),
+this protocol hands the terminal a container file and lets it decode. OdyTTY
+content-sniffs the container rather than trusting any declared type.
+
+### Supported arguments
+
+| Argument | Status | Notes |
+|----------|--------|-------|
+| `inline=1` | ✅ supported | Required. Without it nothing is displayed. |
+| `inline=0` | ❌ never honored | A download request; see below. |
+| `size=N` | ✅ supported | Declared file length, cross-checked against the decoded payload. A mismatch beyond a 3-byte slack rejects the command. |
+| `width=` / `height=` | ✅ supported | Accepts `auto`, `N` (cells), `Npx` (pixels), and `N%` (percent of the screen). |
+| `preserveAspectRatio=` | ✅ supported | Defaults to `1`. With `1`, one specified axis derives the other and two specified axes define a box the image is fitted inside. With `0` the values are used as given and the image stretches. |
+| `name=` | ⚠️ parsed, not shown | Validated and ignored: OdyTTY has no downloads UI to display it in. |
+| unknown arguments | ⚠️ ignored | Future iTerm2 keys degrade to "ignored", never to "image rejected". |
+
+Supported containers are exactly PNG, JPEG, and WebP — the formats the build
+enables in the `image` crate. Animation is not supported: an image is placed as
+a single still frame. A container OdyTTY cannot decode is rejected and nothing
+is drawn.
+
+### Size ceiling
+
+The payload rides inside the OSC accumulator, which is bounded at 128 KiB for
+any single OSC. The practical ceiling is therefore roughly **96 KiB of encoded
+file bytes** per image (128 KiB of base64 text, minus the argument text).
+
+A command that reaches the accumulator cap is **rejected whole**: the
+accumulator drops over-cap bytes, so what would arrive is a truncated file, and
+decoding a half-transferred image is worse than drawing nothing. This matches
+the APC rule the Kitty path follows. For larger images use the Kitty protocol,
+whose APC buffer is 1 MiB and which supports chunked transmission.
+
+### Cursor semantics
+
+The image anchors at the cursor, and the cursor then moves to column 0 of the
+row below the image — the same rule as Sixel under DECSDM reset, and what
+iTerm2 itself does. There is no "stay put" variant in this protocol (Kitty's
+`C=1` has no iTerm2 spelling). The extent is clamped to the screen: columns to
+what remains right of the cursor, rows to the screen height.
+
+### What is not supported
+
+- **`inline=0` downloads.** OdyTTY never writes a file to disk on behalf of a
+  terminal escape sequence. A non-inline `File=` command is parsed and dropped:
+  no file is created, nothing is displayed.
+- **`MultipartFile=` / `FilePart=` / `FileEnd=`** (the chunked download form)
+  are unhandled and consumed without state, so an emitter using them produces
+  no output rather than a partial image.
+- **Non-image `File=` payloads** (the extension also carries arbitrary file
+  downloads) are rejected by the container decode.
+
+---
+
 ## Protocol availability
 
-Sixel and Kitty direct/chunked-inline graphics are always active. Kitty named
+Sixel, iTerm2 inline images, and Kitty direct/chunked-inline graphics are
+always active. Kitty named
 file, temporary-file, and POSIX shared-memory transports are off by default and
 share the reloadable `kitty_named_transports` policy gate described above.
 
@@ -310,6 +376,18 @@ kitty +kitten icat /path/to/image.png
 `icat` sends PNG payloads (`f=100`) with `a=T` for transmit-and-display.
 OdyTTY handles direct RGB, RGBA, and PNG transmission including chunked
 transfers.
+
+### iTerm2 inline images
+
+iTerm2's `imgcat` script emits the `File=` form and works unchanged, as does
+any tool that writes the sequence directly. From a shell:
+
+```sh
+printf '\033]1337;File=inline=1;width=40:%s\a' "$(base64 -w0 /path/to/image.png)"
+```
+
+Keep the encoded payload under ~96 KiB (see the size ceiling above); larger
+images should go through the Kitty protocol instead.
 
 ### Sixel
 

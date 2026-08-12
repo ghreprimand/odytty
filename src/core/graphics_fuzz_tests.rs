@@ -966,3 +966,127 @@ fn graphics_fuzz_extreme_display_extents_stay_bounded() {
         assert_parser_not_wedged(seed, &mut t);
     }
 }
+
+// ---------------------------------------------------------------------------
+// (7) iTerm2 inline-image fuzzer (OSC 1337 ; File=)
+// ---------------------------------------------------------------------------
+
+/// One adversarial `File=` argument field. Mixes valid keys with malformed
+/// values, unknown keys, duplicates, and absent separators.
+fn fuzz_file_arg(rng: &mut FuzzRng) -> String {
+    let key = rng.pick(&[
+        "inline",
+        "size",
+        "width",
+        "height",
+        "preserveAspectRatio",
+        "name",
+        "futureKey",
+        "",
+    ]);
+    let value = match rng.below(8) {
+        0 => "1".to_string(),
+        1 => "0".to_string(),
+        2 => "auto".to_string(),
+        3 => format!("{}px", fuzz_numeric(rng)),
+        4 => format!("{}%", fuzz_numeric(rng)),
+        _ => fuzz_numeric(rng),
+    };
+    match rng.below(10) {
+        // Occasionally omit the `=`, which must reject rather than misparse.
+        0 => key.to_string(),
+        _ => format!("{key}={value}"),
+    }
+}
+
+/// Build one whole `OSC 1337 ; File=` sequence with fuzzed arguments and a
+/// payload that is sometimes a real PNG, often base64 soup.
+fn fuzz_file_sequence(rng: &mut FuzzRng) -> Vec<u8> {
+    let mut args = String::new();
+    for index in 0..1 + rng.below(5) {
+        if index > 0 {
+            args.push(';');
+        }
+        args.push_str(&fuzz_file_arg(rng));
+    }
+    let payload = if rng.below(4) == 0 {
+        // A real 2x2 PNG so the accept path is exercised, not only rejection.
+        b64_encode(&fuzz_png_2x2()).into_bytes()
+    } else {
+        fuzz_base64_payload(rng)
+    };
+    let mut out = Vec::new();
+    out.extend_from_slice(b"\x1b]1337;File=");
+    out.extend_from_slice(args.as_bytes());
+    // Sometimes omit the payload separator entirely.
+    if rng.below(8) > 0 {
+        out.push(b':');
+        out.extend_from_slice(&payload);
+    }
+    out.extend_from_slice(if rng.bool() { b"\x07" } else { b"\x1b\\" });
+    out
+}
+
+/// A minimal valid 2x2 RGBA PNG, encoded once per call by the `png` crate the
+/// Kitty path already depends on.
+fn fuzz_png_2x2() -> Vec<u8> {
+    let mut out = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut out, 2, 2);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&[255u8; 2 * 2 * 4]).unwrap();
+    }
+    out
+}
+
+#[test]
+fn graphics_fuzz_iterm2_file_smoke() {
+    run_iterm2_file_stream(fuzz_iters());
+}
+
+#[test]
+#[ignore = "deep fuzz tier; run with ODYTTY_FUZZ_ITERS=40000 cargo test -p odytty graphics_fuzz -- --ignored --nocapture"]
+fn graphics_fuzz_iterm2_file_deep() {
+    run_iterm2_file_stream(fuzz_iters());
+}
+
+/// Drive `File=` soup through a capped terminal: the store stays bounded, no
+/// placement escapes the grid, the cursor stays on screen, and the parser is
+/// never wedged. Interleaved with Button= payloads so the two OSC 1337
+/// families are exercised against each other.
+fn run_iterm2_file_stream(iters: u64) {
+    for i in 0..iters {
+        let seed = i.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(0x7317);
+        let mut rng = FuzzRng::new(seed);
+        let (rows, cols) = (8usize, 30usize);
+        let mut t = capped_terminal(cols, rows);
+        for _ in 0..2 + rng.below(8) {
+            match rng.below(6) {
+                0 => t.advance(b"\x1b]1337;Button=type=custom;code=7;icon=star\x07"),
+                1 => t.advance(b"\r\n"),
+                2 => t.advance(b"\x1b[2J\x1b[H"),
+                _ => t.advance(&fuzz_file_sequence(&mut rng)),
+            }
+            let _ = t.take_host_output();
+        }
+        for placement in t.visible_graphics(0) {
+            assert!(
+                placement.row < rows && placement.column < cols,
+                "seed={seed}: anchor off screen: {placement:?}"
+            );
+            assert!(
+                placement.display_rows <= rows && placement.display_columns <= cols,
+                "seed={seed}: extent exceeds screen: {placement:?}"
+            );
+        }
+        let cursor = t.screen().cursor();
+        assert!(
+            cursor.row < rows && cursor.column <= cols,
+            "seed={seed}: cursor escaped the grid: {cursor:?}"
+        );
+        assert_store_bounded(seed, &t);
+        assert_parser_not_wedged(seed, &mut t);
+    }
+}

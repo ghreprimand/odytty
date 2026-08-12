@@ -684,11 +684,20 @@ a floor; surpassing it is the standing ambition.
       297-entry set. Remaining deviation: tiles split the image uniformly
       across the prototype grid rather than letterboxing to preserve aspect
       ratio.
-- [ ] iTerm2 inline images (`OSC 1337 ; File=`): scheduled. Extends the
-      existing OSC 1337 dispatch (which already models `Button=`) with
-      bounded base64 payload handling under the established parser-limit
-      discipline, reusing the image store and placement machinery; iTerm2
-      cell/pixel/percent/auto dimension units; non-image transfers rejected.
+- [x] iTerm2 inline images (`OSC 1337 ; File=`): landed. The OSC 1337
+      dispatch now routes `File=` alongside the existing `Button=` family,
+      parsing the argument grammar (`inline`, `size`, `width`, `height`,
+      `preserveAspectRatio`, `name`) with cell / `px` / `%` / `auto` dimension
+      units and aspect-preserving fit, then decoding the container (PNG, JPEG,
+      WebP; content-sniffed, decode bounded against decompression bombs) into
+      the existing image store and placement machinery. Parser-limit
+      discipline: the payload rides the OSC accumulator, so a single command
+      is bounded at 128 KiB (~96 KiB of encoded file bytes) and a command that
+      reaches the cap is rejected whole rather than decoded from a truncated
+      prefix — the APC rule, applied to OSC. `size=` is cross-checked against
+      the decoded length. `inline=0` download requests are parsed and dropped:
+      no escape sequence writes files. The cursor advances to column 0 below
+      the image, matching iTerm2 and OdyTTY's Sixel default.
 - [ ] Kitty graphics animation (`a=f`/`a=a`/`a=c`): deferred, with reasons.
       Sizing puts it at roughly 900-1200 production lines plus a render-loop
       change, and it is the only remaining graphics item that needs new

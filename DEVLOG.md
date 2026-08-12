@@ -7,6 +7,35 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- iTerm2 inline images (OSC 1337 File=)
+
+The OSC 1337 dispatch now routes `File=` alongside the existing `Button=`
+family. The new `src/core/iterm2.rs` parses the argument grammar (`inline`,
+`size`, `width`/`height` in cell, `px`, `%`, and `auto` units,
+`preserveAspectRatio`, `name`), decodes the base64 payload as a
+content-sniffed PNG/JPEG/WebP container with decode bounds that stop a
+decompression bomb before allocation, and places the image through the
+existing store and placement machinery. The cursor advances to column 0
+below the image, matching iTerm2 and the Sixel default.
+
+Parser-limit discipline: the payload rides the OSC accumulator, so a single
+command is bounded at `MAX_OSC_RAW` (128 KiB, ~96 KiB of encoded file
+bytes); a command that reaches the cap is rejected whole rather than decoded
+from a truncated prefix — the APC rule applied to OSC. The sibling sweep is
+recorded in the module header: APC and DCS already refuse truncated
+payloads, and OSC 52's smaller decode budget makes a separate truncation
+check unnecessary there. `size=` is cross-checked against the decoded
+length. `inline=0` download requests are parsed and dropped: no escape
+sequence writes files. Unknown argument keys are ignored so future iTerm2
+arguments degrade to "ignored", not "rejected".
+
+28 new unit/integration tests cover the argument grammar, the extent table,
+end-to-end placement, clamping, and every rejection path, plus new smoke and
+deep fuzz tiers and a `File=` arm in the protocol fuzzer. Platform-neutral:
+pure parser and image-store work, no filesystem, process, or environment
+access on any target. `docs/graphics.md`, `docs/features.md`, `SPEC.md`,
+`TODO.md`, and the manual-validation image rows now state the support.
+
 ## 2026-08-12 -- Shaping roadmap document
 
 `docs/shaping-roadmap.md` (new) states the shaping model plainly: one logical

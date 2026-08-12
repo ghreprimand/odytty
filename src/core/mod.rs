@@ -19,6 +19,7 @@ mod encoding;
 mod graphics_routing;
 mod hyperlink;
 mod input_region;
+mod iterm2;
 mod kitty;
 mod kitty_transport;
 mod placeholder;
@@ -47,6 +48,8 @@ mod graphics_fuzz_tests;
 mod graphics_routing_tests;
 #[cfg(test)]
 mod graphics_tests;
+#[cfg(test)]
+mod iterm2_tests;
 #[cfg(test)]
 mod kitty_delete_tests;
 #[cfg(test)]

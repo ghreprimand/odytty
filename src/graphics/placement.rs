@@ -30,6 +30,8 @@ pub struct PlacementId(pub u64);
 pub enum GraphicsProtocol {
     Kitty,
     Sixel,
+    /// iTerm2 inline image (`OSC 1337 ; File=`).
+    Iterm2,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

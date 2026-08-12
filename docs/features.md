@@ -238,6 +238,7 @@ exposes only those formats falls back to the monochrome path.
 | --- | --- |
 | Kitty graphics | Actions `t`, `T`, `p`, `d`, and `q`; raw RGB, raw RGBA, and PNG still images; direct and chunked-inline transports; opt-in file, temporary-file, and Unix POSIX shared-memory transports; image and placement ids; z-index; crop; cell scaling; pixel offsets; and Unicode placeholders (`U=1` virtual placements resolved from U+10EEEE placeholder cells) |
 | Sixel | DEC/xterm data language, RGB/HLS color introducers, repeat, raster attributes, transparency, VT340 palette, and DECSDM |
+| iTerm2 inline images | `OSC 1337 ; File=` with `inline`, `size`, `width`, `height` (cell / `px` / `%` / `auto` units), and `preserveAspectRatio`; PNG, JPEG, and WebP containers; cursor advances below the image. Payloads are bounded by the 128 KiB OSC cap (~96 KiB of encoded file bytes) and an over-cap command is rejected whole. `inline=0` downloads are never honored — no escape sequence writes files. |
 
 Animation is not supported.
 
@@ -293,7 +294,7 @@ effects. Inactive tabs are dimmed; the active tab is marked by a selection-role
 fill and a bright, bold label. A static dot marks unseen bell activity on a
 background tab and clears through the existing view/switch semantics.
 
-Labels stay centered vertically when the bar grows. Kitty and Sixel placements
+Labels stay centered vertically when the bar grows. Inline image placements
 use the same reserved rows as text, so inline graphics remain aligned with the
 visible grid.
 
@@ -344,7 +345,7 @@ is silent, minimize events are ignored, and later updates clear 750 ms after the
 last applied resize. The same static treatment works in single- and multi-pane,
 plain-theme, effects, and reduced-motion paths without changing PTY state.
 
-Kitty and Sixel placements are also per-pane and clipped to the pane's
+Inline image placements are also per-pane and clipped to the pane's
 sub-rectangle. Optional inactive-pane dimming uses `inactive_pane_dim`, defaults
 to `0.0`, and is disabled by `render_quality=plain`; the no-dim frame remains
 byte-identical.

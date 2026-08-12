@@ -87,6 +87,9 @@ mod params_tests;
 #[cfg(test)]
 mod segmenter_tests;
 
+/// The OSC accumulator cap, visible crate-internally so payload consumers can
+/// tell a complete OSC from one the accumulator truncated at the cap.
+pub(crate) use driver::MAX_OSC_RAW;
 pub use driver::OdyParser;
 pub use params::{Params, ParamsIter};
 

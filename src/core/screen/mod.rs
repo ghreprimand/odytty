@@ -17,6 +17,7 @@ use super::button::{
 };
 use super::graphics_routing::{self, DcsCapture, GraphicsStats};
 use super::hyperlink::{Hyperlink, HyperlinkTable};
+use super::iterm2;
 use super::kitty::{decode_base64_bytes, encode_base64_bytes};
 use super::placeholder;
 
@@ -660,12 +661,32 @@ impl Screen {
         self.active_hyperlink = self.hyperlinks.open(params[1], &params[2..]);
     }
 
-    /// Handle an OSC 1337 payload. Only `Button=` carries modeled semantics
-    /// (Tier 1 of the button protocol); every other payload in the namespace
-    /// is recognized and consumed with no state. Parsing always runs (parser
-    /// totality is exercised regardless of configuration); state changes are
-    /// gated on the master `buttons` gate AND the iTerm2-compat sub-gate.
+    /// Handle an OSC 1337 payload. Two payload families carry modeled
+    /// semantics: `File=` (iTerm2 inline images, see [`super::iterm2`]) and
+    /// `Button=` (Tier 1 of the button protocol). Every other payload in the
+    /// namespace is recognized and consumed with no state. Button parsing
+    /// always runs (parser totality is exercised regardless of configuration);
+    /// button state changes are gated on the master `buttons` gate AND the
+    /// iTerm2-compat sub-gate. Inline images are ungated, like the Kitty and
+    /// Sixel graphics paths.
     fn handle_osc1337(&mut self, parts: &[&[u8]]) {
+        if iterm2::is_file_command(parts) {
+            if let Some((row, column)) = iterm2::handle_file_osc(
+                &mut self.graphics,
+                parts,
+                self.cursor.row,
+                self.cursor.column,
+                self.dimensions.rows,
+                self.dimensions.columns,
+                self.cell_metrics,
+            ) {
+                self.cursor.row = row;
+                self.cursor.column = column;
+                self.pending_wrap = false;
+                self.mark_dirty();
+            }
+            return;
+        }
         let Some(signal) = parse_button_osc_1337(parts) else {
             return;
         };

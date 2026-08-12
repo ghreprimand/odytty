@@ -13,7 +13,8 @@
 //! 3. **Synchronized output mode 2026** (SU1): `CSI ? 2026 h/l` set/reset and
 //!    `CSI ? 2026 $ p` DECRQM, interleaved with text and resets.
 //! 4. **OSC 52 + dynamic colors** (OSC1): `OSC 52` payloads with oversized and
-//!    invalid base64 plus `?` query floods, and `OSC 4/10/11/12` color garbage.
+//!    invalid base64 plus `?` query floods, `OSC 4/10/11/12` color garbage, and
+//!    `OSC 1337 ; File=` inline-image argument/payload soup.
 //! 5. **DECRQM / XTWINOPS probes** (RQ1): `CSI ? Ps $ p` / `CSI Ps $ p` across
 //!    the mode table and `CSI Ps ; … t` window-op reports.
 //! 6. **DCS query reports** (RQ2): `DCS + q … ST` XTGETTCAP (hex cap-name
@@ -436,7 +437,36 @@ fn gen_mode_2026(rng: &mut FuzzRng) -> Vec<u8> {
 fn gen_osc(rng: &mut FuzzRng) -> Vec<u8> {
     let st: &[u8] = if rng.bool() { b"\x07" } else { b"\x1b\\" };
     let mut s: Vec<u8> = Vec::from(&b"\x1b]"[..]);
-    match rng.below(8) {
+    match rng.below(9) {
+        8 => {
+            // OSC 1337 File= (iTerm2 inline image): argument soup plus a
+            // base64-ish payload that is almost never a decodable container.
+            s.extend_from_slice(b"1337;File=");
+            let n = rng.below(5);
+            for index in 0..n {
+                if index > 0 {
+                    s.push(b';');
+                }
+                s.extend_from_slice(rng.pick(&[
+                    &b"inline=1"[..],
+                    &b"inline=0"[..],
+                    &b"width=auto"[..],
+                    &b"height=50%"[..],
+                    &b"width=999999999px"[..],
+                    &b"size="[..],
+                    &b"preserveAspectRatio=2"[..],
+                    &b"name"[..],
+                ]));
+                s.extend_from_slice(fuzz_num(rng).as_bytes());
+            }
+            if rng.below(8) > 0 {
+                s.push(b':');
+                let m = rng.below(512);
+                for _ in 0..m {
+                    s.push(*rng.pick(b"ABCDEFGHIJKLMNOPabcdef0123456789+/=!:; "));
+                }
+            }
+        }
         0 => {
             // OSC 52 set with arbitrary (often invalid) base64.
             s.extend_from_slice(b"52;c;");

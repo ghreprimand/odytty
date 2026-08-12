@@ -1197,8 +1197,9 @@ scope rather than silently inheriting deferred work from this release.
   off, is forced off in plain render quality, and leaves the no-dim path
   byte-identical. Interactive overlays (selection / search) render per pane, so
   a selection or a search match shows in the correct pane regardless of focus
-  (the interactive search query bar stays on the focused pane). Kitty and Sixel
-  inline graphics also composite within each pane's origin and clip rectangle.
+  (the interactive search query bar stays on the focused pane). Inline graphics
+  also composite within each pane's origin and clip rectangle, whatever
+  protocol delivered them.
 
 #### Rail And Tab Chrome
 

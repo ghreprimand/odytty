@@ -55,7 +55,7 @@ const MAX_OSC_PARAMS: usize = 16;
 /// 1024-byte cap to cover realistic OSC 52 clipboard base64 transfers and OSC
 /// 8 hyperlinks; over-cap payload bytes are dropped and the OSC still
 /// dispatches with the in-cap prefix.
-const MAX_OSC_RAW: usize = 128 * 1024;
+pub(crate) const MAX_OSC_RAW: usize = 128 * 1024;
 
 /// Cap on the APC payload buffer. Bounds the memory a single APC string can
 /// consume; over-cap drops (does not dispatch) the entire APC.
