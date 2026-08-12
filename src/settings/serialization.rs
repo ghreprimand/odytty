@@ -100,6 +100,14 @@ impl Settings {
         values.insert(BOX_THICKNESS_ENV, format_float(self.box_thickness));
         values.insert(LIGATURES_ENV, bool_display(self.ligatures).to_owned());
         values.insert(
+            LIGATURE_SS01_ENV,
+            bool_display(self.ligature_ss01).to_owned(),
+        );
+        values.insert(
+            LIGATURE_SS02_ENV,
+            bool_display(self.ligature_ss02).to_owned(),
+        );
+        values.insert(
             KITTY_NAMED_TRANSPORTS_ENV,
             bool_display(self.kitty_named_transports).to_owned(),
         );

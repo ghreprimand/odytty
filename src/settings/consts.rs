@@ -38,6 +38,8 @@ pub const SUBPIXEL_ENV: &str = "ODYTTY_SUBPIXEL";
 pub const LINE_HEIGHT_ENV: &str = "ODYTTY_LINE_HEIGHT";
 pub const BOX_THICKNESS_ENV: &str = "ODYTTY_BOX_THICKNESS";
 pub const LIGATURES_ENV: &str = "ODYTTY_LIGATURES";
+pub const LIGATURE_SS01_ENV: &str = "ODYTTY_LIGATURE_SS01";
+pub const LIGATURE_SS02_ENV: &str = "ODYTTY_LIGATURE_SS02";
 pub const KITTY_NAMED_TRANSPORTS_ENV: &str = "ODYTTY_KITTY_NAMED_TRANSPORTS";
 pub const KEYBINDS_ENV: &str = "ODYTTY_KEYBINDS";
 pub const PANE_PREFIX_ENV: &str = "ODYTTY_PANE_PREFIX";
@@ -173,6 +175,8 @@ pub(crate) const SETTING_ENV_KEYS: &[&str] = &[
     LINE_HEIGHT_ENV,
     BOX_THICKNESS_ENV,
     LIGATURES_ENV,
+    LIGATURE_SS01_ENV,
+    LIGATURE_SS02_ENV,
     KITTY_NAMED_TRANSPORTS_ENV,
     KEYBINDS_ENV,
     PANE_PREFIX_ENV,
@@ -626,10 +630,22 @@ pub const DEFAULT_NEW_OUTPUT_FADE_MS: f32 = 250.0;
 pub const MIN_NEW_OUTPUT_FADE_MS: f32 = 50.0;
 pub const MAX_NEW_OUTPUT_FADE_MS: f32 = 1000.0;
 
-/// Programming ligatures (`ODYTTY_LIGATURES`): ASCII contextual `calt`
-/// shaping. On by default; `off` performs no shaping and preserves the scalar
-/// atlas/geometry output exactly.
+/// Programming ligatures (`ODYTTY_LIGATURES`): contextual `calt` plus standard
+/// `liga` on eligible Latin/operator runs, plus Arabic joining when the active
+/// face covers Arabic. On by default; `off` performs no shaping and preserves
+/// the scalar atlas/geometry output exactly. Optional stylistic sets ride
+/// [`LIGATURE_SS01_ENV`] / [`LIGATURE_SS02_ENV`] (both off by default).
 pub const DEFAULT_LIGATURES: bool = true;
+
+/// Optional OpenType stylistic set `ss01` (`ODYTTY_LIGATURE_SS01`). Off by
+/// default; only applies while programming ligatures are enabled. No other
+/// `ssXX` tags are exposed.
+pub const DEFAULT_LIGATURE_SS01: bool = false;
+
+/// Optional OpenType stylistic set `ss02` (`ODYTTY_LIGATURE_SS02`). Off by
+/// default; only applies while programming ligatures are enabled. No other
+/// `ssXX` tags are exposed.
+pub const DEFAULT_LIGATURE_SS02: bool = false;
 
 /// Themed window border (`ODYTTY_WINDOW_BORDER`, ID4): when on, a thin border in
 /// the theme `border` role color is drawn around the grid, framing the terminal

@@ -134,6 +134,8 @@ fn setting_info_covers_every_field_with_descriptions() {
             "symbol_font",
             "symbol_map",
             "ligatures",
+            "ss01",
+            "ss02",
             "kitty_named_transports",
             "text_gamma",
             "text_brightness",

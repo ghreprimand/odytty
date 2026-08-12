@@ -1117,8 +1117,16 @@ impl GpuState {
         snapshot: &Snapshot,
         color_runs: &[ColorGlyphRun],
     ) -> Vec<LigatureRun> {
-        self.ligature_shaper
-            .build_runs(self.ligatures_enabled, snapshot, &self.fonts, color_runs)
+        self.ligature_shaper.build_runs_with_features(
+            self.ligatures_enabled,
+            snapshot,
+            &self.fonts,
+            color_runs,
+            crate::ligature::LatinShapingFeatures {
+                ss01: self.ligature_ss01,
+                ss02: self.ligature_ss02,
+            },
+        )
     }
 
     fn ensure_ligature_glyphs(&mut self, runs: &mut Vec<LigatureRun>) {

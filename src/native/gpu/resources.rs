@@ -490,6 +490,10 @@ pub(in crate::native) struct GpuState {
     pub(super) geometric_enabled: bool,
     /// Last-applied programming-ligature switch.
     pub(super) ligatures_enabled: bool,
+    /// Last-applied optional OpenType `ss01` stylistic set (off by default).
+    pub(super) ligature_ss01: bool,
+    /// Last-applied optional OpenType `ss02` stylistic set (off by default).
+    pub(super) ligature_ss02: bool,
     /// Last-applied effective symbol / Nerd-font fallback switch. The setting is
     /// published process-wide and the legacy env var may override it; retaining
     /// the effective value lets live toggles rebuild the atlas.
@@ -809,12 +813,18 @@ impl GpuState {
         let initial_color_glyph_runs =
             emoji_rasterizer.build_color_glyph_runs(initial_snapshot, &mut color_glyph_atlas);
         let ligatures_enabled = crate::settings::ligatures_enabled();
+        let ligature_ss01 = crate::settings::ligature_ss01_enabled();
+        let ligature_ss02 = crate::settings::ligature_ss02_enabled();
         let mut ligature_shaper = LigatureShaper::new();
-        let mut initial_ligature_runs = ligature_shaper.build_runs(
+        let mut initial_ligature_runs = ligature_shaper.build_runs_with_features(
             ligatures_enabled,
             initial_snapshot,
             &fonts,
             &initial_color_glyph_runs,
+            crate::ligature::LatinShapingFeatures {
+                ss01: ligature_ss01,
+                ss02: ligature_ss02,
+            },
         );
         for glyph in initial_ligature_runs
             .iter()
@@ -1056,6 +1066,8 @@ impl GpuState {
             synthetic_enabled,
             geometric_enabled,
             ligatures_enabled,
+            ligature_ss01,
+            ligature_ss02,
             symbol_fallback_enabled,
             symbol_font_path,
             symbol_fallback,
@@ -1341,6 +1353,10 @@ impl GpuState {
         let geometric_changed = geometric_now != self.geometric_enabled;
         let ligatures_now = crate::settings::ligatures_enabled();
         let ligatures_changed = ligatures_now != self.ligatures_enabled;
+        let ss01_now = crate::settings::ligature_ss01_enabled();
+        let ss02_now = crate::settings::ligature_ss02_enabled();
+        let shaping_features_changed =
+            ligatures_changed || ss01_now != self.ligature_ss01 || ss02_now != self.ligature_ss02;
         let symbol_fallback_now = effective_symbol_fallback_enabled();
         let symbol_font_path_now = effective_symbol_font_path();
         let symbol_fallback_changed = symbol_fallback_now != self.symbol_fallback_enabled
@@ -1358,7 +1374,7 @@ impl GpuState {
             && !box_thickness_changed
             && !synthetic_changed
             && !geometric_changed
-            && !ligatures_changed
+            && !shaping_features_changed
             && !symbol_fallback_changed
             && !symbol_map_changed
         {
@@ -1409,8 +1425,10 @@ impl GpuState {
         if geometric_changed {
             self.geometric_enabled = geometric_now;
         }
-        if ligatures_changed {
+        if shaping_features_changed {
             self.ligatures_enabled = ligatures_now;
+            self.ligature_ss01 = ss01_now;
+            self.ligature_ss02 = ss02_now;
         }
         if symbol_fallback_changed {
             self.symbol_fallback_enabled = symbol_fallback_now;

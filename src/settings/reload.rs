@@ -225,6 +225,8 @@ pub fn apply_reloadable_values(current: &mut Settings, mut reloaded: Settings) -
     super::set_synthetic_styles_enabled(reloaded.synthetic_styles);
     super::set_geometric_boxdraw_enabled(reloaded.geometric_boxdraw);
     super::set_ligatures_enabled(reloaded.ligatures);
+    super::set_ligature_ss01_enabled(reloaded.ligature_ss01);
+    super::set_ligature_ss02_enabled(reloaded.ligature_ss02);
     super::set_symbol_fallback_enabled(reloaded.symbol_fallback);
     super::set_symbol_font_path(reloaded.symbol_font.clone());
     super::set_symbol_map(reloaded.symbol_map.clone());

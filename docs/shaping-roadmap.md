@@ -39,8 +39,9 @@ requires reordering or reshaping across cell boundaries (see Deferred, below).
   bases, a curated allowlist of common non-ASCII programming operators and
   arrows (`SHAPING_OPERATOR_ALLOWLIST`), and Arabic joining bases. Plain ASCII
   content without allowlisted scalars or Arabic letters stays byte-identical to
-  the pre-allowlist path, pinned by a differential test. Open-ended stylistic
-  sets (`ssXX`) remain deferred.
+  the pre-allowlist path, pinned by a differential test. Optional stylistic
+  sets are limited to explicit `ss01`/`ss02` settings (off by default); open-
+  ended `ssXX` remains deferred.
 - **Static color glyphs (COLR/CPAL v0).** The color-glyph path renders static
   COLR/CPAL v0 layer compositions in addition to the existing bitmap-strike
   formats, including stock Windows Segoe UI Emoji, which previously fell back
@@ -52,6 +53,14 @@ requires reordering or reshaping across cell boundaries (see Deferred, below).
   bitmap and v0 sources decline the glyph, preserving both established paths.
 - **Extended ligature coverage beyond ASCII.** Landed as the curated allowlist
   above — not an open feature-tag surface.
+- **Latin `liga` alongside `calt`.** Eligible Latin/operator runs enable both
+  OpenType tags when programming ligatures are on. The off/on differential
+  still emits overlays only where newly enabled features change glyphs, so
+  plain content without substitutions stays byte-identical to the scalar path.
+- **Optional `ss01` / `ss02`.** Explicit settings (`ss01` / `ss02`, env
+  `ODYTTY_LIGATURE_SS01` / `ODYTTY_LIGATURE_SS02`), both off by default, apply
+  only while programming ligatures are enabled. No other `ssXX` tags are
+  exposed.
 - **Arabic contextual joining forms.** Compatible Arabic runs are shaped with
   `Script::Arabic` under **logical left-to-right cell order** (explicitly not
   bidi reordering). OpenType init/medi/fina/isol (and length-changing joining
@@ -85,9 +94,8 @@ requires reordering or reshaping across cell boundaries (see Deferred, below).
   still break the compatible-run gate so the marked cell uses the mono
   combining path. Base-letter joining without harakat is what this release
   delivers.
-- **Discretionary / widened Latin features** (for example enabling `liga` on
-  eligible Latin runs beyond the current `calt` + operator allowlist). Proposed
-  for a later ratified sub-scope; not enabled by default here.
+- **Open-ended stylistic sets** beyond the explicit `ss01`/`ss02` settings.
+  Additional `ssXX` tags stay deferred.
 - **SVG-in-OpenType.** Deferred; see `docs/features.md` for the current
   color-glyph format support statement.
 

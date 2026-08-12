@@ -61,6 +61,32 @@ pub fn ligatures_enabled() -> bool {
     LIGATURES_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
 }
 
+/// Optional OpenType `ss01` stylistic set. Off by default; ignored while the
+/// master ligatures switch is off.
+static LIGATURE_SS01_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(DEFAULT_LIGATURE_SS01);
+
+pub fn set_ligature_ss01_enabled(enabled: bool) {
+    LIGATURE_SS01_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn ligature_ss01_enabled() -> bool {
+    LIGATURE_SS01_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Optional OpenType `ss02` stylistic set. Off by default; ignored while the
+/// master ligatures switch is off.
+static LIGATURE_SS02_ENABLED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(DEFAULT_LIGATURE_SS02);
+
+pub fn set_ligature_ss02_enabled(enabled: bool) {
+    LIGATURE_SS02_ENABLED.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn ligature_ss02_enabled() -> bool {
+    LIGATURE_SS02_ENABLED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// Runtime flag mirroring [`Settings::symbol_fallback`], published
 /// process-wide so the GPU renderer can rebuild the glyph atlas when live
 /// settings enable or disable the RV6 symbol / Nerd-font fallback. Defaults to

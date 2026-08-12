@@ -35,9 +35,10 @@ use super::{
 use super::{
     BOX_THICKNESS_ENV, INTERACTIVE_PATHS_BAREWORDS_ENV, INTERACTIVE_PATHS_CLICK_HINT_ENV,
     INTERACTIVE_PATHS_EDITOR_ENV, INTERACTIVE_PATHS_ENV, INTERACTIVE_PATHS_IMAGE_INLINE_ENV,
-    INTERACTIVE_URLS_ENV, KITTY_NAMED_TRANSPORTS_ENV, LIGATURES_ENV, LINE_HEIGHT_ENV,
-    REMOTE_IMAGE_PASTE_ENV, REMOTE_INTEGRATION_ENV, REMOTE_PERSIST_ENV, REMOTE_REUSE_ENV,
-    REMOTE_TMUX_ENV, SESSION_REPLAY_ENV, SSH_CONFIG_HOSTS_ENV,
+    INTERACTIVE_URLS_ENV, KITTY_NAMED_TRANSPORTS_ENV, LIGATURE_SS01_ENV, LIGATURE_SS02_ENV,
+    LIGATURES_ENV, LINE_HEIGHT_ENV, REMOTE_IMAGE_PASTE_ENV, REMOTE_INTEGRATION_ENV,
+    REMOTE_PERSIST_ENV, REMOTE_REUSE_ENV, REMOTE_TMUX_ENV, SESSION_REPLAY_ENV,
+    SSH_CONFIG_HOSTS_ENV,
 };
 #[derive(Debug, Clone, Default)]
 pub(super) struct ConfigValues {
@@ -253,6 +254,8 @@ pub(super) fn config_key_to_env(key: &str) -> Option<&'static str> {
         "osc52write" | "allowosc52write" | "clipboardwrite" => Some(OSC52_WRITE_ENV),
         "syntheticstyles" | "synthstyles" | "syntheticfonts" => Some(SYNTHETIC_STYLES_ENV),
         "ligatures" | "programmingligatures" | "calt" => Some(LIGATURES_ENV),
+        "ligaturesss01" | "ss01" | "stylisticset01" => Some(LIGATURE_SS01_ENV),
+        "ligaturesss02" | "ss02" | "stylisticset02" => Some(LIGATURE_SS02_ENV),
         "kittynamedtransports" | "kittyfiletransports" | "kittysharedmemory" => {
             Some(KITTY_NAMED_TRANSPORTS_ENV)
         }
@@ -409,6 +412,8 @@ pub(super) fn env_to_config_key(env: &str) -> Option<&'static str> {
         LINE_HEIGHT_ENV => Some("line_height"),
         BOX_THICKNESS_ENV => Some("box_thickness"),
         LIGATURES_ENV => Some("ligatures"),
+        LIGATURE_SS01_ENV => Some("ss01"),
+        LIGATURE_SS02_ENV => Some("ss02"),
         KITTY_NAMED_TRANSPORTS_ENV => Some("kitty_named_transports"),
         KEYBINDS_ENV => Some("keybinds"),
         PANE_PREFIX_ENV => Some("pane_prefix"),

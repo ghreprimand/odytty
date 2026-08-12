@@ -507,6 +507,18 @@ impl Settings {
             DEFAULT_LIGATURES,
             &mut warn,
         );
+        let ligature_ss01 = parse_bool_setting(
+            get(LIGATURE_SS01_ENV).as_deref(),
+            LIGATURE_SS01_ENV,
+            DEFAULT_LIGATURE_SS01,
+            &mut warn,
+        );
+        let ligature_ss02 = parse_bool_setting(
+            get(LIGATURE_SS02_ENV).as_deref(),
+            LIGATURE_SS02_ENV,
+            DEFAULT_LIGATURE_SS02,
+            &mut warn,
+        );
         let kitty_named_transports = parse_bool_setting(
             get(KITTY_NAMED_TRANSPORTS_ENV).as_deref(),
             KITTY_NAMED_TRANSPORTS_ENV,
@@ -923,6 +935,8 @@ impl Settings {
             line_height,
             box_thickness,
             ligatures,
+            ligature_ss01,
+            ligature_ss02,
             kitty_named_transports,
             key_bindings,
             pane_prefix,

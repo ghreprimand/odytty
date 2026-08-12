@@ -7,6 +7,19 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Bounded Latin shaping features
+
+Eligible Latin and operator runs now enable the standard OpenType `liga`
+feature alongside `calt`. Length-changing substitutions remain presentation
+overlays clipped to their source-cell span, so the terminal grid, cursor,
+selection, search, and copied text keep their logical coordinates.
+
+Two explicit stylistic-set switches, `ss01` and `ss02`, are available through
+configuration, environment variables, and the live settings panel. Both are
+off by default, apply only while programming ligatures are enabled, and clear
+the shaping cache when changed. No open-ended `ssXX` feature surface is
+exposed, and Arabic joining behavior remains unchanged.
+
 ## 2026-08-12 -- Kitty graphics animation
 
 The Kitty graphics path now supports frame transmission (`a=f`), playback

@@ -1168,11 +1168,18 @@ pub struct Settings {
     /// reproduces the historical geometric box-drawing weights byte-identically;
     /// other values scale the rule thickness.
     pub box_thickness: f32,
-    /// Presentation shaping overlays: ASCII/`calt` ligatures, curated operator
+    /// Presentation shaping overlays: ASCII `calt`+`liga`, curated operator
     /// allowlist, and Arabic joining forms in logical LTR cell order (not
     /// bidi). Enabled by default; logical cells, cursor coordinates, copy, and
-    /// selection remain unchanged.
+    /// selection remain unchanged. Optional `ss01`/`ss02` ride separate
+    /// settings (off by default).
     pub ligatures: bool,
+    /// Optional OpenType stylistic set `ss01`. Off by default; applies only
+    /// while [`Self::ligatures`] is on. No other `ssXX` tags are exposed.
+    pub ligature_ss01: bool,
+    /// Optional OpenType stylistic set `ss02`. Off by default; applies only
+    /// while [`Self::ligatures`] is on. No other `ssXX` tags are exposed.
+    pub ligature_ss02: bool,
     /// Whether Kitty graphics may read file, temporary-file, and POSIX
     /// shared-memory transports named by terminal output. Off by default;
     /// direct and chunked-inline graphics remain available.
@@ -1620,6 +1627,8 @@ impl Default for Settings {
             line_height: DEFAULT_LINE_HEIGHT,
             box_thickness: DEFAULT_BOX_THICKNESS,
             ligatures: DEFAULT_LIGATURES,
+            ligature_ss01: DEFAULT_LIGATURE_SS01,
+            ligature_ss02: DEFAULT_LIGATURE_SS02,
             kitty_named_transports: false,
             key_bindings: Vec::new(),
             pane_prefix: default_pane_prefix(),

@@ -184,7 +184,7 @@ and clears after one bounded delay without animation.
 | --- | --- |
 | Font sources | Bundled families, system families, and direct font files |
 | Styling | Font-weight variants, synthetic styles, and subpixel antialiasing |
-| Programming ligatures | Default-on contextual alternates for ASCII plus a curated non-ASCII operator allowlist; Arabic joining forms in logical LTR cell order; grid-aligned source cells |
+| Programming ligatures | Default-on `calt`+`liga` for ASCII plus a curated non-ASCII operator allowlist; optional off-by-default `ss01`/`ss02`; Arabic joining forms in logical LTR cell order; grid-aligned source cells |
 | Fallback | Per-range symbol maps and bundled Nerd Font v3/v2 faces |
 | Readability | Linear-light color composition, glyph coverage gamma, stem darkening, and minimum-contrast enforcement |
 
@@ -193,13 +193,15 @@ font. Shaping runs cover eligible ASCII graphics, a curated allowlist of
 common non-ASCII operators and arrows, and Arabic joining bases, and change
 only presentation: the terminal model keeps one logical character per cell, so
 copying, selection, search, cursor placement, and wide-cell behavior retain
-their ordinary semantics. Arabic joining is shaped in **logical left-to-right
-cell order** - not bidi reordering; RTL visual layout remains deferred.
-Unsupported fonts and runs render through the normal per-cell path. Set
-`ligatures = off` in Settings or configuration, or
-`ODYTTY_LIGATURES=off` for one launch, to restore scalar rendering; the setting
-reloads live. See `docs/shaping-roadmap.md` for the shaping model, what has
-landed, and what remains deferred.
+their ordinary semantics. Latin/operator runs enable OpenType `calt` and
+`liga` together; optional stylistic sets `ss01` and `ss02` are off by default
+(`ss01 = on` / `ODYTTY_LIGATURE_SS01=on`, and likewise for `ss02`). Arabic
+joining is shaped in **logical left-to-right cell order** - not bidi
+reordering; RTL visual layout remains deferred. Unsupported fonts and runs
+render through the normal per-cell path. Set `ligatures = off` in Settings or
+configuration, or `ODYTTY_LIGATURES=off` for one launch, to restore scalar
+rendering; the setting reloads live. See `docs/shaping-roadmap.md` for the
+shaping model, what has landed, and what remains deferred.
 
 Decomposed combining marks stay attached to their base glyph in the monochrome
 text path. Wrapped and rectangular selection copy the base followed by its marks

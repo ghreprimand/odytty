@@ -242,17 +242,21 @@ a separately recorded milestone before implementation.
         `U+1FB3C..1FB67` and negative diagonals `U+1FBBD..1FBBF` (need a general
         antialiased polygon filler).
 - [x] Ship grid-preserving contextual ligatures behind a live setting
-      (ASCII graphics plus a curated non-ASCII operator allowlist). Broader
-      stylistic-set (`ssXX`) coverage and full complex-script shaping remain
-      deferred; see `docs/shaping-roadmap.md`.
+      (ASCII graphics plus a curated non-ASCII operator allowlist, with
+      `calt`+`liga` on Latin/operator runs). Explicit optional `ss01`/`ss02`
+      (off by default); open-ended `ssXX` and full complex-script shaping
+      remain deferred; see `docs/shaping-roadmap.md`.
   - [x] Shaping-run infrastructure: grapheme-cluster grouping, byte-to-column
         anchoring, and compatible-run boundary detection (combining marks,
         mixed styles, color-glyph/ZWJ coverage, and wide cells never merge
         into a run).
   - [x] Extended ligature coverage: `SHAPING_OPERATOR_ALLOWLIST` admits a
-        curated set of non-ASCII operators and arrows into the same `calt`
+        curated set of non-ASCII operators and arrows into the same Latin
         overlay path; plain ASCII without allowlisted scalars stays
         byte-identical to the pre-allowlist path.
+  - [x] Latin `liga` alongside `calt`, plus optional `ss01`/`ss02` settings
+        (off by default; config keys `ss01`/`ss02`, env
+        `ODYTTY_LIGATURE_SS01`/`ODYTTY_LIGATURE_SS02`).
   - [x] Arabic contextual joining forms: compatible Arabic runs shaped with
         `Script::Arabic` in logical LTR cell order (not bidi). Overlays cover
         init/medi/fina/isol and length-changing joining ligatures (e.g.

@@ -88,6 +88,8 @@ impl Settings {
             "subpixel" => subpixel_display(self.subpixel).to_owned(),
             "line_height" => format_float(self.line_height),
             "ligatures" => bool_display(self.ligatures).to_owned(),
+            "ss01" => bool_display(self.ligature_ss01).to_owned(),
+            "ss02" => bool_display(self.ligature_ss02).to_owned(),
             "kitty_named_transports" => bool_display(self.kitty_named_transports).to_owned(),
             "synthetic_styles" => bool_display(self.synthetic_styles).to_owned(),
             "geometric_boxdraw" => bool_display(self.geometric_boxdraw).to_owned(),

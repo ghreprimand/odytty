@@ -19,14 +19,15 @@
 //! 2. A swash cluster whose `source` byte range starts inside cell *i* is
 //!    anchored to column *i*. Glyph ids from that cluster inherit that column
 //!    as `source_start`.
-//! 3. When `calt` changes glyph ids over a contiguous column span, the overlay
+//! 3. When enabled Latin features (`calt`/`liga`/optional `ss01`/`ss02`) or
+//!    Arabic joining change glyph ids over a contiguous column span, the overlay
 //!    covers exactly those source columns. Every shaped glyph in the span is
 //!    clipped to the span's pixel box (`anchor_cell` / `span_cells` on
 //!    [`ShapedGlyphKey`]). If glyph count ≠ cell count inside the span, glyphs
 //!    still share that clip — they are not free to advance into neighboring
 //!    logical cells.
-//! 4. Clusters that do not differ under `calt` produce no overlay; the ordinary
-//!    per-cell scalar path draws them.
+//! 4. Clusters that do not differ under the enabled features produce no overlay;
+//!    the ordinary per-cell scalar path draws them.
 //!
 //! # Run breaks (compatible-run rule)
 //!
@@ -46,8 +47,10 @@
 //! stays byte-identical; allowlisted scalars and Arabic letters only join
 //! compatible runs when present. Arabic runs are shaped with `Script::Arabic`
 //! in **logical LTR cell order** - joining forms only, not bidi reordering.
-//! Open-ended stylistic sets (`ssXX`) and discretionary `liga` widening remain
-//! out of scope pending ratification.
+//! Latin/operator runs enable OpenType `calt` and `liga` together; optional
+//! stylistic sets `ss01` and `ss02` are off by default and gated by
+//! [`LatinShapingFeatures`]. Open-ended `ssXX` beyond those two tags is out of
+//! scope.
 
 use std::collections::{HashMap, VecDeque, hash_map::DefaultHasher};
 use std::hash::{Hash, Hasher};
@@ -71,7 +74,8 @@ pub const LIGATURE_ROW_CACHE_CAPACITY: usize = 512;
 /// Inclusion criterion: single-width Unicode operators and arrows that
 /// programming fonts commonly participate in OpenType `calt`/`liga` lookups
 /// (comparison, logic, and arrow forms). This is a fixed allowlist — not an
-/// open stylistic-set surface (`ss01`… are deferred). Placeholders, emoji, and
+/// open stylistic-set surface. Optional `ss01`/`ss02` ride
+/// [`LatinShapingFeatures`] (off by default). Placeholders, emoji, and
 /// wide East-Asian ideographs stay out. Platform-neutral.
 pub const SHAPING_OPERATOR_ALLOWLIST: &[char] = &[
     // Arrows
@@ -111,8 +115,9 @@ fn is_allowlisted_operator(ch: char) -> bool {
     SHAPING_OPERATOR_ALLOWLIST.contains(&ch)
 }
 
-/// Shaping kind for compatible-run membership. Latin/operator runs use `calt`;
-/// Arabic runs use `Script::Arabic` joining. Kinds never merge into one run.
+/// Shaping kind for compatible-run membership. Latin/operator runs use
+/// `calt`+`liga` (and optional `ss01`/`ss02`); Arabic runs use `Script::Arabic`
+/// joining. Kinds never merge into one run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ShapingKind {
     Latin,
@@ -149,6 +154,29 @@ fn shaping_kind(ch: char) -> Option<ShapingKind> {
         Some(ShapingKind::Latin)
     } else {
         None
+    }
+}
+
+/// Optional Latin stylistic-set tags applied when the master ligatures switch
+/// is on. Both default off; open-ended `ssXX` beyond these two is out of scope.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LatinShapingFeatures {
+    pub ss01: bool,
+    pub ss02: bool,
+}
+
+impl LatinShapingFeatures {
+    fn on_tags(self) -> [(&'static str, u16); 4] {
+        [
+            ("calt", 1),
+            ("liga", 1),
+            ("ss01", u16::from(self.ss01)),
+            ("ss02", u16::from(self.ss02)),
+        ]
+    }
+
+    fn off_tags(self) -> [(&'static str, u16); 4] {
+        [("calt", 0), ("liga", 0), ("ss01", 0), ("ss02", 0)]
     }
 }
 
@@ -231,6 +259,7 @@ pub struct LigatureShaper {
     entry_count: usize,
     face_fingerprints: [Option<u64>; 4],
     shape_calls: u64,
+    latin_features: LatinShapingFeatures,
 }
 
 impl Default for LigatureShaper {
@@ -248,6 +277,7 @@ impl LigatureShaper {
             entry_count: 0,
             face_fingerprints: [None; 4],
             shape_calls: 0,
+            latin_features: LatinShapingFeatures::default(),
         }
     }
 
@@ -266,8 +296,8 @@ impl LigatureShaper {
         self.shape_calls
     }
 
-    /// Build presentation runs for a snapshot. When disabled, this returns
-    /// immediately without constructing row keys or touching swash.
+    /// Build presentation runs for a snapshot using default Latin features
+    /// (`calt`+`liga` on; `ss01`/`ss02` off).
     pub fn build_runs<F: LigatureFonts>(
         &mut self,
         enabled: bool,
@@ -275,8 +305,33 @@ impl LigatureShaper {
         fonts: &F,
         color_runs: &[ColorGlyphRun],
     ) -> Vec<LigatureRun> {
+        self.build_runs_with_features(
+            enabled,
+            snapshot,
+            fonts,
+            color_runs,
+            LatinShapingFeatures::default(),
+        )
+    }
+
+    /// Build presentation runs with explicit optional stylistic-set tags.
+    ///
+    /// Changing `latin_features` relative to the prior call clears the row-plan
+    /// cache so overlays cannot leak across feature toggles.
+    pub fn build_runs_with_features<F: LigatureFonts>(
+        &mut self,
+        enabled: bool,
+        snapshot: &Snapshot,
+        fonts: &F,
+        color_runs: &[ColorGlyphRun],
+        latin_features: LatinShapingFeatures,
+    ) -> Vec<LigatureRun> {
         if !enabled {
             return Vec::new();
+        }
+        if latin_features != self.latin_features {
+            self.clear();
+            self.latin_features = latin_features;
         }
         let cols = snapshot.dimensions.columns;
         // One O(cells / 64 + runs) coverage mask serves the fingerprint,
@@ -398,6 +453,7 @@ impl LigatureShaper {
                 ),
             )
         } else {
+            let features = self.latin_features;
             (
                 shape_run(
                     &mut self.context,
@@ -405,7 +461,7 @@ impl LigatureShaper {
                     run_text,
                     Script::Latin,
                     Direction::LeftToRight,
-                    &[("calt", 0)],
+                    &features.off_tags(),
                 ),
                 shape_run(
                     &mut self.context,
@@ -413,7 +469,7 @@ impl LigatureShaper {
                     run_text,
                     Script::Latin,
                     Direction::LeftToRight,
-                    &[("calt", 1)],
+                    &features.on_tags(),
                 ),
             )
         };
@@ -429,13 +485,11 @@ impl LigatureShaper {
                 fingerprint
             }
         };
-        // Arabic (and any length-changing joining ligature such as lam-alef)
-        // may emit fewer glyphs than cells. Latin `calt` still requires equal
-        // lengths so historically dropped unequal substitutions stay dropped.
+        // Arabic joining ligatures such as lam-alef and Latin `liga`
+        // substitutions may emit fewer glyphs than cells. Keep the logical
+        // model unchanged by clipping the shaped presentation to the complete
+        // source run.
         if off.len() != on.len() {
-            if !arabic {
-                return Vec::new();
-            }
             return whole_run_overlay(
                 &on,
                 column_start,
@@ -646,8 +700,9 @@ fn shape_run(
     glyphs
 }
 
-/// One overlay covering every cell in an Arabic run when joining changes glyph
-/// count (e.g. lam-alef). Glyphs clip to the full span's pixel box.
+/// One overlay covering every cell in a run when shaping changes glyph count
+/// (for example Arabic lam-alef or a Latin `liga` substitution). Glyphs clip to
+/// the full span's pixel box.
 fn whole_run_overlay(
     on: &[ShapedGlyph],
     column_start: usize,
@@ -985,6 +1040,84 @@ mod tests {
         let run = runs.iter().find(|run| run.start == 1).expect("arrow run");
         assert_eq!((run.start, run.end), (1, 3));
         assert!(run.glyphs.iter().all(|glyph| glyph.key.span_cells == 2));
+    }
+
+    #[test]
+    fn latin_feature_toggle_clears_row_cache() {
+        let fonts = Fonts(text::load_bundled_font().expect("bundled font"));
+        let mut shaper = LigatureShaper::new();
+        let snap = snapshot("a->b");
+        let _ = shaper.build_runs(true, &snap, &fonts, &[]);
+        let after_default = shaper.cached_rows();
+        assert!(after_default > 0);
+        let calls_after_default = shaper.shape_calls();
+        let _ = shaper.build_runs_with_features(
+            true,
+            &snap,
+            &fonts,
+            &[],
+            LatinShapingFeatures {
+                ss01: true,
+                ss02: false,
+            },
+        );
+        // Feature change must not reuse plans shaped under ss01=off.
+        assert!(
+            shaper.shape_calls() > calls_after_default,
+            "ss01 toggle must reshape rather than reuse the prior cache"
+        );
+        let warm = shaper.shape_calls();
+        let _ = shaper.build_runs_with_features(
+            true,
+            &snap,
+            &fonts,
+            &[],
+            LatinShapingFeatures {
+                ss01: true,
+                ss02: false,
+            },
+        );
+        assert_eq!(shaper.shape_calls(), warm, "same features must hit cache");
+    }
+
+    #[test]
+    fn default_latin_path_enables_liga_alongside_calt() {
+        // Structural: the on-tags for default Latin features include both calt
+        // and liga at 1; ss01/ss02 stay 0. Glyph-level liga hits are font-
+        // dependent and are not required for this invariant.
+        let features = LatinShapingFeatures::default();
+        assert_eq!(
+            features.on_tags(),
+            [("calt", 1), ("liga", 1), ("ss01", 0), ("ss02", 0)]
+        );
+        assert_eq!(
+            features.off_tags(),
+            [("calt", 0), ("liga", 0), ("ss01", 0), ("ss02", 0)]
+        );
+        let with_sets = LatinShapingFeatures {
+            ss01: true,
+            ss02: true,
+        };
+        assert_eq!(
+            with_sets.on_tags(),
+            [("calt", 1), ("liga", 1), ("ss01", 1), ("ss02", 1)]
+        );
+    }
+
+    #[test]
+    fn latin_length_changing_liga_stays_clipped_to_its_source_cells() {
+        let fonts = Fonts(text::load_bundled_font().expect("bundled font"));
+        let mut shaper = LigatureShaper::new();
+        let snap = snapshot("ffi");
+        let runs = shaper.build_runs(true, &snap, &fonts, &[]);
+        let Some(run) = runs.first() else {
+            // The bundled face may encode this sequence without a `liga`
+            // substitution. The structural feature-tag test above still pins
+            // that `liga` is enabled.
+            return;
+        };
+        assert_eq!((run.start, run.end), (0, 3));
+        assert!(run.glyphs.iter().all(|glyph| glyph.key.span_cells == 3));
     }
 
     /// Host fonts known to carry Arabic joining lookups. Absence → skip, never fail.
