@@ -340,9 +340,17 @@ a separately recorded milestone before implementation.
         colors, and expansion order to the previous triangle stream, and the
         real-pipeline readback plus pixel-smoke suites pin compositor output.
         The shared wgpu path applies identically to Vulkan, Metal, and DX12.
-        Local Vulkan release-profile validation remains required; Metal and
-        DX12 have automated build/test evidence only until their manual rows in
-        `docs/manual-validation.md` are executed.
+        Local Vulkan release-profile validation passed on 2026-08-12 at commit
+        `a6507f8fb35f304f50da5009992ccd9bc0080ad5` using the clean source-built
+        binary with SHA-256
+        `df182b0e7a5fedac2cca6ccf17bf118edb5a4f49ed923d02de4121fd00db1e20`
+        on an NVIDIA GeForce RTX 5090 Vulkan discrete adapter. The maintainer
+        confirmed stable synthetic text/style output, wrapping, sustained row
+        output, and resize behavior without geometry corruption. Runtime CJK
+        font coverage was unavailable and is not claimed by this check. Metal
+        and DX12 passed their named CI build/test legs at the same commit but
+        remain manual-unverified; their rows in `docs/manual-validation.md`
+        were not executed.
   - [ ] Row-granular dirty regions: `mark_dirty` still promotes visible changes
         to a full rebuild. Retained and cursor-only frames already avoid the
         full upload. A 2026-08-12 bounded, geometry-only 80x24 quick-profile
