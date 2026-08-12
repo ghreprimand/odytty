@@ -20,6 +20,7 @@ There are two kinds of theme:
 
 - [Selecting a theme](#selecting-a-theme)
 - [In-app theme tools](#in-app-theme-tools)
+- [Create theme from current colors](#create-theme-from-current-colors)
 - [Built-in theme library](#built-in-theme-library)
 - [File format](#file-format)
 - [Example](#example)
@@ -90,12 +91,54 @@ Builder on the highlighted theme.
 ### Theme Builder
 
 The Theme Builder (default `Ctrl+Shift+B`) is a no-file way to author user
-themes. You can clone an existing theme, edit its foreground/background, palette,
-and role colors, or generate a starting palette from a seed color, then save the
-result. Saving writes `<theme_dir>/<name>.theme` in exactly the
+themes. You can clone an existing theme, capture the colors a pane is currently
+displaying (see [Create theme from current
+colors](#create-theme-from-current-colors)), edit its foreground/background,
+palette, and role colors, or generate a starting palette from a seed color, then
+save the result. Saving writes `<theme_dir>/<name>.theme` in exactly the
 [file format](#file-format) documented below — so a builder-made theme is an
 ordinary user theme file you can keep editing by hand. On save, role colors are
 snapped to meet the WCAG AA 4.5 contrast target.
+
+### Create theme from current colors
+
+A running program can repaint the terminal at any time with the dynamic-color
+escape sequences — `OSC 4` for a palette slot, `OSC 10`/`11`/`12` for the
+default foreground, background, and cursor. Shell prompts, editor colorschemes,
+`tmux` configs, and `dircolors` setups all do it, which leaves you looking at a
+set of colors you cannot save, because they only exist as live terminal state.
+
+**Create Theme From Current Colors** turns that state into a theme. Run it from
+the command palette, or press `C` inside the Theme Builder to pull the live
+colors into the draft you are already editing. Either way you land in the Theme
+Builder with a draft you can rename, tweak, and save like any other.
+
+What it captures, from the **focused pane**:
+
+| Theme field | Source |
+| --- | --- |
+| foreground / background / cursor | The `OSC 10`/`11`/`12` override if the pane has one, otherwise the value the active theme seeded. |
+| `color0`–`color15` | Per slot: the `OSC 4` override if that slot has one, otherwise the theme-seeded value. A partial override produces a partially-overridden capture. |
+| `clear` | The captured background. |
+
+The remaining roles have no escape sequence to read, so there is nothing live to
+capture and they are **derived** from the captured colors:
+
+| Role | How it is derived |
+| --- | --- |
+| `selection` | The background moved 22% toward the foreground — a readable highlight band that does not fight the text over it. |
+| `search` | The captured `color3` (yellow) blended 45% into the background, keeping the conventional warm search band without overpowering the field. |
+| `border` | The background moved 12% toward the foreground: a structural line that reads as an edge without drawing the eye. |
+| `inactive` | The midpoint between background and foreground — legible but clearly recessive. |
+
+Each derivation moves *toward the foreground*, so it darkens on a light field
+and lightens on a dark one with no separate light/dark rule. The light/dark
+`appearance` flag comes from the captured background's luminance. These are
+starting points, not verdicts: every derived role is editable in the builder
+before you save, and the usual AA contrast snap still applies on save.
+
+Capturing changes nothing on its own — it does not repaint the pane, alter the
+applied theme, or write a file until you save.
 
 See [docs/keybindings.md](keybindings.md) for the full set of default chords and
 how to rebind them.
@@ -448,4 +491,6 @@ Application-driven color changes still win over the theme. A program that sets
 palette entries via `OSC 4` (or the default fg/bg via `OSC 10/11`) overrides the
 theme's colors for the lifetime of that session; the theme provides the
 baseline those overrides start from. Selecting a new theme re-establishes the
-baseline.
+baseline. Those live overrides are exactly what [Create theme from current
+colors](#create-theme-from-current-colors) captures, so a look a program
+produced at runtime can be saved as a theme of your own.

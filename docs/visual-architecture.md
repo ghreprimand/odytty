@@ -390,7 +390,9 @@ settings and how to enable effects, see [`docs/effects.md`](effects.md).
   through the settings/config seam.
 - 142 built-in themes across OdyTTY original, community, and retro/phosphor
   families.
-- An in-app theme builder with live preview, saved to a user theme file.
+- An in-app theme builder with live preview, saved to a user theme file. Its
+  draft can be cloned from a theme, generated from a seed, or captured from the
+  focused pane's live dynamic colors.
 
 The indexed-color render path is theme-driven; OSC-4 / dynamic-color overrides
 layer on top with correct precedence. See `docs/themes.md` for the full roster

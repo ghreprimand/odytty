@@ -944,7 +944,11 @@ scope rather than silently inheriting deferred work from this release.
   `Ctrl+Shift+H` lists built-ins, previews each theme on arrow
   navigation, persists the selected built-in with `Enter`, and restores the
   originally active theme with `Esc`. The custom theme builder has landed:
-  clone/tweak/author with live preview, saved to a user `.theme` file.
+  clone/tweak/author with live preview, saved to a user `.theme` file. A draft
+  can also be captured from a pane's live dynamic-color state (OSC 4 palette
+  overrides and OSC 10/11/12 fg/bg/cursor, theme-seeded where no override
+  exists), with the remaining semantic roles derived by documented
+  luminance-based heuristics.
 
 - Multi-session tabs: the native app runs multiple PTY/terminal sessions in a
   `WorkspaceSet`, routes PTY output by session id, and shows a one-row tab bar

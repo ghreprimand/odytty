@@ -287,6 +287,32 @@ impl App {
         self.request_selection_redraw();
     }
 
+    /// Test seam (THEME-CAPTURE): open the theme editor on a draft captured
+    /// from the focused pane's live colors, through the production palette
+    /// entry point.
+    #[cfg(test)]
+    pub(in crate::native) fn open_theme_capture_for_test(&mut self) {
+        self.open_theme_capture_overlay();
+        self.request_selection_redraw();
+    }
+
+    /// Test seam (THEME-CAPTURE): the draft the capture flow would produce
+    /// right now, without opening any overlay. Lets a test assert the captured
+    /// spec against the pane's live dynamic-color state directly.
+    #[cfg(test)]
+    pub(in crate::native) fn captured_theme_spec_for_test(&self) -> crate::theme::ThemeSpec {
+        self.capture_live_theme_spec()
+    }
+
+    /// Test seam (THEME-CAPTURE): the theme editor's current working draft, or
+    /// `None` when the editor is not the active overlay.
+    #[cfg(test)]
+    pub(in crate::native) fn theme_builder_draft_for_test(
+        &self,
+    ) -> Option<crate::theme::ThemeSpec> {
+        self.overlay.theme_builder_draft_for_test()
+    }
+
     /// Test seam (UX4-P1): inject a cached pointer cell, as `update_pointer_cell`
     /// would after a `CursorMoved`, so a press has coordinates.
     #[cfg(test)]

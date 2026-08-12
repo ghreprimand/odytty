@@ -19,10 +19,12 @@
 //! be exercised without mutating process environment.
 
 mod builtins;
+mod capture;
 mod contrast;
 mod spec;
 
 pub use builtins::{all, names};
+pub use capture::{LiveColors, capture_spec};
 pub use contrast::{contrast_ratio, relative_luminance};
 pub use spec::{Appearance, ThemeSpec};
 

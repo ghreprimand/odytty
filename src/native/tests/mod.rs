@@ -219,6 +219,7 @@ mod sh_click;
 mod smart_ctrl_c;
 mod synchronized_output;
 mod tabs_sessions;
+mod theme_capture;
 mod viewport;
 mod wheel_zoom;
 mod workspaces;

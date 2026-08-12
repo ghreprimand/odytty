@@ -133,6 +133,11 @@ impl OklchChannel {
 #[derive(Debug, Clone, PartialEq)]
 pub(super) enum ThemeBuilderOutcome {
     Consumed,
+    /// The editor asked for a fresh capture of the focused pane's live colors
+    /// (THEME-CAPTURE). The builder has no access to terminal state, so the App
+    /// resolves the capture and feeds it back via
+    /// [`ThemeBuilder::apply_capture`].
+    CaptureLiveColors,
     Preview(Theme),
     Save(ThemeBuilderSaveRequest),
     Cancel(Theme),
@@ -266,9 +271,48 @@ impl ThemeBuilder {
     pub(super) fn open(&mut self, settings: &Settings) {
         *self = Self::from_theme(settings.theme);
         self.message = Some(
-            "Clone active theme. Tab or [/] picks L/C/H, Left/Right or drag adjust, F snaps to AA, G generates from a seed, Enter types hex, Ctrl+S saves."
+            "Clone active theme. Tab or [/] picks L/C/H, Left/Right or drag adjust, F snaps to AA, G generates from a seed, C captures live colors, Enter types hex, Ctrl+S saves."
                 .to_owned(),
         );
+    }
+
+    /// Load a captured draft (THEME-CAPTURE): the editor opens on the pane's
+    /// live colors instead of a clone of the active theme. `original` stays the
+    /// theme that is actually applied, so cancelling still restores what the
+    /// user had — the capture is a draft, not an applied change.
+    pub(super) fn open_captured(&mut self, settings: &Settings, spec: ThemeSpec) {
+        *self = Self::from_theme(settings.theme);
+        let name = spec.name.clone();
+        self.apply_capture(spec);
+        self.spec.name = name;
+        self.message = Some(
+            "Captured this pane's live colors. Roles clear/selection/search/border/inactive are derived - edit any of them, then Ctrl+S saves."
+                .to_owned(),
+        );
+    }
+
+    /// Replace the working draft with a captured one, keeping the editor's own
+    /// view state (selection, scroll, focused channel) and the `original` theme
+    /// to restore on cancel. Shared by the open-with-capture path and the
+    /// in-editor `C` capture key so the two can never diverge.
+    pub(super) fn apply_capture(&mut self, spec: ThemeSpec) {
+        let name = std::mem::take(&mut self.spec.name);
+        self.spec = spec;
+        // The draft's name belongs to the editing session, not to the captured
+        // colors: re-capturing mid-edit must not silently rename the draft.
+        if !name.is_empty() {
+            self.spec.name = name;
+        }
+        self.editing = None;
+        self.save_snap_count = 0;
+        self.message = Some("Captured this pane's live colors into the draft.".to_owned());
+    }
+
+    /// Test seam (THEME-CAPTURE): the working draft, before any save-time AA
+    /// backstop is applied.
+    #[cfg(test)]
+    pub(super) fn draft_for_test(&self) -> ThemeSpec {
+        self.spec.clone()
     }
 
     pub(super) fn refresh(&mut self, settings: &Settings) {
@@ -296,6 +340,12 @@ impl ThemeBuilder {
             OverlayInput::Tab => self.cycle_channel(true),
             OverlayInput::Char('f') | OverlayInput::Char('F') => return self.snap_selected(),
             OverlayInput::Char('g') | OverlayInput::Char('G') => self.begin_seed_edit(),
+            // THEME-CAPTURE: re-snapshot the pane's live colors into the draft.
+            // The builder cannot read terminal state itself, so it asks; the
+            // App resolves the capture and calls `apply_capture`.
+            OverlayInput::Char('c') | OverlayInput::Char('C') => {
+                return ThemeBuilderOutcome::CaptureLiveColors;
+            }
             OverlayInput::Activate => self.begin_color_edit(),
             OverlayInput::Save => self.begin_name_edit(),
             OverlayInput::Char('n') | OverlayInput::Char('N') => self.begin_name_edit(),

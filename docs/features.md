@@ -549,7 +549,12 @@ Manage Sessions each have a discoverable menu entry and a default
 is unchanged.
 
 Launcher actions appear in the content menu, while Settings → Themes includes
-an **Open Theme Builder** entry.
+an **Open Theme Builder** entry. The command palette also carries **Create
+Theme From Current Colors**, which captures the focused pane's live
+dynamic-color state into a theme draft and opens the builder on it; inside the
+builder, `C` does the same for the draft already being edited. See
+[themes.md](themes.md#create-theme-from-current-colors) for what is captured
+versus derived.
 
 Prompt navigation uses `Ctrl+Shift+Up` and `Ctrl+Shift+Down`. Rebind any local
 action through Settings → Input, in the **Key bindings** row, or `keybinds`:

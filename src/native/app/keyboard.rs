@@ -582,6 +582,45 @@ impl App {
         self.request_selection_redraw();
     }
 
+    /// Capture the focused pane's live colors into a theme draft and open the
+    /// theme editor on it (THEME-CAPTURE). Entry point for both the command
+    /// palette row and the settings/menu surface.
+    pub(super) fn open_theme_capture_overlay(&mut self) {
+        if self.search.is_open() {
+            self.close_search(true);
+        }
+        self.reset_pointer_state_for_overlay();
+        let spec = self.capture_live_theme_spec();
+        self.overlay.open_theme_capture(&self.settings, spec);
+        self.request_selection_redraw();
+    }
+
+    /// Snapshot the focused pane's **effective** dynamic-color state into a
+    /// theme draft. Live `OSC 4`/`10`/`11`/`12` overrides win; where no
+    /// override exists the theme-seeded value is used, because the core seeds
+    /// its base colors and base palette from the active theme. The draft's
+    /// derived roles come from the documented heuristics in
+    /// [`crate::theme::capture_spec`].
+    ///
+    /// Reads state only — capturing changes nothing about the pane, the
+    /// terminal, or the applied theme.
+    pub(super) fn capture_live_theme_spec(&self) -> crate::theme::ThemeSpec {
+        let (colors, palette) = {
+            let terminal = crate::native::lock_recover(&self.terminal);
+            (
+                terminal.dynamic_colors().clone(),
+                terminal.effective_ansi_palette(),
+            )
+        };
+        let live = crate::theme::LiveColors {
+            foreground: srgb_of(colors.foreground),
+            background: srgb_of(colors.background),
+            cursor: srgb_of(colors.cursor),
+            palette: std::array::from_fn(|index| srgb_of(palette[index])),
+        };
+        crate::theme::capture_spec(&live, &captured_theme_name(self.settings.theme.name))
+    }
+
     pub(super) fn open_key_bindings_overlay(&mut self) {
         if self.search.is_open() {
             self.close_search(true);
@@ -969,5 +1008,26 @@ impl App {
             event.physical_key,
             event_type,
         );
+    }
+}
+
+/// Convert a core [`RgbColor`](crate::core::RgbColor) to the theme layer's
+/// sRGB byte triple. The two layers deliberately do not share a color type —
+/// the terminal core stays presentation-agnostic — so the conversion lives at
+/// the boundary that needs it.
+fn srgb_of(color: crate::core::RgbColor) -> crate::theme::Srgb {
+    (color.red, color.green, color.blue)
+}
+
+/// Default draft name for a capture: the active theme's name with a `-capture`
+/// suffix, so a captured draft is obviously derived and never silently
+/// overwrites the theme it came from. The editor prompts for the final name
+/// before saving.
+fn captured_theme_name(active: &str) -> String {
+    let base = active.trim();
+    if base.is_empty() {
+        "captured".to_owned()
+    } else {
+        format!("{base}-capture")
     }
 }

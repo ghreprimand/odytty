@@ -119,6 +119,14 @@ impl Terminal {
         self.screen.set_base_palette(palette);
     }
 
+    /// The 16 ANSI colors this terminal is actually displaying — live `OSC 4`
+    /// overrides first, theme-seeded values elsewhere. See
+    /// [`Screen::effective_ansi_palette`]. Used by theme capture, which has to
+    /// reproduce the screen rather than the configured theme.
+    pub fn effective_ansi_palette(&self) -> [RgbColor; 16] {
+        self.screen.effective_ansi_palette()
+    }
+
     pub fn bracketed_paste_enabled(&self) -> bool {
         self.screen.bracketed_paste_enabled()
     }

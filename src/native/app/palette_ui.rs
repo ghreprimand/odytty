@@ -118,6 +118,7 @@ impl App {
             PaletteAction::Search => self.toggle_search(),
             PaletteAction::OpenSettings => self.toggle_settings_overlay(),
             PaletteAction::OpenThemePicker => self.open_theme_picker_overlay(),
+            PaletteAction::CreateThemeFromColors => self.open_theme_capture_overlay(),
             PaletteAction::CopySelection => self.handle_copy_shortcut(),
             PaletteAction::Paste => self.handle_paste_shortcut(),
             PaletteAction::ScrollPageUp => self.scroll_viewport(self.page_lines() as isize),

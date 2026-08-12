@@ -53,6 +53,11 @@ pub(in crate::native) enum OverlayOutcome {
     CloseOnboarding,
     OpenThemePicker,
     OpenThemeBuilder,
+    /// The theme editor asked to (re-)capture the focused pane's live colors
+    /// into its draft (THEME-CAPTURE). The App resolves the pane's effective
+    /// dynamic-color state and feeds the resulting draft back into the builder;
+    /// the overlay stays open and nothing is applied or saved.
+    CaptureThemeColors,
     OpenKeyBindings,
     /// Open the font-family picker (FONT-PICKER). Emitted from the Fonts
     /// section's `font_family` row. The picker overlay is sequenced in the

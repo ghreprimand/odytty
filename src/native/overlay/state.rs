@@ -254,6 +254,41 @@ impl OverlayUi {
         self.open = true;
     }
 
+    /// Open the theme editor on a draft captured from a pane's live colors
+    /// (THEME-CAPTURE). Same surface as [`Self::open_theme_builder`]; only the
+    /// starting draft differs, so every editor affordance works unchanged.
+    pub(in crate::native) fn open_theme_capture(
+        &mut self,
+        settings: &Settings,
+        spec: crate::theme::ThemeSpec,
+    ) {
+        self.panel.end_slider_drag();
+        self.settings = settings.clone();
+        self.theme_builder.open_captured(settings, spec);
+        self.mode = OverlayMode::ThemeBuilder;
+        self.open = true;
+        self.builder_from_picker = false;
+    }
+
+    /// Feed a freshly resolved capture into the already-open theme editor
+    /// (the in-editor `C` key). Ignored unless the editor is the active mode,
+    /// so a stale capture can never overwrite another overlay's state.
+    pub(in crate::native) fn apply_theme_capture(&mut self, spec: crate::theme::ThemeSpec) {
+        if self.mode != OverlayMode::ThemeBuilder {
+            return;
+        }
+        self.theme_builder.apply_capture(spec);
+    }
+
+    /// Test seam (THEME-CAPTURE): the theme editor's working draft when it is
+    /// the active overlay mode.
+    #[cfg(test)]
+    pub(in crate::native) fn theme_builder_draft_for_test(
+        &self,
+    ) -> Option<crate::theme::ThemeSpec> {
+        (self.mode == OverlayMode::ThemeBuilder).then(|| self.theme_builder.draft_for_test())
+    }
+
     pub(in crate::native) fn open_theme_builder(&mut self, settings: &Settings) {
         self.panel.end_slider_drag();
         self.settings = settings.clone();

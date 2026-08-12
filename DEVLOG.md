@@ -7,6 +7,35 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Create a theme from the pane's current colors
+
+A running pane's colors are not always the theme's colors: shell prompts,
+vim colorschemes, tmux configs, and theme scripts repaint the terminal at
+runtime through OSC 4 (palette slots) and OSC 10/11/12 (default
+foreground/background/cursor). That look was visible but unsaveable - it
+existed only as live terminal state. The new "Create Theme From Current
+Colors" flow closes the gap: it snapshots the focused pane's effective
+color state (live override first, theme-seeded value where no override
+exists - the same precedence the renderer and the OSC query paths use) into
+a theme draft and opens the theme editor on it for naming, tweaking, and
+saving.
+
+The five roles the terminal protocol cannot express (clear, selection,
+search, border, inactive) are derived with documented luminance-based
+heuristics (see src/theme/capture.rs and docs/themes.md): each derivation
+moves toward or away from the background by relative luminance, so light
+and dark captures behave correctly without a separate branch. Every derived
+role is editable in the editor before saving; the heuristics only need to
+be sane starting points.
+
+Entry points: the command palette row, and `C` inside the theme editor to
+re-capture into the draft without losing the draft name. Nothing captures
+until the flow is invoked; tests pin that the applied theme and the pane's
+dynamic-color state are untouched by a capture, and that the ordinary
+theme-editor entry still clones the applied theme, ignoring live overrides.
+Platform-neutral: pure terminal-state read plus color arithmetic. 23 new
+tests across the capture module, the app layer, and the builder.
+
 ## 2026-08-12 -- Fuzz tiers announce their resolved iteration budget
 
 Deep fuzz runs are release evidence, but the harness never echoed its

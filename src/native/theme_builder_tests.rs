@@ -585,3 +585,97 @@ fn seed_entry_cancels_on_escape() {
         "cancelled generate leaves the spec untouched"
     );
 }
+
+// ---------------------------------------------------------------------------
+// THEME-CAPTURE: opening on a captured draft, and re-capturing in-editor
+// ---------------------------------------------------------------------------
+
+/// A capture-shaped spec whose colors are unmistakably not any built-in theme,
+/// so "did the draft actually take the captured values" is unambiguous.
+fn synthetic_capture(name: &str) -> ThemeSpec {
+    crate::theme::capture_spec(
+        &crate::theme::LiveColors {
+            foreground: (0x12, 0x34, 0x56),
+            background: (0x65, 0x43, 0x21),
+            cursor: (0xAB, 0xCD, 0xEF),
+            palette: std::array::from_fn(|index| (index as u8, 0x10, 0x20)),
+        },
+        name,
+    )
+}
+
+#[test]
+fn opening_captured_loads_the_captured_colors_into_the_draft() {
+    let settings = Settings::default();
+    let mut builder = ThemeBuilder::new(&settings);
+    let captured = synthetic_capture("odyssey-capture");
+    builder.open_captured(&settings, captured.clone());
+
+    // The working draft is the captured state verbatim. (Save applies the
+    // authoring AA backstop, which is a separate, already-tested behavior; the
+    // capture itself must not pre-adjust anything.)
+    assert_eq!(builder.spec.foreground, captured.foreground);
+    assert_eq!(builder.spec.background, captured.background);
+    assert_eq!(builder.spec.cursor, captured.cursor);
+    assert_eq!(builder.spec.palette, captured.palette);
+    assert_eq!(builder.spec.selection, captured.selection);
+    assert_eq!(builder.spec.search, captured.search);
+    assert_eq!(builder.spec.border, captured.border);
+    assert_eq!(builder.spec.inactive, captured.inactive);
+    assert_eq!(builder.spec.name, "odyssey-capture");
+}
+
+#[test]
+fn opening_captured_keeps_the_applied_theme_as_the_cancel_target() {
+    // The capture is a draft: cancelling restores the theme that was actually
+    // applied, never the captured colors.
+    let settings = Settings::default();
+    let mut builder = ThemeBuilder::new(&settings);
+    builder.open_captured(&settings, synthetic_capture("draft"));
+    let ThemeBuilderOutcome::Cancel(theme) = builder.handle_input(OverlayInput::Close) else {
+        panic!("expected cancel");
+    };
+    assert_eq!(theme.name, settings.theme.name);
+    assert_eq!(theme.background, settings.theme.background);
+}
+
+#[test]
+fn capture_key_asks_the_app_for_live_colors() {
+    // The builder cannot read terminal state, so `C` must surface a request
+    // rather than silently doing nothing.
+    let mut builder = ThemeBuilder::new(&Settings::default());
+    assert_eq!(
+        builder.handle_input(OverlayInput::Char('c')),
+        ThemeBuilderOutcome::CaptureLiveColors
+    );
+    assert_eq!(
+        builder.handle_input(OverlayInput::Char('C')),
+        ThemeBuilderOutcome::CaptureLiveColors
+    );
+}
+
+#[test]
+fn capture_key_is_inert_while_typing_a_value() {
+    // `C` is a plain character inside the hex/name/seed editors; capturing
+    // mid-entry would eat the keystroke.
+    let mut builder = ThemeBuilder::new(&Settings::default());
+    builder.handle_input(OverlayInput::Activate);
+    assert_eq!(
+        builder.handle_input(OverlayInput::Char('c')),
+        ThemeBuilderOutcome::Consumed
+    );
+}
+
+#[test]
+fn applying_a_capture_mid_edit_keeps_the_draft_name() {
+    // Re-capturing replaces colors, not the name the user is working under.
+    let settings = Settings::default();
+    let mut builder = ThemeBuilder::new(&settings);
+    builder.open_captured(&settings, synthetic_capture("first-name"));
+    let mut second = synthetic_capture("second-name");
+    second.foreground = (0x01, 0x02, 0x03);
+    builder.apply_capture(second);
+
+    assert_eq!(builder.spec.name, "first-name");
+    assert_eq!(builder.spec.foreground, (0x01, 0x02, 0x03));
+}

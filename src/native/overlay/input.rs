@@ -659,6 +659,7 @@ impl OverlayUi {
     pub(super) fn apply_builder_outcome(&mut self, outcome: ThemeBuilderOutcome) -> OverlayOutcome {
         match outcome {
             ThemeBuilderOutcome::Consumed => OverlayOutcome::Consumed,
+            ThemeBuilderOutcome::CaptureLiveColors => OverlayOutcome::CaptureThemeColors,
             ThemeBuilderOutcome::Preview(theme) => {
                 let settings = self.settings_with_theme(theme);
                 self.settings = settings.clone();

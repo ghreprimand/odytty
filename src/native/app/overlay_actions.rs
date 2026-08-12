@@ -235,6 +235,13 @@ impl App {
                 self.flush_pending_overlay_settings();
                 self.open_theme_builder_overlay();
             }
+            OverlayOutcome::CaptureThemeColors => {
+                // THEME-CAPTURE, in-editor `C`: resolve the focused pane's
+                // live colors and feed them into the open editor. The overlay
+                // stays open and nothing is applied or written.
+                let spec = self.capture_live_theme_spec();
+                self.overlay.apply_theme_capture(spec);
+            }
             OverlayOutcome::OpenKeyBindings => {
                 self.flush_pending_overlay_settings();
                 self.open_key_bindings_overlay();

@@ -288,6 +288,19 @@ impl Screen {
         self.mark_dirty();
     }
 
+    /// The 16 ANSI colors this screen is **actually displaying**: a live `OSC 4`
+    /// override where one exists, otherwise the theme-seeded base palette
+    /// ([`Self::set_base_palette`]). Same precedence the OSC 4 query path
+    /// reports and the renderer resolves against, exposed as a whole array for
+    /// callers that need the effective palette rather than one slot — notably
+    /// theme capture, which must reproduce the screen, not the theme.
+    ///
+    /// Only indices 0..16 are theme-relevant; 16..=255 stay on the xterm cube
+    /// and are not part of a theme.
+    pub fn effective_ansi_palette(&self) -> [RgbColor; 16] {
+        std::array::from_fn(|index| self.palette_color(index as u8))
+    }
+
     pub(super) fn default_color(&self, slot: DefaultColorSlot) -> RgbColor {
         match slot {
             DefaultColorSlot::Foreground => self.dynamic_colors.foreground,

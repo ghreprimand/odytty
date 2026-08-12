@@ -916,6 +916,15 @@ feature validates against.
   - [x] Contrast-aware palette generation: seed a color and generate a
         readable, floor-validated starting palette to then refine in the
         builder.
+  - [x] Theme capture from live dynamic colors: "Create Theme From Current
+        Colors" snapshots the focused pane's effective color state — OSC 4
+        palette overrides and OSC 10/11/12 foreground/background/cursor, with
+        theme-seeded values wherever no override exists — into a builder draft.
+        The roles the protocol cannot express (selection, search, border,
+        inactive) are derived from the captured colors with documented
+        luminance-based heuristics, all editable before saving. Reachable from
+        the command palette and from `C` inside the builder; platform-neutral,
+        and inert until invoked.
   - [x] Perceptual colorblind palette adaptation: remap the ANSI palette in
         OKLCH for protan/deutan/tritan, adaptive on output, in an Accessibility
         settings group. The contrast floor, CVD modes, focus dim, and bell are
