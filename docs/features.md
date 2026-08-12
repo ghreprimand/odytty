@@ -142,8 +142,10 @@ its own keyboard protocol.
 
 A bracketed paste is queued as one transaction containing the opening marker,
 sanitized text, and closing marker, so unrelated input cannot split the frame.
-Pastes larger than 32 MiB are refused. Plain, non-bracketed paste remains
-deliberately chunked.
+A bracketed paste whose complete framed payload exceeds
+`MAX_BRACKETED_PASTE_BYTES` = 32 MiB is refused whole. Plain, non-bracketed
+paste has no comparable whole-payload rejection and remains deliberately
+chunked.
 
 IME pre-edit appears inline at the cursor and committed text is sent to the
 shell. This supports CJK input methods and compose-key or dead-key accents.
@@ -213,27 +215,30 @@ and optional subpixel antialiasing uses dual-source blending on capable GPUs.
 
 ### Render Color Emoji
 
-Color emoji uses `swash` and a dedicated premultiplied-RGBA atlas. Bitmap
-strike color fonts are supported through Noto Color Emoji (CBDT/CBLC) on Linux
-and Windows when that font is installed, and Apple Color Emoji (sbix) on macOS.
-On a stock Windows installation, Segoe UI Emoji is not discovered or
-bitmap-rasterized, so its emoji use the monochrome fallback.
+Color emoji uses `swash` and a dedicated premultiplied-RGBA atlas. It supports
+bitmap strikes through Noto Color Emoji (CBDT/CBLC) and Apple Color Emoji
+(sbix), plus static COLR/CPAL v0 layers. Directory discovery recognizes stock
+Windows Segoe UI Emoji and other parseable COLR/CPAL faces, so Segoe glyphs
+with swash-readable v0 layers render in color without installing Noto. Windows
+is the primary beneficiary of the outline path; the shared raster and atlas
+logic remains platform-neutral.
 
 Variation selectors, flags, keycaps, skin tones, and common ZWJ clusters are
 supported. Text-default symbols stay on the monochrome fallback path, missing
 color glyphs fall back there instead of becoming tofu, and emoji pixels are not
 SGR-tinted.
 
-COLR/CPAL and SVG-in-OpenType expansion remain future work.
+COLR v1 Paint graphs and SVG-in-OpenType remain deferred. A face or glyph that
+exposes only those formats falls back to the monochrome path.
 
 ### Display Inline Graphics
 
 | Protocol | Supported surface |
 | --- | --- |
-| Kitty graphics | Actions `t`, `T`, `p`, `d`, and `q`; raw RGB, raw RGBA, and PNG still images; direct and chunked-inline transports; opt-in file, temporary-file, and Unix POSIX shared-memory transports; image and placement ids; z-index; crop; cell scaling; and pixel offsets |
+| Kitty graphics | Actions `t`, `T`, `p`, `d`, and `q`; raw RGB, raw RGBA, and PNG still images; direct and chunked-inline transports; opt-in file, temporary-file, and Unix POSIX shared-memory transports; image and placement ids; z-index; crop; cell scaling; pixel offsets; and Unicode placeholders (`U=1` virtual placements resolved from U+10EEEE placeholder cells) |
 | Sixel | DEC/xterm data language, RGB/HLS color introducers, repeat, raster attributes, transparency, VT340 palette, and DECSDM |
 
-Animation and Kitty Unicode placeholders are not supported.
+Animation is not supported.
 
 <a id="native-app-workflow"></a>
 

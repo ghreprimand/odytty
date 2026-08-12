@@ -31,6 +31,10 @@ default `z=0` therefore places an image above text.
 | `q`  | Query — validate control data and payload, no storage | ✅ supported |
 | `f`, `a` | Animation frame transmit / control | ❌ rejected (`unsupported-action`) |
 
+The `U=1` key on `a=T` / `a=p` creates a *virtual placement* for Unicode
+placeholder display instead of placing at the cursor; see the placeholder
+section below.
+
 | `f=` | Format | Status |
 |------|--------|--------|
 | `32` | Raw RGBA (4 bytes/pixel, base64-encoded) | ✅ supported |
@@ -106,13 +110,28 @@ rejected with an explicit error response; incomplete state is cleared.
 Lowercase specifiers delete placements only. Uppercase specifiers also free
 stored image data once no remaining placements reference the image.
 
+### Unicode placeholders (`U=1`)
+
+Virtual placements are supported. `a=T,U=1` (or `a=p,U=1`) stores the image
+and its cell-grid extent without drawing anything or moving the cursor; the
+image then renders wherever the client prints the placeholder character
+U+10EEEE carrying row/column combining diacritics. The image id comes from
+the placeholder cell's foreground color (24-bit truecolor or 256-color
+palette index, with an optional high byte in a third diacritic) and the
+placement id from its underline color; omitted diacritics inherit
+left-to-right per the protocol. Because position lives in the text itself,
+placeholder images scroll, page into scrollback, and are erased or
+overwritten exactly as text is — the placement mode TUI toolkits rely on.
+Virtual placements require a nonzero `i=` id, are reachable by id-addressed
+deletes (`d=i`/`d=I`) but not location-addressed ones, and count as
+references for image garbage collection. Known deviation: tiles split the
+image uniformly across the placeholder grid; Kitty letterboxes to preserve
+aspect ratio.
+
 ### What is not yet supported
 
 - **Animation** — only still images. Animation actions (`a=f`, `a=a`) are
   rejected with an `unsupported-action` response.
-- **Unicode placeholder rendering** — image positioning via special Unicode
-  codepoints in the cell grid. The placeholder key (`U=1`) is ignored and the
-  image is placed at the cursor as usual.
 - **Payload compression (`o=z`)** — zlib-compressed payloads are not supported.
   The `o=` key is ignored, so compressed data is rejected as an invalid payload
   rather than decompressed.
@@ -143,10 +162,10 @@ bytes. The restriction still prevents terminal output from using `t=f` as a
 local readability and image-decodability oracle or rendering an allowed local
 image without separate user action.
 
-The reference Kitty terminal allows `t=f` from any path. OdyTTY restricts to
-temp directories because no legitimate application needs to transmit images
-from outside a temp dir — programs that use file transports always write to a
-temp file first.
+The reference Kitty terminal allows `t=f` from any path. OdyTTY intentionally
+accepts only approved temporary roots so that untrusted terminal output cannot
+probe arbitrary local files through this channel — a stricter posture than
+Kitty's.
 
 ### Symlink rejection (`O_NOFOLLOW`, Unix)
 
@@ -349,17 +368,21 @@ exactly one glyph id; if it produces zero (missing glyph) or more than one
 (ligature sequence not yet handled), the cell falls back to the monochrome
 coverage path without error.
 
-**Rasterization.** `swash` renders the glyph using `Source::ColorBitmap` with
-`StrikeWith::BestFit`, requesting the embedded bitmap strike closest to the cell
-height:
+**Rasterization.** `swash` renders the glyph by preferring
+`Source::ColorBitmap(StrikeWith::BestFit)`, then trying
+`Source::ColorOutline(0)` for static COLR/CPAL v0 layers:
 
 - The strike selection covers both CBDT/CBLC strikes (Noto Color Emoji on Linux)
   and sbix strikes (Apple Color Emoji on macOS).
+- The color-outline source composites COLR v0 layers with CPAL palette zero,
+  including compatible Segoe UI Emoji glyphs on Windows. COLR v1 Paint graphs
+  and SVG-in-OT remain unsupported.
 - The returned image must have `Content::Color`; a monochrome strike causes the
   cell to fall back silently.
-- The rendered bitmap is scaled and centered into the atlas slot using
-  nearest-neighbour downscale (aspect-ratio preserving, letterboxed), then
-  straight-alpha is converted to premultiplied RGBA before upload.
+- The rendered image is scaled and centered into the atlas slot using
+  nearest-neighbour resampling (aspect-ratio preserving, letterboxed). Bitmap
+  straight alpha is converted to premultiplied RGBA; swash's composited COLR
+  pixels are already premultiplied and are preserved.
 
 **Atlas.** `ColorGlyphAtlas` (`src/emoji/color_atlas.rs`) is a grow-only
 `Rgba8Unorm` atlas keyed by `(font identity, glyph-or-cluster id, physical px
@@ -378,9 +401,8 @@ monochrome coverage foreground quad is suppressed (`src/grid.rs`:
 so SGR styling layers correctly around the color bitmap without tinting it.
 
 **Degradation.** If no supported color-emoji font is installed (Noto Color
-Emoji on Linux or Windows, or Apple Color Emoji on macOS),
-`EmojiRasterizer::discover()` returns a rasterizer with no font rather than
-failing. Stock Windows Segoe UI Emoji is not discovered or rasterized, so it
-takes the same monochrome coverage path unless a supported Noto face is
-installed. Emoji cells remain readable. See
+Emoji, Apple Color Emoji, stock Windows Segoe UI Emoji, or another parseable
+COLR/CPAL face), `EmojiRasterizer::discover()` returns a rasterizer with no font
+rather than failing. A face or glyph with only COLR v1 Paint or SVG-in-OT data
+takes the monochrome coverage path. Emoji cells remain readable. See
 [accessibility.md](accessibility.md) for the related readability guarantees.

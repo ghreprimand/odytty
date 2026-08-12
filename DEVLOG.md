@@ -7,6 +7,20 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- Align public docs with landed graphics and color-font support
+
+`SPEC.md`, `docs/features.md`, `docs/graphics.md`, and `TODO.md` catch up
+with the Unicode-placeholder and COLR/CPAL work: the graphics support matrix
+records `U=1` as implemented (with the uniform-tiling deviation stated), the
+emoji sections describe COLR v0 discovery and rasterization including stock
+Segoe UI Emoji, and the TODO comparative-benchmark deferral now points at
+`docs/benchmark-apparatus.md` and states the specific apparatus reasons
+instead of a bare "Deferred". Remaining gaps stay explicitly recorded:
+Kitty animation and iTerm2 inline images are scheduled, COLR v1 Paint and
+SVG-in-OT deferred.
+
+---
+
 ## 2026-08-12 -- Kitty graphics Unicode placeholders (U=1)
 
 The Kitty graphics protocol's Unicode-placeholder mode is implemented. A

@@ -131,8 +131,11 @@ code; `portable-pty` and `crossterm` are gone from the dependency tree.
   `openpt`/`grantpt`/`unlockpt`/`TIOCGPTPEER` through `rustix`. Child spawn as a
   new session leader with a controlling terminal. `TIOCSWINSZ` resize.
 
-  Nonblocking reader and writer via file-descriptor clones. Foreground-job
-  detection via the controlling-terminal process group. Child reaping on drop.
+  Reader and writer use cloned blocking file descriptors. The reader waits in
+  `poll` alongside a teardown self-pipe before reading, so a forced-close can
+  wake it to EOF without touching healthy-session bytes; PTY `EIO` is
+  normalized to EOF. Foreground-job detection via the controlling-terminal
+  process group. Child reaping on drop.
 
 - **Windows backend** (`src/pty/windows.rs`, `#[cfg(windows)]`). A pseudoconsole
   (ConPTY) via `CreatePseudoConsole` fed by a `CreatePipe` pair; the child is
@@ -209,10 +212,14 @@ Underline color is taken from the cell's
 `underline_color` attribute when set, or falls back to the effective foreground;
 this is resolved in the vertex builder, not in the shader.
 
-**GPU shader pipeline** (`src/native/gpu.rs`). The `wgpu` render pass, pipeline
-descriptor, vertex/uniform layout, and WGSL shader source. Text coverage
-correction (gamma uniform) and optional dual-source blending for subpixel AA
-live here.
+**GPU shader pipeline** (`src/native/gpu.rs` facade over
+`src/native/gpu/{frame,resources,pipelines,pipeline_policy,scene,post}.rs`).
+The `wgpu` render pass lives in `gpu/frame.rs`; resource/surface/clear state
+in `gpu/resources.rs`; pipeline descriptors and the inlined color-glyph WGSL
+in `gpu/pipelines.rs`; text coverage correction (gamma uniform) and the
+optional dual-source-blending policy for subpixel AA in `gpu/pipeline_policy.rs`;
+scene and color-glyph segment rebuilding in `gpu/scene.rs`; post-processing in
+`gpu/post.rs`.
 
 **DCS query surface** (`src/core/screen/query.rs`). XTGETTCAP (`DCS +q`)
 and DECRQSS (`DCS $q`) capture ride the same parser hook/put/unhook seam used
@@ -299,7 +306,7 @@ generation counter. Placements scroll with terminal content and project into
 the scrollback viewport. Primary and alternate screens maintain independent
 placement scenes; alternate-screen entry does not disturb primary placements.
 
-**Render order** (canonical, implemented in `src/native/gpu.rs`):
+**Render order** (canonical, implemented in `src/native/gpu/frame.rs`):
 
 1. Cell background quads (all cells)
 
@@ -698,8 +705,11 @@ second key (default `Ctrl-B`, then an arrow, focuses the adjacent pane), and cop
 mode or an open overlay consumes arrows only while explicitly active. Bracketed
 paste is emitted as one write-queue transaction: `ESC[200~`, the sanitized
 payload, and `ESC[201~`. Embedded end markers are stripped so a paste cannot
-self-terminate early, and payloads larger than 32 MiB are refused. Plain paste
-remains deliberately chunked. Because the correct cursor-key bytes and a single
+self-terminate early, and a bracketed paste whose complete framed payload
+(start marker plus sanitized body plus end marker) exceeds
+`MAX_BRACKETED_PASTE_BYTES` = 32 MiB is refused whole. Plain paste has no
+comparable whole-payload rejection and remains deliberately chunked. Because
+the correct cursor-key bytes and a single
 paste envelope reach the PTY, Up/Down
 navigation inside a pasted multiline buffer is owned by readline/zle/PSReadLine/
 fish, which is working as designed rather than a terminal defect.
@@ -1558,9 +1568,9 @@ reader through EOF, and lets the tab follow the normal session teardown path.
 
 ## Post-Process Pipeline Architecture
 
-*Source: `src/native/gpu.rs` (`PostProcessResources`, `post_active`,
-`draw_scene`, `encode_scene_pass`, post composite encode path),
-`src/shaders/bloom.wgsl`, `tests/gpu_composite_smoke.rs`.*
+*Source: `src/native/gpu/post.rs` (`PostProcessResources`, post composite
+encode path), `src/native/gpu/frame.rs` (`post_active`, `draw_scene`,
+`encode_scene_pass`), `src/shaders/bloom.wgsl`, `tests/gpu_composite_smoke.rs`.*
 
 ### Preserve The Plain Bypass
 
@@ -1812,13 +1822,15 @@ OdyTTY-owned. A dedicated `ColorGlyphAtlas` stores premultiplied-RGBA source
 pixels keyed by shaped cluster, font identity, and physical cell size alongside
 the existing coverage atlas.
 
-Emoji cells sample source pixels directly and are
-never tinted by SGR foreground color. Linux font discovery probes fontconfig
-only for Noto Color Emoji; directory scanning also finds Noto Color Emoji on
-Linux and Windows and Apple Color Emoji on macOS. Stock Windows Segoe UI Emoji
-is not discovered or rasterized, so it falls back to monochrome glyphs unless a
-supported Noto Color Emoji face is installed. An explicit per-session setting
-is planned as a follow-up. VS15 (`U+FE0E`) forces
+Emoji cells sample source pixels directly and are never tinted by SGR
+foreground color. Linux font discovery probes fontconfig for Noto Color Emoji;
+directory scanning recognizes Noto Color Emoji, Apple Color Emoji, stock
+Windows Segoe UI Emoji (`seguiemj.ttf`), and other parseable COLR/CPAL faces.
+Rasterization prefers existing CBDT/CBLC or sbix bitmap strikes, then static
+COLR/CPAL v0 layers, so compatible Segoe glyphs leave the monochrome fallback
+on a stock Windows install. COLR v1 Paint graphs and SVG-in-OT remain deferred;
+a glyph that exposes only those formats still falls back to monochrome. An
+explicit per-session setting is planned as a follow-up. VS15 (`U+FE0E`) forces
 the text path; VS16 (`U+FE0F`) forces the emoji path; characters with
 Unicode `Emoji_Presentation=Yes` default to emoji; others default to text. The
 predicate must not claim whole symbol blocks: text-default Dingbats/geometric

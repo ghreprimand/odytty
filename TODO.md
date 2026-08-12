@@ -652,10 +652,31 @@ a floor; surpassing it is the standing ambition.
       previously transmitted image by protocol id; `z=` z-index with the
       canonical bg → negative-z → glyphs → non-negative-z render order in the
       GPU image layer; `x/y/w/h` source-rect crop; `c/r` cell-box scaling via
-      live CellMetrics; `X/Y` pixel offset within the anchor cell; animation
-      (`a=f/a=a`) and Unicode placeholders (`U=1`) out of scope (rejected /
-      ignored, documented). Fixed a pre-existing `d=i,p=` bug (matched the
-      internal placement id instead of the protocol `p=`); 12 fixtures.
+      live CellMetrics; `X/Y` pixel offset within the anchor cell. Fixed a
+      pre-existing `d=i,p=` bug (matched the internal placement id instead of
+      the protocol `p=`); 12 fixtures. Animation (`a=f`/`a=a`) remained out of
+      scope here; Unicode placeholders (`U=1`) were out of scope here and have
+      since landed — see the entry below.
+- [x] Kitty Unicode placeholders (`U=1`): `U=1` on `a=T`/`a=p` creates a
+      *virtual placement* — a prototype that draws nothing, moves no cursor,
+      and is addressed by protocol image id. Images then display wherever the
+      client prints U+10EEEE placeholder cells, with the image id in the
+      foreground color (24-bit or 8-bit palette, optional high byte in a third
+      diacritic), the placement id in the underline color, and the tile row /
+      column in the first two row/column diacritics; omitted diacritics inherit
+      from the cell to the left under the spec's left-to-right rules. Because
+      the position lives in the text, placeholders scroll, reflow, erase, and
+      are overwritten as text, which is what makes images work inside tmux,
+      vim, ratatui-image, and fzf previews. Resolution happens in
+      `visible_graphics`, gated on a virtual placement existing so a session
+      that never uses the feature does zero extra per-frame work. Deletion
+      follows the spec split: `d=i`/`d=I` reach prototypes, the
+      location-addressed specifiers do not, and a prototype counts as an image
+      reference for GC. Extents from `c=`/`r=` are capped, tiles outside the
+      prototype grid are dropped, and the diacritic table is the canonical
+      297-entry set. Remaining deviation: tiles split the image uniformly
+      across the prototype grid rather than letterboxing to preserve aspect
+      ratio.
 - [x] Kitty delete/query + DECSDM: `a=d` delete variants (d=a/A, i/I+p=,
       c/C, p/P+x=/y=) with uppercase image-data GC, `a=q` validation-only
       query responses, and DECSET/DECRST 80 sixel cursor policy (anchor at
@@ -678,9 +699,9 @@ a floor; surpassing it is the standing ambition.
         never disturb terminal state; focused end-to-end coverage pins the
         routing behavior.
 - [x] Color emoji — RGBA color-glyph path, `swash` shaping/rasterization,
-      Noto Color Emoji CBDT/CBLC on Linux, VS15/VS16 presentation,
-      ZWJ/cluster support; COLR v1 and SVG-in-OT deferred but
-      architecturally permitted.
+      bitmap strikes plus static COLR/CPAL v0 layers, stock Windows Segoe UI
+      Emoji discovery, VS15/VS16 presentation, and ZWJ/cluster support; COLR v1
+      Paint graphs and SVG-in-OT deferred but architecturally permitted.
   - [x] `swash` dependency and fontconfig emoji font discovery.
   - [x] RGBA color-glyph atlas (`ColorGlyphAtlas`) and dedicated
         shader/draw segment; premultiplied-RGBA source pixels, no SGR
@@ -693,8 +714,11 @@ a floor; surpassing it is the standing ambition.
   - [x] ColorGlyphAtlas capacity audit: bounded growth to 4096 slots,
         deterministic `Full` at cap, and no slot overwrite or dirtying on
         overflow.
-  - [ ] COLR/CPAL and alternate color-font formats; SVG-in-OT via
-        `resvg` if real installed-font evidence requires it.
+  - [x] Static COLR/CPAL v0 layers through swash, including Segoe UI Emoji
+        discovery on Windows; synthetic outline and bitmap fixtures pin
+        premultiplied RGBA and preserve bitmap-strike output.
+  - [ ] COLR v1 Paint graphs and SVG-in-OT via `resvg` if real installed-font
+        evidence requires it.
 - [x] Perceptual color pipeline: linear-space blending active in the render
       path; OKLab / OKLCH helpers (`dim_perceptual`, `mix_oklab`, `src/color.rs`)
       used by the minimum-contrast lift and the SGR dim-text resolve step.
@@ -1205,8 +1229,17 @@ stay pinned to the revisions they measured.
       application version, and evidence reference per row. The bounded
       post-release package smoke pass does not fill them.
 - [ ] Matched comparative performance numbers under the preregistered protocol
-      in `docs/benchmark-protocol.md`. Deferred; internal before/after
-      microbenchmarks are implementation measurements, not product comparisons.
+      in `docs/benchmark-protocol.md`. Deferred for the specific reasons
+      recorded in `docs/benchmark-apparatus.md`: the interactive and stream
+      workloads define optical measurement endpoints (external stimulus
+      controller and display photosensor on a shared capture clock) that the
+      current apparatus does not provide, and the protocol forbids
+      substituting software timestamps; the eligible reference set on the
+      measurement host is also incomplete. The execution harness,
+      preregistration tooling, statistics, and result-schema validator are
+      built (`scripts/bench-protocol/`) so measurement can start when the
+      apparatus exists. Internal before/after microbenchmarks remain
+      implementation measurements, not product comparisons.
 - [ ] The external daily-driver evidence program
       (`docs/external-daily-driver.md`) remains a 1.0 gate and is unstarted.
 
