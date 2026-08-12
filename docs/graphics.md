@@ -446,15 +446,19 @@ exactly one glyph id; if it produces zero (missing glyph) or more than one
 (ligature sequence not yet handled), the cell falls back to the monochrome
 coverage path without error.
 
-**Rasterization.** `swash` renders the glyph by preferring
-`Source::ColorBitmap(StrikeWith::BestFit)`, then trying
-`Source::ColorOutline(0)` for static COLR/CPAL v0 layers:
+**Rasterization.** The renderer prefers
+`Source::ColorBitmap(StrikeWith::BestFit)`, then
+`Source::ColorOutline(0)` for static COLR/CPAL v0 layers, then evaluates a
+COLR v1 Paint graph through Fontations:
 
 - The strike selection covers both CBDT/CBLC strikes (Noto Color Emoji on Linux)
   and sbix strikes (Apple Color Emoji on macOS).
 - The color-outline source composites COLR v0 layers with CPAL palette zero,
-  including compatible Segoe UI Emoji glyphs on Windows. COLR v1 Paint graphs
-  and SVG-in-OT remain unsupported.
+  including compatible Segoe UI Emoji glyphs on Windows.
+- The v1 evaluator supports solid fills, linear/radial/sweep gradients,
+  transforms, clipping, nested color glyphs, and every standard composite
+  mode. It writes premultiplied RGBA directly at the atlas-slot dimensions and
+  engages only when the bitmap and v0 paths have no result.
 - The returned image must have `Content::Color`; a monochrome strike causes the
   cell to fall back silently.
 - The rendered image is scaled and centered into the atlas slot using
@@ -481,6 +485,6 @@ so SGR styling layers correctly around the color bitmap without tinting it.
 **Degradation.** If no supported color-emoji font is installed (Noto Color
 Emoji, Apple Color Emoji, stock Windows Segoe UI Emoji, or another parseable
 COLR/CPAL face), `EmojiRasterizer::discover()` returns a rasterizer with no font
-rather than failing. A face or glyph with only COLR v1 Paint or SVG-in-OT data
-takes the monochrome coverage path. Emoji cells remain readable. See
+rather than failing. A face or glyph with only SVG-in-OT data takes the
+monochrome coverage path. Emoji cells remain readable. See
 [accessibility.md](accessibility.md) for the related readability guarantees.

@@ -38,8 +38,12 @@ bytemuck = { version = "1.25.0", features = ["derive"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
 png = "0.18.1"
 pollster = "0.4.0"
+# Direct use of the already-transitive Fontations stack evaluates guarded COLR
+# v1 Paint graphs. `swash` remains the shaping and bitmap/COLR v0 rasterizer.
+skrifa = "0.42.1"
 swash = "0.2.9"
 thiserror = "2.0.18"
+tiny-skia = { version = "0.11.4", default-features = false, features = ["std", "simd"] }
 # Read-only access to font name/metadata tables (real family name, OS/2 weight,
 # italic + monospace flags) so font enumeration and family resolution use real
 # metadata rather than guessing from filenames. Already in the tree transitively

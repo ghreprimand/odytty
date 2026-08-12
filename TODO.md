@@ -749,10 +749,10 @@ a floor; surpassing it is the standing ambition.
         moves to row below image (DECSDM-off); decode errors counted but
         never disturb terminal state; focused end-to-end coverage pins the
         routing behavior.
-- [x] Color emoji — RGBA color-glyph path, `swash` shaping/rasterization,
-      bitmap strikes plus static COLR/CPAL v0 layers, stock Windows Segoe UI
-      Emoji discovery, VS15/VS16 presentation, and ZWJ/cluster support; COLR v1
-      Paint graphs and SVG-in-OT deferred but architecturally permitted.
+- [x] Color emoji - RGBA color-glyph path, `swash` shaping and established
+      bitmap/COLR v0 rasterization, Fontations-backed COLR v1 Paint graphs,
+      stock Windows Segoe UI Emoji discovery, VS15/VS16 presentation, and
+      ZWJ/cluster support; SVG-in-OT remains deferred.
   - [x] `swash` dependency and fontconfig emoji font discovery.
   - [x] RGBA color-glyph atlas (`ColorGlyphAtlas`) and dedicated
         shader/draw segment; premultiplied-RGBA source pixels, no SGR
@@ -768,8 +768,11 @@ a floor; surpassing it is the standing ambition.
   - [x] Static COLR/CPAL v0 layers through swash, including Segoe UI Emoji
         discovery on Windows; synthetic outline and bitmap fixtures pin
         premultiplied RGBA and preserve bitmap-strike output.
-  - [ ] COLR v1 Paint graphs and SVG-in-OT via `resvg` if real installed-font
-        evidence requires it.
+  - [x] COLR v1 Paint graphs through Fontations traversal and the existing
+        premultiplied atlas: solid fills, linear/radial/sweep gradients,
+        transforms, clips, and all standard composite modes; synthetic v1-only
+        fixture plus a Windows CI stock-font coverage census.
+  - [ ] SVG-in-OT rasterization; SVG-only glyphs use monochrome fallback.
 - [x] Perceptual color pipeline: linear-space blending active in the render
       path; OKLab / OKLCH helpers (`dim_perceptual`, `mix_oklab`, `src/color.rs`)
       used by the minimum-contrast lift and the SGR dim-text resolve step.

@@ -46,6 +46,10 @@ requires reordering or reshaping across cell boundaries (see Deferred, below).
   formats, including stock Windows Segoe UI Emoji, which previously fell back
   to the monochrome path. See `docs/features.md` for the full color-emoji
   support statement.
+- **COLR v1 Paint graphs.** The same color-glyph atlas now accepts v1-only
+  glyphs through Fontations' guarded graph traversal. Solid fills, gradients,
+  transforms, clips, and composites rasterize into premultiplied RGBA after
+  bitmap and v0 sources decline the glyph, preserving both established paths.
 - **Extended ligature coverage beyond ASCII.** Landed as the curated allowlist
   above — not an open feature-tag surface.
 - **Arabic contextual joining forms.** Compatible Arabic runs are shaped with
@@ -86,8 +90,6 @@ requires reordering or reshaping across cell boundaries (see Deferred, below).
   for a later ratified sub-scope; not enabled by default here.
 - **SVG-in-OpenType.** Deferred; see `docs/features.md` for the current
   color-glyph format support statement.
-- **COLR v1 Paint graphs.** Deferred alongside SVG-in-OT; a face or glyph that
-  exposes only these formats falls back to the monochrome path.
 
 ## Sequencing rationale
 

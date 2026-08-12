@@ -377,8 +377,8 @@ Sharp, stable, comfortable text is a primary product pillar.
 - **Someday — Legibility font features.** A narrow, charter-clean subset (such
   as a slashed or dotted zero) is the near-term slice; broader ligatures beyond
   the shipped ASCII contextual path and arbitrary font features remain deferred.
-- **Someday — Scalable color-font expansion** (COLR/CPAL, then SVG-in-OT only
-  from real evidence) beyond the current emoji rendering.
+- **Someday - SVG-in-OT color-font expansion**, after the shipped bitmap,
+  COLR/CPAL v0, and COLR v1 Paint-graph paths, only from real evidence.
 
 ## Track 3 — Readability And Perceptual Color
 

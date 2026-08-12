@@ -7,6 +7,20 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-12 -- COLR v1 Paint-graph color glyphs
+
+The color-emoji rasterizer now evaluates COLR v1 Paint graphs after the
+established bitmap-strike and COLR v0 paths decline a glyph. A guarded
+Fontations traversal covers solid fills, linear, radial, and sweep gradients,
+affine transforms, clips, nested glyphs, and the standard composite modes,
+then writes premultiplied RGBA into the existing color-glyph atlas.
+
+A generated v1-only font fixture pins the shared structural and pixel behavior.
+Regression tests verify that bitmap and COLR v0 output remains byte-identical,
+and the Windows test records the installed Segoe UI Emoji revision's v0, v1,
+and v1-only coverage without assuming that every runner carries the same font
+build. SVG-in-OpenType remains unsupported and falls back to monochrome.
+
 ## 2026-08-12 -- Arabic contextual joining in logical cell order
 
 Arabic joining letters now form script-specific shaping runs and use

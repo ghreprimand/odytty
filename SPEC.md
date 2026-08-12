@@ -1832,9 +1832,11 @@ foreground color. Linux font discovery probes fontconfig for Noto Color Emoji;
 directory scanning recognizes Noto Color Emoji, Apple Color Emoji, stock
 Windows Segoe UI Emoji (`seguiemj.ttf`), and other parseable COLR/CPAL faces.
 Rasterization prefers existing CBDT/CBLC or sbix bitmap strikes, then static
-COLR/CPAL v0 layers, so compatible Segoe glyphs leave the monochrome fallback
-on a stock Windows install. COLR v1 Paint graphs and SVG-in-OT remain deferred;
-a glyph that exposes only those formats still falls back to monochrome. An
+COLR/CPAL v0 layers, then COLR v1 Paint graphs. The v1 evaluator covers solid
+fills, gradients, transforms, clips, and composites while the earlier paths
+retain byte-identical output. Compatible Segoe glyphs leave the monochrome
+fallback on a stock Windows install. SVG-in-OT remains deferred; a glyph that
+exposes only SVG data still falls back to monochrome. An
 explicit per-session setting is planned as a follow-up. VS15 (`U+FE0E`) forces
 the text path; VS16 (`U+FE0F`) forces the emoji path; characters with
 Unicode `Emoji_Presentation=Yes` default to emoji; others default to text. The
@@ -1845,10 +1847,10 @@ RGI clusters are
 treated as atomic if `swash` shapes them to a single color glyph; unsupported
 clusters degrade per-codepoint to the existing fallback path.
 Draw order: cell backgrounds → below-text images → coverage glyphs and line
-decorations → color emoji glyphs → cursor and overlays. COLR v1 and SVG-in-OT
-are deferred but architecturally permitted; the boundary rule (rasterization
-external, placement owned) applies to those paths as well. The delivery ladder
-is tracked in `TODO.md`.
+decorations → color emoji glyphs → cursor and overlays. SVG-in-OT is deferred
+but architecturally permitted; the boundary rule (rasterization external,
+placement owned) applies to that path as well. The delivery ladder is tracked
+in `TODO.md`.
 
 ### First Emoji Increment
 

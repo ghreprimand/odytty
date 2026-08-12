@@ -8,6 +8,7 @@
 //! runs.
 
 mod color_atlas;
+mod colr1;
 mod render;
 
 use std::path::{Path, PathBuf};
@@ -82,6 +83,10 @@ impl EmojiFont {
     pub fn font_id(&self) -> u64 {
         self.key.value()
     }
+
+    fn data(&self) -> &[u8] {
+        &self.data
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -131,6 +136,7 @@ pub struct SequenceProbe {
     pub fallback: FallbackOutcome,
     pub has_color_bitmap: bool,
     pub has_color_outline: bool,
+    pub has_colr_v1: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -260,7 +266,7 @@ pub fn probe_cluster_resolution(font: &EmojiFont, text: &str) -> FallbackOutcome
             .build();
         scaler.scale_color_outline(*glyph_id).is_some()
     };
-    if has_color_bitmap || has_color_outline() {
+    if has_color_bitmap || has_color_outline() || has_colr_v1_glyph(font, *glyph_id) {
         FallbackOutcome::Resolved
     } else {
         FallbackOutcome::MissingGlyph
@@ -319,6 +325,10 @@ pub fn probe_font(font: &EmojiFont) -> EmojiProbeReport {
                 .iter()
                 .copied()
                 .any(|id| scaler.scale_color_outline(id).is_some());
+            let has_colr_v1 = glyph_ids
+                .iter()
+                .copied()
+                .any(|id| has_colr_v1_glyph(font, id));
 
             SequenceProbe {
                 name: sequence.name,
@@ -329,6 +339,7 @@ pub fn probe_font(font: &EmojiFont) -> EmojiProbeReport {
                 fallback,
                 has_color_bitmap,
                 has_color_outline,
+                has_colr_v1,
             }
         })
         .collect();
@@ -372,17 +383,32 @@ pub fn summarize_report(report: &EmojiProbeReport) -> String {
     out.push_str(&format!("formats={:?}\n", report.formats));
     for sequence in &report.sequences {
         out.push_str(&format!(
-            "{} {:?}: glyphs={:?} clusters={} fallback={:?} color_bitmap={} color_outline={}\n",
+            "{} {:?}: glyphs={:?} clusters={} fallback={:?} color_bitmap={} color_outline={} colr_v1={}\n",
             sequence.name,
             sequence.kind,
             sequence.glyph_ids,
             sequence.clusters.len(),
             sequence.fallback,
             sequence.has_color_bitmap,
-            sequence.has_color_outline
+            sequence.has_color_outline,
+            sequence.has_colr_v1
         ));
     }
     out
+}
+
+fn has_colr_v1_glyph(font: &EmojiFont, glyph_id: GlyphId) -> bool {
+    use skrifa::MetadataProvider;
+
+    skrifa::FontRef::from_index(font.data(), 0)
+        .ok()
+        .and_then(|font| {
+            font.color_glyphs().get_with_format(
+                skrifa::GlyphId::new(u32::from(glyph_id)),
+                skrifa::color::ColorGlyphFormat::ColrV1,
+            )
+        })
+        .is_some()
 }
 
 fn discover_with_fontconfig() -> Option<EmojiFontMatch> {

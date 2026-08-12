@@ -16,6 +16,7 @@ from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib import newTable
 from fontTools.ttLib.tables.sbixGlyph import Glyph
 from fontTools.ttLib.tables.sbixStrike import Strike
+from fontTools.ttLib.tables import otTables
 
 
 OUTPUT_DIR = Path(__file__).resolve().parent
@@ -83,6 +84,51 @@ def write_colr_v0():
     font.save(OUTPUT_DIR / "color-emoji-colr-v0.ttf", reorderTables=False)
 
 
+def write_colr_v1():
+    font = base_font("OdyTTY Synthetic COLR v1 Emoji")
+    gradient = {
+        "Format": otTables.PaintFormat.PaintLinearGradient,
+        "ColorLine": {
+            "Extend": "pad",
+            "ColorStop": [(0.0, 0), (1.0, 1)],
+        },
+        "x0": 100,
+        "y0": 100,
+        "x1": 900,
+        "y1": 100,
+        "x2": 100,
+        "y2": 900,
+    }
+    transformed_gradient = {
+        "Format": otTables.PaintFormat.PaintTransform,
+        "Transform": (0.75, 0.0, 0.0, 0.75, 125.0, 125.0),
+        "Paint": {
+            "Format": otTables.PaintFormat.PaintGlyph,
+            "Glyph": "layer.outer",
+            "Paint": gradient,
+        },
+    }
+    composite = {
+        "Format": otTables.PaintFormat.PaintComposite,
+        "CompositeMode": "src_over",
+        "BackdropPaint": transformed_gradient,
+        "SourcePaint": {
+            "Format": otTables.PaintFormat.PaintGlyph,
+            "Glyph": "layer.inner",
+            "Paint": (otTables.PaintFormat.PaintSolid, 2, 0.75),
+        },
+    }
+    font["COLR"] = buildCOLR(
+        {"emoji": composite},
+        version=1,
+        glyphMap=font.getReverseGlyphMap(),
+    )
+    font["CPAL"] = buildCPAL(
+        [[(1.0, 0.0, 0.0, 1.0), (0.0, 0.2, 1.0, 1.0), (0.0, 1.0, 0.2, 1.0)]]
+    )
+    font.save(OUTPUT_DIR / "color-emoji-colr-v1.ttf", reorderTables=False)
+
+
 def write_sbix():
     font = base_font("OdyTTY Synthetic Bitmap Emoji")
     image = Image.new("RGBA", (16, 16), (24, 160, 240, 160))
@@ -105,4 +151,5 @@ def write_sbix():
 
 if __name__ == "__main__":
     write_colr_v0()
+    write_colr_v1()
     write_sbix()

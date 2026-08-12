@@ -3,7 +3,7 @@
 //!
 //! This module is intentionally narrow: it only activates color rendering when
 //! the terminal grid contains one emoji grapheme or a bounded RGI cluster that
-//! resolves to one bitmap-strike or COLR/CPAL v0 glyph.
+//! resolves to one bitmap strike or COLR/CPAL glyph.
 
 use swash::scale::{Render, ScaleContext, Source, StrikeWith, image::Content};
 use swash::shape::{Direction, ShapeContext};
@@ -100,6 +100,7 @@ impl EmojiRasterizer {
         let rgba = render_color_glyph(
             &mut self.scale_context,
             font_ref,
+            font.data(),
             *glyph_id,
             atlas.cell,
             width_cells,
@@ -257,7 +258,26 @@ fn shape_glyphs(
     glyphs
 }
 
-fn render_color_glyph(
+pub(super) fn render_color_glyph(
+    context: &mut ScaleContext,
+    font: FontRef<'_>,
+    font_data: &[u8],
+    glyph_id: GlyphId,
+    cell: CellSize,
+    width_cells: u8,
+) -> Option<Vec<u8>> {
+    // Keep bitmap strikes and COLR v0 ahead of the v1 evaluator so their
+    // established pixels remain byte-identical. V1 engages only when swash has
+    // no bitmap or v0 layer composition for this glyph. SVG-in-OT remains a
+    // separate, unsupported source.
+    if let Some(rgba) = render_established_color_glyph(context, font, glyph_id, cell, width_cells) {
+        return Some(rgba);
+    }
+    let width = cell.width.checked_mul(u32::from(width_cells))?;
+    super::colr1::render(font_data, glyph_id, width, cell.height)
+}
+
+pub(super) fn render_established_color_glyph(
     context: &mut ScaleContext,
     font: FontRef<'_>,
     glyph_id: GlyphId,
@@ -268,9 +288,6 @@ fn render_color_glyph(
         .builder(font)
         .size(cell.height.max(1) as f32)
         .build();
-    // Keep bitmap strikes first so the established CBDT/CBLC and sbix output is
-    // byte-identical. In swash 0.2.9, ColorOutline composites COLR v0 layers
-    // only; COLR v1 Paint graphs and SVG-in-OT intentionally remain deferred.
     let image = Render::new(&[
         Source::ColorBitmap(StrikeWith::BestFit),
         Source::ColorOutline(0),

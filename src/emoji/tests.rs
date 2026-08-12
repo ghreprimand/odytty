@@ -1,19 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-only
 use std::path::{Path, PathBuf};
 
+use skrifa::{GlyphId as SkrifaGlyphId, MetadataProvider};
+use swash::scale::ScaleContext;
 use swash::{FontRef, tag_from_bytes};
 
 use crate::atlas::CellSize;
 use crate::core::Terminal;
 
+use super::render::{render_color_glyph, render_established_color_glyph};
 use super::{
     ColorGlyphAtlas, ColorGlyphFormat, EmojiFont, EmojiPresentation, EmojiRasterizer,
     EmojiSequenceKind, color_formats, color_route_needs_mono_fallback, discover_noto_color_emoji,
-    discover_noto_color_emoji_in, emoji_presentation, is_color_emoji_name, probe_font,
-    representative_sequences, summarize_report,
+    discover_noto_color_emoji_in, emoji_presentation, is_color_emoji_name,
+    probe_cluster_resolution, probe_font, representative_sequences, summarize_report,
 };
 #[cfg(windows)]
 use super::{collect_font_files, default_emoji_font_dirs, normalized_stem};
+#[cfg(windows)]
+use skrifa::raw::TableProvider;
 
 #[test]
 fn representative_sequences_cover_em2_cases() {
@@ -102,15 +107,17 @@ fn directory_discovery_finds_segoe_ui_emoji_by_filename() {
 
 #[test]
 fn directory_discovery_accepts_a_generic_colr_cpal_face() {
-    let fixture_dir = fixture_font("color-emoji-colr-v0.ttf")
-        .parent()
-        .expect("fixture parent")
-        .to_path_buf();
-    let found = discover_noto_color_emoji_in(&[fixture_dir]).expect("COLR/CPAL face found");
-    assert_eq!(
-        found.path.file_name().and_then(|name| name.to_str()),
-        Some("color-emoji-colr-v0.ttf")
-    );
+    let root = unique_temp_dir("odytty-generic-colr-discovery");
+    std::fs::create_dir_all(&root).expect("create generic font directory");
+    let generic = root.join("GenericEmoji.ttf");
+    std::fs::copy(fixture_font("color-emoji-colr-v1.ttf"), &generic)
+        .expect("copy generic COLR fixture");
+
+    let found = discover_noto_color_emoji_in(std::slice::from_ref(&root))
+        .expect("generic COLR/CPAL face found");
+    assert_eq!(found.path, generic);
+
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
@@ -145,6 +152,30 @@ fn stock_windows_segoe_ui_emoji_is_a_discoverable_color_font() {
     assert!(
         color_formats(font.as_ref()).contains(&ColorGlyphFormat::ColrCpal),
         "stock Segoe UI Emoji must expose COLR/CPAL"
+    );
+
+    let raw_font = skrifa::FontRef::from_index(font.data(), 0).expect("parse Segoe with skrifa");
+    let glyph_count = raw_font.maxp().expect("Segoe maxp table").num_glyphs();
+    let mut v0_glyphs = 0usize;
+    let mut v1_glyphs = 0usize;
+    let mut v1_only_glyphs = 0usize;
+    for raw_id in 0..glyph_count {
+        let glyph_id = SkrifaGlyphId::new(u32::from(raw_id));
+        let v0 = raw_font
+            .color_glyphs()
+            .get_with_format(glyph_id, skrifa::color::ColorGlyphFormat::ColrV0)
+            .is_some();
+        let v1 = raw_font
+            .color_glyphs()
+            .get_with_format(glyph_id, skrifa::color::ColorGlyphFormat::ColrV1)
+            .is_some();
+        v0_glyphs += usize::from(v0);
+        v1_glyphs += usize::from(v1);
+        v1_only_glyphs += usize::from(v1 && !v0);
+    }
+    assert!(v0_glyphs > 0, "stock Segoe must retain COLR v0 coverage");
+    eprintln!(
+        "stock Segoe COLR coverage: v0={v0_glyphs}, v1={v1_glyphs}, v1-only={v1_only_glyphs}"
     );
 }
 
@@ -286,6 +317,101 @@ fn synthetic_colr_v0_emoji_rasterizes_premultiplied_rgba_into_color_atlas() {
             .chunks_exact(4)
             .all(|px| px[0] <= px[3] && px[1] <= px[3] && px[2] <= px[3]),
         "COLR v0 atlas pixels must be premultiplied"
+    );
+}
+
+#[test]
+fn bitmap_and_colr_v0_sources_are_byte_identical_to_the_established_renderer() {
+    for fixture in ["color-emoji-sbix.ttf", "color-emoji-colr-v0.ttf"] {
+        let font = EmojiFont::load(fixture_font(fixture)).expect("load color fixture");
+        let glyph_id = font.as_ref().charmap().map('\u{1F525}');
+        let cell = cell();
+        let expected = render_established_color_glyph(
+            &mut ScaleContext::new(),
+            font.as_ref(),
+            glyph_id,
+            cell,
+            2,
+        )
+        .expect("established source should render");
+        let actual = render_color_glyph(
+            &mut ScaleContext::new(),
+            font.as_ref(),
+            font.data(),
+            glyph_id,
+            cell,
+            2,
+        )
+        .expect("current source should render");
+        assert_eq!(actual, expected, "source pixels changed for {fixture}");
+    }
+}
+
+#[test]
+fn synthetic_colr_v1_gradient_transform_and_composite_rasterize_into_color_atlas() {
+    let font = EmojiFont::load(fixture_font("color-emoji-colr-v1.ttf"))
+        .expect("load synthetic COLR v1 fixture");
+    let raw_font = skrifa::FontRef::from_index(font.data(), 0).expect("parse fixture with skrifa");
+    assert!(
+        raw_font
+            .color_glyphs()
+            .get_with_format(
+                SkrifaGlyphId::new(1),
+                skrifa::color::ColorGlyphFormat::ColrV1,
+            )
+            .is_some(),
+        "fixture must expose a v1 Paint graph"
+    );
+    assert!(
+        raw_font
+            .color_glyphs()
+            .get_with_format(
+                SkrifaGlyphId::new(1),
+                skrifa::color::ColorGlyphFormat::ColrV0,
+            )
+            .is_none(),
+        "fixture must not provide a v0 fallback"
+    );
+    assert_eq!(
+        probe_cluster_resolution(&font, "\u{1F525}"),
+        super::FallbackOutcome::Resolved,
+        "v1-only coverage must be visible to the capability probe"
+    );
+    let report = probe_font(&font);
+    assert!(
+        report.sequences[0].has_colr_v1,
+        "fire probe should report v1 coverage"
+    );
+
+    let (runs, mut atlas) = render_fire(font);
+
+    assert_eq!(runs, 1, "COLR v1 fixture should enter the color path");
+    assert!(atlas.take_dirty(), "COLR v1 insert should dirty the atlas");
+    let pixels: Vec<_> = atlas
+        .data
+        .chunks_exact(4)
+        .filter(|pixel| pixel[3] > 0)
+        .collect();
+    assert!(
+        !pixels.is_empty(),
+        "COLR v1 graph should draw visible pixels"
+    );
+    assert!(
+        pixels.iter().any(|pixel| pixel[0] > pixel[2])
+            && pixels.iter().any(|pixel| pixel[2] > pixel[0]),
+        "linear gradient should preserve both endpoint color regions"
+    );
+    assert!(
+        pixels
+            .iter()
+            .any(|pixel| pixel[1] > pixel[0] && pixel[1] > pixel[2]),
+        "composited inner glyph should remain visible"
+    );
+    assert!(
+        pixels
+            .iter()
+            .all(|pixel| pixel[0] <= pixel[3] && pixel[1] <= pixel[3] && pixel[2] <= pixel[3]),
+        "COLR v1 atlas pixels must be premultiplied"
     );
 }
 

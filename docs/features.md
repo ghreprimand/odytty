@@ -219,13 +219,13 @@ and optional subpixel antialiasing uses dual-source blending on capable GPUs.
 
 ### Render Color Emoji
 
-Color emoji uses `swash` and a dedicated premultiplied-RGBA atlas. It supports
-bitmap strikes through Noto Color Emoji (CBDT/CBLC) and Apple Color Emoji
-(sbix), plus static COLR/CPAL v0 layers. Directory discovery recognizes stock
-Windows Segoe UI Emoji and other parseable COLR/CPAL faces, so Segoe glyphs
-with swash-readable v0 layers render in color without installing Noto. Windows
-is the primary beneficiary of the outline path; the shared raster and atlas
-logic remains platform-neutral.
+Color emoji uses `swash`, Fontations, and a dedicated premultiplied-RGBA atlas.
+It supports bitmap strikes through Noto Color Emoji (CBDT/CBLC) and Apple Color
+Emoji (sbix), static COLR/CPAL v0 layers, and COLR v1 Paint graphs including
+solid fills, linear/radial/sweep gradients, affine transforms, clipping, and
+the standard composite modes. Directory discovery recognizes stock Windows
+Segoe UI Emoji and other parseable COLR/CPAL faces. The shared raster and atlas
+logic is platform-neutral.
 
 Variation selectors, flags, keycaps, skin tones, and common ZWJ clusters are
 supported. Text-default symbols stay on the monochrome fallback path, missing
@@ -235,8 +235,13 @@ UI Emoji ships no regional-indicator flag glyphs, so flag clusters on a stock
 Windows install render as the visible letter fallback - the same behavior as
 native Windows applications - rather than a color flag.
 
-COLR v1 Paint graphs and SVG-in-OpenType remain deferred. A face or glyph that
-exposes only those formats falls back to the monochrome path.
+Source preference is bitmap strike, then COLR v0, then COLR v1. The first two
+paths retain their established byte output; v1 is attempted only when they do
+not cover the glyph. The Windows CI assertion records how many glyphs in the
+installed Segoe build expose v0, v1, and v1-only coverage instead of assuming a
+specific system-font revision. The synthetic v1-only fixture is the portable
+correctness evidence when no stock v1-only glyph is observed. SVG-in-OpenType
+remains deferred; an SVG-only glyph falls back to the monochrome path.
 
 ### Display Inline Graphics
 
