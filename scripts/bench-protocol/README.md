@@ -1,7 +1,7 @@
 # `scripts/bench-protocol/` — comparative benchmark harness
 
 Preparation tooling for `docs/benchmark-protocol.md` (protocol version
-`1.0.0`). See `docs/benchmark-apparatus.md` for what this comparison unit can
+`1.1.0`). See `docs/benchmark-apparatus.md` for what this comparison unit can
 and cannot measure, and why.
 
 Every command here is offline, cheap, and side-effect free unless it is
@@ -91,15 +91,53 @@ and ligatures, and 100,000 lines of scrollback. The runner supplies the pinned
 idle driver as the explicit child command for every recipe.
 
 The bounded pre-public probe also reads the PTY's content width and height in
-device pixels, derives the exact per-cell geometry for the 80x24 grid, and
-uses OdyTTY's calibration as the reference. A terminal whose kernel PTY does
-not expose pixel geometry, or whose cells initially differ, is still mapped
-and is not relabeled unavailable. The runner tries at most five exact supported
-font-size overrides nearest the observed-to-reference ratio and re-probes after
-each. The selected override is pinned in the preregistration. If none matches,
-the probe records `unmet-protocol-configuration` and blocks a protocol-valid
-comparison instead of silently narrowing the qualified set. An equal
-point-size setting alone never qualifies it. Available DRM GPU-memory evidence
+device pixels and derives the exact per-cell geometry for the 80x24 grid. It
+probes every member of the declared bounded calibration set for every mapped
+terminal, including OdyTTY font size and line height, then deterministically
+selects one exact width-and-height intersection shared by all of them. OdyTTY
+is not a fixed target: its native pixel setting and the references' native
+point/DPI-resolved settings are different unit systems. A terminal whose
+kernel PTY does not expose pixel geometry, or whose cells never enter the
+common intersection, stays mapped but records
+`unmet-protocol-configuration`; it is not relabeled unavailable or silently
+dropped.
+
+Every attempt preserves a sanitized exact argv, requested metric controls,
+separate observed idle-ready PTY columns/rows/content pixels and derived
+geometry, process/window/display-path outcome, exit status, and a canonical
+SHA-256 over the immutable attempt record. The sanitized launch-control
+environment is preserved too, and validation cross-binds requested controls to
+both argv and environment. Requested controls are not observations; only PTY
+geometry is effective observed evidence.
+
+The runner copies the digest-verified DejaVu Sans Mono file into a private,
+single-face Fontconfig environment. OdyTTY receives the copied file through
+`ODYTTY_FONT`; references see only that face through `FONTCONFIG_FILE`. Every
+launch rechecks the font and config bytes plus the one-face listing. Published
+proof includes only counts, control names, and digests. A copied face identity
+without the isolation proof fails closed, as does any changed isolation byte.
+
+The exhaustive search is finite: 105 settings for OdyTTY and 21 per reference.
+A typical five-candidate probe with OdyTTY and three references mapped requires
+169 launches, including the unavailable candidate's one bounded attempt; all
+five mapped terminals require at most 189. At a conservative 90-second
+allocation per attempt their declared wall bounds are 15,210 and 17,010
+seconds. Hitting a count or time bound is an explicit protocol failure, never
+a partial search presented as complete.
+
+Mapped terminals must publish the exact ordered profile setting sequence.
+Attempt and ordered-list digests are recomputed, and qualification/finalization
+independently recompute the geometry intersection, ranking, and selected source
+attempt. Truncated, reordered, duplicate, cherry-picked, or merely resealed
+lists fail. Launch-failure and no-window outcomes have separate sealed shapes;
+either stops that implementation after its one bounded initial attempt. The
+exhaustive pre-public probe and frozen qualified-only runtime revalidation are
+explicitly different evidence modes.
+
+Protocol 1.1.0 is an identity break for these selection and evidence fields.
+It requires a fresh preregistration and run identity; 1.0.0 results are never
+pooled with it. Exact font identity and matched device-pixel cells remain the
+underlying requirements. Available DRM GPU-memory evidence
 likewise requires one identical `drm-resident-*` region-field set for every
 qualified terminal. If that semantic set cannot be matched, GPU memory is
 preregistered unsupported for the whole comparison.
@@ -189,7 +227,7 @@ because each one exists to prevent a specific, tempting mistake.
    what each workload physically needs. Five of seven require optical capture,
    so they are declared `skip` / `unavailable-hardware` in preregistration
    before any sample is taken. A self-test fails if W3 or W4 ever lose that
-   requirement — throughput endpoints are optical under protocol `1.0.0`, and
+   requirement — throughput endpoints are optical under protocol `1.1.0`, and
    quietly relaxing them to software timing would be the single most damaging
    change possible to this harness's honesty.
 

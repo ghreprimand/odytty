@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Workload catalogue for the OdyTTY comparative benchmark protocol
-# (`docs/benchmark-protocol.md`, protocol version 1.0.0).
+# (`docs/benchmark-protocol.md`, protocol version 1.1.0).
 #
 # One place to state, per workload: its identifier, its endpoint, its primary
 # metrics and their units and direction, its oracle, its timeout, its sampling
@@ -370,7 +370,7 @@ def self_test() -> list[str]:
         if not missing_apparatus(name):
             failures.append(
                 f"workloads: {name} lost its apparatus requirement; throughput "
-                "endpoints are optical under protocol 1.0.0"
+                "endpoints are optical under protocol 1.1.0"
             )
 
     # With a full rig, everything becomes runnable.

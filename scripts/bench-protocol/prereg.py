@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Preregistration-record generator for the OdyTTY comparative benchmark
-# protocol (`docs/benchmark-protocol.md`, protocol version 1.0.0).
+# protocol (`docs/benchmark-protocol.md`, protocol version 1.1.0).
 #
 # The protocol's first requirement is that every run set have a public
 # preregistration record committed before its first measured sample, and it
@@ -53,7 +53,7 @@ import ordering
 import profiles
 import workloads
 
-PROTOCOL_VERSION = "1.0.0"
+PROTOCOL_VERSION = "1.1.0"
 PROTOCOL_DOC = Path("docs/benchmark-protocol.md")
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 
@@ -300,6 +300,7 @@ def build_record(
                 }
             )
 
+    shared_font = profiles.resolve_shared_font_identity() or TODO
     record = {
         "record_type": "preregistration",
         "protocol": {
@@ -347,6 +348,7 @@ def build_record(
             "thermal_and_cooling": TODO,
             "virtualized_or_remote": "no",
         },
+        "shared_font": shared_font,
         "implementations": [
             {
                 "name": name,
@@ -355,6 +357,7 @@ def build_record(
                 "display_path": TODO,
                 "cell_geometry": TODO,
                 "calibration": TODO,
+                "font_identity": shared_font,
                 "revision": TODO,
                 "artifact_sha256": TODO,
                 "artifact_class": TODO,
@@ -616,6 +619,9 @@ def check_record(record: dict) -> list[str]:
     availability_values = {entry.get("availability") for entry in record.get("implementations", [])}
     if not availability_values <= {"qualified", "unavailable"}:
         problems.append("every implementation availability must be qualified or unavailable")
+    shared_font = record.get("shared_font")
+    if not profiles.valid_font_identity(shared_font):
+        problems.append("the exact shared DejaVu Sans Mono face/file digest is not pinned")
     for entry in record.get("implementations", []):
         name = entry.get("name")
         if entry.get("availability") == "unavailable" and not entry.get("unavailable_reason"):
@@ -639,6 +645,10 @@ def check_record(record: dict) -> list[str]:
         ):
             problems.append(
                 f"implementation {entry.get('name')!r} lacks a pinned valid calibration"
+            )
+        if entry.get("font_identity") != shared_font:
+            problems.append(
+                f"implementation {entry.get('name')!r} does not bind the shared font identity"
             )
         for field in ("launch_executable", "config_path"):
             if entry.get(field) in (None, ""):
@@ -928,6 +938,13 @@ def self_test(repo_root: Path) -> list[str]:
         "cell_height_device_px": 20,
     }
     pinned["matched_cell_geometry"] = geometry
+    pinned["shared_font"] = {
+        "family": profiles.SHARED_FONT_FAMILY,
+        "style": "Book",
+        "file_name": "DejaVuSansMono.ttf",
+        "face_index": 0,
+        "sha256": "a" * 64,
+    }
     pinned["boot_and_settle_evidence"] = {
         "boot_started_utc": "2026-01-01T00:00:00Z",
         "login_ready_utc": "2026-01-01T00:01:00Z",
@@ -948,7 +965,9 @@ def self_test(repo_root: Path) -> list[str]:
         implementation["calibration"] = {
             "method": "canonical-profile",
             "font_size": profiles.DEFAULT_FONT_SIZE,
+            **({"line_height": 1.0} if implementation["name"] == "odytty" else {}),
         }
+        implementation["font_identity"] = pinned["shared_font"]
     pinned["w6_rehearsal"]["instrumentation_overhead"][
         "paired_uninstrumented_and_instrumented"
     ] = True
@@ -960,6 +979,13 @@ def self_test(repo_root: Path) -> list[str]:
     problems = check_record(pinned)
     if problems:
         failures.append(f"prereg: a pinned record was refused: {problems}")
+
+    mismatched_font = json.loads(json.dumps(pinned))
+    mismatched_font["implementations"][0]["font_identity"]["sha256"] = "b" * 64
+    if not any(
+        "shared font identity" in problem for problem in check_record(mismatched_font)
+    ):
+        failures.append("prereg: a mismatched implementation font digest was accepted")
 
     mismatched_drm = json.loads(json.dumps(pinned))
     drm_record = next(

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Canonical protocol 1.0.0 terminal profiles and launch identities."""
+"""Canonical protocol 1.1.0 terminal profiles and launch identities."""
 
 from __future__ import annotations
 
 import hashlib
+import re
+import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -29,40 +32,181 @@ LAUNCH_EXECUTABLES = {name: name for name in CONFIG_PATHS}
 
 DEFAULT_FONT_SIZE = 12.0
 CALIBRATABLE_IMPLEMENTATIONS = frozenset(
-    {"kitty", "ghostty", "alacritty", "wezterm"}
+    {"odytty", "kitty", "ghostty", "alacritty", "wezterm"}
 )
 CALIBRATION_FONT_SIZES = tuple(value / 2 for value in range(16, 37))
+ODYTTY_CALIBRATION_LINE_HEIGHTS = (1.0, 1.25, 1.5, 1.75, 2.0)
+SHARED_FONT_FAMILY = "DejaVu Sans Mono"
 
 
-def calibration_candidates(
-    implementation: str, observed_cell_height: int, target_cell_height: int
-) -> list[float]:
-    """Return a bounded, deterministic font-size search nearest the target ratio."""
-    if (
-        implementation not in CALIBRATABLE_IMPLEMENTATIONS
-        or observed_cell_height <= 0
-        or target_cell_height <= 0
-    ):
+def calibration_configurations(implementation: str) -> list[dict[str, object]]:
+    """Return the complete bounded calibration set in deterministic order."""
+    if implementation not in CALIBRATABLE_IMPLEMENTATIONS:
         return []
-    estimate = DEFAULT_FONT_SIZE * target_cell_height / observed_cell_height
-    return sorted(
-        CALIBRATION_FONT_SIZES,
-        key=lambda value: (abs(value - estimate), value),
-    )[:5]
+    canonical = {
+        "method": "canonical-profile",
+        "font_size": DEFAULT_FONT_SIZE,
+        **({"line_height": 1.0} if implementation == "odytty" else {}),
+    }
+    configurations = [canonical]
+    if implementation == "odytty":
+        configurations.extend(
+            {
+                "method": "font-metrics-override",
+                "font_size": size,
+                "line_height": line_height,
+            }
+            for size in CALIBRATION_FONT_SIZES
+            for line_height in ODYTTY_CALIBRATION_LINE_HEIGHTS
+            if (size, line_height) != (DEFAULT_FONT_SIZE, 1.0)
+        )
+    else:
+        configurations.extend(
+            {"method": "font-size-override", "font_size": size}
+            for size in CALIBRATION_FONT_SIZES
+            if size != DEFAULT_FONT_SIZE
+        )
+    return configurations
 
 
 def valid_calibration(implementation: str, calibration: object) -> bool:
     """Validate the exact launch setting pinned after bounded calibration."""
-    if not isinstance(calibration, dict):
+    if (
+        implementation not in CALIBRATABLE_IMPLEMENTATIONS
+        or not isinstance(calibration, dict)
+    ):
         return False
     method = calibration.get("method")
     size = calibration.get("font_size")
+    expected_keys = (
+        {"method", "font_size", "line_height"}
+        if implementation == "odytty"
+        else {"method", "font_size"}
+    )
+    if set(calibration) != expected_keys:
+        return False
     if method == "canonical-profile":
-        return size == DEFAULT_FONT_SIZE
+        return size == DEFAULT_FONT_SIZE and (
+            implementation != "odytty" or calibration["line_height"] == 1.0
+        )
+    if implementation == "odytty":
+        return (
+            method == "font-metrics-override"
+            and size in CALIBRATION_FONT_SIZES
+            and calibration.get("line_height") in ODYTTY_CALIBRATION_LINE_HEIGHTS
+        )
     return (
         method == "font-size-override"
         and implementation in CALIBRATABLE_IMPLEMENTATIONS
         and size in CALIBRATION_FONT_SIZES
+    )
+
+
+def calibration_rank(implementation: str, calibration: dict) -> tuple[float, float, float]:
+    """Rank a valid setting by distance from the tracked canonical profile."""
+    size = float(calibration["font_size"])
+    line_height = float(calibration.get("line_height", 1.0))
+    return (
+        abs(size - DEFAULT_FONT_SIZE) + abs(line_height - 1.0),
+        size,
+        line_height if implementation == "odytty" else 1.0,
+    )
+
+
+def resolve_shared_font_source() -> tuple[Path, dict[str, object]] | None:
+    """Resolve the exact shared Linux font source and its public identity."""
+    executable = shutil.which("fc-match")
+    if executable is None:
+        return None
+    try:
+        completed = subprocess.run(
+            [
+                executable,
+                "--format=%{family[0]}\x1f%{style[0]}\x1f%{file}\x1f%{index}\n",
+                SHARED_FONT_FAMILY,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        family, style, raw_path, raw_index = completed.stdout.strip().split("\x1f")
+        path = Path(raw_path)
+        index = int(raw_index or "0")
+        if (
+            completed.returncode != 0
+            or family.casefold() != SHARED_FONT_FAMILY.casefold()
+            or not path.is_file()
+            or index < 0
+        ):
+            return None
+        identity = {
+            "family": family,
+            "style": style,
+            "file_name": path.name,
+            "face_index": index,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        return path.resolve(), identity
+    except (OSError, subprocess.SubprocessError, TypeError, ValueError):
+        return None
+
+
+def resolve_shared_font_identity() -> dict[str, object] | None:
+    """Resolve the exact shared Linux font face without exposing a local path."""
+    resolved = resolve_shared_font_source()
+    return dict(resolved[1]) if resolved is not None else None
+
+
+def valid_font_identity(identity: object) -> bool:
+    """Return whether a public-safe exact face/file identity is complete."""
+    if not isinstance(identity, dict):
+        return False
+    return (
+        identity.get("family") == SHARED_FONT_FAMILY
+        and isinstance(identity.get("style"), str)
+        and bool(identity.get("style"))
+        and isinstance(identity.get("file_name"), str)
+        and bool(identity.get("file_name"))
+        and "/" not in identity["file_name"]
+        and "\\" not in identity["file_name"]
+        and isinstance(identity.get("face_index"), int)
+        and not isinstance(identity.get("face_index"), bool)
+        and identity["face_index"] >= 0
+        and isinstance(identity.get("sha256"), str)
+        and len(identity["sha256"]) == 64
+        and all(character in "0123456789abcdef" for character in identity["sha256"])
+    )
+
+
+def valid_font_isolation_proof(proof: object) -> bool:
+    """Validate public evidence for the single-face launch environment."""
+    if not isinstance(proof, dict):
+        return False
+    if set(proof) != {
+        "method",
+        "listed_face_count",
+        "odytty_control",
+        "reference_control",
+        "config_sha256",
+        "policy_sha256",
+        "font_sha256",
+        "font_identity",
+    }:
+        return False
+    hex_digest = re.compile(r"[0-9a-f]{64}")
+    return (
+        proof.get("method")
+        == "private-single-face-fontconfig-plus-odytty-direct-path"
+        and proof.get("listed_face_count") == 1
+        and proof.get("odytty_control") == "ODYTTY_FONT"
+        and proof.get("reference_control") == "FONTCONFIG_FILE"
+        and isinstance(proof.get("config_sha256"), str)
+        and hex_digest.fullmatch(proof["config_sha256"]) is not None
+        and isinstance(proof.get("policy_sha256"), str)
+        and hex_digest.fullmatch(proof["policy_sha256"]) is not None
+        and valid_font_identity(proof.get("font_identity"))
+        and proof["font_identity"]["sha256"] == proof.get("font_sha256")
     )
 
 

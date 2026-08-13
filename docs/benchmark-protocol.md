@@ -1,6 +1,11 @@
 # OdyTTY Comparative Benchmark Protocol
 
-Protocol version: `1.0.0`
+Protocol version: `1.1.0`
+
+Version 1.1.0 changes calibration selection and availability-evidence fields.
+It requires a fresh preregistration and run-set identity. Protocol 1.0.0
+records and results remain historical evidence and are never pooled with
+1.1.0 samples.
 
 This protocol defines how OdyTTY and independent terminal references are
 compared before any comparative numbers are collected. It measures complete
@@ -112,6 +117,56 @@ Font size is not considered matched merely because two settings show the same
 point or pixel number. The measured cell geometry must match in device pixels.
 Window chrome is excluded from the content viewport but remains unchanged
 within a run set.
+
+Calibration therefore searches a public, version-pinned, finite setting set
+for every mapped implementation, including OdyTTY. It selects a common exact
+width-and-height intersection deterministically; no implementation is treated
+as the fixed geometry target, and a height-only estimate is not sufficient.
+Requested settings and observed PTY evidence are separate records. Each
+attempt records sanitized exact argv and launch-control environment, requested
+metric controls, raw PTY columns/rows/content pixels, derived geometry,
+process/window/display-path outcome, exit status, and an immutable attempt
+digest. Validators cross-bind every requested control to those sanitized
+launch records. Requested controls are not observations; only PTY geometry is
+effective observed evidence.
+
+The font is enforced separately. The runner copies the pinned, digest-verified
+DejaVu Sans Mono file into a mode-`0700` single-face Fontconfig environment.
+OdyTTY receives that copied file through its direct `ODYTTY_FONT` control;
+reference terminals receive a `FONTCONFIG_FILE` that lists only that face.
+Each launch rechecks the copied font bytes, config bytes, single-face listing,
+family, style, face index, and file digest. Public evidence contains only the
+isolation method, counts, control names, and digests—never its private paths.
+An asserted face identity without this isolation proof fails validation.
+
+The complete calibration is explicitly bounded. OdyTTY has 105 declared
+font-size/line-height settings; each reference has 21 font-size settings. A
+typical five-candidate Linux probe with four terminals mapped therefore
+performs 169 launches: 168 complete mapped settings plus the unavailable
+candidate's single bounded attempt. The all-mapped worst case performs 189.
+Each attempt has a conservative 90-second controller wall allocation, making
+the corresponding aggregate bounds 15,210 and 17,010 seconds. Reaching either
+the planned launch count or wall deadline produces
+`unmet-protocol-configuration`; it never truncates the search silently.
+Mapped terminals without a common intersection are reported as
+`unmet-protocol-configuration`, distinct from an implementation that did not
+map a window.
+
+For every mapped terminal, published calibration attempts must equal the exact
+ordered setting sequence declared by the pinned profile—no truncation,
+reordering, duplication, or post-hoc subset is valid. Each attempt digest and
+the ordered-list digest are recomputed. Qualification and finalization
+independently recompute the common geometry, ranking, and selected source
+attempt. A launch failure or a process that never maps a window has one sealed,
+fully validated initial outcome and is not calibration-probed further. The
+pre-public exhaustive probe and the later frozen-qualified-set revalidation
+are labeled as distinct evidence modes; runtime revalidation never retries a
+preregistered unavailable implementation.
+
+This calibration procedure defines the protocol 1.1.0 selection and evidence
+contract without changing the measured quantity or relaxing matching.
+Implementations may express font size in different native units, so binding one nominal number
+or fixing one implementation as the target would not establish conformance.
 
 OdyTTY's primary comparable configuration uses the plain renderer with visual
 effects off. An optional OdyTTY effects-on run may be published as a separate,
@@ -428,9 +483,9 @@ shape:
 
 ```json
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "protocol": {
-    "version": "1.0.0",
+    "version": "1.1.0",
     "git_commit": "<full-sha>",
     "sha256": "<protocol-sha256>"
   },
@@ -462,7 +517,14 @@ shape:
       "revision": "<tag-or-full-sha>",
       "artifact_sha256": "<sha256>",
       "build_profile": "<profile>",
-      "config_sha256": "<sha256>"
+      "config_sha256": "<sha256>",
+      "font_identity": {
+        "family": "DejaVu Sans Mono",
+        "style": "<style>",
+        "file_name": "<public-safe-file-name>",
+        "face_index": 0,
+        "sha256": "<font-file-sha256>"
+      }
     }
   ],
   "tools": [

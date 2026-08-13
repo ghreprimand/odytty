@@ -1,6 +1,6 @@
 # Comparative Benchmark Apparatus and Availability
 
-Companion to `docs/benchmark-protocol.md` (protocol version `1.0.0`).
+Companion to `docs/benchmark-protocol.md` (protocol version `1.1.0`).
 
 The protocol defines how OdyTTY and independent terminal references are
 compared. This document records what the current comparison unit can actually
@@ -82,14 +82,14 @@ wrong later:
 1. **Throughput is optically gated too.** W3 and W4 are not exempt from the
    apparatus requirement merely because their metric is a duration rather than
    a latency. There is no protocol-conforming "at least we can publish
-   throughput" fallback under version `1.0.0`.
+   throughput" fallback under version `1.1.0`.
 2. **No software-timed substitute is published under a protocol workload
    name.** Timing the same interval from inside the driver measures a
    different quantity: it excludes compositor and scanout, and it moves the
    boundary inside the implementation. Such a tier would require a new
    protocol version that defines it and forbids pooling its results with
    optical-tier results. It is not a shortcut that can be taken inside version
-   `1.0.0`.
+   `1.1.0`.
 
 The harness enforces this in code rather than in prose alone: the workload
 catalogue carries each workload's apparatus requirement as data, the

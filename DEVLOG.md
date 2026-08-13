@@ -133,6 +133,17 @@ controller prerequisite problem — distinct from a genuine
 implementation-availability result — before creating probe evidence or
 launching any candidate.
 
+A later calibration probe (`r4`) qualified OdyTTY on native Wayland at exact
+80x24 geometry with 8x16 device-pixel cells, but the reference profiles did
+not establish the same geometry. That result exposed a harness-selection
+defect, not an OdyTTY rendering failure: calibration had fixed OdyTTY as the
+target and searched only a small height-derived reference subset. Protocol
+1.1.0 replaces that procedure with a complete bounded common-intersection
+search across every mapped terminal, including OdyTTY, and binds each attempt
+to an isolated digest-pinned font, its exact launch controls, observed PTY
+geometry, and independently recomputed selection. Version 1.0.0 evidence
+remains historical and cannot be pooled with a 1.1.0 run.
+
 **No comparative benchmark results are published as of this entry.** The
 harness changes are infrastructure hardening toward a protocol-valid run;
 executing that run and publishing raw samples with confidence intervals

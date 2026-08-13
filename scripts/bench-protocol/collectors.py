@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Resource collectors for the OdyTTY comparative benchmark protocol
-# (`docs/benchmark-protocol.md`, protocol version 1.0.0), Linux column.
+# (`docs/benchmark-protocol.md`, protocol version 1.1.0), Linux column.
 #
 # The protocol's platform-metric table is strict about semantics, and this
 # module treats that strictness as the point rather than an obstacle:

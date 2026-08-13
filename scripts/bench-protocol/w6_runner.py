@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # W6 (idle-visible-10m) measured-run orchestrator for the OdyTTY comparative
-# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.0.0).
+# benchmark protocol (`docs/benchmark-protocol.md`, protocol version 1.1.0).
 #
 # Every other module in this directory is preparation: it computes, checks, or
 # describes, and never takes a measurement. This module is the one exception,
@@ -65,7 +65,7 @@ import summaries  # noqa: E402
 import workloads  # noqa: E402
 
 WORKLOAD = "idle-visible-10m"
-RUNNER_VERSION = "1.0.0"
+RUNNER_VERSION = "1.1.0"
 PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 PUBLIC_API_BASE = "https://api.github.com/repos/ghreprimand/odytty"
 PUBLIC_RAW_BASE = "https://raw.githubusercontent.com/ghreprimand/odytty"
@@ -84,6 +84,41 @@ MEASURED_BLOCKS = 5
 # that this implementation does not present a viewport on this session.
 WINDOW_MAP_TIMEOUT_SECONDS = 20
 ORACLE_COMPLETION_TIMEOUT_SECONDS = 10
+PROBE_CHILD_SECONDS = WINDOW_MAP_TIMEOUT_SECONDS + 10
+PROBE_ATTEMPT_WALL_BOUND_SECONDS = 90
+CALIBRATION_MAX_LAUNCHES = sum(
+    len(profiles.calibration_configurations(name))
+    for name in sorted(profiles.CALIBRATABLE_IMPLEMENTATIONS)
+)
+CALIBRATION_MAX_WALL_SECONDS = (
+    CALIBRATION_MAX_LAUNCHES * PROBE_ATTEMPT_WALL_BOUND_SECONDS
+)
+
+FONTCONFIG_ISOLATION_POLICY = """<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <dir>/fonts</dir>
+  <cachedir>/cache</cachedir>
+  <config><rescan><int>0</int></rescan></config>
+</fontconfig>
+"""
+
+
+def calibration_probe_budget(implementations: list[str]) -> dict[str, int]:
+    """Return the pre-launch exhaustive calibration count and wall gate."""
+    if len(implementations) != len(set(implementations)) or any(
+        name not in profiles.CALIBRATABLE_IMPLEMENTATIONS for name in implementations
+    ):
+        raise ValueError("calibration candidates must be unique supported implementations")
+    launches = sum(
+        len(profiles.calibration_configurations(name)) for name in implementations
+    )
+    return {
+        "candidate_launch_bound": launches,
+        "candidate_wall_bound_seconds": launches * PROBE_ATTEMPT_WALL_BOUND_SECONDS,
+        "maximum_launch_bound": CALIBRATION_MAX_LAUNCHES,
+        "maximum_wall_bound_seconds": CALIBRATION_MAX_WALL_SECONDS,
+    }
 
 DISPLAY_PATH_WAYLAND = "wayland-native"
 DISPLAY_PATH_XWAYLAND = "xwayland"
@@ -458,7 +493,8 @@ def descendant_pids(pid: int, proc_root: Path = Path("/proc")) -> set[int]:
 
 
 def qualify_implementations(
-    probes: list[dict], allow_mixed_display_paths: bool = False
+    probes: list[dict], allow_mixed_display_paths: bool = False,
+    require_exhaustive_calibration: bool = True,
 ) -> dict:
     """Decide, from availability probes, which implementations qualify.
 
@@ -476,10 +512,15 @@ def qualify_implementations(
     mapped = [probe for probe in probes if probe.get("window_mapped")]
     for probe in probes:
         if not probe.get("window_mapped"):
-            excluded.append(
+            target = excluded if _valid_probe_attempt(probe) else protocol_blockers
+            target.append(
                 {
                     "implementation": probe["implementation"],
-                    "reason": "unavailable-implementation",
+                    "reason": (
+                        "unavailable-implementation"
+                        if target is excluded
+                        else "invalid-probe-evidence"
+                    ),
                     "detail": probe.get("detail")
                     or (
                         "the process started but no viewport was observed within the "
@@ -490,6 +531,11 @@ def qualify_implementations(
                     ),
                 }
             )
+    calibration_failures = (
+        _calibrated_probe_set_failures(probes)
+        if require_exhaustive_calibration
+        else set()
+    )
 
     # The majority display path among implementations that did map defines the
     # comparison's display path. Ties resolve to the reference implementation's
@@ -500,6 +546,22 @@ def qualify_implementations(
     reference_geometry = next(
         (
             probe.get("cell_geometry")
+            for probe in mapped
+            if probe.get("implementation") == "odytty"
+        ),
+        None,
+    )
+    reference_font = next(
+        (
+            probe.get("font_identity")
+            for probe in mapped
+            if probe.get("implementation") == "odytty"
+        ),
+        None,
+    )
+    reference_isolation = next(
+        (
+            probe.get("font_isolation")
             for probe in mapped
             if probe.get("implementation") == "odytty"
         ),
@@ -525,13 +587,30 @@ def qualify_implementations(
             reference_path = candidates[0]
 
     for probe in mapped:
-        if reference_geometry is None or probe.get("cell_geometry") != reference_geometry:
+        attempts = probe.get("calibration_attempts", [probe])
+        evidence_invalid = (
+            not isinstance(attempts, list)
+            or not attempts
+            or not _valid_probe_attempt(probe)
+            or not all(_valid_probe_attempt(attempt) for attempt in attempts)
+            or probe.get("implementation") in calibration_failures
+        )
+        if (
+            probe.get("configuration_status") == "unmet-protocol"
+            or evidence_invalid
+            or not profiles.valid_font_identity(reference_font)
+            or probe.get("font_identity") != reference_font
+            or not profiles.valid_font_isolation_proof(reference_isolation)
+            or probe.get("font_isolation") != reference_isolation
+            or reference_geometry is None
+            or probe.get("cell_geometry") != reference_geometry
+        ):
             protocol_blockers.append(
                 {
                     "implementation": probe["implementation"],
                     "reason": "unmet-protocol-configuration",
                     "detail": probe.get("detail")
-                    or "bounded calibration did not match OdyTTY device-pixel geometry",
+                    or "bounded calibration did not prove one exact shared device-pixel geometry",
                 }
             )
             continue
@@ -569,6 +648,7 @@ def qualify_implementations(
     return {
         "reference_display_path": reference_path,
         "reference_cell_geometry": reference_geometry,
+        "shared_font": reference_font,
         "qualified": qualified,
         "excluded": excluded,
         "deviations": deviations,
@@ -932,6 +1012,138 @@ def estimate_duration_seconds(
     return rehearsals + measured
 
 
+def _font_isolation_environment(config_path: Path) -> dict[str, str]:
+    return {
+        "FONTCONFIG_FILE": "/fonts.conf",
+        "FONTCONFIG_PATH": "/",
+        "FONTCONFIG_SYSROOT": str(config_path.parent),
+    }
+
+
+def _fontconfig_faces(environment: dict[str, str]) -> list[tuple[str, str, str, int]]:
+    executable = shutil.which("fc-list")
+    if executable is None:
+        return []
+    try:
+        completed = subprocess.run(
+            [
+                executable,
+                "--format=%{file}\x1f%{family[0]}\x1f%{style[0]}\x1f%{index}\n",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+            env={**os.environ, **environment},
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if completed.returncode != 0:
+        return []
+    faces = []
+    try:
+        for line in completed.stdout.splitlines():
+            raw_path, family, style, raw_index = line.split("\x1f")
+            faces.append((raw_path, family, style, int(raw_index or "0")))
+    except (TypeError, ValueError):
+        return []
+    return faces
+
+
+def _verify_font_isolation(isolation: object) -> bool:
+    """Re-read private bytes and Fontconfig state before every launch."""
+    if not isinstance(isolation, dict):
+        return False
+    proof = isolation.get("proof")
+    font_path = isolation.get("font_path")
+    config_path = isolation.get("config_path")
+    environment = isolation.get("environment")
+    if (
+        not profiles.valid_font_isolation_proof(proof)
+        or not isinstance(font_path, Path)
+        or not isinstance(config_path, Path)
+        or not isinstance(environment, dict)
+    ):
+        return False
+    try:
+        font_bytes = font_path.read_bytes()
+        config_bytes = config_path.read_bytes()
+    except OSError:
+        return False
+    if hashlib.sha256(font_bytes).hexdigest() != proof["font_sha256"]:
+        return False
+    if hashlib.sha256(config_bytes).hexdigest() != proof["config_sha256"]:
+        return False
+    faces = _fontconfig_faces(environment)
+    identity = proof["font_identity"]
+    reported_path = None
+    if len(faces) == 1:
+        try:
+            reported_path = (
+                Path(environment["FONTCONFIG_SYSROOT"])
+                / Path(faces[0][0]).relative_to("/")
+            ).resolve()
+        except (KeyError, ValueError):
+            return False
+    return (
+        len(faces) == 1
+        and reported_path == font_path.resolve()
+        and faces[0][1].casefold() == identity["family"].casefold()
+        and faces[0][2].casefold() == identity["style"].casefold()
+        and faces[0][3] == identity["face_index"]
+    )
+
+
+def _create_font_isolation(root: Path, expected_identity: object) -> dict:
+    """Create one private, path-redacted font environment from pinned bytes."""
+    if not profiles.valid_font_identity(expected_identity):
+        raise ValueError("the preregistered shared-font identity is incomplete")
+    resolved = profiles.resolve_shared_font_source()
+    if resolved is None or resolved[1] != expected_identity:
+        raise ValueError("the resolved shared-font bytes do not match preregistration")
+    source_path, identity = resolved
+    font_directory = root / "root" / "fonts"
+    cache_directory = root / "root" / "cache"
+    root.mkdir(parents=True, mode=0o700, exist_ok=False)
+    root.chmod(0o700)
+    font_directory.parent.mkdir(mode=0o700)
+    font_directory.mkdir(mode=0o700)
+    cache_directory.mkdir(mode=0o700)
+    font_path = font_directory / identity["file_name"]
+    config_path = root / "root" / "fonts.conf"
+    font_bytes = source_path.read_bytes()
+    if hashlib.sha256(font_bytes).hexdigest() != identity["sha256"]:
+        raise ValueError("the resolved shared-font bytes changed during isolation")
+    with font_path.open("xb") as handle:
+        handle.write(font_bytes)
+    font_path.chmod(0o600)
+    config_bytes = FONTCONFIG_ISOLATION_POLICY.encode("utf-8")
+    with config_path.open("xb") as handle:
+        handle.write(config_bytes)
+    config_path.chmod(0o600)
+    proof = {
+        "method": "private-single-face-fontconfig-plus-odytty-direct-path",
+        "listed_face_count": 1,
+        "odytty_control": "ODYTTY_FONT",
+        "reference_control": "FONTCONFIG_FILE",
+        "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
+        "policy_sha256": hashlib.sha256(
+            FONTCONFIG_ISOLATION_POLICY.encode("utf-8")
+        ).hexdigest(),
+        "font_sha256": identity["sha256"],
+        "font_identity": dict(identity),
+    }
+    isolation = {
+        "font_path": font_path,
+        "config_path": config_path,
+        "environment": _font_isolation_environment(config_path),
+        "proof": proof,
+    }
+    if not _verify_font_isolation(isolation):
+        raise ValueError("the private single-face font environment did not verify")
+    return isolation
+
+
 class RealLauncher:
     """Launch and observe real terminals. Replaced by a fake in the self-tests."""
 
@@ -940,6 +1152,7 @@ class RealLauncher:
         config_paths: dict[str, Path] | None = None,
         calibrations: dict[str, dict] | None = None,
         launch_environment: dict[str, str] | None = None,
+        font_identity: dict | None = None,
     ):
         self.backend = backend
         self.use_scope = use_scope
@@ -947,13 +1160,36 @@ class RealLauncher:
         self.config_paths = config_paths or {}
         self.calibrations = calibrations or {}
         self.launch_environment = launch_environment or {}
+        self.font_identity = font_identity
+        self.font_isolation: dict | None = None
+        self.font_isolation_initialized = False
 
-    def set_calibration_font_size(self, implementation: str, size: float) -> bool:
-        calibration = {"method": "font-size-override", "font_size": size}
+    def ensure_font_isolation(self) -> bool:
+        """Build once, then revalidate the same private isolation each launch."""
+        if self.font_isolation_initialized:
+            return _verify_font_isolation(self.font_isolation)
+        self.font_isolation_initialized = True
+        try:
+            self.font_isolation = _create_font_isolation(
+                self.log_dir.parent / "font-isolation", self.font_identity
+            )
+        except (OSError, ValueError):
+            self.font_isolation = None
+            return False
+        return True
+
+    def set_calibration(self, implementation: str, calibration: dict) -> bool:
+        """Select one exact member of the declared calibration set."""
         if not profiles.valid_calibration(implementation, calibration):
             return False
-        self.calibrations[implementation] = calibration
+        self.calibrations[implementation] = dict(calibration)
         return True
+
+    def set_calibration_font_size(self, implementation: str, size: float) -> bool:
+        return self.set_calibration(
+            implementation,
+            {"method": "font-size-override", "font_size": size},
+        )
 
     def calibration_record(self, implementation: str) -> dict:
         return dict(
@@ -962,6 +1198,7 @@ class RealLauncher:
                 {
                     "method": "canonical-profile",
                     "font_size": profiles.DEFAULT_FONT_SIZE,
+                    **({"line_height": 1.0} if implementation == "odytty" else {}),
                 },
             )
         )
@@ -1113,14 +1350,21 @@ class RealLauncher:
             return {"error": f"no launch recipe is defined for {implementation!r}"}
         if shutil.which(recipe[0]) is None:
             return {"error": f"{recipe[0]!r} is not installed on this host"}
+        if not self.ensure_font_isolation():
+            return {"error": "private single-face font isolation failed verification"}
         oracle_path = self.log_dir / f"{tag}.oracle.jsonl"
         start_path = self.log_dir / f"{tag}.start"
         idle = idle_driver_command(seconds, oracle_path, start_path)
         unit = f"odytty-bench-{tag}"
         launch_env = child_launch_environment(self.launch_environment)
+        launch_env.update(self.font_isolation["environment"])
         config = self.config_paths.get(implementation)
         if implementation == "odytty" and config is not None:
             launch_env["XDG_CONFIG_HOME"] = str(config.parent.parent)
+            launch_env["ODYTTY_FONT"] = str(self.font_isolation["font_path"])
+            calibration = self.calibration_record(implementation)
+            launch_env["ODYTTY_FONT_SIZE"] = f"{calibration['font_size']:g}"
+            launch_env["ODYTTY_LINE_HEIGHT"] = f"{calibration.get('line_height', 1.0):g}"
         try:
             terminal_argv = self.terminal_argv(implementation, idle)
         except ValueError as error:
@@ -1137,6 +1381,8 @@ class RealLauncher:
             use_scope=self.use_scope,
             runtime_seconds=scope_runtime,
         )
+        sanitized_argv = self.sanitize_probe_argv(argv)
+        sanitized_launch_environment = self.sanitize_probe_environment(launch_env)
         self.log_dir.mkdir(parents=True, exist_ok=True)
         out_path = self.log_dir / f"{tag}.out"
         if oracle_path.exists() or start_path.exists():
@@ -1160,7 +1406,48 @@ class RealLauncher:
             "start_path": start_path,
             "handle": handle,
             "unit": f"{unit}.scope" if self.use_scope else None,
+            "sanitized_argv": sanitized_argv,
+            "sanitized_launch_environment": sanitized_launch_environment,
+            "requested_config": self.calibration_record(implementation),
+            "font_isolation": dict(self.font_isolation["proof"]),
         }
+
+    def sanitize_probe_argv(self, argv: list[str]) -> list[str]:
+        """Retain exact argv structure while removing machine-local roots."""
+        repo_root = HERE.parents[1]
+        evidence_root = self.log_dir
+        sanitized = []
+        for raw in argv:
+            value = str(raw)
+            value = value.replace(str(evidence_root), "$PROBE_EVIDENCE")
+            value = value.replace(str(repo_root), "$REPOSITORY")
+            if value == sys.executable:
+                value = "$PYTHON"
+            sanitized.append(value)
+        return sanitized
+
+    def sanitize_probe_environment(self, environment: dict[str, str]) -> dict[str, str]:
+        """Publish only launch controls, with private roots replaced by tokens."""
+        keys = {
+            "FONTCONFIG_FILE",
+            "FONTCONFIG_PATH",
+            "FONTCONFIG_SYSROOT",
+            "ODYTTY_FONT",
+            "ODYTTY_FONT_SIZE",
+            "ODYTTY_LINE_HEIGHT",
+            "XDG_CONFIG_HOME",
+        }
+        repo_root = HERE.parents[1]
+        font_path = str(self.font_isolation["font_path"])
+        font_sysroot = self.font_isolation["environment"]["FONTCONFIG_SYSROOT"]
+        sanitized = {}
+        for key in sorted(keys & environment.keys()):
+            value = environment[key]
+            value = value.replace(font_path, "$FONT_ISOLATION_FILE")
+            value = value.replace(font_sysroot, "$FONT_ISOLATION_SYSROOT")
+            value = value.replace(str(repo_root), "$REPOSITORY")
+            sanitized[key] = value
+        return sanitized
 
     def cgroup_path(self, launched: dict) -> Path | None:
         unit = launched.get("unit")
@@ -1186,7 +1473,7 @@ class RealLauncher:
         relative = completed.stdout.strip().lstrip("/")
         return Path("/sys/fs/cgroup") / relative if relative else None
 
-    def stop(self, launched: dict) -> None:
+    def stop(self, launched: dict) -> int | None:
         process = launched.get("process")
         if process is not None and process.poll() is None:
             process.terminate()
@@ -1194,9 +1481,11 @@ class RealLauncher:
                 process.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 process.kill()
+                process.wait(timeout=15)
         handle = launched.get("handle")
         if handle is not None:
             handle.close()
+        return process.poll() if process is not None else None
 
 
 def _thermal_throttle_count() -> int | None:
@@ -1312,30 +1601,394 @@ def _checked_sleep(
     return invalid_reason, observations
 
 
+PROBE_RAW_IDLE_FIELDS = (
+    "pty_columns",
+    "pty_rows",
+    "content_width_device_px",
+    "content_height_device_px",
+)
+
+
+def _attempt_digest(record: dict) -> str:
+    """Digest the complete public probe attempt, excluding its own digest."""
+    payload = {
+        key: value
+        for key, value in record.items()
+        if key != "attempt_sha256"
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+def _seal_probe_attempt(record: dict) -> dict:
+    sealed = dict(record)
+    sealed["attempt_sha256"] = _attempt_digest(sealed)
+    return sealed
+
+
+def _calibration_attempts_digest(attempts: list[dict]) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            attempts, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+def _contains_exact_subsequence(argv: list[str], expected: list[str]) -> bool:
+    return sum(
+        argv[index : index + len(expected)] == expected
+        for index in range(len(argv) - len(expected) + 1)
+    ) == 1
+
+
+def _valid_requested_launch_binding(
+    implementation: str,
+    requested: dict,
+    argv: object,
+    environment: object,
+) -> bool:
+    """Bind requested controls to the sanitized argv and launch environment."""
+    if (
+        not isinstance(argv, list)
+        or not argv
+        or not all(isinstance(argument, str) for argument in argv)
+        or not isinstance(environment, dict)
+        or not all(
+            isinstance(key, str) and isinstance(value, str)
+            for key, value in environment.items()
+        )
+    ):
+        return False
+    common_environment = {
+        "FONTCONFIG_FILE": "/fonts.conf",
+        "FONTCONFIG_PATH": "/",
+        "FONTCONFIG_SYSROOT": "$FONT_ISOLATION_SYSROOT",
+    }
+    size = f"{requested['font_size']:g}"
+    if implementation == "odytty":
+        expected_environment = {
+            **common_environment,
+            "ODYTTY_FONT": "$FONT_ISOLATION_FILE",
+            "ODYTTY_FONT_SIZE": size,
+            "ODYTTY_LINE_HEIGHT": f"{requested.get('line_height', 1.0):g}",
+            "XDG_CONFIG_HOME": "$REPOSITORY/scripts/bench-protocol/configs",
+        }
+    else:
+        expected_environment = common_environment
+    if environment != expected_environment:
+        return False
+
+    config = f"$REPOSITORY/{profiles.CONFIG_PATHS[implementation]}"
+    required = {
+        "odytty": ["odytty", "-e"],
+        "kitty": ["kitty", "--config", config],
+        "ghostty": ["ghostty", f"--config-file={config}"],
+        "alacritty": ["alacritty", "--config-file", config],
+        "wezterm": ["wezterm", "--config-file", config],
+    }[implementation]
+    if not _contains_exact_subsequence(argv, required):
+        return False
+    if implementation == "odytty":
+        return True
+    if implementation == "ghostty":
+        observed_overrides = [
+            [argument] for argument in argv if argument.startswith("--font-size=")
+        ]
+        expected_marker = [f"--font-size={size}"]
+    else:
+        flag, value = {
+            "kitty": ("--override", f"font_size={size}"),
+            "alacritty": ("--option", f"font.size={size}"),
+            "wezterm": ("--config", f"font_size={size}"),
+        }[implementation]
+        observed_overrides = [
+            argv[index : index + 2]
+            for index, argument in enumerate(argv)
+            if argument == flag
+        ]
+        expected_marker = [flag, value]
+    expected_overrides = (
+        [expected_marker] if requested["method"] == "font-size-override" else []
+    )
+    return observed_overrides == expected_overrides
+
+
+def _valid_probe_attempt(record: object) -> bool:
+    if not isinstance(record, dict):
+        return False
+    if record.get("attempt_sha256") != _attempt_digest(record):
+        return False
+    requested = record.get("requested_config")
+    observed = record.get("observed_evidence")
+    name = record.get("implementation")
+    if not profiles.valid_calibration(name, requested):
+        return False
+    if record.get("calibration") != requested:
+        return False
+    if not isinstance(observed, dict):
+        return False
+    outcome = record.get("process_outcome")
+    if not isinstance(outcome, dict) or not isinstance(outcome.get("started"), bool):
+        return False
+    mapped = record.get("window_mapped")
+    if not isinstance(mapped, bool):
+        return False
+    if not outcome["started"]:
+        return (
+            mapped is False
+            and record.get("display_path") is None
+            and isinstance(record.get("detail"), str)
+            and bool(record["detail"])
+            and record.get("sanitized_argv") == []
+            and record.get("sanitized_launch_environment") == {}
+            and record.get("font_identity") is None
+            and record.get("font_isolation") is None
+            and record.get("window") is None
+            and record.get("raw_idle_ready") is None
+            and record.get("cell_geometry") is None
+            and observed
+            == {
+                "evidence_source": "launch-failed-before-pty-observation",
+                "raw_idle_ready": None,
+                "cell_geometry": None,
+            }
+            and outcome == {"started": False, "exit_status": None}
+        )
+
+    isolation = record.get("font_isolation")
+    if (
+        not profiles.valid_font_isolation_proof(isolation)
+        or isolation["font_identity"] != record.get("font_identity")
+        or not _valid_requested_launch_binding(
+            name,
+            requested,
+            record.get("sanitized_argv"),
+            record.get("sanitized_launch_environment"),
+        )
+    ):
+        return False
+    raw = record.get("raw_idle_ready")
+    expected_source = (
+        "idle-ready-pty-observation"
+        if isinstance(raw, dict)
+        else "no-idle-ready-pty-observation"
+    )
+    if observed.get("evidence_source") != expected_source:
+        return False
+    if set(observed) != {"evidence_source", "raw_idle_ready", "cell_geometry"}:
+        return False
+    if mapped and not isinstance(raw, dict):
+        return False
+    if isinstance(raw, dict):
+        if (
+            set(raw) != set(PROBE_RAW_IDLE_FIELDS)
+            or observed.get("raw_idle_ready") != raw
+        ):
+            return False
+        derived = cell_geometry_from_oracle(raw)
+        if derived != record.get("cell_geometry") or derived != observed.get(
+            "cell_geometry"
+        ):
+            return False
+    elif (
+        observed.get("raw_idle_ready") is not None
+        or record.get("cell_geometry") is not None
+        or observed.get("cell_geometry") is not None
+    ):
+        return False
+    exit_status = outcome.get("exit_status")
+    if not (
+        set(outcome) == {"started", "exit_status", "controller_stopped"}
+        and
+        outcome.get("controller_stopped") is True
+        and (
+            exit_status is None
+            or (isinstance(exit_status, int) and not isinstance(exit_status, bool))
+        )
+    ):
+        return False
+    if mapped:
+        window = record.get("window")
+        return (
+            record.get("display_path")
+            in {DISPLAY_PATH_WAYLAND, DISPLAY_PATH_XWAYLAND, DISPLAY_PATH_X11}
+            and isinstance(window, dict)
+            and set(window) == {"app_id", "width", "height"}
+            and all(
+                isinstance(window.get(field), int)
+                and not isinstance(window.get(field), bool)
+                and window[field] > 0
+                for field in ("width", "height")
+            )
+        )
+    return (
+        raw is None
+        and
+        record.get("display_path") is None
+        and record.get("window") is None
+        and isinstance(record.get("detail"), str)
+        and bool(record["detail"])
+    )
+
+
+def _calibrated_probe_set_failures(probes: list[dict]) -> set[str]:
+    """Independently validate exhaustive attempts and deterministic selection."""
+    mapped = [probe for probe in probes if probe.get("window_mapped") is True]
+    names = [probe.get("implementation") for probe in mapped]
+    failures: set[str] = set()
+    if len(names) != len(set(names)):
+        return set(names)
+    planned_launches = len(probes) + sum(
+        len(profiles.calibration_configurations(name)) - 1 for name in names
+    )
+    expected_budget = {
+        "planned_launches": planned_launches,
+        "completed_launches": planned_launches,
+        "maximum_all_implementation_launches": CALIBRATION_MAX_LAUNCHES,
+        "per_attempt_wall_bound_seconds": PROBE_ATTEMPT_WALL_BOUND_SECONDS,
+        "total_wall_bound_seconds": (
+            planned_launches * PROBE_ATTEMPT_WALL_BOUND_SECONDS
+        ),
+    }
+    attempts_by_name: dict[str, list[dict]] = {}
+    for probe in mapped:
+        name = probe.get("implementation")
+        attempts = probe.get("calibration_attempts")
+        expected = profiles.calibration_configurations(name)
+        if (
+            not _valid_probe_attempt(probe)
+            or not isinstance(attempts, list)
+            or [attempt.get("requested_config") for attempt in attempts] != expected
+            or any("calibration_attempts" in attempt for attempt in attempts)
+            or not all(_valid_probe_attempt(attempt) for attempt in attempts)
+            or probe.get("calibration_attempts_sha256")
+            != _calibration_attempts_digest(attempts)
+            or probe.get("calibration_budget") != expected_budget
+        ):
+            failures.add(name)
+            continue
+        attempts_by_name[name] = attempts
+
+    if failures or len(attempts_by_name) != len(mapped):
+        return failures | (set(names) - set(attempts_by_name))
+    geometry_sets = [
+        {
+            json.dumps(attempt.get("cell_geometry"), sort_keys=True)
+            for attempt in attempts_by_name[name]
+            if attempt.get("window_mapped")
+            and isinstance(attempt.get("cell_geometry"), dict)
+        }
+        for name in names
+    ]
+    common = set.intersection(*geometry_sets) if geometry_sets else set()
+    if not common:
+        for probe in mapped:
+            if (
+                probe.get("configuration_status") != "unmet-protocol"
+                or probe.get("selected_attempt_sha256") is not None
+            ):
+                failures.add(probe["implementation"])
+        return failures
+
+    def intersection_rank(serialized_geometry: str) -> tuple:
+        choices = []
+        for name in names:
+            candidates = [
+                attempt
+                for attempt in attempts_by_name[name]
+                if json.dumps(attempt.get("cell_geometry"), sort_keys=True)
+                == serialized_geometry
+            ]
+            choices.append(
+                min(
+                    profiles.calibration_rank(name, attempt["requested_config"])
+                    for attempt in candidates
+                )
+            )
+        geometry = json.loads(serialized_geometry)
+        return (
+            sum(rank[0] for rank in choices),
+            geometry["cell_width_device_px"],
+            geometry["cell_height_device_px"],
+            serialized_geometry,
+        )
+
+    chosen_geometry = min(common, key=intersection_rank)
+    for probe in mapped:
+        name = probe["implementation"]
+        expected = min(
+            (
+                attempt
+                for attempt in attempts_by_name[name]
+                if json.dumps(attempt.get("cell_geometry"), sort_keys=True)
+                == chosen_geometry
+            ),
+            key=lambda attempt: profiles.calibration_rank(
+                name, attempt["requested_config"]
+            ),
+        )
+        if (
+            probe.get("configuration_status") == "unmet-protocol"
+            or probe.get("selected_attempt_sha256") != expected.get("attempt_sha256")
+            or probe.get("requested_config") != expected.get("requested_config")
+            or probe.get("cell_geometry") != expected.get("cell_geometry")
+        ):
+            failures.add(name)
+    return failures
+
+
 def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> dict:
-    """Run one bounded mapping and geometry probe."""
-    launched = launcher.launch(name, WINDOW_MAP_TIMEOUT_SECONDS + 10, tag)
+    """Run one bounded mapping and geometry probe with immutable evidence."""
+    launched = launcher.launch(name, PROBE_CHILD_SECONDS, tag)
     calibration_reader = getattr(launcher, "calibration_record", None)
     calibration = (
         calibration_reader(name)
         if calibration_reader is not None
-        else {"method": "canonical-profile", "font_size": profiles.DEFAULT_FONT_SIZE}
+        else {
+            "method": "canonical-profile",
+            "font_size": profiles.DEFAULT_FONT_SIZE,
+            **({"line_height": 1.0} if name == "odytty" else {}),
+        }
     )
     if "error" in launched:
-        return {
+        return _seal_probe_attempt({
             "implementation": name,
             "window_mapped": False,
             "display_path": None,
             "detail": launched["error"],
             "calibration": calibration,
-        }
+            "requested_config": calibration,
+            "observed_evidence": {
+                "evidence_source": "launch-failed-before-pty-observation",
+                "raw_idle_ready": None,
+                "cell_geometry": None,
+            },
+            "font_identity": None,
+            "font_isolation": None,
+            "sanitized_argv": [],
+            "sanitized_launch_environment": {},
+            "raw_idle_ready": None,
+            "cell_geometry": None,
+            "process_outcome": {"started": False, "exit_status": None},
+        })
     process = launched["process"]
     window = None
     ready_record = None
     cgroup_resolver = getattr(launcher, "cgroup_path", None)
     measured_pids: set[int] = set()
+    probe_started = time.monotonic()
+    production_clock = sleep is time.sleep
     for _ in range(WINDOW_MAP_TIMEOUT_SECONDS):
-        sleep(1)
+        if production_clock:
+            remaining = WINDOW_MAP_TIMEOUT_SECONDS - (time.monotonic() - probe_started)
+            if remaining <= 0:
+                break
+            sleep(min(1, remaining))
+        else:
+            sleep(1)
         cgroup = (
             cgroup_resolver(launched)
             if cgroup_resolver
@@ -1349,22 +2002,55 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
         )
         if window is not None and ready_record is not None:
             break
+        if production_clock and time.monotonic() - probe_started >= WINDOW_MAP_TIMEOUT_SECONDS:
+            break
     gpu = read_drm_memory_bytes(measured_pids)
-    launcher.stop(launched)
+    exit_status = launcher.stop(launched)
     geometry = cell_geometry_from_oracle(ready_record)
+    raw_idle_ready = (
+        {field: ready_record.get(field) for field in PROBE_RAW_IDLE_FIELDS}
+        if isinstance(ready_record, dict)
+        else None
+    )
+    common = {
+        "implementation": name,
+        "calibration": calibration,
+        "requested_config": launched.get("requested_config", calibration),
+        "observed_evidence": {
+            "evidence_source": (
+                "idle-ready-pty-observation"
+                if raw_idle_ready is not None
+                else "no-idle-ready-pty-observation"
+            ),
+            "raw_idle_ready": raw_idle_ready,
+            "cell_geometry": geometry,
+        },
+        "font_identity": launched.get("font_isolation", {}).get("font_identity"),
+        "font_isolation": launched.get("font_isolation"),
+        "sanitized_argv": launched.get("sanitized_argv", []),
+        "sanitized_launch_environment": launched.get(
+            "sanitized_launch_environment", {}
+        ),
+        "raw_idle_ready": raw_idle_ready,
+        "cell_geometry": geometry,
+        "process_outcome": {
+            "started": True,
+            "exit_status": exit_status,
+            "controller_stopped": True,
+        },
+    }
     if window is None:
-        return {
-            "implementation": name,
+        return _seal_probe_attempt({
+            **common,
             "window_mapped": False,
             "display_path": None,
             "detail": (
                 "no observable window mapped within the bounded "
                 f"{WINDOW_MAP_TIMEOUT_SECONDS}s probe"
             ),
-            "calibration": calibration,
-        }
-    return {
-        "implementation": name,
+        })
+    record = {
+        **common,
         "window_mapped": True,
         "display_path": classify_display_path(
             window, launcher.backend.get("display", "unknown")
@@ -1375,8 +2061,6 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
             "height": window.get("height"),
         },
         "gpu_fields": sorted(gpu) if gpu is not None else [],
-        "cell_geometry": geometry,
-        "calibration": calibration,
         **(
             {
                 "configuration_status": "unmet-protocol",
@@ -1386,86 +2070,186 @@ def _probe_implementation(name: str, launcher, tag: str, sleep=time.sleep) -> di
             else {}
         ),
     }
+    return _seal_probe_attempt(record)
 
 
 def calibrate_probe_set(
-    probes: list[dict], launcher, sleep=time.sleep, probe_one=_probe_implementation
+    probes: list[dict], launcher, sleep=time.sleep, probe_one=_probe_implementation,
+    started_monotonic: float | None = None,
 ) -> list[dict]:
-    """Boundedly align mapped terminals to OdyTTY's device-pixel cell geometry.
-
-    A mapped terminal is never relabeled unavailable merely because its first
-    pinned font setting differs. Supported exact font-size overrides are tried
-    before qualification. Exhaustion is an unmet protocol configuration, not
-    an availability exclusion, so it blocks a protocol-valid comparison.
-    """
-    reference = next(
-        (
-            probe.get("cell_geometry")
-            for probe in probes
-            if probe.get("implementation") == "odytty"
-            and probe.get("window_mapped")
-        ),
-        None,
-    )
-    if reference is None:
+    """Find one exact geometry in every mapped terminal's complete bounded set."""
+    calibration_started = time.monotonic() if started_monotonic is None else started_monotonic
+    mapped_names = [
+        probe.get("implementation") for probe in probes if probe.get("window_mapped")
+    ]
+    if "odytty" not in mapped_names:
         return probes
-    calibrated: list[dict] = []
-    setter = getattr(launcher, "set_calibration_font_size", None)
+    setter = getattr(launcher, "set_calibration", None)
+    planned_launches = len(probes) + sum(
+        len(profiles.calibration_configurations(name)) - 1 for name in mapped_names
+    )
+    if planned_launches > CALIBRATION_MAX_LAUNCHES:
+        raise ValueError("declared calibration set exceeds the global launch bound")
+    wall_bound_seconds = planned_launches * PROBE_ATTEMPT_WALL_BOUND_SECONDS
+    launch_count = len(probes)
+    budget_exhausted = False
+    attempts_by_name: dict[str, list[dict]] = {}
+    initial_by_name = {probe.get("implementation"): probe for probe in probes}
+    for name in mapped_names:
+        initial = initial_by_name[name]
+        attempts = [initial]
+        for index, calibration in enumerate(
+            profiles.calibration_configurations(name)[1:], start=1
+        ):
+            if (
+                launch_count >= planned_launches
+                or time.monotonic() - calibration_started > wall_bound_seconds
+            ):
+                budget_exhausted = True
+                break
+            if setter is None or not setter(name, calibration):
+                break
+            attempts.append(
+                probe_one(
+                    name,
+                    launcher,
+                    f"probe-{name}-calibration-{index}",
+                    sleep=sleep,
+                )
+            )
+            launch_count += 1
+            if time.monotonic() - calibration_started > wall_bound_seconds:
+                budget_exhausted = True
+                break
+        attempts_by_name[name] = attempts
+        if budget_exhausted:
+            break
+
+    for name in mapped_names:
+        attempts_by_name.setdefault(name, [initial_by_name[name]])
+
+    geometry_sets = []
+    for name in mapped_names:
+        geometry_sets.append(
+            {
+                json.dumps(attempt.get("cell_geometry"), sort_keys=True)
+                for attempt in attempts_by_name[name]
+                if _valid_probe_attempt(attempt)
+                and attempt.get("window_mapped")
+                and isinstance(attempt.get("cell_geometry"), dict)
+            }
+        )
+    common = (
+        set.intersection(*geometry_sets)
+        if geometry_sets and not budget_exhausted
+        else set()
+    )
+    selected: dict[str, dict] = {}
+    if common:
+        def intersection_rank(serialized_geometry: str) -> tuple:
+            choices = []
+            for name in mapped_names:
+                candidates = [
+                    attempt
+                    for attempt in attempts_by_name[name]
+                    if json.dumps(attempt.get("cell_geometry"), sort_keys=True)
+                    == serialized_geometry
+                ]
+                choices.append(
+                    min(
+                        profiles.calibration_rank(name, attempt["requested_config"])
+                        for attempt in candidates
+                    )
+                )
+            geometry = json.loads(serialized_geometry)
+            return (
+                sum(rank[0] for rank in choices),
+                geometry["cell_width_device_px"],
+                geometry["cell_height_device_px"],
+                serialized_geometry,
+            )
+
+        chosen_geometry = min(common, key=intersection_rank)
+        for name in mapped_names:
+            selected[name] = min(
+                (
+                    attempt
+                    for attempt in attempts_by_name[name]
+                    if json.dumps(attempt.get("cell_geometry"), sort_keys=True)
+                    == chosen_geometry
+                ),
+                key=lambda attempt: profiles.calibration_rank(
+                    name, attempt["requested_config"]
+                ),
+            )
+
+    calibrated = []
+    budget_record = {
+        "planned_launches": planned_launches,
+        "completed_launches": launch_count,
+        "maximum_all_implementation_launches": CALIBRATION_MAX_LAUNCHES,
+        "per_attempt_wall_bound_seconds": PROBE_ATTEMPT_WALL_BOUND_SECONDS,
+        "total_wall_bound_seconds": wall_bound_seconds,
+    }
     for probe in probes:
         name = probe.get("implementation")
-        geometry = probe.get("cell_geometry")
-        if not probe.get("window_mapped") or geometry == reference:
+        if not probe.get("window_mapped"):
             calibrated.append(probe)
             continue
-        observed_height = geometry.get("cell_height_device_px") if isinstance(geometry, dict) else 0
-        candidates = profiles.calibration_candidates(
-            name, observed_height or 0, reference["cell_height_device_px"]
+        attempts = attempts_by_name[name]
+        if name in selected:
+            chosen = dict(selected[name])
+            chosen["calibration_attempts"] = attempts
+            chosen["calibration_attempts_sha256"] = _calibration_attempts_digest(
+                attempts
+            )
+            chosen["selected_attempt_sha256"] = selected[name]["attempt_sha256"]
+            chosen["calibration_budget"] = budget_record
+            chosen = _seal_probe_attempt(chosen)
+            if setter is not None:
+                setter(name, chosen["requested_config"])
+            calibrated.append(chosen)
+            continue
+        failed = dict(probe)
+        failed.update(
+            {
+                "configuration_status": "unmet-protocol",
+                "detail": (
+                    "calibration exhausted its declared launch or wall-time bound"
+                    if budget_exhausted
+                    else "mapped terminal has no exact width-and-height intersection "
+                    "across the complete declared bounded calibration sets"
+                ),
+                "calibration_attempts": attempts,
+                "calibration_attempts_sha256": _calibration_attempts_digest(
+                    attempts
+                ),
+                "selected_attempt_sha256": None,
+                "calibration_budget": budget_record,
+            }
         )
-        matched = None
-        attempts = []
-        for index, size in enumerate(candidates, start=1):
-            if setter is None or not setter(name, size):
-                break
-            candidate = probe_one(
-                name, launcher, f"probe-{name}-calibration-{index}", sleep=sleep
-            )
-            attempts.append(
-                {
-                    "font_size": size,
-                    "cell_geometry": candidate.get("cell_geometry"),
-                    "window_mapped": candidate.get("window_mapped"),
-                }
-            )
-            if candidate.get("window_mapped") and candidate.get("cell_geometry") == reference:
-                matched = candidate
-                break
-        if matched is not None:
-            matched["calibration_attempts"] = attempts
-            calibrated.append(matched)
-        else:
-            failed = dict(probe)
-            failed.update(
-                {
-                    "configuration_status": "unmet-protocol",
-                    "detail": (
-                        "mapped terminal could not match OdyTTY's device-pixel cell "
-                        "geometry using the bounded pinned font-size calibration set"
-                    ),
-                    "calibration_attempts": attempts,
-                }
-            )
-            calibrated.append(failed)
+        calibrated.append(_seal_probe_attempt(failed))
     return calibrated
 
 
 def probe_availability(
-    implementations: list[str], launcher, sleep=time.sleep
+    implementations: list[str], launcher, sleep=time.sleep, calibrate: bool = True
 ) -> list[dict]:
-    """Probe each implementation once, then boundedly calibrate mapped geometry."""
+    """Probe each implementation and optionally search the shared geometry set."""
+    started_monotonic = time.monotonic()
+    setter = getattr(launcher, "set_calibration", None)
     probes = []
     for name in implementations:
+        if calibrate and setter is not None:
+            setter(name, profiles.calibration_configurations(name)[0])
         probes.append(_probe_implementation(name, launcher, f"probe-{name}", sleep))
-    return calibrate_probe_set(probes, launcher, sleep=sleep)
+    return (
+        calibrate_probe_set(
+            probes, launcher, sleep=sleep, started_monotonic=started_monotonic
+        )
+        if calibrate
+        else probes
+    )
 
 
 def cell_geometry_from_oracle(record: dict | None) -> dict | None:
@@ -1833,7 +2617,9 @@ def verify_frozen_probe(record: dict, probes: list[dict]) -> tuple[list[str], li
             "availability revalidation must contain exactly the frozen qualified "
             f"set/order {qualified!r}, observed {probe_names!r}"
         )
-    observed = qualify_implementations(probes)
+    observed = qualify_implementations(
+        probes, require_exhaustive_calibration=False
+    )
     if observed["protocol_blockers"]:
         raise ValueError(
             "availability probe has unmet protocol configuration: "
@@ -1851,6 +2637,17 @@ def verify_frozen_probe(record: dict, probes: list[dict]) -> tuple[list[str], li
     }
     for probe in probes:
         name = probe.get("implementation")
+        attempts = probe.get("calibration_attempts", [probe])
+        if not isinstance(attempts, list) or not attempts or not all(
+            _valid_probe_attempt(attempt) for attempt in attempts
+        ) or not _valid_probe_attempt(probe):
+            raise ValueError(
+                f"availability probe drift: attempt evidence is missing or invalid for {name!r}"
+            )
+        if probe.get("font_identity") != record.get("shared_font"):
+            raise ValueError(
+                f"availability probe drift: shared font identity changed for {name!r}"
+            )
         if name in qualified and probe.get("display_path") != prereg_by_name[name].get(
             "display_path"
         ):
@@ -1972,7 +2769,7 @@ def assemble_replicate_samples(
     elif len(replicate.get("gpu_regions", {})) > 1:
         per_replicate_unsupported["gpu_memory"] = (
             "multiple DRM resident regions are preserved separately in raw evidence; "
-            "protocol 1.0.0 defines no valid scalar aggregation"
+            "protocol 1.1.0 defines no valid scalar aggregation"
         )
     return (
         build_samples(
@@ -2030,6 +2827,7 @@ def build_document(
             "artifact_sha256": entry.get("artifact_sha256"),
             "build_profile": entry.get("build_profile"),
             "config_sha256": entry.get("config_sha256"),
+            "font_identity": entry.get("font_identity"),
         }
         for entry in prereg_record.get("implementations", [])
         if entry.get("name") in session["qualified"]
@@ -2143,7 +2941,9 @@ def run_session(
         raise ValueError("the W6 primary runner requires the preregistered plain configuration")
     configuration = "plain"
 
-    probes = probe_availability(qualified_names, launcher, sleep=sleep)
+    probes = probe_availability(
+        qualified_names, launcher, sleep=sleep, calibrate=False
+    )
     qualified, unavailable = verify_frozen_probe(prereg_record, probes)
     decision = {"qualified": qualified, "excluded": unavailable, "deviations": []}
     observe_environment = getattr(launcher, "environment_observation", None)
@@ -2169,7 +2969,15 @@ def run_session(
         raise ValueError("live performance policy does not match preregistration")
     with (results_dir / "availability.json").open("x", encoding="utf-8") as handle:
         handle.write(
-            json.dumps({"probes": probes, "decision": decision}, indent=2, sort_keys=True)
+            json.dumps(
+                {
+                    "calibration_mode": "frozen-qualified-revalidation",
+                    "probes": probes,
+                    "revalidated_qualified": qualified,
+                },
+                indent=2,
+                sort_keys=True,
+            )
             + "\n"
         )
 
@@ -2582,6 +3390,161 @@ def run_session(
 # ---------------------------------------------------------------------------
 
 
+def _synthetic_launch_controls(
+    implementation: str, calibration: dict
+) -> tuple[list[str], dict[str, str]]:
+    config = f"$REPOSITORY/{profiles.CONFIG_PATHS[implementation]}"
+    if implementation == "odytty":
+        argv = ["odytty", "-e"]
+    elif implementation == "kitty":
+        argv = ["kitty", "--config", config]
+    elif implementation == "ghostty":
+        argv = ["ghostty", f"--config-file={config}"]
+    elif implementation == "alacritty":
+        argv = ["alacritty", "--config-file", config]
+    elif implementation == "wezterm":
+        argv = ["wezterm", "--config-file", config]
+    size = f"{calibration['font_size']:g}"
+    if calibration["method"] == "font-size-override":
+        if implementation == "kitty":
+            argv.extend(["--override", f"font_size={size}"])
+        elif implementation == "ghostty":
+            argv.append(f"--font-size={size}")
+        elif implementation == "alacritty":
+            argv.extend(["--option", f"font.size={size}"])
+        elif implementation == "wezterm":
+            argv.extend(["--config", f"font_size={size}"])
+    argv.extend(["--", "$PYTHON", "$REPOSITORY/scripts/bench-protocol/driver.py"])
+    environment = {
+        "FONTCONFIG_FILE": "/fonts.conf",
+        "FONTCONFIG_PATH": "/",
+        "FONTCONFIG_SYSROOT": "$FONT_ISOLATION_SYSROOT",
+    }
+    if implementation == "odytty":
+        environment.update(
+            {
+                "ODYTTY_FONT": "$FONT_ISOLATION_FILE",
+                "ODYTTY_FONT_SIZE": size,
+                "ODYTTY_LINE_HEIGHT": f"{calibration.get('line_height', 1.0):g}",
+                "XDG_CONFIG_HOME": "$REPOSITORY/scripts/bench-protocol/configs",
+            }
+        )
+    return argv, dict(sorted(environment.items()))
+
+
+def _synthetic_probe_attempt(
+    implementation: str,
+    calibration: dict,
+    geometry: dict | None,
+    *,
+    font_sha256: str = "a" * 64,
+    mapped: bool = True,
+) -> dict:
+    """Build one structurally complete immutable attempt for adversarial tests."""
+    font_identity = {
+        "family": profiles.SHARED_FONT_FAMILY,
+        "style": "Book",
+        "file_name": "DejaVuSansMono.ttf",
+        "face_index": 0,
+        "sha256": font_sha256,
+    }
+    font_isolation = {
+        "method": "private-single-face-fontconfig-plus-odytty-direct-path",
+        "listed_face_count": 1,
+        "odytty_control": "ODYTTY_FONT",
+        "reference_control": "FONTCONFIG_FILE",
+        "config_sha256": "c" * 64,
+        "policy_sha256": hashlib.sha256(
+            FONTCONFIG_ISOLATION_POLICY.encode("utf-8")
+        ).hexdigest(),
+        "font_sha256": font_sha256,
+        "font_identity": font_identity,
+    }
+    raw = None if not mapped else (
+        {
+            "pty_columns": geometry["columns"],
+            "pty_rows": geometry["rows"],
+            "content_width_device_px": geometry["content_width_device_px"],
+            "content_height_device_px": geometry["content_height_device_px"],
+        }
+        if geometry is not None
+        else {
+            "pty_columns": 80,
+            "pty_rows": 24,
+            "content_width_device_px": None,
+            "content_height_device_px": None,
+        }
+    )
+    sanitized_argv, sanitized_environment = _synthetic_launch_controls(
+        implementation, calibration
+    )
+    return _seal_probe_attempt(
+        {
+            "implementation": implementation,
+            "window_mapped": mapped,
+            "display_path": DISPLAY_PATH_WAYLAND if mapped else None,
+            "window": (
+                {"app_id": implementation, "width": 800, "height": 480}
+                if mapped
+                else None
+            ),
+            "calibration": dict(calibration),
+            "requested_config": dict(calibration),
+            "observed_evidence": {
+                "evidence_source": (
+                    "idle-ready-pty-observation"
+                    if raw is not None
+                    else "no-idle-ready-pty-observation"
+                ),
+                "raw_idle_ready": raw,
+                "cell_geometry": geometry,
+            },
+            "font_identity": font_identity,
+            "font_isolation": font_isolation,
+            "sanitized_argv": sanitized_argv,
+            "sanitized_launch_environment": sanitized_environment,
+            "raw_idle_ready": raw,
+            "cell_geometry": geometry,
+            "process_outcome": {
+                "started": True,
+                "exit_status": 0,
+                "controller_stopped": True,
+            },
+            **(
+                {"detail": "no observable window mapped within the bounded probe"}
+                if not mapped
+                else {}
+            ),
+        }
+    )
+
+
+def _synthetic_launch_failure_attempt(implementation: str) -> dict:
+    calibration = profiles.calibration_configurations(implementation)[0]
+    return _seal_probe_attempt(
+        {
+            "implementation": implementation,
+            "window_mapped": False,
+            "display_path": None,
+            "detail": "candidate executable did not start",
+            "calibration": calibration,
+            "requested_config": calibration,
+            "observed_evidence": {
+                "evidence_source": "launch-failed-before-pty-observation",
+                "raw_idle_ready": None,
+                "cell_geometry": None,
+            },
+            "font_identity": None,
+            "font_isolation": None,
+            "sanitized_argv": [],
+            "sanitized_launch_environment": {},
+            "raw_idle_ready": None,
+            "cell_geometry": None,
+            "process_outcome": {"started": False, "exit_status": None},
+        }
+    )
+
+
 class _FakeProcess:
     def __init__(self, pid: int, alive: bool = True):
         self.pid = pid
@@ -2621,6 +3584,26 @@ class _FakeLauncher:
         self.behaviour = behaviour
         self.backend = {"backend": "fake", "display": "wayland"}
         self.log_dir = log_dir
+        self.font_identity = {
+            "family": profiles.SHARED_FONT_FAMILY,
+            "style": "Book",
+            "file_name": "DejaVuSansMono.ttf",
+            "face_index": 0,
+            "sha256": "a" * 64,
+        }
+        self.font_isolation_proof = {
+            "method": "private-single-face-fontconfig-plus-odytty-direct-path",
+            "listed_face_count": 1,
+            "odytty_control": "ODYTTY_FONT",
+            "reference_control": "FONTCONFIG_FILE",
+            "config_sha256": "c" * 64,
+            "policy_sha256": hashlib.sha256(
+                FONTCONFIG_ISOLATION_POLICY.encode("utf-8")
+            ).hexdigest(),
+            "font_sha256": self.font_identity["sha256"],
+            "font_identity": self.font_identity,
+        }
+        self.calibrations: dict[str, dict] = {}
         self._next_pid = 1000
         self._live: dict[int, str] = {}
         self.launches: list[str] = []
@@ -2638,6 +3621,20 @@ class _FakeLauncher:
             unproven_environment_invalid_rehearsal_for or {}
         )
         self._observation_ticks = 0
+
+    def set_calibration(self, implementation: str, calibration: dict) -> bool:
+        if not profiles.valid_calibration(implementation, calibration):
+            return False
+        self.calibrations[implementation] = dict(calibration)
+        return True
+
+    def calibration_record(self, implementation: str) -> dict:
+        return dict(
+            self.calibrations.get(
+                implementation,
+                profiles.calibration_configurations(implementation)[0],
+            )
+        )
 
     def environment_observation(self) -> dict:
         self._observation_ticks += 100
@@ -2739,19 +3736,27 @@ class _FakeLauncher:
             + "\n",
             encoding="utf-8",
         )
+        sanitized_argv, sanitized_environment = _synthetic_launch_controls(
+            implementation, self.calibration_record(implementation)
+        )
         return {
             "process": _FakeProcess(pid),
             "output_path": out_path,
             "oracle_path": oracle_path,
             "start_path": start_path,
             "handle": None,
+            "sanitized_argv": sanitized_argv,
+            "sanitized_launch_environment": sanitized_environment,
+            "requested_config": self.calibration_record(implementation),
+            "font_isolation": self.font_isolation_proof,
         }
 
-    def stop(self, launched: dict) -> None:
+    def stop(self, launched: dict) -> int | None:
         process = launched.get("process")
         if process is not None:
             self._live.pop(process.pid, None)
             process.terminate()
+        return process.poll() if process is not None else None
 
     def replicate_result(
         self,
@@ -2871,9 +3876,16 @@ def _fake_prereg(
         "cell_width_device_px": 10,
         "cell_height_device_px": 20,
     }
+    shared_font = {
+        "family": profiles.SHARED_FONT_FAMILY,
+        "style": "Book",
+        "file_name": "DejaVuSansMono.ttf",
+        "face_index": 0,
+        "sha256": "a" * 64,
+    }
     return {
         "record_type": "preregistration",
-        "protocol": {"version": "1.0.0", "git_commit": "0" * 40, "sha256": "a" * 64},
+        "protocol": {"version": "1.1.0", "git_commit": "0" * 40, "sha256": "a" * 64},
         "checkout": {"git_commit": "0" * 40, "dirty": False},
         "public_anchor": {
             "remote": "origin",
@@ -2920,7 +3932,9 @@ def _fake_prereg(
                 "calibration": {
                     "method": "canonical-profile",
                     "font_size": profiles.DEFAULT_FONT_SIZE,
+                    **({"line_height": 1.0} if name == "odytty" else {}),
                 },
+                "font_identity": shared_font,
                 "revision": "pinned",
                 "artifact_sha256": "b" * 64,
                 "build_profile": "release",
@@ -2931,6 +3945,7 @@ def _fake_prereg(
             }
             for name in implementations
         ],
+        "shared_font": shared_font,
         "configurations": ["plain"],
         "matched_cell_geometry": geometry,
         "driver": {"sha256": "f" * 64, "name": "scripts/bench-protocol/driver.py", "revision": "0" * 40},
@@ -2974,6 +3989,68 @@ def self_test() -> list[str]:
     failures: list[str] = []
 
     failures.extend(f"profiles: {failure}" for failure in profiles.validate_profiles(HERE.parents[1]))
+    resolved_font = profiles.resolve_shared_font_identity()
+    if not profiles.valid_font_identity(resolved_font):
+        failures.append("profiles: exact DejaVu Sans Mono face/file did not resolve")
+    else:
+        with tempfile.TemporaryDirectory(prefix="w6-font-isolation-") as raw_root:
+            private_root = Path(raw_root)
+            try:
+                isolation = _create_font_isolation(
+                    private_root / "verified", resolved_font
+                )
+                proof_text = json.dumps(isolation["proof"], sort_keys=True)
+                if str(private_root) in proof_text or not _verify_font_isolation(isolation):
+                    failures.append(
+                        "font isolation: public proof leaked a path or did not revalidate"
+                    )
+                isolation["font_path"].write_bytes(b"tampered-font-bytes")
+                if _verify_font_isolation(isolation):
+                    failures.append("font isolation: changed font bytes passed revalidation")
+                config_isolation = _create_font_isolation(
+                    private_root / "config-tamper", resolved_font
+                )
+                config_isolation["config_path"].write_text(
+                    "<fontconfig/>", encoding="utf-8"
+                )
+                if _verify_font_isolation(config_isolation):
+                    failures.append("font isolation: changed config bytes passed revalidation")
+            except (OSError, ValueError) as error:
+                failures.append(f"font isolation: setup failed: {error}")
+    if (
+        len(profiles.calibration_configurations("odytty"))
+        != 1
+        + len(profiles.CALIBRATION_FONT_SIZES)
+        * len(profiles.ODYTTY_CALIBRATION_LINE_HEIGHTS)
+        - 1
+        or len(profiles.calibration_configurations("kitty"))
+        != len(profiles.CALIBRATION_FONT_SIZES)
+    ):
+        failures.append("profiles: declared calibration sets are not complete")
+    if (
+        CALIBRATION_MAX_LAUNCHES != 189
+        or CALIBRATION_MAX_WALL_SECONDS != 17_010
+    ):
+        failures.append("profiles: aggregate calibration count/time bound drifted")
+    all_candidate_budget = calibration_probe_budget(sorted(profiles.CONFIG_PATHS))
+    if all_candidate_budget != {
+        "candidate_launch_bound": 189,
+        "candidate_wall_bound_seconds": 17_010,
+        "maximum_launch_bound": 189,
+        "maximum_wall_bound_seconds": 17_010,
+    }:
+        failures.append("profiles: pre-probe worst-case budget gate drifted")
+    typical_launches = 1 + len(profiles.calibration_configurations("odytty")) + 3 * len(
+        profiles.calibration_configurations("kitty")
+    )
+    if typical_launches != 169 or typical_launches * PROBE_ATTEMPT_WALL_BOUND_SECONDS != 15_210:
+        failures.append("profiles: documented typical probe budget drifted")
+    try:
+        calibration_probe_budget(["odytty", "odytty"])
+    except ValueError:
+        pass
+    else:
+        failures.append("profiles: duplicate pre-probe candidates passed the budget gate")
 
     fake_which = lambda name: f"/usr/bin/{name}"  # noqa: E731 - injected lookup
     missing_backend, missing_environment = preflight_window_backend(
@@ -3446,7 +4523,9 @@ def self_test() -> list[str]:
         observed_geometry = []
         for label, delay in (("fast", 0), ("slow", 4)):
             launcher = _DelayedMappingLauncher(delay, root / label)
-            probe = probe_availability(["odytty"], launcher, sleep=lambda _seconds: None)[0]
+            probe = probe_availability(
+                ["odytty"], launcher, sleep=lambda _seconds: None, calibrate=False
+            )[0]
             if not probe.get("window_mapped"):
                 failures.append(f"timing: {label} deterministic mapping did not qualify")
             observed_geometry.append(probe.get("cell_geometry"))
@@ -3536,10 +4615,14 @@ def self_test() -> list[str]:
     }
     decision = qualify_implementations(
         [
-            {"implementation": "odytty", "window_mapped": True, "display_path": DISPLAY_PATH_WAYLAND, "cell_geometry": geometry},
-            {"implementation": "kitty", "window_mapped": True, "display_path": DISPLAY_PATH_WAYLAND, "cell_geometry": geometry},
-            {"implementation": "wezterm", "window_mapped": False, "display_path": None},
-        ]
+            _synthetic_probe_attempt("odytty", profiles.calibration_configurations("odytty")[0], geometry),
+            _synthetic_probe_attempt("kitty", profiles.calibration_configurations("kitty")[0], geometry),
+            _synthetic_probe_attempt(
+                "wezterm", profiles.calibration_configurations("wezterm")[0], None,
+                mapped=False,
+            ),
+        ],
+        require_exhaustive_calibration=False,
     )
     if decision["qualified"] != ["odytty", "kitty"]:
         failures.append(f"qualification: unexpected qualified set {decision['qualified']}")
@@ -3547,52 +4630,95 @@ def self_test() -> list[str]:
         failures.append("qualification: an unmapped implementation must be excluded")
     if decision["excluded"] and decision["excluded"][0]["reason"] != "unavailable-implementation":
         failures.append("qualification: exclusion must carry a reserved skip reason")
+    malformed_no_window = _synthetic_probe_attempt(
+        "wezterm", profiles.calibration_configurations("wezterm")[0], None,
+        mapped=False,
+    )
+    malformed_no_window["process_outcome"]["exit_status"] = "forged"
+    malformed_no_window = _seal_probe_attempt(malformed_no_window)
+    malformed_no_window_decision = qualify_implementations(
+        [malformed_no_window], require_exhaustive_calibration=False
+    )
+    if (
+        not malformed_no_window_decision["protocol_blockers"]
+        or malformed_no_window_decision["excluded"]
+    ):
+        failures.append("qualification: malformed no-window outcome was accepted")
+    no_window_with_pty = _synthetic_probe_attempt(
+        "wezterm", profiles.calibration_configurations("wezterm")[0], None,
+        mapped=False,
+    )
+    no_window_with_pty["observed_evidence"]["cell_geometry"] = dict(geometry)
+    no_window_with_pty = _seal_probe_attempt(no_window_with_pty)
+    if _valid_probe_attempt(no_window_with_pty):
+        failures.append("qualification: no-window outcome carried forged PTY evidence")
+    mapped_with_extra_raw = _synthetic_probe_attempt(
+        "kitty", profiles.calibration_configurations("kitty")[0], geometry
+    )
+    mapped_with_extra_raw["raw_idle_ready"]["unsealed_extra"] = 1
+    mapped_with_extra_raw["observed_evidence"]["raw_idle_ready"] = dict(
+        mapped_with_extra_raw["raw_idle_ready"]
+    )
+    mapped_with_extra_raw = _seal_probe_attempt(mapped_with_extra_raw)
+    if _valid_probe_attempt(mapped_with_extra_raw):
+        failures.append("qualification: mapped outcome accepted extra raw evidence")
+    launch_failure = _synthetic_launch_failure_attempt("kitty")
+    if not _valid_probe_attempt(launch_failure):
+        failures.append("qualification: sealed launch failure shape was rejected")
+    malformed_launch_failure = dict(launch_failure)
+    malformed_launch_failure["sanitized_argv"] = ["kitty"]
+    malformed_launch_failure = _seal_probe_attempt(malformed_launch_failure)
+    if _valid_probe_attempt(malformed_launch_failure):
+        failures.append("qualification: malformed launch failure evidence passed")
 
     different_geometry = dict(geometry)
     different_geometry["content_width_device_px"] = 880
     different_geometry["content_height_device_px"] = 528
     different_geometry["cell_width_device_px"] = 11
     different_geometry["cell_height_device_px"] = 22
+    common_geometry = dict(geometry)
+    common_geometry["content_width_device_px"] = 720
+    common_geometry["content_height_device_px"] = 432
+    common_geometry["cell_width_device_px"] = 9
+    common_geometry["cell_height_device_px"] = 18
     initial_geometry_probes = [
-        {
-            "implementation": "odytty",
-            "window_mapped": True,
-            "display_path": DISPLAY_PATH_WAYLAND,
-            "cell_geometry": geometry,
-            "calibration": {"method": "canonical-profile", "font_size": 12.0},
-        },
-        {
-            "implementation": "kitty",
-            "window_mapped": True,
-            "display_path": DISPLAY_PATH_WAYLAND,
-            "cell_geometry": different_geometry,
-            "calibration": {"method": "canonical-profile", "font_size": 12.0},
-        },
+        _synthetic_probe_attempt(
+            "odytty", profiles.calibration_configurations("odytty")[0], geometry
+        ),
+        _synthetic_probe_attempt(
+            "kitty", profiles.calibration_configurations("kitty")[0], different_geometry
+        ),
     ]
 
     class _CalibrationLauncher:
         backend = {"display": "wayland"}
 
         def __init__(self):
-            self.sizes = {}
+            self.settings = {}
 
-        def set_calibration_font_size(self, name, size):
-            self.sizes[name] = size
+        def set_calibration(self, name, calibration):
+            if not profiles.valid_calibration(name, calibration):
+                return False
+            self.settings[name] = dict(calibration)
             return True
 
         def calibration_record(self, name):
-            return {"method": "font-size-override", "font_size": self.sizes[name]}
+            return dict(self.settings[name])
 
     calibration_launcher = _CalibrationLauncher()
 
     def matching_probe(name, launcher, _tag, sleep=None):
-        return {
-            "implementation": name,
-            "window_mapped": True,
-            "display_path": DISPLAY_PATH_WAYLAND,
-            "cell_geometry": geometry if launcher.sizes[name] == 11.0 else different_geometry,
-            "calibration": launcher.calibration_record(name),
-        }
+        calibration = launcher.calibration_record(name)
+        matches = (
+            name == "odytty"
+            and calibration.get("font_size") == 10.0
+            and calibration.get("line_height") == 1.25
+        ) or (name == "kitty" and calibration.get("font_size") == 18.0)
+        return _synthetic_probe_attempt(
+            name, calibration, common_geometry if matches else (
+                geometry if name == "odytty" else different_geometry
+            )
+        )
 
     calibrated = calibrate_probe_set(
         initial_geometry_probes,
@@ -3603,20 +4729,69 @@ def self_test() -> list[str]:
     geometry_decision = qualify_implementations(calibrated)
     if geometry_decision["qualified"] != ["odytty", "kitty"]:
         failures.append("qualification: an initially mismatched terminal did not calibrate")
-    if calibrated[1].get("calibration", {}).get("font_size") != 11.0:
-        failures.append("qualification: successful font-size calibration was not pinned")
+    if calibrated[0].get("calibration", {}).get("font_size") != 10.0:
+        failures.append("qualification: changed OdyTTY calibration was not pinned")
+    if calibrated[1].get("calibration", {}).get("font_size") != 18.0:
+        failures.append("qualification: complete sparse font-size search was not used")
+
+    changed_request = _synthetic_probe_attempt(
+        "kitty", profiles.calibration_configurations("kitty")[0], geometry
+    )
+    changed_request["requested_config"] = profiles.calibration_configurations("kitty")[1]
+    changed_request["calibration"] = dict(changed_request["requested_config"])
+    changed_request = _seal_probe_attempt(changed_request)
+    if _valid_probe_attempt(changed_request):
+        failures.append(
+            "qualification: resealed request change passed unchanged launch evidence"
+        )
+
+    def reseal_attempt_list(probe: dict, attempts: list[dict]) -> dict:
+        changed = json.loads(json.dumps(probe))
+        changed["calibration_attempts"] = attempts
+        changed["calibration_attempts_sha256"] = _calibration_attempts_digest(attempts)
+        return _seal_probe_attempt(changed)
+
+    kitty_attempts = calibrated[1]["calibration_attempts"]
+    adversarial_lists = [
+        kitty_attempts[:-1],
+        list(reversed(kitty_attempts)),
+        [*kitty_attempts[:-1], kitty_attempts[0]],
+    ]
+    for label, attempts in zip(
+        ("truncated", "reordered", "duplicate"), adversarial_lists
+    ):
+        altered = reseal_attempt_list(calibrated[1], attempts)
+        if not qualify_implementations([calibrated[0], altered])["protocol_blockers"]:
+            failures.append(f"qualification: {label} calibration list passed")
+    bad_list_digest = json.loads(json.dumps(calibrated[1]))
+    bad_list_digest["calibration_attempts_sha256"] = "0" * 64
+    bad_list_digest = _seal_probe_attempt(bad_list_digest)
+    if not qualify_implementations([calibrated[0], bad_list_digest])["protocol_blockers"]:
+        failures.append("qualification: forged ordered-list digest passed")
+
+    cherry_source = kitty_attempts[0]
+    cherry_picked = dict(cherry_source)
+    cherry_picked.update(
+        {
+            "calibration_attempts": kitty_attempts,
+            "calibration_attempts_sha256": _calibration_attempts_digest(kitty_attempts),
+            "selected_attempt_sha256": cherry_source["attempt_sha256"],
+            "calibration_budget": calibrated[1]["calibration_budget"],
+        }
+    )
+    cherry_picked = _seal_probe_attempt(cherry_picked)
+    if not qualify_implementations([calibrated[0], cherry_picked])["protocol_blockers"]:
+        failures.append("qualification: cherry-picked noncanonical selection passed")
 
     failed_calibration = calibrate_probe_set(
         initial_geometry_probes,
         _CalibrationLauncher(),
         sleep=lambda _seconds: None,
-        probe_one=lambda name, launcher, _tag, sleep=None: {
-            "implementation": name,
-            "window_mapped": True,
-            "display_path": DISPLAY_PATH_WAYLAND,
-            "cell_geometry": different_geometry,
-            "calibration": launcher.calibration_record(name),
-        },
+        probe_one=lambda name, launcher, _tag, sleep=None: _synthetic_probe_attempt(
+            name,
+            launcher.calibration_record(name),
+            geometry if name == "odytty" else different_geometry,
+        ),
     )
     failed_decision = qualify_implementations(failed_calibration)
     if not failed_decision["protocol_blockers"] or any(
@@ -3625,20 +4800,151 @@ def self_test() -> list[str]:
         failures.append(
             "qualification: failed calibration was not a distinct protocol blocker"
         )
+    expired_calibration = calibrate_probe_set(
+        initial_geometry_probes,
+        _CalibrationLauncher(),
+        sleep=lambda _seconds: None,
+        probe_one=matching_probe,
+        started_monotonic=time.monotonic() - CALIBRATION_MAX_WALL_SECONDS - 1,
+    )
+    if not qualify_implementations(expired_calibration)["protocol_blockers"] or any(
+        probe.get("calibration_budget", {}).get("completed_launches")
+        != len(initial_geometry_probes)
+        for probe in expired_calibration
+    ):
+        failures.append("qualification: elapsed calibration wall bound was not fail-closed")
+    kitty_ignored_geometries = {
+        json.dumps(
+            attempt.get("observed_evidence", {}).get("cell_geometry"), sort_keys=True
+        )
+        for attempt in failed_calibration[1].get("calibration_attempts", [])
+    }
+    if kitty_ignored_geometries != {json.dumps(different_geometry, sort_keys=True)}:
+        failures.append("qualification: ignored overrides did not preserve observed geometry")
+
+    width_only = dict(geometry)
+    width_only["content_width_device_px"] = 880
+    width_only["cell_width_device_px"] = 11
+    height_only = dict(geometry)
+    height_only["content_height_device_px"] = 528
+    height_only["cell_height_device_px"] = 22
+    crossed = qualify_implementations(
+        [
+            _synthetic_probe_attempt(
+                "odytty", profiles.calibration_configurations("odytty")[0], width_only
+            ),
+            _synthetic_probe_attempt(
+                "kitty", profiles.calibration_configurations("kitty")[0], height_only
+            ),
+        ],
+        require_exhaustive_calibration=False,
+    )
+    if not crossed["protocol_blockers"]:
+        failures.append("qualification: width/height cross was accepted as exact geometry")
+
+    mismatched_font = qualify_implementations(
+        [
+            _synthetic_probe_attempt(
+                "odytty", profiles.calibration_configurations("odytty")[0], geometry
+            ),
+            _synthetic_probe_attempt(
+                "kitty",
+                profiles.calibration_configurations("kitty")[0],
+                geometry,
+                font_sha256="b" * 64,
+            ),
+        ],
+        require_exhaustive_calibration=False,
+    )
+    if not mismatched_font["protocol_blockers"]:
+        failures.append("qualification: mismatched shared font digest was accepted")
+
+    missing_observed = _synthetic_probe_attempt(
+        "kitty", profiles.calibration_configurations("kitty")[0], geometry
+    )
+    missing_observed.pop("observed_evidence")
+    missing_observed = _seal_probe_attempt(missing_observed)
+    missing_observed_decision = qualify_implementations(
+        [
+            _synthetic_probe_attempt(
+                "odytty", profiles.calibration_configurations("odytty")[0], geometry
+            ),
+            missing_observed,
+        ],
+        require_exhaustive_calibration=False,
+    )
+    if not missing_observed_decision["protocol_blockers"]:
+        failures.append("qualification: missing observed PTY evidence passed")
+
+    asserted_identity_only = _synthetic_probe_attempt(
+        "kitty", profiles.calibration_configurations("kitty")[0], geometry
+    )
+    asserted_identity_only.pop("font_isolation")
+    asserted_identity_only = _seal_probe_attempt(asserted_identity_only)
+    asserted_identity_decision = qualify_implementations(
+        [
+            _synthetic_probe_attempt(
+                "odytty", profiles.calibration_configurations("odytty")[0], geometry
+            ),
+            asserted_identity_only,
+        ],
+        require_exhaustive_calibration=False,
+    )
+    if not asserted_identity_decision["protocol_blockers"]:
+        failures.append("qualification: copied font identity without isolation proof passed")
+
+    path_leaking_proof = _synthetic_probe_attempt(
+        "kitty", profiles.calibration_configurations("kitty")[0], geometry
+    )
+    path_leaking_proof["font_isolation"]["font_path"] = "<machine-local-path>"
+    path_leaking_proof = _seal_probe_attempt(path_leaking_proof)
+    path_leaking_decision = qualify_implementations(
+        [
+            _synthetic_probe_attempt(
+                "odytty", profiles.calibration_configurations("odytty")[0], geometry
+            ),
+            path_leaking_proof,
+        ],
+        require_exhaustive_calibration=False,
+    )
+    if not path_leaking_decision["protocol_blockers"]:
+        failures.append("qualification: path-bearing public isolation proof passed")
+
+    valid_attempt = _synthetic_probe_attempt(
+        "kitty", profiles.calibration_configurations("kitty")[0], geometry
+    )
+    tampered_attempt = json.loads(json.dumps(valid_attempt))
+    tampered_attempt["raw_idle_ready"]["content_width_device_px"] = 880
+    selected_with_tamper = dict(valid_attempt)
+    selected_with_tamper["calibration_attempts"] = [tampered_attempt]
+    tampered_decision = qualify_implementations(
+        [
+            _synthetic_probe_attempt(
+                "odytty", profiles.calibration_configurations("odytty")[0], geometry
+            ),
+            selected_with_tamper,
+        ]
+    )
+    if not tampered_decision["protocol_blockers"]:
+        failures.append("qualification: tampered immutable calibration attempt passed")
 
     # An implementation that maps only through Xwayland is excluded by default
     # and included only as an explicit, recorded deviation.
     mixed = [
-        {"implementation": "odytty", "window_mapped": True, "display_path": DISPLAY_PATH_WAYLAND, "cell_geometry": geometry},
-        {"implementation": "kitty", "window_mapped": True, "display_path": DISPLAY_PATH_WAYLAND, "cell_geometry": geometry},
-        {"implementation": "wezterm", "window_mapped": True, "display_path": DISPLAY_PATH_XWAYLAND, "cell_geometry": geometry},
+        _synthetic_probe_attempt("odytty", profiles.calibration_configurations("odytty")[0], geometry),
+        _synthetic_probe_attempt("kitty", profiles.calibration_configurations("kitty")[0], geometry),
+        _seal_probe_attempt({**_synthetic_probe_attempt("wezterm", profiles.calibration_configurations("wezterm")[0], geometry), "display_path": DISPLAY_PATH_XWAYLAND}),
     ]
-    strict = qualify_implementations(mixed)
+    strict = qualify_implementations(mixed, require_exhaustive_calibration=False)
     if "wezterm" in strict["qualified"]:
         failures.append("qualification: display paths must not be mixed by default")
     if strict["deviations"]:
         failures.append("qualification: exclusion is not a deviation")
-    permissive = qualify_implementations(mixed, allow_mixed_display_paths=True)
+    permissive = qualify_implementations(
+        mixed,
+        allow_mixed_display_paths=True,
+        require_exhaustive_calibration=False,
+    )
     if "wezterm" not in permissive["qualified"]:
         failures.append("qualification: explicit opt-in must include the implementation")
     if not permissive["deviations"]:
@@ -3646,10 +4952,11 @@ def self_test() -> list[str]:
 
     majority_mismatch = qualify_implementations(
         [
-            {"implementation": "odytty", "window_mapped": True, "display_path": DISPLAY_PATH_WAYLAND, "cell_geometry": geometry},
-            {"implementation": "one", "window_mapped": True, "display_path": DISPLAY_PATH_XWAYLAND, "cell_geometry": geometry},
-            {"implementation": "two", "window_mapped": True, "display_path": DISPLAY_PATH_XWAYLAND, "cell_geometry": geometry},
-        ]
+            _synthetic_probe_attempt("odytty", profiles.calibration_configurations("odytty")[0], geometry),
+            _seal_probe_attempt({**_synthetic_probe_attempt("kitty", profiles.calibration_configurations("kitty")[0], geometry), "display_path": DISPLAY_PATH_XWAYLAND}),
+            _seal_probe_attempt({**_synthetic_probe_attempt("alacritty", profiles.calibration_configurations("alacritty")[0], geometry), "display_path": DISPLAY_PATH_XWAYLAND}),
+        ],
+        require_exhaustive_calibration=False,
     )
     if majority_mismatch["qualified"] != ["odytty"]:
         failures.append("qualification: reference majority overrode OdyTTY display path")
@@ -4265,12 +5572,55 @@ def self_test() -> list[str]:
         private = root / "private"
         package.mkdir()
         private.mkdir(mode=0o700)
+        (package / "availability.json").write_text(
+            json.dumps(
+                {
+                    "calibration_mode": "exhaustive-prepublication",
+                    "calibration_budget": calibration_probe_budget(
+                        ["odytty", "kitty"]
+                    ),
+                    "probes": calibrated,
+                    "decision": qualify_implementations(calibrated),
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (package / "raw-samples.jsonl").write_text(
+            '{"sample":1}\n', encoding="utf-8"
+        )
+        result_path = package / "w6-results.json"
+        result_path.write_text("{}\n", encoding="utf-8")
+        try:
+            finalize_public_evidence(package, result_path, private)
+        except ValueError:
+            failures.append("public package: valid exhaustive calibration was rejected")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        package = root / "public"
+        private = root / "private"
+        package.mkdir()
+        private.mkdir(mode=0o700)
         source = private / "terminal.out"
         source.write_text(
             "private terminal bytes\n", encoding="utf-8"
         )
         original = source.read_bytes()
-        (package / "availability.json").write_text("{}\n", encoding="utf-8")
+        runtime_probe = _synthetic_probe_attempt(
+            "odytty", profiles.calibration_configurations("odytty")[0], geometry
+        )
+        (package / "availability.json").write_text(
+            json.dumps(
+                {
+                    "calibration_mode": "frozen-qualified-revalidation",
+                    "probes": [runtime_probe],
+                    "revalidated_qualified": ["odytty"],
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
         (package / "raw-samples.jsonl").write_text('{"sample":1}\n', encoding="utf-8")
         result_path = package / "w6-results.json"
         result_path.write_text("{}\n", encoding="utf-8")
@@ -4315,6 +5665,67 @@ def self_test() -> list[str]:
             pass
         else:
             failures.append("public package: machine-local raw evidence was accepted")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        package = root / "public"
+        private = root / "private"
+        package.mkdir()
+        private.mkdir(mode=0o700)
+        tampered = _synthetic_probe_attempt(
+            "odytty", profiles.calibration_configurations("odytty")[0], geometry
+        )
+        tampered["raw_idle_ready"]["content_width_device_px"] += 80
+        (package / "availability.json").write_text(
+            json.dumps({"probes": [tampered]}) + "\n", encoding="utf-8"
+        )
+        (package / "raw-samples.jsonl").write_text(
+            '{"sample":1}\n', encoding="utf-8"
+        )
+        result_path = package / "w6-results.json"
+        result_path.write_text("{}\n", encoding="utf-8")
+        try:
+            finalize_public_evidence(package, result_path, private)
+        except ValueError:
+            pass
+        else:
+            failures.append("public package: tampered calibration attempts were accepted")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        package = root / "public"
+        private = root / "private"
+        package.mkdir()
+        private.mkdir(mode=0o700)
+        truncated = reseal_attempt_list(
+            calibrated[1], calibrated[1]["calibration_attempts"][:-1]
+        )
+        truncated_probes = [calibrated[0], truncated]
+        (package / "availability.json").write_text(
+            json.dumps(
+                {
+                    "calibration_mode": "exhaustive-prepublication",
+                    "calibration_budget": calibration_probe_budget(
+                        ["odytty", "kitty"]
+                    ),
+                    "probes": truncated_probes,
+                    "decision": qualify_implementations(truncated_probes),
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (package / "raw-samples.jsonl").write_text(
+            '{"sample":1}\n', encoding="utf-8"
+        )
+        result_path = package / "w6-results.json"
+        result_path.write_text("{}\n", encoding="utf-8")
+        try:
+            finalize_public_evidence(package, result_path, private)
+        except ValueError:
+            pass
+        else:
+            failures.append("public package: truncated exhaustive calibration passed")
 
     return failures
 
@@ -4369,6 +5780,9 @@ def verify_runtime_identities(record: dict, repo_root: Path) -> None:
     ).stdout.strip()
     if head != record.get("checkout", {}).get("git_commit") or dirty:
         raise ValueError("runtime checkout is not the exact clean preregistered commit")
+    resolved_font = profiles.resolve_shared_font_identity()
+    if resolved_font is None or resolved_font != record.get("shared_font"):
+        raise ValueError("runtime shared DejaVu Sans Mono face/file identity drifted")
     pinned_files = [
         (record.get("orchestrator", {}), repo_root / "scripts/bench-protocol/w6_runner.py"),
         (record.get("driver", {}), repo_root / "scripts/bench-protocol/driver.py"),
@@ -4403,6 +5817,10 @@ def verify_runtime_identities(record: dict, repo_root: Path) -> None:
             raise ValueError(f"qualified implementation {name!r} config digest drifted")
         if entry.get("profile_files") != profiles.profile_records(repo_root, name):
             raise ValueError(f"qualified implementation {name!r} profile file set drifted")
+        if entry.get("font_identity") != resolved_font:
+            raise ValueError(
+                f"qualified implementation {name!r} shared font identity drifted"
+            )
     evidence = record.get("boot_and_settle_evidence", {})
     try:
         uptime = float(Path("/proc/uptime").read_text(encoding="ascii").split()[0])
@@ -4414,6 +5832,9 @@ def verify_runtime_identities(record: dict, repo_root: Path) -> None:
 
 def verify_probe_inputs(record: dict, repo_root: Path) -> None:
     """Verify every candidate binary/config pair before the one-shot probe."""
+    resolved_font = profiles.resolve_shared_font_identity()
+    if resolved_font is None or resolved_font != record.get("shared_font"):
+        raise ValueError("probe shared DejaVu Sans Mono face/file identity is not pinned")
     for entry in record.get("implementations", []):
         name = entry.get("name")
         if name not in profiles.CONFIG_PATHS:
@@ -4432,6 +5853,8 @@ def verify_probe_inputs(record: dict, repo_root: Path) -> None:
             raise ValueError(f"candidate {name!r} explicit config is absent or not pinned")
         if entry.get("profile_files") != profiles.profile_records(repo_root, name):
             raise ValueError(f"candidate {name!r} profile file set is absent or not pinned")
+        if entry.get("font_identity") != resolved_font:
+            raise ValueError(f"candidate {name!r} does not bind the shared font identity")
         calibration = entry.get("calibration")
         if isinstance(calibration, dict) and not profiles.valid_calibration(
             name, calibration
@@ -4468,7 +5891,47 @@ def finalize_public_evidence(
     with private_manifest_path.open("x", encoding="utf-8") as handle:
         handle.write(json.dumps(private_manifest, indent=2, sort_keys=True) + "\n")
     private_manifest_path.chmod(0o600)
-    files = [results_dir / "availability.json", results_dir / "raw-samples.jsonl", document_path]
+    availability_path = results_dir / "availability.json"
+    try:
+        availability_record = json.loads(availability_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError("availability evidence is missing or malformed") from error
+    probes = availability_record.get("probes") if isinstance(availability_record, dict) else None
+    if not isinstance(probes, list) or not probes or not all(
+        isinstance(probe, dict) for probe in probes
+    ):
+        raise ValueError("availability evidence contains no valid probe list")
+    if not all(_valid_probe_attempt(probe) for probe in probes):
+        raise ValueError("availability evidence contains an invalid probe outcome")
+    mode = availability_record.get("calibration_mode")
+    if mode == "exhaustive-prepublication":
+        if _calibrated_probe_set_failures(probes):
+            raise ValueError(
+                "availability evidence is not the exact exhaustive deterministic calibration"
+            )
+        expected_budget = calibration_probe_budget(
+            [probe.get("implementation") for probe in probes]
+        )
+        if availability_record.get("calibration_budget") != expected_budget:
+            raise ValueError("availability calibration budget is absent or inconsistent")
+        recomputed_decision = qualify_implementations(probes)
+        if availability_record.get("decision") != recomputed_decision:
+            raise ValueError("availability decision does not match sealed probe evidence")
+    elif mode == "frozen-qualified-revalidation":
+        recomputed = qualify_implementations(
+            probes, require_exhaustive_calibration=False
+        )
+        if (
+            recomputed["protocol_blockers"]
+            or recomputed["excluded"]
+            or recomputed["deviations"]
+            or availability_record.get("revalidated_qualified")
+            != recomputed["qualified"]
+        ):
+            raise ValueError("frozen qualified-set revalidation is inconsistent")
+    else:
+        raise ValueError("availability evidence has an unknown calibration mode")
+    files = [availability_path, results_dir / "raw-samples.jsonl", document_path]
     manifest_files = []
     for path in files:
         data = path.read_bytes()
@@ -4532,7 +5995,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
         f"{PUBLIC_API_BASE}/git/ref/{encoded_ref}",
         headers={
             "Accept": "application/vnd.github+json",
-            "User-Agent": "OdyTTY-benchmark-protocol/1.0.0",
+            "User-Agent": "OdyTTY-benchmark-protocol/1.1.0",
         },
     )
     with urllib.request.urlopen(ref_request, timeout=30) as response:
@@ -4546,7 +6009,7 @@ def _fetch_public_anchor(ref: str, path: str) -> tuple[str, bytes]:
     encoded_path = "/".join(urllib.parse.quote(part, safe="") for part in path.split("/"))
     request = urllib.request.Request(
         f"{PUBLIC_RAW_BASE}/{commit}/{encoded_path}",
-        headers={"User-Agent": "OdyTTY-benchmark-protocol/1.0.0"},
+        headers={"User-Agent": "OdyTTY-benchmark-protocol/1.1.0"},
     )
     with urllib.request.urlopen(request, timeout=30) as response:
         return commit, response.read()
@@ -4727,6 +6190,29 @@ def main(argv: list[str] | None = None) -> int:
         except ValueError as error:
             print(f"availability probe input verification failed: {error}", file=sys.stderr)
             return 1
+        names = [
+            entry["name"]
+            for entry in prereg_record.get("implementations", [])
+            if entry.get("name")
+        ]
+        try:
+            probe_budget = calibration_probe_budget(names)
+        except ValueError as error:
+            print(f"availability probe budget invalid: {error}", file=sys.stderr)
+            return 1
+        if (
+            probe_budget["candidate_launch_bound"] > CALIBRATION_MAX_LAUNCHES
+            or probe_budget["candidate_wall_bound_seconds"]
+            > CALIBRATION_MAX_WALL_SECONDS
+        ):
+            print("availability probe exceeds the declared calibration budget", file=sys.stderr)
+            return 1
+        print(
+            "availability calibration bound: "
+            f"{probe_budget['candidate_launch_bound']} launches / "
+            f"{probe_budget['candidate_wall_bound_seconds']} seconds",
+            file=sys.stderr,
+        )
         probe_dir = results_dir.with_name(f"{results_dir.name}-probe")
         if probe_dir.exists():
             print("availability probe target already exists; refusing to overwrite", file=sys.stderr)
@@ -4737,17 +6223,23 @@ def main(argv: list[str] | None = None) -> int:
             config_paths=config_paths,
             calibrations=calibrations,
             launch_environment=launch_environment,
+            font_identity=prereg_record.get("shared_font"),
         )
-        names = [
-            entry["name"]
-            for entry in prereg_record.get("implementations", [])
-            if entry.get("name")
-        ]
         probes = probe_availability(names, launcher)
         decision = qualify_implementations(
             probes, allow_mixed_display_paths=args.allow_mixed_display_paths
         )
-        json.dump({"probes": probes, "decision": decision}, sys.stdout, indent=2, sort_keys=True)
+        json.dump(
+            {
+                "calibration_mode": "exhaustive-prepublication",
+                "calibration_budget": probe_budget,
+                "probes": probes,
+                "decision": decision,
+            },
+            sys.stdout,
+            indent=2,
+            sort_keys=True,
+        )
         sys.stdout.write("\n")
         if decision["protocol_blockers"]:
             print(
@@ -4788,6 +6280,7 @@ def main(argv: list[str] | None = None) -> int:
         config_paths=config_paths,
         calibrations=calibrations,
         launch_environment=launch_environment,
+        font_identity=prereg_record.get("shared_font"),
     )
 
     try:

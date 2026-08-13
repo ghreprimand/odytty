@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 # Result-document schema and validator for the OdyTTY comparative benchmark
-# protocol (`docs/benchmark-protocol.md`, protocol version 1.0.0).
+# protocol (`docs/benchmark-protocol.md`, protocol version 1.1.0).
 #
 # The protocol specifies the canonical result as UTF-8 JSON with sorted object
 # keys and a minimum shape, and it specifies exactly what validation must
@@ -52,8 +52,8 @@ from pathlib import Path
 import summaries
 import workloads
 
-SCHEMA_VERSION = "1.0.0"
-PROTOCOL_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
+PROTOCOL_VERSION = "1.1.0"
 REHEARSAL_TIMING_TOLERANCE_SECONDS = 2.0
 ENVIRONMENT_SAMPLE_PERIOD_SECONDS = 1.0
 ENVIRONMENT_SAMPLE_MAX_GAP_SECONDS = 2.0
@@ -581,6 +581,7 @@ REQUIRED_IMPLEMENTATION_FIELDS = (
     "artifact_sha256",
     "build_profile",
     "config_sha256",
+    "font_identity",
 )
 REQUIRED_TOOL_FIELDS = ("name", "version", "sha256")
 REQUIRED_SAMPLE_FIELDS = (
@@ -756,6 +757,17 @@ def validate(
                         errors.append(
                             ValidationError(f"{path}.{field}", "must be a SHA-256")
                         )
+                font_identity = entry.get("font_identity")
+                if (
+                    not isinstance(font_identity, dict)
+                    or not _is_hex(font_identity.get("sha256"), 64)
+                ):
+                    errors.append(
+                        ValidationError(
+                            f"{path}.font_identity",
+                            "must bind an exact font face/file SHA-256 identity",
+                        )
+                    )
 
     tools = document.get("tools")
     if not isinstance(tools, list):
@@ -1047,6 +1059,17 @@ def validate(
                     "qualified implementations do not share the preregistered device-pixel geometry",
                 )
             )
+        if has_w6 and any(
+            entry.get("font_identity") != preregistration.get("shared_font")
+            for entry in preregistration.get("implementations", [])
+            if entry.get("availability") == "qualified"
+        ):
+            errors.append(
+                ValidationError(
+                    "$.implementations",
+                    "qualified implementations do not bind the preregistered shared font face/file",
+                )
+            )
         expected_unavailable = {
             (
                 entry.get("name"), "idle-visible-10m", "unavailable-implementation",
@@ -1205,7 +1228,13 @@ def _validate_preregistered_identities(document: dict, preregistration: dict) ->
             )
         )
     for name in sorted(set(result_by_name) & set(pinned_by_name)):
-        for field in ("revision", "artifact_sha256", "build_profile", "config_sha256"):
+        for field in (
+            "revision",
+            "artifact_sha256",
+            "build_profile",
+            "config_sha256",
+            "font_identity",
+        ):
             if result_by_name[name].get(field) != pinned_by_name[name].get(field):
                 errors.append(
                     ValidationError(
@@ -1358,7 +1387,7 @@ def _validate_ci(value: object) -> bool:
 
 
 def canonical_w6_summaries(samples: list[dict], seed: str) -> list[dict]:
-    """Recompute the exact protocol 1.0.0 W6 summaries from raw samples."""
+    """Recompute the exact protocol 1.1.0 W6 summaries from raw samples."""
     metric_specs = {
         metric["name"]: metric
         for metric in workloads.WORKLOADS["idle-visible-10m"]["metrics"]
@@ -1654,6 +1683,13 @@ def _minimal_document() -> dict:
                 "artifact_sha256": "c" * 64,
                 "build_profile": "release",
                 "config_sha256": "d" * 64,
+                "font_identity": {
+                    "family": "DejaVu Sans Mono",
+                    "style": "Book",
+                    "file_name": "DejaVuSansMono.ttf",
+                    "face_index": 0,
+                    "sha256": "f" * 64,
+                },
             }
         ],
         "tools": [{"name": "bench-driver", "version": "1.0.0", "sha256": "e" * 64}],
@@ -1902,6 +1938,7 @@ def self_test() -> list[str]:
         failures.append("schema: unrelated preregistration bytes were accepted")
 
     w6_prereg = json.loads(json.dumps(prereg))
+    w6_prereg["shared_font"] = w6_prereg["implementations"][0]["font_identity"]
     w6_prereg["workloads"] = [
         {
             "name": "idle-visible-10m",
@@ -2002,6 +2039,15 @@ def self_test() -> list[str]:
         failures.append(
             f"schema: canonical W6 summary was rejected: {messages(w6_errors)}"
         )
+    mismatched_font_document = json.loads(json.dumps(w6_document))
+    mismatched_font_document["implementations"][0]["font_identity"]["sha256"] = (
+        "b" * 64
+    )
+    if not any(
+        "font_identity" in error.message or error.path.endswith(".font_identity")
+        for error in validate(mismatched_font_document, w6_prereg)
+    ):
+        failures.append("schema: a result with a mismatched font digest was accepted")
     contract_samples = w6_document["samples"]
     contract_overhead = w6_document["run_set"]["instrumentation_overhead"]
     for environmental_reason in sorted(ENVIRONMENT_INVALID_REASONS):
