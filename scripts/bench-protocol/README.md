@@ -62,7 +62,13 @@ python3 scripts/bench-protocol/w6_runner.py --run --preregistration <record.json
 ```
 
 `--backend` reports whether window state can be observed on this session at
-all. Before publishing the preregistration, pin each implementation revision,
+all and whether terminal children can connect to that display. A resumed
+controller shell may retain `hyprctl` access while losing `WAYLAND_DISPLAY`;
+the runner fails before creating probe evidence or launching a candidate
+unless the configured socket is live or exactly one live Wayland socket can be
+recovered from `XDG_RUNTIME_DIR`. A missing, stale, or ambiguous display socket
+is a controller prerequisite failure, not an implementation-availability
+result. Before publishing the preregistration, pin each implementation revision,
 artifact, and configuration digest, then use the launch recipes pinned by that
 checkout to run `--probe` once for the complete candidate set. The probe gives
 every installed recipe one bounded

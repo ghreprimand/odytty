@@ -156,6 +156,102 @@ def detect_window_backend(
     }
 
 
+def resolve_child_display_environment(
+    backend: dict,
+    environ: dict[str, str] | None = None,
+    *,
+    socket_candidates=None,
+    socket_is_socket=None,
+) -> dict[str, str]:
+    """Return the minimal verified display environment for terminal children.
+
+    Window-state observation and child display access are separate
+    prerequisites. In particular, `hyprctl` can remain usable in a resumed
+    controller shell that no longer exports `WAYLAND_DISPLAY`. Such a shell
+    must fail before a probe target is created unless exactly one live Wayland
+    socket can be recovered from its runtime directory.
+    """
+    env = os.environ if environ is None else environ
+    display_path = backend.get("display")
+    if display_path == "x11":
+        display = env.get("DISPLAY")
+        if not display:
+            raise ValueError(
+                "window state is observable, but terminal children have no DISPLAY"
+            )
+        return {"DISPLAY": display}
+    if display_path != "wayland":
+        raise ValueError("the observable window backend has no supported child display path")
+
+    if env.get("WAYLAND_SOCKET") and not env.get("WAYLAND_DISPLAY"):
+        raise ValueError(
+            "window state is observable, but WAYLAND_SOCKET cannot be safely "
+            "forwarded through the benchmark scope; WAYLAND_DISPLAY is required"
+        )
+
+    runtime_value = env.get("XDG_RUNTIME_DIR")
+    if not runtime_value:
+        try:
+            runtime_value = f"/run/user/{os.getuid()}"
+        except AttributeError as error:
+            raise ValueError("terminal children have no XDG_RUNTIME_DIR") from error
+    runtime = Path(runtime_value)
+    is_socket = socket_is_socket or (lambda path: path.is_socket())
+    display = env.get("WAYLAND_DISPLAY")
+    if display:
+        socket_path = Path(display) if Path(display).is_absolute() else runtime / display
+        if not is_socket(socket_path):
+            raise ValueError(
+                "window state is observable, but WAYLAND_DISPLAY does not name a live socket"
+            )
+    else:
+        candidates = (
+            list(socket_candidates(runtime))
+            if socket_candidates is not None
+            else list(runtime.glob("wayland-*"))
+        )
+        sockets = sorted(
+            path for path in candidates
+            if not path.name.endswith(".lock") and is_socket(path)
+        )
+        if len(sockets) != 1:
+            detail = "none" if not sockets else "more than one"
+            raise ValueError(
+                "window state is observable, but terminal children have no "
+                f"WAYLAND_DISPLAY and {detail} live Wayland socket was found"
+            )
+        display = sockets[0].name
+
+    return {"XDG_RUNTIME_DIR": str(runtime), "WAYLAND_DISPLAY": display}
+
+
+def preflight_window_backend(
+    environ: dict[str, str] | None = None,
+    which=shutil.which,
+    *,
+    socket_candidates=None,
+    socket_is_socket=None,
+) -> tuple[dict, dict[str, str]]:
+    """Prove both viewport observation and child display access."""
+    backend = detect_window_backend(environ, which)
+    if backend.get("status") != "available":
+        return backend, {}
+    try:
+        launch_environment = resolve_child_display_environment(
+            backend,
+            environ,
+            socket_candidates=socket_candidates,
+            socket_is_socket=socket_is_socket,
+        )
+    except ValueError as error:
+        return {
+            **backend,
+            "status": "unsupported",
+            "reason": str(error),
+        }, {}
+    return {**backend, "launch_environment": "verified"}, launch_environment
+
+
 def parse_hyprctl_clients(
     payload: str, active_workspaces: dict[int, int] | None = None
 ) -> list[dict]:
@@ -811,12 +907,14 @@ class RealLauncher:
         self, backend: dict, use_scope: bool, log_dir: Path,
         config_paths: dict[str, Path] | None = None,
         calibrations: dict[str, dict] | None = None,
+        launch_environment: dict[str, str] | None = None,
     ):
         self.backend = backend
         self.use_scope = use_scope
         self.log_dir = log_dir
         self.config_paths = config_paths or {}
         self.calibrations = calibrations or {}
+        self.launch_environment = launch_environment or {}
 
     def set_calibration_font_size(self, implementation: str, size: float) -> bool:
         calibration = {"method": "font-size-override", "font_size": size}
@@ -988,6 +1086,7 @@ class RealLauncher:
         idle = idle_driver_command(seconds, oracle_path, start_path)
         unit = f"odytty-bench-{tag}"
         launch_env = os.environ.copy()
+        launch_env.update(self.launch_environment)
         config = self.config_paths.get(implementation)
         if implementation == "odytty" and config is not None:
             launch_env["XDG_CONFIG_HOME"] = str(config.parent.parent)
@@ -2844,6 +2943,72 @@ def self_test() -> list[str]:
     failures: list[str] = []
 
     failures.extend(f"profiles: {failure}" for failure in profiles.validate_profiles(HERE.parents[1]))
+
+    fake_which = lambda name: f"/usr/bin/{name}"  # noqa: E731 - injected lookup
+    missing_backend, missing_environment = preflight_window_backend(
+        {
+            "HYPRLAND_INSTANCE_SIGNATURE": "self-test",
+            "XDG_RUNTIME_DIR": "/run/user/self-test",
+        },
+        fake_which,
+        socket_candidates=lambda _runtime: [],
+        socket_is_socket=lambda _path: False,
+    )
+    if missing_backend.get("status") != "unsupported" or missing_environment:
+        failures.append(
+            "display preflight: observable Hyprland without a child socket was accepted"
+        )
+    invalid_backend, _ = preflight_window_backend(
+        {
+            "HYPRLAND_INSTANCE_SIGNATURE": "self-test",
+            "XDG_RUNTIME_DIR": "/run/user/self-test",
+            "WAYLAND_DISPLAY": "wayland-stale",
+        },
+        fake_which,
+        socket_is_socket=lambda _path: False,
+    )
+    if invalid_backend.get("status") != "unsupported":
+        failures.append("display preflight: a stale WAYLAND_DISPLAY was accepted")
+    ambiguous_backend, _ = preflight_window_backend(
+        {
+            "HYPRLAND_INSTANCE_SIGNATURE": "self-test",
+            "XDG_RUNTIME_DIR": "/run/user/self-test",
+        },
+        fake_which,
+        socket_candidates=lambda runtime: [runtime / "wayland-1", runtime / "wayland-2"],
+        socket_is_socket=lambda _path: True,
+    )
+    if ambiguous_backend.get("status") != "unsupported":
+        failures.append("display preflight: ambiguous Wayland sockets were accepted")
+    recovered_backend, recovered_environment = preflight_window_backend(
+        {
+            "HYPRLAND_INSTANCE_SIGNATURE": "self-test",
+            "XDG_RUNTIME_DIR": "/run/user/self-test",
+        },
+        fake_which,
+        socket_candidates=lambda runtime: [runtime / "wayland-1"],
+        socket_is_socket=lambda _path: True,
+    )
+    if recovered_backend.get("status") != "available" or recovered_environment != {
+        "XDG_RUNTIME_DIR": "/run/user/self-test",
+        "WAYLAND_DISPLAY": "wayland-1",
+    }:
+        failures.append(
+            "display preflight: one unambiguous live Wayland socket was not recovered"
+        )
+    fd_backend, _ = preflight_window_backend(
+        {
+            "HYPRLAND_INSTANCE_SIGNATURE": "self-test",
+            "XDG_RUNTIME_DIR": "/run/user/self-test",
+            "WAYLAND_SOCKET": "9",
+        },
+        fake_which,
+        socket_candidates=lambda runtime: [runtime / "wayland-1"],
+        socket_is_socket=lambda _path: True,
+    )
+    if fd_backend.get("status") != "unsupported":
+        failures.append("display preflight: an unsafe inherited WAYLAND_SOCKET was accepted")
+
     if set(LAUNCH_RECIPES) != set(profiles.CONFIG_PATHS):
         failures.append("profiles: launch recipes and canonical profiles differ")
     for name, recipe in LAUNCH_RECIPES.items():
@@ -4347,7 +4512,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.backend:
-        json.dump(detect_window_backend(), sys.stdout, indent=2, sort_keys=True)
+        backend, _launch_environment = preflight_window_backend()
+        json.dump(backend, sys.stdout, indent=2, sort_keys=True)
         sys.stdout.write("\n")
         return 0
 
@@ -4418,7 +4584,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
 
-    backend = detect_window_backend()
+    backend, launch_environment = preflight_window_backend()
     if backend["status"] != "available":
         print(backend["reason"], file=sys.stderr)
         return 1
@@ -4450,6 +4616,7 @@ def main(argv: list[str] | None = None) -> int:
             backend, use_scope=not args.no_scope, log_dir=probe_dir / "logs",
             config_paths=config_paths,
             calibrations=calibrations,
+            launch_environment=launch_environment,
         )
         names = [
             entry["name"]
@@ -4500,6 +4667,7 @@ def main(argv: list[str] | None = None) -> int:
         log_dir=private_evidence_dir / "terminal-logs",
         config_paths=config_paths,
         calibrations=calibrations,
+        launch_environment=launch_environment,
     )
 
     try:
