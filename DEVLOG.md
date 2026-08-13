@@ -7,6 +7,155 @@ durable product/architecture decisions.
 
 ---
 
+## 2026-08-13 -- Release v0.11.0 — External-review response, graphics completeness, and shaping maturity
+
+Version 0.11.0 responds to an independent technical review of the pre-0.11.0
+codebase, closing every finding that could be addressed without paid Apple
+Developer ID or Windows Authenticode certificates (both stay explicitly out of
+scope; the honest boundary is documented rather than hidden), and lands a set
+of features already scheduled ahead of the review: Kitty graphics animation,
+Unicode graphics placeholders, iTerm2 inline images, color-vector emoji, wider
+shaping coverage, an instanced renderer path, and a "create theme from current
+colors" flow.
+
+**Documentation drift.** A full-tree sweep checked every falsifiable claim in
+`src/` doc comments and `docs/` prose against the code it describes and
+corrected the confirmed mismatches, including a stale renderer comment
+claiming per-update vertex-buffer recreation when the renderer had already
+moved to reusable CPU vertex storage and grow-only GPU buffers.
+
+**Release signing.** Published releases now carry a Minisign signature over
+`SHA256SUMS`, with the public key and verification steps documented for
+Linux, macOS, and Windows. macOS builds remain ad-hoc signed with no
+notarization, and Windows executables remain unsigned and subject to
+SmartScreen — both stay honestly stated rather than implied away.
+
+**Text shaping and color fonts.** COLR/CPAL v0 and v1 color-vector glyphs now
+render in color, including stock Windows Segoe UI Emoji, which previously fell
+back to monochrome. Shaping-run infrastructure groups grapheme clusters for
+presentation shaping beyond the original ASCII contextual-alternate path,
+carrying extended non-ASCII operator/arrow ligatures, bounded `liga`/`ss01`/
+`ss02` feature coverage, and Arabic contextual joining forms in logical
+left-to-right cell order — contextual joining, not bidi reordering. The
+one-terminal-character-per-cell model is unchanged throughout; every shaped
+glyph remains an overlay clipped to its source cell span. `docs/shaping-roadmap.md`
+states what shipped and what is still deferred (complex-script/Brahmic
+shaping, bidi reordering, SVG-in-OpenType).
+
+**Graphics protocol completeness.** The Kitty graphics path gained Unicode
+placeholders (`U=1`), iTerm2 inline images (`OSC 1337 ; File=`), and frame
+animation (`a=f`/`a=a` transmission, playback, composition, and deletion).
+`docs/graphics.md` states the resulting support matrix without overclaiming
+the parts that remain unsupported (chunked `File=` downloads, payload
+compression, image-number animation addressing).
+
+**Renderer performance headroom.** Cell geometry moved to instanced rendering:
+the grid and color-glyph builders emit one compact instance per quad instead
+of expanded per-vertex geometry, and full-visible-geometry re-upload on
+content change is retired in favor of grow-only GPU buffers. Pixel output is
+unchanged; differential tests pin the new geometry against the prior triangle
+stream, and local Vulkan release-profile validation, plus passing Metal/DX12
+CI build/test legs, back the shared wgpu path. Row-granular dirty regions were
+evaluated and stay deferred: measurement showed a full-grid rebuild costs
+well under a millisecond, which does not justify the added state.
+
+**Theme capture.** A new "create theme from current colors" flow snapshots a
+focused pane's live dynamic-color state (OSC 4 palette overrides, OSC
+10/11/12 foreground/background/cursor, theme-seeded values where nothing
+overrides them) into a draft, derives the roles the terminal protocol cannot
+express (clear, selection, search, border, inactive) with documented
+luminance-based heuristics, and opens the draft in the existing theme editor.
+
+**Cold-start font discovery.** `@pamperedgenius` reported (issue #1) that a
+cold page cache made the window take 1.5-2+ seconds to appear, traced to
+symbol, Nerd-font, and emoji fallback resolution independently re-walking the
+same host font-directory tree at startup. Native startup now collects that
+inventory once through a single tested coordinator and shares it across
+symbol, static fallback, and emoji resolution; explicit custom-directory calls
+and live symbol-settings reloads keep their own fresh, scoped discovery so
+newly installed fonts stay visible. A production regression asserts exactly
+one directory collection serves both consumers.
+
+**Comparative benchmark evidence.** The protocol-execution harness for the
+idle/steady-state workload (the one W6 endpoint definable entirely in
+software) gained a preregistration-bound execution path: pinned terminal
+profiles and configuration digests, matched device-pixel cell geometry
+calibration, a public-origin-anchored checkout, fail-closed environment and
+overhead telemetry, and result validation that rejects incomplete or
+inconsistent evidence rather than publishing it. A first end-to-end run
+surfaced real protocol gaps — including a controller display-preflight defect
+that let a resumed session with no live compositor socket misreport every
+candidate as unavailable — and both the run and the fixes are preserved as
+historical record. **No comparative results are published as of this entry.**
+Executing a protocol-valid run set against installed competitor terminals
+remains open work.
+
+**Contribution stance.** `CONTRIBUTING.md` now states a maintainer-led,
+vision-scoped welcome for outside contributions instead of discouraging them,
+naming what lands with the least friction: bug reports (especially
+terminal-compatibility findings and Windows/macOS daily-use reports), bug
+fixes with a test, documentation corrections, and built-in themes.
+
+Every landing in this cycle passed the full local gate (`cargo fmt --check`,
+`cargo clippy --all-targets --locked -- -D warnings`, `cargo test --locked`)
+plus the RustSec audit where dependency, parser, font, transport, input, or
+storage code was touched, and blocking Ubuntu/macOS/Windows CI. Windows stays
+a first-class, explicitly stated platform throughout: every feature above
+states its Windows behavior rather than inferring it from another platform.
+
+## 2026-08-13 -- W6 benchmark harness: protocol-valid evidence binding
+
+The W6 idle-workload benchmark harness gained end-to-end protocol enforcement
+after a first live run (`w6-elitebook-513cabf9-20260812-r1`, preserved on its
+own public branches as historical, non-comparative evidence) surfaced
+concrete gaps: an empty canonical summary array, missing unsupported-reason
+records, a GPU collector that was preregistered available but returned no
+values, and no instrumentation-overhead rehearsal.
+
+The runner now binds terminal profiles (tracked launch configurations for
+OdyTTY, Ghostty, Kitty, Alacritty, and WezTerm, including OdyTTY's
+matched-color benchmark theme), device-pixel cell-geometry calibration, a
+bounded pre-public availability probe, execution controls (frozen qualified
+set and order, one invalid-run replacement, a private transient cgroup with a
+wall timeout), raw evidence capture, continuous environment telemetry (display
+mode, power state, thermal counters, background CPU load), and a result
+validator that recomputes canonical statistics from raw samples and rejects a
+document whose evidence does not support its claims. A preceding fix corrected
+the GPU-memory collector's self-test isolation, which had let live host DRM
+clients leak into what was meant to be a host-independent empty-probe case.
+
+A second run attempt (`r2`) then exposed a controller-side defect: a resumed
+session had lost its live Wayland display socket while backend detection
+still reported the compositor reachable, so every implementation probed as
+"no window" instead of the run failing before it started. The runner now
+verifies or recovers exactly one live Wayland socket, and fails closed as a
+controller prerequisite problem — distinct from a genuine
+implementation-availability result — before creating probe evidence or
+launching any candidate.
+
+**No comparative benchmark results are published as of this entry.** The
+harness changes are infrastructure hardening toward a protocol-valid run;
+executing that run and publishing raw samples with confidence intervals
+remains open work.
+
+## 2026-08-12 -- Shared startup font discovery
+
+`@pamperedgenius` reported (issue #1) that OdyTTY could take 1.5-2+ seconds to
+show its window on a cold filesystem cache, and traced it to independent,
+uncached directory walks: host-Nerd-font symbol fallback, static system
+symbol fallback, and color-emoji directory fallback each re-walked the same
+font-search-root tree from scratch during a single startup.
+
+Native startup now collects that host font-file inventory once, lazily, and
+shares it across symbol, static fallback, and emoji resolution through one
+tested coordinator (`resolve_startup_fonts` in `src/native/gpu/fonts.rs`).
+Custom-directory calls and live symbol-settings reloads deliberately keep
+their own fresh, scoped discovery rather than reusing the startup-local
+inventory, so a font installed after launch is still found. A hermetic
+production regression constructs the real coordinator and asserts exactly one
+directory collection serves both the symbol chain and emoji fallback. Full
+local gates and Linux/macOS/Windows CI back the change.
+
 ## 2026-08-12 -- Bounded Latin shaping features
 
 Eligible Latin and operator runs now enable the standard OpenType `liga`
@@ -225,10 +374,15 @@ upload payload drops 4,608,000 -> 1,024,000 bytes (a struct-layout result,
 not a product benchmark). CPU differential tests pin positions, UVs, colors,
 and expansion order against the previous triangle stream; the real-pipeline
 readback and pixel-smoke suites pin compositor output. The shared wgpu path
-applies identically to Vulkan, Metal, and DX12; local Vulkan
-release-profile validation remains a required manual step, and Metal/DX12
-carry automated build/test evidence only until their manual-validation rows
-are executed. Row-granular dirty regions stay deferred: a bounded
+applies identically to Vulkan, Metal, and DX12. Local Vulkan release-profile
+validation passed on a clean source-built binary on an NVIDIA GeForce RTX 5090
+Vulkan discrete adapter: stable synthetic text/style output, wrapping,
+sustained row output, and resize behavior with no geometry corruption
+(runtime CJK font coverage was unavailable on that machine and is not claimed
+by the check). Metal and DX12 pass their named CI build/test legs at the same
+commit but remain manual-unverified; their rows in
+`docs/manual-validation.md` were not executed. Row-granular dirty regions stay
+deferred: a bounded
 geometry-only 80x24 quick-profile measurement put a full build_vertices()
 at 208.6 us/op against 0.1 us/op for the cursor-only tail — a
 sub-millisecond full rebuild does not justify dirty-row state across core,
