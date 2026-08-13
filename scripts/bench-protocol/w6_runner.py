@@ -44,6 +44,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -162,6 +163,7 @@ def resolve_child_display_environment(
     *,
     socket_candidates=None,
     socket_is_socket=None,
+    socket_accepts=None,
 ) -> dict[str, str]:
     """Return the minimal verified display environment for terminal children.
 
@@ -183,10 +185,10 @@ def resolve_child_display_environment(
     if display_path != "wayland":
         raise ValueError("the observable window backend has no supported child display path")
 
-    if env.get("WAYLAND_SOCKET") and not env.get("WAYLAND_DISPLAY"):
+    if env.get("WAYLAND_SOCKET"):
         raise ValueError(
             "window state is observable, but WAYLAND_SOCKET cannot be safely "
-            "forwarded through the benchmark scope; WAYLAND_DISPLAY is required"
+            "forwarded through the benchmark scope; resume without the inherited fd"
         )
 
     runtime_value = env.get("XDG_RUNTIME_DIR")
@@ -197,12 +199,14 @@ def resolve_child_display_environment(
             raise ValueError("terminal children have no XDG_RUNTIME_DIR") from error
     runtime = Path(runtime_value)
     is_socket = socket_is_socket or (lambda path: path.is_socket())
+    accepts = socket_accepts or wayland_socket_accepts_connection
     display = env.get("WAYLAND_DISPLAY")
     if display:
         socket_path = Path(display) if Path(display).is_absolute() else runtime / display
-        if not is_socket(socket_path):
+        if not is_socket(socket_path) or not accepts(socket_path):
             raise ValueError(
-                "window state is observable, but WAYLAND_DISPLAY does not name a live socket"
+                "window state is observable, but WAYLAND_DISPLAY does not name "
+                "an accepting compositor socket"
             )
     else:
         candidates = (
@@ -212,17 +216,43 @@ def resolve_child_display_environment(
         )
         sockets = sorted(
             path for path in candidates
-            if not path.name.endswith(".lock") and is_socket(path)
+            if re.fullmatch(r"wayland-\d+", path.name)
+            and is_socket(path)
+            and accepts(path)
         )
         if len(sockets) != 1:
-            detail = "none" if not sockets else "more than one"
+            detail = "no" if not sockets else "more than one"
             raise ValueError(
                 "window state is observable, but terminal children have no "
-                f"WAYLAND_DISPLAY and {detail} live Wayland socket was found"
+                f"WAYLAND_DISPLAY and {detail} accepting compositor socket was found"
             )
         display = sockets[0].name
 
     return {"XDG_RUNTIME_DIR": str(runtime), "WAYLAND_DISPLAY": display}
+
+
+def wayland_socket_accepts_connection(path: Path, timeout_seconds: float = 0.25) -> bool:
+    """Distinguish a live Wayland endpoint from a stale socket inode."""
+    try:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(timeout_seconds)
+        client.connect(str(path))
+    except (OSError, ValueError):
+        return False
+    finally:
+        if "client" in locals():
+            client.close()
+    return True
+
+
+def child_launch_environment(
+    overrides: dict[str, str], environ: dict[str, str] | None = None
+) -> dict[str, str]:
+    """Compose the child environment without an inherited Wayland fd."""
+    launch_environment = dict(os.environ if environ is None else environ)
+    launch_environment.pop("WAYLAND_SOCKET", None)
+    launch_environment.update(overrides)
+    return launch_environment
 
 
 def preflight_window_backend(
@@ -231,6 +261,7 @@ def preflight_window_backend(
     *,
     socket_candidates=None,
     socket_is_socket=None,
+    socket_accepts=None,
 ) -> tuple[dict, dict[str, str]]:
     """Prove both viewport observation and child display access."""
     backend = detect_window_backend(environ, which)
@@ -242,6 +273,7 @@ def preflight_window_backend(
             environ,
             socket_candidates=socket_candidates,
             socket_is_socket=socket_is_socket,
+            socket_accepts=socket_accepts,
         )
     except ValueError as error:
         return {
@@ -1085,8 +1117,7 @@ class RealLauncher:
         start_path = self.log_dir / f"{tag}.start"
         idle = idle_driver_command(seconds, oracle_path, start_path)
         unit = f"odytty-bench-{tag}"
-        launch_env = os.environ.copy()
-        launch_env.update(self.launch_environment)
+        launch_env = child_launch_environment(self.launch_environment)
         config = self.config_paths.get(implementation)
         if implementation == "odytty" and config is not None:
             launch_env["XDG_CONFIG_HOME"] = str(config.parent.parent)
@@ -2977,6 +3008,7 @@ def self_test() -> list[str]:
         fake_which,
         socket_candidates=lambda runtime: [runtime / "wayland-1", runtime / "wayland-2"],
         socket_is_socket=lambda _path: True,
+        socket_accepts=lambda _path: True,
     )
     if ambiguous_backend.get("status") != "unsupported":
         failures.append("display preflight: ambiguous Wayland sockets were accepted")
@@ -2988,6 +3020,7 @@ def self_test() -> list[str]:
         fake_which,
         socket_candidates=lambda runtime: [runtime / "wayland-1"],
         socket_is_socket=lambda _path: True,
+        socket_accepts=lambda _path: True,
     )
     if recovered_backend.get("status") != "available" or recovered_environment != {
         "XDG_RUNTIME_DIR": "/run/user/self-test",
@@ -3008,6 +3041,93 @@ def self_test() -> list[str]:
     )
     if fd_backend.get("status") != "unsupported":
         failures.append("display preflight: an unsafe inherited WAYLAND_SOCKET was accepted")
+    stale_backend, _ = preflight_window_backend(
+        {
+            "HYPRLAND_INSTANCE_SIGNATURE": "self-test",
+            "XDG_RUNTIME_DIR": "/run/user/self-test",
+            "WAYLAND_DISPLAY": "wayland-1",
+        },
+        fake_which,
+        socket_is_socket=lambda _path: True,
+        socket_accepts=lambda _path: False,
+    )
+    if stale_backend.get("status") != "unsupported":
+        failures.append("display preflight: a stale socket inode was accepted")
+    helper_backend, helper_environment = preflight_window_backend(
+        {
+            "HYPRLAND_INSTANCE_SIGNATURE": "self-test",
+            "XDG_RUNTIME_DIR": "/run/user/self-test",
+        },
+        fake_which,
+        socket_candidates=lambda runtime: [
+            runtime / "wayland-1",
+            runtime / "wayland-1.lock",
+            runtime / "wayland-1-swww-daemon..sock",
+        ],
+        socket_is_socket=lambda _path: True,
+        socket_accepts=lambda _path: True,
+    )
+    if helper_backend.get("status") != "available" or helper_environment.get(
+        "WAYLAND_DISPLAY"
+    ) != "wayland-1":
+        failures.append("display preflight: helper sockets obscured the compositor socket")
+    mixed_liveness_backend, mixed_liveness_environment = preflight_window_backend(
+        {
+            "HYPRLAND_INSTANCE_SIGNATURE": "self-test",
+            "XDG_RUNTIME_DIR": "/run/user/self-test",
+        },
+        fake_which,
+        socket_candidates=lambda runtime: [runtime / "wayland-0", runtime / "wayland-1"],
+        socket_is_socket=lambda _path: True,
+        socket_accepts=lambda path: path.name == "wayland-1",
+    )
+    if mixed_liveness_backend.get("status") != "available" or mixed_liveness_environment.get(
+        "WAYLAND_DISPLAY"
+    ) != "wayland-1":
+        failures.append("display preflight: a stale socket obscured the live compositor")
+    composed_environment = child_launch_environment(
+        {"XDG_RUNTIME_DIR": "/run/user/self-test", "WAYLAND_DISPLAY": "wayland-1"},
+        {
+            "WAYLAND_SOCKET": "9",
+            "WAYLAND_DISPLAY": "stale",
+            "UNCHANGED": "yes",
+        },
+    )
+    if (
+        "WAYLAND_SOCKET" in composed_environment
+        or composed_environment.get("WAYLAND_DISPLAY") != "wayland-1"
+        or composed_environment.get("UNCHANGED") != "yes"
+    ):
+        failures.append("display preflight: verified child environment was not propagated safely")
+    if os.name != "nt" and hasattr(socket, "AF_UNIX"):
+        with tempfile.TemporaryDirectory() as runtime_name:
+            runtime = Path(runtime_name)
+            stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            stale.bind(str(runtime / "wayland-0"))
+            stale.close()
+            live = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            live.bind(str(runtime / "wayland-1"))
+            live.listen(1)
+            helper = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            helper.bind(str(runtime / "wayland-1-swww-daemon..sock"))
+            helper.listen(1)
+            try:
+                real_socket_backend, real_socket_environment = preflight_window_backend(
+                    {
+                        "HYPRLAND_INSTANCE_SIGNATURE": "self-test",
+                        "XDG_RUNTIME_DIR": str(runtime),
+                    },
+                    fake_which,
+                )
+                if real_socket_backend.get("status") != "available" or (
+                    real_socket_environment.get("WAYLAND_DISPLAY") != "wayland-1"
+                ):
+                    failures.append(
+                        "display preflight: live filesystem socket recovery failed"
+                    )
+            finally:
+                helper.close()
+                live.close()
 
     if set(LAUNCH_RECIPES) != set(profiles.CONFIG_PATHS):
         failures.append("profiles: launch recipes and canonical profiles differ")
