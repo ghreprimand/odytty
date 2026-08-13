@@ -94,16 +94,6 @@ CALIBRATION_MAX_WALL_SECONDS = (
     CALIBRATION_MAX_LAUNCHES * PROBE_ATTEMPT_WALL_BOUND_SECONDS
 )
 
-FONTCONFIG_ISOLATION_POLICY = """<?xml version="1.0"?>
-<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
-<fontconfig>
-  <dir>/fonts</dir>
-  <cachedir>/cache</cachedir>
-  <config><rescan><int>0</int></rescan></config>
-</fontconfig>
-"""
-
-
 def calibration_probe_budget(implementations: list[str]) -> dict[str, int]:
     """Return the pre-launch exhaustive calibration count and wall gate."""
     if len(implementations) != len(set(implementations)) or any(
@@ -1117,7 +1107,7 @@ def _create_font_isolation(root: Path, expected_identity: object) -> dict:
     with font_path.open("xb") as handle:
         handle.write(font_bytes)
     font_path.chmod(0o600)
-    config_bytes = FONTCONFIG_ISOLATION_POLICY.encode("utf-8")
+    config_bytes = profiles.FONTCONFIG_ISOLATION_POLICY.encode("utf-8")
     with config_path.open("xb") as handle:
         handle.write(config_bytes)
     config_path.chmod(0o600)
@@ -1128,7 +1118,7 @@ def _create_font_isolation(root: Path, expected_identity: object) -> dict:
         "reference_control": "FONTCONFIG_FILE",
         "config_sha256": hashlib.sha256(config_bytes).hexdigest(),
         "policy_sha256": hashlib.sha256(
-            FONTCONFIG_ISOLATION_POLICY.encode("utf-8")
+            profiles.FONTCONFIG_ISOLATION_POLICY.encode("utf-8")
         ).hexdigest(),
         "font_sha256": identity["sha256"],
         "font_identity": dict(identity),
@@ -3453,10 +3443,8 @@ def _synthetic_probe_attempt(
         "listed_face_count": 1,
         "odytty_control": "ODYTTY_FONT",
         "reference_control": "FONTCONFIG_FILE",
-        "config_sha256": "c" * 64,
-        "policy_sha256": hashlib.sha256(
-            FONTCONFIG_ISOLATION_POLICY.encode("utf-8")
-        ).hexdigest(),
+        "config_sha256": profiles.FONTCONFIG_ISOLATION_POLICY_SHA256,
+        "policy_sha256": profiles.FONTCONFIG_ISOLATION_POLICY_SHA256,
         "font_sha256": font_sha256,
         "font_identity": font_identity,
     }
@@ -3596,10 +3584,8 @@ class _FakeLauncher:
             "listed_face_count": 1,
             "odytty_control": "ODYTTY_FONT",
             "reference_control": "FONTCONFIG_FILE",
-            "config_sha256": "c" * 64,
-            "policy_sha256": hashlib.sha256(
-                FONTCONFIG_ISOLATION_POLICY.encode("utf-8")
-            ).hexdigest(),
+            "config_sha256": profiles.FONTCONFIG_ISOLATION_POLICY_SHA256,
+            "policy_sha256": profiles.FONTCONFIG_ISOLATION_POLICY_SHA256,
             "font_sha256": self.font_identity["sha256"],
             "font_identity": self.font_identity,
         }
@@ -4909,6 +4895,24 @@ def self_test() -> list[str]:
     )
     if not path_leaking_decision["protocol_blockers"]:
         failures.append("qualification: path-bearing public isolation proof passed")
+
+    forged_isolation = _synthetic_probe_attempt(
+        "kitty", profiles.calibration_configurations("kitty")[0], geometry
+    )
+    forged_isolation["font_isolation"]["config_sha256"] = "a" * 64
+    forged_isolation["font_isolation"]["policy_sha256"] = "b" * 64
+    forged_isolation = _seal_probe_attempt(forged_isolation)
+    forged_isolation_decision = qualify_implementations(
+        [
+            _synthetic_probe_attempt(
+                "odytty", profiles.calibration_configurations("odytty")[0], geometry
+            ),
+            forged_isolation,
+        ],
+        require_exhaustive_calibration=False,
+    )
+    if not forged_isolation_decision["protocol_blockers"]:
+        failures.append("qualification: forged isolation policy digests passed")
 
     valid_attempt = _synthetic_probe_attempt(
         "kitty", profiles.calibration_configurations("kitty")[0], geometry

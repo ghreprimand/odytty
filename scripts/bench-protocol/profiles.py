@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -37,6 +36,17 @@ CALIBRATABLE_IMPLEMENTATIONS = frozenset(
 CALIBRATION_FONT_SIZES = tuple(value / 2 for value in range(16, 37))
 ODYTTY_CALIBRATION_LINE_HEIGHTS = (1.0, 1.25, 1.5, 1.75, 2.0)
 SHARED_FONT_FAMILY = "DejaVu Sans Mono"
+FONTCONFIG_ISOLATION_POLICY = """<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <dir>/fonts</dir>
+  <cachedir>/cache</cachedir>
+  <config><rescan><int>0</int></rescan></config>
+</fontconfig>
+"""
+FONTCONFIG_ISOLATION_POLICY_SHA256 = hashlib.sha256(
+    FONTCONFIG_ISOLATION_POLICY.encode("utf-8")
+).hexdigest()
 
 
 def calibration_configurations(implementation: str) -> list[dict[str, object]]:
@@ -194,17 +204,14 @@ def valid_font_isolation_proof(proof: object) -> bool:
         "font_identity",
     }:
         return False
-    hex_digest = re.compile(r"[0-9a-f]{64}")
     return (
         proof.get("method")
         == "private-single-face-fontconfig-plus-odytty-direct-path"
         and proof.get("listed_face_count") == 1
         and proof.get("odytty_control") == "ODYTTY_FONT"
         and proof.get("reference_control") == "FONTCONFIG_FILE"
-        and isinstance(proof.get("config_sha256"), str)
-        and hex_digest.fullmatch(proof["config_sha256"]) is not None
-        and isinstance(proof.get("policy_sha256"), str)
-        and hex_digest.fullmatch(proof["policy_sha256"]) is not None
+        and proof.get("config_sha256") == FONTCONFIG_ISOLATION_POLICY_SHA256
+        and proof.get("policy_sha256") == FONTCONFIG_ISOLATION_POLICY_SHA256
         and valid_font_identity(proof.get("font_identity"))
         and proof["font_identity"]["sha256"] == proof.get("font_sha256")
     )
