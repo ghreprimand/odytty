@@ -41,15 +41,21 @@ import argparse
 import hashlib
 import json
 import platform
+import re
 import subprocess
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import collectors
+import ordering
+import profiles
 import workloads
 
 PROTOCOL_VERSION = "1.0.0"
 PROTOCOL_DOC = Path("docs/benchmark-protocol.md")
+PUBLIC_REPOSITORY = profiles.PUBLIC_REPOSITORY
 
 # Placeholder token written wherever an operator must supply a pinned value
 # that cannot be discovered automatically. The record is not valid while any
@@ -152,11 +158,23 @@ def detect_os_build() -> str:
     return f"linux {'.'.join(components)}"
 
 
-def detect_power_policy() -> str:
-    governor = _read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
+def detect_power_policy(reader=None) -> str:
+    read = _read if reader is None else reader
+    governor = read("/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor")
     if governor:
-        return f"cpufreq governor {governor.strip()}"
+        return governor.strip()
     return TODO
+
+
+def detect_boot_started_utc() -> str:
+    text = _read("/proc/uptime")
+    try:
+        uptime = float(text.split()[0]) if text else 0.0
+    except (IndexError, ValueError):
+        return TODO
+    return datetime.fromtimestamp(time.time() - uptime, timezone.utc).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
 
 
 def _read(path: str) -> str | None:
@@ -294,12 +312,22 @@ def build_record(
             "git_commit": git_commit(repo_root),
             "dirty": dirty,
         },
+        "public_anchor": {
+            "remote": "origin",
+            "repository": PUBLIC_REPOSITORY,
+            "ref": TODO,
+            "path": TODO,
+            "public_origin_confirmed": TODO,
+        },
         "run_set": {
             "id": run_set_id,
             "order_seed": order_seed,
             "bootstrap_seed": bootstrap_seed,
             "statistics_implementation": "scripts/bench-protocol/summaries.py",
             "statistics_revision": git_commit(repo_root),
+            "statistics_sha256": file_sha256(
+                repo_root / "scripts/bench-protocol/summaries.py"
+            ),
         },
         "environment_class": {
             "cpu_class": detect_cpu_class(),
@@ -310,31 +338,54 @@ def build_record(
             "graphics_driver": TODO,
             "compositor": TODO,
             "display": TODO,
+            "display_mode_signature": TODO,
             "keyboard_connection_class": TODO,
             "optical_apparatus_model_class": "none; no optical capture apparatus",
             "power_policy": detect_power_policy(),
             "power_source": TODO,
+            "external_power_state": TODO,
             "thermal_and_cooling": TODO,
             "virtualized_or_remote": "no",
         },
         "implementations": [
             {
                 "name": name,
+                "availability": TODO,
+                "unavailable_reason": TODO,
+                "display_path": TODO,
+                "cell_geometry": TODO,
+                "calibration": TODO,
                 "revision": TODO,
                 "artifact_sha256": TODO,
                 "artifact_class": TODO,
                 "build_command": TODO,
                 "build_profile": TODO,
                 "dirty_tree": TODO,
-                "config_sha256": TODO,
+                "config_sha256": (
+                    profiles.profile_sha256(repo_root, name)
+                    if name in profiles.CONFIG_PATHS
+                    else TODO
+                ),
+                "config_path": profiles.CONFIG_PATHS.get(name, TODO),
+                "profile_files": (
+                    profiles.profile_records(repo_root, name)
+                    if name in profiles.CONFIG_PATHS
+                    else TODO
+                ),
+                "launch_executable": profiles.LAUNCH_EXECUTABLES.get(name, name),
             }
             for name in implementations
         ],
         "configurations": list(configurations),
         "driver": {
-            "name": "scripts/bench-protocol/driver.py",
+            "name": "scripts/bench-protocol/driver.py (W6 idle-visible-10m child)",
             "revision": git_commit(repo_root),
             "sha256": file_sha256(repo_root / "scripts/bench-protocol/driver.py"),
+        },
+        "orchestrator": {
+            "name": "scripts/bench-protocol/w6_runner.py",
+            "revision": git_commit(repo_root),
+            "sha256": file_sha256(repo_root / "scripts/bench-protocol/w6_runner.py"),
         },
         "fixtures": [
             {
@@ -345,14 +396,67 @@ def build_record(
             }
             for fixture in ("w3", "w4", "w5")
         ],
-        "collectors": collector_probe["collectors"],
+        "collectors": [
+            {
+                **entry,
+                "version": entry.get("version", TODO),
+                "implementation_sha256": file_sha256(
+                    repo_root / "scripts/bench-protocol/collectors.py"
+                ),
+                "configuration_sha256": entry.get("configuration_sha256", TODO),
+                "required_privilege": entry.get("privilege", "none"),
+                **(
+                    {
+                        "fields_by_implementation": {
+                            name: TODO for name in implementations
+                        }
+                    }
+                    if entry.get("collector") == "drm-fdinfo"
+                    and entry.get("status") == collectors.AVAILABLE
+                    else {}
+                ),
+            }
+            for entry in collector_probe["collectors"]
+        ],
         "workloads": declared_workloads,
         "declared_unsupported": unsupported_collectors,
         "declared_skips": declared_skips,
-        "declared_skip_reasons": sorted({entry["reason"] for entry in declared_skips})
-        or ["unavailable-hardware"],
+        "declared_skip_reasons": sorted(
+            {entry["reason"] for entry in declared_skips}
+            | {"unavailable-implementation", "budget-exhausted"}
+        ),
         "allowed_invalid_reasons": sorted(_invalid_reasons()),
         "replacement_limit_per_invalid_attempt": 1,
+        "w6_execution_order": ordering.block_schedule(
+            implementations,
+            configurations,
+            order_seed,
+            1 + workloads.WORKLOADS["idle-visible-10m"]["sampling"]["measured_replicates"],
+        ),
+        "w6_rehearsal": {
+            "duration_seconds": 120,
+            "replicates_per_qualified_implementation": 1,
+            "instrumentation_overhead": {
+                "paired_uninstrumented_and_instrumented": True,
+                "evaluation": (
+                    "compare one 120-second uninstrumented run with one "
+                    "120-second instrumented run per qualified implementation"
+                ),
+            },
+        },
+        "matched_colors": {"foreground": TODO, "background": TODO},
+        "matched_cell_geometry": TODO,
+        "noise_control_attestations": {
+            "external_power": TODO,
+            "fixed_performance_policy": TODO,
+            "continuous_per_attempt_environment_checks": TODO,
+        },
+        "boot_and_settle_evidence": {
+            "boot_started_utc": detect_boot_started_utc(),
+            "login_ready_utc": TODO,
+            "measurement_not_before_utc": TODO,
+            "minimum_post_login_settle_seconds": 300,
+        },
         "stopping_rule": (
             "no precision-based early stopping; the run set ends when all "
             "planned samples are attempted or the fixed time budget expires, "
@@ -420,6 +524,273 @@ def check_record(record: dict) -> list[str]:
     if not record.get("configurations"):
         problems.append("no configurations are registered")
 
+    driver = record.get("driver", {})
+    for field in ("name", "revision", "sha256"):
+        if driver.get(field) in (None, ""):
+            problems.append(f"benchmark driver lacks {field}")
+    for field in (
+        "statistics_implementation",
+        "statistics_revision",
+        "statistics_sha256",
+    ):
+        if run_set.get(field) in (None, ""):
+            problems.append(f"run set lacks {field}")
+
+    for collector in record.get("collectors", []):
+        name = collector.get("collector", "<unnamed>")
+        for field in (
+            "version",
+            "implementation_sha256",
+            "configuration_sha256",
+            "required_privilege",
+        ):
+            if collector.get(field) in (None, ""):
+                problems.append(f"collector {name!r} lacks {field}")
+        if name == "sched-wakeup" and collector.get("status") == collectors.AVAILABLE:
+            problems.append(
+                "sched-wakeup must remain declared unsupported until a pinned "
+                "trace capture implementation is present in the W6 runner"
+            )
+    orchestrator = record.get("orchestrator", {})
+    for field in ("name", "revision", "sha256"):
+        if orchestrator.get(field) in (None, ""):
+            problems.append(f"benchmark orchestrator lacks {field}")
+    drm = next(
+        (
+            entry
+            for entry in record.get("collectors", [])
+            if entry.get("collector") == "drm-fdinfo"
+            and entry.get("status") == collectors.AVAILABLE
+        ),
+        None,
+    )
+    if drm is not None:
+        fields_by_impl = drm.get("fields_by_implementation", {})
+        qualified_field_sets = []
+        for implementation in record.get("implementations", []):
+            if implementation.get("availability") != "qualified":
+                continue
+            fields = fields_by_impl.get(implementation.get("name"))
+            if isinstance(fields, list):
+                qualified_field_sets.append(tuple(sorted(fields)))
+            if not fields or any(
+                not isinstance(field, str) or not field.startswith("drm-resident-")
+                for field in fields
+            ):
+                problems.append(
+                    "DRM resident fields are not pinned for qualified implementation "
+                    f"{implementation.get('name')!r}"
+                )
+        if qualified_field_sets and len(set(qualified_field_sets)) != 1:
+            problems.append(
+                "DRM resident field sets must have identical semantics across qualified implementations"
+            )
+
+    anchor = record.get("public_anchor", {})
+    if anchor.get("remote") != "origin":
+        problems.append("public preregistration anchor remote must be origin")
+    if anchor.get("repository") != PUBLIC_REPOSITORY:
+        problems.append(
+            "public preregistration anchor repository must be the canonical public repository"
+        )
+    if not str(anchor.get("ref", "")).startswith("refs/heads/"):
+        problems.append("public preregistration anchor identity is incomplete")
+    anchor_path = str(anchor.get("path", ""))
+    if (
+        not anchor_path
+        or Path(anchor_path).is_absolute()
+        or ".." in Path(anchor_path).parts
+        or ":" in anchor_path
+    ):
+        problems.append("public preregistration anchor path is not repository-relative")
+    if anchor.get("public_origin_confirmed") is not True:
+        problems.append("public preregistration anchor is not confirmed on the public origin")
+
+    environment = record.get("environment_class", {})
+    signature = environment.get("display_mode_signature")
+    if not isinstance(signature, list) or not signature:
+        problems.append("live display-mode signature is not pinned")
+    if environment.get("external_power_state") != "external":
+        problems.append("external-power state must be pinned as external")
+
+    availability_values = {entry.get("availability") for entry in record.get("implementations", [])}
+    if not availability_values <= {"qualified", "unavailable"}:
+        problems.append("every implementation availability must be qualified or unavailable")
+    for entry in record.get("implementations", []):
+        name = entry.get("name")
+        if entry.get("availability") == "unavailable" and not entry.get("unavailable_reason"):
+            problems.append(f"implementation {entry.get('name')!r} lacks an unavailable reason")
+        if entry.get("availability") == "qualified" and entry.get("display_path") not in (
+            "wayland-native",
+            "xwayland",
+            "x11",
+        ):
+            problems.append(
+                f"implementation {entry.get('name')!r} lacks a pinned display path"
+            )
+        if entry.get("availability") == "qualified" and not isinstance(
+            entry.get("cell_geometry"), dict
+        ):
+            problems.append(
+                f"implementation {entry.get('name')!r} lacks calibrated cell geometry"
+            )
+        if entry.get("availability") == "qualified" and not profiles.valid_calibration(
+            name, entry.get("calibration")
+        ):
+            problems.append(
+                f"implementation {entry.get('name')!r} lacks a pinned valid calibration"
+            )
+        for field in ("launch_executable", "config_path"):
+            if entry.get(field) in (None, ""):
+                problems.append(f"implementation {entry.get('name')!r} lacks {field}")
+        if name in profiles.CONFIG_PATHS:
+            if entry.get("config_path") != profiles.CONFIG_PATHS[name]:
+                problems.append(
+                    f"implementation {name!r} does not use its canonical tracked profile"
+                )
+            if entry.get("launch_executable") != profiles.LAUNCH_EXECUTABLES[name]:
+                problems.append(
+                    f"implementation {name!r} does not use its canonical launch executable"
+                )
+            expected_profile = file_sha256(Path(__file__).parents[2] / profiles.CONFIG_PATHS[name])
+            if entry.get("config_sha256") != expected_profile:
+                problems.append(
+                    f"implementation {name!r} canonical profile digest is not pinned"
+                )
+            try:
+                expected_files = profiles.profile_records(
+                    Path(__file__).parents[2], name
+                )
+            except OSError:
+                expected_files = None
+            if entry.get("profile_files") != expected_files:
+                problems.append(
+                    f"implementation {name!r} canonical profile file set is not pinned"
+                )
+        else:
+            problems.append(f"implementation {name!r} has no canonical tracked profile")
+    odytty = next(
+        (entry for entry in record.get("implementations", []) if entry.get("name") == "odytty"),
+        None,
+    )
+    if odytty is None or odytty.get("availability") != "qualified":
+        problems.append("OdyTTY must be present and qualified for comparative evidence")
+
+    if not record.get("w6_execution_order"):
+        problems.append("W6 complete execution order is missing")
+    qualified = [
+        entry.get("name")
+        for entry in record.get("implementations", [])
+        if entry.get("availability") == "qualified" and entry.get("name")
+    ]
+    configurations = record.get("configurations", [])
+    order_seed = run_set.get("order_seed")
+    if qualified and configurations and order_seed:
+        expected = ordering.block_schedule(
+            qualified,
+            configurations,
+            order_seed,
+            1
+            + workloads.WORKLOADS["idle-visible-10m"]["sampling"][
+                "measured_replicates"
+            ],
+        )
+        if record.get("w6_execution_order") != expected:
+            problems.append(
+                "W6 execution order does not exactly match the qualified set, "
+                "configurations, seed, and planned replicate count"
+            )
+    rehearsal = record.get("w6_rehearsal", {})
+    if rehearsal.get("duration_seconds") != 120:
+        problems.append("W6 rehearsal must be exactly 120 seconds")
+    if rehearsal.get("replicates_per_qualified_implementation") != 1:
+        problems.append("W6 requires one rehearsal per qualified implementation")
+    overhead = rehearsal.get("instrumentation_overhead", {})
+    if overhead.get("paired_uninstrumented_and_instrumented") is not True:
+        problems.append("instrumentation overhead requires a paired rehearsal")
+    if not overhead.get("evaluation"):
+        problems.append("instrumentation overhead evaluation is missing")
+
+    attestations = record.get("noise_control_attestations", {})
+    for name in (
+        "external_power",
+        "fixed_performance_policy",
+        "continuous_per_attempt_environment_checks",
+    ):
+        if attestations.get(name) is not True:
+            problems.append(f"noise-control attestation {name!r} is not confirmed")
+    evidence = record.get("boot_and_settle_evidence", {})
+    for field in ("boot_started_utc", "login_ready_utc", "measurement_not_before_utc"):
+        if not re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", str(evidence.get(field, ""))):
+            problems.append(f"boot/settle evidence {field!r} is not pinned")
+    if evidence.get("minimum_post_login_settle_seconds") != 300:
+        problems.append("post-login settle evidence must require 300 seconds")
+    try:
+        boot = datetime.strptime(evidence["boot_started_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        login_ready = datetime.strptime(evidence["login_ready_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        not_before = datetime.strptime(evidence["measurement_not_before_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        if login_ready < boot or (not_before - login_ready).total_seconds() < 300:
+            problems.append(
+                "boot/login-ready evidence must order boot <= login ready <= five-minute not-before"
+            )
+    except (KeyError, TypeError, ValueError):
+        pass
+    if record.get("environment_class", {}).get("power_policy") != "performance":
+        problems.append("performance policy must be the eligible normalized value 'performance'")
+
+    colors = record.get("matched_colors", {})
+    if not colors.get("foreground") or not colors.get("background"):
+        problems.append("matched foreground and background colors are required")
+    matched_geometry = record.get("matched_cell_geometry")
+    required_geometry = {
+        "columns",
+        "rows",
+        "content_width_device_px",
+        "content_height_device_px",
+        "cell_width_device_px",
+        "cell_height_device_px",
+    }
+    if not isinstance(matched_geometry, dict) or set(matched_geometry) != required_geometry:
+        problems.append("matched calibrated device-pixel cell geometry is required")
+    else:
+        values = [matched_geometry.get(field) for field in required_geometry]
+        if (
+            matched_geometry.get("columns") != 80
+            or matched_geometry.get("rows") != 24
+            or any(not isinstance(value, int) or isinstance(value, bool) or value <= 0 for value in values)
+            or matched_geometry.get("content_width_device_px")
+            != 80 * matched_geometry.get("cell_width_device_px")
+            or matched_geometry.get("content_height_device_px")
+            != 24 * matched_geometry.get("cell_height_device_px")
+        ):
+            problems.append("matched cell geometry is not an exact positive 80x24 calibration")
+        for implementation in record.get("implementations", []):
+            if (
+                implementation.get("availability") == "qualified"
+                and implementation.get("cell_geometry") != matched_geometry
+            ):
+                problems.append(
+                    f"implementation {implementation.get('name')!r} cell geometry is not matched"
+                )
+
+    budget = record.get("run_set_time_budget_hours")
+    if not isinstance(budget, (int, float)) or isinstance(budget, bool) or budget <= 0:
+        problems.append("aggregate run-set time budget must be a positive number")
+    ceiling = record.get("instrumentation_overhead_ceiling_percent")
+    if (
+        not isinstance(ceiling, (int, float))
+        or isinstance(ceiling, bool)
+        or ceiling < 0
+    ):
+        problems.append("instrumentation-overhead ceiling must be a non-negative number")
+    background_ceiling = record.get("background_cpu_ceiling_percent")
+    if (
+        not isinstance(background_ceiling, (int, float))
+        or isinstance(background_ceiling, bool)
+        or not 0 <= background_ceiling <= 100
+    ):
+        problems.append("background CPU ceiling must be between 0 and 100 percent")
+
     planned = [entry for entry in record.get("workloads", []) if entry.get("planned")]
     if not planned:
         problems.append("no workload is planned; there is nothing to measure")
@@ -436,6 +807,11 @@ def check_record(record: dict) -> list[str]:
 
 def self_test(repo_root: Path) -> list[str]:
     failures: list[str] = []
+
+    if detect_power_policy(lambda _path: "performance\n") != "performance":
+        failures.append("prereg: power-policy detector did not normalize to performance")
+    if detect_power_policy(lambda _path: "powersave\n") != "powersave":
+        failures.append("prereg: power-policy detector rewrote the live governor")
 
     probe = {
         "platform": "linux",
@@ -525,15 +901,125 @@ def self_test(repo_root: Path) -> list[str]:
     # A fully pinned, clean record passes.
     pinned = json.loads(json.dumps(record).replace(f'"{TODO}"', '"pinned"'))
     pinned["checkout"]["dirty"] = False
+    pinned["public_anchor"] = {
+        "remote": "origin",
+        "repository": PUBLIC_REPOSITORY,
+        "ref": "refs/heads/benchmark-prereg/selftest",
+        "path": "bench-results/preregistration.json",
+        "public_origin_confirmed": True,
+    }
+    pinned["environment_class"]["display_mode_signature"] = [
+        {
+            "width": 1920,
+            "height": 1080,
+            "refresh_millihz": 60000,
+            "scale": 1.0,
+            "transform": 0,
+        }
+    ]
+    pinned["environment_class"]["external_power_state"] = "external"
+    pinned["environment_class"]["power_policy"] = "performance"
+    geometry = {
+        "columns": 80,
+        "rows": 24,
+        "content_width_device_px": 800,
+        "content_height_device_px": 480,
+        "cell_width_device_px": 10,
+        "cell_height_device_px": 20,
+    }
+    pinned["matched_cell_geometry"] = geometry
+    pinned["boot_and_settle_evidence"] = {
+        "boot_started_utc": "2026-01-01T00:00:00Z",
+        "login_ready_utc": "2026-01-01T00:01:00Z",
+        "measurement_not_before_utc": "2026-01-01T00:06:00Z",
+        "minimum_post_login_settle_seconds": 300,
+    }
+    invalid_settle = json.loads(json.dumps(pinned))
+    invalid_settle["boot_and_settle_evidence"]["measurement_not_before_utc"] = (
+        "2025-12-31T23:59:59Z"
+    )
+    if not any("boot/login-ready evidence" in problem for problem in check_record(invalid_settle)):
+        failures.append("prereg: a measurement timestamp before boot was accepted")
+    for implementation in pinned["implementations"]:
+        implementation["availability"] = "qualified"
+        implementation["unavailable_reason"] = "not applicable"
+        implementation["display_path"] = "wayland-native"
+        implementation["cell_geometry"] = geometry
+        implementation["calibration"] = {
+            "method": "canonical-profile",
+            "font_size": profiles.DEFAULT_FONT_SIZE,
+        }
+    pinned["w6_rehearsal"]["instrumentation_overhead"][
+        "paired_uninstrumented_and_instrumented"
+    ] = True
+    for name in pinned["noise_control_attestations"]:
+        pinned["noise_control_attestations"][name] = True
+    pinned["run_set_time_budget_hours"] = 24
+    pinned["instrumentation_overhead_ceiling_percent"] = 5
+    pinned["background_cpu_ceiling_percent"] = 10
     problems = check_record(pinned)
     if problems:
         failures.append(f"prereg: a pinned record was refused: {problems}")
+
+    mismatched_drm = json.loads(json.dumps(pinned))
+    drm_record = next(
+        entry
+        for entry in mismatched_drm["collectors"]
+        if entry.get("collector") == "drm-fdinfo"
+    )
+    drm_record["status"] = collectors.AVAILABLE
+    drm_record["fields_by_implementation"] = {
+        "odytty": ["drm-resident-vram0"],
+        "ghostty": ["drm-resident-local0"],
+    }
+    if not any(
+        "identical semantics" in problem for problem in check_record(mismatched_drm)
+    ):
+        failures.append("prereg: mismatched DRM resident field semantics were accepted")
+
+    mismatched_geometry = json.loads(json.dumps(pinned))
+    mismatched_geometry["implementations"][-1]["cell_geometry"][
+        "cell_width_device_px"
+    ] += 1
+    if not any("cell geometry is not matched" in problem for problem in check_record(mismatched_geometry)):
+        failures.append("prereg: mismatched device-pixel cell geometry was accepted")
+
+    drifted_profile = json.loads(json.dumps(pinned))
+    drifted_profile["implementations"][0]["config_path"] = "configs/local.conf"
+    if not any(
+        "canonical tracked profile" in problem
+        for problem in check_record(drifted_profile)
+    ):
+        failures.append("prereg: a non-canonical implementation profile was accepted")
 
     # Identical seeds are refused.
     same_seed = json.loads(json.dumps(pinned))
     same_seed["run_set"]["bootstrap_seed"] = same_seed["run_set"]["order_seed"]
     if not any("identical" in problem for problem in check_record(same_seed)):
         failures.append("prereg: identical ordering and bootstrap seeds were accepted")
+
+    stale_order = json.loads(json.dumps(pinned))
+    stale_order["implementations"][-1]["availability"] = "unavailable"
+    stale_order["implementations"][-1]["unavailable_reason"] = "not installed"
+    stale_order["implementations"][-1]["display_path"] = None
+    if not any(
+        "execution order" in problem for problem in check_record(stale_order)
+    ):
+        failures.append("prereg: a schedule stale against the qualified set was accepted")
+
+    missing_subject = json.loads(json.dumps(pinned))
+    missing_subject["implementations"] = [
+        entry for entry in missing_subject["implementations"] if entry["name"] != "odytty"
+    ]
+    if not any("OdyTTY" in problem for problem in check_record(missing_subject)):
+        failures.append("prereg: comparative evidence without OdyTTY was accepted")
+
+    unavailable_subject = json.loads(json.dumps(pinned))
+    unavailable_subject["implementations"][0]["availability"] = "unavailable"
+    unavailable_subject["implementations"][0]["unavailable_reason"] = "probe failed"
+    unavailable_subject["implementations"][0]["display_path"] = None
+    if not any("OdyTTY" in problem for problem in check_record(unavailable_subject)):
+        failures.append("prereg: unavailable OdyTTY was accepted")
 
     # A dirty checkout is refused unless acknowledged.
     dirty = json.loads(json.dumps(pinned))

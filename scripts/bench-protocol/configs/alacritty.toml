@@ -1,0 +1,22 @@
+[window]
+dimensions = { columns = 80, lines = 24 }
+padding = { x = 0, y = 0 }
+opacity = 1.0
+
+[font]
+normal = { family = "DejaVu Sans Mono", style = "Regular" }
+size = 12.0
+
+[colors.primary]
+background = "#101010"
+foreground = "#c0c0c0"
+
+[cursor]
+style = { shape = "Block", blinking = "Never" }
+
+[scrolling]
+history = 100000
+
+[bell]
+animation = "None"
+duration = 0

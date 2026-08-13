@@ -30,6 +30,7 @@ Per-module entry points, each with its own `--self-test`:
 | `fixtures.py` | deterministic W3/W4/W5 payload generators, digests, width self-tests |
 | `workloads.py` | workload catalogue with per-workload apparatus requirements |
 | `ordering.py` | seeded balanced Latin-square execution order |
+| `profiles.py` | canonical tracked terminal profiles and launch identities |
 | `summaries.py` | nearest-rank percentiles, seeded bootstrap CIs, paired comparisons, Theil-Sen |
 | `collectors.py` | Linux cgroup v2 collectors; unsupported reporting for wakeups and GPU memory |
 | `driver.py` | child-side benchmark driver and out-of-band oracle records |
@@ -57,16 +58,99 @@ python3 scripts/bench-protocol/w6_runner.py --backend
 python3 scripts/bench-protocol/w6_runner.py --estimate
 python3 scripts/bench-protocol/w6_runner.py --probe --preregistration <record.json>
 python3 scripts/bench-protocol/w6_runner.py --run --preregistration <record.json> \
-    --results-dir <dir>
+    --results-dir <public-dir> --private-evidence-dir <private-dir>
 ```
 
 `--backend` reports whether window state can be observed on this session at
-all; `--probe` launches each preregistered implementation and reports which
-ones actually map a window; `--run` executes the session and writes a validated
-result document. A measured run refuses to start on an incomplete
-preregistration record, and refuses to start at all where window mapping cannot
-be observed — W6's endpoint is a visible viewport, and an unobservable viewport
-cannot be asserted.
+all. Before publishing the preregistration, pin each implementation revision,
+artifact, and configuration digest, then use the launch recipes pinned by that
+checkout to run `--probe` once for the complete candidate set. The probe gives
+every installed recipe one bounded
+20-second window-mapping attempt. Record its native-Wayland result, including
+the exact reason for any implementation that starts without an observable
+window, and freeze the qualified set and execution order before publishing the
+record. The canonical profiles are tracked at
+`scripts/bench-protocol/configs/odytty/odytty.conf`,
+`scripts/bench-protocol/configs/ghostty.conf`,
+`scripts/bench-protocol/configs/kitty.conf`,
+`scripts/bench-protocol/configs/alacritty.toml`, and
+`scripts/bench-protocol/configs/wezterm.lua`; OdyTTY's profile also binds its
+tracked `themes/benchmark.theme` dependency. Preregistration records the path
+and digest of every participating profile file. They pin the common 80x24 input
+where the terminal exposes it, DejaVu Sans Mono at each terminal's native size
+value of 12 (pixels for OdyTTY and points for the reference terminals), opaque
+`#101010`/`#c0c0c0` colors, disabled animation, effects, bells, cursor blink,
+and ligatures, and 100,000 lines of scrollback. The runner supplies the pinned
+idle driver as the explicit child command for every recipe.
+
+The bounded pre-public probe also reads the PTY's content width and height in
+device pixels, derives the exact per-cell geometry for the 80x24 grid, and
+uses OdyTTY's calibration as the reference. A terminal whose kernel PTY does
+not expose pixel geometry, or whose cells initially differ, is still mapped
+and is not relabeled unavailable. The runner tries at most five exact supported
+font-size overrides nearest the observed-to-reference ratio and re-probes after
+each. The selected override is pinned in the preregistration. If none matches,
+the probe records `unmet-protocol-configuration` and blocks a protocol-valid
+comparison instead of silently narrowing the qualified set. An equal
+point-size setting alone never qualifies it. Available DRM GPU-memory evidence
+likewise requires one identical `drm-resident-*` region-field set for every
+qualified terminal. If that semantic set cannot be matched, GPU memory is
+preregistered unsupported for the whole comparison.
+
+The public anchor is limited to the canonical public repository,
+`github.com/ghreprimand/odytty`. The runner rejects local, file, private-host,
+credentialed, and lookalike `origin` URLs, resolves the public ref without
+local credentials, and downloads its preregistration blob from the public
+endpoint for a byte-for-byte comparison with the local input. A local-only ref is insufficient. A
+measured run also requires the exact clean checkout, orchestrator, driver,
+statistics module, collectors, terminal executable artifacts, and explicit
+repository-relative configuration files recorded by the preregistration.
+
+`--run` executes the session and writes a validated result document. It
+revalidates only the frozen qualified set; an implementation already recorded
+as unavailable is not retried during measurement. A measured run refuses to
+start on an incomplete preregistration record, and refuses to start at all
+where window mapping cannot be observed — W6's endpoint is a visible viewport,
+and an unobservable viewport cannot be asserted.
+
+The preregistration records the observed boot start and an externally fixed
+login-ready timestamp plus a not-before time at least five minutes later. The
+runner verifies their ordering, the same live boot, and refuses to start
+before that time. At runtime it separately
+observes the pinned display-mode signature, external power state, eligible
+`performance` policy, thermal counters, background CPU load, and viewport state
+throughout each attempt.
+
+After the window, driver, prompt, 80x24 grid, and calibrated viewport are
+ready, the controller creates an immutable start-edge file. The child begins
+its exact 120-second rehearsal or 60+600-second interval only at that edge;
+window-mapping delay is outside the interval. Completion collection has a
+separate bounded allowance.
+
+The overhead determination binds each asserted 120-second duration to the
+child oracle's monotonic start/complete timestamps as well as controller wall
+time. All four observed durations must be within 2 seconds of 120 seconds;
+outside-tolerance evidence is an invalid `controller-loss` determination. Each
+per-side invalid reason must exactly match the independently derived timing and
+environment evidence. Environment evidence binds the expected display and
+power state, CPU ceiling, and controller-relative observation offsets across
+the full interval. Sampling targets one observation per second and permits no
+gap above 2 seconds. An exact 120-second rehearsal therefore carries 121
+observations including both endpoints; thermal and CPU counters must remain
+structurally valid and monotonic at every observation. A reason without
+matching observations aborts the run.
+
+Every terminal launch is sequential and runs in a transient user scope with
+`MemoryHigh=16G`, `MemoryMax=24G`, `MemorySwapMax=4G`, `CPUQuota=800%`, a
+per-attempt `RuntimeMaxSec`, a 15-second stop timeout, and mixed process-tree
+termination. The measured CLI does not permit disabling that scope.
+
+Raw terminal output and oracle logs remain byte-identical in the separately
+supplied, access-restricted private evidence directory. Its create-exclusive
+manifest binds every original file. The public package contains sanitized
+structured availability evidence, raw sample records, the canonical result,
+and a digest manifest that records the private-log omission without exposing a
+local path or private content.
 
 ## Canonical fixture digests
 

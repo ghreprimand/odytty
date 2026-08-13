@@ -1,0 +1,30 @@
+# OdyTTY protocol 1.0.0 W6 theme
+name = benchmark
+appearance = dark
+
+foreground = #c0c0c0
+background = #101010
+clear = #101010
+
+cursor = #c0c0c0
+selection = #333333
+search = #554d20
+border = #303030
+inactive = #707070
+
+color0 = #000000
+color1 = #cd0000
+color2 = #00cd00
+color3 = #cdcd00
+color4 = #0000ee
+color5 = #cd00cd
+color6 = #00cdcd
+color7 = #e5e5e5
+color8 = #7f7f7f
+color9 = #ff0000
+color10 = #00ff00
+color11 = #ffff00
+color12 = #5c5cff
+color13 = #ff00ff
+color14 = #00ffff
+color15 = #ffffff

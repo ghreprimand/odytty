@@ -30,10 +30,10 @@
 # because writing it later, under time pressure, is how a software-timed
 # shortcut gets invented.
 #
-# Cross-platform rule: everything here uses `sys.stdout.buffer` and plain
-# byte writes. No termios, no ioctl, no POSIX-only call is used on any path a
-# Windows run would take. Terminal size comes from `shutil.get_terminal_size`,
-# which is implemented on all three platforms.
+# Cross-platform rule: measured output uses `sys.stdout.buffer` and plain byte
+# writes. Platform-specific input primitives are isolated behind an OS branch;
+# Windows never imports the POSIX terminal modules. Terminal size comes from
+# `shutil.get_terminal_size`, which is implemented on all three platforms.
 
 from __future__ import annotations
 
@@ -43,11 +43,14 @@ import json
 import os
 import shutil
 import sys
+import tempfile
+import threading
 import time
 
 import fixtures
 
 READY_MARKER = "ODYTTY_BENCH_READY"
+IDLE_PROMPT = "odytty-bench$ "
 
 # Oracle record schema version, independent of the result-document schema:
 # the records are an input to a result document, not a result document.
@@ -77,7 +80,7 @@ class OracleSink:
                 )
             self._handle = os.fdopen(fd, "wb", buffering=0)
         else:
-            self._handle = open(path, "wb", buffering=0)  # noqa: SIM115
+            self._handle = open(path, "xb", buffering=0)  # noqa: SIM115
         self._sequence = 0
 
     def emit(self, kind: str, **fields) -> dict:
@@ -106,6 +109,32 @@ def terminal_size() -> tuple[int, int]:
     """Return `(columns, rows)` on every supported platform."""
     size = shutil.get_terminal_size(fallback=(0, 0))
     return size.columns, size.lines
+
+
+def terminal_pixel_size(descriptor: int | None = None) -> tuple[int, int] | None:
+    """Return the PTY content size in device pixels when the kernel exposes it."""
+    if os.name == "nt":
+        return None
+    try:
+        import fcntl
+        import struct
+        import termios
+
+        fd = sys.stdout.fileno() if descriptor is None else descriptor
+        rows, columns, width, height = struct.unpack(
+            "HHHH", fcntl.ioctl(fd, termios.TIOCGWINSZ, b"\0" * 8)
+        )
+    except (AttributeError, OSError, ValueError):
+        return None
+    if rows <= 0 or columns <= 0 or width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def wait_for_start_edge(path: str, sleep=time.sleep) -> None:
+    """Wait for the controller's create-exclusive measurement start edge."""
+    while not os.path.exists(path):
+        sleep(0.01)
 
 
 def write_payload(stream, fixture: str) -> tuple[str, int]:
@@ -340,10 +369,121 @@ def run_stream(sink: OracleSink, fixture: str, await_start: bool = True) -> dict
     )
 
 
+def run_idle(sink: OracleSink, duration_seconds: float, start_path: str) -> dict:
+    """W6 child: display one pinned prompt, then remain completely static.
+
+    A blocking input thread observes unexpected input without polling. The
+    child writes the prompt exactly once and reports its byte digest plus the
+    initial/final PTY geometry through the out-of-band oracle sink. Therefore
+    the controller can prove the static-content/no-I/O contract without using
+    the terminal process's stdout log as a proxy.
+    """
+    if duration_seconds < 0:
+        raise ValueError("idle duration must not be negative")
+    prompt = ("\x1b[2J\x1b[H\x1b[?25l" + IDLE_PROMPT).encode("ascii")
+    columns, rows = terminal_size()
+    sys.stdout.buffer.write(prompt)
+    sys.stdout.buffer.flush()
+    input_seen = threading.Event()
+
+    def observe_input() -> None:
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                value = msvcrt.getwch()
+            else:
+                import termios
+                import tty
+
+                descriptor = sys.stdin.fileno()
+                tty.setraw(descriptor, when=termios.TCSANOW)
+                value = os.read(descriptor, 1)
+            if value:
+                input_seen.set()
+        except OSError:
+            input_seen.set()
+
+    threading.Thread(target=observe_input, daemon=True).start()
+    pixels = terminal_pixel_size()
+    geometry = {
+        "pty_columns": columns,
+        "pty_rows": rows,
+        "content_width_device_px": pixels[0] if pixels else None,
+        "content_height_device_px": pixels[1] if pixels else None,
+    }
+    sink.emit(
+        "idle-ready",
+        workload="idle-visible-10m",
+        **geometry,
+        prompt=IDLE_PROMPT,
+        prompt_sha256=hashlib.sha256(prompt).hexdigest(),
+        output_bytes=len(prompt),
+    )
+    wait_for_start_edge(start_path)
+    sink.emit(
+        "idle-start",
+        workload="idle-visible-10m",
+        **geometry,
+        prompt=IDLE_PROMPT,
+        prompt_sha256=hashlib.sha256(prompt).hexdigest(),
+        output_bytes=len(prompt),
+    )
+    threading.Event().wait(duration_seconds)
+    final_columns, final_rows = terminal_size()
+    final_pixels = terminal_pixel_size()
+    record = sink.emit(
+        "idle-complete",
+        workload="idle-visible-10m",
+        pty_columns=final_columns,
+        pty_rows=final_rows,
+        content_width_device_px=final_pixels[0] if final_pixels else None,
+        content_height_device_px=final_pixels[1] if final_pixels else None,
+        prompt=IDLE_PROMPT,
+        prompt_sha256=hashlib.sha256(prompt).hexdigest(),
+        output_bytes=len(prompt),
+        input_events=1 if input_seen.is_set() else 0,
+    )
+    # Keep both terminal and child alive until the controller tears the
+    # replicate down after reading the completion oracle.
+    threading.Event().wait()
+    return record
+
+
 def self_test() -> list[str]:
     failures: list[str] = []
     import io
     import tempfile
+
+    if os.name != "nt":
+        import fcntl
+        import pty
+        import struct
+        import termios
+
+        master, slave = pty.openpty()
+        try:
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 640, 480))
+            if terminal_pixel_size(slave) != (640, 480):
+                failures.append("driver: PTY device-pixel content geometry was not read")
+        finally:
+            os.close(master)
+            os.close(slave)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        start_path = os.path.join(tmp, "start")
+        polls = 0
+
+        def edge_sleep(_seconds: float) -> None:
+            nonlocal polls
+            polls += 1
+            if polls == 3:
+                with open(start_path, "xb"):
+                    pass
+
+        wait_for_start_edge(start_path, sleep=edge_sleep)
+        if polls != 3:
+            failures.append("driver: controller start edge did not gate measurement")
 
     # --- oracle sink -------------------------------------------------------
     with tempfile.TemporaryDirectory() as tmp:
@@ -521,6 +661,26 @@ def self_test() -> list[str]:
     if not isinstance(columns, int) or not isinstance(rows, int):
         failures.append("driver: terminal size did not return integers")
 
+    # W6 publishes a fixed prompt and observable no-I/O counters out of band.
+    if not IDLE_PROMPT or "\n" in IDLE_PROMPT:
+        failures.append("driver: W6 prompt must be one pinned static line")
+
+    # Oracle evidence is immutable: opening an existing path must fail without
+    # truncating even one byte.
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "existing.oracle.jsonl")
+        with open(path, "wb") as handle:
+            handle.write(b"preserve-me\n")
+        try:
+            OracleSink(path=path)
+        except FileExistsError:
+            pass
+        else:
+            failures.append("driver: pre-existing oracle evidence path was accepted")
+        with open(path, "rb") as handle:
+            if handle.read() != b"preserve-me\n":
+                failures.append("driver: pre-existing oracle evidence was truncated")
+
     return failures
 
 
@@ -534,12 +694,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument(
         "--workload",
-        choices=["startup-ready", "ascii-stream-64mb", "sgr-stream-64mb"],
+        choices=["startup-ready", "ascii-stream-64mb", "sgr-stream-64mb", "idle-visible-10m"],
         help="child behaviour to run",
     )
     parser.add_argument("--oracle-path", help="file to receive oracle records")
     parser.add_argument(
         "--oracle-fd", type=int, help="inherited descriptor to receive oracle records"
+    )
+    parser.add_argument("--duration-seconds", type=float, default=600.0)
+    parser.add_argument(
+        "--start-path",
+        help="create-exclusive controller start edge required by idle-visible-10m",
     )
     parser.add_argument(
         "--no-await-start",
@@ -576,6 +741,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.workload == "startup-ready":
             run_ready(sink)
+        elif args.workload == "idle-visible-10m":
+            if not args.start_path:
+                raise ValueError("idle-visible-10m requires --start-path")
+            run_idle(sink, args.duration_seconds, args.start_path)
         else:
             fixture = "w3" if args.workload == "ascii-stream-64mb" else "w4"
             run_stream(sink, fixture, await_start=not args.no_await_start)

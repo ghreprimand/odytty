@@ -256,9 +256,9 @@ def probe_gpu_memory(fdinfo_probe_pids: list[int] | None = None) -> dict:
     """Probe the GPU-memory collector.
 
     The protocol admits GPU memory only through standardized DRM client
-    resident-region fields, and only when the driver exports them for every
-    compared implementation. The probe therefore looks for `drm-` prefixed
-    keys in the fdinfo of live DRM clients.
+    `drm-resident-*` region fields, and only when the driver exports them for
+    every compared implementation. The probe therefore looks only for those
+    resident-region keys in the fdinfo of live DRM clients.
 
     Passing `None` discovers live DRM clients. Passing an explicit PID list,
     including an empty one, probes exactly that list so tests and callers can
@@ -295,8 +295,9 @@ def probe_gpu_memory(fdinfo_probe_pids: list[int] | None = None) -> dict:
             if not text:
                 continue
             for line in text.splitlines():
-                if line.startswith("drm-"):
-                    found_fields.add(line.split(":", 1)[0])
+                field = line.split(":", 1)[0]
+                if field.startswith("drm-resident-"):
+                    found_fields.add(field)
         if found_fields:
             break
 
@@ -322,7 +323,7 @@ def probe_gpu_memory(fdinfo_probe_pids: list[int] | None = None) -> dict:
 
     return _unsupported(
         "drm-fdinfo",
-        f"the loaded graphics driver ({driver_note}) exports no drm- prefixed "
+        f"the loaded graphics driver ({driver_note}) exports no drm-resident- "
         "client fields in /proc/<pid>/fdinfo, so there is no attributable, "
         "documented, same-semantic GPU memory field to compare. Vendor query "
         "tools are not substituted: the protocol classes driver-specific and "
