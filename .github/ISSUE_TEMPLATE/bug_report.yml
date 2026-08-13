@@ -1,0 +1,71 @@
+name: Bug report
+description: Report a reproducible problem in OdyTTY
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve OdyTTY. Please describe one problem per report and remove secrets, private paths, hostnames, and other personal data from logs or screenshots.
+
+        Do not use this form for security vulnerabilities. Follow the private reporting instructions in SECURITY.md instead.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What went wrong, and what did you expect to happen?
+      placeholder: Describe the observed and expected behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest reliable sequence that demonstrates the problem.
+      placeholder: |
+        1. Start OdyTTY with ...
+        2. Run ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include the OdyTTY version or commit, operating system, display server or compositor, GPU, and shell when relevant.
+      placeholder: |
+        OdyTTY version or commit:
+        Operating system:
+        Display server or compositor:
+        GPU:
+        Shell:
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Additional evidence
+      description: Add sanitized logs, screenshots, recordings, or comparisons with another terminal when useful.
+
+  - type: dropdown
+    id: implementation_intent
+    attributes:
+      label: Would you like to implement the fix?
+      description: This helps coordinate work before anyone starts a duplicate implementation.
+      options:
+        - yes - confirm approach
+        - maybe - guidance wanted
+        - no - report only
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Public report safety
+      options:
+        - label: I have removed secrets, private hostnames, private URLs, personal data, and identifying local paths from this report.
+          required: true

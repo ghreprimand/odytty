@@ -8,6 +8,7 @@ decisions.
 ## Contents
 
 - [Project status and contributions](#project-status-and-contributions)
+- [Reporting bugs and coordinating fixes](#reporting-bugs-and-coordinating-fixes)
 - [Developer Certificate of Origin (DCO)](#developer-certificate-of-origin-dco)
 - [Scope discipline](#scope-discipline)
 - [Ownership boundary](#ownership-boundary)
@@ -54,6 +55,25 @@ its own name.
 
 Security vulnerabilities are different: please do **not** open a public issue
 for one. See [`SECURITY.md`](SECURITY.md) for private reporting.
+
+## Reporting bugs and coordinating fixes
+
+Use the public bug-report form for non-security defects. It asks whether the
+reporter wants to implement the fix:
+
+- `yes - confirm approach` means the reporter wants to contribute a fix after
+  agreeing on the approach and scope with a maintainer.
+- `maybe - guidance wanted` means the reporter is interested but needs guidance
+  before deciding whether to implement it.
+- `no - report only` means no contributor implementation is planned and the
+  report is available for someone else to address.
+
+An expressed intent is a coordination signal, not an automatic assignment.
+When a contributor is actively pursuing an agreed approach, maintainers avoid
+starting a duplicate implementation and coordinate changes through the issue.
+Maintainers may take an urgent correctness or release-blocking fix when delay
+would put users or a release at risk; when practical, they will state that in
+the issue before starting so effort is not duplicated.
 
 ## Developer Certificate of Origin (DCO)
 
